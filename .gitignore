@@ -22,3 +22,7 @@ TZ.md
 PHASES.md
 docs/F2_UNITS.md
 ENTITIES.md
+
+# Артефакты установки пакета
+*.egg-info/
+build/
