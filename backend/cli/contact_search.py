@@ -85,7 +85,8 @@ def _print_report(ladder: ContactLadder, saved: int, total: int) -> None:
         )
     print(
         f"  1. страницы          вошло {counters.pages_entered}, "
-        f"нашли {counters.pages_found}, скачано страниц {counters.pages_fetched}"
+        f"нашли {counters.pages_found}, запросов {counters.pages_fetched}, "
+        f"закрылись от нас {counters.pages_blocked}"
     )
     print(
         f"  2. RDAP              вошло {counters.rdap_entered}, "
@@ -125,9 +126,15 @@ async def cmd_contacts(args: argparse.Namespace) -> int:
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     timeout = httpx.Timeout(cfg.PAGE_TIMEOUT_SEC, connect=cfg.PAGE_TIMEOUT_SEC)
+    # Сертификаты доноров бывают протухшими или самоподписанными. Это
+    # публичное чтение чужих страниц без передачи данных: отказ от проверки
+    # здесь стоит нам ничего, а отказ от таких доменов — части базы.
 
     try:
-        async with factory() as session, httpx.AsyncClient(timeout=timeout) as http:
+        async with (
+            factory() as session,
+            httpx.AsyncClient(timeout=timeout, verify=False) as http,  # noqa: S501
+        ):
             repository = ContactRepository(session)
             hosts = await repository.pending_hosts(limit=args.limit)
             if not hosts:
@@ -135,8 +142,13 @@ async def cmd_contacts(args: argparse.Namespace) -> int:
                 return 0
 
             print(f"Доноров без контакта: {len(hosts)}")
+            if args.paid_first:
+                print(
+                    "Порядок обратный: сначала платный сервис, добор скрейпером.\n"
+                    "Быстрее в разы, но платных запросов будет столько же, сколько доменов."
+                )
             provider = None if args.no_paid else await _make_provider(http)
-            ladder = ContactLadder(http, provider=provider)
+            ladder = ContactLadder(http, provider=provider, paid_first=args.paid_first)
 
             saved = 0
             for start in range(0, len(hosts), BATCH):

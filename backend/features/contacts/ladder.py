@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 import httpx
@@ -35,9 +36,10 @@ from backend.features.contacts.extract import (
 from backend.features.contacts.mx import DELIVERABLE, MailRoute, mail_route
 from backend.features.contacts.pages import (
     LINK_MARKERS,
+    FetchedPage,
     PageFetcher,
-    candidate_urls,
     has_contact_form,
+    slug_urls,
 )
 from backend.features.contacts.provider import (
     ContactProvider,
@@ -66,7 +68,8 @@ class StepCounters:
     mx_unknown: int = 0
     pages_entered: int = 0
     pages_found: int = 0
-    pages_fetched: int = 0  # всего скачанных страниц: цена ступени
+    pages_fetched: int = 0  # всего запросов к сайтам: цена ступени
+    pages_blocked: int = 0  # сайтов, закрывшихся от нас (401/403/429)
     rdap_entered: int = 0
     rdap_found: int = 0
     rdap_failed: int = 0
@@ -77,6 +80,15 @@ class StepCounters:
     not_found: int = 0
     rejected_emails: int = 0  # адреса, отсеянные фильтром качества
 
+    def mark_found(self, step: str) -> None:
+        """Записать, что адрес дала именно эта ступень."""
+        if step == "pages":
+            self.pages_found += 1
+        elif step == "rdap":
+            self.rdap_found += 1
+        elif step == "provider":
+            self.provider_found += 1
+
     def as_report(self) -> dict[str, int]:
         return {
             "mx_checked": self.mx_checked,
@@ -85,6 +97,7 @@ class StepCounters:
             "pages_entered": self.pages_entered,
             "pages_found": self.pages_found,
             "pages_fetched": self.pages_fetched,
+            "pages_blocked": self.pages_blocked,
             "rdap_entered": self.rdap_entered,
             "rdap_found": self.rdap_found,
             "rdap_failed": self.rdap_failed,
@@ -116,6 +129,16 @@ class LadderResult:
         return self.status is ContactStatus.FOUND
 
 
+@dataclass(frozen=True, slots=True)
+class _Step:
+    """Одна ступень лестницы: как её звать, что она делает, чем подписывает
+    найденный адрес."""
+
+    name: str
+    run: Callable[[str, _Collected], Awaitable[ContactStatus | None]]
+    source: ContactSource
+
+
 @dataclass(slots=True)
 class _Collected:
     """Накопитель годных и отсеянных адресов по одному домену."""
@@ -124,6 +147,7 @@ class _Collected:
     good: list[Candidate] = field(default_factory=list)
     rejected: list[tuple[str, str]] = field(default_factory=list)
     seen: set[str] = field(default_factory=set)
+    has_form: bool = False
 
     def add(self, candidate: Candidate) -> bool:
         """Взять адрес, если он годный и ещё не встречался."""
@@ -153,13 +177,34 @@ class ContactLadder:
         *,
         provider: ContactProvider | None = None,
         manual_queue_left: int | None = None,
+        paid_first: bool = False,
     ) -> None:
         self._http = http
         self._provider = provider
         self._manual_left = (
             manual_queue_left if manual_queue_left is not None else cfg.MANUAL_QUEUE_MONTHLY_CAP
         )
+        self._paid_first = paid_first
         self.counters = StepCounters()
+
+    def _sequence(self) -> list[_Step]:
+        """Порядок ступеней после MX.
+
+        Умолчание — от бесплатных к платной: замер говорит, что свой
+        парсинг снимает с платной около половины доменов и берёт адрес
+        лучше (со страниц «advertise» отвечает тот, кто называет цену).
+
+        `paid_first` переворачивает порядок: платный сервис отвечает
+        за секунду против десятка секунд обхода страниц, и когда важнее
+        скорость сбора, а не расход, это правильный размен. Цена размена
+        честная: платных запросов становится столько же, сколько доменов.
+        """
+        free = [
+            _Step("pages", self._step_pages, ContactSource.PAGE),
+            _Step("rdap", self._step_rdap, ContactSource.WHOIS),
+        ]
+        paid = _Step("provider", self._step_provider, ContactSource.PROVIDER)
+        return [paid, *free] if self._paid_first else [*free, paid]
 
     async def find(self, host: str) -> LadderResult:
         """Пройти лестницу по домену до первого адреса."""
@@ -170,34 +215,32 @@ class ContactLadder:
         if route is MailRoute.NONE:
             return LadderResult(host=site_host, status=ContactStatus.NOT_FOUND)
 
-        has_form = await self._step_pages(site_host, collected)
-        result = self._settle(collected, ContactSource.PAGE, has_form=has_form)
-        if result is not None:
-            self.counters.pages_found += 1
-            return result
+        # Отказ ступени запоминается, но спуск не прерывает: бесплатные
+        # ступени ничего не стоят, и не дать им отработать из-за кончившейся
+        # платной квоты значит потерять домен даром. В прежнем порядке это
+        # было не видно — платная ступень стояла последней.
+        unfinished: ContactStatus | None = None
 
-        await self._step_rdap(site_host, collected)
-        result = self._settle(collected, ContactSource.WHOIS, has_form=has_form)
-        if result is not None:
-            self.counters.rdap_found += 1
-            return result
+        for step in self._sequence():
+            status = await step.run(site_host, collected)
+            unfinished = unfinished or status
 
-        status = await self._step_provider(site_host, collected)
-        result = self._settle(collected, ContactSource.PROVIDER, has_form=has_form)
-        if result is not None:
-            self.counters.provider_found += 1
-            return result
-        if status is not None:
+            result = self._settle(collected, step.source, has_form=collected.has_form)
+            if result is not None:
+                self.counters.mark_found(step.name)
+                return result
+
+        if unfinished is not None:
             # Квота, частота или поломка: домен не «без контакта», а
             # «недоспрошен». Смешав их, мы похоронили бы его навсегда.
             return LadderResult(
                 host=site_host,
-                status=status,
+                status=unfinished,
                 rejected=tuple(collected.rejected),
-                has_form=has_form,
+                has_form=collected.has_form,
             )
 
-        return self._without_contact(collected, has_form=has_form)
+        return self._without_contact(collected, has_form=collected.has_form)
 
     # --- ступени ---
 
@@ -211,8 +254,8 @@ class ContactLadder:
             logger.info("контакты: %s не принимает почту — ступени 1–3 пропущены", host)
         return route
 
-    async def _step_pages(self, host: str, collected: _Collected) -> bool:
-        """Страницы сайта. Возвращает, видели ли контактную форму.
+    async def _step_pages(self, host: str, collected: _Collected) -> ContactStatus | None:
+        """Страницы сайта. Форму, если увидели, записывает в накопитель.
 
         Обход останавливается, как только адрес найден на странице дорогого
         вида: у страниц «advertise» и «write for us» адрес лучше, и искать
@@ -220,13 +263,26 @@ class ContactLadder:
         """
         self.counters.pages_entered += 1
         fetcher = PageFetcher(self._http)
-        queue = list(candidate_urls(host))
-        has_form = False
-        visited: set[str] = set()
 
-        while queue:
-            url, kind = queue.pop(0)
-            if url in visited:
+        home = await fetcher.home(host)
+        if home is None:
+            # Сайт не открылся ни в одном виде. Угадывать по нему слаги
+            # бессмысленно: это ещё три десятка запросов в ту же стену.
+            self.counters.pages_fetched += fetcher.attempts
+            if fetcher.blocked:
+                self.counters.pages_blocked += 1
+            return None
+
+        self._harvest(home, collected, host)
+
+        # Ссылки с главной идут впереди угадываемых слагов: там раздел
+        # назван словами и лежит по любому адресу, хоть /p/12345.
+        links = find_contact_links(home.html, slugs=LINK_MARKERS)
+        queue = fetcher.follow(home, links) + list(slug_urls(home.url))
+        visited = {home.url}
+
+        for url, kind in queue:
+            if url in visited or fetcher.exhausted:
                 continue
             visited.add(url)
 
@@ -234,30 +290,32 @@ class ContactLadder:
             if page is None:
                 continue
 
-            has_form = has_form or has_contact_form(page.html)
-            for email in extract_emails(page.html):
-                collected.add(Candidate(email, ContactSource.PAGE, kind, page_url=page.url))
-            for email in extract_obfuscated(page.html):
-                # Угаданному адресу верим только на домене сайта: иначе
-                # обычная фраза «meet at the dot com» станет контактом.
-                if trusted_guess(email, site_host=host):
-                    collected.add(Candidate(email, ContactSource.PAGE, kind, page_url=page.url))
-
-            if kind is PageKind.HOME:
-                # Ссылки берём только с главной: дальше идут уже найденные
-                # по ним разделы, и повторный обход ничего не добавит.
-                links = find_contact_links(page.html, slugs=LINK_MARKERS)
-                queue = fetcher.follow(page, links) + queue
-
+            self._harvest(page, collected, host)
             if collected.good and kind in (PageKind.MONEY, PageKind.CONTACT):
+                # Адрес со страницы дорогого вида искать дальше незачем:
+                # лучше него на сайте ничего нет.
                 break
 
-        self.counters.pages_fetched += fetcher.fetched
-        return has_form
+        self.counters.pages_fetched += fetcher.attempts
+        if fetcher.blocked:
+            self.counters.pages_blocked += 1
+        return None
 
-    async def _step_rdap(self, host: str, collected: _Collected) -> None:
+    def _harvest(self, page: FetchedPage, collected: _Collected, site_host: str) -> None:
+        """Снять со страницы всё, что похоже на адрес, и заметить форму."""
+        collected.has_form = collected.has_form or has_contact_form(page.html)
+
+        for email in extract_emails(page.html):
+            collected.add(Candidate(email, ContactSource.PAGE, page.kind, page_url=page.url))
+        for email in extract_obfuscated(page.html):
+            # Угаданному адресу верим только на домене сайта: иначе обычная
+            # фраза «meet at the dot com» станет контактом.
+            if trusted_guess(email, site_host=site_host):
+                collected.add(Candidate(email, ContactSource.PAGE, page.kind, page_url=page.url))
+
+    async def _step_rdap(self, host: str, collected: _Collected) -> ContactStatus | None:
         if not cfg.RDAP_ENABLED:
-            return
+            return None
 
         self.counters.rdap_entered += 1
         try:
@@ -267,10 +325,11 @@ class ContactLadder:
             # но знать об этом надо — иначе молчаливый ноль у ступени.
             self.counters.rdap_failed += 1
             logger.info("контакты: RDAP по %s не отработал — %s", host, exc)
-            return
+            return None
 
         for candidate in candidates:
             collected.add(candidate)
+        return None
 
     async def _step_provider(self, host: str, collected: _Collected) -> ContactStatus | None:
         """Платная ступень. Возвращает исход, если платить не вышло."""
