@@ -1,0 +1,77 @@
+"""Проверка конфига на старте.
+
+Смысл один: сервис, которому не хватает ключа, должен падать сразу и называть,
+чего не хватает, — а не стартовать и уронить первый же прогон на середине,
+потратив часть юнитов.
+
+Проверки разделены по назначению: прогон доноров требует одного набора
+переменных, рассылка — другого. Собирать базу можно, не настроив почту.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from backend.config import ahrefs, outreach, serp, storage
+
+
+class ConfigError(RuntimeError):
+    """Не хватает обязательных настроек."""
+
+
+@dataclass(frozen=True, slots=True)
+class Requirement:
+    """Одна обязательная настройка: имя переменной и текущее значение."""
+
+    env_name: str
+    value: object
+    purpose: str
+
+
+def _missing(requirements: list[Requirement]) -> list[Requirement]:
+    return [r for r in requirements if not r.value]
+
+
+def _raise_if_missing(what: str, requirements: list[Requirement]) -> None:
+    missing = _missing(requirements)
+    if not missing:
+        return
+    lines = "\n".join(f"  {r.env_name} — {r.purpose}" for r in missing)
+    raise ConfigError(f"Не задано для «{what}»:\n{lines}")
+
+
+def check_storage() -> None:
+    _raise_if_missing(
+        "хранилище",
+        [
+            Requirement("STORAGE_DSN", storage.DSN, "подключение к базе"),
+            Requirement("STORAGE_REDIS_URL", storage.REDIS_URL, "очередь задач"),
+        ],
+    )
+
+
+def check_collect() -> None:
+    """Что нужно, чтобы собрать базу доноров."""
+    _raise_if_missing(
+        "сбор доноров",
+        [
+            Requirement("AHREFS_API_KEY", ahrefs.API_KEY, "метрики доменов"),
+            Requirement("SERP_PROVIDER", serp.PROVIDER, "источник выдачи"),
+        ],
+    )
+    if ahrefs.UNITS_CAP > ahrefs.MONTHLY_UNITS:
+        raise ConfigError(
+            f"AHREFS_UNITS_CAP ({ahrefs.UNITS_CAP}) больше месячного лимита "
+            f"AHREFS_MONTHLY_UNITS ({ahrefs.MONTHLY_UNITS}) — кап ничего не ограничивает."
+        )
+
+
+def check_outreach() -> None:
+    """Что нужно, чтобы писать письма. Для сбора базы не требуется."""
+    _raise_if_missing(
+        "рассылка",
+        [
+            Requirement("OUTREACH_SENDGRID_API_KEY", outreach.SENDGRID_API_KEY, "отправка"),
+            Requirement("OUTREACH_INBOUND_SECRET", outreach.INBOUND_SECRET, "приём ответов"),
+        ],
+    )

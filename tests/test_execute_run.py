@@ -1,0 +1,211 @@
+"""Прогон целиком, на настоящей базе. Проверяется в первую очередь то,
+что должно уцелеть при сбое."""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Sequence
+from typing import Any
+
+import httpx
+import pytest
+from backend.features.ahrefs.client import AhrefsClient
+from backend.features.core.domain import DonorStatus, RunStatus
+from backend.features.core.models.donor import DonorModel
+from backend.features.core.models.ops import UsageRecordModel
+from backend.features.core.models.run import RunModel
+from backend.features.donors.repository import DonorRepository
+from backend.features.donors.verdict import Thresholds
+from backend.features.runs.pipeline import RunDeps, RunRequest, execute_run
+from backend.features.runs.repository import RunRepository
+from backend.features.serp.protocol import SerpResult
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+T = Thresholds(min_dr=20, min_org_traffic=500, min_refdomains=100, min_keywords=300)
+QUOTA = {
+    "units_limit_workspace": 8_000_000,
+    "units_usage_workspace": 0,
+    "units_limit_api_key": 2_000_000,
+    "units_usage_api_key": 0,
+}
+GOOD = {"domain_rating": 40, "org_traffic": 9000, "refdomains": 500, "org_keywords": 2000}
+
+
+@pytest.fixture(autouse=True)
+def _no_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Тесты не ждут пауз между повторами: проверяется поведение, а не часы."""
+
+    async def instant(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr("backend.features.ahrefs.client.asyncio.sleep", instant)
+
+
+class FakeSerp:
+    name = "fake"
+
+    def __init__(self, urls: list[str]) -> None:
+        self._urls = urls
+
+    async def search(
+        self, keywords: Sequence[str], country: str, *, depth_pages: int = 1
+    ) -> dict[str, list[SerpResult]]:
+        return {kw: [SerpResult(i + 1, u) for i, u in enumerate(self._urls)] for kw in keywords}
+
+
+def _ahrefs(metrics: dict[str, dict[str, Any]], *, fail_after_screen: bool = False) -> AhrefsClient:
+    """Заглушка провайдера.
+
+    `fail_after_screen` роняет второй пакетный запрос окончательной ошибкой:
+    просев уже оплачен, а прогон дальше не идёт. Падения на запросе по странам
+    для этого не годятся — их коллектор обрабатывает штатно и прогон
+    не останавливает.
+    """
+    batches = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        cost = {"x-api-units-cost-total-actual": "10"}
+        if path.endswith("limits-and-usage"):
+            return httpx.Response(200, json={"limits_and_usage": QUOTA})
+        if path.endswith("batch-analysis"):
+            batches["n"] += 1
+            if fail_after_screen and batches["n"] == 2:
+                return httpx.Response(403, text="forbidden", headers=cost)
+            hosts = [t["url"] for t in json.loads(request.content)["targets"]]
+            rows = [{"url": f"{h}/", **metrics[h]} for h in hosts if h in metrics]
+            return httpx.Response(200, json={"domains": rows}, headers=cost)
+        return httpx.Response(
+            200, json={"metrics": [{"country": "us", "org_traffic": 8000}]}, headers=cost
+        )
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.test")
+    return AhrefsClient(api_key="k", http=http)
+
+
+async def _deps(session: AsyncSession, serp: FakeSerp, client: AhrefsClient) -> RunDeps:
+    return RunDeps(
+        provider=serp,
+        client=client,
+        donors=DonorRepository(session),
+        runs=RunRepository(session),
+    )
+
+
+async def _settings_id(session: AsyncSession) -> int:
+    settings = await RunRepository(session).create_settings(
+        T,
+        geo_top_n=5,
+        geo_min_share=0.2,
+        metrics_ttl_days=90,
+        price_ttl_days=150,
+        units_cap=100_000,
+    )
+    return settings.id
+
+
+class TestHappyPath:
+    async def test_run_produces_donors_and_a_closed_record(self, session: AsyncSession) -> None:
+        deps = await _deps(
+            session, FakeSerp(["https://www.good.com/x"]), _ahrefs({"good.com": GOOD})
+        )
+        report = await execute_run(deps, RunRequest(["crm"], "us", T, await _settings_id(session)))
+
+        assert report.by_status[DonorStatus.SUITABLE] == 1
+
+        run = (await session.execute(select(RunModel))).scalar_one()
+        assert run.status is RunStatus.DONE
+        assert run.stats["unique_hosts"] == 1
+        assert run.stats["checked_now"] == 1
+
+        donor = (await session.execute(select(DonorModel))).scalar_one()
+        assert donor.status is DonorStatus.SUITABLE
+
+    async def test_second_run_pays_for_nothing(self, session: AsyncSession) -> None:
+        """Главное обещание . Проверяется на базе, а не логикой."""
+        serp, client = FakeSerp(["https://good.com"]), _ahrefs({"good.com": GOOD})
+        settings_id = await _settings_id(session)
+
+        first = await execute_run(
+            await _deps(session, serp, client), RunRequest(["crm"], "us", T, settings_id)
+        )
+        second = await execute_run(
+            await _deps(session, serp, client), RunRequest(["crm"], "us", T, settings_id)
+        )
+
+        assert first.plan.estimate.total > 0
+        assert second.plan.estimate.total == 0
+        assert second.plan.new == []
+        assert len(second.plan.fresh) == 1
+
+    async def test_report_compares_estimate_with_fact(self, session: AsyncSession) -> None:
+        """Заметное расхождение значит, что цены у провайдера изменились."""
+        deps = await _deps(session, FakeSerp(["https://good.com"]), _ahrefs({"good.com": GOOD}))
+        report = await execute_run(deps, RunRequest(["crm"], "us", T, await _settings_id(session)))
+
+        run = (await session.execute(select(RunModel))).scalar_one()
+        assert run.stats["units_estimated"] > 0
+        assert run.stats["units_spent"] == report.spent_units
+        assert "estimate_error" in run.stats
+
+
+class TestFailures:
+    async def test_country_failure_does_not_stop_the_run(self, session: AsyncSession) -> None:
+        """Падение на третьей ступени обрабатывается штатно: метрики за неё
+        уже оплачены, домен помечается «не проверен», прогон продолжается."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            path = request.url.path
+            if path.endswith("limits-and-usage"):
+                return httpx.Response(200, json={"limits_and_usage": QUOTA})
+            if path.endswith("batch-analysis"):
+                return httpx.Response(
+                    200,
+                    json={"domains": [{"url": "good.com/", **GOOD}]},
+                    headers={"x-api-units-cost-total-actual": "10"},
+                )
+            return httpx.Response(500)
+
+        http = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler), base_url="https://api.test"
+        )
+        deps = await _deps(
+            session, FakeSerp(["https://good.com"]), AhrefsClient(api_key="k", http=http)
+        )
+        report = await execute_run(deps, RunRequest(["crm"], "us", T, await _settings_id(session)))
+
+        assert report.by_status[DonorStatus.UNCHECKED] == 1
+        run = (await session.execute(select(RunModel))).scalar_one()
+        assert run.status is RunStatus.DONE
+
+    async def test_run_is_never_left_hanging(self, session: AsyncSession) -> None:
+        """Прогон, навсегда оставшийся «идёт», выглядит как зависший сервис
+        и заставляет разбираться руками в базе."""
+        deps = await _deps(
+            session,
+            FakeSerp(["https://good.com"]),
+            _ahrefs({"good.com": GOOD}, fail_after_screen=True),
+        )
+
+        with pytest.raises(Exception, match="403"):
+            await execute_run(deps, RunRequest(["crm"], "us", T, await _settings_id(session)))
+
+        run = (await session.execute(select(RunModel))).scalar_one()
+        assert run.status is RunStatus.STOPPED
+        assert "403" in run.stats["failure"]
+
+    async def test_spending_before_the_failure_is_recorded(self, session: AsyncSession) -> None:
+        """Прогон, упавший на середине, уже потратил — и это должно остаться
+        в журнале, иначе разбор «на что ушли юниты» соврёт там, где он нужнее."""
+        deps = await _deps(
+            session,
+            FakeSerp(["https://good.com"]),
+            _ahrefs({"good.com": GOOD}, fail_after_screen=True),
+        )
+        with pytest.raises(Exception, match="403"):
+            await execute_run(deps, RunRequest(["crm"], "us", T, await _settings_id(session)))
+
+        spent = (await session.execute(select(UsageRecordModel))).scalars().all()
+        assert spent
+        assert all(r.units > 0 for r in spent)

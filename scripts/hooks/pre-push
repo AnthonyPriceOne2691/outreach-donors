@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Не выпускает красное из машины.
+#
+# CI ловит красное после пуша — это лучше, чем ничего, но чинить приходится
+# вдогонку, а история уже содержит сломанный коммит. Хук проверяет то же
+# самое до отправки.
+#
+# Аварийный обход: git push --no-verify. Он виден в том смысле, что человек
+# набрал его руками; в CI обхода нет.
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+PY=".venv/bin"
+[ -x "$PY/ruff" ] || { echo "Нет .venv — проверки пропущены, CI их сделает."; exit 0; }
+
+echo "── Линтер ──";              "$PY/ruff" check backend/ tests/ scripts/
+echo "── Форматирование ──";      "$PY/ruff" format --check backend/ tests/ scripts/
+echo "── Типы ──";                "$PY/mypy" backend/ | tail -1
+echo "── Архитектурные гейты ──"; "$PY/python" scripts/gates.py
+echo "── Тесты ──";               "$PY/pytest" -q | tail -1
+echo "Всё зелёное, отправляю."

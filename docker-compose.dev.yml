@@ -1,0 +1,24 @@
+# Порты на хосте намеренно нестандартные: на той же машине живёт
+# соседняя система, и она занимает 5432/6379. В проде они тоже
+# соседствуют, так что расхождение заложено сразу, а не
+# обнаруживается при первом совместном запуске.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: outreach
+      POSTGRES_PASSWORD: outreach
+      POSTGRES_DB: outreach
+    ports: ["5442:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U outreach"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6389:6379"]
+
+volumes:
+  pgdata:

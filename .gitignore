@@ -1,0 +1,24 @@
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.DS_Store
+.claude/
+node_modules/
+dist/
+
+# Рабочие документы: коммерция, выбор хостинга и разбор приватного
+# референса. В репозиторий кода не идут.
+REUSE.md
+VPS.md
+HETZNER_LINKS.md
+TZ.md
+PHASES.md
+docs/F2_UNITS.md
+ENTITIES.md

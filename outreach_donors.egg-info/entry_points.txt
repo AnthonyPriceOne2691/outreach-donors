@@ -1,0 +1,2 @@
+[console_scripts]
+outreach = backend.cli.main:main
