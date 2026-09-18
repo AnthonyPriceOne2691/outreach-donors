@@ -69,10 +69,35 @@ PLACEHOLDER_LOCAL_PARTS = frozenset(
         "your", "youremail", "your-email", "yourname", "youraddress",
         "name", "firstname", "lastname", "username", "user",
         "email", "domain", "example", "sample", "test",
+        # С боевого прогона: со страницы bankofamerica.com снялось `xxx@xxx.xxx`.
+        "xxx", "yyy", "zzz", "abc", "asdf", "qwerty", "foo", "bar",
     }
 )  # fmt: skip
 
 NO_REPLY_MARKERS = ("noreply@", "no-reply@", "no_reply@", "donotreply@", "do-not-reply@")
+
+# Адреса чужих отделов. Формально живые, но цену за размещение там не
+# называют, а письмо в отписку или в жалобы — это заявка на жалобу.
+# Пришло с боевого прогона: со страницы experian.com снялся `optout@`.
+WRONG_DEPARTMENT_LOCAL_PARTS = frozenset(
+    {
+        "optout", "opt-out", "unsubscribe", "remove", "abuse", "dmca", "spam", "phishing",
+        "legal", "compliance", "privacy", "gdpr", "dpo", "postmaster", "security",
+        "careers", "career", "jobs", "job", "hr", "recruiting", "recruitment", "resume",
+        "investors", "ir", "returns", "refund", "refunds",
+    }
+)  # fmt: skip
+
+# Те же отделы, но выделенные поддоменом: `online@consumerprivacy.experian.com`.
+# Сверяются МЕТКИ домена целиком, а не подстроки: издание
+# `privacyinternational.org` пишет о приватности и остаётся годным донором,
+# а `consumerprivacy.experian.com` — это отдел по отпискам.
+WRONG_DEPARTMENT_LABELS = frozenset(
+    {
+        "privacy", "consumerprivacy", "optout", "opt-out", "unsubscribe",
+        "abuse", "legal", "dmca", "compliance", "gdpr", "careers", "jobs",
+    }
+)  # fmt: skip
 
 # Хвост имени файла, приклеившийся к адресу при разборе текста.
 FILE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".css", ".js")
@@ -110,7 +135,19 @@ class Candidate:
 #: в отчёт, и настраивать фильтр можно по именам, а не по догадкам.
 _RULES: tuple[tuple[Callable[[str, str, str], bool], str], ...] = (
     (lambda value, _l, _d: any(m in value for m in NO_REPLY_MARKERS), "ящик не принимает ответов"),
-    (lambda _v, local, _d: local in PLACEHOLDER_LOCAL_PARTS, "шаблонная подпись поля"),
+    (lambda _v, local, _d: local in PLACEHOLDER_LOCAL_PARTS, "заглушка вместо адреса"),
+    (
+        lambda _v, local, _d: len(local) > 1 and len(set(local)) == 1,
+        "заглушка из повторённого символа",
+    ),
+    (
+        lambda _v, local, _d: local in WRONG_DEPARTMENT_LOCAL_PARTS,
+        "чужой отдел: цену за размещение там не называют",
+    ),
+    (
+        lambda _v, _l, domain: bool(set(domain.split(".")[:-2]) & WRONG_DEPARTMENT_LABELS),
+        "чужой отдел, выделенный поддоменом",
+    ),
     (lambda _v, _l, domain: domain in VENDOR_DOMAINS, "домен сервиса, а не сайта"),
     (
         lambda _v, _l, domain: any(chunk in domain for chunk in REGISTRAR_SUBSTRINGS),

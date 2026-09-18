@@ -256,6 +256,9 @@ class ContactLadder:
         return has_form
 
     async def _step_rdap(self, host: str, collected: _Collected) -> None:
+        if not cfg.RDAP_ENABLED:
+            return
+
         self.counters.rdap_entered += 1
         try:
             candidates = await rdap.find_emails(self._http, host)

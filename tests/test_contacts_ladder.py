@@ -209,6 +209,30 @@ class TestPageOrder:
         assert ladder.counters.pages_fetched <= 6
 
 
+class TestRdapSwitch:
+    async def test_step_can_be_turned_off(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Ступень бесплатна по деньгам, но не по времени: каждый пятый
+        запрос висит до таймаута, а адресов она на замерах не дала."""
+        monkeypatch.setattr("backend.features.contacts.ladder.cfg.RDAP_ENABLED", False)
+        site = Site({"/": EMPTY_PAGE}, rdap={"entities": []})
+
+        async with _client(site) as http:
+            ladder = ContactLadder(http)
+            await ladder.find("site.com")
+
+        assert ladder.counters.rdap_entered == 0
+        assert not [u for u in site.requested if "rdap.org" in u]
+
+    async def test_step_is_on_by_default(self) -> None:
+        site = Site({"/": EMPTY_PAGE})
+
+        async with _client(site) as http:
+            ladder = ContactLadder(http)
+            await ladder.find("site.com")
+
+        assert ladder.counters.rdap_entered == 1
+
+
 class TestOutcomes:
     async def test_form_without_address_goes_to_the_manual_queue(self) -> None:
         site = Site({"/": FORM_PAGE})
