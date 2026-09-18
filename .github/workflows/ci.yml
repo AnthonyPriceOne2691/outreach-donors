@@ -51,5 +51,8 @@ jobs:
       - name: Архитектурные гейты
         run: python scripts/gates.py
 
+      - name: Ратчет сложности
+        run: python scripts/complexity.py
+
       - name: Тесты
         run: pytest

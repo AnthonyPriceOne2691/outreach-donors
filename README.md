@@ -73,7 +73,18 @@ gh pr create --fill && gh pr merge --squash --auto
 ```bash
 .venv/bin/ruff check backend/ && .venv/bin/ruff format --check backend/
 .venv/bin/mypy backend/
+.venv/bin/python scripts/gates.py
+.venv/bin/python scripts/complexity.py
 .venv/bin/pytest
+```
+
+Ратчет сложности держит уже достигнутый уровень: код может становиться
+проще, но не сложнее. Жёсткие пороги линтера ловят обвал, ратчет — медленный
+рост, при котором каждый отдельный шаг законен. Изменили форму кода —
+принять новый уровень командой:
+
+```bash
+.venv/bin/python scripts/complexity.py --update
 ```
 
 ## Раскладка

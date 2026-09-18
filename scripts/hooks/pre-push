@@ -17,5 +17,6 @@ echo "── Линтер ──";              "$PY/ruff" check backend/ tests/
 echo "── Форматирование ──";      "$PY/ruff" format --check backend/ tests/ scripts/
 echo "── Типы ──";                "$PY/mypy" backend/ | tail -1
 echo "── Архитектурные гейты ──"; "$PY/python" scripts/gates.py
+echo "── Ратчет сложности ──";   "$PY/python" scripts/complexity.py
 echo "── Тесты ──";               "$PY/pytest" -q | tail -1
 echo "Всё зелёное, отправляю."
