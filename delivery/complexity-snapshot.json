@@ -12,12 +12,12 @@
       "worst": "—"
     },
     "backend/cli/contact_search.py": {
-      "lines": 166,
-      "complexity": 5,
-      "worst": "_print_report:71"
+      "lines": 187,
+      "complexity": 10,
+      "worst": "cmd_contacts:126"
     },
     "backend/cli/main.py": {
-      "lines": 298,
+      "lines": 303,
       "complexity": 9,
       "worst": "_print_report:189"
     },
@@ -37,7 +37,7 @@
       "worst": "—"
     },
     "backend/config/contacts.py": {
-      "lines": 78,
+      "lines": 91,
       "complexity": 0,
       "worst": "—"
     },
@@ -91,15 +91,20 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/contacts/browser.py": {
+      "lines": 171,
+      "complexity": 11,
+      "worst": "find_emails:139"
+    },
     "backend/features/contacts/extract.py": {
       "lines": 153,
       "complexity": 9,
       "worst": "find_contact_links:134"
     },
     "backend/features/contacts/ladder.py": {
-      "lines": 408,
+      "lines": 442,
       "complexity": 10,
-      "worst": "_step_pages:257"
+      "worst": "_step_pages:270"
     },
     "backend/features/contacts/mx.py": {
       "lines": 207,

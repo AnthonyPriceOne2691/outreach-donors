@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from backend.config import contacts as cfg
 from backend.config import storage
 from backend.config.startup_checks import check_storage
+from backend.features.contacts.browser import PlaywrightRenderer
 from backend.features.contacts.ladder import ContactLadder, LadderResult
 from backend.features.contacts.provider import (
     ContactProvider,
@@ -89,6 +90,9 @@ def _print_report(ladder: ContactLadder, saved: int, total: int) -> None:
         f"закрылись от нас {counters.pages_blocked}"
     )
     print(
+        f"  1б. браузер          вошло {counters.browser_entered}, нашли {counters.browser_found}"
+    )
+    print(
         f"  2. RDAP              вошло {counters.rdap_entered}, "
         f"нашли {counters.rdap_found}, не ответил {counters.rdap_failed}"
     )
@@ -122,6 +126,7 @@ async def _walk(ladder: ContactLadder, hosts: list[str]) -> list[LadderResult]:
 async def cmd_contacts(args: argparse.Namespace) -> int:
     """Найти контакты подходящим донорам и сохранить исход по каждому."""
     check_storage()
+    use_browser = args.browser or cfg.BROWSER_ENABLED
 
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -142,21 +147,37 @@ async def cmd_contacts(args: argparse.Namespace) -> int:
                 return 0
 
             print(f"Доноров без контакта: {len(hosts)}")
+            if use_browser:
+                print(
+                    "Ступень браузера включена: она смотрит только тех, кого "
+                    "обычный обход не открыл, и стоит секунд на страницу."
+                )
             if args.paid_first:
                 print(
                     "Порядок обратный: сначала платный сервис, добор скрейпером.\n"
                     "Быстрее в разы, но платных запросов будет столько же, сколько доменов."
                 )
             provider = None if args.no_paid else await _make_provider(http)
-            ladder = ContactLadder(http, provider=provider, paid_first=args.paid_first)
 
-            saved = 0
-            for start in range(0, len(hosts), BATCH):
-                batch = hosts[start : start + BATCH]
-                results = await _walk(ladder, batch)
-                saved += await repository.save(results)
-                await session.commit()
-                print(f"  сохранено {start + len(batch)} из {len(hosts)}")
+            # Браузер поднимается один раз на прогон, а не на домен: запуск
+            # стоит около секунды. Не поднялся — работаем без него.
+            async with PlaywrightRenderer() as renderer:
+                if use_browser and renderer is None:
+                    print("Браузер не поднялся — прогон идёт без этой ступени.")
+                ladder = ContactLadder(
+                    http,
+                    provider=provider,
+                    paid_first=args.paid_first,
+                    renderer=renderer if use_browser else None,
+                )
+
+                saved = 0
+                for start in range(0, len(hosts), BATCH):
+                    batch = hosts[start : start + BATCH]
+                    results = await _walk(ladder, batch)
+                    saved += await repository.save(results)
+                    await session.commit()
+                    print(f"  сохранено {start + len(batch)} из {len(hosts)}")
 
             _print_report(ladder, saved, len(hosts))
     finally:
