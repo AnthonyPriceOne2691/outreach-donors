@@ -250,6 +250,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="только бесплатные ступени: MX, страницы, RDAP",
     )
     contacts.add_argument(
+        "--browser",
+        action="store_true",
+        help="ступень браузера для сайтов, которые не открылись обычным запросом",
+    )
+    contacts.add_argument(
         "--paid-first",
         action="store_true",
         help="сначала платный сервис, добор скрейпером: быстрее, но платных запросов больше",
