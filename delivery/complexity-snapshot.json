@@ -11,15 +11,20 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/cli/access_admin.py": {
+      "lines": 84,
+      "complexity": 3,
+      "worst": "cmd_user_add:28"
+    },
     "backend/cli/contact_search.py": {
       "lines": 186,
       "complexity": 10,
       "worst": "cmd_contacts:127"
     },
     "backend/cli/main.py": {
-      "lines": 303,
+      "lines": 320,
       "complexity": 9,
-      "worst": "_print_report:189"
+      "worst": "_print_report:190"
     },
     "backend/config/__init__.py": {
       "lines": 1,
@@ -28,6 +33,11 @@
     },
     "backend/config/_base.py": {
       "lines": 22,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/config/access.py": {
+      "lines": 34,
       "complexity": 0,
       "worst": "—"
     },
@@ -70,6 +80,36 @@
       "lines": 1,
       "complexity": 0,
       "worst": "—"
+    },
+    "backend/features/access/__init__.py": {
+      "lines": 2,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/features/access/login.py": {
+      "lines": 76,
+      "complexity": 5,
+      "worst": "login:47"
+    },
+    "backend/features/access/passwords.py": {
+      "lines": 74,
+      "complexity": 4,
+      "worst": "verify_password:43"
+    },
+    "backend/features/access/permissions.py": {
+      "lines": 76,
+      "complexity": 4,
+      "worst": "has_permission:52"
+    },
+    "backend/features/access/repository.py": {
+      "lines": 188,
+      "complexity": 7,
+      "worst": "update_access:123"
+    },
+    "backend/features/access/tokens.py": {
+      "lines": 100,
+      "complexity": 4,
+      "worst": "read_token:81"
     },
     "backend/features/ahrefs/__init__.py": {
       "lines": 1,
@@ -142,12 +182,12 @@
       "worst": "—"
     },
     "backend/features/core/domain.py": {
-      "lines": 122,
+      "lines": 162,
       "complexity": 0,
       "worst": "—"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 29,
+      "lines": 32,
       "complexity": 0,
       "worst": "—"
     },
@@ -155,6 +195,11 @@
       "lines": 25,
       "complexity": 0,
       "worst": "—"
+    },
+    "backend/features/core/models/access.py": {
+      "lines": 84,
+      "complexity": 2,
+      "worst": "_enum:28"
     },
     "backend/features/core/models/domain.py": {
       "lines": 37,

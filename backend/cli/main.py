@@ -18,6 +18,7 @@ from pathlib import Path
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from backend.cli.access_admin import cmd_user_add, cmd_user_reset
 from backend.cli.contact_search import cmd_contacts
 from backend.config import ahrefs as ahrefs_cfg
 from backend.config import filters, storage
@@ -240,6 +241,18 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--cap", type=int, help="потолок расхода на прогон, юнитов")
     run.add_argument("--yes", action="store_true", help="не спрашивать подтверждения")
 
+    user_add = sub.add_parser("user-add", help="завести учётку и показать разовый пароль")
+    user_add.add_argument("--email", required=True, help="почта сотрудника, она же логин")
+    user_add.add_argument(
+        "--role",
+        default="operator",
+        choices=["admin", "operator"],
+        help="роль: admin заводит учётки, operator работает с базой",
+    )
+
+    user_reset = sub.add_parser("user-reset", help="выдать новый разовый пароль")
+    user_reset.add_argument("--email", required=True, help="почта сотрудника")
+
     contacts = sub.add_parser("contacts", help="поиск контактов подходящим донорам")
     contacts.add_argument(
         "--limit", type=int, default=100, help="сколько доноров взять за раз (по умолчанию 100)"
@@ -280,6 +293,10 @@ def main(argv: list[str] | None = None) -> int:
         command = cmd_quota()
     elif args.command == "contacts":
         command = cmd_contacts(args)
+    elif args.command == "user-add":
+        command = cmd_user_add(args)
+    elif args.command == "user-reset":
+        command = cmd_user_reset(args)
     else:
         command = cmd_run(args)
 

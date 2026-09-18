@@ -19,11 +19,14 @@ EXPECTED_TABLES = {
     "run_settings",
     "usage_records",
     "suppressions",
+    # Срез доступа: учётки и журнал действий.
+    "users",
+    "audit_log",
 }
 
 
 def test_all_entities_registered() -> None:
-    """Все двенадцать таблиц видны метаданным.
+    """Все таблицы видны метаданным.
 
     Не косметика: Alembic генерирует миграции из этого же реестра, и модель,
     забытая в `models/__init__.py`, молча не попадёт в схему.
