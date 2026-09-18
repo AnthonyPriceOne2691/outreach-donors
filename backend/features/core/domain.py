@@ -114,6 +114,46 @@ class SuppressionReason(StrEnum):
     MANUAL = "manual"
 
 
+class UserRole(StrEnum):
+    """Роль сотрудника. Ролей две, и этого хватает.
+
+    Права проверяются не по роли, а по именованному действию: роль —
+    это набор действий по умолчанию, а не место в коде, где стоит
+    проверка. Появится третья роль — добавится строкой в матрицу.
+    """
+
+    ADMIN = "admin"  # всё, включая учётки и права
+    OPERATOR = "operator"  # работа с базой и прогонами
+
+
+class Permission(StrEnum):
+    """Именованные действия. Проверка прав ссылается на них, а не на роль.
+
+    Иначе через полгода на вопрос «что может оператор» отвечают чтением
+    всех обработчиков подряд.
+    """
+
+    VIEW = "view"  # смотреть базу, прогоны, переписку
+    RUN = "run"  # запускать прогон — это трата юнитов
+    SETTINGS = "settings"  # править пороги
+    SEND = "send"  # отправлять письма — отдельное право, см. permissions.py
+    USERS = "users"  # заводить учётки и выдавать права
+
+
+class AuditAction(StrEnum):
+    """Что попадает в журнал: вход и всё, что меняет состояние или тратит
+    деньги. Чтение не пишется — оно утопило бы журнал."""
+
+    LOGIN = "login"
+    LOGIN_FAILED = "login_failed"
+    PASSWORD_CHANGED = "password_changed"  # noqa: S105 — это название события, не пароль
+    USER_CREATED = "user_created"
+    USER_UPDATED = "user_updated"
+    RUN_STARTED = "run_started"
+    THRESHOLDS_CHANGED = "thresholds_changed"
+    LETTER_SENT = "letter_sent"
+
+
 class UsageProvider(StrEnum):
     AHREFS = "ahrefs"
     SERP = "serp"

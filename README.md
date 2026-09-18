@@ -30,11 +30,17 @@ docker compose -f docker-compose.dev.yml up -d
 ## Команды
 
 ```bash
+.venv/bin/outreach user-add --email ivan@site.com --role admin   # первая учётка
+.venv/bin/outreach user-reset --email ivan@site.com              # новый разовый пароль
 .venv/bin/outreach quota                   # остаток юнитов у провайдера, бесплатно
 .venv/bin/outreach run --keywords ключи.txt --country us
 .venv/bin/outreach contacts --limit 100    # поиск адресов подходящим донорам
 .venv/bin/outreach contacts --no-paid      # только бесплатные ступени
 ```
+
+Первая учётка заводится только командой: открытая регистрация «пока база
+пуста» — окно, в которое успевает зайти чужой. Дальше админ заводит
+остальных сам. Разовый пароль показывается один раз, в базе остаётся хеш.
 
 Поиск контакта идёт ступенями от бесплатных к платной: MX, страницы сайта,
 RDAP, платный сервис, форма в ручную очередь. Порядок и его цена описаны
