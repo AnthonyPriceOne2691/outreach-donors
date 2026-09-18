@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import logging
 import sys
 from pathlib import Path
 
@@ -42,6 +41,7 @@ from backend.features.runs.pipeline import (
 )
 from backend.features.runs.repository import RunRepository
 from backend.features.serp.ahrefs_serp import AhrefsSerpProvider
+from backend.shared.logs import setup_logging
 
 EXIT_OK = 0
 EXIT_MISCONFIGURED = 2
@@ -287,7 +287,7 @@ _FAILURES: tuple[tuple[type[Exception], int, str], ...] = (
 
 
 def main(argv: list[str] | None = None) -> int:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    setup_logging()
     args = build_parser().parse_args(argv)
     if args.command == "quota":
         command = cmd_quota()
