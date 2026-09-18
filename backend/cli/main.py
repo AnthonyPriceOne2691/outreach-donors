@@ -18,6 +18,7 @@ from pathlib import Path
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from backend.cli.contact_search import cmd_contacts
 from backend.config import ahrefs as ahrefs_cfg
 from backend.config import filters, storage
 from backend.config.startup_checks import ConfigError, check_collect, check_storage
@@ -238,6 +239,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument("--cap", type=int, help="потолок расхода на прогон, юнитов")
     run.add_argument("--yes", action="store_true", help="не спрашивать подтверждения")
+
+    contacts = sub.add_parser("contacts", help="поиск контактов подходящим донорам")
+    contacts.add_argument(
+        "--limit", type=int, default=100, help="сколько доноров взять за раз (по умолчанию 100)"
+    )
+    contacts.add_argument(
+        "--no-paid",
+        action="store_true",
+        help="только бесплатные ступени: MX, страницы, RDAP",
+    )
     return parser
 
 
@@ -255,7 +266,12 @@ _FAILURES: tuple[tuple[type[Exception], int, str], ...] = (
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     args = build_parser().parse_args(argv)
-    command = cmd_quota() if args.command == "quota" else cmd_run(args)
+    if args.command == "quota":
+        command = cmd_quota()
+    elif args.command == "contacts":
+        command = cmd_contacts(args)
+    else:
+        command = cmd_run(args)
 
     try:
         return asyncio.run(command)

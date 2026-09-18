@@ -153,6 +153,35 @@ def _imported_roots(node: ast.AST) -> frozenset[str]:
     return frozenset()
 
 
+# Переменные, у которых значение в образце означает утечку ключа.
+SECRET_SUFFIXES = ("API_KEY", "SECRET", "PASSWORD", "TOKEN", "LOGIN", "DSN")
+
+
+def check_env_example(path: Path) -> Iterator[Violation]:
+    """В образце окружения не должно быть заполненных секретов.
+
+    Образец лежит в публичном репозитории. Ключ попадает в него не по злому
+    умыслу, а потому что редактор открывает `.env.example`, когда `.env`
+    скрыт настройками — так уже случилось дважды за один вечер. Правка
+    руками эту ошибку не ловит: ловит только проверка, которая роняет пуш.
+    """
+    if not path.exists():
+        return
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        name, sep, value = line.partition("=")
+        if not sep or name.startswith("#") or not value.strip():
+            continue
+        if name.strip().endswith(SECRET_SUFFIXES) and not value.strip().startswith(
+            ("postgresql", "redis", "http")
+        ):
+            yield Violation(
+                path,
+                number,
+                "secret-in-example",
+                f"{name.strip()} заполнен в образце — перенести значение в .env",
+            )
+
+
 CHECKS = (
     check_file_length,
     check_grab_bag,
@@ -178,6 +207,7 @@ def main(argv: list[str]) -> int:
         ROOT / "scripts",
     ]
     violations = run(targets)
+    violations.extend(check_env_example(ROOT / ".env.example"))
     if not violations:
         checked = len(list(_python_files(targets)))
         print(f"Гейты пройдены: {checked} файлов, нарушений нет.")
