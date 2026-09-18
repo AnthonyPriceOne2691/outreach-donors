@@ -93,6 +93,7 @@ gh pr create --fill && gh pr merge --squash --auto
 |---|---|
 | [docs/WEB_LAYER.md](docs/WEB_LAYER.md) | Доступ, роли, админка, экраны, контур API |
 | [docs/KEYWORD_MODES.md](docs/KEYWORD_MODES.md) | Два режима ключей: список и генерация пула |
+| [docs/SECURITY.md](docs/SECURITY.md) | Что защищаем, от чего, что уже сделано |
 | [okf/index.md](okf/index.md) | Канон домена: правила, которые нельзя сломать молча |
 
 Документы в `docs/` описывают то, чего ещё нет: что делаем и почему

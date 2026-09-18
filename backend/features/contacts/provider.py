@@ -96,9 +96,13 @@ class HunterProvider:
                 "или убрать ступень 3 из лестницы"
             )
         try:
+            # Ключ идёт ЗАГОЛОВКОМ, а не параметром адреса. В адресе он утекал бы
+            # трижды: в журналы прокси, в историю запросов и в текст ошибки —
+            # сообщение провайдера об отказе содержит полный адрес запроса.
             response = await self._client.get(
                 f"{BASE_URL}{path}",
-                params={**params, "api_key": self._api_key},
+                params=params,
+                headers={"Authorization": f"Bearer {self._api_key}"},
                 timeout=cfg.HUNTER_TIMEOUT_SEC,
             )
         except httpx.HTTPError as exc:
