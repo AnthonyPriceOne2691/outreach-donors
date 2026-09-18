@@ -56,6 +56,11 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/config/observability.py": {
+      "lines": 21,
+      "complexity": 0,
+      "worst": "—"
+    },
     "backend/config/outreach.py": {
       "lines": 51,
       "complexity": 0,
@@ -300,6 +305,16 @@
       "lines": 17,
       "complexity": 0,
       "worst": "—"
+    },
+    "backend/shared/logs/__init__.py": {
+      "lines": 6,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/shared/logs/setup.py": {
+      "lines": 157,
+      "complexity": 5,
+      "worst": "setup_logging:138"
     },
     "backend/shared/net/__init__.py": {
       "lines": 2,
