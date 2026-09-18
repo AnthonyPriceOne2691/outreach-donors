@@ -34,6 +34,10 @@ class _Contacts(DomainSettings):
     # Пять секунд, а не десять: отдача ступени близка к нулю (контакты
     # владельца скрыты в большинстве зон), и ждать её долго незачем.
     rdap_timeout_sec: float = Field(default=5.0, validation_alias="CONTACTS_RDAP_TIMEOUT_SEC")
+    # Ступень выключается целиком. Два замера дали ноль адресов из 58 доменов
+    # при каждом пятом запросе в таймаут; умолчание пока «включена», потому
+    # что выборка мала, а в старых зонах адрес владельца ещё встречается.
+    rdap_enabled: bool = Field(default=True, validation_alias="CONTACTS_RDAP_ENABLED")
 
     # --- Ступень 3: платный сервис ---
     hunter_api_key: str = Field(default="", validation_alias="CONTACTS_HUNTER_API_KEY")
@@ -59,6 +63,7 @@ PAGE_TIMEOUT_SEC: float = _s.page_timeout_sec
 MAX_PAGES_PER_DOMAIN: int = _s.max_pages_per_domain
 MAX_PAGE_BYTES: int = _s.max_page_bytes
 RDAP_TIMEOUT_SEC: float = _s.rdap_timeout_sec
+RDAP_ENABLED: bool = _s.rdap_enabled
 HUNTER_API_KEY: str = _s.hunter_api_key
 HUNTER_TIMEOUT_SEC: float = _s.hunter_timeout_sec
 HUNTER_MIN_CONFIDENCE: int = _s.hunter_min_confidence

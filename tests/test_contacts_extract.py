@@ -103,7 +103,7 @@ class TestRejection:
         ("email", "marker"),
         [
             ("noreply@site.com", "не принимает ответов"),
-            ("your-email@site.com", "шаблонная подпись"),
+            ("your-email@site.com", "заглушка вместо адреса"),
             ("hello@example.com", "домен сервиса"),
             ("owner@whoisguard.com", "регистратор"),
             ("logo@site.com.png", "хвост имени файла"),
@@ -118,10 +118,41 @@ class TestRejection:
 
     @pytest.mark.parametrize(
         "email",
-        ["info@site.com", "ads@site.com", "vitaly@site.com", "webmaster@gmail.com"],
+        [
+            "info@site.com",
+            "ads@site.com",
+            "vitaly@site.com",
+            "webmaster@gmail.com",
+            # Издание о приватности — годный донор: сверяются метки домена,
+            # а не подстроки.
+            "editor@privacyinternational.org",
+        ],
     )
     def test_usable_addresses_pass(self, email: str) -> None:
         assert rejection_reason(email) is None
+
+    @pytest.mark.parametrize(
+        ("email", "marker"),
+        [
+            ("xxx@xxx.xxx", "заглушка"),
+            ("aaa@site.com", "заглушка"),
+            ("optout@experian.com", "чужой отдел"),
+            ("unsubscribe@site.com", "чужой отдел"),
+            ("abuse@site.com", "чужой отдел"),
+            ("careers@site.com", "чужой отдел"),
+            ("legal@site.com", "чужой отдел"),
+            ("online@consumerprivacy.experian.com", "поддоменом"),
+            ("hello@privacy.site.com", "поддоменом"),
+        ],
+    )
+    def test_found_by_the_live_run(self, email: str, marker: str) -> None:
+        """Оба случая пришли с боевого прогона на 80 доменах: заглушку
+        `xxx@xxx.xxx` фильтр пропустил как обычный адрес, а адрес отписки —
+        как рабочий контакт. Письмо в отписку — это не только бесполезно,
+        это заявка на жалобу."""
+        reason = rejection_reason(email)
+        assert reason is not None
+        assert marker in reason
 
 
 class TestWeight:

@@ -37,7 +37,7 @@
       "worst": "—"
     },
     "backend/config/contacts.py": {
-      "lines": 67,
+      "lines": 72,
       "complexity": 0,
       "worst": "—"
     },
@@ -97,7 +97,7 @@
       "worst": "find_contact_links:134"
     },
     "backend/features/contacts/ladder.py": {
-      "lines": 346,
+      "lines": 349,
       "complexity": 11,
       "worst": "_step_pages:214"
     },
@@ -117,9 +117,9 @@
       "worst": "_call:92"
     },
     "backend/features/contacts/quality.py": {
-      "lines": 176,
+      "lines": 213,
       "complexity": 6,
-      "worst": "weight:152"
+      "worst": "weight:189"
     },
     "backend/features/contacts/rdap.py": {
       "lines": 111,
@@ -270,6 +270,11 @@
       "lines": 160,
       "complexity": 8,
       "worst": "measure:69"
+    },
+    "scripts/sample_keywords.py": {
+      "lines": 145,
+      "complexity": 9,
+      "worst": "_select:46"
     }
   }
 }
