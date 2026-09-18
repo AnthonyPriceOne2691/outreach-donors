@@ -22,7 +22,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from backend.config import contacts as cfg
 from backend.features.contacts.extract import extract_emails, find_contact_links
@@ -53,8 +53,12 @@ class PlaywrightRenderer:
 
     def __init__(self, *, headless: bool = True) -> None:
         self._headless = headless
-        self._playwright: object | None = None
-        self._browser: object | None = None
+        # Тип намеренно `Any`: пакет необязательный, и там, где его нет —
+        # в CI, например, — типизатор о нём ничего не знает. Указав здесь
+        # что-то конкретнее, мы получили бы проверку, которая зелёная
+        # на машине разработчика и красная на сборке.
+        self._playwright: Any = None
+        self._browser: Any = None
 
     async def __aenter__(self) -> PlaywrightRenderer | None:
         try:
@@ -85,7 +89,7 @@ class PlaywrightRenderer:
             if resource is None:
                 continue
             try:
-                await (resource.close() if name == "браузер" else resource.stop())  # type: ignore[attr-defined]
+                await (resource.close() if name == "браузер" else resource.stop())
             except Exception as exc:  # noqa: BLE001 — закрытие не должно ронять прогон
                 logger.debug("контакты: %s не закрылся: %r", name, exc)
         self._browser = None
@@ -97,7 +101,7 @@ class PlaywrightRenderer:
 
         context = None
         try:
-            context = await self._browser.new_context(  # type: ignore[attr-defined]
+            context = await self._browser.new_context(
                 user_agent=HEADERS["User-Agent"],
                 locale="en-US",
                 ignore_https_errors=True,

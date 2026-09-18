@@ -92,9 +92,9 @@
       "worst": "—"
     },
     "backend/features/contacts/browser.py": {
-      "lines": 167,
+      "lines": 171,
       "complexity": 11,
-      "worst": "find_emails:135"
+      "worst": "find_emails:139"
     },
     "backend/features/contacts/extract.py": {
       "lines": 153,
