@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 import httpx
 
 from backend.config import contacts as cfg
+from backend.features.contacts import browser as browser_step
 from backend.features.contacts import rdap
 from backend.features.contacts.extract import (
     extract_emails,
@@ -70,6 +71,8 @@ class StepCounters:
     pages_found: int = 0
     pages_fetched: int = 0  # всего запросов к сайтам: цена ступени
     pages_blocked: int = 0  # сайтов, закрывшихся от нас (401/403/429)
+    browser_entered: int = 0
+    browser_found: int = 0
     rdap_entered: int = 0
     rdap_found: int = 0
     rdap_failed: int = 0
@@ -88,6 +91,8 @@ class StepCounters:
             self.rdap_found += 1
         elif step == "provider":
             self.provider_found += 1
+        elif step == "browser":
+            self.browser_found += 1
 
     def as_report(self) -> dict[str, int]:
         return {
@@ -98,6 +103,8 @@ class StepCounters:
             "pages_found": self.pages_found,
             "pages_fetched": self.pages_fetched,
             "pages_blocked": self.pages_blocked,
+            "browser_entered": self.browser_entered,
+            "browser_found": self.browser_found,
             "rdap_entered": self.rdap_entered,
             "rdap_found": self.rdap_found,
             "rdap_failed": self.rdap_failed,
@@ -148,6 +155,9 @@ class _Collected:
     rejected: list[tuple[str, str]] = field(default_factory=list)
     seen: set[str] = field(default_factory=set)
     has_form: bool = False
+    #: Сайт закрылся от обычного запроса: 401, 403, 429. Только такие
+    #: и имеет смысл открывать браузером — он стоит секунд на страницу.
+    blocked: bool = False
 
     def add(self, candidate: Candidate) -> bool:
         """Взять адрес, если он годный и ещё не встречался."""
@@ -178,9 +188,11 @@ class ContactLadder:
         provider: ContactProvider | None = None,
         manual_queue_left: int | None = None,
         paid_first: bool = False,
+        renderer: browser_step.PageRenderer | None = None,
     ) -> None:
         self._http = http
         self._provider = provider
+        self._renderer = renderer
         self._manual_left = (
             manual_queue_left if manual_queue_left is not None else cfg.MANUAL_QUEUE_MONTHLY_CAP
         )
@@ -201,6 +213,7 @@ class ContactLadder:
         """
         free = [
             _Step("pages", self._step_pages, ContactSource.PAGE),
+            _Step("browser", self._step_browser, ContactSource.PAGE),
             _Step("rdap", self._step_rdap, ContactSource.WHOIS),
         ]
         paid = _Step("provider", self._step_provider, ContactSource.PROVIDER)
@@ -269,6 +282,7 @@ class ContactLadder:
             # Сайт не открылся ни в одном виде. Угадывать по нему слаги
             # бессмысленно: это ещё три десятка запросов в ту же стену.
             self.counters.pages_fetched += fetcher.attempts
+            collected.blocked = fetcher.blocked
             if fetcher.blocked:
                 self.counters.pages_blocked += 1
             return None
@@ -297,6 +311,7 @@ class ContactLadder:
                 break
 
         self.counters.pages_fetched += fetcher.attempts
+        collected.blocked = fetcher.blocked
         if fetcher.blocked:
             self.counters.pages_blocked += 1
         return None
@@ -312,6 +327,25 @@ class ContactLadder:
             # фраза «meet at the dot com» станет контактом.
             if trusted_guess(email, site_host=site_host):
                 collected.add(Candidate(email, ContactSource.PAGE, page.kind, page_url=page.url))
+
+    async def _step_browser(self, host: str, collected: _Collected) -> ContactStatus | None:
+        """Рендер настоящим браузером — только для того, что не открылось.
+
+        Ступень дорогая: секунды на страницу. Поэтому она смотрит домен,
+        только если обычный обход остался ни с чем. Домен, с которого адрес
+        уже снят, браузер не видит вовсе.
+        """
+        if self._renderer is None or collected.good or not collected.blocked:
+            # Браузер смотрит только тех, кто закрыл дверь. Сайт, который
+            # открылся и просто не показал адреса, рендером не исправить:
+            # замер на шести таких доменах дал ноль адресов.
+            return None
+
+        self.counters.browser_entered += 1
+        found = await browser_step.find_emails(self._renderer, host)
+        for email, page_url in found.items():
+            collected.add(Candidate(email, ContactSource.PAGE, PageKind.HOME, page_url=page_url))
+        return None
 
     async def _step_rdap(self, host: str, collected: _Collected) -> ContactStatus | None:
         if not cfg.RDAP_ENABLED:

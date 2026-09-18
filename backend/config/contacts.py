@@ -34,6 +34,16 @@ class _Contacts(DomainSettings):
     # килобайт, а дальше начинается выгрузка каталога.
     max_page_bytes: int = Field(default=2_000_000, validation_alias="CONTACTS_MAX_PAGE_BYTES")
 
+    # --- Ступень 1б: браузер ---
+    # Рендер настоящим браузером для сайтов, которые закрылись или рисуют
+    # адрес скриптом. Выключен: секунды на страницу и сотни мегабайт
+    # зависимости против каждого шестого домена. Включается на отдельном
+    # проходе, когда обычный обход уже отработал (okf/contact-ladder.md).
+    browser_enabled: bool = Field(default=False, validation_alias="CONTACTS_BROWSER_ENABLED")
+    browser_timeout_sec: float = Field(default=20.0, validation_alias="CONTACTS_BROWSER_TIMEOUT")
+    # Пауза после загрузки: футер с адресом дорисовывается скриптом.
+    browser_settle_sec: float = Field(default=1.2, validation_alias="CONTACTS_BROWSER_SETTLE")
+
     # --- Ступень 2: RDAP ---
     # Пять секунд, а не десять: отдача ступени близка к нулю (контакты
     # владельца скрыты в большинстве зон), и ждать её долго незачем.
@@ -68,6 +78,9 @@ PAGE_TIMEOUT_SEC: float = _s.page_timeout_sec
 MAX_PAGES_PER_DOMAIN: int = _s.max_pages_per_domain
 MAX_ATTEMPTS_PER_DOMAIN: int = _s.max_attempts_per_domain
 MAX_PAGE_BYTES: int = _s.max_page_bytes
+BROWSER_ENABLED: bool = _s.browser_enabled
+BROWSER_TIMEOUT_SEC: float = _s.browser_timeout_sec
+BROWSER_SETTLE_SEC: float = _s.browser_settle_sec
 RDAP_TIMEOUT_SEC: float = _s.rdap_timeout_sec
 RDAP_ENABLED: bool = _s.rdap_enabled
 HUNTER_API_KEY: str = _s.hunter_api_key
