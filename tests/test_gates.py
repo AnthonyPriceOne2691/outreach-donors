@@ -13,6 +13,7 @@ import pytest
 from scripts.gates import (
     MAX_LINES_PROD,
     check_config_access,
+    check_env_example,
     check_file_length,
     check_grab_bag,
     check_layers,
@@ -103,3 +104,31 @@ def test_gate_actually_walks_the_tree(tmp_path: Path) -> None:
 
     violations = run([bad])
     assert [v.rule for v in violations] == ["silent-except"]
+
+
+class TestSecretInExample:
+    """Ключ в образце окружения. Правка руками эту ошибку не ловит —
+    за вечер она случилась дважды, поэтому её ловит гейт."""
+
+    def test_filled_secret_is_caught(self, tmp_path: Path) -> None:
+        example = tmp_path / ".env.example"
+        example.write_text("AHREFS_API_KEY=abc123\n", encoding="utf-8")
+        assert [v.rule for v in check_env_example(example)] == ["secret-in-example"]
+
+    def test_empty_placeholder_is_fine(self, tmp_path: Path) -> None:
+        example = tmp_path / ".env.example"
+        example.write_text("AHREFS_API_KEY=\n# комментарий\nLLM_MODEL=gpt\n", encoding="utf-8")
+        assert list(check_env_example(example)) == []
+
+    def test_connection_strings_stay(self, tmp_path: Path) -> None:
+        """DSN с логином разработки — это образец, а не секрет: без него
+        никто не поймёт, какой порт у базы."""
+        example = tmp_path / ".env.example"
+        example.write_text(
+            "STORAGE_DSN=postgresql+asyncpg://outreach:outreach@localhost:5442/outreach\n",
+            encoding="utf-8",
+        )
+        assert list(check_env_example(example)) == []
+
+    def test_missing_file_is_not_a_failure(self, tmp_path: Path) -> None:
+        assert list(check_env_example(tmp_path / "нет-такого")) == []

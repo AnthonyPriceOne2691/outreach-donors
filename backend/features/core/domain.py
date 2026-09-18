@@ -30,6 +30,20 @@ class ContactSource(StrEnum):
     MANUAL = "manual"  # форма заполнена руками
 
 
+class PageKind(StrEnum):
+    """Что за страница отдала адрес. Определяет его вес.
+
+    Адрес со страницы «write for us» или «advertise» ведёт к тому, кто
+    называет цену; общий `info@` попадает в поддержку и умирает там
+    (okf/contact-ladder.md). Порядок значений — порядок убывания веса.
+    """
+
+    MONEY = "money"  # write-for-us, advertise, guest-post
+    CONTACT = "contact"  # contact, contact-us
+    ABOUT = "about"  # about, team, imprint
+    HOME = "home"  # главная и всё прочее
+
+
 class ContactStatus(StrEnum):
     """Итог поиска контакта. Хранится с отметкой времени попытки —
     вместе они дают идемпотентность: повторно платный сервис не дёргаем."""
