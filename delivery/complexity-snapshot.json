@@ -12,9 +12,9 @@
       "worst": "—"
     },
     "backend/cli/contact_search.py": {
-      "lines": 187,
+      "lines": 186,
       "complexity": 10,
-      "worst": "cmd_contacts:126"
+      "worst": "cmd_contacts:127"
     },
     "backend/cli/main.py": {
       "lines": 303,
@@ -117,7 +117,7 @@
       "worst": "get:194"
     },
     "backend/features/contacts/provider.py": {
-      "lines": 176,
+      "lines": 180,
       "complexity": 10,
       "worst": "_call:92"
     },
@@ -256,8 +256,18 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/shared/net/__init__.py": {
+      "lines": 2,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/shared/net/url_guard.py": {
+      "lines": 168,
+      "complexity": 10,
+      "worst": "assert_safe_url:88"
+    },
     "scripts/check_hunter.py": {
-      "lines": 157,
+      "lines": 159,
       "complexity": 10,
       "worst": "_unpack:34"
     },

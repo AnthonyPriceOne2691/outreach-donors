@@ -35,6 +35,7 @@ from backend.features.contacts.provider import (
     ProviderError,
 )
 from backend.features.contacts.repository import ContactRepository
+from backend.shared.net.url_guard import guarded_client
 
 logger = logging.getLogger(__name__)
 
@@ -131,15 +132,13 @@ async def cmd_contacts(args: argparse.Namespace) -> int:
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     timeout = httpx.Timeout(cfg.PAGE_TIMEOUT_SEC, connect=cfg.PAGE_TIMEOUT_SEC)
-    # Сертификаты доноров бывают протухшими или самоподписанными. Это
-    # публичное чтение чужих страниц без передачи данных: отказ от проверки
-    # здесь стоит нам ничего, а отказ от таких доменов — части базы.
 
     try:
-        async with (
-            factory() as session,
-            httpx.AsyncClient(timeout=timeout, verify=False) as http,  # noqa: S501
-        ):
+        # Клиент с защитой исходящих: адреса приходят снаружи — из выдачи,
+        # из ссылок на чужих страницах, а вскоре и из поля ввода оператора.
+        # Проверка идёт на каждом шаге редиректа, иначе публичный сайт уводит
+        # нас внутрь сети одним ответом 302 (backend/shared/net/url_guard.py).
+        async with factory() as session, guarded_client(timeout=timeout) as http:
             repository = ContactRepository(session)
             hosts = await repository.pending_hosts(limit=args.limit)
             if not hosts:

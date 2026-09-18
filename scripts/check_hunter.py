@@ -67,16 +67,18 @@ def _unpack(resp: httpx.Response) -> dict[str, Any]:
     return data
 
 
+def _auth() -> dict[str, str]:
+    """Ключ заголовком: в адресе он утекает в журналы прокси и в текст ошибки."""
+    return {"Authorization": f"Bearer {contacts.HUNTER_API_KEY}"}
+
+
 def _account(client: httpx.Client) -> dict[str, Any]:
-    resp = client.get("/account", params={"api_key": contacts.HUNTER_API_KEY})
+    resp = client.get("/account", headers=_auth())
     return _unpack(resp)
 
 
 def _domain_search(client: httpx.Client, domain: str) -> dict[str, Any]:
-    resp = client.get(
-        "/domain-search",
-        params={"domain": domain, "api_key": contacts.HUNTER_API_KEY, "limit": 5},
-    )
+    resp = client.get("/domain-search", params={"domain": domain, "limit": 5}, headers=_auth())
     return _unpack(resp)
 
 
