@@ -1,0 +1,275 @@
+{
+  "_comment": "Ратчет сложности: код может становиться проще, но не сложнее. Обновлять командой python scripts/complexity.py --update.",
+  "files": {
+    "backend/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/cli/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/cli/contact_search.py": {
+      "lines": 154,
+      "complexity": 5,
+      "worst": "_print_report:71"
+    },
+    "backend/cli/main.py": {
+      "lines": 293,
+      "complexity": 9,
+      "worst": "_print_report:189"
+    },
+    "backend/config/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/config/_base.py": {
+      "lines": 22,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/config/ahrefs.py": {
+      "lines": 35,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/config/contacts.py": {
+      "lines": 67,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/config/filters.py": {
+      "lines": 41,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/config/outreach.py": {
+      "lines": 51,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/config/serp.py": {
+      "lines": 29,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/config/startup_checks.py": {
+      "lines": 78,
+      "complexity": 3,
+      "worst": "_raise_if_missing:35"
+    },
+    "backend/config/storage.py": {
+      "lines": 24,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/features/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/features/ahrefs/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/features/ahrefs/client.py": {
+      "lines": 290,
+      "complexity": 11,
+      "worst": "_request:209"
+    },
+    "backend/features/ahrefs/units.py": {
+      "lines": 219,
+      "complexity": 4,
+      "worst": "read:57"
+    },
+    "backend/features/contacts/__init__.py": {
+      "lines": 2,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/features/contacts/extract.py": {
+      "lines": 153,
+      "complexity": 9,
+      "worst": "find_contact_links:134"
+    },
+    "backend/features/contacts/ladder.py": {
+      "lines": 346,
+      "complexity": 11,
+      "worst": "_step_pages:214"
+    },
+    "backend/features/contacts/mx.py": {
+      "lines": 207,
+      "complexity": 10,
+      "worst": "_query:135"
+    },
+    "backend/features/contacts/pages.py": {
+      "lines": 149,
+      "complexity": 5,
+      "worst": "get:113"
+    },
+    "backend/features/contacts/provider.py": {
+      "lines": 176,
+      "complexity": 10,
+      "worst": "_call:92"
+    },
+    "backend/features/contacts/quality.py": {
+      "lines": 176,
+      "complexity": 6,
+      "worst": "weight:152"
+    },
+    "backend/features/contacts/rdap.py": {
+      "lines": 111,
+      "complexity": 10,
+      "worst": "_vcard_emails:40"
+    },
+    "backend/features/contacts/repository.py": {
+      "lines": 128,
+      "complexity": 4,
+      "worst": "save:69"
+    },
+    "backend/features/core/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/features/core/domain.py": {
+      "lines": 121,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/features/core/models/__init__.py": {
+      "lines": 29,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/features/core/models/_mixins.py": {
+      "lines": 25,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/features/core/models/domain.py": {
+      "lines": 37,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/features/core/models/donor.py": {
+      "lines": 127,
+      "complexity": 2,
+      "worst": "_enum:32"
+    },
+    "backend/features/core/models/ops.py": {
+      "lines": 71,
+      "complexity": 2,
+      "worst": "_enum:16"
+    },
+    "backend/features/core/models/outreach.py": {
+      "lines": 210,
+      "complexity": 2,
+      "worst": "_enum:36"
+    },
+    "backend/features/core/models/run.py": {
+      "lines": 76,
+      "complexity": 2,
+      "worst": "_enum:17"
+    },
+    "backend/features/donors/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/features/donors/collect.py": {
+      "lines": 204,
+      "complexity": 5,
+      "worst": "_screen_batch:99"
+    },
+    "backend/features/donors/geo.py": {
+      "lines": 154,
+      "complexity": 9,
+      "worst": "build_breakdown:55"
+    },
+    "backend/features/donors/host.py": {
+      "lines": 62,
+      "complexity": 9,
+      "worst": "normalize_host:37"
+    },
+    "backend/features/donors/repository.py": {
+      "lines": 140,
+      "complexity": 8,
+      "worst": "_donor_values:120"
+    },
+    "backend/features/donors/verdict.py": {
+      "lines": 101,
+      "complexity": 5,
+      "worst": "check_metrics:67"
+    },
+    "backend/features/runs/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/features/runs/pipeline.py": {
+      "lines": 395,
+      "complexity": 5,
+      "worst": "gather_candidates:203"
+    },
+    "backend/features/runs/repository.py": {
+      "lines": 144,
+      "complexity": 2,
+      "worst": "create_settings:50"
+    },
+    "backend/features/serp/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/features/serp/ahrefs_serp.py": {
+      "lines": 74,
+      "complexity": 5,
+      "worst": "_take_organic:58"
+    },
+    "backend/features/serp/protocol.py": {
+      "lines": 52,
+      "complexity": 1,
+      "worst": "search:41"
+    },
+    "backend/shared/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/shared/database/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/shared/database/base.py": {
+      "lines": 17,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "scripts/check_hunter.py": {
+      "lines": 157,
+      "complexity": 10,
+      "worst": "_unpack:34"
+    },
+    "scripts/complexity.py": {
+      "lines": 235,
+      "complexity": 8,
+      "worst": "compare:162"
+    },
+    "scripts/gates.py": {
+      "lines": 224,
+      "complexity": 8,
+      "worst": "_python_files:49"
+    },
+    "scripts/measure_units.py": {
+      "lines": 160,
+      "complexity": 8,
+      "worst": "measure:69"
+    }
+  }
+}
