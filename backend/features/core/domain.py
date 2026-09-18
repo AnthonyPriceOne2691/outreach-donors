@@ -39,8 +39,9 @@ class PageKind(StrEnum):
     """
 
     MONEY = "money"  # write-for-us, advertise, guest-post
-    CONTACT = "contact"  # contact, contact-us
-    ABOUT = "about"  # about, team, imprint
+    CONTACT = "contact"  # contact, contact-us, press, support
+    ABOUT = "about"  # about, team, imprint, masthead
+    LEGAL = "legal"  # terms, privacy: там указан оператор сайта
     HOME = "home"  # главная и всё прочее
 
 

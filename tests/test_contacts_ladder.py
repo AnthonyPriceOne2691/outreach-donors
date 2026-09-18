@@ -133,7 +133,10 @@ class TestRoute:
         assert provider.calls == ["site.com"]
         assert ladder.counters.provider_found == 1
 
-    async def test_rdap_before_the_paid_step(self) -> None:
+    async def test_rdap_before_the_paid_step(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Ступень выключена по умолчанию, но порядок её места в лестнице
+        проверяется: включённая, она идёт до платной."""
+        monkeypatch.setattr("backend.features.contacts.ladder.cfg.RDAP_ENABLED", True)
         rdap_body = {
             "entities": [
                 {
@@ -199,14 +202,186 @@ class TestPageOrder:
         assert result.contact.email == "ads@site.com"
         assert result.contact.page_kind is PageKind.MONEY
 
-    async def test_page_budget_is_respected(self) -> None:
+    async def test_attempts_are_capped_on_a_site_of_404s(self) -> None:
+        """Сайт отвечает 404 на всё, кроме главной: обход не должен перебирать
+        весь список слагов."""
         site = Site({"/": EMPTY_PAGE})
 
         async with _client(site) as http:
             ladder = ContactLadder(http)
             await ladder.find("site.com")
 
-        assert ladder.counters.pages_fetched <= 6
+        assert ladder.counters.pages_fetched <= 24
+
+    async def test_open_pages_are_capped_on_a_site_that_answers_everything(self) -> None:
+        """А здесь наоборот: сайт отдаёт 200 на любой адрес. Потолок
+        открытых страниц не даёт разбирать их бесконечно."""
+
+        class AlwaysOpen(Site):
+            def __call__(self, request: httpx.Request) -> httpx.Response:
+                self.requested.append(str(request.url))
+                if "rdap.org" in str(request.url):
+                    return httpx.Response(404, json={})
+                return httpx.Response(200, text=EMPTY_PAGE, headers={"content-type": "text/html"})
+
+        site = AlwaysOpen({})
+
+        async with _client(site) as http:
+            ladder = ContactLadder(http)
+            await ladder.find("site.com")
+
+        assert 0 < len(site.pages_requested) <= 8
+
+
+class TestReachingTheSite:
+    """Приёмы, взятые из соседней системы и подтверждённые замером: из 44
+    доменов, за которые раньше платили, скрейпер теперь закрывает 17."""
+
+    async def test_www_is_tried_when_apex_is_silent(self) -> None:
+        """У части сайтов апекс без записи или без редиректа: запрос к нему
+        просто не доезжает, а `www.` открывается."""
+
+        class ApexIsDead(Site):
+            def __call__(self, request: httpx.Request) -> httpx.Response:
+                self.requested.append(str(request.url))
+                if request.url.host == "site.com":
+                    raise httpx.ConnectError("апекс молчит")
+                return httpx.Response(200, text=CONTACT_PAGE, headers={"content-type": "text/html"})
+
+        site = ApexIsDead({})
+
+        async with _client(site) as http:
+            result = await ContactLadder(http).find("site.com")
+
+        assert result.status is ContactStatus.FOUND
+        assert any("www.site.com" in url for url in site.requested)
+
+    async def test_http_is_tried_when_https_fails(self) -> None:
+        """Донор с протухшим сертификатом — всё ещё донор."""
+
+        class HttpsIsBroken(Site):
+            def __call__(self, request: httpx.Request) -> httpx.Response:
+                self.requested.append(str(request.url))
+                if request.url.scheme == "https":
+                    raise httpx.ConnectError("сертификат протух")
+                return httpx.Response(200, text=CONTACT_PAGE, headers={"content-type": "text/html"})
+
+        site = HttpsIsBroken({})
+
+        async with _client(site) as http:
+            result = await ContactLadder(http).find("site.com")
+
+        assert result.status is ContactStatus.FOUND
+        assert any(url.startswith("http://") for url in site.requested)
+
+    async def test_closed_site_is_counted_and_not_ground_through(self) -> None:
+        """Сайт закрылся — перебирать по нему три десятка слагов незачем:
+        это те же запросы в ту же стену."""
+
+        class Closed(Site):
+            def __call__(self, request: httpx.Request) -> httpx.Response:
+                self.requested.append(str(request.url))
+                return httpx.Response(403, text="нет")
+
+        site = Closed({})
+
+        async with _client(site) as http:
+            ladder = ContactLadder(http)
+            result = await ladder.find("site.com")
+
+        assert result.status is ContactStatus.NOT_FOUND
+        assert ladder.counters.pages_blocked == 1
+        assert len(site.pages_requested) <= 4  # четыре вида главной, и всё
+
+    async def test_legal_page_is_a_source_of_last_resort(self) -> None:
+        """Оператора указывают в «условиях» там, где контакты сведены
+        к форме. Адрес оттуда слабее контактного, но лучше платного запроса."""
+        legal = '<html><body><a href="mailto:owner@site.com">оператор</a></body></html>'
+        site = Site({"/": FORM_PAGE, "/terms/": legal})
+
+        async with _client(site) as http:
+            result = await ContactLadder(http).find("site.com")
+
+        assert result.contact is not None
+        assert result.contact.email == "owner@site.com"
+        assert result.contact.page_kind is PageKind.LEGAL
+
+    async def test_contact_page_outweighs_legal(self) -> None:
+        legal = '<html><body><a href="mailto:legalowner@site.com">оператор</a></body></html>'
+        site = Site({"/": HOME, "/contact/": CONTACT_PAGE, "/terms/": legal})
+
+        async with _client(site) as http:
+            result = await ContactLadder(http).find("site.com")
+
+        assert result.contact is not None
+        assert result.contact.email == "info@site.com"
+
+
+class TestPaidFirst:
+    """Обратный порядок: платная ступень впереди.
+
+    Размен честный и назван цифрами в `_sequence`: платный сервис отвечает
+    за секунду против десятка секунд обхода страниц, но видит все домены,
+    а не остаток. На нашем замере это 80 платных запросов вместо 48.
+    """
+
+    async def test_paid_step_goes_first(self) -> None:
+        site = Site({"/": HOME, "/write-for-us/": MONEY_PAGE})
+        provider = FakeProvider(["paid@site.com"])
+
+        async with _client(site) as http:
+            ladder = ContactLadder(http, provider=provider, paid_first=True)
+            result = await ladder.find("site.com")
+
+        assert result.contact is not None
+        assert result.contact.email == "paid@site.com"
+        assert provider.calls == ["site.com"]
+        assert site.requested == []  # страницы не качались вовсе
+        assert ladder.counters.provider_found == 1
+        assert ladder.counters.pages_entered == 0
+
+    async def test_scraper_tops_up_what_the_paid_step_missed(self) -> None:
+        """Ровно то, ради чего режим и делается: быстрый сбор платным,
+        добор скрейпером по остатку."""
+        site = Site({"/": HOME, "/write-for-us/": MONEY_PAGE})
+        provider = FakeProvider([])  # сервис про домен ничего не знает
+
+        async with _client(site) as http:
+            ladder = ContactLadder(http, provider=provider, paid_first=True)
+            result = await ladder.find("site.com")
+
+        assert result.contact is not None
+        assert result.contact.email == "ads@site.com"
+        assert result.source is ContactSource.PAGE
+        assert ladder.counters.pages_found == 1
+
+    async def test_paid_failure_does_not_swallow_the_free_steps(self) -> None:
+        """Квота кончилась — не повод не искать бесплатно. Поймано этим же
+        тестом: перестановка ступеней обрывала спуск на отказе платной,
+        и домен оставался без контакта даром."""
+        site = Site({"/": HOME, "/contact/": CONTACT_PAGE})
+        provider = FakeProvider(error=ProviderQuotaError("кончилась"))
+
+        async with _client(site) as http:
+            ladder = ContactLadder(http, provider=provider, paid_first=True)
+            result = await ladder.find("site.com")
+
+        assert result.status is ContactStatus.FOUND
+        assert result.contact is not None
+        assert result.contact.email == "info@site.com"
+        assert ladder.counters.pages_entered == 1
+
+    async def test_paid_failure_survives_when_nothing_else_helps(self) -> None:
+        """А если и бесплатные ничего не нашли — исход именно «не заплатили»,
+        а не «контакта нет»: иначе домен похоронен навсегда."""
+        site = Site({"/": EMPTY_PAGE})
+        provider = FakeProvider(error=ProviderQuotaError("кончилась"))
+
+        async with _client(site) as http:
+            ladder = ContactLadder(http, provider=provider, paid_first=True)
+            result = await ladder.find("site.com")
+
+        assert result.status is ContactStatus.NO_QUOTA
 
 
 class TestRdapSwitch:
@@ -223,7 +398,18 @@ class TestRdapSwitch:
         assert ladder.counters.rdap_entered == 0
         assert not [u for u in site.requested if "rdap.org" in u]
 
-    async def test_step_is_on_by_default(self) -> None:
+    async def test_step_is_off_by_default(self) -> None:
+        """Умолчание — выключено: ноль адресов из 58 доменов на замерах."""
+        site = Site({"/": EMPTY_PAGE})
+
+        async with _client(site) as http:
+            ladder = ContactLadder(http)
+            await ladder.find("site.com")
+
+        assert ladder.counters.rdap_entered == 0
+
+    async def test_step_can_be_turned_back_on(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("backend.features.contacts.ladder.cfg.RDAP_ENABLED", True)
         site = Site({"/": EMPTY_PAGE})
 
         async with _client(site) as http:

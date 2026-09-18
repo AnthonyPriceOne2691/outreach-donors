@@ -1,12 +1,27 @@
 """Ступень 1: страницы сайта.
 
-Порядок обхода задан ценностью адреса, а не удобством. Сначала страницы,
+Порядок обхода задан ценностью адреса, а не удобством: сначала страницы,
 где сидит тот, кто называет цену за размещение, потом обычные контакты,
-потом главная — и обход останавливается, как только адрес нашёлся на
-странице дорогого вида.
+потом правовые, где указан оператор сайта.
 
-Число страниц на домен ограничено. Без потолка сайт с бесконечной
-навигацией съедает прогон: каждая страница — это запрос и секунды.
+Четыре приёма здесь не от изящества, а от разбора боевого прогона: из
+41 домена, за которые заплатили платному сервису, 14 нас не пустили,
+у 7 адрес лежал на странице вне списка, до 6 обход не дошёл в рамках
+бюджета. Те же грабли пройдены в соседней системе, и приёмы взяты оттуда.
+
+**Хост пробуется в нескольких видах.** `www.` не срезается: у части
+сайтов апекс не имеет записи или не редиректит, и запрос к нему просто
+не доезжает. За `https` пробуется `http`: донор с протухшим сертификатом
+всё ещё донор.
+
+**Бюджет считает открытые страницы, а не запросы.** Иначе три десятка
+404 по угадываемым слагам съедают его до того, как обход дойдёт до
+существующей страницы контактов. Отдельный потолок попыток не даёт
+зациклиться на сайте, который отвечает всем подряд.
+
+**Правовые страницы входят в список.** Оператора сайта указывают
+в «условиях» и «политике» чаще, чем на «контактах», — особенно там,
+где контакты сведены к форме.
 """
 
 from __future__ import annotations
@@ -23,13 +38,26 @@ from backend.features.core.domain import PageKind
 
 logger = logging.getLogger(__name__)
 
+# Полный набор заголовков браузера, а не «почти». Проверено на шести
+# доменах, закрывшихся от нас: с урезанным набором шесть отказов,
+# с полным — четыре. Дешевле, чем платить за эти домены сервису.
 HEADERS = {
     "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
     ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+    ),
     "Accept-Language": "en-US,en;q=0.9",
+    "Sec-Ch-Ua": '"Chromium";v="129", "Not=A?Brand";v="8"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"macOS"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
 }
 
 # Слаги по видам страниц. Списки не исчерпывающие и не должны быть:
@@ -43,18 +71,34 @@ SLUGS: dict[PageKind, tuple[str, ...]] = {
     PageKind.CONTACT: (
         "contact", "contacts", "contact-us", "contactus", "get-in-touch",
         "kontakt", "kontak", "contacto", "contatti", "hubungi-kami",
+        # Пресса и поддержка отвечают людьми, а не формой: с этих страниц
+        # в боевом прогоне снялись press@ и support@.
+        "press", "press-room", "media", "support", "help",
     ),
-    PageKind.ABOUT: ("about", "about-us", "aboutus", "team", "our-team", "imprint", "impressum"),
+    PageKind.ABOUT: (
+        "about", "about-us", "aboutus", "team", "our-team", "imprint", "impressum",
+        "masthead", "staff", "authors", "editorial-guidelines",
+    ),
+    # Правовые: оператора сайта указывают там, где обязаны, а не там,
+    # где удобно. Вес у таких адресов низкий, но это лучше, чем платный
+    # запрос ради того же самого.
+    PageKind.LEGAL: (
+        "terms", "terms-of-service", "terms-and-conditions", "terms-of-use",
+        "privacy", "privacy-policy", "disclaimer", "legal", "user-agreement",
+    ),
 }  # fmt: skip
 
 # Те же слова для поиска по ссылкам главной: там раздел может лежать
 # по адресу вида /p/12345, и угадать его по слагу нельзя.
 LINK_MARKERS: frozenset[str] = frozenset(
     slug for slugs in SLUGS.values() for slug in slugs
-) | frozenset({"write for us", "advertise", "contact", "about us", "guest post"})
+) | frozenset({"write for us", "advertise", "contact", "about us", "guest post", "terms"})
 
 # Признаки контактной формы: адреса нет, но написать можно руками.
 FORM_MARKERS = ("<form", "wpcf7", "gravity_form", "contact-form", "formcraft", "hs-form")
+
+#: Порядок видов страниц при обходе — по убыванию ценности адреса.
+WALK_ORDER = (PageKind.MONEY, PageKind.CONTACT, PageKind.ABOUT, PageKind.LEGAL)
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,24 +113,44 @@ class FetchedPage:
 def _kind_of(url: str) -> PageKind:
     """Вид страницы по её адресу. Неузнанное — главная, то есть слабый вес."""
     path = urlparse(url).path.lower()
-    for kind, slugs in SLUGS.items():
-        if any(slug in path for slug in slugs):
+    for kind in WALK_ORDER:
+        if any(slug in path for slug in SLUGS[kind]):
             return kind
     return PageKind.HOME
 
 
-def candidate_urls(site_host: str) -> Iterator[tuple[str, PageKind]]:
-    """Адреса-кандидаты по убыванию ценности: сначала деньги, потом контакты.
+def home_variants(site_host: str) -> Iterator[str]:
+    """Как пробовать главную: апекс и `www.`, сначала по `https`, потом `http`.
 
-    Главная идёт первой физически — с неё снимаются ссылки, — но её вид
-    остаётся слабым, и найденный на ней адрес уступит адресу со страницы
-    «advertise», если та тоже ответит.
+    У части сайтов апекс не имеет записи или не редиректит на `www.`;
+    у части протух сертификат. И то и другое — не повод терять донора.
     """
-    base = f"https://{site_host}"
-    yield base + "/", PageKind.HOME
-    for kind in (PageKind.MONEY, PageKind.CONTACT, PageKind.ABOUT):
-        for slug in SLUGS[kind]:
-            yield f"{base}/{slug}/", kind
+    hosts = (site_host, f"www.{site_host}")
+    for scheme in ("https", "http"):
+        for host in hosts:
+            yield f"{scheme}://{host}/"
+
+
+def slug_urls(base: str) -> Iterator[tuple[str, PageKind]]:
+    """Угадываемые адреса страниц от рабочей главной.
+
+    Виды перебираются кругами, а не подряд: сначала первый слаг каждого
+    вида, потом второй и так далее. Подряд не работает — слагов почти
+    полсотни, потолок попыток вдвое меньше, и правовые страницы в конце
+    списка не пробовались бы никогда. Поймано тестом: сайт с формой
+    вместо контактов и адресом оператора в «условиях» оставался без
+    адреса, хотя адрес был.
+
+    Приоритет вида при этом сохраняется: внутри круга порядок прежний,
+    а окончательный выбор делает вес адреса (okf/contact-ladder.md).
+    """
+    root = base.rstrip("/")
+    longest = max(len(SLUGS[kind]) for kind in WALK_ORDER)
+    for position in range(longest):
+        for kind in WALK_ORDER:
+            slugs = SLUGS[kind]
+            if position < len(slugs):
+                yield f"{root}/{slugs[position]}/", kind
 
 
 def has_contact_form(html: str) -> bool:
@@ -96,39 +160,72 @@ def has_contact_form(html: str) -> bool:
 
 
 class PageFetcher:
-    """Качает страницы одного домена с потолками на число и размер.
+    """Качает страницы одного домена с двумя потолками.
 
-    Ошибка сети по одной странице — не поломка домена: половина сайтов
-    отдаёт 404 на половину слагов, это ожидаемо. Поломкой было бы
-    промолчать о ней, поэтому каждая пропущенная страница попадает в лог
-    и в счётчик.
+    Потолков два, и это не перестраховка. Первый — на открытые страницы:
+    столько мы готовы разобрать. Второй — на попытки: сайт отвечает 404
+    на большинство угадываемых слагов, и без него бюджет уходит на
+    несуществующие адреса, не дожив до существующих.
+
+    Ошибка по одной странице — не поломка домена, а норма. Поломкой было
+    бы промолчать о ней, поэтому счётчики отказов ведутся и уходят в отчёт.
     """
 
-    def __init__(self, client: httpx.AsyncClient, *, max_pages: int | None = None) -> None:
+    def __init__(
+        self,
+        client: httpx.AsyncClient,
+        *,
+        max_pages: int | None = None,
+        max_attempts: int | None = None,
+    ) -> None:
         self._client = client
         self._max_pages = max_pages if max_pages is not None else cfg.MAX_PAGES_PER_DOMAIN
-        self.fetched = 0
-        self.failed = 0
+        self._max_attempts = (
+            max_attempts if max_attempts is not None else cfg.MAX_ATTEMPTS_PER_DOMAIN
+        )
+        self.opened = 0  # страницы, которые удалось разобрать
+        self.attempts = 0  # все запросы, включая 404 и отказы
+        self.blocked = False  # сайт закрылся от нас: 401/403/429
+
+    @property
+    def exhausted(self) -> bool:
+        return self.opened >= self._max_pages or self.attempts >= self._max_attempts
 
     async def get(self, url: str, kind: PageKind) -> FetchedPage | None:
-        if self.fetched >= self._max_pages:
+        if self.exhausted:
             return None
+
+        self.attempts += 1
         try:
             response = await self._client.get(url, headers=HEADERS, follow_redirects=True)
         except httpx.HTTPError as exc:
-            self.failed += 1
             logger.debug("страница не открылась: %s — %r", url, exc)
             return None
 
-        self.fetched += 1
+        if response.status_code in (401, 403, 429):
+            self.blocked = True
+            logger.debug("сайт закрылся: %s ответил %s", url, response.status_code)
+            return None
         if response.status_code >= 400:
-            logger.debug("страница ответила %s: %s", response.status_code, url)
             return None
         if "html" not in response.headers.get("content-type", "").lower():
             return None
 
-        html = response.text[: cfg.MAX_PAGE_BYTES]
-        return FetchedPage(url=str(response.url), kind=kind, html=html)
+        self.opened += 1
+        return FetchedPage(
+            url=str(response.url), kind=kind, html=response.text[: cfg.MAX_PAGE_BYTES]
+        )
+
+    async def home(self, site_host: str) -> FetchedPage | None:
+        """Главная в первом виде, который ответил."""
+        for url in home_variants(site_host):
+            page = await self.get(url, PageKind.HOME)
+            if page is not None:
+                return page
+            if self.exhausted:
+                break
+        logger.debug("контакты: главная %s не открылась ни в одном виде", site_host)
+        return None
 
     def follow(self, page: FetchedPage, links: set[str]) -> list[tuple[str, PageKind]]:
         """Ссылки со страницы, приведённые к абсолютным, — только свой домен.
@@ -143,6 +240,6 @@ class PageFetcher:
             if urlparse(absolute).netloc.lower() != host:
                 continue
             out.append((absolute, _kind_of(absolute)))
-        # Дорогие виды вперёд: потолок страниц может кончиться раньше списка.
-        order = {PageKind.MONEY: 0, PageKind.CONTACT: 1, PageKind.ABOUT: 2, PageKind.HOME: 3}
-        return sorted(out, key=lambda item: order[item[1]])
+
+        order = {kind: number for number, kind in enumerate(WALK_ORDER)}
+        return sorted(out, key=lambda item: order.get(item[1], len(order)))
