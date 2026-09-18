@@ -117,6 +117,10 @@ class ContactModel(TimestampedMixin, Base):
     last_contacted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Когда с этого адреса ответили. Отвечающий адрес важнее найденного:
+    # дальше пишем тому, кто отвечает, а не в ящик, где письмо пролежало
+    # неделю. Отметка, а не флаг «предпочтительный»: она говорит ещё и когда.
+    last_replied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("domain_id", "email", name="uq_contacts_domain_email"),
