@@ -87,6 +87,18 @@ gh pr create --fill && gh pr merge --squash --auto
 .venv/bin/python scripts/complexity.py --update
 ```
 
+## Проектные документы
+
+| Документ | О чём |
+|---|---|
+| [docs/WEB_LAYER.md](docs/WEB_LAYER.md) | Доступ, роли, админка, экраны, контур API |
+| [docs/KEYWORD_MODES.md](docs/KEYWORD_MODES.md) | Два режима ключей: список и генерация пула |
+| [okf/index.md](okf/index.md) | Канон домена: правила, которые нельзя сломать молча |
+
+Документы в `docs/` описывают то, чего ещё нет: что делаем и почему
+именно так. Канон в `okf/` — наоборот, только про то, что уже решено
+и закреплено кодом.
+
 ## Раскладка
 
 ```
