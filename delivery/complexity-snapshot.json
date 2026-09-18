@@ -207,7 +207,7 @@
       "worst": "—"
     },
     "backend/features/core/models/donor.py": {
-      "lines": 127,
+      "lines": 131,
       "complexity": 2,
       "worst": "_enum:32"
     },
@@ -217,7 +217,7 @@
       "worst": "_enum:16"
     },
     "backend/features/core/models/outreach.py": {
-      "lines": 210,
+      "lines": 227,
       "complexity": 2,
       "worst": "_enum:36"
     },

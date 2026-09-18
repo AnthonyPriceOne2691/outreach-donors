@@ -92,7 +92,16 @@ class CampaignModel(TimestampedMixin, Base):
 
 
 class ThreadModel(TimestampedMixin, Base):
-    """Переписка с одним адресатом в рамках кампании."""
+    """Переписка с одним человеком на стороне донора.
+
+    Диалог привязан к адресу, а не только к домену: у сайта их несколько —
+    `info@`, `editor@`, `advertising@`, — и за ними разные люди. Сведя их
+    в один диалог, мы получили бы кашу там, где двое отвечают по-разному:
+    отдел продаж называет одну цену, редактор другую.
+
+    Наружу это всё равно один донор: список диалогов группируется
+    по домену (docs/OUTREACH_THREADS.md).
+    """
 
     __tablename__ = "threads"
 
@@ -103,13 +112,21 @@ class ThreadModel(TimestampedMixin, Base):
     campaign_id: Mapped[int] = mapped_column(
         ForeignKey("campaigns.id", ondelete="CASCADE"), nullable=False
     )
+    # С кем именно разговор. Может смениться: ответ приходит с другого
+    # адреса чаще, чем кажется, — на общий ящик смотрит секретарь.
+    contact_id: Mapped[int | None] = mapped_column(
+        ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True
+    )
     status: Mapped[ThreadStatus] = mapped_column(
         _enum(ThreadStatus), nullable=False, default=ThreadStatus.OPEN
     )
 
     __table_args__ = (
-        UniqueConstraint("domain_id", "campaign_id", name="uq_threads_domain_campaign"),
+        UniqueConstraint(
+            "domain_id", "campaign_id", "contact_id", name="uq_threads_domain_campaign_contact"
+        ),
         Index("idx_threads_status", "status"),
+        Index("idx_threads_domain", "domain_id"),
     )
 
     replies: Mapped[list[ReplyModel]] = relationship("ReplyModel", back_populates="thread")
