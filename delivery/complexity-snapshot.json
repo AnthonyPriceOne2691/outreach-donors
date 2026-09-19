@@ -617,9 +617,9 @@
       "worst": "_select:46"
     },
     "scripts/ui_contrast.py": {
-      "lines": 187,
+      "lines": 195,
       "complexity": 7,
-      "worst": "contrast:73"
+      "worst": "contrast:80"
     }
   }
 }
