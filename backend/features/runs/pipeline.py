@@ -46,6 +46,7 @@ from backend.features.donors.repository import DonorRepository
 from backend.features.donors.verdict import Thresholds
 from backend.features.runs.repository import RunRepository
 from backend.features.serp.protocol import SerpProvider
+from backend.shared.logs import run_context
 
 logger = logging.getLogger(__name__)
 
@@ -315,50 +316,53 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
         country=request.country,
         estimated_units=plan.estimate.total,
     )
-    report = RunReport(plan=plan)
-    status = RunStatus.DONE
-    failure: str | None = None
+    # Дальше каждая запись несёт идентификатор прогона, включая чужие логгеры:
+    # прогоны идут параллельно, и без метки их строки не разделить.
+    with run_context(run.id):
+        report = RunReport(plan=plan)
+        status = RunStatus.DONE
+        failure: str | None = None
 
-    # Клиент сообщает о тратах в копилку; прогон сливает её в журнал на каждом
-    # чекпоинте. Без этой связки клиент считал бы расход в никуда, а журнал
-    # оставался пустым — и разбор «на что ушли юниты» отвечал бы нулём.
-    usage = UsageCollector()
-    previous_sink, deps.client.on_usage = deps.client.on_usage, usage
+        # Клиент сообщает о тратах в копилку; прогон сливает её в журнал на каждом
+        # чекпоинте. Без этой связки клиент считал бы расход в никуда, а журнал
+        # оставался пустым — и разбор «на что ушли юниты» отвечал бы нулём.
+        usage = UsageCollector()
+        previous_sink, deps.client.on_usage = deps.client.on_usage, usage
 
-    async def flush_usage() -> None:
-        for operation, cost in usage.drain():
-            report.add_usage(operation, cost)
-            await deps.runs.record_usage(run_id=run.id, operation=operation, cost=cost)
+        async def flush_usage() -> None:
+            for operation, cost in usage.drain():
+                report.add_usage(operation, cost)
+                await deps.runs.record_usage(run_id=run.id, operation=operation, cost=cost)
 
-    try:
-        async for batch in collect(plan.new, deps.client, request.thresholds, request.country):
-            await deps.donors.save_results(batch)
-            for result in batch:
-                report.record(result.status, result.reason)
+        try:
+            async for batch in collect(plan.new, deps.client, request.thresholds, request.country):
+                await deps.donors.save_results(batch)
+                for result in batch:
+                    report.record(result.status, result.reason)
+                await flush_usage()
+                # Пачка сохранена — это чекпоинт: повторный прогон её пропустит.
+                await deps.runs.session_commit()
+        except Exception as exc:
+            status = RunStatus.STOPPED
+            failure = f"{type(exc).__name__}: {exc}"
+            logger.exception("Прогон %s остановлен на середине", run.id)
+            raise
+        finally:
+            # Траты, сделанные до сбоя, записываются обязательно: прогон, упавший
+            # на середине, уже потратил, и журнал не должен об этом умолчать.
             await flush_usage()
-            # Пачка сохранена — это чекпоинт: повторный прогон её пропустит.
+            deps.client.on_usage = previous_sink
+            await deps.runs.session_flush()
+            report.spent_units = await deps.runs.spent_units(run.id)
+            await deps.runs.finish_run(
+                run,
+                status=status,
+                actual_units=report.spent_units,
+                stats=_run_stats(report, failure),
+            )
             await deps.runs.session_commit()
-    except Exception as exc:
-        status = RunStatus.STOPPED
-        failure = f"{type(exc).__name__}: {exc}"
-        logger.exception("Прогон %s остановлен на середине", run.id)
-        raise
-    finally:
-        # Траты, сделанные до сбоя, записываются обязательно: прогон, упавший
-        # на середине, уже потратил, и журнал не должен об этом умолчать.
-        await flush_usage()
-        deps.client.on_usage = previous_sink
-        await deps.runs.session_flush()
-        report.spent_units = await deps.runs.spent_units(run.id)
-        await deps.runs.finish_run(
-            run,
-            status=status,
-            actual_units=report.spent_units,
-            stats=_run_stats(report, failure),
-        )
-        await deps.runs.session_commit()
 
-    return report
+        return report
 
 
 def _run_stats(report: RunReport, failure: str | None) -> dict[str, object]:

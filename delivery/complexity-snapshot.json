@@ -267,9 +267,9 @@
       "worst": "—"
     },
     "backend/features/runs/pipeline.py": {
-      "lines": 395,
+      "lines": 399,
       "complexity": 5,
-      "worst": "gather_candidates:203"
+      "worst": "gather_candidates:204"
     },
     "backend/features/runs/repository.py": {
       "lines": 144,
