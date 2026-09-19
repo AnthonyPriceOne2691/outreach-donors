@@ -102,14 +102,14 @@
       "worst": "—"
     },
     "backend/api/settings/routes.py": {
-      "lines": 139,
+      "lines": 146,
       "complexity": 3,
       "worst": "current_thresholds:52"
     },
     "backend/api/settings/schemas.py": {
-      "lines": 165,
+      "lines": 173,
       "complexity": 4,
-      "worst": "of:142"
+      "worst": "of:149"
     },
     "backend/api/threads/__init__.py": {
       "lines": 1,

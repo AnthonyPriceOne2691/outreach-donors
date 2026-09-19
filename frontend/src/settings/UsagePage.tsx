@@ -45,8 +45,6 @@ export function UsagePage() {
   }
   if (data === undefined) return null;
 
-  const spent = data.ahrefs_left === null ? null : data.ahrefs_cap - data.ahrefs_left;
-
   return (
     <Stack gap="lg" maw={1000}>
       <Card className="glassPanel" p="xl">
@@ -60,29 +58,43 @@ export function UsagePage() {
             </Text>
           </Stack>
 
-          {data.ahrefs_left === null ? (
-            <Alert color="yellow" title="Остаток у Ahrefs спросить не удалось">
-              {data.ahrefs_left_error ?? 'Провайдер не ответил.'} Расход ниже — из своей таблицы, он
-              от провайдера не зависит. Прогон при недоступном остатке не запускается: тратить
-              вслепую нельзя.
-            </Alert>
-          ) : (
-            <Stack gap={6}>
-              <Group justify="space-between">
-                <Text size="sm">
-                  Остаток по капу: <b>{data.ahrefs_left}</b> из {data.ahrefs_cap}
-                </Text>
+          {/* Три числа, и путать их нельзя: остаток у провайдера включает
+              траты соседней системы на общем ключе, а с нашим капом
+              сравнивают наш же расход. Первая версия экрана показывала
+              «израсходовано 0» при шести тысячах потраченных юнитов. */}
+          <Stack gap={6}>
+            <Group justify="space-between">
+              <Text size="sm">
+                Мы потратили с начала месяца: <b>{data.ahrefs_spent_by_us}</b> из {data.ahrefs_cap}{' '}
+                по нашему капу
+              </Text>
+              {data.ahrefs_left === null ? (
                 <Text size="sm" c="dimmed">
-                  израсходовано {spent}
+                  остаток у провайдера неизвестен
                 </Text>
-              </Group>
-              <Progress
-                value={data.ahrefs_cap === 0 ? 0 : ((spent ?? 0) / data.ahrefs_cap) * 100}
-                color="lagoon"
-                radius="xl"
-                size="sm"
-              />
-            </Stack>
+              ) : (
+                <Text size="sm" c="dimmed">
+                  у провайдера осталось {data.ahrefs_left} — с учётом чужих трат на общем ключе
+                </Text>
+              )}
+            </Group>
+            <Progress
+              value={
+                data.ahrefs_cap === 0
+                  ? 0
+                  : Math.min(100, (data.ahrefs_spent_by_us / data.ahrefs_cap) * 100)
+              }
+              color="lagoon"
+              radius="xl"
+              size="sm"
+            />
+          </Stack>
+
+          {data.ahrefs_left === null && (
+            <Alert color="yellow" title="Остаток у Ahrefs спросить не удалось">
+              {data.ahrefs_left_error ?? 'Провайдер не ответил.'} Прогон при недоступном остатке не
+              запускается: тратить вслепую нельзя.
+            </Alert>
           )}
         </Stack>
       </Card>

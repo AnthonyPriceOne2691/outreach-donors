@@ -24,10 +24,10 @@ from backend.api.settings.schemas import (
 )
 from backend.config import ahrefs as ahrefs_cfg
 from backend.features.access.repository import AccessRepository
-from backend.features.ahrefs.client import AhrefsClient
+from backend.features.ahrefs.client import AhrefsClient, AhrefsError
+from backend.features.ahrefs.units import Quota
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
-from backend.features.runs.pipeline import QuotaUnavailableError, units_left
 from backend.features.runs.spending import SpendingRepository
 from backend.features.runs.thresholds import ThresholdsRepository, consequences, defaults
 
@@ -124,14 +124,21 @@ async def usage(
     """
     spending = await SpendingRepository(session).since_month_start()
 
+    # Спрашивается сырой остаток провайдера, а не бюджет прогона: бюджет —
+    # это меньшее из остатка и капа, и сравнивать его с нашим расходом
+    # бессмысленно (первая версия экрана так и показывала «израсходовано
+    # 0» при шести тысячах потраченных).
     left: int | None = None
     error: str | None = None
     client = AhrefsClient()
     try:
-        left = await units_left(client, cap=ahrefs_cfg.UNITS_CAP)
-    except QuotaUnavailableError as exc:
+        left = Quota.from_payload(await client.limits_and_usage()).available
+    except (AhrefsError, OSError) as exc:
         logger.warning("расход: остаток у Ahrefs недоступен (%s)", exc)
-        error = str(exc)
+        error = (
+            "Не удалось узнать остаток у Ahrefs. Расход ниже — из своей таблицы, "
+            "он от провайдера не зависит."
+        )
     finally:
         await client.aclose()
 
