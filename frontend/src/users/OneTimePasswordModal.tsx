@@ -30,19 +30,28 @@ export function OneTimePasswordModal({ issued, onClose }: Props) {
           <Text size="sm">
             Для учётки <b>{issued.user.email}</b>:
           </Text>
-          <Code block fz="lg">
+          {/* Пароль диктуют голосом и переписывают руками: моноширинный
+              и крупный, на тихой стеклянной подложке. */}
+          <Code block fz="lg" className="glassQuiet" p="md" style={{ letterSpacing: '0.06em' }}>
             {issued.password}
           </Code>
           <Alert color="yellow">{issued.note}</Alert>
           <Group justify="flex-end">
             <CopyButton value={issued.password}>
               {({ copied, copy }) => (
-                <Button variant="default" onClick={copy}>
+                <Button variant="subtle" className="press" onClick={copy}>
                   {copied ? 'Скопировано' : 'Скопировать'}
                 </Button>
               )}
             </CopyButton>
-            <Button onClick={onClose}>Записал, закрыть</Button>
+            <Button
+              className="press"
+              variant="gradient"
+              gradient={{ from: 'lagoon.5', to: 'lagoon.7', deg: 135 }}
+              onClick={onClose}
+            >
+              Записал, закрыть
+            </Button>
           </Group>
         </Stack>
       )}

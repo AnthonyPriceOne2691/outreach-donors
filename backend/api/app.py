@@ -12,6 +12,7 @@ from fastapi import FastAPI
 
 from backend.api.auth import routes as auth_routes
 from backend.api.errors import install
+from backend.api.health import router as health_router
 from backend.api.users import routes as users_routes
 from backend.config.startup_checks import check_access, check_storage
 from backend.shared.logs import setup_logging
@@ -40,6 +41,7 @@ def create_app() -> FastAPI:
     )
 
     install(app)
+    app.include_router(health_router, prefix=API_PREFIX)
     app.include_router(auth_routes.router, prefix=API_PREFIX)
     app.include_router(users_routes.router, prefix=API_PREFIX)
     return app

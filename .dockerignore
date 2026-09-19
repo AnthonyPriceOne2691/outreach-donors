@@ -1,0 +1,25 @@
+# В образ едет исходный код и ничего больше.
+.git
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+node_modules
+frontend/node_modules
+frontend/dist
+# Секреты. Отдельной строкой и с объяснением: `.env` в образе означает
+# ключи в слое, который уезжает в реестр и читается любым, у кого есть
+# доступ к образу. Значения приходят окружением, а не файлом.
+.env
+.env.*
+!.env.example
+# Внутренние документы: в публичный образ им незачем.
+TZ.md
+PHASES.md
+ENTITIES.md
+REUSE.md
+VPS.md
+HETZNER_LINKS.md

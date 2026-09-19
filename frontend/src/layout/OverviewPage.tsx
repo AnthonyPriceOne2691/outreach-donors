@@ -6,7 +6,7 @@
  * и спрашивает, что сломалось.
  */
 
-import { Alert, List, Stack, Text, Title } from '@mantine/core';
+import { Badge, Card, Group, List, Stack, Text, Title } from '@mantine/core';
 
 import { useSession } from '../auth/AuthProvider';
 
@@ -14,29 +14,49 @@ export function OverviewPage() {
   const { user } = useSession();
 
   return (
-    <Stack maw={720}>
-      <Title order={3}>Обзор</Title>
-      <Text>
-        Вошли как <b>{user?.email}</b>. Доступные действия: {user?.permissions.join(', ')}.
-      </Text>
+    <Stack maw={760} gap="lg">
+      <Card className="glassPanel" p="xl">
+        <Stack gap="sm">
+          <Title order={3}>Обзор</Title>
+          <Text>
+            Вошли как <b>{user?.email}</b>.
+          </Text>
+          <Group gap="xs">
+            <Text size="sm" c="dimmed">
+              Доступные действия:
+            </Text>
+            {user?.permissions.map((permission) => (
+              <Badge key={permission} variant="light" radius="xl">
+                {permission}
+              </Badge>
+            ))}
+          </Group>
+        </Stack>
+      </Card>
 
-      <Alert color="blue" title="Что сейчас в браузере">
-        <List size="sm">
+      <Card className="glass" p="lg">
+        <Title order={5} mb="xs">
+          Что сейчас в браузере
+        </Title>
+        <List size="sm" spacing={4}>
           <List.Item>Вход, смена своего пароля</List.Item>
           <List.Item>Учётки: завести, выдать права, сбросить пароль, отключить — админу</List.Item>
         </List>
-      </Alert>
+      </Card>
 
-      <Alert color="gray" title="Что пока делается командой">
-        <List size="sm">
+      <Card className="glass" p="lg">
+        <Title order={5} mb="xs">
+          Что пока делается командой
+        </Title>
+        <List size="sm" spacing={4}>
           <List.Item>Сборка пула ключей и прогон по выдаче</List.Item>
           <List.Item>Поиск контактов ступенями</List.Item>
         </List>
-        <Text size="sm" mt="xs">
+        <Text size="sm" c="dimmed" mt="sm">
           Экраны прогона и доноров — следующий срез. Порядок и причины — в проектном документе
           веб-слоя.
         </Text>
-      </Alert>
+      </Card>
     </Stack>
   );
 }

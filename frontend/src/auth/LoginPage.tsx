@@ -69,7 +69,7 @@ export function LoginPage() {
 
   return (
     <Center h="100vh">
-      <Card withBorder w={380} p="lg" radius="md">
+      <Card className="glass riseIn" w={400} p="xl">
         <form onSubmit={submit}>
           <Stack>
             <div>
@@ -91,7 +91,14 @@ export function LoginPage() {
               autoComplete="current-password"
               {...form.getInputProps('password')}
             />
-            <Button type="submit" loading={form.submitting}>
+            <Button
+              type="submit"
+              size="md"
+              className="press"
+              variant="gradient"
+              gradient={{ from: 'lagoon.5', to: 'lagoon.7', deg: 135 }}
+              loading={form.submitting}
+            >
               Войти
             </Button>
           </Stack>
