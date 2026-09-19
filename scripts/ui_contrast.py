@@ -105,6 +105,26 @@ PROBES = [
 ]
 
 
+def probe_notification(page, scheme, email):
+    """Отказ сервера всплывает уведомлением и гаснет через секунды,
+    поэтому у него свой проход: вызвать, снять, померить.
+
+    Меряется пояснение, а не заголовок: заголовок сообщает факт отказа,
+    а что делать — написано именно в пояснении.
+    """
+    row = page.locator("tr", has_text=email)
+    row.get_by_label(f"Учётка {email} включена").click(force=True)
+    expect(page.get_by_text("самого себя")).to_be_visible()
+    page.wait_for_timeout(400)
+    shot = f"contrast-notice-{scheme}.png"
+    page.screenshot(path=shot)
+    body = page.get_by_text("Нельзя снять права с самого себя").first
+    value = contrast(shot, body.bounding_box())
+    mark = "ок" if value >= NORM else "МАЛО"
+    print(f"  {'текст уведомления об отказе':28} {value:5.2f} : 1  при норме {NORM}  {mark}")
+    return value >= NORM
+
+
 def run(page, scheme, shot):
     page.evaluate("s => localStorage.setItem('mantine-color-scheme-value', s)", scheme)
     page.reload()
@@ -147,7 +167,9 @@ def main(argv: list[str]) -> int:
         expect(page.get_by_role("button", name="Завести учётку")).to_be_visible()
 
         ok = run(page, "light", "measure-light.png")
+        ok &= probe_notification(page, "light", email)
         ok &= run(page, "dark", "measure-dark.png")
+        ok &= probe_notification(page, "dark", email)
         b.close()
     return 0 if ok else 1
 
