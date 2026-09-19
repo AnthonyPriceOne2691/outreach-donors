@@ -1,10 +1,13 @@
 import {
+  Badge,
   Button,
   Card,
   NavLink,
+  Notification,
+  SegmentedControl,
+  Switch,
   createTheme,
   Modal,
-  Notification,
   NumberInput,
   PasswordInput,
   Paper,
@@ -72,14 +75,28 @@ export const theme = createTheme({
     // прописывается на каждом вызове: пропущенный проп иначе всплывает
     // одной квадратной кнопкой на третьем экране.
     Button: Button.extend({ defaultProps: { radius: 'xl' } }),
+    // Umlaut Mantine поднимает подпись в верхний регистр. По-английски это
+    // читается как ярлык, по-русски — как ошибка вёрстки: «НЕ СМЕНИЛ
+    // РАЗОВЫЙ ПАРОЛЬ» кричит громче самого заголовка экрана.
+    Badge: Badge.extend({ defaultProps: { radius: 'xl', tt: 'none' } }),
     Card: Card.extend({ defaultProps: { radius: 'xl', withBorder: false } }),
     Paper: Paper.extend({ defaultProps: { radius: 'xl' } }),
     TextInput: TextInput.extend({ defaultProps: { radius: 'xl' }, styles: glassField }),
     PasswordInput: PasswordInput.extend({ defaultProps: { radius: 'xl' }, styles: glassField }),
     NumberInput: NumberInput.extend({ defaultProps: { radius: 'xl' }, styles: glassField }),
     Select: Select.extend({
-      defaultProps: { radius: 'xl' },
-      styles: { ...glassField, dropdown: { backdropFilter: 'blur(20px)' } },
+      defaultProps: {
+        radius: 'xl',
+        // Список раскрывается под полем и по его ширине. Без этого он
+        // уезжал влево и оказывался уже поля — видно на снимке.
+        comboboxProps: {
+          position: 'bottom-start',
+          width: 'target',
+          offset: 6,
+          transitionProps: { transition: 'pop', duration: 180 },
+        },
+      },
+      styles: glassField,
     }),
     // Уведомление всплывает поверх работы — ему тем более нельзя быть
     // единственной непрозрачной плашкой на экране.
@@ -91,7 +108,11 @@ export const theme = createTheme({
     // без него сообщает только факт отказа.
     Notification: Notification.extend({
       defaultProps: { radius: 'lg' },
-      classNames: { root: 'glassPanel' },
+      // Заливка рамы, а не обычная: уведомление всплывает над любым местом
+      // полотна, и сквозь тонкое стекло просвечивает то пятно, над которым
+      // оно оказалось. Сообщение об успехе поверх кораллового пятна
+      // выглядело отказом — цвет должен идти от смысла, а не от фона.
+      classNames: { root: 'glassFrame' },
       styles: {
         title: { color: 'var(--ink)' },
         description: { color: 'var(--ink-soft)' },
@@ -101,8 +122,33 @@ export const theme = createTheme({
     // поверх собственной подложки пункта это замерено 3.96 : 1 при норме
     // 4.5. Подсветка остаётся подложкой, а буквы — обычными чернилами.
     NavLink: NavLink.extend({ styles: { label: { color: 'var(--ink)' } } }),
+    // Переключатель тем брал серый Mantine и не совпадал с палитрой.
+    // Подвижная подложка красится акцентом и едет с той же кривой, что
+    // и остальные переходы сервиса.
+    SegmentedControl: SegmentedControl.extend({
+      defaultProps: {
+        radius: 'xl',
+        transitionDuration: 220,
+        transitionTimingFunction: 'cubic-bezier(0.32, 0.72, 0, 1)',
+        // Линейки между сегментами берут цвет рамок Mantine и на стекле
+        // читаются как случайная красная черта — видно на снимке.
+        withItemsBorders: false,
+      },
+      styles: {
+        root: { background: 'var(--glass-fill-quiet)', border: '1px solid var(--glass-edge)' },
+        indicator: {
+          background: 'color-mix(in oklab, var(--accent) 26%, transparent)',
+          border: '1px solid var(--glass-edge)',
+          boxShadow: 'none',
+        },
+        label: { color: 'var(--ink-soft)' },
+      },
+    }),
+    Switch: Switch.extend({ defaultProps: { radius: 'xl' } }),
     Modal: Modal.extend({
-      classNames: { content: 'glassPanel', header: 'glassPanel' },
+      // Окно встаёт поверх работы: сквозь него не должно быть видно
+      // таблицу под ним, иначе подписи накладываются друг на друга.
+      classNames: { content: 'glassSolid', header: 'glassSolid' },
       defaultProps: {
         radius: 'xl',
         centered: true,

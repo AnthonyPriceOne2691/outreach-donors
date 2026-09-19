@@ -38,7 +38,9 @@ describe('доступ к экрану', () => {
     // Человек пришёл по ссылке от коллеги: молча переадресовать его
     // некуда, он решит, что сервис сломался.
     expect(await screen.findByText('Раздел недоступен')).toBeInTheDocument();
-    expect(screen.getByText(/«users»/)).toBeInTheDocument();
+    // Действие названо словами его языка, а не кодом сервера: код
+    // нужен журналу, а не человеку.
+    expect(screen.getByText(/«заводить учётки»/)).toBeInTheDocument();
   });
 
   it('с правом пускает', async () => {

@@ -102,36 +102,42 @@ export function UsersPage() {
         )}
       </Table.Td>
       <Table.Td>
-        <Select
-          size="xs"
-          w={130}
-          allowDeselect={false}
-          aria-label={`Роль ${user.email}`}
-          value={user.role}
-          data={[
-            { value: 'operator', label: 'оператор' },
-            { value: 'admin', label: 'админ' },
-          ]}
-          onChange={(value) =>
-            value !== null && change.mutate({ id: user.id, patch: { role: value as Role } })
-          }
-        />
+        <Group justify="center">
+          <Select
+            size="xs"
+            w={140}
+            allowDeselect={false}
+            aria-label={`Роль ${user.email}`}
+            value={user.role}
+            data={[
+              { value: 'operator', label: 'оператор' },
+              { value: 'admin', label: 'админ' },
+            ]}
+            onChange={(value) =>
+              value !== null && change.mutate({ id: user.id, patch: { role: value as Role } })
+            }
+          />
+        </Group>
       </Table.Td>
       <Table.Td>
-        <PermissionsPopover
-          user={user}
-          disabled={change.isPending}
-          onChange={(permissions) => change.mutate({ id: user.id, patch: { permissions } })}
-        />
+        <Group justify="center">
+          <PermissionsPopover
+            user={user}
+            disabled={change.isPending}
+            onChange={(permissions) => change.mutate({ id: user.id, patch: { permissions } })}
+          />
+        </Group>
       </Table.Td>
       <Table.Td>
-        <Switch
-          aria-label={`Учётка ${user.email} включена`}
-          checked={user.is_active}
-          onChange={(event) =>
-            change.mutate({ id: user.id, patch: { is_active: event.currentTarget.checked } })
-          }
-        />
+        <Group justify="center">
+          <Switch
+            aria-label={`Учётка ${user.email} включена`}
+            checked={user.is_active}
+            onChange={(event) =>
+              change.mutate({ id: user.id, patch: { is_active: event.currentTarget.checked } })
+            }
+          />
+        </Group>
       </Table.Td>
       <Table.Td>
         <Text size="sm" c="dimmed">
@@ -144,6 +150,7 @@ export function UsersPage() {
         <Button
           size="compact-sm"
           variant="default"
+          className="press"
           loading={reset.isPending && reset.variables === user.id}
           onClick={() => reset.mutate(user.id)}
         >
@@ -178,7 +185,7 @@ export function UsersPage() {
 
       <Card className="glass" p="xs">
         <ScrollArea className="scrollSlim" type="auto">
-          <Table highlightOnHover verticalSpacing="sm" horizontalSpacing="md" miw={720}>
+          <Table className="dataTable" verticalSpacing="sm" horizontalSpacing="md" miw={760}>
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>Почта</Table.Th>

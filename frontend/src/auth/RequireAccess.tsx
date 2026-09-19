@@ -15,6 +15,7 @@ import { Alert, Center, Loader } from '@mantine/core';
 import type { ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 
+import { permissionTitle } from '../api/labels';
 import type { Permission } from '../api/types';
 import { useSession } from './AuthProvider';
 
@@ -50,8 +51,8 @@ export function RequireAccess({ children, permission, allowOneTimePassword = fal
   if (permission !== undefined && !user.permissions.includes(permission)) {
     return (
       <Alert color="yellow" title="Раздел недоступен" m="md">
-        Действие «{permission}» не выдано этой учётке. Права выдаёт админ — он же видит, что именно
-        у вас есть.
+        Действие «{permissionTitle(permission)}» не выдано этой учётке. Права выдаёт админ — он же
+        видит, что именно у вас есть.
       </Alert>
     );
   }

@@ -167,6 +167,7 @@ gh pr create --fill && gh pr merge --squash --auto
 | Документ | О чём |
 |---|---|
 | [docs/WEB_LAYER.md](docs/WEB_LAYER.md) | Доступ, роли, админка, экраны, контур API |
+| [docs/UI_RULES.md](docs/UI_RULES.md) | Правила интерфейса: что проверяется на каждом экране |
 | [docs/KEYWORD_MODES.md](docs/KEYWORD_MODES.md) | Два режима ключей: список и генерация пула |
 | [docs/SECURITY.md](docs/SECURITY.md) | Что защищаем, от чего, что уже сделано |
 | [docs/OUTREACH_THREADS.md](docs/OUTREACH_THREADS.md) | Привязка ответов и несколько адресов у донора |
