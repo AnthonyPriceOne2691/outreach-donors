@@ -59,10 +59,16 @@ export function CreateUserModal({ opened, onClose, onCreated }: Props) {
             {...form.getInputProps('role')}
           />
           <Group justify="flex-end">
-            <Button variant="default" onClick={onClose}>
+            <Button variant="subtle" className="press" onClick={onClose}>
               Отмена
             </Button>
-            <Button type="submit" loading={form.submitting}>
+            <Button
+              type="submit"
+              className="press"
+              variant="gradient"
+              gradient={{ from: 'lagoon.5', to: 'lagoon.7', deg: 135 }}
+              loading={form.submitting}
+            >
               Завести
             </Button>
           </Group>

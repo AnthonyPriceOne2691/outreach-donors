@@ -1,0 +1,108 @@
+"""Задачи, которые выполняет воркер.
+
+Задача — это тонкая обёртка над тем же ядром, что зовёт консольная
+команда. Своей логики здесь нет намеренно: правило, появившееся в задаче,
+не проверяется ни тестами ядра, ни тестами веба — оно живёт в третьем
+месте, про которое вспоминают последним.
+
+Асинхронный код запускается своим циклом событий: очередь синхронная,
+и соединения базы обязаны создаваться в том же цикле, в котором
+работают, — иначе первый же запрос падает на «attached to a different
+loop».
+"""
+
+from __future__ import annotations
+
+import asyncio
+from collections.abc import Sequence
+from typing import Any
+
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from backend.config import ahrefs as ahrefs_cfg
+from backend.config import filters, storage
+from backend.config.startup_checks import check_collect, check_storage
+from backend.features.ahrefs.client import AhrefsClient
+from backend.features.donors.repository import DonorRepository
+from backend.features.donors.verdict import Thresholds
+from backend.features.runs.pipeline import RunDeps, RunRequest, execute_run
+from backend.features.runs.repository import RunRepository
+from backend.features.serp.factory import build_provider
+from backend.shared.logs import setup_logging
+
+
+def _thresholds() -> Thresholds:
+    return Thresholds(
+        min_dr=filters.MIN_DR,
+        min_org_traffic=filters.MIN_ORG_TRAFFIC,
+        min_refdomains=filters.MIN_REFDOMAINS,
+        min_keywords=filters.MIN_KEYWORDS,
+    )
+
+
+async def _run(
+    keywords: Sequence[str], country: str, cap: int | None, depth_pages: int
+) -> dict[str, Any]:
+    engine = create_async_engine(storage.DSN)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    client = AhrefsClient()
+    provider = build_provider(client)
+    try:
+        async with factory() as session:
+            runs = RunRepository(session)
+            thresholds = _thresholds()
+            settings = await runs.create_settings(
+                thresholds,
+                geo_top_n=filters.GEO_TOP_N,
+                geo_min_share=filters.GEO_MIN_SHARE,
+                metrics_ttl_days=filters.METRICS_TTL_DAYS,
+                price_ttl_days=filters.PRICE_TTL_DAYS,
+                units_cap=cap or ahrefs_cfg.UNITS_CAP,
+            )
+            report = await execute_run(
+                RunDeps(
+                    provider=provider,
+                    client=client,
+                    donors=DonorRepository(session),
+                    runs=runs,
+                ),
+                RunRequest(
+                    keywords=list(keywords),
+                    country=country,
+                    thresholds=thresholds,
+                    settings_id=settings.id,
+                    cap=cap or ahrefs_cfg.UNITS_CAP,
+                    depth_pages=depth_pages,
+                ),
+            )
+            await session.commit()
+            return {
+                "checked": len(report.plan.new),
+                "by_status": {status.value: n for status, n in report.by_status.items()},
+                "spent_units": report.spent_units,
+                "estimated_units": report.plan.estimate.total,
+            }
+    finally:
+        await client.aclose()
+        await engine.dispose()
+
+
+def run_donor_search(
+    keywords: Sequence[str],
+    country: str,
+    *,
+    cap: int | None = None,
+    depth_pages: int = 1,
+) -> dict[str, Any]:
+    """Прогон от ключей до сохранённых доноров. Возвращает короткий итог:
+    подробности всё равно лежат в базе, а в очереди им не место.
+
+    Проверки конфига здесь те же, что у консольной команды, и это не
+    дублирование: задача из очереди идёт мимо неё, а прогон тратит
+    деньги. Без этой строки первая же проверка проводки в докере ушла
+    в живой Ahrefs и стоила 670 юнитов.
+    """
+    setup_logging()
+    check_storage()
+    check_collect()
+    return asyncio.run(_run(keywords, country, cap, depth_pages))

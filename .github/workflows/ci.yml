@@ -92,3 +92,25 @@ jobs:
 
       - name: Сборка
         run: npm run build
+
+  # Образы собираются в CI по той же причине, по которой тесты гоняются
+  # там же: сломанный Dockerfile иначе обнаруживается при развёртывании,
+  # когда чинить его некогда. Контейнеры здесь не запускаются — это
+  # проверка сборки, а не работы.
+  docker:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Образ сервера и воркера
+        run: docker build --target backend -t outreach-backend:ci .
+
+      - name: Образ фронта
+        run: docker build --target web -t outreach-web:ci .
+
+      - name: Консольная команда внутри образа находит свой код
+        # Ловит ровно тот дефект, который нашёлся живым запуском 19.09.2026:
+        # пустышка пакета в site-packages перекрывала настоящий код, и
+        # `outreach user-add` внутри контейнера падал на импорте.
+        run: docker run --rm outreach-backend:ci outreach --help

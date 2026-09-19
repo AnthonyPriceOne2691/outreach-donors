@@ -1,0 +1,132 @@
+# Весь стек в докере: фронт, сервер, воркер, очередь, база.
+#
+# Отличия от `docker-compose.dev.yml` — не косметика, а разные решения:
+#   • исходники не монтируются: образ и есть то, что работает;
+#   • фронт — собранные файлы под nginx, а не dev-сервер;
+#   • сервер без `--reload`;
+#   • база и очередь наружу не опубликованы: к ним ходят только из сети
+#     докера. Нужен доступ снаружи для разработки — для этого есть
+#     дев-компоуз, который поднимает их отдельно на 5442 и 6389;
+#   • **ни одного значения секрета в этом файле** — он едет в git.
+#     Запись `${VAR:?...}` означает: нет переменной — компоуз не стартует
+#     и называет, чего не хватает, вместо тихого запуска с пустотой.
+#
+# Песочница выдачи включена по умолчанию нарочно: живой ключ тратит
+# деньги, и переключение в боевой режим — решение человека, а не
+# следствие того, что сервис уехал на сервер.
+name: outreach-donors
+
+x-backend-env: &backend-env
+  STORAGE_DSN: "postgresql+asyncpg://outreach:${POSTGRES_PASSWORD:?нужен POSTGRES_PASSWORD}@postgres:5432/outreach"
+  STORAGE_REDIS_URL: "redis://redis:6379/0"
+  ACCESS_JWT_SECRET: "${ACCESS_JWT_SECRET:?нужен ACCESS_JWT_SECRET — без него вход не работает; сгенерировать командой openssl rand -hex 32}"
+  ACCESS_TOKEN_TTL_HOURS: ${ACCESS_TOKEN_TTL_HOURS:-24}
+  ACCESS_LOGIN_ATTEMPTS_PER_MINUTE: ${ACCESS_LOGIN_ATTEMPTS_PER_MINUTE:-10}
+  AHREFS_API_KEY: ${AHREFS_API_KEY:-}
+  AHREFS_UNITS_CAP: ${AHREFS_UNITS_CAP:-100000}
+  SERP_PROVIDER: ${SERP_PROVIDER:-dataforseo}
+  SERP_LOGIN: ${SERP_LOGIN:-}
+  SERP_PASSWORD: ${SERP_PASSWORD:-}
+  SERP_SANDBOX: ${SERP_SANDBOX:-true}
+  LLM_API_KEY: ${LLM_API_KEY:-}
+  CONTACTS_HUNTER_API_KEY: ${CONTACTS_HUNTER_API_KEY:-}
+  LOG_FORMAT: ${LOG_FORMAT:-json}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: outreach
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?нужен POSTGRES_PASSWORD}
+      POSTGRES_DB: outreach
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U outreach -d outreach"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Миграции отдельным одноразовым сервисом, а не командой на старте
+  # сервера: при двух серверах они бы поехали одновременно, и цепочка
+  # применялась бы дважды. Остальные ждут, пока этот завершится успехом.
+  migrate:
+    build:
+      context: .
+      target: backend
+    command: alembic upgrade head
+    environment: *backend-env
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      target: backend
+    environment: *backend-env
+    restart: unless-stopped
+    healthcheck:
+      # Проверка ходит в базу: сервер, отвечающий «жив» с недоступной
+      # базой, заставляет контейнер принимать запросы, каждый из которых
+      # падает.
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    build:
+      context: .
+      target: backend
+    command: python -m backend.workers.main
+    environment: *backend-env
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: .
+      target: web
+    restart: unless-stopped
+    ports:
+      # 8080 занят соседней системой на этой же машине, 80 требует прав.
+      - "${WEB_PORT:-8090}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  redisdata:

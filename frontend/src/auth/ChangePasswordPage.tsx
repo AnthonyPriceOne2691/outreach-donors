@@ -49,7 +49,7 @@ export function ChangePasswordPage() {
 
   return (
     <Center h="100vh">
-      <Card withBorder w={420} p="lg" radius="md">
+      <Card className="glass riseIn" w={440} p="xl">
         <form onSubmit={submit}>
           <Stack>
             <div>
@@ -83,7 +83,14 @@ export function ChangePasswordPage() {
               autoComplete="new-password"
               {...form.getInputProps('repeat')}
             />
-            <Button type="submit" loading={form.submitting}>
+            <Button
+              type="submit"
+              size="md"
+              className="press"
+              variant="gradient"
+              gradient={{ from: 'lagoon.5', to: 'lagoon.7', deg: 135 }}
+              loading={form.submitting}
+            >
               Сменить
             </Button>
           </Stack>

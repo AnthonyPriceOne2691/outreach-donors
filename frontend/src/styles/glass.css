@@ -1,0 +1,546 @@
+/* ============================================================================
+   Жидкое стекло — визуальный язык интерфейса.
+
+   Рецепт (полупрозрачные слои, размывающие то, что под ними, тонкая
+   светящаяся кромка, глубина светом, а не тенями) взят из соседнего
+   проекта того же автора. Взяты и три его вывода, оплаченные там
+   правками по живым скриншотам:
+
+   1) полотно насыщенное, не бледное — стекло размывает то, что под ним,
+      и на бледном фоне размывать нечего: панель выглядит белой плашкой;
+   2) кромка двойная — светлая изнутри, тёмная снаружи; без внешней линии
+      стекло на светлом фоне не читается вовсе;
+   3) у статусов свои чернила — акцент хорош на белой кнопке, но на
+      полупрозрачной пилюле поверх насыщенного полотна сливается с фоном.
+
+   Чем отличается здесь:
+
+   **Другая палитра.** Там индиго-фиолет и полотно из сирени, неба и
+   розового. Здесь — лагуна: бирюза как акцент, тёплый песок и коралл
+   в полотне. Совпадение цвета двух сервисов на одном экране означало бы,
+   что человек не различает их вкладки; и это разные продукты, а не две
+   страницы одного.
+
+   **Стекло прозрачнее.** Заливка ниже (0.42 против 0.55 на свету,
+   0.10 против 0.12 в темноте), размытие сильнее (40 против 32). Плата
+   известна и измерена: чем прозрачнее слой, тем хуже читается текст
+   поверх пёстрого места полотна. Поэтому чернила здесь темнее, а под
+   текстом панели стоит `--glass-fill-strong`, а не обычная заливка.
+
+   **Скругления крупнее** (1.75rem против 1.25rem), кнопки — пилюли.
+   ============================================================================ */
+
+:root {
+  color-scheme: light dark;
+
+  /* Акцент один на весь интерфейс. Мята — только «готово», янтарь —
+     только «нужно внимание», роза — только отказ. */
+  --accent: oklch(64% 0.13 195);
+  --accent-deep: oklch(55% 0.13 195);
+  --mint: oklch(66% 0.15 150);
+  --amber-warm: oklch(78% 0.13 80);
+  --rose-warm: oklch(64% 0.19 20);
+
+  --radius-glass: 1.75rem;
+  --radius-inner: 1.1rem;
+  --blur-glass: 40px;
+
+  --glass-fill: rgb(255 255 255 / 0.42);
+  --glass-fill-strong: rgb(255 255 255 / 0.62);
+  /* Заливка рамы — шапки и колонки. На свету совпадает с плотной,
+     в темноте это, наоборот, тёмный тон: за высокой колонкой стоит
+     цветное пятно, и белёсая заливка поверх него поднимала яркость
+     так, что текст меню давал 4.2 : 1 при норме 4.5. */
+  --glass-fill-frame: rgb(255 255 255 / 0.62);
+  --glass-fill-quiet: rgb(255 255 255 / 0.22);
+  --glass-edge: rgb(255 255 255 / 0.72);
+  /* Волосяная линия-разделитель. Отдельный токен от кромки: кромка светлая
+     (она рисует блик), а разделитель обязан быть темнее фона — на светлой
+     теме белая линия не видна вовсе. */
+  --hairline: rgb(12 40 50 / 0.14);
+  --glass-shadow:
+    0 1px 1px -0.5px rgb(12 40 50 / 0.08), 0 4px 10px -4px rgb(12 40 50 / 0.1),
+    0 24px 48px -22px rgb(12 40 50 / 0.3), 0 0 0 0.5px rgb(12 40 50 / 0.16);
+  --glass-inner: inset 0 1px 0 0 rgb(255 255 255 / 0.9);
+
+  --ink: oklch(23% 0.025 215);
+  --ink-soft: oklch(34% 0.02 215);
+  --ink-faint: oklch(46% 0.018 215);
+
+  --status-accent-ink: oklch(42% 0.12 195);
+  --status-mint-ink: oklch(43% 0.13 150);
+  --status-amber-ink: oklch(47% 0.13 80);
+  --status-rose-ink: oklch(48% 0.18 20);
+  --status-sky-ink: oklch(42% 0.16 245);
+  --status-plum-ink: oklch(44% 0.18 320);
+
+  /* Полотно: лагуна на закате. Тёплые пятна справа и снизу, холодная вода
+     слева — переход между ними и есть то, что размывает стекло. */
+  --canvas:
+    radial-gradient(85% 85% at 8% 0%, oklch(86% 0.1 195) 0%, transparent 58%),
+    radial-gradient(75% 75% at 96% 8%, oklch(90% 0.08 85) 0%, transparent 55%),
+    radial-gradient(95% 95% at 72% 100%, oklch(88% 0.08 25) 0%, transparent 58%),
+    radial-gradient(70% 70% at 22% 96%, oklch(90% 0.08 160) 0%, transparent 55%),
+    linear-gradient(160deg, oklch(96% 0.02 195) 0%, oklch(93% 0.03 225) 100%);
+}
+
+/* --- какая тема действует -------------------------------------------------
+   Решает Mantine, а не система: тема переключается в подвале бокового меню
+   и выбор запоминается. Единственный честный признак «сейчас темно» —
+   атрибут `data-mantine-color-scheme` на `<html>`, который провайдер ставит
+   первым же кадром. Медиазапрос ниже остаётся только для кадра ДО запуска
+   скриптов, где атрибута ещё нет.
+
+   `html:root[...]`, а не просто `[...]` — это вес правила, а не украшение:
+   свои переменные Mantine печатает селектором `:root[data-mantine-color-scheme=…]`
+   и стилем, который приходит позже. Лишнее `html` даёт ровно на один вес
+   больше, и перекраска не уходит в никуда молча. */
+
+html:root[data-mantine-color-scheme='light'] {
+  color-scheme: light;
+
+  /* Чернила Mantine на светлой теме. Шестой оттенок его палитр даёт поверх
+     стекла 2–3.5 : 1 при норме 4.5 — четыре разных повода становятся четырьмя
+     одинаковыми бледными полосами. Поэтому светлые варианты переводятся
+     на статусные чернила, а заливка поднимается: на стекле десятая доля
+     цвета не доживает до экрана. */
+  --mantine-color-dimmed: var(--ink-soft);
+  --mantine-color-anchor: var(--status-accent-ink);
+
+  --mantine-color-red-text: var(--status-rose-ink);
+  --mantine-color-red-light: rgb(250 82 82 / 0.18);
+  --mantine-color-red-light-hover: rgb(250 82 82 / 0.24);
+  --mantine-color-red-light-color: var(--status-rose-ink);
+
+  --mantine-color-orange-text: var(--status-amber-ink);
+  --mantine-color-orange-light: rgb(253 126 20 / 0.18);
+  --mantine-color-orange-light-hover: rgb(253 126 20 / 0.24);
+  --mantine-color-orange-light-color: var(--status-amber-ink);
+
+  --mantine-color-yellow-text: var(--status-amber-ink);
+  --mantine-color-yellow-light: rgb(250 176 5 / 0.24);
+  --mantine-color-yellow-light-hover: rgb(250 176 5 / 0.32);
+  --mantine-color-yellow-light-color: var(--status-amber-ink);
+
+  --mantine-color-green-text: var(--status-mint-ink);
+  --mantine-color-green-light: rgb(64 192 87 / 0.18);
+  --mantine-color-green-light-hover: rgb(64 192 87 / 0.24);
+  --mantine-color-green-light-color: var(--status-mint-ink);
+
+  --mantine-color-teal-text: var(--status-mint-ink);
+  --mantine-color-teal-light: rgb(18 184 134 / 0.18);
+  --mantine-color-teal-light-hover: rgb(18 184 134 / 0.24);
+  --mantine-color-teal-light-color: var(--status-mint-ink);
+
+  --mantine-color-blue-text: var(--status-sky-ink);
+  --mantine-color-blue-light: rgb(34 139 230 / 0.18);
+  --mantine-color-blue-light-hover: rgb(34 139 230 / 0.24);
+  --mantine-color-blue-light-color: var(--status-sky-ink);
+
+  --mantine-color-grape-text: var(--status-plum-ink);
+  --mantine-color-grape-light: rgb(190 75 219 / 0.18);
+  --mantine-color-grape-light-hover: rgb(190 75 219 / 0.24);
+  --mantine-color-grape-light-color: var(--status-plum-ink);
+
+  --mantine-color-gray-text: var(--ink-soft);
+  --mantine-color-gray-light: rgb(12 40 50 / 0.1);
+  --mantine-color-gray-light-hover: rgb(12 40 50 / 0.16);
+  --mantine-color-gray-light-color: var(--ink-soft);
+
+  /* Сам акцент. Шестая ступень хороша заливкой кнопки, но ею же Mantine
+     пишет текст тихих кнопок («Права», «Выйти») — а на стекле это
+     замерено 2.8 : 1 при норме 3. Поэтому у текста своя, более тёмная
+     ступень; заливка кнопок-пилюль не меняется. */
+  --mantine-color-lagoon-text: var(--status-accent-ink);
+  --mantine-color-lagoon-light-color: var(--status-accent-ink);
+  --mantine-color-lagoon-light: rgb(0 150 160 / 0.16);
+  --mantine-color-lagoon-light-hover: rgb(0 150 160 / 0.24);
+}
+
+html:root[data-mantine-color-scheme='dark'] {
+  color-scheme: dark;
+
+  /* Заливка плотнее, чем просит чистый рецепт: сквозь слишком прозрачную
+     панель просвечивает яркое пятно полотна, и на длинной странице это
+     читается как светлая полоса за шапкой — будто заголовок чем-то выделен.
+     Фон закреплён (`background-attachment: fixed`), панели по нему едут,
+     и полоса появлялась бы то у одной, то у другой. */
+  --glass-fill: rgb(255 255 255 / 0.1);
+  --glass-fill-strong: rgb(255 255 255 / 0.15);
+  --glass-fill-frame: rgb(6 16 22 / 0.5);
+  --glass-fill-quiet: rgb(255 255 255 / 0.06);
+  --glass-edge: rgb(255 255 255 / 0.16);
+  --hairline: rgb(255 255 255 / 0.14);
+  --glass-shadow: 0 24px 60px -26px rgb(0 0 0 / 0.72), 0 0 0 0.5px rgb(255 255 255 / 0.06);
+  --glass-inner: inset 0 1px 0 0 rgb(255 255 255 / 0.12);
+
+  --ink: oklch(96% 0.01 200);
+  --ink-soft: oklch(86% 0.015 200);
+  --ink-faint: oklch(72% 0.02 200);
+
+  /* На тёмном полотне статус обязан быть светлее акцента — иначе тот же
+     провал контраста, только в другую сторону. */
+  --status-accent-ink: oklch(86% 0.11 195);
+  --status-mint-ink: oklch(85% 0.13 150);
+  --status-amber-ink: oklch(87% 0.12 80);
+  --status-rose-ink: oklch(81% 0.14 20);
+  --status-sky-ink: oklch(84% 0.11 245);
+  --status-plum-ink: oklch(84% 0.12 320);
+
+  /* Чернила Mantine на тёмной теме. Без этих строк «тихий» текст берёт
+     серый пятой ступени: замерено 2.3 : 1 на пояснении под заголовком
+     и 3.7 : 1 на дате последнего входа — то есть половина таблицы
+     не проходит норму, хотя глазом выглядит нормально. */
+  --mantine-color-text: var(--ink);
+  --mantine-color-dimmed: var(--ink-soft);
+  --mantine-color-anchor: var(--status-accent-ink);
+
+  --mantine-color-lagoon-text: var(--status-accent-ink);
+  /* Светлее статусных чернил на одну ступень: этой переменной красится
+     подсвеченный пункт меню, и поверх собственной подложки пункта
+     замерено 4.4 : 1 при норме 4.5. Чернила статусов при этом трогать
+     нельзя — они меряны на своём фоне. */
+  --mantine-color-lagoon-light-color: oklch(93% 0.08 195);
+  --mantine-color-lagoon-light: rgb(120 230 240 / 0.14);
+  --mantine-color-lagoon-light-hover: rgb(120 230 240 / 0.2);
+
+  --mantine-color-red-text: var(--status-rose-ink);
+  --mantine-color-red-light-color: var(--status-rose-ink);
+  --mantine-color-yellow-text: var(--status-amber-ink);
+  --mantine-color-yellow-light-color: var(--status-amber-ink);
+  --mantine-color-green-text: var(--status-mint-ink);
+  --mantine-color-green-light-color: var(--status-mint-ink);
+  --mantine-color-blue-text: var(--status-sky-ink);
+  --mantine-color-blue-light-color: var(--status-sky-ink);
+  --mantine-color-gray-text: var(--ink-soft);
+  --mantine-color-gray-light-color: var(--ink-soft);
+
+  --canvas:
+    radial-gradient(85% 85% at 8% 0%, oklch(42% 0.11 195) 0%, transparent 58%),
+    radial-gradient(75% 75% at 96% 8%, oklch(36% 0.08 85) 0%, transparent 55%),
+    radial-gradient(95% 95% at 72% 100%, oklch(34% 0.1 25) 0%, transparent 58%),
+    radial-gradient(70% 70% at 22% 96%, oklch(34% 0.09 160) 0%, transparent 55%),
+    linear-gradient(160deg, oklch(17% 0.03 200) 0%, oklch(12% 0.025 230) 100%);
+}
+
+/* Кадр до запуска скриптов: атрибута ещё нет, и белое полотно у человека
+   с тёмной системой вспыхивает на всю страницу. Красится только фон —
+   остальное придёт из блока выше через мгновение, а держать здесь копию
+   всех токенов значило бы две темы, расходящиеся с первой правки. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-mantine-color-scheme]) {
+    color-scheme: dark;
+    --ink: oklch(96% 0.01 200);
+    --canvas: linear-gradient(160deg, oklch(17% 0.03 200) 0%, oklch(12% 0.025 230) 100%);
+  }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--canvas);
+  background-attachment: fixed;
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* --- поверхности ---------------------------------------------------------
+   Стекло — на панелях, шапке и карточках, НЕ на каждой строке таблицы:
+   сотня размывающих элементов на экране заметно просаживает прокрутку. */
+
+/* Блик. Без него полупрозрачная панель читается как матовый пластик:
+   стеклом её делает не только размытие, но и то, что свет идёт по ней
+   от угла. Полоса живёт в фоне панели, а не в псевдоэлементе: абсолютно
+   позиционированный псевдоэлемент рисуется ПОВЕРХ содержимого и
+   подсвечивает текст, а это ровно то, чего стеклу нельзя. */
+:root {
+  --glass-sheen: linear-gradient(
+    135deg,
+    rgb(255 255 255 / 0.5) 0%,
+    rgb(255 255 255 / 0.12) 34%,
+    transparent 58%
+  );
+}
+
+html:root[data-mantine-color-scheme='dark'] {
+  --glass-sheen: linear-gradient(
+    135deg,
+    rgb(255 255 255 / 0.14) 0%,
+    rgb(255 255 255 / 0.04) 34%,
+    transparent 58%
+  );
+}
+
+.glass {
+  position: relative;
+  background-color: var(--glass-fill);
+  background-image: var(--glass-sheen);
+  backdrop-filter: blur(var(--blur-glass)) saturate(185%);
+  -webkit-backdrop-filter: blur(var(--blur-glass)) saturate(185%);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-glass);
+  box-shadow: var(--glass-shadow), var(--glass-inner);
+}
+
+/* Панель под длинным текстом и таблицами: заливка плотнее обычной —
+   это плата за то, что стекло здесь прозрачнее обычного рецепта. */
+.glassPanel {
+  position: relative;
+  background-color: var(--glass-fill-strong);
+  background-image: var(--glass-sheen);
+  backdrop-filter: blur(var(--blur-glass)) saturate(185%);
+  -webkit-backdrop-filter: blur(var(--blur-glass)) saturate(185%);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-glass);
+  box-shadow: var(--glass-shadow), var(--glass-inner);
+}
+
+/* Вложенный блок внутри стекла: второй слой того же рецепта читался бы
+   как грязь — меньше заливки и без тени. */
+.glassFrame {
+  position: relative;
+  background-color: var(--glass-fill-frame);
+  background-image: var(--glass-sheen);
+  backdrop-filter: blur(var(--blur-glass)) saturate(185%);
+  -webkit-backdrop-filter: blur(var(--blur-glass)) saturate(185%);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-glass);
+  box-shadow: var(--glass-shadow), var(--glass-inner);
+}
+
+.glassQuiet {
+  background: var(--glass-fill-quiet);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-inner);
+}
+
+/* Кликабельная строка: кромка держится всегда, прозрачная, и по наведению
+   меняется только её цвет. Иначе наведение добавляет рамку в 1px, бокс
+   становится больше, и элемент дёргается под курсором. */
+.glassSlot {
+  border: 1px solid transparent;
+  border-radius: var(--radius-inner);
+  transition:
+    background 200ms ease,
+    border-color 200ms ease;
+}
+
+.glassSlot:hover {
+  background: var(--glass-fill-quiet);
+  border-color: var(--glass-edge);
+}
+
+.hairline {
+  border-top: 1px solid var(--hairline);
+}
+
+/* --- движение ------------------------------------------------------------
+   Появление экрана: подъём на шесть пикселей с проявлением. Не украшение —
+   переход между экранами иначе выглядит как подмена картинки, и человек
+   на секунду теряет, что изменилось. */
+
+@keyframes riseIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.riseIn {
+  animation: riseIn 260ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+/* Нажатие должно чувствоваться. Только на само нажатие — на наведение
+   элементы не подпрыгивают. */
+.press {
+  transition: transform 140ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.press:active {
+  transform: scale(0.98);
+}
+
+/* Тонкая полоса прокрутки: обычная режет стеклянные панели по краю. */
+.scrollSlim {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--ink-faint) 45%, transparent) transparent;
+}
+
+.scrollSlim::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.scrollSlim::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--ink-faint) 35%, transparent);
+  border-radius: 999px;
+}
+
+.scrollSlim::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* --- то, что стекло размывает ---------------------------------------------
+   Полотно из плавных градиентов даёт красивый фон, но размывать в нём
+   нечего: снимок первой сборки это и показал — панель поверх ровной
+   заливки выглядит белой плашкой, а не стеклом. Размытие видно тогда,
+   когда под ним есть граница цвета.
+
+   Поэтому под содержимым плавают четыре пятна: они медленно едут, и
+   кромка каждого, проходя под панелью, растворяется в ней. Это и есть
+   единственная причина их существования — не украшение, а то, на чём
+   держится весь приём.
+
+   Движение медленное (40–70 секунд на круг) и бесконечное: заметить его
+   можно, только если смотреть специально. Быстрее — и панель начинает
+   мерцать под курсором, а человек здесь работает, а не любуется. */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Размытие пятна намеренно умеренное: на 60px край растворяется ещё
+   до панели, и стеклу опять нечего размывать — снимок второй сборки
+   выглядел как первая. Граница цвета должна доживать до панели
+   резкой — размоет её она сама. */
+.orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(28px);
+  opacity: 0.85;
+  will-change: transform;
+}
+
+.orb1 {
+  width: 30vw;
+  height: 30vw;
+  left: 2vw;
+  top: 4vh;
+  background: radial-gradient(circle, oklch(78% 0.16 195) 0%, transparent 70%);
+  animation: drift1 52s ease-in-out infinite;
+}
+
+.orb2 {
+  width: 26vw;
+  height: 26vw;
+  right: 6vw;
+  top: -4vh;
+  background: radial-gradient(circle, oklch(86% 0.14 85) 0%, transparent 70%);
+  animation: drift2 64s ease-in-out infinite;
+}
+
+.orb3 {
+  width: 34vw;
+  height: 34vw;
+  right: 14vw;
+  bottom: -8vh;
+  background: radial-gradient(circle, oklch(82% 0.13 25) 0%, transparent 70%);
+  animation: drift3 58s ease-in-out infinite;
+}
+
+.orb4 {
+  width: 24vw;
+  height: 24vw;
+  left: 26vw;
+  bottom: -4vh;
+  background: radial-gradient(circle, oklch(84% 0.14 160) 0%, transparent 70%);
+  animation: drift4 70s ease-in-out infinite;
+}
+
+/* В темноте пятна темнее самой панели, а не ярче её. Замер показал,
+   почему это не вкусовщина: пятно под боковой колонкой поднимало её
+   яркость так, что белый текст поверх давал 3.9 : 1 при норме 4.5.
+   Цвет в тёмной теме приходит насыщенностью, а не светом. */
+html:root[data-mantine-color-scheme='dark'] .orb {
+  opacity: 0.5;
+  filter: blur(34px);
+}
+
+html:root[data-mantine-color-scheme='dark'] .orb1 {
+  background: radial-gradient(circle, oklch(38% 0.17 195) 0%, transparent 70%);
+}
+
+html:root[data-mantine-color-scheme='dark'] .orb2 {
+  background: radial-gradient(circle, oklch(34% 0.14 85) 0%, transparent 70%);
+}
+
+html:root[data-mantine-color-scheme='dark'] .orb3 {
+  background: radial-gradient(circle, oklch(33% 0.16 25) 0%, transparent 70%);
+}
+
+html:root[data-mantine-color-scheme='dark'] .orb4 {
+  background: radial-gradient(circle, oklch(35% 0.15 160) 0%, transparent 70%);
+}
+
+@keyframes drift1 {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(16vw, 14vh, 0) scale(1.18);
+  }
+}
+
+@keyframes drift2 {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(-14vw, 18vh, 0) scale(1.12);
+  }
+}
+
+@keyframes drift3 {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(-16vw, -16vh, 0) scale(1.2);
+  }
+}
+
+@keyframes drift4 {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(14vw, -14vh, 0) scale(1.16);
+  }
+}
+
+/* Содержимое всегда выше пятен. Исключение для самого слоя пятен — не
+   придирка: правило с идентификатором весит больше, чем класс, и без
+   `:not()` оно переписывало слою `position: fixed` на `relative`.
+   Пятна при этом схлопывались в ноль высоты и не появлялись вовсе —
+   снимок выглядел так, будто их не добавляли. */
+#root > *:not(.backdrop) {
+  position: relative;
+  z-index: 1;
+}

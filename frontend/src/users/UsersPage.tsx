@@ -14,8 +14,10 @@ import {
   Alert,
   Badge,
   Button,
+  Card,
   Group,
   Loader,
+  ScrollArea,
   Select,
   Stack,
   Switch,
@@ -23,6 +25,7 @@ import {
   Text,
   Title,
 } from '@mantine/core';
+import { IconUserPlus } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -79,6 +82,7 @@ export function UsersPage() {
   });
 
   if (isLoading) return <Loader aria-label="Загружаем учётки" m="md" />;
+
   if (error) {
     return (
       <Alert color="red" title="Список не загрузился" m="md">
@@ -150,30 +154,45 @@ export function UsersPage() {
   ));
 
   return (
-    <Stack p="md">
-      <Group justify="space-between">
-        <Title order={3}>Учётки</Title>
-        <Button onClick={() => setCreating(true)}>Завести учётку</Button>
-      </Group>
+    <Stack gap="lg">
+      <Card className="glassPanel" p="xl">
+        <Group justify="space-between" align="flex-start">
+          <Stack gap={6}>
+            <Title order={3}>Учётки</Title>
+            <Text size="sm" c="dimmed" maw={560}>
+              Учётки не удаляются: вместе с ней ушла бы история действий. Отключённая учётка
+              перестаёт пускать сразу, даже с непросроченным пропуском.
+            </Text>
+          </Stack>
+          <Button
+            className="press"
+            variant="gradient"
+            gradient={{ from: 'lagoon.5', to: 'lagoon.7', deg: 135 }}
+            leftSection={<IconUserPlus size={18} />}
+            onClick={() => setCreating(true)}
+          >
+            Завести учётку
+          </Button>
+        </Group>
+      </Card>
 
-      <Text size="sm" c="dimmed">
-        Учётки не удаляются: вместе с ней ушла бы история действий. Отключённая учётка перестаёт
-        пускать сразу, даже с непросроченным пропуском.
-      </Text>
-
-      <Table striped highlightOnHover>
-        <Table.Thead>
-          <Table.Tr>
-            <Table.Th>Почта</Table.Th>
-            <Table.Th>Роль</Table.Th>
-            <Table.Th>Права</Table.Th>
-            <Table.Th>Включена</Table.Th>
-            <Table.Th>Последний вход</Table.Th>
-            <Table.Th />
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>{rows}</Table.Tbody>
-      </Table>
+      <Card className="glass" p="xs">
+        <ScrollArea className="scrollSlim" type="auto">
+          <Table highlightOnHover verticalSpacing="sm" horizontalSpacing="md" miw={720}>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Почта</Table.Th>
+                <Table.Th>Роль</Table.Th>
+                <Table.Th>Права</Table.Th>
+                <Table.Th>Включена</Table.Th>
+                <Table.Th>Последний вход</Table.Th>
+                <Table.Th />
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>{rows}</Table.Tbody>
+          </Table>
+        </ScrollArea>
+      </Card>
 
       <CreateUserModal
         opened={creating}

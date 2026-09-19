@@ -45,7 +45,15 @@ export function PermissionsPopover({ user, disabled, onChange }: Props) {
   };
 
   return (
-    <Popover opened={opened} onChange={setOpened} position="bottom-end" withArrow shadow="md">
+    <Popover
+      opened={opened}
+      onChange={setOpened}
+      position="bottom-end"
+      withArrow
+      radius="lg"
+      shadow="md"
+      transitionProps={{ transition: 'pop', duration: 180 }}
+    >
       <Popover.Target>
         <Button
           size="compact-sm"
@@ -56,7 +64,7 @@ export function PermissionsPopover({ user, disabled, onChange }: Props) {
           Права ({user.permissions.length})
         </Button>
       </Popover.Target>
-      <Popover.Dropdown>
+      <Popover.Dropdown className="glassPanel">
         <Stack gap="xs" w={320}>
           {ACTIONS.map(({ key, title }) => {
             const override = overrides[key];

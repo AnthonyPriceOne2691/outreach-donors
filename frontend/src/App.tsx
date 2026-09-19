@@ -15,6 +15,7 @@ import { AuthProvider } from './auth/AuthProvider';
 import { ChangePasswordPage } from './auth/ChangePasswordPage';
 import { LoginPage } from './auth/LoginPage';
 import { RequireAccess } from './auth/RequireAccess';
+import { Backdrop } from './layout/Backdrop';
 import { OverviewPage } from './layout/OverviewPage';
 import { Shell } from './layout/Shell';
 import { theme } from './theme';
@@ -72,8 +73,14 @@ export function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <MantineProvider theme={theme} defaultColorScheme="light">
-        <Notifications position="top-right" />
+      {/* Умолчание — как в системе: человек, у которого всё тёмное,
+          не должен встречать сервис вспышкой белого. Выбор руками
+          Mantine запоминает сам. */}
+      <MantineProvider theme={theme} defaultColorScheme="auto">
+        <Backdrop />
+        {/* Снизу, а не сверху: сверху уведомление накрывало шапку
+            с ролью и выходом — видно на снимке первой сборки. */}
+        <Notifications position="bottom-right" />
         <AuthProvider>
           <BrowserRouter>
             <AppRoutes />
