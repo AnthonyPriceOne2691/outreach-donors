@@ -217,3 +217,57 @@ export interface DonorFullCard extends Omit<DonorRowCard, 'contacts'> {
   last_price_at: string | null;
   contacts: ContactCard[];
 }
+
+export interface ThresholdsBody {
+  min_dr: number;
+  min_org_traffic: number;
+  min_refdomains: number;
+  min_keywords: number;
+}
+
+export interface ThresholdsVersion extends ThresholdsBody {
+  version: number;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface ThresholdsView {
+  /** Пусто, пока порогов не заводили: тогда действуют умолчания. */
+  current: ThresholdsVersion | null;
+  defaults: ThresholdsBody;
+  history: ThresholdsVersion[];
+}
+
+export interface ConsequencesView {
+  checked: number;
+  suitable_now: number;
+  suitable_after: number;
+  falls_out: number;
+  falls_out_with_price: number;
+  comes_back: number;
+  unchecked: number;
+}
+
+export type UsageProvider = 'ahrefs' | 'serp' | 'llm' | 'email';
+
+export interface ArticleCard {
+  provider: UsageProvider;
+  operation: string;
+  units: number;
+  amount_usd: string;
+  calls: number;
+}
+
+export interface SpendingView {
+  since: string;
+  articles: ArticleCard[];
+  units_by_provider: Record<string, number>;
+  amount_by_provider: Record<string, string>;
+  total_units: number;
+  total_amount: string;
+  /** Остаток у провайдера. `null` — спросить не удалось; расход при этом
+   *  показывается: своя таблица знает, на что мы потратили. */
+  ahrefs_left: number | null;
+  ahrefs_cap: number;
+  ahrefs_left_error: string | null;
+}

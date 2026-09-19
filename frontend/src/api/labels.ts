@@ -19,6 +19,7 @@ import type {
   Role,
   RunStatus,
   ThreadState,
+  UsageProvider,
 } from './types';
 
 export const PERMISSION_TITLES: Record<Permission, string> = {
@@ -173,4 +174,28 @@ const COUNTRY_TITLES: Record<string, string> = {
 export function countryTitle(code: string): string {
   const title = COUNTRY_TITLES[code];
   return title === undefined ? code : `${title} · ${code}`;
+}
+
+/** На что уходят деньги. Подписи те же, что в отчёте прогона: расход
+ *  и отчёт должны называть одно и то же одинаково. */
+export const USAGE_PROVIDERS: Record<UsageProvider, { title: string; color: string }> = {
+  ahrefs: { title: 'метрики Ahrefs', color: 'lagoon' },
+  serp: { title: 'выдача', color: 'blue' },
+  llm: { title: 'модель', color: 'grape' },
+  email: { title: 'отправка', color: 'teal' },
+};
+
+/** Операции внутри провайдера. Незнакомая показывается как есть —
+ *  новая операция не должна пропадать с экрана расхода. */
+const OPERATION_TITLES: Record<string, string> = {
+  batch_metrics: 'метрики пачкой',
+  by_country: 'страны',
+  dr_screen: 'просев по DR',
+  serp_task: 'запрос выдачи',
+  keywords: 'генерация ключей',
+  judge: 'судья релевантности',
+};
+
+export function operationTitle(operation: string): string {
+  return OPERATION_TITLES[operation] ?? operation;
 }
