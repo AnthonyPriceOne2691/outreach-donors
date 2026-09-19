@@ -799,3 +799,16 @@ html:root[data-mantine-color-scheme='dark'] .orb4 {
   transform: translateY(-2px);
   border-color: color-mix(in oklab, var(--accent) 30%, var(--glass-edge));
 }
+
+/* Подсказка в пустом поле: умолчание Mantine на стекле почти не видно
+   (замерено 1.7 : 1), а подсказка — единственное, что объясняет, чего
+   от поля ждут.
+
+   Селектор с классом, а не просто `input::placeholder`: своё правило
+   Mantine пишет через класс и по весу выигрывает — первая попытка
+   не дала ничего, и замер это показал. */
+.mantine-Input-input::placeholder,
+.mantine-Textarea-input::placeholder {
+  color: var(--ink-soft);
+  opacity: 1;
+}

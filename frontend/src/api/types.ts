@@ -125,3 +125,95 @@ export interface ThreadView {
   letters: LetterCard[];
   incoming: IncomingCard[];
 }
+
+export type DonorStatus = 'suitable' | 'unsuitable' | 'unchecked';
+export type ContactStatus =
+  | 'found'
+  | 'not_found'
+  | 'form_only'
+  | 'no_quota'
+  | 'rate_limited'
+  | 'error';
+export type ContactSource = 'mx' | 'page' | 'rdap' | 'paid' | 'form' | 'manual';
+export type RunStatus = 'estimating' | 'running' | 'done' | 'stopped';
+
+export interface RunRequest {
+  keywords: string[];
+  country: string;
+  depth_pages: number;
+}
+
+export interface Forecast {
+  keywords: number;
+  depth_pages: number;
+  expected_results: number;
+  expected_domains: number;
+  units_screen: number;
+  units_metrics: number;
+  units_by_country: number;
+  units_total: number;
+  units_left: number;
+  units_cap: number;
+  budget: number;
+  /** Помещается ли смета в бюджет. По этому полю блокируется кнопка. */
+  affordable: boolean;
+  shortfall: number;
+}
+
+export interface RunCard {
+  id: number;
+  status: RunStatus;
+  country: string;
+  keywords: number;
+  estimated_units: number | null;
+  actual_units: number | null;
+  /** На сколько смета разошлась с фактом, в долях. */
+  estimate_error: number | null;
+  stats: Record<string, unknown> | null;
+  started_at: string;
+}
+
+export interface RunQueued {
+  job_id: string;
+  note: string;
+}
+
+export interface DonorRowCard {
+  id: number;
+  host: string;
+  status: DonorStatus;
+  reject_reason: string | null;
+  dr: number | null;
+  org_traffic: number | null;
+  geo: string | null;
+  geo_top_share: number | null;
+  contacts: number;
+  contact_status: ContactStatus | null;
+  last_price_usd: string | null;
+  metrics_refreshed_at: string | null;
+  /** Данные ещё в сроке годности: за них уже заплачено. */
+  fresh: boolean;
+}
+
+export interface DonorsPage {
+  rows: DonorRowCard[];
+  total: number;
+  counts: Record<string, number>;
+}
+
+export interface ContactCard {
+  id: number;
+  email: string;
+  source: ContactSource;
+  last_contacted_at: string | null;
+  last_replied_at: string | null;
+}
+
+export interface DonorFullCard extends Omit<DonorRowCard, 'contacts'> {
+  geo_breakdown: { country: string; share: number }[] | null;
+  metrics: Record<string, unknown> | null;
+  expires_at: string | null;
+  contact_attempted_at: string | null;
+  last_price_at: string | null;
+  contacts: ContactCard[];
+}

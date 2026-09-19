@@ -27,7 +27,9 @@ from backend.features.access.passwords import WeakPasswordError
 from backend.features.access.permissions import AccessDeniedError
 from backend.features.access.repository import EmailTakenError
 from backend.features.access.tokens import SecretMissingError, TokenError
+from backend.features.donors.browse import UnknownDonorError
 from backend.features.outreach.repository import UnknownSenderError, UnknownThreadError
+from backend.features.runs.browse import UnknownRunError
 
 #: Отказ → код ответа. Порядок в словаре значения не имеет: FastAPI
 #: выбирает обработчик по точному типу и его предкам.
@@ -37,6 +39,8 @@ STATUSES: dict[type[Exception], int] = {
     AccessDeniedError: status.HTTP_403_FORBIDDEN,
     UnknownUserError: status.HTTP_404_NOT_FOUND,
     UnknownSenderError: status.HTTP_404_NOT_FOUND,
+    UnknownDonorError: status.HTTP_404_NOT_FOUND,
+    UnknownRunError: status.HTTP_404_NOT_FOUND,
     UnknownThreadError: status.HTTP_404_NOT_FOUND,
     EmailTakenError: status.HTTP_409_CONFLICT,
     LastAdminError: status.HTTP_409_CONFLICT,

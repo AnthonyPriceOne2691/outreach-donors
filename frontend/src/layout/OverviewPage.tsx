@@ -42,6 +42,8 @@ export function OverviewPage() {
         <List size="sm" spacing={4}>
           <List.Item>Вход, смена своего пароля</List.Item>
           <List.Item>Учётки: завести, выдать права, сбросить пароль, отключить — админу</List.Item>
+          <List.Item>Прогон: смета до запуска и запуск через очередь</List.Item>
+          <List.Item>Доноры: таблица с фильтрами и карточка с адресами</List.Item>
           <List.Item>Диалоги: список переписок и карточка с распознанными ценами</List.Item>
           <List.Item>
             Домены рассылки: разгон, дневной расход, включение и выключение — админу
@@ -54,7 +56,7 @@ export function OverviewPage() {
           Что пока делается командой
         </Title>
         <List size="sm" spacing={4}>
-          <List.Item>Сборка пула ключей и прогон по выдаче</List.Item>
+          <List.Item>Сборка пула ключей по пресетам углов</List.Item>
           <List.Item>Поиск контактов ступенями</List.Item>
           <List.Item>Отправка писем: ждёт почтовых доменов и шаблона</List.Item>
         </List>

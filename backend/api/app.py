@@ -11,8 +11,10 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from backend.api.auth import routes as auth_routes
+from backend.api.donors import routes as donors_routes
 from backend.api.errors import install
 from backend.api.health import router as health_router
+from backend.api.runs import routes as runs_routes
 from backend.api.senders import routes as senders_routes
 from backend.api.threads import routes as threads_routes
 from backend.api.users import routes as users_routes
@@ -46,6 +48,8 @@ def create_app() -> FastAPI:
     app.include_router(health_router, prefix=API_PREFIX)
     app.include_router(auth_routes.router, prefix=API_PREFIX)
     app.include_router(users_routes.router, prefix=API_PREFIX)
+    app.include_router(runs_routes.router, prefix=API_PREFIX)
+    app.include_router(donors_routes.router, prefix=API_PREFIX)
     app.include_router(senders_routes.router, prefix=API_PREFIX)
     app.include_router(threads_routes.router, prefix=API_PREFIX)
     return app

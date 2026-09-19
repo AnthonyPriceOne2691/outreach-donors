@@ -19,6 +19,9 @@ import { Backdrop } from './layout/Backdrop';
 import { OverviewPage } from './layout/OverviewPage';
 import { Shell } from './layout/Shell';
 import { theme } from './theme';
+import { DonorPage } from './donors/DonorPage';
+import { DonorsPage } from './donors/DonorsPage';
+import { RunPage } from './runs/RunPage';
 import { SendersPage } from './senders/SendersPage';
 import { ThreadPage } from './threads/ThreadPage';
 import { ThreadsPage } from './threads/ThreadsPage';
@@ -55,6 +58,30 @@ export function AppRoutes() {
         }
       >
         <Route path="/" element={<OverviewPage />} />
+        <Route
+          path="/run"
+          element={
+            <RequireAccess permission="view">
+              <RunPage />
+            </RequireAccess>
+          }
+        />
+        <Route
+          path="/donors"
+          element={
+            <RequireAccess permission="view">
+              <DonorsPage />
+            </RequireAccess>
+          }
+        />
+        <Route
+          path="/donors/:id"
+          element={
+            <RequireAccess permission="view">
+              <DonorPage />
+            </RequireAccess>
+          }
+        />
         <Route
           path="/threads"
           element={
