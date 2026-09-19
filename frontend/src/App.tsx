@@ -19,6 +19,9 @@ import { Backdrop } from './layout/Backdrop';
 import { OverviewPage } from './layout/OverviewPage';
 import { Shell } from './layout/Shell';
 import { theme } from './theme';
+import { SendersPage } from './senders/SendersPage';
+import { ThreadPage } from './threads/ThreadPage';
+import { ThreadsPage } from './threads/ThreadsPage';
 import { UsersPage } from './users/UsersPage';
 
 export function createQueryClient(): QueryClient {
@@ -52,6 +55,30 @@ export function AppRoutes() {
         }
       >
         <Route path="/" element={<OverviewPage />} />
+        <Route
+          path="/threads"
+          element={
+            <RequireAccess permission="view">
+              <ThreadsPage />
+            </RequireAccess>
+          }
+        />
+        <Route
+          path="/threads/:id"
+          element={
+            <RequireAccess permission="view">
+              <ThreadPage />
+            </RequireAccess>
+          }
+        />
+        <Route
+          path="/senders"
+          element={
+            <RequireAccess permission="senders">
+              <SendersPage />
+            </RequireAccess>
+          }
+        />
         <Route
           path="/users"
           element={
