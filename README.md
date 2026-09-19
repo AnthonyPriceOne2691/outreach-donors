@@ -42,6 +42,18 @@ docker compose -f docker-compose.dev.yml up -d
 передавать настоящий адрес клиента: иначе счётчик попыток входа видит
 адрес прокси и считает весь интернет одним посетителем.
 
+## Фронт
+
+```bash
+cd frontend && npm ci
+npm run dev            # http://localhost:5173, запросы на /api идут в прокси
+```
+
+Прокси ведёт на `http://127.0.0.1:8100`; другой адрес — `VITE_PROXY_TARGET`.
+Сборка `npm run build`, проверки — `npm run lint`, `npm run typecheck`,
+`npm test`. Тесты интерфейса не ходят в сеть и не поднимают базу: они
+проверяют, что показано и что отправлено, против записанных ответов.
+
 ## Команды
 
 ```bash
@@ -130,6 +142,7 @@ gh pr create --fill && gh pr merge --squash --auto
 ## Раскладка
 
 ```
+frontend/     React 19, Vite, Mantine, TanStack Query — вход и админка
 backend/
   api/        веб-слой: маршруты, схемы запросов, зависимости
   config/     настройки по доменам; обращения к окружению только здесь

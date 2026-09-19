@@ -19,4 +19,16 @@ echo "── Типы ──";                "$PY/mypy" backend/ | tail -1
 echo "── Архитектурные гейты ──"; "$PY/python" scripts/gates.py
 echo "── Ратчет сложности ──";   "$PY/python" scripts/complexity.py
 echo "── Тесты ──";               "$PY/pytest" -q | tail -1
+
+# Фронт проверяется тем же набором, что и в CI. Зависимостей нет —
+# пропускаем с явным сообщением: тихий пропуск однажды превратится
+# в красный CI, который «на машине был зелёный».
+if [ -d frontend/node_modules ]; then
+  echo "── Фронт ──"
+  (cd frontend && npm run lint --silent && npm run format:check --silent >/dev/null \
+    && npm run typecheck --silent && npm test --silent -- --reporter=dot | tail -3)
+else
+  echo "── Фронт ── нет frontend/node_modules, проверит CI (поставить: cd frontend && npm ci)"
+fi
+
 echo "Всё зелёное, отправляю."
