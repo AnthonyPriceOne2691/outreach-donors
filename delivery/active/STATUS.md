@@ -1,7 +1,7 @@
 # Active delivery status
 
 - **slug:** access-foundation (учётки, вход, права, журнал)
-- **stack:** delivery@1.88, cqg@deployed, okf@0.3
+- **stack:** delivery@1.89, cqg@deployed, okf@0.3
 - **class:** M
 - **kind:** feature
 - **phase:** verify
@@ -180,5 +180,9 @@ bankofamerica.com снялось `xxx@xxx.xxx` — заглушка, к кото
 - **new_dependency:** dnspython — запись MX. В стандартной библиотеке запроса
   к DNS нет, а без ступени 0 письма уходят на домены, которые их не принимают
 - **runtime_paths:** db — отбор доноров без контакта и запись исхода пачками;
-  сеть — чужие сайты, RDAP, платный сервис
+  сеть — чужие сайты, RDAP, платный сервис;
+  цепочка миграций с нуля — единственный шаг развёртывания, который до
+  18.09 не исполнялся ни разу (теперь `alembic upgrade head` в сьюте);
+  конвейер логов — поля из `extra` и метка прогона доходят до вывода
+  (Delivery §13.4, проверяется на самом выводе)
 - **waivers:** none
