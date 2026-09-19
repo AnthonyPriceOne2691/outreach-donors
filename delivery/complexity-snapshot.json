@@ -21,10 +21,15 @@
       "complexity": 10,
       "worst": "cmd_contacts:127"
     },
+    "backend/cli/keywords_pool.py": {
+      "lines": 89,
+      "complexity": 5,
+      "worst": "cmd_keywords:41"
+    },
     "backend/cli/main.py": {
-      "lines": 321,
-      "complexity": 9,
-      "worst": "_print_report:190"
+      "lines": 327,
+      "complexity": 10,
+      "worst": "main:294"
     },
     "backend/config/__init__.py": {
       "lines": 1,
@@ -53,6 +58,11 @@
     },
     "backend/config/filters.py": {
       "lines": 41,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/config/llm.py": {
+      "lines": 50,
       "complexity": 0,
       "worst": "—"
     },
@@ -260,6 +270,36 @@
       "lines": 101,
       "complexity": 5,
       "worst": "check_metrics:67"
+    },
+    "backend/features/keywords/__init__.py": {
+      "lines": 2,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/features/keywords/angles.py": {
+      "lines": 133,
+      "complexity": 3,
+      "worst": "preset:116"
+    },
+    "backend/features/keywords/client.py": {
+      "lines": 163,
+      "complexity": 6,
+      "worst": "_content_of:76"
+    },
+    "backend/features/keywords/dedup.py": {
+      "lines": 94,
+      "complexity": 6,
+      "worst": "interleave:57"
+    },
+    "backend/features/keywords/generator.py": {
+      "lines": 205,
+      "complexity": 6,
+      "worst": "_backfill:167"
+    },
+    "backend/features/keywords/hygiene.py": {
+      "lines": 187,
+      "complexity": 12,
+      "worst": "parse_phrases:153"
     },
     "backend/features/runs/__init__.py": {
       "lines": 1,

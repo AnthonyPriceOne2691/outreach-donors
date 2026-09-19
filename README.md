@@ -33,10 +33,15 @@ docker compose -f docker-compose.dev.yml up -d
 .venv/bin/outreach user-add --email ivan@site.com --role admin   # первая учётка
 .venv/bin/outreach user-reset --email ivan@site.com              # новый разовый пароль
 .venv/bin/outreach quota                   # остаток юнитов у провайдера, бесплатно
+.venv/bin/outreach keywords --preset reviews --country Germany --language German --cap 100 --out ключи.txt
 .venv/bin/outreach run --keywords ключи.txt --country us
 .venv/bin/outreach contacts --limit 100    # поиск адресов подходящим донорам
 .venv/bin/outreach contacts --no-paid      # только бесплатные ступени
 ```
+
+Ключи берутся двумя способами: своим списком или сборкой по обкатанному
+пресету — углы, добор и дедупликация происходят внутри
+(`docs/KEYWORD_MODES.md`).
 
 Первая учётка заводится только командой: открытая регистрация «пока база
 пуста» — окно, в которое успевает зайти чужой. Дальше админ заводит
