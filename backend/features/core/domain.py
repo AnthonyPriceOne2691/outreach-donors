@@ -137,6 +137,7 @@ class Permission(StrEnum):
     RUN = "run"  # запускать прогон — это трата юнитов
     SETTINGS = "settings"  # править пороги
     SEND = "send"  # отправлять письма — отдельное право, см. permissions.py
+    SENDERS = "senders"  # домены и ящики рассылки: включать и выключать
     USERS = "users"  # заводить учётки и выдавать права
 
 

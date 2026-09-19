@@ -13,12 +13,15 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from collections.abc import Callable, Coroutine
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.cli.access_admin import cmd_user_add, cmd_user_reset
 from backend.cli.contact_search import cmd_contacts
+from backend.cli.demo_data import cmd_demo_seed
 from backend.cli.keywords_pool import add_parser as add_keywords_parser
 from backend.cli.keywords_pool import cmd_keywords
 from backend.config import ahrefs as ahrefs_cfg
@@ -257,6 +260,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     add_keywords_parser(sub)
 
+    demo = sub.add_parser(
+        "demo-seed",
+        help="выдуманные домены рассылки и переписка — чтобы посмотреть экраны",
+    )
+    demo.add_argument(
+        "--clear",
+        action="store_true",
+        help="убрать выдуманные данные (всё на .example.test), не трогая остальные",
+    )
+
     contacts = sub.add_parser("contacts", help="поиск контактов подходящим донорам")
     contacts.add_argument(
         "--limit", type=int, default=100, help="сколько доноров взять за раз (по умолчанию 100)"
@@ -291,21 +304,23 @@ _FAILURES: tuple[tuple[type[Exception], int, str], ...] = (
 )
 
 
+#: Команда → что выполнить. Таблицей, а не цепочкой `if`: цепочка росла
+#: с каждой новой командой и упёрлась в потолок сложности — а «добавить
+#: команду» не то действие, ради которого стоит переписывать разбор.
+_COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] = {
+    "quota": lambda _: cmd_quota(),
+    "contacts": cmd_contacts,
+    "user-add": cmd_user_add,
+    "user-reset": cmd_user_reset,
+    "keywords": cmd_keywords,
+    "demo-seed": cmd_demo_seed,
+}
+
+
 def main(argv: list[str] | None = None) -> int:
     setup_logging()
     args = build_parser().parse_args(argv)
-    if args.command == "quota":
-        command = cmd_quota()
-    elif args.command == "contacts":
-        command = cmd_contacts(args)
-    elif args.command == "user-add":
-        command = cmd_user_add(args)
-    elif args.command == "user-reset":
-        command = cmd_user_reset(args)
-    elif args.command == "keywords":
-        command = cmd_keywords(args)
-    else:
-        command = cmd_run(args)
+    command = _COMMANDS.get(args.command, cmd_run)(args)
 
     try:
         return asyncio.run(command)

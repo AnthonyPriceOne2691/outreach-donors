@@ -26,6 +26,7 @@ import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { TooManyAttemptsError } from '../api/client';
+import { SERVICE_NAME } from '../brand';
 import { useSession } from './AuthProvider';
 
 interface FromState {
@@ -73,7 +74,7 @@ export function LoginPage() {
         <form onSubmit={submit}>
           <Stack>
             <div>
-              <Title order={3}>Доноры и цены</Title>
+              <Title order={3}>{SERVICE_NAME}</Title>
               <Text size="sm" c="dimmed">
                 Вход для сотрудников
               </Text>

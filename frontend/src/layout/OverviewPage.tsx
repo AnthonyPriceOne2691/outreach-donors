@@ -42,6 +42,10 @@ export function OverviewPage() {
         <List size="sm" spacing={4}>
           <List.Item>Вход, смена своего пароля</List.Item>
           <List.Item>Учётки: завести, выдать права, сбросить пароль, отключить — админу</List.Item>
+          <List.Item>Диалоги: список переписок и карточка с распознанными ценами</List.Item>
+          <List.Item>
+            Домены рассылки: разгон, дневной расход, включение и выключение — админу
+          </List.Item>
         </List>
       </Card>
 
@@ -52,6 +56,7 @@ export function OverviewPage() {
         <List size="sm" spacing={4}>
           <List.Item>Сборка пула ключей и прогон по выдаче</List.Item>
           <List.Item>Поиск контактов ступенями</List.Item>
+          <List.Item>Отправка писем: ждёт почтовых доменов и шаблона</List.Item>
         </List>
         <Text size="sm" c="dimmed" mt="sm">
           Экраны прогона и доноров — следующий срез. Порядок и причины — в проектном документе

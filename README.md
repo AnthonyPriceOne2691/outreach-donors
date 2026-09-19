@@ -101,6 +101,8 @@ npm run dev            # http://localhost:5173, запросы на /api иду�
 .venv/bin/outreach run --keywords ключи.txt --country us
 .venv/bin/outreach contacts --limit 100    # поиск адресов подходящим донорам
 .venv/bin/outreach contacts --no-paid      # только бесплатные ступени
+.venv/bin/outreach demo-seed              # выдуманные домены и переписка — посмотреть экраны
+.venv/bin/outreach demo-seed --clear      # убрать выдуманное
 ```
 
 Ключи берутся двумя способами: своим списком или сборкой по обкатанному

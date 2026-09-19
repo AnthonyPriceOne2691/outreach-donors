@@ -15,6 +15,7 @@ import { useDisclosure } from '@mantine/hooks';
 import { IconLogout } from '@tabler/icons-react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 
+import { SERVICE_NAME } from '../brand';
 import { ROLE_TITLES } from '../api/labels';
 import type { Permission } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
@@ -28,6 +29,8 @@ interface Section {
 
 const SECTIONS: Section[] = [
   { path: '/', title: 'Обзор' },
+  { path: '/threads', title: 'Диалоги', permission: 'view' },
+  { path: '/senders', title: 'Домены рассылки', permission: 'senders' },
   { path: '/users', title: 'Учётки', permission: 'users' },
 ];
 
@@ -65,7 +68,7 @@ export function Shell() {
         >
           <Group gap="sm">
             <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
-            <Title order={4}>Доноры и цены</Title>
+            <Title order={4}>{SERVICE_NAME}</Title>
           </Group>
           <Group gap="sm">
             <Text size="sm" c="dimmed" visibleFrom="sm">
@@ -95,7 +98,11 @@ export function Shell() {
                 key={section.path}
                 label={section.title}
                 className="glassSlot"
-                active={location.pathname === section.path}
+                active={
+                  section.path === '/'
+                    ? location.pathname === '/'
+                    : location.pathname.startsWith(section.path)
+                }
                 variant="light"
                 onClick={() => void navigate(section.path)}
               />

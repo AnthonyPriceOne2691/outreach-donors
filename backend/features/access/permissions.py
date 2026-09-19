@@ -21,6 +21,9 @@ from backend.features.core.domain import Permission, UserRole
 #: Что даёт роль сама по себе.
 ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
     UserRole.ADMIN: frozenset(Permission),
+    # Домены рассылки оператору не положены: включённый заново домен
+    # начинает разгон заново, и ошибка здесь стоит репутации домена,
+    # а она не восстанавливается.
     UserRole.OPERATOR: frozenset({Permission.VIEW, Permission.RUN, Permission.SETTINGS}),
 }
 
