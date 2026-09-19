@@ -56,3 +56,39 @@ jobs:
 
       - name: Тесты
         run: pytest
+
+  # Фронт проверяется отдельной работой: он не зависит ни от базы, ни от
+  # питона, и держать его в одной работе значит ждать поднятия постгреса
+  # ради проверки типов в TypeScript.
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Установить зависимости
+        run: npm ci
+
+      - name: Линтер
+        run: npm run lint
+
+      - name: Форматирование
+        run: npm run format:check
+
+      - name: Типы
+        run: npm run typecheck
+
+      - name: Тесты
+        run: npm test
+
+      - name: Сборка
+        run: npm run build
