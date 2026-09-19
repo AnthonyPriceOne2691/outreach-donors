@@ -34,6 +34,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
 import { countryTitle, RUN_STATUSES } from '../api/labels';
+import { Metric } from '../components/Metric';
 import { estimateRun, fetchCountries, listRuns, startRun } from '../api/runs';
 import type { Forecast } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
@@ -49,54 +50,28 @@ function parseKeywords(text: string): string[] {
     .filter((line) => line !== '');
 }
 
-function Number({
-  title,
-  value,
-  hint,
-}: {
-  title: string;
-  value: string;
-  hint?: string | undefined;
-}) {
-  return (
-    <Card className="glassQuiet" p="md">
-      <Text size="xs" c="dimmed">
-        {title}
-      </Text>
-      <Text fw={600} fz="xl">
-        {value}
-      </Text>
-      {hint !== undefined && (
-        <Text size="xs" c="dimmed">
-          {hint}
-        </Text>
-      )}
-    </Card>
-  );
-}
-
 function Estimate({ forecast }: { forecast: Forecast }) {
   return (
     <Stack gap="sm">
       <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
-        <Number
+        <Metric
           title="Результатов выдачи"
-          value={String(forecast.expected_results)}
+          value={forecast.expected_results}
           hint={`${forecast.keywords} ключей × ${forecast.depth_pages} стр.`}
         />
-        <Number
+        <Metric
           title="Уникальных доменов"
           value={`≈ ${forecast.expected_domains}`}
           hint="83% схлопывается в дубли — по замеру"
         />
-        <Number
+        <Metric
           title="Юнитов Ahrefs"
           value={`до ${forecast.units_total}`}
           hint={`просев ${forecast.units_screen} · метрики ${forecast.units_metrics} · гео ${forecast.units_by_country}`}
         />
-        <Number
+        <Metric
           title="Бюджет прогона"
-          value={String(forecast.budget)}
+          value={forecast.budget}
           hint={`остаток ${forecast.units_left}, кап ${forecast.units_cap}`}
         />
       </SimpleGrid>

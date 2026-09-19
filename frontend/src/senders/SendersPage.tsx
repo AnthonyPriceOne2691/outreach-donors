@@ -11,37 +11,19 @@
  * значит добить репутацию, которая и так пошатнулась.
  */
 
-import {
-  Alert,
-  Badge,
-  Button,
-  Card,
-  Group,
-  Loader,
-  Progress,
-  Stack,
-  Text,
-  Title,
-  Tooltip,
-} from '@mantine/core';
+import { Alert, Card, Loader, Stack, Text, Title } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { disableSender, enableSender, listSenders } from '../api/outreach';
 import type { SenderCard } from '../api/types';
+import { SenderCard as DomainCard } from './SenderCard';
+import type { DomainGroup } from './SenderCard';
 
 const SENDERS_QUERY_KEY = ['senders'] as const;
 
 function refusalOf(error: unknown): string {
   return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
-}
-
-interface DomainGroup {
-  domain: string;
-  boxes: SenderCard[];
-  enabled: boolean;
-  sentToday: number;
-  allowance: number;
 }
 
 function groupByDomain(senders: SenderCard[]): DomainGroup[] {
@@ -120,79 +102,16 @@ export function SendersPage() {
         </Stack>
       </Card>
 
-      {groups.map((group) => (
-        <Card key={group.domain} className="glass liftable" p="lg">
-          <Group justify="space-between" align="flex-start" wrap="nowrap">
-            <Stack gap="xs" style={{ flex: 1 }}>
-              <Group gap="sm">
-                <Title order={5}>{group.domain}</Title>
-                <Badge variant="light" color={group.enabled ? 'green' : 'gray'}>
-                  {group.enabled ? 'отправляет' : 'выключен'}
-                </Badge>
-                {group.boxes.some((box) => !box.warmup_finished && box.enabled) && (
-                  <Badge variant="light" color="blue">
-                    разгон, день {Math.max(...group.boxes.map((box) => box.warmup_day))}
-                  </Badge>
-                )}
-              </Group>
-
-              <Text size="sm" c="dimmed">
-                Ящиков {group.boxes.length}. Сегодня ушло {group.sentToday} из {group.allowance} —
-                потолок дня, а не дневной кап: на разгоне он ниже.
-              </Text>
-
-              <Progress
-                value={
-                  group.allowance === 0
-                    ? 0
-                    : Math.min(100, (group.sentToday / group.allowance) * 100)
-                }
-                color={group.enabled ? 'lagoon' : 'gray'}
-                radius="xl"
-                size="sm"
-                maw={420}
-              />
-
-              {group.boxes.map((box) => (
-                <Group key={box.id} gap="xs" className="glassSlot" p="xs">
-                  <Text size="sm">{box.email}</Text>
-                  <Text size="xs" c="dimmed">
-                    {box.sent_today} / {box.warmup_allowance} писем сегодня
-                  </Text>
-                  {box.pause_reason !== null && (
-                    <Badge variant="light" color="yellow">
-                      {box.pause_reason}
-                    </Badge>
-                  )}
-                </Group>
-              ))}
-            </Stack>
-
-            <Tooltip
-              label={
-                group.enabled
-                  ? 'Домен перестанет получать новые письма'
-                  : 'Разгон начнётся с начала: полный кап сразу — это добить пошатнувшуюся репутацию'
-              }
-              multiline
-              w={260}
-              withArrow
-            >
-              <Button
-                className="press"
-                variant={group.enabled ? 'default' : 'gradient'}
-                gradient={{ from: 'lagoon.5', to: 'lagoon.7', deg: 135 }}
-                loading={
-                  switchDomain.isPending && switchDomain.variables?.group.domain === group.domain
-                }
-                onClick={() => switchDomain.mutate({ group, on: !group.enabled })}
-              >
-                {group.enabled ? 'Выключить' : 'Включить с начала разгона'}
-              </Button>
-            </Tooltip>
-          </Group>
-        </Card>
-      ))}
+      <Stack gap="sm">
+        {groups.map((group) => (
+          <DomainCard
+            key={group.domain}
+            group={group}
+            busy={switchDomain.isPending && switchDomain.variables?.group.domain === group.domain}
+            onSwitch={(on) => switchDomain.mutate({ group, on })}
+          />
+        ))}
+      </Stack>
     </Stack>
   );
 }

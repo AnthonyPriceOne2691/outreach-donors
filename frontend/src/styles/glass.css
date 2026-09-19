@@ -81,13 +81,23 @@
   --status-plum-ink: oklch(44% 0.18 320);
 
   /* Полотно: лагуна на закате. Тёплые пятна справа и снизу, холодная вода
-     слева — переход между ними и есть то, что размывает стекло. */
-  --canvas:
+     слева — переход между ними и есть то, что размывает стекло.
+
+     Оба полотна объявлены сразу и всегда: слои переливаются прозрачностью,
+     и каждому нужен свой градиент независимо от текущей темы. */
+  --canvas-base: oklch(95% 0.02 200);
+  --canvas-light:
     radial-gradient(85% 85% at 8% 0%, oklch(86% 0.1 195) 0%, transparent 58%),
     radial-gradient(75% 75% at 96% 8%, oklch(90% 0.08 85) 0%, transparent 55%),
     radial-gradient(95% 95% at 72% 100%, oklch(88% 0.08 25) 0%, transparent 58%),
     radial-gradient(70% 70% at 22% 96%, oklch(90% 0.08 160) 0%, transparent 55%),
     linear-gradient(160deg, oklch(96% 0.02 195) 0%, oklch(93% 0.03 225) 100%);
+  --canvas-dark:
+    radial-gradient(85% 85% at 8% 0%, oklch(42% 0.11 195) 0%, transparent 58%),
+    radial-gradient(75% 75% at 96% 8%, oklch(36% 0.08 85) 0%, transparent 55%),
+    radial-gradient(95% 95% at 72% 100%, oklch(34% 0.1 25) 0%, transparent 58%),
+    radial-gradient(70% 70% at 22% 96%, oklch(34% 0.09 160) 0%, transparent 55%),
+    linear-gradient(160deg, oklch(17% 0.03 200) 0%, oklch(12% 0.025 230) 100%);
 }
 
 /* --- какая тема действует -------------------------------------------------
@@ -222,12 +232,7 @@ html:root[data-mantine-color-scheme='dark'] {
   --mantine-color-gray-text: var(--ink-soft);
   --mantine-color-gray-light-color: var(--ink-soft);
 
-  --canvas:
-    radial-gradient(85% 85% at 8% 0%, oklch(42% 0.11 195) 0%, transparent 58%),
-    radial-gradient(75% 75% at 96% 8%, oklch(36% 0.08 85) 0%, transparent 55%),
-    radial-gradient(95% 95% at 72% 100%, oklch(34% 0.1 25) 0%, transparent 58%),
-    radial-gradient(70% 70% at 22% 96%, oklch(34% 0.09 160) 0%, transparent 55%),
-    linear-gradient(160deg, oklch(17% 0.03 200) 0%, oklch(12% 0.025 230) 100%);
+  --canvas-base: oklch(14% 0.025 215);
 }
 
 /* Кадр до запуска скриптов: атрибута ещё нет, и белое полотно у человека
@@ -238,7 +243,7 @@ html:root[data-mantine-color-scheme='dark'] {
   :root:not([data-mantine-color-scheme]) {
     color-scheme: dark;
     --ink: oklch(96% 0.01 200);
-    --canvas: linear-gradient(160deg, oklch(17% 0.03 200) 0%, oklch(12% 0.025 230) 100%);
+    --canvas-base: oklch(14% 0.025 215);
   }
 }
 
@@ -250,10 +255,65 @@ body,
 
 body {
   margin: 0;
-  background: var(--canvas);
-  background-attachment: fixed;
+  /* Ровный тон под слоями полотна: он виден только в момент, когда оба
+     слоя ещё не отрисованы, и меняется плавно вместе с темой. */
+  background-color: var(--canvas-base);
   color: var(--ink);
   -webkit-font-smoothing: antialiased;
+  transition:
+    background-color 420ms ease,
+    color 320ms ease;
+}
+
+/* --- смена темы --------------------------------------------------------
+   Градиент в градиент не перетекает — браузер меняет его рывком. Поэтому
+   полотно лежит двумя закреплёнными слоями, светлым и тёмным, и при
+   смене темы они переливаются прозрачностью. Один слой с переменной
+   внутри давал бы ту же вспышку, из-за которой всё и затевалось. */
+
+.canvasLayer {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-attachment: fixed;
+  transition: opacity 420ms ease;
+}
+
+.canvasLight {
+  background: var(--canvas-light);
+  opacity: 1;
+}
+
+.canvasDark {
+  background: var(--canvas-dark);
+  opacity: 0;
+}
+
+html:root[data-mantine-color-scheme='dark'] .canvasLight {
+  opacity: 0;
+}
+
+html:root[data-mantine-color-scheme='dark'] .canvasDark {
+  opacity: 1;
+}
+
+/* Поверхности и чернила перетекают тоже: без этого стекло меняет цвет
+   мгновенно, а полотно под ним — плавно, и переход выглядит поломкой. */
+.glass,
+.glassPanel,
+.glassFrame,
+.glassSolid,
+.glassQuiet,
+.mantine-AppShell-main,
+.mantine-Card-root,
+.mantine-Table-table,
+.mantine-Badge-root,
+.mantine-Button-root,
+.mantine-Input-input {
+  transition-property: background-color, border-color, color, box-shadow;
+  transition-duration: 420ms;
+  transition-timing-function: ease;
 }
 
 /* --- поверхности ---------------------------------------------------------
@@ -447,9 +507,17 @@ html:root[data-mantine-color-scheme='dark'] {
 .orb {
   position: absolute;
   border-radius: 50%;
+  /* Цвет задаётся `color`, а не градиентом: градиент в градиент браузер
+     не перетекает, а цвет перетекает — на нём и держится плавная смена
+     темы. */
+  background: radial-gradient(circle, currentColor 0%, transparent 70%);
   filter: blur(28px);
   opacity: 0.85;
   will-change: transform;
+  transition:
+    color 420ms ease,
+    opacity 420ms ease,
+    filter 420ms ease;
 }
 
 .orb1 {
@@ -457,7 +525,7 @@ html:root[data-mantine-color-scheme='dark'] {
   height: 30vw;
   left: 2vw;
   top: 4vh;
-  background: radial-gradient(circle, oklch(78% 0.16 195) 0%, transparent 70%);
+  color: oklch(78% 0.16 195);
   animation: drift1 52s ease-in-out infinite;
 }
 
@@ -466,7 +534,7 @@ html:root[data-mantine-color-scheme='dark'] {
   height: 26vw;
   right: 6vw;
   top: -4vh;
-  background: radial-gradient(circle, oklch(86% 0.14 85) 0%, transparent 70%);
+  color: oklch(86% 0.14 85);
   animation: drift2 64s ease-in-out infinite;
 }
 
@@ -475,7 +543,7 @@ html:root[data-mantine-color-scheme='dark'] {
   height: 34vw;
   right: 14vw;
   bottom: -8vh;
-  background: radial-gradient(circle, oklch(82% 0.13 25) 0%, transparent 70%);
+  color: oklch(82% 0.13 25);
   animation: drift3 58s ease-in-out infinite;
 }
 
@@ -484,7 +552,7 @@ html:root[data-mantine-color-scheme='dark'] {
   height: 24vw;
   left: 26vw;
   bottom: -4vh;
-  background: radial-gradient(circle, oklch(84% 0.14 160) 0%, transparent 70%);
+  color: oklch(84% 0.14 160);
   animation: drift4 70s ease-in-out infinite;
 }
 
@@ -498,19 +566,19 @@ html:root[data-mantine-color-scheme='dark'] .orb {
 }
 
 html:root[data-mantine-color-scheme='dark'] .orb1 {
-  background: radial-gradient(circle, oklch(38% 0.17 195) 0%, transparent 70%);
+  color: oklch(38% 0.17 195);
 }
 
 html:root[data-mantine-color-scheme='dark'] .orb2 {
-  background: radial-gradient(circle, oklch(34% 0.14 85) 0%, transparent 70%);
+  color: oklch(34% 0.14 85);
 }
 
 html:root[data-mantine-color-scheme='dark'] .orb3 {
-  background: radial-gradient(circle, oklch(33% 0.16 25) 0%, transparent 70%);
+  color: oklch(33% 0.16 25);
 }
 
 html:root[data-mantine-color-scheme='dark'] .orb4 {
-  background: radial-gradient(circle, oklch(35% 0.15 160) 0%, transparent 70%);
+  color: oklch(35% 0.15 160);
 }
 
 @keyframes drift1 {
@@ -811,4 +879,26 @@ html:root[data-mantine-color-scheme='dark'] .orb4 {
 .mantine-Textarea-input::placeholder {
   color: var(--ink-soft);
   opacity: 1;
+}
+
+/* Сегменты переключателя тем: подпись и значок перетекают вместе
+   с подвижной подложкой, а не перекрашиваются рывком в её середине. */
+.mantine-SegmentedControl-label,
+.mantine-SegmentedControl-label svg {
+  transition:
+    color 260ms ease,
+    opacity 260ms ease;
+}
+
+/* --- поля в ряд ----------------------------------------------------------
+   Пояснения у полей разной длины, и без отведённого места сами поля
+   встают на разной высоте — ряд «пляшет» (видно на снимке экрана
+   порогов). Место отводится по самому длинному: две строки. */
+
+.fieldRow .mantine-InputWrapper-description {
+  min-height: 2.6em;
+}
+
+.fieldRow .mantine-InputWrapper-label {
+  min-height: 1.6em;
 }

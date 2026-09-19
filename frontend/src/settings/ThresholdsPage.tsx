@@ -35,6 +35,7 @@ import { useEffect, useState } from 'react';
 
 import { fetchThresholds, previewThresholds, saveThresholds } from '../api/settings';
 import type { ThresholdsBody } from '../api/types';
+import { Metric } from '../components/Metric';
 import { useSession } from '../auth/AuthProvider';
 
 const THRESHOLDS_KEY = ['thresholds'] as const;
@@ -119,10 +120,10 @@ export function ThresholdsPage() {
             </Text>
           </Stack>
 
-          <SimpleGrid cols={{ base: 2, md: 4 }} spacing="md">
+          <SimpleGrid cols={{ base: 2, md: 4 }} spacing="md" className="fieldRow">
             <NumberInput
               label="DR не ниже"
-              description="первая ступень: 2 юнита на домен"
+              description="первая ступень отбора, 2 юнита на домен"
               min={0}
               max={90}
               disabled={!canEdit}
@@ -196,41 +197,15 @@ export function ThresholdsPage() {
           ) : (
             <Stack gap="sm">
               <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
-                <Card className="glassQuiet" p="md">
-                  <Text size="xs" c="dimmed">
-                    Подходит сейчас
-                  </Text>
-                  <Text fw={600} fz="xl">
-                    {preview.data.suitable_now}
-                  </Text>
-                </Card>
-                <Card className="glassQuiet" p="md">
-                  <Text size="xs" c="dimmed">
-                    Будет подходить
-                  </Text>
-                  <Text fw={600} fz="xl">
-                    {preview.data.suitable_after}
-                  </Text>
-                </Card>
-                <Card className="glassQuiet" p="md">
-                  <Text size="xs" c="dimmed">
-                    Выпадет из базы
-                  </Text>
-                  <Text fw={600} fz="xl" c={preview.data.falls_out > 0 ? 'yellow' : 'inherit'}>
-                    {preview.data.falls_out}
-                  </Text>
-                  <Text size="xs" c="dimmed">
-                    из них с ценой: {preview.data.falls_out_with_price}
-                  </Text>
-                </Card>
-                <Card className="glassQuiet" p="md">
-                  <Text size="xs" c="dimmed">
-                    Вернётся в базу
-                  </Text>
-                  <Text fw={600} fz="xl">
-                    {preview.data.comes_back}
-                  </Text>
-                </Card>
+                <Metric title="Подходит сейчас" value={preview.data.suitable_now} />
+                <Metric title="Будет подходить" value={preview.data.suitable_after} />
+                <Metric
+                  title="Выпадет из базы"
+                  value={preview.data.falls_out}
+                  color={preview.data.falls_out > 0 ? 'yellow' : undefined}
+                  hint={`из них с ценой: ${preview.data.falls_out_with_price}`}
+                />
+                <Metric title="Вернётся в базу" value={preview.data.comes_back} />
               </SimpleGrid>
 
               {preview.data.falls_out_with_price > 0 && (
