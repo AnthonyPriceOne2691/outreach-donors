@@ -145,7 +145,14 @@ export const theme = createTheme({
           border: '1px solid var(--glass-edge)',
           boxShadow: 'none',
         },
-        label: { color: 'var(--ink-soft)' },
+        // Значок в сегменте — строчный элемент, и без выравнивания он
+        // садится на базовую линию текста, то есть выше середины.
+        label: {
+          color: 'var(--ink-soft)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        },
       },
     }),
     Switch: Switch.extend({ defaultProps: { radius: 'xl' } }),

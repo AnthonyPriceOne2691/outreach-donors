@@ -9,14 +9,19 @@
  * атрибут на `<html>`, по которому красится полотно и стекло.
  */
 
-import { SegmentedControl, Tooltip } from '@mantine/core';
-import { useMantineColorScheme } from '@mantine/core';
+import { SegmentedControl, Tooltip, useMantineColorScheme } from '@mantine/core';
 import { IconDeviceLaptop, IconMoon, IconSun } from '@tabler/icons-react';
 
 const SIZE = 16;
 
 export function ThemeToggle() {
-  const { colorScheme, setColorScheme } = useMantineColorScheme();
+  // `keepTransitions` — не украшение. Mantine на время переключения
+  // вставляет в документ `*, *::before, *::after { transition: none }`
+  // на десять миллисекунд: так он борется с миганием у тех, у кого
+  // переходов нет вовсе. У нас полотно переливается двумя слоями, и это
+  // правило убивало ровно то, ради чего слои и заведены, — смена темы
+  // выглядела мгновенной, хотя всё для перехода было на месте.
+  const { colorScheme, setColorScheme } = useMantineColorScheme({ keepTransitions: true });
 
   return (
     <SegmentedControl
