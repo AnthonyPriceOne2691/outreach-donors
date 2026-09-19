@@ -22,7 +22,7 @@
       "worst": "cmd_contacts:127"
     },
     "backend/cli/main.py": {
-      "lines": 320,
+      "lines": 321,
       "complexity": 9,
       "worst": "_print_report:190"
     },
@@ -67,7 +67,7 @@
       "worst": "—"
     },
     "backend/config/serp.py": {
-      "lines": 29,
+      "lines": 40,
       "complexity": 0,
       "worst": "—"
     },
@@ -285,6 +285,16 @@
       "lines": 74,
       "complexity": 5,
       "worst": "_take_organic:58"
+    },
+    "backend/features/serp/dataforseo.py": {
+      "lines": 305,
+      "complexity": 10,
+      "worst": "_fetch:255"
+    },
+    "backend/features/serp/factory.py": {
+      "lines": 64,
+      "complexity": 7,
+      "worst": "build_provider:34"
     },
     "backend/features/serp/protocol.py": {
       "lines": 52,

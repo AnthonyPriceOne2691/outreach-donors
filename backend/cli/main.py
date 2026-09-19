@@ -40,7 +40,7 @@ from backend.features.runs.pipeline import (
     units_left,
 )
 from backend.features.runs.repository import RunRepository
-from backend.features.serp.ahrefs_serp import AhrefsSerpProvider
+from backend.features.serp.factory import UnknownProviderError, build_provider
 from backend.shared.logs import setup_logging
 
 EXIT_OK = 0
@@ -126,7 +126,7 @@ async def cmd_run(args: argparse.Namespace) -> int:
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     client = AhrefsClient()
-    provider = AhrefsSerpProvider(client)
+    provider = build_provider(client)
 
     try:
         async with factory() as session:
@@ -280,6 +280,7 @@ def build_parser() -> argparse.ArgumentParser:
 # не приходится ни тому, ни другому.
 _FAILURES: tuple[tuple[type[Exception], int, str], ...] = (
     (ConfigError, EXIT_MISCONFIGURED, "Не хватает настроек"),
+    (UnknownProviderError, EXIT_MISCONFIGURED, "Источник выдачи не выбран"),
     (CapExceededError, EXIT_CAP_EXCEEDED, "Прогон не запущен"),
     (QuotaUnavailableError, EXIT_QUOTA_UNAVAILABLE, "Прогон не запущен"),
     (AhrefsError, EXIT_PROVIDER_FAILED, "Провайдер не ответил"),

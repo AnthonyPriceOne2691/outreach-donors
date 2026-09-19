@@ -16,6 +16,14 @@ class _Serp(DomainSettings):
     depth_pages: int = Field(default=1, validation_alias="SERP_DEPTH_PAGES")
     # Ключей за прогон. Приёмка идёт на 500 — это пять прогонов.
     max_keywords_per_run: int = Field(default=100, validation_alias="SERP_MAX_KEYWORDS_PER_RUN")
+    # Песочница провайдера: те же схемы и учётка, ответы выдуманные,
+    # стоимость ноль. Режим для проверки проводки — через тестовую учётку
+    # не должно проходить ни боевых данных, ни денег.
+    sandbox: bool = Field(default=False, validation_alias="SERP_SANDBOX")
+    # Отложенный режим: задача ставится, результат забирается опросом.
+    # Пауза и число попыток дают потолок ожидания на пачку.
+    poll_interval_s: float = Field(default=5.0, validation_alias="SERP_POLL_INTERVAL_S")
+    poll_attempts: int = Field(default=24, validation_alias="SERP_POLL_ATTEMPTS")
 
 
 _s = _Serp()
@@ -26,3 +34,6 @@ PASSWORD: str = _s.password
 TIMEOUT_S: float = _s.timeout_s
 DEPTH_PAGES: int = _s.depth_pages
 MAX_KEYWORDS_PER_RUN: int = _s.max_keywords_per_run
+SANDBOX: bool = _s.sandbox
+POLL_INTERVAL_S: float = _s.poll_interval_s
+POLL_ATTEMPTS: int = _s.poll_attempts
