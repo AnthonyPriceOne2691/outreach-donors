@@ -29,6 +29,8 @@ interface Section {
 
 const SECTIONS: Section[] = [
   { path: '/', title: 'Обзор' },
+  { path: '/run', title: 'Прогон', permission: 'view' },
+  { path: '/donors', title: 'Доноры', permission: 'view' },
   { path: '/threads', title: 'Диалоги', permission: 'view' },
   { path: '/senders', title: 'Домены рассылки', permission: 'senders' },
   { path: '/users', title: 'Учётки', permission: 'users' },

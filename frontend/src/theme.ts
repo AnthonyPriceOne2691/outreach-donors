@@ -12,6 +12,7 @@ import {
   PasswordInput,
   Paper,
   Select,
+  Textarea,
   TextInput,
   rem,
 } from '@mantine/core';
@@ -84,6 +85,9 @@ export const theme = createTheme({
     TextInput: TextInput.extend({ defaultProps: { radius: 'xl' }, styles: glassField }),
     PasswordInput: PasswordInput.extend({ defaultProps: { radius: 'xl' }, styles: glassField }),
     NumberInput: NumberInput.extend({ defaultProps: { radius: 'xl' }, styles: glassField }),
+    // Многострочное поле — то же стекло: белая простыня посреди
+    // полупрозрачной панели видна первой, а это всего лишь поле ввода.
+    Textarea: Textarea.extend({ defaultProps: { radius: 'lg' }, styles: glassField }),
     Select: Select.extend({
       defaultProps: {
         radius: 'xl',
