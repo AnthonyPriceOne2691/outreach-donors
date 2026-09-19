@@ -1,0 +1,65 @@
+"""Перевод отказов ядра в ответы HTTP.
+
+Зачем отдельно: обработчику иначе пришлось бы ловить каждое исключение
+руками, и однажды один из них забудут — маршрут ответит пятисоткой там,
+где отказ был предусмотрен. Ядро при этом остаётся без веба: коды
+знает только этот файл.
+
+**Текст отказа доходит до человека целиком.** Сообщения ядра написаны
+так, чтобы говорить, что делать; заменять их на «Bad Request» значит
+выбрасывать ровно ту часть, ради которой они писались.
+"""
+
+from __future__ import annotations
+
+from fastapi import FastAPI, Request, status
+from fastapi.responses import JSONResponse
+
+from backend.features.access.administration import (
+    LastAdminError,
+    SelfLockoutError,
+    UnknownUserError,
+    WrongPasswordError,
+)
+from backend.features.access.attempts import TooManyAttemptsError
+from backend.features.access.login import LoginFailedError
+from backend.features.access.passwords import WeakPasswordError
+from backend.features.access.permissions import AccessDeniedError
+from backend.features.access.repository import EmailTakenError
+from backend.features.access.tokens import SecretMissingError, TokenError
+
+#: Отказ → код ответа. Порядок в словаре значения не имеет: FastAPI
+#: выбирает обработчик по точному типу и его предкам.
+STATUSES: dict[type[Exception], int] = {
+    LoginFailedError: status.HTTP_401_UNAUTHORIZED,
+    TokenError: status.HTTP_401_UNAUTHORIZED,
+    AccessDeniedError: status.HTTP_403_FORBIDDEN,
+    UnknownUserError: status.HTTP_404_NOT_FOUND,
+    EmailTakenError: status.HTTP_409_CONFLICT,
+    LastAdminError: status.HTTP_409_CONFLICT,
+    SelfLockoutError: status.HTTP_409_CONFLICT,
+    WeakPasswordError: status.HTTP_400_BAD_REQUEST,
+    WrongPasswordError: status.HTTP_400_BAD_REQUEST,
+    TooManyAttemptsError: status.HTTP_429_TOO_MANY_REQUESTS,
+    # Секрета подписи нет — это поломка развёртывания, а не запроса.
+    # Ответ честно говорит об этом пятисоткой и называет переменную:
+    # в логах иначе останется «internal error» без единой подсказки.
+    SecretMissingError: status.HTTP_500_INTERNAL_SERVER_ERROR,
+}
+
+
+def _handler(code: int):  # type: ignore[no-untyped-def]
+    async def handle(_: Request, exc: Exception) -> JSONResponse:
+        headers = {}
+        if isinstance(exc, TooManyAttemptsError):
+            headers["Retry-After"] = str(exc.retry_after_seconds)
+        if code == status.HTTP_401_UNAUTHORIZED:
+            headers["WWW-Authenticate"] = "Bearer"
+        return JSONResponse({"detail": str(exc)}, status_code=code, headers=headers)
+
+    return handle
+
+
+def install(app: FastAPI) -> None:
+    for error, code in STATUSES.items():
+        app.add_exception_handler(error, _handler(code))

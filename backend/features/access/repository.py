@@ -72,6 +72,20 @@ class AccessRepository:
         rows = await self._session.execute(select(UserModel.id))
         return len(rows.scalars().all())
 
+    async def count_active_admins(self) -> int:
+        """Сколько людей сейчас могут завести учётку и выдать права.
+
+        Число нужно ровно в одном месте — перед тем как отобрать роль
+        у админа. Ноль здесь означает сервис, в который никто не может
+        впустить нового человека.
+        """
+        rows = await self._session.execute(
+            select(UserModel.id).where(
+                UserModel.role == UserRole.ADMIN, UserModel.is_active.is_(True)
+            )
+        )
+        return len(rows.scalars().all())
+
     # --- изменение ---
 
     async def create(
@@ -110,15 +124,32 @@ class AccessRepository:
         )
         return user
 
-    async def set_password(self, user_id: int, password: str, *, one_time: bool) -> None:
+    async def set_password(
+        self,
+        user_id: int,
+        password: str,
+        *,
+        one_time: bool,
+        author_id: int | None = None,
+    ) -> None:
         """Сменить пароль. `one_time` — пароль выдан админом, и человек
-        обязан сменить его при первом входе."""
+        обязан сменить его при первом входе.
+
+        Автор по умолчанию — сам владелец учётки. При сбросе админом автор
+        другой, и это обязано быть видно: «сотрудник сменил себе пароль»
+        и «админ выдал сотруднику новый» — разные события, и второе
+        интересно ровно тогда, когда разбираются с доступом.
+        """
         await self._session.execute(
             update(UserModel)
             .where(UserModel.id == user_id)
             .values(password_hash=hash_password(password), must_change_password=one_time)
         )
-        await self.record(AuditAction.PASSWORD_CHANGED, author_id=user_id, target=f"user:{user_id}")
+        await self.record(
+            AuditAction.PASSWORD_CHANGED,
+            author_id=author_id if author_id is not None else user_id,
+            target=f"user:{user_id}",
+        )
 
     async def update_access(
         self,

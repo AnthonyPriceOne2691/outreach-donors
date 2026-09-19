@@ -27,12 +27,20 @@ import asyncio
 import os
 import subprocess
 import sys
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 
 import pytest
+from backend.api import deps
+from backend.api.app import create_app
+from backend.features.access.attempts import LoginAttempts
+from backend.features.access.repository import AccessRepository
 from backend.features.core import models  # noqa: F401  — регистрирует таблицы
-from sqlalchemy import text
+from backend.features.core.domain import UserRole
+from backend.features.core.models.access import UserModel
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text, update
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -108,3 +116,87 @@ async def session(engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
         yield s
     await transaction.rollback()
     await connection.close()
+
+
+# --- оснастка веб-слоя ---
+#
+# Приложение поднимается в памяти, без сети и без сервера: запрос идёт прямо
+# в ASGI. Базу оно берёт ту же, что и остальные тесты, — через подмену
+# зависимости: иначе маршрут писал бы в настоящую базу разработчика, а тест
+# не видел бы записанного.
+
+
+@pytest.fixture
+def jwt_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Секрет подписи. Без него приложение не собирается — и это проверяется
+    отдельным тестом, а не обходится умолчанием."""
+    monkeypatch.setattr("backend.config.access.JWT_SECRET", "x" * 64)
+
+
+@pytest.fixture
+def api_app(session: AsyncSession, jwt_secret: None, monkeypatch: pytest.MonkeyPatch) -> FastAPI:
+    # Свой счётчик попыток на каждый тест: общий на процесс копил бы
+    # неудачи между тестами, и порядок запуска начал бы значить.
+    monkeypatch.setattr(deps, "attempts", LoginAttempts(limit=5))
+
+    app = create_app()
+    app.dependency_overrides[deps.db_session] = lambda: session
+    return app
+
+
+@pytest.fixture
+async def client(api_app: FastAPI) -> AsyncIterator[AsyncClient]:
+    async with AsyncClient(
+        transport=ASGITransport(app=api_app), base_url="http://test"
+    ) as http_client:
+        yield http_client
+
+
+@pytest.fixture
+def make_user(session: AsyncSession) -> Callable[..., Awaitable[UserModel]]:
+    """Завести учётку прямо в базе, минуя маршруты: тесту нужен вошедший,
+    а не проверка заведения."""
+
+    async def _make(
+        email: str,
+        *,
+        role: UserRole = UserRole.OPERATOR,
+        password: str = "пароль-для-теста",
+        is_active: bool = True,
+        must_change_password: bool = False,
+        permissions: dict[str, bool] | None = None,
+    ) -> UserModel:
+        repository = AccessRepository(session)
+        user = await repository.create(email=email, password=password, role=role)
+        await session.execute(
+            update(UserModel)
+            .where(UserModel.id == user.id)
+            .values(
+                is_active=is_active,
+                must_change_password=must_change_password,
+                permissions=permissions,
+            )
+        )
+        await session.commit()
+        await session.refresh(user)
+        return user
+
+    return _make
+
+
+@pytest.fixture
+def sign_in(client: AsyncClient) -> Callable[..., Awaitable[str]]:
+    """Войти и получить пропуск тем же путём, каким его получает интерфейс."""
+
+    async def _sign_in(email: str, password: str = "пароль-для-теста") -> str:
+        response = await client.post("/api/auth/login", json={"email": email, "password": password})
+        assert response.status_code == 200, response.text
+        token = response.json()["token"]
+        assert isinstance(token, str)
+        return token
+
+    return _sign_in
+
+
+def bearer(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
