@@ -19,6 +19,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.cli.access_admin import cmd_user_add, cmd_user_reset
 from backend.cli.contact_search import cmd_contacts
+from backend.cli.keywords_pool import add_parser as add_keywords_parser
+from backend.cli.keywords_pool import cmd_keywords
 from backend.config import ahrefs as ahrefs_cfg
 from backend.config import filters, storage
 from backend.config.startup_checks import ConfigError, check_collect, check_storage
@@ -253,6 +255,8 @@ def build_parser() -> argparse.ArgumentParser:
     user_reset = sub.add_parser("user-reset", help="выдать новый разовый пароль")
     user_reset.add_argument("--email", required=True, help="почта сотрудника")
 
+    add_keywords_parser(sub)
+
     contacts = sub.add_parser("contacts", help="поиск контактов подходящим донорам")
     contacts.add_argument(
         "--limit", type=int, default=100, help="сколько доноров взять за раз (по умолчанию 100)"
@@ -298,6 +302,8 @@ def main(argv: list[str] | None = None) -> int:
         command = cmd_user_add(args)
     elif args.command == "user-reset":
         command = cmd_user_reset(args)
+    elif args.command == "keywords":
+        command = cmd_keywords(args)
     else:
         command = cmd_run(args)
 
