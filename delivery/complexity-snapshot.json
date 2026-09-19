@@ -12,9 +12,9 @@
       "worst": "—"
     },
     "backend/api/app.py": {
-      "lines": 56,
+      "lines": 58,
       "complexity": 1,
-      "worst": "create_app:27"
+      "worst": "create_app:28"
     },
     "backend/api/auth/__init__.py": {
       "lines": 1,
@@ -95,6 +95,21 @@
       "lines": 67,
       "complexity": 2,
       "worst": "of:36"
+    },
+    "backend/api/settings/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/api/settings/routes.py": {
+      "lines": 139,
+      "complexity": 3,
+      "worst": "current_thresholds:52"
+    },
+    "backend/api/settings/schemas.py": {
+      "lines": 165,
+      "complexity": 4,
+      "worst": "of:142"
     },
     "backend/api/threads/__init__.py": {
       "lines": 1,
@@ -485,6 +500,16 @@
       "lines": 144,
       "complexity": 2,
       "worst": "create_settings:50"
+    },
+    "backend/features/runs/spending.py": {
+      "lines": 116,
+      "complexity": 4,
+      "worst": "since_month_start:68"
+    },
+    "backend/features/runs/thresholds.py": {
+      "lines": 162,
+      "complexity": 8,
+      "worst": "consequences:61"
     },
     "backend/features/serp/__init__.py": {
       "lines": 1,

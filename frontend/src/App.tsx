@@ -23,6 +23,8 @@ import { DonorPage } from './donors/DonorPage';
 import { DonorsPage } from './donors/DonorsPage';
 import { RunPage } from './runs/RunPage';
 import { SendersPage } from './senders/SendersPage';
+import { ThresholdsPage } from './settings/ThresholdsPage';
+import { UsagePage } from './settings/UsagePage';
 import { ThreadPage } from './threads/ThreadPage';
 import { ThreadsPage } from './threads/ThreadsPage';
 import { UsersPage } from './users/UsersPage';
@@ -95,6 +97,22 @@ export function AppRoutes() {
           element={
             <RequireAccess permission="view">
               <ThreadPage />
+            </RequireAccess>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <RequireAccess permission="view">
+              <ThresholdsPage />
+            </RequireAccess>
+          }
+        />
+        <Route
+          path="/usage"
+          element={
+            <RequireAccess permission="view">
+              <UsagePage />
             </RequireAccess>
           }
         />
