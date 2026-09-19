@@ -15,6 +15,7 @@ import { useDisclosure } from '@mantine/hooks';
 import { IconLogout } from '@tabler/icons-react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 
+import { ROLE_TITLES } from '../api/labels';
 import type { Permission } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { ThemeToggle } from './ThemeToggle';
@@ -70,9 +71,7 @@ export function Shell() {
             <Text size="sm" c="dimmed" visibleFrom="sm">
               {user?.email}
             </Text>
-            <Badge variant="light" radius="xl">
-              {user?.role === 'admin' ? 'админ' : 'оператор'}
-            </Badge>
+            <Badge variant="light">{user ? ROLE_TITLES[user.role] : ''}</Badge>
             <Button
               size="compact-sm"
               variant="subtle"
@@ -112,7 +111,9 @@ export function Shell() {
       </AppShell.Navbar>
 
       <AppShell.Main>
-        <div className="riseIn">
+        {/* Ключ по пути: без него подъём играет один раз за жизнь рамы,
+            и переход между экранами выглядит подменой картинки. */}
+        <div className="riseIn" key={location.pathname}>
           <Outlet />
         </div>
       </AppShell.Main>

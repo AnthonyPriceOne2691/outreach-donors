@@ -8,6 +8,7 @@
 
 import { Badge, Card, Group, List, Stack, Text, Title } from '@mantine/core';
 
+import { permissionTitle } from '../api/labels';
 import { useSession } from '../auth/AuthProvider';
 
 export function OverviewPage() {
@@ -26,8 +27,8 @@ export function OverviewPage() {
               Доступные действия:
             </Text>
             {user?.permissions.map((permission) => (
-              <Badge key={permission} variant="light" radius="xl">
-                {permission}
+              <Badge key={permission} variant="light">
+                {permissionTitle(permission)}
               </Badge>
             ))}
           </Group>

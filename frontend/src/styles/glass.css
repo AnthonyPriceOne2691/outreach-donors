@@ -52,6 +52,12 @@
      цветное пятно, и белёсая заливка поверх него поднимала яркость
      так, что текст меню давал 4.2 : 1 при норме 4.5. */
   --glass-fill-frame: rgb(255 255 255 / 0.62);
+  /* Плотное стекло — для того, что встаёт ПОВЕРХ содержимого: выпадающих
+     списков, меню, окон. Прозрачность там не украшение, а помеха: сквозь
+     список видно поле соседней строки, и подписи накладываются друг
+     на друга (видно на снимке 19.09.2026). Размытие остаётся, сквозной
+     видимости нет. */
+  --glass-fill-solid: rgb(255 255 255 / 0.93);
   --glass-fill-quiet: rgb(255 255 255 / 0.22);
   --glass-edge: rgb(255 255 255 / 0.72);
   /* Волосяная линия-разделитель. Отдельный токен от кромки: кромка светлая
@@ -168,6 +174,7 @@ html:root[data-mantine-color-scheme='dark'] {
   --glass-fill: rgb(255 255 255 / 0.1);
   --glass-fill-strong: rgb(255 255 255 / 0.15);
   --glass-fill-frame: rgb(6 16 22 / 0.5);
+  --glass-fill-solid: rgb(14 26 32 / 0.94);
   --glass-fill-quiet: rgb(255 255 255 / 0.06);
   --glass-edge: rgb(255 255 255 / 0.16);
   --hairline: rgb(255 255 255 / 0.14);
@@ -302,6 +309,17 @@ html:root[data-mantine-color-scheme='dark'] {
 
 /* Вложенный блок внутри стекла: второй слой того же рецепта читался бы
    как грязь — меньше заливки и без тени. */
+.glassSolid {
+  position: relative;
+  background-color: var(--glass-fill-solid);
+  background-image: var(--glass-sheen);
+  backdrop-filter: blur(var(--blur-glass)) saturate(185%);
+  -webkit-backdrop-filter: blur(var(--blur-glass)) saturate(185%);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-glass);
+  box-shadow: var(--glass-shadow), var(--glass-inner);
+}
+
 .glassFrame {
   position: relative;
   background-color: var(--glass-fill-frame);
@@ -543,4 +561,241 @@ html:root[data-mantine-color-scheme='dark'] .orb4 {
 #root > *:not(.backdrop) {
   position: relative;
   z-index: 1;
+}
+
+/* --- таблицы -------------------------------------------------------------
+   Строка подсвечивается своим цветом и скруглённо. Умолчание Mantine —
+   серый прямоугольник во всю ширину с прямыми углами: он режет скруглённую
+   панель по краям и не совпадает с палитрой (видно на снимке 19.09.2026).
+
+   Подсветка идёт по кромке ячеек, а не по строке целиком: у `tr` нельзя
+   скруглить углы, пока у таблицы `border-collapse: collapse`, — скругление
+   молча не применяется. */
+
+.dataTable tbody tr td {
+  transition:
+    background 180ms ease,
+    color 180ms ease;
+}
+
+.dataTable tbody tr:hover td {
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+}
+
+.dataTable tbody tr td:first-child {
+  border-top-left-radius: var(--radius-inner);
+  border-bottom-left-radius: var(--radius-inner);
+}
+
+.dataTable tbody tr td:last-child {
+  border-top-right-radius: var(--radius-inner);
+  border-bottom-right-radius: var(--radius-inner);
+}
+
+/* Разделитель строк — волосяная линия, а не рамка Mantine: рамка темнее
+   и спорит с кромкой стекла. */
+.dataTable tbody tr:not(:last-child) td {
+  border-bottom: 1px solid var(--hairline);
+}
+
+.dataTable thead th {
+  border-bottom: 1px solid var(--hairline);
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+
+/* Всё, кроме первой колонки, выровнено по центру — и заголовок, и
+   содержимое. Первая остаётся слева: в ней имя (почта, домен), а имена
+   читают по началу строки, и центрированный столбец имён рвёт этот
+   порядок. Правило общее для всех таблиц сервиса. */
+.dataTable th:not(:first-child),
+.dataTable td:not(:first-child) {
+  text-align: center;
+}
+
+/* --- переходы ------------------------------------------------------------
+   Плавность здесь не украшение: мгновенная смена цвета под курсором
+   читается как подмена элемента, а не как отклик на наведение. */
+
+.mantine-Button-root,
+.mantine-NavLink-root,
+.mantine-ActionIcon-root,
+.mantine-Badge-root,
+.mantine-Switch-track,
+.mantine-Select-input,
+.mantine-TextInput-input,
+.mantine-PasswordInput-input,
+.mantine-SegmentedControl-indicator,
+.mantine-Combobox-option {
+  transition:
+    background-color 200ms ease,
+    border-color 200ms ease,
+    color 200ms ease,
+    box-shadow 200ms ease,
+    transform 160ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Фокус виден всегда и цветом сервиса: умолчание браузера на стекле
+   теряется, а без видимого фокуса экран непроходим с клавиатуры. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--accent) 72%, transparent);
+  outline-offset: 2px;
+}
+
+/* --- выпадающие списки ---------------------------------------------------
+   Список Mantine по умолчанию — серая плашка, не совпадающая ни с цветом,
+   ни с прозрачностью остального.
+
+   Селекторы взяты из разметки, а не из имени компонента: список рисует
+   `Select`, а не `Combobox`, и первая попытка красить `.mantine-Combobox-*`
+   не давала ничего — молча, потому что несуществующий селектор не ошибка.
+   Пункты помечены `data-combobox-option`, выбранный — `data-checked`. */
+
+.mantine-Select-dropdown,
+.mantine-MultiSelect-dropdown,
+.mantine-Autocomplete-dropdown {
+  background-color: var(--glass-fill-solid);
+  background-image: var(--glass-sheen);
+  backdrop-filter: blur(var(--blur-glass)) saturate(185%);
+  -webkit-backdrop-filter: blur(var(--blur-glass)) saturate(185%);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-inner);
+  box-shadow: var(--glass-shadow);
+  color: var(--ink);
+}
+
+/* Подписи пунктов стоят в одну колонку. Галочка у выбранного — лишний
+   элемент в строке: без места, отведённого ей у остальных, пункты
+   выстраиваются лесенкой. */
+[data-combobox-option] {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: calc(var(--radius-inner) - 0.4rem);
+  transition:
+    background 160ms ease,
+    color 160ms ease;
+}
+
+[data-combobox-option] > svg {
+  flex: 0 0 14px;
+  color: var(--status-accent-ink);
+}
+
+[data-combobox-option]:not([data-checked])::before {
+  content: '';
+  flex: 0 0 14px;
+}
+
+[data-combobox-option][data-checked] {
+  background: color-mix(in oklab, var(--accent) 22%, transparent);
+  color: var(--ink);
+}
+
+[data-combobox-option]:hover,
+[data-combobox-option][data-combobox-active] {
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+}
+
+/* --- отклик на наведение и нажатие ---------------------------------------
+   Кнопка обязана отвечать на курсор: без отклика человек не уверен, что
+   попал по ней, и жмёт второй раз — на отправке письма это второе письмо.
+
+   Отклик у каждого вида свой, потому что у них разная природа:
+   у заливной кнопки менять нечего, кроме света; у тихой нет фона вовсе,
+   и появление подложки — единственный способ показать, что под курсором
+   не текст, а кнопка. */
+
+.mantine-Button-root:not(:disabled):not([data-loading]),
+.mantine-ActionIcon-root:not(:disabled) {
+  transition:
+    background-color 200ms ease,
+    border-color 200ms ease,
+    color 200ms ease,
+    box-shadow 220ms ease,
+    filter 180ms ease,
+    transform 160ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Заливные и градиентные: свет и подъём на пиксель. Тень при этом растёт —
+   без неё подъём читается как сдвиг, а не как «кнопка поднялась». */
+.mantine-Button-root[data-variant='filled']:hover:not(:disabled),
+.mantine-Button-root[data-variant='gradient']:hover:not(:disabled) {
+  filter: brightness(1.07);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px -12px color-mix(in oklab, var(--accent) 75%, transparent);
+}
+
+/* Тихие и обычные: подложка цветом сервиса. Серая подсветка Mantine
+   здесь не годится — она не совпадает ни с палитрой, ни со стеклом. */
+.mantine-Button-root[data-variant='subtle']:hover:not(:disabled),
+.mantine-Button-root[data-variant='default']:hover:not(:disabled),
+.mantine-ActionIcon-root[data-variant='subtle']:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
+  border-color: color-mix(in oklab, var(--accent) 35%, var(--glass-edge));
+  transform: translateY(-1px);
+}
+
+.mantine-Button-root:active:not(:disabled),
+.mantine-ActionIcon-root:active:not(:disabled) {
+  transform: translateY(0) scale(0.985);
+}
+
+/* Пункт меню и строка списка ведут себя так же, но тише: они не действия,
+   а переходы. */
+.mantine-NavLink-root {
+  transition:
+    background-color 200ms ease,
+    color 200ms ease;
+}
+
+.mantine-NavLink-root:hover {
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+}
+
+/* Поле ввода отвечает на фокус кромкой цвета сервиса — плавно, а не
+   рывком: рывок читается как перерисовка формы. */
+.mantine-TextInput-input,
+.mantine-PasswordInput-input,
+.mantine-Select-input,
+.mantine-Textarea-input {
+  transition:
+    background-color 200ms ease,
+    border-color 200ms ease,
+    box-shadow 200ms ease;
+}
+
+.mantine-TextInput-input:focus,
+.mantine-PasswordInput-input:focus,
+.mantine-Select-input:focus,
+.mantine-Textarea-input:focus {
+  border-color: color-mix(in oklab, var(--accent) 55%, var(--glass-edge));
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent);
+}
+
+/* Переключатель: дорожка красится акцентом, бегунок едет по той же
+   кривой, что и всё остальное движение сервиса. */
+.mantine-Switch-track {
+  transition:
+    background-color 220ms ease,
+    border-color 220ms ease;
+}
+
+.mantine-Switch-thumb {
+  transition: transform 220ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Карточка, по которой можно щёлкнуть (строка списка диалогов, домен
+   рассылки): поднимается под курсором. Обычные карточки не трогаются —
+   поднимающийся текст раздражает. */
+.liftable {
+  transition:
+    transform 180ms cubic-bezier(0.32, 0.72, 0, 1),
+    box-shadow 220ms ease,
+    border-color 200ms ease;
+}
+
+.liftable:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in oklab, var(--accent) 30%, var(--glass-edge));
 }

@@ -94,6 +94,7 @@ export function LoginPage() {
             <Button
               type="submit"
               size="md"
+              mt="md"
               className="press"
               variant="gradient"
               gradient={{ from: 'lagoon.5', to: 'lagoon.7', deg: 135 }}

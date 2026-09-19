@@ -14,15 +14,15 @@
 import { Badge, Button, Group, Popover, Stack, Switch, Text } from '@mantine/core';
 import { useState } from 'react';
 
+import { PERMISSION_TITLES } from '../api/labels';
 import type { Permission, UserCard } from '../api/types';
 
-const ACTIONS: { key: Permission; title: string }[] = [
-  { key: 'view', title: 'Смотреть базу' },
-  { key: 'run', title: 'Запускать прогоны' },
-  { key: 'settings', title: 'Править пороги' },
-  { key: 'send', title: 'Отправлять письма' },
-  { key: 'users', title: 'Заводить учётки' },
-];
+const ACTIONS: Permission[] = ['view', 'run', 'settings', 'send', 'users'];
+
+function title(permission: Permission): string {
+  const words = PERMISSION_TITLES[permission];
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
 
 interface Props {
   user: UserCard;
@@ -64,14 +64,14 @@ export function PermissionsPopover({ user, disabled, onChange }: Props) {
           Права ({user.permissions.length})
         </Button>
       </Popover.Target>
-      <Popover.Dropdown className="glassPanel">
+      <Popover.Dropdown className="glassSolid">
         <Stack gap="xs" w={320}>
-          {ACTIONS.map(({ key, title }) => {
+          {ACTIONS.map((key) => {
             const override = overrides[key];
             return (
               <Group key={key} justify="space-between" wrap="nowrap">
                 <div>
-                  <Text size="sm">{title}</Text>
+                  <Text size="sm">{title(key)}</Text>
                   {override === undefined ? (
                     <Text size="xs" c="dimmed">
                       как у роли
@@ -89,7 +89,7 @@ export function PermissionsPopover({ user, disabled, onChange }: Props) {
                     </Button>
                   )}
                   <Switch
-                    aria-label={title}
+                    aria-label={title(key)}
                     checked={user.permissions.includes(key)}
                     onChange={(event) => set(key, event.currentTarget.checked)}
                   />
