@@ -123,9 +123,15 @@ class ArticleCard(BaseModel):
 class SpendingView(BaseModel):
     """Расход с начала месяца плюс остаток у провайдера.
 
-    Остаток берётся у Ahrefs, а не считается по своей таблице: ключ общий
-    с соседней системой, и наша таблица не видит её трат. Своя таблица
-    отвечает на другой вопрос — на что потратили мы.
+    Три числа, и путать их нельзя — первая версия экрана это и делала,
+    показывая «израсходовано 0» при шести тысячах потраченных юнитов:
+
+    * `ahrefs_left` — остаток **у провайдера**. Ключ общий с соседней
+      системой, поэтому её траты тоже уменьшают это число;
+    * `ahrefs_cap` — наш добровольный потолок на месяц;
+    * `ahrefs_spent_by_us` — сколько потратили мы, по своей таблице.
+      Именно это число сравнивают с капом; остаток провайдера для этого
+      не годится, потому что включает чужой расход.
     """
 
     since: datetime
@@ -136,6 +142,7 @@ class SpendingView(BaseModel):
     total_amount: Decimal
     ahrefs_left: int | None
     ahrefs_cap: int
+    ahrefs_spent_by_us: int
     ahrefs_left_error: str | None = None
 
     @classmethod
@@ -160,5 +167,6 @@ class SpendingView(BaseModel):
             total_amount=spending.total_amount,
             ahrefs_left=ahrefs_left,
             ahrefs_cap=ahrefs_cap,
+            ahrefs_spent_by_us=spending.units_by_provider.get(UsageProvider.AHREFS, 0),
             ahrefs_left_error=error,
         )
