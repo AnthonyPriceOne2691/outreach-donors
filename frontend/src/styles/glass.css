@@ -120,6 +120,12 @@ html:root[data-mantine-color-scheme='light'] {
      одинаковыми бледными полосами. Поэтому светлые варианты переводятся
      на статусные чернила, а заливка поднимается: на стекле десятая доля
      цвета не доживает до экрана. */
+  /* Основные чернила — свои, а не Mantine. Его переменные меняются
+     не в тот момент, когда меняется атрибут темы: замер показал, что
+     заголовок начинал светлеть только через 450 мс после переключения,
+     то есть уже на тёмном фоне. Свои переменные переключаются вместе
+     с атрибутом, и порядок перехода становится нашим. */
+  --mantine-color-text: var(--ink);
   --mantine-color-dimmed: var(--ink-soft);
   --mantine-color-anchor: var(--status-accent-ink);
 
@@ -260,9 +266,6 @@ body {
   background-color: var(--canvas-base);
   color: var(--ink);
   -webkit-font-smoothing: antialiased;
-  transition:
-    background-color 420ms ease,
-    color 320ms ease;
 }
 
 /* --- смена темы --------------------------------------------------------
@@ -277,7 +280,7 @@ body {
   z-index: -1;
   pointer-events: none;
   background-attachment: fixed;
-  transition: opacity 420ms ease;
+  transition: opacity 300ms ease;
 }
 
 .canvasLight {
@@ -298,22 +301,24 @@ html:root[data-mantine-color-scheme='dark'] .canvasDark {
   opacity: 1;
 }
 
-/* Поверхности и чернила перетекают тоже: без этого стекло меняет цвет
-   мгновенно, а полотно под ним — плавно, и переход выглядит поломкой. */
-.glass,
-.glassPanel,
-.glassFrame,
-.glassSolid,
-.glassQuiet,
-.mantine-AppShell-main,
-.mantine-Card-root,
-.mantine-Table-table,
-.mantine-Badge-root,
-.mantine-Button-root,
-.mantine-Input-input {
-  transition-property: background-color, border-color, color, box-shadow;
-  transition-duration: 420ms;
-  transition-timing-function: ease;
+/* --- что перетекает при смене темы, а что переключается сразу --------
+   Перетекает только **полотно и пятна** — то, на чём ничего не читают.
+   Панели, чернила и всё остальное переключаются мгновенно и вместе.
+
+   Так вышло не сразу. Сначала плавным сделали всё, и получилось два
+   дефекта подряд. Первый: чернила ползли из чёрного в белый через серое
+   ровно тогда, когда фон уже потемнел, — белый шрифт «подёргивался».
+   Второй, при попытке развести их по времени: переход цвета у вложенных
+   элементов не складывается, а **догоняет** — пока родитель
+   анимируется, унаследованное значение ребёнка меняется каждый кадр
+   и его собственный переход перезапускается. Получалась лесенка,
+   и заголовок доходил до белого через 700 мс.
+
+   Вывод общий: текст и фон под ним обязаны меняться одновременно.
+   Плавным может быть только то, на чём не написано ни слова. */
+
+body {
+  transition: background-color 300ms ease;
 }
 
 /* --- поверхности ---------------------------------------------------------
@@ -515,9 +520,9 @@ html:root[data-mantine-color-scheme='dark'] {
   opacity: 0.85;
   will-change: transform;
   transition:
-    color 420ms ease,
-    opacity 420ms ease,
-    filter 420ms ease;
+    color 300ms ease,
+    opacity 300ms ease,
+    filter 300ms ease;
 }
 
 .orb1 {
