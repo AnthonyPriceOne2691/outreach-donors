@@ -30,9 +30,16 @@
 """
 
 import sys
+import tempfile
+from pathlib import Path
 
 from PIL import Image
 from playwright.sync_api import expect, sync_playwright
+
+#: Снимки складываются во временную папку, а не рядом с кодом. Первая
+#: версия писала их в текущий каталог, и четыре мегабайта картинок уехали
+#: в репозиторий вместе с правкой — заметил это только `git ls-files`.
+SHOTS = Path(tempfile.mkdtemp(prefix="ui-contrast-"))
 
 SCALE = 2
 NORM = 4.5  # норма для обычного текста
@@ -124,7 +131,7 @@ def probe_notification(page, scheme, email):
     row.get_by_label(f"Учётка {email} включена").click(force=True)
     expect(page.get_by_text("самого себя")).to_be_visible()
     page.wait_for_timeout(400)
-    shot = f"contrast-notice-{scheme}.png"
+    shot = str(SHOTS / f"contrast-notice-{scheme}.png")
     page.screenshot(path=shot)
     body = page.get_by_text("Нельзя снять права с самого себя").first
     value = contrast(shot, body.bounding_box())
@@ -174,11 +181,12 @@ def main(argv: list[str]) -> int:
         page.goto(f"{base}/users")
         expect(page.get_by_role("button", name="Завести учётку")).to_be_visible()
 
-        ok = run(page, "light", "measure-light.png")
+        ok = run(page, "light", str(SHOTS / "measure-light.png"))
         ok &= probe_notification(page, "light", email)
-        ok &= run(page, "dark", "measure-dark.png")
+        ok &= run(page, "dark", str(SHOTS / "measure-dark.png"))
         ok &= probe_notification(page, "dark", email)
         b.close()
+    print(f"\nСнимки: {SHOTS}")
     return 0 if ok else 1
 
 

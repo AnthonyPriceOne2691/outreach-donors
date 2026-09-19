@@ -29,6 +29,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { CONTACT_SOURCES, CONTACT_STATUSES, DONOR_STATUSES } from '../api/labels';
+import { Metric } from '../components/Metric';
 import { fetchDonor } from '../api/runs';
 
 function refusalOf(error: unknown): string {
@@ -37,24 +38,6 @@ function refusalOf(error: unknown): string {
 
 function when(moment: string | null): string {
   return moment === null ? '—' : new Date(moment).toLocaleDateString('ru-RU');
-}
-
-function Fact({ title, value, hint }: { title: string; value: string; hint?: string | undefined }) {
-  return (
-    <Card className="glassQuiet" p="md">
-      <Text size="xs" c="dimmed">
-        {title}
-      </Text>
-      <Text fw={600} fz="lg">
-        {value}
-      </Text>
-      {hint !== undefined && (
-        <Text size="xs" c="dimmed">
-          {hint}
-        </Text>
-      )}
-    </Card>
-  );
 }
 
 export function DonorPage() {
@@ -110,12 +93,12 @@ export function DonorPage() {
       </Card>
 
       <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
-        <Fact title="DR" value={data.dr === null ? '—' : String(data.dr)} />
-        <Fact
+        <Metric title="DR" value={data.dr ?? '—'} />
+        <Metric
           title="Органический трафик"
           value={data.org_traffic === null ? '—' : data.org_traffic.toLocaleString('ru-RU')}
         />
-        <Fact
+        <Metric
           title="Гео"
           value={data.geo ?? '—'}
           hint={
@@ -124,7 +107,7 @@ export function DonorPage() {
               : `доля рынка ${(data.geo_top_share * 100).toFixed(0)}%`
           }
         />
-        <Fact
+        <Metric
           title="Данные проверены"
           value={when(data.metrics_refreshed_at)}
           hint={

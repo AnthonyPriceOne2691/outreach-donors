@@ -1,0 +1,43 @@
+/**
+ * Число с подписью — плитка, из которых собраны сводки на экранах.
+ *
+ * Общий компонент, а не четыре похожих на четырёх экранах: похожие
+ * расходятся. Сначала у них разное выравнивание, потом разные отступы,
+ * а через месяц сводка прогона и сводка расхода выглядят из разных
+ * приложений.
+ *
+ * Выравнивание по центру: в плитке живёт одно число, и колонка чисел,
+ * прижатых влево, читается как таблица без заголовков.
+ */
+
+import { Card, Stack, Text } from '@mantine/core';
+import type { ReactNode } from 'react';
+
+interface Props {
+  title: string;
+  value: ReactNode;
+  hint?: ReactNode;
+  /** Цвет числа. По умолчанию обычные чернила: цветом помечают то,
+   *  на что смотреть, а если помечено всё — не помечено ничего. */
+  color?: string | undefined;
+}
+
+export function Metric({ title, value, hint, color }: Props) {
+  return (
+    <Card className="glassQuiet" p="md">
+      <Stack gap={4} align="center" ta="center">
+        <Text size="xs" c="dimmed">
+          {title}
+        </Text>
+        <Text fw={600} fz="xl" c={color ?? 'inherit'}>
+          {value}
+        </Text>
+        {hint !== undefined && (
+          <Text size="xs" c="dimmed">
+            {hint}
+          </Text>
+        )}
+      </Stack>
+    </Card>
+  );
+}

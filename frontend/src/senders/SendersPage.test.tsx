@@ -69,10 +69,28 @@ describe('домены рассылки', () => {
     expect(screen.getByRole('button', { name: 'Включить с начала разгона' })).toBeInTheDocument();
   });
 
-  it('показывает причину парковки', async () => {
+  it('причина парковки видна без раскрытия карточки', async () => {
     await openSenders();
 
+    // По ней решают, включать домен обратно, — прятать её за раскрытием
+    // значит требовать лишнего щелчка ровно в тот момент, когда некогда.
     expect(screen.getByText('доля отказов 7% — парковка')).toBeInTheDocument();
+  });
+
+  it('ящики домена прячутся за раскрытием', async () => {
+    await openSenders();
+    const user = userEvent.setup();
+
+    const toggle = screen.getByLabelText('Подробности mail-alpha.example.test');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+    await user.click(toggle);
+
+    expect(screen.getByLabelText('Свернуть mail-alpha.example.test')).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    expect(screen.getByText('outreach1@mail-alpha.example.test')).toBeInTheDocument();
   });
 
   it('включение уходит на сервер по каждому ящику домена', async () => {

@@ -26,6 +26,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 
 import { operationTitle, USAGE_PROVIDERS } from '../api/labels';
+import { Metric } from '../components/Metric';
 import { fetchUsage } from '../api/settings';
 
 function refusalOf(error: unknown): string {
@@ -102,26 +103,21 @@ export function UsagePage() {
       <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
         {Object.entries(USAGE_PROVIDERS).map(([key, provider]) => {
           const units = data.units_by_provider[key] ?? 0;
-          const amount = data.amount_by_provider[key] ?? '0';
+          const amount = Number(data.amount_by_provider[key] ?? '0');
+          const spent = units > 0 || amount > 0;
           return (
-            <Card key={key} className="glassQuiet" p="md">
-              <Badge variant="light" color={provider.color} mb={6}>
-                {provider.title}
-              </Badge>
-              <Text fw={600} fz="xl">
-                {units > 0 ? `${units} юн.` : `${Number(amount).toFixed(2)} $`}
-              </Text>
-              {units > 0 && Number(amount) > 0 && (
-                <Text size="xs" c="dimmed">
-                  и {Number(amount).toFixed(2)} $
-                </Text>
-              )}
-              {units === 0 && Number(amount) === 0 && (
-                <Text size="xs" c="dimmed">
-                  трат не было
-                </Text>
-              )}
-            </Card>
+            <Metric
+              key={key}
+              title={provider.title}
+              value={units > 0 ? `${units} юн.` : `${amount.toFixed(2)} $`}
+              hint={
+                spent
+                  ? units > 0 && amount > 0
+                    ? `и ${amount.toFixed(2)} $`
+                    : undefined
+                  : 'трат не было'
+              }
+            />
           );
         })}
       </SimpleGrid>
