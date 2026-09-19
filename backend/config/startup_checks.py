@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from backend.config import ahrefs, outreach, serp, storage
+from backend.config import access, ahrefs, outreach, serp, storage
 
 
 class ConfigError(RuntimeError):
@@ -73,5 +73,24 @@ def check_outreach() -> None:
         [
             Requirement("OUTREACH_SENDGRID_API_KEY", outreach.SENDGRID_API_KEY, "отправка"),
             Requirement("OUTREACH_INBOUND_SECRET", outreach.INBOUND_SECRET, "приём ответов"),
+        ],
+    )
+
+
+def check_access() -> None:
+    """Что нужно, чтобы кто-то мог войти.
+
+    Проверяется на старте сервера, а не при первом входе: сервис без
+    секрета подписи не пускает никого, и узнать об этом лучше в момент
+    развёртывания, чем от сотрудника, который не может войти.
+    """
+    _raise_if_missing(
+        "вход в сервис",
+        [
+            Requirement(
+                "ACCESS_JWT_SECRET",
+                access.JWT_SECRET,
+                "подпись пропусков; сгенерировать: openssl rand -hex 32",
+            )
         ],
     )

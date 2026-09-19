@@ -6,6 +6,61 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/api/__init__.py": {
+      "lines": 7,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/api/app.py": {
+      "lines": 46,
+      "complexity": 1,
+      "worst": "create_app:22"
+    },
+    "backend/api/auth/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/api/auth/routes.py": {
+      "lines": 108,
+      "complexity": 4,
+      "worst": "sign_in:45"
+    },
+    "backend/api/auth/schemas.py": {
+      "lines": 70,
+      "complexity": 2,
+      "worst": "of:39"
+    },
+    "backend/api/deps.py": {
+      "lines": 98,
+      "complexity": 4,
+      "worst": "signed_in:42"
+    },
+    "backend/api/errors.py": {
+      "lines": 66,
+      "complexity": 3,
+      "worst": "handle:52"
+    },
+    "backend/api/main.py": {
+      "lines": 13,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/api/users/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/api/users/routes.py": {
+      "lines": 89,
+      "complexity": 2,
+      "worst": "all_users:31"
+    },
+    "backend/api/users/schemas.py": {
+      "lines": 106,
+      "complexity": 5,
+      "worst": "_check_overrides:16"
+    },
     "backend/cli/__init__.py": {
       "lines": 1,
       "complexity": 0,
@@ -82,7 +137,7 @@
       "worst": "—"
     },
     "backend/config/startup_checks.py": {
-      "lines": 78,
+      "lines": 97,
       "complexity": 3,
       "worst": "_raise_if_missing:35"
     },
@@ -101,6 +156,16 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/access/administration.py": {
+      "lines": 171,
+      "complexity": 6,
+      "worst": "_guard_admin_supply:62"
+    },
+    "backend/features/access/attempts.py": {
+      "lines": 78,
+      "complexity": 4,
+      "worst": "check:58"
+    },
     "backend/features/access/login.py": {
       "lines": 76,
       "complexity": 5,
@@ -117,9 +182,9 @@
       "worst": "has_permission:52"
     },
     "backend/features/access/repository.py": {
-      "lines": 188,
+      "lines": 219,
       "complexity": 7,
-      "worst": "update_access:123"
+      "worst": "update_access:154"
     },
     "backend/features/access/tokens.py": {
       "lines": 100,
