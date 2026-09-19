@@ -19,6 +19,7 @@ from backend.features.donors.verdict import Thresholds
 from backend.features.runs.pipeline import RunDeps, RunRequest, execute_run
 from backend.features.runs.repository import RunRepository
 from backend.features.serp.protocol import SerpResult
+from backend.shared.logs import current_run_id
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -209,3 +210,40 @@ class TestFailures:
         spent = (await session.execute(select(UsageRecordModel))).scalars().all()
         assert spent
         assert all(r.units > 0 for r in spent)
+
+
+class TestRunIsMarkedInLogs:
+    """Идентификатор прогона обязан стоять в записях, а не только существовать.
+
+    Механизм пометки — `run_context` — сам по себе ничего не доказывает:
+    пока его никто не вызывает, каждая запись уходит с пустым `run_id`, и
+    вопрос «что было в прогоне 47» по логам по-прежнему без ответа. Поэтому
+    проверяется не наличие обёртки в исходнике, а сама запись из прогона.
+    """
+
+    async def test_records_made_during_a_run_carry_its_id(
+        self, session: AsyncSession, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        seen: list[str] = []
+
+        deps = await _deps(
+            session, FakeSerp(["https://www.good.com/x"]), _ahrefs({"good.com": GOOD})
+        )
+        original = deps.donors.save_results
+
+        async def spy(batch: object) -> object:
+            # Глубоко внутри прогона, в чужом для пайплайна модуле: если метка
+            # держится только на верхнем кадре, здесь её уже не будет.
+            seen.append(current_run_id())
+            return await original(batch)  # type: ignore[arg-type]
+
+        deps.donors.save_results = spy  # type: ignore[method-assign]
+        await execute_run(deps, RunRequest(["crm"], "us", T, await _settings_id(session)))
+
+        run = (await session.execute(select(RunModel))).scalar_one()
+        assert seen, "прогон не дошёл до сохранения — проверять нечего"
+        assert seen == [str(run.id)] * len(seen)
+
+    async def test_outside_a_run_the_mark_is_empty(self) -> None:
+        """Граница честная: вне прогона метки нет, и это не ошибка."""
+        assert current_run_id() == ""
