@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,6 +41,8 @@ from backend.features.letters.sending import Sending
 from backend.features.letters.transport import TransportError, build_transport
 from backend.shared.queue import runs_queue
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/letters", tags=["письма"])
 
 _viewer = Depends(needs(Permission.VIEW))
@@ -58,6 +62,9 @@ def _transport_card() -> Transport:
     try:
         transport = build_transport()
     except TransportError as exc:
+        # В лог тоже, а не только на экран: человек прочтёт и забудет,
+        # а разбираться, почему рассылка стоит, будут по логам сервера.
+        logger.warning("письма: транспорт не собран — %s", exc)
         return Transport(name="—", real=False, problem=str(exc))
     return Transport(name=transport.name, real=transport.real)
 

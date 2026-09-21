@@ -67,9 +67,9 @@
       "worst": "—"
     },
     "backend/api/letters/routes.py": {
-      "lines": 164,
+      "lines": 171,
       "complexity": 2,
-      "worst": "_transport_card:52"
+      "worst": "_transport_card:56"
     },
     "backend/api/letters/schemas.py": {
       "lines": 117,
@@ -171,10 +171,15 @@
       "complexity": 10,
       "worst": "cmd_contacts:127"
     },
+    "backend/cli/demo_content.py": {
+      "lines": 128,
+      "complexity": 0,
+      "worst": "—"
+    },
     "backend/cli/demo_data.py": {
-      "lines": 505,
+      "lines": 404,
       "complexity": 10,
-      "worst": "_seed_threads:385"
+      "worst": "_seed_threads:284"
     },
     "backend/cli/keywords_pool.py": {
       "lines": 89,
