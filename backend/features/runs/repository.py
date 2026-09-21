@@ -160,6 +160,56 @@ class RunRepository:
         )
         return list(rows.scalars().all())
 
+    #: Прогон в этих состояниях ещё намерен тратить: смета объявлена,
+    #: работа не закрыта. Закрытые состояния удержания не несут — за них
+    #: уже говорит журнал расхода.
+    ACTIVE_STATUSES = (RunStatus.QUEUED, RunStatus.ESTIMATING, RunStatus.RUNNING)
+
+    async def claimed_units(self, *, exclude_run_id: int | None = None) -> int:
+        """Сколько юнитов уже обещали потратить идущие прогоны.
+
+        **Зачем это вообще.** Остаток у Ahrefs — правда о прошлом: он
+        показывает потраченное, а не обещанное. Идущий прогон обещал свою
+        смету, но ещё не потратил её — для Ahrefs этих юнитов как будто нет,
+        и следующий прогон планируется под них второй раз. Юниты не
+        возвращаются, поэтому обещанное вычитается наравне с потраченным.
+
+        **Удержание не хранится отдельным полем и не заводит своей таблицы.**
+        Активный прогон и есть удержание: `estimated_units` минус то, что он
+        уже потратил по журналу. Второй счётчик рядом с этими двумя неизбежно
+        разошёлся бы с ними — ровно та причина, по которой остаток лимита
+        тоже не хранится полем (см. `UsageRecordModel`).
+
+        **Отрицательное удержание не считается.** Прогон, потративший больше
+        сметы, ничего больше не держит, но и не возвращает: `max(0, …)`
+        не даёт его перерасходу увеличить чужой бюджет.
+
+        Зависшие прогоны сюда не попадают надолго: их закрывает сторож
+        (`runs/lifecycle.py`), иначе смерть воркера навсегда съедала бы
+        бюджет.
+        """
+        spent = (
+            select(
+                UsageRecordModel.run_id.label("run_id"),
+                func.coalesce(func.sum(UsageRecordModel.units), 0).label("units"),
+            )
+            .group_by(UsageRecordModel.run_id)
+            .subquery()
+        )
+        claim = func.greatest(RunModel.estimated_units - func.coalesce(spent.c.units, 0), 0)
+        statement = (
+            select(func.coalesce(func.sum(claim), 0))
+            .select_from(RunModel)
+            .outerjoin(spent, spent.c.run_id == RunModel.id)
+            .where(
+                RunModel.status.in_(self.ACTIVE_STATUSES),
+                RunModel.estimated_units.is_not(None),
+            )
+        )
+        if exclude_run_id is not None:
+            statement = statement.where(RunModel.id != exclude_run_id)
+        return int(await self._session.scalar(statement) or 0)
+
     async def record_usage(
         self, *, run_id: int | None, operation: str, cost: UnitsCost
     ) -> UsageRecordModel:

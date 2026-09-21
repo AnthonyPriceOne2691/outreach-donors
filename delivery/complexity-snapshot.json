@@ -672,14 +672,14 @@
       "worst": "recover:127"
     },
     "backend/features/runs/pipeline.py": {
-      "lines": 470,
+      "lines": 492,
       "complexity": 5,
-      "worst": "gather_candidates:227"
+      "worst": "gather_candidates:248"
     },
     "backend/features/runs/repository.py": {
-      "lines": 206,
-      "complexity": 2,
-      "worst": "create_settings:44"
+      "lines": 256,
+      "complexity": 3,
+      "worst": "claimed_units:168"
     },
     "backend/features/runs/spending.py": {
       "lines": 116,
