@@ -165,7 +165,13 @@ jobs:
         # означать то, что в main.
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          repo="ghcr.io/${{ github.repository_owner }}/outreach-donors"
+          # Имя владельца — строчными: реестр другого не принимает,
+          # а `github.repository_owner` отдаёт его как записан в профиле.
+          # Шаг не выполняется на ветках (образ непринятой работы
+          # в реестре не нужен), поэтому сломался при первом же слиянии
+          # в main — проверить его на PR было нечем.
+          owner="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
+          repo="ghcr.io/$owner/outreach-donors"
           for pair in "backend:$repo-backend" "web:$repo-web"; do
             local_image="outreach-${pair%%:*}:ci"
             remote="${pair#*:}"
