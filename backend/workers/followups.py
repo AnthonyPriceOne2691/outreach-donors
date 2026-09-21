@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from backend.config import storage
 from backend.config.startup_checks import check_storage
 from backend.features.letters.followups import send_due
-from backend.features.letters.transport import build_transport
+from backend.features.letters.transport_factory import build_transport
 from backend.shared.logs import setup_logging
 from backend.workers.ticker import every
 

@@ -27,8 +27,8 @@ from backend.features.letters.transport import (
     NullTransport,
     Outgoing,
     TransportError,
-    build_transport,
 )
+from backend.features.letters.transport_factory import build_transport
 from backend.features.outreach.senders import pick
 
 NOW = datetime(2026, 9, 21, 12, 0, tzinfo=UTC)
@@ -304,8 +304,12 @@ class TestTransport:
 
         assert result.startswith("null-")
 
-    def test_unwritten_transport_says_what_is_missing(self) -> None:
-        with pytest.raises(TransportError, match="доменов"):
+    def test_live_transport_without_a_key_is_refused(self) -> None:
+        """Раньше здесь был отказ «транспорт ещё не написан». Теперь он
+        написан, и единственное, чего ему не хватает, — ключ платформы:
+        промолчать и собрать транспорт без ключа значит показать
+        отправленными письма, которых платформа не приняла."""
+        with pytest.raises(TransportError, match="OUTREACH_SENDGRID_API_KEY"):
             build_transport("sendgrid")
 
     def test_unknown_transport_lists_the_known(self) -> None:

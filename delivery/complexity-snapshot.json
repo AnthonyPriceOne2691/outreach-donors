@@ -82,9 +82,9 @@
       "worst": "—"
     },
     "backend/api/letters/routes.py": {
-      "lines": 173,
+      "lines": 174,
       "complexity": 2,
-      "worst": "_transport_card:52"
+      "worst": "_transport_card:53"
     },
     "backend/api/letters/schemas.py": {
       "lines": 177,
@@ -252,9 +252,14 @@
       "worst": "_print_build:82"
     },
     "backend/cli/main.py": {
-      "lines": 352,
+      "lines": 357,
       "complexity": 9,
-      "worst": "_print_report:200"
+      "worst": "_print_report:202"
+    },
+    "backend/cli/senders_admin.py": {
+      "lines": 134,
+      "complexity": 6,
+      "worst": "cmd_sender_add:42"
     },
     "backend/config/__init__.py": {
       "lines": 1,
@@ -297,7 +302,7 @@
       "worst": "—"
     },
     "backend/config/outreach.py": {
-      "lines": 78,
+      "lines": 85,
       "complexity": 0,
       "worst": "—"
     },
@@ -606,6 +611,11 @@
       "complexity": 7,
       "worst": "parse_zones:120"
     },
+    "backend/features/letters/sendgrid.py": {
+      "lines": 168,
+      "complexity": 5,
+      "worst": "_payload:137"
+    },
     "backend/features/letters/sending.py": {
       "lines": 350,
       "complexity": 5,
@@ -622,9 +632,14 @@
       "worst": "_check_zones:219"
     },
     "backend/features/letters/transport.py": {
-      "lines": 136,
+      "lines": 116,
+      "complexity": 2,
+      "worst": "send:100"
+    },
+    "backend/features/letters/transport_factory.py": {
+      "lines": 30,
       "complexity": 4,
-      "worst": "build_transport:119"
+      "worst": "build_transport:16"
     },
     "backend/features/letters/uniqueness.py": {
       "lines": 77,
