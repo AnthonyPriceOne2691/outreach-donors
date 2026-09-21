@@ -31,8 +31,9 @@ async def all_senders(
 ) -> SendersView:
     repository = OutreachRepository(session)
     found = await repository.senders()
+    today = await repository.sent_today()
     return SendersView(
-        senders=[SenderCard.of(sender) for sender in found],
+        senders=[SenderCard.of(s, sent_today=today.get(s.id, 0)) for s in found],
         enabled_domains=len(await repository.enabled_domains()),
     )
 
@@ -55,7 +56,7 @@ async def enable_sender(
         details={"действие": "включён", "домен": sender.domain, "разгон": "с начала"},
     )
     await session.commit()
-    return SenderCard.of(sender)
+    return SenderCard.of(sender, sent_today=(await repository.sent_today()).get(sender.id, 0))
 
 
 @router.post("/{sender_id}/disable", response_model=SenderCard, summary="Выключить")
@@ -75,4 +76,4 @@ async def disable_sender(
         details={"действие": "выключен", "домен": sender.domain, "причина": body.reason},
     )
     await session.commit()
-    return SenderCard.of(sender)
+    return SenderCard.of(sender, sent_today=(await repository.sent_today()).get(sender.id, 0))

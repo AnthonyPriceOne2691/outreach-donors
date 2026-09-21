@@ -56,7 +56,6 @@ async def sender(session: AsyncSession) -> SenderModel:
         email="outreach@mail-one.example.test",
         stage=Stage.DONORS,
         daily_cap=20,
-        sent_today=7,
         status=SenderStatus.FREE,
         enabled=True,
         warmup_started_at=NOW - timedelta(days=30),
@@ -109,6 +108,38 @@ async def thread(session: AsyncSession) -> ThreadModel:
     )
     await session.commit()
     return model
+
+
+async def _sent_letters(
+    session: AsyncSession,
+    sender: SenderModel,
+    *,
+    count: int,
+    when: datetime | None = None,
+) -> None:
+    """Письма, отправленные с этого ящика. Дневной расход считается по ним."""
+    moment = when or NOW
+    campaign = CampaignModel(stage=Stage.DONORS, name="Расход", status="running")
+    session.add(campaign)
+    await session.flush()
+
+    for number in range(count):
+        host = f"spent-{number}.example.test"
+        domain = DomainModel(host=host)
+        session.add(domain)
+        await session.flush()
+        session.add(
+            MessageModel(
+                campaign_id=campaign.id,
+                domain_id=domain.id,
+                step=0,
+                status=MessageStatus.SENT,
+                sender_id=sender.id,
+                sent_at=moment,
+                idempotency_key=f"donors:{host}:0",
+            )
+        )
+    await session.commit()
 
 
 @pytest.fixture
@@ -201,16 +232,41 @@ class TestWhoIsLetIn:
 
 class TestSenders:
     async def test_warmup_is_shown_with_both_numbers(
-        self, client: AsyncClient, admin_token: str, sender: SenderModel
+        self,
+        client: AsyncClient,
+        admin_token: str,
+        sender: SenderModel,
+        session: AsyncSession,
     ) -> None:
         """«Отправлено 7 из 20» врёт на разгоне: потолок дня и дневной кап —
-        разные числа, и отдаются оба."""
+        разные числа, и отдаются оба.
+
+        Дневной расход при этом считается по письмам, а не по полю: поле
+        было, и обнулять его было некому — ящик упирался бы в кап навсегда.
+        Поэтому семь писем здесь настоящие.
+        """
+        await _sent_letters(session, sender, count=7)
+
         response = await client.get("/api/senders", headers=bearer(admin_token))
 
         card = response.json()["senders"][0]
         assert card["daily_cap"] == 20
         assert card["warmup_allowance"] == 20
         assert card["sent_today"] == 7
+
+    async def test_yesterdays_letters_do_not_count_today(
+        self,
+        client: AsyncClient,
+        admin_token: str,
+        sender: SenderModel,
+        session: AsyncSession,
+    ) -> None:
+        """Вчерашняя отправка не съедает сегодняшний лимит."""
+        await _sent_letters(session, sender, count=3, when=NOW - timedelta(days=1))
+
+        response = await client.get("/api/senders", headers=bearer(admin_token))
+
+        assert response.json()["senders"][0]["sent_today"] == 0
 
     async def test_enabling_restarts_the_warmup(
         self, client: AsyncClient, admin_token: str, sender: SenderModel
