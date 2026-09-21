@@ -111,7 +111,11 @@ asked_recently() {
   local stamp
   stamp="$STATE_DIR/asked-$(printf '%s' "$1" | shasum | cut -c1-16)"
   if [ -f "$stamp" ]; then
-    local age=$(( $(date +%s) - $(stat -f %m "$stamp") ))
+    # Возраст файла считает python, а не `stat`: у него `-f` на BSD и на GNU
+    # значит разное, и на Linux проверка молча превращалась в «спрашивать
+    # всегда». Поймано прогоном сьюты канона на чужой системе.
+    local age
+    age=$(python3 -c 'import os,sys,time; print(int(time.time() - os.path.getmtime(sys.argv[1])))' "$stamp" 2>/dev/null) || age=0
     [ "$age" -lt "$QUIET_FOR_SEC" ] && return 0
   fi
   mkdir -p "$STATE_DIR" && touch "$stamp"
