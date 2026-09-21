@@ -26,7 +26,7 @@ from backend.features.core.models.outreach import MessageModel
 from backend.features.letters.building import BuildReport, BuildRequest, QueueBuilder
 from backend.features.letters.rewrite import RewriteClient
 from backend.features.letters.sending import SendError, Sending
-from backend.features.letters.transport import build_transport
+from backend.features.letters.transport_factory import build_transport
 from backend.features.letters.uniqueness import corridor_verdict
 
 EXIT_OK = 0

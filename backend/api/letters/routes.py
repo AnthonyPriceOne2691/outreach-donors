@@ -38,7 +38,8 @@ from backend.features.core.models.access import UserModel
 from backend.features.letters import compose, review
 from backend.features.letters.repository import LetterRepository
 from backend.features.letters.sending import Sending
-from backend.features.letters.transport import TransportError, build_transport
+from backend.features.letters.transport import TransportError
+from backend.features.letters.transport_factory import build_transport
 from backend.shared.queue import BUILD_JOB, runs_queue
 
 logger = logging.getLogger(__name__)

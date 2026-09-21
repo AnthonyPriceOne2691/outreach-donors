@@ -29,7 +29,6 @@ import logging
 from dataclasses import dataclass
 from typing import Protocol
 
-from backend.config import outreach as cfg
 from backend.shared.demo import SUFFIX, is_demo_address
 
 logger = logging.getLogger(__name__)
@@ -114,22 +113,3 @@ class NullTransport:
             outgoing.subject,
         )
         return f"null-{outgoing.message_id}"
-
-
-def build_transport(name: str | None = None) -> Transport:
-    """Транспорт по настройке. Неизвестное имя — отказ, а не заглушка."""
-    chosen = (name or cfg.TRANSPORT).strip().lower()
-
-    if chosen == "null":
-        return NullTransport()
-
-    if chosen == "sendgrid":
-        raise TransportError(
-            "Транспорт sendgrid ещё не написан: он ждёт двадцати почтовых доменов "
-            "с настроенными SPF, DKIM и DMARC и ключа платформы. "
-            "До тех пор OUTREACH_TRANSPORT=null — письма собираются, но не уходят"
-        )
-
-    raise TransportError(
-        f"Транспорт «{chosen}» неизвестен. Бывают: null (ничего не шлёт), sendgrid"
-    )

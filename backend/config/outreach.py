@@ -9,6 +9,10 @@ from backend.config._base import DomainSettings
 
 class _Outreach(DomainSettings):
     sendgrid_api_key: str = Field(default="", validation_alias="OUTREACH_SENDGRID_API_KEY")
+    # Предохранитель первых дней: пока список не пуст, боевой транспорт
+    # пишет только на эти адреса (или домены). Пустой список означает
+    # «кому угодно» — и каждое письмо тогда говорит об этом в лог.
+    allowed_recipients: str = Field(default="", validation_alias="OUTREACH_ALLOWED_RECIPIENTS")
     inbound_secret: str = Field(default="", validation_alias="OUTREACH_INBOUND_SECRET")
     # Транспорт отправки: `null` ничего не шлёт и работает только
     # на выдуманных доменах, `sendgrid` шлёт по-настоящему.
@@ -59,6 +63,9 @@ class _Outreach(DomainSettings):
 _s = _Outreach()
 
 SENDGRID_API_KEY: str = _s.sendgrid_api_key
+ALLOWED_RECIPIENTS: tuple[str, ...] = tuple(
+    item.strip().lower() for item in _s.allowed_recipients.split(",") if item.strip()
+)
 TRANSPORT: str = _s.transport
 REPLY_DOMAIN: str = _s.reply_domain
 SENDER_NAME: str = _s.sender_name
