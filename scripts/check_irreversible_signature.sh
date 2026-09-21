@@ -61,8 +61,8 @@ echo "  $line"
 echo
 echo "Это остановка, а не повод просить waiver: сначала escalation.md с двумя"
 echo "вариантами и ценой — поставить человека в цепочку или подписать."
-echo "Подписывает ЧЕЛОВЕК, прочитав строку:"
-echo "  SOCK=\$(find ~/Library/Containers -name socket.ssh 2>/dev/null | head -1)"
-echo "  printf '%s' '<строка объявления>' | SSH_AUTH_SOCK=\$SOCK \\"
-echo "    ssh-keygen -Y sign -f <публичный ключ> -n irreversible - > $SIG"
+echo "Подписывает ЧЕЛОВЕК, прочитав строку. Окно с ней покажет парный скрипт:"
+echo "  bash scripts/sign_irreversible.sh"
+echo "Чтобы оно приходило само при правке объявления — один раз:"
+echo "  bash scripts/sign_irreversible.sh --install"
 exit 1
