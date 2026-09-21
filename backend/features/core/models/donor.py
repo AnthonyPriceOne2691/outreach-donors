@@ -75,7 +75,13 @@ class DonorModel(TimestampedMixin, Base):
     )
 
     # --- Цена (срок годности 150 дней) ---
-    last_price_usd: Mapped[Decimal | None] = mapped_column(DECIMAL(10, 2), nullable=True)
+    # Цена хранится в той валюте, в которой её назвали, и валюта лежит
+    # рядом. Колонка называлась `last_price_usd`, а конвертации у нас нет
+    # и в требованиях её нет: первый же ответ в евро лёг бы в поле
+    # «в долларах» как есть. Имя, обещающее конвертацию, обещает работу,
+    # которой никто не делал.
+    last_price: Mapped[Decimal | None] = mapped_column(DECIMAL(10, 2), nullable=True)
+    last_price_currency: Mapped[str | None] = mapped_column(String(8), nullable=True)
     last_price_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # --- Контакт ---

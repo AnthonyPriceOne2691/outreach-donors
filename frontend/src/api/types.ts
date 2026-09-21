@@ -189,7 +189,8 @@ export interface DonorRowCard {
   geo_top_share: number | null;
   contacts: number;
   contact_status: ContactStatus | null;
-  last_price_usd: string | null;
+  last_price: string | null;
+  last_price_currency: string | null;
   metrics_refreshed_at: string | null;
   /** Данные ещё в сроке годности: за них уже заплачено. */
   fresh: boolean;

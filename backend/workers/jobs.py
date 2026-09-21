@@ -27,6 +27,8 @@ from backend.features.donors.repository import DonorRepository
 from backend.features.donors.verdict import Thresholds
 from backend.features.letters.building import BuildRequest, QueueBuilder
 from backend.features.letters.rewrite import RewriteClient
+from backend.features.replies.extract import ExtractClient
+from backend.features.replies.pipeline import Parser
 from backend.features.runs.pipeline import RunDeps, RunRequest, execute_run
 from backend.features.runs.repository import RunRepository
 from backend.features.serp.factory import build_provider
@@ -159,3 +161,35 @@ def build_letter_queue(
     setup_logging()
     check_storage()
     return asyncio.run(_build_letters(campaign, country, niche, limit))
+
+
+async def _parse_reply(reply_id: int) -> dict[str, Any]:
+    engine = create_async_engine(storage.DSN)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    extractor = ExtractClient()
+    try:
+        async with factory() as session:
+            parsed = await Parser(session, extractor).parse(reply_id)
+            await session.commit()
+            return {
+                "reply": parsed.reply_id,
+                "confidence": parsed.confidence,
+                "stored_price": parsed.stored_price,
+                "needs_review": parsed.needs_review,
+                "tokens": parsed.tokens_spent,
+            }
+    finally:
+        await extractor.aclose()
+        await engine.dispose()
+
+
+def parse_reply(reply_id: int) -> dict[str, Any]:
+    """Разобрать один ответ в цену.
+
+    Отдельной задачей, а не внутри вебхука: вызов модели идёт секундами,
+    а платформа повторяет доставку по таймауту — платный разбор в запросе
+    означал бы повторные списания там, где сеть подтормозила.
+    """
+    setup_logging()
+    check_storage()
+    return asyncio.run(_parse_reply(reply_id))

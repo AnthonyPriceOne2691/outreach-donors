@@ -78,7 +78,7 @@ class TestLoginAttempts:
         for i in range(100):
             counter.check(f"email:{i}@site.com", now=later)
 
-        assert counter._failures == {}
+        assert counter.tracked == 0
 
 
 class TestAdministration:

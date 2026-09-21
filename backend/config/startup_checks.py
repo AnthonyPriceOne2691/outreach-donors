@@ -89,6 +89,28 @@ def check_outreach() -> None:
             Requirement("OUTREACH_INBOUND_SECRET", outreach.INBOUND_SECRET, "приём ответов"),
         ],
     )
+    check_inbound_secret()
+
+
+def check_inbound_secret() -> None:
+    """Секрет приёма обязан быть из латиницы и цифр.
+
+    Он едет в заголовке HTTP, а заголовки — ASCII. Секрет с кириллицей
+    не отправится вовсе, и выглядеть это будет не как поломка настройки,
+    а как «секрет не совпал» на каждом письме: платформа получит отказ,
+    начнёт повторять, и искать причину будут в платформе.
+
+    Найдено живым прогоном: тесты писали секрет латиницей и этого
+    не показывали.
+    """
+    secret = outreach.INBOUND_SECRET
+    if secret and not secret.isascii():
+        raise ConfigError(
+            "OUTREACH_INBOUND_SECRET содержит символы вне латиницы. "
+            "Секрет едет в заголовке HTTP, а заголовки бывают только ASCII: "
+            "с таким секретом приём ответов не заработает никогда.\n"
+            "  Сгенерировать годный: openssl rand -hex 32"
+        )
 
 
 def check_access() -> None:

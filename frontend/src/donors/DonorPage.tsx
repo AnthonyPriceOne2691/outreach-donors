@@ -176,13 +176,16 @@ export function DonorPage() {
         )}
       </Card>
 
-      {data.last_price_usd !== null && (
+      {data.last_price !== null && (
         <Card className="glass" p="lg">
           <Title order={5} mb="xs">
             Последняя цена
           </Title>
+          {/* Валюта приходит с ценой, а не подставляется здесь: конвертации
+              в сервисе нет, и «USD» рядом с числом в евро — это не подпись,
+              а неверное число. */}
           <Text>
-            {data.last_price_usd} USD · {when(data.last_price_at)}
+            {data.last_price} {data.last_price_currency ?? ''} · {when(data.last_price_at)}
           </Text>
         </Card>
       )}
