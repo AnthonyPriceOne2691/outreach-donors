@@ -167,7 +167,8 @@ class Chain:
         и останавливает отправку.
         """
         rendered = compose.render(
-            template.followup(claimed.step), compose.values_for(host=claimed.host)
+            template.followup(claimed.step),
+            compose.values_for(host=claimed.host, domain_id=claimed.domain_id),
         )
         letter = compose.assemble(rendered, {})
         guards.assert_no_metrics(letter.body)

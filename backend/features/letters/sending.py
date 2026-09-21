@@ -38,7 +38,7 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, SenderModel
-from backend.features.letters import chain, compose, reply_to
+from backend.features.letters import chain, compose, reply_to, unsubscribe
 from backend.features.letters.transport import Outgoing, Transport, TransportError
 from backend.features.outreach import senders as sender_rules
 from backend.features.outreach.repository import OutreachRepository
@@ -264,6 +264,9 @@ class Sending:
             subject=target.message.subject or "",
             body=target.message.body or "",
             in_reply_to=in_reply_to,
+            # Та же ссылка, что стоит в тексте письма: разойдись они —
+            # кнопка почты отписывала бы не того, кому написали.
+            unsubscribe_url=unsubscribe.url_for(target.message.domain_id),
         )
         try:
             return await self._transport.send(outgoing)

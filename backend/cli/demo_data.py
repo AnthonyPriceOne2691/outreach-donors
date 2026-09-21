@@ -250,7 +250,7 @@ async def _seed_queue(session: AsyncSession, now: datetime) -> int:
         await session.flush()
 
         letter = compose.assemble(
-            compose.render(template, compose.values_for(host=host)),
+            compose.render(template, compose.values_for(host=host, domain_id=domain.id)),
             {zone: text.replace("{{host}}", host) for zone, text in rewrites.items()},
         )
         # Число считается по тексту, а не назначается ему.

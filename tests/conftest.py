@@ -218,6 +218,9 @@ FILLED = {
     "OUTREACH_SENDER_NAME": "Anna Ro",
     "OUTREACH_POSTAL_ADDRESS": "1 Main Street, Dublin",
     "OUTREACH_UNSUBSCRIBE_URL": "https://ours.test/stop",
+    # Им подписана метка донора в ссылке отписки: без секрета ссылка
+    # не собирается, и юридический блок остаётся незаполненным.
+    "OUTREACH_INBOUND_SECRET": "unsubscribe-secret",
 }
 
 
@@ -227,6 +230,7 @@ def filled_legal(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(outreach_cfg, "SENDER_NAME", FILLED["OUTREACH_SENDER_NAME"])
     monkeypatch.setattr(outreach_cfg, "POSTAL_ADDRESS", FILLED["OUTREACH_POSTAL_ADDRESS"])
     monkeypatch.setattr(outreach_cfg, "UNSUBSCRIBE_URL", FILLED["OUTREACH_UNSUBSCRIBE_URL"])
+    monkeypatch.setattr(outreach_cfg, "INBOUND_SECRET", FILLED["OUTREACH_INBOUND_SECRET"])
 
 
 async def make_donor(

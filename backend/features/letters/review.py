@@ -70,7 +70,10 @@ def edit(
     # незаполненный юридический блок — законности рассылки.
     guards.assert_no_metrics(text)
 
-    plain = compose.render(template or default(), compose.values_for(host=host)).body
+    plain = compose.render(
+        template or default(),
+        compose.values_for(host=host, domain_id=message.domain_id),
+    ).body
     uniqueness = difference(plain, text)
 
     message.subject = subject.strip()

@@ -19,6 +19,7 @@ import re
 from dataclasses import dataclass
 
 from backend.config import outreach as cfg
+from backend.features.letters import unsubscribe
 from backend.features.letters.template import (
     PLACEHOLDER_RE,
     Template,
@@ -72,7 +73,12 @@ class Letter:
     plain_body: str
 
 
-def values_for(*, host: str) -> dict[str, str]:
+#: Номер донора для проверки настроек: сама ссылка при этом никуда
+#: не ведёт, и это не важно — проверяется, собирается ли она вообще.
+_PROBE_DOMAIN_ID = 0
+
+
+def values_for(*, host: str, domain_id: int | None = None) -> dict[str, str]:
     """Значения подстановок.
 
     **Ящика здесь нет намеренно.** Письмо подписано именем человека, а
@@ -80,12 +86,17 @@ def values_for(*, host: str) -> dict[str, str]:
     писать. Подставь мы ящик в текст — очередь пришлось бы нарезать
     по отправителям, и вставший ящик блокировал бы свою часть очереди
     вместо того, чтобы отдать работу остальным.
+
+    **Ссылка отписки у каждого донора своя** — в ней подписанная метка,
+    по которой страница узнаёт, кого отписывать. Без номера донора
+    (предпросмотр шаблона) ссылки нет, и письмо с таким текстом
+    отправка не пропустит.
     """
     return {
         "host": host,
         "sender_name": cfg.SENDER_NAME,
         "postal_address": cfg.POSTAL_ADDRESS,
-        "unsubscribe_url": cfg.UNSUBSCRIBE_URL,
+        "unsubscribe_url": unsubscribe.url_for(domain_id),
     }
 
 
@@ -105,8 +116,17 @@ SETTING_NAMES = {
 
 
 def missing_settings() -> list[str]:
-    """Незаполненные настройки юридического блока, по именам в окружении."""
-    return [SETTING_NAMES[name] for name in missing(values_for(host=""))]
+    """Незаполненные настройки юридического блока, по именам в окружении.
+
+    Ссылка отписки собирается из двух настроек сразу, и названа будет та,
+    которой не хватает: «не заполнено OUTREACH_UNSUBSCRIBE_URL» при живом
+    адресе и пустом секрете отправило бы искать не там.
+    """
+    values = values_for(host="", domain_id=_PROBE_DOMAIN_ID)
+    return [
+        unsubscribe.missing_setting() if name == "unsubscribe_url" else SETTING_NAMES[name]
+        for name in missing(values)
+    ]
 
 
 def _substitute(text: str, values: dict[str, str]) -> str:
