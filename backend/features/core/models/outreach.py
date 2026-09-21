@@ -40,10 +40,15 @@ def _enum(e: type) -> SQLEnum:
 class SenderModel(TimestampedMixin, Base):
     """Отправитель — адрес на одном из наших доменов рассылки.
 
-    Раздача писем идёт тому, у кого больше остаток `daily_cap - sent_today`,
+    Раздача писем идёт тому, у кого больше остаток дневного лимита,
     при равенстве — меньший id. Не по кругу: круг раздаёт поровну только если
     все отправители одинаковы и заведены одновременно, а в жизни один добавлен
     вчера, другой стоял на паузе, у третьего кап правили руками.
+
+    **Сколько ушло сегодня, здесь не хранится.** Такое поле было, и его
+    никто не обнулял: к концу первых суток оно упиралось в кап и оставалось
+    там навсегда, а ящик переставал получать письма молча. Считается
+    по `messages.sent_at` — там же, где лежит сам факт отправки.
     """
 
     __tablename__ = "senders"
@@ -56,7 +61,6 @@ class SenderModel(TimestampedMixin, Base):
     stage: Mapped[Stage] = mapped_column(_enum(Stage), nullable=False)
 
     daily_cap: Mapped[int] = mapped_column(Integer, nullable=False)
-    sent_today: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[SenderStatus] = mapped_column(
         _enum(SenderStatus), nullable=False, default=SenderStatus.FREE
     )
@@ -180,6 +184,8 @@ class MessageModel(TimestampedMixin, Base):
         UniqueConstraint("idempotency_key", name="uq_messages_idempotency"),
         # Выборка очереди: что готово к отправке.
         Index("idx_messages_status_next_action", "status", "next_action_at"),
+        # «Сколько этот ящик отправил сегодня» — запрос на каждое письмо.
+        Index("idx_messages_sender_sent_at", "sender_id", "sent_at"),
         Index("idx_messages_thread_id", "thread_id"),
     )
 

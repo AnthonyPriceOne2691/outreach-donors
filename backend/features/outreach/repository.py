@@ -9,8 +9,9 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime, time
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -71,6 +72,28 @@ class OutreachRepository:
         if found is None:
             raise UnknownSenderError(f"Отправителя №{sender_id} нет")
         return found
+
+    async def sent_today(self, *, now: datetime | None = None) -> dict[int, int]:
+        """Сколько писем ушло сегодня с каждого ящика.
+
+        Считается по письмам, а не по счётчику в строке отправителя.
+        Такой счётчик был, и его никто не обнулял: к концу первых суток
+        он упирался в кап и оставался там навсегда — ящик переставал
+        получать письма, не сказав ни слова.
+
+        Сутки считаются по UTC, как и всё остальное время в базе.
+        Отправители живут в разных часовых поясах только в воображении:
+        почтовая платформа смотрит на скорость, а не на местный полдень.
+        """
+        moment = now or datetime.now(UTC)
+        since = datetime.combine(moment.date(), time.min, tzinfo=UTC)
+        rows = await self._session.execute(
+            select(MessageModel.sender_id, func.count())
+            .where(MessageModel.sender_id.is_not(None))
+            .where(MessageModel.sent_at >= since)
+            .group_by(MessageModel.sender_id)
+        )
+        return {sender_id: count for sender_id, count in rows.all() if sender_id is not None}
 
     async def enabled_domains(self) -> set[str]:
         """Домены, у которых хоть один ящик включён. Нужно ровно для одного

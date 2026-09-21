@@ -28,7 +28,6 @@ def _sender(**extra: object) -> SenderModel:
         "email": "outreach@mail.example.test",
         "stage": Stage.DONORS,
         "daily_cap": 20,
-        "sent_today": 0,
         "status": SenderStatus.FREE,
         "enabled": True,
     }
@@ -94,7 +93,6 @@ class TestSwitching:
             enabled=False,
             status=SenderStatus.PAUSED,
             warmup_started_at=NOW - timedelta(days=30),
-            sent_today=17,
             pause_reason="доля отказов",
         )
 
@@ -103,7 +101,6 @@ class TestSwitching:
         assert sender.enabled
         assert sender.warmup_started_at == NOW
         assert warmup_state(sender, now=NOW).allowance == WARMUP_FIRST_DAY
-        assert sender.sent_today == 0
         assert sender.pause_reason is None
 
     def test_disabling_keeps_the_reason(self) -> None:

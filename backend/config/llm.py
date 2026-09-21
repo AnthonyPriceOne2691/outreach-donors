@@ -28,6 +28,11 @@ class _Llm(DomainSettings):
     keygen_model: str = Field(default="gpt-5", validation_alias="LLM_KEYGEN_MODEL")
     # Модель проверки набора. Здесь дешёвая уместна.
     judge_model: str = Field(default="gpt-5-mini", validation_alias="LLM_JUDGE_MODEL")
+    # Модель уникализации письма. Та же причина, что у генерации ключей:
+    # слабая примешивает чужой язык и сваливается в шаблон, а письмо,
+    # похожее на тысячу других, — это и есть то, от чего уникализация
+    # защищает.
+    letters_model: str = Field(default="gpt-5", validation_alias="LLM_LETTERS_MODEL")
     timeout_s: float = Field(default=180.0, validation_alias="LLM_TIMEOUT_S")
     # Фраз за один вызов. Больше — растёт доля почти одинаковых, а ответ
     # обрывается на середине токенного лимита.
@@ -43,6 +48,7 @@ _s = _Llm()
 API_KEY: str = _s.api_key
 KEYGEN_MODEL: str = _s.keygen_model
 JUDGE_MODEL: str = _s.judge_model
+LETTERS_MODEL: str = _s.letters_model
 TIMEOUT_S: float = _s.timeout_s
 MAX_PHRASES_PER_CALL: int = _s.max_phrases_per_call
 ANGLE_BUFFER: int = _s.angle_buffer

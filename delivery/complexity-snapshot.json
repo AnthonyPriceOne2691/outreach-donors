@@ -87,14 +87,14 @@
       "worst": "—"
     },
     "backend/api/senders/routes.py": {
-      "lines": 79,
+      "lines": 80,
       "complexity": 2,
       "worst": "all_senders:28"
     },
     "backend/api/senders/schemas.py": {
-      "lines": 67,
+      "lines": 72,
       "complexity": 2,
-      "worst": "of:36"
+      "worst": "of:39"
     },
     "backend/api/settings/__init__.py": {
       "lines": 1,
@@ -157,19 +157,24 @@
       "worst": "cmd_contacts:127"
     },
     "backend/cli/demo_data.py": {
-      "lines": 298,
+      "lines": 386,
       "complexity": 10,
-      "worst": "_seed_threads:183"
+      "worst": "_seed_threads:267"
     },
     "backend/cli/keywords_pool.py": {
       "lines": 89,
       "complexity": 5,
       "worst": "cmd_keywords:41"
     },
+    "backend/cli/letters_queue.py": {
+      "lines": 146,
+      "complexity": 5,
+      "worst": "_print_build:82"
+    },
     "backend/cli/main.py": {
-      "lines": 342,
+      "lines": 349,
       "complexity": 9,
-      "worst": "_print_report:195"
+      "worst": "_print_report:197"
     },
     "backend/config/__init__.py": {
       "lines": 1,
@@ -202,7 +207,7 @@
       "worst": "—"
     },
     "backend/config/llm.py": {
-      "lines": 50,
+      "lines": 56,
       "complexity": 0,
       "worst": "—"
     },
@@ -212,7 +217,7 @@
       "worst": "—"
     },
     "backend/config/outreach.py": {
-      "lines": 51,
+      "lines": 69,
       "complexity": 0,
       "worst": "—"
     },
@@ -382,7 +387,7 @@
       "worst": "_enum:16"
     },
     "backend/features/core/models/outreach.py": {
-      "lines": 227,
+      "lines": 233,
       "complexity": 2,
       "worst": "_enum:36"
     },
@@ -390,6 +395,11 @@
       "lines": 76,
       "complexity": 2,
       "worst": "_enum:17"
+    },
+    "backend/features/core/usage.py": {
+      "lines": 71,
+      "complexity": 2,
+      "worst": "record:42"
     },
     "backend/features/donors/__init__.py": {
       "lines": 1,
@@ -437,9 +447,9 @@
       "worst": "preset:116"
     },
     "backend/features/keywords/client.py": {
-      "lines": 163,
-      "complexity": 6,
-      "worst": "_content_of:76"
+      "lines": 122,
+      "complexity": 4,
+      "worst": "__init__:76"
     },
     "backend/features/keywords/dedup.py": {
       "lines": 94,
@@ -456,20 +466,80 @@
       "complexity": 12,
       "worst": "parse_phrases:153"
     },
+    "backend/features/letters/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/features/letters/building.py": {
+      "lines": 195,
+      "complexity": 4,
+      "worst": "_prepare:140"
+    },
+    "backend/features/letters/compose.py": {
+      "lines": 164,
+      "complexity": 3,
+      "worst": "assemble:148"
+    },
+    "backend/features/letters/guards.py": {
+      "lines": 56,
+      "complexity": 3,
+      "worst": "metrics_leak:34"
+    },
+    "backend/features/letters/masking.py": {
+      "lines": 91,
+      "complexity": 5,
+      "worst": "unmask:60"
+    },
+    "backend/features/letters/reply_to.py": {
+      "lines": 100,
+      "complexity": 6,
+      "worst": "message_id_from:76"
+    },
+    "backend/features/letters/repository.py": {
+      "lines": 219,
+      "complexity": 2,
+      "worst": "candidates:139"
+    },
+    "backend/features/letters/rewrite.py": {
+      "lines": 265,
+      "complexity": 7,
+      "worst": "parse_zones:120"
+    },
+    "backend/features/letters/sending.py": {
+      "lines": 296,
+      "complexity": 5,
+      "worst": "_hand_over:213"
+    },
+    "backend/features/letters/template.py": {
+      "lines": 265,
+      "complexity": 9,
+      "worst": "_check_zones:185"
+    },
+    "backend/features/letters/transport.py": {
+      "lines": 113,
+      "complexity": 4,
+      "worst": "build_transport:96"
+    },
+    "backend/features/letters/uniqueness.py": {
+      "lines": 77,
+      "complexity": 3,
+      "worst": "difference:37"
+    },
     "backend/features/outreach/__init__.py": {
       "lines": 2,
       "complexity": 0,
       "worst": "—"
     },
     "backend/features/outreach/repository.py": {
-      "lines": 165,
+      "lines": 188,
       "complexity": 4,
-      "worst": "threads:85"
+      "worst": "threads:108"
     },
     "backend/features/outreach/senders.py": {
-      "lines": 80,
-      "complexity": 3,
-      "worst": "warmup_state:40"
+      "lines": 160,
+      "complexity": 4,
+      "worst": "_spot:112"
     },
     "backend/features/outreach/threads.py": {
       "lines": 107,
@@ -497,9 +567,9 @@
       "worst": "gather_candidates:204"
     },
     "backend/features/runs/repository.py": {
-      "lines": 144,
+      "lines": 121,
       "complexity": 2,
-      "worst": "create_settings:50"
+      "worst": "create_settings:42"
     },
     "backend/features/runs/spending.py": {
       "lines": 116,
@@ -550,6 +620,16 @@
       "lines": 17,
       "complexity": 0,
       "worst": "—"
+    },
+    "backend/shared/demo.py": {
+      "lines": 27,
+      "complexity": 1,
+      "worst": "is_demo:19"
+    },
+    "backend/shared/llm.py": {
+      "lines": 83,
+      "complexity": 6,
+      "worst": "content_of:70"
     },
     "backend/shared/logs/__init__.py": {
       "lines": 6,

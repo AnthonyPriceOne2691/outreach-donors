@@ -44,9 +44,18 @@ from backend.features.core.models.outreach import (
     SenderModel,
     ThreadModel,
 )
+from backend.features.outreach.senders import warmup_state
+from backend.shared import demo
 
-DEMO_SUFFIX = ".example.test"
+#: Признак выдуманного домена один на весь сервис (`backend/shared/demo.py`):
+#: по нему же нулевой транспорт решает, можно ли отправлять. Вторая копия
+#: строки означала бы, что однажды заглушка сочтёт боевой домен выдуманным.
+DEMO_SUFFIX = demo.SUFFIX
 DEMO_CAMPAIGN = "Демонстрация"
+#: Отдельная кампания под письма, ушедшие сегодня: по ней видно дневной
+#: расход ящиков, и убирается она вместе с остальной демонстрацией.
+DEMO_CAMPAIGN_TODAY = "Демонстрация: сегодня"
+DEMO_CAMPAIGNS = (DEMO_CAMPAIGN, DEMO_CAMPAIGN_TODAY)
 
 EXIT_OK = 0
 
@@ -116,7 +125,11 @@ REPLIES = {
 async def _clear(session: AsyncSession) -> int:
     """Убрать только демонстрационные записи."""
     campaigns = (
-        (await session.execute(select(CampaignModel.id).where(CampaignModel.name == DEMO_CAMPAIGN)))
+        (
+            await session.execute(
+                select(CampaignModel.id).where(CampaignModel.name.in_(DEMO_CAMPAIGNS))
+            )
+        )
         .scalars()
         .all()
     )
@@ -154,21 +167,24 @@ async def _clear(session: AsyncSession) -> int:
     return len(hosts)
 
 
-async def _seed_senders(session: AsyncSession, now: datetime) -> int:
-    made = 0
+#: Сколько писем ушло сегодня с каждого включённого ящика. Число скромное
+#: и упирается в потолок разгона: ящик на первом дне с шестью письмами
+#: при потолке пять — это «6 из 5» на экране, то есть данные, которых
+#: не бывает.
+SENT_TODAY_PER_BOX = 3
+
+
+async def _seed_senders(session: AsyncSession, now: datetime) -> list[SenderModel]:
+    """Ящики рассылки. Возвращает созданные: по ним потом раздаются письма."""
+    made: list[SenderModel] = []
     for domain, boxes, cap, warmup_day, enabled, reason in SENDER_DOMAINS:
         for index in range(boxes):
             started = None if warmup_day is None else now - timedelta(days=warmup_day - 1)
-            # Отправлено не больше сегодняшнего потолка: домен на первом дне
-            # разгона с шестью письмами при потолке пять — это «6 из 5»
-            # на экране, то есть данные, которых не бывает.
-            allowance = cap if warmup_day is None else min(cap, 5 * warmup_day)
             sender = SenderModel(
                 domain=domain,
                 email=f"outreach{index + 1}@{domain}",
                 stage=Stage.DONORS,
                 daily_cap=cap,
-                sent_today=min(cap // 3, allowance) if enabled else 0,
                 status=SenderStatus.FREE if enabled else SenderStatus.PAUSED,
                 enabled=enabled,
                 warmup_started_at=started,
@@ -176,6 +192,74 @@ async def _seed_senders(session: AsyncSession, now: datetime) -> int:
                 pause_reason=reason,
             )
             session.add(sender)
+            made.append(sender)
+    await session.flush()
+    return made
+
+
+async def _seed_sent_today(session: AsyncSession, senders: list[SenderModel], now: datetime) -> int:
+    """Письма, ушедшие сегодня.
+
+    Нужны ради экрана доменов рассылки: дневной расход считается
+    по письмам, а не хранится полем — хранимое поле никто не обнулял бы,
+    и ящик упирался бы в кап навсегда. Без этих писем на экране у каждого
+    ящика стоял бы ноль, и «отправлено 3 из 20» нечем было бы проверить.
+    """
+    campaign = CampaignModel(stage=Stage.DONORS, name=DEMO_CAMPAIGN_TODAY, status="running")
+    session.add(campaign)
+    await session.flush()
+
+    made = 0
+    for sender in senders:
+        if not sender.enabled:
+            continue
+        allowance = warmup_state(sender, now=now).allowance
+        for number in range(min(SENT_TODAY_PER_BOX, allowance)):
+            host = f"sent-{sender.id}-{number + 1}{DEMO_SUFFIX}"
+            domain = DomainModel(host=host)
+            session.add(domain)
+            await session.flush()
+
+            session.add(
+                DonorModel(
+                    domain_id=domain.id,
+                    status=DonorStatus.SUITABLE,
+                    dr=22 + number,
+                    org_traffic=800 + number * 250,
+                    metrics_refreshed_at=now,
+                )
+            )
+            contact = ContactModel(
+                domain_id=domain.id, email=f"info@{host}", source=ContactSource.PAGE
+            )
+            session.add(contact)
+            await session.flush()
+
+            thread = ThreadModel(
+                domain_id=domain.id,
+                campaign_id=campaign.id,
+                contact_id=contact.id,
+                status=ThreadStatus.OPEN,
+            )
+            session.add(thread)
+            await session.flush()
+
+            session.add(
+                MessageModel(
+                    campaign_id=campaign.id,
+                    thread_id=thread.id,
+                    domain_id=domain.id,
+                    contact_id=contact.id,
+                    sender_id=sender.id,
+                    step=0,
+                    status=MessageStatus.SENT,
+                    subject=f"Advertising rates for {host}",
+                    body=LETTER_BODY,
+                    uniqueness_pct=0.19,
+                    sent_at=now - timedelta(hours=number + 1),
+                    idempotency_key=f"{Stage.DONORS.value}:{host}:0",
+                )
+            )
             made += 1
     return made
 
@@ -286,12 +370,16 @@ async def cmd_demo_seed(args: argparse.Namespace) -> int:
                 return EXIT_OK
 
             senders = await _seed_senders(session, now)
+            sent_today = await _seed_sent_today(session, senders, now)
             threads = await _seed_threads(session, now)
             await session.commit()
     finally:
         await engine.dispose()
 
-    print(f"Заведено: ящиков рассылки {senders}, диалогов {threads}.")
+    print(
+        f"Заведено: ящиков рассылки {len(senders)}, писем за сегодня {sent_today}, "
+        f"диалогов {threads}."
+    )
     print(f"Все домены оканчиваются на {DEMO_SUFFIX} — писем туда не уходит.")
     print("Убрать: outreach demo-seed --clear")
     return EXIT_OK

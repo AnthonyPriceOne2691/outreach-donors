@@ -19,28 +19,20 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.ahrefs.units import UnitsCost
-from backend.features.core.domain import RunStatus, Stage, UsageProvider
+from backend.features.core import usage
+from backend.features.core.domain import RunStatus, Stage
 from backend.features.core.models.ops import UsageRecordModel
 from backend.features.core.models.run import RunModel, RunSettingsModel
 from backend.features.donors.verdict import Thresholds
 
-SYSTEM = "outreach-donors"
+#: Имя системы в общей таблице расхода живёт в `core.usage` — здесь оно
+#: оставлено ссылкой, потому что на него смотрят запросы ниже.
+SYSTEM = usage.SYSTEM
+
 
 # Какой провайдер стоит за операцией. Список закрытый: неизвестная операция
 # должна быть замечена, а не тихо записана как «прочее» — иначе разбор
 # расхода со временем превратится в одну строку «прочее» на весь счёт.
-_OPERATION_PROVIDERS = {
-    "batch_metrics": UsageProvider.AHREFS,
-    "by_country": UsageProvider.AHREFS,
-    "serp": UsageProvider.AHREFS,
-}
-
-
-class UnknownOperationError(ValueError):
-    """Расход по операции, которой нет в списке. Молча отнести её к Ahrefs
-    нельзя: провайдер мог быть другой, и счёт разойдётся."""
-
-
 class RunRepository:
     """Доступ к прогонам, их настройкам и журналу расхода."""
 
@@ -92,22 +84,7 @@ class RunRepository:
         сам факт запроса важнее его цены, а пропуск строки скрыл бы, что
         запрос вообще был.
         """
-        provider = _OPERATION_PROVIDERS.get(operation)
-        if provider is None:
-            raise UnknownOperationError(
-                f"Операция «{operation}» не числится за провайдером. Добавьте её "
-                f"в _OPERATION_PROVIDERS — иначе расход уйдёт не в тот счёт."
-            )
-
-        record = UsageRecordModel(
-            system=SYSTEM,
-            provider=provider,
-            run_id=run_id,
-            operation=operation,
-            units=cost.billable,
-        )
-        self._session.add(record)
-        return record
+        return usage.record(self._session, operation=operation, units=cost.billable, run_id=run_id)
 
     async def finish_run(
         self,

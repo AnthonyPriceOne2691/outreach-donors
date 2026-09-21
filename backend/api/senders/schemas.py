@@ -17,6 +17,9 @@ class SenderCard(BaseModel):
     Отдаётся и дневной расход, и потолок разгона, и общий кап: без всех
     трёх чисел «отправлено 5 из 20» врёт — на третьем дне разгона
     потолок не двадцать, а пятнадцать.
+
+    Дневной расход приходит извне, а не из строки отправителя: он
+    считается по письмам (`OutreachRepository.sent_today`).
     """
 
     id: int
@@ -33,7 +36,9 @@ class SenderCard(BaseModel):
     pause_reason: str | None = None
 
     @classmethod
-    def of(cls, sender: SenderModel, warmup: Warmup | None = None) -> SenderCard:
+    def of(
+        cls, sender: SenderModel, *, sent_today: int = 0, warmup: Warmup | None = None
+    ) -> SenderCard:
         state = warmup or warmup_state(sender)
         return cls(
             id=sender.id,
@@ -41,7 +46,7 @@ class SenderCard(BaseModel):
             email=sender.email,
             enabled=sender.enabled,
             status=sender.status,
-            sent_today=sender.sent_today,
+            sent_today=sent_today,
             daily_cap=sender.daily_cap,
             warmup_day=state.day,
             warmup_allowance=state.allowance,

@@ -11,21 +11,38 @@
 Отправлять станет нечем, и сказать об этом надо до нажатия, а не после.
 Запрещать нельзя: иногда именно этого и хотят — например, когда все
 домены под жалобой и рассылку надо остановить целиком.
+
+Третье: **письмо отдаётся ящику с наибольшим остатком на сегодня.**
+Остаток считается от потолка разгона, а не от дневного капа: ящик
+на третьем дне может десять писем, а не двадцать. И считается он
+по отправленным письмам — хранимого счётчика тут нет намеренно, его
+некому было бы обнулять.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from backend.features.core.domain import SenderStatus
+from backend.config import outreach as cfg
+from backend.features.core.domain import SenderStatus, Stage
 from backend.features.core.models.outreach import SenderModel
 
-#: На сколько писем в день выходит домен в первый день разгона и на сколько
-#: прибавляет каждый следующий. Числа скромные намеренно: почтовые
-#: платформы смотрят на скорость роста, а не на абсолютное число.
-WARMUP_FIRST_DAY = 5
-WARMUP_STEP_PER_DAY = 5
+#: Ступени дневного капа и сколько дней держится каждая — из настроек
+#: (`OUTREACH_WARMUP_CAPS`, `OUTREACH_WARMUP_STEP_DAYS`). Числа скромные
+#: намеренно: почтовые платформы смотрят на скорость роста, а не
+#: на абсолютное число.
+#:
+#: Раньше ступени были заданы дважды — здесь константами и в настройках, —
+#: и совпадали случайно. Правка одной из копий молча меняла бы разгон
+#: в одном месте и оставляла прежним в другом.
+WARMUP_STEPS: tuple[int, ...] = cfg.WARMUP_DAILY_CAPS
+WARMUP_STEP_DAYS: int = cfg.WARMUP_STEP_DAYS
+
+#: Сколько можно в первый день. Имя оставлено: по нему читается смысл
+#: первой ступени.
+WARMUP_FIRST_DAY = WARMUP_STEPS[0]
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,7 +66,8 @@ def warmup_state(sender: SenderModel, *, now: datetime | None = None) -> Warmup:
 
     moment = now or datetime.now(UTC)
     day = max(1, (moment.date() - sender.warmup_started_at.date()).days + 1)
-    allowance = min(sender.daily_cap, WARMUP_FIRST_DAY + (day - 1) * WARMUP_STEP_PER_DAY)
+    step = min((day - 1) // WARMUP_STEP_DAYS, len(WARMUP_STEPS) - 1)
+    allowance = min(sender.daily_cap, WARMUP_STEPS[step])
     return Warmup(day=day, allowance=allowance, finished=allowance >= sender.daily_cap)
 
 
@@ -65,7 +83,6 @@ def enable(sender: SenderModel, *, now: datetime | None = None) -> None:
     sender.enabled = True
     sender.status = SenderStatus.FREE
     sender.warmup_started_at = moment
-    sender.sent_today = 0
     sender.paused_at = None
     sender.pause_reason = None
 
@@ -77,3 +94,66 @@ def disable(sender: SenderModel, reason: str, *, now: datetime | None = None) ->
     sender.status = SenderStatus.PAUSED
     sender.paused_at = now or datetime.now(UTC)
     sender.pause_reason = reason[:128]
+
+
+@dataclass(frozen=True, slots=True)
+class Availability:
+    """Отправитель и сколько ему осталось на сегодня."""
+
+    sender: SenderModel
+    allowance: int
+    sent: int
+
+    @property
+    def remaining(self) -> int:
+        return max(0, self.allowance - self.sent)
+
+
+def _spot(sender: SenderModel, *, sent: int, stage: Stage, now: datetime) -> Availability | None:
+    """Место под письмо у одного ящика. `None` — сегодня он не пишет."""
+    if not sender.enabled or sender.stage is not stage:
+        return None
+    state = warmup_state(sender, now=now)
+    found = Availability(sender=sender, allowance=state.allowance, sent=sent)
+    return found if found.remaining > 0 else None
+
+
+def available(
+    senders: Sequence[SenderModel],
+    *,
+    sent_today: Mapping[int, int],
+    stage: Stage,
+    now: datetime | None = None,
+) -> list[Availability]:
+    """Кто сегодня ещё может писать.
+
+    Выключенные не попадают сюда вовсе: выключенный домен не получает
+    новых писем, но начатые цепочки не рвутся — это забота отправки,
+    а не этого списка.
+    """
+    moment = now or datetime.now(UTC)
+    found = (
+        _spot(sender, sent=sent_today.get(sender.id, 0), stage=stage, now=moment)
+        for sender in senders
+    )
+    return [spot for spot in found if spot is not None]
+
+
+def pick(
+    senders: Sequence[SenderModel],
+    *,
+    sent_today: Mapping[int, int],
+    stage: Stage,
+    now: datetime | None = None,
+) -> Availability | None:
+    """Кому отдать следующее письмо. `None` — сегодня писать некому.
+
+    Тому, у кого больше остаток, при равенстве — меньший номер. Не по
+    кругу: круг раздаёт поровну, только если все ящики одинаковы и заведены
+    одновременно, а в жизни один добавлен вчера, другой стоял на паузе,
+    у третьего кап правили руками.
+    """
+    ready = available(senders, sent_today=sent_today, stage=stage, now=now)
+    if not ready:
+        return None
+    return max(ready, key=lambda spot: (spot.remaining, -spot.sender.id))

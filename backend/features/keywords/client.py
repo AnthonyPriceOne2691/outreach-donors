@@ -1,7 +1,9 @@
 """Вызов модели для генерации ключей.
 
 Здесь одна тема: попросить модель и понять ответ. Что именно просить —
-в `angles.py`, что делать с ответом — в `hygiene.py`.
+в `angles.py`, что делать с ответом — в `hygiene.py`. Сам запрос и разбор
+отказов — в `backend/shared/llm.py`: та же работа понадобилась
+уникализации письма, а два экземпляра разбора отказов разъезжаются.
 
 **Рассуждающие модели требуют других параметров.** У них свой потолок
 вывода и режим рассуждений вместо температуры. Перепутать нельзя:
@@ -22,14 +24,12 @@ import httpx
 
 from backend.config import llm as cfg
 from backend.features.keywords.hygiene import parse_phrases
+from backend.shared.llm import content_of, is_reasoning, post_chat, tokens_of
 
 logger = logging.getLogger(__name__)
 
-API_URL = "https://api.openai.com/v1/chat/completions"
-
-#: Семейства, которые считают токены рассуждений отдельно и не принимают
-#: температуру.
-REASONING_PREFIXES = ("gpt-5", "o1", "o3", "o4")
+#: Тема для логов: по ней видно, что именно осталось несделанным.
+TOPIC = "ключи"
 
 #: Запас токенов на фразу. Рассуждающая модель тратит их и на размышление,
 #: поэтому ей нужно кратно больше — при нехватке ответ обрывается.
@@ -50,10 +50,6 @@ class Ask:
     max_phrases: int
 
 
-def _is_reasoning(model: str) -> bool:
-    return model.startswith(REASONING_PREFIXES)
-
-
 def build_payload(model: str, ask: Ask) -> dict[str, Any]:
     """Тело запроса с поправкой на семейство модели."""
     payload: dict[str, Any] = {
@@ -63,7 +59,7 @@ def build_payload(model: str, ask: Ask) -> dict[str, Any]:
             {"role": "user", "content": ask.user},
         ],
     }
-    if _is_reasoning(model):
+    if is_reasoning(model):
         payload["max_completion_tokens"] = max(1200, ask.max_phrases * TOKENS_PER_PHRASE_REASONING)
         # Минимальный режим: нам нужен список фраз, а не размышление о нём.
         payload["reasoning_effort"] = "minimal"
@@ -71,15 +67,6 @@ def build_payload(model: str, ask: Ask) -> dict[str, Any]:
         payload["max_tokens"] = max(400, ask.max_phrases * TOKENS_PER_PHRASE_PLAIN)
         payload["temperature"] = 0
     return payload
-
-
-def _content_of(body: dict[str, Any]) -> str:
-    """Текст ответа из первой альтернативы. Пусто — значит, разбирать нечего."""
-    choices = body.get("choices") or []
-    if not choices:
-        logger.error("ключи: модель вернула ответ без вариантов")
-        return ""
-    return str(((choices[0] or {}).get("message") or {}).get("content") or "")
 
 
 class KeygenClient:
@@ -117,46 +104,18 @@ class KeygenClient:
             )
 
         self.calls += 1
-        body = await self._post(ask)
+        body = await post_chat(
+            self._http,
+            api_key=self._api_key,
+            payload=build_payload(self._model, ask),
+            topic=TOPIC,
+        )
         if body is None:
             return []
 
-        usage = body.get("usage") or {}
-        self.tokens_spent += int(usage.get("total_tokens") or 0)
+        self.tokens_spent += tokens_of(body)
 
-        phrases = parse_phrases(_content_of(body))
+        phrases = parse_phrases(content_of(body, topic=TOPIC))
         if not phrases:
             logger.warning("ключи: модель вернула пустой набор (модель %s)", self._model)
         return phrases
-
-    async def _post(self, ask: Ask) -> dict[str, Any] | None:
-        """Запрос к модели. `None` — не получилось, причина уже в логе.
-
-        Вынесено из просьбы: там собирались и отправка, и разбор отказов,
-        и учёт токенов — три темы в одной функции.
-        """
-        try:
-            response = await self._http.post(
-                API_URL,
-                headers={"Authorization": f"Bearer {self._api_key}"},
-                json=build_payload(self._model, ask),
-            )
-        except httpx.HTTPError as exc:
-            logger.exception("ключи: модель недоступна (%r) — угол остался без фраз", exc)
-            return None
-
-        if response.status_code >= 400:
-            # Отказ называется целиком: «плохой запрос» без текста
-            # провайдера отлаживается вслепую.
-            logger.error(
-                "ключи: модель отказала (%s): %s", response.status_code, response.text[:300]
-            )
-            return None
-
-        try:
-            body = response.json()
-        except ValueError:
-            logger.exception("ключи: ответ модели не разобран как JSON")
-            return None
-
-        return body if isinstance(body, dict) else None

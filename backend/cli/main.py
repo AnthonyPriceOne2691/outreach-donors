@@ -24,6 +24,8 @@ from backend.cli.contact_search import cmd_contacts
 from backend.cli.demo_data import cmd_demo_seed
 from backend.cli.keywords_pool import add_parser as add_keywords_parser
 from backend.cli.keywords_pool import cmd_keywords
+from backend.cli.letters_queue import add_parser as add_letters_parser
+from backend.cli.letters_queue import cmd_letters, cmd_letters_build, cmd_letters_send
 from backend.config import ahrefs as ahrefs_cfg
 from backend.config import filters, storage
 from backend.config.startup_checks import ConfigError, check_collect, check_storage
@@ -289,6 +291,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="сначала платный сервис, добор скрейпером: быстрее, но платных запросов больше",
     )
+
+    add_letters_parser(sub)
     return parser
 
 
@@ -314,6 +318,9 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] =
     "user-reset": cmd_user_reset,
     "keywords": cmd_keywords,
     "demo-seed": cmd_demo_seed,
+    "letters-build": cmd_letters_build,
+    "letters": cmd_letters,
+    "letters-send": cmd_letters_send,
 }
 
 

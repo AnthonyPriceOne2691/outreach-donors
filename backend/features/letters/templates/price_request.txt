@@ -1,0 +1,46 @@
+# Запрос цены размещения. Язык — английский: ГЕО старта US, а язык письма
+# берётся от ГЕО прогона, не от языка донора (TZ.md).
+#
+# ТЕКСТ ВЫДУМАН. Боевой приходит от заказчика (Э1-20, «можем предоставить»).
+# Меняется содержимое зон, а не их набор: набор задан ТЗ и проверяется
+# при разборе.
+#
+# Зона `rewrite` уходит в модель и переписывается под конкретного донора.
+# Зона `fixed` в модель не уходит вовсе — там условия сделки, подпись
+# и юридический блок.
+#
+# В подписи имя человека, а не адрес ящика: ящик выбирается в момент
+# отправки из тех, что сегодня могут писать, а текст письма к этому
+# моменту уже утверждён человеком. Обратный адрес даёт заголовок
+# «куда отвечать», а не тело письма.
+
+subject: Advertising rates for {{host}}
+
+[greeting] rewrite
+Hi there,
+
+[opening] rewrite
+I have been reading through {{host}} over the past few days, and the way you
+cover your subject is a good match for what my clients are looking for.
+
+[offer] fixed
+I work with an agency that places sponsored articles for its clients, and we
+are putting together a shortlist of publishers we can work with on a regular
+basis rather than as a one-off.
+
+[ask] rewrite
+Could you let me know what you charge for a placement? If the rate depends on
+whether the article carries a sponsored label, both numbers would be helpful.
+
+[terms] fixed
+We pay per published article and send the draft over for your approval before
+anything goes live. Please also let me know which payment methods you accept.
+
+[signature] fixed
+Best regards,
+{{sender_name}}
+
+[legal] fixed
+{{postal_address}}
+You are receiving this because your site is listed as accepting paid content.
+To stop hearing from us, unsubscribe here: {{unsubscribe_url}}
