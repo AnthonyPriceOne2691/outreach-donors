@@ -25,6 +25,7 @@ from backend.features.runs.lifecycle import recover
 from backend.features.runs.repository import RunRepository
 from backend.shared.logs import setup_logging
 from backend.shared.queue import RUN_JOB, job_alive, runs_queue
+from backend.workers.ticker import every
 
 logger = logging.getLogger(__name__)
 
@@ -63,23 +64,10 @@ async def sweep() -> None:
         await engine.dispose()
 
 
-async def loop(*, interval: float = POLL_INTERVAL_SEC) -> None:
-    """Вечный цикл. Сбой одного прохода не роняет процесс: разбор
-    полезен именно тогда, когда что-то уже сломалось, и умереть вместе
-    с поломкой — худшее, что он может сделать."""
-    while True:
-        try:
-            await sweep()
-        except Exception:
-            logger.exception("Разбор прогонов: проход не удался, повтор через %.0f с", interval)
-        await asyncio.sleep(interval)
-
-
 def main() -> None:
     setup_logging()
     check_storage()
-    logger.info("Разбор мёртвых прогонов запущен, проход раз в %.0f с", POLL_INTERVAL_SEC)
-    asyncio.run(loop())
+    asyncio.run(every(POLL_INTERVAL_SEC, sweep, name="Разбор мёртвых прогонов"))
 
 
 if __name__ == "__main__":

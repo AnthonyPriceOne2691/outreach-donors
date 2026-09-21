@@ -143,6 +143,22 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # Добивки уходят по сроку, а не по нажатию: ждать, пока кто-то откроет
+  # экран, нельзя. Свой процесс, а не работа сервера или воркера очереди:
+  # падение одного не должно останавливать другое.
+  followups:
+    build:
+      context: .
+      target: backend
+    command: python -m backend.workers.followups
+    environment: *backend-env
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
   web:
     build:
       context: .

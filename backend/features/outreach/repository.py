@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, time
 
 from sqlalchemy import func, select
+from sqlalchemy import true as sa_true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -73,7 +74,9 @@ class OutreachRepository:
             raise UnknownSenderError(f"Отправителя №{sender_id} нет")
         return found
 
-    async def sent_today(self, *, now: datetime | None = None) -> dict[int, int]:
+    async def sent_today(
+        self, *, now: datetime | None = None, first_only: bool = False
+    ) -> dict[int, int]:
         """Сколько писем ушло сегодня с каждого ящика.
 
         Считается по письмам, а не по счётчику в строке отправителя.
@@ -91,6 +94,10 @@ class OutreachRepository:
             select(MessageModel.sender_id, func.count())
             .where(MessageModel.sender_id.is_not(None))
             .where(MessageModel.sent_at >= since)
+            # `first_only` — счёт для дневного капа. Добивки в кап
+            # не входят (решение 21.09.2026): у них свой часовой потолок,
+            # иначе цепочки съедают квоту новых доноров.
+            .where(MessageModel.step == 0 if first_only else sa_true())
             .group_by(MessageModel.sender_id)
         )
         return {sender_id: count for sender_id, count in rows.all() if sender_id is not None}

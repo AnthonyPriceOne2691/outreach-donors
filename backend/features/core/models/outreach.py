@@ -93,6 +93,12 @@ class CampaignModel(TimestampedMixin, Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
     template_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
+    # Через сколько дней после первого письма уходят добивки: список
+    # по шагу, например [7, 14]. Хранится в рассылке, а не в настройках
+    # сервиса, потому что сроки подбирают по отклику — а настройка,
+    # общая на всё, меняется вместе с историей уже идущих цепочек.
+    followup_days: Mapped[list[int] | None] = mapped_column(JSONB, nullable=True)
+
     messages: Mapped[list[MessageModel]] = relationship("MessageModel", back_populates="campaign")
 
 

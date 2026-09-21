@@ -184,6 +184,11 @@ SCREENS: dict[str, dict] = {
             ("текст письма", "[style*='pre-wrap']", NORM),
             ("донор в очереди", "[aria-current='true'] p", NORM),
             ("процент отличия", "[aria-current='true'] .mantine-Badge-label", NORM),
+            # Вкладки цепочки: согласуя первое письмо, человек читает
+            # здесь же оба следующих, и подпись невыбранной вкладки
+            # у Mantine тише текста — её и меряем.
+            ("вкладка добивки", "button[role='tab']:not([aria-selected='true'])", NORM),
+            ("выбранная вкладка", "button[role='tab'][aria-selected='true']", NORM),
             ("кнопка «Отправить»", "button:has-text('Отправить')", BIG),
             ("пункт меню", "nav a", NORM),
         ],

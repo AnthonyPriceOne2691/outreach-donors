@@ -1,0 +1,31 @@
+# Первое напоминание (шаг 1). Уходит само, по сроку рассылки.
+#
+# ТЕКСТ ВЫДУМАН, как и у первого письма: боевой приходит от заказчика.
+#
+# Зон четыре и все неизменяемые: модель сюда не зовут (решение 21.09.2026).
+# Напоминание короткое, переписывать в нём нечего, а уникальность цепочке
+# даёт первое письмо — оно процитировано в треде целиком.
+#
+# Юридический блок здесь тот же, что и в первом письме, и это не копия
+# по невнимательности: физический адрес и рабочая отписка нужны в каждом
+# коммерческом письме, а не в первом из трёх.
+#
+# Тема повторяет тему первого письма без «Re:» — его добавит почтовый
+# клиент донора, а два «Re:» подряд выглядят как ошибка робота.
+
+subject: Advertising rates for {{host}}
+
+[greeting] fixed
+Hi again,
+
+[reminder] fixed
+I wrote to you last week about publishing a sponsored article on {{host}} and wanted to check whether the message reached the right person. If placements are something you take on, your rate is all I need to move this forward.
+
+[signature] fixed
+Best regards,
+{{sender_name}}
+
+[legal] fixed
+{{postal_address}}
+You are receiving this because your site is listed as accepting paid content.
+To stop hearing from us, unsubscribe here: {{unsubscribe_url}}

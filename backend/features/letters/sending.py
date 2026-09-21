@@ -33,12 +33,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.access.repository import AccessRepository
 from backend.features.core import usage
-from backend.features.core.domain import AuditAction, MessageStatus, Stage
+from backend.features.core.domain import AuditAction, MessageStatus, SenderStatus, Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, SenderModel
-from backend.features.letters import compose, reply_to
+from backend.features.letters import chain, compose, reply_to
 from backend.features.letters.transport import Outgoing, Transport, TransportError
 from backend.features.outreach import senders as sender_rules
 from backend.features.outreach.repository import OutreachRepository
@@ -100,14 +100,29 @@ class Sending:
     def _moment(self) -> datetime:
         return self._now or datetime.now(UTC)
 
-    async def send(self, message_id: int, *, author_id: int | None = None) -> SendOutcome:
-        """Отправить письмо из очереди."""
+    async def send(
+        self,
+        message_id: int,
+        *,
+        author_id: int | None = None,
+        from_sender_id: int | None = None,
+        in_reply_to: str | None = None,
+    ) -> SendOutcome:
+        """Отправить письмо из очереди.
+
+        `from_sender_id` — ящик задан заранее. Так уходит добивка:
+        переписку ведёт тот ящик, что её начал, и менять его на середине
+        разговора значит попасть в спам и запутать собеседника.
+        """
         target = await self._target(message_id)
         await self._check_suppression(target)
         self._check_ready(target)
 
-        spot = await self._pick_sender(target.stage)
-        sender = spot.sender
+        sender = (
+            await self._pinned_sender(from_sender_id)
+            if from_sender_id is not None
+            else (await self._pick_sender(target.stage)).sender
+        )
 
         # Э1-39: факт отправки — в базе до вызова почты. Отдельная фиксация,
         # а не общая с вызывающим: между ней и почтой ничего не должно
@@ -116,7 +131,7 @@ class Sending:
         target.message.sender_id = sender.id
         await self._session.commit()
 
-        provider_id = await self._hand_over(target, sender)
+        provider_id = await self._hand_over(target, sender, in_reply_to=in_reply_to)
         await self._settle(target, sender, provider_id=provider_id, author_id=author_id)
         return SendOutcome(
             message_id=target.message.id,
@@ -191,6 +206,29 @@ class Sending:
                 "и OUTREACH_UNSUBSCRIBE_URL и собрать очередь заново"
             )
 
+    async def _cadence(self, campaign_id: int) -> list[int] | None:
+        """Сроки добивок этой рассылки. Их задал человек при её создании."""
+        campaign = await self._session.get(CampaignModel, campaign_id)
+        return campaign.followup_days if campaign is not None else None
+
+    async def _pinned_sender(self, sender_id: int) -> SenderModel:
+        """Ящик, который ведёт эту переписку. Выключенный не подменяется
+        другим: цепочка подождёт, пока его вернут, — второй голос
+        в начатом разговоре хуже паузы."""
+        sender = await self._session.get(SenderModel, sender_id)
+        if sender is None:
+            raise NoSenderError(
+                f"Ящика №{sender_id} нет: им начата переписка, а его удалили. "
+                "Письмо остаётся в очереди"
+            )
+        if not sender.enabled or sender.status is SenderStatus.PAUSED:
+            why = "выключен" if not sender.enabled else "на паузе"
+            raise NoSenderError(
+                f"Ящик {sender.email} сейчас не пишет ({why}), а переписку ведёт он. "
+                "Письмо остаётся в очереди"
+            )
+        return sender
+
     async def _pick_sender(self, stage: Stage) -> sender_rules.Availability:
         rows = await self._session.execute(select(SenderModel).order_by(SenderModel.id))
         moment = self._moment()
@@ -208,9 +246,14 @@ class Sending:
         return spot
 
     async def _sent_today(self, moment: datetime) -> dict[int, int]:
-        return await OutreachRepository(self._session).sent_today(now=moment)
+        """Расход дневного капа. Считаются первые письма: у добивок свой
+        часовой лейн, и класть их в тот же кап значит на каждую цепочку
+        недосчитаться нового донора."""
+        return await OutreachRepository(self._session).sent_today(now=moment, first_only=True)
 
-    async def _hand_over(self, target: _Target, sender: SenderModel) -> str:
+    async def _hand_over(
+        self, target: _Target, sender: SenderModel, *, in_reply_to: str | None = None
+    ) -> str:
         """Отдать письмо почте. Отказ возвращает письмо в очередь."""
         outgoing = Outgoing(
             message_id=target.message.id,
@@ -220,6 +263,7 @@ class Sending:
             reply_to=self._reply_to(target.message.id, sender.email),
             subject=target.message.subject or "",
             body=target.message.body or "",
+            in_reply_to=in_reply_to,
         )
         try:
             return await self._transport.send(outgoing)
@@ -271,6 +315,13 @@ class Sending:
         target.message.status = MessageStatus.SENT
         target.message.sent_at = moment
         target.message.provider_message_id = provider_id
+        # Срок следующего письма цепочки назначается здесь, а не
+        # вызывающим: вызывающих трое — экран, консоль и проход добивок, —
+        # и правило, которое каждый из них обязан не забыть, однажды
+        # забудут. Пусто означает, что цепочка кончилась.
+        target.message.next_action_at = chain.due_after(
+            moment, step=target.message.step, days=await self._cadence(target.message.campaign_id)
+        )
 
         if target.message.contact_id is not None:
             contact = await self._session.get(ContactModel, target.message.contact_id)

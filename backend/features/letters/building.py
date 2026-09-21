@@ -71,6 +71,10 @@ class BuildRequest:
     niche: tuple[str, ...] = ()
     limit: int = 50
     run_id: int | None = None
+    #: Через сколько дней уходят добивки. Пусто — умолчание настроек.
+    #: Задаётся при создании рассылки: сроки подбирают по отклику,
+    #: и менять их у идущих цепочек задним числом нельзя.
+    followup_days: tuple[int, ...] = ()
 
 
 @dataclass
@@ -113,7 +117,10 @@ class QueueBuilder:
         guards.assert_no_metrics(self._template.body)
 
         campaign = await self._repo.campaign(
-            name=request.campaign_name, stage=request.stage, run_id=request.run_id
+            name=request.campaign_name,
+            stage=request.stage,
+            run_id=request.run_id,
+            followup_days=request.followup_days,
         )
         report = BuildReport(campaign_id=campaign.id)
         report.funnel = (await self._repo.funnel(request.stage)).as_report()

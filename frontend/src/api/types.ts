@@ -342,6 +342,15 @@ export interface LetterTransport {
 }
 
 /** Письмо в очереди — целиком, вместе с текстом. */
+export interface Followup {
+  /** 1 — первое напоминание, 2 — последнее. */
+  step: number;
+  subject: string;
+  body: string;
+  /** Через сколько дней после предыдущего письма уйдёт. */
+  in_days: number;
+}
+
 export interface QueuedLetter {
   id: number;
   host: string;
@@ -354,10 +363,14 @@ export interface QueuedLetter {
   uniqueness: number | null;
   /** Что не так с этим числом. Пусто — в коридоре. */
   verdict: string | null;
+  /** Добивки этого донора — текстом, каким они уйдут. */
+  followups: Followup[];
 }
 
 export interface LettersView {
   letters: QueuedLetter[];
+  /** Сроки добивок по умолчанию: их предлагает сервер, а не помнит фронт. */
+  followup_default: number[];
   /** Настройки, из-за которых отправить нельзя ни одно письмо. */
   blocked_by: string[];
   transport: LetterTransport;
@@ -372,6 +385,8 @@ export interface BuildLettersRequest {
   country?: string;
   niche?: string[];
   limit?: number;
+  /** Через сколько дней после предыдущего письма уходят добивки. */
+  followup_days?: number[];
 }
 
 export interface BuildQueued {

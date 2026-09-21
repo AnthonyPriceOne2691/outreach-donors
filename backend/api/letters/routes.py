@@ -93,12 +93,18 @@ async def build(
         body.country,
         niche=body.niche,
         limit=body.limit,
+        followup_days=body.followup_days,
     )
     await AccessRepository(session).record(
         AuditAction.RUN_STARTED,
         author_id=author.id,
         target=f"job:{job.id}",
-        details={"действие": "сборка писем", "кампания": body.campaign, "писем": body.limit},
+        details={
+            "действие": "сборка писем",
+            "кампания": body.campaign,
+            "писем": body.limit,
+            "добивки, дней": body.followup_days or "по умолчанию",
+        },
     )
     await session.commit()
     return BuildQueued(job_id=str(job.id))
