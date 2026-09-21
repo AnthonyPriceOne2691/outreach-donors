@@ -107,6 +107,29 @@ jobs:
   docker:
     runs-on: ubuntu-latest
 
+    # Образы уезжают в реестр той же работой, что их собирает: собранный
+    # и не опубликованный образ — это сборка на сервере, а она берёт
+    # 2–3 ГБ памяти рядом с работающей соседней системой.
+    permissions:
+      contents: read
+      packages: write
+
+    # База нужна одному шагу — прогону миграций тем же образом, каким они
+    # пойдут на сервере. Тесты её не используют: у них своя работа.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: outreach
+          POSTGRES_PASSWORD: outreach
+          POSTGRES_DB: outreach_fresh
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U outreach"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v4
 
@@ -121,3 +144,33 @@ jobs:
         # пустышка пакета в site-packages перекрывала настоящий код, и
         # `outreach user-add` внутри контейнера падал на импорте.
         run: docker run --rm outreach-backend:ci outreach --help
+
+      - name: Миграции на чистой базе — тем же образом, что и на сервере
+        # Набор тестов гоняет alembic из рабочей копии; на сервере его
+        # гоняет контейнер `migrate` из образа. Разница между ними —
+        # это ровно то, что ломает первое развёртывание: не уехавший
+        # в образ файл миграции или недостающая зависимость.
+        run: |
+          docker run --rm --network host \
+            -e STORAGE_DSN="postgresql+asyncpg://outreach:outreach@127.0.0.1:5432/outreach_fresh" \
+            outreach-backend:ci alembic upgrade head
+
+      - name: Войти в реестр
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Опубликовать образы
+        # Только со слитого в main: образ из ветки, которую никто
+        # не принял, на сервере не нужен, а метка `main` обязана
+        # означать то, что в main.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          repo="ghcr.io/${{ github.repository_owner }}/outreach-donors"
+          for pair in "backend:$repo-backend" "web:$repo-web"; do
+            local_image="outreach-${pair%%:*}:ci"
+            remote="${pair#*:}"
+            docker tag "$local_image" "$remote:${{ github.sha }}"
+            docker tag "$local_image" "$remote:main"
+            docker push "$remote:${{ github.sha }}"
+            docker push "$remote:main"
+          done

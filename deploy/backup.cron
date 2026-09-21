@@ -1,0 +1,14 @@
+# Еженедельный бэкап базы. Ставится человеком на сервере:
+#   sudo cp deploy/backup.cron /etc/cron.d/outreach-backup
+#   sudo chown root:root /etc/cron.d/outreach-backup
+#
+# Ночь воскресенья: прогонов в это время не бывает, а дамп берёт
+# блокировку чтения на минуты.
+#
+# BACKUP_UPLOAD задаётся здесь же, когда выбрано внешнее хранилище.
+# Без него копия остаётся на той же машине — скрипт скажет об этом
+# в вывод, а вывод крона уходит на почту root.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+0 3 * * 0 deploy cd /srv/outreach-donors && BACKUP_DIR=/srv/backups/outreach KEEP=3 scripts/backup.sh >> /var/log/outreach-backup.log 2>&1
