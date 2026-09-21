@@ -180,6 +180,12 @@ class MessageModel(TimestampedMixin, Base):
     uniqueness_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Доставка — отдельное событие и отдельное время: «ушло» и «дошло»
+    # разделяют минуты, а иногда и целый отказ.
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Почему не дошло — словами платформы. Хранится, потому что читать
+    # его будет человек, решающий судьбу домена.
+    failure_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
     next_action_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     provider_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 

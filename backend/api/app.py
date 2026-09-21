@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from backend.api.auth import routes as auth_routes
 from backend.api.donors import routes as donors_routes
 from backend.api.errors import install
+from backend.api.events import routes as events_routes
 from backend.api.health import router as health_router
 from backend.api.inbound import routes as inbound_routes
 from backend.api.letters import routes as letters_routes
@@ -24,6 +25,7 @@ from backend.api.suppressions import routes as suppressions_routes
 from backend.api.threads import routes as threads_routes
 from backend.api.unsubscribe import routes as unsubscribe_routes
 from backend.api.users import routes as users_routes
+from backend.api.watchdog import routes as watchdog_routes
 from backend.config.startup_checks import check_access, check_storage
 from backend.shared.logs import setup_logging
 
@@ -62,6 +64,8 @@ def create_app() -> FastAPI:
     app.include_router(letters_routes.router, prefix=API_PREFIX)
     app.include_router(suppressions_routes.router, prefix=API_PREFIX)
     app.include_router(inbound_routes.router, prefix=API_PREFIX)
+    app.include_router(events_routes.router, prefix=API_PREFIX)
+    app.include_router(watchdog_routes.router, prefix=API_PREFIX)
     app.include_router(replies_routes.router, prefix=API_PREFIX)
     app.include_router(unsubscribe_routes.router, prefix=API_PREFIX)
     return app

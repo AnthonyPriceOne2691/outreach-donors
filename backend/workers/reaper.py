@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.config import storage
 from backend.config.startup_checks import check_storage
+from backend.features.ops.silence import report as silence_report
 from backend.features.runs.lifecycle import recover
 from backend.features.runs.repository import RunRepository
 from backend.shared.logs import setup_logging
@@ -33,6 +34,10 @@ logger = logging.getLogger(__name__)
 #: между смертью и её признанием прошло не больше пары проходов, и
 #: заметно больше удара о жизни, чтобы не будить базу впустую.
 POLL_INTERVAL_SEC = 60.0
+
+#: Как часто сторож смотрит на тишину. Реже разбора намеренно: его
+#: пороги измеряются часами, и спрашивать базу каждую минуту незачем.
+WATCHDOG_INTERVAL_SEC = 600.0
 
 
 def _enqueue(run_id: int) -> str | None:
@@ -64,10 +69,37 @@ async def sweep() -> None:
         await engine.dispose()
 
 
+async def watch() -> None:
+    """Один проход сторожа тишины.
+
+    Живёт в этом же процессе, а не в своём: сторож ничего не чинит
+    и никого не будит — ему нужна только сессия раз в несколько минут.
+    Отдельный процесс ради одного запроса к базе — это ещё один
+    контейнер, который однажды не поднимется, и тогда молчать будет
+    уже сам сторож.
+    """
+    engine = create_async_engine(storage.DSN)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with factory() as session:
+            await silence_report(session)
+    finally:
+        await engine.dispose()
+
+
+async def _both() -> None:
+    """Два прохода с разными интервалами в одном процессе. Падение
+    одного не должно останавливать другой — этим занимается `every`."""
+    await asyncio.gather(
+        every(POLL_INTERVAL_SEC, sweep, name="Разбор мёртвых прогонов"),
+        every(WATCHDOG_INTERVAL_SEC, watch, name="Сторож тишины"),
+    )
+
+
 def main() -> None:
     setup_logging()
     check_storage()
-    asyncio.run(every(POLL_INTERVAL_SEC, sweep, name="Разбор мёртвых прогонов"))
+    asyncio.run(_both())
 
 
 if __name__ == "__main__":

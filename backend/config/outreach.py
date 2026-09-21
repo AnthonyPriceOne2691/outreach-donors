@@ -13,6 +13,10 @@ class _Outreach(DomainSettings):
     # пишет только на эти адреса (или домены). Пустой список означает
     # «кому угодно» — и каждое письмо тогда говорит об этом в лог.
     allowed_recipients: str = Field(default="", validation_alias="OUTREACH_ALLOWED_RECIPIENTS")
+    # Открытый ключ, которым платформа подписывает события доставки
+    # (base64 из её кабинета). Пусто — вебхук отказывает всем:
+    # непроверенное событие паркует наши домены и пишет в стоп-лист.
+    events_public_key: str = Field(default="", validation_alias="OUTREACH_EVENTS_PUBLIC_KEY")
     inbound_secret: str = Field(default="", validation_alias="OUTREACH_INBOUND_SECRET")
     # Транспорт отправки: `null` ничего не шлёт и работает только
     # на выдуманных доменах, `sendgrid` шлёт по-настоящему.
@@ -63,6 +67,7 @@ class _Outreach(DomainSettings):
 _s = _Outreach()
 
 SENDGRID_API_KEY: str = _s.sendgrid_api_key
+EVENTS_PUBLIC_KEY: str = _s.events_public_key
 ALLOWED_RECIPIENTS: tuple[str, ...] = tuple(
     item.strip().lower() for item in _s.allowed_recipients.split(",") if item.strip()
 )
