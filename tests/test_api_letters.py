@@ -52,13 +52,6 @@ LETTER_ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
 
 
 @pytest.fixture
-def filled_legal(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(outreach_cfg, "SENDER_NAME", "Anna Ro")
-    monkeypatch.setattr(outreach_cfg, "POSTAL_ADDRESS", "1 Main Street, Dublin")
-    monkeypatch.setattr(outreach_cfg, "UNSUBSCRIBE_URL", "https://ours.test/stop")
-
-
-@pytest.fixture
 async def letter(session: AsyncSession, filled_legal: None) -> MessageModel:
     """Письмо в очереди, собранное тем же кодом, что и в бою."""
     domain = DomainModel(host="donor.example.test")
@@ -83,7 +76,9 @@ async def letter(session: AsyncSession, filled_legal: None) -> MessageModel:
     )
     await session.flush()
 
-    rendered = compose.render(template.default(), compose.values_for(host=domain.host))
+    rendered = compose.render(
+        template.default(), compose.values_for(host=domain.host, domain_id=domain.id)
+    )
     body = compose.assemble(rendered, {"greeting": "Good afternoon to you,"})
     model = MessageModel(
         campaign_id=campaign.id,

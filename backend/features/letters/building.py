@@ -153,7 +153,10 @@ class QueueBuilder:
         report: BuildReport,
     ) -> None:
         """Одно письмо: текст, проверки, запись в очередь."""
-        rendered = compose.render(self._template, compose.values_for(host=candidate.host))
+        rendered = compose.render(
+            self._template,
+            compose.values_for(host=candidate.host, domain_id=candidate.domain_id),
+        )
         rewritten = await self._rewriter.rewrite(
             rendered,
             Personalization(host=candidate.host, country=request.country, niche=request.niche),

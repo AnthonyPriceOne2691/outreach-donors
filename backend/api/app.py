@@ -21,6 +21,7 @@ from backend.api.runs import routes as runs_routes
 from backend.api.senders import routes as senders_routes
 from backend.api.settings import routes as settings_routes
 from backend.api.threads import routes as threads_routes
+from backend.api.unsubscribe import routes as unsubscribe_routes
 from backend.api.users import routes as users_routes
 from backend.config.startup_checks import check_access, check_storage
 from backend.shared.logs import setup_logging
@@ -60,4 +61,5 @@ def create_app() -> FastAPI:
     app.include_router(letters_routes.router, prefix=API_PREFIX)
     app.include_router(inbound_routes.router, prefix=API_PREFIX)
     app.include_router(replies_routes.router, prefix=API_PREFIX)
+    app.include_router(unsubscribe_routes.router, prefix=API_PREFIX)
     return app

@@ -52,7 +52,7 @@ class QueuedLetterCard(BaseModel):
             body=row.message.body,
             uniqueness=share,
             verdict=corridor_verdict(share) if share is not None else None,
-            followups=followups_for(row.host, row.followup_days),
+            followups=followups_for(row.host, row.followup_days, domain_id=row.message.domain_id),
         )
 
 
@@ -71,7 +71,9 @@ class FollowupCard(BaseModel):
     in_days: int
 
 
-def followups_for(host: str, days: list[int] | None) -> list[FollowupCard]:
+def followups_for(
+    host: str, days: list[int] | None, *, domain_id: int | None = None
+) -> list[FollowupCard]:
     """Добивки донора: шаблон шага с его подстановками.
 
     Собирается на месте, а не хранится: текст добивки один на всю
@@ -83,7 +85,11 @@ def followups_for(host: str, days: list[int] | None) -> list[FollowupCard]:
     cards: list[FollowupCard] = []
     for step in range(1, MAX_STEPS):
         letter = compose.assemble(
-            compose.render(template.followup(step), compose.values_for(host=host)), {}
+            compose.render(
+                template.followup(step),
+                compose.values_for(host=host, domain_id=domain_id),
+            ),
+            {},
         )
         cards.append(
             FollowupCard(

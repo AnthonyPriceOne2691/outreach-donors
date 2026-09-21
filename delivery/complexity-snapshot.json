@@ -12,9 +12,9 @@
       "worst": "—"
     },
     "backend/api/app.py": {
-      "lines": 64,
+      "lines": 66,
       "complexity": 1,
-      "worst": "create_app:31"
+      "worst": "create_app:32"
     },
     "backend/api/auth/__init__.py": {
       "lines": 1,
@@ -87,7 +87,7 @@
       "worst": "_transport_card:52"
     },
     "backend/api/letters/schemas.py": {
-      "lines": 171,
+      "lines": 177,
       "complexity": 3,
       "worst": "followups_for:74"
     },
@@ -170,6 +170,21 @@
       "lines": 145,
       "complexity": 3,
       "worst": "of:139"
+    },
+    "backend/api/unsubscribe/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/api/unsubscribe/page.py": {
+      "lines": 129,
+      "complexity": 3,
+      "worst": "_signature:63"
+    },
+    "backend/api/unsubscribe/routes.py": {
+      "lines": 124,
+      "complexity": 5,
+      "worst": "apply:90"
     },
     "backend/api/users/__init__.py": {
       "lines": 1,
@@ -522,7 +537,7 @@
       "worst": "—"
     },
     "backend/features/letters/building.py": {
-      "lines": 202,
+      "lines": 205,
       "complexity": 4,
       "worst": "_prepare:147"
     },
@@ -532,14 +547,14 @@
       "worst": "cadence:30"
     },
     "backend/features/letters/compose.py": {
-      "lines": 164,
+      "lines": 184,
       "complexity": 3,
-      "worst": "assemble:148"
+      "worst": "missing_settings:118"
     },
     "backend/features/letters/followups.py": {
-      "lines": 353,
+      "lines": 354,
       "complexity": 5,
-      "worst": "_deliver:314"
+      "worst": "_deliver:315"
     },
     "backend/features/letters/guards.py": {
       "lines": 56,
@@ -550,6 +565,11 @@
       "lines": 91,
       "complexity": 5,
       "worst": "unmask:60"
+    },
+    "backend/features/letters/optout.py": {
+      "lines": 108,
+      "complexity": 4,
+      "worst": "_stop_everything:79"
     },
     "backend/features/letters/reply_to.py": {
       "lines": 100,
@@ -562,7 +582,7 @@
       "worst": "campaign:249"
     },
     "backend/features/letters/review.py": {
-      "lines": 86,
+      "lines": 89,
       "complexity": 3,
       "worst": "edit:54"
     },
@@ -572,7 +592,7 @@
       "worst": "parse_zones:120"
     },
     "backend/features/letters/sending.py": {
-      "lines": 347,
+      "lines": 350,
       "complexity": 5,
       "worst": "_pinned_sender:214"
     },
@@ -582,14 +602,19 @@
       "worst": "_check_zones:219"
     },
     "backend/features/letters/transport.py": {
-      "lines": 124,
+      "lines": 136,
       "complexity": 4,
-      "worst": "build_transport:107"
+      "worst": "build_transport:119"
     },
     "backend/features/letters/uniqueness.py": {
       "lines": 77,
       "complexity": 3,
       "worst": "difference:37"
+    },
+    "backend/features/letters/unsubscribe.py": {
+      "lines": 95,
+      "complexity": 5,
+      "worst": "url_for:48"
     },
     "backend/features/outreach/__init__.py": {
       "lines": 2,
