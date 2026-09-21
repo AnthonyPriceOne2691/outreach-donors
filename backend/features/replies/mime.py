@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from email import message_from_string
 from email.header import decode_header, make_header
@@ -32,6 +33,8 @@ from backend.features.replies.inbound import (
     Incoming,
     addresses_in,
 )
+
+logger = logging.getLogger(__name__)
 
 #: Заголовки, по которым мы что-то решаем. Остальные не храним: письмо
 #: несёт их десятки, и ни один не участвует ни в привязке, ни в разборе.
@@ -92,7 +95,10 @@ def decoded(value: str) -> str:
     try:
         return str(make_header(decode_header(value)))
     except (UnicodeDecodeError, LookupError, ValueError):
-        # Непонятная кодировка — не повод потерять тему целиком.
+        # Непонятная кодировка — не повод потерять тему целиком, но
+        # и не повод молчать: тема в кракозябрах на экране объясняется
+        # только этой строкой в логе.
+        logger.warning("приём: тему не удалось раскодировать — %r", value[:80])
         return value
 
 
@@ -108,6 +114,9 @@ def attachments_from(raw: Any) -> tuple[Attachment, ...]:
     try:
         info = json.loads(raw) if isinstance(raw, str) else raw
     except ValueError:
+        # Письмо важнее списка его файлов, но пропавшие вложения надо
+        # считать: «ответ без прайса» и «прайс потерялся» — разное.
+        logger.warning("приём: список вложений не разобран — %r", str(raw)[:120])
         return ()
     if not isinstance(info, dict):
         return ()

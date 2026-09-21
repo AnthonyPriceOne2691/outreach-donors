@@ -602,9 +602,9 @@
       "worst": "_header_says:57"
     },
     "backend/features/replies/extract.py": {
-      "lines": 311,
+      "lines": 322,
       "complexity": 7,
-      "worst": "temper:160"
+      "worst": "temper:164"
     },
     "backend/features/replies/inbound.py": {
       "lines": 130,
@@ -612,9 +612,9 @@
       "worst": "addresses_in:110"
     },
     "backend/features/replies/mime.py": {
-      "lines": 184,
+      "lines": 193,
       "complexity": 12,
-      "worst": "attachments_from:99"
+      "worst": "attachments_from:105"
     },
     "backend/features/replies/outcome.py": {
       "lines": 125,

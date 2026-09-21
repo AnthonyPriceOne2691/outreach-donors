@@ -138,6 +138,10 @@ def as_price(raw: Any) -> Decimal | None:
     try:
         value = Decimal(str(raw).replace(",", "").replace(" ", "").strip())
     except (InvalidOperation, ValueError):
+        # Модель вернула на месте цены что-то, что числом не является.
+        # Молча это не пропускаем: если такое стало частым, сломался
+        # разбор, а не письма.
+        logger.warning("%s: в поле цены не число — %r", TOPIC, raw)
         return None
     return value if value > 0 else None
 
@@ -233,9 +237,12 @@ def parse_form(content: str) -> Extracted | None:
 
 
 def _as_days(raw: Any) -> int | None:
+    if raw is None:
+        return None
     try:
         days = int(raw)
     except (TypeError, ValueError):
+        logger.warning("%s: срок размещения не число — %r", TOPIC, raw)
         return None
     return days if 0 < days <= 365 else None
 
@@ -249,7 +256,11 @@ def _as_confidence(raw: Any) -> float:
     try:
         value = float(raw)
     except (TypeError, ValueError):
-        # Модель не поставила себе оценку — это не «уверена», это «неизвестно».
+        # Модель не поставила себе оценку — это не «уверена», это
+        # «неизвестно». Оценка обязательна по Э1-24, и её отсутствие
+        # значит, что форма ответа поехала: это надо видеть, а не
+        # принимать за ноль молча.
+        logger.warning("%s: модель не поставила себе оценку уверенности (%r)", TOPIC, raw)
         return 0.0
     return min(1.0, max(0.0, value))
 
