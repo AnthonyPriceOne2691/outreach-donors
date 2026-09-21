@@ -29,7 +29,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol
 
 from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.ahrefs.units import (
@@ -40,6 +40,7 @@ from backend.features.ahrefs.units import (
     estimate_run,
 )
 from backend.features.core.domain import DonorStatus, RunStatus, Stage
+from backend.features.core.models.run import RunModel
 from backend.features.donors.collect import collect
 from backend.features.donors.host import normalize_host
 from backend.features.donors.repository import DonorRepository
@@ -109,6 +110,28 @@ class Candidates:
         """Сколько адресов схлопнулось в уже известные домены. Это и есть
         экономия дедупликации: каждый схлопнутый — непотраченные юниты."""
         return self.results - self.dropped - len(self.hosts)
+
+    def as_dict(self) -> dict[str, Any]:
+        """Для хранения в строке прогона. Поля перечислены руками: молча
+        уехавшее поле — это молча потерянная выдача, за которую платили."""
+        return {
+            "hosts": list(self.hosts),
+            "keywords": self.keywords,
+            "results": self.results,
+            "empty_keywords": list(self.empty_keywords),
+            "dropped": self.dropped,
+        }
+
+    @classmethod
+    def restored(cls, payload: dict[str, Any]) -> Candidates:
+        """Выдача, сохранённая прошлой попыткой того же прогона."""
+        return cls(
+            hosts=list(payload["hosts"]),
+            keywords=int(payload["keywords"]),
+            results=int(payload["results"]),
+            empty_keywords=list(payload.get("empty_keywords", ())),
+            dropped=int(payload.get("dropped", 0)),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -292,6 +315,49 @@ class RunRequest:
     cap: int | None = None
     depth_pages: int = 1
 
+    #: Готовая строка прогона. Её заводит тот, кто ставит задачу
+    #: в очередь: между нажатием и первой тратой идут выдача и смета,
+    #: и всё это время прогон должен существовать в базе.
+    run: RunModel | None = None
+
+    #: Выдача, за которую уже заплачено. Передаётся, когда её собрал
+    #: вызывающий (консольная команда показывает смету до подтверждения)
+    #: или когда её сохранила прошлая попытка этого же прогона. Без неё
+    #: продолжение и подтверждение покупали бы выдачу второй раз.
+    candidates: Candidates | None = None
+
+
+async def _candidates_for(deps: RunDeps, request: RunRequest, run: RunModel) -> Candidates:
+    """Выдача прогона: переданная, сохранённая или купленная.
+
+    Порядок именно такой, потому что выдача стоит денег. Переданную
+    собрал вызывающий — консольная команда показывает по ней смету
+    и спрашивает подтверждения; купить её второй раз значило бы платить
+    за подтверждение. Сохранённая осталась от прошлой попытки того же
+    прогона, которую убил умерший воркер.
+
+    Купленная фиксируется сразу отдельной транзакцией — иначе следующая
+    смерть воркера снова оставит прогон без неё.
+    """
+    if request.candidates is not None:
+        candidates = request.candidates
+    elif run.candidates:
+        candidates = Candidates.restored(run.candidates)
+        logger.info(
+            "Прогон %s продолжается по сохранённой выдаче: %s доменов, выдача не покупается заново",
+            run.id,
+            len(candidates.hosts),
+        )
+        return candidates
+    else:
+        candidates = await gather_candidates(
+            deps.provider, request.keywords, request.country, depth_pages=request.depth_pages
+        )
+
+    await deps.runs.save_candidates(run, candidates.as_dict())
+    await deps.runs.session_commit()
+    return candidates
+
 
 async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
     """Прогон целиком: от списка ключей до сохранённых доноров и отчёта.
@@ -303,19 +369,24 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
     Уже сохранённые пачки при падении не откатываются: за них заплачено, и
     повторный прогон должен их пропустить, а не оплатить второй раз.
     """
-    candidates = await gather_candidates(
-        deps.provider, request.keywords, request.country, depth_pages=request.depth_pages
-    )
+    run = request.run
+    if run is None:
+        # Строки нет — прогон запустили не из очереди. Заводим сразу
+        # «идёт»: ждать нечего, задачу уже выполняют.
+        run = await deps.runs.create_run(
+            stage=request.stage,
+            settings_id=request.settings_id,
+            keywords=request.keywords,
+            country=request.country,
+            status=RunStatus.RUNNING,
+        )
+    else:
+        await deps.runs.mark_running(run)
+
+    candidates = await _candidates_for(deps, request, run)
     budget = await units_left(deps.client, cap=request.cap)
     plan = await plan_run(candidates, deps.donors, units_left=budget)
-
-    run = await deps.runs.create_run(
-        stage=request.stage,
-        settings_id=request.settings_id,
-        keywords=request.keywords,
-        country=request.country,
-        estimated_units=plan.estimate.total,
-    )
+    await deps.runs.set_estimate(run, plan.estimate.total)
     # Дальше каждая запись несёт идентификатор прогона, включая чужие логгеры:
     # прогоны идут параллельно, и без метки их строки не разделить.
     with run_context(run.id):

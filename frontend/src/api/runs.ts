@@ -1,4 +1,4 @@
-import type { DonorFullCard, DonorsPage, Forecast, RunCard, RunQueued, RunRequest } from './types';
+import type { DonorFullCard, DonorsPage, Forecast, RunQueued, RunRequest, RunsView } from './types';
 import { request } from './client';
 
 export function fetchCountries(): Promise<string[]> {
@@ -13,8 +13,8 @@ export function startRun(body: RunRequest): Promise<RunQueued> {
   return request<RunQueued>('/runs', { method: 'POST', body });
 }
 
-export function listRuns(): Promise<RunCard[]> {
-  return request<RunCard[]>('/runs');
+export function listRuns(): Promise<RunsView> {
+  return request<RunsView>('/runs');
 }
 
 export interface DonorQuery {

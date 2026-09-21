@@ -39,7 +39,7 @@ from backend.features.letters import compose, review
 from backend.features.letters.repository import LetterRepository
 from backend.features.letters.sending import Sending
 from backend.features.letters.transport import TransportError, build_transport
-from backend.shared.queue import runs_queue
+from backend.shared.queue import BUILD_JOB, runs_queue
 
 logger = logging.getLogger(__name__)
 
@@ -47,10 +47,6 @@ router = APIRouter(prefix="/letters", tags=["письма"])
 
 _viewer = Depends(needs(Permission.VIEW))
 _sender = Depends(needs(Permission.SEND))
-
-#: Путь к задаче строкой: воркеру не нужен тот же объект в памяти, что
-#: и серверу.
-BUILD_JOB = "backend.workers.jobs.build_letter_queue"
 
 
 def _transport_card() -> Transport:

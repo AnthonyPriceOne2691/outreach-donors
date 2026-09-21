@@ -107,6 +107,7 @@ export const CONTACT_SOURCES: Record<ContactSource, string> = {
 };
 
 export const RUN_STATUSES: Record<RunStatus, { title: string; color: string }> = {
+  queued: { title: 'в очереди', color: 'gray' },
   estimating: { title: 'считает смету', color: 'blue' },
   running: { title: 'идёт', color: 'blue' },
   done: { title: 'закончен', color: 'green' },

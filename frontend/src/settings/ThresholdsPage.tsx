@@ -166,7 +166,6 @@ export function ThresholdsPage() {
             <Button
               className="press"
               variant="gradient"
-              gradient={{ from: 'lagoon.5', to: 'lagoon.7', deg: 135 }}
               leftSection={<IconDeviceFloppy size={18} />}
               loading={save.isPending}
               disabled={!canEdit || !changed}

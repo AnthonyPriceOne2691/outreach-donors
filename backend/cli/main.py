@@ -33,7 +33,6 @@ from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.ahrefs.units import Quota
 from backend.features.donors.geo import assert_settings_allow_limited_fetch
 from backend.features.donors.repository import DonorRepository
-from backend.features.donors.verdict import Thresholds
 from backend.features.runs.pipeline import (
     CapExceededError,
     QuotaUnavailableError,
@@ -47,6 +46,7 @@ from backend.features.runs.pipeline import (
     units_left,
 )
 from backend.features.runs.repository import RunRepository
+from backend.features.runs.thresholds import defaults
 from backend.features.serp.factory import UnknownProviderError, build_provider
 from backend.shared.logs import setup_logging
 
@@ -56,15 +56,6 @@ EXIT_CAP_EXCEEDED = 3
 EXIT_QUOTA_UNAVAILABLE = 4
 EXIT_PROVIDER_FAILED = 5
 EXIT_CANCELLED = 6
-
-
-def _thresholds() -> Thresholds:
-    return Thresholds(
-        min_dr=filters.MIN_DR,
-        min_org_traffic=filters.MIN_ORG_TRAFFIC,
-        min_refdomains=filters.MIN_REFDOMAINS,
-        min_keywords=filters.MIN_KEYWORDS,
-    )
 
 
 def _read_keywords(path: Path) -> list[str]:
@@ -156,7 +147,7 @@ async def cmd_run(args: argparse.Namespace) -> int:
                 return EXIT_CANCELLED
 
             settings = await runs.create_settings(
-                _thresholds(),
+                defaults(),
                 geo_top_n=filters.GEO_TOP_N,
                 geo_min_share=filters.GEO_MIN_SHARE,
                 metrics_ttl_days=filters.METRICS_TTL_DAYS,
@@ -169,10 +160,14 @@ async def cmd_run(args: argparse.Namespace) -> int:
                 RunRequest(
                     keywords=keywords,
                     country=args.country,
-                    thresholds=_thresholds(),
+                    thresholds=defaults(),
                     settings_id=settings.id,
                     cap=args.cap or ahrefs_cfg.UNITS_CAP,
                     depth_pages=args.depth,
+                    # Выдачу уже купили — по ней показана смета и получено
+                    # подтверждение. Без этой строки прогон покупал бы её
+                    # второй раз, и подтверждение стоило бы денег.
+                    candidates=candidates,
                 ),
             )
             await session.commit()

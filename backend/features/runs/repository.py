@@ -13,9 +13,10 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.ahrefs.units import UnitsCost
@@ -24,6 +25,7 @@ from backend.features.core.domain import RunStatus, Stage
 from backend.features.core.models.ops import UsageRecordModel
 from backend.features.core.models.run import RunModel, RunSettingsModel
 from backend.features.donors.verdict import Thresholds
+from backend.features.runs.browse import UnknownRunError
 
 #: Имя системы в общей таблице расхода живёт в `core.usage` — здесь оно
 #: оставлено ссылкой, потому что на него смотрят запросы ниже.
@@ -61,19 +63,102 @@ class RunRepository:
         settings_id: int,
         keywords: Sequence[str],
         country: str,
-        estimated_units: int,
+        depth_pages: int = 1,
+        estimated_units: int | None = None,
+        status: RunStatus = RunStatus.QUEUED,
     ) -> RunModel:
+        """Заводит прогон. По умолчанию — «в очереди»: строка создаётся
+        нажатием, а не первой тратой, иначе до первого платного запроса
+        показывать нечего, а если задачу никто не возьмёт — то и никогда.
+
+        Смета не обязательна: при постановке точного числа доменов ещё
+        нет, оно появляется после выдачи.
+        """
         run = RunModel(
             stage=stage,
             settings_id=settings_id,
-            status=RunStatus.RUNNING,
+            status=status,
             keywords=list(keywords),
             country=country,
+            depth_pages=depth_pages,
             estimated_units=estimated_units,
         )
         self._session.add(run)
         await self._session.flush()
         return run
+
+    async def get(self, run_id: int) -> RunModel:
+        """Прогон по номеру. Нет такого — громко: задача, взявшая номер
+        несуществующего прогона, иначе просто тихо ничего не делает."""
+        run = await self._session.get(RunModel, run_id)
+        if run is None:
+            raise UnknownRunError(f"Прогона №{run_id} нет")
+        return run
+
+    async def bind_job(self, run: RunModel, job_id: str | None) -> None:
+        """Связать прогон с задачей очереди. Вызывается и при постановке,
+        и при продолжении: старый номер после смерти воркера отвечает
+        «мертва» и на живую задачу тоже."""
+        run.job_id = job_id
+        await self._session.flush()
+
+    async def mark_running(self, run: RunModel) -> None:
+        """Задача взяла прогон. Отдельная запись, а не побочный эффект
+        первой траты: между «взяли» и «потратили» идёт выдача, и всё это
+        время человек должен видеть, что прогон уже идёт."""
+        run.status = RunStatus.RUNNING
+        await self._session.flush()
+
+    async def save_candidates(self, run: RunModel, candidates: dict[str, Any]) -> None:
+        """Сохранить выдачу, за которую заплачено.
+
+        Чекпоинт, а не отчёт: продолжение после смерти воркера берёт
+        домены отсюда и не покупает выдачу второй раз. Поэтому пишется
+        сразу и фиксируется, а не копится до конца прогона.
+        """
+        run.candidates = candidates
+        await self._session.flush()
+
+    async def set_estimate(self, run: RunModel, estimated_units: int) -> None:
+        """Смета прогона, посчитанная по настоящим доменам. Появляется
+        после выдачи: при постановке точного числа ещё нет."""
+        run.estimated_units = estimated_units
+        await self._session.flush()
+
+    async def touch(self, run_id: int) -> None:
+        """Отметить, что прогон жив.
+
+        Отдельным запросом и по номеру, а не через объект: удар идёт
+        из своей короткой сессии, пока длинная занята пачкой. Без этого
+        медленный живой прогон неотличим от мёртвого — по одному
+        `updated_at` они выглядят одинаково.
+        """
+        await self._session.execute(
+            update(RunModel).where(RunModel.id == run_id).values(updated_at=func.now())
+        )
+        await self._session.commit()
+
+    async def save_stats(self, run: RunModel, stats: dict[str, Any]) -> None:
+        """Переписать отчёт прогона. Пометки разбора ложатся туда же,
+        где остальной отчёт: человек читает одно место, а не два."""
+        run.stats = stats
+        await self._session.flush()
+
+    async def stop_run(self, run: RunModel, *, stats: dict[str, Any]) -> None:
+        """Закрыть прогон как остановленный. Расход не трогаем: то, что
+        он успел потратить, уже записано в журнале построчно."""
+        run.status = RunStatus.STOPPED
+        run.stats = stats
+        await self._session.flush()
+
+    async def stale(self, *, status: RunStatus, older_than: datetime) -> list[RunModel]:
+        """Прогоны в этом состоянии, о которых давно ничего не слышно."""
+        rows = await self._session.execute(
+            select(RunModel)
+            .where(RunModel.status == status, RunModel.updated_at < older_than)
+            .order_by(RunModel.id)
+        )
+        return list(rows.scalars().all())
 
     async def record_usage(
         self, *, run_id: int | None, operation: str, cost: UnitsCost

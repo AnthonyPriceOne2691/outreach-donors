@@ -99,7 +99,6 @@ export function LoginPage() {
               className="press"
               variant="gradient"
               /* Ступени глубокие: на светлых белый текст не читается. */
-              gradient={{ from: 'lagoon.7', to: 'lagoon.9', deg: 135 }}
               loading={form.submitting}
             >
               Войти

@@ -16,27 +16,26 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
-from backend.api.runs.schemas import Forecast, RunCard, RunQueued, RunRequestBody
+from backend.api.runs.schemas import Forecast, RunCard, RunQueued, RunRequestBody, RunsView
 from backend.config import ahrefs as ahrefs_cfg
+from backend.config import filters
 from backend.config.startup_checks import check_collect
 from backend.features.access.repository import AccessRepository
 from backend.features.ahrefs.client import AhrefsClient
-from backend.features.core.domain import AuditAction, Permission
+from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.runs.browse import RunBrowser
 from backend.features.runs.estimate import forecast
 from backend.features.runs.pipeline import units_left
+from backend.features.runs.repository import RunRepository
+from backend.features.runs.thresholds import defaults
 from backend.features.serp.dataforseo import COUNTRY_CODES
-from backend.shared.queue import runs_queue
+from backend.shared.queue import RUN_JOB, runs_queue, workers_alive
 
 router = APIRouter(prefix="/runs", tags=["прогоны"])
 
 _runner = Depends(needs(Permission.RUN))
 _viewer = Depends(needs(Permission.VIEW))
-
-#: Путь к задаче строкой: воркеру не нужен тот же объект в памяти, что
-#: и серверу, а проверка импорта происходит у него при первом запуске.
-RUN_JOB = "backend.workers.jobs.run_donor_search"
 
 
 @router.get("/countries", response_model=list[str], summary="Страны, доступные источнику")
@@ -85,29 +84,51 @@ async def start_run(
     """
     check_collect()
 
-    job = runs_queue().enqueue(
-        RUN_JOB,
-        body.keywords,
-        body.country,
+    # Строка прогона заводится здесь, а не в задаче. Между нажатием
+    # и первой тратой идут выдача и смета — минуты, за которые экран
+    # не показывал ничего; а если задачу никто не возьмёт, не покажет
+    # никогда. Теперь прогон виден сразу и со своим состоянием.
+    runs = RunRepository(session)
+    settings = await runs.create_settings(
+        defaults(),
+        geo_top_n=filters.GEO_TOP_N,
+        geo_min_share=filters.GEO_MIN_SHARE,
+        metrics_ttl_days=filters.METRICS_TTL_DAYS,
+        price_ttl_days=filters.PRICE_TTL_DAYS,
+        units_cap=ahrefs_cfg.UNITS_CAP,
+    )
+    run = await runs.create_run(
+        stage=Stage.DONORS,
+        settings_id=settings.id,
+        keywords=body.keywords,
+        country=body.country,
         depth_pages=body.depth_pages,
     )
+    job = runs_queue().enqueue(RUN_JOB, run.id)
+    await runs.bind_job(run, str(job.id))
     await AccessRepository(session).record(
         AuditAction.RUN_STARTED,
         author_id=author.id,
-        target=f"job:{job.id}",
-        details={"ключей": len(body.keywords), "страна": body.country},
+        target=f"run:{run.id}",
+        details={"ключей": len(body.keywords), "страна": body.country, "задача": str(job.id)},
     )
     await session.commit()
-    return RunQueued(job_id=str(job.id))
+    return RunQueued(run_id=run.id, job_id=str(job.id))
 
 
-@router.get("", response_model=list[RunCard], summary="История прогонов")
+@router.get("", response_model=RunsView, summary="История прогонов")
 async def all_runs(
     _: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
-) -> list[RunCard]:
+) -> RunsView:
+    """Список прогонов и то, есть ли кому их выполнять.
+
+    Про воркеров спрашивается здесь, а не отдельным маршрутом: экран,
+    на котором нажимают «Запустить», — единственное место, где ответ
+    «задачу некому взять» приходит вовремя.
+    """
     rows = await RunBrowser(session).recent()
-    return [RunCard.of(row) for row in rows]
+    return RunsView(runs=[RunCard.of(row) for row in rows], workers=workers_alive())
 
 
 @router.get("/{run_id}", response_model=RunCard, summary="Один прогон")

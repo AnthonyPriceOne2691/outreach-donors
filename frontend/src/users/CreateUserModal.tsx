@@ -62,13 +62,7 @@ export function CreateUserModal({ opened, onClose, onCreated }: Props) {
             <Button variant="subtle" className="press" onClick={onClose}>
               Отмена
             </Button>
-            <Button
-              type="submit"
-              className="press"
-              variant="gradient"
-              gradient={{ from: 'lagoon.5', to: 'lagoon.7', deg: 135 }}
-              loading={form.submitting}
-            >
+            <Button type="submit" className="press" variant="gradient" loading={form.submitting}>
               Завести
             </Button>
           </Group>

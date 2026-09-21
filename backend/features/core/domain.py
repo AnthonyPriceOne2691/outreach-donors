@@ -71,6 +71,11 @@ class Stage(StrEnum):
 
 
 class RunStatus(StrEnum):
+    """Состояние прогона. `QUEUED` — не украшение списка: строка прогона
+    заводится нажатием, а не задачей, иначе между нажатием и первым
+    платным запросом сервис не показывает ничего и выглядит сломанным."""
+
+    QUEUED = "queued"
     ESTIMATING = "estimating"
     RUNNING = "running"
     DONE = "done"

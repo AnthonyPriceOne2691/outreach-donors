@@ -168,7 +168,7 @@ export type ContactStatus =
   | 'rate_limited'
   | 'error';
 export type ContactSource = 'mx' | 'page' | 'rdap' | 'paid' | 'form' | 'manual';
-export type RunStatus = 'estimating' | 'running' | 'done' | 'stopped';
+export type RunStatus = 'queued' | 'estimating' | 'running' | 'done' | 'stopped';
 
 export interface RunRequest {
   keywords: string[];
@@ -204,9 +204,22 @@ export interface RunCard {
   estimate_error: number | null;
   stats: Record<string, unknown> | null;
   started_at: string;
+  /** Когда прогон последний раз подавал признаки жизни: для идущего это
+   *  удар heartbeat, а не запись результата. */
+  alive_at: string;
+  /** Сколько доменов дала выдача. Появляется раньше любых трат. */
+  hosts: number | null;
+}
+
+export interface RunsView {
+  runs: RunCard[];
+  /** Сколько воркеров слушает очередь. `null` — спросить не удалось,
+   *  и это не ноль: неизвестность и пустота требуют разных слов. */
+  workers: number | null;
 }
 
 export interface RunQueued {
+  run_id: number;
   job_id: string;
   note: string;
 }

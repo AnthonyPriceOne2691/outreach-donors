@@ -89,7 +89,6 @@ export function ChangePasswordPage() {
               mt="md"
               className="press"
               variant="gradient"
-              gradient={{ from: 'lagoon.5', to: 'lagoon.7', deg: 135 }}
               loading={form.submitting}
             >
               Сменить

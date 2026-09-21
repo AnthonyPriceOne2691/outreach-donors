@@ -61,6 +61,10 @@ class RunModel(TimestampedMixin, Base):
 
     keywords: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
     country: Mapped[str] = mapped_column(String(8), nullable=False)
+    # Глубина выдачи — параметр прогона наравне с ключами. Хранится,
+    # чтобы задаче хватало одного номера прогона: повтор с другой
+    # глубиной был бы уже другим прогоном, а выглядел бы тем же.
+    depth_pages: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     # Смета до запуска и факт после. Расхождение этих двух чисел и есть
     # проверка сметы — без неё оценка расхода ничем не подтверждается.
@@ -70,6 +74,23 @@ class RunModel(TimestampedMixin, Base):
     # Сколько принято, отсеяно и по какому порогу — отчёт прогона.
     stats: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
 
-    __table_args__ = (Index("idx_runs_status", "status"),)
+    # Задача очереди, которая этот прогон выполняет. Хранится потому, что
+    # без неё нельзя ответить на вопрос «он ещё идёт или воркер умер»:
+    # у прогона есть только время последней записи, а оно одинаково
+    # выглядит и у мёртвого, и у медленного.
+    job_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    # Выдача, за которую уже заплачено: домены и числа по ней. Лежит
+    # в строке прогона, чтобы продолжение после смерти воркера не
+    # покупало её второй раз — у соседней системы продолжение бесплатно,
+    # у нас каждая попытка стоит запросов к источнику выдачи.
+    candidates: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+
+    # Второй индекс — для разбора мёртвых: он спрашивает «кто давно
+    # молчит» раз в минуту, и без индекса это чтение всей таблицы.
+    __table_args__ = (
+        Index("idx_runs_status", "status"),
+        Index("idx_runs_updated_at", "updated_at"),
+    )
 
     settings: Mapped[RunSettingsModel] = relationship("RunSettingsModel", back_populates="runs")
