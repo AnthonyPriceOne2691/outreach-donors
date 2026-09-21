@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -65,6 +65,28 @@ class ContactRepository:
             .limit(limit)
         )
         return list(rows.scalars().all())
+
+    async def pending_count(
+        self, *, ttl_days: int = cfg.CONTACT_TTL_DAYS, now: datetime | None = None
+    ) -> int:
+        """Сколько доноров ждёт контакта. Тот же отбор, что и у `pending_hosts`:
+        два разных правила «кому нужен контакт» разошлись бы на первой правке,
+        и экран показывал бы одно число, а поиск брал другое."""
+        moment = now or datetime.now(UTC)
+        border = moment - timedelta(days=ttl_days)
+        return int(
+            await self._session.scalar(
+                select(func.count(DomainModel.host))
+                .join(DonorModel, DonorModel.domain_id == DomainModel.id)
+                .where(DonorModel.status == DonorStatus.SUITABLE)
+                .where(
+                    DonorModel.contact_attempted_at.is_(None)
+                    | (DonorModel.contact_attempted_at < border)
+                    | DonorModel.contact_status.in_(tuple(RETRIABLE))
+                )
+            )
+            or 0
+        )
 
     async def save(self, results: Sequence[LadderResult], *, now: datetime | None = None) -> int:
         """Сохранить пачку исходов. Возвращает число доноров с адресом.

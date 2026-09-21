@@ -55,14 +55,18 @@ const PAGE = {
   counts: { suitable: 1, unsuitable: 1, unchecked: 3 },
 };
 
-async function openDonors() {
+const CONTACTS = { pending: 3, running: false, job_id: null, last: null, workers: 1 };
+
+async function openDonors(routes: Record<string, unknown> = {}) {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   const recorded = serve({
     'GET /api/auth/me': { body: ADMIN },
+    'GET /api/contacts': { body: CONTACTS },
     'GET /api/donors?limit=50&offset=0': { body: PAGE },
     'GET /api/donors?status=unchecked&limit=50&offset=0': {
       body: { rows: [], total: 0, counts: PAGE.counts },
     },
+    ...(routes as Record<string, never>),
   });
   renderWith(<AppRoutes />, '/donors');
   await screen.findByText('good.example.test');
@@ -70,6 +74,28 @@ async function openDonors() {
 }
 
 describe('доноры', () => {
+  it('поиск контактов запускается с экрана, а не из консоли', async () => {
+    const recorded = await openDonors({
+      'POST /api/contacts': { body: { job_id: 'job-1', pending: 3 } },
+    });
+    const user = userEvent.setup();
+
+    // До этой кнопки между «прогон нашёл доноров» и «собрать письма»
+    // стоял инженер с консолью.
+    await user.click(await screen.findByRole('button', { name: 'Найти контакты' }));
+
+    await screen.findByText(/Поиск поставлен в очередь/);
+    const sent = recorded.calls.filter((call) => call.method === 'POST');
+    expect(sent[0]?.path).toBe('/api/contacts');
+  });
+
+  it('выгрузка уносит тот же фильтр, что на экране', async () => {
+    await openDonors();
+
+    const link = screen.getByRole('link', { name: 'Выгрузить' });
+    expect(link).toHaveAttribute('href', '/api/donors/export?');
+  });
+
   it('показывает вердикт и причину отсева', async () => {
     await openDonors();
 

@@ -160,6 +160,10 @@ class AuditAction(StrEnum):
     THRESHOLDS_CHANGED = "thresholds_changed"
     LETTER_SENT = "letter_sent"
     PRICE_REVIEWED = "price_reviewed"
+    # Адрес, внесённый человеком из ручной очереди форм, или закрытие
+    # донора без адреса: оба решения принимает человек, и оба меняют,
+    # кому уйдёт письмо.
+    CONTACT_ADDED = "contact_added"
     SUPPRESSION_ADDED = "suppression_added"
     # Снятие записи об отписке — единственное действие, у которого причина
     # обязательна: это разрешение написать тому, кто просил не писать.

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.api.deps import db_session, needs
 from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
-from backend.features.ops.silence import Alarm, alarms
+from backend.features.ops.silence import Alarm, alarms, probe_providers
 
 router = APIRouter(prefix="/watchdog", tags=["сторож тишины"])
 
@@ -43,4 +43,10 @@ async def silence(
     _: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> WatchdogView:
-    return WatchdogView(alarms=[AlarmCard.of(alarm) for alarm in await alarms(session)])
+    found = list(await alarms(session))
+    # Два бесплатных запроса к провайдерам: экран открывают редко,
+    # а «API недоступен» — это то, ради чего его и открывают.
+    unreachable = await probe_providers()
+    if unreachable is not None:
+        found.insert(0, unreachable)
+    return WatchdogView(alarms=[AlarmCard.of(alarm) for alarm in found])

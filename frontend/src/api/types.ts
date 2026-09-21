@@ -449,3 +449,34 @@ export interface AlarmCard {
 export interface WatchdogView {
   alarms: AlarmCard[];
 }
+
+/** Состояние поиска контактов: сколько ждёт, идёт ли сейчас, чем кончился прошлый. */
+export interface ContactsState {
+  pending: number;
+  running: boolean;
+  job_id: string | null;
+  last: Record<string, unknown> | null;
+  workers: number | null;
+}
+
+export interface ContactsQueued {
+  job_id: string;
+  pending: number;
+}
+
+/** Донор из ручной очереди: у него есть форма и нет адреса. */
+export interface FormCard {
+  donor_id: number;
+  domain_id: number;
+  host: string;
+  dr: number | null;
+  org_traffic: number | null;
+  attempted_at: string | null;
+}
+
+export interface FormsView {
+  rows: FormCard[];
+  total: number;
+  monthly_left: number;
+  monthly_cap: number;
+}

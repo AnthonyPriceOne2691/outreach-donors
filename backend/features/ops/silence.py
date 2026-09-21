@@ -27,10 +27,13 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import ahrefs as ahrefs_cfg
+from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.core.domain import MessageStatus, RunStatus
 from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.core.models.run import RunModel
 from backend.features.runs.spending import ahrefs_spent_this_month
+from backend.features.serp.dataforseo import SerpError
+from backend.features.serp.factory import build_provider
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +76,57 @@ async def alarms(session: AsyncSession, *, now: datetime | None = None) -> list[
         await _cap_reached(session),
     ]
     return [alarm for alarm in found if alarm is not None]
+
+
+async def probe_providers() -> Alarm | None:
+    """Провайдеры не отвечают на бесплатный вопрос.
+
+    Отдельно от остальных правил намеренно: это единственная проверка,
+    которая ходит в сеть. Смешав её с чтением базы, мы получили бы
+    «тревоги», которые нельзя посчитать без интернета, — и набор
+    тестов, которому нужен чужой сервер.
+
+    Требование просит сигнал «API недоступен», и отдельно от прогона:
+    узнать об этом отказом посреди платной работы — значит узнать
+    поздно. Оба запроса бесплатные: остаток юнитов и остаток на счету.
+    """
+    dead: list[str] = []
+
+    client = AhrefsClient()
+    try:
+        await client.limits_and_usage()
+    except (AhrefsError, OSError) as exc:
+        logger.warning("сторож тишины: Ahrefs не ответил (%s)", exc)
+        dead.append("Ahrefs")
+    finally:
+        await client.aclose()
+
+    ahrefs = AhrefsClient()
+    provider = build_provider(ahrefs)
+    balance = getattr(provider, "balance", None)
+    try:
+        if balance is not None:
+            await balance()
+    except (SerpError, OSError) as exc:
+        logger.warning("сторож тишины: источник выдачи не ответил (%s)", exc)
+        dead.append("источник выдачи")
+    finally:
+        await ahrefs.aclose()
+        aclose = getattr(provider, "aclose", None)
+        if aclose is not None:
+            await aclose()
+
+    if not dead:
+        return None
+    return Alarm(
+        code="provider-unreachable",
+        title="Провайдер не отвечает",
+        detail=(
+            f"Не отвечает: {', '.join(dead)}. Прогон при недоступном остатке "
+            "не запускается вовсе — узнать об этом лучше здесь, чем отказом "
+            "посреди оплаченной работы"
+        ),
+    )
 
 
 async def _delivery_silence(session: AsyncSession, moment: datetime) -> Alarm | None:
@@ -189,8 +243,15 @@ async def _cap_reached(session: AsyncSession) -> Alarm | None:
 
 
 async def report(session: AsyncSession, *, now: datetime | None = None) -> list[Alarm]:
-    """Проход сторожа для фонового процесса: посчитать и сказать в лог."""
+    """Проход сторожа для фонового процесса: посчитать и сказать в лог.
+
+    Здесь проверяются и провайдеры — в фоне это уместно: проход идёт
+    раз в несколько минут, и два бесплатных запроса ничего не стоят.
+    """
     found = await alarms(session, now=now)
+    unreachable = await probe_providers()
+    if unreachable is not None:
+        found = [unreachable, *found]
     if not found:
         logger.info("сторож тишины: тихо и правильно")
         return found

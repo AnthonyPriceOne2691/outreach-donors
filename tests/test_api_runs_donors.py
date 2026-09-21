@@ -40,6 +40,7 @@ ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("GET", "/api/runs/{run}", None, "view"),
     ("GET", "/api/donors", None, "view"),
     ("GET", "/api/donors/{donor}", None, "view"),
+    ("GET", "/api/donors/export", None, "view"),
 ]
 
 
