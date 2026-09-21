@@ -39,6 +39,7 @@ QUEUE_NAME = "runs"
 RUN_JOB = "backend.workers.jobs.run_donor_search"
 BUILD_JOB = "backend.workers.jobs.build_letter_queue"
 PARSE_JOB = "backend.workers.jobs.parse_reply"
+CONTACTS_JOB = "backend.workers.jobs.find_contacts"
 
 #: Прогон идёт минутами и может упереться в ожидание провайдера.
 #: Час — потолок, после которого задача считается зависшей: без него
@@ -79,6 +80,41 @@ def workers_alive(redis: Redis | None = None) -> int | None:
     except RedisError as exc:
         logger.warning("очередь: не удалось спросить, есть ли воркеры — %s", exc)
         return None
+
+
+#: Где лежит номер последней задачи поиска контактов. Своей строки
+#: в базе у неё нет намеренно: задача одна на сервис, идёт минутами
+#: и не оставляет после себя ничего, кроме контактов у доноров и
+#: отчёта в самой очереди.
+CONTACTS_JOB_KEY = "outreach:contacts:job"
+
+#: Сколько помним номер задачи. Дольше её собственного срока хранения
+#: смысла нет: отчёт всё равно исчезнет вместе с задачей.
+CONTACTS_JOB_TTL = 24 * 60 * 60
+
+
+def remember_contacts_job(job_id: str, redis: Redis | None = None) -> None:
+    """Запомнить, какая задача сейчас ищет контакты.
+
+    Не удалось — не беда: экран покажет «идёт» по самой очереди,
+    а поиск от этого не остановится. Молчать об этом всё равно нельзя.
+    """
+    try:
+        (redis or connection()).set(CONTACTS_JOB_KEY, job_id, ex=CONTACTS_JOB_TTL)
+    except RedisError:
+        logger.warning("очередь: номер задачи поиска контактов не запомнен")
+
+
+def contacts_job_id(redis: Redis | None = None) -> str | None:
+    """Номер последней задачи поиска контактов. `None` — очередь молчит."""
+    try:
+        raw = (redis or connection()).get(CONTACTS_JOB_KEY)
+    except RedisError:
+        logger.warning("очередь: номер задачи поиска контактов не прочитан")
+        return None
+    if raw is None:
+        return None
+    return raw.decode() if isinstance(raw, bytes) else str(raw)
 
 
 def job_alive(job_id: str | None, redis: Redis | None = None) -> bool | None:

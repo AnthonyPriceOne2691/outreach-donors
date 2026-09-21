@@ -19,7 +19,13 @@ from typing import Any
 
 import httpx
 
+from backend.shared.net.retry import with_retries
+
 logger = logging.getLogger(__name__)
+
+#: Сколько раз пробуем один вызов модели. Перегрузка у провайдера
+#: проходит сама, а вызов стоит денег только когда он удался.
+ATTEMPTS = 3
 
 API_URL = "https://api.openai.com/v1/chat/completions"
 
@@ -40,11 +46,18 @@ async def post_chat(
     topic: str,
 ) -> dict[str, Any] | None:
     """Запрос к модели. `None` — не получилось, причина уже в логе."""
+    # Повторы общие на все внешние сервисы: до них один обрыв связи
+    # означал письмо, оставшееся шаблонным, или ответ, оставшийся
+    # неразобранным, — и оба случая выглядели как «модель отказала».
     try:
-        response = await http.post(
-            API_URL,
-            headers={"Authorization": f"Bearer {api_key}"},
-            json=payload,
+        response = await with_retries(
+            lambda: http.post(
+                API_URL,
+                headers={"Authorization": f"Bearer {api_key}"},
+                json=payload,
+            ),
+            attempts=ATTEMPTS,
+            topic=topic,
         )
     except httpx.HTTPError as exc:
         logger.exception("%s: модель недоступна (%r)", topic, exc)

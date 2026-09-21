@@ -136,6 +136,29 @@ async def session(engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
 # не видел бы записанного.
 
 
+@pytest.fixture(autouse=True)
+def _no_waiting_between_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Повторы проверяются числом попыток, а не часами.
+
+    Паузы между попытками растут по степени двойки; с настоящими
+    паузами набор тестов идёт минуту вместо секунды, и первым, что
+    захочется сделать, станет выключить повторы в коде.
+    """
+
+    async def instant(_seconds: float) -> None:
+        return None
+
+    async def no_waiting(_self: object) -> None:
+        return None
+
+    monkeypatch.setattr("backend.shared.net.retry.asyncio.sleep", instant)
+    # Ограничитель частоты гасится целиком, а не через сон: его окно
+    # считается по часам, и «сон без сна» превращает ожидание
+    # в холостой цикл на настоящую минуту. Поймано ровно так: набор
+    # из двадцати тестов стал идти минуту.
+    monkeypatch.setattr("backend.shared.net.retry.RateLimiter.acquire", no_waiting)
+
+
 @pytest.fixture
 def jwt_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     """Секрет подписи. Без него приложение не собирается — и это проверяется

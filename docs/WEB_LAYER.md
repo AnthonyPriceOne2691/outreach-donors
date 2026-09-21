@@ -328,7 +328,13 @@ Library.
 
     GET    /api/donors                  фильтры, сортировка, страницы
     GET    /api/donors/{id}             карточка
-    GET    /api/donors/export           выгрузка
+    GET    /api/donors/export           выгрузка по текущему фильтру
+
+    GET    /api/contacts                состояние поиска контактов
+    POST   /api/contacts                найти контакты        (точечное право)
+    GET    /api/contacts/forms          ручная очередь форм
+    POST   /api/contacts/forms/{id}/filled   адрес из формы   (точечное право)
+    POST   /api/contacts/forms/{id}/give-up  форма не вышла   (точечное право)
 
     GET    /api/letters                 очередь писем
     POST   /api/letters/{id}/send       отправка          (точечное право)

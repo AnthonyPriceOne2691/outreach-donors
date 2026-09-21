@@ -22,6 +22,7 @@ import { theme } from './theme';
 import { DonorPage } from './donors/DonorPage';
 import { LettersPage } from './letters/LettersPage';
 import { DonorsPage } from './donors/DonorsPage';
+import { FormsPage } from './forms/FormsPage';
 import { RunPage } from './runs/RunPage';
 import { SendersPage } from './senders/SendersPage';
 import { SuppressionsPage } from './suppressions/SuppressionsPage';
@@ -83,6 +84,14 @@ export function AppRoutes() {
           element={
             <RequireAccess permission="view">
               <DonorPage />
+            </RequireAccess>
+          }
+        />
+        <Route
+          path="/forms"
+          element={
+            <RequireAccess permission="view">
+              <FormsPage />
             </RequireAccess>
           }
         />

@@ -27,6 +27,7 @@ from backend.features.access.passwords import WeakPasswordError
 from backend.features.access.permissions import AccessDeniedError
 from backend.features.access.repository import EmailTakenError
 from backend.features.access.tokens import SecretMissingError, TokenError
+from backend.features.contacts.forms import UnknownFormError
 from backend.features.donors.browse import UnknownDonorError
 from backend.features.letters.guards import ForbiddenContentError
 from backend.features.letters.repository import UnknownLetterError
@@ -61,6 +62,9 @@ STATUSES: dict[type[Exception], int] = {
     TransportError: status.HTTP_409_CONFLICT,
     # Метрики Ahrefs в письме: правка человека, которую нельзя принять.
     ForbiddenContentError: status.HTTP_400_BAD_REQUEST,
+    # Ручная очередь форм: донора в ней уже нет — либо адрес нашёлся,
+    # либо очередь разобрал кто-то другой. Это состояние, а не запрос.
+    UnknownFormError: status.HTTP_409_CONFLICT,
     # Стоп-лист: уже там, такого нет, снятие отписки без причины.
     # Всё это про состояние списка и про то, что человек чинит сам.
     StopListError: status.HTTP_409_CONFLICT,

@@ -29,6 +29,7 @@ import httpx
 
 from backend.config import serp as cfg
 from backend.features.serp.protocol import SerpResult
+from backend.shared.net.retry import RateLimiter, with_retries
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,15 @@ POST_PATH = "/v3/serp/google/organic/task_post"
 GET_PATH = "/v3/serp/google/organic/task_get/regular"
 #: Остаток на счету. Запрос бесплатный — им и спрашиваем перед прогоном.
 BALANCE_PATH = "/v3/appendix/user_data"
+
+#: Сколько раз пробуем один запрос. Провайдер отложенный: его отказы
+#: чаще временные, чем окончательные.
+ATTEMPTS = 3
+
+#: Запросов в минуту. У провайдера предел 2000, наш потолок скромнее:
+#: пачка задач ставится разом, а забирается опросом, и упереться
+#: в чужой предел значит получить 429 на весь прогон.
+RATE_PER_MINUTE = 120
 
 #: Больше задач за один запрос провайдер не принимает.
 MAX_TASKS_PER_POST = 100
@@ -174,6 +184,7 @@ class DataForSeoProvider:
         #: Сколько денег провайдера потрачено за время жизни адаптера.
         #: В песочнице всегда ноль — на то она и песочница.
         self.spent = 0.0
+        self._limiter = RateLimiter(per_minute=RATE_PER_MINUTE)
 
     async def aclose(self) -> None:
         if self._own_client:
@@ -298,8 +309,17 @@ class DataForSeoProvider:
         return float(money["balance"])
 
     async def _call(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        # Повторы и ограничитель — общие на все внешние сервисы.
+        # До них один таймаут посреди прогона оставлял ключи без выдачи
+        # молча: провайдер отложенный, и «не дождались» здесь обычное
+        # дело, а не поломка.
         try:
-            response = await self._http.request(method, path, **kwargs)
+            response = await with_retries(
+                lambda: self._http.request(method, path, **kwargs),
+                attempts=ATTEMPTS,
+                topic="выдача",
+                limiter=self._limiter,
+            )
         except httpx.HTTPError as exc:
             raise SerpError(f"Провайдер выдачи недоступен: {exc!r}") from exc
 

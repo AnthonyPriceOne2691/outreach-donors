@@ -13,6 +13,7 @@
 import {
   Alert,
   Badge,
+  Button,
   Card,
   Group,
   Loader,
@@ -32,6 +33,7 @@ import { useNavigate } from 'react-router-dom';
 import { CONTACT_STATUSES, DONOR_STATUSES } from '../api/labels';
 import { listDonors } from '../api/runs';
 import type { DonorStatus } from '../api/types';
+import { Contacts } from './Contacts';
 
 const PAGE_SIZE = 50;
 
@@ -86,8 +88,17 @@ export function DonorsPage() {
     setPage(1);
   };
 
+  const filters = new URLSearchParams({
+    ...(status !== null ? { status } : {}),
+    ...(search.trim() !== '' ? { search: search.trim() } : {}),
+    ...(minDr !== null ? { min_dr: String(minDr) } : {}),
+    ...(onlyWithContact ? { has_contact: 'true' } : {}),
+  });
+
   return (
     <Stack gap="lg">
+      <Contacts />
+
       <Card className="glassPanel" p="xl">
         <Stack gap="md">
           <Group justify="space-between" align="flex-start">
@@ -98,16 +109,29 @@ export function DonorsPage() {
                 Причина отсева показана рядом со статусом.
               </Text>
             </Stack>
-            <TextInput
-              placeholder="Домен или причина отсева"
-              aria-label="Поиск по домену или причине отсева"
-              w={280}
-              value={search}
-              onChange={(event) => {
-                setSearch(event.currentTarget.value);
-                setPage(1);
-              }}
-            />
+            <Group gap="sm" align="flex-end">
+              <TextInput
+                placeholder="Домен или причина отсева"
+                aria-label="Поиск по домену или причине отсева"
+                w={280}
+                value={search}
+                onChange={(event) => {
+                  setSearch(event.currentTarget.value);
+                  setPage(1);
+                }}
+              />
+              {/* Выгружается то, что видно: фильтр — часть вопроса,
+                  на который отвечают файлом. Выгрузка «всего» при
+                  включённом фильтре не совпала бы с экраном. */}
+              <Button
+                component="a"
+                href={`/api/donors/export?${filters.toString()}`}
+                variant="default"
+                className="press"
+              >
+                Выгрузить
+              </Button>
+            </Group>
           </Group>
 
           <Group gap="xs">

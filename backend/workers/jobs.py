@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from backend.config import storage
 from backend.config.startup_checks import check_collect, check_storage
 from backend.features.ahrefs.client import AhrefsClient
+from backend.features.contacts.search import search_contacts
 from backend.features.donors.repository import DonorRepository
 from backend.features.letters.building import BuildRequest, QueueBuilder
 from backend.features.letters.rewrite import RewriteClient
@@ -156,6 +157,35 @@ def build_letter_queue(
     setup_logging()
     check_storage()
     return asyncio.run(_build_letters(campaign, country, niche, limit, followup_days))
+
+
+async def _search_contacts(limit: int, use_browser: bool, paid_first: bool) -> dict[str, Any]:
+    engine = create_async_engine(storage.DSN)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with factory() as session:
+            report = await search_contacts(
+                session, limit=limit, use_browser=use_browser, paid_first=paid_first
+            )
+            await session.commit()
+            return report.as_dict()
+    finally:
+        await engine.dispose()
+
+
+def find_contacts(
+    limit: int = 100, use_browser: bool = False, paid_first: bool = False
+) -> dict[str, Any]:
+    """Лестница контактов по донорам, которым он нужен.
+
+    Задача, а не запрос: сотня доменов идёт минутами, и держать
+    соединение всё это время значит потерять работу, если человек
+    закрыл вкладку. Отчёт остаётся в результате задачи — по нему
+    экран показывает, чем кончилось.
+    """
+    setup_logging()
+    check_storage()
+    return asyncio.run(_search_contacts(limit, use_browser, paid_first))
 
 
 async def _parse_reply(reply_id: int) -> dict[str, Any]:
