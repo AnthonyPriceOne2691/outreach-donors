@@ -1,0 +1,27 @@
+# Последнее напоминание (шаг 2). После него цепочка кончается.
+#
+# ТЕКСТ ВЫДУМАН, как и у первого письма: боевой приходит от заказчика.
+#
+# Письмо прямо говорит, что оно последнее, и это не вежливость: донор,
+# получивший три письма без обещания замолчать, жмёт «спам», а жалоба
+# бьёт по всем доменам рассылки разом.
+#
+# Тема та же, что у первого письма: переписка одна, и в почтовом клиенте
+# донора эти три письма должны лежать одной веткой.
+
+subject: Advertising rates for {{host}}
+
+[greeting] fixed
+Hello,
+
+[reminder] fixed
+This is my last note about placing a sponsored article on {{host}} — I will not write again after this one. If you do sell placements, send me your rate and I will take it from there; if you do not, no reply is needed and I will close the file.
+
+[signature] fixed
+Best regards,
+{{sender_name}}
+
+[legal] fixed
+{{postal_address}}
+You are receiving this because your site is listed as accepting paid content.
+To stop hearing from us, unsubscribe here: {{unsubscribe_url}}

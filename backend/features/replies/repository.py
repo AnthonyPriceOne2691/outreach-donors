@@ -203,23 +203,30 @@ class ReplyRepository:
         donor.last_price_at = now or datetime.now(UTC)
 
     async def stop_chain(self, thread_id: int | None) -> int:
-        """Отменить неотправленные добивки по цепочке.
+        """Остановить цепочку: ни одного следующего письма этому донору.
 
-        Возвращает, сколько их было. Ноль — обычное дело: до добивок
-        доходит меньшинство диалогов.
+        Гасится и то, что стоит в очереди, и **срок у уже отправленного**:
+        добивка не лежит в очереди заранее, она рождается по сроку. Пока
+        срок цел, ответивший донор получит следующее письмо — то самое
+        неуважение, ради запрета которого правило и написано.
+
+        Возвращает, сколько писем это затронуло. Ноль — обычное дело:
+        до добивок доходит меньшинство диалогов.
         """
         if thread_id is None:
             return 0
         rows = await self._session.execute(
-            select(MessageModel)
-            .where(MessageModel.thread_id == thread_id)
-            .where(MessageModel.status == MessageStatus.QUEUED)
+            select(MessageModel).where(MessageModel.thread_id == thread_id)
         )
         stopped = 0
         for message in rows.scalars().all():
-            message.status = MessageStatus.STOPPED
-            message.next_action_at = None
-            stopped += 1
+            if message.status is MessageStatus.QUEUED:
+                message.status = MessageStatus.STOPPED
+                message.next_action_at = None
+                stopped += 1
+            elif message.next_action_at is not None:
+                message.next_action_at = None
+                stopped += 1
         return stopped
 
     async def mark_bounced(self, message: MessageModel) -> None:

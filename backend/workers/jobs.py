@@ -102,7 +102,11 @@ def run_donor_search(run_id: int) -> dict[str, Any]:
 
 
 async def _build_letters(
-    campaign: str, country: str, niche: Sequence[str], limit: int
+    campaign: str,
+    country: str,
+    niche: Sequence[str],
+    limit: int,
+    followup_days: Sequence[int],
 ) -> dict[str, Any]:
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -115,6 +119,7 @@ async def _build_letters(
                     country=country,
                     niche=tuple(niche),
                     limit=limit,
+                    followup_days=tuple(followup_days),
                 )
             )
             await session.commit()
@@ -137,6 +142,7 @@ def build_letter_queue(
     *,
     niche: Sequence[str] = (),
     limit: int = 50,
+    followup_days: Sequence[int] = (),
 ) -> dict[str, Any]:
     """Собрать очередь писем. Ничего не отправляет.
 
@@ -149,7 +155,7 @@ def build_letter_queue(
     """
     setup_logging()
     check_storage()
-    return asyncio.run(_build_letters(campaign, country, niche, limit))
+    return asyncio.run(_build_letters(campaign, country, niche, limit, followup_days))
 
 
 async def _parse_reply(reply_id: int) -> dict[str, Any]:

@@ -82,14 +82,14 @@
       "worst": "—"
     },
     "backend/api/letters/routes.py": {
-      "lines": 167,
+      "lines": 173,
       "complexity": 2,
       "worst": "_transport_card:52"
     },
     "backend/api/letters/schemas.py": {
-      "lines": 117,
-      "complexity": 2,
-      "worst": "of:39"
+      "lines": 171,
+      "complexity": 3,
+      "worst": "followups_for:74"
     },
     "backend/api/main.py": {
       "lines": 13,
@@ -267,7 +267,7 @@
       "worst": "—"
     },
     "backend/config/outreach.py": {
-      "lines": 69,
+      "lines": 78,
       "complexity": 0,
       "worst": "—"
     },
@@ -437,7 +437,7 @@
       "worst": "_enum:16"
     },
     "backend/features/core/models/outreach.py": {
-      "lines": 258,
+      "lines": 264,
       "complexity": 2,
       "worst": "_enum:37"
     },
@@ -522,14 +522,24 @@
       "worst": "—"
     },
     "backend/features/letters/building.py": {
-      "lines": 195,
+      "lines": 202,
       "complexity": 4,
-      "worst": "_prepare:140"
+      "worst": "_prepare:147"
+    },
+    "backend/features/letters/chain.py": {
+      "lines": 55,
+      "complexity": 3,
+      "worst": "cadence:30"
     },
     "backend/features/letters/compose.py": {
       "lines": 164,
       "complexity": 3,
       "worst": "assemble:148"
+    },
+    "backend/features/letters/followups.py": {
+      "lines": 353,
+      "complexity": 5,
+      "worst": "_deliver:314"
     },
     "backend/features/letters/guards.py": {
       "lines": 56,
@@ -547,9 +557,9 @@
       "worst": "message_id_from:76"
     },
     "backend/features/letters/repository.py": {
-      "lines": 269,
-      "complexity": 2,
-      "worst": "candidates:153"
+      "lines": 299,
+      "complexity": 3,
+      "worst": "campaign:249"
     },
     "backend/features/letters/review.py": {
       "lines": 86,
@@ -562,19 +572,19 @@
       "worst": "parse_zones:120"
     },
     "backend/features/letters/sending.py": {
-      "lines": 296,
+      "lines": 347,
       "complexity": 5,
-      "worst": "_hand_over:213"
+      "worst": "_pinned_sender:214"
     },
     "backend/features/letters/template.py": {
-      "lines": 265,
+      "lines": 320,
       "complexity": 9,
-      "worst": "_check_zones:185"
+      "worst": "_check_zones:219"
     },
     "backend/features/letters/transport.py": {
-      "lines": 113,
+      "lines": 124,
       "complexity": 4,
-      "worst": "build_transport:96"
+      "worst": "build_transport:107"
     },
     "backend/features/letters/uniqueness.py": {
       "lines": 77,
@@ -587,9 +597,9 @@
       "worst": "—"
     },
     "backend/features/outreach/repository.py": {
-      "lines": 188,
+      "lines": 195,
       "complexity": 4,
-      "worst": "threads:108"
+      "worst": "sent_today:77"
     },
     "backend/features/outreach/senders.py": {
       "lines": 160,
@@ -647,9 +657,9 @@
       "worst": "quote_starts_at:47"
     },
     "backend/features/replies/repository.py": {
-      "lines": 309,
+      "lines": 316,
       "complexity": 9,
-      "worst": "add:236"
+      "worst": "add:243"
     },
     "backend/features/runs/__init__.py": {
       "lines": 1,
@@ -776,8 +786,13 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/workers/followups.py": {
+      "lines": 64,
+      "complexity": 4,
+      "worst": "sweep:38"
+    },
     "backend/workers/jobs.py": {
-      "lines": 185,
+      "lines": 191,
       "complexity": 2,
       "worst": "_run:38"
     },
@@ -787,9 +802,14 @@
       "worst": "main:18"
     },
     "backend/workers/reaper.py": {
-      "lines": 87,
+      "lines": 75,
       "complexity": 4,
-      "worst": "sweep:51"
+      "worst": "sweep:52"
+    },
+    "backend/workers/ticker.py": {
+      "lines": 32,
+      "complexity": 3,
+      "worst": "every:23"
     },
     "scripts/check_hunter.py": {
       "lines": 159,
@@ -817,9 +837,9 @@
       "worst": "_select:46"
     },
     "scripts/ui_contrast.py": {
-      "lines": 336,
+      "lines": 341,
       "complexity": 10,
-      "worst": "main:274"
+      "worst": "main:279"
     }
   }
 }

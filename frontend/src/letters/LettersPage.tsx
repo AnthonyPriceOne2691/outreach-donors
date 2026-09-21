@@ -53,6 +53,10 @@ export function LettersPage() {
   const [chosen, setChosen] = useState<number | null>(null);
   const [campaign, setCampaign] = useState('');
   const [limit, setLimit] = useState<number>(50);
+  // Сроки добивок задаются здесь, при создании рассылки: их подбирают
+  // по отклику, и у рассылки, которая уже идёт, они меняться не должны.
+  // Пусто — значит взять умолчание сервера.
+  const [followups, setFollowups] = useState<(number | null)[]>([null, null]);
 
   const { data, isLoading, error } = useQuery({
     queryKey: LETTERS_QUERY_KEY,
@@ -62,6 +66,7 @@ export function LettersPage() {
   // `data?.letters ?? []` в теле создаёт новый массив на каждую отрисовку,
   // и наблюдатель за очередью срабатывал бы всегда. Пустой список — константа.
   const letters = useMemo(() => data?.letters ?? [], [data]);
+  const defaultDays = useMemo(() => data?.followup_default ?? [], [data]);
   const selected = letters.find((letter) => letter.id === chosen) ?? letters[0] ?? null;
 
   // Выбранное письмо могло уйти из очереди — отправили, пропустили.
@@ -74,7 +79,12 @@ export function LettersPage() {
   const refresh = () => queryClient.invalidateQueries({ queryKey: LETTERS_QUERY_KEY });
 
   const build = useMutation({
-    mutationFn: () => buildLetters({ campaign: campaign.trim(), limit }),
+    mutationFn: () =>
+      buildLetters({
+        campaign: campaign.trim(),
+        limit,
+        followup_days: followups.map((days, index) => days ?? defaultDays[index] ?? 0),
+      }),
     onSuccess: async () => {
       await refresh();
       notifications.show({
@@ -216,6 +226,24 @@ export function LettersPage() {
                 w={180}
                 onChange={(value) => setLimit(typeof value === 'number' ? value : 50)}
               />
+              {defaultDays.map((fallback, index) => (
+                <NumberInput
+                  key={index}
+                  label={`Добивка ${index + 1}, дней`}
+                  description={index === 0 ? 'после первого письма' : 'после предыдущей'}
+                  value={followups[index] ?? fallback}
+                  min={0}
+                  max={90}
+                  w={150}
+                  onChange={(value) =>
+                    setFollowups((was) =>
+                      was.map((old, at) =>
+                        at === index ? (typeof value === 'number' ? value : null) : old,
+                      ),
+                    )
+                  }
+                />
+              ))}
               <Button
                 color="lagoon"
                 className="press"

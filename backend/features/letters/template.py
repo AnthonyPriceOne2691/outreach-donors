@@ -60,6 +60,17 @@ REQUIRED_ZONES: dict[str, ZoneKind] = {
     "legal": ZoneKind.FIXED,  # физический адрес и отписка
 }
 
+#: Зоны добивки. Их четыре и все неизменяемые: переписывать в напоминании
+#: нечего — оно короткое и живёт в треде, где первое письмо процитировано
+#: целиком. Юридический блок здесь тот же, что и в первом письме: закон
+#: не делает скидки второму.
+FOLLOWUP_ZONES: dict[str, ZoneKind] = {
+    "greeting": ZoneKind.FIXED,
+    "reminder": ZoneKind.FIXED,  # напоминание о прошлом письме
+    "signature": ZoneKind.FIXED,
+    "legal": ZoneKind.FIXED,
+}
+
 #: Без чего письмо нарушает закон почти во всех целевых странах (TZ.md).
 #: Проверяется в шаблоне, а не перед отправкой: шаблон без отписки надо
 #: чинить один раз, а не ловить на каждом письме.
@@ -72,6 +83,29 @@ REQUIRED_IN_ZONE: dict[str, tuple[str, ...]] = {
 #: числа и служебные слова, которые остаются на месте при любой правке.
 #: Число нужно для одной проверки: достижим ли вообще нижний край коридора.
 REWRITE_YIELD = 0.7
+
+
+@dataclass(frozen=True, slots=True)
+class Spec:
+    """Чего требуют от шаблона письма этого шага.
+
+    Видов писем два, и требования у них разные: у первого семь зон и
+    коридор уникальности, у добивки четыре зоны и никакого коридора —
+    переписывать в ней нечего. Без этого различия шаблон добивки нельзя
+    было бы даже разобрать: проверка набора зон одна на всех.
+    """
+
+    zones: dict[str, ZoneKind]
+    #: Проверять ли достижимость коридора уникальности. У добивки
+    #: переписываемых зон нет вовсе, и проверка отказала бы всегда.
+    corridor: bool
+
+
+#: Первое письмо: набор зон задан ТЗ, уникализация обязательна.
+FIRST = Spec(zones=REQUIRED_ZONES, corridor=True)
+
+#: Добивка: шаблон целиком, модель не участвует (решение 21.09.2026).
+FOLLOWUP = Spec(zones=FOLLOWUP_ZONES, corridor=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,23 +216,24 @@ def _scan(text: str) -> tuple[str, list[Zone]]:
     return subject, zones
 
 
-def _check_zones(zones: list[Zone]) -> None:
+def _check_zones(zones: list[Zone], spec: Spec) -> None:
     found = {z.name: z.kind for z in zones}
-    missing = [name for name in REQUIRED_ZONES if name not in found]
+    required = spec.zones
+    missing = [name for name in required if name not in found]
     if missing:
         raise TemplateError(
             f"В шаблоне нет обязательных зон: {', '.join(missing)}. "
             "Набор зон задан ТЗ и менять его здесь нельзя"
         )
 
-    extra = [name for name in found if name not in REQUIRED_ZONES]
+    extra = [name for name in found if name not in required]
     if extra:
         raise TemplateError(
             f"В шаблоне лишние зоны: {', '.join(extra)}. "
             "Новая зона означает правку ТЗ, а не шаблона"
         )
 
-    for name, kind in REQUIRED_ZONES.items():
+    for name, kind in required.items():
         if found[name] is not kind:
             raise TemplateError(
                 f"Зона «{name}» объявлена как {found[name].value}, а должна быть "
@@ -236,29 +271,49 @@ def _check_corridor(template: Template) -> None:
         )
 
 
-def parse(text: str) -> Template:
+def parse(text: str, spec: Spec = FIRST) -> Template:
     """Разобрать и проверить шаблон."""
     subject, zones = _scan(text)
     if not subject:
         raise TemplateError("В шаблоне нет строки «subject:» — письмо уйдёт без темы")
 
-    _check_zones(zones)
+    _check_zones(zones, spec)
     template = Template(subject=subject, zones=tuple(zones))
     _check_placeholders(template)
-    _check_corridor(template)
+    if spec.corridor:
+        _check_corridor(template)
     return template
 
 
-def load(path: Path) -> Template:
+def load(path: Path, spec: Spec = FIRST) -> Template:
     """Прочитать шаблон с диска."""
     if not path.exists():
         raise TemplateError(f"Шаблон письма не найден: {path}")
-    return parse(path.read_text(encoding="utf-8"))
+    return parse(path.read_text(encoding="utf-8"), spec)
 
+
+TEMPLATES = Path(__file__).parent / "templates"
 
 #: Шаблон, лежащий рядом. Текст выдуман — боевой приходит от заказчика.
-DEFAULT_PATH = Path(__file__).parent / "templates" / "price_request.txt"
+DEFAULT_PATH = TEMPLATES / "price_request.txt"
 
 
 def default() -> Template:
     return load(DEFAULT_PATH)
+
+
+def followup(step: int) -> Template:
+    """Шаблон добивки. Шаг 1 — первое напоминание, 2 — последнее.
+
+    Шаблоны лежат файлами рядом с первым письмом, а не строками в базе:
+    текст добивки один на всю рассылку, правится редко и должен
+    проходить ревью кодом — иначе юридический блок из него однажды
+    пропадёт, и заметит это только жалоба.
+    """
+    path = TEMPLATES / f"followup_{step}.txt"
+    if not path.exists():
+        raise TemplateError(
+            f"Шаблона добивки для шага {step} нет ({path.name}). "
+            "Шагов у цепочки столько, сколько шаблонов рядом с первым письмом"
+        )
+    return load(path, FOLLOWUP)

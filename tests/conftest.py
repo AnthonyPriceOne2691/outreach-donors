@@ -33,11 +33,21 @@ from pathlib import Path
 import pytest
 from backend.api import deps
 from backend.api.app import create_app
+from backend.config import outreach as outreach_cfg
 from backend.features.access.attempts import LoginAttempts
 from backend.features.access.repository import AccessRepository
 from backend.features.core import models  # noqa: F401  — регистрирует таблицы
-from backend.features.core.domain import UserRole
+from backend.features.core.domain import (
+    ContactSource,
+    DonorStatus,
+    SenderStatus,
+    Stage,
+    UserRole,
+)
 from backend.features.core.models.access import UserModel
+from backend.features.core.models.domain import DomainModel
+from backend.features.core.models.donor import ContactModel, DonorModel
+from backend.features.core.models.outreach import SenderModel
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text, update
@@ -200,3 +210,50 @@ def sign_in(client: AsyncClient) -> Callable[..., Awaitable[str]]:
 
 def bearer(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
+
+
+#: Заполненный юридический блок. Без него отправка отказывает — это
+#: проверяется отдельным тестом.
+FILLED = {
+    "OUTREACH_SENDER_NAME": "Anna Ro",
+    "OUTREACH_POSTAL_ADDRESS": "1 Main Street, Dublin",
+    "OUTREACH_UNSUBSCRIBE_URL": "https://ours.test/stop",
+}
+
+
+@pytest.fixture
+def filled_legal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Заполнить то, без чего письмо отправлять нельзя."""
+    monkeypatch.setattr(outreach_cfg, "SENDER_NAME", FILLED["OUTREACH_SENDER_NAME"])
+    monkeypatch.setattr(outreach_cfg, "POSTAL_ADDRESS", FILLED["OUTREACH_POSTAL_ADDRESS"])
+    monkeypatch.setattr(outreach_cfg, "UNSUBSCRIBE_URL", FILLED["OUTREACH_UNSUBSCRIBE_URL"])
+
+
+async def make_donor(
+    session: AsyncSession, host: str, *, email: str | None = None, dr: int = 30
+) -> DomainModel:
+    """Подходящий донор, при желании с адресом."""
+    domain = DomainModel(host=host)
+    session.add(domain)
+    await session.flush()
+    session.add(DonorModel(domain_id=domain.id, status=DonorStatus.SUITABLE, dr=dr))
+    if email is not None:
+        session.add(ContactModel(domain_id=domain.id, email=email, source=ContactSource.PAGE))
+    await session.flush()
+    return domain
+
+
+async def make_sender(session: AsyncSession, email: str, *, cap: int = 20) -> SenderModel:
+    """Ящик, которым можно писать сегодня."""
+    sender = SenderModel(
+        domain=email.split("@", 1)[1],
+        email=email,
+        stage=Stage.DONORS,
+        daily_cap=cap,
+        status=SenderStatus.FREE,
+        enabled=True,
+        warmup_started_at=None,
+    )
+    session.add(sender)
+    await session.flush()
+    return sender

@@ -15,20 +15,16 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from backend.config import outreach as outreach_cfg
 from backend.features.core.domain import (
     ContactSource,
-    DonorStatus,
     MessageStatus,
-    SenderStatus,
     Stage,
     SuppressionReason,
     UsageProvider,
 )
-from backend.features.core.models.domain import DomainModel
-from backend.features.core.models.donor import ContactModel, DonorModel
+from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.ops import SuppressionModel, UsageRecordModel
-from backend.features.core.models.outreach import MessageModel, SenderModel
+from backend.features.core.models.outreach import MessageModel
 from backend.features.letters.building import BuildRequest, QueueBuilder
 from backend.features.letters.repository import LetterRepository
 from backend.features.letters.rewrite import RewriteResult
@@ -42,16 +38,9 @@ from backend.features.letters.transport import NullTransport, Outgoing, Transpor
 from backend.features.outreach.repository import OutreachRepository
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.conftest import make_donor, make_sender
 
 NOW = datetime(2026, 9, 21, 12, 0, tzinfo=UTC)
-
-#: Заполненный юридический блок. Без него отправка отказывает — это
-#: проверяется отдельным тестом.
-FILLED = {
-    "OUTREACH_SENDER_NAME": "Anna Ro",
-    "OUTREACH_POSTAL_ADDRESS": "1 Main Street, Dublin",
-    "OUTREACH_UNSUBSCRIBE_URL": "https://ours.test/stop",
-}
 
 
 class FakeRewriter:
@@ -75,42 +64,6 @@ class FakeRewriter:
         )
 
 
-@pytest.fixture
-def filled_legal(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Заполнить то, без чего письмо отправлять нельзя."""
-    monkeypatch.setattr(outreach_cfg, "SENDER_NAME", FILLED["OUTREACH_SENDER_NAME"])
-    monkeypatch.setattr(outreach_cfg, "POSTAL_ADDRESS", FILLED["OUTREACH_POSTAL_ADDRESS"])
-    monkeypatch.setattr(outreach_cfg, "UNSUBSCRIBE_URL", FILLED["OUTREACH_UNSUBSCRIBE_URL"])
-
-
-async def _donor(
-    session: AsyncSession, host: str, *, email: str | None = None, dr: int = 30
-) -> DomainModel:
-    domain = DomainModel(host=host)
-    session.add(domain)
-    await session.flush()
-    session.add(DonorModel(domain_id=domain.id, status=DonorStatus.SUITABLE, dr=dr))
-    if email is not None:
-        session.add(ContactModel(domain_id=domain.id, email=email, source=ContactSource.PAGE))
-    await session.flush()
-    return domain
-
-
-async def _sender(session: AsyncSession, email: str, *, cap: int = 20) -> SenderModel:
-    sender = SenderModel(
-        domain=email.split("@", 1)[1],
-        email=email,
-        stage=Stage.DONORS,
-        daily_cap=cap,
-        status=SenderStatus.FREE,
-        enabled=True,
-        warmup_started_at=None,
-    )
-    session.add(sender)
-    await session.flush()
-    return sender
-
-
 async def _build(
     session: AsyncSession, *, rewriter: FakeRewriter | None = None, limit: int = 50
 ) -> object:
@@ -123,11 +76,11 @@ async def _build(
 
 
 class TestBuildingTheQueue:
-    async def test_prepares_a_letter_per_donor(
+    async def test_prepares_a_letter_permake_donor(
         self, session: AsyncSession, filled_legal: None
     ) -> None:
-        await _donor(session, "one.example.test", email="info@one.example.test")
-        await _donor(session, "two.example.test", email="ads@two.example.test")
+        await make_donor(session, "one.example.test", email="info@one.example.test")
+        await make_donor(session, "two.example.test", email="ads@two.example.test")
 
         report = await _build(session)
 
@@ -144,7 +97,7 @@ class TestBuildingTheQueue:
         self, session: AsyncSession, filled_legal: None
     ) -> None:
         """Донор без адреса — повод добрать контакты, а не письмо в никуда."""
-        await _donor(session, "mute.example.test")
+        await make_donor(session, "mute.example.test")
 
         report = await _build(session)
 
@@ -155,8 +108,8 @@ class TestBuildingTheQueue:
     ) -> None:
         """Пустая очередь при «все написаны» и при «ни у кого нет адреса»
         выглядит одинаково — различает их только воронка."""
-        await _donor(session, "mute.example.test")
-        await _donor(session, "ok.example.test", email="info@ok.example.test")
+        await make_donor(session, "mute.example.test")
+        await make_donor(session, "ok.example.test", email="info@ok.example.test")
 
         report = await _build(session)
 
@@ -168,7 +121,7 @@ class TestBuildingTheQueue:
     ) -> None:
         """Повтор сборки — самый обычный случай: её запускают по расписанию.
         Второе письмо тому же донору для него рассылка по всем ящикам."""
-        await _donor(session, "one.example.test", email="info@one.example.test")
+        await make_donor(session, "one.example.test", email="info@one.example.test")
 
         await _build(session)
         second = await _build(session)
@@ -179,7 +132,7 @@ class TestBuildingTheQueue:
     async def test_suppressed_donor_is_skipped(
         self, session: AsyncSession, filled_legal: None
     ) -> None:
-        domain = await _donor(session, "stop.example.test", email="info@stop.example.test")
+        domain = await make_donor(session, "stop.example.test", email="info@stop.example.test")
         session.add(SuppressionModel(domain_id=domain.id, reason=SuppressionReason.UNSUBSCRIBED))
         await session.flush()
 
@@ -192,7 +145,7 @@ class TestBuildingTheQueue:
     ) -> None:
         """Отписка — про адрес, стоп-лист донора — про все его адреса.
         Здесь проверяется первое."""
-        await _donor(session, "one.example.test", email="info@one.example.test")
+        await make_donor(session, "one.example.test", email="info@one.example.test")
         session.add(
             SuppressionModel(email="info@one.example.test", reason=SuppressionReason.COMPLAINED)
         )
@@ -207,7 +160,7 @@ class TestBuildingTheQueue:
     ) -> None:
         """Дальше пишем тому, кто отвечает, а не в ящик, где письмо
         пролежало неделю."""
-        domain = await _donor(session, "one.example.test", email="info@one.example.test")
+        domain = await make_donor(session, "one.example.test", email="info@one.example.test")
         session.add(
             ContactModel(
                 domain_id=domain.id,
@@ -230,7 +183,7 @@ class TestBuildingTheQueue:
     ) -> None:
         """Письмо на каждый найденный ящик выглядит как спам, даже если
         текст безупречный."""
-        domain = await _donor(session, "one.example.test", email="info@one.example.test")
+        domain = await make_donor(session, "one.example.test", email="info@one.example.test")
         for local in ("editor", "ads"):
             session.add(
                 ContactModel(
@@ -250,7 +203,7 @@ class TestBuildingTheQueue:
     ) -> None:
         """Отказ модели — не отказ письма. Оно встаёт в очередь с нулевым
         отличием и честной пометкой: решает человек."""
-        await _donor(session, "one.example.test", email="info@one.example.test")
+        await make_donor(session, "one.example.test", email="info@one.example.test")
 
         report = await _build(session, rewriter=FakeRewriter(answer=False))
 
@@ -262,7 +215,7 @@ class TestBuildingTheQueue:
     async def test_rewritten_zone_raises_the_difference(
         self, session: AsyncSession, filled_legal: None
     ) -> None:
-        await _donor(session, "one.example.test", email="info@one.example.test")
+        await make_donor(session, "one.example.test", email="info@one.example.test")
 
         await _build(session)
 
@@ -274,7 +227,7 @@ class TestBuildingTheQueue:
     async def test_tokens_land_in_the_spending_table(
         self, session: AsyncSession, filled_legal: None
     ) -> None:
-        await _donor(session, "one.example.test", email="info@one.example.test")
+        await make_donor(session, "one.example.test", email="info@one.example.test")
 
         await _build(session)
 
@@ -290,7 +243,7 @@ class TestBuildingTheQueue:
         assert [row.units for row in rows] == [120]
 
     async def test_niche_reaches_the_model(self, session: AsyncSession, filled_legal: None) -> None:
-        await _donor(session, "one.example.test", email="info@one.example.test")
+        await make_donor(session, "one.example.test", email="info@one.example.test")
         rewriter = FakeRewriter()
 
         await _build(session, rewriter=rewriter)
@@ -300,8 +253,8 @@ class TestBuildingTheQueue:
 
 class TestSending:
     async def test_sends_and_records(self, session: AsyncSession, filled_legal: None) -> None:
-        await _donor(session, "one.example.test", email="info@one.example.test")
-        sender = await _sender(session, "outreach1@mail.example.test")
+        await make_donor(session, "one.example.test", email="info@one.example.test")
+        sender = await make_sender(session, "outreach1@mail.example.test")
         await _build(session)
         letter = (await session.execute(select(MessageModel))).scalars().one()
 
@@ -319,8 +272,8 @@ class TestSending:
     ) -> None:
         """Дневной расход считается по письмам: хранимого счётчика нет,
         и обнулять его некому — он упирался бы в кап навсегда."""
-        await _donor(session, "one.example.test", email="info@one.example.test")
-        sender = await _sender(session, "outreach1@mail.example.test")
+        await make_donor(session, "one.example.test", email="info@one.example.test")
+        sender = await make_sender(session, "outreach1@mail.example.test")
         await _build(session)
         letter = (await session.execute(select(MessageModel))).scalars().one()
 
@@ -332,8 +285,8 @@ class TestSending:
 
     async def test_second_send_is_refused(self, session: AsyncSession, filled_legal: None) -> None:
         """Повтор задачи не отправляет второе письмо (Э1-39)."""
-        await _donor(session, "one.example.test", email="info@one.example.test")
-        await _sender(session, "outreach1@mail.example.test")
+        await make_donor(session, "one.example.test", email="info@one.example.test")
+        await make_sender(session, "outreach1@mail.example.test")
         await _build(session)
         letter = (await session.execute(select(MessageModel))).scalars().one()
         sending = Sending(session, NullTransport(), now=NOW)
@@ -347,8 +300,8 @@ class TestSending:
     ) -> None:
         """Между сборкой и нажатием кнопки проходят часы, и человек
         за это время мог отписаться."""
-        domain = await _donor(session, "one.example.test", email="info@one.example.test")
-        await _sender(session, "outreach1@mail.example.test")
+        domain = await make_donor(session, "one.example.test", email="info@one.example.test")
+        await make_sender(session, "outreach1@mail.example.test")
         await _build(session)
         letter = (await session.execute(select(MessageModel))).scalars().one()
 
@@ -364,8 +317,8 @@ class TestSending:
     async def test_unfilled_legal_block_blocks_sending(self, session: AsyncSession) -> None:
         """Юридический блок не заполнен — письмо не уходит. Без физического
         адреса и отписки рассылка нарушает закон в целевых странах."""
-        await _donor(session, "one.example.test", email="info@one.example.test")
-        await _sender(session, "outreach1@mail.example.test")
+        await make_donor(session, "one.example.test", email="info@one.example.test")
+        await make_sender(session, "outreach1@mail.example.test")
         await _build(session)
         letter = (await session.execute(select(MessageModel))).scalars().one()
 
@@ -375,7 +328,7 @@ class TestSending:
     async def test_no_sender_leaves_the_letter_in_the_queue(
         self, session: AsyncSession, filled_legal: None
     ) -> None:
-        await _donor(session, "one.example.test", email="info@one.example.test")
+        await make_donor(session, "one.example.test", email="info@one.example.test")
         await _build(session)
         letter = (await session.execute(select(MessageModel))).scalars().one()
 
@@ -388,9 +341,9 @@ class TestSending:
     async def test_exhausted_box_does_not_send(
         self, session: AsyncSession, filled_legal: None
     ) -> None:
-        await _donor(session, "one.example.test", email="info@one.example.test")
-        await _donor(session, "two.example.test", email="info@two.example.test")
-        await _sender(session, "outreach1@mail.example.test", cap=1)
+        await make_donor(session, "one.example.test", email="info@one.example.test")
+        await make_donor(session, "two.example.test", email="info@two.example.test")
+        await make_sender(session, "outreach1@mail.example.test", cap=1)
         await _build(session)
         letters = (
             (await session.execute(select(MessageModel).order_by(MessageModel.id))).scalars().all()
@@ -414,8 +367,8 @@ class TestSending:
             async def send(self, outgoing: Outgoing) -> str:
                 raise TransportError("платформа отказала")
 
-        await _donor(session, "one.example.test", email="info@one.example.test")
-        await _sender(session, "outreach1@mail.example.test")
+        await make_donor(session, "one.example.test", email="info@one.example.test")
+        await make_sender(session, "outreach1@mail.example.test")
         await _build(session)
         letter = (await session.execute(select(MessageModel))).scalars().one()
 
@@ -439,8 +392,8 @@ class TestSending:
             async def send(self, outgoing: Outgoing) -> str:
                 raise TimeoutError("связь оборвалась")
 
-        await _donor(session, "one.example.test", email="info@one.example.test")
-        await _sender(session, "outreach1@mail.example.test")
+        await make_donor(session, "one.example.test", email="info@one.example.test")
+        await make_sender(session, "outreach1@mail.example.test")
         await _build(session)
         letter = (await session.execute(select(MessageModel))).scalars().one()
 
@@ -453,8 +406,8 @@ class TestSending:
     async def test_written_donor_is_not_offered_again(
         self, session: AsyncSession, filled_legal: None
     ) -> None:
-        await _donor(session, "one.example.test", email="info@one.example.test")
-        await _sender(session, "outreach1@mail.example.test")
+        await make_donor(session, "one.example.test", email="info@one.example.test")
+        await make_sender(session, "outreach1@mail.example.test")
         await _build(session)
         letter = (await session.execute(select(MessageModel))).scalars().one()
         await Sending(session, NullTransport(), now=NOW).send(letter.id)
@@ -475,7 +428,7 @@ class TestBlockedSending:
         одно письмо отправить было нельзя — юридический блок пуст. Отчёт
         об этом молчал, и узнать это можно было только нажав «отправить».
         """
-        await _donor(session, "one.example.test", email="info@one.example.test")
+        await make_donor(session, "one.example.test", email="info@one.example.test")
 
         report = await _build(session)
 
@@ -486,7 +439,7 @@ class TestBlockedSending:
     async def test_filled_settings_leave_nothing_blocking(
         self, session: AsyncSession, filled_legal: None
     ) -> None:
-        await _donor(session, "one.example.test", email="info@one.example.test")
+        await make_donor(session, "one.example.test", email="info@one.example.test")
 
         report = await _build(session)
 

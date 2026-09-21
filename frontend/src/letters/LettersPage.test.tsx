@@ -27,6 +27,20 @@ const LETTER = {
   body: 'Good afternoon to you,\n\nI have been reading digest-weekly.example.test.\n\nBest regards,\nAnna Ro',
   uniqueness: 0.19,
   verdict: null,
+  followups: [
+    {
+      step: 1,
+      subject: 'Advertising rates for digest-weekly.example.test',
+      body: 'Hi again,\n\nI wrote to you last week about digest-weekly.example.test.',
+      in_days: 7,
+    },
+    {
+      step: 2,
+      subject: 'Advertising rates for digest-weekly.example.test',
+      body: 'Hello,\n\nThis is my last note about digest-weekly.example.test.',
+      in_days: 14,
+    },
+  ],
 };
 
 const OFF_CORRIDOR = {
@@ -40,6 +54,7 @@ const OFF_CORRIDOR = {
 
 const VIEW = {
   letters: [LETTER, OFF_CORRIDOR],
+  followup_default: [7, 14],
   blocked_by: [],
   transport: { name: 'null', real: false, problem: null },
   corridor: { min: 0.15, max: 0.25 },
@@ -61,6 +76,59 @@ async function openLetters(
   await screen.findByRole('heading', { name: 'Письма' });
   return recorded;
 }
+
+describe('цепочка писем', () => {
+  it('добивки видны здесь же, а не приходят сюрпризом от донора', async () => {
+    await openLetters();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('tab', { name: 'Добивка 1' }));
+
+    expect(screen.getByText(/Hi again/)).toBeInTheDocument();
+    expect(screen.getByText(/через 7 дн/)).toBeInTheDocument();
+  });
+
+  it('добивку не правят и не отправляют руками', async () => {
+    await openLetters();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('tab', { name: 'Добивка 2' }));
+
+    // Текст добивки один на всю рассылку и живёт шаблоном в коде;
+    // уходит она по сроку, а не по кнопке.
+    expect(screen.queryByRole('button', { name: 'Отправить' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Поправить' })).not.toBeInTheDocument();
+  });
+
+  it('смена письма возвращает к первому', async () => {
+    await openLetters();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('tab', { name: 'Добивка 1' }));
+
+    await user.click(screen.getByText('city-news.example.test'));
+
+    expect(screen.getByRole('tab', { name: 'Первое письмо' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+  });
+
+  it('сроки добивок уходят вместе с рассылкой', async () => {
+    const recorded = await openLetters(
+      {},
+      { 'POST /api/letters/build': { body: { job_id: 'j' } } },
+    );
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Кампания'), 'Май');
+    await user.clear(screen.getByLabelText('Добивка 1, дней'));
+    await user.type(screen.getByLabelText('Добивка 1, дней'), '3');
+    await user.click(screen.getByRole('button', { name: 'Собрать очередь' }));
+
+    const call = recorded.calls.find((one: Call) => one.path === '/api/letters/build');
+    expect(call?.body).toMatchObject({ campaign: 'Май', followup_days: [3, 14] });
+  });
+});
 
 describe('очередь писем', () => {
   it('текст письма виден целиком, а не в виде сводки', async () => {

@@ -29,6 +29,14 @@ class _Outreach(DomainSettings):
     # Разгон нового отправителя: ступени дневного капа по дням.
     warmup_daily_caps: str = Field(default="5,10,15,20", validation_alias="OUTREACH_WARMUP_CAPS")
     warmup_step_days: int = Field(default=2, validation_alias="OUTREACH_WARMUP_STEP_DAYS")
+    # Сколько добивок в час уходит с одного ящика. Свой потолок, потому
+    # что дневной кап добивки не считает (решение 21.09.2026): иначе
+    # backlog первых писем голодит цепочки, а цепочки съедают квоту
+    # новых доноров. Час, а не сутки, — чтобы сотня подошедших добивок
+    # не ушла пачкой за минуту: почтовая платформа смотрит на скорость.
+    followup_per_sender_per_hour: int = Field(
+        default=10, validation_alias="OUTREACH_FOLLOWUP_PER_SENDER_PER_HOUR"
+    )
     # Добивки: дни от первого письма. Стоп при любом ответе или отписке.
     followup_days: str = Field(default="7,14", validation_alias="OUTREACH_FOLLOWUP_DAYS")
     # Доля отказов, после которой отправитель уходит на паузу, и минимум
@@ -61,6 +69,7 @@ DAILY_CAP_PER_SENDER: int = _s.daily_cap_per_sender
 WARMUP_DAILY_CAPS: tuple[int, ...] = tuple(int(x) for x in _s.warmup_daily_caps.split(","))
 WARMUP_STEP_DAYS: int = _s.warmup_step_days
 FOLLOWUP_DAYS: tuple[int, ...] = tuple(int(x) for x in _s.followup_days.split(","))
+FOLLOWUP_PER_SENDER_PER_HOUR: int = _s.followup_per_sender_per_hour
 BOUNCE_PAUSE_THRESHOLD: float = _s.bounce_pause_threshold
 BOUNCE_PAUSE_MIN_SENT: int = _s.bounce_pause_min_sent
 UNIQUENESS_TARGET_MIN: float = _s.uniqueness_target_min

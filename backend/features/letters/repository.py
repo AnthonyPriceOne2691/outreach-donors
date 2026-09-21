@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, TypeVar
 
@@ -50,6 +51,9 @@ class QueuedLetter:
     host: str
     email: str | None
     campaign: str
+    #: Сроки добивок рассылки. Нужны экрану: согласуя первое письмо,
+    #: человек согласует цепочку, и когда уйдут остальные — часть решения.
+    followup_days: list[int] | None = None
 
 
 class UnknownLetterError(ValueError):
@@ -198,7 +202,13 @@ class LetterRepository:
 
     def _letters(self) -> Select[Any]:
         return (
-            select(MessageModel, DomainModel.host, ContactModel.email, CampaignModel.name)
+            select(
+                MessageModel,
+                DomainModel.host,
+                ContactModel.email,
+                CampaignModel.name,
+                CampaignModel.followup_days,
+            )
             .join(DomainModel, DomainModel.id == MessageModel.domain_id)
             .join(CampaignModel, CampaignModel.id == MessageModel.campaign_id)
             .outerjoin(ContactModel, ContactModel.id == MessageModel.contact_id)
@@ -218,8 +228,10 @@ class LetterRepository:
             .limit(limit)
         )
         return [
-            QueuedLetter(message=message, host=host, email=email, campaign=campaign)
-            for message, host, email, campaign in rows.all()
+            QueuedLetter(
+                message=message, host=host, email=email, campaign=campaign, followup_days=days
+            )
+            for message, host, email, campaign, days in rows.all()
         ]
 
     async def letter(self, message_id: int) -> QueuedLetter:
@@ -227,16 +239,28 @@ class LetterRepository:
         found = rows.first()
         if found is None:
             raise UnknownLetterError(f"Письма №{message_id} нет")
-        message, host, email, campaign = found
-        return QueuedLetter(message=message, host=host, email=email, campaign=campaign)
+        message, host, email, campaign, days = found
+        return QueuedLetter(
+            message=message, host=host, email=email, campaign=campaign, followup_days=days
+        )
 
     # --- запись ---
 
     async def campaign(
-        self, *, name: str, stage: Stage, run_id: int | None = None
+        self,
+        *,
+        name: str,
+        stage: Stage,
+        run_id: int | None = None,
+        followup_days: Sequence[int] = (),
     ) -> CampaignModel:
         """Кампания по имени. Одноимённая переиспользуется: повторный запуск
-        сборки дополняет очередь, а не заводит вторую такую же."""
+        сборки дополняет очередь, а не заводит вторую такую же.
+
+        **Сроки добивок у найденной не переписываются.** Её цепочки уже
+        идут по ним, и новая правка сдвинула бы письма, отправленные
+        вчера: срок посчитан от отправки, а не от правки настройки.
+        """
         rows = await self._session.execute(
             select(CampaignModel)
             .where(CampaignModel.name == name)
@@ -246,7 +270,13 @@ class LetterRepository:
         if found is not None:
             return found
 
-        created = CampaignModel(name=name, stage=stage, run_id=run_id, status="draft")
+        created = CampaignModel(
+            name=name,
+            stage=stage,
+            run_id=run_id,
+            status="draft",
+            followup_days=list(followup_days) or None,
+        )
         self._session.add(created)
         await self._session.flush()
         return created

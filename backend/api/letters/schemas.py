@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.config import outreach as cfg
 from backend.features.core.domain import MessageStatus
+from backend.features.letters import compose, template
+from backend.features.letters.chain import MAX_STEPS, cadence
 from backend.features.letters.repository import QueuedLetter
 from backend.features.letters.uniqueness import corridor_verdict
 
@@ -34,6 +36,8 @@ class QueuedLetterCard(BaseModel):
     uniqueness: float | None
     #: Что не так с этим числом. Пусто — в коридоре.
     verdict: str | None
+    #: Добивки этого донора — текстом, каким они уйдут.
+    followups: list[FollowupCard]
 
     @classmethod
     def of(cls, row: QueuedLetter) -> QueuedLetterCard:
@@ -48,7 +52,48 @@ class QueuedLetterCard(BaseModel):
             body=row.message.body,
             uniqueness=share,
             verdict=corridor_verdict(share) if share is not None else None,
+            followups=followups_for(row.host, row.followup_days),
         )
+
+
+class FollowupCard(BaseModel):
+    """Добивка в предпросмотре: что уйдёт этому донору и когда.
+
+    Отдаётся вместе с письмом по той же причине, что и его текст:
+    согласуя первое письмо, человек согласует всю цепочку, и прочесть
+    её он должен целиком, а не узнать о втором письме от донора.
+    """
+
+    step: int
+    subject: str
+    body: str
+    #: Через сколько дней после предыдущего письма уйдёт.
+    in_days: int
+
+
+def followups_for(host: str, days: list[int] | None) -> list[FollowupCard]:
+    """Добивки донора: шаблон шага с его подстановками.
+
+    Собирается на месте, а не хранится: текст добивки один на всю
+    рассылку и живёт файлом в коде. Хранить его копией у каждого письма
+    значит завести вторую правду, которая разойдётся с первой правкой
+    шаблона.
+    """
+    schedule = cadence(days)
+    cards: list[FollowupCard] = []
+    for step in range(1, MAX_STEPS):
+        letter = compose.assemble(
+            compose.render(template.followup(step), compose.values_for(host=host)), {}
+        )
+        cards.append(
+            FollowupCard(
+                step=step,
+                subject=letter.subject,
+                body=letter.body,
+                in_days=schedule[step - 1] if step <= len(schedule) else 0,
+            )
+        )
+    return cards
 
 
 class Corridor(BaseModel):
@@ -81,6 +126,10 @@ class LettersView(BaseModel):
     """
 
     letters: list[QueuedLetterCard]
+    #: Сроки добивок по умолчанию — для формы создания рассылки.
+    #: Отдаёт сервер, а не хранит фронт: второй экземпляр чисел
+    #: разошёлся бы с настройкой при первой её правке.
+    followup_default: list[int] = Field(default_factory=lambda: list(cfg.FOLLOWUP_DAYS))
     #: Настройки, из-за которых отправить нельзя ни одно письмо.
     blocked_by: list[str]
     transport: Transport
@@ -94,6 +143,11 @@ class BuildRequestBody(BaseModel):
     #: Ключи прогона: ниша, по которой донор нашёлся.
     niche: list[str] = []
     limit: int = 50
+    #: Через сколько дней после предыдущего письма уходят добивки.
+    #: Пусто — умолчание настроек. Задаётся здесь, а не в настройках
+    #: сервиса, потому что сроки подбирают по отклику, и у рассылки,
+    #: которая уже идёт, они меняться не должны.
+    followup_days: list[int] = Field(default_factory=list, max_length=MAX_STEPS - 1)
 
 
 class BuildQueued(BaseModel):
