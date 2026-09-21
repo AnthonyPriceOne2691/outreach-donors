@@ -13,6 +13,12 @@
 # отправки из тех, что сегодня могут писать, а текст письма к этому
 # моменту уже утверждён человеком. Обратный адрес даёт заголовок
 # «куда отвечать», а не тело письма.
+#
+# Абзац — одна строка, без переносов по ширине. Переносы были, и на
+# экране они рвали фразу посередине: неизменяемые зоны ломались
+# по семьдесят восьмому знаку, а переписанные моделью — нет, и письмо
+# читалось как собранное из двух кусков. Почтовые клиенты переносят
+# сами; жёсткий перенос переживает пересылку хуже, чем его отсутствие.
 
 subject: Advertising rates for {{host}}
 
@@ -20,21 +26,16 @@ subject: Advertising rates for {{host}}
 Hi there,
 
 [opening] rewrite
-I have been reading through {{host}} over the past few days, and the way you
-cover your subject is a good match for what my clients are looking for.
+I have been reading through {{host}} over the past few days, and the way you cover your subject is a good match for what my clients are looking for.
 
 [offer] fixed
-I work with an agency that places sponsored articles for its clients, and we
-are putting together a shortlist of publishers we can work with on a regular
-basis rather than as a one-off.
+I work with an agency that places sponsored articles for its clients, and we are putting together a shortlist of publishers we can work with on a regular basis rather than as a one-off.
 
 [ask] rewrite
-Could you let me know what you charge for a placement? If the rate depends on
-whether the article carries a sponsored label, both numbers would be helpful.
+Could you let me know what you charge for a placement? If the rate depends on whether the article carries a sponsored label, both numbers would be helpful.
 
 [terms] fixed
-We pay per published article and send the draft over for your approval before
-anything goes live. Please also let me know which payment methods you accept.
+We pay per published article and send the draft over for your approval before anything goes live. Please also let me know which payment methods you accept.
 
 [signature] fixed
 Best regards,

@@ -20,7 +20,7 @@ from typing import Any, TypeVar
 from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.core.domain import DonorStatus, Stage
+from backend.features.core.domain import DonorStatus, MessageStatus, Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.ops import SuppressionModel
@@ -40,6 +40,20 @@ class Candidate:
     contact_id: int
     email: str
     dr: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class QueuedLetter:
+    """Строка очереди писем: письмо вместе с тем, кому оно."""
+
+    message: MessageModel
+    host: str
+    email: str | None
+    campaign: str
+
+
+class UnknownLetterError(ValueError):
+    """Письма с таким номером нет."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,6 +193,42 @@ class LetterRepository:
             )
             for row in rows
         ]
+
+    # --- очередь ---
+
+    def _letters(self) -> Select[Any]:
+        return (
+            select(MessageModel, DomainModel.host, ContactModel.email, CampaignModel.name)
+            .join(DomainModel, DomainModel.id == MessageModel.domain_id)
+            .join(CampaignModel, CampaignModel.id == MessageModel.campaign_id)
+            .outerjoin(ContactModel, ContactModel.id == MessageModel.contact_id)
+        )
+
+    async def queued(self, *, limit: int = 200) -> list[QueuedLetter]:
+        """Что ждёт отправки.
+
+        Только очередь: отправленное живёт в диалогах, и смешивать их
+        в одном списке значит потерять смысл экрана — здесь то, по чему
+        человек принимает решение прямо сейчас.
+        """
+        rows = await self._session.execute(
+            self._letters()
+            .where(MessageModel.status == MessageStatus.QUEUED)
+            .order_by(MessageModel.id)
+            .limit(limit)
+        )
+        return [
+            QueuedLetter(message=message, host=host, email=email, campaign=campaign)
+            for message, host, email, campaign in rows.all()
+        ]
+
+    async def letter(self, message_id: int) -> QueuedLetter:
+        rows = await self._session.execute(self._letters().where(MessageModel.id == message_id))
+        found = rows.first()
+        if found is None:
+            raise UnknownLetterError(f"Письма №{message_id} нет")
+        message, host, email, campaign = found
+        return QueuedLetter(message=message, host=host, email=email, campaign=campaign)
 
     # --- запись ---
 

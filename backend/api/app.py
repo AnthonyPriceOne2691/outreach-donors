@@ -14,6 +14,7 @@ from backend.api.auth import routes as auth_routes
 from backend.api.donors import routes as donors_routes
 from backend.api.errors import install
 from backend.api.health import router as health_router
+from backend.api.letters import routes as letters_routes
 from backend.api.runs import routes as runs_routes
 from backend.api.senders import routes as senders_routes
 from backend.api.settings import routes as settings_routes
@@ -54,4 +55,5 @@ def create_app() -> FastAPI:
     app.include_router(senders_routes.router, prefix=API_PREFIX)
     app.include_router(settings_routes.router, prefix=API_PREFIX)
     app.include_router(threads_routes.router, prefix=API_PREFIX)
+    app.include_router(letters_routes.router, prefix=API_PREFIX)
     return app

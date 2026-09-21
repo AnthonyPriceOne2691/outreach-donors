@@ -28,6 +28,11 @@ from backend.features.access.permissions import AccessDeniedError
 from backend.features.access.repository import EmailTakenError
 from backend.features.access.tokens import SecretMissingError, TokenError
 from backend.features.donors.browse import UnknownDonorError
+from backend.features.letters.guards import ForbiddenContentError
+from backend.features.letters.repository import UnknownLetterError
+from backend.features.letters.review import NotEditableError
+from backend.features.letters.sending import SendError
+from backend.features.letters.transport import TransportError
 from backend.features.outreach.repository import UnknownSenderError, UnknownThreadError
 from backend.features.runs.browse import UnknownRunError
 
@@ -42,6 +47,17 @@ STATUSES: dict[type[Exception], int] = {
     UnknownDonorError: status.HTTP_404_NOT_FOUND,
     UnknownRunError: status.HTTP_404_NOT_FOUND,
     UnknownThreadError: status.HTTP_404_NOT_FOUND,
+    UnknownLetterError: status.HTTP_404_NOT_FOUND,
+    # Письмо не отправлено: стоп-лист, незаполненный юридический блок,
+    # некому писать сегодня, письмо уже ушло. Все четыре — про состояние,
+    # а не про запрос, и все четыре человек чинит сам.
+    SendError: status.HTTP_409_CONFLICT,
+    NotEditableError: status.HTTP_409_CONFLICT,
+    # Транспорта нет или он не тот. Это тоже состояние развёртывания,
+    # и текст отказа называет, чего не хватает.
+    TransportError: status.HTTP_409_CONFLICT,
+    # Метрики Ahrefs в письме: правка человека, которую нельзя принять.
+    ForbiddenContentError: status.HTTP_400_BAD_REQUEST,
     EmailTakenError: status.HTTP_409_CONFLICT,
     LastAdminError: status.HTTP_409_CONFLICT,
     SelfLockoutError: status.HTTP_409_CONFLICT,

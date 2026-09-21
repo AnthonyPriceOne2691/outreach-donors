@@ -19,18 +19,23 @@ from __future__ import annotations
 
 import argparse
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from backend.cli.demo_content import (
+    CONVERSATIONS,
+    LETTER_BODY,
+    QUEUE,
+    REPLIES,
+    SENDER_DOMAINS,
+)
 from backend.config import storage
 from backend.config.startup_checks import check_storage
 from backend.features.core.domain import (
     ContactSource,
     DonorStatus,
     MessageStatus,
-    ReplyKind,
     SenderStatus,
     Stage,
     ThreadStatus,
@@ -44,6 +49,9 @@ from backend.features.core.models.outreach import (
     SenderModel,
     ThreadModel,
 )
+from backend.features.letters import compose
+from backend.features.letters import template as letters_template
+from backend.features.letters.uniqueness import difference
 from backend.features.outreach.senders import warmup_state
 from backend.shared import demo
 
@@ -55,71 +63,11 @@ DEMO_CAMPAIGN = "Демонстрация"
 #: Отдельная кампания под письма, ушедшие сегодня: по ней видно дневной
 #: расход ящиков, и убирается она вместе с остальной демонстрацией.
 DEMO_CAMPAIGN_TODAY = "Демонстрация: сегодня"
-DEMO_CAMPAIGNS = (DEMO_CAMPAIGN, DEMO_CAMPAIGN_TODAY)
+#: Кампания под очередь: письма, которые ещё ждут решения человека.
+DEMO_CAMPAIGN_QUEUE = "Демонстрация: очередь"
+DEMO_CAMPAIGNS = (DEMO_CAMPAIGN, DEMO_CAMPAIGN_TODAY, DEMO_CAMPAIGN_QUEUE)
 
 EXIT_OK = 0
-
-#: Домены рассылки: разные состояния нарочно — свежий в разгоне, зрелый,
-#: выключенный по отказам. Экран, на котором все домены одинаковы,
-#: не показывает ничего.
-SENDER_DOMAINS: list[tuple[str, int, int, int | None, bool, str | None]] = [
-    # домен, ящиков, дневной кап, день разгона (None — разгон закончен), включён, причина паузы
-    ("mail-alpha" + DEMO_SUFFIX, 2, 20, None, True, None),
-    ("mail-beta" + DEMO_SUFFIX, 2, 20, 3, True, None),
-    ("mail-gamma" + DEMO_SUFFIX, 1, 20, 1, True, None),
-    ("mail-delta" + DEMO_SUFFIX, 1, 20, None, False, "доля отказов 7% — парковка"),
-]
-
-#: Доноры и то, чем закончился разговор с каждым. Набор подобран так,
-#: чтобы на экране встретились все состояния диалога.
-CONVERSATIONS: list[tuple[str, str, str, Decimal | None, Decimal | None]] = [
-    # донор, адрес, чем кончилось, цена белая, цена серая
-    (
-        "digest-weekly" + DEMO_SUFFIX,
-        "editor@digest-weekly" + DEMO_SUFFIX,
-        "цена",
-        Decimal("250"),
-        Decimal("180"),
-    ),
-    ("city-news" + DEMO_SUFFIX, "info@city-news" + DEMO_SUFFIX, "цена", Decimal("400"), None),
-    ("tech-review" + DEMO_SUFFIX, "ads@tech-review" + DEMO_SUFFIX, "ответ", None, None),
-    ("green-blog" + DEMO_SUFFIX, "hello@green-blog" + DEMO_SUFFIX, "автоответ", None, None),
-    ("travel-mag" + DEMO_SUFFIX, "editor@travel-mag" + DEMO_SUFFIX, "ждём", None, None),
-    ("home-guide" + DEMO_SUFFIX, "contact@home-guide" + DEMO_SUFFIX, "ждём", None, None),
-    ("food-diary" + DEMO_SUFFIX, "team@food-diary" + DEMO_SUFFIX, "отказ доставки", None, None),
-    ("auto-parts" + DEMO_SUFFIX, "sales@auto-parts" + DEMO_SUFFIX, "отписка", None, None),
-]
-
-LETTER_BODY = (
-    "Здравствуйте!\n\nПишу по поводу размещения статьи на вашем сайте. "
-    "Подскажите, пожалуйста, стоимость размещения и есть ли условия "
-    "по тематике.\n\nС уважением,\nотдел контента"
-)
-
-REPLIES = {
-    "цена": (
-        ReplyKind.HUMAN,
-        "Здравствуйте!\n\nРазмещение статьи — {white} EUR, с пометкой «партнёрский "
-        "материал» — {grey} EUR. Оплата по счёту или картой. Размещаем в течение "
-        "трёх рабочих дней.\n\nС уважением,\nредакция",
-    ),
-    "ответ": (
-        ReplyKind.HUMAN,
-        "Добрый день! Прайс уточняю у главного редактора, вернусь с ответом на следующей неделе.",
-    ),
-    "автоответ": (
-        ReplyKind.AUTO_REPLY,
-        "Я в отпуске до понедельника. По срочным вопросам пишите коллеге.",
-    ),
-    "отказ доставки": (
-        ReplyKind.BOUNCE,
-        "Delivery has failed to these recipients: mailbox unavailable (550 5.1.1).",
-    ),
-    "отписка": (
-        ReplyKind.UNSUBSCRIBE,
-        "Просьба больше не писать на этот адрес.",
-    ),
-}
 
 
 async def _clear(session: AsyncSession) -> int:
@@ -264,6 +212,75 @@ async def _seed_sent_today(session: AsyncSession, senders: list[SenderModel], no
     return made
 
 
+async def _seed_queue(session: AsyncSession, now: datetime) -> int:
+    """Письма, ждущие решения человека.
+
+    Собраны настоящим кодом сборки письма — шаблоном и подстановками,
+    а не строкой в этом файле: экран, которому подсунули выдуманный
+    текст, показывает макет, а не сервис. Юридический блок при этом
+    остаётся незаполненным, если он не заполнен: экран обязан показывать
+    состояние сервиса, а не приукрашивать его.
+    """
+    campaign = CampaignModel(stage=Stage.DONORS, name=DEMO_CAMPAIGN_QUEUE, status="draft")
+    session.add(campaign)
+    await session.flush()
+
+    template = letters_template.default()
+    made = 0
+    for order, (name, rewrites) in enumerate(QUEUE):
+        host = f"{name}{DEMO_SUFFIX}"
+        domain = DomainModel(host=host)
+        session.add(domain)
+        await session.flush()
+
+        session.add(
+            DonorModel(
+                domain_id=domain.id,
+                status=DonorStatus.SUITABLE,
+                dr=31 + order * 4,
+                org_traffic=2400 + order * 1100,
+                metrics_refreshed_at=now - timedelta(days=order),
+            )
+        )
+        contact = ContactModel(
+            domain_id=domain.id, email=f"editor@{host}", source=ContactSource.PAGE
+        )
+        session.add(contact)
+        await session.flush()
+
+        letter = compose.assemble(
+            compose.render(template, compose.values_for(host=host)),
+            {zone: text.replace("{{host}}", host) for zone, text in rewrites.items()},
+        )
+        # Число считается по тексту, а не назначается ему.
+        uniqueness = difference(letter.plain_body, letter.body)
+        thread = ThreadModel(
+            domain_id=domain.id,
+            campaign_id=campaign.id,
+            contact_id=contact.id,
+            status=ThreadStatus.OPEN,
+        )
+        session.add(thread)
+        await session.flush()
+
+        session.add(
+            MessageModel(
+                campaign_id=campaign.id,
+                thread_id=thread.id,
+                domain_id=domain.id,
+                contact_id=contact.id,
+                step=0,
+                status=MessageStatus.QUEUED,
+                subject=letter.subject,
+                body=letter.body,
+                uniqueness_pct=uniqueness,
+                idempotency_key=f"{Stage.DONORS.value}:{host}:0",
+            )
+        )
+        made += 1
+    return made
+
+
 async def _seed_threads(session: AsyncSession, now: datetime) -> int:
     campaign = CampaignModel(stage=Stage.DONORS, name=DEMO_CAMPAIGN, status="running")
     session.add(campaign)
@@ -371,6 +388,7 @@ async def cmd_demo_seed(args: argparse.Namespace) -> int:
 
             senders = await _seed_senders(session, now)
             sent_today = await _seed_sent_today(session, senders, now)
+            queued = await _seed_queue(session, now)
             threads = await _seed_threads(session, now)
             await session.commit()
     finally:
@@ -378,7 +396,7 @@ async def cmd_demo_seed(args: argparse.Namespace) -> int:
 
     print(
         f"Заведено: ящиков рассылки {len(senders)}, писем за сегодня {sent_today}, "
-        f"диалогов {threads}."
+        f"в очереди {queued}, диалогов {threads}."
     )
     print(f"Все домены оканчиваются на {DEMO_SUFFIX} — писем туда не уходит.")
     print("Убрать: outreach demo-seed --clear")
