@@ -1,7 +1,7 @@
 # Active delivery status
 
 - **slug:** queue-visibility (задача в очереди видна, мёртвый воркер не молчит)
-- **stack:** delivery@1.92, cqg@deployed, okf@0.3
+- **stack:** delivery@1.93, cqg@deployed, okf@0.3
 - **class:** M
 - **kind:** feature
 - **phase:** verify
