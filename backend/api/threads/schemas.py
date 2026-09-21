@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -11,6 +12,7 @@ from backend.features.core.domain import MessageStatus, ReplyKind
 from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.outreach.repository import ThreadDetail, ThreadRow
 from backend.features.outreach.threads import ThreadState
+from backend.features.replies.outcome import waiting_for_review
 
 
 class ThreadCard(BaseModel):
@@ -85,11 +87,23 @@ class IncomingCard(BaseModel):
     kind: ReplyKind
     raw_body: str
     received_at: datetime
+    #: Адрес, с которого ответили. Может отличаться от того, кому писали:
+    #: на общий ящик смотрит секретарь и пересылает письмо редактору.
+    from_email: str | None
+    subject: str | None
+    #: Что пришло файлами. Прайс приходит вложением чаще, чем текстом,
+    #: и ответ с вложением не должен выглядеть пустым.
+    attachments: list[dict[str, Any]] | None
     price_white: Decimal | None
     price_grey: Decimal | None
     currency: str | None
     payment_methods: list[str] | None
     confidence: float | None
+    #: Ждёт ли разбор человека. Считается, а не хранится: второе поле
+    #: разошлось бы с уверенностью при первой правке порога.
+    needs_review: bool
+    reviewed_by: str | None
+    reviewed_at: datetime | None
 
     @classmethod
     def of(cls, reply: ReplyModel) -> IncomingCard:
@@ -98,11 +112,19 @@ class IncomingCard(BaseModel):
             kind=reply.kind,
             raw_body=reply.raw_body,
             received_at=reply.created_at,
+            from_email=reply.from_email,
+            subject=reply.subject,
+            attachments=reply.attachments,
             price_white=reply.price_white,
             price_grey=reply.price_grey,
             currency=reply.currency,
             payment_methods=reply.payment_methods,
             confidence=reply.confidence,
+            needs_review=waiting_for_review(
+                reply.kind, reply.confidence, reviewed=reply.reviewed_at is not None
+            ),
+            reviewed_by=reply.reviewed_by,
+            reviewed_at=reply.reviewed_at,
         )
 
 

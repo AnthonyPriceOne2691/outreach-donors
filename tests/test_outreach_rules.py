@@ -46,8 +46,21 @@ def _message(status: MessageStatus, *, sent: bool = True) -> MessageModel:
     )
 
 
-def _reply(kind: ReplyKind, *, price: Decimal | None = None) -> ReplyModel:
-    reply = ReplyModel(thread_id=1, kind=kind, raw_body="текст", price_white=price)
+def _reply(
+    kind: ReplyKind,
+    *,
+    price: Decimal | None = None,
+    confidence: float | None = None,
+    reviewed: bool = False,
+) -> ReplyModel:
+    reply = ReplyModel(
+        thread_id=1,
+        kind=kind,
+        raw_body="текст",
+        price_white=price,
+        confidence=confidence,
+        reviewed_at=NOW if reviewed else None,
+    )
     reply.created_at = NOW
     return reply
 
@@ -123,19 +136,51 @@ class TestThreadState:
         assert summary.state is ThreadState.WAITING
 
     def test_human_answer_moves_the_thread(self) -> None:
-        summary = summarize([_message(MessageStatus.DELIVERED)], [_reply(ReplyKind.HUMAN)])
+        """Разобранный и подтверждённый ответ без цены — это «ответил»:
+        работы по нему больше нет."""
+        summary = summarize(
+            [_message(MessageStatus.DELIVERED)],
+            [_reply(ReplyKind.HUMAN, confidence=0.95)],
+        )
 
         assert summary.state is ThreadState.REPLIED
+
+    def test_unparsed_answer_waits_for_a_person(self) -> None:
+        """Ответ, по которому надо принять решение руками, не должен
+        выглядеть как «ответил»: очередь работы прячется внутри слова,
+        которое звучит как «всё хорошо»."""
+        summary = summarize([_message(MessageStatus.DELIVERED)], [_reply(ReplyKind.HUMAN)])
+
+        assert summary.state is ThreadState.NEEDS_REVIEW
 
     def test_price_beats_answer(self) -> None:
         """Цена сильнее просто ответа: ради неё всё и затевалось."""
         summary = summarize(
             [_message(MessageStatus.DELIVERED)],
-            [_reply(ReplyKind.HUMAN, price=Decimal("250"))],
+            [_reply(ReplyKind.HUMAN, price=Decimal("250"), confidence=0.95)],
         )
 
         assert summary.state is ThreadState.PRICED
         assert summary.price_white == Decimal("250")
+
+    def test_unsure_price_is_not_a_received_price(self) -> None:
+        """Диалог с неуверенным разбором не должен выглядеть законченным:
+        список врал бы именно там, где по нему принимают решения."""
+        summary = summarize(
+            [_message(MessageStatus.DELIVERED)],
+            [_reply(ReplyKind.HUMAN, price=Decimal("250"), confidence=0.4)],
+        )
+
+        assert summary.state is ThreadState.NEEDS_REVIEW
+
+    def test_confirmed_by_a_person_is_a_received_price(self) -> None:
+        """Подтверждение человека сильнее любой уверенности модели."""
+        summary = summarize(
+            [_message(MessageStatus.DELIVERED)],
+            [_reply(ReplyKind.HUMAN, price=Decimal("250"), confidence=0.4, reviewed=True)],
+        )
+
+        assert summary.state is ThreadState.PRICED
 
     def test_unsubscribe_beats_everything(self) -> None:
         summary = summarize(

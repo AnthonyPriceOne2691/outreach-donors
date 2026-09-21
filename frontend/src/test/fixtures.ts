@@ -6,7 +6,7 @@ export const ADMIN: Me = {
   id: 1,
   email: 'админ@site.com',
   role: 'admin',
-  permissions: ['run', 'send', 'senders', 'settings', 'users', 'view'],
+  permissions: ['prices', 'run', 'send', 'senders', 'settings', 'users', 'view'],
   must_change_password: false,
   last_login_at: '2026-09-19T10:24:00+00:00',
 };
@@ -15,7 +15,7 @@ export const OPERATOR: Me = {
   id: 2,
   email: 'оператор@site.com',
   role: 'operator',
-  permissions: ['run', 'settings', 'view'],
+  permissions: ['prices', 'run', 'settings', 'view'],
   must_change_password: false,
   last_login_at: null,
 };
