@@ -17,14 +17,18 @@
 предел ставится на периметре (`docs/SECURITY.md`), а этот нужен, чтобы
 перебор не был бесплатным и был виден в журнале. Переезд в общее
 хранилище — когда процессов станет больше одного.
+
+Сама оконная механика — в `backend/shared/sliding_window.py`: та же
+нужна вебхуку приёма ответов, и две её копии разъехались бы на первой
+правке окна.
 """
 
 from __future__ import annotations
 
-from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 
 from backend.config import access as cfg
+from backend.shared.sliding_window import SlidingWindow
 
 WINDOW = timedelta(minutes=1)
 
@@ -42,36 +46,29 @@ class LoginAttempts:
 
     def __init__(self, limit: int | None = None) -> None:
         self._limit = limit if limit is not None else cfg.LOGIN_ATTEMPTS_PER_MINUTE
-        self._failures: defaultdict[str, list[datetime]] = defaultdict(list)
-
-    def _fresh(self, key: str, now: datetime) -> list[datetime]:
-        kept = [moment for moment in self._failures[key] if now - moment < WINDOW]
-        # Записи не только фильтруются, но и укорачиваются: без этого
-        # словарь растёт на каждую новую почту и живёт столько же, сколько
-        # процесс.
-        if kept:
-            self._failures[key] = kept
-        else:
-            self._failures.pop(key, None)
-        return kept
+        self._failures = SlidingWindow(window=WINDOW)
 
     def check(self, *keys: str, now: datetime | None = None) -> None:
         """Пустить или отказать. Отказ называет, через сколько повторить."""
         moment = now or datetime.now(UTC)
         for key in keys:
-            attempts = self._fresh(key, moment)
-            if len(attempts) < self._limit:
+            if self._failures.count(key, moment) < self._limit:
                 continue
-            wait = WINDOW - (moment - attempts[0])
-            raise TooManyAttemptsError(max(1, int(wait.total_seconds()) + 1))
+            raise TooManyAttemptsError(self._failures.retry_after(key, moment))
 
     def failed(self, *keys: str, now: datetime | None = None) -> None:
         """Отметить неудачу по каждому ключу."""
         moment = now or datetime.now(UTC)
         for key in keys:
-            self._failures[key].append(moment)
+            self._failures.record(key, moment)
 
     def succeeded(self, *keys: str) -> None:
         """Удачный вход снимает накопленное."""
         for key in keys:
-            self._failures.pop(key, None)
+            self._failures.clear(key)
+
+    @property
+    def tracked(self) -> int:
+        """Сколько ключей лежит в памяти. Растёт при постоянном потоке —
+        значит, уборка перестала работать."""
+        return self._failures.tracked

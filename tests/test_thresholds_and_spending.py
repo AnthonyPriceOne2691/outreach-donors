@@ -36,7 +36,8 @@ def _donor(
         dr=dr,
         org_traffic=traffic,
         metrics=(None if dr is None else {"refdomains": refdomains, "org_keywords": keywords}),
-        last_price_usd=price,
+        last_price=price,
+        last_price_currency=None if price is None else "USD",
     )
 
 

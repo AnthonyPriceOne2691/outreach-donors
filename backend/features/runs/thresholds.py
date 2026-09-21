@@ -79,7 +79,7 @@ def consequences(donors: Sequence[DonorModel], candidate: Thresholds) -> Consequ
         suitable_after += int(will)
         if was and not will:
             falls_out += 1
-            if donor.last_price_usd is not None:
+            if donor.last_price is not None:
                 falls_out_with_price += 1
         if will and not was:
             comes_back += 1

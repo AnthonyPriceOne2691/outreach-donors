@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -281,6 +282,48 @@ async def _seed_queue(session: AsyncSession, now: datetime) -> int:
     return made
 
 
+def _add_reply(
+    session: AsyncSession,
+    thread_id: int,
+    *,
+    host: str,
+    email: str,
+    outcome: str,
+    white: Decimal | None,
+    grey: Decimal | None,
+    order: int,
+) -> None:
+    """Входящий ответ демонстрации, если разговор им кончился.
+
+    Вынесено из сеятеля диалогов: там росло ветвление, а «чем кончился
+    разговор» — отдельная тема от «как завести диалог».
+    """
+    if outcome not in REPLIES:
+        return
+
+    kind, template = REPLIES[outcome]
+    session.add(
+        ReplyModel(
+            thread_id=thread_id,
+            kind=kind,
+            raw_body=template.format(white=white, grey=grey) if white else template,
+            # Отправитель и тема заполняются как у настоящего входящего:
+            # без них карточка показывает «—» там, где в бою стоит адрес
+            # ответившего.
+            from_email=email,
+            subject=f"Re: Advertising rates for {host}",
+            inbound_message_id=f"demo-{order}@{host}",
+            price_white=white,
+            price_grey=grey,
+            currency="EUR" if white else None,
+            payment_methods=["счёт", "карта"] if white else None,
+            # Один ответ нарочно с низкой уверенностью: без него
+            # на экране не видно очереди разбора.
+            confidence=0.93 if white else (0.42 if outcome == "ответ" else None),
+        )
+    )
+
+
 async def _seed_threads(session: AsyncSession, now: datetime) -> int:
     campaign = CampaignModel(stage=Stage.DONORS, name=DEMO_CAMPAIGN, status="running")
     session.add(campaign)
@@ -354,21 +397,17 @@ async def _seed_threads(session: AsyncSession, now: datetime) -> int:
                 )
             )
 
-        if outcome in REPLIES:
-            kind, template = REPLIES[outcome]
-            body = template.format(white=white, grey=grey) if white else template
-            session.add(
-                ReplyModel(
-                    thread_id=thread.id,
-                    kind=kind,
-                    raw_body=body,
-                    price_white=white,
-                    price_grey=grey,
-                    currency="EUR" if white else None,
-                    payment_methods=["счёт", "карта"] if white else None,
-                    confidence=0.93 if white else None,
-                )
-            )
+        _add_reply(
+            session,
+            thread.id,
+            host=host,
+            email=email,
+            outcome=outcome,
+            white=white,
+            grey=grey,
+            order=order,
+        )
+
         made += 1
     return made
 

@@ -33,7 +33,8 @@ class DonorRowCard(BaseModel):
     geo_top_share: float | None
     contacts: int
     contact_status: ContactStatus | None
-    last_price_usd: Decimal | None
+    last_price: Decimal | None
+    last_price_currency: str | None
     metrics_refreshed_at: datetime | None
     fresh: bool
 
@@ -51,7 +52,8 @@ class DonorRowCard(BaseModel):
             geo_top_share=donor.geo_top_share,
             contacts=row.contacts,
             contact_status=donor.contact_status,
-            last_price_usd=donor.last_price_usd,
+            last_price=donor.last_price,
+            last_price_currency=donor.last_price_currency,
             metrics_refreshed_at=donor.metrics_refreshed_at,
             fresh=row.fresh,
         )
@@ -117,7 +119,8 @@ class DonorFullCard(BaseModel):
     fresh: bool
     contact_status: ContactStatus | None
     contact_attempted_at: datetime | None
-    last_price_usd: Decimal | None
+    last_price: Decimal | None
+    last_price_currency: str | None
     last_price_at: datetime | None
     contacts: list[ContactCard]
 
@@ -140,7 +143,8 @@ class DonorFullCard(BaseModel):
             fresh=card.fresh,
             contact_status=donor.contact_status,
             contact_attempted_at=donor.contact_attempted_at,
-            last_price_usd=donor.last_price_usd,
+            last_price=donor.last_price,
+            last_price_currency=donor.last_price_currency,
             last_price_at=donor.last_price_at,
             contacts=[ContactCard.of(contact) for contact in card.contacts],
         )

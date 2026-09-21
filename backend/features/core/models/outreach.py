@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import (
     DECIMAL,
@@ -198,13 +199,20 @@ class ReplyModel(TimestampedMixin, Base):
     Исходный текст хранится всегда и рядом с разобранным: оператор в карточке
     донора должен видеть, из чего получена цена, — иначе спорный разбор нечем
     проверить.
+
+    **Ответ может прийти с другого адреса, и это норма** (docs/OUTREACH_THREADS.md):
+    на общий ящик смотрит секретарь и пересылает письмо редактору. Адрес
+    отправителя хранится здесь, а не выводится из контакта, которому писали.
     """
 
     __tablename__ = "replies"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    thread_id: Mapped[int] = mapped_column(
-        ForeignKey("threads.id", ondelete="CASCADE"), nullable=False
+    # Диалога может не быть: ответ, который не удалось соотнести с нашим
+    # письмом, всё равно сохраняется. Выброшенный ответ выглядит как
+    # «донор не ответил», и причину будут искать в лестнице контактов.
+    thread_id: Mapped[int | None] = mapped_column(
+        ForeignKey("threads.id", ondelete="CASCADE"), nullable=True
     )
     message_id: Mapped[int | None] = mapped_column(
         ForeignKey("messages.id", ondelete="SET NULL"), nullable=True
@@ -212,6 +220,19 @@ class ReplyModel(TimestampedMixin, Base):
     # Цепочку останавливают только HUMAN и UNSUBSCRIBE (см. ReplyKind).
     kind: Mapped[ReplyKind] = mapped_column(_enum(ReplyKind), nullable=False)
     raw_body: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Идентификатор письма у почты. По нему и только по нему отличается
+    # повтор вебхука от второго ответа: провайдер доставляет события
+    # «хотя бы один раз» и повторяет их при сбое, а без этой отметки
+    # повтор давал бы второй ответ, второй разбор и второй вызов модели.
+    inbound_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    from_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    subject: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+    # Что пришло файлами: имя, размер, тип. Сами файлы здесь не лежат.
+    # Прайс приходит вложением чаще, чем текстом, и ответ, выглядящий
+    # пустым, — это ответ, из которого не видно главного.
+    attachments: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
 
     price_white: Mapped[Decimal | None] = mapped_column(DECIMAL(10, 2), nullable=True)
     price_grey: Mapped[Decimal | None] = mapped_column(DECIMAL(10, 2), nullable=True)
@@ -225,8 +246,12 @@ class ReplyModel(TimestampedMixin, Base):
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
+        UniqueConstraint("inbound_message_id", name="uq_replies_inbound_message_id"),
         Index("idx_replies_thread_id", "thread_id"),
         Index("idx_replies_kind", "kind"),
+        # Ручная очередь разбора: что ждёт человека. Считается, не хранится —
+        # уверенность ниже порога и разбор ещё не подтверждён.
+        Index("idx_replies_confidence_reviewed", "confidence", "reviewed_at"),
     )
 
-    thread: Mapped[ThreadModel] = relationship("ThreadModel", back_populates="replies")
+    thread: Mapped[ThreadModel | None] = relationship("ThreadModel", back_populates="replies")
