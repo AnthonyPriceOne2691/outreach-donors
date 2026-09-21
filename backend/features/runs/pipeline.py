@@ -60,11 +60,24 @@ class QuotaUnavailableError(RuntimeError):
     """Остаток узнать не удалось. Тратить вслепую нельзя."""
 
 
-async def units_left(client: AhrefsClient, *, cap: int | None = None) -> int:
-    """Сколько юнитов можно потратить: меньшее из остатка провайдера и нашего капа.
+async def units_left(client: AhrefsClient, *, cap: int | None = None, claimed: int = 0) -> int:
+    """Сколько юнитов можно потратить: остаток провайдера минус чужие удержания,
+    и всё это не выше нашего капа.
 
     Кап ограничивает нас добровольно, остаток провайдера — жёстко.
-    Меньшее из двух и есть бюджет прогона.
+
+    **`claimed` — не украшение.** Остаток у Ahrefs говорит о потраченном, а не
+    об обещанном: идущий прогон свою смету обещал, но ещё не потратил, и для
+    Ahrefs этих юнитов как будто нет. Следующий спланируется под них второй
+    раз, вместе они выберут больше, чем есть, и узнается это отказом API
+    посреди платной работы. Юниты не возвращаются — вычитаем ДО планирования.
+
+    ⚠ **Не закрыто двумя местами, прямым текстом.** Прогоны, у которых окна
+    оценки перекрылись целиком (оба спросили удержания раньше, чем любой
+    записал смету), увидят ноль: окно узкое и запускает их человек, но оно
+    есть — закрывается перепроверкой после записи сметы. И соседняя система
+    на том же ключе не видна вовсе: у неё своя база, её траты доходят до нас
+    только через остаток Ahrefs, с задержкой в один её прогон.
     """
     try:
         quota = Quota.from_payload(await client.limits_and_usage())
@@ -83,7 +96,15 @@ async def units_left(client: AhrefsClient, *, cap: int | None = None) -> int:
         quota.workspace_used,
         quota.workspace_limit,
     )
-    return min(quota.available, cap) if cap is not None else quota.available
+    free = max(0, quota.available - claimed)
+    if claimed:
+        logger.info(
+            "Удержано идущими прогонами: %s, свободно %s",
+            claimed,
+            free,
+            extra={"claimed": claimed, "available": quota.available, "free": free},
+        )
+    return min(free, cap) if cap is not None else free
 
 
 class FreshnessSource(Protocol):
@@ -384,7 +405,8 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
         await deps.runs.mark_running(run)
 
     candidates = await _candidates_for(deps, request, run)
-    budget = await units_left(deps.client, cap=request.cap)
+    claimed = await deps.runs.claimed_units()
+    budget = await units_left(deps.client, cap=request.cap, claimed=claimed)
     plan = await plan_run(candidates, deps.donors, units_left=budget)
     await deps.runs.set_estimate(run, plan.estimate.total)
     # Дальше каждая запись несёт идентификатор прогона, включая чужие логгеры:
