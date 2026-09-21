@@ -31,9 +31,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from backend.features.ahrefs.client import AhrefsClient, AhrefsError
+from backend.features.ahrefs.client import AhrefsClient
 from backend.features.ahrefs.units import (
-    Quota,
     RunEstimate,
     UnitsCost,
     UsageCollector,
@@ -45,66 +44,12 @@ from backend.features.donors.collect import collect
 from backend.features.donors.host import normalize_host
 from backend.features.donors.repository import DonorRepository
 from backend.features.donors.verdict import Thresholds
+from backend.features.runs.budget import CapExceededError, units_left
 from backend.features.runs.repository import RunRepository
 from backend.features.serp.protocol import SerpProvider
 from backend.shared.logs import run_context
 
 logger = logging.getLogger(__name__)
-
-
-class CapExceededError(RuntimeError):
-    """Прогон дороже, чем осталось юнитов. Не запускаем."""
-
-
-class QuotaUnavailableError(RuntimeError):
-    """Остаток узнать не удалось. Тратить вслепую нельзя."""
-
-
-async def units_left(client: AhrefsClient, *, cap: int | None = None, claimed: int = 0) -> int:
-    """Сколько юнитов можно потратить: остаток провайдера минус чужие удержания,
-    и всё это не выше нашего капа.
-
-    Кап ограничивает нас добровольно, остаток провайдера — жёстко.
-
-    **`claimed` — не украшение.** Остаток у Ahrefs говорит о потраченном, а не
-    об обещанном: идущий прогон свою смету обещал, но ещё не потратил, и для
-    Ahrefs этих юнитов как будто нет. Следующий спланируется под них второй
-    раз, вместе они выберут больше, чем есть, и узнается это отказом API
-    посреди платной работы. Юниты не возвращаются — вычитаем ДО планирования.
-
-    ⚠ **Не закрыто двумя местами, прямым текстом.** Прогоны, у которых окна
-    оценки перекрылись целиком (оба спросили удержания раньше, чем любой
-    записал смету), увидят ноль: окно узкое и запускает их человек, но оно
-    есть — закрывается перепроверкой после записи сметы. И соседняя система
-    на том же ключе не видна вовсе: у неё своя база, её траты доходят до нас
-    только через остаток Ahrefs, с задержкой в один её прогон.
-    """
-    try:
-        quota = Quota.from_payload(await client.limits_and_usage())
-    except (AhrefsError, OSError) as exc:
-        raise QuotaUnavailableError(
-            "Не удалось узнать остаток юнитов у Ahrefs. Прогон не запускается: "
-            "тратить, не зная остатка, значит рисковать лимитом соседней системы "
-            "на том же ключе."
-        ) from exc
-
-    logger.info(
-        "Остаток Ahrefs: %s (ключ %s из %s, пространство %s из %s)",
-        quota.available,
-        quota.key_used,
-        quota.key_limit,
-        quota.workspace_used,
-        quota.workspace_limit,
-    )
-    free = max(0, quota.available - claimed)
-    if claimed:
-        logger.info(
-            "Удержано идущими прогонами: %s, свободно %s",
-            claimed,
-            free,
-            extra={"claimed": claimed, "available": quota.available, "free": free},
-        )
-    return min(free, cap) if cap is not None else free
 
 
 class FreshnessSource(Protocol):
@@ -126,6 +71,11 @@ class Candidates:
     dropped: int
     """Строк выдачи, из которых не удалось получить домен."""
 
+    cost_usd: float = 0.0
+    """Во что обошлась эта выдача. Ноль у восстановленной: за неё уже
+    заплачено и уже записано в журнал прошлой попыткой, а вторая строка
+    расхода превратила бы продолжение прогона в удвоение счёта."""
+
     @property
     def duplicates(self) -> int:
         """Сколько адресов схлопнулось в уже известные домены. Это и есть
@@ -141,11 +91,19 @@ class Candidates:
             "results": self.results,
             "empty_keywords": list(self.empty_keywords),
             "dropped": self.dropped,
+            # Цена сохраняется ради отчёта, а не ради повторной записи:
+            # `restored()` намеренно возвращает ноль.
+            "cost_usd": self.cost_usd,
         }
 
     @classmethod
     def restored(cls, payload: dict[str, Any]) -> Candidates:
-        """Выдача, сохранённая прошлой попыткой того же прогона."""
+        """Выдача, сохранённая прошлой попыткой того же прогона.
+
+        **Цена сознательно не восстанавливается.** Продолжение прогона
+        ничего у провайдера не покупает, и строка расхода на ту же
+        выдачу второй раз означала бы счёт вдвое больше настоящего.
+        """
         return cls(
             hosts=list(payload["hosts"]),
             keywords=int(payload["keywords"]),
@@ -169,6 +127,10 @@ class RunPlan:
         """Во что обошёлся бы прогон, если бы срока годности не было."""
         return estimate_run(len(self.candidates.hosts)).total - self.estimate.total
 
+
+#: Как называется расход на выдачу в журнале. Единица — доллар:
+#: основной источник берёт деньгами, а не юнитами.
+SERP_OPERATION = "serp_search"
 
 # Операции, которые покрывает смета. Выдача в неё не входит: к моменту, когда
 # смета показывается человеку, она уже потрачена, и включать её значило бы
@@ -257,7 +219,11 @@ async def gather_candidates(
     Порядок сохраняется: первым идёт домен, встреченный выше в выдаче.
     На отладке это удобнее случайного порядка множества.
     """
+    before = getattr(provider, "spent", 0.0)
     answer = await provider.search(keywords, country, depth_pages=depth_pages)
+    # Цена берётся разницей, а не полем: один адаптер живёт дольше одного
+    # прогона, и его накопленный расход — это расход всех прогонов сразу.
+    cost = max(0.0, getattr(provider, "spent", 0.0) - before)
 
     seen: dict[str, None] = {}
     results = 0
@@ -281,6 +247,7 @@ async def gather_candidates(
         results=results,
         empty_keywords=empty,
         dropped=dropped,
+        cost_usd=cost,
     )
 
 
@@ -380,6 +347,21 @@ async def _candidates_for(deps: RunDeps, request: RunRequest, run: RunModel) -> 
     return candidates
 
 
+async def _record_search_cost(deps: RunDeps, run: RunModel, candidates: Candidates) -> None:
+    """Строка расхода на выдачу — до того, как прогон пойдёт дальше.
+
+    Упавший на метриках прогон эти деньги всё равно потратил, и журнал
+    без строки показывал бы, что выдача досталась даром. Нулевая цена
+    означает восстановленную выдачу: за неё уже заплачено и записано.
+    """
+    if not candidates.cost_usd:
+        return
+    await deps.runs.record_money(
+        run_id=run.id, operation=SERP_OPERATION, amount_usd=candidates.cost_usd
+    )
+    await deps.runs.session_commit()
+
+
 async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
     """Прогон целиком: от списка ключей до сохранённых доноров и отчёта.
 
@@ -405,6 +387,8 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
         await deps.runs.mark_running(run)
 
     candidates = await _candidates_for(deps, request, run)
+    await _record_search_cost(deps, run, candidates)
+
     claimed = await deps.runs.claimed_units()
     budget = await units_left(deps.client, cap=request.cap, claimed=claimed)
     plan = await plan_run(candidates, deps.donors, units_left=budget)

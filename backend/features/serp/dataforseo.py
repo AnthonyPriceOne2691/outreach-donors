@@ -37,6 +37,8 @@ SANDBOX_URL = "https://sandbox.dataforseo.com"
 
 POST_PATH = "/v3/serp/google/organic/task_post"
 GET_PATH = "/v3/serp/google/organic/task_get/regular"
+#: Остаток на счету. Запрос бесплатный — им и спрашиваем перед прогоном.
+BALANCE_PATH = "/v3/appendix/user_data"
 
 #: Больше задач за один запрос провайдер не принимает.
 MAX_TASKS_PER_POST = 100
@@ -276,6 +278,24 @@ class DataForSeoProvider:
             # Провайдер отработал и ничего не нашёл — законный исход.
             return []
         return list((result[0] or {}).get("items") or [])
+
+    async def balance(self) -> float:
+        """Остаток денег на счету провайдера. Запрос бесплатный.
+
+        Нужен по той же причине, что остаток юнитов у Ahrefs: прогон,
+        начатый на пустом счету, отказывает посреди платной работы —
+        и выглядит это как «выдача ничего не нашла».
+
+        **Счёт в песочнице тот же, что в бою** — учётка одна. Разница
+        только в том, что задачи песочницы бесплатны.
+        """
+        body = await self._call("GET", BALANCE_PATH)
+        tasks = body.get("tasks") or []
+        result = (tasks[0].get("result") or [{}])[0] if tasks else {}
+        money = result.get("money") if isinstance(result, dict) else None
+        if not isinstance(money, dict) or "balance" not in money:
+            raise SerpError("В ответе о счёте нет остатка — формат провайдера поменялся")
+        return float(money["balance"])
 
     async def _call(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         try:

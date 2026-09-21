@@ -12,6 +12,8 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import UsageProvider
@@ -26,6 +28,9 @@ OPERATION_PROVIDERS = {
     "batch_metrics": UsageProvider.AHREFS,
     "by_country": UsageProvider.AHREFS,
     "serp": UsageProvider.AHREFS,
+    # Выдача у основного источника платится деньгами, а не юнитами:
+    # единица расхода — доллар, и цену называет сам провайдер в ответе.
+    "serp_search": UsageProvider.SERP,
     # Уникализация письма: единица расхода — токен.
     "letter_rewrite": UsageProvider.LLM,
     # Отправка: единица — письмо. Считается и у нулевого транспорта,
@@ -45,7 +50,8 @@ def record(
     session: AsyncSession,
     *,
     operation: str,
-    units: int | None,
+    units: int | None = None,
+    amount_usd: Decimal | float | None = None,
     run_id: int | None = None,
 ) -> UsageRecordModel:
     """Записать строку расхода.
@@ -53,6 +59,12 @@ def record(
     Пишется даже при неизвестном расходе — с нулём и пометкой в операции:
     сам факт запроса важнее его цены, а пропуск строки скрыл бы, что
     запрос вообще был.
+
+    **Единица расхода у провайдеров разная, и подменять одну другой
+    нельзя.** Ahrefs считает юниты, источник выдачи — деньги, модель —
+    токены. Поэтому оба поля необязательны и заполняется то, в чём
+    провайдер выставляет счёт; пустое поле означает «в этой валюте
+    не платили», а не ноль.
     """
     provider = OPERATION_PROVIDERS.get(operation)
     if provider is None:
@@ -67,6 +79,7 @@ def record(
         run_id=run_id,
         operation=operation,
         units=units,
+        amount_usd=None if amount_usd is None else Decimal(str(amount_usd)),
     )
     session.add(entry)
     return entry

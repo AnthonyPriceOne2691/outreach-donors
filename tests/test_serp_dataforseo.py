@@ -146,6 +146,39 @@ class TestWiring:
         assert provider.spent > 0
 
 
+class TestTheBalance:
+    """Остаток на счету спрашивается бесплатно — как у Ahrefs.
+
+    Прогон, начатый на пустом счету, отказывает посреди платной работы,
+    а выглядит это как «выдача ничего не нашла».
+    """
+
+    async def test_balance_is_read(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.url.path.endswith("user_data")
+            return httpx.Response(
+                200,
+                json={
+                    "status_code": 20000,
+                    "tasks": [{"status_code": 20000, "result": [{"money": {"balance": 51.9}}]}],
+                },
+            )
+
+        assert await _provider(handler).balance() == pytest.approx(51.9)
+
+    async def test_changed_format_is_loud(self) -> None:
+        """Молчаливый ноль здесь читался бы как «денег нет» и остановил
+        бы прогон, которому ничего не мешает."""
+
+        def handler(_: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200, json={"status_code": 20000, "tasks": [{"result": [{"money": {}}]}]}
+            )
+
+        with pytest.raises(SerpError, match="остатка"):
+            await _provider(handler).balance()
+
+
 class TestFailures:
     async def test_refused_task_does_not_hide_the_others(self) -> None:
         site = Provider(results={"живой": [_organic(1, "https://a.com/")]}, refuse={"битый"})

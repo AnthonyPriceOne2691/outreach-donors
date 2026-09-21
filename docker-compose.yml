@@ -14,6 +14,15 @@
 # Песочница выдачи включена по умолчанию нарочно: живой ключ тратит
 # деньги, и переключение в боевой режим — решение человека, а не
 # следствие того, что сервис уехал на сервер.
+#
+# **У каждого сервиса есть имя образа.** Локально его даёт сборка,
+# на сервере — реестр: `BACKEND_IMAGE` и `WEB_IMAGE` подставляют образ
+# из ghcr.io, и тогда `docker compose pull` заменяет сборку. Сборка
+# фронта берёт 2–3 ГБ памяти, а рядом работает соседняя система —
+# собирать на сервере значит однажды уронить её.
+#
+# Боевые отличия — лимиты памяти, отсутствие портов наружу и прочее —
+# в `docker-compose.prod.yml`, который накладывается сверху.
 name: outreach-donors
 
 x-backend-env: &backend-env
@@ -73,6 +82,7 @@ services:
   # сервера: при двух серверах они бы поехали одновременно, и цепочка
   # применялась бы дважды. Остальные ждут, пока этот завершится успехом.
   migrate:
+    image: ${BACKEND_IMAGE:-outreach-backend:local}
     build:
       context: .
       target: backend
@@ -84,6 +94,7 @@ services:
         condition: service_healthy
 
   api:
+    image: ${BACKEND_IMAGE:-outreach-backend:local}
     build:
       context: .
       target: backend
@@ -111,6 +122,7 @@ services:
         condition: service_completed_successfully
 
   worker:
+    image: ${BACKEND_IMAGE:-outreach-backend:local}
     build:
       context: .
       target: backend
@@ -129,6 +141,7 @@ services:
   # (каждый ставил бы свою задачу тому же прогону), а воркер, который
   # и умирает, собственную смерть разобрать не может.
   reaper:
+    image: ${BACKEND_IMAGE:-outreach-backend:local}
     build:
       context: .
       target: backend
@@ -147,6 +160,7 @@ services:
   # экран, нельзя. Свой процесс, а не работа сервера или воркера очереди:
   # падение одного не должно останавливать другое.
   followups:
+    image: ${BACKEND_IMAGE:-outreach-backend:local}
     build:
       context: .
       target: backend
@@ -160,6 +174,7 @@ services:
         condition: service_completed_successfully
 
   web:
+    image: ${WEB_IMAGE:-outreach-web:local}
     build:
       context: .
       target: web

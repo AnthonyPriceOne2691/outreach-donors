@@ -101,6 +101,33 @@ class SpendingRepository:
         )
 
 
+async def ahrefs_spent_this_month(session: AsyncSession, *, now: datetime | None = None) -> int:
+    """Сколько юнитов Ahrefs потратили мы с начала месяца.
+
+    По своей таблице, а не по остатку провайдера: остаток включает траты
+    соседней системы на общем ключе и на вопрос «сколько съели мы»
+    не отвечает.
+    """
+    spending = await SpendingRepository(session).since_month_start(now=now)
+    return spending.units_by_provider.get(UsageProvider.AHREFS, 0)
+
+
+async def cap_left(session: AsyncSession, *, cap: int, now: datetime | None = None) -> int:
+    """Сколько юнитов осталось по нашему добровольному капу в этом месяце.
+
+    **Кап месячный, и вычитать из него потраченное обязательно.** Без
+    этого он работает потолком одного прогона: потратив девяносто тысяч
+    из ста, следующий прогон снова видит все сто — и кап, названный
+    месячным на экране расхода, в бюджете прогона означает совсем
+    другое. Одно число с двумя смыслами расходится молча.
+
+    Считается по своей таблице, а не по остатку провайдера: остаток
+    включает траты соседней системы на общем ключе, а наш кап —
+    про нас.
+    """
+    return max(0, cap - await ahrefs_spent_this_month(session, now=now))
+
+
 def _sum_units(articles: Sequence[Article]) -> dict[UsageProvider, int]:
     totals: dict[UsageProvider, int] = {}
     for article in articles:

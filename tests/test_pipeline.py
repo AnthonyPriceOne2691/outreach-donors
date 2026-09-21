@@ -10,14 +10,16 @@ import pytest
 from backend.features.ahrefs.client import AhrefsClient
 from backend.features.ahrefs.units import Quota, UnitsCost
 from backend.features.core.domain import DonorStatus
-from backend.features.runs.pipeline import (
-    Candidates,
+from backend.features.runs.budget import (
     CapExceededError,
     QuotaUnavailableError,
+    units_left,
+)
+from backend.features.runs.pipeline import (
+    Candidates,
     RunReport,
     gather_candidates,
     plan_run,
-    units_left,
 )
 from backend.features.serp.protocol import SerpResult
 

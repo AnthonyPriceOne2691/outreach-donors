@@ -144,6 +144,11 @@ class SpendingView(BaseModel):
     ahrefs_cap: int
     ahrefs_spent_by_us: int
     ahrefs_left_error: str | None = None
+    #: Остаток денег у источника выдачи. Ключ там свой, не общий,
+    #: поэтому вычитать чужое не из чего.
+    serp_left_usd: Decimal | None = None
+    serp_spent_by_us: Decimal = Decimal(0)
+    serp_left_error: str | None = None
 
     @classmethod
     def of(
@@ -153,6 +158,8 @@ class SpendingView(BaseModel):
         ahrefs_left: int | None,
         ahrefs_cap: int,
         error: str | None = None,
+        serp_left_usd: Decimal | None = None,
+        serp_left_error: str | None = None,
     ) -> SpendingView:
         return cls(
             since=spending.since,
@@ -169,4 +176,7 @@ class SpendingView(BaseModel):
             ahrefs_cap=ahrefs_cap,
             ahrefs_spent_by_us=spending.units_by_provider.get(UsageProvider.AHREFS, 0),
             ahrefs_left_error=error,
+            serp_left_usd=serp_left_usd,
+            serp_spent_by_us=spending.amount_by_provider.get(UsageProvider.SERP, Decimal(0)),
+            serp_left_error=serp_left_error,
         )

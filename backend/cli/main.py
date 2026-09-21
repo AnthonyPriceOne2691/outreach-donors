@@ -33,9 +33,12 @@ from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.ahrefs.units import Quota
 from backend.features.donors.geo import assert_settings_allow_limited_fetch
 from backend.features.donors.repository import DonorRepository
-from backend.features.runs.pipeline import (
+from backend.features.runs.budget import (
     CapExceededError,
     QuotaUnavailableError,
+    units_left,
+)
+from backend.features.runs.pipeline import (
     RunDeps,
     RunPlan,
     RunReport,
@@ -43,9 +46,9 @@ from backend.features.runs.pipeline import (
     execute_run,
     gather_candidates,
     plan_run,
-    units_left,
 )
 from backend.features.runs.repository import RunRepository
+from backend.features.runs.spending import cap_left
 from backend.features.runs.thresholds import defaults
 from backend.features.serp.factory import UnknownProviderError, build_provider
 from backend.shared.logs import setup_logging
@@ -134,7 +137,12 @@ async def cmd_run(args: argparse.Namespace) -> int:
             candidates = await gather_candidates(
                 provider, keywords, args.country, depth_pages=args.depth
             )
-            budget = await units_left(client, cap=args.cap or ahrefs_cfg.UNITS_CAP)
+            # Кап месячный: из него вычитается уже потраченное нами,
+            # иначе он ограничивает один прогон, а не месяц. Свой
+            # потолок (`--cap`) может быть только меньше.
+            month_left = await cap_left(session, cap=ahrefs_cfg.UNITS_CAP)
+            allowed = min(args.cap, month_left) if args.cap else month_left
+            budget = await units_left(client, cap=allowed)
             plan = await plan_run(candidates, donors, units_left=budget)
             _print_plan(plan, budget)
 
@@ -152,7 +160,7 @@ async def cmd_run(args: argparse.Namespace) -> int:
                 geo_min_share=filters.GEO_MIN_SHARE,
                 metrics_ttl_days=filters.METRICS_TTL_DAYS,
                 price_ttl_days=filters.PRICE_TTL_DAYS,
-                units_cap=budget,
+                units_cap=allowed,
             )
             deps = RunDeps(provider=provider, client=client, donors=donors, runs=runs)
             report = await execute_run(
@@ -162,7 +170,7 @@ async def cmd_run(args: argparse.Namespace) -> int:
                     country=args.country,
                     thresholds=defaults(),
                     settings_id=settings.id,
-                    cap=args.cap or ahrefs_cfg.UNITS_CAP,
+                    cap=allowed,
                     depth_pages=args.depth,
                     # Выдачу уже купили — по ней показана смета и получено
                     # подтверждение. Без этой строки прогон покупал бы её

@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,6 +31,8 @@ from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
 from backend.features.runs.spending import SpendingRepository
 from backend.features.runs.thresholds import ThresholdsRepository, consequences, defaults
+from backend.features.serp.dataforseo import SerpError
+from backend.features.serp.factory import build_provider
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["настройки"])
@@ -123,6 +126,7 @@ async def usage(
     неудача запроса остатка отдаётся отдельным полем, а не пятисоткой.
     """
     spending = await SpendingRepository(session).since_month_start()
+    serp_left, serp_error = await _serp_balance()
 
     # Спрашивается сырой остаток провайдера, а не бюджет прогона: бюджет —
     # это меньшее из остатка и капа, и сравнивать его с нашим расходом
@@ -142,4 +146,35 @@ async def usage(
     finally:
         await client.aclose()
 
-    return SpendingView.of(spending, ahrefs_left=left, ahrefs_cap=ahrefs_cfg.UNITS_CAP, error=error)
+    return SpendingView.of(
+        spending,
+        ahrefs_left=left,
+        ahrefs_cap=ahrefs_cfg.UNITS_CAP,
+        error=error,
+        serp_left_usd=serp_left,
+        serp_left_error=serp_error,
+    )
+
+
+async def _serp_balance() -> tuple[Decimal | None, str | None]:
+    """Остаток у источника выдачи. Недоступен — это отдельное поле,
+    а не пятисотка: свой расход мы знаем и без провайдера.
+
+    У запасного источника счёта в деньгах нет вовсе — он платит юнитами
+    Ahrefs, и спрашивать его не о чем.
+    """
+    ahrefs = AhrefsClient()
+    provider = build_provider(ahrefs)
+    balance = getattr(provider, "balance", None)
+    try:
+        if balance is None:
+            return None, "Выбран запасной источник выдачи — он платит юнитами, а не деньгами."
+        return Decimal(str(await balance())), None
+    except (SerpError, OSError) as exc:
+        logger.warning("расход: остаток у источника выдачи недоступен (%s)", exc)
+        return None, "Не удалось узнать остаток у источника выдачи."
+    finally:
+        await ahrefs.aclose()
+        aclose = getattr(provider, "aclose", None)
+        if aclose is not None:
+            await aclose()

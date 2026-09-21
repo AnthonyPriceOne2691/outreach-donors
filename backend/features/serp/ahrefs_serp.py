@@ -33,6 +33,11 @@ class AhrefsSerpProvider:
 
     name = "ahrefs"
 
+    #: Деньгами этот источник не платит: его расход — юниты, и они едут
+    #: в журнал копилкой клиента Ahrefs. Ноль здесь — не «бесплатно»,
+    #: а «не в этой валюте».
+    spent = 0.0
+
     def __init__(self, client: AhrefsClient) -> None:
         self._client = client
 

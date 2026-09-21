@@ -26,12 +26,25 @@ const FITS = {
   units_total: 177,
   units_left: 100000,
   units_cap: 100000,
-  budget: 100000,
+  units_spent_this_month: 6416,
+  cap_left: 93584,
+  run_ceiling: null,
+  budget: 93584,
   affordable: true,
   shortfall: 0,
+  serp_cost_usd: 0.0012,
 };
 
 const TOO_MUCH = { ...FITS, units_left: 100, budget: 100, affordable: false, shortfall: 77 };
+
+const CAP_EATEN = {
+  ...FITS,
+  units_spent_this_month: 99_950,
+  cap_left: 50,
+  budget: 50,
+  affordable: false,
+  shortfall: 127,
+};
 
 const QUEUED = {
   id: 7,
@@ -89,6 +102,61 @@ describe('прогон', () => {
     expect(screen.getByRole('button', { name: /Запустить/ })).toBeEnabled();
     // Смета — отдельный запрос, который ничего не тратит.
     expect(recorded.calls.some((call) => call.path === '/api/runs/estimate')).toBe(true);
+  });
+
+  it('смета называет стоимость выдачи — это другой счёт, не юниты', async () => {
+    await openRun({ 'POST /api/runs/estimate': { body: FITS } });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
+    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
+
+    // До этого среза расход на выдачу не показывался нигде, хотя это
+    // вторая статья после Ahrefs.
+    expect(await screen.findByText(/0\.00 \$/)).toBeInTheDocument();
+    expect(screen.getByText(/Потрачено нами юнитов с начала месяца/)).toBeInTheDocument();
+  });
+
+  it('бюджет считается от остатка по капу, а не от самого капа', async () => {
+    await openRun({ 'POST /api/runs/estimate': { body: CAP_EATEN } });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
+    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
+
+    expect(await screen.findByText(/по капу 50 из 100000/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Запустить/ })).toBeDisabled();
+  });
+
+  it('свой потолок уходит на сервер вместе с ключами', async () => {
+    const recorded = await openRun({ 'POST /api/runs/estimate': { body: FITS } });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
+    await user.type(screen.getByLabelText('Потолок юнитов'), '5000');
+    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
+
+    await screen.findByText('до 177');
+    const sent = recorded.calls.find((call) => call.path === '/api/runs/estimate');
+    expect(sent?.body).toMatchObject({ cap: 5000 });
+  });
+
+  it('со своим потолком бюджет считается по нему, а не по капу', async () => {
+    await openRun({
+      'POST /api/runs/estimate': {
+        body: { ...FITS, run_ceiling: 5000, budget: 5000 },
+      },
+    });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
+    await user.type(screen.getByLabelText('Потолок юнитов'), '5000');
+    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
+
+    // Свой потолок — про один прогон, кап — про месяц. Живая проверка
+    // поймала ровно эту путаницу: месячная трата вычиталась из потолка.
+    expect(await screen.findByText(/ваш потолок 5000/)).toBeInTheDocument();
+    expect(screen.getByText(/по капу 93584 из 100000/)).toBeInTheDocument();
   });
 
   it('не помещается — кнопка не нажимается и сказано, чего не хватает', async () => {
