@@ -537,7 +537,7 @@
       "worst": "threads:108"
     },
     "backend/features/outreach/senders.py": {
-      "lines": 162,
+      "lines": 160,
       "complexity": 4,
       "worst": "_spot:112"
     },
@@ -567,9 +567,9 @@
       "worst": "gather_candidates:204"
     },
     "backend/features/runs/repository.py": {
-      "lines": 122,
+      "lines": 121,
       "complexity": 2,
-      "worst": "create_settings:41"
+      "worst": "create_settings:42"
     },
     "backend/features/runs/spending.py": {
       "lines": 116,

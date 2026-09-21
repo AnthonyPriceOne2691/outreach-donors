@@ -109,9 +109,7 @@ class Availability:
         return max(0, self.allowance - self.sent)
 
 
-def _spot(
-    sender: SenderModel, *, sent: int, stage: Stage, now: datetime
-) -> Availability | None:
+def _spot(sender: SenderModel, *, sent: int, stage: Stage, now: datetime) -> Availability | None:
     """Место под письмо у одного ящика. `None` — сегодня он не пишет."""
     if not sender.enabled or sender.stage is not stage:
         return None

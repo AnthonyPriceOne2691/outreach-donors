@@ -15,6 +15,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from backend.config import outreach as outreach_cfg
 from backend.features.core.domain import (
     ContactSource,
     DonorStatus,
@@ -38,6 +39,7 @@ from backend.features.letters.sending import (
     SuppressedError,
 )
 from backend.features.letters.transport import NullTransport, Outgoing, TransportError
+from backend.features.outreach.repository import OutreachRepository
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -76,11 +78,9 @@ class FakeRewriter:
 @pytest.fixture
 def filled_legal(monkeypatch: pytest.MonkeyPatch) -> None:
     """Заполнить то, без чего письмо отправлять нельзя."""
-    from backend.config import outreach as cfg
-
-    monkeypatch.setattr(cfg, "SENDER_NAME", FILLED["OUTREACH_SENDER_NAME"])
-    monkeypatch.setattr(cfg, "POSTAL_ADDRESS", FILLED["OUTREACH_POSTAL_ADDRESS"])
-    monkeypatch.setattr(cfg, "UNSUBSCRIBE_URL", FILLED["OUTREACH_UNSUBSCRIBE_URL"])
+    monkeypatch.setattr(outreach_cfg, "SENDER_NAME", FILLED["OUTREACH_SENDER_NAME"])
+    monkeypatch.setattr(outreach_cfg, "POSTAL_ADDRESS", FILLED["OUTREACH_POSTAL_ADDRESS"])
+    monkeypatch.setattr(outreach_cfg, "UNSUBSCRIBE_URL", FILLED["OUTREACH_UNSUBSCRIBE_URL"])
 
 
 async def _donor(
@@ -91,9 +91,7 @@ async def _donor(
     await session.flush()
     session.add(DonorModel(domain_id=domain.id, status=DonorStatus.SUITABLE, dr=dr))
     if email is not None:
-        session.add(
-            ContactModel(domain_id=domain.id, email=email, source=ContactSource.PAGE)
-        )
+        session.add(ContactModel(domain_id=domain.id, email=email, source=ContactSource.PAGE))
     await session.flush()
     return domain
 
@@ -135,8 +133,10 @@ class TestBuildingTheQueue:
 
         assert report.prepared == 2  # type: ignore[attr-defined]
         letters = (
-            await session.execute(select(MessageModel).where(MessageModel.step == 0))
-        ).scalars().all()
+            (await session.execute(select(MessageModel).where(MessageModel.step == 0)))
+            .scalars()
+            .all()
+        )
         assert {letter.status for letter in letters} == {MessageStatus.QUEUED}
         assert all(letter.body and letter.subject for letter in letters)
 
@@ -180,9 +180,7 @@ class TestBuildingTheQueue:
         self, session: AsyncSession, filled_legal: None
     ) -> None:
         domain = await _donor(session, "stop.example.test", email="info@stop.example.test")
-        session.add(
-            SuppressionModel(domain_id=domain.id, reason=SuppressionReason.UNSUBSCRIBED)
-        )
+        session.add(SuppressionModel(domain_id=domain.id, reason=SuppressionReason.UNSUBSCRIBED))
         await session.flush()
 
         report = await _build(session)
@@ -196,9 +194,7 @@ class TestBuildingTheQueue:
         Здесь проверяется первое."""
         await _donor(session, "one.example.test", email="info@one.example.test")
         session.add(
-            SuppressionModel(
-                email="info@one.example.test", reason=SuppressionReason.COMPLAINED
-            )
+            SuppressionModel(email="info@one.example.test", reason=SuppressionReason.COMPLAINED)
         )
         await session.flush()
 
@@ -283,15 +279,17 @@ class TestBuildingTheQueue:
         await _build(session)
 
         rows = (
-            await session.execute(
-                select(UsageRecordModel).where(UsageRecordModel.provider == UsageProvider.LLM)
+            (
+                await session.execute(
+                    select(UsageRecordModel).where(UsageRecordModel.provider == UsageProvider.LLM)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert [row.units for row in rows] == [120]
 
-    async def test_niche_reaches_the_model(
-        self, session: AsyncSession, filled_legal: None
-    ) -> None:
+    async def test_niche_reaches_the_model(self, session: AsyncSession, filled_legal: None) -> None:
         await _donor(session, "one.example.test", email="info@one.example.test")
         rewriter = FakeRewriter()
 
@@ -301,9 +299,7 @@ class TestBuildingTheQueue:
 
 
 class TestSending:
-    async def test_sends_and_records(
-        self, session: AsyncSession, filled_legal: None
-    ) -> None:
+    async def test_sends_and_records(self, session: AsyncSession, filled_legal: None) -> None:
         await _donor(session, "one.example.test", email="info@one.example.test")
         sender = await _sender(session, "outreach1@mail.example.test")
         await _build(session)
@@ -323,8 +319,6 @@ class TestSending:
     ) -> None:
         """Дневной расход считается по письмам: хранимого счётчика нет,
         и обнулять его некому — он упирался бы в кап навсегда."""
-        from backend.features.outreach.repository import OutreachRepository
-
         await _donor(session, "one.example.test", email="info@one.example.test")
         sender = await _sender(session, "outreach1@mail.example.test")
         await _build(session)
@@ -336,9 +330,7 @@ class TestSending:
         assert today == {sender.id: 1}
         assert await OutreachRepository(session).sent_today(now=NOW + timedelta(days=1)) == {}
 
-    async def test_second_send_is_refused(
-        self, session: AsyncSession, filled_legal: None
-    ) -> None:
+    async def test_second_send_is_refused(self, session: AsyncSession, filled_legal: None) -> None:
         """Повтор задачи не отправляет второе письмо (Э1-39)."""
         await _donor(session, "one.example.test", email="info@one.example.test")
         await _sender(session, "outreach1@mail.example.test")
@@ -360,9 +352,7 @@ class TestSending:
         await _build(session)
         letter = (await session.execute(select(MessageModel))).scalars().one()
 
-        session.add(
-            SuppressionModel(domain_id=domain.id, reason=SuppressionReason.UNSUBSCRIBED)
-        )
+        session.add(SuppressionModel(domain_id=domain.id, reason=SuppressionReason.UNSUBSCRIBED))
         await session.flush()
 
         with pytest.raises(SuppressedError):
@@ -403,8 +393,8 @@ class TestSending:
         await _sender(session, "outreach1@mail.example.test", cap=1)
         await _build(session)
         letters = (
-            await session.execute(select(MessageModel).order_by(MessageModel.id))
-        ).scalars().all()
+            (await session.execute(select(MessageModel).order_by(MessageModel.id))).scalars().all()
+        )
 
         await Sending(session, NullTransport(), now=NOW).send(letters[0].id)
 

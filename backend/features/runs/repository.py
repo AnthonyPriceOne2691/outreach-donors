@@ -29,6 +29,7 @@ from backend.features.donors.verdict import Thresholds
 #: оставлено ссылкой, потому что на него смотрят запросы ниже.
 SYSTEM = usage.SYSTEM
 
+
 # Какой провайдер стоит за операцией. Список закрытый: неизвестная операция
 # должна быть замечена, а не тихо записана как «прочее» — иначе разбор
 # расхода со временем превратится в одну строку «прочее» на весь счёт.
@@ -83,9 +84,7 @@ class RunRepository:
         сам факт запроса важнее его цены, а пропуск строки скрыл бы, что
         запрос вообще был.
         """
-        return usage.record(
-            self._session, operation=operation, units=cost.billable, run_id=run_id
-        )
+        return usage.record(self._session, operation=operation, units=cost.billable, run_id=run_id)
 
     async def finish_run(
         self,

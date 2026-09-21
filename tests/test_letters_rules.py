@@ -277,9 +277,7 @@ class TestReplyAddress:
 
     def test_missing_reply_domain_is_named(self) -> None:
         with pytest.raises(reply_to.ReplyAddressError, match="OUTREACH_REPLY_DOMAIN"):
-            reply_to.address_for(
-                1, sender_email="a@b.test", reply_domain="", secret=self.SECRET
-            )
+            reply_to.address_for(1, sender_email="a@b.test", reply_domain="", secret=self.SECRET)
 
 
 class TestTransport:
@@ -340,9 +338,7 @@ class TestSenderChoice:
         assert spot is None
 
     def test_disabled_box_is_not_offered(self) -> None:
-        spot = pick(
-            [_sender(1, enabled=False)], sent_today={}, stage=Stage.DONORS, now=NOW
-        )
+        spot = pick([_sender(1, enabled=False)], sent_today={}, stage=Stage.DONORS, now=NOW)
 
         assert spot is None
 
