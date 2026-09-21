@@ -174,6 +174,8 @@ export interface RunRequest {
   keywords: string[];
   country: string;
   depth_pages: number;
+  /** Потолок юнитов на этот прогон. Пусто — весь остаток по капу. */
+  cap?: number;
 }
 
 export interface Forecast {
@@ -191,6 +193,14 @@ export interface Forecast {
   /** Помещается ли смета в бюджет. По этому полю блокируется кнопка. */
   affordable: boolean;
   shortfall: number;
+  /** Потрачено нами юнитов с начала месяца — на столько уменьшился кап. */
+  units_spent_this_month: number;
+  /** Остаток по месячному капу. */
+  cap_left: number;
+  /** Потолок, названный человеком для этого прогона. */
+  run_ceiling: number | null;
+  /** Ожидаемая стоимость выдачи в долларах. Другой счёт, не юниты. */
+  serp_cost_usd: number;
 }
 
 export interface RunCard {
@@ -321,6 +331,10 @@ export interface SpendingView {
    *  остаток провайдера включает чужой расход и для этого не годится. */
   ahrefs_spent_by_us: number;
   ahrefs_left_error: string | null;
+  /** Остаток денег у источника выдачи. Счёт свой, чужого расхода в нём нет. */
+  serp_left_usd: string | null;
+  serp_spent_by_us: string;
+  serp_left_error: string | null;
 }
 
 /** Границы коридора отличия. Приходят с сервера: второй экземпляр чисел

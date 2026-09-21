@@ -97,6 +97,19 @@ export function UsagePage() {
               запускается: тратить вслепую нельзя.
             </Alert>
           )}
+
+          {/* Выдача — второй счёт, и он в деньгах. Ключ там свой, не общий,
+              поэтому чужих трат в остатке нет и вычитать нечего. */}
+          <Group justify="space-between">
+            <Text size="sm">
+              Выдача с начала месяца: <b>{Number(data.serp_spent_by_us).toFixed(2)} $</b>
+            </Text>
+            <Text size="sm" c="dimmed">
+              {data.serp_left_usd === null
+                ? (data.serp_left_error ?? 'остаток у источника выдачи неизвестен')
+                : `на счету источника выдачи ${Number(data.serp_left_usd).toFixed(2)} $`}
+            </Text>
+          </Group>
         </Stack>
       </Card>
 
@@ -105,11 +118,16 @@ export function UsagePage() {
           const units = data.units_by_provider[key] ?? 0;
           const amount = Number(data.amount_by_provider[key] ?? '0');
           const spent = units > 0 || amount > 0;
+          // У провайдеров разная валюта счёта: Ahrefs берёт юнитами,
+          // источник выдачи — деньгами, модель — токенами. Показывать
+          // «0.00 $» там, где платят не деньгами, значит уверять, что
+          // трат не было: так экран и врал про выдачу до этого среза.
+          const value = units > 0 ? `${units} юн.` : amount > 0 ? `${amount.toFixed(2)} $` : '—';
           return (
             <Metric
               key={key}
               title={provider.title}
-              value={units > 0 ? `${units} юн.` : `${amount.toFixed(2)} $`}
+              value={value}
               hint={
                 spent
                   ? units > 0 && amount > 0

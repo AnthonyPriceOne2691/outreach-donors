@@ -12,11 +12,13 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+from backend.features.core import usage
 from backend.features.core.domain import ContactSource, DonorStatus, UserRole
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
-from backend.features.core.models.run import RunModel
+from backend.features.core.models.run import RunModel, RunSettingsModel
+from backend.features.runs.repository import RunRepository
 from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -216,6 +218,77 @@ class FakeQueue:
     def enqueue(self, path: str, *args: Any, **_: Any) -> FakeJob:
         self.calls.append((path, args))
         return FakeJob("job-из-теста")
+
+
+async def _cap_of_run(session: AsyncSession, run_id: int) -> int:
+    """Потолок, с которым прогон уедет в задачу: он лежит в настройках,
+    и берёт его оттуда сам воркер."""
+    run = await RunRepository(session).get(run_id)
+    settings = await session.get(RunSettingsModel, run.settings_id)
+    assert settings is not None
+    return settings.units_cap
+
+
+class TestTheCeilings:
+    """Потолки, которые до этого среза были объявлены и не применялись."""
+
+    @pytest.fixture
+    def queue(self, monkeypatch: pytest.MonkeyPatch) -> FakeQueue:
+        monkeypatch.setattr("backend.config.ahrefs.API_KEY", "ключ-для-теста")
+        monkeypatch.setattr("backend.config.serp.SANDBOX", False)
+        fake = FakeQueue()
+        monkeypatch.setattr("backend.api.runs.routes.runs_queue", lambda: fake)
+        return fake
+
+    async def test_more_keywords_than_allowed_is_refused(
+        self, client: AsyncClient, operator_token: str
+    ) -> None:
+        """Настройка «до ста ключей за прогон» существовала и не
+        проверялась нигде: маршрут принимал впятеро больше."""
+        response = await client.post(
+            "/api/runs",
+            json={"keywords": [f"ключ {n}" for n in range(101)], "country": "us"},
+            headers=bearer(operator_token),
+        )
+
+        assert response.status_code == 422
+        assert "не больше 100" in response.text
+
+    async def test_own_ceiling_reaches_the_run(
+        self,
+        client: AsyncClient,
+        operator_token: str,
+        queue: FakeQueue,
+        session: AsyncSession,
+    ) -> None:
+        """Поле «потолок юнитов» — способ попробовать нишу дёшево,
+        не сокращая список ключей."""
+        started = await client.post(
+            "/api/runs",
+            json={**RUN_BODY, "cap": 5_000},
+            headers=bearer(operator_token),
+        )
+
+        assert started.status_code == 200, started.text
+        cap = await _cap_of_run(session, started.json()["run_id"])
+        assert cap == 5_000
+
+    async def test_spent_units_lower_the_ceiling(
+        self,
+        client: AsyncClient,
+        operator_token: str,
+        queue: FakeQueue,
+        session: AsyncSession,
+    ) -> None:
+        """Кап месячный: потраченное вычитается, иначе он ограничивает
+        один прогон, а на экране расхода называется месячным."""
+        usage.record(session, operation="batch_metrics", units=99_000)
+        await session.commit()
+
+        started = await client.post("/api/runs", json=RUN_BODY, headers=bearer(operator_token))
+
+        cap = await _cap_of_run(session, started.json()["run_id"])
+        assert cap == 1_000
 
 
 class TestStartPutsTheRunOnTheScreen:

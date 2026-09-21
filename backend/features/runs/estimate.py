@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from backend.config import serp as serp_cfg
 from backend.features.ahrefs.units import RunEstimate, estimate_run
 
 #: Результатов на страницу выдачи. Совпадает у обоих источников.
@@ -45,12 +46,39 @@ class RunForecast:
     expected_domains: int
     estimate: RunEstimate
     units_left: int
+    """Остаток **у провайдера** за вычетом обещанного идущими прогонами.
+    Про наш кап он ничего не знает: ключ общий с соседней системой."""
     units_cap: int
+    """Наш добровольный кап на месяц. Именно месячный и всегда он:
+    потолок конкретного прогона — отдельное число ниже, и подменять
+    одно другим нельзя (на живой проверке подменил — и свой потолок
+    в пять тысяч начал вычитаться из месячной траты)."""
+    #: Потрачено нами юнитов с начала месяца — то, на что уменьшился кап.
+    units_spent_this_month: int = 0
+    #: Потолок, названный человеком для этого прогона. Пусто — не назвал.
+    run_ceiling: int | None = None
+    #: Во что обойдётся сама выдача. Юниты и доллары не складываются:
+    #: это два разных счёта у двух разных провайдеров.
+    serp_cost_usd: float = 0.0
+
+    @property
+    def cap_left(self) -> int:
+        """Сколько осталось по нашему месячному капу."""
+        return max(0, self.units_cap - self.units_spent_this_month)
 
     @property
     def budget(self) -> int:
-        """Бюджет прогона — меньшее из остатка провайдера и нашего капа."""
-        return min(self.units_left, self.units_cap)
+        """Сколько можно потратить в этом прогоне — меньшее из трёх:
+        остатка у провайдера, остатка по месячному капу и потолка,
+        названного человеком.
+
+        Три ограничителя разной природы: первый жёсткий и чужой, второй
+        наш и месячный, третий наш и на один прогон.
+        """
+        limits = [self.units_left, self.cap_left]
+        if self.run_ceiling is not None:
+            limits.append(self.run_ceiling)
+        return max(0, min(limits))
 
     @property
     def affordable(self) -> bool:
@@ -69,6 +97,8 @@ def forecast(
     depth_pages: int,
     units_left: int,
     units_cap: int,
+    units_spent_this_month: int = 0,
+    run_ceiling: int | None = None,
 ) -> RunForecast:
     """Смета по числу ключей — до единого обращения к провайдерам."""
     results = max(0, keywords) * max(1, depth_pages) * RESULTS_PER_PAGE
@@ -83,4 +113,13 @@ def forecast(
         estimate=estimate_run(domains),
         units_left=units_left,
         units_cap=units_cap,
+        units_spent_this_month=units_spent_this_month,
+        run_ceiling=run_ceiling,
+        # Выдача платится деньгами, и кнопку она не блокирует: к моменту,
+        # когда смета показана, эта трата неизбежна — без выдачи прогона
+        # нет вовсе. Но названа она должна быть: до этого числа расход
+        # на выдачу не показывался нигде.
+        serp_cost_usd=round(
+            max(0, keywords) * max(1, depth_pages) * serp_cfg.PRICE_PER_KEYWORD_USD, 4
+        ),
     )

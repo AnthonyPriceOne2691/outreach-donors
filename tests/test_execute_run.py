@@ -106,6 +106,39 @@ async def _settings_id(session: AsyncSession) -> int:
     return settings.id
 
 
+class TestTheCostOfSearch:
+    async def test_the_search_lands_in_the_journal(self, session: AsyncSession) -> None:
+        """Выдача платится деньгами, и до этого среза её расход
+        не записывался вовсе: экран показывал по ней ноль."""
+
+        class Paid(FakeSerp):
+            spent = 0.0
+
+            async def search(
+                self, keywords: Sequence[str], country: str, *, depth_pages: int = 1
+            ) -> dict[str, list[SerpResult]]:
+                self.spent += 0.12
+                return await super().search(keywords, country, depth_pages=depth_pages)
+
+        deps = await _deps(session, Paid(["https://good.com"]), _ahrefs({"good.com": GOOD}))
+
+        await execute_run(deps, RunRequest(["crm"], "us", T, await _settings_id(session)))
+
+        rows = (
+            (
+                await session.execute(
+                    select(UsageRecordModel).where(UsageRecordModel.operation == "serp_search")
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(rows) == 1
+        assert rows[0].amount_usd is not None
+        assert float(rows[0].amount_usd) == pytest.approx(0.12)
+        assert rows[0].run_id is not None
+
+
 class TestHappyPath:
     async def test_run_produces_donors_and_a_closed_record(self, session: AsyncSession) -> None:
         deps = await _deps(

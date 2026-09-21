@@ -20,6 +20,13 @@ class _Serp(DomainSettings):
     # стоимость ноль. Режим для проверки проводки — через тестовую учётку
     # не должно проходить ни боевых данных, ни денег.
     sandbox: bool = Field(default=False, validation_alias="SERP_SANDBOX")
+    # Цена одной задачи выдачи, для сметы. Замер из прайса провайдера
+    # (okf/unit-economy.md): $0,0006 за задачу в отложенном режиме.
+    # Настоящий расход берётся не отсюда, а из ответов провайдера —
+    # это число нужно только до прогона, когда ответов ещё нет.
+    price_per_keyword_usd: float = Field(
+        default=0.0006, validation_alias="SERP_PRICE_PER_KEYWORD_USD"
+    )
     # Отложенный режим: задача ставится, результат забирается опросом.
     # Пауза и число попыток дают потолок ожидания на пачку.
     poll_interval_s: float = Field(default=5.0, validation_alias="SERP_POLL_INTERVAL_S")
@@ -35,5 +42,6 @@ TIMEOUT_S: float = _s.timeout_s
 DEPTH_PAGES: int = _s.depth_pages
 MAX_KEYWORDS_PER_RUN: int = _s.max_keywords_per_run
 SANDBOX: bool = _s.sandbox
+PRICE_PER_KEYWORD_USD: float = _s.price_per_keyword_usd
 POLL_INTERVAL_S: float = _s.poll_interval_s
 POLL_ATTEMPTS: int = _s.poll_attempts

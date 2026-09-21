@@ -221,6 +221,19 @@ class RunRepository:
         """
         return usage.record(self._session, operation=operation, units=cost.billable, run_id=run_id)
 
+    async def record_money(
+        self, *, run_id: int | None, operation: str, amount_usd: float
+    ) -> UsageRecordModel:
+        """Строка расхода в деньгах — так платит источник выдачи.
+
+        Отдельный метод, а не флаг у предыдущего: там единица расхода
+        юнит, здесь доллар, и складывать их в одно поле значит получить
+        счёт, в котором ничего не сходится ни с одним провайдером.
+        """
+        return usage.record(
+            self._session, operation=operation, amount_usd=amount_usd, run_id=run_id
+        )
+
     async def finish_run(
         self,
         run: RunModel,

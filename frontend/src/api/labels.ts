@@ -193,6 +193,7 @@ export const USAGE_PROVIDERS: Record<UsageProvider, { title: string; color: stri
  *  новая операция не должна пропадать с экрана расхода. */
 const OPERATION_TITLES: Record<string, string> = {
   batch_metrics: 'метрики пачкой',
+  serp_search: 'выдача: задачи провайдеру',
   by_country: 'страны',
   dr_screen: 'просев по DR',
   serp_task: 'запрос выдачи',

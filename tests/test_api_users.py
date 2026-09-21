@@ -152,8 +152,13 @@ class TestCreate:
             headers=bearer(admin_token),
         )
 
+        # Порядок задаётся явно. Без него «последняя строка» — это та,
+        # которую вернул планировщик: тест зеленел годами и мигнул
+        # красным, когда в той же транзакции прибавилось строк.
         rows = await session.execute(
-            select(AuditLogModel).where(AuditLogModel.action == AuditAction.USER_CREATED)
+            select(AuditLogModel)
+            .where(AuditLogModel.action == AuditAction.USER_CREATED)
+            .order_by(AuditLogModel.id)
         )
         record = rows.scalars().all()[-1]
         assert record.user_id is not None  # автор известен — это не команда из консоли

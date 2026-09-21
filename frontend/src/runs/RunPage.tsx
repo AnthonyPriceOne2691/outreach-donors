@@ -85,9 +85,22 @@ function Estimate({ forecast }: { forecast: Forecast }) {
         <Metric
           title="Бюджет прогона"
           value={forecast.budget}
-          hint={`остаток ${forecast.units_left}, кап ${forecast.units_cap}`}
+          hint={
+            forecast.run_ceiling === null
+              ? `у провайдера ${forecast.units_left}, по капу ${forecast.cap_left} из ${forecast.units_cap}`
+              : `ваш потолок ${forecast.run_ceiling}; по капу ${forecast.cap_left} из ${forecast.units_cap}`
+          }
         />
       </SimpleGrid>
+
+      {/* Выдача платится деньгами, а не юнитами, и кнопку не блокирует:
+          без неё прогона нет вовсе. Но названа она должна быть — до этой
+          строки расход на выдачу не показывался нигде. */}
+      <Text size="sm" c="dimmed">
+        Выдача обойдётся примерно в <b>{forecast.serp_cost_usd.toFixed(2)} $</b> — это другой счёт,
+        не юниты Ahrefs. Потрачено нами юнитов с начала месяца:{' '}
+        <b>{forecast.units_spent_this_month}</b>.
+      </Text>
 
       {forecast.affordable ? (
         <Alert color="teal" title="Помещается">
@@ -109,6 +122,7 @@ export function RunPage() {
   const [keywords, setKeywords] = useState('');
   const [country, setCountry] = useState('us');
   const [depth, setDepth] = useState(1);
+  const [cap, setCap] = useState<number | ''>('');
   const [forecast, setForecast] = useState<Forecast | null>(null);
 
   const countries = useQuery({ queryKey: ['countries'], queryFn: fetchCountries });
@@ -126,7 +140,12 @@ export function RunPage() {
   const waiting = rows.some((run) => run.status === 'queued');
 
   const list = parseKeywords(keywords);
-  const body = { keywords: list, country, depth_pages: depth };
+  const body = {
+    keywords: list,
+    country,
+    depth_pages: depth,
+    ...(typeof cap === 'number' ? { cap } : {}),
+  };
 
   const estimate = useMutation({
     mutationFn: () => estimateRun(body),
@@ -200,6 +219,18 @@ export function RunPage() {
               max={5}
               value={depth}
               onChange={(value) => setDepth(typeof value === 'number' ? value : 1)}
+            />
+            {/* Своя планка на прогон: попробовать нишу дёшево, не сокращая
+                список ключей. Больше остатка по капу её всё равно не
+                поднять — сервер возьмёт меньшее из двух. */}
+            <NumberInput
+              label="Потолок юнитов"
+              description="Пусто — весь остаток по капу"
+              w={200}
+              min={1}
+              step={1000}
+              value={cap}
+              onChange={(value) => setCap(typeof value === 'number' ? value : '')}
             />
             <Button
               variant="default"
