@@ -13,7 +13,7 @@ import pytest
 from backend.features.ahrefs.units import UnitsCost
 from backend.features.core.domain import RunStatus, Stage
 from backend.features.donors.verdict import Thresholds
-from backend.features.runs.pipeline import units_left
+from backend.features.runs.budget import units_left
 from backend.features.runs.repository import RunRepository
 from sqlalchemy.ext.asyncio import AsyncSession
 

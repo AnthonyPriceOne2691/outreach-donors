@@ -5,8 +5,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
+from backend.config import serp as serp_cfg
 from backend.features.core.domain import RunStatus
 from backend.features.runs.browse import RunRow
 from backend.features.runs.estimate import RunForecast
@@ -19,6 +20,25 @@ class RunRequestBody(BaseModel):
     keywords: list[str] = Field(min_length=1, max_length=500)
     country: str = Field(min_length=2, max_length=8)
     depth_pages: int = Field(default=1, ge=1, le=5)
+    #: Потолок юнитов на этот прогон. Пусто — остаток по месячному капу.
+    #: Нужен, чтобы попробовать нишу дёшево: без него единственный способ
+    #: ограничить трату — сократить список ключей, а это другой вопрос.
+    cap: int | None = Field(default=None, ge=1)
+
+    @field_validator("keywords")
+    @classmethod
+    def _within_the_run_ceiling(cls, keywords: list[str]) -> list[str]:
+        """Потолок ключей на прогон стоит в настройках, и проверять его
+        надо здесь: до этой проверки настройка была объявлена и не
+        применялась нигде, а прогон принимал впятеро больше ключей,
+        чем заложено в требования."""
+        if len(keywords) > serp_cfg.MAX_KEYWORDS_PER_RUN:
+            raise ValueError(
+                f"За прогон берём не больше {serp_cfg.MAX_KEYWORDS_PER_RUN} ключей, "
+                f"пришло {len(keywords)}. Разбейте список на несколько прогонов: "
+                "так видно смету каждого и можно остановиться на середине"
+            )
+        return keywords
 
 
 class Forecast(BaseModel):
@@ -40,9 +60,18 @@ class Forecast(BaseModel):
     units_total: int
     units_left: int
     units_cap: int
+    #: Потрачено нами с начала месяца — то, на что уменьшился кап.
+    units_spent_this_month: int
+    #: Остаток по месячному капу.
+    cap_left: int
+    #: Потолок, названный человеком для этого прогона. Пусто — не назвал.
+    run_ceiling: int | None
     budget: int
     affordable: bool
     shortfall: int
+    #: Ожидаемая стоимость самой выдачи, в долларах. Кнопку не блокирует:
+    #: без выдачи прогона нет вовсе. Но названа быть должна.
+    serp_cost_usd: float
 
     @classmethod
     def of(cls, forecast: RunForecast) -> Forecast:
@@ -57,9 +86,13 @@ class Forecast(BaseModel):
             units_total=forecast.estimate.total,
             units_left=forecast.units_left,
             units_cap=forecast.units_cap,
+            units_spent_this_month=forecast.units_spent_this_month,
+            cap_left=forecast.cap_left,
+            run_ceiling=forecast.run_ceiling,
             budget=forecast.budget,
             affordable=forecast.affordable,
             shortfall=forecast.shortfall,
+            serp_cost_usd=forecast.serp_cost_usd,
         )
 
 
