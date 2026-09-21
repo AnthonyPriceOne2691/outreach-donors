@@ -49,7 +49,7 @@ class TestLogin:
         assert body["user"]["role"] == "operator"
         # Права приходят списком действий: интерфейс не повторяет у себя
         # матрицу прав и не разъезжается с ней.
-        assert body["user"]["permissions"] == ["run", "settings", "view"]
+        assert body["user"]["permissions"] == ["prices", "run", "settings", "view"]
 
     async def test_email_case_and_spaces_do_not_matter(
         self, client: AsyncClient, make_user: MakeUser

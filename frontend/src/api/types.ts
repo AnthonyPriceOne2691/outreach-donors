@@ -4,7 +4,7 @@
 export type Role = 'admin' | 'operator';
 
 /** Именованные действия. Ровно те же, что в матрице прав на сервере. */
-export type Permission = 'view' | 'run' | 'settings' | 'send' | 'senders' | 'users';
+export type Permission = 'view' | 'run' | 'settings' | 'prices' | 'send' | 'senders' | 'users';
 
 export interface Me {
   id: number;
@@ -75,6 +75,7 @@ export type ThreadState =
   | 'queued'
   | 'waiting'
   | 'replied'
+  | 'needs_review'
   | 'priced'
   | 'bounced'
   | 'unsubscribed'
@@ -108,16 +109,48 @@ export interface LetterCard {
 
 export type ReplyKind = 'human' | 'auto_reply' | 'bounce' | 'unsubscribe';
 
+export interface ReplyAttachment {
+  имя: string;
+  байт: number;
+  тип: string | null;
+  принято: boolean;
+}
+
 export interface IncomingCard {
   id: number;
   kind: ReplyKind;
   raw_body: string;
   received_at: string;
+  /** Адрес, с которого ответили. Может отличаться от того, кому писали:
+   *  на общий ящик смотрит секретарь и пересылает письмо редактору. */
+  from_email: string | null;
+  subject: string | null;
+  /** Прайс приходит вложением чаще, чем текстом: ответ с файлом
+   *  не должен выглядеть пустым. */
+  attachments: ReplyAttachment[] | null;
   price_white: string | null;
   price_grey: string | null;
   currency: string | null;
   payment_methods: string[] | null;
   confidence: number | null;
+  /** Ждёт ли разбор человека. Считает сервер: порог живёт в настройках,
+   *  и второй его экземпляр на фронте разъехался бы при первой правке. */
+  needs_review: boolean;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+}
+
+export interface ReviewPrice {
+  price_white: string | null;
+  price_grey: string | null;
+  currency: string | null;
+  payment_methods: string[];
+}
+
+export interface Reviewed {
+  id: number;
+  reviewed_by: string;
+  stored_price: boolean;
 }
 
 export interface ThreadView {

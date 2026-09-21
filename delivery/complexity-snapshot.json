@@ -12,9 +12,9 @@
       "worst": "—"
     },
     "backend/api/app.py": {
-      "lines": 62,
+      "lines": 64,
       "complexity": 1,
-      "worst": "create_app:30"
+      "worst": "create_app:31"
     },
     "backend/api/auth/__init__.py": {
       "lines": 1,
@@ -52,9 +52,9 @@
       "worst": "of:71"
     },
     "backend/api/errors.py": {
-      "lines": 89,
+      "lines": 91,
       "complexity": 3,
-      "worst": "handle:75"
+      "worst": "handle:77"
     },
     "backend/api/health.py": {
       "lines": 43,
@@ -93,6 +93,21 @@
     },
     "backend/api/main.py": {
       "lines": 13,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/api/replies/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/api/replies/routes.py": {
+      "lines": 86,
+      "complexity": 6,
+      "worst": "review:44"
+    },
+    "backend/api/replies/schemas.py": {
+      "lines": 31,
       "complexity": 0,
       "worst": "—"
     },
@@ -152,9 +167,9 @@
       "worst": "all_threads:25"
     },
     "backend/api/threads/schemas.py": {
-      "lines": 123,
+      "lines": 145,
       "complexity": 3,
-      "worst": "of:117"
+      "worst": "of:139"
     },
     "backend/api/users/__init__.py": {
       "lines": 1,
@@ -302,9 +317,9 @@
       "worst": "verify_password:43"
     },
     "backend/features/access/permissions.py": {
-      "lines": 79,
+      "lines": 87,
       "complexity": 4,
-      "worst": "has_permission:55"
+      "worst": "has_permission:63"
     },
     "backend/features/access/repository.py": {
       "lines": 219,
@@ -387,7 +402,7 @@
       "worst": "—"
     },
     "backend/features/core/domain.py": {
-      "lines": 163,
+      "lines": 165,
       "complexity": 0,
       "worst": "—"
     },
@@ -582,9 +597,9 @@
       "worst": "_spot:112"
     },
     "backend/features/outreach/threads.py": {
-      "lines": 107,
+      "lines": 129,
       "complexity": 9,
-      "worst": "summarize:88"
+      "worst": "_state:68"
     },
     "backend/features/replies/__init__.py": {
       "lines": 1,
@@ -622,9 +637,9 @@
       "worst": "decide:59"
     },
     "backend/features/replies/pipeline.py": {
-      "lines": 301,
-      "complexity": 6,
-      "worst": "parse:227"
+      "lines": 303,
+      "complexity": 5,
+      "worst": "accept:98"
     },
     "backend/features/replies/quoting.py": {
       "lines": 80,
@@ -632,9 +647,9 @@
       "worst": "quote_starts_at:47"
     },
     "backend/features/replies/repository.py": {
-      "lines": 260,
+      "lines": 309,
       "complexity": 9,
-      "worst": "add:212"
+      "worst": "add:236"
     },
     "backend/features/runs/__init__.py": {
       "lines": 1,
@@ -792,9 +807,9 @@
       "worst": "_select:46"
     },
     "scripts/ui_contrast.py": {
-      "lines": 243,
-      "complexity": 8,
-      "worst": "main:199"
+      "lines": 269,
+      "complexity": 9,
+      "worst": "main:219"
     }
   }
 }

@@ -13,6 +13,11 @@
 **Отказ доставки — тоже не ответ**, но он останавливает цепочку и метит
 контакт: продолжать писать на несуществующий адрес значит жечь
 репутацию домена отправителя.
+
+**«Ждёт разбора» — состояние, а не пометка.** Ответ человека, из которого
+цена не извлеклась уверенно, требует действия: по нему надо принять
+решение руками. Показывать такой диалог как «ответил» значит прятать
+очередь работы внутри слова, которое звучит как «всё хорошо».
 """
 
 from __future__ import annotations
@@ -25,6 +30,7 @@ from enum import StrEnum
 
 from backend.features.core.domain import MessageStatus, ReplyKind
 from backend.features.core.models.outreach import MessageModel, ReplyModel
+from backend.features.replies.outcome import waiting_for_review
 
 
 class ThreadState(StrEnum):
@@ -33,6 +39,7 @@ class ThreadState(StrEnum):
     QUEUED = "queued"  # письмо ещё не ушло
     WAITING = "waiting"  # ждём ответа
     REPLIED = "replied"  # ответил человек
+    NEEDS_REVIEW = "needs_review"  # ответил, но цену подтверждает человек
     PRICED = "priced"  # из ответа получена цена
     BOUNCED = "bounced"  # отказ доставки
     UNSUBSCRIBED = "unsubscribed"  # отписался
@@ -69,11 +76,26 @@ def _state(messages: Sequence[MessageModel], replies: Sequence[ReplyModel]) -> T
     """
     kinds = {r.kind for r in replies}
     statuses = {m.status for m in messages}
-    has_price = any(r.price_white is not None or r.price_grey is not None for r in replies)
+    # Цена считается полученной, только если её не ждёт человек: иначе
+    # диалог с неуверенным разбором выглядел бы законченным, а список
+    # диалогов врал бы именно там, где по нему принимают решения.
+    has_price = any(
+        (r.price_white is not None or r.price_grey is not None)
+        and not waiting_for_review(r.kind, r.confidence, reviewed=r.reviewed_at is not None)
+        for r in replies
+    )
+
+    waiting = any(
+        waiting_for_review(r.kind, r.confidence, reviewed=r.reviewed_at is not None)
+        for r in replies
+    )
 
     rules: tuple[tuple[bool, ThreadState], ...] = (
         (ReplyKind.UNSUBSCRIBE in kinds, ThreadState.UNSUBSCRIBED),
         (has_price, ThreadState.PRICED),
+        # Раньше «ответил»: у обоих состояний ответ уже есть, но одно
+        # требует работы, а другое нет, и по списку принимают решения.
+        (waiting, ThreadState.NEEDS_REVIEW),
         (ReplyKind.HUMAN in kinds, ThreadState.REPLIED),
         (MessageStatus.BOUNCED in statuses, ThreadState.BOUNCED),
         (MessageStatus.STOPPED in statuses, ThreadState.STOPPED),

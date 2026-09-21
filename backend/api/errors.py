@@ -34,6 +34,7 @@ from backend.features.letters.review import NotEditableError
 from backend.features.letters.sending import SendError
 from backend.features.letters.transport import TransportError
 from backend.features.outreach.repository import UnknownSenderError, UnknownThreadError
+from backend.features.replies.repository import UnknownReplyError
 from backend.features.runs.browse import UnknownRunError
 
 #: Отказ → код ответа. Порядок в словаре значения не имеет: FastAPI
@@ -48,6 +49,7 @@ STATUSES: dict[type[Exception], int] = {
     UnknownRunError: status.HTTP_404_NOT_FOUND,
     UnknownThreadError: status.HTTP_404_NOT_FOUND,
     UnknownLetterError: status.HTTP_404_NOT_FOUND,
+    UnknownReplyError: status.HTTP_404_NOT_FOUND,
     # Письмо не отправлено: стоп-лист, незаполненный юридический блок,
     # некому писать сегодня, письмо уже ушло. Все четыре — про состояние,
     # а не про запрос, и все четыре человек чинит сам.

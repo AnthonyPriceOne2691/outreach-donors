@@ -132,6 +132,26 @@ SCREENS: dict[str, dict] = {
             ("пункт меню", "nav a", NORM),
         ],
     },
+    "thread": {
+        # Номер диалога подставляется на месте: карточка без переписки
+        # не показывает ничего, а какой именно диалог — неважно, лишь бы
+        # в нём был разбор цены.
+        "path": "/threads",
+        "ready": ("heading", "Диалоги"),
+        # Открываем не первую строку, а ту, где есть разбор: у диалога
+        # с отпиской полей цены нет вовсе, и мерить там нечего.
+        "open_row_with": "ждёт разбора",
+        "probes": [
+            ("заголовок раздела", "h3", BIG),
+            # Главное на экране: исходный текст ответа, по которому
+            # человек проверяет разобранную цену.
+            ("текст ответа", "[style*='pre-wrap']", NORM),
+            ("подпись поля цены", "label", NORM),
+            ("значок состояния", ".mantine-Badge-label", NORM),
+            ("кнопка «Подтвердить»", "button:has-text('Подтвердить')", BIG),
+            ("пункт меню", "nav a", NORM),
+        ],
+    },
     "letters": {
         "path": "/letters",
         "ready": ("button", "Поправить"),
@@ -225,6 +245,12 @@ def main(argv: list[str]) -> int:
         page.goto(f"{base}{target['path']}")
         role, name = target["ready"]
         expect(page.get_by_role(role, name=name).first).to_be_visible()
+        wanted = target.get("open_row_with")
+        if wanted:
+            # Экран-карточка открывается из списка: адрес у неё с номером,
+            # а номер зависит от базы.
+            page.locator("table tbody tr", has_text=wanted).first.click()
+            page.wait_for_timeout(700)
 
         ok = run(page, "light", str(SHOTS / f"{screen}-light.png"), target["probes"])
         ok &= run(page, "dark", str(SHOTS / f"{screen}-dark.png"), target["probes"])

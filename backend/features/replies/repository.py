@@ -107,6 +107,30 @@ class ReplyRepository:
             stage=stage,
         )
 
+    async def domain_of(self, reply: ReplyModel) -> int | None:
+        """Чей это донор.
+
+        Сначала по диалогу, потом по письму. Порядок важен: связь письма
+        стирается при его удалении (`ondelete="SET NULL"`), а диалог
+        остаётся — и ответ, потерявший письмо, всё равно принадлежит
+        своему донору.
+
+        Найдено живым прогоном: подтверждение разбора срабатывало,
+        а цена в карточку донора не попадала, потому что искали только
+        через письмо.
+        """
+        if reply.thread_id is not None:
+            thread = await self._session.get(ThreadModel, reply.thread_id)
+            if thread is not None:
+                return thread.domain_id
+
+        if reply.message_id is not None:
+            message = await self._session.get(MessageModel, reply.message_id)
+            if message is not None:
+                return message.domain_id
+
+        return None
+
     # --- последствия ---
 
     async def suppress(self, email: str, *, stage: Stage | None = None) -> None:
@@ -247,6 +271,31 @@ class ReplyRepository:
         if found is None:
             raise UnknownReplyError(f"Ответа №{reply_id} нет")
         return found
+
+    async def confirm(
+        self,
+        reply: ReplyModel,
+        *,
+        by: str,
+        price_white: Decimal | None,
+        price_grey: Decimal | None,
+        currency: str | None,
+        payment_methods: list[str] | None,
+        now: datetime | None = None,
+    ) -> None:
+        """Подтвердить разбор руками.
+
+        **Подтверждение человека сильнее любой уверенности модели.**
+        Уверенность при этом не трогаем: она осталась тем, что сказала
+        модель, и переписать её значило бы стереть след — потом никто
+        не проверит, часто ли модель ошибается.
+        """
+        reply.price_white = price_white
+        reply.price_grey = price_grey
+        reply.currency = currency
+        reply.payment_methods = payment_methods or None
+        reply.reviewed_by = by[:128]
+        reply.reviewed_at = now or datetime.now(UTC)
 
     async def unbound(self, *, limit: int = 100) -> Sequence[ReplyModel]:
         """Ответы, которые не удалось соотнести ни с одним нашим письмом."""

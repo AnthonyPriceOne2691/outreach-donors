@@ -799,7 +799,9 @@ html:root[data-mantine-color-scheme='dark'] .orb4 {
    без неё подъём читается как сдвиг, а не как «кнопка поднялась». */
 .mantine-Button-root[data-variant='filled']:hover:not(:disabled),
 .mantine-Button-root[data-variant='gradient']:hover:not(:disabled) {
-  filter: brightness(1.07);
+  /* Отклик тенью и подъёмом, а не осветлением: осветление вернуло бы
+     кнопку к ступени, на которой белый текст не читается. */
+  filter: brightness(1.03);
   transform: translateY(-1px);
   box-shadow: 0 10px 22px -12px color-mix(in oklab, var(--accent) 75%, transparent);
 }

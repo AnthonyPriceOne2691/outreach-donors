@@ -58,7 +58,12 @@ const glassField = {
 
 export const theme = createTheme({
   primaryColor: 'lagoon',
-  primaryShade: { light: 6, dark: 5 },
+  /* Ступень заливки глубже рабочей: на рабочей белый текст даёт 2,7 : 1
+     при норме 4,5 — замерено по пикселям снимка в обеих темах. Дефект
+     был не одного экрана, а главной кнопки всего сервиса; не видели его
+     потому, что там, где меряли, кнопка стояла выключенной, а у неё
+     меряется серое. */
+  primaryShade: { light: 8, dark: 8 },
   colors: { lagoon },
   defaultRadius: 'lg',
   fontFamily:

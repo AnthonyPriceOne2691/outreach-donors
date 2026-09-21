@@ -24,12 +24,15 @@ import {
   Title,
 } from '@mantine/core';
 import { IconArrowLeft, IconCheck, IconChecks } from '@tabler/icons-react';
-import { useQuery } from '@tanstack/react-query';
+import { notifications } from '@mantine/notifications';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { MESSAGE_STATUSES, REPLY_KINDS, THREAD_STATES } from '../api/labels';
-import { fetchThread } from '../api/outreach';
+import { fetchThread, reviewReply } from '../api/outreach';
 import type { IncomingCard, LetterCard, MessageStatus } from '../api/types';
+import { useSession } from '../auth/AuthProvider';
+import { PriceReview } from './PriceReview';
 
 function refusalOf(error: unknown): string {
   return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
@@ -84,24 +87,65 @@ function Letter({ letter }: { letter: LetterCard }) {
   );
 }
 
-function Incoming({ incoming }: { incoming: IncomingCard }) {
+interface IncomingProps {
+  incoming: IncomingCard;
+  canReview: boolean;
+  busy: boolean;
+  onConfirm: (values: {
+    price_white: string | null;
+    price_grey: string | null;
+    currency: string | null;
+  }) => void;
+}
+
+function Incoming({ incoming, canReview, busy, onConfirm }: IncomingProps) {
   const kind = REPLY_KINDS[incoming.kind];
   const hasPrice = incoming.price_white !== null || incoming.price_grey !== null;
+  // Разбирают только ответы людей: у автоответчика и отказа доставки
+  // разбирать нечего.
+  const reviewable = incoming.kind === 'human';
+  const files = incoming.attachments ?? [];
 
   return (
     <Card className="glass" p="md" ml="15%" mr={0}>
       <Group justify="space-between" gap="xs" mb="xs">
-        <Badge variant="light" color={kind.color}>
-          {kind.title}
-        </Badge>
+        <Group gap="xs">
+          <Badge variant="light" color={kind.color}>
+            {kind.title}
+          </Badge>
+          {incoming.needs_review && (
+            <Badge variant="light" color="yellow">
+              ждёт разбора
+            </Badge>
+          )}
+        </Group>
         <Text size="xs" c="dimmed">
           {when(incoming.received_at)}
         </Text>
       </Group>
 
+      {incoming.from_email !== null && (
+        <Text size="xs" c="dimmed" mb={4}>
+          от {incoming.from_email}
+        </Text>
+      )}
+
       <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
         {incoming.raw_body}
       </Text>
+
+      {/* Прайс приходит файлом чаще, чем текстом: ответ с вложением
+          не должен выглядеть пустым. Сам файл не показываем — он пришёл
+          снаружи и считается недоверенным (docs/SECURITY.md). */}
+      {files.length > 0 && (
+        <Group gap="xs" mt="xs">
+          {files.map((file) => (
+            <Badge key={file.имя} variant="light" color={file.принято ? 'gray' : 'red'}>
+              {file.принято ? file.имя : `${file.имя} — не принят`}
+            </Badge>
+          ))}
+        </Group>
+      )}
 
       {hasPrice && (
         <>
@@ -124,13 +168,12 @@ function Incoming({ incoming }: { incoming: IncomingCard }) {
                 {method}
               </Badge>
             ))}
-            {incoming.confidence !== null && (
-              <Text size="xs" c="dimmed">
-                уверенность разбора {(incoming.confidence * 100).toFixed(0)}%
-              </Text>
-            )}
           </Group>
         </>
+      )}
+
+      {reviewable && (
+        <PriceReview incoming={incoming} canReview={canReview} busy={busy} onConfirm={onConfirm} />
       )}
     </Card>
   );
@@ -139,10 +182,35 @@ function Incoming({ incoming }: { incoming: IncomingCard }) {
 export function ThreadPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { can } = useSession();
+  const queryClient = useQueryClient();
   const { data, isLoading, error } = useQuery({
     queryKey: ['thread', id],
     queryFn: () => fetchThread(Number(id)),
     enabled: id !== undefined,
+  });
+
+  const confirm = useMutation({
+    mutationFn: ({
+      replyId,
+      values,
+    }: {
+      replyId: number;
+      values: { price_white: string | null; price_grey: string | null; currency: string | null };
+    }) => reviewReply(replyId, { ...values, payment_methods: [] }),
+    onSuccess: async (result) => {
+      // Список диалогов тоже меняется: состояние «ждёт разбора» уходит.
+      await queryClient.invalidateQueries({ queryKey: ['thread', id] });
+      await queryClient.invalidateQueries({ queryKey: ['threads'] });
+      notifications.show({
+        message: result.stored_price
+          ? 'Цена подтверждена и записана в карточку донора'
+          : 'Подтверждено. Цены в ответе нет — в карточку донора ничего не пошло',
+        color: result.stored_price ? 'green' : 'yellow',
+      });
+    },
+    onError: (failure) =>
+      notifications.show({ title: 'Не подтвердили', message: refusalOf(failure), color: 'red' }),
   });
 
   if (isLoading) return <Loader aria-label="Загружаем переписку" m="md" />;
@@ -164,7 +232,15 @@ export function ThreadPage() {
     })),
     ...data.incoming.map((incoming) => ({
       at: incoming.received_at,
-      node: <Incoming key={`incoming-${incoming.id}`} incoming={incoming} />,
+      node: (
+        <Incoming
+          key={`incoming-${incoming.id}`}
+          incoming={incoming}
+          canReview={can('prices')}
+          busy={confirm.isPending && confirm.variables?.replyId === incoming.id}
+          onConfirm={(values) => confirm.mutate({ replyId: incoming.id, values })}
+        />
+      ),
     })),
   ].sort((a, b) => a.at.localeCompare(b.at));
 

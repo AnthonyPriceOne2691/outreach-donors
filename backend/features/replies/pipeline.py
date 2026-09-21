@@ -238,8 +238,8 @@ class Parser:
         _write_back(reply, found)
 
         consequences = outcome.decide(reply.kind, found)
-        if consequences.store_price and reply.message_id is not None:
-            await self._store_price(reply.message_id, found)
+        if consequences.store_price:
+            await self._store_price(reply, found)
 
         logger.info(
             "разбор: ответ №%s, уверенность %.2f, цена в базу — %s",
@@ -256,13 +256,15 @@ class Parser:
             tokens_spent=found.tokens_spent,
         )
 
-    async def _store_price(self, message_id: int, found: Extracted) -> None:
-        addressee = await self._repo.addressee(message_id)
+    async def _store_price(self, reply: ReplyModel, found: Extracted) -> None:
+        """Донор ищется по диалогу, а при его отсутствии — по письму:
+        связь письма стирается при его удалении, диалог остаётся."""
+        domain_id = await self._repo.domain_of(reply)
         price = found.price_white if found.price_white is not None else found.price_grey
-        if addressee is None or price is None:
+        if domain_id is None or price is None:
             return
         await self._repo.store_price(
-            domain_id=addressee.domain_id,
+            domain_id=domain_id,
             price=price,
             currency=found.currency,
             now=self._now or datetime.now(UTC),

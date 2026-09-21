@@ -136,6 +136,7 @@ class Permission(StrEnum):
     VIEW = "view"  # смотреть базу, прогоны, переписку
     RUN = "run"  # запускать прогон — это трата юнитов
     SETTINGS = "settings"  # править пороги
+    PRICES = "prices"  # подтверждать и править разобранные цены
     SEND = "send"  # отправлять письма — отдельное право, см. permissions.py
     SENDERS = "senders"  # домены и ящики рассылки: включать и выключать
     USERS = "users"  # заводить учётки и выдавать права
@@ -153,6 +154,7 @@ class AuditAction(StrEnum):
     RUN_STARTED = "run_started"
     THRESHOLDS_CHANGED = "thresholds_changed"
     LETTER_SENT = "letter_sent"
+    PRICE_REVIEWED = "price_reviewed"
 
 
 class UsageProvider(StrEnum):
