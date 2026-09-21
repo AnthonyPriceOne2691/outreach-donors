@@ -227,6 +227,12 @@ class TestStartPutsTheRunOnTheScreen:
 
     @pytest.fixture
     def queue(self, monkeypatch: pytest.MonkeyPatch) -> FakeQueue:
+        # Настройки задаются тестом, а не берутся из окружения машины.
+        # Первая версия проходила локально и падала в CI: ключ Ahrefs
+        # лежал в `.env` разработчика, и проверка настроек на маршруте
+        # пропускала запуск по чужой причине.
+        monkeypatch.setattr("backend.config.ahrefs.API_KEY", "ключ-для-теста")
+        monkeypatch.setattr("backend.config.serp.SANDBOX", False)
         fake = FakeQueue()
         monkeypatch.setattr("backend.api.runs.routes.runs_queue", lambda: fake)
         return fake
