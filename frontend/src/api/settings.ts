@@ -4,6 +4,7 @@ import type {
   ThresholdsBody,
   ThresholdsVersion,
   ThresholdsView,
+  WatchdogView,
 } from './types';
 import { request } from './client';
 
@@ -21,4 +22,9 @@ export function saveThresholds(body: ThresholdsBody): Promise<ThresholdsVersion>
 
 export function fetchUsage(): Promise<SpendingView> {
   return request<SpendingView>('/usage');
+}
+
+/** Сторож тишины: поломки, которые выглядят как «ничего не происходит». */
+export function fetchWatchdog(): Promise<WatchdogView> {
+  return request<WatchdogView>('/watchdog');
 }

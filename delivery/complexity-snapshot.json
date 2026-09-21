@@ -12,9 +12,9 @@
       "worst": "—"
     },
     "backend/api/app.py": {
-      "lines": 68,
+      "lines": 72,
       "complexity": 1,
-      "worst": "create_app:33"
+      "worst": "create_app:35"
     },
     "backend/api/auth/__init__.py": {
       "lines": 1,
@@ -55,6 +55,21 @@
       "lines": 95,
       "complexity": 3,
       "worst": "handle:81"
+    },
+    "backend/api/events/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/api/events/routes.py": {
+      "lines": 132,
+      "complexity": 6,
+      "worst": "take_events:46"
+    },
+    "backend/api/events/schemas.py": {
+      "lines": 21,
+      "complexity": 0,
+      "worst": "—"
     },
     "backend/api/health.py": {
       "lines": 43,
@@ -216,6 +231,16 @@
       "complexity": 5,
       "worst": "_check_overrides:16"
     },
+    "backend/api/watchdog/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/api/watchdog/routes.py": {
+      "lines": 47,
+      "complexity": 2,
+      "worst": "silence:42"
+    },
     "backend/cli/__init__.py": {
       "lines": 1,
       "complexity": 0,
@@ -302,7 +327,7 @@
       "worst": "—"
     },
     "backend/config/outreach.py": {
-      "lines": 85,
+      "lines": 90,
       "complexity": 0,
       "worst": "—"
     },
@@ -472,7 +497,7 @@
       "worst": "_enum:16"
     },
     "backend/features/core/models/outreach.py": {
-      "lines": 264,
+      "lines": 270,
       "complexity": 2,
       "worst": "_enum:37"
     },
@@ -571,6 +596,11 @@
       "complexity": 3,
       "worst": "missing_settings:118"
     },
+    "backend/features/letters/events.py": {
+      "lines": 225,
+      "complexity": 8,
+      "worst": "apply_events:90"
+    },
     "backend/features/letters/followups.py": {
       "lines": 354,
       "complexity": 5,
@@ -650,6 +680,16 @@
       "lines": 95,
       "complexity": 5,
       "worst": "url_for:48"
+    },
+    "backend/features/ops/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/features/ops/silence.py": {
+      "lines": 200,
+      "complexity": 5,
+      "worst": "_reply_silence:104"
     },
     "backend/features/outreach/__init__.py": {
       "lines": 2,
@@ -846,6 +886,11 @@
       "complexity": 4,
       "worst": "fresh:38"
     },
+    "backend/shared/webhook_signature.py": {
+      "lines": 85,
+      "complexity": 6,
+      "worst": "verify:39"
+    },
     "backend/workers/__init__.py": {
       "lines": 2,
       "complexity": 0,
@@ -867,9 +912,9 @@
       "worst": "main:18"
     },
     "backend/workers/reaper.py": {
-      "lines": 75,
+      "lines": 107,
       "complexity": 4,
-      "worst": "sweep:52"
+      "worst": "sweep:57"
     },
     "backend/workers/ticker.py": {
       "lines": 32,

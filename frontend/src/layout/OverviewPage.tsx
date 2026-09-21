@@ -6,16 +6,63 @@
  * и спрашивает, что сломалось.
  */
 
-import { Badge, Card, Group, List, Stack, Text, Title } from '@mantine/core';
+import { Alert, Badge, Card, Group, List, Loader, Stack, Text, Title } from '@mantine/core';
+import { useQuery } from '@tanstack/react-query';
 
+import { fetchWatchdog } from '../api/settings';
 import { permissionTitle } from '../api/labels';
 import { useSession } from '../auth/AuthProvider';
+
+/**
+ * Сторож тишины на главной, а не в отдельном разделе: поломка этого
+ * класса не показывает себя нигде, и человек не пойдёт её искать —
+ * он увидит, что «всё тихо», и закроет вкладку.
+ */
+function Watchdog() {
+  const { can } = useSession();
+  const { data, isLoading } = useQuery({
+    queryKey: ['watchdog'],
+    queryFn: fetchWatchdog,
+    enabled: can('view'),
+    // Тревоги меняются часами, а не секундами: спрашивать чаще незачем.
+    refetchInterval: 5 * 60 * 1000,
+  });
+
+  if (!can('view')) return null;
+  if (isLoading) return <Loader aria-label="Смотрим, что молчит" size="sm" />;
+
+  const alarms = data?.alarms ?? [];
+  if (alarms.length === 0) {
+    return (
+      <Card className="glass" p="lg">
+        <Title order={5} mb={4}>
+          Сторож тишины
+        </Title>
+        <Text size="sm" c="dimmed">
+          Тихо и правильно: письма, ответы и фоновые проходы идут как ожидается. Сторож отличает
+          «ничего не происходит» от «мы перестали слышать» — и молчит только в первом случае.
+        </Text>
+      </Card>
+    );
+  }
+
+  return (
+    <Stack gap="sm">
+      {alarms.map((alarm) => (
+        <Alert key={alarm.code} color="red" title={alarm.title}>
+          {alarm.detail}
+        </Alert>
+      ))}
+    </Stack>
+  );
+}
 
 export function OverviewPage() {
   const { user } = useSession();
 
   return (
     <Stack maw={760} gap="lg">
+      <Watchdog />
       <Card className="glassPanel" p="xl">
         <Stack gap="sm">
           <Title order={3}>Обзор</Title>

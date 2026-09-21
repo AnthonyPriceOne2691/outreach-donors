@@ -438,3 +438,14 @@ export interface StopListView {
   total: number;
   donor_decisions: number;
 }
+
+/** Одна тревога сторожа тишины: что молчит и что это значит. */
+export interface AlarmCard {
+  code: string;
+  title: string;
+  detail: string;
+}
+
+export interface WatchdogView {
+  alarms: AlarmCard[];
+}

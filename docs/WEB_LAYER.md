@@ -356,6 +356,9 @@ Library.
     POST   /api/suppressions            завести запись     (точечное право)
     POST   /api/suppressions/{id}/remove снять запись      (точечное право)
 
+    GET    /api/watchdog                сторож тишины: что молчит не по делу
+    POST   /api/events/delivery         события доставки       (подпись платформы)
+
     GET    /api/unsubscribe/{метка}     страница отписки       (без пропуска)
     POST   /api/unsubscribe/{метка}     отписать донора        (без пропуска)
 
