@@ -8,6 +8,13 @@
 Запуск (сервер на 8100, фронт на 5173, учётка заведена командой):
 
     python scripts/ui_contrast.py ivan@site.com "три слова подряд"
+    python scripts/ui_contrast.py ivan@site.com "пароль" --screen letters
+
+**Экран выбирается, а не вшит.** Правило «каждый новый экран меряется
+в обеих темах» невыполнимо, пока замер умеет только один экран: проверка,
+которую нельзя провести, не проводится. Новый экран добавляется строкой
+в `SCREENS` — вместе со своими точками, потому что мерить надо то,
+на что смотрят, а не то, что нашлось первым.
 
 Почему это не тест в сьюте: нужен настоящий браузер и настоящий сервер.
 Зато найденное этим способом закрывается насовсем — правкой токенов
@@ -110,14 +117,37 @@ def contrast(path, box, pad=6):
     return (b + 0.05) / (a + 0.05)
 
 
-PROBES = [
-    ("заголовок раздела", "h3", BIG),
-    ("пояснение под ним", "p.mantine-Text-root", NORM),
-    ("почта в строке", "table tbody tr td p", NORM),
-    ("дата последнего входа", "table tbody tr td:nth-child(5) p", NORM),
-    ("кнопка «Сбросить пароль»", "table tbody button", BIG),
-    ("пункт меню", "nav a", NORM),
-]
+#: Экран → куда идти, чем убедиться, что он открылся, и что мерить.
+#: Точки у каждого свои: мерить надо то, по чему принимают решение.
+SCREENS: dict[str, dict] = {
+    "users": {
+        "path": "/users",
+        "ready": ("button", "Завести учётку"),
+        "probes": [
+            ("заголовок раздела", "h3", BIG),
+            ("пояснение под ним", "p.mantine-Text-root", NORM),
+            ("почта в строке", "table tbody tr td p", NORM),
+            ("дата последнего входа", "table tbody tr td:nth-child(5) p", NORM),
+            ("кнопка «Сбросить пароль»", "table tbody button", BIG),
+            ("пункт меню", "nav a", NORM),
+        ],
+    },
+    "letters": {
+        "path": "/letters",
+        "ready": ("button", "Поправить"),
+        "probes": [
+            ("заголовок раздела", "h3", BIG),
+            ("пояснение под ним", "p.mantine-Text-root", NORM),
+            # Главное на экране: текст письма, который человек читает
+            # целиком перед тем, как тот уйдёт постороннему.
+            ("текст письма", "[style*='pre-wrap']", NORM),
+            ("донор в очереди", "[aria-current='true'] p", NORM),
+            ("процент отличия", "[aria-current='true'] .mantine-Badge-label", NORM),
+            ("кнопка «Отправить»", "button:has-text('Отправить')", BIG),
+            ("пункт меню", "nav a", NORM),
+        ],
+    },
+}
 
 
 def probe_notification(page, scheme, email):
@@ -140,14 +170,14 @@ def probe_notification(page, scheme, email):
     return value >= NORM
 
 
-def run(page, scheme, shot):
+def run(page, scheme, shot, probes):
     page.evaluate("s => localStorage.setItem('mantine-color-scheme-value', s)", scheme)
     page.reload()
     page.wait_for_timeout(900)
     page.screenshot(path=shot)
     print(f"\n{scheme}:")
     worst_ok = True
-    for name, selector, norm in PROBES:
+    for name, selector, norm in probes:
         el = page.locator(selector).first
         box = el.bounding_box()
         if box is None:
@@ -160,15 +190,29 @@ def run(page, scheme, shot):
     return worst_ok
 
 
-USAGE = "Запуск: python scripts/ui_contrast.py <почта> <пароль> [адрес фронта]"
+USAGE = (
+    "Запуск: python scripts/ui_contrast.py <почта> <пароль> "
+    f"[адрес фронта] [--screen {'|'.join(SCREENS)}]"
+)
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) < 2:
+    rest = list(argv)
+    screen = "users"
+    if "--screen" in rest:
+        at = rest.index("--screen")
+        if at + 1 >= len(rest) or rest[at + 1] not in SCREENS:
+            print(USAGE)
+            return 2
+        screen = rest[at + 1]
+        del rest[at : at + 2]
+
+    if len(rest) < 2:
         print(USAGE)
         return 2
-    email, password = argv[0], argv[1]
-    base = argv[2] if len(argv) > 2 else "http://localhost:5173"
+    email, password = rest[0], rest[1]
+    base = rest[2] if len(rest) > 2 else "http://localhost:5173"
+    target = SCREENS[screen]
 
     with sync_playwright() as p:
         b = p.chromium.launch()
@@ -178,13 +222,17 @@ def main(argv: list[str]) -> int:
         page.get_by_label("Пароль").fill(password)
         page.get_by_role("button", name="Войти").click()
         expect(page.get_by_text("Вошли как")).to_be_visible()
-        page.goto(f"{base}/users")
-        expect(page.get_by_role("button", name="Завести учётку")).to_be_visible()
+        page.goto(f"{base}{target['path']}")
+        role, name = target["ready"]
+        expect(page.get_by_role(role, name=name).first).to_be_visible()
 
-        ok = run(page, "light", str(SHOTS / "measure-light.png"))
-        ok &= probe_notification(page, "light", email)
-        ok &= run(page, "dark", str(SHOTS / "measure-dark.png"))
-        ok &= probe_notification(page, "dark", email)
+        ok = run(page, "light", str(SHOTS / f"{screen}-light.png"), target["probes"])
+        ok &= run(page, "dark", str(SHOTS / f"{screen}-dark.png"), target["probes"])
+        # Уведомление об отказе живёт только на экране учёток: его
+        # вызывает попытка снять права с самого себя.
+        if screen == "users":
+            ok &= probe_notification(page, "light", email)
+            ok &= probe_notification(page, "dark", email)
         b.close()
     print(f"\nСнимки: {SHOTS}")
     return 0 if ok else 1

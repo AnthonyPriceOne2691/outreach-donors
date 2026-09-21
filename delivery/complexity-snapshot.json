@@ -12,9 +12,9 @@
       "worst": "—"
     },
     "backend/api/app.py": {
-      "lines": 58,
+      "lines": 60,
       "complexity": 1,
-      "worst": "create_app:28"
+      "worst": "create_app:29"
     },
     "backend/api/auth/__init__.py": {
       "lines": 1,
@@ -52,14 +52,29 @@
       "worst": "of:69"
     },
     "backend/api/errors.py": {
-      "lines": 73,
+      "lines": 89,
       "complexity": 3,
-      "worst": "handle:59"
+      "worst": "handle:75"
     },
     "backend/api/health.py": {
       "lines": 43,
       "complexity": 2,
       "worst": "health:31"
+    },
+    "backend/api/letters/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/api/letters/routes.py": {
+      "lines": 164,
+      "complexity": 2,
+      "worst": "_transport_card:52"
+    },
+    "backend/api/letters/schemas.py": {
+      "lines": 117,
+      "complexity": 2,
+      "worst": "of:39"
     },
     "backend/api/main.py": {
       "lines": 13,
@@ -157,9 +172,9 @@
       "worst": "cmd_contacts:127"
     },
     "backend/cli/demo_data.py": {
-      "lines": 386,
+      "lines": 505,
       "complexity": 10,
-      "worst": "_seed_threads:267"
+      "worst": "_seed_threads:385"
     },
     "backend/cli/keywords_pool.py": {
       "lines": 89,
@@ -497,9 +512,14 @@
       "worst": "message_id_from:76"
     },
     "backend/features/letters/repository.py": {
-      "lines": 219,
+      "lines": 269,
       "complexity": 2,
-      "worst": "candidates:139"
+      "worst": "candidates:153"
+    },
+    "backend/features/letters/review.py": {
+      "lines": 86,
+      "complexity": 3,
+      "worst": "edit:54"
     },
     "backend/features/letters/rewrite.py": {
       "lines": 265,
@@ -662,9 +682,9 @@
       "worst": "—"
     },
     "backend/workers/jobs.py": {
-      "lines": 109,
+      "lines": 162,
       "complexity": 4,
-      "worst": "_run:43"
+      "worst": "_run:45"
     },
     "backend/workers/main.py": {
       "lines": 26,
@@ -697,9 +717,9 @@
       "worst": "_select:46"
     },
     "scripts/ui_contrast.py": {
-      "lines": 195,
-      "complexity": 7,
-      "worst": "contrast:80"
+      "lines": 243,
+      "complexity": 8,
+      "worst": "main:199"
     }
   }
 }

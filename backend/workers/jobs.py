@@ -25,6 +25,8 @@ from backend.config.startup_checks import check_collect, check_storage
 from backend.features.ahrefs.client import AhrefsClient
 from backend.features.donors.repository import DonorRepository
 from backend.features.donors.verdict import Thresholds
+from backend.features.letters.building import BuildRequest, QueueBuilder
+from backend.features.letters.rewrite import RewriteClient
 from backend.features.runs.pipeline import RunDeps, RunRequest, execute_run
 from backend.features.runs.repository import RunRepository
 from backend.features.serp.factory import build_provider
@@ -106,3 +108,54 @@ def run_donor_search(
     check_storage()
     check_collect()
     return asyncio.run(_run(keywords, country, cap, depth_pages))
+
+
+async def _build_letters(
+    campaign: str, country: str, niche: Sequence[str], limit: int
+) -> dict[str, Any]:
+    engine = create_async_engine(storage.DSN)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    rewriter = RewriteClient()
+    try:
+        async with factory() as session:
+            report = await QueueBuilder(session, rewriter).build(
+                BuildRequest(
+                    campaign_name=campaign,
+                    country=country,
+                    niche=tuple(niche),
+                    limit=limit,
+                )
+            )
+            await session.commit()
+            return {
+                "prepared": report.prepared,
+                "tokens": report.tokens_spent,
+                "off_corridor": report.off_corridor,
+                "funnel": report.funnel,
+                "blocked_by": report.blocked_by,
+                "notes": report.notes,
+            }
+    finally:
+        await rewriter.aclose()
+        await engine.dispose()
+
+
+def build_letter_queue(
+    campaign: str,
+    country: str = "us",
+    *,
+    niche: Sequence[str] = (),
+    limit: int = 50,
+) -> dict[str, Any]:
+    """Собрать очередь писем. Ничего не отправляет.
+
+    В очередь задач вынесено потому же, почему и прогон: каждое письмо
+    стоит вызова модели, полсотни писем идут минутами, и выполнять это
+    внутри запроса значит потерять работу, если человек закрыл вкладку.
+
+    Проверки конфига здесь свои — задача из очереди идёт мимо тех, что
+    стоят на маршруте.
+    """
+    setup_logging()
+    check_storage()
+    return asyncio.run(_build_letters(campaign, country, niche, limit))

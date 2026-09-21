@@ -275,3 +275,64 @@ export interface SpendingView {
   ahrefs_spent_by_us: number;
   ahrefs_left_error: string | null;
 }
+
+/** Границы коридора отличия. Приходят с сервера: второй экземпляр чисел
+ *  на фронте разъехался бы с настройкой при первой её правке, и экран
+ *  показывал бы «в коридоре» там, где его уже нет. */
+export interface Corridor {
+  min: number;
+  max: number;
+}
+
+export interface LetterTransport {
+  name: string;
+  /** Уходит ли письмо на самом деле. У нулевого транспорта — нет, и
+   *  показать это обязательно: письмо, помеченное отправленным и никуда
+   *  не ушедшее, выглядит как работа. */
+  real: boolean;
+  /** Почему транспорт не собрался, если не собрался. */
+  problem: string | null;
+}
+
+/** Письмо в очереди — целиком, вместе с текстом. */
+export interface QueuedLetter {
+  id: number;
+  host: string;
+  email: string | null;
+  campaign: string;
+  status: MessageStatus;
+  subject: string | null;
+  body: string | null;
+  /** Доля изменённых слов относительно шаблона, 0–1. */
+  uniqueness: number | null;
+  /** Что не так с этим числом. Пусто — в коридоре. */
+  verdict: string | null;
+}
+
+export interface LettersView {
+  letters: QueuedLetter[];
+  /** Настройки, из-за которых отправить нельзя ни одно письмо. */
+  blocked_by: string[];
+  transport: LetterTransport;
+  corridor: Corridor;
+  /** Где кончились доноры: пустая очередь при «всем написали» и при
+   *  «ни у кого нет адреса» выглядит одинаково. */
+  funnel: Record<string, number>;
+}
+
+export interface BuildLettersRequest {
+  campaign: string;
+  country?: string;
+  niche?: string[];
+  limit?: number;
+}
+
+export interface BuildQueued {
+  job_id: string;
+}
+
+export interface SendResult {
+  id: number;
+  sender_email: string;
+  real: boolean;
+}

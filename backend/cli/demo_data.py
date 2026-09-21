@@ -44,6 +44,9 @@ from backend.features.core.models.outreach import (
     SenderModel,
     ThreadModel,
 )
+from backend.features.letters import compose
+from backend.features.letters import template as letters_template
+from backend.features.letters.uniqueness import difference
 from backend.features.outreach.senders import warmup_state
 from backend.shared import demo
 
@@ -55,7 +58,9 @@ DEMO_CAMPAIGN = "Демонстрация"
 #: Отдельная кампания под письма, ушедшие сегодня: по ней видно дневной
 #: расход ящиков, и убирается она вместе с остальной демонстрацией.
 DEMO_CAMPAIGN_TODAY = "Демонстрация: сегодня"
-DEMO_CAMPAIGNS = (DEMO_CAMPAIGN, DEMO_CAMPAIGN_TODAY)
+#: Кампания под очередь: письма, которые ещё ждут решения человека.
+DEMO_CAMPAIGN_QUEUE = "Демонстрация: очередь"
+DEMO_CAMPAIGNS = (DEMO_CAMPAIGN, DEMO_CAMPAIGN_TODAY, DEMO_CAMPAIGN_QUEUE)
 
 EXIT_OK = 0
 
@@ -264,6 +269,119 @@ async def _seed_sent_today(session: AsyncSession, senders: list[SenderModel], no
     return made
 
 
+#: Письма, ждущие отправки: донор и то, как модель переписала его зоны.
+#: Три случая нарочно — отличие в коридоре, ниже и выше: очередь,
+#: где все письма одинаковы, не показывает ничего.
+#:
+#: **Здесь лежит текст, а не процент.** Процент считается по тексту тем же
+#: правилом, что и в бою. Проставленный руками, он разъезжается с письмом
+#: рядом — и экран показывает «19%» над текстом, отличающимся на три.
+#: Ровно это и нашёл живой прогон.
+QUEUE: list[tuple[str, dict[str, str]]] = [
+    (
+        "repair-guide",
+        {
+            "greeting": "Good afternoon,",
+            "opening": (
+                "I have spent a few evenings with {{host}} lately, and the way you handle "
+                "your subject sits well with what my clients are after."
+            ),
+            "ask": (
+                "Could you share what a placement costs on your side? If the price changes "
+                "when the piece carries a sponsored label, both figures would help."
+            ),
+        },
+    ),
+    # Приветствие совпадает с шаблонным: так выглядит письмо, у которого
+    # модель отказала и зоны остались шаблонными. Отличие честные ноль.
+    ("garden-notes", {"greeting": "Hi there,"}),
+    (
+        "kitchen-daily",
+        {
+            "greeting": "Hello and good day to you,",
+            "opening": (
+                "I came across {{host}} while looking for places my clients could reasonably "
+                "appear in, and what you publish lines up with the sort of material they put "
+                "their name to."
+            ),
+            "ask": (
+                "What would a placement run to? And if the number moves depending on whether "
+                "the article is labelled as sponsored, I would rather know both up front."
+            ),
+        },
+    ),
+]
+
+
+async def _seed_queue(session: AsyncSession, now: datetime) -> int:
+    """Письма, ждущие решения человека.
+
+    Собраны настоящим кодом сборки письма — шаблоном и подстановками,
+    а не строкой в этом файле: экран, которому подсунули выдуманный
+    текст, показывает макет, а не сервис. Юридический блок при этом
+    остаётся незаполненным, если он не заполнен: экран обязан показывать
+    состояние сервиса, а не приукрашивать его.
+    """
+    campaign = CampaignModel(stage=Stage.DONORS, name=DEMO_CAMPAIGN_QUEUE, status="draft")
+    session.add(campaign)
+    await session.flush()
+
+    template = letters_template.default()
+    made = 0
+    for order, (name, rewrites) in enumerate(QUEUE):
+        host = f"{name}{DEMO_SUFFIX}"
+        domain = DomainModel(host=host)
+        session.add(domain)
+        await session.flush()
+
+        session.add(
+            DonorModel(
+                domain_id=domain.id,
+                status=DonorStatus.SUITABLE,
+                dr=31 + order * 4,
+                org_traffic=2400 + order * 1100,
+                metrics_refreshed_at=now - timedelta(days=order),
+            )
+        )
+        contact = ContactModel(
+            domain_id=domain.id, email=f"editor@{host}", source=ContactSource.PAGE
+        )
+        session.add(contact)
+        await session.flush()
+
+        letter = compose.assemble(
+            compose.render(template, compose.values_for(host=host)),
+            {zone: text.replace("{{host}}", host) for zone, text in rewrites.items()},
+        )
+        # Число считается по тексту, а не назначается ему.
+        uniqueness = difference(letter.plain_body, letter.body)
+        thread = ThreadModel(
+            domain_id=domain.id,
+            campaign_id=campaign.id,
+            contact_id=contact.id,
+            status=ThreadStatus.OPEN,
+        )
+        session.add(thread)
+        await session.flush()
+
+        session.add(
+            MessageModel(
+                campaign_id=campaign.id,
+                thread_id=thread.id,
+                domain_id=domain.id,
+                contact_id=contact.id,
+                step=0,
+                status=MessageStatus.QUEUED,
+                subject=letter.subject,
+                body=letter.body,
+                uniqueness_pct=uniqueness,
+                idempotency_key=f"{Stage.DONORS.value}:{host}:0",
+            )
+        )
+        made += 1
+    return made
+
+
 async def _seed_threads(session: AsyncSession, now: datetime) -> int:
     campaign = CampaignModel(stage=Stage.DONORS, name=DEMO_CAMPAIGN, status="running")
     session.add(campaign)
@@ -371,6 +489,7 @@ async def cmd_demo_seed(args: argparse.Namespace) -> int:
 
             senders = await _seed_senders(session, now)
             sent_today = await _seed_sent_today(session, senders, now)
+            queued = await _seed_queue(session, now)
             threads = await _seed_threads(session, now)
             await session.commit()
     finally:
@@ -378,7 +497,7 @@ async def cmd_demo_seed(args: argparse.Namespace) -> int:
 
     print(
         f"Заведено: ящиков рассылки {len(senders)}, писем за сегодня {sent_today}, "
-        f"диалогов {threads}."
+        f"в очереди {queued}, диалогов {threads}."
     )
     print(f"Все домены оканчиваются на {DEMO_SUFFIX} — писем туда не уходит.")
     print("Убрать: outreach demo-seed --clear")
