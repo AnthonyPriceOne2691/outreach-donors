@@ -398,3 +398,29 @@ export interface SendResult {
   sender_email: string;
   real: boolean;
 }
+
+/** Почему адресату не пишем. Имена те же, что в базе и в журнале. */
+export type SuppressionReason = 'unsubscribed' | 'complained' | 'supplier' | 'manual';
+
+export interface StopEntry {
+  id: number;
+  host: string | null;
+  email: string | null;
+  reason: SuppressionReason;
+  /** Пусто — запрет действует на обоих этапах. */
+  stage: 'donors' | 'advertisers' | null;
+  created_by: string | null;
+  created_at: string;
+  /**
+   * Решение адресата, а не наше: снимается только с причиной. Считает
+   * сервер — свой экземпляр правила на фронте разошёлся бы с ним
+   * на первой новой причине.
+   */
+  donor_decision: boolean;
+}
+
+export interface StopListView {
+  rows: StopEntry[];
+  total: number;
+  donor_decisions: number;
+}

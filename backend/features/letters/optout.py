@@ -17,17 +17,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.core.domain import (
-    MessageStatus,
-    SuppressionReason,
-    ThreadStatus,
-)
+from backend.features.core.domain import SuppressionReason, ThreadStatus
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.ops import SuppressionModel
-from backend.features.core.models.outreach import MessageModel, ThreadModel
+from backend.features.core.models.outreach import ThreadModel
+from backend.features.letters.stoplist import stop_pending
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,30 +74,13 @@ async def unsubscribe_domain(
 
 
 async def _stop_everything(session: AsyncSession, domain_id: int) -> int:
-    """Снять с очереди и со сроков всё, что этому донору ещё предстояло.
+    """Снять всё назначенное и пометить диалоги отписавшимися.
 
-    Одного стоп-листа мало. Проверка перед отправкой откажет, но письмо
-    до тех пор висит в очереди как готовое к отправке, а добивка живёт
-    не в очереди, а сроком у уже отправленного письма: пока срок цел,
-    отписавшийся донор остаётся в планах. Видно это станет только
-    отказом в момент отправки — то есть человеку, а не в базе.
+    Снятие писем и сроков — общее со стоп-листом (`stoplist.stop_pending`):
+    два экземпляра одного правила разъехались бы на первой правке, и тише
+    всех разошёлся бы тот, который реже зовут.
     """
-    rows = await session.execute(
-        select(MessageModel).where(
-            MessageModel.domain_id == domain_id,
-            or_(
-                MessageModel.status == MessageStatus.QUEUED,
-                MessageModel.next_action_at.is_not(None),
-            ),
-        )
-    )
-    stopped = 0
-    for message in rows.scalars().all():
-        if message.status is MessageStatus.QUEUED:
-            message.status = MessageStatus.STOPPED
-        message.next_action_at = None
-        stopped += 1
-
+    stopped = await stop_pending(session, domain_id=domain_id)
     threads = await session.execute(select(ThreadModel).where(ThreadModel.domain_id == domain_id))
     for thread in threads.scalars().all():
         thread.status = ThreadStatus.UNSUBSCRIBED

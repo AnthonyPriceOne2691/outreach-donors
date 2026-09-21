@@ -160,6 +160,10 @@ class AuditAction(StrEnum):
     THRESHOLDS_CHANGED = "thresholds_changed"
     LETTER_SENT = "letter_sent"
     PRICE_REVIEWED = "price_reviewed"
+    SUPPRESSION_ADDED = "suppression_added"
+    # Снятие записи об отписке — единственное действие, у которого причина
+    # обязательна: это разрешение написать тому, кто просил не писать.
+    SUPPRESSION_REMOVED = "suppression_removed"
 
 
 class UsageProvider(StrEnum):

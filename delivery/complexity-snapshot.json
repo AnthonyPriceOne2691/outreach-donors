@@ -12,9 +12,9 @@
       "worst": "—"
     },
     "backend/api/app.py": {
-      "lines": 66,
+      "lines": 68,
       "complexity": 1,
-      "worst": "create_app:32"
+      "worst": "create_app:33"
     },
     "backend/api/auth/__init__.py": {
       "lines": 1,
@@ -52,9 +52,9 @@
       "worst": "of:71"
     },
     "backend/api/errors.py": {
-      "lines": 91,
+      "lines": 95,
       "complexity": 3,
-      "worst": "handle:77"
+      "worst": "handle:81"
     },
     "backend/api/health.py": {
       "lines": 43,
@@ -155,6 +155,21 @@
       "lines": 173,
       "complexity": 4,
       "worst": "of:149"
+    },
+    "backend/api/suppressions/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/api/suppressions/routes.py": {
+      "lines": 103,
+      "complexity": 3,
+      "worst": "all_rows:41"
+    },
+    "backend/api/suppressions/schemas.py": {
+      "lines": 63,
+      "complexity": 1,
+      "worst": "of:29"
     },
     "backend/api/threads/__init__.py": {
       "lines": 1,
@@ -417,7 +432,7 @@
       "worst": "—"
     },
     "backend/features/core/domain.py": {
-      "lines": 170,
+      "lines": 174,
       "complexity": 0,
       "worst": "—"
     },
@@ -567,9 +582,9 @@
       "worst": "unmask:60"
     },
     "backend/features/letters/optout.py": {
-      "lines": 108,
-      "complexity": 4,
-      "worst": "_stop_everything:79"
+      "lines": 88,
+      "complexity": 3,
+      "worst": "unsubscribe_domain:43"
     },
     "backend/features/letters/reply_to.py": {
       "lines": 100,
@@ -595,6 +610,11 @@
       "lines": 350,
       "complexity": 5,
       "worst": "_pinned_sender:214"
+    },
+    "backend/features/letters/stoplist.py": {
+      "lines": 259,
+      "complexity": 7,
+      "worst": "remove:125"
     },
     "backend/features/letters/template.py": {
       "lines": 320,
@@ -862,9 +882,9 @@
       "worst": "_select:46"
     },
     "scripts/ui_contrast.py": {
-      "lines": 341,
-      "complexity": 10,
-      "worst": "main:279"
+      "lines": 372,
+      "complexity": 9,
+      "worst": "main:296"
     }
   }
 }

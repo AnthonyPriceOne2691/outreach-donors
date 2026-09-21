@@ -352,6 +352,10 @@ Library.
     GET    /api/usage                   расход по статьям
     GET    /api/audit                   журнал действий          (админ)
 
+    GET    /api/suppressions            стоп-лист целиком
+    POST   /api/suppressions            завести запись     (точечное право)
+    POST   /api/suppressions/{id}/remove снять запись      (точечное право)
+
     GET    /api/unsubscribe/{метка}     страница отписки       (без пропуска)
     POST   /api/unsubscribe/{метка}     отписать донора        (без пропуска)
 
