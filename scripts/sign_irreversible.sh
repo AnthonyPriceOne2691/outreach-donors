@@ -209,11 +209,30 @@ notify() {
   osascript -e "display notification \"$1\" with title \"Подпись необратимого\"" >/dev/null 2>&1
 }
 
+watcher_installed() {
+  command -v launchctl >/dev/null 2>&1 || return 1
+  launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1
+}
+
+offer_install() {
+  # Команду не обязан помнить ни человек, ни агент: её называет то, что
+  # и так работает. Пока наблюдателя нет, каждый ручной запуск кончается
+  # этой строкой — иначе «поставь один раз» так и остаётся в переписке.
+  watcher_installed && return 0
+  [ "$MODE" = "--watch" ] && return 0
+  echo
+  echo "Окно приходит само, если поставить наблюдателя (один раз на машину):"
+  echo "  bash $REPO/scripts/sign_irreversible.sh --install"
+}
+
 [ "$MODE" = "--install" ] && install_watcher
 
 line=$(declaration)
 if ! needs_signature; then
-  [ "$MODE" = "--watch" ] || echo "Подписывать нечего: сверка зелёная."
+  if [ "$MODE" != "--watch" ]; then
+    echo "Подписывать нечего: сверка зелёная."
+    offer_install
+  fi
   exit 0
 fi
 
@@ -234,7 +253,10 @@ else
 fi
 
 if ! ask "$line" "$changes"; then
-  [ "$MODE" = "--watch" ] || echo "Отложено."
+  if [ "$MODE" != "--watch" ]; then
+    echo "Отложено."
+    offer_install
+  fi
   exit 1
 fi
 
@@ -258,6 +280,7 @@ if printf '%s' "$line" | SSH_AUTH_SOCK="$AGENT_SOCKET" \
   if verifies "$line"; then
     notify "Подписано"
     echo "Подписано: $line"
+    offer_install
     exit 0
   fi
   notify "Подпись не сходится — смотри вывод"
