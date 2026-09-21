@@ -35,15 +35,13 @@ from backend.config import outreach as cfg
 from backend.features.replies.inbound import MAX_BODY_CHARS, masked_for_log
 from backend.features.replies.mime import from_form
 from backend.features.replies.pipeline import Inbox
-from backend.shared.queue import runs_queue
+from backend.shared.queue import PARSE_JOB, runs_queue
 from backend.shared.sliding_window import SlidingWindow
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/inbound", tags=["приём ответов"])
 
-#: Путь к задаче строкой: воркеру не нужен тот же объект в памяти.
-PARSE_JOB = "backend.workers.jobs.parse_reply"
 
 #: Писем в минуту с одного адреса. Щедро для платформы и тесно для потока:
 #: на двадцати доменах по двадцать писем в день столько ответов за минуту

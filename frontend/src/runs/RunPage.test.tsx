@@ -33,12 +33,37 @@ const FITS = {
 
 const TOO_MUCH = { ...FITS, units_left: 100, budget: 100, affordable: false, shortfall: 77 };
 
+const QUEUED = {
+  id: 7,
+  status: 'queued',
+  country: 'us',
+  keywords: 2,
+  estimated_units: null,
+  actual_units: null,
+  estimate_error: null,
+  stats: null,
+  started_at: '2026-09-21T10:00:00Z',
+  alive_at: '2026-09-21T10:00:00Z',
+  hosts: null,
+};
+
+const STOPPED = {
+  ...QUEUED,
+  id: 6,
+  status: 'stopped',
+  estimated_units: 300,
+  actual_units: 120,
+  estimate_error: -0.6,
+  hosts: 42,
+  stats: { причина: 'остановлен разбором: воркер умер, продолжений 2 из 2' },
+};
+
 async function openRun(routes: Record<string, unknown> = {}) {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   const recorded = serve({
     'GET /api/auth/me': { body: ADMIN },
     'GET /api/runs/countries': { body: ['us', 'de'] },
-    'GET /api/runs': { body: [] },
+    'GET /api/runs': { body: { runs: [], workers: 1 } },
     ...(routes as Record<string, never>),
   });
   renderWith(<AppRoutes />, '/run');
@@ -92,10 +117,40 @@ describe('прогон', () => {
     expect(screen.getByRole('button', { name: /Запустить/ })).toBeDisabled();
   });
 
+  it('прогон в очереди виден до первой траты', async () => {
+    await openRun({ 'GET /api/runs': { body: { runs: [QUEUED], workers: 1 } } });
+
+    expect(await screen.findByText('в очереди')).toBeInTheDocument();
+    // Смета и домены появятся позже — но сам прогон на экране уже есть.
+    expect(screen.getByText('№7')).toBeInTheDocument();
+  });
+
+  it('очередь без воркера — это не работающий сервис', async () => {
+    await openRun({ 'GET /api/runs': { body: { runs: [QUEUED], workers: 0 } } });
+
+    expect(await screen.findByText('Задачу некому взять')).toBeInTheDocument();
+  });
+
+  it('пока воркер жив, про него ничего не говорят', async () => {
+    await openRun({ 'GET /api/runs': { body: { runs: [QUEUED], workers: 1 } } });
+    await screen.findByText('в очереди');
+
+    expect(screen.queryByText('Задачу некому взять')).not.toBeInTheDocument();
+  });
+
+  it('у остановленного прогона видна причина, а не пустая ячейка', async () => {
+    await openRun({ 'GET /api/runs': { body: { runs: [STOPPED], workers: 1 } } });
+
+    expect(await screen.findByText(/воркер умер/)).toBeInTheDocument();
+    expect(screen.getByText('42')).toBeInTheDocument();
+  });
+
   it('запуск кладёт задачу в очередь, а не ждёт прогона', async () => {
     const recorded = await openRun({
       'POST /api/runs/estimate': { body: FITS },
-      'POST /api/runs': { body: { job_id: 'abc-123', note: 'Прогон встал в очередь.' } },
+      'POST /api/runs': {
+        body: { run_id: 7, job_id: 'abc-123', note: 'Прогон встал в очередь.' },
+      },
     });
     const user = userEvent.setup();
 

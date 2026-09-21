@@ -131,7 +131,6 @@ export function SenderCard({ group, busy, onSwitch }: Props) {
             className="press"
             size="compact-sm"
             variant={group.enabled ? 'default' : 'gradient'}
-            gradient={{ from: 'lagoon.5', to: 'lagoon.7', deg: 135 }}
             loading={busy}
             onClick={() => onSwitch(!group.enabled)}
           >

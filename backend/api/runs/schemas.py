@@ -64,7 +64,7 @@ class Forecast(BaseModel):
 
 
 class RunCard(BaseModel):
-    """Прогон в списке: что запускали и чем кончилось."""
+    """Прогон в списке: что запускали, где он сейчас и чем кончился."""
 
     id: int
     status: RunStatus
@@ -75,9 +75,17 @@ class RunCard(BaseModel):
     estimate_error: float | None
     stats: dict[str, Any] | None
     started_at: datetime
+    #: Когда прогон в последний раз подавал признаки жизни. Для идущего
+    #: это удар heartbeat, а не запись результата: по времени последней
+    #: записи медленный прогон неотличим от мёртвого.
+    alive_at: datetime
+    #: Сколько доменов дала выдача. Появляется раньше любых трат —
+    #: это первое, что видно после нажатия.
+    hosts: int | None
 
     @classmethod
     def of(cls, row: RunRow) -> RunCard:
+        candidates = row.run.candidates or {}
         return cls(
             id=row.run.id,
             status=row.run.status,
@@ -88,7 +96,24 @@ class RunCard(BaseModel):
             estimate_error=row.estimate_error,
             stats=row.run.stats,
             started_at=row.run.created_at,
+            alive_at=row.run.updated_at,
+            hosts=len(candidates["hosts"]) if candidates.get("hosts") is not None else None,
         )
+
+
+class RunsView(BaseModel):
+    """Список прогонов и состояние самой очереди.
+
+    Второе здесь не для красоты. Задача, которую некому взять, выглядит
+    ровно как работающий сервис: сервер ответил «поставлено», строка
+    прогона есть, и дальше не происходит ничего. Число живых воркеров —
+    единственное, что отличает эти два случая на экране.
+    """
+
+    runs: list[RunCard]
+    #: Сколько воркеров слушает очередь. `None` — спросить не удалось,
+    #: и это не ноль: неизвестность и пустота требуют разных слов.
+    workers: int | None
 
 
 class RunQueued(BaseModel):
@@ -99,6 +124,7 @@ class RunQueued(BaseModel):
     оплаченную работу, если человек закрыл вкладку.
     """
 
+    run_id: int
     job_id: str
     note: str = (
         "Прогон встал в очередь. Смета проверяется ещё раз по настоящим доменам "

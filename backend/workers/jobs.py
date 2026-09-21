@@ -19,34 +19,23 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from backend.config import ahrefs as ahrefs_cfg
-from backend.config import filters, storage
+from backend.config import storage
 from backend.config.startup_checks import check_collect, check_storage
 from backend.features.ahrefs.client import AhrefsClient
 from backend.features.donors.repository import DonorRepository
-from backend.features.donors.verdict import Thresholds
 from backend.features.letters.building import BuildRequest, QueueBuilder
 from backend.features.letters.rewrite import RewriteClient
 from backend.features.replies.extract import ExtractClient
 from backend.features.replies.pipeline import Parser
+from backend.features.runs.lifecycle import heartbeat
 from backend.features.runs.pipeline import RunDeps, RunRequest, execute_run
 from backend.features.runs.repository import RunRepository
+from backend.features.runs.thresholds import defaults
 from backend.features.serp.factory import build_provider
 from backend.shared.logs import setup_logging
 
 
-def _thresholds() -> Thresholds:
-    return Thresholds(
-        min_dr=filters.MIN_DR,
-        min_org_traffic=filters.MIN_ORG_TRAFFIC,
-        min_refdomains=filters.MIN_REFDOMAINS,
-        min_keywords=filters.MIN_KEYWORDS,
-    )
-
-
-async def _run(
-    keywords: Sequence[str], country: str, cap: int | None, depth_pages: int
-) -> dict[str, Any]:
+async def _run(run_id: int) -> dict[str, Any]:
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     client = AhrefsClient()
@@ -54,33 +43,35 @@ async def _run(
     try:
         async with factory() as session:
             runs = RunRepository(session)
-            thresholds = _thresholds()
-            settings = await runs.create_settings(
-                thresholds,
-                geo_top_n=filters.GEO_TOP_N,
-                geo_min_share=filters.GEO_MIN_SHARE,
-                metrics_ttl_days=filters.METRICS_TTL_DAYS,
-                price_ttl_days=filters.PRICE_TTL_DAYS,
-                units_cap=cap or ahrefs_cfg.UNITS_CAP,
-            )
-            report = await execute_run(
-                RunDeps(
-                    provider=provider,
-                    client=client,
-                    donors=DonorRepository(session),
-                    runs=runs,
-                ),
-                RunRequest(
-                    keywords=list(keywords),
-                    country=country,
-                    thresholds=thresholds,
-                    settings_id=settings.id,
-                    cap=cap or ahrefs_cfg.UNITS_CAP,
-                    depth_pages=depth_pages,
-                ),
-            )
+            run = await runs.get(run_id)
+            # Удары о жизни идут своей короткой сессией: длинная в это
+            # время занята пачкой доменов, и ждать её значит молчать
+            # ровно тогда, когда прогон работает.
+            async with factory() as ticker:
+                beat = asyncio.create_task(heartbeat(RunRepository(ticker), run_id))
+                try:
+                    report = await execute_run(
+                        RunDeps(
+                            provider=provider,
+                            client=client,
+                            donors=DonorRepository(session),
+                            runs=runs,
+                        ),
+                        RunRequest(
+                            keywords=list(run.keywords),
+                            country=run.country,
+                            thresholds=defaults(),
+                            settings_id=run.settings_id,
+                            cap=run.settings.units_cap,
+                            depth_pages=run.depth_pages,
+                            run=run,
+                        ),
+                    )
+                finally:
+                    beat.cancel()
             await session.commit()
             return {
+                "run": run_id,
                 "checked": len(report.plan.new),
                 "by_status": {status.value: n for status, n in report.by_status.items()},
                 "spent_units": report.spent_units,
@@ -91,15 +82,13 @@ async def _run(
         await engine.dispose()
 
 
-def run_donor_search(
-    keywords: Sequence[str],
-    country: str,
-    *,
-    cap: int | None = None,
-    depth_pages: int = 1,
-) -> dict[str, Any]:
+def run_donor_search(run_id: int) -> dict[str, Any]:
     """Прогон от ключей до сохранённых доноров. Возвращает короткий итог:
     подробности всё равно лежат в базе, а в очереди им не место.
+
+    Довод один — номер прогона. Ключи, страна, глубина и кап лежат в его
+    строке: продолжение после смерти воркера ставит ту же задачу, и
+    разъехаться её доводам не с чем.
 
     Проверки конфига здесь те же, что у консольной команды, и это не
     дублирование: задача из очереди идёт мимо неё, а прогон тратит
@@ -109,7 +98,7 @@ def run_donor_search(
     setup_logging()
     check_storage()
     check_collect()
-    return asyncio.run(_run(keywords, country, cap, depth_pages))
+    return asyncio.run(_run(run_id))
 
 
 async def _build_letters(

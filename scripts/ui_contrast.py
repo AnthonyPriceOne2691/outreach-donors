@@ -86,6 +86,7 @@ def _otsu(hist, total):
 
 def contrast(path, box, pad=6):
     """Отношение контраста между буквами и фоном под ними.
+    `None` — измерить не удалось: в куске одна краска.
 
     Пиксели куска делятся на две группы порогом Оцу и сравниваются их
     средние. Простая медиана здесь врёт: на тесном куске, где буквы
@@ -112,7 +113,10 @@ def contrast(path, box, pad=6):
     dark = [v for v in lums if v <= edge]
     light = [v for v in lums if v > edge]
     if not dark or not light:
-        return 21.0
+        # Мерить нечего: кусок однородный. Так выглядит элемент, уехавший
+        # за край снимка, и выключенный — серое на сером. Раньше здесь
+        # стояло 21.0, и оба случая печатались как безупречный результат.
+        return None
     a, b = sum(dark) / len(dark), sum(light) / len(light)
     return (b + 0.05) / (a + 0.05)
 
@@ -152,6 +156,23 @@ SCREENS: dict[str, dict] = {
             ("пункт меню", "nav a", NORM),
         ],
     },
+    "run": {
+        "path": "/run",
+        "ready": ("button", "Посчитать смету"),
+        # Смету считают прямо в замере: без неё главная кнопка экрана
+        # выключена, а у выключенной меряется серое на сером — так она
+        # три среза и считалась проверенной при 21 : 1.
+        "estimate": True,
+        "probes": [
+            ("заголовок раздела", "h3", BIG),
+            ("пояснение под ним", "p.mantine-Text-root", NORM),
+            ("значок состояния прогона", "table tbody .mantine-Badge-label", NORM),
+            ("отметка о жизни", "table tbody tr td p.mantine-Text-root", NORM),
+            ("предупреждение об очереди", ".mantine-Alert-body", NORM),
+            ("кнопка «Запустить»", "button:has-text('Запустить')", BIG),
+            ("пункт меню", "nav a", NORM),
+        ],
+    },
     "letters": {
         "path": "/letters",
         "ready": ("button", "Поправить"),
@@ -185,25 +206,59 @@ def probe_notification(page, scheme, email):
     page.screenshot(path=shot)
     body = page.get_by_text("Нельзя снять права с самого себя").first
     value = contrast(shot, body.bounding_box())
+    if value is None:
+        print(f"  {'текст уведомления об отказе':28} НЕ ИЗМЕРЕНО: в куске одна краска")
+        return False
     mark = "ок" if value >= NORM else "МАЛО"
     print(f"  {'текст уведомления об отказе':28} {value:5.2f} : 1  при норме {NORM}  {mark}")
     return value >= NORM
 
 
-def run(page, scheme, shot, probes):
+def measurable(page, selector):
+    """Элемент и причина, по которой мерить его нельзя.
+
+    Выключенный не меряется вовсе: у него серое на сером, и замер
+    показывает безупречные числа там, где ничего не проверено. Главная
+    кнопка сервиса так и считалась проверенной три среза подряд.
+    """
+    el = page.locator(selector).first
+    if el.count() == 0:
+        return None, f"не найден ({selector})"
+    if el.is_disabled():
+        return None, "выключен — у выключенного меряется серое на сером"
+    el.scroll_into_view_if_needed()
+    page.wait_for_timeout(200)
+    return el, None
+
+
+def run(page, scheme, shot, probes, prepare=None):
     page.evaluate("s => localStorage.setItem('mantine-color-scheme-value', s)", scheme)
     page.reload()
     page.wait_for_timeout(900)
-    page.screenshot(path=shot)
+    # Подготовка повторяется после каждой перезагрузки: смена темы —
+    # это reload, а всё, что живёт в состоянии страницы (посчитанная
+    # смета), после него исчезает. Первая версия готовила экран один
+    # раз, и во второй теме мерилась уже выключенная кнопка.
+    if prepare is not None:
+        prepare(page)
     print(f"\n{scheme}:")
     worst_ok = True
-    for name, selector, norm in probes:
-        el = page.locator(selector).first
-        box = el.bounding_box()
-        if box is None:
-            print(f"  {name:28} не найден ({selector})")
+    for index, (name, selector, norm) in enumerate(probes):
+        el, refusal = measurable(page, selector)
+        if el is None:
+            print(f"  {name:28} НЕ ИЗМЕРЕНО: {refusal}")
+            worst_ok = False
             continue
-        value = contrast(shot, box)
+        # Снимок на каждую точку, уже после прокрутки к ней: длинный
+        # экран не помещается в окно, и кусок за его краем однороден —
+        # раньше это печаталось как 21 : 1 и считалось отличным.
+        frame = shot.replace(".png", f"-{index}.png")
+        page.screenshot(path=frame)
+        value = contrast(frame, el.bounding_box())
+        if value is None:
+            print(f"  {name:28} НЕ ИЗМЕРЕНО: в куске одна краска")
+            worst_ok = False
+            continue
         mark = "ок" if value >= norm else "МАЛО"
         worst_ok &= value >= norm
         print(f"  {name:28} {value:5.2f} : 1  при норме {norm}  {mark}")
@@ -245,6 +300,18 @@ def main(argv: list[str]) -> int:
         page.goto(f"{base}{target['path']}")
         role, name = target["ready"]
         expect(page.get_by_role(role, name=name).first).to_be_visible()
+
+        def estimate(page):
+            """Ключ один и настоящий: смета — бесплатный запрос, она
+            спрашивает остаток у провайдера и ничего не покупает."""
+            page.get_by_label("Ключевые слова").fill("ремонт квартир")
+            page.get_by_role("button", name="Посчитать смету").click()
+            # Ждём именно того, ради чего смета и считается: пока кнопка
+            # запуска не ожила, мерить у неё нечего.
+            expect(page.get_by_role("button", name="Запустить")).to_be_enabled()
+            page.wait_for_timeout(400)
+
+        prepare = estimate if target.get("estimate") else None
         wanted = target.get("open_row_with")
         if wanted:
             # Экран-карточка открывается из списка: адрес у неё с номером,
@@ -252,8 +319,8 @@ def main(argv: list[str]) -> int:
             page.locator("table tbody tr", has_text=wanted).first.click()
             page.wait_for_timeout(700)
 
-        ok = run(page, "light", str(SHOTS / f"{screen}-light.png"), target["probes"])
-        ok &= run(page, "dark", str(SHOTS / f"{screen}-dark.png"), target["probes"])
+        ok = run(page, "light", str(SHOTS / f"{screen}-light.png"), target["probes"], prepare)
+        ok &= run(page, "dark", str(SHOTS / f"{screen}-dark.png"), target["probes"], prepare)
         # Уведомление об отказе живёт только на экране учёток: его
         # вызывает попытка снять права с самого себя.
         if screen == "users":

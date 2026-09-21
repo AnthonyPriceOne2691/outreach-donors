@@ -174,7 +174,6 @@ export function UsersPage() {
           <Button
             className="press"
             variant="gradient"
-            gradient={{ from: 'lagoon.5', to: 'lagoon.7', deg: 135 }}
             leftSection={<IconUserPlus size={18} />}
             onClick={() => setCreating(true)}
           >

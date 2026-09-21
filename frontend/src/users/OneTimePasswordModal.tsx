@@ -44,12 +44,7 @@ export function OneTimePasswordModal({ issued, onClose }: Props) {
                 </Button>
               )}
             </CopyButton>
-            <Button
-              className="press"
-              variant="gradient"
-              gradient={{ from: 'lagoon.5', to: 'lagoon.7', deg: 135 }}
-              onClick={onClose}
-            >
+            <Button className="press" variant="gradient" onClick={onClose}>
               Записал, закрыть
             </Button>
           </Group>

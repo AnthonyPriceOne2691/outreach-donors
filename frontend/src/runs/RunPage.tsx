@@ -36,11 +36,24 @@ import { useState } from 'react';
 import { countryTitle, RUN_STATUSES } from '../api/labels';
 import { Metric } from '../components/Metric';
 import { estimateRun, fetchCountries, listRuns, startRun } from '../api/runs';
-import type { Forecast } from '../api/types';
+import type { Forecast, RunStatus } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 
 function refusalOf(error: unknown): string {
   return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
+}
+
+/** Состояния, в которых прогон ещё не кончился: пока такой есть,
+ *  список обновляется сам. */
+const ACTIVE = new Set<RunStatus>(['queued', 'estimating', 'running']);
+
+/** Сколько прошло с последней отметки о жизни. У идущего прогона это
+ *  удар heartbeat: по времени последней записи медленный прогон
+ *  неотличим от мёртвого, а по отметке — отличим. */
+function aliveFor(moment: string): string {
+  const seconds = Math.max(0, Math.round((Date.now() - new Date(moment).getTime()) / 1000));
+  if (seconds < 90) return `${seconds} с назад`;
+  return `${Math.round(seconds / 60)} мин назад`;
 }
 
 function parseKeywords(text: string): string[] {
@@ -99,7 +112,18 @@ export function RunPage() {
   const [forecast, setForecast] = useState<Forecast | null>(null);
 
   const countries = useQuery({ queryKey: ['countries'], queryFn: fetchCountries });
-  const runs = useQuery({ queryKey: ['runs'], queryFn: listRuns });
+  const runs = useQuery({
+    queryKey: ['runs'],
+    queryFn: listRuns,
+    // Пока есть незакрытый прогон, список обновляется сам. Без этого
+    // экран молчит от нажатия до конца работы, и единственный способ
+    // узнать, идёт ли она, — перезагрузить страницу.
+    refetchInterval: (query) =>
+      (query.state.data?.runs ?? []).some((run) => ACTIVE.has(run.status)) ? 5000 : false,
+  });
+  const view = runs.data ?? null;
+  const rows = view?.runs ?? [];
+  const waiting = rows.some((run) => run.status === 'queued');
 
   const list = parseKeywords(keywords);
   const body = { keywords: list, country, depth_pages: depth };
@@ -190,7 +214,6 @@ export function RunPage() {
             <Button
               className="press"
               variant="gradient"
-              gradient={{ from: 'lagoon.5', to: 'lagoon.7', deg: 135 }}
               leftSection={<IconPlayerPlay size={18} />}
               loading={launch.isPending}
               disabled={forecast === null || !forecast.affordable || stale || !canRun}
@@ -214,6 +237,15 @@ export function RunPage() {
         </Stack>
       </Card>
 
+      {waiting && view?.workers === 0 && (
+        <Alert color="orange" title="Задачу некому взять">
+          Прогон стоит в очереди, но ни один воркер её не слушает. Пока воркера нет, задача не
+          выполнится — сервер при этом отвечает «поставлено», и со стороны это выглядит работающим
+          сервисом. Поднимите воркер: <code>python -m backend.workers.reaper</code>
+          рядом с <code>python -m backend.workers.main</code>.
+        </Alert>
+      )}
+
       {forecast !== null && !stale && (
         <Card className="glass" p="lg">
           <Title order={5} mb="sm">
@@ -230,13 +262,14 @@ export function RunPage() {
               <Table.Th>Прогон</Table.Th>
               <Table.Th>Состояние</Table.Th>
               <Table.Th>Ключей</Table.Th>
+              <Table.Th>Доменов</Table.Th>
               <Table.Th>Смета</Table.Th>
               <Table.Th>Факт</Table.Th>
               <Table.Th>Расхождение</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {(runs.data ?? []).map((run) => (
+            {rows.map((run) => (
               <Table.Tr key={run.id}>
                 <Table.Td>
                   <Text fw={500}>№{run.id}</Text>
@@ -245,13 +278,24 @@ export function RunPage() {
                   </Text>
                 </Table.Td>
                 <Table.Td>
-                  <Group justify="center">
+                  <Group justify="center" gap={6}>
                     <Badge variant="light" color={RUN_STATUSES[run.status].color}>
                       {RUN_STATUSES[run.status].title}
                     </Badge>
+                    {ACTIVE.has(run.status) && (
+                      <Text size="xs" c="dimmed">
+                        {aliveFor(run.alive_at)}
+                      </Text>
+                    )}
                   </Group>
+                  {typeof run.stats?.['причина'] === 'string' && (
+                    <Text size="xs" c="dimmed" ta="center">
+                      {run.stats['причина']}
+                    </Text>
+                  )}
                 </Table.Td>
                 <Table.Td>{run.keywords}</Table.Td>
+                <Table.Td>{run.hosts ?? '—'}</Table.Td>
                 <Table.Td>{run.estimated_units ?? '—'}</Table.Td>
                 <Table.Td>{run.actual_units ?? '—'}</Table.Td>
                 <Table.Td>
@@ -265,7 +309,7 @@ export function RunPage() {
             ))}
           </Table.Tbody>
         </Table>
-        {(runs.data ?? []).length === 0 && (
+        {rows.length === 0 && (
           <Text size="sm" c="dimmed" p="lg">
             Прогонов ещё не было. Первый появится здесь сразу после запуска — вместе со сметой, с
             которой его потом сравнят.

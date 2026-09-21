@@ -16,8 +16,10 @@ from backend.features.core.domain import ContactSource, DonorStatus, UserRole
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
+from backend.features.core.models.run import RunModel
 from fastapi import FastAPI
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
 
@@ -197,3 +199,98 @@ class TestDonorsTable:
     ) -> None:
         response = await client.get("/api/donors/9999", headers=bearer(operator_token))
         assert response.status_code == 404
+
+
+class FakeJob:
+    def __init__(self, job_id: str) -> None:
+        self.id = job_id
+
+
+class FakeQueue:
+    """Очередь, которая ничего не выполняет: проверяется, что в неё
+    положили, а не что rq работает."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, tuple[Any, ...]]] = []
+
+    def enqueue(self, path: str, *args: Any, **_: Any) -> FakeJob:
+        self.calls.append((path, args))
+        return FakeJob("job-из-теста")
+
+
+class TestStartPutsTheRunOnTheScreen:
+    """Прогон существует с нажатия, а не с первой траты.
+
+    До этого строка появлялась внутри задачи, уже после выдачи: всё это
+    время экран показывал пустоту, а если задачу никто не брал — всегда.
+    """
+
+    @pytest.fixture
+    def queue(self, monkeypatch: pytest.MonkeyPatch) -> FakeQueue:
+        # Настройки задаются тестом, а не берутся из окружения машины.
+        # Первая версия проходила локально и падала в CI: ключ Ahrefs
+        # лежал в `.env` разработчика, и проверка настроек на маршруте
+        # пропускала запуск по чужой причине.
+        monkeypatch.setattr("backend.config.ahrefs.API_KEY", "ключ-для-теста")
+        monkeypatch.setattr("backend.config.serp.SANDBOX", False)
+        fake = FakeQueue()
+        monkeypatch.setattr("backend.api.runs.routes.runs_queue", lambda: fake)
+        return fake
+
+    async def test_row_appears_queued_with_its_job(
+        self, client: AsyncClient, operator_token: str, queue: FakeQueue
+    ) -> None:
+        started = await client.post("/api/runs", json=RUN_BODY, headers=bearer(operator_token))
+
+        assert started.status_code == 200, started.text
+        run_id = started.json()["run_id"]
+        assert queue.calls == [("backend.workers.jobs.run_donor_search", (run_id,))]
+
+        listed = await client.get("/api/runs", headers=bearer(operator_token))
+        card = next(row for row in listed.json()["runs"] if row["id"] == run_id)
+        assert card["status"] == "queued"
+        assert card["estimated_units"] is None
+        assert card["hosts"] is None
+
+    async def test_job_gets_only_the_run_number(
+        self, client: AsyncClient, operator_token: str, queue: FakeQueue, session: AsyncSession
+    ) -> None:
+        """Доводы задачи — один номер. Ключи и глубина лежат в строке:
+        продолжению после смерти воркера неоткуда взять другие."""
+        await client.post(
+            "/api/runs",
+            json={"keywords": ["ремонт", "кухня"], "country": "de", "depth_pages": 3},
+            headers=bearer(operator_token),
+        )
+
+        _, args = queue.calls[0]
+        assert len(args) == 1
+
+        run = (
+            (await session.execute(select(RunModel).order_by(RunModel.id.desc()))).scalars().first()
+        )
+        assert run is not None
+        assert run.depth_pages == 3
+        assert run.country == "de"
+        assert run.job_id == "job-из-теста"
+
+    async def test_screen_knows_there_is_nobody_to_take_the_job(
+        self, client: AsyncClient, operator_token: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Число живых воркеров — единственное, что отличает работающий
+        сервис от очереди, из которой никто не читает."""
+        monkeypatch.setattr("backend.api.runs.routes.workers_alive", lambda: 0)
+
+        listed = await client.get("/api/runs", headers=bearer(operator_token))
+
+        assert listed.json()["workers"] == 0
+
+    async def test_unknown_worker_count_is_not_zero(
+        self, client: AsyncClient, operator_token: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Redis не ответил — это «не знаю», а не «никого нет»."""
+        monkeypatch.setattr("backend.api.runs.routes.workers_alive", lambda: None)
+
+        listed = await client.get("/api/runs", headers=bearer(operator_token))
+
+        assert listed.json()["workers"] is None
