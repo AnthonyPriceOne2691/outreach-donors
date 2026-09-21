@@ -18,6 +18,7 @@ import type {
   ReplyKind,
   Role,
   RunStatus,
+  SuppressionReason,
   ThreadState,
   UsageProvider,
 } from './types';
@@ -202,3 +203,11 @@ const OPERATION_TITLES: Record<string, string> = {
 export function operationTitle(operation: string): string {
   return OPERATION_TITLES[operation] ?? operation;
 }
+
+/** Почему адресату не пишем. Первые две — его решение, вторые две — наше. */
+export const SUPPRESSION_REASON_TITLES: Record<SuppressionReason, string> = {
+  unsubscribed: 'отписался',
+  complained: 'пожаловался',
+  supplier: 'поставщик',
+  manual: 'вручную',
+};

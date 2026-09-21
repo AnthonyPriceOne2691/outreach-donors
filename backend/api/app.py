@@ -20,6 +20,7 @@ from backend.api.replies import routes as replies_routes
 from backend.api.runs import routes as runs_routes
 from backend.api.senders import routes as senders_routes
 from backend.api.settings import routes as settings_routes
+from backend.api.suppressions import routes as suppressions_routes
 from backend.api.threads import routes as threads_routes
 from backend.api.unsubscribe import routes as unsubscribe_routes
 from backend.api.users import routes as users_routes
@@ -59,6 +60,7 @@ def create_app() -> FastAPI:
     app.include_router(settings_routes.router, prefix=API_PREFIX)
     app.include_router(threads_routes.router, prefix=API_PREFIX)
     app.include_router(letters_routes.router, prefix=API_PREFIX)
+    app.include_router(suppressions_routes.router, prefix=API_PREFIX)
     app.include_router(inbound_routes.router, prefix=API_PREFIX)
     app.include_router(replies_routes.router, prefix=API_PREFIX)
     app.include_router(unsubscribe_routes.router, prefix=API_PREFIX)

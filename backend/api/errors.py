@@ -32,6 +32,7 @@ from backend.features.letters.guards import ForbiddenContentError
 from backend.features.letters.repository import UnknownLetterError
 from backend.features.letters.review import NotEditableError
 from backend.features.letters.sending import SendError
+from backend.features.letters.stoplist import StopListError
 from backend.features.letters.transport import TransportError
 from backend.features.outreach.repository import UnknownSenderError, UnknownThreadError
 from backend.features.replies.repository import UnknownReplyError
@@ -60,6 +61,9 @@ STATUSES: dict[type[Exception], int] = {
     TransportError: status.HTTP_409_CONFLICT,
     # Метрики Ahrefs в письме: правка человека, которую нельзя принять.
     ForbiddenContentError: status.HTTP_400_BAD_REQUEST,
+    # Стоп-лист: уже там, такого нет, снятие отписки без причины.
+    # Всё это про состояние списка и про то, что человек чинит сам.
+    StopListError: status.HTTP_409_CONFLICT,
     EmailTakenError: status.HTTP_409_CONFLICT,
     LastAdminError: status.HTTP_409_CONFLICT,
     SelfLockoutError: status.HTTP_409_CONFLICT,

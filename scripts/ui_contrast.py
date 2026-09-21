@@ -161,8 +161,8 @@ SCREENS: dict[str, dict] = {
         "ready": ("button", "Посчитать смету"),
         # Смету считают прямо в замере: без неё главная кнопка экрана
         # выключена, а у выключенной меряется серое на сером — так она
-        # три среза и считалась проверенной при 21 : 1.
-        "estimate": True,
+        # три среза и считалась проверенной при 21 : 1 (см. `estimate`
+        # в `main`).
         "probes": [
             ("заголовок раздела", "h3", BIG),
             ("пояснение под ним", "p.mantine-Text-root", NORM),
@@ -170,6 +170,23 @@ SCREENS: dict[str, dict] = {
             ("отметка о жизни", "table tbody tr td p.mantine-Text-root", NORM),
             ("предупреждение об очереди", ".mantine-Alert-body", NORM),
             ("кнопка «Запустить»", "button:has-text('Запустить')", BIG),
+            ("пункт меню", "nav a", NORM),
+        ],
+    },
+    "suppressions": {
+        "path": "/suppressions",
+        "ready": ("button", "Больше не писать"),
+        # Кнопка «Больше не писать» выключена, пока поле пусто: замер
+        # заполняет его сам (см. `fill_target` в `main`).
+        "probes": [
+            ("заголовок раздела", "h3", BIG),
+            ("пояснение под ним", "p.mantine-Text-root", NORM),
+            # Главное на экране: кому не пишем и по чьему решению.
+            ("адресат в строке", "table tbody tr td", NORM),
+            ("причина значком", "table tbody .mantine-Badge-label", NORM),
+            ("кто завёл запись", "table tbody tr td:nth-child(3)", NORM),
+            ("кнопка «Снять»", "table tbody button", BIG),
+            ("кнопка «Больше не писать»", "button:has-text('Больше не писать')", BIG),
             ("пункт меню", "nav a", NORM),
         ],
     },
@@ -316,7 +333,21 @@ def main(argv: list[str]) -> int:
             expect(page.get_by_role("button", name="Запустить")).to_be_enabled()
             page.wait_for_timeout(400)
 
-        prepare = estimate if target.get("estimate") else None
+        def fill_target(page):
+            """Главная кнопка экрана оживает только с заполненным полем.
+
+            Тот же урок, что со сметой: у выключенной кнопки меряется
+            серое на сером, и она выглядит безупречной, ни разу
+            не проверенной.
+            """
+            page.get_by_label("Домен или адрес").fill("supplier.example.test")
+            expect(page.get_by_role("button", name="Больше не писать")).to_be_enabled()
+            page.wait_for_timeout(200)
+
+        # Что сделать на экране до замера. Не у всех экранов есть такой
+        # шаг, и общего у этих двух нет ничего, кроме повода: главная
+        # кнопка выключена, пока человек чего-то не ввёл.
+        prepare = {"run": estimate, "suppressions": fill_target}.get(screen)
         wanted = target.get("open_row_with")
         if wanted:
             # Экран-карточка открывается из списка: адрес у неё с номером,

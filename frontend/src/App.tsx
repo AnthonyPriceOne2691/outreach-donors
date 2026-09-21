@@ -24,6 +24,7 @@ import { LettersPage } from './letters/LettersPage';
 import { DonorsPage } from './donors/DonorsPage';
 import { RunPage } from './runs/RunPage';
 import { SendersPage } from './senders/SendersPage';
+import { SuppressionsPage } from './suppressions/SuppressionsPage';
 import { ThresholdsPage } from './settings/ThresholdsPage';
 import { UsagePage } from './settings/UsagePage';
 import { ThreadPage } from './threads/ThreadPage';
@@ -106,6 +107,14 @@ export function AppRoutes() {
           element={
             <RequireAccess permission="view">
               <ThreadPage />
+            </RequireAccess>
+          }
+        />
+        <Route
+          path="/suppressions"
+          element={
+            <RequireAccess permission="view">
+              <SuppressionsPage />
             </RequireAccess>
           }
         />
