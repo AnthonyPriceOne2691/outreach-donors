@@ -1,7 +1,7 @@
 # Active delivery status
 
 - **slug:** queue-visibility (задача в очереди видна, мёртвый воркер не молчит)
-- **stack:** delivery@1.89, cqg@deployed, okf@0.3
+- **stack:** delivery@1.91, cqg@deployed, okf@0.3
 - **class:** M
 - **kind:** feature
 - **phase:** verify
@@ -55,6 +55,7 @@
 - **ci-oracles:** deployed — `check`, `web`, `docker`; все три обязательны
 - **artifact_oracle:** n/a reason=выход среза — состояние прогона в базе
   и на экране
+- **irreversible_surfaces:** отправка писем донорам, приём ответов вебхуком, трата юнитов Ahrefs и платных провайдеров, публичный репозиторий, автомерж по зелёному
 - **model_surface:** none — модель в этом срезе не участвует
 - **rule_enforcers:** продолжение не покупает выдачу второй раз;
   «не знаю» про живость не считается «мертва» (иначе вторая задача
