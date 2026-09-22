@@ -28,7 +28,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import ahrefs as ahrefs_cfg
 from backend.features.ahrefs.client import AhrefsClient, AhrefsError
-from backend.features.core.domain import MessageStatus, RunStatus
+from backend.features.core.domain import CrawlOutcome, MessageStatus, RunStatus, StopReason
+from backend.features.core.models.crawl import CrawlRunModel
 from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.core.models.run import RunModel
 from backend.features.runs.spending import ahrefs_spent_this_month
@@ -55,6 +56,9 @@ FOLLOWUP_LATE_MINUTES = 60
 #: Сколько прогон может «идти» без единой отметки о жизни.
 RUN_SILENCE_MINUTES = 30
 
+#: За сколько последних обходов смотрим здоровье краула.
+CRAWL_RUNS_WATCHED = 10
+
 
 @dataclass(frozen=True, slots=True)
 class Alarm:
@@ -74,6 +78,7 @@ async def alarms(session: AsyncSession, *, now: datetime | None = None) -> list[
         await _followups_stuck(session, moment),
         await _runs_stuck(session, moment),
         await _cap_reached(session),
+        await _crawl_blocked(session),
     ]
     return [alarm for alarm in found if alarm is not None]
 
@@ -222,6 +227,46 @@ async def _runs_stuck(session: AsyncSession, moment: datetime) -> Alarm | None:
             f"{stuck} прогонов не подавали признаков жизни дольше "
             f"{RUN_SILENCE_MINUTES} минут. Их должен разобрать отдельный процесс; "
             "если тревога держится — он не запущен"
+        ),
+    )
+
+
+async def _crawl_blocked(session: AsyncSession) -> Alarm | None:
+    """Обход упирается в защиту сайтов.
+
+    Требование просит при доле отказов выше 30% «паузу и алерт». Паузу
+    обход ставит себе сам и останавливается; тревоги до этого правила
+    не было — останов виден был только в логе, а сторож про краул
+    не знал вовсе.
+
+    Считается по последним обходам, а не за всё время: доля за всю
+    историю прячет защиту, включившуюся вчера.
+    """
+    rows = (
+        (
+            await session.execute(
+                select(CrawlRunModel).order_by(CrawlRunModel.id.desc()).limit(CRAWL_RUNS_WATCHED)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not rows:
+        return None
+
+    stopped = [row for row in rows if row.stop_reason is StopReason.UNHEALTHY]
+    blocked = [row for row in rows if row.outcome is CrawlOutcome.BLOCKED]
+    if not stopped and len(blocked) * 2 < len(rows):
+        return None
+
+    return Alarm(
+        code="crawl-blocked",
+        title="Обход упирается в защиту",
+        detail=(
+            f"Из последних {len(rows)} обходов {len(blocked)} закрылись целиком"
+            + (f", {len(stopped)} остановлены по доле отказов" if stopped else "")
+            + ". Дальше это лечится не повтором, а следующим уровнем каскада: "
+            "браузером (CRAWL_BROWSER_ENABLED) или резидентным прокси (CRAWL_PROXY_URL)"
         ),
     )
 

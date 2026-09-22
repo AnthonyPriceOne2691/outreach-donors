@@ -27,6 +27,7 @@ from backend.config import storage
 from backend.config.startup_checks import check_storage
 from backend.features.contacts.browser import PlaywrightRenderer
 from backend.features.core.domain import CrawlOutcome, StopReason
+from backend.features.crawl import targets
 from backend.features.crawl.limiter import DomainLimiter
 from backend.features.crawl.repository import save_crawl
 from backend.features.crawl.walk import CrawlReport, DonorCrawler
@@ -50,8 +51,18 @@ def add_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None
     crawl = sub.add_parser("crawl", help="обойти донора и замерить долю закрытых страниц")
     crawl.add_argument(
         "domains",
-        nargs="+",
-        help="домены доноров через пробел, без схемы: example.com",
+        nargs="*",
+        help=(
+            "домены доноров через пробел, без схемы. Без них берутся доноры "
+            "из базы — с известной и свежей ценой, как требует требование"
+        ),
+    )
+    crawl.add_argument(
+        "--from-base",
+        type=int,
+        default=None,
+        metavar="N",
+        help="взять N доноров из базы: только с известной и не протухшей ценой",
     )
     crawl.add_argument(
         "--pages",
@@ -223,8 +234,42 @@ async def _save(reports: list[CrawlReport]) -> None:
         await engine.dispose()
 
 
+async def _targets(args: argparse.Namespace) -> list[str] | None:
+    """Кого обходим: названных руками или отобранных из базы.
+
+    Требование говорит «по кому запускаем: только доноры с известной
+    ценой». Руками названный домен эту проверку обходит намеренно —
+    прибор для замера должен уметь сходить куда попросят, — а рабочий
+    отбор идёт из базы и цену проверяет.
+    """
+    if args.domains and args.from_base:
+        print("Либо домены списком, либо `--from-base N` — вместе они спорят друг с другом.")
+        return None
+    if args.domains:
+        return list(args.domains)
+
+    check_storage()
+    engine = create_async_engine(storage.DSN)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with factory() as session:
+            chosen = await targets.choose(session, limit=args.from_base or 10)
+    finally:
+        await engine.dispose()
+
+    print("\nОтбор доноров:", ", ".join(f"{k}: {v}" for k, v in chosen.as_dict().items()))
+    for note in targets.explain(chosen):
+        print(f"  {note}")
+    return chosen.hosts
+
+
 async def cmd_crawl(args: argparse.Namespace) -> int:
     """Обойти названные домены и напечатать замер."""
+    hosts = await _targets(args)
+    if hosts is None:
+        return EXIT_NOTHING_CRAWLED
+    if not hosts:
+        return EXIT_NOTHING_CRAWLED
     # Флаг командной строки сильнее настройки: прибор запускают руками
     # и ровно тогда, когда готовы заплатить секундами за закрытые сайты.
     use_browser = args.browser or cfg.BROWSER_ENABLED
@@ -238,7 +283,7 @@ async def cmd_crawl(args: argparse.Namespace) -> int:
         renderer = await stack.enter_async_context(PlaywrightRenderer()) if use_browser else None
         if use_browser and renderer is None:
             print("Браузер не поднялся — обход пойдёт без него, это будет видно в отчёте.")
-        for host in args.domains:
+        for host in hosts:
             print(f"\nОбход {host}…")
             report = await _crawl_one(host, args, renderer, identify=identify)
             reports.append(report)
