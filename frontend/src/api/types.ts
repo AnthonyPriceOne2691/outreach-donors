@@ -171,6 +171,28 @@ export type ContactStatus =
 export type ContactSource = 'mx' | 'page' | 'rdap' | 'paid' | 'form' | 'manual';
 export type RunStatus = 'queued' | 'estimating' | 'running' | 'done' | 'stopped';
 
+export interface PoolRequest {
+  preset: string;
+  country: string;
+  language?: string;
+  /** Про что ключи. Пусто — законный исход: широкий пул иногда и нужен. */
+  topic?: string;
+  cap?: number;
+}
+
+export interface KeywordPool {
+  keywords: string[];
+  asked: number;
+  received: number;
+  rejected: number;
+  near_duplicates: number;
+  /** Отказы модели. Пул, собранный наполовину из-за них, внешне
+   *  неотличим от пула, который модель честно не набрала. */
+  refusals: string[];
+  tokens: number;
+  model: string;
+}
+
 export interface RunRequest {
   keywords: string[];
   country: string;

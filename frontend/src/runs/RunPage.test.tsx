@@ -84,6 +84,77 @@ async function openRun(routes: Record<string, unknown> = {}) {
   return recorded;
 }
 
+const POOL = {
+  keywords: ['best betting sites south africa', 'top bookmakers sa'],
+  asked: 9,
+  received: 6,
+  rejected: 0,
+  near_duplicates: 1,
+  refusals: [],
+  tokens: 1313,
+  model: 'gpt-5',
+};
+
+describe('сборка ключей моделью', () => {
+  it('фразы падают в то же поле, а не уходят в прогон', async () => {
+    // Ключи по требованиям приносит оператор, и поле остаётся главным:
+    // собранное он видит и правит до сметы.
+    const recorded = await openRun({
+      'GET /api/keywords/presets': { body: ['guides', 'media', 'reviews', 'wide'] },
+      'POST /api/keywords': { body: POOL },
+    });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('radio', { name: 'Собрать моделью' }));
+    await user.type(await screen.findByLabelText('Про что'), 'ставки');
+    await user.click(screen.getByRole('button', { name: 'Собрать' }));
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Ключевые слова')).toHaveValue(
+        'best betting sites south africa\ntop bookmakers sa',
+      ),
+    );
+    // Сборка ничего платного не трогает: ни сметы, ни запуска.
+    expect(recorded.calls.some((call) => call.path === '/api/runs/estimate')).toBe(false);
+    expect(screen.getByRole('button', { name: /Запустить/ })).toBeDisabled();
+  });
+
+  it('тема доезжает до сервера — без неё пул выходит широким', async () => {
+    const recorded = await openRun({
+      'GET /api/keywords/presets': { body: ['reviews', 'wide'] },
+      'POST /api/keywords': { body: POOL },
+    });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('radio', { name: 'Собрать моделью' }));
+    await user.type(await screen.findByLabelText('Про что'), 'ставки');
+    await user.click(screen.getByRole('button', { name: 'Собрать' }));
+
+    await waitFor(() =>
+      expect(recorded.calls.some((call) => call.path === '/api/keywords')).toBe(true),
+    );
+    const call = recorded.calls.find((item) => item.path === '/api/keywords');
+    expect(call?.body).toMatchObject({ topic: 'ставки', country: 'us' });
+  });
+
+  it('неполный пул из-за отказов модели назван вслух', async () => {
+    // Пул, собранный наполовину из-за отказов, внешне неотличим от пула,
+    // который модель честно не набрала.
+    await openRun({
+      'GET /api/keywords/presets': { body: ['reviews'] },
+      'POST /api/keywords': {
+        body: { ...POOL, refusals: ['модель, отказ (чинить): HTTP 401: ключ не принят'] },
+      },
+    });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('radio', { name: 'Собрать моделью' }));
+    await user.click(screen.getByRole('button', { name: 'Собрать' }));
+
+    expect(await screen.findByText(/отказала 1 раз/)).toBeInTheDocument();
+  });
+});
+
 describe('прогон', () => {
   it('без сметы запускать нечего', async () => {
     await openRun();

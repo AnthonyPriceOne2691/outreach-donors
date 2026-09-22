@@ -908,6 +908,18 @@ html:root[data-mantine-color-scheme='dark'] .orb4 {
   color: color-mix(in oklab, var(--badge-color) 40%, var(--ink) 60%);
 }
 
+/* Невыбранный сегмент — приглушённый тон: он предлагает, а не сообщает. */
+.mantine-SegmentedControl-label {
+  color: var(--ink-soft);
+}
+
+/* Выбранный — полные чернила. Он сидит на подложке акцента, и тихий тон
+   на ней намерился на 4.30 : 1 при норме 4.5 в тёмной теме. Заодно это
+   и по смыслу верно: выбранный сегмент сообщает текущее состояние. */
+.mantine-SegmentedControl-label[data-active] {
+  color: var(--ink);
+}
+
 /* Сегменты переключателя тем: подпись и значок перетекают вместе
    с подвижной подложкой, а не перекрашиваются рывком в её середине. */
 .mantine-SegmentedControl-label,

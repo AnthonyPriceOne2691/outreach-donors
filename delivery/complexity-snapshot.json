@@ -27,9 +27,9 @@
       "worst": "of:37"
     },
     "backend/api/app.py": {
-      "lines": 76,
+      "lines": 78,
       "complexity": 1,
-      "worst": "create_app:37"
+      "worst": "create_app:38"
     },
     "backend/api/auth/__init__.py": {
       "lines": 1,
@@ -118,6 +118,21 @@
     },
     "backend/api/inbound/schemas.py": {
       "lines": 29,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/api/keywords/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/api/keywords/routes.py": {
+      "lines": 76,
+      "complexity": 3,
+      "worst": "build_pool:44"
+    },
+    "backend/api/keywords/schemas.py": {
+      "lines": 43,
       "complexity": 0,
       "worst": "—"
     },
@@ -307,9 +322,9 @@
       "worst": "_add_reply:285"
     },
     "backend/cli/keywords_pool.py": {
-      "lines": 96,
+      "lines": 110,
       "complexity": 5,
-      "worst": "cmd_keywords:48"
+      "worst": "cmd_keywords:54"
     },
     "backend/cli/letters_queue.py": {
       "lines": 146,
@@ -727,9 +742,9 @@
       "worst": "interleave:57"
     },
     "backend/features/keywords/generator.py": {
-      "lines": 255,
+      "lines": 277,
       "complexity": 6,
-      "worst": "_backfill:223"
+      "worst": "_backfill:245"
     },
     "backend/features/keywords/hygiene.py": {
       "lines": 187,
@@ -1117,9 +1132,9 @@
       "worst": "_select:46"
     },
     "scripts/ui_contrast.py": {
-      "lines": 419,
+      "lines": 447,
       "complexity": 9,
-      "worst": "main:367"
+      "worst": "main:395"
     }
   }
 }

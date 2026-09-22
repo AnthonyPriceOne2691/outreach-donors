@@ -21,20 +21,23 @@ import {
   Group,
   NumberInput,
   Select,
+  SegmentedControl,
   SimpleGrid,
   Stack,
   Table,
   Text,
   Textarea,
+  TextInput,
   Title,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconCalculator, IconPlayerPlay } from '@tabler/icons-react';
+import { IconCalculator, IconPlayerPlay, IconSparkles } from '@tabler/icons-react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
 import { countryTitle, RUN_STATUSES } from '../api/labels';
 import { Metric } from '../components/Metric';
+import { buildPool, fetchPresets } from '../api/keywords';
 import { estimateRun, fetchCountries, listRuns, startRun } from '../api/runs';
 import type { Forecast, RunStatus } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
@@ -124,8 +127,22 @@ export function RunPage() {
   const [depth, setDepth] = useState(1);
   const [cap, setCap] = useState<number | ''>('');
   const [forecast, setForecast] = useState<Forecast | null>(null);
+  // Ключи по требованиям приносит оператор, поэтому «свои» — умолчание,
+  // а сборка моделью это второй режим того же поля, а не замена ему.
+  const [source, setSource] = useState<'manual' | 'model'>('manual');
+  const [preset, setPreset] = useState<string | null>(null);
+  const [topic, setTopic] = useState('');
+  const [poolCap, setPoolCap] = useState<number | ''>(30);
 
   const countries = useQuery({ queryKey: ['countries'], queryFn: fetchCountries });
+  // Пресеты спрашиваются у сервера по той же причине, что и страны:
+  // второй список на фронте разъехался бы с первым добавленным набором,
+  // и разошёлся бы молча.
+  const presets = useQuery({
+    queryKey: ['presets'],
+    queryFn: fetchPresets,
+    enabled: source === 'model',
+  });
   const runs = useQuery({
     queryKey: ['runs'],
     queryFn: listRuns,
@@ -146,6 +163,36 @@ export function RunPage() {
     depth_pages: depth,
     ...(typeof cap === 'number' ? { cap } : {}),
   };
+
+  const pool = useMutation({
+    mutationFn: () =>
+      buildPool({
+        preset: preset ?? 'wide',
+        country,
+        topic,
+        cap: typeof poolCap === 'number' ? poolCap : 30,
+      }),
+    onSuccess: (built) => {
+      // Фразы падают в то же поле, а не уходят в прогон: человек видит
+      // их и правит до сметы. Смета и кап остаются последним рубежом.
+      setKeywords(built.keywords.join('\n'));
+      setForecast(null);
+      notifications.show({
+        title: `Собрано ${built.keywords.length} ключей`,
+        message:
+          built.refusals.length > 0
+            ? `Модель ${built.model} отказала ${built.refusals.length} раз(а) — пул неполный: ${built.refusals[0]}`
+            : `Модель ${built.model}, ${built.tokens} токенов. Проверьте список перед сметой.`,
+        color: built.refusals.length > 0 ? 'yellow' : 'green',
+      });
+    },
+    onError: (failure) =>
+      notifications.show({
+        title: 'Пул не собрался',
+        message: refusalOf(failure),
+        color: 'red',
+      }),
+  });
 
   const estimate = useMutation({
     mutationFn: () => estimateRun(body),
@@ -187,16 +234,79 @@ export function RunPage() {
             </Text>
           </Stack>
 
-          <Textarea
-            label="Ключевые слова"
-            description="По одному в строке"
-            placeholder={'ремонт квартир\nдизайн интерьера'}
-            autosize
-            minRows={4}
-            maxRows={12}
-            value={keywords}
-            onChange={(event) => setKeywords(event.currentTarget.value)}
-          />
+          <Stack gap="xs">
+            <SegmentedControl
+              value={source}
+              onChange={(value) => setSource(value as 'manual' | 'model')}
+              disabled={!canRun}
+              data={[
+                { label: 'Свои ключи', value: 'manual' },
+                { label: 'Собрать моделью', value: 'model' },
+              ]}
+            />
+
+            {source === 'model' ? (
+              // Вложенный блок берёт `glassSolid`, а не `glassPanel`:
+              // второй слой того же рецепта в тёмной теме выходит светлой
+              // плитой, и весь приглушённый текст на ней выцветает —
+              // намерено 2.46 : 1 при норме 4.5.
+              <Card className="glassSolid" p="md" withBorder>
+                <Stack gap="sm">
+                  <Text size="sm" c="dimmed">
+                    Сборка ничего платного не тратит — только модель. Фразы попадут в поле ниже, и
+                    до сметы их можно править: смета и кап остаются последним рубежом перед тратой.
+                  </Text>
+                  <Group align="flex-end" gap="md" wrap="wrap">
+                    <Select
+                      label="Набор углов"
+                      description="Свои углы не пишут — только обкатанные наборы"
+                      data={presets.data ?? []}
+                      value={preset}
+                      onChange={setPreset}
+                      placeholder={presets.isPending ? 'загружаются…' : 'wide'}
+                      w={190}
+                    />
+                    <TextInput
+                      label="Про что"
+                      description="Без темы пул выйдет широким"
+                      placeholder="ставки на спорт"
+                      value={topic}
+                      onChange={(event) => setTopic(event.currentTarget.value)}
+                      w={230}
+                    />
+                    <NumberInput
+                      label="Сколько ключей"
+                      min={1}
+                      max={100}
+                      value={poolCap}
+                      onChange={(value) => setPoolCap(typeof value === 'number' ? value : '')}
+                      w={150}
+                    />
+                    <Button
+                      variant="light"
+                      leftSection={<IconSparkles size={16} />}
+                      onClick={() => pool.mutate()}
+                      loading={pool.isPending}
+                      disabled={!canRun}
+                    >
+                      Собрать
+                    </Button>
+                  </Group>
+                </Stack>
+              </Card>
+            ) : null}
+
+            <Textarea
+              label="Ключевые слова"
+              description="По одному в строке"
+              placeholder={'ремонт квартир\nдизайн интерьера'}
+              autosize
+              minRows={4}
+              maxRows={12}
+              value={keywords}
+              onChange={(event) => setKeywords(event.currentTarget.value)}
+            />
+          </Stack>
 
           <Group align="flex-end" gap="md">
             <Select
