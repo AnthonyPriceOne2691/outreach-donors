@@ -175,3 +175,25 @@ class UsageProvider(StrEnum):
     SERP = "serp"
     LLM = "llm"
     EMAIL = "email"
+
+
+class CrawlOutcome(StrEnum):
+    """Чем кончился обход донора. Пять исходов — `docs/CRAWL.md`."""
+
+    OK = "ok"  # взяли всё, что просили: список кончился или кончился потолок
+    PARTIAL = "partial"  # что-то взяли, но упёрлись в срок, попытки или здоровье
+    FORBIDDEN = "forbidden"  # robots.txt запрещает: откладываем человеку
+    BLOCKED = "blocked"  # сайт закрылся: нужен следующий уровень каскада
+    FAILED = "failed"  # не смогли начать: главная или robots не дались
+
+
+class StopReason(StrEnum):
+    """Почему обход закончился. Отличает «всё обошли» от «упёрлись»."""
+
+    EXHAUSTED = "exhausted"  # страницы кончились — обошли всё, что было
+    MAX_PAGES = "max_pages"
+    MAX_ATTEMPTS = "max_attempts"
+    TIMEOUT = "timeout"
+    UNHEALTHY = "unhealthy"  # доля отказов выше потолка
+    ROBOTS = "robots"
+    NO_START = "no_start"  # главная не открылась ни в одном виде

@@ -17,10 +17,11 @@ from typing import Any
 
 import httpx
 import pytest
+from backend.features.core.domain import CrawlOutcome, StopReason
 from backend.features.crawl.fetch import CascadeLevel
 from backend.features.crawl.limiter import DomainLimiter
 from backend.features.crawl.robots import RobotsStatus
-from backend.features.crawl.walk import CrawlOutcome, DonorCrawler, StopReason, same_site_links
+from backend.features.crawl.walk import DonorCrawler, same_site_links
 
 HOST = "donor.test"
 HTML = {"content-type": "text/html; charset=utf-8"}
@@ -158,7 +159,9 @@ class TestPermission:
         report = await _crawl(site)
 
         assert "/private/b" not in site.opened
-        assert report.pages == [f"https://{HOST}/blog/a"]
+        # Главная открыта проверкой «сайт открывается» и потому в списке;
+        # из карты сайта взят только разрешённый адрес.
+        assert report.pages == [f"https://{HOST}/", f"https://{HOST}/blog/a"]
 
     async def test_crawl_delay_reaches_the_limiter(self) -> None:
         """Пауза, о которой просит сайт, обязана дойти до ограничителя.
@@ -190,7 +193,11 @@ class TestSources:
 
         assert report.source == "sitemap"
         assert report.sitemap_found is True
-        assert sorted(report.pages) == [f"https://{HOST}/a", f"https://{HOST}/b"]
+        assert sorted(report.pages) == [
+            f"https://{HOST}/",
+            f"https://{HOST}/a",
+            f"https://{HOST}/b",
+        ]
 
     async def test_links_are_the_fallback_when_there_is_no_map(self) -> None:
         """Карта есть не у всех, и без запасного пути каждый пятый донор
@@ -286,7 +293,9 @@ class TestCaps:
         report = await _crawl(site, max_attempts=6)
 
         assert report.stop_reason is StopReason.MAX_ATTEMPTS
-        assert report.pages == []
+        # Открылась только главная: остальной бюджет попыток ушёл
+        # на несуществующие адреса из карты.
+        assert report.pages == [f"https://{HOST}/"]
 
     async def test_time_cap_is_checked_before_pages(self) -> None:
         """Чекпоинт по времени, а не по числу страниц: лимит на донора
@@ -435,3 +444,75 @@ class TestReport:
 
         assert report.outcome is CrawlOutcome.FAILED
         assert report.stop_reason is StopReason.NO_START
+
+
+class TestHarvest:
+    """Ссылки снимаются по ходу обхода — и только из тела статьи."""
+
+    @staticmethod
+    def _article(*links: str) -> str:
+        body = "Текст статьи про ставки и коэффициенты. " * 20
+        anchors = "".join(f'<a href="{href}">оффер</a>' for href in links)
+        return (
+            "<html><body>"
+            '<nav><a href="https://menu-sponsor.test/">меню</a></nav>'
+            f"<article><p>{body}</p><p>{anchors}</p></article>"
+            '<footer><a href="https://footer-sponsor.test/">подвал</a></footer>'
+            "</body></html>"
+        )
+
+    async def test_links_come_from_the_body_of_every_page(self) -> None:
+        site = FakeSite(
+            {
+                "/": self._article("https://advertiser-one.com/"),
+                "/post": self._article("https://advertiser-two.com/"),
+            },
+            sitemap=None,
+        )
+        site.pages["/"] = site.pages["/"].replace(
+            "<article>", '<article><a href="/post">дальше</a>', 1
+        )
+
+        report = await _crawl(site)
+        roots = sorted({link.target_root for link in report.links})
+
+        assert roots == ["advertiser-one.com", "advertiser-two.com"]
+        assert report.articles == 2
+
+    async def test_pages_without_a_body_are_counted_apart(self) -> None:
+        """Страница без статьи — не страница без ссылок. Разница видна
+        по счётчику статей рядом с числом открытых страниц."""
+        site = FakeSite({"/": '<html><body><div class="listing">список</div></body></html>'})
+
+        report = await _crawl(site)
+
+        assert len(report.pages) == 1
+        assert report.articles == 0
+        assert report.links == []
+
+    async def test_report_counts_advertisers_not_links(self) -> None:
+        site = FakeSite(
+            {"/": self._article("https://one.com/a", "https://one.com/b", "https://two.com/")}
+        )
+
+        record = (await _crawl(site)).as_dict()
+
+        assert record["links_found"] == 3
+        assert record["advertisers"] == 2
+        assert record["roots_guessed"] == 0
+
+
+class TestNoDoubleWork:
+    async def test_home_page_listed_in_the_sitemap_is_not_fetched_again(self) -> None:
+        """Карта сайта почти всегда перечисляет главную, а её уже качала
+        проверка «сайт открывается». Найдено в базе: статей оказалось
+        больше, чем открытых страниц."""
+        site = FakeSite(
+            {"/": _page(), "/a": _page()},
+            sitemap=_urlset(f"https://{HOST}/", f"https://{HOST}/a"),
+        )
+
+        report = await _crawl(site)
+
+        assert site.opened.count("/") == 1
+        assert len(report.pages) == 2

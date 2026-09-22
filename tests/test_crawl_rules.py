@@ -18,6 +18,7 @@ import pytest
 from backend.features.crawl import robots as robots_module
 from backend.features.crawl.fetch import (
     FetchOutcome,
+    PageCascade,
     classify,
     headers_for,
     looks_like_antibot,
@@ -456,7 +457,18 @@ class TestIdentity:
     быть настоящими.
     """
 
-    def test_we_say_our_name_by_default(self) -> None:
+    def test_browser_headers_are_the_default(self) -> None:
+        """Решение по итогам замера: ходим тем, кого чаще пускают.
+
+        Замер на пяти донорах ниши: своим именем один из пяти закрывается
+        целиком, браузером — ни одного. Цена решения записана в каноне:
+        запрет, адресованный нашему имени, перестаёт срабатывать.
+        """
+        cascade = PageCascade(httpx.AsyncClient())
+
+        assert AGENT not in cascade._headers["User-Agent"]
+
+    def test_we_can_still_say_our_name(self) -> None:
         agent = headers_for(True)["User-Agent"]
 
         assert AGENT in agent

@@ -1,6 +1,7 @@
 """Модели. Импортируются здесь все — иначе Alembic не увидит часть таблиц."""
 
 from backend.features.core.models.access import AuditLogModel, UserModel
+from backend.features.core.models.crawl import CrawlRunModel, OutLinkModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.ops import SuppressionModel, UsageRecordModel
@@ -17,9 +18,11 @@ __all__ = [
     "AuditLogModel",
     "CampaignModel",
     "ContactModel",
+    "CrawlRunModel",
     "DomainModel",
     "DonorModel",
     "MessageModel",
+    "OutLinkModel",
     "ReplyModel",
     "RunModel",
     "RunSettingsModel",

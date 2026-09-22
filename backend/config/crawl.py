@@ -47,11 +47,17 @@ class _Crawl(DomainSettings):
     # запретить именно нас, и такой запрет обязан работать.
     user_agent_token: str = Field(default="ParsingPricesBot", validation_alias="CRAWL_UA_TOKEN")
     robots_timeout_sec: float = Field(default=10.0, validation_alias="CRAWL_ROBOTS_TIMEOUT_SEC")
-    # Представляться ли своим именем. Включено: соблюдать запрет,
-    # адресованный нашему имени, и называться при этом браузером —
-    # несовместимые вещи. Выключение даёт другую долю закрытых страниц,
-    # и замер стоит провести в обоих режимах, а не выбирать вслепую.
-    identify: bool = Field(default=True, validation_alias="CRAWL_IDENTIFY")
+    # Представляться ли своим именем. **Выключено — решение Anthony
+    # 22.09.2026 по итогам замера: «представляться тем, кого чаще
+    # и больше пускают».** Замер на пяти донорах ниши: своим именем
+    # 8,3% закрытых страниц и один донор из пяти недоступен целиком,
+    # браузерными заголовками — ноль и ноль (okf/crawl-access.md).
+    #
+    # Цена решения записана там же: запрет, адресованный нашему имени
+    # в robots.txt, перестаёт срабатывать — сайт вписал нас, а видит
+    # браузер. Общие правила (`User-agent: *`) соблюдаются по-прежнему
+    # и проверяются до первого запроса к страницам.
+    identify: bool = Field(default=False, validation_alias="CRAWL_IDENTIFY")
     # Сколько файлов sitemap читаем максимум (индекс ссылается на индексы).
     max_sitemap_files: int = Field(default=20, validation_alias="CRAWL_MAX_SITEMAP_FILES")
     # Сколько адресов берём из sitemap максимум. Крупный сайт отдаёт

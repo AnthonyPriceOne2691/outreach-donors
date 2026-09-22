@@ -272,9 +272,9 @@
       "worst": "cmd_contacts:62"
     },
     "backend/cli/crawl_probe.py": {
-      "lines": 201,
-      "complexity": 10,
-      "worst": "cmd_crawl:167"
+      "lines": 264,
+      "complexity": 18,
+      "worst": "_print_summary:143"
     },
     "backend/cli/demo_content.py": {
       "lines": 128,
@@ -332,7 +332,7 @@
       "worst": "—"
     },
     "backend/config/crawl.py": {
-      "lines": 102,
+      "lines": 108,
       "complexity": 0,
       "worst": "—"
     },
@@ -497,12 +497,12 @@
       "worst": "—"
     },
     "backend/features/core/domain.py": {
-      "lines": 178,
+      "lines": 200,
       "complexity": 0,
       "worst": "—"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 32,
+      "lines": 35,
       "complexity": 0,
       "worst": "—"
     },
@@ -515,6 +515,11 @@
       "lines": 84,
       "complexity": 2,
       "worst": "_enum:28"
+    },
+    "backend/features/core/models/crawl.py": {
+      "lines": 109,
+      "complexity": 2,
+      "worst": "_enum:29"
     },
     "backend/features/core/models/domain.py": {
       "lines": 37,
@@ -551,6 +556,11 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/crawl/article.py": {
+      "lines": 208,
+      "complexity": 7,
+      "worst": "_by_density:161"
+    },
     "backend/features/crawl/fetch.py": {
       "lines": 307,
       "complexity": 7,
@@ -566,6 +576,16 @@
       "complexity": 3,
       "worst": "__init__:55"
     },
+    "backend/features/crawl/links.py": {
+      "lines": 227,
+      "complexity": 11,
+      "worst": "collect_links:139"
+    },
+    "backend/features/crawl/repository.py": {
+      "lines": 70,
+      "complexity": 3,
+      "worst": "save_crawl:26"
+    },
     "backend/features/crawl/robots.py": {
       "lines": 271,
       "complexity": 10,
@@ -577,9 +597,9 @@
       "worst": "scan:119"
     },
     "backend/features/crawl/walk.py": {
-      "lines": 425,
-      "complexity": 7,
-      "worst": "same_site_links:136"
+      "lines": 453,
+      "complexity": 8,
+      "worst": "_walk:302"
     },
     "backend/features/donors/__init__.py": {
       "lines": 1,
@@ -1015,6 +1035,11 @@
       "lines": 311,
       "complexity": 8,
       "worst": "_python_files:52"
+    },
+    "scripts/measure_outlinks.py": {
+      "lines": 331,
+      "complexity": 10,
+      "worst": "measure:256"
     },
     "scripts/measure_units.py": {
       "lines": 160,
