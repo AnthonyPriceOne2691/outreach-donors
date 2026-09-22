@@ -45,13 +45,21 @@ def _print_report(pool_size: int, cap: int, report: PoolReport) -> None:
         print(f"  {angle:22} {count}")
 
 
+def _about(topic: str) -> str:
+    """Тема в шапке вывода. Пустая называется вслух: пул без темы выходит
+    широким, и узнать об этом лучше до выдачи, чем по её результатам."""
+    return f", тема: {topic}" if topic else ", тема не задана — пул широкий"
+
+
 async def cmd_keywords(args: argparse.Namespace) -> int:
     """Собрать пул и записать его в файл."""
     client = KeygenClient()
-    print(f"Модель: {client.model}. Пресет: {args.preset}, рынок: {args.country}.")
+    print(
+        f"Модель: {client.model}. Пресет: {args.preset}, рынок: {args.country}{_about(args.topic)}."
+    )
 
     try:
-        pool = await PoolBuilder(client).build(
+        pool = await PoolBuilder(client, topic=args.topic).build(
             cap=args.cap,
             country=args.country,
             language=args.language,
@@ -92,4 +100,10 @@ def add_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-ar
     parser.add_argument("--country", required=True, help="рынок: «Philippines», «Germany»")
     parser.add_argument("--language", default="English", help="язык запросов: «Filipino», «German»")
     parser.add_argument("--cap", type=int, default=100, help="сколько ключей нужно")
+    parser.add_argument(
+        "--topic",
+        default="",
+        help="про что ключи: «ставки на спорт», «уход за собаками». "
+        "Без темы пул выходит широким — «обзоры в стране X», а не «обзоры про Y»",
+    )
     parser.add_argument("--out", required=True, help="файл со списком ключей на выходе")

@@ -46,6 +46,7 @@ class PoolReport:
     country: str
     language: str
     cap: int
+    topic: str = ""  # про что просили; пусто — широкий пул
     asked: int = 0  # сколько фраз попросили у модели суммарно
     received: int = 0  # сколько пришло до отсева
     rejected: dict[str, str] = field(default_factory=dict)  # фраза → причина
@@ -63,6 +64,7 @@ class PoolReport:
             "preset": self.preset_name,
             "country": self.country,
             "language": self.language,
+            "topic": self.topic,
             "cap": self.cap,
             "asked": self.asked,
             "received": self.received,
@@ -84,16 +86,29 @@ class Pool:
     report: PoolReport
 
 
-def build_user_prompt(*, country: str, language: str, angle: Angle) -> str:
-    """Просьба к модели: рынок, язык и угол.
+def build_user_prompt(*, country: str, language: str, angle: Angle, topic: str = "") -> str:
+    """Просьба к модели: рынок, язык, тема и угол.
 
     Требование писать на языке рынка стоит отдельной строкой и с нажимом:
     без него модель переводит английские примеры буквально, а такими
     фразами никто не ищет.
+
+    **Тема — то, чего у генерации не было вовсе.** В промпт уходили только
+    страна, язык и угол, поэтому пул получался «обзоры в стране X»,
+    а не «обзоры про Y в стране X»: прогон по ЮАР с пресетом обзоров
+    выдал интернет-провайдеров там, где нужны были ставки. Пустая тема —
+    законный исход: широкий пул иногда и нужен.
     """
+    about = (
+        f"topic: EVERY query must be about {topic}. Queries about anything else "
+        f"are useless to us.\n"
+        if topic.strip()
+        else ""
+    )
     return (
         f"market/country: {country}\n"
         f"language: {language}\n"
+        f"{about}"
         f"CRITICAL: write EVERY query ONLY in {language}, using its native script. "
         f"Do NOT mix in any other language. Examples in the instructions show STYLE only — "
         f"express that intent natively.\n"
@@ -150,8 +165,9 @@ def _log_dry(report: PoolReport, *, collected: list[str], cap: int) -> None:
 class PoolBuilder:
     """Сборка пула для одной пары «рынок и язык»."""
 
-    def __init__(self, client: KeygenClient) -> None:
+    def __init__(self, client: KeygenClient, *, topic: str = "") -> None:
         self._client = client
+        self._topic = topic.strip()
 
     async def build(
         self,
@@ -163,7 +179,11 @@ class PoolBuilder:
     ) -> Pool:
         angles = preset(preset_name)
         report = PoolReport(
-            preset_name=(preset_name or "wide"), country=country, language=language, cap=cap
+            preset_name=(preset_name or "wide"),
+            country=country,
+            language=language,
+            cap=cap,
+            topic=self._topic,
         )
         if cap <= 0:
             return Pool(keywords=[], report=report)
@@ -207,7 +227,9 @@ class PoolBuilder:
         raw = await self._client.ask(
             Ask(
                 system=system,
-                user=build_user_prompt(country=country, language=language, angle=angle),
+                user=build_user_prompt(
+                    country=country, language=language, angle=angle, topic=self._topic
+                ),
                 max_phrases=request,
             )
         )
