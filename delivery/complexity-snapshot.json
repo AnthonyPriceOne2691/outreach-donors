@@ -271,6 +271,11 @@
       "complexity": 4,
       "worst": "cmd_contacts:62"
     },
+    "backend/cli/crawl_probe.py": {
+      "lines": 201,
+      "complexity": 10,
+      "worst": "cmd_crawl:167"
+    },
     "backend/cli/demo_content.py": {
       "lines": 128,
       "complexity": 0,
@@ -292,9 +297,9 @@
       "worst": "_print_build:82"
     },
     "backend/cli/main.py": {
-      "lines": 357,
+      "lines": 361,
       "complexity": 9,
-      "worst": "_print_report:202"
+      "worst": "_print_report:204"
     },
     "backend/cli/senders_admin.py": {
       "lines": 134,
@@ -323,6 +328,11 @@
     },
     "backend/config/contacts.py": {
       "lines": 91,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/config/crawl.py": {
+      "lines": 102,
       "complexity": 0,
       "worst": "—"
     },
@@ -535,6 +545,41 @@
       "lines": 86,
       "complexity": 3,
       "worst": "record:49"
+    },
+    "backend/features/crawl/__init__.py": {
+      "lines": 5,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/features/crawl/fetch.py": {
+      "lines": 307,
+      "complexity": 7,
+      "worst": "classify:141"
+    },
+    "backend/features/crawl/health.py": {
+      "lines": 106,
+      "complexity": 4,
+      "worst": "verdict:85"
+    },
+    "backend/features/crawl/limiter.py": {
+      "lines": 125,
+      "complexity": 3,
+      "worst": "__init__:55"
+    },
+    "backend/features/crawl/robots.py": {
+      "lines": 271,
+      "complexity": 10,
+      "worst": "_collect_groups:191"
+    },
+    "backend/features/crawl/sitemap.py": {
+      "lines": 202,
+      "complexity": 15,
+      "worst": "scan:119"
+    },
+    "backend/features/crawl/walk.py": {
+      "lines": 425,
+      "complexity": 7,
+      "worst": "same_site_links:136"
     },
     "backend/features/donors/__init__.py": {
       "lines": 1,
@@ -902,9 +947,9 @@
       "worst": "—"
     },
     "backend/shared/net/retry.py": {
-      "lines": 128,
+      "lines": 135,
       "complexity": 7,
-      "worst": "with_retries:78"
+      "worst": "with_retries:85"
     },
     "backend/shared/net/url_guard.py": {
       "lines": 168,

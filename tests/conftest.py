@@ -151,7 +151,11 @@ def _no_waiting_between_retries(monkeypatch: pytest.MonkeyPatch) -> None:
     async def no_waiting(_self: object) -> None:
         return None
 
-    monkeypatch.setattr("backend.shared.net.retry.asyncio.sleep", instant)
+    # Гасится имя в модуле повторов, а не `asyncio.sleep` целиком: второе
+    # правит сам модуль asyncio и молча ускоряет любой другой сон в проекте.
+    # Поймано тестом паузы обхода: он видел ноль вместо пятидесяти
+    # миллисекунд и выглядел как дефект ограничителя.
+    monkeypatch.setattr("backend.shared.net.retry._sleep", instant)
     # Ограничитель частоты гасится целиком, а не через сон: его окно
     # считается по часам, и «сон без сна» превращает ожидание
     # в холостой цикл на настоящую минуту. Поймано ровно так: набор

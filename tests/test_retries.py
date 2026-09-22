@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import time
+
 import httpx
 import pytest
 from backend.shared.net.retry import MAX_DELAY_SEC, RETRY_STATUSES, delay_for, with_retries
@@ -88,3 +90,22 @@ class TestHowLongWeWait:
         response = httpx.Response(429, headers={"Retry-After": "sometime-later"})
 
         assert delay_for(1, response) > 0
+
+
+class TestSilencingStaysLocal:
+    """Оснастка, гасящая паузы, обязана гасить только свои.
+
+    `monkeypatch` по `retry.asyncio.sleep` правит сам модуль `asyncio`:
+    вместе с повторами он ускоряет ограничитель обхода на домен, опрос
+    отложенной выдачи и фоновые проходы — и любой тест про время после
+    этого меряет не то, что написано в его имени. Поймано тестом паузы
+    обхода, который видел ноль вместо пятидесяти миллисекунд.
+    """
+
+    async def test_global_sleep_is_left_alone(self) -> None:
+        import asyncio  # noqa: PLC0415 — проверяем именно глобальный модуль
+
+        started = time.monotonic()
+        await asyncio.sleep(0.02)
+
+        assert time.monotonic() - started >= 0.015

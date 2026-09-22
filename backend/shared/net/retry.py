@@ -28,6 +28,13 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+#: Пауза вынесена отдельным именем, чтобы тест гасил её здесь, а не у всего
+#: процесса. `monkeypatch` по `retry.asyncio.sleep` правит сам модуль
+#: `asyncio` — то есть молча ускоряет любой другой сон в проекте, включая
+#: ограничитель обхода на домен и опрос отложенной выдачи. Поймано ровно
+#: так: тест паузы обхода видел ноль секунд вместо пятидесяти миллисекунд.
+_sleep = asyncio.sleep
+
 #: Коды, которые проходят сами: перегрузка, обрыв у посредника, частота.
 RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 
@@ -56,7 +63,7 @@ class RateLimiter:
                 if len(self._times) < self.per_minute:
                     self._times.append(now)
                     return
-                await asyncio.sleep(60.0 - (now - self._times[0]) + 0.01)
+                await _sleep(60.0 - (now - self._times[0]) + 0.01)
 
 
 def delay_for(attempt: int, response: httpx.Response | None = None) -> float:
@@ -105,7 +112,7 @@ async def with_retries(
                 attempt + 1,
                 attempts,
             )
-            await asyncio.sleep(pause)
+            await _sleep(pause)
             continue
 
         if last.status_code not in RETRY_STATUSES or attempt == attempts - 1:
@@ -120,7 +127,7 @@ async def with_retries(
             attempt + 1,
             attempts,
         )
-        await asyncio.sleep(pause)
+        await _sleep(pause)
 
     # Недостижимо: последняя попытка либо вернула ответ, либо подняла
     # исключение. Строка нужна типизатору и тому, кто правит цикл.
