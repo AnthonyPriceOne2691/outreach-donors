@@ -307,9 +307,9 @@
       "worst": "_add_reply:285"
     },
     "backend/cli/keywords_pool.py": {
-      "lines": 89,
+      "lines": 96,
       "complexity": 5,
-      "worst": "cmd_keywords:41"
+      "worst": "cmd_keywords:48"
     },
     "backend/cli/letters_queue.py": {
       "lines": 146,
@@ -382,7 +382,7 @@
       "worst": "—"
     },
     "backend/config/startup_checks.py": {
-      "lines": 133,
+      "lines": 140,
       "complexity": 3,
       "worst": "_raise_if_missing:35"
     },
