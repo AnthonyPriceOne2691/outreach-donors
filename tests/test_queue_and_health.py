@@ -79,6 +79,26 @@ class TestSandboxDoesNotSpend:
         with pytest.raises(ConfigError, match=r"[Пп]есочниц"):
             check_collect()
 
+    def test_sandbox_without_key_refused_the_same_way(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Без ключа песочница отказывает тем же отказом, а не «нужен ключ».
+
+        Раньше выходил тупик: с ключом отказ советовал ключ убрать, без ключа
+        отказ требовал ключ вернуть. Совет вёл в другую ошибку, и пройти
+        по нему было нельзя — а тесты этого не видели, потому что все они
+        ставили ключ на место.
+        """
+        monkeypatch.setattr("backend.config.serp.SANDBOX", True)
+        monkeypatch.setattr("backend.config.ahrefs.API_KEY", "")
+        monkeypatch.setattr("backend.config.serp.PROVIDER", "dataforseo")
+
+        with pytest.raises(ConfigError) as failure:
+            check_collect()
+
+        assert "SERP_SANDBOX" in str(failure.value)
+        assert "AHREFS_API_KEY" not in str(failure.value), "совет вёл бы в другую ошибку"
+
     def test_refusal_says_what_to_do(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("backend.config.serp.SANDBOX", True)
         monkeypatch.setattr("backend.config.ahrefs.API_KEY", "живой-ключ")
@@ -87,8 +107,8 @@ class TestSandboxDoesNotSpend:
         with pytest.raises(ConfigError) as failure:
             check_collect()
 
-        assert "AHREFS_API_KEY" in str(failure.value)
         assert "SERP_SANDBOX" in str(failure.value)
+        assert "выключите" in str(failure.value), "отказ обязан называть выход"
 
     def test_live_run_still_allowed(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Боевой прогон не задет: запрет ровно на сочетание."""

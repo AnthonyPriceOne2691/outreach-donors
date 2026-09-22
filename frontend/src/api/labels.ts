@@ -93,6 +93,9 @@ export const CONTACT_STATUSES: Record<ContactStatus, { title: string; color: str
   form_only: { title: 'только форма', color: 'yellow' },
   no_quota: { title: 'кончилась квота', color: 'yellow' },
   rate_limited: { title: 'предел запросов', color: 'yellow' },
+  // Красный, а не жёлтый: жёлтое оператор ждёт, а здесь ждать нечего —
+  // пока учётку не откроют, платная ступень мертва по всем доменам.
+  blocked: { title: 'учётка закрыта', color: 'red' },
   error: { title: 'ошибка поиска', color: 'red' },
 };
 

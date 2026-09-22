@@ -39,8 +39,18 @@ NOISE_TAGS: tuple[str, ...] = (
     "nav", "header", "footer", "aside",
 )  # fmt: skip
 
-#: Имена, которыми движки называют не-статью. Ищутся в `class` и `id`
-#: подстрокой: вариантов написания больше, чем стоит перечислять.
+#: Имена, которыми движки называют не-статью. Ищутся **началом токена**
+#: `class` или `id`, а не подстрокой. Подстрока стоила целого донора:
+#: у него статья лежала в `<main class="site-content has-sidebar …">`,
+#: и слово `sidebar` внутри названия РАСКЛАДКИ уносило `<main>` вместе
+#: со статьёй — страница выглядела как «не статья», а не как ошибка.
+#: Настоящий сайдбар там же рядом, `<aside class="sidebar">`, и он
+#: убирается по тегу. Тот же класс ошибки, что `bet` внутри `better`
+#: в скоринге ссылок, где её уже чинили границами слова.
+#:
+#: Начало токена, а не всё слово целиком: движки называют блоки
+#: `sidebar-wrapper` и `menu-primary` — их убирать надо, — а модификаторы
+#: раскладки пишут наоборот, `has-sidebar`, `with-nav`.
 NOISE_MARKERS: tuple[str, ...] = (
     "nav", "menu", "sidebar", "footer", "header", "breadcrumb",
     "comment", "share", "social", "related", "recommend", "popular",
@@ -72,6 +82,13 @@ MIN_BODY_CHARS = 400
 #: и любое значение в середине разделяет их одинаково.
 MAX_LINK_DENSITY = 0.5
 
+#: Доля текста страницы, выше которой блок шумом не считается, как бы он
+#: ни назывался. Меню и подвал — это края страницы, а не сама страница:
+#: блок, в котором лежит почти весь текст, — обёртка вёрстки, и выбросить
+#: её значит выбросить статью. Страховка на случай имени, которого нет
+#: в списке, и написания, которого мы не предвидели.
+MAX_NOISE_SHARE = 0.6
+
 
 class BodySource(StrEnum):
     """Чем нашли тело. Едет в отчёт: способ говорит, насколько верить."""
@@ -94,13 +111,25 @@ class Article:
         return len(self.text)
 
 
+def _marks_noise(name: str) -> bool:
+    """Токен `class`/`id` называет не-статью.
+
+    Сравнивается началом токена: `sidebar` и `sidebar-wrapper` — да,
+    `has-sidebar` — нет. В первом случае имя говорит, чем блок является,
+    во втором — что рядом с ним лежит.
+    """
+    return any(
+        name == marker or name.startswith((f"{marker}-", f"{marker}_")) for marker in NOISE_MARKERS
+    )
+
+
 def _is_noise(node: Node) -> bool:
     """Блок, который статьёй не бывает, — по тегу или по имени класса."""
     if node.tag in NOISE_TAGS:
         return True
     attrs = node.attributes
     names = f"{attrs.get('class') or ''} {attrs.get('id') or ''}".lower()
-    return any(marker in names for marker in NOISE_MARKERS)
+    return any(_marks_noise(token) for token in names.split())
 
 
 def strip_structural_noise(tree: HTMLParser) -> None:
@@ -116,16 +145,40 @@ def strip_structural_noise(tree: HTMLParser) -> None:
             node.decompose()
 
 
+def _holds_the_page(node: Node, total: int) -> bool:
+    """Блок держит почти весь текст страницы — значит это обёртка вёрстки.
+
+    Выбросить её значит выбросить статью, как бы блок ни назывался.
+    Говорится вслух: молчаливый пропуск правила читался бы потом как
+    «правило не сработало».
+    """
+    if not total or len(_text_of(node)) / total <= MAX_NOISE_SHARE:
+        return False
+    logger.warning(
+        "чистка шума: блок <%s class=%r> держит почти весь текст страницы — "
+        "это обёртка вёрстки, а не шум, оставляем",
+        node.tag,
+        (node.attributes.get("class") or "")[:80],
+    )
+    return True
+
+
 def strip_noise(tree: HTMLParser) -> None:
     """Выбросить из дерева всё, что не бывает статьёй.
 
     Делается до поиска тела, а не после: блок «читайте также» лежит
     внутри `<article>` у половины движков, и найдя тело первым, мы взяли
     бы его ссылки вместе со статьёй.
+
+    **Блок с почти всем текстом страницы не выбрасывается никогда** —
+    см. `MAX_NOISE_SHARE`. Без этой страховки одно неудачное имя класса
+    превращает страницу в «не статья», и отличить это от честного
+    «страница статьёй не является» нельзя ничем.
     """
+    total = len(_text_of(tree.body)) if tree.body else 0
     for node in tree.css("*"):
         # Узел мог быть удалён вместе с родителем — у такого нет тега.
-        if node.tag and _is_noise(node):
+        if node.tag and _is_noise(node) and not _holds_the_page(node, total):
             node.decompose()
 
 

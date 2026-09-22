@@ -35,7 +35,7 @@ from backend.config import llm as cfg
 from backend.features.letters import masking
 from backend.features.letters.compose import Rendered
 from backend.features.letters.guards import metrics_leak
-from backend.shared.llm import content_of, is_reasoning, post_chat, tokens_of
+from backend.shared.llm import Refusal, content_of, is_reasoning, post_chat, tokens_of
 
 logger = logging.getLogger(__name__)
 
@@ -183,8 +183,10 @@ class RewriteClient:
             payload=build_payload(self._model, zones=masked, about=about),
             topic=TOPIC,
         )
-        if body is None:
-            return RewriteResult(notes=["модель недоступна или отказала — причина в логе"])
+        if isinstance(body, Refusal):
+            # Причина называется в ноте, а не только в логе: ноту видит
+            # оператор в предпросмотре письма, лог — никто.
+            return RewriteResult(notes=[str(body)])
 
         return self._collect(body, zones=zones, labels=labels)
 

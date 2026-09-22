@@ -44,6 +44,7 @@ from backend.features.contacts.pages import (
 )
 from backend.features.contacts.provider import (
     ContactProvider,
+    ProviderBlockedError,
     ProviderError,
     ProviderQuotaError,
     ProviderRateLimitError,
@@ -78,6 +79,12 @@ class StepCounters:
     rdap_failed: int = 0
     provider_entered: int = 0  # столько раз платили
     provider_found: int = 0
+    #: Столько раз ступень отказала — отдельно от «не нашли». Живой прогон
+    #: 22.09.2026 показал, зачем: учётка была закрыта, ступень отказывала
+    #: на каждом домене, а отчёт печатал «вошло 2, нашли 0» — то есть
+    #: неотличимо от «провайдер этих доменов не знает».
+    provider_refused: int = 0
+    provider_refusal: str = ""  # чем именно отказала, дословно
     form_only: int = 0
     manual_queued: int = 0
     not_found: int = 0
@@ -110,6 +117,7 @@ class StepCounters:
             "rdap_failed": self.rdap_failed,
             "provider_entered": self.provider_entered,
             "provider_found": self.provider_found,
+            "provider_refused": self.provider_refused,
             "form_only": self.form_only,
             "manual_queued": self.manual_queued,
             "not_found": self.not_found,
@@ -365,6 +373,13 @@ class ContactLadder:
             collected.add(candidate)
         return None
 
+    def _note_refusal(self, reason: str) -> None:
+        """Записать отказ ступени. Первый отказ сохраняется дословно:
+        последующие обычно тот же самый, а первый ближе к причине."""
+        self.counters.provider_refused += 1
+        if not self.counters.provider_refusal:
+            self.counters.provider_refusal = reason
+
     async def _step_provider(self, host: str, collected: _Collected) -> ContactStatus | None:
         """Платная ступень. Возвращает исход, если платить не вышло."""
         if self._provider is None:
@@ -374,13 +389,23 @@ class ContactLadder:
         self.counters.provider_entered += 1
         try:
             candidates = await self._provider.find_emails(host)
+        except ProviderBlockedError as exc:
+            self._note_refusal(str(exc))
+            # Раньше этот случай приезжал сюда как «частота» и лестница
+            # бодро шла по следующему домену. Ловится первым: он потомок
+            # ProviderError, и порядок веток решает.
+            logger.exception("контакты: платный сервис закрыл учётку — %s", exc)
+            return ContactStatus.BLOCKED
         except ProviderQuotaError as exc:
+            self._note_refusal(str(exc))
             logger.warning("контакты: квота платного сервиса исчерпана на %s — %s", host, exc)
             return ContactStatus.NO_QUOTA
         except ProviderRateLimitError as exc:
+            self._note_refusal(str(exc))
             logger.warning("контакты: платный сервис ограничил частоту на %s — %s", host, exc)
             return ContactStatus.RATE_LIMITED
         except ProviderError as exc:
+            self._note_refusal(str(exc))
             logger.exception("контакты: платный сервис не ответил по %s — %s", host, exc)
             return ContactStatus.ERROR
 

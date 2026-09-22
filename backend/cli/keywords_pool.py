@@ -33,6 +33,13 @@ def _print_report(pool_size: int, cap: int, report: PoolReport) -> None:
     print(f"Почти-дублей убрано: {data['near_duplicates']}")
     print(f"Кругов добора:       {data['rounds']}")
     print(f"Вызовов модели:      {data['calls']}, токенов {data['tokens']}")
+    if report.refusals:
+        # Печатается только когда есть что сказать, но печатается всегда,
+        # когда есть: пул, собранный наполовину из-за отказов, внешне
+        # неотличим от пула, который модель честно не смогла набрать.
+        print(f"Отказов модели:      {data['refusals']}")
+        for reason in dict.fromkeys(report.refusals):
+            print(f"  {reason}")
     print("\nПо углам:")
     for angle, count in report.per_angle.items():
         print(f"  {angle:22} {count}")

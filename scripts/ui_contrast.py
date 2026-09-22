@@ -192,7 +192,11 @@ SCREENS: dict[str, dict] = {
     },
     "advertisers": {
         "path": "/advertisers",
-        "ready": ("button", "Пишем"),
+        # Готовность — по заголовку, а не по кнопке строки: очередь спорных
+        # бывает пустой, и тогда кнопки нет вовсе. Замер 22.09.2026 на этом
+        # и встал: экран был исправен, а измерить его было нечем. Строки
+        # достаёт подготовка — переключателем «показывать решённые».
+        "ready": ("heading", "Рекламодатели: спорные"),
         "probes": [
             ("заголовок раздела", "h3", BIG),
             ("пояснение под ним", "p.mantine-Text-root", NORM),
@@ -268,6 +272,51 @@ def measurable(page, selector):
     return el, None
 
 
+def estimate(page):
+    """Ключ один и настоящий: смета — бесплатный запрос, она
+    спрашивает остаток у провайдера и ничего не покупает."""
+    page.get_by_label("Ключевые слова").fill("ремонт квартир")
+    page.get_by_role("button", name="Посчитать смету").click()
+    # Ждём именно того, ради чего смета и считается: пока кнопка
+    # запуска не ожила, мерить у неё нечего.
+    expect(page.get_by_role("button", name="Запустить")).to_be_enabled()
+    page.wait_for_timeout(400)
+
+
+def fill_target(page):
+    """Главная кнопка экрана оживает только с заполненным полем.
+
+    Тот же урок, что со сметой: у выключенной кнопки меряется
+    серое на сером, и она выглядит безупречной, ни разу
+    не проверенной.
+    """
+    page.get_by_label("Домен или адрес").fill("supplier.example.test")
+    expect(page.get_by_role("button", name="Больше не писать")).to_be_enabled()
+    page.wait_for_timeout(200)
+
+
+def show_decided(page):
+    """Достать строки, когда очередь спорных пуста.
+
+    Решённые лежат за переключателем. Без них на экране нет ни таблицы,
+    ни причин балла, ни кнопки — то есть ровно того, ради чего экран
+    и меряют. Правило «каждый экран меряется» без этого невыполнимо,
+    а невыполнимое правило не выполняется.
+    """
+    if page.locator("table tbody tr").count() == 0:
+        page.get_by_role("switch", name="Показывать решённые").click()
+        page.wait_for_timeout(500)
+
+
+#: Что сделать на экране до замера. Общего у этих шагов нет ничего, кроме
+#: повода: мерить нечего, пока экран пуст или главная кнопка выключена.
+PREPARE = {
+    "run": estimate,
+    "suppressions": fill_target,
+    "advertisers": show_decided,
+}
+
+
 def run(page, scheme, shot, probes, prepare=None):
     page.evaluate("s => localStorage.setItem('mantine-color-scheme-value', s)", scheme)
     page.reload()
@@ -338,31 +387,7 @@ def main(argv: list[str]) -> int:
         role, name = target["ready"]
         expect(page.get_by_role(role, name=name).first).to_be_visible()
 
-        def estimate(page):
-            """Ключ один и настоящий: смета — бесплатный запрос, она
-            спрашивает остаток у провайдера и ничего не покупает."""
-            page.get_by_label("Ключевые слова").fill("ремонт квартир")
-            page.get_by_role("button", name="Посчитать смету").click()
-            # Ждём именно того, ради чего смета и считается: пока кнопка
-            # запуска не ожила, мерить у неё нечего.
-            expect(page.get_by_role("button", name="Запустить")).to_be_enabled()
-            page.wait_for_timeout(400)
-
-        def fill_target(page):
-            """Главная кнопка экрана оживает только с заполненным полем.
-
-            Тот же урок, что со сметой: у выключенной кнопки меряется
-            серое на сером, и она выглядит безупречной, ни разу
-            не проверенной.
-            """
-            page.get_by_label("Домен или адрес").fill("supplier.example.test")
-            expect(page.get_by_role("button", name="Больше не писать")).to_be_enabled()
-            page.wait_for_timeout(200)
-
-        # Что сделать на экране до замера. Не у всех экранов есть такой
-        # шаг, и общего у этих двух нет ничего, кроме повода: главная
-        # кнопка выключена, пока человек чего-то не ввёл.
-        prepare = {"run": estimate, "suppressions": fill_target}.get(screen)
+        prepare = PREPARE.get(screen)
         wanted = target.get("open_row_with")
         if wanted:
             # Экран-карточка открывается из списка: адрес у неё с номером,

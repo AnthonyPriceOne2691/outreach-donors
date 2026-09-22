@@ -54,6 +54,7 @@ class ContactStatus(StrEnum):
     FORM_ONLY = "form_only"
     NO_QUOTA = "no_quota"
     RATE_LIMITED = "rate_limited"
+    BLOCKED = "blocked"  # учётку у провайдера закрыли: повтор не поможет
     ERROR = "error"
 
 

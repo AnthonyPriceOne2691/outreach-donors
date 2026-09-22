@@ -287,9 +287,9 @@
       "worst": "_print_summary:147"
     },
     "backend/cli/contact_search.py": {
-      "lines": 90,
+      "lines": 94,
       "complexity": 4,
-      "worst": "cmd_contacts:62"
+      "worst": "_print_report:24"
     },
     "backend/cli/crawl_probe.py": {
       "lines": 309,
@@ -307,9 +307,9 @@
       "worst": "_add_reply:285"
     },
     "backend/cli/keywords_pool.py": {
-      "lines": 89,
+      "lines": 96,
       "complexity": 5,
-      "worst": "cmd_keywords:41"
+      "worst": "cmd_keywords:48"
     },
     "backend/cli/letters_queue.py": {
       "lines": 146,
@@ -382,7 +382,7 @@
       "worst": "—"
     },
     "backend/config/startup_checks.py": {
-      "lines": 133,
+      "lines": 140,
       "complexity": 3,
       "worst": "_raise_if_missing:35"
     },
@@ -472,9 +472,9 @@
       "worst": "monthly_left:94"
     },
     "backend/features/contacts/ladder.py": {
-      "lines": 442,
+      "lines": 467,
       "complexity": 10,
-      "worst": "_step_pages:270"
+      "worst": "_step_pages:278"
     },
     "backend/features/contacts/mx.py": {
       "lines": 207,
@@ -487,9 +487,9 @@
       "worst": "get:194"
     },
     "backend/features/contacts/provider.py": {
-      "lines": 180,
-      "complexity": 10,
-      "worst": "_call:92"
+      "lines": 221,
+      "complexity": 8,
+      "worst": "find_emails:185"
     },
     "backend/features/contacts/quality.py": {
       "lines": 216,
@@ -507,9 +507,9 @@
       "worst": "save_addresses:59"
     },
     "backend/features/contacts/search.py": {
-      "lines": 175,
+      "lines": 193,
       "complexity": 9,
-      "worst": "search_contacts:118"
+      "worst": "search_contacts:135"
     },
     "backend/features/core/__init__.py": {
       "lines": 1,
@@ -517,7 +517,7 @@
       "worst": "—"
     },
     "backend/features/core/domain.py": {
-      "lines": 220,
+      "lines": 221,
       "complexity": 0,
       "worst": "—"
     },
@@ -587,9 +587,9 @@
       "worst": "—"
     },
     "backend/features/crawl/article.py": {
-      "lines": 208,
+      "lines": 261,
       "complexity": 7,
-      "worst": "_by_density:161"
+      "worst": "_by_density:214"
     },
     "backend/features/crawl/contacts.py": {
       "lines": 110,
@@ -717,9 +717,9 @@
       "worst": "preset:116"
     },
     "backend/features/keywords/client.py": {
-      "lines": 122,
-      "complexity": 4,
-      "worst": "__init__:76"
+      "lines": 157,
+      "complexity": 5,
+      "worst": "ask:124"
     },
     "backend/features/keywords/dedup.py": {
       "lines": 94,
@@ -727,9 +727,9 @@
       "worst": "interleave:57"
     },
     "backend/features/keywords/generator.py": {
-      "lines": 205,
+      "lines": 255,
       "complexity": 6,
-      "worst": "_backfill:167"
+      "worst": "_backfill:223"
     },
     "backend/features/keywords/hygiene.py": {
       "lines": 187,
@@ -797,7 +797,7 @@
       "worst": "edit:54"
     },
     "backend/features/letters/rewrite.py": {
-      "lines": 265,
+      "lines": 267,
       "complexity": 7,
       "worst": "parse_zones:120"
     },
@@ -887,7 +887,7 @@
       "worst": "_header_says:57"
     },
     "backend/features/replies/extract.py": {
-      "lines": 322,
+      "lines": 325,
       "complexity": 7,
       "worst": "temper:164"
     },
@@ -1012,9 +1012,9 @@
       "worst": "is_demo:19"
     },
     "backend/shared/llm.py": {
-      "lines": 96,
+      "lines": 168,
       "complexity": 6,
-      "worst": "content_of:83"
+      "worst": "post_chat:93"
     },
     "backend/shared/logs/__init__.py": {
       "lines": 6,
@@ -1117,9 +1117,9 @@
       "worst": "_select:46"
     },
     "scripts/ui_contrast.py": {
-      "lines": 387,
+      "lines": 412,
       "complexity": 9,
-      "worst": "main:311"
+      "worst": "main:360"
     }
   }
 }

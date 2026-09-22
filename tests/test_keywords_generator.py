@@ -24,6 +24,7 @@ class FakeClient:
         self.asked: list[int] = []  # сколько фраз просили каждый раз
         self.tokens_spent = 0
         self.calls = 0
+        self.refusals: list[str] = []
 
     async def ask(self, ask: Ask) -> list[str]:
         self.asked.append(ask.max_phrases)
@@ -32,6 +33,73 @@ class FakeClient:
         if not self.answers:
             return []
         return self.answers.pop(0)
+
+
+class RefusingClient:
+    """Модель, которая не отвечает: так выглядит протухший ключ.
+
+    Заведена потому, что прежняя заглушка умела только «модель ответила
+    пустым», а отказ и пустой ответ давали один и тот же `[]` — и отчёт
+    называл неработающий ключ исчерпанной фантазией.
+    """
+
+    def __init__(self) -> None:
+        self.asked: list[int] = []
+        self.tokens_spent = 0
+        self.calls = 0
+        self.refusals: list[str] = []
+
+    async def ask(self, ask: Ask) -> list[str]:
+        self.asked.append(ask.max_phrases)
+        self.calls += 1
+        self.refusals.append("модель, отказ (чинить): HTTP 401: ключ не принят")
+        return []
+
+
+class TestModelRefusal:
+    async def test_permanent_refusal_stops_asking(self) -> None:
+        """Живой прогон с протухшим ключом сделал двенадцать обречённых
+        вызовов — по углу на каждый круг добора, и каждый ещё с повторами.
+
+        Отказ, названный неисправимым, повторять незачем: считаем его
+        всем углам, но по сети идём один раз.
+        """
+        transport = httpx.MockTransport(
+            lambda request: httpx.Response(401, json={"error": {"message": "ключ не принят"}})
+        )
+        async with httpx.AsyncClient(transport=transport) as http:
+            client = KeygenClient(http, api_key="k")
+            with pytest.raises(LlmError):
+                await PoolBuilder(client).build(cap=10, country="US")
+
+        assert client.calls == 1, "по сети сходили больше одного раза"
+        assert len(client.refusals) > 1, "отказ не посчитан остальным углам"
+
+    async def test_empty_pool_from_refusals_is_loud(self) -> None:
+        """Пустой пул из-за отказов — ошибка, а не результат: пул собирается
+        ДО траты на выдачу, и молчаливый ноль пускает прогон идти ни за чем."""
+        builder = PoolBuilder(RefusingClient())  # type: ignore[arg-type]
+
+        with pytest.raises(LlmError, match="модель отказала"):
+            await builder.build(cap=10, country="US")
+
+    async def test_empty_pool_without_refusals_stays_a_result(self) -> None:
+        """Модель отвечала, фразы не прошли отбор — это законный исход,
+        и ошибкой он становиться не должен."""
+        pool = await PoolBuilder(FakeClient([])).build(cap=10, country="US")  # type: ignore[arg-type]
+
+        assert pool.keywords == []
+        assert pool.report.refusals == []
+
+    async def test_refusals_are_counted_in_the_report(self) -> None:
+        """Доля «не знаю» — отдельное число в отчёте, а не отсутствие записи."""
+        client = FakeClient([_phrases("тема", 10)])
+        client.refusals = ["модель, сеть (можно повторить): обрыв"]
+
+        pool = await PoolBuilder(client).build(cap=3, country="US")  # type: ignore[arg-type]
+
+        assert pool.keywords
+        assert pool.report.as_dict()["refusals"] == 1
 
 
 def _phrases(prefix: str, count: int) -> list[str]:
