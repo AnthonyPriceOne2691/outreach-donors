@@ -15,15 +15,18 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.api.deps import needs
+from backend.api.deps import db_session, needs
 from backend.api.keywords.schemas import PoolRequestBody, PoolView
 from backend.config import llm as llm_cfg
+from backend.features.core import usage
 from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
 from backend.features.keywords.angles import PRESETS, UnknownPresetError
 from backend.features.keywords.client import KeygenClient, LlmError
 from backend.features.keywords.generator import PoolBuilder
+from backend.features.serp import markets
 
 router = APIRouter(prefix="/keywords", tags=["ключи"])
 
@@ -40,18 +43,43 @@ async def presets(_: UserModel = _runner) -> list[str]:
     return sorted(PRESETS)
 
 
+def _languages_or_refuse(country: str) -> tuple[str, ...]:
+    """Языки рынка. Незнакомая страна — отказ, а не тихий английский:
+    он увёл бы прогон в другой веб, и отчёт показал бы успех."""
+    try:
+        return markets.keygen_languages(country)
+    except markets.UnknownMarketError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+
+
+@router.get("/languages", response_model=list[str], summary="Языки рынка")
+async def languages(country: str, _: UserModel = _runner) -> list[str]:
+    """На каких языках соберутся ключи для этой страны.
+
+    Оператор выбирает только страну — языки выводятся. Эндпоинт нужен,
+    чтобы он видел их до сборки: пул на двух языках стоит вдвое дороже,
+    и узнавать об этом по счёту неправильно.
+    """
+    return list(_languages_or_refuse(country))
+
+
 @router.post("", response_model=PoolView, summary="Собрать пул ключей моделью")
-async def build_pool(body: PoolRequestBody, _: UserModel = _runner) -> PoolView:
-    """Собрать пул. Ничего платного не тратится — только модель."""
+async def build_pool(
+    body: PoolRequestBody,
+    session: AsyncSession = Depends(db_session),
+    _: UserModel = _runner,
+) -> PoolView:
+    """Собрать пул. Юниты и выдача не трогаются — только модель."""
+    languages = _languages_or_refuse(body.country)
     client = KeygenClient()
     try:
-        pool = await PoolBuilder(client, topic=body.topic).build(
+        pool = await PoolBuilder(client, topics=body.topics).build(
             cap=body.cap,
             country=body.country,
-            language=body.language,
+            languages=languages,
             preset_name=body.preset,
         )
-    except UnknownPresetError as exc:
+    except (UnknownPresetError, ValueError) as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     except LlmError as exc:
         # Пустой пул из-за отказов модели — ошибка, а не результат: отдать
@@ -63,8 +91,14 @@ async def build_pool(body: PoolRequestBody, _: UserModel = _runner) -> PoolView:
     # Поля берём у отчёта напрямую, а не через `as_dict()`: тот отдаёт
     # словарь для журнала, и типы там уже не видны.
     report = pool.report
+    if report.tokens:
+        # Расход пишется даже когда пул пустой по другой причине: строка
+        # журнала отвечает на вопрос «во что обошлось», а не «что вышло».
+        usage.record(session, operation="keywords", units=report.tokens)
+        await session.commit()
     return PoolView(
         keywords=pool.keywords,
+        languages=list(languages),
         asked=report.asked,
         received=report.received,
         rejected=len(report.rejected),

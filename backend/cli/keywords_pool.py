@@ -19,6 +19,7 @@ from pathlib import Path
 from backend.features.keywords.angles import PRESETS, UnknownPresetError
 from backend.features.keywords.client import KeygenClient
 from backend.features.keywords.generator import PoolBuilder, PoolReport
+from backend.features.serp import markets
 
 EXIT_OK = 0
 EXIT_EMPTY = 3
@@ -43,29 +44,67 @@ def _print_report(pool_size: int, cap: int, report: PoolReport) -> None:
     print("\nПо углам:")
     for angle, count in report.per_angle.items():
         print(f"  {angle:22} {count}")
+    _print_column("По темам", report.per_topic)
+    _print_column("По языкам", report.per_language)
+
+
+def _languages_of(country: str) -> tuple[str, ...] | None:
+    """Языки рынка или `None`, если рынка мы не знаем.
+
+    Отказ печатается строкой и называет, что делать: английский
+    по умолчанию уводил бы прогон в другой веб, и уводил бы молча.
+    """
+    try:
+        return markets.keygen_languages(country)
+    except markets.UnknownMarketError as exc:
+        print(str(exc))
+        return None
+
+
+def _print_column(title: str, counts: dict[str, int]) -> None:
+    """Столбец «сколько дала каждая тема» — только когда их больше одной.
+
+    Пул, перекошенный в одну тему или в один язык, по общему числу
+    неотличим от ровного.
+    """
+    if len(counts) < 2:
+        return
+    print(f"\n{title}:")
+    for name, count in counts.items():
+        print(f"  {name:22} {count}")
 
 
 def _about(topic: str) -> str:
     """Тема в шапке вывода. Пустая называется вслух: пул без темы выходит
     широким, и узнать об этом лучше до выдачи, чем по её результатам."""
-    return f", тема: {topic}" if topic else ", тема не задана — пул широкий"
+    return f", темы: {topic}" if topic else ", тема не задана — пул широкий"
 
 
 async def cmd_keywords(args: argparse.Namespace) -> int:
     """Собрать пул и записать его в файл."""
+    topics = [part.strip() for part in args.topic.split(",") if part.strip()]
+    # Языки не спрашиваются: их задаёт рынок. Оператору нечем ошибиться,
+    # а забытая строка в карте — это отказ, а не тихий английский.
+    languages = _languages_of(args.country)
+    if languages is None:
+        return EXIT_EMPTY
+
     client = KeygenClient()
     print(
-        f"Модель: {client.model}. Пресет: {args.preset}, рынок: {args.country}{_about(args.topic)}."
+        f"Модель: {client.model}. Пресет: {args.preset}, рынок: {args.country}"
+        f"{_about(', '.join(topics))}. Языки: {', '.join(languages)}."
     )
 
     try:
-        pool = await PoolBuilder(client, topic=args.topic).build(
+        pool = await PoolBuilder(client, topics=topics).build(
             cap=args.cap,
             country=args.country,
-            language=args.language,
+            languages=languages,
             preset_name=args.preset,
         )
-    except UnknownPresetError as exc:
+    except (UnknownPresetError, ValueError) as exc:
+        # Отказ печатается строкой, а не трассировкой: он называет,
+        # что делать, и стек вокруг этого только мешает читать.
         print(str(exc))
         return EXIT_EMPTY
     finally:
@@ -98,12 +137,11 @@ def add_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-ar
         help="обкатанный набор углов; свободный ввод угла не предусмотрен намеренно",
     )
     parser.add_argument("--country", required=True, help="рынок: «Philippines», «Germany»")
-    parser.add_argument("--language", default="English", help="язык запросов: «Filipino», «German»")
     parser.add_argument("--cap", type=int, default=100, help="сколько ключей нужно")
     parser.add_argument(
         "--topic",
         default="",
-        help="про что ключи: «ставки на спорт», «уход за собаками». "
+        help="про что ключи, через запятую: «ставки на спорт, уход за собаками». "
         "Без темы пул выходит широким — «обзоры в стране X», а не «обзоры про Y»",
     )
     parser.add_argument("--out", required=True, help="файл со списком ключей на выходе")

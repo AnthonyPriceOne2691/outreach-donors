@@ -28,6 +28,7 @@ from typing import Any
 import httpx
 
 from backend.config import serp as cfg
+from backend.features.serp import markets
 from backend.features.serp.protocol import SerpResult
 from backend.shared.net.retry import RateLimiter, with_retries
 
@@ -79,13 +80,9 @@ COUNTRY_CODES: dict[str, int] = {
 
 #: Язык запроса по стране. Там, где не указан, берётся английский:
 #: для сбора доноров язык интерфейса влияет слабее, чем регион.
-COUNTRY_LANGUAGES: dict[str, str] = {
-    "de": "de", "fr": "fr", "es": "es", "it": "it", "nl": "nl", "pl": "pl",
-    "br": "pt", "pt": "pt", "mx": "es", "id": "id", "th": "th", "vn": "vi",
-    "jp": "ja", "tr": "tr", "ua": "uk", "kz": "ru", "se": "sv", "no": "no",
-    "dk": "da", "fi": "fi", "cz": "cs", "ro": "ro", "gr": "el", "il": "he",
-    "ar": "es", "cl": "es", "co": "es", "pe": "es", "hu": "hu", "bg": "bg",
-}  # fmt: skip
+# Карта «страна → язык» переехала в `features/serp/markets.py`: у неё
+# появился второй потребитель (генерация ключей просит несколько языков),
+# а две копии разошлись бы молча.
 
 RESULTS_PER_PAGE = 10
 
@@ -110,7 +107,13 @@ def location_code(country: str) -> int:
 
 
 def language_code(country: str) -> str:
-    return COUNTRY_LANGUAGES.get(country.strip().lower(), "en")
+    """Язык выдачи по рынку. Карта — `features/serp/markets.py`.
+
+    Своей карты здесь больше нет: она подставляла английский незнакомой
+    стране, и одиннадцать рынков из пятидесяти пяти искали английскую
+    выдачу молча.
+    """
+    return markets.serp_language(country)
 
 
 def _basic_auth(login: str, password: str) -> str:

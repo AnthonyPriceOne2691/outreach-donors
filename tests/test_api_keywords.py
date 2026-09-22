@@ -24,10 +24,11 @@ from tests.conftest import bearer
 MakeUser = Callable[..., Awaitable[UserModel]]
 SignIn = Callable[..., Awaitable[str]]
 
-POOL_BODY = {"preset": "reviews", "country": "South Africa", "topic": "ставки", "cap": 6}
+POOL_BODY = {"preset": "reviews", "country": "za", "topics": ["ставки"], "cap": 6}
 
 ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("GET", "/api/keywords/presets", None, "run"),
+    ("GET", "/api/keywords/languages?country=za", None, "run"),
     ("POST", "/api/keywords", POOL_BODY, "run"),
 ]
 
@@ -46,7 +47,7 @@ class FakeClient:
 
 def _pool(phrases: list[str]) -> Pool:
     report = PoolReport(
-        preset_name="reviews", country="South Africa", language="English", cap=6, topic="ставки"
+        preset_name="reviews", country="za", language="English", cap=6, topic="ставки"
     )
     report.asked = 9
     report.received = len(phrases)
@@ -69,8 +70,8 @@ def model(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     seen["client"] = client
 
     class Builder:
-        def __init__(self, _client: Any, *, topic: str = "") -> None:
-            seen["topic"] = topic
+        def __init__(self, _client: Any, *, topics: Any = ()) -> None:
+            seen["topics"] = list(topics)
 
         async def build(self, **kwargs: Any) -> Pool:
             seen.update(kwargs)
@@ -112,19 +113,20 @@ class TestWhoMay:
             for method in methods
         }
 
-        assert in_app == {(method, path) for method, path, _, _ in ROUTES}
+        # Строка запроса в схему не входит: сравниваем по пути.
+        assert in_app == {(method, path.split("?")[0]) for method, path, _, _ in ROUTES}
 
 
 class TestPool:
-    async def test_topic_reaches_the_builder(
+    async def test_topics_reach_the_builder(
         self, client: AsyncClient, admin_token: str, model: dict[str, Any]
     ) -> None:
-        """Тема — то, чего у генерации не было вовсе: без неё пул выходит
+        """Темы — то, чего у генерации не было вовсе: без них пул выходит
         «обзоры в стране X», а не «обзоры про Y в стране X»."""
         await client.post("/api/keywords", json=POOL_BODY, headers=bearer(admin_token))
 
-        assert model["topic"] == "ставки"
-        assert model["country"] == "South Africa"
+        assert model["topics"] == ["ставки"]
+        assert model["country"] == "za"
         assert model["preset_name"] == "reviews"
 
     async def test_report_comes_with_the_pool(
@@ -165,6 +167,45 @@ class TestRefusals:
         assert response.status_code == 502
         assert "модель отказала" in response.text
         assert model["client"].closed, "клиент не закрыт на отказе"
+
+    async def test_unknown_market_refuses_instead_of_english(
+        self, client: AsyncClient, admin_token: str
+    ) -> None:
+        """Язык выводится из страны. Незнакомая страна — отказ, а не тихий
+        английский: он увёл бы прогон в другой веб, и отчёт показал бы успех."""
+        response = await client.post(
+            "/api/keywords",
+            json={**POOL_BODY, "country": "zz"},
+            headers=bearer(admin_token),
+        )
+
+        assert response.status_code == 422
+        assert "карте рынков" in response.text
+
+    async def test_languages_come_from_the_market(
+        self, client: AsyncClient, admin_token: str
+    ) -> None:
+        """Оператор выбирает только страну — языки показываются до сборки:
+        пул на двух языках стоит вдвое дороже."""
+        response = await client.get(
+            "/api/keywords/languages?country=ca", headers=bearer(admin_token)
+        )
+
+        assert response.json() == ["English", "French"]
+
+    async def test_too_many_combinations_refuse_with_a_way_out(
+        self, client: AsyncClient, admin_token: str
+    ) -> None:
+        """Тонкая доля на сочетание — это не маленький пул, а рваный:
+        буфер просит с запасом, дедуп режет, на выходе два ключа из пяти."""
+        response = await client.post(
+            "/api/keywords",
+            json={"preset": "reviews", "country": "ca", "topics": ["а", "б", "в"], "cap": 6},
+            headers=bearer(admin_token),
+        )
+
+        assert response.status_code == 422
+        assert "Поднимите потолок" in response.text
 
     async def test_unknown_preset_names_the_known_ones(
         self, client: AsyncClient, admin_token: str
