@@ -32,6 +32,7 @@ const SECTIONS: Section[] = [
   { path: '/run', title: 'Прогон', permission: 'view' },
   { path: '/donors', title: 'Доноры', permission: 'view' },
   { path: '/forms', title: 'Формы', permission: 'view' },
+  { path: '/advertisers', title: 'Рекламодатели', permission: 'view' },
   { path: '/letters', title: 'Письма', permission: 'view' },
   { path: '/threads', title: 'Диалоги', permission: 'view' },
   { path: '/suppressions', title: 'Стоп-лист', permission: 'view' },

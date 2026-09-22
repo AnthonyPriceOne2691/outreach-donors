@@ -190,6 +190,21 @@ SCREENS: dict[str, dict] = {
             ("пункт меню", "nav a", NORM),
         ],
     },
+    "advertisers": {
+        "path": "/advertisers",
+        "ready": ("button", "Пишем"),
+        "probes": [
+            ("заголовок раздела", "h3", BIG),
+            ("пояснение под ним", "p.mantine-Text-root", NORM),
+            # Главное на экране: причины балла. Человек решает по ним,
+            # а не по числу, и читать их придётся каждому спорному.
+            ("причина балла", "table tbody li", NORM),
+            ("балл значком", "table tbody .mantine-Badge-label", NORM),
+            ("счётчик вердиктов", ".mantine-Badge-label", NORM),
+            ("кнопка «Пишем»", "table tbody button", BIG),
+            ("пункт меню", "nav a", NORM),
+        ],
+    },
     "letters": {
         "path": "/letters",
         "ready": ("button", "Поправить"),

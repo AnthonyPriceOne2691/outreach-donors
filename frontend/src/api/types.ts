@@ -480,3 +480,29 @@ export interface FormsView {
   monthly_left: number;
   monthly_cap: number;
 }
+
+/** Кандидат в рекламодатели: балл скоринга и всё, по чему решает человек. */
+export interface CandidateCard {
+  id: number;
+  donor_host: string;
+  target_root: string;
+  points: number;
+  verdict: 'bought' | 'pending' | 'skipped' | 'blocked';
+  /** Причины строками: их читают глазами, а не разбирают кодом. */
+  reasons: string[];
+  links: number;
+  pages: number;
+  /** Страница и анкор, под которые будет написано письмо. */
+  best_page_url: string | null;
+  best_anchor: string | null;
+  confirmed: boolean | null;
+  decided_by: string | null;
+  decided_at: string | null;
+}
+
+export interface CandidatesView {
+  rows: CandidateCard[];
+  waiting: number;
+  /** Счётчики по всем вердиктам: по отсеянным видно, что список работает. */
+  counts: Record<string, number>;
+}

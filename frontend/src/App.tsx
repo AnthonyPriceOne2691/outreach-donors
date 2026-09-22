@@ -19,6 +19,7 @@ import { Backdrop } from './layout/Backdrop';
 import { OverviewPage } from './layout/OverviewPage';
 import { Shell } from './layout/Shell';
 import { theme } from './theme';
+import { AdvertisersPage } from './advertisers/AdvertisersPage';
 import { DonorPage } from './donors/DonorPage';
 import { LettersPage } from './letters/LettersPage';
 import { DonorsPage } from './donors/DonorsPage';
@@ -92,6 +93,14 @@ export function AppRoutes() {
           element={
             <RequireAccess permission="view">
               <FormsPage />
+            </RequireAccess>
+          }
+        />
+        <Route
+          path="/advertisers"
+          element={
+            <RequireAccess permission="view">
+              <AdvertisersPage />
             </RequireAccess>
           }
         />
