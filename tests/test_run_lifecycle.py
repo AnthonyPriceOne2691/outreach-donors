@@ -16,6 +16,7 @@ import pytest
 from backend.features.core.domain import RunStatus, Stage
 from backend.features.core.models.run import RunModel
 from backend.features.donors.repository import DonorRepository
+from backend.features.runs.exclusions import Exclusions
 from backend.features.runs.lifecycle import (
     MAX_RESUMES,
     RESUME_AFTER_SEC,
@@ -24,7 +25,8 @@ from backend.features.runs.lifecycle import (
     heartbeat,
     recover,
 )
-from backend.features.runs.pipeline import Candidates, RunDeps, RunRequest, execute_run
+from backend.features.runs.pipeline import RunDeps, RunRequest, execute_run
+from backend.features.runs.planning import Candidates
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.thresholds import defaults
 from sqlalchemy import update
@@ -287,6 +289,7 @@ class TestSavedSerpIsNotBoughtTwice:
                 client=_ahrefs({"good.com": GOOD}),
                 donors=DonorRepository(session),
                 runs=RunRepository(session),
+                exclusions=Exclusions(session),
             ),
             RunRequest(["crm"], "us", T, run.settings_id, run=run),
         )
@@ -305,6 +308,7 @@ class TestSavedSerpIsNotBoughtTwice:
                 client=_ahrefs({"good.com": GOOD}),
                 donors=DonorRepository(session),
                 runs=RunRepository(session),
+                exclusions=Exclusions(session),
             ),
             RunRequest(["crm"], "us", T, run.settings_id, run=run),
         )

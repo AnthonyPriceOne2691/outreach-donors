@@ -306,6 +306,19 @@ describe('прогон', () => {
     expect(screen.getByText('42')).toBeInTheDocument();
   });
 
+  it('исключённые доменом стоят рядом с числом доменов, а не вместо него', async () => {
+    const gated = {
+      ...STOPPED,
+      id: 5,
+      status: 'done',
+      stats: { excluded: 12, excluded_by_reason: { 'в стоп-листе': 12 } },
+    };
+    await openRun({ 'GET /api/runs': { body: { runs: [gated], workers: 1 } } });
+
+    expect(await screen.findByText('42')).toBeInTheDocument();
+    expect(screen.getByText('исключено 12')).toBeInTheDocument();
+  });
+
   it('запуск кладёт задачу в очередь, а не ждёт прогона', async () => {
     const recorded = await openRun({
       'POST /api/runs/estimate': { body: FITS },

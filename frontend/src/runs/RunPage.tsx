@@ -120,6 +120,19 @@ function Estimate({ forecast }: { forecast: Forecast }) {
   );
 }
 
+/**
+ * Сколько доменов прогон отсёк, не заплатив за них: стоп-лист,
+ * поставщики агентства и те, кто промолчал на письмо.
+ *
+ * Стоит рядом с числом доменов, а не вместо него: «выдача дала 200»
+ * и «проверили 140» — разные новости, и без второй разница между ними
+ * выглядит как потеря доменов.
+ */
+function excludedIn(run: { stats: Record<string, unknown> | null }): number {
+  const value = run.stats?.['excluded'];
+  return typeof value === 'number' ? value : 0;
+}
+
 export function RunPage() {
   const { can } = useSession();
   const [keywords, setKeywords] = useState('');
@@ -451,7 +464,14 @@ export function RunPage() {
                   )}
                 </Table.Td>
                 <Table.Td>{run.keywords}</Table.Td>
-                <Table.Td>{run.hosts ?? '—'}</Table.Td>
+                <Table.Td>
+                  {run.hosts ?? '—'}
+                  {excludedIn(run) ? (
+                    <Text size="xs" c="dimmed">
+                      исключено {excludedIn(run)}
+                    </Text>
+                  ) : null}
+                </Table.Td>
                 <Table.Td>{run.estimated_units ?? '—'}</Table.Td>
                 <Table.Td>{run.actual_units ?? '—'}</Table.Td>
                 <Table.Td>

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
@@ -85,16 +86,18 @@ def _wins(candidate: CandidateModel, current: CandidateModel) -> bool:
 
 
 async def _suppliers(session: AsyncSession) -> set[str]:
-    rows = await session.execute(select(SupplierDonorModel.host))
+    rows = await session.execute(
+        select(SupplierDonorModel.host).where(SupplierDonorModel.in_force(datetime.now(UTC)))
+    )
     return {host.lower() for host in rows.scalars().all()}
 
 
 async def _suppressed(session: AsyncSession) -> set[str]:
     """Хосты из общего стоп-листа. Он один на оба этапа."""
     rows = await session.execute(
-        select(DomainModel.host).join(
-            SuppressionModel, SuppressionModel.domain_id == DomainModel.id
-        )
+        select(DomainModel.host)
+        .join(SuppressionModel, SuppressionModel.domain_id == DomainModel.id)
+        .where(SuppressionModel.in_force(datetime.now(UTC)))
     )
     return {host.lower() for host in rows.scalars().all()}
 

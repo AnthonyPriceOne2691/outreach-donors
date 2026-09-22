@@ -217,33 +217,58 @@ TEXT_SUFFIXES = frozenset(
 
 
 def _tracked_text_files(root: Path) -> Iterator[Path]:
-    """Файлы, которые действительно опубликованы, — по списку git.
+    """Файлы, которые уедут в публичный репозиторий, — по списку git.
 
-    Не обходом дерева: опубликовано то, что git отслеживает, и спрашивать
+    Не обходом дерева: уедет то, что git отслеживает, и спрашивать
     об этом надо его. Нет гита — гейт молчит, а не врёт зелёным.
+
+    **Новые файлы считаются наравне с отслеживаемыми.** Один `ls-files`
+    показывает только то, что уже добавлено, — и гейт, запущенный
+    в середине работы, отвечал зелёным про файлы, которых ещё нет
+    в индексе. Именно так закрытый документ был назван по имени
+    в четырёх строках нового статуса, и нашлось это только после
+    коммита. Файлы из гитигнора сюда не попадают: `--exclude-standard`
+    именно об этом.
     """
+    seen: set[str] = set()
+    for names in _git_lists(root):
+        for name in names:
+            if not name or name in PUBLIC_EXEMPT or name in seen:
+                continue
+            seen.add(name)
+            path = root / name
+            if path.suffix in TEXT_SUFFIXES and path.is_file():
+                yield path
+
+
+#: Что уедет в репозиторий: добавленное и ещё не добавленное. Второй
+#: список без первого не обходится — `--others` показывает только новое.
+_GIT_LISTINGS = (
+    ("ls-files", "-z"),
+    ("ls-files", "-z", "--others", "--exclude-standard"),
+)
+
+
+def _git_lists(root: Path) -> Iterator[list[str]]:
+    """Имена файлов от git. Молчит вместо зелёного, если спросить не вышло."""
     git = shutil.which("git")
     if git is None:
         print("public-repo: git не найден — гейт пропущен", file=sys.stderr)
         return
-    try:
-        # Аргументы заданы здесь целиком, снаружи не приходит ничего:
-        # `root` — путь самого репозитория, вычисленный от этого файла.
-        listed = subprocess.run(  # noqa: S603 — фиксированная команда, путь к git разрешён
-            [git, "-C", str(root), "ls-files", "-z"],
-            capture_output=True,
-            check=True,
-            timeout=30,
-        )
-    except (OSError, subprocess.SubprocessError) as exc:
-        print(f"public-repo: список файлов не получен ({exc}) — гейт пропущен", file=sys.stderr)
-        return
-    for name in listed.stdout.decode("utf-8").split("\0"):
-        if not name or name in PUBLIC_EXEMPT:
-            continue
-        path = root / name
-        if path.suffix in TEXT_SUFFIXES and path.is_file():
-            yield path
+    for arguments in _GIT_LISTINGS:
+        try:
+            # Аргументы заданы здесь целиком, снаружи не приходит ничего:
+            # `root` — путь самого репозитория, вычисленный от этого файла.
+            listed = subprocess.run(  # noqa: S603 — фиксированная команда, путь к git разрешён
+                [git, "-C", str(root), *arguments],
+                capture_output=True,
+                check=True,
+                timeout=30,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            print(f"public-repo: список файлов не получен ({exc}) — гейт пропущен", file=sys.stderr)
+            return
+        yield listed.stdout.decode("utf-8").split("\0")
 
 
 def check_public_repo(root: Path) -> Iterator[Violation]:

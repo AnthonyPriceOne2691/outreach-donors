@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,10 +44,12 @@ async def all_rows(
     session: AsyncSession = Depends(db_session),
 ) -> StopListView:
     rows = await stoplist.rows(session)
+    moment = datetime.now(UTC)
     return StopListView(
-        rows=[StopEntry.of(row) for row in rows],
+        rows=[StopEntry.of(row, now=moment) for row in rows],
         total=len(rows),
         donor_decisions=sum(1 for row in rows if row.donor_decision),
+        expired=sum(1 for row in rows if row.expired(moment)),
     )
 
 
@@ -58,13 +61,22 @@ async def add_row(
 ) -> StopEntry:
     """Домен целиком или один адрес. Письма адресату снимаются с очереди."""
     row = await stoplist.add(
-        session, body.target, reason=body.reason, stage=body.stage, author=author.email
+        session,
+        body.target,
+        reason=body.reason,
+        stage=body.stage,
+        expires_at=body.expires_at,
+        author=author.email,
     )
     await AccessRepository(session).record(
         AuditAction.SUPPRESSION_ADDED,
         author_id=author.id,
         target=f"suppression:{row.id}",
-        details={"кому не пишем": row.target, "причина": row.reason.value},
+        details={
+            "кому не пишем": row.target,
+            "причина": row.reason.value,
+            "до": row.expires_at.isoformat() if row.expires_at else "навсегда",
+        },
     )
     await session.commit()
     logger.info("стоп-лист: %s добавил %s (%s)", author.email, row.target, row.reason.value)

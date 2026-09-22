@@ -27,6 +27,8 @@ const STOP_LIST = {
       stage: null,
       created_by: 'страница отписки',
       created_at: '2026-09-21T10:00:00+00:00',
+      expires_at: null,
+      expired: false,
       donor_decision: true,
     },
     {
@@ -37,11 +39,26 @@ const STOP_LIST = {
       stage: null,
       created_by: 'анна@site.com',
       created_at: '2026-09-20T10:00:00+00:00',
+      expires_at: '2027-09-20T10:00:00+00:00',
+      expired: false,
+      donor_decision: false,
+    },
+    {
+      id: 3,
+      host: 'was.example.test',
+      email: null,
+      reason: 'manual',
+      stage: null,
+      created_by: 'анна@site.com',
+      created_at: '2025-08-01T10:00:00+00:00',
+      expires_at: '2026-08-01T10:00:00+00:00',
+      expired: true,
       donor_decision: false,
     },
   ],
-  total: 2,
+  total: 3,
   donor_decisions: 1,
+  expired: 1,
 };
 
 async function openStopList(routes: Record<string, unknown> = {}, who: unknown = ADMIN) {
@@ -125,6 +142,38 @@ describe('стоп-лист', () => {
 
     await screen.findByText(/сняты с очереди/);
     const sent = recorded.calls.filter((call: Call) => call.method === 'POST');
-    expect(sent[0]?.body).toEqual({ target: 'supplier.example.test', reason: 'manual' });
+    expect(sent[0]?.body).toEqual({
+      target: 'supplier.example.test',
+      reason: 'manual',
+      expires_at: null,
+    });
+  });
+
+  it('срок ставится выбором, и по умолчанию его нет', async () => {
+    const recorded = await openStopList({
+      'POST /api/suppressions': { body: { ...STOP_LIST.rows[1], id: 4 } },
+    });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Домен или адрес'), 'vendor.example.test');
+    // Выпадающий список Mantine в jsdom остаётся `display: none` — раскладки
+    // здесь нет, и без `hidden` его пункты не видны запросу. Клик по самому
+    // пункту при этом настоящий, и проверяется именно он.
+    await user.click(screen.getByRole('textbox', { name: 'Держит' }));
+    await user.click(await screen.findByRole('option', { name: '12 месяцев', hidden: true }));
+    await user.click(screen.getByRole('button', { name: 'Больше не писать' }));
+
+    await screen.findAllByText(/сняты с очереди/);
+    const sent = recorded.calls.filter((call: Call) => call.method === 'POST');
+    const body = sent[0]?.body as { expires_at: string | null };
+    expect(body.expires_at).not.toBeNull();
+  });
+
+  it('истёкшая запись остаётся на экране и названа истёкшей', async () => {
+    await openStopList();
+
+    const row = screen.getByText('was.example.test').closest('tr')!;
+    expect(within(row).getByText(/истёк/)).toBeInTheDocument();
+    expect(screen.getByText(/истекли и больше не держат/)).toBeInTheDocument();
   });
 });

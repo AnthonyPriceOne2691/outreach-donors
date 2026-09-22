@@ -62,6 +62,13 @@ class _Outreach(DomainSettings):
     price_confidence_threshold: float = Field(
         default=0.80, validation_alias="OUTREACH_PRICE_CONFIDENCE"
     )
+    # Сколько донор, промолчавший на всю цепочку, не возвращается в отбор.
+    # Требование про повторы говорит только сроками годности данных
+    # (90 дней метрики, 150 цена), а молчание в ответ не покрывает вовсе:
+    # по одной свежести домен вернулся бы на 91-й день, и мы заплатили бы
+    # за метрики, чтобы написать четвёртое письмо тому, кто трижды промолчал.
+    # Год взят у стоп-листа поставщиков — там требование называет 12 месяцев.
+    silence_days: int = Field(default=365, validation_alias="OUTREACH_SILENCE_DAYS")
 
 
 _s = _Outreach()
@@ -87,3 +94,4 @@ BOUNCE_PAUSE_MIN_SENT: int = _s.bounce_pause_min_sent
 UNIQUENESS_TARGET_MIN: float = _s.uniqueness_target_min
 UNIQUENESS_TARGET_MAX: float = _s.uniqueness_target_max
 PRICE_CONFIDENCE_THRESHOLD: float = _s.price_confidence_threshold
+SILENCE_DAYS: int = _s.silence_days

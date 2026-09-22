@@ -222,14 +222,14 @@
       "worst": "—"
     },
     "backend/api/suppressions/routes.py": {
-      "lines": 103,
-      "complexity": 3,
-      "worst": "all_rows:41"
+      "lines": 115,
+      "complexity": 4,
+      "worst": "all_rows:42"
     },
     "backend/api/suppressions/schemas.py": {
-      "lines": 63,
-      "complexity": 1,
-      "worst": "of:29"
+      "lines": 76,
+      "complexity": 2,
+      "worst": "of:34"
     },
     "backend/api/threads/__init__.py": {
       "lines": 1,
@@ -332,9 +332,9 @@
       "worst": "_print_build:82"
     },
     "backend/cli/main.py": {
-      "lines": 373,
+      "lines": 381,
       "complexity": 9,
-      "worst": "_print_report:211"
+      "worst": "_print_report:219"
     },
     "backend/cli/senders_admin.py": {
       "lines": 134,
@@ -387,7 +387,7 @@
       "worst": "—"
     },
     "backend/config/outreach.py": {
-      "lines": 90,
+      "lines": 98,
       "complexity": 0,
       "worst": "—"
     },
@@ -557,9 +557,9 @@
       "worst": "_enum:34"
     },
     "backend/features/core/models/advertisers.py": {
-      "lines": 108,
+      "lines": 118,
       "complexity": 2,
-      "worst": "_enum:34"
+      "worst": "_enum:35"
     },
     "backend/features/core/models/crawl.py": {
       "lines": 109,
@@ -577,9 +577,9 @@
       "worst": "_enum:34"
     },
     "backend/features/core/models/ops.py": {
-      "lines": 71,
+      "lines": 88,
       "complexity": 2,
-      "worst": "_enum:16"
+      "worst": "_enum:18"
     },
     "backend/features/core/models/outreach.py": {
       "lines": 270,
@@ -642,9 +642,9 @@
       "worst": "collect_links:139"
     },
     "backend/features/crawl/promote.py": {
-      "lines": 273,
+      "lines": 276,
       "complexity": 10,
-      "worst": "promote:128"
+      "worst": "promote:131"
     },
     "backend/features/crawl/repository.py": {
       "lines": 70,
@@ -802,9 +802,9 @@
       "worst": "message_id_from:76"
     },
     "backend/features/letters/repository.py": {
-      "lines": 299,
+      "lines": 303,
       "complexity": 3,
-      "worst": "campaign:249"
+      "worst": "campaign:253"
     },
     "backend/features/letters/review.py": {
       "lines": 89,
@@ -822,14 +822,14 @@
       "worst": "_payload:137"
     },
     "backend/features/letters/sending.py": {
-      "lines": 350,
+      "lines": 351,
       "complexity": 5,
-      "worst": "_pinned_sender:214"
+      "worst": "_pinned_sender:215"
     },
     "backend/features/letters/stoplist.py": {
-      "lines": 259,
+      "lines": 310,
       "complexity": 7,
-      "worst": "remove:125"
+      "worst": "remove:158"
     },
     "backend/features/letters/template.py": {
       "lines": 336,
@@ -932,9 +932,9 @@
       "worst": "quote_starts_at:47"
     },
     "backend/features/replies/repository.py": {
-      "lines": 316,
+      "lines": 321,
       "complexity": 9,
-      "worst": "add:243"
+      "worst": "add:248"
     },
     "backend/features/runs/__init__.py": {
       "lines": 1,
@@ -956,15 +956,25 @@
       "complexity": 2,
       "worst": "budget:70"
     },
+    "backend/features/runs/exclusions.py": {
+      "lines": 184,
+      "complexity": 5,
+      "worst": "excluded_hosts:88"
+    },
     "backend/features/runs/lifecycle.py": {
       "lines": 226,
       "complexity": 9,
       "worst": "recover:127"
     },
     "backend/features/runs/pipeline.py": {
-      "lines": 476,
+      "lines": 345,
       "complexity": 5,
-      "worst": "gather_candidates:210"
+      "worst": "execute_run:225"
+    },
+    "backend/features/runs/planning.py": {
+      "lines": 238,
+      "complexity": 5,
+      "worst": "gather_candidates:148"
     },
     "backend/features/runs/repository.py": {
       "lines": 269,
@@ -1087,9 +1097,9 @@
       "worst": "sweep:38"
     },
     "backend/workers/jobs.py": {
-      "lines": 221,
+      "lines": 223,
       "complexity": 2,
-      "worst": "_run:39"
+      "worst": "_run:40"
     },
     "backend/workers/main.py": {
       "lines": 26,
@@ -1117,7 +1127,7 @@
       "worst": "compare:162"
     },
     "scripts/gates.py": {
-      "lines": 311,
+      "lines": 336,
       "complexity": 8,
       "worst": "_python_files:52"
     },

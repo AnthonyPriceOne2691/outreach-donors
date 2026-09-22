@@ -49,15 +49,9 @@ from backend.features.runs.budget import (
     QuotaUnavailableError,
     units_left,
 )
-from backend.features.runs.pipeline import (
-    RunDeps,
-    RunPlan,
-    RunReport,
-    RunRequest,
-    execute_run,
-    gather_candidates,
-    plan_run,
-)
+from backend.features.runs.exclusions import Exclusions
+from backend.features.runs.pipeline import RunDeps, RunReport, RunRequest, execute_run
+from backend.features.runs.planning import RunPlan, gather_candidates, plan_run
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.spending import cap_left
 from backend.features.runs.thresholds import defaults
@@ -114,6 +108,10 @@ def _print_plan(plan: RunPlan, budget: int) -> None:
         print(f"  не разобрано:      {candidates.dropped}")
     if candidates.empty_keywords:
         print(f"  ключей без выдачи: {len(candidates.empty_keywords)}")
+    if p.excluded:
+        print(f"\nИсключены:           {len(p.excluded)}  (в прогон не идут)")
+        for reason, count in sorted(p.excluded_by_reason.items()):
+            print(f"  {reason + ':':<21}{count}")
     print(f"\nУже проверены:       {len(p.fresh)}  (платить не нужно)")
     print(f"Проверить сейчас:    {len(p.new)}")
     estimate = p.estimate
@@ -124,6 +122,8 @@ def _print_plan(plan: RunPlan, budget: int) -> None:
     print(f"Доступно:            {budget:,} юнитов".replace(",", " "))
     if p.savings_from_cache:
         print(f"Сэкономлено кэшем:   {p.savings_from_cache:,} юнитов".replace(",", " "))
+    if p.savings_from_gate:
+        print(f"Сэкономлено гейтом:  {p.savings_from_gate:,} юнитов".replace(",", " "))
 
 
 async def cmd_run(args: argparse.Namespace) -> int:
@@ -154,7 +154,9 @@ async def cmd_run(args: argparse.Namespace) -> int:
             month_left = await cap_left(session, cap=ahrefs_cfg.UNITS_CAP)
             allowed = min(args.cap, month_left) if args.cap else month_left
             budget = await units_left(client, cap=allowed)
-            plan = await plan_run(candidates, donors, units_left=budget)
+            plan = await plan_run(
+                candidates, donors, units_left=budget, exclusions=Exclusions(session)
+            )
             _print_plan(plan, budget)
 
             if not plan.new:
@@ -173,7 +175,13 @@ async def cmd_run(args: argparse.Namespace) -> int:
                 price_ttl_days=filters.PRICE_TTL_DAYS,
                 units_cap=allowed,
             )
-            deps = RunDeps(provider=provider, client=client, donors=donors, runs=runs)
+            deps = RunDeps(
+                provider=provider,
+                client=client,
+                donors=donors,
+                runs=runs,
+                exclusions=Exclusions(session),
+            )
             report = await execute_run(
                 deps,
                 RunRequest(

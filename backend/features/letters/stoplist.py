@@ -14,13 +14,20 @@
 ручные исключения — наше собственное решение, а не чужая просьба:
 требовать объяснение за отмену своего же решения значит приучить
 писать «не нужно» в поле, которое потом читают как согласие донора.
+
+**Срок ставится только на своё решение.** Требование исключает тех,
+у кого агентство размещалось «за последние 12 месяцев», — это окно,
+а не приговор. Отписка и жалоба срока не получают ни при каких
+условиях: их заводит не человек, а страница отписки и приём ответов,
+и поля они не заполняют вовсе. Здесь это ещё и запрещено явно —
+причина с чужим решением руками не заводится.
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -63,10 +70,21 @@ class StopRow:
     stage: Stage | None
     created_by: str | None
     created_at: datetime
+    #: Докуда держит. Пусто — навсегда.
+    expires_at: datetime | None = None
 
     @property
     def target(self) -> str:
         return self.host or self.email or "—"
+
+    def expired(self, moment: datetime) -> bool:
+        """Срок вышел: запись видна в списке, но письма больше не держит.
+
+        Такие строки не удаляются сами. Запись исчезла бы вместе
+        с ответом на вопрос «почему ему полгода не писали», а он
+        и есть главный вопрос к этому экрану.
+        """
+        return self.expires_at is not None and self.expires_at <= moment
 
     @property
     def donor_decision(self) -> bool:
@@ -90,6 +108,7 @@ async def rows(session: AsyncSession) -> list[StopRow]:
             stage=row.stage,
             created_by=row.created_by,
             created_at=row.created_at,
+            expires_at=row.expires_at,
         )
         for row, host in found.all()
     ]
@@ -101,6 +120,7 @@ async def add(
     *,
     reason: SuppressionReason,
     stage: Stage | None = None,
+    expires_at: datetime | None = None,
     author: str,
 ) -> StopRow:
     """Завести запись руками: домен целиком или один адрес.
@@ -108,17 +128,30 @@ async def add(
     Домен, которого мы ещё не видели, заводится строкой в `domains`:
     список поставщиков приходит раньше первого прогона, и ждать, пока
     донор найдётся сам, значит написать ему до того.
+
+    Срок необязателен и по умолчанию его нет: запись держит, пока её
+    не снимут. С ним запись перестаёт держать сама — так выражается
+    «размещались за последние 12 месяцев».
     """
     if reason not in HAND_REASONS:
         raise StopListError(
             f"Причину «{reason.value}» ставит сам сервис, руками её не заводят. "
             "Руками — «вручную» и «поставщик»"
         )
+    if expires_at is not None and expires_at <= datetime.now(UTC):
+        raise StopListError(
+            "Срок записи уже прошёл — такая запись не удержит ни одного письма. "
+            "Поставьте будущую дату или оставьте поле пустым: пусто значит «навсегда»"
+        )
     cleaned = target.strip().lower().removeprefix("http://").removeprefix("https://").strip("/")
     if _EMAIL_RE.match(cleaned):
-        return await _add_email(session, cleaned, reason=reason, stage=stage, author=author)
+        return await _add_email(
+            session, cleaned, reason=reason, stage=stage, expires_at=expires_at, author=author
+        )
     if _HOST_RE.match(cleaned):
-        return await _add_host(session, cleaned, reason=reason, stage=stage, author=author)
+        return await _add_host(
+            session, cleaned, reason=reason, stage=stage, expires_at=expires_at, author=author
+        )
     raise StopListError(f"«{target}» не похоже ни на домен, ни на адрес почты")
 
 
@@ -141,6 +174,7 @@ async def remove(session: AsyncSession, row_id: int, *, reason: str | None) -> S
         stage=row.stage,
         created_by=row.created_by,
         created_at=row.created_at,
+        expires_at=row.expires_at,
     )
     if taken.donor_decision and not (reason or "").strip():
         raise StopListError(
@@ -191,6 +225,7 @@ async def _add_host(
     *,
     reason: SuppressionReason,
     stage: Stage | None,
+    expires_at: datetime | None,
     author: str,
 ) -> StopRow:
     found = await session.execute(select(DomainModel).where(DomainModel.host == host))
@@ -201,7 +236,13 @@ async def _add_host(
         await session.flush()
 
     await _refuse_duplicate(session, SuppressionModel.domain_id == domain.id, stage, host)
-    row = SuppressionModel(domain_id=domain.id, reason=reason, stage=stage, created_by=author)
+    row = SuppressionModel(
+        domain_id=domain.id,
+        reason=reason,
+        stage=stage,
+        expires_at=expires_at,
+        created_by=author,
+    )
     session.add(row)
     await session.flush()
     await stop_pending(session, domain_id=domain.id)
@@ -213,6 +254,7 @@ async def _add_host(
         stage=stage,
         created_by=author,
         created_at=row.created_at,
+        expires_at=expires_at,
     )
 
 
@@ -222,10 +264,13 @@ async def _add_email(
     *,
     reason: SuppressionReason,
     stage: Stage | None,
+    expires_at: datetime | None,
     author: str,
 ) -> StopRow:
     await _refuse_duplicate(session, SuppressionModel.email == email, stage, email)
-    row = SuppressionModel(email=email, reason=reason, stage=stage, created_by=author)
+    row = SuppressionModel(
+        email=email, reason=reason, stage=stage, expires_at=expires_at, created_by=author
+    )
     session.add(row)
     await session.flush()
     await stop_pending(session, email=email)
@@ -237,6 +282,7 @@ async def _add_email(
         stage=stage,
         created_by=author,
         created_at=row.created_at,
+        expires_at=expires_at,
     )
 
 
@@ -247,11 +293,16 @@ async def _refuse_duplicate(
 
     Молчаливое согласие завело бы список, где один донор лежит трижды,
     и снятие одной записи выглядело бы как возврат, которым оно не было.
+
+    Истёкшая запись помехой не считается: она уже никого не держит,
+    и отказ завести новую означал бы «поставщика, у которого кончился
+    срок, вернуть нельзя» — то есть срок, который нельзя продлить.
     """
     found = await session.execute(
         select(SuppressionModel.id).where(
             same_target,  # type: ignore[arg-type]
             or_(SuppressionModel.stage.is_(None), SuppressionModel.stage == stage),
+            SuppressionModel.in_force(datetime.now(UTC)),
         )
     )
     if found.first() is not None:

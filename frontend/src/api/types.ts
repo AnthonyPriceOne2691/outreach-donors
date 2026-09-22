@@ -454,6 +454,13 @@ export interface StopEntry {
   stage: 'donors' | 'advertisers' | null;
   created_by: string | null;
   created_at: string;
+  /** Докуда запись держит. Пусто — навсегда. */
+  expires_at: string | null;
+  /**
+   * Срок вышел: запись видна, но письма больше не держит. Считает
+   * сервер — сравнение дат здесь шло бы по часам браузера.
+   */
+  expired: boolean;
   /**
    * Решение адресата, а не наше: снимается только с причиной. Считает
    * сервер — свой экземпляр правила на фронте разошёлся бы с ним
@@ -466,6 +473,8 @@ export interface StopListView {
   rows: StopEntry[];
   total: number;
   donor_decisions: number;
+  /** Сколько строк уже истекло и никого не держит. */
+  expired: number;
 }
 
 /** Одна тревога сторожа тишины: что молчит и что это значит. */
