@@ -21,6 +21,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.cli.access_admin import cmd_user_add, cmd_user_reset
 from backend.cli.contact_search import cmd_contacts
+from backend.cli.crawl_probe import add_parser as add_crawl_parser
+from backend.cli.crawl_probe import cmd_crawl
 from backend.cli.demo_data import cmd_demo_seed
 from backend.cli.keywords_pool import add_parser as add_keywords_parser
 from backend.cli.keywords_pool import cmd_keywords
@@ -297,6 +299,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="сначала платный сервис, добор скрейпером: быстрее, но платных запросов больше",
     )
 
+    add_crawl_parser(sub)
     add_letters_parser(sub)
     add_senders_parser(sub)
     return parser
@@ -320,6 +323,7 @@ _FAILURES: tuple[tuple[type[Exception], int, str], ...] = (
 _COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] = {
     "quota": lambda _: cmd_quota(),
     "contacts": cmd_contacts,
+    "crawl": cmd_crawl,
     "user-add": cmd_user_add,
     "user-reset": cmd_user_reset,
     "keywords": cmd_keywords,
