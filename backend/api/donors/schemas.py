@@ -113,6 +113,10 @@ class DonorFullCard(BaseModel):
     geo: str | None
     geo_top_share: float | None
     geo_breakdown: list[dict[str, Any]] | None
+    #: Разбивка неполная: спрашивали только верхнюю страну, её хватило
+    #: для вердикта. Экран обязан это сказать, иначе одна строка выглядит
+    #: как «у домена трафик из одной страны».
+    geo_partial: bool
     metrics: dict[str, Any] | None
     metrics_refreshed_at: datetime | None
     expires_at: datetime | None
@@ -137,6 +141,7 @@ class DonorFullCard(BaseModel):
             geo=donor.geo,
             geo_top_share=donor.geo_top_share,
             geo_breakdown=donor.geo_breakdown,
+            geo_partial=donor.geo_partial,
             metrics=donor.metrics,
             metrics_refreshed_at=donor.metrics_refreshed_at,
             expires_at=card.expires_at,

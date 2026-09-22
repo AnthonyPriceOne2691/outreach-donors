@@ -103,6 +103,88 @@ class TestStageOrder:
         assert fake.by_country_hosts == ["good.com"]
 
 
+def _with_top(row: dict[str, Any], country: str, traffic: int) -> dict[str, Any]:
+    """Метрики с верхней страной — как их отдаёт пакетный анализ."""
+    return {**row, "org_traffic_top_by_country": [[country, traffic]]}
+
+
+class TestGeoWithoutPaying:
+    """Верхняя страна приезжает пакетом за 10 юнитов на домен, отдельный
+    запрос по странам стоит 55 и идёт по одному домену — это 70% расхода
+    прогона. Проверяется главное: **вердикт от этого не меняется**.
+    """
+
+    async def test_target_on_top_needs_no_country_call(self) -> None:
+        """Верхняя страна и есть целевая → она на первом месте, то есть
+        в топ-N при любом N. Дорогой запрос вернул бы её же первой строкой."""
+        fake = Fake({"good.com": _with_top(GOOD, "us", 8000)}, {"good.com": US_ONLY})
+        results = await _run(fake, ["good.com"])
+
+        assert fake.by_country_hosts == [], "заплатили за то, что уже знали"
+        assert results[0].status is DonorStatus.SUITABLE
+        assert results[0].geo is not None
+        assert results[0].geo.partial, "разбивка неполная, и это должно быть видно"
+
+    async def test_another_country_on_top_still_pays(self) -> None:
+        """Верхняя страна чужая — про целевую мы не знаем НИЧЕГО: она может
+        быть второй, а может не быть в ответе вовсе. Догадка здесь
+        отбраковывала бы годных доноров молча."""
+        rows = [{"country": "de", "org_traffic": 5000}, {"country": "us", "org_traffic": 3000}]
+        fake = Fake({"good.com": _with_top(GOOD, "de", 5000)}, {"good.com": rows})
+        results = await _run(fake, ["good.com"])
+
+        assert fake.by_country_hosts == ["good.com"], "сэкономили там, где знать не могли"
+        assert results[0].status is DonorStatus.SUITABLE
+        assert results[0].geo is not None
+        assert not results[0].geo.partial
+
+    @pytest.mark.parametrize(
+        ("top_country", "rows"),
+        [
+            ("us", [{"country": "us", "org_traffic": 8000}]),
+            (
+                "us",
+                [{"country": "us", "org_traffic": 4000}, {"country": "de", "org_traffic": 3000}],
+            ),
+            (
+                "de",
+                [{"country": "de", "org_traffic": 5000}, {"country": "us", "org_traffic": 3000}],
+            ),
+            ("de", [{"country": "de", "org_traffic": 8000}]),
+        ],
+    )
+    async def test_verdict_is_the_same_with_and_without_the_cheap_column(
+        self, top_country: str, rows: list[dict[str, Any]]
+    ) -> None:
+        """Ради этого всё и затевалось: экономия не должна менять вердикты.
+
+        Один и тот же домен проходит оба пути — с дешёвой колонкой и без
+        неё, — и статус с причиной обязаны совпасть.
+        """
+        with_column = Fake(
+            {"x.com": _with_top(GOOD, top_country, rows[0]["org_traffic"])}, {"x.com": rows}
+        )
+        without = Fake({"x.com": GOOD}, {"x.com": rows})
+
+        cheap = (await _run(with_column, ["x.com"]))[0]
+        full = (await _run(without, ["x.com"]))[0]
+
+        assert cheap.status is full.status
+        assert cheap.reason == full.reason
+
+    async def test_broken_column_falls_back_to_paying(self) -> None:
+        """Чужой формат однажды приедет другим. Молча счесть его за «страны
+        нет» значит отбраковать домен, за метрики которого уже заплатили."""
+        fake = Fake(
+            {"good.com": {**GOOD, "org_traffic_top_by_country": "не список"}},
+            {"good.com": US_ONLY},
+        )
+        results = await _run(fake, ["good.com"])
+
+        assert fake.by_country_hosts == ["good.com"]
+        assert results[0].status is DonorStatus.SUITABLE
+
+
 class TestVerdicts:
     async def test_target_country_passes(self) -> None:
         fake = Fake({"good.com": GOOD}, {"good.com": US_ONLY})

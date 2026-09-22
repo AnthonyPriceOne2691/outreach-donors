@@ -77,7 +77,7 @@
       "worst": "all_donors:32"
     },
     "backend/api/donors/schemas.py": {
-      "lines": 151,
+      "lines": 156,
       "complexity": 3,
       "worst": "of:71"
     },
@@ -462,9 +462,9 @@
       "worst": "_request:209"
     },
     "backend/features/ahrefs/units.py": {
-      "lines": 219,
+      "lines": 229,
       "complexity": 4,
-      "worst": "read:57"
+      "worst": "read:66"
     },
     "backend/features/contacts/__init__.py": {
       "lines": 2,
@@ -572,9 +572,9 @@
       "worst": "—"
     },
     "backend/features/core/models/donor.py": {
-      "lines": 137,
+      "lines": 142,
       "complexity": 2,
-      "worst": "_enum:32"
+      "worst": "_enum:34"
     },
     "backend/features/core/models/ops.py": {
       "lines": 71,
@@ -692,9 +692,9 @@
       "worst": "_narrow:90"
     },
     "backend/features/donors/collect.py": {
-      "lines": 204,
+      "lines": 294,
       "complexity": 5,
-      "worst": "_screen_batch:99"
+      "worst": "_screen_batch:117"
     },
     "backend/features/donors/export.py": {
       "lines": 57,
@@ -702,9 +702,9 @@
       "worst": "to_csv:37"
     },
     "backend/features/donors/geo.py": {
-      "lines": 154,
+      "lines": 159,
       "complexity": 9,
-      "worst": "build_breakdown:55"
+      "worst": "build_breakdown:60"
     },
     "backend/features/donors/host.py": {
       "lines": 62,
@@ -712,9 +712,9 @@
       "worst": "normalize_host:37"
     },
     "backend/features/donors/repository.py": {
-      "lines": 140,
+      "lines": 151,
       "complexity": 8,
-      "worst": "_donor_values:120"
+      "worst": "_donor_values:130"
     },
     "backend/features/donors/verdict.py": {
       "lines": 101,

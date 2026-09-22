@@ -294,6 +294,9 @@ export interface ContactCard {
 
 export interface DonorFullCard extends Omit<DonorRowCard, 'contacts'> {
   geo_breakdown: { country: string; share: number }[] | null;
+  /** Разбивка неполная: спрашивали только верхнюю страну — её хватило
+   *  для вердикта, а полный запрос стоит впятеро дороже. */
+  geo_partial: boolean;
   metrics: Record<string, unknown> | null;
   expires_at: string | null;
   contact_attempted_at: string | null;

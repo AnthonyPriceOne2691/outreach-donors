@@ -3,11 +3,18 @@
 Ступени идут в порядке возрастания цены, а не удобства (okf/unit-economy.md):
 
     1. просев по DR пакетом          2 юнита на домен, отсекает ~17%
-    2. остальные пороги пакетом      18 юнитов, отсекает ещё ~44%
-    3. страны по одному домену       55 юнитов, только для дошедших
+    2. пороги и ВЕРХНЯЯ СТРАНА пакетом   28 юнитов, отсекает ещё ~44%
+    3. страны по одному домену       55 юнитов, только когда без них никак
 
 Смысл в том, чтобы самый дорогой запрос видел как можно меньше доменов.
 При обратном порядке прогон дороже почти вдвое.
+
+**Третья ступень зовётся не всегда.** Верхняя страна приезжает пакетом
+вместе с метриками, и когда она же целевая — вердикт по региону готов:
+страна на первом месте, а значит в топ-N по определению. Дорогой запрос
+остаётся для тех, у кого верхняя страна другая: про целевую мы тогда
+не знаем ничего. Замер: у 118 годных доноров из 132 верхняя страна
+совпадает с целевой, то есть дорогой шаг нужен примерно каждому девятому.
 
 На вход идут ТОЛЬКО домены с истёкшим сроком годности: за свежие уже
 заплачено, и отбирает их вызывающий, до входа сюда.
@@ -22,7 +29,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -35,7 +42,18 @@ from backend.features.donors.verdict import Metrics, Thresholds, check_dr, check
 logger = logging.getLogger(__name__)
 
 SCREEN_FIELDS = ("url", "domain_rating")
-FULL_FIELDS = ("url", "domain_rating", "org_traffic", "refdomains", "org_keywords")
+FULL_FIELDS = (
+    "url",
+    "domain_rating",
+    "org_traffic",
+    "refdomains",
+    "org_keywords",
+    # Верхняя страна приезжает вместе с метриками за 10 юнитов на домен.
+    # Отдельный запрос по странам стоит 55 и идёт по одному домену — это
+    # 70% расхода прогона. Замер 22.09.2026: 360 юнитов на пять доменов
+    # нынешним путём против 135 пакетом.
+    "org_traffic_top_by_country",
+)
 
 
 @dataclass(slots=True)
@@ -146,6 +164,56 @@ async def _measure_batch(
     return passed, rejected
 
 
+def _top_pair(rows: Any) -> tuple[str, int] | None:
+    """Пара «страна, трафик» из колонки пакетного ответа.
+
+    Разбор защитный: формат чужой, и когда он приедет другим, молчаливое
+    «страны нет» отбраковало бы домен, за метрики которого уже заплачено.
+    Непонятый ответ здесь — это `None`, то есть «платим как раньше».
+    """
+    # Сопоставление с образцом, а не цепочка проверок: форма ответа
+    # видна целиком одной строкой, и лишнее поле в ней ничего не ломает.
+    match rows:
+        case [[str() as country, int() as traffic, *_], *_]:
+            return country.lower(), traffic
+        case _:
+            return None
+
+
+def _top_country_share(row: dict[str, Any], total: int) -> CountryShare | None:
+    """Верхняя страна из пакетного ответа. `None` — колонки нет или пусто.
+
+    Ahrefs отдаёт её списком пар «страна, трафик», и список этот всегда
+    из одной строки: колонка так и называется — ВЕРХНЯЯ страна. Проверено
+    на восьми доменах с разной географией, включая bbc.com и wikipedia.org.
+    """
+    pair = _top_pair(row.get("org_traffic_top_by_country"))
+    if pair is None or total <= 0:
+        return None
+    country, traffic = pair
+    return CountryShare(country, traffic, traffic / total)
+
+
+def _geo_without_paying(
+    row: dict[str, Any], metrics: Metrics, target_country: str
+) -> GeoVerdict | None:
+    """Вердикт по региону из пакетного ответа — или `None`, если его мало.
+
+    Хватает ровно одного случая: верхняя страна и есть целевая. Тогда она
+    на первом месте, то есть в топ-N при любом N ≥ 1, и дорогой запрос
+    ничего не изменит — он вернул бы ту же страну первой строкой.
+
+    Во всех прочих случаях про целевую страну мы не знаем ничего: она
+    может быть второй, а может не быть в ответе вовсе. Догадываться здесь
+    значит отбраковывать годных доноров молча, поэтому `None` — и платим.
+    """
+    top = _top_country_share(row, metrics.org_traffic or 0)
+    if top is None or top.country != target_country.lower():
+        return None
+    verdict = check_geo(target_country, [top])
+    return replace(verdict, partial=True) if verdict.passed else None
+
+
 async def _resolve_geo(
     client: AhrefsClient,
     host: str,
@@ -154,7 +222,10 @@ async def _resolve_geo(
     target_country: str,
     date: str,
 ) -> DomainResult:
-    """Ступень 3. Страны для одного домена — пакетного аналога у запроса нет."""
+    """Ступень 3. Страны по одному домену — пакетного аналога у запроса нет.
+
+    Зовётся только когда верхней страны не хватило: см. `_geo_without_paying`.
+    """
     try:
         response = await client.metrics_by_country(host, date)
     except AhrefsError as exc:
@@ -169,6 +240,25 @@ async def _resolve_geo(
     if not breakdown:
         status = DonorStatus.UNCHECKED
     return DomainResult(host, status, geo.reason, metrics, geo=geo, raw=raw)
+
+
+async def _geo_result(
+    client: AhrefsClient,
+    host: str,
+    metrics: Metrics,
+    raw: dict[str, Any],
+    target_country: str,
+    day: str,
+) -> DomainResult:
+    """Вердикт по региону — даром, если верхней страны хватило.
+
+    Дорогой запрос остаётся для тех, у кого верхняя страна другая: про
+    целевую мы тогда не знаем ничего.
+    """
+    cheap = _geo_without_paying(raw, metrics, target_country)
+    if cheap is None:
+        return await _resolve_geo(client, host, metrics, raw, target_country, day)
+    return DomainResult(host, DonorStatus.SUITABLE, cheap.reason, metrics, geo=cheap, raw=raw)
 
 
 async def collect(
@@ -198,6 +288,6 @@ async def collect(
             results.extend(rejected)
 
             for host, metrics, raw in survived_metrics:
-                results.append(await _resolve_geo(client, host, metrics, raw, target_country, day))
+                results.append(await _geo_result(client, host, metrics, raw, target_country, day))
 
         yield results
