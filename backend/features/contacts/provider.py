@@ -42,6 +42,12 @@ class ProviderRateLimitError(ProviderError):
     """Частота превышена. Повторить позже."""
 
 
+class ProviderBlockedError(ProviderError):
+    """Учётку закрыли. Повтор не поможет ни сейчас, ни завтра — идти
+    в кабинет провайдера. Отдельно от квоты намеренно: «кончились
+    запросы» и «нас закрыли» ведут человека к разным действиям."""
+
+
 @dataclass(frozen=True, slots=True)
 class Quota:
     """Остаток платных запросов по данным самого провайдера."""
@@ -70,6 +76,23 @@ class ContactProvider(Protocol):
         ...
 
 
+#: Маркер провайдера → чем это для нас является. Маркер разбирается ДО кода
+#: ответа, потому что один код значит у Hunter разное: `restricted_account`
+#: приезжает с HTTP 429, то есть неотличим от «слишком часто», если смотреть
+#: только на число. Замер 22.09.2026 поймал это живьём — закрытая учётка
+#: сорок четыре раза подряд назвалась превышенной частотой, и лестница
+#: повторяла бы ступень вечно.
+_MARKERS: dict[str, tuple[type[ProviderError], str]] = {
+    "restricted_account": (
+        ProviderBlockedError,
+        "учётка закрыта провайдером: {details} — квота тут ни при чём, "
+        "зайти в кабинет и разобраться",
+    ),
+    "usage_exceeded": (ProviderQuotaError, "квота исчерпана: {details}"),
+    "too_many_requests": (ProviderRateLimitError, "частота превышена: {details}"),
+}
+
+
 def _error_id(body: dict[str, Any]) -> tuple[str, str]:
     """Маркер и текст ошибки провайдера. Маркер стабилен, текст — для лога."""
     errors = body.get("errors")
@@ -77,6 +100,29 @@ def _error_id(body: dict[str, Any]) -> tuple[str, str]:
     if not isinstance(first, dict):
         return "", str(first)
     return str(first.get("id") or "").strip(), str(first.get("details") or "")
+
+
+def _raise_refusal(body: dict[str, Any], status: int) -> None:
+    """Назвать отказ провайдера своим именем. Всегда бросает.
+
+    Вынесено из `_call`, чтобы разбор отказов читался и правился отдельно
+    от разговора по сети: маркеров у провайдера прибавляется, а транспорт
+    не меняется годами.
+    """
+    marker, details = _error_id(body)
+    if known := _MARKERS.get(marker):
+        kind, template = known
+        raise kind(template.format(details=details))
+    if not marker:
+        # Маркера нет — судим по коду, как раньше. Это запасной путь:
+        # у кода смысл однозначен только пока провайдер не завёл маркер.
+        if status == 403:
+            raise ProviderQuotaError(f"квота исчерпана: {details}")
+        if status == 429:
+            raise ProviderRateLimitError(f"частота превышена: {details}")
+    # Незнакомый маркер не подводится под «повторить позже»: именно так
+    # закрытая учётка и выглядела временной заминкой.
+    raise ProviderError(f"провайдер отказал ({status}, {marker}): {details}")
 
 
 class HunterProvider:
@@ -119,12 +165,7 @@ class HunterProvider:
             raise ProviderError(f"ждали объект, пришло {type(body).__name__}")
 
         if body.get("errors"):
-            marker, details = _error_id(body)
-            if marker == "usage_exceeded" or response.status_code == 403:
-                raise ProviderQuotaError(f"квота исчерпана: {details}")
-            if response.status_code == 429:
-                raise ProviderRateLimitError(f"частота превышена: {details}")
-            raise ProviderError(f"провайдер отказал ({response.status_code}, {marker}): {details}")
+            _raise_refusal(body, response.status_code)
 
         data = body.get("data")
         if not isinstance(data, dict):

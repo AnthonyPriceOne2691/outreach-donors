@@ -11,8 +11,14 @@
 которые всё равно выбросит дедуп.
 
 **Отчёт возвращается вместе с пулом.** Сколько просили, сколько пришло,
-что отсеяла гигиена и по какой причине, сколько съел дедуп. Без этого
-нельзя ни настроить промпт, ни объяснить, почему пул меньше заказа.
+что отсеяла гигиена и по какой причине, сколько съел дедуп, сколько раз
+модель отказала. Без этого нельзя ни настроить промпт, ни объяснить,
+почему пул меньше заказа.
+
+**Пустой пул из-за отказов модели — это ошибка, а не результат.** Пул
+собирается до траты на выдачу, и молчаливый ноль здесь означает прогон,
+который пойдёт дальше ни за чем. Пустой пул без отказов — законный
+исход: модель отвечала, фразы не прошли гигиену.
 """
 
 from __future__ import annotations
@@ -22,7 +28,7 @@ from dataclasses import dataclass, field
 
 from backend.config import llm as cfg
 from backend.features.keywords.angles import Angle, load_prompt, preset
-from backend.features.keywords.client import Ask, KeygenClient
+from backend.features.keywords.client import Ask, KeygenClient, LlmError
 from backend.features.keywords.dedup import (
     drop_near_duplicates,
     split_over_angles,
@@ -48,6 +54,9 @@ class PoolReport:
     tokens: int = 0
     calls: int = 0
     per_angle: dict[str, int] = field(default_factory=dict)
+    #: Отказы модели. Пустой пул при пустом списке — модель правда ничего
+    #: не придумала; пустой пул при непустом — она не отвечала.
+    refusals: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -63,6 +72,7 @@ class PoolReport:
             "tokens": self.tokens,
             "calls": self.calls,
             "per_angle": self.per_angle,
+            "refusals": len(self.refusals),
         }
 
 
@@ -88,6 +98,52 @@ def build_user_prompt(*, country: str, language: str, angle: Angle) -> str:
         f"Do NOT mix in any other language. Examples in the instructions show STYLE only — "
         f"express that intent natively.\n"
         f"focus ONLY on this content angle: {angle.focus}"
+    )
+
+
+def _settle(keywords: list[str], *, cap: int, report: PoolReport) -> Pool:
+    """Отдать пул — или отказаться отдавать пустой, если он пуст из-за
+    отказов модели.
+
+    Пул собирается ДО траты на выдачу, и молчаливый ноль здесь означает
+    прогон, который пойдёт дальше ни за чем. Пустой пул без отказов —
+    законный исход: модель отвечала, фразы не прошли отбор.
+    """
+    if not keywords and report.refusals:
+        raise LlmError(
+            "пул ключей пуст: модель отказала "
+            f"{len(report.refusals)} раз(а) — {'; '.join(report.refusals[:3])}"
+        )
+
+    logger.info("ключи: собрано %d из %d — %s", len(keywords), cap, report.as_dict())
+    if report.refusals:
+        logger.warning(
+            "ключи: пул собран частично — %d отказ(ов) модели: %s",
+            len(report.refusals),
+            "; ".join(report.refusals[:3]),
+        )
+    return Pool(keywords=keywords, report=report)
+
+
+def _log_dry(report: PoolReport, *, collected: list[str], cap: int) -> None:
+    """Объяснить, почему добор встал. Две причины, и они разные.
+
+    Раньше обе печатались одной строкой «модель исчерпала уникальные
+    фразы» — и протухший ключ читался как исчерпанная фантазия модели.
+    Вынесено из `_backfill` отдельной функцией: там речь про счёт фраз,
+    здесь про то, что сказать человеку.
+    """
+    if report.received == 0:
+        logger.error(
+            "ключи: модель не дала ни одной фразы за %d вызов(ов) — %s",
+            report.calls or len(report.refusals),
+            "; ".join(report.refusals) or "ответы пустые, отказов не было",
+        )
+        return
+    logger.info(
+        "ключи: добор остановлен, модель исчерпала уникальные фразы (набрано %d из %d)",
+        len(drop_near_duplicates(collected)),
+        cap,
     )
 
 
@@ -128,8 +184,8 @@ class PoolBuilder:
         report.tokens = self._client.tokens_spent
         report.calls = self._client.calls
 
-        logger.info("ключи: собрано %d из %d — %s", len(deduped[:cap]), cap, report.as_dict())
-        return Pool(keywords=deduped[:cap], report=report)
+        report.refusals = list(self._client.refusals)
+        return _settle(deduped[:cap], cap=cap, report=report)
 
     async def _ask_angle(
         self,
@@ -192,13 +248,7 @@ class PoolBuilder:
                     return collected
 
             if len(collected) == before:
-                # Ни один угол не дал новой фразы: уникальные кончились.
-                # Крутить модель дальше — платить за повторы.
-                logger.info(
-                    "ключи: добор остановлен, модель исчерпала уникальные фразы (набрано %d из %d)",
-                    len(drop_near_duplicates(collected)),
-                    cap,
-                )
+                _log_dry(report, collected=collected, cap=cap)
                 return collected
 
         return collected

@@ -18,6 +18,7 @@ from backend.features.contacts import rdap
 from backend.features.contacts.mx import MailRoute, mail_route
 from backend.features.contacts.provider import (
     HunterProvider,
+    ProviderBlockedError,
     ProviderError,
     ProviderQuotaError,
     ProviderRateLimitError,
@@ -77,6 +78,39 @@ class TestPaidProvider:
         async with _http(_reply(payload, 429)) as client:
             with pytest.raises(ProviderRateLimitError):
                 await HunterProvider(client, api_key="k").find_emails("site.com")
+
+    async def test_restricted_account_is_not_a_rate_limit(self) -> None:
+        """Живой отказ Hunter 22.09.2026: закрытая учётка приезжает
+        с кодом 429, то есть по числу неотличима от «слишком часто».
+
+        Разница не косметическая: `rate_limited` говорит лестнице
+        «повторим позже», и ступень повторялась бы вечно, потому что
+        повтор здесь не лечит ничего. Тело ответа — дословно то, что
+        пришло от провайдера.
+        """
+        payload = {
+            "errors": [
+                {
+                    "id": "restricted_account",
+                    "code": 429,
+                    "details": "Your account was restricted. Please log in to Hunter for more information.",
+                }
+            ]
+        }
+
+        async with _http(_reply(payload, 429)) as client:
+            with pytest.raises(ProviderBlockedError, match="зайти в кабинет"):
+                await HunterProvider(client, api_key="k").find_emails("site.com")
+
+    async def test_unknown_marker_is_not_guessed_as_transient(self) -> None:
+        """Незнакомый маркер на 429 не выдаётся за превышенную частоту:
+        именно такая догадка и прятала закрытую учётку."""
+        payload = {"errors": [{"id": "some_new_marker", "code": 429, "details": "что-то"}]}
+
+        async with _http(_reply(payload, 429)) as client:
+            with pytest.raises(ProviderError, match="some_new_marker") as caught:
+                await HunterProvider(client, api_key="k").find_emails("site.com")
+        assert not isinstance(caught.value, ProviderRateLimitError)
 
     async def test_wrong_key_is_loud(self) -> None:
         payload = {"errors": [{"id": "wrong_token", "code": 401, "details": "ключ не принят"}]}

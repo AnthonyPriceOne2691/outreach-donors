@@ -166,6 +166,7 @@ export type ContactStatus =
   | 'form_only'
   | 'no_quota'
   | 'rate_limited'
+  | 'blocked'
   | 'error';
 export type ContactSource = 'mx' | 'page' | 'rdap' | 'paid' | 'form' | 'manual';
 export type RunStatus = 'queued' | 'estimating' | 'running' | 'done' | 'stopped';

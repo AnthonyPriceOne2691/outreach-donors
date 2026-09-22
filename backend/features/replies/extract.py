@@ -37,7 +37,7 @@ from backend.config import llm as cfg
 from backend.features.letters import masking
 from backend.features.replies.inbound import Incoming
 from backend.features.replies.quoting import written_by_hand
-from backend.shared.llm import content_of, is_reasoning, post_chat, tokens_of
+from backend.shared.llm import Refusal, content_of, is_reasoning, post_chat, tokens_of
 
 logger = logging.getLogger(__name__)
 
@@ -308,8 +308,11 @@ class ExtractClient:
             payload=build_payload(self._model, text=hidden.text, subject=incoming.subject),
             topic=TOPIC,
         )
-        if body is None:
-            return Extracted(notes=("модель недоступна или отказала — причина в логе",))
+        if isinstance(body, Refusal):
+            # Мягкая деградация верна — диалог уходит в ручную очередь, —
+            # но нота обязана назвать причину: «ключ протух» и «в письме
+            # нет цены» ведут человека к разным действиям.
+            return Extracted(notes=(str(body),))
 
         found = parse_form(content_of(body, topic=TOPIC))
         if found is None:

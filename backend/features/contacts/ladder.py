@@ -44,6 +44,7 @@ from backend.features.contacts.pages import (
 )
 from backend.features.contacts.provider import (
     ContactProvider,
+    ProviderBlockedError,
     ProviderError,
     ProviderQuotaError,
     ProviderRateLimitError,
@@ -374,6 +375,12 @@ class ContactLadder:
         self.counters.provider_entered += 1
         try:
             candidates = await self._provider.find_emails(host)
+        except ProviderBlockedError as exc:
+            # Раньше этот случай приезжал сюда как «частота» и лестница
+            # бодро шла по следующему домену. Ловится первым: он потомок
+            # ProviderError, и порядок веток решает.
+            logger.exception("контакты: платный сервис закрыл учётку — %s", exc)
+            return ContactStatus.BLOCKED
         except ProviderQuotaError as exc:
             logger.warning("контакты: квота платного сервиса исчерпана на %s — %s", host, exc)
             return ContactStatus.NO_QUOTA

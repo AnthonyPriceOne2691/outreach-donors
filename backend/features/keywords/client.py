@@ -24,7 +24,7 @@ import httpx
 
 from backend.config import llm as cfg
 from backend.features.keywords.hygiene import parse_phrases
-from backend.shared.llm import content_of, is_reasoning, post_chat, tokens_of
+from backend.shared.llm import Refusal, content_of, is_reasoning, post_chat, tokens_of
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +86,15 @@ class KeygenClient:
         self._http = client or httpx.AsyncClient(timeout=cfg.TIMEOUT_S)
         self.tokens_spent = 0
         self.calls = 0
+        #: Отказы модели, по одному на неудавшийся вызов. Считаются
+        #: отдельно от пустых ответов: доля «не знаю» обязана быть
+        #: числом в отчёте, иначе поломка ступени выглядит как её работа.
+        self.refusals: list[str] = []
+        #: Отказ, который повтором не лечится. Живой прогон с протухшим
+        #: ключом сделал двенадцать обречённых вызовов подряд — по углу
+        #: на каждый круг добора. Повторять то, что уже названо
+        #: неисправимым, значит ждать втрое дольше ради того же ответа.
+        self._hopeless: str | None = None
 
     @property
     def model(self) -> str:
@@ -95,13 +104,38 @@ class KeygenClient:
         if self._own_client:
             await self._http.aclose()
 
+    def _skip_hopeless(self) -> bool:
+        """Отказ уже назван неисправимым — вызов не делаем.
+
+        Считаем его всё равно: в отчёте должно быть видно, скольким углам
+        он стоил фраз, иначе пул выглядит просто маленьким.
+        """
+        if self._hopeless is None:
+            return False
+        self.refusals.append(self._hopeless)
+        return True
+
+    def _remember(self, refusal: Refusal) -> None:
+        """Записать отказ и, если он неисправим, перестать звонить."""
+        self.refusals.append(str(refusal))
+        if refusal.permanent:
+            self._hopeless = str(refusal)
+
     async def ask(self, ask: Ask) -> list[str]:
-        """Попросить фраз. Пустой список — законный исход, не исключение."""
+        """Попросить фраз. Пустой список — законный исход, не исключение.
+
+        Отказ модели тоже даёт пустой список, но попадает в `refusals`:
+        без этого «модель ничего не придумала» и «модель не ответила»
+        неразличимы, и отчёт называет вторым первое.
+        """
         if not self._api_key:
             raise LlmError(
                 "LLM_API_KEY не задан — генерация ключей работать не может. "
                 "Заполнить в окружении или брать ключи списком"
             )
+
+        if self._skip_hopeless():
+            return []
 
         self.calls += 1
         body = await post_chat(
@@ -110,7 +144,8 @@ class KeygenClient:
             payload=build_payload(self._model, ask),
             topic=TOPIC,
         )
-        if body is None:
+        if isinstance(body, Refusal):
+            self._remember(body)
             return []
 
         self.tokens_spent += tokens_of(body)
