@@ -297,9 +297,25 @@ TEMPLATES = Path(__file__).parent / "templates"
 #: Шаблон, лежащий рядом. Текст выдуман — боевой приходит со стороны задачи.
 DEFAULT_PATH = TEMPLATES / "price_request.txt"
 
+#: Оффер рекламодателю, Этап 2. Набор зон тот же, что у письма донору,
+#: а границы другие: цена донора не называется, метрики провайдера
+#: не упоминаются, про площадку говорится только то, что видел обход, —
+#: страница и анкор.
+ADVERTISER_PATH = TEMPLATES / "advertiser_offer.txt"
+
 
 def default() -> Template:
     return load(DEFAULT_PATH)
+
+
+def advertiser() -> Template:
+    """Шаблон оффера рекламодателю.
+
+    Отдельная функция, а не параметр: письма двух этапов расходятся
+    не набором зон, а тем, чего в них нельзя, — и место, где это
+    записано, должно быть одно.
+    """
+    return load(ADVERTISER_PATH)
 
 
 def followup(step: int) -> Template:

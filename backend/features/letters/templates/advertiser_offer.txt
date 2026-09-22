@@ -1,0 +1,59 @@
+# Оффер рекламодателю. Этап 2. Язык английский — по той же причине,
+# что и в письме донору: язык берётся от ГЕО прогона, не от языка сайта.
+#
+# ТЕКСТ ВЫДУМАН. Боевой приходит со стороны задачи — как и текст письма
+# донору. Здесь важен не текст, а набор зон и границы: что переписывает
+# модель, чего она не видит и чего в письме быть не должно.
+#
+# ЧЕГО В ЭТОМ ПИСЬМЕ БЫТЬ НЕ ДОЛЖНО — и это не стиль, а требование:
+#
+# 1. **Цена донора не называется.** Оффер звучит «мы дешевле», без числа.
+#    Требование расходилось само с собой — «Вводная» допускала цену,
+#    чеклист запрещал, — и решено в пользу запрета: названная чужая цена
+#    это и претензия от донора, и вопрос об источнике, на который нечем
+#    ответить.
+# 2. **Метрики Ahrefs не упоминаются.** Правило самого Ahrefs; нарушение
+#    бьёт не по письму, а по ключу, на котором держится весь сбор базы.
+# 3. **Про донора говорим только то, что видели сами:** страницу и анкор,
+#    найденные обходом. Всё остальное про площадку — догадка, а догадка
+#    в письме читается как враньё.
+#
+# Зона `rewrite` уходит в модель, зона `fixed` в модель не уходит вовсе:
+# просьбу «не трогай» модель исполняет почти всегда, и «почти» означает
+# изменённые условия сделки в уже отправленном письме.
+#
+# Подстановки, которых нет в письме донору:
+#   {{donor_host}}  — площадка, где нашли ссылку
+#   {{page_url}}    — конкретная страница с ссылкой
+#   {{anchor}}      — текст той самой ссылки
+# Они и есть персонализация, которую требует требование: письмо пишется
+# «под конкретную найденную ссылку — страницу и анкор».
+#
+# Абзац — одна строка, без переносов по ширине: жёсткий перенос рвёт
+# фразу посередине и переживает пересылку хуже, чем его отсутствие.
+
+subject: Your placement on {{donor_host}}
+
+[greeting] rewrite
+Hello,
+
+[opening] rewrite
+I came across your link on {{donor_host}} — the one anchored "{{anchor}}" on {{page_url}}. That is the kind of placement I work with every week, which is why I am writing.
+
+[offer] fixed
+I run placements on sites like this one for a living, and I buy them at agency rates rather than at the price a publisher quotes to a direct advertiser. If you are placing articles there regularly, I can almost certainly get you the same spot for less than you are paying now.
+
+[ask] rewrite
+Would it be worth a short conversation? If you tell me roughly how often you place and where, I will come back with what it would cost through us.
+
+[terms] fixed
+No commitment and no retainer: you approve every placement before it is bought, you see the live URL, and you pay per article. If our price is not better than yours, I will say so and we both save the time.
+
+[signature] fixed
+Best regards,
+{{sender_name}}
+
+[legal] fixed
+{{postal_address}}
+You are receiving this because your link appears on a site we monitor for paid placements.
+To stop hearing from us, unsubscribe here: {{unsubscribe_url}}
