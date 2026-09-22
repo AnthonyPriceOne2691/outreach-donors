@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
+from backend.api.advertisers import routes as advertisers_routes
 from backend.api.auth import routes as auth_routes
 from backend.api.contacts import routes as contacts_routes
 from backend.api.donors import routes as donors_routes
@@ -60,6 +61,7 @@ def create_app() -> FastAPI:
     app.include_router(runs_routes.router, prefix=API_PREFIX)
     app.include_router(donors_routes.router, prefix=API_PREFIX)
     app.include_router(contacts_routes.router, prefix=API_PREFIX)
+    app.include_router(advertisers_routes.router, prefix=API_PREFIX)
     app.include_router(senders_routes.router, prefix=API_PREFIX)
     app.include_router(settings_routes.router, prefix=API_PREFIX)
     app.include_router(threads_routes.router, prefix=API_PREFIX)

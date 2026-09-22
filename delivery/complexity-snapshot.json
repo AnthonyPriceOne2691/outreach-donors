@@ -11,10 +11,25 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/api/advertisers/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/api/advertisers/routes.py": {
+      "lines": 93,
+      "complexity": 4,
+      "worst": "decide:60"
+    },
+    "backend/api/advertisers/schemas.py": {
+      "lines": 75,
+      "complexity": 3,
+      "worst": "of:37"
+    },
     "backend/api/app.py": {
-      "lines": 74,
+      "lines": 76,
       "complexity": 1,
-      "worst": "create_app:36"
+      "worst": "create_app:37"
     },
     "backend/api/auth/__init__.py": {
       "lines": 1,
@@ -502,7 +517,7 @@
       "worst": "—"
     },
     "backend/features/core/domain.py": {
-      "lines": 216,
+      "lines": 220,
       "complexity": 0,
       "worst": "—"
     },
@@ -605,6 +620,11 @@
       "lines": 70,
       "complexity": 3,
       "worst": "save_crawl:26"
+    },
+    "backend/features/crawl/review.py": {
+      "lines": 128,
+      "complexity": 5,
+      "worst": "decide:93"
     },
     "backend/features/crawl/robots.py": {
       "lines": 271,
@@ -1077,9 +1097,9 @@
       "worst": "_select:46"
     },
     "scripts/ui_contrast.py": {
-      "lines": 372,
+      "lines": 387,
       "complexity": 9,
-      "worst": "main:296"
+      "worst": "main:311"
     }
   }
 }
