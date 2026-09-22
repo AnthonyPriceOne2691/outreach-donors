@@ -442,7 +442,7 @@
       "worst": "—"
     },
     "backend/features/ahrefs/client.py": {
-      "lines": 290,
+      "lines": 300,
       "complexity": 11,
       "worst": "_request:209"
     },
@@ -1117,9 +1117,9 @@
       "worst": "_select:46"
     },
     "scripts/ui_contrast.py": {
-      "lines": 412,
+      "lines": 419,
       "complexity": 9,
-      "worst": "main:360"
+      "worst": "main:367"
     }
   }
 }

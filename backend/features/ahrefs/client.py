@@ -242,7 +242,15 @@ class AhrefsClient:
             if response.status_code in FATAL_STATUSES:
                 raise AhrefsError(f"{operation}: {response.status_code} {response.text[:200]}")
             if response.status_code in RETRY_STATUSES:
-                last_error = AhrefsError(f"{operation}: {response.status_code}")
+                # Текст провайдера кладётся в ошибку СРАЗУ. Без него исход
+                # «не удалось за N попыток» одинаков для перегрузки и для
+                # исчерпанных юнитов, а это разные вещи: первое пройдёт
+                # само, второе не пройдёт никогда. 429 здесь по-прежнему
+                # повторяется — гадать по коду мы не беремся, — но
+                # человек увидит, что именно сказал Ahrefs.
+                last_error = AhrefsError(
+                    f"{operation}: {response.status_code} {response.text[:200]}"
+                )
                 if attempt == MAX_ATTEMPTS:
                     break
                 delay = _retry_delay(attempt, response)
@@ -260,7 +268,9 @@ class AhrefsClient:
             response.raise_for_status()
             return Response(rows=_rows(response.json(), operation), cost=cost)
 
-        raise AhrefsError(f"{operation}: не удалось за {MAX_ATTEMPTS} попыток") from last_error
+        raise AhrefsError(
+            f"{operation}: не удалось за {MAX_ATTEMPTS} попыток — {last_error}"
+        ) from last_error
 
 
 def _rows(payload: Any, operation: str) -> list[dict[str, Any]]:
