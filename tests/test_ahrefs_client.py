@@ -119,6 +119,25 @@ class TestRetries:
             await _client(handler).metrics_by_country("example.com", "2026-09-01")
         assert attempts["n"] == 1
 
+    async def test_exhausted_retries_name_what_the_provider_said(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """«Не удалось за N попыток» было одинаковым для перегрузки
+        и для кончившихся юнитов — а это разные вещи: первое пройдёт само,
+        второе не пройдёт никогда.
+
+        Разделить их по коду мы не беремся: 429 у Ahrefs значит и то
+        и другое, вызвать второе можно только исчерпав квоту. Но сказать,
+        что именно ответил провайдер, обязаны.
+        """
+        monkeypatch.setattr("backend.features.ahrefs.client.asyncio.sleep", _no_sleep)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(429, text='{"error":"units limit reached"}')
+
+        with pytest.raises(AhrefsError, match="units limit reached"):
+            await _client(handler).metrics_by_country("example.com", "2026-09-01")
+
     def test_retry_after_is_honoured_but_capped(self) -> None:
         """Провайдеру верим, но не безоговорочно: «подождите час» не должно
         останавливать прогон на час."""
