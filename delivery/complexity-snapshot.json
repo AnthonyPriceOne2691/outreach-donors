@@ -587,9 +587,9 @@
       "worst": "—"
     },
     "backend/features/crawl/article.py": {
-      "lines": 208,
+      "lines": 261,
       "complexity": 7,
-      "worst": "_by_density:161"
+      "worst": "_by_density:214"
     },
     "backend/features/crawl/contacts.py": {
       "lines": 110,

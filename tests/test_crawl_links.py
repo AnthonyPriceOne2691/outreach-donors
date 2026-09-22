@@ -75,6 +75,52 @@ class TestArticleBody:
         assert article is not None
         assert article.source is BodySource.DENSITY
 
+    def test_layout_modifier_does_not_eat_the_article(self) -> None:
+        """Замер 22.09.2026, живой донор: статья лежала в
+        `<main class="site-content has-sidebar …">`, и слово `sidebar`
+        внутри имени РАСКЛАДКИ уносило `<main>` вместе со статьёй.
+
+        Четыре страницы из двадцати выглядели как «не статья» — то есть
+        по этому донору обход находил ноль рекламодателей и молчал об этом.
+        Настоящий сайдбар там же рядом, `<aside>`, и он убирается по тегу.
+        """
+        html = _page(
+            f'<main class="site-content has-sidebar post-73425"><p>{LONG}</p></main>'
+            '<aside class="sidebar"><a href="https://x.test/">меню</a></aside>'
+        )
+
+        article = extract_article(html)
+
+        assert article is not None, "модификатор раскладки съел статью"
+        assert LONG[:40] in article.text
+
+    def test_real_sidebar_is_still_dropped(self) -> None:
+        """Починка не должна оставить настоящий сайдбар: имя блока,
+        начинающееся с маркера, — это по-прежнему шум."""
+        html = _page(
+            f'<div class="entry-content"><p>{LONG}</p></div>'
+            '<div class="sidebar-wrapper"><a href="https://ads.test/">реклама</a></div>'
+        )
+
+        article = extract_article(html)
+
+        assert article is not None
+        assert "ads.test" not in article.node.html
+
+    def test_wrapper_holding_the_whole_page_is_never_noise(self) -> None:
+        """Страховка на имя, которого нет в списке: блок, в котором лежит
+        почти весь текст страницы, — обёртка вёрстки, а не шум.
+
+        Без неё одно неудачное имя класса превращает страницу в «не
+        статья», и отличить это от честного «страница статьёй не является»
+        нельзя ничем.
+        """
+        html = _page(f'<div class="menu-and-everything-else"><p>{LONG}</p><p>{LONG}</p></div>')
+
+        article = extract_article(html)
+
+        assert article is not None, "обёртка вёрстки выброшена как меню"
+
     def test_page_without_an_article_is_none_not_empty(self) -> None:
         """Раздел со списком и карточка товара статьями не являются.
         Вернув пустое тело, мы записали бы «ссылок нет» там, где их
