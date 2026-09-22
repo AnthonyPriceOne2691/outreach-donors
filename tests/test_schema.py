@@ -26,6 +26,8 @@ EXPECTED_TABLES = {
     "crawl_runs",
     "outlinks",
     "advertiser_candidates",
+    "advertisers",
+    "supplier_donors",
 }
 
 

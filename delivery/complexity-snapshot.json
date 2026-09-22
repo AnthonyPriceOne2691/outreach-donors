@@ -282,9 +282,9 @@
       "worst": "cmd_user_add:28"
     },
     "backend/cli/advertisers.py": {
-      "lines": 167,
+      "lines": 289,
       "complexity": 7,
-      "worst": "_print_summary:119"
+      "worst": "_print_summary:147"
     },
     "backend/cli/contact_search.py": {
       "lines": 90,
@@ -317,9 +317,9 @@
       "worst": "_print_build:82"
     },
     "backend/cli/main.py": {
-      "lines": 366,
+      "lines": 373,
       "complexity": 9,
-      "worst": "_print_report:206"
+      "worst": "_print_report:211"
     },
     "backend/cli/senders_admin.py": {
       "lines": 134,
@@ -502,13 +502,13 @@
       "worst": "_vcard_emails:40"
     },
     "backend/features/contacts/repository.py": {
-      "lines": 150,
+      "lines": 171,
       "complexity": 4,
-      "worst": "save:91"
+      "worst": "save_addresses:59"
     },
     "backend/features/contacts/search.py": {
-      "lines": 168,
-      "complexity": 8,
+      "lines": 175,
+      "complexity": 9,
       "worst": "search_contacts:118"
     },
     "backend/features/core/__init__.py": {
@@ -522,7 +522,7 @@
       "worst": "—"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 37,
+      "lines": 40,
       "complexity": 0,
       "worst": "—"
     },
@@ -538,6 +538,11 @@
     },
     "backend/features/core/models/advertiser.py": {
       "lines": 77,
+      "complexity": 2,
+      "worst": "_enum:34"
+    },
+    "backend/features/core/models/advertisers.py": {
+      "lines": 108,
       "complexity": 2,
       "worst": "_enum:34"
     },
@@ -586,6 +591,11 @@
       "complexity": 7,
       "worst": "_by_density:161"
     },
+    "backend/features/crawl/contacts.py": {
+      "lines": 110,
+      "complexity": 6,
+      "worst": "save:88"
+    },
     "backend/features/crawl/denylist.py": {
       "lines": 159,
       "complexity": 8,
@@ -615,6 +625,11 @@
       "lines": 227,
       "complexity": 11,
       "worst": "collect_links:139"
+    },
+    "backend/features/crawl/promote.py": {
+      "lines": 273,
+      "complexity": 10,
+      "worst": "promote:128"
     },
     "backend/features/crawl/repository.py": {
       "lines": 70,

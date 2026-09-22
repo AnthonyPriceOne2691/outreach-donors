@@ -14,16 +14,21 @@ from __future__ import annotations
 import argparse
 import logging
 from datetime import UTC, datetime
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.config import storage
 from backend.config.startup_checks import check_storage
+from backend.features.contacts.search import search_contacts
 from backend.features.core.domain import Verdict
 from backend.features.core.models.advertiser import CandidateModel
+from backend.features.core.models.advertisers import SupplierDonorModel
 from backend.features.core.models.crawl import CrawlRunModel
+from backend.features.crawl.contacts import AdvertiserContactRepository
 from backend.features.crawl.gate import judge_run
+from backend.features.crawl.promote import promote as promote_candidates
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +52,29 @@ def add_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None
         help="показать только с этим вердиктом",
     )
     judge.add_argument("--limit", type=int, default=30, help="сколько строк печатать")
+
+    promote = sub.add_parser(
+        "advertisers-promote", help="перевести подходящих кандидатов в рекламодателей"
+    )
+    promote.add_argument(
+        "--contacts",
+        action="store_true",
+        help="сразу искать им адреса той же лестницей, что и донорам (платная ступень)",
+    )
+    promote.add_argument(
+        "--limit", type=int, default=100, help="сколько рекламодателей взять на поиск адреса"
+    )
+    promote.add_argument(
+        "--no-paid",
+        action="store_true",
+        help="только бесплатные ступени лестницы: MX, страницы, RDAP",
+    )
+
+    suppliers = sub.add_parser(
+        "suppliers-import", help="стоп-лист доноров-поставщиков из файла (по домену в строке)"
+    )
+    suppliers.add_argument("path", type=Path, help="файл со списком: домен, дальше через # причина")
+    suppliers.add_argument("--by", required=True, help="кто внёс список")
 
     decide = sub.add_parser("advertiser-decide", help="решение человека по спорному кандидату")
     decide.add_argument("--run", type=int, required=True, help="номер обхода")
@@ -161,6 +189,100 @@ async def cmd_advertiser_decide(args: argparse.Namespace) -> int:
                 f"({args.by}). Балл скоринга {row.points} остался как был — "
                 "по нему считается, как часто он ошибается."
             )
+    finally:
+        await engine.dispose()
+    return 0
+
+
+async def cmd_advertisers_promote(args: argparse.Namespace) -> int:
+    """Перевести кандидатов в рекламодателей и, если просят, найти адреса."""
+    check_storage()
+    engine = create_async_engine(storage.DSN)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with factory() as session:
+            report = await promote_candidates(session)
+            await session.commit()
+
+            print("\nПеревод кандидатов в рекламодателей:")
+            for name, number in report.as_dict().items():
+                print(f"  {name:<34} {number}")
+            if report.hosts:
+                print(f"  новые: {', '.join(report.hosts[:10])}")
+
+            queue = AdvertiserContactRepository(session)
+            waiting = await queue.pending_count()
+            print(f"\nБез адреса: {waiting}")
+
+            if not args.contacts:
+                if waiting:
+                    print(
+                        "Искать адреса: тот же вызов с `--contacts` (платная ступень стоит денег)"
+                    )
+                return 0
+
+            found = await search_contacts(
+                session, limit=args.limit, queue=queue, no_paid=args.no_paid
+            )
+            print(f"Пройдено доменов: {found.walked}, адресов сохранено: {found.saved}")
+            for note in found.notes:
+                print(note)
+    finally:
+        await engine.dispose()
+    return 0
+
+
+def _read_suppliers(path: Path) -> list[tuple[str, str | None]]:
+    """Домены из файла: по одному в строке, причина после решётки.
+
+    Пустые строки и строки-комментарии пропускаются молча — список
+    приходит от людей, и шапка «Доноры, где размещались» в нём будет.
+    """
+    out: list[tuple[str, str | None]] = []
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        host, _, note = line.partition("#")
+        host = host.strip().lower().removeprefix("www.")
+        if host:
+            out.append((host, note.strip() or None))
+    return out
+
+
+async def cmd_suppliers_import(args: argparse.Namespace) -> int:
+    """Внести стоп-лист доноров-поставщиков.
+
+    Их рекламодатели — чужие клиенты и свои же размещения. Отсев идёт
+    при переводе кандидата в рекламодатели, то есть до поиска контакта:
+    платная ступень не тратится на того, кому не напишем.
+    """
+    check_storage()
+    if not args.path.exists():
+        print(f"Файла {args.path} нет.")
+        return EXIT_NOT_FOUND
+
+    rows = _read_suppliers(args.path)
+    if not rows:
+        print("В файле нет ни одного домена — список не тронут.")
+        return EXIT_NOT_FOUND
+
+    engine = create_async_engine(storage.DSN)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with factory() as session:
+            known = set((await session.execute(select(SupplierDonorModel.host))).scalars().all())
+            added = 0
+            for host, note in rows:
+                if host in known:
+                    continue
+                session.add(SupplierDonorModel(host=host, note=note, added_by=args.by))
+                added += 1
+            await session.commit()
+
+            total = len((await session.execute(select(SupplierDonorModel.host))).scalars().all())
+            print(f"Добавлено: {added}, уже было: {len(rows) - added}. Всего в списке: {total}.")
+            print("Отсев идёт при переводе кандидатов — `outreach advertisers-promote`.")
     finally:
         await engine.dispose()
     return 0
