@@ -10,7 +10,7 @@
 - **builder:** agent:claude
 - **verifier:** human:anthony
 - **human_ok_spec:** yes at=2026-09-18 by=human:anthony («Ф4.1 — лестница контактов»)
-- **human_ok_plan:** yes at=2026-09-18 by=human:anthony (PHASES.md, Ф4; цепочка согласована ранее)
+- **human_ok_plan:** yes at=2026-09-18 by=human:anthony (Ф4 плана; цепочка согласована ранее)
 
 Предыдущий срез `run-pipeline-persistence` закрыт: Ф3 принята, код в `main`.
 

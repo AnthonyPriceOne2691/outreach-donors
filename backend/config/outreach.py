@@ -32,7 +32,7 @@ class _Outreach(DomainSettings):
     postal_address: str = Field(default="", validation_alias="OUTREACH_POSTAL_ADDRESS")
     unsubscribe_url: str = Field(default="", validation_alias="OUTREACH_UNSUBSCRIBE_URL")
     # Писем на отправителя в день. Держим низким: схема на 20 доменах
-    # работает именно за счёт малого объёма на ящик (см. TZ.md).
+    # работает именно за счёт малого объёма на ящик — так в требованиях.
     daily_cap_per_sender: int = Field(default=20, validation_alias="OUTREACH_DAILY_CAP_PER_SENDER")
     # Разгон нового отправителя: ступени дневного капа по дням.
     warmup_daily_caps: str = Field(default="5,10,15,20", validation_alias="OUTREACH_WARMUP_CAPS")

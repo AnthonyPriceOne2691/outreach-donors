@@ -17,6 +17,7 @@ from scripts.gates import (
     check_file_length,
     check_grab_bag,
     check_layers,
+    check_public_repo,
     check_silent_except,
     run,
 )
@@ -132,3 +133,44 @@ class TestSecretInExample:
 
     def test_missing_file_is_not_a_failure(self, tmp_path: Path) -> None:
         assert list(check_env_example(tmp_path / "нет-такого")) == []
+
+
+class TestPublicRepo:
+    """Закрытое не называется в публичном репозитории.
+
+    Правило было записано словами и продержалось ровно до первого среза,
+    который его не помнил: четырнадцать файлов уехали в `main` со ссылками
+    на закрытый документ и с идентификаторами его строк. Правило, которое
+    обязан помнить агент, не исполняется — исполняется то, что роняет пуш.
+    """
+
+    @staticmethod
+    def _repo(tmp_path: Path, name: str, text: str) -> Path:
+        import subprocess  # noqa: PLC0415 — нужен только здесь, ради списка файлов
+
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text(text, encoding="utf-8")
+        subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+        subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+        return tmp_path
+
+    def test_checklist_id_is_caught(self, tmp_path: Path) -> None:
+        repo = self._repo(tmp_path, "docs/note.md", "Требование Э1-24 просит ручную очередь.\n")
+        assert [v.rule for v in check_public_repo(repo)] == ["public-repo"]
+
+    def test_private_document_name_is_caught(self, tmp_path: Path) -> None:
+        repo = self._repo(tmp_path, "backend/a.py", "# смета описана в TZ.md\n")
+        assert [v.rule for v in check_public_repo(repo)] == ["public-repo"]
+
+    def test_impersonal_wording_passes(self, tmp_path: Path) -> None:
+        repo = self._repo(
+            tmp_path, "docs/note.md", "Требование просит ручную очередь ниже порога.\n"
+        )
+        assert list(check_public_repo(repo)) == []
+
+    def test_untracked_file_is_not_checked(self, tmp_path: Path) -> None:
+        """Проверяется опубликованное, а не лежащее рядом: сам закрытый
+        документ в гитигноре, и краснеть на нём гейт не должен."""
+        repo = self._repo(tmp_path, "docs/note.md", "чисто\n")
+        (repo / "TZ.md").write_text("Э1-24: строка требования\n", encoding="utf-8")
+        assert list(check_public_repo(repo)) == []

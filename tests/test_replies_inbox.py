@@ -306,7 +306,7 @@ class TestParsingThePrice:
     async def test_unsure_price_does_not_reach_the_donor(
         self, session: AsyncSession, sent: MessageModel
     ) -> None:
-        """Э1-24: ниже порога — в ручную очередь, а не в базу."""
+        """Ниже порога — в ручную очередь, а не в базу."""
         reply_id = await self._accept(session, sent, "Maybe around 250 EUR, I need to check.")
         extractor = FakeExtractor(
             Extracted(price_white=Decimal("250"), currency="EUR", confidence=0.4)
