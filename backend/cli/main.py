@@ -21,7 +21,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.cli.access_admin import cmd_user_add, cmd_user_reset
 from backend.cli.advertisers import add_parser as add_advertisers_parser
-from backend.cli.advertisers import cmd_advertiser_decide, cmd_advertisers
+from backend.cli.advertisers import (
+    cmd_advertiser_decide,
+    cmd_advertisers,
+    cmd_advertisers_promote,
+    cmd_suppliers_import,
+)
 from backend.cli.contact_search import cmd_contacts
 from backend.cli.crawl_probe import add_parser as add_crawl_parser
 from backend.cli.crawl_probe import cmd_crawl
@@ -329,6 +334,8 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] =
     "crawl": cmd_crawl,
     "advertisers": cmd_advertisers,
     "advertiser-decide": cmd_advertiser_decide,
+    "advertisers-promote": cmd_advertisers_promote,
+    "suppliers-import": cmd_suppliers_import,
     "user-add": cmd_user_add,
     "user-reset": cmd_user_reset,
     "keywords": cmd_keywords,

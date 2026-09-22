@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
+from typing import Protocol
 
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
@@ -28,6 +29,56 @@ from backend.features.core.models.donor import ContactModel, DonorModel
 #: Исходы, которые повторяются при следующем прогоне: мы не спросили, а не
 #: узнали, что контакта нет.
 RETRIABLE = frozenset({ContactStatus.NO_QUOTA, ContactStatus.RATE_LIMITED, ContactStatus.ERROR})
+
+
+class ContactQueue(Protocol):
+    """Очередь на поиск контакта.
+
+    Лестница одна на оба этапа, а очередей две: доноры и рекламодатели.
+    Протокол ровно поэтому — чтобы у поиска был один порядок работы,
+    а не два, разъезжающихся на первой правке.
+    """
+
+    async def pending_hosts(self, *, limit: int = 100) -> list[str]:
+        """Кому пора искать контакт."""
+        ...
+
+    async def save(self, results: Sequence[LadderResult]) -> int:
+        """Сохранить исходы. Возвращает число доменов с адресом."""
+        ...
+
+
+async def domain_ids(session: AsyncSession, hosts: Sequence[str]) -> dict[str, int]:
+    """Номера доменов по хостам. Общее у обеих очередей."""
+    rows = await session.execute(
+        select(DomainModel.host, DomainModel.id).where(DomainModel.host.in_(list(hosts)))
+    )
+    return dict(rows.all())  # type: ignore[arg-type]
+
+
+async def save_addresses(
+    session: AsyncSession, results: Sequence[LadderResult], ids: dict[str, int]
+) -> int:
+    """Записать найденные адреса. Общее у обеих очередей: адрес
+    принадлежит домену, а не роли, в которой он выступает."""
+    payload = [
+        {"domain_id": ids[r.host], "email": r.contact.email, "source": r.contact.source}
+        for r in results
+        if r.contact is not None and r.host in ids
+    ]
+    if not payload:
+        return 0
+
+    statement = insert(ContactModel).values(payload)
+    # Тот же адрес на том же домене — не ошибка: его мог найти прошлый
+    # прогон. Обновляем источник: он мог стать дешевле.
+    await session.execute(
+        statement.on_conflict_do_update(
+            index_elements=["domain_id", "email"],
+            set_={"source": statement.excluded["source"]},
+        )
+    )
+    return len(payload)
 
 
 class ContactRepository:
@@ -98,16 +149,10 @@ class ContactRepository:
             return 0
 
         moment = now or datetime.now(UTC)
-        ids = await self._domain_ids([r.host for r in results])
+        ids = await domain_ids(self._session, [r.host for r in results])
 
         await self._save_statuses(results, ids, moment)
-        return await self._save_addresses(results, ids)
-
-    async def _domain_ids(self, hosts: Sequence[str]) -> dict[str, int]:
-        rows = await self._session.execute(
-            select(DomainModel.host, DomainModel.id).where(DomainModel.host.in_(list(hosts)))
-        )
-        return dict(rows.all())  # type: ignore[arg-type]
+        return await save_addresses(self._session, results, ids)
 
     async def _save_statuses(
         self, results: Sequence[LadderResult], ids: dict[str, int], moment: datetime
@@ -123,27 +168,3 @@ class ContactRepository:
                 .where(DonorModel.domain_id == domain_id)
                 .values(contact_status=result.status, contact_attempted_at=moment)
             )
-
-    async def _save_addresses(self, results: Sequence[LadderResult], ids: dict[str, int]) -> int:
-        payload = [
-            {
-                "domain_id": ids[r.host],
-                "email": r.contact.email,
-                "source": r.contact.source,
-            }
-            for r in results
-            if r.contact is not None and r.host in ids
-        ]
-        if not payload:
-            return 0
-
-        statement = insert(ContactModel).values(payload)
-        # Тот же адрес на том же домене — не ошибка: его мог найти прошлый
-        # прогон. Обновляем источник: он мог стать дешевле.
-        await self._session.execute(
-            statement.on_conflict_do_update(
-                index_elements=["domain_id", "email"],
-                set_={"source": statement.excluded["source"]},
-            )
-        )
-        return len(payload)

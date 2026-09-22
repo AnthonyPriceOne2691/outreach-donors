@@ -37,7 +37,7 @@ from backend.features.contacts.provider import (
     HunterProvider,
     ProviderError,
 )
-from backend.features.contacts.repository import ContactRepository
+from backend.features.contacts.repository import ContactQueue, ContactRepository
 from backend.shared.net.url_guard import guarded_client
 
 logger = logging.getLogger(__name__)
@@ -123,10 +123,17 @@ async def search_contacts(
     paid_first: bool = False,
     no_paid: bool = False,
     on_batch: Callable[[int, int], None] | None = None,
+    queue: ContactQueue | None = None,
 ) -> SearchReport:
-    """Пройти лестницу по донорам, которым нужен контакт."""
+    """Пройти лестницу по тем, кому нужен контакт.
+
+    `queue` выбирает, по кому идём: доноры или рекламодатели Этапа 2.
+    Лестница при этом одна — она работает с голым хостом и про роль
+    домена не знает. Две очереди с двумя порядками работы разъехались бы
+    на первой правке, и разъехались бы молча.
+    """
     report = SearchReport()
-    repository = ContactRepository(session)
+    repository = queue if queue is not None else ContactRepository(session)
     hosts = await repository.pending_hosts(limit=limit)
     report.pending = len(hosts)
     if not hosts:
