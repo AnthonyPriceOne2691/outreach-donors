@@ -305,7 +305,7 @@ class TestConsequences:
         assert not got.needs_review
 
     def test_unsure_price_waits_for_a_person(self) -> None:
-        """Э1-24: ниже порога — в ручную очередь, а не в базу. Без этой
+        """Ниже порога — в ручную очередь, а не в базу. Без этой
         ветки приёмка в 5% ошибок не держится."""
         found = Extracted(price_white=Decimal("250"), currency="EUR", confidence=0.4)
 

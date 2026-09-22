@@ -13,6 +13,9 @@
 from __future__ import annotations
 
 import ast
+import re
+import shutil
+import subprocess
 import sys
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
@@ -182,6 +185,89 @@ def check_env_example(path: Path) -> Iterator[Violation]:
             )
 
 
+#: Чего не должно быть в публичном репозитории. Это не стиль, а утечка:
+#: документ требований и план лежат в гитигноре целиком, и ссылка на них
+#: из опубликованного файла рассказывает и про их существование, и про их
+#: содержимое — номером строки, которую цитирует комментарий.
+PRIVATE_MARKERS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\u042d[12]-\d+"), "идентификатор строки закрытого чеклиста"),
+    (
+        re.compile(r"\b(?:TZ|PHASES|VPS|HETZNER_LINKS|ENTITIES|REUSE)\.md\b"),
+        "имя закрытого документа",
+    ),
+    (
+        re.compile(r"\u0437\u0430\u043a\u0430\u0437\u0447\u0438\u043a", re.IGNORECASE),
+        "слово «заказчик»",
+    ),
+)
+
+#: Где эти слова законны. Гитигнор и докеригнор обязаны называть файлы
+#: по именам — иначе они их не исключат; сам гейт и его тест обязаны
+#: содержать образцы, иначе им нечего искать.
+PUBLIC_EXEMPT = frozenset(
+    {".gitignore", ".dockerignore", "scripts/gates.py", "tests/test_gates.py"}
+)
+
+#: Расширения, которые человек читает. Двоичное содержимое не проверяем:
+#: совпадение в нём означало бы не утечку, а случайные байты.
+TEXT_SUFFIXES = frozenset(
+    {".py", ".md", ".txt", ".yml", ".yaml", ".json", ".sh", ".toml", ".cfg", ".example", ".ts",
+     ".tsx", ".css", ".html", ".sql"}
+)  # fmt: skip
+
+
+def _tracked_text_files(root: Path) -> Iterator[Path]:
+    """Файлы, которые действительно опубликованы, — по списку git.
+
+    Не обходом дерева: опубликовано то, что git отслеживает, и спрашивать
+    об этом надо его. Нет гита — гейт молчит, а не врёт зелёным.
+    """
+    git = shutil.which("git")
+    if git is None:
+        print("public-repo: git не найден — гейт пропущен", file=sys.stderr)
+        return
+    try:
+        # Аргументы заданы здесь целиком, снаружи не приходит ничего:
+        # `root` — путь самого репозитория, вычисленный от этого файла.
+        listed = subprocess.run(  # noqa: S603 — фиксированная команда, путь к git разрешён
+            [git, "-C", str(root), "ls-files", "-z"],
+            capture_output=True,
+            check=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        print(f"public-repo: список файлов не получен ({exc}) — гейт пропущен", file=sys.stderr)
+        return
+    for name in listed.stdout.decode("utf-8").split("\0"):
+        if not name or name in PUBLIC_EXEMPT:
+            continue
+        path = root / name
+        if path.suffix in TEXT_SUFFIXES and path.is_file():
+            yield path
+
+
+def check_public_repo(root: Path) -> Iterator[Violation]:
+    """Закрытое не называется в публичном репозитории.
+
+    Правило было записано словами и продержалось ровно до первого среза,
+    который его не помнил: четырнадцать файлов уехали в `main` со ссылками
+    на закрытый документ. Правило, которое обязан помнить человек или
+    агент, не исполняется — исполняется то, что роняет пуш.
+    """
+    for path in _tracked_text_files(root):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for number, line in enumerate(text.splitlines(), start=1):
+            for pattern, what in PRIVATE_MARKERS:
+                if pattern.search(line):
+                    yield Violation(
+                        path,
+                        number,
+                        "public-repo",
+                        f"{what} в публичном файле — написать обезличенно",
+                    )
+                    break
+
+
 CHECKS = (
     check_file_length,
     check_grab_bag,
@@ -208,6 +294,7 @@ def main(argv: list[str]) -> int:
     ]
     violations = run(targets)
     violations.extend(check_env_example(ROOT / ".env.example"))
+    violations.extend(check_public_repo(ROOT))
     if not violations:
         checked = len(list(_python_files(targets)))
         print(f"Гейты пройдены: {checked} файлов, нарушений нет.")

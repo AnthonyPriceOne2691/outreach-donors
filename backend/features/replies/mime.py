@@ -1,6 +1,6 @@
 """Перевод того, что прислала почтовая платформа, в наше входящее письмо.
 
-Платформа приёма — SendGrid Inbound Parse (`TZ.md`): она отправляет
+Платформа приёма — SendGrid Inbound Parse: она отправляет
 `multipart/form-data` с полями `from`, `to`, `subject`, `text`, `html`,
 `headers`, а в сыром режиме — одно поле `email` с письмом целиком.
 

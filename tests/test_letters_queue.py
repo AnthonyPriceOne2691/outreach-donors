@@ -284,7 +284,7 @@ class TestSending:
         assert await OutreachRepository(session).sent_today(now=NOW + timedelta(days=1)) == {}
 
     async def test_second_send_is_refused(self, session: AsyncSession, filled_legal: None) -> None:
-        """Повтор задачи не отправляет второе письмо (Э1-39)."""
+        """Повтор задачи не отправляет второе письмо."""
         await make_donor(session, "one.example.test", email="info@one.example.test")
         await make_sender(session, "outreach1@mail.example.test")
         await _build(session)
