@@ -134,7 +134,12 @@ class ReplyRepository:
     # --- последствия ---
 
     async def suppress(self, email: str, *, stage: Stage | None = None) -> None:
-        """Адрес в стоп-лист. Донора целиком добавляет человек."""
+        """Адрес в стоп-лист. Донора целиком добавляет человек.
+
+        Срок не ставится и поставить его тут нечем: отписка бессрочна.
+        Записи со сроком заводит только человек с экрана, и причины
+        ему доступны другие — «вручную» и «поставщик».
+        """
         rows = await self._session.execute(
             select(SuppressionModel.id).where(SuppressionModel.email == email)
         )

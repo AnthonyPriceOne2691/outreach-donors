@@ -45,6 +45,8 @@ export function listSuppressions(): Promise<StopListView> {
 export function addSuppression(body: {
   target: string;
   reason: SuppressionReason;
+  /** Пусто — навсегда. Дата в прошлом отвергается сервером. */
+  expires_at?: string | null;
 }): Promise<StopEntry> {
   return request<StopEntry>('/suppressions', { method: 'POST', body });
 }

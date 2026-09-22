@@ -15,12 +15,8 @@ from backend.features.runs.budget import (
     QuotaUnavailableError,
     units_left,
 )
-from backend.features.runs.pipeline import (
-    Candidates,
-    RunReport,
-    gather_candidates,
-    plan_run,
-)
+from backend.features.runs.pipeline import RunReport
+from backend.features.runs.planning import Candidates, gather_candidates, plan_run
 from backend.features.serp.protocol import SerpResult
 
 

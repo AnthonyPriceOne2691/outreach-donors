@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import DECIMAL, ForeignKey, Index, Integer, String
+from sqlalchemy import DECIMAL, DateTime, ForeignKey, Index, Integer, String, or_
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql.elements import ColumnElement
 
 from backend.features.core.domain import Stage, SuppressionReason, UsageProvider
 from backend.features.core.models._mixins import TimestampedMixin
@@ -63,8 +65,23 @@ class SuppressionModel(TimestampedMixin, Base):
     # Пусто = действует на обоих этапах.
     stage: Mapped[Stage | None] = mapped_column(_enum(Stage), nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    #: До какого момента запись держит. Пусто — навсегда, и это умолчание:
+    #: требование даёт срок только тем, кого мы внесли сами (размещались
+    #: за последние 12 месяцев), а отписка и жалоба бессрочны.
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         Index("idx_suppressions_domain_id", "domain_id"),
         Index("idx_suppressions_email", "email"),
     )
+
+    @classmethod
+    def in_force(cls, moment: datetime) -> ColumnElement[bool]:
+        """Условие «запись ещё держит». Живёт рядом с полем намеренно.
+
+        Читателей у стоп-листа пять — отбор прогона, очередь писем,
+        отправка, перевод в рекламодатели и экран, — и забытый срок
+        у любого из них означает письмо тому, кому писать нельзя,
+        либо молчание тому, кому уже можно.
+        """
+        return or_(cls.expires_at.is_(None), cls.expires_at > moment)

@@ -168,9 +168,22 @@ class TestPublicRepo:
         )
         assert list(check_public_repo(repo)) == []
 
-    def test_untracked_file_is_not_checked(self, tmp_path: Path) -> None:
-        """Проверяется опубликованное, а не лежащее рядом: сам закрытый
+    def test_an_ignored_file_is_not_checked(self, tmp_path: Path) -> None:
+        """Проверяется то, что уедет, а не лежащее рядом: сам закрытый
         документ в гитигноре, и краснеть на нём гейт не должен."""
-        repo = self._repo(tmp_path, "docs/note.md", "чисто\n")
+        repo = self._repo(tmp_path, ".gitignore", "TZ.md\n")
         (repo / "TZ.md").write_text("Э1-24: строка требования\n", encoding="utf-8")
         assert list(check_public_repo(repo)) == []
+
+    def test_a_new_file_is_checked_before_it_is_added(self, tmp_path: Path) -> None:
+        """Файл, который ещё не в индексе, уедет вместе со всеми —
+        и гейт обязан его видеть.
+
+        Один `ls-files` его не показывал, и гейт, запущенный в середине
+        работы, отвечал зелёным. Так закрытый документ был назван
+        по имени в четырёх строках нового статуса, а нашлось это
+        только после коммита.
+        """
+        repo = self._repo(tmp_path, "docs/note.md", "чисто\n")
+        (repo / "docs" / "fresh.md").write_text("смета описана в TZ.md\n", encoding="utf-8")
+        assert [v.rule for v in check_public_repo(repo)] == ["public-repo"]

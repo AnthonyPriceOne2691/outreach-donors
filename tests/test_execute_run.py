@@ -10,12 +10,14 @@ from typing import Any
 import httpx
 import pytest
 from backend.features.ahrefs.client import AhrefsClient
-from backend.features.core.domain import DonorStatus, RunStatus
+from backend.features.core.domain import DonorStatus, RunStatus, SuppressionReason
+from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
-from backend.features.core.models.ops import UsageRecordModel
+from backend.features.core.models.ops import SuppressionModel, UsageRecordModel
 from backend.features.core.models.run import RunModel
 from backend.features.donors.repository import DonorRepository
 from backend.features.donors.verdict import Thresholds
+from backend.features.runs.exclusions import ExclusionReason, Exclusions
 from backend.features.runs.pipeline import RunDeps, RunRequest, execute_run
 from backend.features.runs.repository import RunRepository
 from backend.features.serp.protocol import SerpResult
@@ -55,13 +57,22 @@ class FakeSerp:
         return {kw: [SerpResult(i + 1, u) for i, u in enumerate(self._urls)] for kw in keywords}
 
 
-def _ahrefs(metrics: dict[str, dict[str, Any]], *, fail_after_screen: bool = False) -> AhrefsClient:
+def _ahrefs(
+    metrics: dict[str, dict[str, Any]],
+    *,
+    fail_after_screen: bool = False,
+    watch: list[str] | None = None,
+) -> AhrefsClient:
     """Заглушка провайдера.
 
     `fail_after_screen` роняет второй пакетный запрос окончательной ошибкой:
     просев уже оплачен, а прогон дальше не идёт. Падения на запросе по странам
     для этого не годятся — их коллектор обрабатывает штатно и прогон
     не останавливает.
+
+    `watch` копит домены, о которых провайдера спросили. Список ответов
+    на вопрос «за кого мы заплатили» — единственный способ увидеть,
+    что ступень отбора стоит перед платной, а не после.
     """
     batches = {"n": 0}
 
@@ -75,6 +86,8 @@ def _ahrefs(metrics: dict[str, dict[str, Any]], *, fail_after_screen: bool = Fal
             if fail_after_screen and batches["n"] == 2:
                 return httpx.Response(403, text="forbidden", headers=cost)
             hosts = [t["url"] for t in json.loads(request.content)["targets"]]
+            if watch is not None:
+                watch.extend(hosts)
             rows = [{"url": f"{h}/", **metrics[h]} for h in hosts if h in metrics]
             return httpx.Response(200, json={"domains": rows}, headers=cost)
         return httpx.Response(
@@ -91,6 +104,7 @@ async def _deps(session: AsyncSession, serp: FakeSerp, client: AhrefsClient) -> 
         client=client,
         donors=DonorRepository(session),
         runs=RunRepository(session),
+        exclusions=Exclusions(session),
     )
 
 
@@ -280,3 +294,37 @@ class TestRunIsMarkedInLogs:
     async def test_outside_a_run_the_mark_is_empty(self) -> None:
         """Граница честная: вне прогона метки нет, и это не ошибка."""
         assert current_run_id() == ""
+
+
+class TestTheGateStopsTheRoute:
+    """Проверка вызовов, а не результата.
+
+    Домен из стоп-листа и так не получил бы письма — это ловил отбор
+    очереди. Дорого другое: до этого среза он успевал пройти просев,
+    метрики и страны. Итоговая таблица доноров при перестановке ступеней
+    не меняется, меняется счёт, и виден он только по вызовам.
+    """
+
+    async def test_a_stop_listed_domain_never_reaches_the_provider(
+        self, session: AsyncSession
+    ) -> None:
+        domain = DomainModel(host="banned.com")
+        session.add(domain)
+        await session.flush()
+        session.add(SuppressionModel(domain_id=domain.id, reason=SuppressionReason.COMPLAINED))
+        await session.flush()
+
+        asked: list[str] = []
+        client = _ahrefs({"banned.com": GOOD, "good.com": GOOD}, watch=asked)
+        deps = await _deps(session, FakeSerp(["https://banned.com", "https://good.com"]), client)
+
+        report = await execute_run(deps, RunRequest(["crm"], "us", T, await _settings_id(session)))
+
+        assert "banned.com" not in asked
+        assert "good.com" in asked
+        assert report.plan.excluded == {"banned.com": ExclusionReason.STOPLIST}
+
+        run = (await session.execute(select(RunModel))).scalar_one()
+        assert run.stats["excluded"] == 1
+        assert run.stats["excluded_by_reason"] == {"в стоп-листе": 1}
+        assert run.stats["units_saved_by_gate"] > 0

@@ -15,6 +15,17 @@
  * будущим письмам, а снятые с очереди остаются снятыми — об этом
  * сказано на самом экране, а не в документации: человек, возвращающий
  * донора, документацию в этот момент не читает.
+ *
+ * **Срок — только у наших записей.** Требование исключает тех, у кого
+ * агентство размещалось «за последние 12 месяцев», то есть окном,
+ * а не навсегда. Поэтому в форме два варианта, и «навсегда» стоит
+ * первым: срок — исключение, а не правило. Отписке и жалобе срок
+ * не ставится вовсе, их руками здесь не заводят.
+ *
+ * **Истёкшая запись остаётся на экране.** Удалив её, мы потеряли бы
+ * ответ на вопрос «почему ему полгода не писали» — а его сюда и приходят
+ * задавать. Она помечена и вынесена числом в шапку: список из одних
+ * истёкших записей не то же самое, что пустой.
  */
 
 import {
@@ -49,6 +60,23 @@ const HAND_REASONS: { value: SuppressionReason; label: string }[] = [
   { value: 'supplier', label: 'поставщик' },
 ];
 
+/** Сроки записи. «Навсегда» первым: оно и есть умолчание. */
+const TERMS = [
+  { value: 'forever', label: 'навсегда' },
+  { value: 'year', label: '12 месяцев' },
+] as const;
+
+type Term = (typeof TERMS)[number]['value'];
+
+/** Когда запись перестаёт держать. Год считается от сегодня — так
+ *  требование и называет поставщиков: «размещались за последние 12 мес.». */
+function endOf(term: Term): string | null {
+  if (term === 'forever') return null;
+  const until = new Date();
+  until.setFullYear(until.getFullYear() + 1);
+  return until.toISOString();
+}
+
 function refusalOf(error: unknown): string {
   return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
 }
@@ -66,6 +94,7 @@ export function SuppressionsPage() {
   const queryClient = useQueryClient();
   const [target, setTarget] = useState('');
   const [reason, setReason] = useState<SuppressionReason>('manual');
+  const [term, setTerm] = useState<Term>('forever');
   const [removing, setRemoving] = useState<StopEntry | null>(null);
   const [why, setWhy] = useState('');
 
@@ -75,7 +104,7 @@ export function SuppressionsPage() {
   });
 
   const add = useMutation({
-    mutationFn: () => addSuppression({ target: target.trim(), reason }),
+    mutationFn: () => addSuppression({ target: target.trim(), reason, expires_at: endOf(term) }),
     onSuccess: async (row) => {
       await queryClient.invalidateQueries({ queryKey: STOP_LIST_QUERY_KEY });
       setTarget('');
@@ -122,12 +151,19 @@ export function SuppressionsPage() {
         <Stack gap="sm">
           <Title order={3}>Стоп-лист</Title>
           <Text size="sm" c="dimmed" maw={680}>
-            Кому мы не пишем ни на одном этапе. Проверяется перед каждой отправкой: письмо адресату
-            из списка не уйдёт, даже если его собрали раньше.
+            Кому мы не пишем ни на одном этапе. Проверяется дважды: при отборе доменов — домен из
+            списка в прогон не идёт и юнитов на него не тратится, — и перед каждой отправкой, так
+            что письмо адресату из списка не уйдёт, даже если его собрали раньше.
           </Text>
           <Text size="sm">
             Всего записей <b>{data?.total ?? 0}</b>, из них по решению адресата{' '}
-            <b>{data?.donor_decisions ?? 0}</b>.
+            <b>{data?.donor_decisions ?? 0}</b>
+            {data?.expired ? (
+              <>
+                , истекли и больше не держат <b>{data.expired}</b>
+              </>
+            ) : null}
+            .
           </Text>
         </Stack>
       </Card>
@@ -156,6 +192,14 @@ export function SuppressionsPage() {
                 allowDeselect={false}
                 w={200}
               />
+              <Select
+                label="Держит"
+                data={TERMS.map((item) => ({ value: item.value, label: item.label }))}
+                value={term}
+                onChange={(picked) => setTerm((picked ?? 'forever') as Term)}
+                allowDeselect={false}
+                w={170}
+              />
               <Button
                 onClick={() => add.mutate()}
                 loading={add.isPending}
@@ -181,6 +225,7 @@ export function SuppressionsPage() {
                 <Table.Th>Причина</Table.Th>
                 <Table.Th>Кто завёл</Table.Th>
                 <Table.Th>Когда</Table.Th>
+                <Table.Th>Срок</Table.Th>
                 {mayChange ? <Table.Th /> : null}
               </Table.Tr>
             </Table.Thead>
@@ -195,6 +240,17 @@ export function SuppressionsPage() {
                   </Table.Td>
                   <Table.Td>{row.created_by ?? '—'}</Table.Td>
                   <Table.Td>{when(row.created_at)}</Table.Td>
+                  <Table.Td>
+                    {row.expires_at === null ? (
+                      <Text size="sm">навсегда</Text>
+                    ) : row.expired ? (
+                      <Badge color="gray" variant="outline">
+                        истёк {when(row.expires_at)}
+                      </Badge>
+                    ) : (
+                      <Text size="sm">до {when(row.expires_at)}</Text>
+                    )}
+                  </Table.Td>
                   {mayChange ? (
                     <Table.Td>
                       <Button

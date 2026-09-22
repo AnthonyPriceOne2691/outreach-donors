@@ -22,9 +22,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, or_
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql.elements import ColumnElement
 
 from backend.features.core.domain import ContactStatus
 from backend.features.core.models._mixins import TimestampedMixin
@@ -103,5 +104,14 @@ class SupplierDonorModel(TimestampedMixin, Base):
     #: Почему в списке: «размещались в марте», «текущий партнёр».
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     added_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    #: Докуда действует. Пусто — навсегда: так выглядит текущий партнёр.
+    #: Срок стоит у тех, кто попал в список размещением: требование
+    #: считает их «за последние 12 месяцев», то есть окно съезжает.
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (Index("idx_supplier_donors_host", "host"),)
+
+    @classmethod
+    def in_force(cls, moment: datetime) -> ColumnElement[bool]:
+        """Условие «запись ещё держит». То же правило, что у стоп-листа."""
+        return or_(cls.expires_at.is_(None), cls.expires_at > moment)

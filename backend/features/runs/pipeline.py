@@ -3,19 +3,20 @@
 Порядок шагов продиктован ценой, а не удобством изложения.
 
     ключи → выдача → нормализация → дедупликация
+          → гейт исключений
           → отсев уже проверенных
           → смета и проверка капа
           → трёхступенчатый сбор пачками
           → отчёт со сверкой сметы и факта
+
+Первые пять шагов живут в `planning.py`: до первой траты и решается,
+что вообще будет куплено. Здесь — исполнение и отчёт.
 
 Два свойства, ради которых всё это и написано.
 
 **Повторный прогон почти бесплатен.** Домены со свежими данными отсеиваются
 до сметы, а не после: иначе сервис пугал бы ценой прогонов, которые на деле
 ничего не стоят, и кэш был бы не виден пользователю.
-
-**Кап проверяется до первого платного запроса.** Узнать о превышении на
-середине прогона — значит уже потратить половину.
 
 **Остаток берётся у Ahrefs, а не из своей таблицы.** Ключ общий с сервисом
 соседней системой, и в чужие базы системы не лезут. Своя таблица расхода знает
@@ -29,103 +30,30 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Protocol
 
 from backend.features.ahrefs.client import AhrefsClient
 from backend.features.ahrefs.units import (
-    RunEstimate,
     UnitsCost,
     UsageCollector,
-    estimate_run,
 )
 from backend.features.core.domain import DonorStatus, RunStatus, Stage
 from backend.features.core.models.run import RunModel
 from backend.features.donors.collect import collect
-from backend.features.donors.host import normalize_host
 from backend.features.donors.repository import DonorRepository
 from backend.features.donors.verdict import Thresholds
-from backend.features.runs.budget import CapExceededError, units_left
+from backend.features.runs.budget import units_left
+from backend.features.runs.planning import (
+    Candidates,
+    ExclusionSource,
+    RunPlan,
+    gather_candidates,
+    plan_run,
+)
 from backend.features.runs.repository import RunRepository
 from backend.features.serp.protocol import SerpProvider
 from backend.shared.logs import run_context
 
 logger = logging.getLogger(__name__)
-
-
-class FreshnessSource(Protocol):
-    """Кто знает, по каким доменам данные ещё годны."""
-
-    async def fresh_hosts(self, hosts: Sequence[str]) -> set[str]:
-        """Домены с непросроченными метриками — за них уже заплачено."""
-        ...
-
-
-@dataclass(frozen=True, slots=True)
-class Candidates:
-    """Что дала выдача после нормализации и дедупликации."""
-
-    hosts: list[str]
-    keywords: int
-    results: int
-    empty_keywords: list[str]
-    dropped: int
-    """Строк выдачи, из которых не удалось получить домен."""
-
-    cost_usd: float = 0.0
-    """Во что обошлась эта выдача. Ноль у восстановленной: за неё уже
-    заплачено и уже записано в журнал прошлой попыткой, а вторая строка
-    расхода превратила бы продолжение прогона в удвоение счёта."""
-
-    @property
-    def duplicates(self) -> int:
-        """Сколько адресов схлопнулось в уже известные домены. Это и есть
-        экономия дедупликации: каждый схлопнутый — непотраченные юниты."""
-        return self.results - self.dropped - len(self.hosts)
-
-    def as_dict(self) -> dict[str, Any]:
-        """Для хранения в строке прогона. Поля перечислены руками: молча
-        уехавшее поле — это молча потерянная выдача, за которую платили."""
-        return {
-            "hosts": list(self.hosts),
-            "keywords": self.keywords,
-            "results": self.results,
-            "empty_keywords": list(self.empty_keywords),
-            "dropped": self.dropped,
-            # Цена сохраняется ради отчёта, а не ради повторной записи:
-            # `restored()` намеренно возвращает ноль.
-            "cost_usd": self.cost_usd,
-        }
-
-    @classmethod
-    def restored(cls, payload: dict[str, Any]) -> Candidates:
-        """Выдача, сохранённая прошлой попыткой того же прогона.
-
-        **Цена сознательно не восстанавливается.** Продолжение прогона
-        ничего у провайдера не покупает, и строка расхода на ту же
-        выдачу второй раз означала бы счёт вдвое больше настоящего.
-        """
-        return cls(
-            hosts=list(payload["hosts"]),
-            keywords=int(payload["keywords"]),
-            results=int(payload["results"]),
-            empty_keywords=list(payload.get("empty_keywords", ())),
-            dropped=int(payload.get("dropped", 0)),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class RunPlan:
-    """Смета прогона до его запуска."""
-
-    candidates: Candidates
-    fresh: list[str]
-    new: list[str]
-    estimate: RunEstimate
-
-    @property
-    def savings_from_cache(self) -> int:
-        """Во что обошёлся бы прогон, если бы срока годности не было."""
-        return estimate_run(len(self.candidates.hosts)).total - self.estimate.total
 
 
 #: Как называется расход на выдачу в журнале. Единица — доллар:
@@ -207,88 +135,20 @@ class RunReport:
         )
 
 
-async def gather_candidates(
-    provider: SerpProvider,
-    keywords: Sequence[str],
-    country: str,
-    *,
-    depth_pages: int = 1,
-) -> Candidates:
-    """Выдача по ключам → уникальные корневые домены.
-
-    Порядок сохраняется: первым идёт домен, встреченный выше в выдаче.
-    На отладке это удобнее случайного порядка множества.
-    """
-    before = getattr(provider, "spent", 0.0)
-    answer = await provider.search(keywords, country, depth_pages=depth_pages)
-    # Цена берётся разницей, а не полем: один адаптер живёт дольше одного
-    # прогона, и его накопленный расход — это расход всех прогонов сразу.
-    cost = max(0.0, getattr(provider, "spent", 0.0) - before)
-
-    seen: dict[str, None] = {}
-    results = 0
-    dropped = 0
-    empty: list[str] = []
-
-    for keyword, rows in answer.items():
-        if not rows:
-            empty.append(keyword)
-        for row in rows:
-            results += 1
-            host = normalize_host(row.url)
-            if not host:
-                dropped += 1
-                continue
-            seen.setdefault(host, None)
-
-    return Candidates(
-        hosts=list(seen),
-        keywords=len(answer),
-        results=results,
-        empty_keywords=empty,
-        dropped=dropped,
-        cost_usd=cost,
-    )
-
-
-async def plan_run(
-    candidates: Candidates,
-    freshness: FreshnessSource,
-    *,
-    units_left: int,
-) -> RunPlan:
-    """Смета и проверка капа. Бросает `CapExceededError`, если не помещаемся.
-
-    Свежие домены отсеиваются до сметы: платить за них не придётся,
-    и показывать их в цене прогона было бы обманом.
-    """
-    fresh = await freshness.fresh_hosts(candidates.hosts)
-    new = [h for h in candidates.hosts if h not in fresh]
-    estimate = estimate_run(len(new))
-
-    if estimate.total > units_left:
-        raise CapExceededError(
-            f"Прогон обойдётся в {estimate.total} юнитов, доступно {units_left}. "
-            f"Новых доменов {len(new)} из {len(candidates.hosts)}; "
-            f"сократите список ключей или поднимите кап."
-        )
-
-    return RunPlan(
-        candidates=candidates,
-        fresh=sorted(fresh),
-        new=new,
-        estimate=estimate,
-    )
-
-
 @dataclass(frozen=True, slots=True)
 class RunDeps:
-    """Исполнители: источник выдачи, клиент провайдера и два репозитория."""
+    """Исполнители: источник выдачи, клиент провайдера и два репозитория.
+
+    Гейт исключений идёт отдельным полем и без умолчания: прогон,
+    собранный без него, платил бы за домены, которым не напишет,
+    и узнать об этом можно было бы только по счёту.
+    """
 
     provider: SerpProvider
     client: AhrefsClient
     donors: DonorRepository
     runs: RunRepository
+    exclusions: ExclusionSource
 
 
 @dataclass(frozen=True, slots=True)
@@ -391,7 +251,13 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
 
     claimed = await deps.runs.claimed_units()
     budget = await units_left(deps.client, cap=request.cap, claimed=claimed)
-    plan = await plan_run(candidates, deps.donors, units_left=budget)
+    plan = await plan_run(
+        candidates,
+        deps.donors,
+        units_left=budget,
+        exclusions=deps.exclusions,
+        stage=request.stage,
+    )
     await deps.runs.set_estimate(run, plan.estimate.total)
     # Дальше каждая запись несёт идентификатор прогона, включая чужие логгеры:
     # прогоны идут параллельно, и без метки их строки не разделить.
@@ -457,6 +323,8 @@ def _run_stats(report: RunReport, failure: str | None) -> dict[str, object]:
         "urls_unparsed": candidates.dropped,
         "keywords_without_results": candidates.empty_keywords,
         "already_fresh": len(report.plan.fresh),
+        "excluded": len(report.plan.excluded),
+        "excluded_by_reason": report.plan.excluded_by_reason,
         "checked_now": len(report.plan.new),
         "by_status": {status.value: count for status, count in report.by_status.items()},
         "reject_reasons": report.reject_reasons,
@@ -467,6 +335,7 @@ def _run_stats(report: RunReport, failure: str | None) -> dict[str, object]:
         "estimate_error": round(report.estimate_error, 3),
         "actual_pass_share": round(report.actual_pass_share, 3),
         "units_saved_by_cache": report.plan.savings_from_cache,
+        "units_saved_by_gate": report.plan.savings_from_gate,
     }
     if failure is not None:
         # Причина остановки хранится рядом с цифрами, а не только в логе:

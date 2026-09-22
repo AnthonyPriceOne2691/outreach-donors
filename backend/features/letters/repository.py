@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, TypeVar
 
 from sqlalchemy import Select, func, or_, select
@@ -105,10 +106,12 @@ class LetterRepository:
         """Стоп-лист работает на двух уровнях: адрес блокирует себя, донор —
         все свои адреса. Пустой этап в записи значит «на обоих этапах»."""
         stage_matches = or_(SuppressionModel.stage.is_(None), SuppressionModel.stage == stage)
+        in_force = SuppressionModel.in_force(datetime.now(UTC))
         by_domain = (
             select(SuppressionModel.id)
             .where(SuppressionModel.domain_id == DomainModel.id)
             .where(stage_matches)
+            .where(in_force)
             .exists()
         )
         by_email = (
@@ -116,6 +119,7 @@ class LetterRepository:
             .where(SuppressionModel.email == ContactModel.email)
             .where(ContactModel.domain_id == DomainModel.id)
             .where(stage_matches)
+            .where(in_force)
             .exists()
         )
         return statement.where(~by_domain).where(~by_email)

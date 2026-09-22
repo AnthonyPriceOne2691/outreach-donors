@@ -184,6 +184,7 @@ class Sending:
                     SuppressionModel.stage == target.stage,
                 )
             )
+            .where(SuppressionModel.in_force(datetime.now(UTC)))
         )
         found = rows.scalars().first()
         if found is not None:

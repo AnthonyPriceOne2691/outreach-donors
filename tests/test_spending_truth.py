@@ -20,7 +20,7 @@ import pytest
 from backend.features.core import usage
 from backend.features.core.domain import UsageProvider
 from backend.features.core.models.ops import UsageRecordModel
-from backend.features.runs.pipeline import Candidates, gather_candidates
+from backend.features.runs.planning import Candidates, gather_candidates
 from backend.features.runs.spending import ahrefs_spent_this_month, cap_left
 from backend.features.serp.protocol import SerpResult
 from sqlalchemy import select

@@ -28,6 +28,7 @@ from backend.features.letters.building import BuildRequest, QueueBuilder
 from backend.features.letters.rewrite import RewriteClient
 from backend.features.replies.extract import ExtractClient
 from backend.features.replies.pipeline import Parser
+from backend.features.runs.exclusions import Exclusions
 from backend.features.runs.lifecycle import heartbeat
 from backend.features.runs.pipeline import RunDeps, RunRequest, execute_run
 from backend.features.runs.repository import RunRepository
@@ -57,6 +58,7 @@ async def _run(run_id: int) -> dict[str, Any]:
                             client=client,
                             donors=DonorRepository(session),
                             runs=runs,
+                            exclusions=Exclusions(session),
                         ),
                         RunRequest(
                             keywords=list(run.keywords),
