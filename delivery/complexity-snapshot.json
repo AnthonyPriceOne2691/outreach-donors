@@ -266,6 +266,11 @@
       "complexity": 3,
       "worst": "cmd_user_add:28"
     },
+    "backend/cli/advertisers.py": {
+      "lines": 167,
+      "complexity": 7,
+      "worst": "_print_summary:119"
+    },
     "backend/cli/contact_search.py": {
       "lines": 90,
       "complexity": 4,
@@ -297,9 +302,9 @@
       "worst": "_print_build:82"
     },
     "backend/cli/main.py": {
-      "lines": 361,
+      "lines": 366,
       "complexity": 9,
-      "worst": "_print_report:204"
+      "worst": "_print_report:206"
     },
     "backend/cli/senders_admin.py": {
       "lines": 134,
@@ -497,12 +502,12 @@
       "worst": "—"
     },
     "backend/features/core/domain.py": {
-      "lines": 200,
+      "lines": 216,
       "complexity": 0,
       "worst": "—"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 35,
+      "lines": 37,
       "complexity": 0,
       "worst": "—"
     },
@@ -515,6 +520,11 @@
       "lines": 84,
       "complexity": 2,
       "worst": "_enum:28"
+    },
+    "backend/features/core/models/advertiser.py": {
+      "lines": 77,
+      "complexity": 2,
+      "worst": "_enum:34"
     },
     "backend/features/core/models/crawl.py": {
       "lines": 109,
@@ -561,10 +571,20 @@
       "complexity": 7,
       "worst": "_by_density:161"
     },
+    "backend/features/crawl/denylist.py": {
+      "lines": 159,
+      "complexity": 8,
+      "worst": "denial_for:137"
+    },
     "backend/features/crawl/fetch.py": {
       "lines": 307,
       "complexity": 7,
       "worst": "classify:141"
+    },
+    "backend/features/crawl/gate.py": {
+      "lines": 145,
+      "complexity": 6,
+      "worst": "judge_run:67"
     },
     "backend/features/crawl/health.py": {
       "lines": 106,
@@ -590,6 +610,11 @@
       "lines": 271,
       "complexity": 10,
       "worst": "_collect_groups:191"
+    },
+    "backend/features/crawl/scoring.py": {
+      "lines": 255,
+      "complexity": 10,
+      "worst": "score_link:135"
     },
     "backend/features/crawl/sitemap.py": {
       "lines": 202,
