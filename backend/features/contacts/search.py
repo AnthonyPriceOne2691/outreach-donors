@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import contacts as cfg
 from backend.features.contacts.browser import PlaywrightRenderer
-from backend.features.contacts.ladder import ContactLadder, LadderResult
+from backend.features.contacts.ladder import ContactLadder, LadderResult, StepCounters
 from backend.features.contacts.provider import (
     ContactProvider,
     HunterProvider,
@@ -100,7 +100,10 @@ async def _paid_step(http: httpx.AsyncClient, report: SearchReport) -> ContactPr
     if quota.left <= 0:
         report.notes.append("Квота платного сервиса исчерпана — ступень пропускается.")
         return None
-    report.notes.append(f"Платный сервис: осталось {quota.left} поисков.")
+    # Остаток — это про деньги, а не про доступность: провайдер отвечает
+    # на запрос остатка и при закрытой учётке, показывая полный запас.
+    # Поэтому строка говорит ровно про остаток и ничего не обещает.
+    report.notes.append(f"Платный сервис: остаток квоты {quota.left} поисков.")
     return provider
 
 
@@ -113,6 +116,20 @@ async def _walk(ladder: ContactLadder, hosts: list[str]) -> list[LadderResult]:
             return await ladder.find(host)
 
     return list(await asyncio.gather(*(one(host) for host in hosts)))
+
+
+def _note_provider_refusal(report: SearchReport, counters: StepCounters) -> None:
+    """Сказать вслух, что платная ступень отказывала.
+
+    Громче остатка квоты: остаток к этому моменту уже напечатан, и при
+    закрытой учётке он врёт бодростью — провайдер отвечает на запрос
+    остатка и показывает полный запас (замерено 22.09.2026).
+    """
+    if not counters.provider_refusal:
+        return
+    report.notes.append(
+        f"Платная ступень отказала {counters.provider_refused} раз(а): {counters.provider_refusal}"
+    )
 
 
 async def search_contacts(
@@ -169,6 +186,7 @@ async def search_contacts(
 
             report.counters = ladder.counters.as_report()
             report.manual_queue_left = ladder.manual_queue_left
+            _note_provider_refusal(report, ladder.counters)
 
     logger.info("контакты: %s", report.as_report)
     return report

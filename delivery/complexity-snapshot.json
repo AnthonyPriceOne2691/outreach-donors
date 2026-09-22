@@ -287,9 +287,9 @@
       "worst": "_print_summary:147"
     },
     "backend/cli/contact_search.py": {
-      "lines": 90,
+      "lines": 94,
       "complexity": 4,
-      "worst": "cmd_contacts:62"
+      "worst": "_print_report:24"
     },
     "backend/cli/crawl_probe.py": {
       "lines": 309,
@@ -472,9 +472,9 @@
       "worst": "monthly_left:94"
     },
     "backend/features/contacts/ladder.py": {
-      "lines": 449,
+      "lines": 467,
       "complexity": 10,
-      "worst": "_step_pages:271"
+      "worst": "_step_pages:278"
     },
     "backend/features/contacts/mx.py": {
       "lines": 207,
@@ -507,9 +507,9 @@
       "worst": "save_addresses:59"
     },
     "backend/features/contacts/search.py": {
-      "lines": 175,
+      "lines": 193,
       "complexity": 9,
-      "worst": "search_contacts:118"
+      "worst": "search_contacts:135"
     },
     "backend/features/core/__init__.py": {
       "lines": 1,

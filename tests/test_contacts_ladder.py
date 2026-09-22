@@ -13,6 +13,7 @@ from backend.features.contacts import mx
 from backend.features.contacts.ladder import ContactLadder
 from backend.features.contacts.provider import (
     Candidate,
+    ProviderBlockedError,
     ProviderQuotaError,
     ProviderRateLimitError,
     Quota,
@@ -458,6 +459,7 @@ class TestOutcomes:
         [
             (ProviderQuotaError("кончилась"), ContactStatus.NO_QUOTA),
             (ProviderRateLimitError("частота"), ContactStatus.RATE_LIMITED),
+            (ProviderBlockedError("учётку закрыли"), ContactStatus.BLOCKED),
         ],
     )
     async def test_paid_failure_is_not_absence_of_contact(
@@ -472,6 +474,26 @@ class TestOutcomes:
 
         assert result.status is status
         assert result.status is not ContactStatus.NOT_FOUND
+
+    async def test_refusal_is_counted_apart_from_not_finding(self) -> None:
+        """«Ступень отказала» и «ступень не нашла» — разные числа.
+
+        Живой прогон 22.09.2026: учётка была закрыта, ступень отказывала
+        на каждом домене, а отчёт печатал «вошло 2, нашли 0» — неотличимо
+        от «провайдер этих доменов не знает».
+        """
+        site = Site({"/": EMPTY_PAGE})
+        provider = FakeProvider(error=ProviderBlockedError("учётку закрыли"))
+
+        async with _client(site) as http:
+            ladder = ContactLadder(http, provider=provider)
+            await ladder.find("site.com")
+
+        assert ladder.counters.provider_entered == 1
+        assert ladder.counters.provider_found == 0
+        assert ladder.counters.provider_refused == 1
+        assert "закрыли" in ladder.counters.provider_refusal
+        assert ladder.counters.as_report()["provider_refused"] == 1
 
     async def test_ladder_works_without_a_paid_provider(self) -> None:
         """Отладочный режим: три бесплатные ступени и честный not_found."""

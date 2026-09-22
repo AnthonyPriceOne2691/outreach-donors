@@ -39,9 +39,10 @@ def _print_report(report: SearchReport) -> None:
         f"  2. RDAP              вошло {counters.get('rdap_entered', 0)}, "
         f"нашли {counters.get('rdap_found', 0)}, не ответил {counters.get('rdap_failed', 0)}"
     )
+    refused = counters.get("provider_refused", 0)
     print(
         f"  3. платный сервис    вошло {counters.get('provider_entered', 0)}, "
-        f"нашли {counters.get('provider_found', 0)}"
+        f"нашли {counters.get('provider_found', 0)}" + (f", ОТКАЗАЛ {refused}" if refused else "")
     )
     print(
         f"  4. ручная очередь    форм {counters.get('form_only', 0)}, "
@@ -79,7 +80,10 @@ async def cmd_contacts(args: argparse.Namespace) -> int:
                 print("Доноров, которым нужен контакт, нет — все пройдены или ещё не отобраны.")
                 return 0
 
-            print(f"Доноров без контакта: {report.pending}")
+            # Это вход, а не итог. Называлось «Доноров без контакта» и стояло
+            # рядом с итоговым «Без контакта: 0» — два разных числа под одним
+            # именем в одном выводе.
+            print(f"Взято в работу: {report.pending} донор(ов) без контакта")
             for note in report.notes:
                 print(note)
             _print_report(report)
