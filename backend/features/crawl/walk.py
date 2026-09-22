@@ -27,7 +27,6 @@ import logging
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from enum import StrEnum
 from typing import Any
 from urllib.parse import urldefrag, urljoin, urlparse
 
@@ -37,10 +36,13 @@ from selectolax.parser import HTMLParser
 from backend.config import crawl as cfg
 from backend.features.contacts.browser import PageRenderer
 from backend.features.contacts.pages import home_variants
+from backend.features.core.domain import CrawlOutcome, StopReason
 from backend.features.crawl import robots as robots_rules
+from backend.features.crawl.article import extract_article
 from backend.features.crawl.fetch import CascadeLevel, FetchOutcome, FetchResult, PageCascade
 from backend.features.crawl.health import CrawlHealth, HealthVerdict
 from backend.features.crawl.limiter import DomainLimiter
+from backend.features.crawl.links import OutLink, harvest
 from backend.features.crawl.robots import RobotsRules, RobotsStatus
 from backend.features.crawl.sitemap import SitemapReader, SitemapScan
 
@@ -56,28 +58,6 @@ SKIP_SUFFIXES: tuple[str, ...] = (
 )  # fmt: skip
 
 
-class CrawlOutcome(StrEnum):
-    """Чем кончился обход донора. Пять исходов — `docs/CRAWL.md`."""
-
-    OK = "ok"  # взяли всё, что просили: список кончился или кончился потолок
-    PARTIAL = "partial"  # что-то взяли, но упёрлись в срок, попытки или здоровье
-    FORBIDDEN = "forbidden"  # robots.txt запрещает: откладываем человеку
-    BLOCKED = "blocked"  # сайт закрылся: нужен следующий уровень каскада
-    FAILED = "failed"  # не смогли начать: главная или robots не дались
-
-
-class StopReason(StrEnum):
-    """Почему обход закончился. Отличает «всё обошли» от «упёрлись»."""
-
-    EXHAUSTED = "exhausted"  # страницы кончились — обошли всё, что было
-    MAX_PAGES = "max_pages"
-    MAX_ATTEMPTS = "max_attempts"
-    TIMEOUT = "timeout"
-    UNHEALTHY = "unhealthy"  # доля отказов выше потолка
-    ROBOTS = "robots"
-    NO_START = "no_start"  # главная не открылась ни в одном виде
-
-
 @dataclass(slots=True)
 class CrawlReport:
     """Отчёт обхода: адреса, числа и всё, чего не хватило.
@@ -91,6 +71,8 @@ class CrawlReport:
     outcome: CrawlOutcome
     stop_reason: StopReason
     pages: list[str] = field(default_factory=list)
+    links: list[OutLink] = field(default_factory=list)
+    articles: int = 0
     robots_status: RobotsStatus = RobotsStatus.UNREADABLE
     crawl_delay: float | None = None
     sitemap_found: bool | None = False
@@ -109,6 +91,13 @@ class CrawlReport:
             "outcome": self.outcome.value,
             "stop_reason": self.stop_reason.value,
             "pages_opened": len(self.pages),
+            "articles": self.articles,
+            "links_found": len(self.links),
+            "advertisers": len({link.target_root for link in self.links}),
+            "links_in_body": sum(1 for link in self.links if link.in_body),
+            # Ссылки, у которых корень домена угадан: суффикс неизвестен
+            # вшитому снимку. Ноль — норма, рост — повод обновить список.
+            "roots_guessed": sum(1 for link in self.links if link.root_guessed),
             "robots": self.robots_status.value,
             "crawl_delay": self.crawl_delay,
             "sitemap_found": self.sitemap_found,
@@ -187,6 +176,8 @@ class DonorCrawler:
         self._max_seconds = max_seconds if max_seconds is not None else cfg.MAX_SECONDS_PER_DONOR
         self._attempts = 0
         self._slowed = False
+        self.articles = 0
+        self.links: list[OutLink] = []
 
     async def crawl(self, host: str) -> CrawlReport:
         """Обойти донора. Единственный публичный вход."""
@@ -202,6 +193,12 @@ class DonorCrawler:
         home = await self._base(host, rules)
         if home is None:
             return self._no_start(host, rules, started)
+
+        # Главную качает проверка «сайт открывается», и обход до неё
+        # уже не доходит — значит, снять с неё ссылки надо здесь. Иначе
+        # у каждого донора теряется ровно одна страница, и та, где чаще
+        # всего висит оффер.
+        self._harvest(home.html or "", home.url, host)
 
         self._limiter.set_delay(host, rules.crawl_delay)
         scan = await self._sitemap(host, home.url, rules, deadline)
@@ -294,8 +291,11 @@ class DonorCrawler:
         Без карты очередь собирается со скачанной главной, а сама она
         считается открытой: второй раз её качать не за чем.
         """
+        # Главная открыта в любом случае — её качала проверка «сайт
+        # открывается». Она же и первая страница отчёта, откуда бы
+        # ни взялась очередь: иначе статей окажется больше, чем страниц.
         if scan.urls:
-            return deque(scan.urls), "sitemap", []
+            return deque(scan.urls), "sitemap", [home.url]
         links = same_site_links(home.html or "", home.url, host)
         return deque(links), "links", [home.url]
 
@@ -312,6 +312,11 @@ class DonorCrawler:
         """Собственно обход. Возвращает открытые страницы и причину конца."""
         pages = list(opened)
         seen: set[str] = set(opened) | set(queue)
+        # Уже открытое не открывается второй раз. Карта сайта почти всегда
+        # перечисляет главную, а её качает проверка «сайт открывается»:
+        # без этой проверки донор получает лишний запрос, а отчёт —
+        # лишнюю статью, которой не было.
+        visited: set[str] = set(opened)
 
         while queue:
             stop = self._limit_hit(pages, started)
@@ -319,8 +324,9 @@ class DonorCrawler:
                 return pages, stop
 
             url = queue.popleft()
-            if not rules.allows(url):
+            if url in visited or not rules.allows(url):
                 continue
+            visited.add(url)
 
             async with self._limiter.slot(host):
                 result = await self._cascade.get(url)
@@ -331,10 +337,30 @@ class DonorCrawler:
             if result.outcome is not FetchOutcome.OK or result.html is None:
                 continue
             pages.append(result.url)
+            self._harvest(result.html, result.url, host)
             if follow:
                 self._enqueue(result, host, queue, seen)
 
         return pages, StopReason.EXHAUSTED
+
+    def _harvest(self, html: str, page_url: str, host: str) -> None:
+        """Внешние ссылки страницы с пометкой «в теле статьи или вне».
+
+        Страница без тела не ошибка: раздел со списком и карточка товара
+        статьями не являются. Но она и не «страница без ссылок» — разница
+        видна по счётчику статей рядом с числом открытых страниц.
+
+        Почему не только из тела, хотя требование говорит именно так, —
+        в `links.harvest`: замер показал, что размещения этой ниши живут
+        в витринах офферов рядом со статьёй, и буква требования оставила
+        бы нас без рекламодателей вовсе.
+
+        Сырой HTML при этом никуда не уезжает: наружу выходят адрес,
+        анкор, пометки `rel` и домен-получатель.
+        """
+        if extract_article(html) is not None:
+            self.articles += 1
+        self.links.extend(harvest(html, page_url, host))
 
     def _enqueue(self, result: FetchResult, host: str, queue: deque[str], seen: set[str]) -> None:
         """Ссылки со страницы — в очередь, каждая по одному разу."""
@@ -404,6 +430,8 @@ class DonorCrawler:
             outcome=outcome,
             stop_reason=stop,
             pages=pages or [],
+            links=list(self.links),
+            articles=self.articles,
             robots_status=rules.status,
             crawl_delay=rules.crawl_delay,
             sitemap_found=scan.found if scan else False,
