@@ -12,6 +12,7 @@ from typing import Any
 
 import httpx
 import pytest
+from backend.features.serp import markets
 from backend.features.serp.dataforseo import (
     DataForSeoProvider,
     SerpError,
@@ -251,8 +252,17 @@ class TestCountries:
         assert language_code("de") == "de"
         assert language_code("br") == "pt"
 
-    async def test_unknown_language_falls_back_to_english(self) -> None:
-        """Язык интерфейса влияет на выдачу слабее региона — английский
-        как умолчание безопаснее отказа."""
+    async def test_english_is_an_answer_not_a_fallback(self) -> None:
+        """Прежнее правило звучало «английский как умолчание безопаснее
+        отказа», и оно оказалось неверным: одиннадцать стран из пятидесяти
+        пяти молча получали английский — Австрия, Швейцария, Бельгия,
+        Саудовская Аравия, Египет и другие, кого просто забыли внести.
+        Прогон по ним искал английскую выдачу по английским ключам
+        и отчитывался успехом.
+
+        Для США английский — ответ, а не заглушка, и запись у них явная.
+        """
         assert language_code("us") == "en"
-        assert language_code("зз") == "en"
+
+        with pytest.raises(markets.UnknownMarketError):
+            language_code("зз")

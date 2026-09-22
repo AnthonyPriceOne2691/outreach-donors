@@ -127,12 +127,12 @@
       "worst": "—"
     },
     "backend/api/keywords/routes.py": {
-      "lines": 76,
-      "complexity": 3,
-      "worst": "build_pool:44"
+      "lines": 110,
+      "complexity": 4,
+      "worst": "build_pool:67"
     },
     "backend/api/keywords/schemas.py": {
-      "lines": 43,
+      "lines": 47,
       "complexity": 0,
       "worst": "—"
     },
@@ -322,9 +322,9 @@
       "worst": "_add_reply:285"
     },
     "backend/cli/keywords_pool.py": {
-      "lines": 110,
-      "complexity": 5,
-      "worst": "cmd_keywords:54"
+      "lines": 148,
+      "complexity": 7,
+      "worst": "cmd_keywords:83"
     },
     "backend/cli/letters_queue.py": {
       "lines": 146,
@@ -592,9 +592,9 @@
       "worst": "_enum:17"
     },
     "backend/features/core/usage.py": {
-      "lines": 86,
+      "lines": 91,
       "complexity": 3,
-      "worst": "record:49"
+      "worst": "record:54"
     },
     "backend/features/crawl/__init__.py": {
       "lines": 5,
@@ -742,9 +742,9 @@
       "worst": "interleave:57"
     },
     "backend/features/keywords/generator.py": {
-      "lines": 277,
+      "lines": 367,
       "complexity": 6,
-      "worst": "_backfill:245"
+      "worst": "_backfill:332"
     },
     "backend/features/keywords/hygiene.py": {
       "lines": 187,
@@ -992,14 +992,19 @@
       "worst": "_take_organic:63"
     },
     "backend/features/serp/dataforseo.py": {
-      "lines": 345,
+      "lines": 348,
       "complexity": 10,
-      "worst": "_fetch:268"
+      "worst": "_fetch:271"
     },
     "backend/features/serp/factory.py": {
       "lines": 64,
       "complexity": 7,
       "worst": "build_provider:34"
+    },
+    "backend/features/serp/markets.py": {
+      "lines": 100,
+      "complexity": 2,
+      "worst": "serp_language:78"
     },
     "backend/features/serp/protocol.py": {
       "lines": 64,
@@ -1132,9 +1137,9 @@
       "worst": "_select:46"
     },
     "scripts/ui_contrast.py": {
-      "lines": 447,
+      "lines": 450,
       "complexity": 9,
-      "worst": "main:395"
+      "worst": "main:398"
     }
   }
 }

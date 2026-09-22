@@ -188,8 +188,11 @@ SCREENS: dict[str, dict] = {
                 ".mantine-SegmentedControl-innerLabel:has-text('Собрать моделью')",
                 NORM,
             ),
-            ("подпись поля «Про что»", ".mantine-TextInput-label", NORM),
-            ("описание под полем", ".mantine-TextInput-description", NORM),
+            # Поле тем — `TagsInput`, а не `TextInput`: селектор по типу
+            # компонента пережил бы смену типа молча и мерил бы соседа.
+            ("подпись поля «Про что»", ".mantine-TagsInput-label", NORM),
+            ("описание под полем", ".mantine-TagsInput-description", NORM),
+            ("языки рынка", ".mantine-Card-root p.mantine-Text-root:last-of-type", NORM),
             ("кнопка «Собрать»", "button:has-text('Собрать')", BIG),
             ("пункт меню", "nav a", NORM),
         ],

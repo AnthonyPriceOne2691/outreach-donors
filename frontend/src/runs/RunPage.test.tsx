@@ -84,8 +84,23 @@ async function openRun(routes: Record<string, unknown> = {}) {
   return recorded;
 }
 
+/** Поле тем: у Mantine `TagsInput` подпись носят два поля — видимое
+ *  и скрытое, — и поиск по подписи находит оба. Берём то, в которое
+ *  человек печатает. */
+async function topicsField(): Promise<HTMLElement> {
+  const fields = await screen.findAllByLabelText('Про что');
+  const visible = fields.find((node) => node.getAttribute('data-type') === 'visible');
+  if (visible === undefined) {
+    // Падаем вслух: молчаливый выбор «первого попавшегося» однажды
+    // подсунет скрытое поле, и тест станет зелёным про другое.
+    throw new Error(`Видимое поле тем не найдено, полей с такой подписью: ${fields.length}`);
+  }
+  return visible;
+}
+
 const POOL = {
   keywords: ['best betting sites south africa', 'top bookmakers sa'],
+  languages: ['English'],
   asked: 9,
   received: 6,
   rejected: 0,
@@ -101,12 +116,13 @@ describe('сборка ключей моделью', () => {
     // собранное он видит и правит до сметы.
     const recorded = await openRun({
       'GET /api/keywords/presets': { body: ['guides', 'media', 'reviews', 'wide'] },
+      'GET /api/keywords/languages?country=us': { body: ['English'] },
       'POST /api/keywords': { body: POOL },
     });
     const user = userEvent.setup();
 
     await user.click(screen.getByRole('radio', { name: 'Собрать моделью' }));
-    await user.type(await screen.findByLabelText('Про что'), 'ставки');
+    await user.type(await topicsField(), 'ставки{enter}');
     await user.click(screen.getByRole('button', { name: 'Собрать' }));
 
     await waitFor(() =>
@@ -119,22 +135,27 @@ describe('сборка ключей моделью', () => {
     expect(screen.getByRole('button', { name: /Запустить/ })).toBeDisabled();
   });
 
-  it('тема доезжает до сервера — без неё пул выходит широким', async () => {
+  it('темы доезжают списком, а языки экран не шлёт — их выводит рынок', async () => {
     const recorded = await openRun({
       'GET /api/keywords/presets': { body: ['reviews', 'wide'] },
+      'GET /api/keywords/languages?country=us': { body: ['English', 'French'] },
       'POST /api/keywords': { body: POOL },
     });
     const user = userEvent.setup();
 
     await user.click(screen.getByRole('radio', { name: 'Собрать моделью' }));
-    await user.type(await screen.findByLabelText('Про что'), 'ставки');
+    await user.type(await topicsField(), 'ставки{enter}кроссовки{enter}');
     await user.click(screen.getByRole('button', { name: 'Собрать' }));
 
     await waitFor(() =>
       expect(recorded.calls.some((call) => call.path === '/api/keywords')).toBe(true),
     );
     const call = recorded.calls.find((item) => item.path === '/api/keywords');
-    expect(call?.body).toMatchObject({ topic: 'ставки', country: 'us' });
+    expect(call?.body).toMatchObject({ topics: ['ставки', 'кроссовки'], country: 'us' });
+    // Язык экран не выбирает и не шлёт: его задаёт рынок.
+    expect(call?.body).not.toHaveProperty('language');
+    // И показывает до сборки, на чём соберётся, — на двух языках пул дороже вдвое.
+    expect(screen.getByText(/Языки рынка: English, French/)).toBeInTheDocument();
   });
 
   it('неполный пул из-за отказов модели назван вслух', async () => {
@@ -142,6 +163,7 @@ describe('сборка ключей моделью', () => {
     // который модель честно не набрала.
     await openRun({
       'GET /api/keywords/presets': { body: ['reviews'] },
+      'GET /api/keywords/languages?country=us': { body: ['English'] },
       'POST /api/keywords': {
         body: { ...POOL, refusals: ['модель, отказ (чинить): HTTP 401: ключ не принят'] },
       },

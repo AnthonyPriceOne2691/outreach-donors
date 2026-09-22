@@ -174,14 +174,17 @@ export type RunStatus = 'queued' | 'estimating' | 'running' | 'done' | 'stopped'
 export interface PoolRequest {
   preset: string;
   country: string;
-  language?: string;
-  /** Про что ключи. Пусто — законный исход: широкий пул иногда и нужен. */
-  topic?: string;
+  /** Про что ключи. Пусто — законный исход: широкий пул иногда и нужен.
+   *  Несколько тем дают больше доменов на тот же потолок: внутри темы
+   *  выдача пересекается сама с собой, между темами почти нет. */
+  topics?: string[];
   cap?: number;
 }
 
 export interface KeywordPool {
   keywords: string[];
+  /** На каких языках собирали. Выводятся из страны, оператор их не задаёт. */
+  languages: string[];
   asked: number;
   received: number;
   rejected: number;

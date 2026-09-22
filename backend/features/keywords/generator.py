@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from backend.config import llm as cfg
@@ -55,6 +56,10 @@ class PoolReport:
     tokens: int = 0
     calls: int = 0
     per_angle: dict[str, int] = field(default_factory=dict)
+    #: Сколько дала каждая тема и каждый язык. Без этих чисел пул,
+    #: перекошенный в одну тему, внешне неотличим от ровного.
+    per_topic: dict[str, int] = field(default_factory=dict)
+    per_language: dict[str, int] = field(default_factory=dict)
     #: Отказы модели. Пустой пул при пустом списке — модель правда ничего
     #: не придумала; пустой пул при непустом — она не отвечала.
     refusals: list[str] = field(default_factory=list)
@@ -74,6 +79,8 @@ class PoolReport:
             "tokens": self.tokens,
             "calls": self.calls,
             "per_angle": self.per_angle,
+            "per_topic": self.per_topic,
+            "per_language": self.per_language,
             "refusals": len(self.refusals),
         }
 
@@ -114,6 +121,67 @@ def build_user_prompt(*, country: str, language: str, angle: Angle, topic: str =
         f"express that intent natively.\n"
         f"focus ONLY on this content angle: {angle.focus}"
     )
+
+
+#: Меньше этого на одно сочетание «тема × язык» просить незачем: буфер
+#: и дедуп съедают почти всё, а каждый вызов стоит своего минимума.
+#: Замер: потолок 30 обошёлся в двенадцать вызовов, потолок 100 — в девять.
+MIN_PER_COMBINATION = 5
+
+
+def _combinations(topics: Sequence[str], languages: Sequence[str]) -> list[tuple[str, str]]:
+    """Все пары «тема × язык». Пустой язык — «English»: у пула всегда есть
+    язык, даже когда рынок его не назвал."""
+    langs = _clean_list(languages) or ("English",)
+    return [(topic, language) for topic in topics for language in langs]
+
+
+def _new_report(
+    combinations: Sequence[tuple[str, str]], *, cap: int, country: str, preset_name: str | None
+) -> PoolReport:
+    """Шапка отчёта: что просили. Темы и языки перечисляются строкой —
+    по ней потом видно, из чего пул собирался."""
+    return PoolReport(
+        preset_name=(preset_name or "wide"),
+        country=country,
+        language=", ".join(dict.fromkeys(language for _, language in combinations)),
+        cap=cap,
+        topic=", ".join(dict.fromkeys(topic for topic, _ in combinations if topic)),
+    )
+
+
+def _count(report: PoolReport, *, topic: str, language: str, got: int) -> None:
+    """Записать, сколько дало сочетание. Отдельными столбцами: пул,
+    перекошенный в одну тему или язык, по общему числу неотличим
+    от ровного."""
+    name = topic or "без темы"
+    report.per_topic[name] = report.per_topic.get(name, 0) + got
+    report.per_language[language] = report.per_language.get(language, 0) + got
+
+
+def _refuse_if_too_thin(cap: int, combinations: Sequence[tuple[str, str]]) -> None:
+    """Отказать, если на сочетание приходится слишком мало.
+
+    Тонкая доля — это не маленький пул, а испорченный: буфер просит
+    с запасом, дедуп режет, и на выходе получается два ключа вместо пяти.
+    Отказ называет, что делать, потому что выходов ровно два.
+    """
+    # Одно сочетание делить не на что: маленький пул там — это маленький
+    # пул, а не рваный. Правило про ДОЛЮ, и включается оно с деления.
+    if len(combinations) < 2 or cap >= MIN_PER_COMBINATION * len(combinations):
+        return
+    topics = len({topic for topic, _ in combinations})
+    langs = len({language for _, language in combinations})
+    raise ValueError(
+        f"На {len(combinations)} сочетаний ({topics} тем × {langs} яз.) просят {cap} ключей — "
+        f"это меньше {MIN_PER_COMBINATION} на каждое, и пул выйдет рваным. "
+        f"Поднимите потолок до {MIN_PER_COMBINATION * len(combinations)} или уберите тему"
+    )
+
+
+def _clean_list(values: Sequence[str]) -> tuple[str, ...]:
+    """Список без пустых, без повторов и в прежнем порядке."""
+    return tuple(dict.fromkeys(value.strip() for value in values if value.strip()))
 
 
 def _settle(keywords: list[str], *, cap: int, report: PoolReport) -> Pool:
@@ -165,39 +233,39 @@ def _log_dry(report: PoolReport, *, collected: list[str], cap: int) -> None:
 class PoolBuilder:
     """Сборка пула для одной пары «рынок и язык»."""
 
-    def __init__(self, client: KeygenClient, *, topic: str = "") -> None:
+    def __init__(self, client: KeygenClient, *, topics: Sequence[str] = ()) -> None:
         self._client = client
-        self._topic = topic.strip()
+        self._topics = _clean_list(topics) or ("",)
 
     async def build(
         self,
         *,
         cap: int,
         country: str,
-        language: str = "English",
+        languages: Sequence[str] = ("English",),
         preset_name: str | None = None,
     ) -> Pool:
+        """Собрать пул по всем сочетаниям «тема × язык».
+
+        Набор виденного общий на все сочетания: фраза, придуманная дважды,
+        схлопывается сразу, а не после того, как за неё дважды заплатили.
+        """
         angles = preset(preset_name)
-        report = PoolReport(
-            preset_name=(preset_name or "wide"),
-            country=country,
-            language=language,
-            cap=cap,
-            topic=self._topic,
-        )
+        combinations = _combinations(self._topics, languages)
+        report = _new_report(combinations, cap=cap, country=country, preset_name=preset_name)
         if cap <= 0:
             return Pool(keywords=[], report=report)
+        _refuse_if_too_thin(cap, combinations)
 
         collected: list[str] = []
         seen: set[str] = set()
 
-        wanted = split_over_angles(cap, len(angles))
-        for angle, want in zip(angles, wanted, strict=True):
-            fresh = await self._ask_angle(angle, want, country, language, seen, report)
-            collected.extend(fresh)
-            report.per_angle[angle.title] = len(fresh)
-
-        collected = await self._backfill(collected, angles, cap, country, language, seen, report)
+        for (topic, language), share in zip(
+            combinations, split_over_angles(cap, len(combinations)), strict=True
+        ):
+            got = await self._one(share, angles, country, language, topic, seen, report)
+            collected.extend(got)
+            _count(report, topic=topic, language=language, got=len(got))
 
         deduped = drop_near_duplicates(collected)
         report.near_duplicates = len(collected) - len(deduped)
@@ -207,12 +275,31 @@ class PoolBuilder:
         report.refusals = list(self._client.refusals)
         return _settle(deduped[:cap], cap=cap, report=report)
 
+    async def _one(
+        self,
+        cap: int,
+        angles: tuple[Angle, ...],
+        country: str,
+        language: str,
+        topic: str,
+        seen: set[str],
+        report: PoolReport,
+    ) -> list[str]:
+        """Один проход по сочетанию «тема × язык»: углы и добор."""
+        collected: list[str] = []
+        for angle, want in zip(angles, split_over_angles(cap, len(angles)), strict=True):
+            fresh = await self._ask_angle(angle, want, country, language, topic, seen, report)
+            collected.extend(fresh)
+            report.per_angle[angle.title] = report.per_angle.get(angle.title, 0) + len(fresh)
+        return await self._backfill(collected, angles, cap, country, language, topic, seen, report)
+
     async def _ask_angle(
         self,
         angle: Angle,
         want: int,
         country: str,
         language: str,
+        topic: str,
         seen: set[str],
         report: PoolReport,
     ) -> list[str]:
@@ -228,7 +315,7 @@ class PoolBuilder:
             Ask(
                 system=system,
                 user=build_user_prompt(
-                    country=country, language=language, angle=angle, topic=self._topic
+                    country=country, language=language, angle=angle, topic=topic
                 ),
                 max_phrases=request,
             )
@@ -249,6 +336,7 @@ class PoolBuilder:
         cap: int,
         country: str,
         language: str,
+        topic: str,
         seen: set[str],
         report: PoolReport,
     ) -> list[str]:
@@ -263,7 +351,9 @@ class PoolBuilder:
             per_angle = max(1, -(-deficit // len(angles)))
 
             for angle in angles:
-                fresh = await self._ask_angle(angle, per_angle, country, language, seen, report)
+                fresh = await self._ask_angle(
+                    angle, per_angle, country, language, topic, seen, report
+                )
                 collected.extend(fresh)
                 report.per_angle[angle.title] = report.per_angle.get(angle.title, 0) + len(fresh)
                 if len(drop_near_duplicates(collected)) >= cap:

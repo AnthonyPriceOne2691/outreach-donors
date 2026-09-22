@@ -27,7 +27,7 @@ import {
   Table,
   Text,
   Textarea,
-  TextInput,
+  TagsInput,
   Title,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
@@ -37,7 +37,7 @@ import { useState } from 'react';
 
 import { countryTitle, RUN_STATUSES } from '../api/labels';
 import { Metric } from '../components/Metric';
-import { buildPool, fetchPresets } from '../api/keywords';
+import { buildPool, fetchMarketLanguages, fetchPresets } from '../api/keywords';
 import { estimateRun, fetchCountries, listRuns, startRun } from '../api/runs';
 import type { Forecast, RunStatus } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
@@ -131,7 +131,7 @@ export function RunPage() {
   // а сборка моделью это второй режим того же поля, а не замена ему.
   const [source, setSource] = useState<'manual' | 'model'>('manual');
   const [preset, setPreset] = useState<string | null>(null);
-  const [topic, setTopic] = useState('');
+  const [topics, setTopics] = useState<string[]>([]);
   const [poolCap, setPoolCap] = useState<number | ''>(30);
 
   const countries = useQuery({ queryKey: ['countries'], queryFn: fetchCountries });
@@ -141,6 +141,13 @@ export function RunPage() {
   const presets = useQuery({
     queryKey: ['presets'],
     queryFn: fetchPresets,
+    enabled: source === 'model',
+  });
+  // Языки выводятся из страны, а не выбираются: оператору нечем ошибиться,
+  // а незнакомая страна отказывает вслух вместо тихого английского.
+  const marketLanguages = useQuery({
+    queryKey: ['market-languages', country],
+    queryFn: () => fetchMarketLanguages(country),
     enabled: source === 'model',
   });
   const runs = useQuery({
@@ -169,7 +176,7 @@ export function RunPage() {
       buildPool({
         preset: preset ?? 'wide',
         country,
-        topic,
+        topics,
         cap: typeof poolCap === 'number' ? poolCap : 30,
       }),
     onSuccess: (built) => {
@@ -182,7 +189,7 @@ export function RunPage() {
         message:
           built.refusals.length > 0
             ? `Модель ${built.model} отказала ${built.refusals.length} раз(а) — пул неполный: ${built.refusals[0]}`
-            : `Модель ${built.model}, ${built.tokens} токенов. Проверьте список перед сметой.`,
+            : `Модель ${built.model}, ${built.tokens} токенов, языки: ${built.languages.join(', ')}. Проверьте список перед сметой.`,
         color: built.refusals.length > 0 ? 'yellow' : 'green',
       });
     },
@@ -256,6 +263,13 @@ export function RunPage() {
                     Сборка ничего платного не тратит — только модель. Фразы попадут в поле ниже, и
                     до сметы их можно править: смета и кап остаются последним рубежом перед тратой.
                   </Text>
+                  {/* Языки называются до сборки: на двух языках пул стоит вдвое
+                      дороже, и узнавать об этом по счёту неправильно. */}
+                  <Text size="sm" c="dimmed">
+                    {marketLanguages.isError
+                      ? 'Язык этого рынка не выводится — сборка откажет и скажет почему.'
+                      : `Языки рынка: ${(marketLanguages.data ?? []).join(', ') || '…'}`}
+                  </Text>
                   <Group align="flex-end" gap="md" wrap="wrap">
                     <Select
                       label="Набор углов"
@@ -266,13 +280,14 @@ export function RunPage() {
                       placeholder={presets.isPending ? 'загружаются…' : 'wide'}
                       w={190}
                     />
-                    <TextInput
+                    <TagsInput
                       label="Про что"
-                      description="Без темы пул выйдет широким"
-                      placeholder="ставки на спорт"
-                      value={topic}
-                      onChange={(event) => setTopic(event.currentTarget.value)}
-                      w={230}
+                      description="Несколько тем дают больше доменов"
+                      placeholder={topics.length === 0 ? 'ставки на спорт' : ''}
+                      value={topics}
+                      onChange={setTopics}
+                      clearable
+                      w={260}
                     />
                     <NumberInput
                       label="Сколько ключей"
