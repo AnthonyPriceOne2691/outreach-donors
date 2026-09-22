@@ -64,15 +64,20 @@ def add_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None
         action="store_true",
         help="включить уровень браузера для страниц, закрывшихся от обычного запроса",
     )
+    # Режим по умолчанию — браузерный (решение по итогам замера), поэтому
+    # флаг включает **обратное**: назваться своим именем. Прежний
+    # `--as-browser` оставлен и ничего не делает: команда с ним в истории
+    # у человека, и молча менять её смысл хуже, чем принять обе формы.
     crawl.add_argument(
-        "--as-browser",
+        "--identify",
         action="store_true",
         help=(
-            "не представляться своим именем, ходить как браузер: "
-            "доля закрытых страниц у двух режимов разная, и замер имеет "
-            "смысл провести дважды"
+            "представляться своим именем вместо браузера: пускают реже "
+            "(замер: один донор из пяти закрывается), но запрет, "
+            "адресованный нам в robots.txt, начинает работать"
         ),
     )
+    crawl.add_argument("--as-browser", action="store_true", help=argparse.SUPPRESS)
     crawl.add_argument(
         "--json",
         type=Path,
@@ -144,7 +149,9 @@ def _print_summary(reports: list[CrawlReport], *, as_browser: bool) -> None:
             print(f"\n{MEANING[outcome]}: {', '.join(hosts)}")
 
 
-async def _crawl_one(host: str, args: argparse.Namespace, renderer: object | None) -> CrawlReport:
+async def _crawl_one(
+    host: str, args: argparse.Namespace, renderer: object | None, *, identify: bool
+) -> CrawlReport:
     """Один донор — один клиент и один ограничитель: замер идёт подряд,
     и делить между донорами тут нечего."""
     limiter = DomainLimiter()
@@ -154,7 +161,7 @@ async def _crawl_one(host: str, args: argparse.Namespace, renderer: object | Non
             limiter=limiter,
             renderer=renderer,  # type: ignore[arg-type]
             use_browser=renderer is not None,
-            identify=not args.as_browser,
+            identify=identify,
             max_pages=args.pages,
             max_seconds=args.seconds,
         )
@@ -169,6 +176,7 @@ async def cmd_crawl(args: argparse.Namespace) -> int:
     # Флаг командной строки сильнее настройки: прибор запускают руками
     # и ровно тогда, когда готовы заплатить секундами за закрытые сайты.
     use_browser = args.browser or cfg.BROWSER_ENABLED
+    identify = args.identify or (cfg.IDENTIFY and not args.as_browser)
 
     reports: list[CrawlReport] = []
     async with contextlib.AsyncExitStack() as stack:
@@ -180,11 +188,11 @@ async def cmd_crawl(args: argparse.Namespace) -> int:
             print("Браузер не поднялся — обход пойдёт без него, это будет видно в отчёте.")
         for host in args.domains:
             print(f"\nОбход {host}…")
-            report = await _crawl_one(host, args, renderer)
+            report = await _crawl_one(host, args, renderer, identify=identify)
             reports.append(report)
             _print_report(report)
 
-    _print_summary(reports, as_browser=args.as_browser)
+    _print_summary(reports, as_browser=not identify)
 
     if args.json:
         args.json.write_text(
