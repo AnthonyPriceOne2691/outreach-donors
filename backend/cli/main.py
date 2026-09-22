@@ -20,6 +20,8 @@ from typing import Any
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.cli.access_admin import cmd_user_add, cmd_user_reset
+from backend.cli.advertisers import add_parser as add_advertisers_parser
+from backend.cli.advertisers import cmd_advertiser_decide, cmd_advertisers
 from backend.cli.contact_search import cmd_contacts
 from backend.cli.crawl_probe import add_parser as add_crawl_parser
 from backend.cli.crawl_probe import cmd_crawl
@@ -300,6 +302,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     add_crawl_parser(sub)
+    add_advertisers_parser(sub)
     add_letters_parser(sub)
     add_senders_parser(sub)
     return parser
@@ -324,6 +327,8 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] =
     "quota": lambda _: cmd_quota(),
     "contacts": cmd_contacts,
     "crawl": cmd_crawl,
+    "advertisers": cmd_advertisers,
+    "advertiser-decide": cmd_advertiser_decide,
     "user-add": cmd_user_add,
     "user-reset": cmd_user_reset,
     "keywords": cmd_keywords,
