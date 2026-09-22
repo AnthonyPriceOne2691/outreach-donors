@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from backend.features.ahrefs.units import (
+    COUNTRY_CALL_SHARE,
     MIN_REQUEST_UNITS,
     UNITS_BY_COUNTRY,
     UNITS_DR_SCREEN,
@@ -59,17 +60,33 @@ class TestBatchCost:
 
 class TestRunEstimate:
     def test_matches_the_measured_projection(self) -> None:
-        """Прогон на 100 000 доменов — около 3,84 млн юнитов (okf/unit-economy.md).
-        Если эта цифра поедет, значит поехали цены или воронка."""
-        estimate = estimate_run(100_000)
-        assert 3_700_000 < estimate.total < 4_000_000
-        assert 37 < estimate.per_domain < 40
+        """Прогон на 100 000 доменов — около 2,95 млн юнитов.
 
-    def test_countries_dominate_the_bill(self) -> None:
-        """Самый дорогой запрос должен видеть меньше всего доменов — на этом
-        и построен порядок ступеней."""
+        Было 3,84 млн: страны брались отдельным запросом по каждому
+        дошедшему домену, по 55 юнитов. Теперь верхняя страна приезжает
+        пакетом вместе с метриками (+10 на домен), и отдельный запрос
+        нужен примерно каждому пятому — 29,5 юнита на домен вместо 38.
+
+        Если цифра поедет, значит поехали цены, воронка или доля доменов,
+        которым верхней страны не хватает.
+        """
+        estimate = estimate_run(100_000)
+        assert 2_800_000 < estimate.total < 3_100_000
+        assert 28 < estimate.per_domain < 31
+
+    def test_countries_no_longer_dominate_the_bill(self) -> None:
+        """Раньше страны были самой дорогой статьёй — 70% счёта прогона.
+
+        Ради этого срез и делался: верхняя страна приезжает пакетом, и
+        отдельный запрос остаётся примерно каждому пятому. Главной статьёй
+        стали метрики, которые платятся пачками и по всем дошедшим.
+
+        Порядок ступеней при этом прежний: самый дорогой ЗАПРОС по-прежнему
+        видит меньше всего доменов.
+        """
         estimate = estimate_run(10_000)
-        assert estimate.by_country > estimate.metrics > estimate.screen
+
+        assert estimate.metrics > estimate.by_country > estimate.screen
 
     def test_better_funnel_costs_less(self) -> None:
         """Чем строже пороги, тем дешевле прогон: до стран доходит меньше."""
@@ -88,9 +105,15 @@ class TestRunEstimate:
         assert estimate_run(domains).screen >= MIN_REQUEST_UNITS
 
     def test_by_country_has_no_batch_discount(self) -> None:
-        """Пакетного аналога у запроса по странам нет — цена линейна."""
+        """Пакетного аналога у запроса по странам нет — цена линейна.
+
+        Но платят его не все дошедшие, а те, кому верхней страны из пакета
+        не хватило: у них наверху не целевая страна, и про целевую мы
+        не знаем ничего.
+        """
         estimate = estimate_run(1000, all_pass_share=0.5)
-        assert estimate.by_country == 500 * UNITS_BY_COUNTRY
+
+        assert estimate.by_country == int(500 * COUNTRY_CALL_SHARE) * UNITS_BY_COUNTRY
 
 
 class TestCachedResponses:

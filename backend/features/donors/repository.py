@@ -26,6 +26,15 @@ from backend.features.core.models.donor import DonorModel
 from backend.features.donors.collect import DomainResult
 
 
+def _is_partial(result: DomainResult) -> bool:
+    """Разбивка неполная: спрашивали только верхнюю страну.
+
+    Одна строка у полного ответа и одна у дешёвого пути — разные вещи,
+    и по длине списка их не отличить.
+    """
+    return result.geo is not None and result.geo.partial
+
+
 class DonorRepository:
     """Доступ к доменам и донорам."""
 
@@ -109,6 +118,7 @@ class DonorRepository:
                         "geo",
                         "geo_breakdown",
                         "geo_top_share",
+                        "geo_partial",
                         "geo_refreshed_at",
                     )
                 },
@@ -135,5 +145,6 @@ class DonorRepository:
             "geo": breakdown[0].country if breakdown else None,
             "geo_breakdown": [asdict(item) for item in breakdown] or None,
             "geo_top_share": breakdown[0].share if breakdown else None,
+            "geo_partial": _is_partial(result),
             "geo_refreshed_at": moment if geo_asked else None,
         }

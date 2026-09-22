@@ -50,6 +50,11 @@ class GeoVerdict:
     reason: str
     top_country: str | None
     breakdown: list[CountryShare]
+    #: Разбивка неполная: спросили только верхнюю страну, потому что её
+    #: хватило для вердикта. Флаг нужен, чтобы карточка донора говорила
+    #: правду: одна строка у полного ответа и одна строка у дешёвого —
+    #: это разные вещи, и по длине списка их не отличить.
+    partial: bool = False
 
 
 def build_breakdown(rows: list[dict[str, object]], total_org_traffic: int) -> list[CountryShare]:
