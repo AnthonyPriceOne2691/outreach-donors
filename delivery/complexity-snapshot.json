@@ -292,9 +292,9 @@
       "worst": "cmd_contacts:62"
     },
     "backend/cli/crawl_probe.py": {
-      "lines": 264,
+      "lines": 309,
       "complexity": 18,
-      "worst": "_print_summary:143"
+      "worst": "_print_summary:154"
     },
     "backend/cli/demo_content.py": {
       "lines": 128,
@@ -656,6 +656,11 @@
       "complexity": 15,
       "worst": "scan:119"
     },
+    "backend/features/crawl/targets.py": {
+      "lines": 132,
+      "complexity": 9,
+      "worst": "choose:60"
+    },
     "backend/features/crawl/walk.py": {
       "lines": 453,
       "complexity": 8,
@@ -812,7 +817,7 @@
       "worst": "remove:125"
     },
     "backend/features/letters/template.py": {
-      "lines": 320,
+      "lines": 336,
       "complexity": 9,
       "worst": "_check_zones:219"
     },
@@ -842,9 +847,9 @@
       "worst": "—"
     },
     "backend/features/ops/silence.py": {
-      "lines": 261,
-      "complexity": 6,
-      "worst": "probe_providers:81"
+      "lines": 306,
+      "complexity": 7,
+      "worst": "_crawl_blocked:234"
     },
     "backend/features/outreach/__init__.py": {
       "lines": 2,

@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -17,9 +18,11 @@ from backend.features.letters import compose, guards, masking, reply_to, uniquen
 from backend.features.letters.rewrite import Personalization, build_payload, parse_zones
 from backend.features.letters.template import (
     REQUIRED_ZONES,
+    REWRITE_YIELD,
     Template,
     TemplateError,
     ZoneKind,
+    advertiser,
     default,
     parse,
 )
@@ -412,3 +415,55 @@ class TestRewriteRequest:
     def test_broken_answer_is_an_empty_result(self) -> None:
         """Отказ модели — не отказ письма: зоны остаются шаблонными."""
         assert parse_zones("not json at all", expected={"greeting"}) == {}
+
+
+class TestAdvertiserTemplate:
+    """Оффер рекламодателю: набор зон тот же, границы другие.
+
+    Шаблон без проверки — это текстовый файл: разбираться он перестанет
+    молча, а заметит это первое письмо. Здесь проверяется не текст
+    (он выдуман и будет утверждён), а то, что делает его шаблоном.
+    """
+
+    def test_it_parses_with_the_same_zones_as_the_donor_letter(self) -> None:
+        letter = advertiser()
+
+        assert {zone.name for zone in letter.zones} == set(REQUIRED_ZONES)
+
+    def test_the_donor_price_is_not_in_the_letter(self) -> None:
+        """Требование расходилось само с собой — «Вводная» допускала цену,
+        чеклист запрещал, — и решено в пользу запрета: названная чужая
+        цена это и претензия от площадки, и вопрос об источнике,
+        на который нечем ответить."""
+        body = advertiser().body
+
+        assert not re.search(r"[$€£]\s?\d|\b\d+\s?(?:USD|EUR|GBP)\b", body)
+
+    def test_provider_metrics_are_not_mentioned(self) -> None:
+        """Правило самого провайдера: нарушение бьёт не по письму,
+        а по ключу, на котором держится весь сбор базы."""
+        body = advertiser().body
+
+        assert not re.search(r"\b(?:DR|domain rating|traffic|backlinks?)\b", body, re.I)
+
+    def test_it_personalises_by_the_link_we_actually_found(self) -> None:
+        """Требование просит письмо «под конкретную найденную ссылку —
+        страницу и анкор». Обе подстановки обязаны быть в шаблоне,
+        иначе персонализации взяться неоткуда."""
+        placeholders = advertiser().placeholders()
+
+        assert {"donor_host", "page_url", "anchor"} <= placeholders
+
+    def test_the_legal_block_is_there_too(self) -> None:
+        """Закон не делает скидки второму этапу."""
+        placeholders = advertiser().placeholders()
+
+        assert {"postal_address", "unsubscribe_url", "sender_name"} <= placeholders
+
+    def test_the_corridor_is_reachable(self) -> None:
+        """Если переписываемых зон мало, каждое письмо уходило бы
+        с пометкой «ниже коридора», и человек искал бы поломку в модели,
+        а не в шаблоне."""
+        letter = advertiser()
+
+        assert letter.rewritable_share * REWRITE_YIELD >= 0.15

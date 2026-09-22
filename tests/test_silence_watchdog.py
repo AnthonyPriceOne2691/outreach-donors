@@ -10,7 +10,15 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from backend.features.core import usage
-from backend.features.core.domain import MessageStatus, ReplyKind, RunStatus, Stage
+from backend.features.core.domain import (
+    CrawlOutcome,
+    MessageStatus,
+    ReplyKind,
+    RunStatus,
+    Stage,
+    StopReason,
+)
+from backend.features.core.models.crawl import CrawlRunModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, ReplyModel
 from backend.features.core.models.run import RunModel
 from backend.features.donors.verdict import Thresholds
@@ -151,3 +159,68 @@ class TestSilenceThatMeansBroken:
         found = await alarms(session, now=NOW)
 
         assert "cap-reached" in _codes(found)
+
+
+class TestCrawlBlocked:
+    """Требование просит при доле отказов выше 30% «паузу и алерт».
+
+    Паузу обход ставит себе сам; тревоги не было — останов был виден
+    только в логе, а сторож про краул не знал вовсе.
+    """
+
+    @staticmethod
+    async def _crawl(
+        session: AsyncSession,
+        *,
+        outcome: CrawlOutcome = CrawlOutcome.OK,
+        stop: StopReason = StopReason.EXHAUSTED,
+        number: int = 1,
+    ) -> None:
+        for index in range(number):
+            session.add(
+                CrawlRunModel(
+                    host=f"donor{index}.example.test",
+                    outcome=outcome,
+                    stop_reason=stop,
+                    pages_opened=0 if outcome is CrawlOutcome.BLOCKED else 10,
+                    articles=0,
+                )
+            )
+        await session.flush()
+
+    async def test_a_stopped_crawl_raises_the_alarm(self, session: AsyncSession) -> None:
+        await self._crawl(session, outcome=CrawlOutcome.BLOCKED, stop=StopReason.UNHEALTHY)
+
+        codes = {alarm.code for alarm in await alarms(session)}
+
+        assert "crawl-blocked" in codes
+
+    async def test_most_donors_closing_raises_it_too(self, session: AsyncSession) -> None:
+        await self._crawl(session, outcome=CrawlOutcome.BLOCKED, stop=StopReason.NO_START, number=3)
+        await self._crawl(session, number=1)
+
+        codes = {alarm.code for alarm in await alarms(session)}
+
+        assert "crawl-blocked" in codes
+
+    async def test_a_healthy_crawl_is_silent(self, session: AsyncSession) -> None:
+        await self._crawl(session, number=5)
+
+        codes = {alarm.code for alarm in await alarms(session)}
+
+        assert "crawl-blocked" not in codes
+
+    async def test_no_crawls_at_all_is_not_an_alarm(self, session: AsyncSession) -> None:
+        """Сторож говорит про то, что сломалось, а не про то,
+        что ещё не начинали."""
+        codes = {alarm.code for alarm in await alarms(session)}
+
+        assert "crawl-blocked" not in codes
+
+    async def test_the_alarm_says_what_to_do(self, session: AsyncSession) -> None:
+        """«Обход упирается» без продолжения — полсообщения."""
+        await self._crawl(session, outcome=CrawlOutcome.BLOCKED, stop=StopReason.UNHEALTHY)
+
+        found = next(a for a in await alarms(session) if a.code == "crawl-blocked")
+
+        assert "каскада" in found.detail
