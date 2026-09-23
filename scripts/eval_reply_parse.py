@@ -105,6 +105,14 @@ async def run(cases: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
     return results, tokens
 
 
+def idle_prices(results: list[dict[str, Any]]) -> int:
+    """Обратная сторона опасных: цена прочитана верно, а легла не сама.
+    Каждая такая — минута человека; ради этого числа правился промпт v5."""
+    return sum(
+        1 for r in results if r["decision"] == "review" and r["found"].has_price and not r["wrong"]
+    )
+
+
 def report(results: list[dict[str, Any]], tokens: int) -> float:
     total = len(results)
     misses = Counter(name for r in results for name in r["wrong"])
@@ -121,6 +129,7 @@ def report(results: list[dict[str, Any]], tokens: int) -> float:
         print(f"  {name:<20} {total - misses[name]}/{total}")
     print(f"\nРешения: {dict(decisions)}")
     print(f"Решение не то, что ждали: {len(decision_miss)}")
+    print(f"Верная цена ушла человеку: {idle_prices(results)}/{total}")
     print(f"ОПАСНЫХ (неверная цена легла бы сама): {len(dangerous)}/{total}")
 
     for r in results:
