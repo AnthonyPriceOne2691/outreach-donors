@@ -8,6 +8,7 @@ from backend.config import outreach as cfg
 from backend.features.core.domain import MessageStatus
 from backend.features.letters import compose, template
 from backend.features.letters.chain import MAX_STEPS, cadence
+from backend.features.letters.draft import Draft, default_draft
 from backend.features.letters.repository import QueuedLetter
 from backend.features.letters.uniqueness import corridor_verdict
 
@@ -122,6 +123,38 @@ class Transport(BaseModel):
     problem: str | None = None
 
 
+class LetterZoneView(BaseModel):
+    name: str
+    #: `rewrite` — переписывает модель под донора, `fixed` — уходит как есть.
+    kind: str
+    title: str
+    text: str
+
+
+class LetterDraftView(BaseModel):
+    """Текст первого письма по зонам — для правки перед созданием рассылки."""
+
+    subject: str
+    zones: list[LetterZoneView]
+
+    @classmethod
+    def of(cls, source: Draft) -> LetterDraftView:
+        return cls(
+            subject=source.subject,
+            zones=[
+                LetterZoneView(name=z.name, kind=z.kind.value, title=z.title, text=z.text)
+                for z in source.zones
+            ],
+        )
+
+
+class LetterDraftBody(BaseModel):
+    """Поправленный текст: тема и содержимое зон по именам."""
+
+    subject: str = Field(min_length=1, max_length=300)
+    zones: dict[str, str]
+
+
 class LettersView(BaseModel):
     """Экран писем целиком.
 
@@ -136,6 +169,11 @@ class LettersView(BaseModel):
     #: Отдаёт сервер, а не хранит фронт: второй экземпляр чисел
     #: разошёлся бы с настройкой при первой её правке.
     followup_default: list[int] = Field(default_factory=lambda: list(cfg.FOLLOWUP_DAYS))
+    #: Текст первого письма по умолчанию — для правки перед созданием
+    #: рассылки. Отдаёт сервер по той же причине, что и сроки.
+    letter_default: LetterDraftView = Field(
+        default_factory=lambda: LetterDraftView.of(default_draft())
+    )
     #: Настройки, из-за которых отправить нельзя ни одно письмо.
     blocked_by: list[str]
     transport: Transport
@@ -154,6 +192,9 @@ class BuildRequestBody(BaseModel):
     #: сервиса, потому что сроки подбирают по отклику, и у рассылки,
     #: которая уже идёт, они меняться не должны.
     followup_days: list[int] = Field(default_factory=list, max_length=MAX_STEPS - 1)
+    #: Поправленный текст первого письма. Пусто — у новой рассылки шаблон
+    #: из кода, у найденной — её собственный текст.
+    letter: LetterDraftBody | None = None
 
 
 class BuildQueued(BaseModel):

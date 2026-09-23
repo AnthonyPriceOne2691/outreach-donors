@@ -35,7 +35,7 @@ from backend.api.letters.schemas import (
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
-from backend.features.letters import compose, review
+from backend.features.letters import compose, draft, review
 from backend.features.letters.repository import LetterRepository
 from backend.features.letters.sending import Sending
 from backend.features.letters.transport import TransportError
@@ -87,7 +87,13 @@ async def build(
     author: UserModel = _sender,
     session: AsyncSession = Depends(db_session),
 ) -> BuildQueued:
-    """Поставить сборку в очередь задач. Ничего не отправляет."""
+    """Поставить сборку в очередь задач. Ничего не отправляет.
+
+    Текст письма проверяется здесь, до очереди: разбор шаблона идёт
+    миллисекунды, а отказ из задачи человек увидел бы через минуты
+    и не рядом с формой.
+    """
+    letter_template = await _checked_letter(body, session)
     job = runs_queue().enqueue(
         BUILD_JOB,
         body.campaign,
@@ -95,6 +101,7 @@ async def build(
         niche=body.niche,
         limit=body.limit,
         followup_days=body.followup_days,
+        letter_template=letter_template,
     )
     await AccessRepository(session).record(
         AuditAction.RUN_STARTED,
@@ -105,10 +112,22 @@ async def build(
             "кампания": body.campaign,
             "писем": body.limit,
             "добивки, дней": body.followup_days or "по умолчанию",
+            "текст письма": "поправлен" if letter_template else "по умолчанию",
         },
     )
     await session.commit()
     return BuildQueued(job_id=str(job.id))
+
+
+async def _checked_letter(body: BuildRequestBody, session: AsyncSession) -> str | None:
+    """Текст письма с экрана — проверенный, или `None`, если его не правили."""
+    if body.letter is None:
+        return None
+    text = draft.to_text(body.letter.subject, body.letter.zones)
+    found = await LetterRepository(session).find_campaign(name=body.campaign, stage=Stage.DONORS)
+    if found is not None:
+        draft.assert_same(campaign=body.campaign, stored=found.letter_template, sent=text)
+    return text
 
 
 @router.patch("/{letter_id}", response_model=QueuedLetterCard, summary="Поправить письмо")

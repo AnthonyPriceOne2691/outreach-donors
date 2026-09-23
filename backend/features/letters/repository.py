@@ -257,6 +257,7 @@ class LetterRepository:
         stage: Stage,
         run_id: int | None = None,
         followup_days: Sequence[int] = (),
+        letter_template: str | None = None,
     ) -> CampaignModel:
         """Кампания по имени. Одноимённая переиспользуется: повторный запуск
         сборки дополняет очередь, а не заводит вторую такую же.
@@ -264,13 +265,10 @@ class LetterRepository:
         **Сроки добивок у найденной не переписываются.** Её цепочки уже
         идут по ним, и новая правка сдвинула бы письма, отправленные
         вчера: срок посчитан от отправки, а не от правки настройки.
+        Текст письма — тоже, и его расхождение ловит маршрут до постановки
+        сборки (`draft.assert_same`).
         """
-        rows = await self._session.execute(
-            select(CampaignModel)
-            .where(CampaignModel.name == name)
-            .where(CampaignModel.stage == stage)
-        )
-        found = rows.scalars().first()
+        found = await self.find_campaign(name=name, stage=stage)
         if found is not None:
             return found
 
@@ -280,10 +278,19 @@ class LetterRepository:
             run_id=run_id,
             status="draft",
             followup_days=list(followup_days) or None,
+            letter_template=letter_template,
         )
         self._session.add(created)
         await self._session.flush()
         return created
+
+    async def find_campaign(self, *, name: str, stage: Stage) -> CampaignModel | None:
+        rows = await self._session.execute(
+            select(CampaignModel)
+            .where(CampaignModel.name == name)
+            .where(CampaignModel.stage == stage)
+        )
+        return rows.scalars().first()
 
     async def thread(self, *, domain_id: int, campaign_id: int, contact_id: int) -> ThreadModel:
         rows = await self._session.execute(

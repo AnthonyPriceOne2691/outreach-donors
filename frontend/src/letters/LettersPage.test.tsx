@@ -52,9 +52,20 @@ const OFF_CORRIDOR = {
   verdict: 'отличие 4% ниже коридора 15–25%: письмо слишком похоже на шаблон',
 };
 
+const LETTER_DEFAULT = {
+  subject: 'Guest article on {{host}}',
+  zones: [
+    { name: 'greeting', kind: 'rewrite', title: 'Приветствие', text: 'Hi,' },
+    { name: 'ask', kind: 'rewrite', title: 'Вопросы', text: 'Could you let me know:\n1. Price?' },
+    { name: 'terms', kind: 'fixed', title: 'Условия', text: 'We pay promptly.' },
+    { name: 'signature', kind: 'fixed', title: 'Подпись', text: 'Best regards,\n{{sender_name}}' },
+  ],
+};
+
 const VIEW = {
   letters: [LETTER, OFF_CORRIDOR],
   followup_default: [7, 14],
+  letter_default: LETTER_DEFAULT,
   blocked_by: [],
   transport: { name: 'null', real: false, problem: null },
   corridor: { min: 0.15, max: 0.25 },
@@ -245,5 +256,78 @@ describe('очередь писем', () => {
 
     const tile = screen.getByText('Вне коридора').closest('div');
     expect(within(tile as HTMLElement).getByText('коридор 10–40%')).toBeInTheDocument();
+  });
+});
+
+describe('текст первого письма', () => {
+  it('нетронутый текст не уходит на сервер', async () => {
+    const recorded = await openLetters(
+      {},
+      { 'POST /api/letters/build': { body: { job_id: 'j' } } },
+    );
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Кампания'), 'Май');
+    await user.click(screen.getByRole('button', { name: 'Собрать очередь' }));
+
+    // Иначе одноимённая рассылка упиралась бы в «у неё уже свой текст».
+    const call = recorded.calls.find((one: Call) => one.path === '/api/letters/build');
+    expect(call?.body).not.toHaveProperty('letter');
+  });
+
+  it('поправленная зона уходит вместе с рассылкой', async () => {
+    const recorded = await openLetters(
+      {},
+      { 'POST /api/letters/build': { body: { job_id: 'j' } } },
+    );
+    const user = userEvent.setup();
+
+    const toggle = screen.getByRole('button', { name: 'Текст первого письма' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+
+    const terms = screen.getByLabelText('Условия');
+    await user.clear(terms);
+    await user.type(terms, 'We pay within 48 hours.');
+    expect(screen.getByText('поправлен')).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Кампания'), 'Май');
+    await user.click(screen.getByRole('button', { name: 'Собрать очередь' }));
+
+    const call = recorded.calls.find((one: Call) => one.path === '/api/letters/build');
+    expect(call?.body).toMatchObject({
+      campaign: 'Май',
+      letter: {
+        subject: 'Guest article on {{host}}',
+        zones: { terms: 'We pay within 48 hours.', greeting: 'Hi,' },
+      },
+    });
+  });
+
+  it('каждая зона говорит, что с ней сделает модель', async () => {
+    await openLetters();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Текст первого письма' }));
+
+    expect(screen.getAllByText('Переписывает модель под каждого донора')).toHaveLength(2);
+    expect(screen.getAllByText('Уходит как есть, модель не видит')).toHaveLength(2);
+  });
+
+  it('исходный текст возвращается одной кнопкой', async () => {
+    await openLetters();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Текст первого письма' }));
+    const reset = screen.getByRole('button', { name: 'Вернуть исходный текст' });
+    expect(reset).toBeDisabled();
+
+    await user.type(screen.getByLabelText('Условия'), ' Always.');
+    expect(reset).toBeEnabled();
+    await user.click(reset);
+
+    expect(screen.getByLabelText('Условия')).toHaveValue('We pay promptly.');
+    expect(screen.getByText('по умолчанию')).toBeInTheDocument();
   });
 });
