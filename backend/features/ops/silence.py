@@ -34,7 +34,7 @@ from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.core.models.run import RunModel
 from backend.features.runs.spending import ahrefs_spent_this_month
 from backend.features.serp.dataforseo import SerpError
-from backend.features.serp.factory import build_provider
+from backend.features.serp.factory import UnknownProviderError, build_provider
 
 logger = logging.getLogger(__name__)
 
@@ -106,20 +106,9 @@ async def probe_providers() -> Alarm | None:
     finally:
         await client.aclose()
 
-    ahrefs = AhrefsClient()
-    provider = build_provider(ahrefs)
-    balance = getattr(provider, "balance", None)
-    try:
-        if balance is not None:
-            await balance()
-    except (SerpError, OSError) as exc:
-        logger.warning("сторож тишины: источник выдачи не ответил (%s)", exc)
-        dead.append("источник выдачи")
-    finally:
-        await ahrefs.aclose()
-        aclose = getattr(provider, "aclose", None)
-        if aclose is not None:
-            await aclose()
+    serp = await _serp_silent()
+    if serp is not None:
+        dead.append(serp)
 
     if not dead:
         return None
@@ -132,6 +121,32 @@ async def probe_providers() -> Alarm | None:
             "посреди оплаченной работы"
         ),
     )
+
+
+async def _serp_silent() -> str | None:
+    """Молчит ли источник выдачи. `None` — ответил или счёта у него нет."""
+    ahrefs = AhrefsClient()
+    try:
+        provider = build_provider(ahrefs)
+    except UnknownProviderError as exc:
+        # Настройка, а не авария: строка в журнале без трассировки, а не
+        # ERROR с полным стеком каждые десять минут.
+        await ahrefs.aclose()
+        logger.warning("сторож тишины: источник выдачи не настроен (%s)", exc)
+        return "источник выдачи (не настроен)"
+    balance = getattr(provider, "balance", None)
+    try:
+        if balance is not None:
+            await balance()
+    except (SerpError, OSError) as exc:
+        logger.warning("сторож тишины: источник выдачи не ответил (%s)", exc)
+        return "источник выдачи"
+    finally:
+        await ahrefs.aclose()
+        aclose = getattr(provider, "aclose", None)
+        if aclose is not None:
+            await aclose()
+    return None
 
 
 async def _delivery_silence(session: AsyncSession, moment: datetime) -> Alarm | None:

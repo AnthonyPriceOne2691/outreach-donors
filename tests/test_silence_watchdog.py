@@ -9,6 +9,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
+from backend.api.settings import routes as settings_routes
+from backend.config import serp as serp_cfg
 from backend.features.core import usage
 from backend.features.core.domain import (
     CrawlOutcome,
@@ -22,6 +25,7 @@ from backend.features.core.models.crawl import CrawlRunModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, ReplyModel
 from backend.features.core.models.run import RunModel
 from backend.features.donors.verdict import Thresholds
+from backend.features.ops import silence as silence_module
 from backend.features.ops.silence import alarms
 from backend.features.runs.repository import RunRepository
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -224,3 +228,46 @@ class TestCrawlBlocked:
         found = next(a for a in await alarms(session) if a.code == "crawl-blocked")
 
         assert "каскада" in found.detail
+
+
+class TestProvidersNotConfigured:
+    """Ключей выдачи ещё нет — сервис уже на сервере. Это настройка,
+    а не авария: ни пятисотки, ни трассировки каждые десять минут."""
+
+    async def test_probe_names_it_instead_of_crashing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+
+        class QuietAhrefs:
+            async def limits_and_usage(self) -> None:
+                return None
+
+            async def aclose(self) -> None:
+                return None
+
+        monkeypatch.setattr(silence_module, "AhrefsClient", QuietAhrefs)
+        monkeypatch.setattr(serp_cfg, "PROVIDER", "dataforseo")
+        monkeypatch.setattr(serp_cfg, "LOGIN", "")
+
+        alarm = await silence_module.probe_providers()
+
+        assert alarm is not None
+        assert "не настроен" in alarm.detail
+
+    async def test_usage_screen_opens_without_serp_keys(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+
+        class QuietAhrefs:
+            async def aclose(self) -> None:
+                return None
+
+        monkeypatch.setattr(settings_routes, "AhrefsClient", QuietAhrefs)
+        monkeypatch.setattr(serp_cfg, "PROVIDER", "dataforseo")
+        monkeypatch.setattr(serp_cfg, "LOGIN", "")
+
+        left, error = await settings_routes._serp_balance()
+
+        assert left is None
+        assert error is not None
+        assert "не подключён" in error

@@ -2,6 +2,9 @@
 #   sudo cp deploy/backup.cron /etc/cron.d/outreach-backup
 #   sudo chown root:root /etc/cron.d/outreach-backup
 #
+# От root: копию снимает `docker compose exec`, а отдельного пользователя
+# с правом на докер на машине нет.
+#
 # Ночь воскресенья: прогонов в это время не бывает, а дамп берёт
 # блокировку чтения на минуты.
 #
@@ -11,4 +14,4 @@
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-0 3 * * 0 deploy cd /srv/outreach-donors && BACKUP_DIR=/srv/backups/outreach KEEP=3 scripts/backup.sh >> /var/log/outreach-backup.log 2>&1
+0 3 * * 0 root cd /srv/outreach-donors && BACKUP_DIR=/srv/backups/outreach KEEP=3 scripts/backup.sh >> /var/log/outreach-backup.log 2>&1

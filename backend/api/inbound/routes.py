@@ -3,8 +3,12 @@
 **Единственная ручка наружу без пропуска** — и потому единственная,
 где защита описана отдельно (`docs/SECURITY.md`):
 
-* секрет передаётся заголовком, а не в адресе: в адресе он утекает
-  в журналы прокси и браузера;
+* секрет передаётся заголовком, а не в пути: в пути он утекает
+  в журналы прокси и браузера. Годятся два заголовка: свой
+  `X-Inbound-Secret` и `Authorization: Basic` с секретом паролем —
+  второй нужен платформе, которая своих заголовков не шлёт (SendGrid
+  Inbound Parse): адрес вебхука `https://inbound:СЕКРЕТ@домен/api/inbound/replies`
+  клиент превращает в заголовок, и в строку запроса секрет не попадает;
 * сравнение секрета постоянное по времени;
 * тело ограничено по размеру **до** разбора, а не после;
 * частота ограничена.
@@ -23,6 +27,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hmac
 import logging
 
@@ -80,6 +86,26 @@ def _check_secret(given: str | None) -> None:
         raise InboundRefusedError("Секрет не совпал")
 
 
+def basic_password(authorization: str | None) -> str | None:
+    """Пароль из `Authorization: Basic`. Имя пользователя не проверяется:
+    секрет один, и имя в адресе вебхука — только форма."""
+    scheme, _, encoded = (authorization or "").partition(" ")
+    if scheme.lower() != "basic" or not encoded:
+        return None
+    try:
+        decoded = base64.b64decode(encoded.strip(), validate=True).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError) as exc:
+        logger.warning("приём: заголовок Basic не разобрать (%s) — считаю, что секрета нет", exc)
+        return None
+    _, sep, password = decoded.partition(":")
+    return password if sep else None
+
+
+def given_secret(header: str | None, authorization: str | None) -> str | None:
+    """Секрет из своего заголовка, а нет его — паролем из Basic."""
+    return header or basic_password(authorization)
+
+
 def _check_rate(client: str) -> None:
     if _throttle.count(client) >= RATE_PER_MINUTE:
         raise InboundRefusedError(f"Слишком часто: больше {RATE_PER_MINUTE} писем в минуту")
@@ -96,12 +122,13 @@ async def take_reply(
     request: Request,
     response: Response,
     secret: str | None = Header(default=None, alias="X-Inbound-Secret"),
+    authorization: str | None = Header(default=None),
     session: AsyncSession = Depends(db_session),
 ) -> Taken:
     """Принять одно входящее письмо."""
     client = request.client.host if request.client else "неизвестно"
     try:
-        _check_secret(secret)
+        _check_secret(given_secret(secret, authorization))
         _check_rate(client)
     except InboundRefusedError as exc:
         # Отказ в доступе — это не «повторите», это «не ходите сюда».
