@@ -4,7 +4,7 @@
 именно.
 
 **В модель уходят только переписываемые зоны.** Оффер, условия, подпись
-и юридический блок она не видит вовсе, поэтому изменить их не может.
+она не видит вовсе, поэтому изменить их не может.
 Это не осторожность, а единственный способ: просьбу «не трогай» модель
 исполняет почти всегда, а «почти» означает письмо с изменёнными
 условиями сделки, ушедшее адресату.
@@ -26,15 +26,18 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
 
 from backend.config import llm as cfg
+from backend.config import outreach as outreach_cfg
 from backend.features.letters import masking
 from backend.features.letters.compose import Rendered
 from backend.features.letters.guards import metrics_leak
+from backend.features.letters.uniqueness import words
 from backend.shared.llm import Refusal, content_of, is_reasoning, post_chat, tokens_of
 
 logger = logging.getLogger(__name__)
@@ -57,8 +60,12 @@ Rules:
 - Keep the meaning, intent and reading level of every zone. You are rephrasing, \
 not writing a new email.
 - Keep the same language as the input and the same approximate length.
-- Change roughly half of the wording. Fewer changes make the emails look \
-identical to spam filters; more changes lose the point of the sentence.
+- Change roughly the share of the wording named in the request. Fewer changes \
+make the emails look identical to spam filters; more changes lose the point \
+of the sentence.
+- If a zone contains a numbered list, keep every item, with its number, in \
+the same order, one item per line. Rephrase each item, but keep every option \
+it names (for example payment methods, niches, link types).
 - Never claim to have read a specific article, author or section of the site. \
 You have not seen the site. General interest in what it covers is fine.
 - Never mention SEO metrics of any kind: domain rating, DR, organic traffic, \
@@ -94,9 +101,37 @@ class RewriteResult:
     notes: list[str] = field(default_factory=list)
 
 
-def build_payload(model: str, *, zones: dict[str, str], about: Personalization) -> dict[str, Any]:
+#: Сколько слов зоны просить поменять — пределы. Меньше пятой части модель
+#: не отличает от «не трогай», больше половины теряет смысл фразы.
+CHANGE_MIN = 0.2
+CHANGE_MAX = 0.5
+
+
+def change_share(rendered: Rendered) -> float:
+    """Какую долю слов переписываемых зон просить поменять.
+
+    Цель — середина коридора для письма целиком, а зоны занимают в разных
+    шаблонах разную долю. Постоянное «поменяй половину» давало 20% при
+    переписываемых 40% письма, но при боевом тексте (23.09.2026), где
+    переписывается около 80%, вывело бы письмо к 40% — за верхний край.
+    """
+    total = len(words(rendered.body))
+    rewritable = sum(len(words(z.text)) for z in rendered.rewritable())
+    if not total or not rewritable:
+        return CHANGE_MAX
+    middle = (outreach_cfg.UNIQUENESS_TARGET_MIN + outreach_cfg.UNIQUENESS_TARGET_MAX) / 2
+    return min(CHANGE_MAX, max(CHANGE_MIN, middle * total / rewritable))
+
+
+def build_payload(
+    model: str, *, zones: dict[str, str], about: Personalization, change: float = CHANGE_MAX
+) -> dict[str, Any]:
     """Тело запроса с поправкой на семейство модели."""
-    user = f"{about.as_prompt()}\n\nZones to rewrite:\n{json.dumps(zones, ensure_ascii=False)}"
+    user = (
+        f"{about.as_prompt()}\n\n"
+        f"Change roughly {round(change * 100)}% of the words in each zone.\n\n"
+        f"Zones to rewrite:\n{json.dumps(zones, ensure_ascii=False)}"
+    )
     payload: dict[str, Any] = {
         "model": model,
         "messages": [
@@ -180,7 +215,9 @@ class RewriteClient:
         body = await post_chat(
             self._http,
             api_key=self._api_key,
-            payload=build_payload(self._model, zones=masked, about=about),
+            payload=build_payload(
+                self._model, zones=masked, about=about, change=change_share(rendered)
+            ),
             topic=TOPIC,
         )
         if isinstance(body, Refusal):
@@ -214,7 +251,7 @@ class RewriteClient:
         result = RewriteResult(tokens_spent=tokens_of(body))
         answered = parse_zones(content_of(body, topic=TOPIC), expected=set(zones))
         for name, text in answered.items():
-            _accept(name, text, labels.get(name, {}), into=result)
+            _accept(name, text, labels.get(name, {}), before=zones[name], into=result)
 
         result.notes.extend(
             f"зона «{name}» осталась шаблонной" for name in zones if name not in result.zones
@@ -246,13 +283,36 @@ def _mask_all(zones: dict[str, str]) -> tuple[dict[str, str] | None, dict[str, d
     return masked, labels
 
 
-def _accept(name: str, text: str, labels: dict[str, str], *, into: RewriteResult) -> None:
+#: Пункт нумерованного списка: номер в начале строки.
+_LIST_ITEM = re.compile(r"^\s*(\d+)[.)]\s", re.MULTILINE)
+
+
+def _list_changed(before: str, after: str) -> str | None:
+    """Потеряла ли модель пункт списка или его номер. `None` — список цел."""
+    want = _LIST_ITEM.findall(before)
+    got = _LIST_ITEM.findall(after)
+    if want == got:
+        return None
+    return f"в списке были пункты {', '.join(want)}, модель вернула {', '.join(got) or 'ни одного'}"
+
+
+def _accept(
+    name: str, text: str, labels: dict[str, str], *, before: str, into: RewriteResult
+) -> None:
     """Принять переписанную зону, если с ней всё в порядке."""
     try:
         restored = masking.unmask(text, labels)
     except masking.UnmaskError as exc:
         logger.exception("письма: зона «%s» отклонена: %s", name, exc)
         into.notes.append(f"зона «{name}»: {exc}")
+        return
+
+    lost = _list_changed(before, restored)
+    if lost is not None:
+        # Вопросы письма — то, на что донор отвечает и что разбирает разбор
+        # ответа. Потерянный пункт — потерянный ответ, и чинить зону нечем.
+        logger.error("письма: зона «%s» отклонена, %s", name, lost)
+        into.notes.append(f"зона «{name}»: {lost}")
         return
 
     leak = metrics_leak(restored)

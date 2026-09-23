@@ -812,9 +812,9 @@
       "worst": "—"
     },
     "backend/features/letters/building.py": {
-      "lines": 205,
+      "lines": 207,
       "complexity": 4,
-      "worst": "_prepare:147"
+      "worst": "_prepare:149"
     },
     "backend/features/letters/chain.py": {
       "lines": 55,
@@ -822,9 +822,9 @@
       "worst": "cadence:30"
     },
     "backend/features/letters/compose.py": {
-      "lines": 184,
+      "lines": 187,
       "complexity": 3,
-      "worst": "missing_settings:118"
+      "worst": "missing_settings:121"
     },
     "backend/features/letters/events.py": {
       "lines": 225,
@@ -867,9 +867,9 @@
       "worst": "edit:54"
     },
     "backend/features/letters/rewrite.py": {
-      "lines": 267,
+      "lines": 327,
       "complexity": 7,
-      "worst": "parse_zones:120"
+      "worst": "parse_zones:155"
     },
     "backend/features/letters/sendgrid.py": {
       "lines": 168,
@@ -887,14 +887,14 @@
       "worst": "remove:158"
     },
     "backend/features/letters/template.py": {
-      "lines": 336,
+      "lines": 335,
       "complexity": 9,
       "worst": "_check_zones:219"
     },
     "backend/features/letters/transport.py": {
-      "lines": 116,
+      "lines": 114,
       "complexity": 2,
-      "worst": "send:100"
+      "worst": "send:98"
     },
     "backend/features/letters/transport_factory.py": {
       "lines": 30,
@@ -907,9 +907,9 @@
       "worst": "difference:37"
     },
     "backend/features/letters/unsubscribe.py": {
-      "lines": 95,
+      "lines": 98,
       "complexity": 5,
-      "worst": "url_for:48"
+      "worst": "url_for:51"
     },
     "backend/features/ops/__init__.py": {
       "lines": 1,

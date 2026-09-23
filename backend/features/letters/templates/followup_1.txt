@@ -1,31 +1,27 @@
-# Первое напоминание (шаг 1). Уходит само, по сроку рассылки.
+# Первое напоминание (шаг 1). Уходит само, на 7-й день после первого письма.
 #
-# ТЕКСТ ВЫДУМАН, как и у первого письма: боевой приходит со стороны задачи.
+# Текст черновой, 23.09.2026: написан по смыслу боевого первого письма
+# (гостевые статьи, цена за статью, dofollow), боевого пока нет.
 #
-# Зон четыре и все неизменяемые: модель сюда не зовут (решение 21.09.2026).
+# Зон три и все неизменяемые: модель сюда не зовут (решение 21.09.2026).
 # Напоминание короткое, переписывать в нём нечего, а уникальность цепочке
 # даёт первое письмо — оно процитировано в треде целиком.
 #
-# Юридический блок здесь тот же, что и в первом письме, и это не копия
-# по невнимательности: физический адрес и рабочая отписка нужны в каждом
-# коммерческом письме, а не в первом из трёх.
+# Напоминание просит меньше, чем первое письмо: не шесть ответов, а два —
+# цену и тип ссылки. Короткий вопрос проще закрыть одной строкой, а
+# остальное донор расскажет, когда уже отвечает.
 #
 # Тема повторяет тему первого письма без «Re:» — его добавит почтовый
 # клиент донора, а два «Re:» подряд выглядят как ошибка робота.
 
-subject: Advertising rates for {{host}}
+subject: Guest article on {{host}}
 
 [greeting] fixed
 Hi again,
 
 [reminder] fixed
-I wrote to you last week about publishing a sponsored article on {{host}} and wanted to check whether the message reached the right person. If placements are something you take on, your rate is all I need to move this forward.
+Just following up on my note from last week about publishing a guest article on {{host}}. If you accept sponsored posts, a short reply with your price per article and whether the link is dofollow would be enough for me to move forward — the rest we can sort out later.
 
 [signature] fixed
 Best regards,
 {{sender_name}}
-
-[legal] fixed
-{{postal_address}}
-You are receiving this because your site is listed as accepting paid content.
-To stop hearing from us, unsubscribe here: {{unsubscribe_url}}

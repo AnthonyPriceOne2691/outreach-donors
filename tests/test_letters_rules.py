@@ -1,7 +1,7 @@
 """Правила писем без базы и без сети.
 
 Три вещи здесь стоят дорого, если ошибиться, и проверяются придирчиво:
-шаблон без юридического блока (рассылка вне закона), метрики Ahrefs
+шаблон без условий или подписи (письмо не то, что утвердили), метрики Ahrefs
 в письме (правила Ahrefs, платит ключ) и нулевой транспорт, дотянувшийся
 до боевого адреса (письмо, которое выглядит отправленным и не ушло).
 """
@@ -15,7 +15,16 @@ import pytest
 from backend.features.core.domain import SenderStatus, Stage
 from backend.features.core.models.outreach import SenderModel
 from backend.features.letters import compose, guards, masking, reply_to, uniqueness
-from backend.features.letters.rewrite import Personalization, build_payload, parse_zones
+from backend.features.letters.rewrite import (
+    CHANGE_MAX,
+    CHANGE_MIN,
+    Personalization,
+    RewriteResult,
+    _accept,
+    build_payload,
+    change_share,
+    parse_zones,
+)
 from backend.features.letters.template import (
     REQUIRED_ZONES,
     REWRITE_YIELD,
@@ -51,7 +60,6 @@ _ZONE_TEXT = {
     "offer": "I work with an agency that places articles for clients.",
     "terms": "We pay per published article.",
     "signature": "Best regards,\n{{sender_name}}",
-    "legal": "{{postal_address}}\nUnsubscribe: {{unsubscribe_url}}",
 }
 
 
@@ -90,21 +98,28 @@ class TestTemplate:
         assert {z.name for z in template.zones} == set(REQUIRED_ZONES)
         assert template.subject
 
-    def test_missing_legal_zone_is_refused(self) -> None:
-        """Шаблон без юридического блока собирается так же легко, как
-        правильный, и разница видна только по жалобе на рассылку."""
-        without_legal = "\n".join(
-            line
-            for line in _template_text().splitlines()
-            if "legal" not in line and "unsubscribe" not in line.lower()
+    def test_missing_terms_zone_is_refused(self) -> None:
+        """Шаблон без условий собирается так же легко, как правильный,
+        и разница видна только у адресата."""
+        without_terms = _template_text().replace(
+            "[terms] fixed\nWe pay per published article.\n", ""
         )
 
-        with pytest.raises(TemplateError, match="legal"):
-            parse(without_legal)
+        with pytest.raises(TemplateError, match="terms"):
+            parse(without_terms)
 
-    def test_legal_zone_without_unsubscribe_is_refused(self) -> None:
-        with pytest.raises(TemplateError, match="unsubscribe_url"):
-            parse(_template_text(legal="{{postal_address}}\nThat is all."))
+    def test_legal_zone_is_now_an_extra_zone(self) -> None:
+        """Юридический блок снят 23.09.2026. Шаблон, где он остался, —
+        старый, и молча принять его значило бы слать адрес и отписку,
+        которых больше нет в настройках, громкими метками."""
+        with_legal = _template_text() + "[legal] fixed\n{{postal_address}}\n"
+
+        with pytest.raises(TemplateError, match="лишние зоны: legal"):
+            parse(with_legal)
+
+    def test_signature_without_sender_name_is_refused(self) -> None:
+        with pytest.raises(TemplateError, match="sender_name"):
+            parse(_template_text(signature="Best regards,\nThe team"))
 
     def test_fixed_zone_declared_as_rewritable_is_refused(self) -> None:
         """Условия сделки, объявленные переписываемыми, ушли бы в модель."""
@@ -134,8 +149,8 @@ class TestTemplate:
 
 
 class TestCompose:
-    def test_unset_legal_values_shout(self) -> None:
-        """Пустой физический адрес в письме выглядел бы готовым письмом."""
+    def test_unset_sender_name_shouts(self) -> None:
+        """Пустое имя в подписи выглядело бы готовым письмом."""
         letter = compose.assemble(
             compose.render(parse(_template_text()), compose.values_for(host="site.test")), {}
         )
@@ -454,11 +469,13 @@ class TestAdvertiserTemplate:
 
         assert {"donor_host", "page_url", "anchor"} <= placeholders
 
-    def test_the_legal_block_is_there_too(self) -> None:
-        """Закон не делает скидки второму этапу."""
+    def test_signed_and_without_the_legal_block(self) -> None:
+        """Юридический блок снят для обоих этапов (23.09.2026): требования
+        второго этапа отсылали к первому."""
         placeholders = advertiser().placeholders()
 
-        assert {"postal_address", "unsubscribe_url", "sender_name"} <= placeholders
+        assert "sender_name" in placeholders
+        assert not {"postal_address", "unsubscribe_url"} & placeholders
 
     def test_the_corridor_is_reachable(self) -> None:
         """Если переписываемых зон мало, каждое письмо уходило бы
@@ -467,3 +484,66 @@ class TestAdvertiserTemplate:
         letter = advertiser()
 
         assert letter.rewritable_share * REWRITE_YIELD >= 0.15
+
+
+class TestRewriteKeepsTheQuestions:
+    """Боевой текст (23.09.2026) держит шесть вопросов в переписываемой
+    зоне: на них донор отвечает и их разбирает разбор ответа."""
+
+    ASK = "Could you let me know:\n1. Do you accept guest posts?\n2. What's the price?"
+
+    def test_lost_item_leaves_the_zone_as_template(self) -> None:
+        result = RewriteResult()
+
+        _accept("ask", "Could you tell me your price?", {}, before=self.ASK, into=result)
+
+        assert "ask" not in result.zones
+        assert "1, 2" in result.notes[0]
+
+    def test_renumbered_list_is_refused_too(self) -> None:
+        result = RewriteResult()
+        after = "Tell me:\n1. Do you take guest posts?\n3. How much is it?"
+
+        _accept("ask", after, {}, before=self.ASK, into=result)
+
+        assert "ask" not in result.zones
+
+    def test_rephrased_items_are_accepted(self) -> None:
+        result = RewriteResult()
+        after = "Could you share:\n1. Are guest posts welcome?\n2. How much per article?"
+
+        _accept("ask", after, {}, before=self.ASK, into=result)
+
+        assert result.zones["ask"] == after
+
+
+class TestChangeShare:
+    """Сколько просить поменять — от доли переписываемых зон в письме."""
+
+    def test_battle_template_asks_for_less_than_half(self) -> None:
+        """Переписывается ~73% письма: «поменяй половину» дало бы ~37%
+        отличия при верхнем крае коридора 25%."""
+        rendered = compose.render(default(), compose.values_for(host="site.test"))
+
+        share = change_share(rendered)
+
+        assert CHANGE_MIN <= share < 0.35
+
+    def test_small_rewritable_part_asks_for_the_most(self) -> None:
+        """У оффера рекламодателю переписывается ~38%: чтобы дойти до
+        середины коридора, просить надо больше половины — упираемся в потолок."""
+        values = {**compose.values_for(host="site.test"), "donor_host": "d.test"}
+        values |= {"page_url": "https://d.test/p", "anchor": "best tools"}
+        rendered = compose.render(advertiser(), values)
+
+        assert change_share(rendered) == CHANGE_MAX
+
+    def test_share_reaches_the_model(self) -> None:
+        payload = build_payload(
+            "gpt-5",
+            zones={"greeting": "Hi,"},
+            about=Personalization(host="site.test", country="us"),
+            change=0.27,
+        )
+
+        assert "Change roughly 27% of the words" in payload["messages"][1]["content"]

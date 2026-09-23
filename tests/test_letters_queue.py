@@ -314,15 +314,15 @@ class TestSending:
         await session.refresh(letter)
         assert letter.status is MessageStatus.QUEUED
 
-    async def test_unfilled_legal_block_blocks_sending(self, session: AsyncSession) -> None:
-        """Юридический блок не заполнен — письмо не уходит. Без физического
-        адреса и отписки рассылка нарушает закон в целевых странах."""
+    async def test_unset_sender_name_blocks_sending(self, session: AsyncSession) -> None:
+        """Имя отправителя не задано — письмо не уходит: в подписи стоит
+        громкая метка, а не имя."""
         await make_donor(session, "one.example.test", email="info@one.example.test")
         await make_sender(session, "outreach1@mail.example.test")
         await _build(session)
         letter = (await session.execute(select(MessageModel))).scalars().one()
 
-        with pytest.raises(NotReadyError, match="ОТПИСКИ"):
+        with pytest.raises(NotReadyError, match="ИМЯ ОТПРАВИТЕЛЯ"):
             await Sending(session, NullTransport(), now=NOW).send(letter.id)
 
     async def test_no_sender_leaves_the_letter_in_the_queue(
@@ -425,16 +425,16 @@ async def _count_messages(session: AsyncSession) -> int:
 class TestBlockedSending:
     async def test_build_names_what_blocks_sending(self, session: AsyncSession) -> None:
         """Нашлось живым прогоном: очередь собралась на 1361 токен, и ни
-        одно письмо отправить было нельзя — юридический блок пуст. Отчёт
-        об этом молчал, и узнать это можно было только нажав «отправить».
+        одно письмо отправить было нельзя. Отчёт об этом молчал, и узнать
+        это можно было только нажав «отправить». Держит теперь только имя
+        отправителя: юридический блок снят 23.09.2026.
         """
         await make_donor(session, "one.example.test", email="info@one.example.test")
 
         report = await _build(session)
 
         assert report.prepared == 1  # type: ignore[attr-defined]
-        assert "OUTREACH_POSTAL_ADDRESS" in report.blocked_by  # type: ignore[attr-defined]
-        assert "OUTREACH_UNSUBSCRIBE_URL" in report.blocked_by  # type: ignore[attr-defined]
+        assert report.blocked_by == ["OUTREACH_SENDER_NAME"]  # type: ignore[attr-defined]
 
     async def test_filled_settings_leave_nothing_blocking(
         self, session: AsyncSession, filled_legal: None

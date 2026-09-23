@@ -93,13 +93,15 @@ class TestCadence:
 
 class TestTemplates:
     @pytest.mark.parametrize("step", [1, 2])
-    def test_followup_carries_the_legal_block(self, step: int) -> None:
-        """Закон не делает скидки второму письму: адрес и отписка нужны
-        в каждом. Проверяется разбором шаблона, а не глазами."""
+    def test_followup_is_signed_and_names_the_site(self, step: int) -> None:
+        """Добивка подписана и говорит, о каком сайте речь: без этого
+        напоминание в треде читается как чужое письмо. Юридического блока
+        нет — он снят 23.09.2026."""
         parsed = template.followup(step)
 
-        assert "{{unsubscribe_url}}" in parsed.zone("legal").text
-        assert "{{postal_address}}" in parsed.zone("legal").text
+        assert "{{sender_name}}" in parsed.zone("signature").text
+        assert "{{host}}" in parsed.zone("reminder").text
+        assert "legal" not in {z.name for z in parsed.zones}
 
     def test_no_zone_goes_to_the_model(self) -> None:
         """Добивку модель не трогает — решение 21.09.2026."""

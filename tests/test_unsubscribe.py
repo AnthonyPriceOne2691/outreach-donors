@@ -76,8 +76,11 @@ class TestLabel:
 
 
 class TestNoWorkingLink:
-    """Ссылка, которая никого не отписывает, хуже отсутствующей: письмо
-    с ней выглядит законным, а кнопка в нём мертва."""
+    """Ссылка, которая никого не отписывает, хуже отсутствующей: кнопка
+    отписки в почтовом клиенте есть, а не работает ни для кого.
+
+    Отправку отсутствие ссылки больше не держит: в тексте письма её нет
+    (юридический блок снят 23.09.2026), а заголовок просто не ставится."""
 
     def test_no_secret_means_no_link(
         self, filled_legal: None, monkeypatch: pytest.MonkeyPatch
@@ -85,7 +88,8 @@ class TestNoWorkingLink:
         monkeypatch.setattr(outreach_cfg, "INBOUND_SECRET", "")
 
         assert unsubscribe.url_for(417) == ""
-        assert compose.missing_settings() == ["OUTREACH_INBOUND_SECRET"]
+        assert unsubscribe.missing_setting() == "OUTREACH_INBOUND_SECRET"
+        assert compose.missing_settings() == []
 
     def test_no_page_means_no_link(
         self, filled_legal: None, monkeypatch: pytest.MonkeyPatch
@@ -93,14 +97,14 @@ class TestNoWorkingLink:
         monkeypatch.setattr(outreach_cfg, "UNSUBSCRIBE_URL", "")
 
         assert unsubscribe.url_for(417) == ""
-        assert compose.missing_settings() == ["OUTREACH_UNSUBSCRIBE_URL"]
+        assert unsubscribe.missing_setting() == "OUTREACH_UNSUBSCRIBE_URL"
+        assert compose.missing_settings() == []
 
     def test_letter_without_donor_has_no_link(self, filled_legal: None) -> None:
-        """Предпросмотр шаблона — не письмо: отправлять его нельзя."""
+        """Предпросмотр шаблона — не письмо: ссылки у него нет."""
         values = compose.values_for(host="donor.example.test")
 
         assert values["unsubscribe_url"] == ""
-        assert compose.missing(values) == ["unsubscribe_url"]
 
     def test_letter_of_a_donor_has_one(self, filled_legal: None) -> None:
         values = compose.values_for(host="donor.example.test", domain_id=417)
@@ -215,9 +219,9 @@ class TestInTheLetter:
     """Ссылка в тексте, ссылка в заголовках и ссылка на странице — одна
     и та же. Разойдись они, кнопка отписки отписывала бы не того."""
 
-    async def test_letter_carries_the_link_of_its_donor(
-        self, session: AsyncSession, filled_legal: None
-    ) -> None:
+    async def test_letter_text_has_no_link(self, session: AsyncSession, filled_legal: None) -> None:
+        """Ссылка отписки живёт в заголовке, а не в тексте: юридический
+        блок снят 23.09.2026."""
         domain = await make_donor(session, "one.example.test", email="info@one.example.test")
 
         await QueueBuilder(session, FakeRewriter()).build(  # type: ignore[arg-type]
@@ -227,7 +231,8 @@ class TestInTheLetter:
 
         letter = (await session.execute(select(MessageModel))).scalars().one()
         assert letter.body is not None
-        assert unsubscribe.url_for(domain.id) in letter.body
+        assert unsubscribe.url_for(domain.id) not in letter.body
+        assert "unsubscribe" not in letter.body.lower()
 
     async def test_transport_gets_the_same_link(
         self, session: AsyncSession, filled_legal: None
