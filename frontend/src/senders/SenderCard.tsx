@@ -24,6 +24,7 @@ import {
   Text,
   Tooltip,
 } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import { IconChevronDown } from '@tabler/icons-react';
 import { useState } from 'react';
 
@@ -50,108 +51,126 @@ export function SenderCard({ group, busy, onSwitch }: Props) {
   const warming = group.enabled && group.boxes.some((box) => !box.warmup_finished);
   const paused = group.boxes.find((box) => box.pause_reason !== null)?.pause_reason ?? null;
 
+  // На телефоне кнопка уходит под карточку: рядом с ней имя домена
+  // рвалось на «mail-» и остаток.
+  const narrow = useMediaQuery('(max-width: 36em)') ?? false;
+  const toggle = (
+    <Tooltip
+      label={
+        group.enabled
+          ? 'Домен перестанет получать новые письма, начатые цепочки не рвутся'
+          : 'Полный кап сразу добил бы пошатнувшуюся репутацию, поэтому разгон идёт с начала'
+      }
+      multiline
+      w={260}
+      withArrow
+    >
+      <Button
+        className="press"
+        size="xs"
+        variant={group.enabled ? 'default' : 'gradient'}
+        loading={busy}
+        onClick={() => onSwitch(!group.enabled)}
+        style={{ flexShrink: 0 }}
+      >
+        {group.enabled ? 'Выключить' : 'Включить заново'}
+      </Button>
+    </Tooltip>
+  );
+
+  /* Строка устроена в два яруса: сверху имя домена и кнопка, снизу
+     значки и счётчик, и нижний ярус переносится. В один ярус на узком
+     окне имя ужималось до «m…», значки — до «о…», а длинная кнопка
+     наезжала на текст. */
   return (
     <Card className="glass" p="md">
-      <Group justify="space-between" wrap="nowrap" gap="md">
-        <Group gap="sm" wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
-          {/* `aria-expanded` и `aria-controls` — не украшение: без них
-              программа чтения с экрана видит кнопку без состояния,
-              а тест не может отличить раскрытую карточку от свёрнутой
-              (в jsdom анимация высоты не проигрывается). */}
-          <Button
-            variant="subtle"
-            size="compact-sm"
-            px={6}
-            aria-label={open ? `Свернуть ${group.domain}` : `Подробности ${group.domain}`}
-            aria-expanded={open}
-            aria-controls={detailsId}
-            onClick={() => setOpen((was) => !was)}
-          >
-            <IconChevronDown
-              size={16}
-              style={{
-                transform: open ? 'rotate(180deg)' : 'none',
-                transition: 'transform 200ms cubic-bezier(0.32, 0.72, 0, 1)',
-              }}
-            />
-          </Button>
-
-          <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
-            <Group gap="xs" wrap="nowrap">
-              <Text fw={600} truncate>
-                {group.domain}
-              </Text>
-              <Badge variant="light" color={group.enabled ? 'green' : 'gray'}>
-                {group.enabled ? 'отправляет' : 'выключен'}
-              </Badge>
-              {warming && (
-                <Badge variant="light" color="blue">
-                  разгон, день {warmupDay}
-                </Badge>
-              )}
-            </Group>
-
-            <Group gap="sm" wrap="nowrap">
-              <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
-                {group.boxes.length} ящ. · {group.sentToday} из {group.allowance} сегодня
-              </Text>
-              {/* Причина парковки видна в свёрнутом виде: именно по ней
-                  решают, включать домен обратно или разбираться дальше. */}
-              {!group.enabled && paused !== null && (
-                <Badge variant="light" color="yellow" size="sm">
-                  {paused}
-                </Badge>
-              )}
-              <Progress
-                value={
-                  group.allowance === 0
-                    ? 0
-                    : Math.min(100, (group.sentToday / group.allowance) * 100)
-                }
-                color={group.enabled ? 'lagoon' : 'gray'}
-                radius="xl"
-                size="xs"
-                style={{ flex: 1, maxWidth: 220 }}
-              />
-            </Group>
-          </Stack>
-        </Group>
-
-        <Tooltip
-          label={
-            group.enabled
-              ? 'Домен перестанет получать новые письма, начатые цепочки не рвутся'
-              : 'Разгон начнётся с начала: полный кап сразу — это добить пошатнувшуюся репутацию'
-          }
-          multiline
-          w={260}
-          withArrow
+      <Group gap="sm" wrap="nowrap" align="flex-start">
+        {/* `aria-expanded` и `aria-controls` — не украшение: без них
+            программа чтения с экрана видит кнопку без состояния,
+            а тест не может отличить раскрытую карточку от свёрнутой
+            (в jsdom анимация высоты не проигрывается). */}
+        <Button
+          variant="subtle"
+          size="compact-sm"
+          px={6}
+          mt={2}
+          aria-label={open ? `Свернуть ${group.domain}` : `Подробности ${group.domain}`}
+          aria-expanded={open}
+          aria-controls={detailsId}
+          onClick={() => setOpen((was) => !was)}
         >
-          <Button
-            className="press"
-            size="compact-sm"
-            variant={group.enabled ? 'default' : 'gradient'}
-            loading={busy}
-            onClick={() => onSwitch(!group.enabled)}
-          >
-            {group.enabled ? 'Выключить' : 'Включить с начала разгона'}
-          </Button>
-        </Tooltip>
+          <IconChevronDown
+            size={16}
+            style={{
+              transform: open ? 'rotate(180deg)' : 'none',
+              transition: 'transform 200ms cubic-bezier(0.32, 0.72, 0, 1)',
+            }}
+          />
+        </Button>
+
+        <Stack gap={6} style={{ flex: 1, minWidth: 0 }}>
+          <Group justify="space-between" wrap="nowrap" gap="sm">
+            <Text fw={600} style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+              {group.domain}
+            </Text>
+            {!narrow && toggle}
+          </Group>
+
+          <Group gap="xs" wrap="wrap" align="center">
+            <Badge variant="light" color={group.enabled ? 'green' : 'gray'}>
+              {group.enabled ? 'отправляет' : 'выключен'}
+            </Badge>
+            {warming && (
+              <Badge variant="light" color="lagoon">
+                разгон, день {warmupDay}
+              </Badge>
+            )}
+            {/* Причина парковки видна в свёрнутом виде: именно по ней
+                решают, включать домен обратно или разбираться дальше. */}
+            {!group.enabled && paused !== null && (
+              <Badge variant="light" color="yellow" style={{ maxWidth: '100%' }}>
+                {paused}
+              </Badge>
+            )}
+            <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+              {group.boxes.length} ящ. · {group.sentToday} из {group.allowance} сегодня
+            </Text>
+          </Group>
+
+          {!group.enabled && (
+            <Text size="xs" c="dimmed">
+              Включённый заново домен начинает разгон с начала.
+            </Text>
+          )}
+
+          <Progress
+            value={
+              group.allowance === 0 ? 0 : Math.min(100, (group.sentToday / group.allowance) * 100)
+            }
+            color={group.enabled ? 'lagoon' : 'gray'}
+            radius="xl"
+            size="xs"
+            maw={320}
+            aria-label={`Отправлено сегодня ${group.sentToday} из ${group.allowance}`}
+          />
+
+          {narrow && <Group justify="flex-end">{toggle}</Group>}
+        </Stack>
       </Group>
 
       <Collapse id={detailsId} in={open} transitionDuration={220} transitionTimingFunction="ease">
         <Stack gap={6} mt="sm" pt="sm" className="hairline">
           {group.boxes.map((box) => (
-            <Group key={box.id} justify="space-between" className="glassSlot" p="xs" wrap="nowrap">
-              <Text size="sm" truncate>
+            <Group key={box.id} justify="space-between" className="glassSlot" p="xs" wrap="wrap">
+              <Text size="sm" style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
                 {box.email}
               </Text>
-              <Group gap="xs" wrap="nowrap">
+              <Group gap="xs" wrap="wrap">
                 <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
                   {box.sent_today} / {box.warmup_allowance} писем сегодня
                 </Text>
                 {!box.warmup_finished && (
-                  <Badge variant="light" color="blue" size="sm">
+                  <Badge variant="light" color="lagoon" size="sm">
                     день {box.warmup_day} из разгона
                   </Badge>
                 )}

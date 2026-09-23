@@ -2,7 +2,6 @@ import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import './styles/glass.css';
 
-import { ColorSchemeScript } from '@mantine/core';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
@@ -15,10 +14,7 @@ if (root === null) {
 
 createRoot(root).render(
   <StrictMode>
-    {/* Ставит тему первым же кадром. Без этого человек с тёмной системой
-        видит вспышку белого полотна на всю страницу перед тем, как тема
-        применится. */}
-    <ColorSchemeScript defaultColorScheme="auto" />
+    {/* Тема ставится скриптом в index.html — до первого кадра. */}
     <App />
   </StrictMode>,
 );

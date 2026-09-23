@@ -4,6 +4,26 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Parsing and Prices</title>
+    <!-- Тема ставится первым же кадром, до React: человек с тёмной системой
+         иначе видит вспышку белого полотна. Скрипт — тот же, что отдаёт
+         ColorSchemeScript из Mantine; внутри дерева React он не исполняется
+         и сыплет ошибкой в консоль, поэтому живёт здесь. -->
+    <script data-mantine-script>
+      try {
+        var _colorScheme = window.localStorage.getItem('mantine-color-scheme-value');
+        var colorScheme =
+          _colorScheme === 'light' || _colorScheme === 'dark' || _colorScheme === 'auto'
+            ? _colorScheme
+            : 'auto';
+        var computedColorScheme =
+          colorScheme !== 'auto'
+            ? colorScheme
+            : window.matchMedia('(prefers-color-scheme: dark)').matches
+              ? 'dark'
+              : 'light';
+        document.documentElement.setAttribute('data-mantine-color-scheme', computedColorScheme);
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

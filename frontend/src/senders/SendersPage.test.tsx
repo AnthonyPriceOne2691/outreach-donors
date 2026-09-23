@@ -63,10 +63,11 @@ async function openSenders(routes: Record<string, unknown> = {}) {
 }
 
 describe('домены рассылки', () => {
-  it('кнопка обещает разгон с начала', async () => {
+  it('карточка выключенного домена обещает разгон с начала', async () => {
     await openSenders();
 
-    expect(screen.getByRole('button', { name: 'Включить с начала разгона' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Включить заново' })).toBeInTheDocument();
+    expect(screen.getByText(/начинает разгон с начала/)).toBeInTheDocument();
   });
 
   it('причина парковки видна без раскрытия карточки', async () => {
@@ -99,7 +100,7 @@ describe('домены рассылки', () => {
     });
     const user = userEvent.setup();
 
-    await user.click(screen.getByRole('button', { name: 'Включить с начала разгона' }));
+    await user.click(screen.getByRole('button', { name: 'Включить заново' }));
 
     await screen.findByText(/разгон начался заново/);
     const calls = recorded.calls.filter((call: Call) => call.method === 'POST');
