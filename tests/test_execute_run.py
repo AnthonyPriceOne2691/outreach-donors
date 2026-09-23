@@ -403,6 +403,9 @@ class TestTheJudgeStandsBeforeTheBill:
             )
         ).scalar_one()
         assert spent.units == 800
+        # ⚠ И в «факт» прогона токены не идут: у модели единица — токен,
+        # у Ahrefs — юнит. 23.09 они сложились, и факт вышел 26 203 при 901.
+        assert report.spent_units == sum(report.spent_by_operation.values())
 
     async def test_enforce_cuts_before_first_spend(
         self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch

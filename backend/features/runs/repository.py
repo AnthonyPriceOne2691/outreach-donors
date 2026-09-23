@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.ahrefs.units import UnitsCost
 from backend.features.core import usage
-from backend.features.core.domain import RunStatus, Stage
+from backend.features.core.domain import RunStatus, Stage, UsageProvider
 from backend.features.core.models.ops import UsageRecordModel
 from backend.features.core.models.run import RunModel, RunSettingsModel
 from backend.features.donors.verdict import Thresholds
@@ -193,6 +193,11 @@ class RunRepository:
                 UsageRecordModel.run_id.label("run_id"),
                 func.coalesce(func.sum(UsageRecordModel.units), 0).label("units"),
             )
+            # ⚠ Только юниты Ahrefs. В том же столбце лежат токены судьи
+            # с номером прогона, и без фильтра удержание обнулялось, как
+            # только судья отработал: параллельный прогон мог занять бюджет,
+            # который на деле ещё держится (найдено 23.09).
+            .where(UsageRecordModel.provider == UsageProvider.AHREFS)
             .group_by(UsageRecordModel.run_id)
             .subquery()
         )
@@ -256,11 +261,16 @@ class RunRepository:
         await self._session.flush()
 
     async def spent_units(self, run_id: int) -> int:
-        """Сколько прогон потратил по журналу. Нужно для сверки со сметой."""
+        """Сколько юнитов Ahrefs прогон потратил по журналу — для сверки со сметой.
+
+        ⚠ Только Ahrefs: у модели единица — токен, у выдачи — доллар, и в
+        одну сумму с юнитами они не складываются. 23.09 токены судьи попали
+        сюда, и «факт» прогона на Филиппины вышел 26 203 при 901 настоящем.
+        """
         total = await self._session.scalar(
-            select(func.coalesce(func.sum(UsageRecordModel.units), 0)).where(
-                UsageRecordModel.run_id == run_id
-            )
+            select(func.coalesce(func.sum(UsageRecordModel.units), 0))
+            .where(UsageRecordModel.run_id == run_id)
+            .where(UsageRecordModel.provider == UsageProvider.AHREFS)
         )
         return int(total or 0)
 
