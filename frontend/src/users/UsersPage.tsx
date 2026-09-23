@@ -33,6 +33,7 @@ import { useState } from 'react';
 import type { AccessPatch, OneTimePassword, Role, UserCard } from '../api/types';
 import { listUsers, patchUser, resetPassword } from '../api/users';
 import { useSession } from '../auth/AuthProvider';
+import { formatDateTime } from '../format';
 import { CreateUserModal } from './CreateUserModal';
 import { OneTimePasswordModal } from './OneTimePasswordModal';
 import { PermissionsPopover } from './PermissionsPopover';
@@ -141,9 +142,7 @@ export function UsersPage() {
       </Table.Td>
       <Table.Td>
         <Text size="sm" c="dimmed">
-          {user.last_login_at === null
-            ? 'ни разу'
-            : new Date(user.last_login_at).toLocaleString('ru-RU')}
+          {user.last_login_at === null ? 'ни разу' : formatDateTime(user.last_login_at)}
         </Text>
       </Table.Td>
       <Table.Td>

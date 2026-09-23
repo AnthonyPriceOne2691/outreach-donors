@@ -9,9 +9,10 @@
 
 import { Anchor, Badge, Button, Checkbox, Group, Stack, Table, Text, Tooltip } from '@mantine/core';
 
-import { CONTACT_STATUSES, REVIEW_TIERS } from '../api/labels';
+import { CONTACT_STATUSES, countryTitle, REVIEW_TIERS } from '../api/labels';
 import type { CandidateCard, ReviewDecision } from '../api/types';
 import { JudgeVerdict, SellerAnswer } from '../components/JudgeVerdict';
+import { formatCompact } from '../format';
 
 interface Props {
   row: CandidateCard;
@@ -24,11 +25,6 @@ interface Props {
 
 const KEYWORDS_SHOWN = 2;
 
-function formatTraffic(value: number | null): string {
-  if (value === null) return '—';
-  return value >= 1000 ? `${Math.round(value / 1000)}k` : String(value);
-}
-
 function Site({ row }: { row: CandidateCard }) {
   const share = row.geo_top_share === null ? null : Math.round(row.geo_top_share * 100);
   return (
@@ -37,8 +33,8 @@ function Site({ row }: { row: CandidateCard }) {
         {row.host}
       </Anchor>
       <Text size="xs" c="dimmed">
-        DR {row.dr ?? '—'} · трафик {formatTraffic(row.org_traffic)}
-        {row.geo !== null && ` · ${row.geo.toUpperCase()}${share === null ? '' : ` ${share}%`}`}
+        DR {row.dr ?? '—'} · трафик {formatCompact(row.org_traffic)}
+        {row.geo !== null && ` · ${countryTitle(row.geo)}${share === null ? '' : ` ${share}%`}`}
       </Text>
       {row.carried && (
         <Badge variant="outline" color="gray" size="sm">

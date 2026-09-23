@@ -209,7 +209,7 @@ describe('прогон', () => {
 
     // До этого среза расход на выдачу не показывался нигде, хотя это
     // вторая статья после Ahrefs.
-    expect(await screen.findByText(/0\.00 \$/)).toBeInTheDocument();
+    expect(await screen.findByText(/0,00 \$/)).toBeInTheDocument();
     expect(screen.getByText(/Потрачено нами юнитов с начала месяца/)).toBeInTheDocument();
   });
 
@@ -220,7 +220,7 @@ describe('прогон', () => {
     await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
     await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
 
-    expect(await screen.findByText(/по капу 50 из 100000/)).toBeInTheDocument();
+    expect(await screen.findByText(/по капу 50 из 100\s000/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Запустить/ })).toBeDisabled();
   });
 
@@ -251,8 +251,8 @@ describe('прогон', () => {
 
     // Свой потолок — про один прогон, кап — про месяц. Живая проверка
     // поймала ровно эту путаницу: месячная трата вычиталась из потолка.
-    expect(await screen.findByText(/ваш потолок 5000/)).toBeInTheDocument();
-    expect(screen.getByText(/по капу 93584 из 100000/)).toBeInTheDocument();
+    expect(await screen.findByText(/ваш потолок 5\s000/)).toBeInTheDocument();
+    expect(screen.getByText(/по капу 93\s584 из 100\s000/)).toBeInTheDocument();
   });
 
   it('не помещается — кнопка не нажимается и сказано, чего не хватает', async () => {

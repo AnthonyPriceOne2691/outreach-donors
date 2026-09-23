@@ -30,7 +30,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { CONTACT_STATUSES, DONOR_STATUSES } from '../api/labels';
+import { CONTACT_STATUSES, countryTitle, DONOR_STATUSES } from '../api/labels';
+import { formatCompact } from '../format';
 import { listDonors } from '../api/runs';
 import type { DonorStatus } from '../api/types';
 import { Contacts } from './Contacts';
@@ -41,12 +42,7 @@ function refusalOf(error: unknown): string {
   return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
 }
 
-function traffic(value: number | null): string {
-  if (value === null) return '—';
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)} млн`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(0)} тыс.`;
-  return String(value);
-}
+const traffic = formatCompact;
 
 export function DonorsPage() {
   const navigate = useNavigate();
@@ -228,10 +224,10 @@ export function DonorsPage() {
                   <Table.Td>
                     {donor.geo === null
                       ? '—'
-                      : `${donor.geo} ${
+                      : `${countryTitle(donor.geo)}${
                           donor.geo_top_share === null
                             ? ''
-                            : `· ${(donor.geo_top_share * 100).toFixed(0)}%`
+                            : ` · ${(donor.geo_top_share * 100).toFixed(0)}%`
                         }`}
                   </Table.Td>
                   <Table.Td>

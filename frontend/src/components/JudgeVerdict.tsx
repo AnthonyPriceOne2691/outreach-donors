@@ -26,7 +26,7 @@ export function JudgeVerdict({ machine }: { machine: MachineView }) {
   }
   const advice = JUDGE_ADVICE[machine.recommendation];
   const who = machine.decided_by === null ? null : JUDGE_DECIDERS[machine.decided_by];
-  const intent = machine.intent === null ? null : (SITE_INTENTS[machine.intent] ?? machine.intent);
+  const intent = machine.intent === null ? null : (SITE_INTENTS[machine.intent] ?? 'другой тип');
   return (
     <Stack gap={4} align="center">
       <Group gap={6} justify="center" wrap="nowrap">

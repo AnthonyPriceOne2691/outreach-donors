@@ -53,9 +53,25 @@ async function openThresholds(routes: Record<string, unknown> = {}) {
   return recorded;
 }
 
+/** Сдвинуть порог DR: последствия показываются только у изменённых порогов. */
+async function touchDr() {
+  const user = userEvent.setup();
+  const dr = screen.getByLabelText('DR не ниже');
+  await user.clear(dr);
+  await user.type(dr, '25');
+}
+
 describe('пороги', () => {
+  it('нетронутые пороги не обещают перемен в базе', async () => {
+    await openThresholds();
+
+    expect(screen.getByText(/Пороги совпадают с действующими/)).toBeInTheDocument();
+    expect(screen.queryByText('Выпадет из базы')).not.toBeInTheDocument();
+  });
+
   it('показывает последствия до сохранения', async () => {
     await openThresholds();
+    await touchDr();
 
     expect(await screen.findByText('13')).toBeInTheDocument();
     expect(screen.getByText('из них с ценой: 4')).toBeInTheDocument();
@@ -65,6 +81,7 @@ describe('пороги', () => {
 
   it('предупреждает, если выпадают доноры с полученной ценой', async () => {
     await openThresholds();
+    await touchDr();
 
     expect(
       await screen.findByText('Среди выпавших есть доноры с полученной ценой'),

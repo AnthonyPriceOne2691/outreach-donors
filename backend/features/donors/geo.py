@@ -139,7 +139,7 @@ def check_geo(
         if item.country == wanted:
             return GeoVerdict(
                 True,
-                f"{wanted} на {position}-м месте по трафику ({item.share:.0%})",
+                f"{wanted.upper()} на {position}-м месте по трафику ({item.share:.0%})",
                 top_country,
                 breakdown,
             )
@@ -147,12 +147,12 @@ def check_geo(
     for item in breakdown:
         if item.country == wanted and item.share >= min_share:
             return GeoVerdict(
-                True, f"{wanted} даёт {item.share:.0%} трафика", top_country, breakdown
+                True, f"{wanted.upper()} даёт {item.share:.0%} трафика", top_country, breakdown
             )
 
     return GeoVerdict(
         False,
-        f"{wanted} не входит в топ-{top_n} и даёт меньше {min_share:.0%}",
+        f"{wanted.upper()} не входит в топ-{top_n} и даёт меньше {min_share:.0%}",
         top_country,
         breakdown,
     )

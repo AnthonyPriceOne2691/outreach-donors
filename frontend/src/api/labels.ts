@@ -55,8 +55,8 @@ export function permissionTitle(permission: string): string {
  */
 export const THREAD_STATES: Record<ThreadState, { title: string; color: string }> = {
   queued: { title: 'в очереди', color: 'gray' },
-  waiting: { title: 'ждём ответа', color: 'blue' },
-  replied: { title: 'ответил человек', color: 'teal' },
+  waiting: { title: 'ждём ответа', color: 'lagoon' },
+  replied: { title: 'ответил человек', color: 'green' },
   needs_review: { title: 'ждёт разбора', color: 'yellow' },
   priced: { title: 'цена получена', color: 'green' },
   declined: { title: 'не продаёт размещения', color: 'gray' },
@@ -76,7 +76,7 @@ export const MESSAGE_STATUSES: Record<MessageStatus, string> = {
 };
 
 export const REPLY_KINDS: Record<ReplyKind, { title: string; color: string }> = {
-  human: { title: 'ответ человека', color: 'teal' },
+  human: { title: 'ответ человека', color: 'green' },
   auto_reply: { title: 'автоответчик', color: 'gray' },
   bounce: { title: 'отказ доставки', color: 'yellow' },
   unsubscribe: { title: 'отписка', color: 'red' },
@@ -119,8 +119,8 @@ export const CONTACT_SOURCES: Record<ContactSource, string> = {
 
 export const RUN_STATUSES: Record<RunStatus, { title: string; color: string }> = {
   queued: { title: 'в очереди', color: 'gray' },
-  estimating: { title: 'считает смету', color: 'blue' },
-  running: { title: 'идёт', color: 'blue' },
+  estimating: { title: 'считает смету', color: 'lagoon' },
+  running: { title: 'идёт', color: 'lagoon' },
   done: { title: 'закончен', color: 'green' },
   stopped: { title: 'остановлен', color: 'yellow' },
 };
@@ -185,34 +185,65 @@ const COUNTRY_TITLES: Record<string, string> = {
   ee: 'Эстония',
 };
 
-export function countryTitle(code: string): string {
-  const title = COUNTRY_TITLES[code];
-  return title === undefined ? code : `${title} · ${code}`;
+/** Страна одним видом на всех экранах: русское имя, а незнакомый код —
+ *  заглавными («NG»). Раньше одна и та же страна была «США · us», «US»
+ *  и «us» на трёх соседних экранах. */
+export function countryTitle(code: string | null | undefined): string {
+  if (code === null || code === undefined || code === '') return '—';
+  return COUNTRY_TITLES[code.toLowerCase()] ?? code.toUpperCase();
 }
 
 /** На что уходят деньги. Подписи те же, что в отчёте прогона: расход
  *  и отчёт должны называть одно и то же одинаково. */
 export const USAGE_PROVIDERS: Record<UsageProvider, { title: string; color: string }> = {
   ahrefs: { title: 'метрики Ahrefs', color: 'lagoon' },
-  serp: { title: 'выдача', color: 'blue' },
-  llm: { title: 'модель', color: 'grape' },
-  email: { title: 'отправка', color: 'teal' },
+  serp: { title: 'выдача', color: 'lagoon' },
+  llm: { title: 'модель', color: 'gray' },
+  email: { title: 'отправка', color: 'green' },
 };
 
-/** Операции внутри провайдера. Незнакомая показывается как есть —
- *  новая операция не должна пропадать с экрана расхода. */
+/** Операции внутри провайдера — все, что сервер пишет в журнал расхода
+ *  (`OPERATION_PROVIDERS` в `backend/features/core/usage.py`). Незнакомая
+ *  не пропадает с экрана: она показывается общими словами с кодом в
+ *  скобках, чтобы новую операцию было видно и было по чему её найти. */
 const OPERATION_TITLES: Record<string, string> = {
-  batch_metrics: 'метрики пачкой',
-  serp_search: 'выдача: задачи провайдеру',
-  by_country: 'страны',
+  batch_metrics: 'метрики доменов',
+  by_country: 'трафик по странам',
+  serp: 'обзор выдачи Ahrefs',
+  serp_search: 'поиск по выдаче',
+  keywords: 'сборка ключей',
+  site_judge: 'судья площадок',
+  letter_rewrite: 'переписывание писем',
+  letter_send: 'отправка писем',
+  reply_parse: 'разбор ответов',
+  // Прежние имена: в журнале они остались у старых строк.
   dr_screen: 'просев по DR',
   serp_task: 'запрос выдачи',
-  keywords: 'генерация ключей',
-  judge: 'судья релевантности',
+  judge: 'судья площадок',
 };
 
 export function operationTitle(operation: string): string {
-  return OPERATION_TITLES[operation] ?? operation;
+  return OPERATION_TITLES[operation] ?? `прочее (${operation})`;
+}
+
+/** Настройки почты, без которых письмо не уходит. Сервер называет их
+ *  именами в окружении — так их ищет тот, кто подключает почту; человеку
+ *  на экране нужно, что именно не задано, а не как это называется
+ *  в конфигурации. Незнакомая — общими словами, а не кодом. */
+const MAIL_SETTING_TITLES: Record<string, string> = {
+  OUTREACH_SENDER_NAME: 'имя отправителя',
+  OUTREACH_POSTAL_ADDRESS: 'почтовый адрес',
+  OUTREACH_UNSUBSCRIBE_URL: 'адрес страницы отписки',
+  OUTREACH_INBOUND_SECRET: 'ключ ссылок отписки',
+};
+
+export function mailSettingTitle(key: string): string {
+  return MAIL_SETTING_TITLES[key] ?? 'настройка почты';
+}
+
+/** Перечень незаданных настроек почты словами, без повторов. */
+export function mailSettingsList(keys: string[]): string {
+  return [...new Set(keys.map(mailSettingTitle))].join(', ');
 }
 
 /** Почему адресату не пишем. Первые две — его решение, вторые две — наше. */

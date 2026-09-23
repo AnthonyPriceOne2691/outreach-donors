@@ -42,6 +42,7 @@ import { buildPool, fetchMarketLanguages, fetchPresets } from '../api/keywords';
 import { estimateRun, fetchCountries, listRuns, startRun } from '../api/runs';
 import type { Forecast, RunCard, RunStatus } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
+import { formatDateTime, formatNumber, formatUsd } from '../format';
 
 function refusalOf(error: unknown): string {
   return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
@@ -73,26 +74,26 @@ function Estimate({ forecast }: { forecast: Forecast }) {
       <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
         <Metric
           title="Результатов выдачи"
-          value={forecast.expected_results}
+          value={formatNumber(forecast.expected_results)}
           hint={`${forecast.keywords} ключей × ${forecast.depth_pages} стр.`}
         />
         <Metric
           title="Уникальных доменов"
-          value={`≈ ${forecast.expected_domains}`}
+          value={`≈ ${formatNumber(forecast.expected_domains)}`}
           hint="83% схлопывается в дубли — по замеру"
         />
         <Metric
           title="Юнитов Ahrefs"
-          value={`до ${forecast.units_total}`}
-          hint={`просев ${forecast.units_screen} · метрики ${forecast.units_metrics} · гео ${forecast.units_by_country}`}
+          value={`до ${formatNumber(forecast.units_total)}`}
+          hint={`просев ${formatNumber(forecast.units_screen)} · метрики ${formatNumber(forecast.units_metrics)} · гео ${formatNumber(forecast.units_by_country)}`}
         />
         <Metric
           title="Бюджет прогона"
-          value={forecast.budget}
+          value={formatNumber(forecast.budget)}
           hint={
             forecast.run_ceiling === null
-              ? `у провайдера ${forecast.units_left}, по капу ${forecast.cap_left} из ${forecast.units_cap}`
-              : `ваш потолок ${forecast.run_ceiling}; по капу ${forecast.cap_left} из ${forecast.units_cap}`
+              ? `у провайдера ${formatNumber(forecast.units_left)}, по капу ${formatNumber(forecast.cap_left)} из ${formatNumber(forecast.units_cap)}`
+              : `ваш потолок ${formatNumber(forecast.run_ceiling)}; по капу ${formatNumber(forecast.cap_left)} из ${formatNumber(forecast.units_cap)}`
           }
         />
       </SimpleGrid>
@@ -101,20 +102,20 @@ function Estimate({ forecast }: { forecast: Forecast }) {
           без неё прогона нет вовсе. Но названа она должна быть — до этой
           строки расход на выдачу не показывался нигде. */}
       <Text size="sm" c="dimmed">
-        Выдача обойдётся примерно в <b>{forecast.serp_cost_usd.toFixed(2)} $</b> — это другой счёт,
-        не юниты Ahrefs. Потрачено нами юнитов с начала месяца:{' '}
-        <b>{forecast.units_spent_this_month}</b>.
+        Выдача обойдётся примерно в <b>{formatUsd(forecast.serp_cost_usd)}</b> — это другой счёт, не
+        юниты Ahrefs. Потрачено нами юнитов с начала месяца:{' '}
+        <b>{formatNumber(forecast.units_spent_this_month)}</b>.
       </Text>
 
       {forecast.affordable ? (
-        <Alert color="teal" title="Помещается">
+        <Alert color="green" title="Помещается">
           Смета считает худший случай — что все домены новые. За те, у которых данные ещё свежие,
           второй раз не платят, поэтому по факту обычно меньше.
         </Alert>
       ) : (
         <Alert color="red" title="Не помещается в бюджет">
-          Не хватает {forecast.shortfall} юнитов. Сократите список ключей или глубину — либо
-          поднимите кап, если остаток у провайдера позволяет.
+          Не хватает {formatNumber(forecast.shortfall)} юнитов. Сократите список ключей или глубину
+          — либо поднимите кап, если остаток у провайдера позволяет.
         </Alert>
       )}
     </Stack>
@@ -282,7 +283,7 @@ export function RunPage() {
   const canRun = can('run');
 
   return (
-    <Stack gap="lg" maw={1000}>
+    <Stack gap="lg">
       <Card className="glassPanel" p="xl">
         <Stack gap="md">
           <Stack gap={6}>
@@ -447,7 +448,7 @@ export function RunPage() {
       </Card>
 
       {waiting && view?.workers === 0 && (
-        <Alert color="orange" title="Задачу некому взять">
+        <Alert color="yellow" title="Задачу некому взять">
           Прогон стоит в очереди, но ни один воркер её не слушает. Пока воркера нет, задача не
           выполнится — сервер при этом отвечает «поставлено», и со стороны это выглядит работающим
           сервисом. Поднимите воркер: <code>python -m backend.workers.reaper</code>
@@ -465,98 +466,110 @@ export function RunPage() {
       )}
 
       <Card className="glass" p="xs">
-        <Table className="dataTable" verticalSpacing="sm" horizontalSpacing="md" miw={860}>
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>Прогон</Table.Th>
-              <Table.Th>Состояние</Table.Th>
-              <Table.Th>Ключей</Table.Th>
-              <Table.Th>Доменов</Table.Th>
-              <Table.Th>Смета</Table.Th>
-              <Table.Th>Факт</Table.Th>
-              <Table.Th>Расхождение</Table.Th>
-              <Table.Th>Судья</Table.Th>
-              <Table.Th>Рассмотрение</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {rows.map((run) => (
-              <Table.Tr key={run.id}>
-                <Table.Td>
-                  <Text fw={500}>№{run.id}</Text>
-                  <Text size="xs" c="dimmed">
-                    {countryTitle(run.country)} · {new Date(run.started_at).toLocaleString('ru-RU')}
-                  </Text>
-                </Table.Td>
-                <Table.Td>
-                  <Group justify="center" gap={6}>
-                    <Badge variant="light" color={RUN_STATUSES[run.status].color}>
-                      {RUN_STATUSES[run.status].title}
-                    </Badge>
-                    {ACTIVE.has(run.status) && (
-                      <Text size="xs" c="dimmed">
-                        {aliveFor(run.alive_at)}
+        {/* Таблица шире телефона — на узком окне уезжает в прокрутку, а не
+            ужимает колонки: значок «закончен» сжимался до «законч…»,
+            а «человек не смотрел» вставал по слову в строку. */}
+        <Table.ScrollContainer minWidth={1040}>
+          <Table className="dataTable" verticalSpacing="sm" horizontalSpacing="md">
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Прогон</Table.Th>
+                <Table.Th>Состояние</Table.Th>
+                <Table.Th>Ключей</Table.Th>
+                <Table.Th>Доменов</Table.Th>
+                <Table.Th>Смета</Table.Th>
+                <Table.Th>Факт</Table.Th>
+                <Table.Th>Расхождение</Table.Th>
+                <Table.Th>Судья</Table.Th>
+                <Table.Th>Рассмотрение</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {rows.map((run) => (
+                <Table.Tr key={run.id}>
+                  <Table.Td>
+                    <Text fw={500}>№{run.id}</Text>
+                    <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+                      {countryTitle(run.country)}
+                    </Text>
+                    <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+                      {formatDateTime(run.started_at)}
+                    </Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Group justify="center" gap={6} wrap="nowrap">
+                      <Badge
+                        variant="light"
+                        color={RUN_STATUSES[run.status].color}
+                        style={{ flexShrink: 0 }}
+                      >
+                        {RUN_STATUSES[run.status].title}
+                      </Badge>
+                      {ACTIVE.has(run.status) && (
+                        <Text size="xs" c="dimmed">
+                          {aliveFor(run.alive_at)}
+                        </Text>
+                      )}
+                    </Group>
+                    {typeof run.stats?.['причина'] === 'string' && (
+                      <Text size="xs" c="dimmed" ta="center">
+                        {run.stats['причина']}
                       </Text>
                     )}
-                  </Group>
-                  {typeof run.stats?.['причина'] === 'string' && (
-                    <Text size="xs" c="dimmed" ta="center">
-                      {run.stats['причина']}
-                    </Text>
-                  )}
-                </Table.Td>
-                <Table.Td>{run.keywords}</Table.Td>
-                <Table.Td>
-                  {run.hosts ?? '—'}
-                  {excludedIn(run) ? (
-                    <Text size="xs" c="dimmed">
-                      исключено {excludedIn(run)}
-                    </Text>
-                  ) : null}
-                </Table.Td>
-                <Table.Td>{run.estimated_units ?? '—'}</Table.Td>
-                <Table.Td>{run.actual_units ?? '—'}</Table.Td>
-                <Table.Td>
-                  {/* Расхождение сметы и факта — единственная проверка сметы.
+                  </Table.Td>
+                  <Table.Td>{formatNumber(run.keywords)}</Table.Td>
+                  <Table.Td>
+                    {formatNumber(run.hosts)}
+                    {excludedIn(run) ? (
+                      <Text size="xs" c="dimmed">
+                        исключено {excludedIn(run)}
+                      </Text>
+                    ) : null}
+                  </Table.Td>
+                  <Table.Td>{formatNumber(run.estimated_units)}</Table.Td>
+                  <Table.Td>{formatNumber(run.actual_units)}</Table.Td>
+                  <Table.Td>
+                    {/* Расхождение сметы и факта — единственная проверка сметы.
                       Без неё оценка расхода ничем не подтверждается. */}
-                  {run.estimate_error === null
-                    ? '—'
-                    : `${run.estimate_error > 0 ? '+' : ''}${(run.estimate_error * 100).toFixed(0)}%`}
-                </Table.Td>
-                <Table.Td>
-                  {/* Доля расхождений человека с судьёй — единственная проверка
+                    {run.estimate_error === null
+                      ? '—'
+                      : `${run.estimate_error > 0 ? '+' : ''}${(run.estimate_error * 100).toFixed(0)}%`}
+                  </Table.Td>
+                  <Table.Td style={{ whiteSpace: 'nowrap' }}>
+                    {/* Доля расхождений человека с судьёй — единственная проверка
                       судьи, как расхождение сметы и факта — проверка сметы. */}
-                  {judgeCut(run) === null ? (
-                    <Text size="xs" c="dimmed">
-                      выключен
-                    </Text>
-                  ) : (
-                    <Text size="sm">отрезал бы {judgeCut(run)}</Text>
-                  )}
-                  {/* Цвет несёт значок, а не текст: янтарь — «нужно внимание»,
+                    {judgeCut(run) === null ? (
+                      <Text size="xs" c="dimmed">
+                        выключен
+                      </Text>
+                    ) : (
+                      <Text size="sm">отрезал бы {judgeCut(run)}</Text>
+                    )}
+                    {/* Цвет несёт значок, а не текст: янтарь — «нужно внимание»,
                       и на подложке значка чернила держат норму контраста. */}
-                  {run.reviewed === 0 ? (
-                    <Text size="xs" c="dimmed">
-                      человек не смотрел
-                    </Text>
-                  ) : (
-                    <Badge
-                      variant="light"
-                      size="sm"
-                      color={run.disagreements > 0 ? 'yellow' : 'green'}
-                    >
-                      расходится {run.disagreements} из {run.reviewed} ·{' '}
-                      {Math.round((run.disagreements / run.reviewed) * 100)}%
-                    </Badge>
-                  )}
-                </Table.Td>
-                <Table.Td>
-                  <ReviewCell run={run} />
-                </Table.Td>
-              </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
+                    {run.reviewed === 0 ? (
+                      <Text size="xs" c="dimmed">
+                        человек не смотрел
+                      </Text>
+                    ) : (
+                      <Badge
+                        variant="light"
+                        size="sm"
+                        color={run.disagreements > 0 ? 'yellow' : 'green'}
+                      >
+                        расходится {run.disagreements} из {run.reviewed} ·{' '}
+                        {Math.round((run.disagreements / run.reviewed) * 100)}%
+                      </Badge>
+                    )}
+                  </Table.Td>
+                  <Table.Td>
+                    <ReviewCell run={run} />
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </Table.ScrollContainer>
         {rows.length === 0 && (
           <Text size="sm" c="dimmed" p="lg">
             Прогонов ещё не было. Первый появится здесь сразу после запуска — вместе со сметой, с

@@ -28,6 +28,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { THREAD_STATES } from '../api/labels';
+import { formatDateTime } from '../format';
 import { listThreads } from '../api/outreach';
 import type { ThreadCard, ThreadState } from '../api/types';
 import { ParseCalibration } from './ParseCalibration';
@@ -38,9 +39,7 @@ function refusalOf(error: unknown): string {
   return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
 }
 
-function when(moment: string | null): string {
-  return moment === null ? '—' : new Date(moment).toLocaleString('ru-RU');
-}
+const when = formatDateTime;
 
 function price(thread: ThreadCard): string {
   if (thread.price_white === null && thread.price_grey === null) return '—';
