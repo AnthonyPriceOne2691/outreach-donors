@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -73,6 +74,20 @@ PLACEHOLDER_LOCAL_PARTS = frozenset(
         "xxx", "yyy", "zzz", "abc", "asdf", "qwerty", "foo", "bar",
     }
 )  # fmt: skip
+
+# Домен-заглушка из примера на странице: «напишите на you@yourbusiness.com».
+# Боевой прогон 23.09.2026 снял `support@yourcompany.com`, `you@yourbusiness.com`
+# и `sarah.mitchell@company.com`. Правило по форме имени, а не список доменов:
+# заглушек бесконечно много. `your`/`my` — только со словом-заглушкой после:
+# голый префикс отрезал бы настоящие сайты вроде `yourstory.com`.
+_PLACEHOLDER_WORDS = (
+    "company|business|site|website|web|domain|brand|email|mail|name|org"
+    "|organization|store|shop|agency|blog|startup|team"
+)
+PLACEHOLDER_MAIL_DOMAIN = re.compile(
+    rf"^(?:(?:your|my)-?(?:{_PLACEHOLDER_WORDS})|company|website|acme|mycompany)"
+    r"\.[a-z]{2,6}(?:\.[a-z]{2})?$"
+)
 
 NO_REPLY_MARKERS = ("noreply@", "no-reply@", "no_reply@", "donotreply@", "do-not-reply@")
 
@@ -152,6 +167,10 @@ _RULES: tuple[tuple[Callable[[str, str, str], bool], str], ...] = (
         "чужой отдел, выделенный поддоменом",
     ),
     (lambda _v, _l, domain: domain in VENDOR_DOMAINS, "домен сервиса, а не сайта"),
+    (
+        lambda _v, _l, domain: bool(PLACEHOLDER_MAIL_DOMAIN.match(domain)),
+        "домен-заглушка из примера на странице",
+    ),
     (
         lambda _v, _l, domain: any(chunk in domain for chunk in REGISTRAR_SUBSTRINGS),
         "регистратор или служба скрытия владельца",

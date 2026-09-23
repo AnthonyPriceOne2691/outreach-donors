@@ -35,6 +35,7 @@ import httpx
 
 from backend.config import contacts as cfg
 from backend.features.core.domain import PageKind
+from backend.shared.net.url_guard import UnsafeUrlError
 
 logger = logging.getLogger(__name__)
 
@@ -196,12 +197,9 @@ class PageFetcher:
             return None
 
         self.attempts += 1
-        try:
-            response = await self._client.get(url, headers=HEADERS, follow_redirects=True)
-        except httpx.HTTPError as exc:
-            logger.debug("страница не открылась: %s — %r", url, exc)
+        response = await self._request(url)
+        if response is None:
             return None
-
         if response.status_code in (401, 403, 429):
             self.blocked = True
             logger.debug("сайт закрылся: %s ответил %s", url, response.status_code)
@@ -215,6 +213,20 @@ class PageFetcher:
         return FetchedPage(
             url=str(response.url), kind=kind, html=response.text[: cfg.MAX_PAGE_BYTES]
         )
+
+    async def _request(self, url: str) -> httpx.Response | None:
+        """Запрос одной страницы. `None` — страница не открылась."""
+        try:
+            return await self._client.get(url, headers=HEADERS, follow_redirects=True)
+        except httpx.HTTPError as exc:
+            logger.debug("страница не открылась: %s — %r", url, exc)
+        except UnsafeUrlError as exc:
+            # Защита отказала — и правильно: ссылка с чужого сайта ведёт
+            # на внутренний адрес или чужую схему. Это отказ ОДНОЙ страницы,
+            # а не поломка прогона: 23.09.2026 опечатка `hhttps://` на одном
+            # сайте оборвала поиск контактов для всех остальных.
+            logger.info("страница пропущена, адрес не прошёл защиту: %s", exc)
+        return None
 
     async def home(self, site_host: str) -> FetchedPage | None:
         """Главная в первом виде, который ответил."""
@@ -237,7 +249,10 @@ class PageFetcher:
         out: list[tuple[str, PageKind]] = []
         for href in links:
             absolute = urljoin(page.url, href)
-            if urlparse(absolute).netloc.lower() != host:
+            parsed = urlparse(absolute)
+            # Схема — до хоста: опечатка `hhttps://свой-домен/...` проходила
+            # проверку своего домена и уходила в запрос.
+            if parsed.scheme not in ("http", "https") or parsed.netloc.lower() != host:
                 continue
             out.append((absolute, _kind_of(absolute)))
 

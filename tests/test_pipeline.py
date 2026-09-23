@@ -73,6 +73,33 @@ class TestCandidates:
         assert candidates.hosts == ["good.com"]
         assert candidates.dropped == 2
 
+    async def test_each_host_remembers_its_keywords(self) -> None:
+        """Какие ключи дают доноров, а какие вендоров, видно только по этой
+        связи: прогон 23.09.2026 пришлось разбирать по адресам страниц."""
+        serp = FakeSerp(
+            {
+                "saas write for us": ["https://blog.example.com/write-for-us", "https://b.com"],
+                "best crm": ["https://www.example.com/crm", "https://example.com/other"],
+            }
+        )
+
+        candidates = await gather_candidates(serp, ["saas write for us", "best crm"], "us")
+
+        assert candidates.found_by == {
+            "example.com": ["saas write for us", "best crm"],
+            "b.com": ["saas write for us"],
+        }
+
+    async def test_keywords_survive_a_resumed_run(self) -> None:
+        """Продолжение прогона не покупает выдачу заново — и не должно
+        терять связь, за которую уже заплачено."""
+        serp = FakeSerp({"a": ["https://good.com"]})
+        candidates = await gather_candidates(serp, ["a"], "us")
+
+        restored = Candidates.restored(candidates.as_dict())
+
+        assert restored.found_by == {"good.com": ["a"]}
+
     async def test_keywords_without_results_are_reported(self) -> None:
         """Пустой ключ — сигнал о плохом списке, а не о поломке сервиса."""
         serp = FakeSerp({"a": ["https://good.com"], "b": []})

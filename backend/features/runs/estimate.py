@@ -25,7 +25,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from backend.config import serp as serp_cfg
-from backend.features.ahrefs.units import RunEstimate, estimate_run
+from backend.features.ahrefs.units import COUNTRY_CALL_SHARE, RunEstimate, estimate_run
 
 #: Результатов на страницу выдачи. Совпадает у обоих источников.
 RESULTS_PER_PAGE = 10
@@ -99,6 +99,7 @@ def forecast(
     units_cap: int,
     units_spent_this_month: int = 0,
     run_ceiling: int | None = None,
+    country_share: float = COUNTRY_CALL_SHARE,
 ) -> RunForecast:
     """Смета по числу ключей — до единого обращения к провайдерам."""
     results = max(0, keywords) * max(1, depth_pages) * RESULTS_PER_PAGE
@@ -110,7 +111,7 @@ def forecast(
         expected_domains=domains,
         # Худший случай: все домены новые. Занижение здесь означало бы
         # «кнопка нажалась, а юниты кончились на середине прогона».
-        estimate=estimate_run(domains),
+        estimate=estimate_run(domains, country_share=country_share),
         units_left=units_left,
         units_cap=units_cap,
         units_spent_this_month=units_spent_this_month,

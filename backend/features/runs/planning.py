@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol
 
-from backend.features.ahrefs.units import RunEstimate, estimate_run
+from backend.features.ahrefs.units import COUNTRY_CALL_SHARE, RunEstimate, estimate_run
 from backend.features.core.domain import Stage
 from backend.features.donors.host import normalize_host
 from backend.features.runs.budget import CapExceededError
@@ -109,6 +109,15 @@ class Candidates:
     страница и статья одного и того же сайта дают разные вердикты, и
     ошибается именно заглавная."""
 
+    found_by: dict[str, list[str]] = field(default_factory=dict)
+    """По каким ключам нашёлся каждый домен, в порядке выдачи.
+
+    Без этой связи нельзя сказать, какие ключи дают доноров, а какие —
+    вендоров и каталоги: прогон 23.09.2026 на 100 ключах показал, что
+    «best X software» приносит в основном сами продукты, а «write for us» —
+    площадки, но посчитать это удалось только по адресам страниц. Связь
+    уже оплачена вместе с выдачей и весит мало."""
+
     @property
     def duplicates(self) -> int:
         """Сколько адресов схлопнулось в уже известные домены. Это и есть
@@ -130,6 +139,7 @@ class Candidates:
             # Текст едет вместе с выдачей: продолжение прогона не покупает
             # её заново, а без текста судья на второй попытке ослеп бы.
             "texts": {host: text.as_dict() for host, text in self.texts.items()},
+            "found_by": {host: list(keys) for host, keys in self.found_by.items()},
         }
 
     @classmethod
@@ -150,6 +160,7 @@ class Candidates:
                 host: SerpText.restored(value)
                 for host, value in (payload.get("texts") or {}).items()
             },
+            found_by={host: list(keys) for host, keys in (payload.get("found_by") or {}).items()},
         )
 
 
@@ -161,6 +172,9 @@ class RunPlan:
     fresh: list[str]
     new: list[str]
     estimate: RunEstimate
+    #: Доля запросов по странам, с которой считалась смета: экономия
+    #: считается по ней же, иначе «сэкономлено» и «смета» разошлись бы.
+    country_share: float = COUNTRY_CALL_SHARE
     #: Домены, отсечённые гейтом, и причина по каждому. Они не входят
     #: ни в смету, ни в `fresh`: за них не платили и платить не будут.
     excluded: dict[str, ExclusionReason] = field(default_factory=dict)
@@ -173,7 +187,7 @@ class RunPlan:
     @property
     def savings_from_cache(self) -> int:
         """Во что обошёлся бы прогон, если бы срока годности не было."""
-        return estimate_run(self.considered).total - self.estimate.total
+        return self._cost(self.considered) - self.estimate.total
 
     @property
     def savings_from_gate(self) -> int:
@@ -183,7 +197,10 @@ class RunPlan:
         одно число «сэкономлено» и потеряли бы единственный способ
         увидеть, что стоп-лист работает: он экономит ровно столько.
         """
-        return estimate_run(len(self.candidates.hosts)).total - estimate_run(self.considered).total
+        return self._cost(len(self.candidates.hosts)) - self._cost(self.considered)
+
+    def _cost(self, domains: int) -> int:
+        return estimate_run(domains, country_share=self.country_share).total
 
     @property
     def excluded_by_reason(self) -> dict[str, int]:
@@ -210,6 +227,7 @@ async def gather_candidates(
 
     seen: dict[str, None] = {}
     texts: dict[str, SerpText] = {}
+    found_by: dict[str, list[str]] = {}
     results = 0
     dropped = 0
     empty: list[str] = []
@@ -224,6 +242,9 @@ async def gather_candidates(
                 dropped += 1
                 continue
             seen.setdefault(host, None)
+            keys = found_by.setdefault(host, [])
+            if keyword not in keys:
+                keys.append(keyword)
             # Текст берётся от ПЕРВОЙ встреченной позиции домена, то есть
             # от самой высокой: порядок выдачи здесь сохранён. Ниже по
             # списку тот же домен встречается служебными страницами,
@@ -239,6 +260,7 @@ async def gather_candidates(
         dropped=dropped,
         cost_usd=cost,
         texts=texts,
+        found_by=found_by,
     )
 
 
@@ -249,6 +271,7 @@ async def plan_run(
     units_left: int,
     exclusions: ExclusionSource | None = None,
     stage: Stage = Stage.DONORS,
+    country_share: float = COUNTRY_CALL_SHARE,
 ) -> RunPlan:
     """Смета и проверка капа. Бросает `CapExceededError`, если не помещаемся.
 
@@ -272,7 +295,7 @@ async def plan_run(
     wanted = [h for h in candidates.hosts if h not in excluded]
     fresh = await freshness.fresh_hosts(wanted)
     new = [h for h in wanted if h not in fresh]
-    estimate = estimate_run(len(new))
+    estimate = estimate_run(len(new), country_share=country_share)
 
     if estimate.total > units_left:
         raise CapExceededError(
@@ -286,5 +309,6 @@ async def plan_run(
         fresh=sorted(fresh),
         new=new,
         estimate=estimate,
+        country_share=country_share,
         excluded=excluded,
     )
