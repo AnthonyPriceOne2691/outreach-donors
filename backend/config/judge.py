@@ -32,7 +32,11 @@ class JudgeMode(StrEnum):
 
 
 class _Judge(DomainSettings):
-    mode: JudgeMode = Field(default=JudgeMode.OFF, validation_alias="JUDGE_MODE")
+    # Наблюдение по умолчанию, а не «выключен»: вердикт судьи — ярлык
+    # у каждого кандидата на рассмотрении и мерило его точности против
+    # человека. Боевой прогон 23.09.2026 прошёл вовсе без судьи, потому что
+    # умолчание было «выключен», а в окружении режим не задали.
+    mode: JudgeMode = Field(default=JudgeMode.SHADOW, validation_alias="JUDGE_MODE")
     # Сколько символов текста выдачи отдаём модели. Сниппет короткий,
     # потолок нужен против аномалии провайдера, а не ради экономии.
     max_text_chars: int = Field(default=1200, validation_alias="JUDGE_MAX_TEXT_CHARS")
@@ -99,5 +103,30 @@ PLATFORM_LABELS: frozenset[str] = frozenset(
         "apple",
         "microsoft",
         "github",
+        # Прогон 23.09.2026 на 100 ключах: UGC-площадки и сервисы, прошедшие
+        # пороги как «годные». Разместить гостевую статью на них нельзя
+        # ни в какой нише — список общий, а не под этот пул.
+        "substack",
+        "slideshare",
+        "scribd",
+        "issuu",
+        "tumblr",
+        "blogspot",
+        "flickr",
+        "imgur",
+        "vimeo",
+        "twitch",
+        "soundcloud",
+        "spotify",
+        "telegram",
+        "discord",
+        "whatsapp",
+        "threads",
+        "glassdoor",
+        "indeed",
+        "producthunt",
+        "crunchbase",
+        "behance",
+        "dribbble",
     }
 )

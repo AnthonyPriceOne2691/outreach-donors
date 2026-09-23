@@ -31,6 +31,7 @@ from backend.features.core.models.outreach import (
     MessageModel,
     ThreadModel,
 )
+from backend.features.core.models.run import RunCandidateModel, RunModel
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +67,7 @@ class Funnel:
     """Сколько доноров отсеялось на каждой ступени отбора."""
 
     suitable: int
+    accepted: int
     with_contact: int
     not_suppressed: int
     not_written: int
@@ -73,6 +75,7 @@ class Funnel:
     def as_report(self) -> dict[str, int]:
         return {
             "подходящих": self.suitable,
+            "принятых": self.accepted,
             "с адресом": self.with_contact,
             "вне стоп-листа": self.not_suppressed,
             "ещё не писали": self.not_written,
@@ -96,6 +99,26 @@ class LetterRepository:
             .join(DonorModel, DonorModel.domain_id == DomainModel.id)
             .where(DonorModel.status == DonorStatus.SUITABLE)
         )
+
+    def _accepted(self, statement: _Query, run_ids: Sequence[int] = ()) -> _Query:
+        """Принятые человеком — и, если названы прогоны, принятые в них.
+
+        Пороги отвечают «годен ли по цифрам», человек — «берём ли»: без
+        этой ступени первые письма прогона 23.09.2026 ушли бы x.com
+        и microsoft.com. Прогоны сужают рассылку до своей страны и ниши:
+        из всей базы в неё попадали бы сайты ставок из ЮАР рядом с SaaS.
+        """
+        statement = statement.where(DonorModel.review == "accepted")
+        if not run_ids:
+            return statement
+        in_runs = (
+            select(RunCandidateModel.id)
+            .where(RunCandidateModel.domain_id == DomainModel.id)
+            .where(RunCandidateModel.run_id.in_(run_ids))
+            .where(RunCandidateModel.status == "accepted")
+            .exists()
+        )
+        return statement.where(in_runs)
 
     def _has_contact(self, statement: _Query) -> _Query:
         return statement.where(
@@ -140,15 +163,17 @@ class LetterRepository:
         )
         return statement.where(~written)
 
-    async def funnel(self, stage: Stage) -> Funnel:
+    async def funnel(self, stage: Stage, *, run_ids: Sequence[int] = ()) -> Funnel:
         """Воронка отбора: где именно кончились доноры."""
         base = self._suitable()
-        with_contact = self._has_contact(base)
+        accepted = self._accepted(base, run_ids)
+        with_contact = self._has_contact(accepted)
         not_suppressed = self._not_suppressed(with_contact, stage)
         not_written = self._not_written(not_suppressed, stage)
 
         return Funnel(
             suitable=await self._count(base),
+            accepted=await self._count(accepted),
             with_contact=await self._count(with_contact),
             not_suppressed=await self._count(not_suppressed),
             not_written=await self._count(not_written),
@@ -158,7 +183,9 @@ class LetterRepository:
         rows = await self._session.execute(select(func.count()).select_from(statement.subquery()))
         return int(rows.scalar_one())
 
-    async def candidates(self, stage: Stage, *, limit: int) -> list[Candidate]:
+    async def candidates(
+        self, stage: Stage, *, limit: int, run_ids: Sequence[int] = ()
+    ) -> list[Candidate]:
         """Кому писать, по одному адресу на донора.
 
         Лучший адрес — тот, с которого уже отвечали: дальше пишем тому,
@@ -184,6 +211,7 @@ class LetterRepository:
                 ContactModel.id,
             )
         )
+        inner = self._accepted(inner, run_ids)
         inner = self._not_suppressed(inner, stage)
         inner = self._not_written(inner, stage)
 
@@ -307,3 +335,24 @@ class LetterRepository:
         self._session.add(created)
         await self._session.flush()
         return created
+
+    # --- прогоны рассылки ---
+
+    async def runs(self, run_ids: Sequence[int]) -> list[RunModel]:
+        rows = await self._session.execute(select(RunModel).where(RunModel.id.in_(run_ids)))
+        return list(rows.scalars().all())
+
+    async def contacts_pending(self, run_ids: Sequence[int]) -> int:
+        """Принятые в этих прогонах, кому контакт ещё не искали.
+
+        Рассылка по прогону, у которого поиск контактов не закончен, ушла
+        бы части доноров, а остальные молча выпали бы до следующей сборки.
+        """
+        rows = await self._session.execute(
+            select(func.count(func.distinct(RunCandidateModel.domain_id)))
+            .join(DonorModel, DonorModel.domain_id == RunCandidateModel.domain_id)
+            .where(RunCandidateModel.run_id.in_(run_ids))
+            .where(RunCandidateModel.status == "accepted")
+            .where(DonorModel.contact_attempted_at.is_(None))
+        )
+        return int(rows.scalar_one())

@@ -36,6 +36,7 @@ from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.letters import compose, draft, review
+from backend.features.letters.building import run_scope
 from backend.features.letters.repository import LetterRepository
 from backend.features.letters.sending import Sending
 from backend.features.letters.transport import TransportError
@@ -94,14 +95,18 @@ async def build(
     и не рядом с формой.
     """
     letter_template = await _checked_letter(body, session)
+    # Прогоны — здесь, до очереди: разные страны и неоконченный поиск контактов
+    # человек должен увидеть у формы, а не в отчёте задачи через минуты.
+    scope = await run_scope(LetterRepository(session), body.run_ids)
     job = runs_queue().enqueue(
         BUILD_JOB,
         body.campaign,
-        body.country,
+        scope.country or body.country,
         niche=body.niche,
         limit=body.limit,
         followup_days=body.followup_days,
         letter_template=letter_template,
+        run_ids=body.run_ids,
     )
     await AccessRepository(session).record(
         AuditAction.RUN_STARTED,
@@ -113,6 +118,7 @@ async def build(
             "писем": body.limit,
             "добивки, дней": body.followup_days or "по умолчанию",
             "текст письма": "поправлен" if letter_template else "по умолчанию",
+            "прогоны": body.run_ids or "все принятые",
         },
     )
     await session.commit()

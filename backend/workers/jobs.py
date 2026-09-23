@@ -28,6 +28,7 @@ from backend.features.letters.building import BuildRequest, QueueBuilder
 from backend.features.letters.rewrite import RewriteClient
 from backend.features.replies.extract import ExtractClient
 from backend.features.replies.pipeline import Parser
+from backend.features.review.candidates import RunReview
 from backend.features.runs.exclusions import Exclusions
 from backend.features.runs.lifecycle import heartbeat
 from backend.features.runs.pipeline import RunDeps, RunRequest, execute_run
@@ -59,6 +60,7 @@ async def _run(run_id: int) -> dict[str, Any]:
                             donors=DonorRepository(session),
                             runs=runs,
                             exclusions=Exclusions(session),
+                            review=RunReview(session),
                         ),
                         RunRequest(
                             keywords=list(run.keywords),
@@ -111,6 +113,7 @@ async def _build_letters(
     limit: int,
     followup_days: Sequence[int],
     letter_template: str | None,
+    run_ids: Sequence[int],
 ) -> dict[str, Any]:
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -125,6 +128,7 @@ async def _build_letters(
                     limit=limit,
                     followup_days=tuple(followup_days),
                     letter_template=letter_template,
+                    run_ids=tuple(run_ids),
                 )
             )
             await session.commit()
@@ -150,6 +154,7 @@ def build_letter_queue(
     limit: int = 50,
     followup_days: Sequence[int] = (),
     letter_template: str | None = None,
+    run_ids: Sequence[int] = (),
 ) -> dict[str, Any]:
     """Собрать очередь писем. Ничего не отправляет.
 
@@ -163,7 +168,7 @@ def build_letter_queue(
     setup_logging()
     check_storage()
     return asyncio.run(
-        _build_letters(campaign, country, niche, limit, followup_days, letter_template)
+        _build_letters(campaign, country, niche, limit, followup_days, letter_template, run_ids)
     )
 
 

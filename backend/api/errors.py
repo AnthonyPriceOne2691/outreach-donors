@@ -29,6 +29,7 @@ from backend.features.access.repository import EmailTakenError
 from backend.features.access.tokens import SecretMissingError, TokenError
 from backend.features.contacts.forms import UnknownFormError
 from backend.features.donors.browse import UnknownDonorError
+from backend.features.letters.building import LetterScopeError
 from backend.features.letters.compose import ComposeError
 from backend.features.letters.draft import LetterConflictError
 from backend.features.letters.guards import ForbiddenContentError
@@ -40,6 +41,8 @@ from backend.features.letters.template import TemplateError
 from backend.features.letters.transport import TransportError
 from backend.features.outreach.repository import UnknownSenderError, UnknownThreadError
 from backend.features.replies.repository import UnknownReplyError
+from backend.features.review.candidates import NotInRunError
+from backend.features.review.candidates import UnknownRunError as ReviewUnknownRunError
 from backend.features.runs.browse import UnknownRunError
 
 #: Отказ → код ответа. Порядок в словаре значения не имеет: FastAPI
@@ -72,6 +75,11 @@ STATUSES: dict[type[Exception], int] = {
     ComposeError: status.HTTP_400_BAD_REQUEST,
     # У рассылки уже свой текст письма — это состояние, а не запрос.
     LetterConflictError: status.HTTP_409_CONFLICT,
+    # Прогоны рассылки из разных стран или с неоконченным поиском контактов —
+    # состояние, которое человек чинит сам.
+    LetterScopeError: status.HTTP_409_CONFLICT,
+    ReviewUnknownRunError: status.HTTP_404_NOT_FOUND,
+    NotInRunError: status.HTTP_409_CONFLICT,
     # Ручная очередь форм: донора в ней уже нет — либо адрес нашёлся,
     # либо очередь разобрал кто-то другой. Это состояние, а не запрос.
     UnknownFormError: status.HTTP_409_CONFLICT,

@@ -2,10 +2,20 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
+from sqlalchemy import (
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    false,
+)
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy import Float, ForeignKey, Index, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -94,3 +104,37 @@ class RunModel(TimestampedMixin, Base):
     )
 
     settings: Mapped[RunSettingsModel] = relationship("RunSettingsModel", back_populates="runs")
+
+
+class RunCandidateModel(TimestampedMixin, Base):
+    """Домен, который прогон предлагает человеку: принять или отклонить.
+
+    Прогон кончается не записью в базу доноров, а очередью на рассмотрение:
+    пороги отвечают «годен ли по цифрам», и у бренда цифры отличные по
+    построению. Строка на пару «прогон + домен» — история решений по
+    прогонам; последнее решение по домену лежит у донора (`donors.review`).
+    """
+
+    __tablename__ = "run_candidates"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), nullable=False)
+    domain_id: Mapped[int] = mapped_column(
+        ForeignKey("domains.id", ondelete="CASCADE"), nullable=False
+    )
+    #: `pending`, `accepted`, `rejected` (`review.candidates.Decision`).
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="pending", server_default="pending"
+    )
+    decided_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    note: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    #: Решение перенесено из прошлого прогона, а не принято в этом:
+    #: один и тот же домен человек рассматривает один раз.
+    carried: Mapped[bool] = mapped_column(nullable=False, default=False, server_default=false())
+
+    __table_args__ = (
+        UniqueConstraint("run_id", "domain_id", name="uq_run_candidates_run_domain"),
+        Index("idx_run_candidates_run_status", "run_id", "status"),
+        Index("idx_run_candidates_domain", "domain_id"),
+    )

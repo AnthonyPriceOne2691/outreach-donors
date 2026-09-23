@@ -28,6 +28,8 @@ EXPECTED_TABLES = {
     "advertiser_candidates",
     "advertisers",
     "supplier_donors",
+    # Прогон кончается очередью на рассмотрение: кандидаты прогона.
+    "run_candidates",
 }
 
 

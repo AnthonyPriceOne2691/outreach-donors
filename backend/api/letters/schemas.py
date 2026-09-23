@@ -195,6 +195,9 @@ class BuildRequestBody(BaseModel):
     #: Поправленный текст первого письма. Пусто — у новой рассылки шаблон
     #: из кода, у найденной — её собственный текст.
     letter: LetterDraftBody | None = None
+    #: Прогоны, из принятых доноров которых собирается рассылка. Страна
+    #: письма берётся из них. Пусто — все принятые доноры базы.
+    run_ids: list[int] = Field(default_factory=list, max_length=50)
 
 
 class BuildQueued(BaseModel):

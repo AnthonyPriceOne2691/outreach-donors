@@ -33,6 +33,7 @@ async def _donor(
     contact_status: ContactStatus | None = None,
     attempted_at: datetime | None = None,
     dr: int | None = 40,
+    review: str | None = "accepted",
 ) -> int:
     domain = DomainModel(host=host)
     session.add(domain)
@@ -44,6 +45,7 @@ async def _donor(
             dr=dr,
             contact_status=contact_status,
             contact_attempted_at=attempted_at,
+            review=review,
         )
     )
     await session.flush()
@@ -63,6 +65,17 @@ class TestPending:
     async def test_donor_without_an_attempt_is_taken(self, session: AsyncSession) -> None:
         await _donor(session, "fresh.com")
         assert await ContactRepository(session).pending_hosts(now=NOW) == ["fresh.com"]
+
+    async def test_only_accepted_donors_get_a_contact_search(self, session: AsyncSession) -> None:
+        """Контакт ищется после решения человека, а не до. Прогон 23.09.2026
+        искал адреса всем годным по порогам — и нашёл `copyright@x.com`."""
+        await _donor(session, "unreviewed.com", review=None)
+        await _donor(session, "rejected.com", review="rejected")
+        await _donor(session, "accepted.com")
+
+        repo = ContactRepository(session)
+        assert await repo.pending_hosts(now=NOW) == ["accepted.com"]
+        assert await repo.pending_count(now=NOW) == 1
 
     async def test_unsuitable_donor_is_skipped(self, session: AsyncSession) -> None:
         """Контакт ищем только тем, кому собираемся писать."""

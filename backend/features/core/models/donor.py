@@ -97,12 +97,23 @@ class DonorModel(TimestampedMixin, Base):
         DateTime(timezone=True), nullable=True
     )
 
+    # --- Решение человека ---
+    # Пороги отвечают «годен ли по цифрам», человек — «берём ли». Цифры
+    # у бренда отличные по построению: прогон 23.09.2026 признал годными
+    # microsoft.com и x.com. Контакты ищутся и письма собираются только
+    # принятым. Здесь — ПОСЛЕДНЕЕ решение по домену; история по прогонам —
+    # в `run_candidates`. `None` — ещё не решали.
+    review: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    review_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    review_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     __table_args__ = (
         Index("idx_donors_status", "status"),
         Index("idx_donors_geo", "geo"),
         Index("idx_donors_dr", "dr"),
         # Отбор «кому пора обновить метрики» — по этой паре.
         Index("idx_donors_metrics_refreshed", "metrics_refreshed_at"),
+        Index("idx_donors_review", "review"),
     )
 
     domain: Mapped[DomainModel] = relationship("DomainModel", back_populates="donor")
