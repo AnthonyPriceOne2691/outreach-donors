@@ -76,6 +76,23 @@ async def _build(
 
 
 class TestBuildingTheQueue:
+    async def test_saved_address_is_rechecked_by_todays_filter(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        """Фильтр адресов работает в момент находки, а база копится месяцами.
+        Прогон 23.09.2026 оставил в базе `you@yourbusiness.com`: правило
+        заглушек по домену появилось позже. Сборка перепроверяет адрес
+        и не зовёт модель ради письма, которое не уйдёт."""
+        await make_donor(session, "fitsmallbusiness.example.test", email="you@yourbusiness.com")
+        await make_donor(session, "good.example.test", email="info@good.example.test")
+        rewriter = FakeRewriter()
+
+        report = await _build(session, rewriter=rewriter)
+
+        assert report.prepared == 1  # type: ignore[attr-defined]
+        assert rewriter.seen == ["good.example.test"]
+        assert report.bad_addresses == {"домен-заглушка из примера на странице": 1}  # type: ignore[attr-defined]
+
     async def test_prepares_a_letter_permake_donor(
         self, session: AsyncSession, filled_legal: None
     ) -> None:

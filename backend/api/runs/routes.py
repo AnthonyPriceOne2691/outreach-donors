@@ -90,6 +90,7 @@ async def estimate(
             units_cap=ahrefs_cfg.UNITS_CAP,
             units_spent_this_month=spent,
             run_ceiling=body.cap,
+            country_share=await RunRepository(session).country_call_share(body.country),
         )
     )
 

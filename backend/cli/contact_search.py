@@ -35,10 +35,15 @@ def _print_report(report: SearchReport) -> None:
         f"  1. страницы          вошло {counters.get('pages_entered', 0)}, "
         f"нашли {counters.get('pages_found', 0)}"
     )
-    print(
-        f"  2. RDAP              вошло {counters.get('rdap_entered', 0)}, "
-        f"нашли {counters.get('rdap_found', 0)}, не ответил {counters.get('rdap_failed', 0)}"
-    )
+    # Выключенная ступень называет себя: «вошло 0» читалось как «работала
+    # и не нашла», а она не работала вовсе (okf/contact-ladder.md).
+    if cfg.RDAP_ENABLED:
+        print(
+            f"  2. RDAP              вошло {counters.get('rdap_entered', 0)}, "
+            f"нашли {counters.get('rdap_found', 0)}, не ответил {counters.get('rdap_failed', 0)}"
+        )
+    else:
+        print("  2. RDAP              выключена настройкой (CONTACTS_RDAP_ENABLED)")
     refused = counters.get("provider_refused", 0)
     print(
         f"  3. платный сервис    вошло {counters.get('provider_entered', 0)}, "

@@ -177,7 +177,7 @@
       "worst": "—"
     },
     "backend/api/runs/routes.py": {
-      "lines": 175,
+      "lines": 176,
       "complexity": 2,
       "worst": "effective_cap:42"
     },
@@ -317,8 +317,8 @@
       "worst": "_print_summary:147"
     },
     "backend/cli/contact_search.py": {
-      "lines": 94,
-      "complexity": 4,
+      "lines": 99,
+      "complexity": 5,
       "worst": "_print_report:24"
     },
     "backend/cli/crawl_probe.py": {
@@ -347,14 +347,14 @@
       "worst": "cmd_keywords:83"
     },
     "backend/cli/letters_queue.py": {
-      "lines": 146,
-      "complexity": 5,
+      "lines": 148,
+      "complexity": 6,
       "worst": "_print_build:82"
     },
     "backend/cli/main.py": {
-      "lines": 416,
+      "lines": 420,
       "complexity": 9,
-      "worst": "_print_report:222"
+      "worst": "_print_report:226"
     },
     "backend/cli/senders_admin.py": {
       "lines": 134,
@@ -487,9 +487,9 @@
       "worst": "_request:209"
     },
     "backend/features/ahrefs/units.py": {
-      "lines": 229,
+      "lines": 233,
       "complexity": 4,
-      "worst": "read:66"
+      "worst": "read:67"
     },
     "backend/features/contacts/__init__.py": {
       "lines": 2,
@@ -522,9 +522,9 @@
       "worst": "_query:135"
     },
     "backend/features/contacts/pages.py": {
-      "lines": 246,
+      "lines": 261,
       "complexity": 6,
-      "worst": "get:194"
+      "worst": "get:195"
     },
     "backend/features/contacts/provider.py": {
       "lines": 221,
@@ -532,9 +532,9 @@
       "worst": "find_emails:185"
     },
     "backend/features/contacts/quality.py": {
-      "lines": 216,
+      "lines": 235,
       "complexity": 6,
-      "worst": "weight:192"
+      "worst": "weight:211"
     },
     "backend/features/contacts/rdap.py": {
       "lines": 111,
@@ -812,9 +812,9 @@
       "worst": "—"
     },
     "backend/features/letters/building.py": {
-      "lines": 222,
-      "complexity": 4,
-      "worst": "build:117"
+      "lines": 247,
+      "complexity": 5,
+      "worst": "build:121"
     },
     "backend/features/letters/chain.py": {
       "lines": 55,
@@ -1022,7 +1022,7 @@
       "worst": "units_left:27"
     },
     "backend/features/runs/estimate.py": {
-      "lines": 126,
+      "lines": 127,
       "complexity": 2,
       "worst": "budget:70"
     },
@@ -1037,19 +1037,19 @@
       "worst": "recover:127"
     },
     "backend/features/runs/pipeline.py": {
-      "lines": 449,
+      "lines": 450,
       "complexity": 8,
       "worst": "execute_run:300"
     },
     "backend/features/runs/planning.py": {
-      "lines": 291,
-      "complexity": 6,
-      "worst": "gather_candidates:193"
+      "lines": 315,
+      "complexity": 7,
+      "worst": "gather_candidates:210"
     },
     "backend/features/runs/repository.py": {
-      "lines": 285,
-      "complexity": 3,
-      "worst": "claimed_units:168"
+      "lines": 346,
+      "complexity": 6,
+      "worst": "_own_runs:74"
     },
     "backend/features/runs/spending.py": {
       "lines": 143,
@@ -1167,7 +1167,7 @@
       "worst": "sweep:38"
     },
     "backend/workers/jobs.py": {
-      "lines": 228,
+      "lines": 229,
       "complexity": 2,
       "worst": "_run:40"
     },

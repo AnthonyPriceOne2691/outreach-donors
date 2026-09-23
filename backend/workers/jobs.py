@@ -135,6 +135,7 @@ async def _build_letters(
                 "funnel": report.funnel,
                 "blocked_by": report.blocked_by,
                 "notes": report.notes,
+                "bad_addresses": report.bad_addresses,
             }
     finally:
         await rewriter.aclose()

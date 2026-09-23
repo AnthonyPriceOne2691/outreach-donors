@@ -332,6 +332,7 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
         units_left=budget,
         exclusions=deps.exclusions,
         stage=request.stage,
+        country_share=await deps.runs.country_call_share(request.country),
     )
     await deps.runs.set_estimate(run, plan.estimate.total)
     # Дальше каждая запись несёт идентификатор прогона, включая чужие логгеры:

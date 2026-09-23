@@ -94,6 +94,8 @@ def _print_build(report: BuildReport) -> None:
         )
     if report.off_corridor:
         print(f"Вне коридора отличия: {report.off_corridor} — посмотреть перед отправкой.")
+    for reason, times in report.bad_addresses.items():
+        print(f"Пропущено, адрес не прошёл фильтр — {reason}: {times}")
     for note, times in sorted(report.notes.items(), key=lambda pair: -pair[1]):
         print(f"  {note}: {times}")
 

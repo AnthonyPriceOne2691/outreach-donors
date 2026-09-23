@@ -155,6 +155,44 @@ class TestRejection:
         assert marker in reason
 
 
+class TestPlaceholderDomains:
+    """Прогон 23.09.2026, 100 ключей US: со страниц снялись адреса из
+    примеров — `support@yourcompany.com`, `you@yourbusiness.com`,
+    `sarah.mitchell@company.com`. Правило по форме имени домена, а не
+    список: заглушек бесконечно много, ниши и страны разные."""
+
+    @pytest.mark.parametrize(
+        "email",
+        [
+            "support@yourcompany.com",
+            "you@yourbusiness.com",
+            "sarah.mitchell@company.com",
+            "info@my-site.co.uk",
+            "hello@yourwebsite.de",
+            "editor@acme.com",
+        ],
+    )
+    def test_placeholder_domain_is_refused(self, email: str) -> None:
+        reason = rejection_reason(email)
+        assert reason is not None
+        assert "домен-заглушка" in reason
+
+    @pytest.mark.parametrize(
+        "email",
+        [
+            # Настоящее издание из той же выдачи: голый префикс `your`
+            # отрезал бы его.
+            "info@yourstory.com",
+            "info@business.com",
+            "press@companyname.io",
+            "hello@websitebuilder.com",
+            "team@mycompanyhub.com",
+        ],
+    )
+    def test_real_sites_with_similar_names_pass(self, email: str) -> None:
+        assert rejection_reason(email) is None
+
+
 class TestWeight:
     def test_money_page_beats_home(self) -> None:
         """Адрес со страницы «advertise» ведёт к тому, кто называет цену,

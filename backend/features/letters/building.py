@@ -37,6 +37,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.features.contacts.quality import rejection_reason
 from backend.features.core import usage
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.outreach import MessageModel
@@ -97,6 +98,9 @@ class BuildReport:
     #: Незаполненные настройки, из-за которых отправить нельзя ни одно
     #: из подготовленных писем. Пусто — очередь готова к отправке.
     blocked_by: list[str] = field(default_factory=list)
+    #: Доноры, чей сохранённый адрес не прошёл нынешний фильтр качества:
+    #: причина → сколько. Письма им не готовятся.
+    bad_addresses: dict[str, int] = field(default_factory=dict)
 
 
 class QueueBuilder:
@@ -143,6 +147,8 @@ class QueueBuilder:
 
         candidates = await self._repo.candidates(request.stage, limit=request.limit)
         for candidate in candidates:
+            if self._bad_address(candidate, report):
+                continue
             await self._prepare(
                 candidate,
                 letter_template,
@@ -159,6 +165,25 @@ class QueueBuilder:
             report.off_corridor,
         )
         return report
+
+    @staticmethod
+    def _bad_address(candidate: Candidate, report: BuildReport) -> bool:
+        """Адрес перепроверяется фильтром качества при каждой сборке.
+
+        Фильтр живёт в лестнице контактов и срабатывает в момент находки,
+        а база копится месяцами: правило, добавленное позже, иначе не
+        действовало бы на уже сохранённые адреса. Прогон 23.09.2026 оставил
+        в базе `you@yourbusiness.com` — фильтр тогда заглушки по домену
+        не знал. Проверка до вызова модели: письмо, которое не уйдёт,
+        не стоит токенов.
+        """
+        reason = rejection_reason(candidate.email)
+        if reason is None:
+            return False
+        title = reason.split(":", 1)[0]
+        report.bad_addresses[title] = report.bad_addresses.get(title, 0) + 1
+        logger.warning("письма: %s пропущен — %s", candidate.host, reason)
+        return True
 
     async def _prepare(
         self,

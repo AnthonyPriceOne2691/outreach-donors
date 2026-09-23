@@ -158,7 +158,11 @@ async def cmd_run(args: argparse.Namespace) -> int:
             allowed = min(args.cap, month_left) if args.cap else month_left
             budget = await units_left(client, cap=allowed)
             plan = await plan_run(
-                candidates, donors, units_left=budget, exclusions=Exclusions(session)
+                candidates,
+                donors,
+                units_left=budget,
+                exclusions=Exclusions(session),
+                country_share=await runs.country_call_share(args.country),
             )
             _print_plan(plan, budget)
 
@@ -335,7 +339,7 @@ def build_parser() -> argparse.ArgumentParser:
     contacts.add_argument(
         "--no-paid",
         action="store_true",
-        help="только бесплатные ступени: MX, страницы, RDAP",
+        help="только бесплатные ступени: MX, страницы (и RDAP, если включена)",
     )
     contacts.add_argument(
         "--browser",

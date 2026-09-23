@@ -67,7 +67,7 @@ def add_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None
     promote.add_argument(
         "--no-paid",
         action="store_true",
-        help="только бесплатные ступени лестницы: MX, страницы, RDAP",
+        help="только бесплатные ступени лестницы: MX, страницы (и RDAP, если включена)",
     )
 
     suppliers = sub.add_parser(

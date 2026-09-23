@@ -8,10 +8,12 @@ from backend.features.ahrefs.units import (
     MIN_REQUEST_UNITS,
     UNITS_BY_COUNTRY,
     UNITS_DR_SCREEN,
+    UNITS_FULL_METRICS,
     UnitsCost,
     batch_cost,
     estimate_run,
 )
+from backend.features.runs.repository import country_share_from
 
 
 class TestUnitsCost:
@@ -59,40 +61,29 @@ class TestBatchCost:
 
 
 class TestRunEstimate:
-    def test_matches_the_measured_projection(self) -> None:
-        """Прогон на 100 000 доменов — около 2,95 млн юнитов.
+    def test_estimate_is_an_upper_bound_on_metrics(self) -> None:
+        """Полные метрики считаются на все новые домены: просев по DR
+        отсекает 0–15%, а заниженная смета значит, что кап не держит трату.
+        Было 83% — и смета занижала трату в 14 прогонах из 14, до +132%."""
+        estimate = estimate_run(1000, country_share=0.0)
 
-        Было 3,84 млн: страны брались отдельным запросом по каждому
-        дошедшему домену, по 55 юнитов. Теперь верхняя страна приезжает
-        пакетом вместе с метриками (+10 на домен), и отдельный запрос
-        нужен примерно каждому пятому — 29,5 юнита на домен вместо 38.
+        assert estimate.metrics == 10 * 100 * UNITS_FULL_METRICS
+        assert estimate.by_country == 0
 
-        Если цифра поедет, значит поехали цены, воронка или доля доменов,
-        которым верхней страны не хватает.
-        """
-        estimate = estimate_run(100_000)
-        assert 2_800_000 < estimate.total < 3_100_000
-        assert 28 < estimate.per_domain < 31
+    def test_battle_run_is_not_underestimated(self) -> None:
+        """Прогон 23.09.2026: 508 новых доменов США, списано 16 998. Доля
+        запросов по странам у США по истории — около 8%."""
+        estimate = estimate_run(508, country_share=0.079)
 
-    def test_countries_no_longer_dominate_the_bill(self) -> None:
-        """Раньше страны были самой дорогой статьёй — 70% счёта прогона.
+        assert estimate.total >= 16_998
+        assert estimate.total < 16_998 * 1.1
 
-        Ради этого срез и делался: верхняя страна приезжает пакетом, и
-        отдельный запрос остаётся примерно каждому пятому. Главной статьёй
-        стали метрики, которые платятся пачками и по всем дошедшим.
-
-        Порядок ступеней при этом прежний: самый дорогой ЗАПРОС по-прежнему
-        видит меньше всего доменов.
-        """
-        estimate = estimate_run(10_000)
-
-        assert estimate.metrics > estimate.by_country > estimate.screen
-
-    def test_better_funnel_costs_less(self) -> None:
-        """Чем строже пороги, тем дешевле прогон: до стран доходит меньше."""
-        loose = estimate_run(10_000, all_pass_share=0.80)
-        strict = estimate_run(10_000, all_pass_share=0.20)
-        assert strict.total < loose.total
+    def test_more_country_calls_cost_more(self) -> None:
+        """Страна, где верхняя страна пакета редко совпадает с целевой,
+        дороже: у ЮАР и Австрии запрос нужен 60%, у США 8%."""
+        us = estimate_run(10_000, country_share=0.08)
+        za = estimate_run(10_000, country_share=0.6)
+        assert za.total > us.total
 
     def test_only_new_domains_are_billed(self) -> None:
         """За домены со свежими данными уже заплачено, в смету
@@ -105,15 +96,15 @@ class TestRunEstimate:
         assert estimate_run(domains).screen >= MIN_REQUEST_UNITS
 
     def test_by_country_has_no_batch_discount(self) -> None:
-        """Пакетного аналога у запроса по странам нет — цена линейна.
+        """Пакетного аналога у запроса по странам нет — цена линейна."""
+        estimate = estimate_run(1000, country_share=0.5)
 
-        Но платят его не все дошедшие, а те, кому верхней страны из пакета
-        не хватило: у них наверху не целевая страна, и про целевую мы
-        не знаем ничего.
-        """
-        estimate = estimate_run(1000, all_pass_share=0.5)
+        assert estimate.by_country == 500 * UNITS_BY_COUNTRY
 
-        assert estimate.by_country == int(500 * COUNTRY_CALL_SHARE) * UNITS_BY_COUNTRY
+    def test_without_history_the_share_errs_high(self) -> None:
+        """Без своей истории доля — с запасом: занизить значит пропустить
+        трату мимо капа."""
+        assert COUNTRY_CALL_SHARE >= 0.5
 
 
 class TestCachedResponses:
@@ -146,3 +137,43 @@ class TestCachedResponses:
         assert cost.known
         assert not cost.was_free
         assert cost.billable == 55
+
+
+class TestCountryShareFromHistory:
+    """Доля запросов по странам — из своих прогонов, по своей стране.
+
+    Бэктест на 14 прогонах 22–23.09.2026: одна константа занижала смету
+    в 14 из 14 (до +132%), своя страна со свежим окном — в 2 из 14 (до +6%).
+    """
+
+    @staticmethod
+    def _run(checked: int, calls: int) -> dict[str, object]:
+        return {"checked_now": checked, "units_by_operation": {"by_country": calls * 55}}
+
+    def test_own_country_wins(self) -> None:
+        history = [("za", self._run(100, 60)), ("us", self._run(500, 40))]
+
+        assert country_share_from(history, "US") == pytest.approx(0.08)
+        assert country_share_from(history, "za") == pytest.approx(0.6)
+
+    def test_other_countries_do_not_transfer(self) -> None:
+        """Доля ходит от 3% до 88% по странам: средняя по чужим для новой
+        страны занижала смету. Без своей истории — умолчание с запасом."""
+        history = [("us", self._run(500, 40)), ("vn", self._run(300, 10))]
+
+        assert country_share_from(history, "fr") == COUNTRY_CALL_SHARE
+
+    def test_too_little_own_history_is_noise(self) -> None:
+        assert country_share_from([("mx", self._run(5, 5))], "mx") == COUNTRY_CALL_SHARE
+
+    def test_fresh_window_washes_out_old_logic(self) -> None:
+        """Прогоны до пакетной верхней страны звали запрос на каждый домен.
+        Свежее окно в 500 доменов вымывает их без дат и исключений."""
+        newest_first = [("us", self._run(508, 40)), ("us", self._run(83, 80))]
+
+        assert country_share_from(newest_first, "us") == pytest.approx(40 / 508)
+
+    def test_runs_without_checks_are_skipped(self) -> None:
+        history = [("us", {"checked_now": 0}), ("us", self._run(100, 10))]
+
+        assert country_share_from(history, "us") == pytest.approx(0.1)
