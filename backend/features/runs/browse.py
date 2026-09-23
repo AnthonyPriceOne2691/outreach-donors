@@ -8,12 +8,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.models.run import RunModel
+from backend.features.donors.selection import ReviewTally, tally_reviews
 
 
 class UnknownRunError(ValueError):
@@ -25,6 +26,8 @@ class RunRow:
     """Строка списка прогонов."""
 
     run: RunModel
+    #: Проверка человеком доменов этого прогона — на момент чтения.
+    review: ReviewTally = field(default_factory=ReviewTally)
 
     @property
     def estimate_error(self) -> float | None:
@@ -44,10 +47,18 @@ class RunBrowser:
         rows = await self._session.execute(
             select(RunModel).order_by(RunModel.id.desc()).limit(limit)
         )
-        return [RunRow(run=run) for run in rows.scalars().all()]
+        runs = list(rows.scalars().all())
+        tallies = await tally_reviews(self._session, {run.id: _hosts(run) for run in runs})
+        return [RunRow(run=run, review=tallies[run.id]) for run in runs]
 
     async def one(self, run_id: int) -> RunRow:
         run = await self._session.get(RunModel, run_id)
         if run is None:
             raise UnknownRunError(f"Прогона №{run_id} нет")
-        return RunRow(run=run)
+        tallies = await tally_reviews(self._session, {run.id: _hosts(run)})
+        return RunRow(run=run, review=tallies[run.id])
+
+
+def _hosts(run: RunModel) -> list[str]:
+    hosts = (run.candidates or {}).get("hosts")
+    return [str(host) for host in hosts] if isinstance(hosts, list) else []

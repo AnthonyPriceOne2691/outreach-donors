@@ -58,6 +58,8 @@ const QUEUED = {
   started_at: '2026-09-21T10:00:00Z',
   alive_at: '2026-09-21T10:00:00Z',
   hosts: null,
+  reviewed: 0,
+  disagreements: 0,
 };
 
 const STOPPED = {
@@ -345,5 +347,25 @@ describe('прогон', () => {
       country: 'us',
       depth_pages: 1,
     });
+  });
+
+  it('показывает, как часто человек разошёлся с судьёй', async () => {
+    // Доля расхождений — единственная проверка судьи, как расхождение
+    // сметы и факта — проверка сметы. Считается при чтении: решают после.
+    const judged = {
+      ...STOPPED,
+      id: 9,
+      status: 'done',
+      stats: { judge: { mode: 'shadow', would_cut: 26 } },
+      reviewed: 4,
+      disagreements: 1,
+    };
+    await openRun({ 'GET /api/runs': { body: { runs: [judged, QUEUED], workers: 1 } } });
+
+    expect(await screen.findByText('отрезал бы 26')).toBeInTheDocument();
+    expect(screen.getByText(/расходится 1 из 4/)).toBeInTheDocument();
+    // У выключенного судьи нуля нет — «выключен» и «никого не нашёл» разные новости.
+    expect(screen.getByText('выключен')).toBeInTheDocument();
+    expect(screen.getByText('человек не смотрел')).toBeInTheDocument();
   });
 });

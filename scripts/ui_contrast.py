@@ -150,8 +150,13 @@ SCREENS: dict[str, dict] = {
             # Главное на экране: исходный текст ответа, по которому
             # человек проверяет разобранную цену.
             ("текст ответа", "[style*='pre-wrap']", NORM),
-            ("подпись поля цены", "label", NORM),
+            # По тексту, а не по тегу: первым `label` на странице идёт
+            # переключатель тем в колонке, и 23.09 мерился он (1,34 : 1).
+            ("подпись поля цены", "label:has-text('Белая цена')", NORM),
             ("значок состояния", ".mantine-Badge-label", NORM),
+            # Приглушённый мелкий текст на вложенной подложке: 23.09 он
+            # не дотягивал до нормы в тёмной теме, и мерили его впервые.
+            ("статус письма", ".glassQuiet p[data-size='xs']", NORM),
             ("кнопка «Подтвердить»", "button:has-text('Подтвердить')", BIG),
             ("пункт меню", "nav a", NORM),
         ],
@@ -169,6 +174,11 @@ SCREENS: dict[str, dict] = {
             ("значок состояния прогона", "table tbody .mantine-Badge-label", NORM),
             ("отметка о жизни", "table tbody tr td p.mantine-Text-root", NORM),
             ("предупреждение об очереди", ".mantine-Alert-body", NORM),
+            ("судья в истории прогонов", "table tbody td:nth-child(8) p", NORM),
+            # Плитки сметы: подпись и пояснение лежат приглушённым мелким
+            # текстом на вложенной подложке — 23.09 это не держало норму.
+            ("подпись плитки сметы", ".glassQuiet p:nth-child(1)", NORM),
+            ("пояснение под числом", ".glassQuiet p:nth-child(3)", NORM),
             ("кнопка «Запустить»", "button:has-text('Запустить')", BIG),
             # Второй режим поля ключей — сборка моделью. Эти элементы
             # существуют только в нём, поэтому подготовка экрана
@@ -233,6 +243,26 @@ SCREENS: dict[str, dict] = {
             ("пункт меню", "nav a", NORM),
         ],
     },
+    "selection": {
+        "path": "/selection",
+        "ready": ("heading", "Отбор"),
+        "probes": [
+            ("заголовок раздела", "h3", BIG),
+            ("пояснение под ним", "p.mantine-Text-root", NORM),
+            ("число в плитке", ".glassQuiet p:nth-child(2)", BIG),
+            ("подпись плитки", ".glassQuiet p:nth-child(1)", NORM),
+            ("пояснение под числом", ".glassQuiet p:nth-child(3)", NORM),
+            # ⚠ Сегмент ищется внутри панели: первым на странице идёт
+            # переключатель тем из шапки (22.09 замер печатал «МАЛО» про него).
+            ("вкладка отбора", ".glassPanel .mantine-SegmentedControl-innerLabel", NORM),
+            # Главное на экране: кто отклонил и почему.
+            ("домен в строке", "table tbody td a", NORM),
+            ("вердикт судьи значком", "table tbody td:nth-child(3) .mantine-Badge-label", NORM),
+            ("цитата судьи", "table tbody td:nth-child(3) p", NORM),
+            ("кнопка решения", "table tbody button", BIG),
+            ("пункт меню", "nav a", NORM),
+        ],
+    },
     "letters": {
         "path": "/letters",
         # ⚠ Кнопка «Отправить» выключена, пока письмо нельзя отправить,
@@ -250,6 +280,8 @@ SCREENS: dict[str, dict] = {
             # целиком перед тем, как тот уйдёт постороннему.
             ("текст письма", "[style*='pre-wrap']", NORM),
             ("донор в очереди", "[aria-current='true'] p", NORM),
+            ("адрес у выбранного письма", "[aria-current='true'] p:nth-child(2)", NORM),
+            ("подпись плитки", ".glassQuiet p:nth-child(1)", NORM),
             ("процент отличия", "[aria-current='true'] .mantine-Badge-label", NORM),
             # Вкладки цепочки: согласуя первое письмо, человек читает
             # здесь же оба следующих, и подпись невыбранной вкладки
@@ -298,8 +330,12 @@ def measurable(page, selector):
         return None, f"не найден ({selector})"
     if el.is_disabled():
         return None, "выключен — у выключенного меряется серое на сером"
-    el.scroll_into_view_if_needed()
-    page.wait_for_timeout(200)
+    # В середину окна, а не «если нужно»: прокрутка к краю ставит элемент
+    # под закреплённую шапку, и меряется её стекло поверх него. 23.09 так
+    # «провалились» подписи плиток сметы в светлой теме и подпись поля
+    # цены (1,34 : 1) — на снимке обе читаются легко.
+    el.evaluate("node => node.scrollIntoView({block: 'center'})")
+    page.wait_for_timeout(300)
     return el, None
 
 

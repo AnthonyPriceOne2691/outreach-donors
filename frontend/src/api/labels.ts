@@ -13,11 +13,14 @@ import type {
   ContactSource,
   ContactStatus,
   DonorStatus,
+  HumanIntent,
+  JudgeDecider,
   MessageStatus,
   Permission,
   ReplyKind,
   Role,
   RunStatus,
+  SelectionTab,
   SuppressionReason,
   ThreadState,
   UsageProvider,
@@ -214,4 +217,34 @@ export const SUPPRESSION_REASON_TITLES: Record<SuppressionReason, string> = {
   complained: 'пожаловался',
   supplier: 'поставщик',
   manual: 'вручную',
+};
+
+/** Вкладки отбора. Порядок — порядок работы: сначала то, что принято. */
+export const SELECTION_TABS: Record<SelectionTab, { title: string; color: string }> = {
+  accepted: { title: 'Приняты', color: 'green' },
+  review: { title: 'К разбору', color: 'yellow' },
+  rejected: { title: 'Отклонены', color: 'red' },
+};
+
+/** Кто вынес вердикт судьи — словами оператора, а не кодами. */
+export const JUDGE_DECIDERS: Record<JudgeDecider, { title: string; hint: string }> = {
+  rule: { title: 'правило', hint: 'выдача и главная сказали одно' },
+  model: { title: 'модель', hint: 'по тексту выдачи' },
+  arbiter: { title: 'арбитр', hint: 'выдача и главная спорили' },
+};
+
+export const JUDGE_ADVICE: Record<
+  'accept' | 'review' | 'reject',
+  { title: string; color: string }
+> = {
+  accept: { title: 'площадка', color: 'green' },
+  review: { title: 'посмотри', color: 'yellow' },
+  reject: { title: 'не площадка', color: 'red' },
+};
+
+/** Что человек говорит о сайте. */
+export const HUMAN_INTENTS: Record<HumanIntent, string> = {
+  publisher: 'Площадка',
+  sells_own: 'Продаёт своё',
+  non_commercial: 'Не продаёт места',
 };

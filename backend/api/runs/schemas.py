@@ -115,6 +115,10 @@ class RunCard(BaseModel):
     #: Сколько доменов дала выдача. Появляется раньше любых трат —
     #: это первое, что видно после нажатия.
     hosts: int | None
+    #: Сколько доменов прогона посмотрел человек на экране отбора и сколько
+    #: раз разошёлся с судьёй. Считается при чтении: решают после прогона.
+    reviewed: int
+    disagreements: int
 
     @classmethod
     def of(cls, row: RunRow) -> RunCard:
@@ -131,6 +135,8 @@ class RunCard(BaseModel):
             started_at=row.run.created_at,
             alive_at=row.run.updated_at,
             hosts=len(candidates["hosts"]) if candidates.get("hosts") is not None else None,
+            reviewed=row.review.reviewed,
+            disagreements=row.review.disagreements,
         )
 
 

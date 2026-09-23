@@ -26,7 +26,11 @@ export function Metric({ title, value, hint, color }: Props) {
   return (
     <Card className="glassQuiet" p="md">
       <Stack gap={4} align="center" ta="center">
-        <Text size="xs" c="dimmed">
+        {/* Подпись — полными чернилами. Она стоит в верхней части плитки,
+            на блике стекла, и приглушённый тон там не держал норму в тёмной
+            теме: 4,44 : 1, при том что пояснение того же тона внизу плитки
+            давало 6,03 (замер 23.09). Иерархию держат размер и вес числа. */}
+        <Text size="xs" c="var(--ink)">
           {title}
         </Text>
         <Text fw={600} fz="xl" c={color ?? 'inherit'}>

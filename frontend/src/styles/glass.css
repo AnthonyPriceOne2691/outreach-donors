@@ -400,6 +400,13 @@ html:root[data-mantine-color-scheme='dark'] {
   background: var(--glass-fill-quiet);
   border: 1px solid var(--glass-edge);
   border-radius: var(--radius-inner);
+  /* Приглушённый тон внутри вложенного блока — на ступень ближе к чернилам.
+     Подложка светлее панели, и обычный приглушённый на ней в тёмной теме
+     не дотягивал до нормы: подпись плитки 4,19 : 1 при норме 4,5 (замер
+     23.09 по пикселям снимка). Правка здесь, а не в местах вызова: мелкий
+     приглушённый текст на этой подложке стоял в четырёх местах, и пятое
+     появится само. */
+  --mantine-color-dimmed: color-mix(in oklch, var(--ink-soft) 35%, var(--ink));
 }
 
 /* Кликабельная строка: кромка держится всегда, прозрачная, и по наведению
@@ -786,13 +793,15 @@ html:root[data-mantine-color-scheme='dark'] .orb4 {
 
 .mantine-Button-root:not(:disabled):not([data-loading]),
 .mantine-ActionIcon-root:not(:disabled) {
+  /* Одна быстрая кривая на всё: под `ease` тень доходила за 220 мс и
+     отклик на курсор читался запоздалым («анимация вялая», 23.09). */
   transition:
-    background-color 200ms ease,
-    border-color 200ms ease,
-    color 200ms ease,
-    box-shadow 220ms ease,
-    filter 180ms ease,
-    transform 160ms cubic-bezier(0.32, 0.72, 0, 1);
+    background-color 160ms cubic-bezier(0.32, 0.72, 0, 1),
+    border-color 160ms cubic-bezier(0.32, 0.72, 0, 1),
+    color 160ms cubic-bezier(0.32, 0.72, 0, 1),
+    box-shadow 160ms cubic-bezier(0.32, 0.72, 0, 1),
+    filter 140ms cubic-bezier(0.32, 0.72, 0, 1),
+    transform 140ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 /* Заливные и градиентные: свет и подъём на пиксель. Тень при этом растёт —
@@ -816,9 +825,17 @@ html:root[data-mantine-color-scheme='dark'] .orb4 {
   transform: translateY(-1px);
 }
 
-.mantine-Button-root:active:not(:disabled),
-.mantine-ActionIcon-root:active:not(:disabled) {
-  transform: translateY(0) scale(0.985);
+/* ⚠ `[data-variant]` здесь не для красоты: без него правило весит меньше
+   наведения выше (там есть атрибут варианта), а мышь при нажатии всегда
+   наведена. До 23.09 нажатие у заливных и тихих кнопок не срабатывало
+   вовсе — оставался подъём от наведения, и кнопка казалась вялой. */
+.mantine-Button-root[data-variant]:active:not(:disabled),
+.mantine-ActionIcon-root[data-variant]:active:not(:disabled) {
+  transform: translateY(0) scale(0.975);
+  /* Вдавливание почти мгновенное, отпускание — по общему правилу выше.
+     При 160 мс в обе стороны быстрый щелчок (~100 мс) отпускал кнопку
+     раньше, чем она доходила до дна, и нажатие почти не чувствовалось. */
+  transition-duration: 70ms;
 }
 
 /* Пункт меню и строка списка ведут себя так же, но тише: они не действия,
