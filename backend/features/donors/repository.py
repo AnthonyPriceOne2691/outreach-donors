@@ -15,6 +15,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
@@ -37,6 +38,10 @@ class JudgeRecord:
     quote: str | None = None
     source_url: str | None = None
     model: str | None = None
+    #: Кто решил: `rule`, `model`, `arbiter` (`publisher_judge.Decider`).
+    decided_by: str | None = None
+    #: Что сказала главная; `None` — не спрашивали.
+    home: dict[str, Any] | None = None
 
 
 def _is_partial(result: DomainResult) -> bool:
@@ -132,6 +137,8 @@ class DonorRepository:
                     judge_reason=record.reason,
                     judge_source_url=record.source_url,
                     judge_model=record.model,
+                    judge_decided_by=record.decided_by,
+                    judge_home=record.home,
                     judged_at=moment,
                 )
             )

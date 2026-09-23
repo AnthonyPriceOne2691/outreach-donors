@@ -57,6 +57,7 @@ from backend.features.runs.planning import (
 from backend.features.runs.repository import RunRepository
 from backend.features.serp.protocol import SerpProvider
 from backend.shared.logs import run_context
+from backend.shared.net.url_guard import guarded_client
 
 logger = logging.getLogger(__name__)
 
@@ -243,12 +244,27 @@ async def _judge_candidates(
     равно отбросим, платить метриками незачем. В наблюдении он не режет,
     но считает сэкономленное — см. `donors/judging.py`.
     """
-    if judge_cfg.MODE is judge_cfg.JudgeMode.OFF or not plan.new:
+    # Свежие домены тоже судятся, если вердикта у них нет: иначе у базы,
+    # собранной до судьи, его не появится никогда (замер 23.09 — 28 из 43
+    # доменов ниши ставок). Платят за это токенами, не юнитами, и экономию
+    # такие домены не дают: их метрики уже куплены.
+    hosts = [*plan.new, *plan.fresh]
+    if judge_cfg.MODE is judge_cfg.JudgeMode.OFF or not hosts:
         return None
 
-    fresh = await deps.donors.fresh_judged(plan.new)
-    async with httpx.AsyncClient(timeout=llm_cfg.TIMEOUT_S) as http:
-        outcome = await judge_candidates(http, plan.new, candidates.texts, already_judged=fresh)
+    fresh = await deps.donors.fresh_judged(hosts)
+    async with (
+        httpx.AsyncClient(timeout=llm_cfg.TIMEOUT_S) as http,
+        guarded_client(timeout=judge_cfg.HOME_TIMEOUT_SEC) as home,
+    ):
+        outcome = await judge_candidates(
+            http,
+            hosts,
+            candidates.texts,
+            already_judged=fresh,
+            paid=plan.new,
+            home_client=home if judge_cfg.HOME_CHECK else None,
+        )
 
     # Вердикты сохраняются СРАЗУ, до метрик: прогон, упавший на Ahrefs,
     # не должен стоить уже оплаченных токенов.
@@ -404,6 +420,8 @@ def _run_stats(report: RunReport, failure: str | None) -> dict[str, object]:
             "would_cut": summary.would_cut,
             "to_review": summary.to_review,
             "by_intent": dict(summary.by_intent),
+            "by_decider": dict(summary.by_decider),
+            "home_unreached": summary.home_unreached,
             "tokens": summary.tokens,
             # В наблюдении это «сэкономил бы», во включённом — «сэкономил».
             # Число одно, и по режиму рядом видно, какое из двух.

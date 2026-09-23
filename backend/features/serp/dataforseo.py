@@ -145,9 +145,7 @@ def _organic(items: Sequence[Any], wanted: int) -> list[SerpResult]:
                 url=url,
                 title=title if isinstance(title, str) and title.strip() else None,
                 description=(
-                    description
-                    if isinstance(description, str) and description.strip()
-                    else None
+                    description if isinstance(description, str) and description.strip() else None
                 ),
             )
         )

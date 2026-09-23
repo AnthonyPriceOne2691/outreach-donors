@@ -39,6 +39,7 @@ from backend.cli.senders_admin import add_parser as add_senders_parser
 from backend.cli.senders_admin import cmd_sender_add, cmd_senders
 from backend.config import ahrefs as ahrefs_cfg
 from backend.config import filters, storage
+from backend.config import judge as judge_cfg
 from backend.config.startup_checks import ConfigError, check_collect, check_storage
 from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.ahrefs.units import Quota
@@ -236,6 +237,7 @@ def _print_report(report: RunReport) -> None:
         print(f"\nБесплатно из кэша Ahrefs: {total_free} запросов")
         for operation, count in sorted(report.free_by_operation.items(), key=lambda kv: -kv[1]):
             print(f"  {operation:<18} {count}")
+    _print_judge(report)
     if abs(error) > 0.2:
         assumed = 0.39  # доля, заложенная в смету по замеру Ф2
         actual = report.actual_pass_share
@@ -253,6 +255,33 @@ def _print_report(report: RunReport) -> None:
                 "  Воронка совпала с ожидаемой — значит, изменились цены. "
                 "Стоит перемерить: scripts/measure_units.py"
             )
+
+
+#: Кто решил — словами оператора, а не кодами модели.
+DECIDERS = {"rule": "правилом", "model": "моделью по выдаче", "arbiter": "арбитром"}
+
+
+def _print_judge(report: RunReport) -> None:
+    """Ветка судьи. Нет её вовсе при выключенном судье: ноль читался бы
+    как «судил и никого не нашёл», а это другая новость."""
+    judge = report.judge
+    if judge is None:
+        return
+    mode = "наблюдение, не режет" if judge_cfg.MODE is judge_cfg.JudgeMode.SHADOW else "режет"
+    cut = "отрезал бы" if judge_cfg.MODE is judge_cfg.JudgeMode.SHADOW else "отрезал"
+    print(f"\nСудья площадки ({mode}):")
+    print(
+        f"  судил {judge.judged}, из кэша {judge.from_cache}, токенов {judge.tokens:,}".replace(
+            ",", " "
+        )
+    )
+    print(f"  {cut} {judge.would_cut}, к человеку {judge.to_review}")
+    for who, count in sorted(judge.by_decider.items(), key=lambda kv: -kv[1]):
+        print(f"    решено {DECIDERS.get(who, who):<18} {count}")
+    if judge.home_unreached:
+        print(f"  главная не открылась: {judge.home_unreached} — решала одна выдача")
+    if judge.units_saved:
+        print(f"  юнитов сэкономил бы: {judge.units_saved:,} (нижняя граница)".replace(",", " "))
 
 
 def build_parser() -> argparse.ArgumentParser:

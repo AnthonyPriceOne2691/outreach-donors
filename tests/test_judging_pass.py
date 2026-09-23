@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import pytest
-
+from backend.features.donors.home_signals import HomeSignals
 from backend.features.donors.judging import (
     UNITS_DR,
     UNITS_METRICS,
     JudgeSummary,
     judge_candidates,
 )
-from backend.features.donors.publisher_judge import Intent, Judgement, Recommendation
+from backend.features.donors.publisher_judge import Decider, Intent, Judgement, Recommendation
 from backend.features.runs.planning import SerpText
 
 TEXTS = {
@@ -53,7 +53,7 @@ def judge(monkeypatch: pytest.MonkeyPatch) -> FakeJudge:
 
 
 @pytest.mark.asyncio
-async def test_считает_каждого_и_складывает_токены(judge: FakeJudge) -> None:
+async def test_counts_each_and_sums_tokens(judge: FakeJudge) -> None:
     result = await judge_candidates(None, list(TEXTS), TEXTS)  # type: ignore[arg-type]
 
     assert result.summary.judged == 3
@@ -64,7 +64,7 @@ async def test_считает_каждого_и_складывает_токен�
 
 
 @pytest.mark.asyncio
-async def test_свежий_вердикт_не_пересуживается(judge: FakeJudge) -> None:
+async def test_fresh_verdict_is_not_rejudged(judge: FakeJudge) -> None:
     """Кэш судьи — это отметка времени на домене, отдельного хранилища нет."""
     result = await judge_candidates(
         None,  # type: ignore[arg-type]
@@ -82,7 +82,7 @@ async def test_свежий_вердикт_не_пересуживается(jud
 
 
 @pytest.mark.asyncio
-async def test_вердикт_несёт_адрес_судимой_страницы(judge: FakeJudge) -> None:
+async def test_verdict_carries_judged_page_url(judge: FakeJudge) -> None:
     """Без адреса цитата повисает без контекста, а тип страницы решает."""
     result = await judge_candidates(None, ["media.example"], TEXTS)  # type: ignore[arg-type]
 
@@ -93,7 +93,7 @@ async def test_вердикт_несёт_адрес_судимой_страни�
 
 
 @pytest.mark.asyncio
-async def test_падение_на_одном_домене_не_роняет_проход(
+async def test_one_domain_failure_does_not_break_pass(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Судья — не та ступень, ради которой теряют оплаченную выдачу."""
@@ -110,12 +110,161 @@ async def test_падение_на_одном_домене_не_роняет_п�
     assert result.summary.judged == 2, "остальные домены досужены"
 
 
-def test_экономия_считается_нижней_границей() -> None:
+def test_savings_are_a_lower_bound() -> None:
     """Завышать нельзя: на это число будут ссылаться, решая, включать ли отказ.
 
     Страны (55 юнитов) не считаются вовсе — их зовут не всем.
     """
     summary = JudgeSummary()
-    summary.would_cut = 11
+    summary.would_cut = 15
+    summary.would_cut_paid = 11
+    # Досуженные свежие домены экономии не дают: их метрики уже куплены.
     assert summary.units_saved == 11 * (UNITS_DR + UNITS_METRICS)
     assert UNITS_DR + UNITS_METRICS < 55 + UNITS_DR + UNITS_METRICS
+
+
+# --- вторая сторона: главная, правило и арбитр ------------------------------
+
+SHOP = HomeSignals(reached=True, shop=("cart:/warenkorb",), title="Shop")
+QUIET = HomeSignals(reached=True, title="Magazin")
+CLOSED = HomeSignals(reached=False, error="закрылась")
+
+
+class FakeHome:
+    def __init__(self, answers: dict[str, HomeSignals]) -> None:
+        self.answers = answers
+        self.asked: list[str] = []
+
+    async def __call__(self, client: object, host: str) -> HomeSignals:
+        self.asked.append(host)
+        return self.answers[host]
+
+
+@pytest.fixture
+def home(monkeypatch: pytest.MonkeyPatch) -> FakeHome:
+    fake = FakeHome({"brand.example": SHOP, "media.example": SHOP, "blocked.example": CLOSED})
+    monkeypatch.setattr("backend.features.donors.judging.check_home", fake)
+    return fake
+
+
+@pytest.fixture
+def arbiter(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    asked: list[str] = []
+
+    async def fake(http: object, **kwargs: object) -> Judgement:
+        asked.append(str(kwargs["host"]))
+        return Judgement(
+            Intent.SELLS_OWN,
+            Recommendation.REJECT,
+            "Shop",
+            "магазин с журналом",
+            "m",
+            700,
+            Decider.ARBITER,
+        )
+
+    monkeypatch.setattr("backend.features.donors.judging.arbitrate", fake)
+    return asked
+
+
+@pytest.mark.asyncio
+async def test_sells_own_plus_cart_is_decided_by_rule(
+    judge: FakeJudge, home: FakeHome, arbiter: list[str]
+) -> None:
+    """Две независимые стороны сказали одно — человеку смотреть нечего."""
+    result = await judge_candidates(
+        None,
+        ["brand.example"],
+        TEXTS,
+        home_client=object(),  # type: ignore[arg-type]
+    )
+
+    record = result.verdicts["brand.example"]
+    assert record.decided_by == "rule"
+    assert record.recommendation == "reject"
+    assert record.home is not None
+    assert record.home["shop"] == ["cart:/warenkorb"]
+    assert arbiter == [], "спора нет — арбитр не нужен"
+
+
+@pytest.mark.asyncio
+async def test_publisher_with_cart_goes_to_arbiter(
+    judge: FakeJudge, home: FakeHome, arbiter: list[str]
+) -> None:
+    """Сразу в отказ нельзя: корзина бывает и у изданий, продающих свои тесты."""
+    result = await judge_candidates(
+        None,
+        ["media.example"],
+        TEXTS,
+        home_client=object(),  # type: ignore[arg-type]
+    )
+
+    assert arbiter == ["media.example"]
+    record = result.verdicts["media.example"]
+    assert record.decided_by == "arbiter"
+    assert result.summary.by_decider == {"arbiter": 1}
+    # Токены обоих вызовов: арбитр — не бесплатное уточнение.
+    assert result.summary.tokens == 410 + 700
+
+
+@pytest.mark.asyncio
+async def test_quiet_home_keeps_model_verdict(
+    judge: FakeJudge, monkeypatch: pytest.MonkeyPatch, arbiter: list[str]
+) -> None:
+    monkeypatch.setattr(
+        "backend.features.donors.judging.check_home", FakeHome({"media.example": QUIET})
+    )
+    result = await judge_candidates(
+        None,
+        ["media.example"],
+        TEXTS,
+        home_client=object(),  # type: ignore[arg-type]
+    )
+
+    assert result.verdicts["media.example"].decided_by == "model"
+    assert arbiter == []
+
+
+@pytest.mark.asyncio
+async def test_no_verdict_means_no_home_request(judge: FakeJudge, home: FakeHome) -> None:
+    """У «посмотри» спорить не с чем — сайт не дёргаем зря."""
+    await judge_candidates(
+        None,
+        ["blocked.example"],
+        TEXTS,
+        home_client=object(),  # type: ignore[arg-type]
+    )
+    assert home.asked == []
+
+
+@pytest.mark.asyncio
+async def test_closed_home_is_counted_separately(
+    judge: FakeJudge, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Иначе закрывшийся сайт выглядел бы как сайт без признаков магазина."""
+    monkeypatch.setattr(
+        "backend.features.donors.judging.check_home", FakeHome({"media.example": CLOSED})
+    )
+    result = await judge_candidates(
+        None,
+        ["media.example"],
+        TEXTS,
+        home_client=object(),  # type: ignore[arg-type]
+    )
+
+    assert result.summary.home_unreached == 1
+    assert result.verdicts["media.example"].decided_by == "model"
+
+
+@pytest.mark.asyncio
+async def test_only_unpaid_domains_give_savings(judge: FakeJudge) -> None:
+    """Свежий домен досуживается ради знания, но за его метрики уже заплачено."""
+    result = await judge_candidates(
+        None,
+        ["brand.example"],
+        TEXTS,
+        paid=[],  # type: ignore[arg-type]
+    )
+
+    assert result.summary.would_cut == 1
+    assert result.summary.units_saved == 0

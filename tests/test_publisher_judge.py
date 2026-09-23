@@ -10,11 +10,14 @@ from __future__ import annotations
 import json
 
 import pytest
-
+from backend.config.judge import PLATFORM_LABELS
+from backend.features.donors.home_signals import HomeSignals
 from backend.features.donors.publisher_judge import (
+    SYSTEM,
     Intent,
     Judgement,
     Recommendation,
+    arbiter_text,
     build_payload,
     is_platform,
     judge_host,
@@ -25,7 +28,7 @@ from backend.features.donors.publisher_judge import (
 TEXT = "Top Online Casino & Sports Betting at Interbet — deposit and play"
 
 
-def test_денилист_матчит_целую_метку() -> None:
+def test_denylist_matches_whole_label() -> None:
     assert is_platform("google.com")
     assert is_platform("www.reddit.com")
     # ⚠ Вхождение строки денило бы этот домен, а он к платформе отношения
@@ -34,7 +37,7 @@ def test_денилист_матчит_целую_метку() -> None:
     assert not is_platform("betting-review.co.za")
 
 
-def test_похвала_себе_не_делает_обзорщиком() -> None:
+def test_self_praise_is_not_a_review() -> None:
     verdict = parse(
         json.dumps({"intent": "sells_own", "quote": "Top Online Casino", "why": "оператор"}),
         TEXT,
@@ -44,7 +47,7 @@ def test_похвала_себе_не_делает_обзорщиком() -> Non
     assert verdict.would_cut
 
 
-def test_обзорщик_проходит() -> None:
+def test_reviewer_passes() -> None:
     verdict = parse(
         json.dumps({"intent": "refers_out", "quote": "Sports Betting", "why": "сравнивает"}),
         TEXT,
@@ -61,13 +64,13 @@ def test_обзорщик_проходит() -> None:
         (json.dumps({"intent": "refers_out"}), "модель не дала цитаты"),
     ],
 )
-def test_непонятный_ответ_даёт_посмотри_а_не_отказ(content: str, why: str) -> None:
+def test_unreadable_answer_gives_review_not_reject(content: str, why: str) -> None:
     verdict = parse(content, TEXT)
     assert verdict.recommendation is Recommendation.REVIEW, "сбой судьи не хоронит домен"
     assert why in verdict.reason
 
 
-def test_выдуманная_цитата_понижает_вердикт() -> None:
+def test_invented_quote_downgrades_verdict() -> None:
     """Цитата, которой нет в тексте, — признак того, что модель сочинила.
 
     Вердикт при этом СОХРАНЯЕТСЯ: он уедет человеку вместе с цитатой,
@@ -83,7 +86,7 @@ def test_выдуманная_цитата_понижает_вердикт() -> 
     assert "цитата не найдена" in verdict.reason
 
 
-def test_цитата_переживает_иные_пробелы() -> None:
+def test_quote_survives_different_whitespace() -> None:
     """Модель переносит строки иначе, чем провайдер. Честная цитата от
     этого не должна проваливаться — иначе «посмотри» соберёт всех подряд."""
     verdict = parse(
@@ -93,13 +96,13 @@ def test_цитата_переживает_иные_пробелы() -> None:
     assert verdict.recommendation is Recommendation.REJECT
 
 
-def test_текст_склеивается_и_режется_по_потолку() -> None:
+def test_text_is_joined_and_capped() -> None:
     assert source_text(None, None) == ""
     assert source_text("  ", "") == ""
     assert source_text("Заголовок", "Описание") == "Заголовок\nОписание"
 
 
-def test_запрос_рассуждающей_модели_без_температуры() -> None:
+def test_reasoning_model_request_has_no_temperature() -> None:
     """Перепутать нельзя: провайдер отвечает отказом, а не догадкой."""
     reasoning = build_payload("gpt-5-mini", "example.com", TEXT)
     assert "temperature" not in reasoning
@@ -111,7 +114,7 @@ def test_запрос_рассуждающей_модели_без_темпер�
 
 
 @pytest.mark.asyncio
-async def test_платформа_не_доходит_до_модели() -> None:
+async def test_platform_never_reaches_model() -> None:
     """Денилист стоит ДО судьи и стоит ноль: вызова быть не должно."""
 
     class Boom:
@@ -130,7 +133,7 @@ async def test_платформа_не_доходит_до_модели() -> Non
 
 
 @pytest.mark.asyncio
-async def test_без_текста_выдачи_модель_не_зовётся() -> None:
+async def test_no_serp_text_means_no_model_call() -> None:
     """Судить не по чему — это «посмотри», и это бесплатно."""
 
     class Boom:
@@ -148,7 +151,7 @@ async def test_без_текста_выдачи_модель_не_зовётся
     assert "ни заголовка" in verdict.reason
 
 
-def test_would_cut_считает_только_отказ() -> None:
+def test_would_cut_counts_only_reject() -> None:
     for rec, expected in [
         (Recommendation.REJECT, True),
         (Recommendation.REVIEW, False),
@@ -182,7 +185,7 @@ NICHE_WORDS = (
 )
 
 
-def test_в_промпте_нет_ни_одного_слова_ниши() -> None:
+def test_prompt_has_no_niche_words() -> None:
     """⚠ Канарейка мультинишевости.
 
     Судья спрашивает СПОСОБ ЗАРАБОТКА: «продаёт своё» против «пишет про
@@ -194,7 +197,6 @@ def test_в_промпте_нет_ни_одного_слова_ниши() -> Non
     привык пользоваться. Пример в промпте есть, но он про ФОРМУ вывода
     («похвала себе не делает обзорщиком»), и слов ниши в нём нет.
     """
-    from backend.features.donors.publisher_judge import SYSTEM
 
     lowered = SYSTEM.lower()
     found = [word for word in NICHE_WORDS if word in lowered]
@@ -204,20 +206,14 @@ def test_в_промпте_нет_ни_одного_слова_ниши() -> Non
     )
 
 
-def test_денилист_не_знает_ниш() -> None:
+def test_denylist_knows_no_niches() -> None:
     """Денилист — про платформы, а не про рынок.
 
     Название площадки из конкретной ниши здесь появиться не может: сегодня
     это отрежет мусор, завтра — половину доноров соседнего рынка.
     """
-    from backend.config.judge import PLATFORM_LABELS
 
-    found = [
-        label
-        for label in PLATFORM_LABELS
-        for word in NICHE_WORDS
-        if word in label.lower()
-    ]
+    found = [label for label in PLATFORM_LABELS for word in NICHE_WORDS if word in label.lower()]
     assert found == [], f"в денилисте платформ появились слова ниши: {found}"
 
 
@@ -235,7 +231,7 @@ def test_денилист_не_знает_ниш() -> None:
     ],
 )
 @pytest.mark.asyncio
-async def test_отказ_доступа_не_судится_даже_когда_получается(text: str) -> None:
+async def test_access_denial_is_never_judged(text: str) -> None:
     """⚠ Худший случай — не промах, а УГАДАННОЕ попадание.
 
     На живом прогоне 23.09 `edmunds.com` отдал страницу 403, судья назвал
@@ -258,3 +254,37 @@ async def test_отказ_доступа_не_судится_даже_когда
     assert verdict.recommendation is Recommendation.REVIEW
     assert "отказ доступа" in verdict.reason
     assert verdict.tokens == 0, "вызова модели не было — значит и токенов нет"
+
+
+# --- некоммерческие и арбитр -----------------------------------------------
+
+
+def test_non_commercial_goes_to_human_not_reject() -> None:
+    """Госорган по тексту неотличим от издания; различает только знание
+    модели о владельце. Резать по одному знанию нельзя."""
+    verdict = parse(
+        json.dumps({"intent": "non_commercial", "quote": "Sports Betting", "why": "госорган"}),
+        TEXT,
+    )
+    assert verdict.recommendation is Recommendation.REVIEW
+    assert not verdict.would_cut
+
+
+def test_arbiter_quote_is_searched_in_both_sides() -> None:
+
+    home = HomeSignals(reached=True, shop=("cart:/warenkorb",), title="Kaffee kaufen bei Rösterei")
+    text = arbiter_text("Wie entkalke ich meine Maschine", home)
+    verdict = parse(
+        json.dumps(
+            {"intent": "sells_own", "quote": "Kaffee kaufen bei Rösterei", "why": "магазин"}
+        ),
+        text,
+    )
+    assert verdict.recommendation is Recommendation.REJECT
+
+
+def test_reasoning_effort_comes_from_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """На `minimal` модель не вспоминает, чей домен (замер 23.09)."""
+    monkeypatch.setattr("backend.config.judge.REASONING_EFFORT", "low")
+    payload = build_payload("gpt-5-mini", "x.test", "текст")
+    assert payload["reasoning_effort"] == "low"

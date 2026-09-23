@@ -47,6 +47,7 @@ import httpx
 
 from backend.config import judge as cfg
 from backend.config import llm as llm_cfg
+from backend.features.donors.home_signals import HomeSignals
 from backend.shared.llm import Refusal, content_of, is_reasoning, post_chat, tokens_of
 
 logger = logging.getLogger(__name__)
@@ -61,7 +62,8 @@ class Intent(StrEnum):
     SELLS_OWN = "sells_own"  # у себя покупают, бронируют, вносят депозит
     REFERS_OUT = "refers_out"  # обозревает чужих и уводит к ним
     EDITORIAL_ADS = "editorial_ads"  # публикует статьи, живёт с рекламы
-    NONE = "none"  # форум, госорган, личная страница
+    NON_COMMERCIAL = "non_commercial"  # по уставу не продаёт ни рекламы, ни места
+    NONE = "none"  # форум, личная страница, справочник без рекламы
     UNKNOWN = "unknown"  # судить было не по чему
 
 
@@ -74,12 +76,31 @@ class Recommendation(StrEnum):
     REJECT = "reject"
 
 
+class Decider(StrEnum):
+    """Кто вынес вердикт. Точность считается по каждому отдельно.
+
+    Без этой отметки у замера одно число на всех, и не видно, какой слой
+    ошибается: правило, которому можно верить без взгляда человека, или
+    модель, которой нельзя.
+    """
+
+    RULE = "rule"  # денилист или модель, подтверждённая структурой главной
+    MODEL = "model"  # модель по выдаче, главная не спорила или не открылась
+    ARBITER = "arbiter"  # выдача и главная спорили, решала модель по обеим
+
+
 #: Намерение → совет. Площадка отсылает наружу или живёт с рекламы;
 #: всё остальное — либо продаёт себя, либо не площадка вовсе.
 ADVICE: dict[Intent, Recommendation] = {
     Intent.REFERS_OUT: Recommendation.ACCEPT,
     Intent.EDITORIAL_ADS: Recommendation.ACCEPT,
     Intent.SELLS_OWN: Recommendation.REJECT,
+    # ⚠ «Посмотри», а не отказ. Госорган и общественный вещатель пишут
+    # статьи и по тексту неотличимы от издания; различает их только знание
+    # модели о том, кто это. Резать по одному знанию нельзя — разметки
+    # такие сайты не несут (замер 23.09: ни у одного из пяти), подтвердить
+    # нечем, и ошибка стоила бы годного донора.
+    Intent.NON_COMMERCIAL: Recommendation.REVIEW,
     Intent.NONE: Recommendation.REJECT,
     Intent.UNKNOWN: Recommendation.REVIEW,
 }
@@ -87,22 +108,32 @@ ADVICE: dict[Intent, Recommendation] = {
 SYSTEM = (
     "Ты определяешь, КАК сайт зарабатывает, по тексту из поисковой выдачи. "
     "Не оцениваешь качество и не угадываешь нишу.\n"
-    "Верни строгий JSON: {\"intent\": ..., \"quote\": ..., \"why\": ...}\n"
+    'Верни строгий JSON: {"intent": ..., "quote": ..., "why": ...}\n'
     "intent — одно из: sells_own (у него покупают, бронируют, вносят депозит, "
-    "оформляют подписку на его собственную услугу), refers_out (обозревает и "
+    "оформляют подписку на его собственную услугу; сюда же интернет-магазин "
+    "и производитель, даже если страница — статья), refers_out (обозревает и "
     "сравнивает чужих, уводит к ним), editorial_ads (публикует статьи и новости, "
-    "живёт с рекламы и подписок), none (форум, госорган, личная страница, "
-    "интернет-магазин товаров).\n"
+    "живёт с рекламы и подписок), non_commercial (по уставу не продаёт рекламу: "
+    "госорган, общественный вещатель, потребительская или профессиональная "
+    "организация, учебное заведение), none (форум, личная страница, справочник "
+    "без рекламы).\n"
     "quote — ДОСЛОВНЫЙ кусок присланного текста, 3-12 слов, на котором "
     "основан вывод. Не пересказывай и не переводи.\n"
     "why — одно короткое предложение.\n"
     "Похвала себе не делает обзорщиком: заголовок вида "
     "«Top-Rated <Brand> — Sign Up Today» это sells_own, а не refers_out: "
-    "хвалят себя, а не сравнивают чужих."
+    "хвалят себя, а не сравнивают чужих.\n"
+    "Обратный случай: текст зовёт зарегистрироваться или купить на ДРУГОМ "
+    "сайте, у бренда, чьё имя не совпадает с доменом, — это refers_out. Но "
+    "магазин, который продаёт чужие марки У СЕБЯ, — sells_own: важно, где "
+    "совершается покупка, а не чья марка.\n"
+    "Кто владелец домена, можно брать из собственного знания — так отличается "
+    "non_commercial, по тексту похожий на издание. Цитата при этом всё равно "
+    "дословно из присланного текста."
 )
 
 # ⚠ В промпте нет ни одного слова ниши, и это стережёт тест
-# `test_в_промпте_нет_ни_одного_слова_ниши`. Первая же подсказка вида
+# `test_prompt_has_no_niche_words`. Первая же подсказка вида
 # «казино — это оператор» чинит один рынок и ломает перенос на соседний:
 # там такой подсказки нет, а судья на неё уже опирается. Пример выше про
 # ФОРМУ вывода, а не про предмет.
@@ -120,6 +151,7 @@ class Judgement:
     #: Токены вызова. Ноль у вердиктов, которые модель не стоили:
     #: платформа из денилиста и домен без текста выдачи.
     tokens: int = 0
+    decided_by: Decider = Decider.MODEL
 
     @property
     def would_cut(self) -> bool:
@@ -183,18 +215,22 @@ def source_text(title: str | None, description: str | None) -> str:
     return "\n".join(parts)[: cfg.MAX_TEXT_CHARS]
 
 
-def build_payload(model: str, host: str, text: str) -> dict[str, Any]:
+def build_payload(
+    model: str, host: str, text: str, *, system: str = SYSTEM, label: str = "Текст выдачи"
+) -> dict[str, Any]:
     """Тело запроса с поправкой на семейство модели."""
     payload: dict[str, Any] = {
         "model": model,
         "messages": [
-            {"role": "system", "content": SYSTEM},
-            {"role": "user", "content": f"Домен: {host}\nТекст выдачи:\n{text}"},
+            {"role": "system", "content": system},
+            {"role": "user", "content": f"Домен: {host}\n{label}:\n{text}"},
         ],
     }
     if is_reasoning(model):
-        payload["max_completion_tokens"] = 600
-        payload["reasoning_effort"] = "minimal"
+        # Потолок включает рассуждение, а на `low` его больше, чем на
+        # `minimal`: обрезанный ответ пришёл бы пустым и ушёл в «посмотри».
+        payload["max_completion_tokens"] = 2000
+        payload["reasoning_effort"] = cfg.REASONING_EFFORT
     else:
         payload["max_tokens"] = 300
         payload["temperature"] = 0
@@ -207,6 +243,7 @@ def _quote_found(quote: str, text: str) -> bool:
     Сравнение по свёрнутым пробелам и без регистра: модель переносит строки
     иначе, чем провайдер, и на этом честная цитата иначе не прошла бы.
     """
+
     def squeeze(value: str) -> str:
         return " ".join(value.lower().split())
 
@@ -218,18 +255,16 @@ def parse(content: str, text: str) -> Judgement:
     try:
         body = json.loads(content[content.find("{") : content.rfind("}") + 1])
     except (ValueError, TypeError):
-        return Judgement(
-            Intent.UNKNOWN, Recommendation.REVIEW, None, "ответ модели не разобрать"
-        )
+        logger.info("%s: ответ модели не разобрать: %r", TOPIC, content[:120])
+        return Judgement(Intent.UNKNOWN, Recommendation.REVIEW, None, "ответ модели не разобрать")
     if not isinstance(body, dict):
-        return Judgement(
-            Intent.UNKNOWN, Recommendation.REVIEW, None, "ответ модели не объект"
-        )
+        return Judgement(Intent.UNKNOWN, Recommendation.REVIEW, None, "ответ модели не объект")
 
     raw_intent = str(body.get("intent", "")).strip().lower()
     try:
         intent = Intent(raw_intent)
     except ValueError:
+        logger.info("%s: намерение не из списка: %r", TOPIC, raw_intent[:40])
         return Judgement(
             Intent.UNKNOWN,
             Recommendation.REVIEW,
@@ -246,9 +281,7 @@ def parse(content: str, text: str) -> Judgement:
     if not _quote_found(quote, text):
         # Цитата, которой нет в тексте, — признак того, что модель сочинила,
         # а не прочитала. Вердикт при этом сохраняется: он уедет человеку.
-        return Judgement(
-            intent, Recommendation.REVIEW, quote, "цитата не найдена в тексте выдачи"
-        )
+        return Judgement(intent, Recommendation.REVIEW, quote, "цитата не найдена в тексте выдачи")
 
     return Judgement(intent, ADVICE[intent], quote, why or "по тексту выдачи")
 
@@ -265,13 +298,21 @@ async def judge_host(
     """Вердикт по одному домену. Не бросает: любой сбой — «посмотри»."""
     if is_platform(host):
         return Judgement(
-            Intent.NONE, Recommendation.REJECT, None, "платформа из денилиста"
+            Intent.NONE,
+            Recommendation.REJECT,
+            None,
+            "платформа из денилиста",
+            decided_by=Decider.RULE,
         )
 
     text = source_text(title, description)
     if not text:
         return Judgement(
-            Intent.UNKNOWN, Recommendation.REVIEW, None, "выдача не дала ни заголовка, ни описания"
+            Intent.UNKNOWN,
+            Recommendation.REVIEW,
+            None,
+            "выдача не дала ни заголовка, ни описания",
+            decided_by=Decider.RULE,
         )
     if looks_denied(text):
         # Судить отказ доступа нельзя даже когда получается: правильный
@@ -281,6 +322,7 @@ async def judge_host(
             Recommendation.REVIEW,
             None,
             f"вместо страницы пришёл отказ доступа: {text[:60]!r}",
+            decided_by=Decider.RULE,
         )
 
     chosen = model or llm_cfg.JUDGE_MODEL
@@ -306,4 +348,75 @@ async def judge_host(
         verdict.reason,
         chosen,
         tokens_of(answer),
+    )
+
+
+# --- арбитр: выдача и главная спорят --------------------------------------
+
+ARBITER_SYSTEM = (
+    "Тебе показывают сайт с двух сторон: страницу из поисковой выдачи и его "
+    "главную. Они спорят: страница похожа на статью, а на главной есть признаки "
+    "магазина. Реши, как зарабатывает САЙТ ЦЕЛИКОМ, а не эта страница.\n"
+    'Верни строгий JSON: {"intent": ..., "quote": ..., "why": ...}\n'
+    "intent — одно из: sells_own (магазин или производитель со своим журналом: "
+    "статьи ведут к покупке у него же), editorial_ads (издание, которое заодно "
+    "продаёт подписку, мерч или свои материалы: главное у него — статьи), "
+    "refers_out (обзорщик и сравнитель, уводит к чужим магазинам), "
+    "non_commercial (по уставу не продаёт рекламу: госорган, общественный "
+    "вещатель, потребительская организация).\n"
+    "Смотри на меню главной: каталог товаров и корзина говорят о магазине, "
+    "разделы новостей и рубрики — об издании. Кто владелец домена, можно брать "
+    "из собственного знания.\n"
+    "quote — ДОСЛОВНЫЙ кусок присланного текста, 3-12 слов, из любой из двух "
+    "частей. why — одно короткое предложение."
+)
+
+
+def arbiter_text(serp: str, home: HomeSignals) -> str:
+    """Обе стороны одним текстом: по нему же проверяется цитата."""
+    return f"Страница из выдачи:\n{serp}\n\nГлавная:\n{home.as_text()}"
+
+
+async def arbitrate(
+    http: httpx.AsyncClient,
+    *,
+    host: str,
+    serp: str,
+    home: HomeSignals,
+    model: str | None = None,
+    api_key: str | None = None,
+) -> Judgement:
+    """Вердикт по спорному домену. Не бросает: сбой — «посмотри».
+
+    Отдельный вызов, а не второй круг того же промпта: вопрос другой. Судья
+    спрашивает, что это за страница; арбитр — чем живёт сайт, у которого
+    страница и витрина говорят разное.
+    """
+    text = arbiter_text(serp, home)
+    chosen = model or llm_cfg.JUDGE_MODEL
+    answer = await post_chat(
+        http,
+        api_key=api_key if api_key is not None else llm_cfg.API_KEY,
+        payload=build_payload(chosen, host, text, system=ARBITER_SYSTEM, label="Текст"),
+        topic=TOPIC,
+    )
+    if isinstance(answer, Refusal):
+        logger.warning("%s, арбитр: %s (%s)", TOPIC, answer, host)
+        return Judgement(
+            Intent.UNKNOWN, Recommendation.REVIEW, None, str(answer), decided_by=Decider.ARBITER
+        )
+    content = content_of(answer, topic=TOPIC)
+    verdict = (
+        parse(content, text)
+        if content
+        else Judgement(Intent.UNKNOWN, Recommendation.REVIEW, None, "пустой ответ модели")
+    )
+    return Judgement(
+        verdict.intent,
+        verdict.recommendation,
+        verdict.quote,
+        verdict.reason,
+        chosen,
+        tokens_of(answer),
+        Decider.ARBITER,
     )

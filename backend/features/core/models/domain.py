@@ -8,9 +8,10 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import DateTime, Index, String
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.features.core.models._mixins import TimestampedMixin
@@ -39,6 +40,11 @@ class DomainModel(TimestampedMixin, Base):
     judge_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
     judge_source_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     judge_model: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Кто решил: правило, модель или арбитр. Без этого точность судьи —
+    # одно число на всех, и не видно, какой слой ошибается.
+    judge_decided_by: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    # Что сказала главная: открылась ли и какие признаки магазина нашлись.
+    judge_home: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     judged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # --- решение человека ---------------------------------------------------

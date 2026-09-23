@@ -9,12 +9,14 @@ from typing import Any
 
 import httpx
 import pytest
+from backend.config.judge import JudgeMode
 from backend.features.ahrefs.client import AhrefsClient
 from backend.features.core.domain import DonorStatus, RunStatus, SuppressionReason
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.ops import SuppressionModel, UsageRecordModel
 from backend.features.core.models.run import RunModel
+from backend.features.donors.publisher_judge import Intent, Judgement, Recommendation
 from backend.features.donors.repository import DonorRepository
 from backend.features.donors.verdict import Thresholds
 from backend.features.runs.exclusions import ExclusionReason, Exclusions
@@ -344,16 +346,12 @@ class TestTheJudgeStandsBeforeTheBill:
             self, keywords: Sequence[str], country: str, *, depth_pages: int = 1
         ) -> dict[str, list[SerpResult]]:
             return {
-                kw: [
-                    SerpResult(i + 1, u, title=f"Заголовок {u}")
-                    for i, u in enumerate(self._urls)
-                ]
+                kw: [SerpResult(i + 1, u, title=f"Заголовок {u}") for i, u in enumerate(self._urls)]
                 for kw in keywords
             }
 
     @staticmethod
     def _judge(monkeypatch: pytest.MonkeyPatch, rejects: set[str]) -> None:
-        from backend.features.donors.publisher_judge import Intent, Judgement, Recommendation
 
         async def fake(http: object, **kwargs: object) -> Judgement:
             host = str(kwargs["host"])
@@ -367,10 +365,9 @@ class TestTheJudgeStandsBeforeTheBill:
 
         monkeypatch.setattr("backend.features.donors.judging.judge_host", fake)
 
-    async def test_в_наблюдении_считает_но_не_режет(
+    async def test_shadow_counts_but_does_not_cut(
         self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from backend.config.judge import JudgeMode
 
         monkeypatch.setattr("backend.config.judge.MODE", JudgeMode.SHADOW)
         self._judge(monkeypatch, rejects={"brand.com"})
@@ -396,10 +393,9 @@ class TestTheJudgeStandsBeforeTheBill:
         assert "brand.com" in paid
         assert {"brand.com", "media.com"} <= set(paid)
 
-    async def test_включённый_режет_до_первой_траты(
+    async def test_enforce_cuts_before_first_spend(
         self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from backend.config.judge import JudgeMode
 
         monkeypatch.setattr("backend.config.judge.MODE", JudgeMode.ENFORCE)
         self._judge(monkeypatch, rejects={"brand.com"})
@@ -418,16 +414,16 @@ class TestTheJudgeStandsBeforeTheBill:
             ),
         )
 
-        assert report.judge is not None and report.judge.would_cut == 1
+        assert report.judge is not None
+        assert report.judge.would_cut == 1
         # За отрезанный домен Ahrefs не спрашивали вовсе — в этом вся выгода.
         assert "brand.com" not in paid, "заплатили за домен, который сами же отбросили"
         assert "media.com" in paid
 
-    async def test_вердикт_ложится_на_домен_и_переживает_прогон(
+    async def test_verdict_lands_on_domain_and_outlives_run(
         self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Вердикт — свойство САЙТА: второму этапу он нужен с обратным знаком."""
-        from backend.config.judge import JudgeMode
 
         monkeypatch.setattr("backend.config.judge.MODE", JudgeMode.SHADOW)
         self._judge(monkeypatch, rejects={"brand.com"})

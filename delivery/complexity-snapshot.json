@@ -332,9 +332,9 @@
       "worst": "_print_build:82"
     },
     "backend/cli/main.py": {
-      "lines": 381,
+      "lines": 410,
       "complexity": 9,
-      "worst": "_print_report:219"
+      "worst": "_print_report:220"
     },
     "backend/cli/senders_admin.py": {
       "lines": 134,
@@ -377,7 +377,7 @@
       "worst": "—"
     },
     "backend/config/judge.py": {
-      "lines": 90,
+      "lines": 104,
       "complexity": 0,
       "worst": "—"
     },
@@ -572,7 +572,7 @@
       "worst": "_enum:29"
     },
     "backend/features/core/models/domain.py": {
-      "lines": 65,
+      "lines": 71,
       "complexity": 0,
       "worst": "—"
     },
@@ -711,25 +711,30 @@
       "complexity": 9,
       "worst": "build_breakdown:60"
     },
+    "backend/features/donors/home_signals.py": {
+      "lines": 186,
+      "complexity": 10,
+      "worst": "_schema_marks:118"
+    },
     "backend/features/donors/host.py": {
       "lines": 62,
       "complexity": 9,
       "worst": "normalize_host:37"
     },
     "backend/features/donors/judging.py": {
-      "lines": 146,
-      "complexity": 10,
-      "worst": "judge_candidates:93"
+      "lines": 220,
+      "complexity": 11,
+      "worst": "judge_candidates:155"
     },
     "backend/features/donors/publisher_judge.py": {
-      "lines": 308,
+      "lines": 423,
       "complexity": 9,
-      "worst": "parse:214"
+      "worst": "parse:253"
     },
     "backend/features/donors/repository.py": {
-      "lines": 224,
+      "lines": 231,
       "complexity": 8,
-      "worst": "_donor_values:203"
+      "worst": "_donor_values:210"
     },
     "backend/features/donors/verdict.py": {
       "lines": 101,
@@ -982,12 +987,12 @@
       "worst": "recover:127"
     },
     "backend/features/runs/pipeline.py": {
-      "lines": 417,
+      "lines": 435,
       "complexity": 8,
-      "worst": "execute_run:271"
+      "worst": "execute_run:287"
     },
     "backend/features/runs/planning.py": {
-      "lines": 293,
+      "lines": 291,
       "complexity": 6,
       "worst": "gather_candidates:193"
     },
@@ -1017,7 +1022,7 @@
       "worst": "_take_organic:63"
     },
     "backend/features/serp/dataforseo.py": {
-      "lines": 364,
+      "lines": 362,
       "complexity": 11,
       "worst": "_organic:123"
     },

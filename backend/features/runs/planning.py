@@ -229,9 +229,7 @@ async def gather_candidates(
             # списку тот же домен встречается служебными страницами,
             # и судить по ним значит судить не то.
             if host not in texts:
-                texts[host] = SerpText(
-                    url=row.url, title=row.title, description=row.description
-                )
+                texts[host] = SerpText(url=row.url, title=row.title, description=row.description)
 
     return Candidates(
         hosts=list(seen),
