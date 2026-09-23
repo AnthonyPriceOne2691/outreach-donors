@@ -41,6 +41,7 @@ import { useSession } from '../auth/AuthProvider';
 import { Metric } from '../components/Metric';
 import { LetterDraftEditor, draftOf, sameDraft } from './LetterDraftEditor';
 import { LetterPreview, percentOf, toneOf } from './LetterPreview';
+import { RunPicker } from './RunPicker';
 
 const LETTERS_QUERY_KEY = ['letters'] as const;
 
@@ -61,6 +62,8 @@ export function LettersPage() {
   // Правка текста письма. `null` — не трогали: тогда на сервер ничего
   // не уходит, и одноимённая рассылка дополняется своим текстом.
   const [letterEdit, setLetterEdit] = useState<LetterDraft | null>(null);
+  // Прогоны рассылки: письма получают только принятые доноры выбранных.
+  const [runIds, setRunIds] = useState<number[]>([]);
 
   const { data, isLoading, error } = useQuery({
     queryKey: LETTERS_QUERY_KEY,
@@ -92,6 +95,7 @@ export function LettersPage() {
         limit,
         followup_days: followups.map((days, index) => days ?? defaultDays[index] ?? 0),
         ...(letterChanged && letterEdit !== null ? { letter: letterEdit } : {}),
+        run_ids: runIds,
       }),
     onSuccess: async () => {
       await refresh();
@@ -254,13 +258,15 @@ export function LettersPage() {
                 color="lagoon"
                 className="press"
                 loading={build.isPending}
-                disabled={campaign.trim() === ''}
+                disabled={campaign.trim() === '' || runIds.length === 0}
                 onClick={() => build.mutate()}
               >
                 Собрать очередь
               </Button>
             </Group>
           ) : null}
+
+          {can('send') ? <RunPicker value={runIds} onChange={setRunIds} /> : null}
 
           {can('send') && letterDefault !== null ? (
             <LetterDraftEditor

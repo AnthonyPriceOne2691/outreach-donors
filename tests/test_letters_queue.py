@@ -22,7 +22,7 @@ from backend.features.core.domain import (
     SuppressionReason,
     UsageProvider,
 )
-from backend.features.core.models.donor import ContactModel
+from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.ops import SuppressionModel, UsageRecordModel
 from backend.features.core.models.outreach import MessageModel
 from backend.features.letters.building import BuildRequest, QueueBuilder
@@ -31,8 +31,10 @@ from backend.features.letters.rewrite import RewriteResult
 from backend.features.letters.sending import (
     NoSenderError,
     NotReadyError,
+    RejectedDonorError,
     Sending,
     SuppressedError,
+    UndecidedDonorError,
 )
 from backend.features.letters.transport import NullTransport, Outgoing, TransportError
 from backend.features.outreach.repository import OutreachRepository
@@ -461,3 +463,46 @@ class TestBlockedSending:
         report = await _build(session)
 
         assert report.blocked_by == []  # type: ignore[attr-defined]
+
+
+class TestDecisionChangedAfterBuild:
+    """Между сборкой и отправкой человек может передумать (Anthony,
+    24.09.2026). Письмо, собранное для принятого, не должно уйти
+    отклонённому или тому, кого вернули на рассмотрение."""
+
+    async def _letter(self, session: AsyncSession, review: str | None) -> MessageModel:
+        domain = await make_donor(session, "one.example.test", email="info@one.example.test")
+        await make_sender(session, "outreach1@mail.example.test")
+        await _build(session)
+        donor = (
+            await session.execute(select(DonorModel).where(DonorModel.domain_id == domain.id))
+        ).scalar_one()
+        donor.review = review
+        await session.flush()
+        return (await session.execute(select(MessageModel))).scalars().one()
+
+    async def test_rejected_after_build_is_not_written_to(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        letter = await self._letter(session, "rejected")
+
+        with pytest.raises(RejectedDonorError, match="отклонили"):
+            await Sending(session, NullTransport(), now=NOW).send(letter.id)
+
+        await session.refresh(letter)
+        assert letter.status is MessageStatus.QUEUED
+
+    async def test_back_on_review_waits_rather_than_goes(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        letter = await self._letter(session, None)
+
+        with pytest.raises(UndecidedDonorError, match="рассмотрение"):
+            await Sending(session, NullTransport(), now=NOW).send(letter.id)
+
+    async def test_accepted_again_goes(self, session: AsyncSession, filled_legal: None) -> None:
+        letter = await self._letter(session, "accepted")
+
+        outcome = await Sending(session, NullTransport(), now=NOW).send(letter.id)
+
+        assert outcome.message_id == letter.id

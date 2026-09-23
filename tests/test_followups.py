@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from backend.config import outreach as outreach_cfg
 from backend.features.core.domain import MessageStatus, Stage, SuppressionReason
-from backend.features.core.models.donor import ContactModel
+from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, ThreadModel
 from backend.features.letters import template
@@ -206,6 +206,44 @@ class TestWhatStopsTheChain:
         followup = await session.scalar(select(MessageModel).where(MessageModel.step == 1))
         assert followup is not None
         assert followup.status is MessageStatus.STOPPED
+
+
+class TestDecisionChangedMidChain:
+    """Человек передумал между первым письмом и добивкой (Anthony,
+    24.09.2026): отклонил — цепочка кончается, вернул на рассмотрение —
+    ждёт, но не обрывается."""
+
+    async def _set_review(self, session: AsyncSession, domain_id: int, review: str | None) -> None:
+        donor = await session.scalar(select(DonorModel).where(DonorModel.domain_id == domain_id))
+        assert donor is not None
+        donor.review = review
+        await session.flush()
+
+    async def test_rejected_mid_chain_gets_no_followup(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        message, _ = await _chain_start(session, followup_days=[1, 2])
+        await self._set_review(session, message.domain_id, "rejected")
+
+        report = await send_due(
+            session, transport=NullTransport(), limit=5, now=NOW + timedelta(days=2)
+        )
+
+        assert report.stopped == 1
+        assert report.sent == 0
+
+    async def test_back_on_review_mid_chain_waits(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        message, _ = await _chain_start(session, followup_days=[1, 2])
+        await self._set_review(session, message.domain_id, None)
+
+        report = await send_due(
+            session, transport=NullTransport(), limit=5, now=NOW + timedelta(days=2)
+        )
+
+        assert report.postponed == 1
+        assert report.stopped == 0
 
 
 class TestThePass:

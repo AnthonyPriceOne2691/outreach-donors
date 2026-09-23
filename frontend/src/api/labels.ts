@@ -18,6 +18,8 @@ import type {
   MessageStatus,
   Permission,
   ReplyKind,
+  ReviewDecision,
+  ReviewTier,
   Role,
   RunStatus,
   SelectionTab,
@@ -249,4 +251,28 @@ export const HUMAN_INTENTS: Record<HumanIntent, string> = {
   publisher: 'Площадка',
   sells_own: 'Продаёт своё',
   non_commercial: 'Не продаёт места',
+};
+
+/** Тип сайта по судье — словами оператора. Ярлык у каждого кандидата:
+ *  по нему видно, какой тип судья путает чаще всего. */
+export const SITE_INTENTS: Record<string, string> = {
+  editorial_ads: 'издание',
+  refers_out: 'обзорщик',
+  sells_own: 'продаёт своё',
+  non_commercial: 'некоммерческий',
+  none: 'не понять',
+  unknown: 'не понять',
+};
+
+export const REVIEW_DECISIONS: Record<ReviewDecision, { title: string; color: string }> = {
+  pending: { title: 'Предложены', color: 'yellow' },
+  accepted: { title: 'Приняты', color: 'green' },
+  rejected: { title: 'Отклонены', color: 'red' },
+};
+
+/** Ярус очереди — почему кандидат стоит там, где стоит. */
+export const REVIEW_TIERS: Record<ReviewTier, { title: string; color: string }> = {
+  likely: { title: 'вероятно донор', color: 'green' },
+  open: { title: 'посмотреть', color: 'gray' },
+  doubtful: { title: 'сомнительно', color: 'red' },
 };

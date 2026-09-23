@@ -60,6 +60,7 @@ const QUEUED = {
   hosts: null,
   reviewed: 0,
   disagreements: 0,
+  queue: {},
 };
 
 const STOPPED = {
@@ -367,5 +368,22 @@ describe('прогон', () => {
     // У выключенного судьи нуля нет — «выключен» и «никого не нашёл» разные новости.
     expect(screen.getByText('выключен')).toBeInTheDocument();
     expect(screen.getByText('человек не смотрел')).toBeInTheDocument();
+  });
+});
+
+describe('рассмотрение прогона', () => {
+  it('прогон с очередью ведёт к рассмотрению и говорит, сколько ждёт решения', async () => {
+    const queued = { ...QUEUED, id: 18, status: 'done', queue: { pending: 394, accepted: 3 } };
+    await openRun({ 'GET /api/runs': { body: { runs: [queued], workers: 1 } } });
+
+    const link = await screen.findByRole('link', { name: 'Рассмотреть 394' });
+    expect(link).toHaveAttribute('href', '/runs/18/review');
+    expect(screen.getByText('принято 3 · отклонено 0')).toBeInTheDocument();
+  });
+
+  it('прогон до очереди так и называется, а не показывает нули', async () => {
+    await openRun({ 'GET /api/runs': { body: { runs: [QUEUED], workers: 1 } } });
+
+    expect(await screen.findByText('очереди нет')).toBeInTheDocument();
   });
 });

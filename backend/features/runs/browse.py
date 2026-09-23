@@ -10,10 +10,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.core.models.run import RunModel
+from backend.features.core.models.run import RunCandidateModel, RunModel
 from backend.features.donors.selection import ReviewTally, tally_reviews
 
 
@@ -28,6 +28,9 @@ class RunRow:
     run: RunModel
     #: Проверка человеком доменов этого прогона — на момент чтения.
     review: ReviewTally = field(default_factory=ReviewTally)
+    #: Очередь рассмотрения прогона: статус → сколько. Пусто — прогон
+    #: сделан до очереди и в неё не положен.
+    queue: dict[str, int] = field(default_factory=dict)
 
     @property
     def estimate_error(self) -> float | None:
@@ -49,14 +52,29 @@ class RunBrowser:
         )
         runs = list(rows.scalars().all())
         tallies = await tally_reviews(self._session, {run.id: _hosts(run) for run in runs})
-        return [RunRow(run=run, review=tallies[run.id]) for run in runs]
+        queues = await self._queues([run.id for run in runs])
+        return [
+            RunRow(run=run, review=tallies[run.id], queue=queues.get(run.id, {})) for run in runs
+        ]
 
     async def one(self, run_id: int) -> RunRow:
         run = await self._session.get(RunModel, run_id)
         if run is None:
             raise UnknownRunError(f"Прогона №{run_id} нет")
         tallies = await tally_reviews(self._session, {run.id: _hosts(run)})
-        return RunRow(run=run, review=tallies[run.id])
+        queues = await self._queues([run.id])
+        return RunRow(run=run, review=tallies[run.id], queue=queues.get(run.id, {}))
+
+    async def _queues(self, run_ids: list[int]) -> dict[int, dict[str, int]]:
+        rows = await self._session.execute(
+            select(RunCandidateModel.run_id, RunCandidateModel.status, func.count())
+            .where(RunCandidateModel.run_id.in_(run_ids))
+            .group_by(RunCandidateModel.run_id, RunCandidateModel.status)
+        )
+        queues: dict[int, dict[str, int]] = {}
+        for run_id, status, count in rows.all():
+            queues.setdefault(run_id, {})[status] = int(count)
+        return queues
 
 
 def _hosts(run: RunModel) -> list[str]:

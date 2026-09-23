@@ -183,6 +183,46 @@ SCREENS: dict[str, dict] = {
             ("выбранная вкладка", "button[role='tab'][aria-selected='true']", NORM),
             ("кнопка «Отправить»", "button:has-text('Отправить')", BIG),
             ("пункт меню", "nav a", NORM),
+            # Выбор прогонов рассылки виден, только когда в прогоне есть
+            # принятые: без них на его месте пояснение, и точка — «не измерено».
+            ("прогон рассылки", ".mantine-Checkbox-label", NORM),
+            ("флажок прогона", ".mantine-Checkbox-input", BIG),
+        ],
+    },
+    # Рассмотрение прогона: главный экран отбора. Мерить то, по чему
+    # решают, — ярлык судьи, цитату, ключи и две кнопки решения. Прогон
+    # с живой очередью задаётся номером в пути; без очереди мерить нечего.
+    "run-review": {
+        "path": "/runs/18/review",
+        "ready": ("heading", "Прогон №18: рассмотрение"),
+        "probes": [
+            ("заголовок экрана", "h3", BIG),
+            ("пояснение под ним", ".glassPanel p.mantine-Text-root", NORM),
+            ("подпись плитки", ".glassQuiet p:nth-child(1)", NORM),
+            # Внутренняя подпись, как на «Отборе»: у обёртки `-label` вырезка
+            # захватывает подвижную подложку, и замер давал 1,34 : 1 тексту,
+            # который на снимке читается чисто.
+            ("выбранная вкладка", ".glassPanel .mantine-SegmentedControl-innerLabel", NORM),
+            (
+                "невыбранная вкладка",
+                ".glassPanel .mantine-SegmentedControl-label:not([data-active]) "
+                ".mantine-SegmentedControl-innerLabel",
+                NORM,
+            ),
+            ("переключатель сомнительных", ".mantine-Switch-label", NORM),
+            ("домен в строке", "table tbody td a", NORM),
+            ("ключ, по которому нашёлся", "table tbody td:nth-child(3) p", NORM),
+            ("ярус очереди", "table tbody .mantine-Badge-root[data-variant='dot']", NORM),
+            ("совет судьи", "table tbody .mantine-Badge-root[data-variant='light']", NORM),
+            ("тип сайта", "table tbody .mantine-Badge-root[data-variant='outline']", NORM),
+            (
+                "цитата судьи",
+                "table tbody p[style*='italic'], table tbody .mantine-Text-root[data-fs]",
+                NORM,
+            ),
+            ("кнопка «Принять»", "table tbody button:has-text('Принять')", BIG),
+            ("кнопка «Отклонить»", "table tbody button:has-text('Отклонить')", BIG),
+            ("флажок строки", "table tbody .mantine-Checkbox-input", BIG),
         ],
     },
     # Правка текста первого письма живёт на экране писем за раскрытием —

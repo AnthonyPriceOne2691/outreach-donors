@@ -12,10 +12,11 @@
  * решение было видно без чтения подписи.
  */
 
-import { Anchor, Badge, Button, Group, Stack, Table, Text, Tooltip } from '@mantine/core';
+import { Anchor, Badge, Button, Group, Stack, Table, Text } from '@mantine/core';
 
-import { DONOR_STATUSES, HUMAN_INTENTS, JUDGE_ADVICE, JUDGE_DECIDERS } from '../api/labels';
+import { DONOR_STATUSES, HUMAN_INTENTS } from '../api/labels';
 import type { HumanIntent, SelectionCard } from '../api/types';
+import { JudgeVerdict, SellerAnswer } from '../components/JudgeVerdict';
 
 interface Props {
   row: SelectionCard;
@@ -42,100 +43,6 @@ function Thresholds({ row }: { row: SelectionCard }) {
       {row.reject_reason !== null && (
         <Text size="xs" c="dimmed" ta="center">
           {row.reject_reason}
-        </Text>
-      )}
-    </Stack>
-  );
-}
-
-function Machine({ row }: { row: SelectionCard }) {
-  const machine = row.machine;
-  if (machine.recommendation === null) {
-    return (
-      <Text size="xs" c="dimmed">
-        судья не смотрел
-      </Text>
-    );
-  }
-  const advice = JUDGE_ADVICE[machine.recommendation];
-  const who = machine.decided_by === null ? null : JUDGE_DECIDERS[machine.decided_by];
-  return (
-    <Stack gap={4} align="center">
-      <Group gap={6} justify="center" wrap="nowrap">
-        <Badge variant="light" color={advice.color}>
-          {advice.title}
-        </Badge>
-        {who !== null && (
-          <Tooltip label={who.hint} withArrow>
-            <Badge variant="outline" color="gray" size="sm">
-              {who.title}
-            </Badge>
-          </Tooltip>
-        )}
-      </Group>
-      {machine.quote !== null ? (
-        <Text size="xs" fs="italic" ta="center" maw={260}>
-          «{machine.quote}»
-        </Text>
-      ) : (
-        <Text size="xs" c="dimmed" ta="center" maw={260}>
-          {machine.reason}
-        </Text>
-      )}
-      <Group gap={8} justify="center">
-        {machine.source_url !== null && (
-          <Anchor href={machine.source_url} target="_blank" rel="noreferrer" size="xs">
-            страница
-          </Anchor>
-        )}
-        {machine.home_shop.length > 0 && (
-          <Text size="xs" c="dimmed">
-            главная: {machine.home_shop.join(', ')}
-          </Text>
-        )}
-        {machine.home_reached === false && (
-          <Text size="xs" c="dimmed">
-            главная не открылась
-          </Text>
-        )}
-      </Group>
-    </Stack>
-  );
-}
-
-/** Ответ самого донора на письмо. Для гест-постинга — правда первого
- *  сорта: сильнее судьи и человека, и экран показывает его отдельно. */
-function Seller({ row }: { row: SelectionCard }) {
-  const seller = row.seller;
-  if (seller.answer === null) {
-    return (
-      <Text size="xs" c="dimmed">
-        не отвечал
-      </Text>
-    );
-  }
-  if (seller.answer === 'free') {
-    return (
-      <Badge variant="light" color="green">
-        берёт бесплатно
-      </Badge>
-    );
-  }
-  if (seller.answer === 'declines') {
-    return (
-      <Badge variant="light" color="red">
-        не продаёт
-      </Badge>
-    );
-  }
-  return (
-    <Stack gap={2} align="center">
-      <Badge variant="light" color="green">
-        продаёт
-      </Badge>
-      {seller.price !== null && (
-        <Text size="xs" c="dimmed">
-          {seller.price} {seller.currency ?? ''}
         </Text>
       )}
     </Stack>
@@ -194,10 +101,10 @@ export function SelectionRow(props: Props) {
         <Thresholds row={row} />
       </Table.Td>
       <Table.Td>
-        <Machine row={row} />
+        <JudgeVerdict machine={row.machine} />
       </Table.Td>
       <Table.Td>
-        <Seller row={row} />
+        <SellerAnswer seller={row.seller} />
       </Table.Td>
       <Table.Td>
         <Human {...props} />

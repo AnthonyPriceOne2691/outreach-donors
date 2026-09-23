@@ -59,7 +59,9 @@ async def letter(session: AsyncSession, filled_legal: None) -> MessageModel:
     session.add_all([domain, campaign])
     await session.flush()
 
-    session.add(DonorModel(domain_id=domain.id, status=DonorStatus.SUITABLE, dr=40))
+    session.add(
+        DonorModel(domain_id=domain.id, status=DonorStatus.SUITABLE, dr=40, review="accepted")
+    )
     contact = ContactModel(
         domain_id=domain.id, email="editor@donor.example.test", source=ContactSource.PAGE
     )
