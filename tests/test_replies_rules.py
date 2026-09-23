@@ -17,15 +17,14 @@ from backend.features.core.domain import ReplyKind
 from backend.features.letters import reply_to
 from backend.features.replies import binding, classify, outcome
 from backend.features.replies.extract import (
+    LABEL_UNSAID,
     Extracted,
-    appears_in,
-    as_price,
-    normalize_currency,
     parse_form,
     temper,
 )
 from backend.features.replies.inbound import Attachment, Incoming, addresses_in
 from backend.features.replies.mime import from_form, message_ids_in, parse_headers
+from backend.features.replies.money import amounts_in, appears_in, as_price, normalize_currency
 from backend.features.replies.quoting import written_by_hand
 
 SECRET = "s" * 32
@@ -270,6 +269,60 @@ class TestExtractionGuards:
     def test_broken_answer_is_not_a_price(self) -> None:
         assert parse_form("не json") is None
         assert parse_form("[1, 2]") is None
+
+    def test_amounts_are_numbers_next_to_a_currency(self) -> None:
+        """Сеть, срок и число ссылок — не цены."""
+        text = "Guest post 80 USDT (TRC20), live in 3 days, 2 links. Homepage — €1.200."
+
+        assert amounts_in(text) == {Decimal("80"), Decimal("1200")}
+        assert amounts_in("Размещение — 1500 рублей, 30 дней") == {Decimal("1500")}
+        assert amounts_in("We have 5 tons of ethical content") == set()
+
+    def test_several_prices_and_not_the_smallest_goes_to_a_human(self) -> None:
+        """«Главная 1.200 €, блог 350 €»: модель брала 1200 с уверенностью
+        0,90 и сама писала «неясно» (эталон 23.09)."""
+        text = "Ein Artikel auf der Startseite kostet 1.200 €, im Blog 350 €."
+        chosen = Extracted(price_white=Decimal("1200"), currency="EUR", confidence=0.9)
+
+        tempered = temper(chosen, text=text)
+
+        assert tempered.confidence < 0.8
+        assert "не наименьшая" in tempered.notes[-1]
+
+    def test_smallest_of_several_prices_keeps_its_confidence(self) -> None:
+        text = "Ein Artikel auf der Startseite kostet 1.200 €, im Blog 350 €."
+        chosen = Extracted(price_white=Decimal("350"), currency="EUR", confidence=0.9)
+
+        assert temper(chosen, text=text).confidence == 0.9
+
+    def test_white_and_grey_pair_is_not_a_choice(self) -> None:
+        """Две цены за один пост с пометкой и без — ответ, а не выбор."""
+        text = "$120 with a sponsored label, $180 without any label."
+        pair = Extracted(
+            price_white=Decimal("120"), price_grey=Decimal("180"), currency="USD", confidence=0.9
+        )
+
+        assert temper(pair, text=text).confidence == 0.9
+
+    def test_silence_about_the_label_is_a_note_not_a_doubt(self) -> None:
+        """Самый частый живой ответ — цена без слова о пометке. Он ложится
+        в базу, а молчание остаётся заметкой и полем снимка."""
+        found = parse_form(
+            '{"price_white": 90, "currency": "EUR", "label_stated": false, "confidence": 0.95}'
+        )
+
+        assert found is not None
+        assert found.confidence == 0.95
+        assert LABEL_UNSAID in found.notes
+        assert found.snapshot()["label_stated"] is False
+
+    def test_stated_label_leaves_no_note(self) -> None:
+        found = parse_form(
+            '{"price_white": 90, "currency": "EUR", "label_stated": true, "confidence": 0.95}'
+        )
+
+        assert found is not None
+        assert LABEL_UNSAID not in found.notes
 
 
 class TestConsequences:

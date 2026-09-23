@@ -26,9 +26,8 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from dataclasses import dataclass, field, replace
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Any
 
 import httpx
@@ -36,6 +35,12 @@ import httpx
 from backend.config import llm as cfg
 from backend.features.letters import masking
 from backend.features.replies.inbound import Incoming
+from backend.features.replies.money import (
+    amounts_in,
+    appears_in,
+    as_price,
+    normalize_currency,
+)
 from backend.features.replies.quoting import written_by_hand
 from backend.shared.llm import Refusal, content_of, is_reasoning, post_chat, tokens_of
 
@@ -47,22 +52,6 @@ TOPIC = "разбор ответа"
 TOKENS_REASONING = 1200
 TOKENS_PLAIN = 500
 
-#: Валюта приводится к коду: «евро», «€» и «EUR» — одно и то же, а в базе
-#: должно лежать одно значение, иначе фильтр по валюте не работает.
-CURRENCIES: dict[str, str] = {
-    "$": "USD", "usd": "USD", "dollar": "USD", "dollars": "USD", "доллар": "USD",
-    "€": "EUR", "eur": "EUR", "euro": "EUR", "euros": "EUR", "евро": "EUR",
-    "£": "GBP", "gbp": "GBP", "pound": "GBP", "pounds": "GBP", "фунт": "GBP",
-    "₽": "RUB", "rub": "RUB", "rouble": "RUB", "roubles": "RUB", "руб": "RUB",
-    "zł": "PLN", "pln": "PLN", "zloty": "PLN", "злот": "PLN",
-    # Крипта — отдельные валюты, не доллар: USDT — это способ оплаты, и
-    # подписать его долларом значит потерять, чем донор хочет получить деньги.
-    "usdt": "USDT", "tether": "USDT", "₮": "USDT", "usdc": "USDC", "dai": "DAI",
-    "busd": "BUSD", "btc": "BTC", "bitcoin": "BTC", "₿": "BTC", "eth": "ETH",
-    "ether": "ETH", "ethereum": "ETH", "bnb": "BNB", "trx": "TRX", "tron": "TRX",
-    "ltc": "LTC", "litecoin": "LTC", "sol": "SOL", "solana": "SOL", "ton": "TON",
-    "toncoin": "TON",
-}  # fmt: skip
 
 #: Больше этого за одну статью не платят: такое число — ошибка разбора,
 #: а не прайс. Порог намеренно щедрый — отсечь надо выдумку, не дорогой сайт.
@@ -72,7 +61,7 @@ IMPLAUSIBLE_PRICE = Decimal("100000")
 #: сравнивает версии между собой, и без метки правки было бы не отличить от
 #: смены писем. Приём взят у соседней системы — там по такой метке сверяли
 #: предложенное моделью с тем, что сделал оператор.
-PROMPT_VERSION = "reply-parse-v4-named-price"
+PROMPT_VERSION = "reply-parse-v5-label-silence"
 
 SYSTEM = """You extract placement pricing from a reply an outreach recipient sent us.
 
@@ -90,16 +79,23 @@ publish an article or link from us? "sells" if they name a price or say they \
 accept paid or sponsored posts; "free" if they refuse payment but accept a \
 guest post for free; "declines" ONLY if they plainly accept neither paid nor \
 free guest posts or links; otherwise "unclear".
+- "label_stated": true or false — does the reply explicitly say whether the \
+post will carry a sponsored/advertising label ("marked as sponsored", "without \
+any label", "Kennzeichnung ist Pflicht")? Merely calling the product a \
+"sponsored post" or "sponsored article" is NOT a statement about the label.
 - "placement_quote": string or null — the exact words from the reply that \
 support "placement", copied verbatim, 3 to 15 words.
 - "confidence": number between 0 and 1 — how sure you are about the fields above.
-- "note": short string or null — what made you unsure, in Russian.
+- "note": short string or null — what made you unsure, in Russian. Do not \
+mention labelling here: "label_stated" already covers it.
 
 Rules:
 - If the reply names a single price without saying whether the post is labelled, \
-put it in "price_white" and lower your confidence. When a price is named, \
-never leave both "price_white" and "price_grey" null — whatever the currency, \
-crypto included.
+put it in "price_white" and set "label_stated" to false. Most replies never \
+mention labelling: that silence is normal and is NOT a reason to lower your \
+confidence. "confidence" is about whether you read the number, the currency \
+and the product correctly. When a price is named, never leave both \
+"price_white" and "price_grey" null — whatever the currency, crypto included.
 - "price_grey" is ONLY the same post without a sponsored label. Prices for a \
 different topic (casino, crypto, adult…) or a different product (homepage \
 link, link insertion, monthly placement) are NEVER "price_grey": put the \
@@ -128,6 +124,11 @@ class Extracted:
     #: «не продаём» и «цену не поняли» неотличимы и оба падают в ручную очередь.
     placement: str = "unclear"
     placement_quote: str | None = None
+    #: Сказал ли донор, помечается ли пост как реклама. Чаще всего молчит,
+    #: и это не повод для ручной очереди: цена кладётся белой, а молчание
+    #: остаётся здесь и в снимке — «белая» у такой цены значит «про
+    #: маркировку не сказано». `None` — модель поле не заполнила.
+    label_stated: bool | None = None
     confidence: float = 0.0
     #: Что снизило уверенность — словами, для человека в карточке.
     notes: tuple[str, ...] = field(default_factory=tuple)
@@ -146,6 +147,7 @@ class Extracted:
             "price_grey": str(self.price_grey) if self.price_grey is not None else None,
             "currency": self.currency,
             "placement": self.placement,
+            "label_stated": self.label_stated,
             "confidence": self.confidence,
             "prompt_version": PROMPT_VERSION,
         }
@@ -177,104 +179,15 @@ PLACEMENT_UNCLEAR = "unclear"
 PLACEMENTS = frozenset({PLACEMENT_SELLS, PLACEMENT_FREE, PLACEMENT_DECLINES, PLACEMENT_UNCLEAR})
 
 
+#: Пометка у цены, про маркировку которой донор не сказал ни слова.
+LABEL_UNSAID = "про маркировку не сказано"
+
+
 def _quote_in(quote: str, text: str) -> bool:
     def squeeze(value: str) -> str:
         return " ".join(value.lower().split())
 
     return squeeze(quote) in squeeze(text)
-
-
-def normalize_currency(raw: str | None) -> str | None:
-    """Валюта к коду. Неизвестное возвращается как есть, в верхнем регистре:
-    выбросить незнакомое значит потерять цену вместе с ним."""
-    if not raw:
-        return None
-    key = raw.strip().lower()
-    if key in CURRENCIES:
-        return CURRENCIES[key]
-    # Целыми словами, а не подстрокой: «usd» внутри «usdt» делал из USDT
-    # доллар (эталонный прогон 23.09). Знаки валют — отдельно, они не слова.
-    words = re.findall(r"[a-zа-яё]+", key)
-    for word in words:
-        if word in CURRENCIES:
-            return CURRENCIES[word]
-    # Падежи и формы: «рублей», «долларов», «евро» — по основе, но только
-    # после точного совпадения, иначе «usdt» снова стал бы долларом.
-    for word in words:
-        for token, code in CURRENCIES.items():
-            if len(token) >= 3 and token.isalpha() and word.startswith(token):
-                return code
-    for sign in ("₮", "₿", "$", "€", "£", "₽", "zł"):
-        if sign in key:
-            return CURRENCIES[sign]
-    return raw.strip().upper()[:8]
-
-
-def as_price(raw: Any) -> Decimal | None:
-    """Число в цену. Мусор — это `None`, а не ноль: ноль означал бы
-    «размещают бесплатно»."""
-    if raw is None or isinstance(raw, bool):
-        return None
-    try:
-        value = Decimal(_plain_number(str(raw)))
-    except (InvalidOperation, ValueError):
-        # Модель вернула на месте цены что-то, что числом не является.
-        # Молча это не пропускаем: если такое стало частым, сломался
-        # разбор, а не письма.
-        logger.warning("%s: в поле цены не число — %r", TOPIC, raw)
-        return None
-    return value if value > 0 else None
-
-
-def _plain_number(raw: str) -> str:
-    """Число в европейской и английской записи — к виду, понятному `Decimal`.
-
-    Раньше запятая просто выбрасывалась: «120,50 €» становилось 12050, а
-    «1.200 €» — 1,2. Правило: при двух видах разделителей десятичный — тот,
-    что последним; при одном — группы по три цифры это тысячи, иначе дробь.
-    Первая группа не с нуля: «0.005 BTC» — дробь, а не пять.
-    """
-    text = re.sub(r"[\s\u00a0'’]", "", raw.strip())
-    if "," in text and "." in text:
-        decimal = "," if text.rfind(",") > text.rfind(".") else "."
-        thousands = "." if decimal == "," else ","
-        return text.replace(thousands, "").replace(decimal, ".")
-    for mark in (",", "."):
-        if mark in text:
-            if re.fullmatch(rf"[1-9]\d{{0,2}}(\{mark}\d{{3}})+", text):
-                return text.replace(mark, "")
-            return text.replace(mark, ".")
-    return text
-
-
-#: Число в письме целиком: цифры с разделителями разрядов и дроби внутри.
-_NUMBER = re.compile(r"\d(?:[\d.,'\u2019\u00a0\u202f ]*\d)?")
-
-
-def numbers_in(text: str) -> set[Decimal]:
-    """Все числа письма — каждое целиком, в европейской и английской записи."""
-    found: set[Decimal] = set()
-    for token in _NUMBER.findall(text):
-        try:
-            found.add(Decimal(_plain_number(token)))
-        except (InvalidOperation, ValueError):
-            logger.debug("%s: не число в письме — %r", TOPIC, token)
-    return found
-
-
-def appears_in(value: Decimal, text: str) -> bool:
-    """Встречается ли число в письме — ЦЕЛИКОМ.
-
-    Главная проверка файла. «1,200», «1.200», «1 200» и «1200» — одно число,
-    «120,50» и «120.5» — тоже, а «1250» вместо «1200» — другое.
-
-    ⚠ Сравниваются числа, а не подстроки цифр. Подстрокой «120» находилось
-    внутри «120,50»: модель урезала цену до целых, проверка это пропускала,
-    и неверная цена ложилась в базу сама (эталонный прогон 23.09). До того
-    бралась только целая часть, и у «0,05 BTC» это был «0» — проверка
-    проходила на любом письме, где есть ноль.
-    """
-    return value in numbers_in(text)
 
 
 def temper(found: Extracted, *, text: str) -> Extracted:
@@ -283,6 +196,12 @@ def temper(found: Extracted, *, text: str) -> Extracted:
     Порядок не важен: каждая проверка опускает уверенность до своего
     потолка, и ниже всех оказывается самая суровая из сработавших.
     """
+    result = _numbers_checked(found, text)
+    result = _choice_checked(result, text)
+    return _declines_checked(result, text)
+
+
+def _numbers_checked(found: Extracted, text: str) -> Extracted:
     result = found
     for value, name in ((found.price_white, "белая"), (found.price_grey, "серая")):
         if value is None:
@@ -295,17 +214,36 @@ def temper(found: Extracted, *, text: str) -> Extracted:
     if found.has_price and not found.currency:
         # Число без валюты положить в базу нельзя: «250» — это не цена.
         result = result.lowered(0.3, "цена названа, а валюта — нет")
+    return result
 
-    if found.placement == PLACEMENT_DECLINES and found.has_price:
+
+def _choice_checked(found: Extracted, text: str) -> Extracted:
+    """Несколько цен — за разные разделы, темы, продукты, — а взята не
+    наименьшая. Самооценка тут не защищает: на «главная 1.200 €, блог
+    350 €» модель брала 1200, сама писала «неясно» и ставила 0,90
+    (эталон 23.09). Наименьшая — то же правило, что у диапазона.
+
+    Пара «с пометкой / без» — не выбор, а ответ: её не трогаем.
+    """
+    if found.price_white is None or found.price_grey is not None:
+        return found
+    amounts = amounts_in(text)
+    if len(amounts) < 2 or found.price_white <= min(amounts):
+        return found
+    return found.lowered(0.6, f"в письме несколько цен, взята не наименьшая ({found.price_white})")
+
+
+def _declines_checked(found: Extracted, text: str) -> Extracted:
+    if found.placement != PLACEMENT_DECLINES:
+        return found
+    result = found
+    if found.has_price:
         # «Не продаём» и цена в одном ответе — противоречие, решает человек.
         result = result.lowered(0.3, "сказал «не продаём», но назвал цену")
-    if found.placement == PLACEMENT_DECLINES and not (
-        found.placement_quote and _quote_in(found.placement_quote, text)
-    ):
+    if not (found.placement_quote and _quote_in(found.placement_quote, text)):
         # Тот же приём, что у цены и у судьи: отказ без дословной опоры —
         # догадка, а по нему домен уходит из отбора на год.
         result = result.lowered(0.0, "«не продаём» без дословной цитаты из письма")
-
     return result
 
 
@@ -348,7 +286,8 @@ def parse_form(content: str) -> Extracted | None:
 
     note = body.get("note")
     methods = body.get("payment_methods")
-    return Extracted(
+    label = body.get("label_stated")
+    found = Extracted(
         price_white=as_price(body.get("price_white")),
         price_grey=as_price(body.get("price_grey")),
         currency=normalize_currency(body.get("currency")),
@@ -359,9 +298,13 @@ def parse_form(content: str) -> Extracted | None:
         link_type=_as_link_type(body.get("link_type")),
         placement=_as_placement(body.get("placement")),
         placement_quote=_as_quote(body.get("placement_quote")),
+        label_stated=label if isinstance(label, bool) else None,
         confidence=_as_confidence(body.get("confidence")),
         notes=(str(note)[:200],) if note else (),
     )
+    if found.has_price and found.label_stated is False:
+        found = replace(found, notes=(*found.notes, LABEL_UNSAID))
+    return found
 
 
 def _as_placement(raw: Any) -> str:

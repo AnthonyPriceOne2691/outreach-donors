@@ -962,9 +962,9 @@
       "worst": "_header_says:57"
     },
     "backend/features/replies/extract.py": {
-      "lines": 464,
-      "complexity": 12,
-      "worst": "normalize_currency:187"
+      "lines": 407,
+      "complexity": 9,
+      "worst": "parse_form:276"
     },
     "backend/features/replies/inbound.py": {
       "lines": 130,
@@ -975,6 +975,11 @@
       "lines": 193,
       "complexity": 12,
       "worst": "attachments_from:105"
+    },
+    "backend/features/replies/money.py": {
+      "lines": 164,
+      "complexity": 12,
+      "worst": "normalize_currency:37"
     },
     "backend/features/replies/outcome.py": {
       "lines": 163,
@@ -1187,9 +1192,9 @@
       "worst": "compare:162"
     },
     "scripts/eval_reply_parse.py": {
-      "lines": 154,
+      "lines": 163,
       "complexity": 16,
-      "worst": "report:108"
+      "worst": "report:116"
     },
     "scripts/gates.py": {
       "lines": 336,
