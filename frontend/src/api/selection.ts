@@ -21,6 +21,7 @@ export interface SelectionQuery {
   only_disagreements?: boolean;
   only_unreviewed?: boolean;
   only_unjudged?: boolean;
+  only_answered?: boolean;
   limit?: number;
   offset?: number;
 }

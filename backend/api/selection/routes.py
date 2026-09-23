@@ -11,7 +11,10 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
@@ -33,36 +36,42 @@ _viewer = Depends(needs(Permission.VIEW))
 _reviewer = Depends(needs(Permission.PRICES))
 
 
-def _filters(
-    tab: Tab = Query(default=Tab.ACCEPTED, description="принят, к разбору, отклонён"),
-    search: str | None = Query(default=None, description="по домену или причине"),
-    decided_by: Decider | None = Query(default=None, description="кто вынес вердикт судьи"),
-    only_disagreements: bool = Query(default=False, description="человек и машина разошлись"),
-    only_unreviewed: bool = Query(default=False, description="человек ещё не смотрел"),
-    only_unjudged: bool = Query(default=False, description="судья не смотрел"),
-    limit: int = Query(default=100, ge=1, le=500),
-    offset: int = Query(default=0, ge=0),
-) -> SelectionFilters:
-    return SelectionFilters(
-        tab=tab,
-        search=search,
-        decided_by=decided_by.value if decided_by else None,
-        only_disagreements=only_disagreements,
-        only_unreviewed=only_unreviewed,
-        only_unjudged=only_unjudged,
-        limit=limit,
-        offset=offset,
-    )
+class SelectionQuery(BaseModel):
+    """Фильтры экрана отбора — одной моделью: флагов стало больше, чем
+    разумно держать отдельными параметрами обработчика."""
+
+    tab: Tab = Field(default=Tab.ACCEPTED, description="принят, к разбору, отклонён")
+    search: str | None = Field(default=None, description="по домену или причине")
+    decided_by: Decider | None = Field(default=None, description="кто вынес вердикт судьи")
+    only_disagreements: bool = Field(default=False, description="человек и машина разошлись")
+    only_unreviewed: bool = Field(default=False, description="человек ещё не смотрел")
+    only_unjudged: bool = Field(default=False, description="судья не смотрел")
+    only_answered: bool = Field(default=False, description="донор ответил, продаёт ли")
+    limit: int = Field(default=100, ge=1, le=500)
+    offset: int = Field(default=0, ge=0)
+
+    def filters(self) -> SelectionFilters:
+        return SelectionFilters(
+            tab=self.tab,
+            search=self.search,
+            decided_by=self.decided_by.value if self.decided_by else None,
+            only_disagreements=self.only_disagreements,
+            only_unreviewed=self.only_unreviewed,
+            only_unjudged=self.only_unjudged,
+            only_answered=self.only_answered,
+            limit=self.limit,
+            offset=self.offset,
+        )
 
 
 @router.get("", response_model=SelectionView, summary="Отбор по вкладкам")
 async def selection(
+    query: Annotated[SelectionQuery, Query()],
     _: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
-    filters: SelectionFilters = Depends(_filters),
 ) -> SelectionView:
     browser = SelectionBrowser(session)
-    return SelectionView.of(await browser.page(filters), await browser.summary())
+    return SelectionView.of(await browser.page(query.filters()), await browser.summary())
 
 
 @router.post("/{domain_id}/decide", response_model=SelectionCard, summary="Решение человека")

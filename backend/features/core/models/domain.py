@@ -47,6 +47,19 @@ class DomainModel(TimestampedMixin, Base):
     judge_home: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     judged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # --- ответ самого донора ------------------------------------------------
+    #
+    # Продаёт ли сайт размещение — по его собственному ответу на письмо:
+    # `sells` (назвал цену или сказал, что продаёт), `declines` («не продаём»).
+    # Для гест-постинга это правда первого сорта, сильнее и судьи, и
+    # человека: сайт сам сказал. Отдельно от обоих — по расхождению с ними
+    # и считается, как часто отбор ошибается в главном.
+    seller_answer: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    seller_answer_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    seller_answer_reply_id: Mapped[int | None] = mapped_column(nullable=True)
+
     # --- решение человека ---------------------------------------------------
     #
     # Сильнее модели, но её вердикт НЕ переписывает: расхождение между ними

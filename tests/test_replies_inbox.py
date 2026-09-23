@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from backend.config import outreach as outreach_cfg
@@ -362,3 +363,62 @@ class TestParsingThePrice:
         reply = await session.get(ReplyModel, got.reply_id or 0)
         assert reply is not None
         assert reply.confidence is None
+
+
+class TestSellerAnswer:
+    """«Не продаём» — ответ на главный вопрос письма, а не пустая цена.
+
+    До 23.09 такой ответ падал в ручную очередь как «цена не распознана»,
+    и для отбора он пропадал: сайт сам сказал, что не донор, а отбор об
+    этом не узнавал.
+    """
+
+    async def _parse(
+        self, session: AsyncSession, sent: MessageModel, text: str, found: Extracted
+    ) -> Any:
+        got = await Inbox(session, now=NOW).accept(reply_from(sent, text))
+        await session.flush()
+        assert got.reply_id is not None
+        parsed = await Parser(session, FakeExtractor(found), now=NOW).parse(got.reply_id)  # type: ignore[arg-type]
+        await session.flush()
+        return parsed
+
+    async def test_confident_decline_lands_on_the_domain(
+        self, session: AsyncSession, sent: MessageModel
+    ) -> None:
+        text = "Thanks, but we do not accept sponsored posts on our site."
+        parsed = await self._parse(
+            session, sent, text,
+            Extracted(placement="declines", placement_quote="we do not accept sponsored posts",
+                      confidence=0.9),
+        )  # fmt: skip
+
+        assert not parsed.needs_review, "разбирать человеку тут нечего"
+        domain = (await session.execute(select(DomainModel))).scalars().one()
+        assert domain.seller_answer == "declines"
+        assert domain.seller_answer_reply_id == parsed.reply_id
+
+    async def test_price_means_the_site_sells(
+        self, session: AsyncSession, sent: MessageModel
+    ) -> None:
+        await self._parse(
+            session, sent, "Placement is 250 EUR.",
+            Extracted(price_white=Decimal("250"), currency="EUR", placement="sells",
+                      confidence=0.95),
+        )  # fmt: skip
+
+        domain = (await session.execute(select(DomainModel))).scalars().one()
+        assert domain.seller_answer == "sells"
+
+    async def test_unsure_decline_waits_for_a_human(
+        self, session: AsyncSession, sent: MessageModel
+    ) -> None:
+        """По «не продаём» домен уходит из отбора на год — догадке этого нельзя."""
+        parsed = await self._parse(
+            session, sent, "Let me think about it.",
+            Extracted(placement="declines", placement_quote="let me think", confidence=0.4),
+        )  # fmt: skip
+
+        assert parsed.needs_review
+        domain = (await session.execute(select(DomainModel))).scalars().one()
+        assert domain.seller_answer is None

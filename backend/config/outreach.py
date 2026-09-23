@@ -69,6 +69,10 @@ class _Outreach(DomainSettings):
     # за метрики, чтобы написать четвёртое письмо тому, кто трижды промолчал.
     # Год взят у стоп-листа поставщиков — там требование называет 12 месяцев.
     silence_days: int = Field(default=365, validation_alias="OUTREACH_SILENCE_DAYS")
+    # Сколько не спрашивать донора, ответившего «не продаём размещения».
+    # Год, как у молчания: ответ «нет» меняется со сменой владельца или
+    # политики, а переспрашивать раньше — жалоба на спам.
+    decline_days: int = Field(default=365, validation_alias="OUTREACH_DECLINE_DAYS")
 
 
 _s = _Outreach()
@@ -95,3 +99,4 @@ UNIQUENESS_TARGET_MIN: float = _s.uniqueness_target_min
 UNIQUENESS_TARGET_MAX: float = _s.uniqueness_target_max
 PRICE_CONFIDENCE_THRESHOLD: float = _s.price_confidence_threshold
 SILENCE_DAYS: int = _s.silence_days
+DECLINE_DAYS: int = _s.decline_days

@@ -36,6 +36,7 @@ from backend.features.core import usage
 from backend.features.core.domain import ReplyKind
 from backend.features.core.models.outreach import ReplyModel
 from backend.features.replies import binding, classify, outcome
+from backend.features.replies import extract as extract_mod
 from backend.features.replies.extract import ExtractClient, Extracted
 from backend.features.replies.inbound import Incoming
 from backend.features.replies.repository import Addressee, ReplyRepository
@@ -240,6 +241,11 @@ class Parser:
         consequences = outcome.decide(reply.kind, found)
         if consequences.store_price:
             await self._store_price(reply, found)
+            await self._seller_answer(reply, extract_mod.PLACEMENT_SELLS)
+        if consequences.store_declines:
+            await self._seller_answer(reply, extract_mod.PLACEMENT_DECLINES)
+        if consequences.store_free:
+            await self._seller_answer(reply, extract_mod.PLACEMENT_FREE)
 
         logger.info(
             "разбор: ответ №%s, уверенность %.2f, цена в базу — %s",
@@ -254,6 +260,14 @@ class Parser:
             needs_review=consequences.needs_review,
             review_reason=consequences.review_reason,
             tokens_spent=found.tokens_spent,
+        )
+
+    async def _seller_answer(self, reply: ReplyModel, answer: str) -> None:
+        domain_id = await self._repo.domain_of(reply)
+        if domain_id is None:
+            return
+        await self._repo.record_seller_answer(
+            domain_id=domain_id, answer=answer, reply_id=reply.id, now=self._now
         )
 
     async def _store_price(self, reply: ReplyModel, found: Extracted) -> None:
@@ -271,6 +285,10 @@ class Parser:
         )
 
 
+def _write_back_placement(reply: ReplyModel, found: Extracted) -> None:
+    reply.placement = found.placement
+
+
 def _write_back(reply: ReplyModel, found: Extracted) -> None:
     """Разобранное — к ответу, рядом с исходным текстом.
 
@@ -283,6 +301,7 @@ def _write_back(reply: ReplyModel, found: Extracted) -> None:
     reply.currency = found.currency
     reply.payment_methods = list(found.payment_methods) or None
     reply.confidence = found.confidence
+    _write_back_placement(reply, found)
 
 
 def _as_incoming(reply: ReplyModel) -> Incoming:

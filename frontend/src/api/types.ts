@@ -77,6 +77,8 @@ export type ThreadState =
   | 'replied'
   | 'needs_review'
   | 'priced'
+  | 'declined'
+  | 'free'
   | 'bounced'
   | 'unsubscribed'
   | 'stopped';
@@ -133,6 +135,8 @@ export interface IncomingCard {
   currency: string | null;
   payment_methods: string[] | null;
   confidence: number | null;
+  /** Продаёт ли донор размещение по разбору: sells, declines, unclear. */
+  placement: string | null;
   /** Ждёт ли разбор человека. Считает сервер: порог живёт в настройках,
    *  и второй его экземпляр на фронте разъехался бы при первой правке. */
   needs_review: boolean;
@@ -145,12 +149,15 @@ export interface ReviewPrice {
   price_grey: string | null;
   currency: string | null;
   payment_methods: string[];
+  /** Донор ответил «не продаём размещения» — поля цены при этом пусты. */
+  declines?: boolean;
 }
 
 export interface Reviewed {
   id: number;
   reviewed_by: string;
   stored_price: boolean;
+  seller_answer: 'sells' | 'declines' | null;
 }
 
 export interface ThreadView {
@@ -567,6 +574,13 @@ export interface MachineView {
   judged_at: string | null;
 }
 
+export interface SellerView {
+  answer: 'sells' | 'free' | 'declines' | null;
+  answered_at: string | null;
+  price: string | null;
+  currency: string | null;
+}
+
 export interface HumanView {
   intent: HumanIntent | null;
   note: string | null;
@@ -584,6 +598,7 @@ export interface SelectionCard {
   org_traffic: number | null;
   machine: MachineView;
   human: HumanView;
+  seller: SellerView;
   disagrees: boolean;
 }
 
@@ -594,4 +609,8 @@ export interface SelectionView {
   reviewed: number;
   disagreements: number;
   layers: Partial<Record<JudgeDecider, { checked: number; agreed: number }>>;
+  /** Сколько доноров ответили, продают ли размещение. */
+  answered: number;
+  /** Сходимость судьи с ответами доноров — точность отбора в главном. */
+  answer_layers: Partial<Record<JudgeDecider, { checked: number; agreed: number }>>;
 }

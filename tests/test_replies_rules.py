@@ -403,3 +403,57 @@ class TestPlatformPayload:
 
         assert len(got.text) <= 200_000
         assert len(got.for_model) <= 20_000
+
+
+# --- продаёт ли донор размещение --------------------------------------------
+
+
+def test_placement_is_read_from_the_form() -> None:
+    found = parse_form(
+        '{"price_white": null, "placement": "declines", '
+        '"placement_quote": "we do not sell links", "confidence": 0.9}'
+    )
+    assert found is not None
+    assert found.placement == "declines"
+    assert found.declines
+
+
+def test_unknown_placement_is_unclear() -> None:
+    found = parse_form('{"placement": "maybe", "confidence": 0.9}')
+    assert found is not None
+    assert found.placement == "unclear"
+
+
+def test_decline_without_a_verbatim_quote_is_not_trusted() -> None:
+    """Отказ без дословной опоры — догадка, а по нему домен уходит на год."""
+    found = Extracted(placement="declines", placement_quote="no paid posts", confidence=0.9)
+    tempered = temper(found, text="Hi, we will get back to you next week.")
+    assert tempered.confidence == 0.0
+
+
+def test_decline_with_a_price_is_a_contradiction() -> None:
+    found = Extracted(
+        price_white=Decimal("100"), currency="USD", placement="declines",
+        placement_quote="we don't sell", confidence=0.9,
+    )  # fmt: skip
+    tempered = temper(found, text="We don't sell links, but a post is 100 USD.")
+    assert tempered.confidence <= 0.3
+    assert not tempered.declines, "цена в ответе — это уже не отказ"
+
+
+def test_free_guest_post_is_consent_not_refusal() -> None:
+    """«Платных не берём, гостевой — бесплатно» — согласие. 23.09 модель
+    прочла его как отказ, и домен ушёл бы из отбора на год."""
+    found = Extracted(placement="free", placement_quote="x", confidence=0.93)
+    consequences = outcome.decide(ReplyKind.HUMAN, found, threshold=0.8)
+    assert consequences.store_free
+    assert not consequences.store_declines
+    assert not consequences.needs_review
+
+
+def test_confident_decline_needs_no_review() -> None:
+    found = Extracted(placement="declines", placement_quote="x", confidence=0.95)
+    consequences = outcome.decide(ReplyKind.HUMAN, found, threshold=0.8)
+    assert consequences.store_declines
+    assert not consequences.needs_review
+    assert consequences.stop_chain

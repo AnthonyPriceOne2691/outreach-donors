@@ -31,6 +31,7 @@ from backend.api.replies.schemas import ReviewBody, Reviewed
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
+from backend.features.replies.extract import PLACEMENT_DECLINES, PLACEMENT_SELLS
 from backend.features.replies.repository import ReplyRepository
 
 logger = logging.getLogger(__name__)
@@ -63,16 +64,25 @@ async def review(
     price = body.price_white if body.price_white is not None else body.price_grey
     domain_id = await repository.domain_of(reply)
     stored = False
+    answer: str | None = None
     if price is not None and domain_id is not None:
         await repository.store_price(domain_id=domain_id, price=price, currency=body.currency)
         stored = True
+        answer = PLACEMENT_SELLS
+    elif body.declines:
+        reply.placement = PLACEMENT_DECLINES
+        answer = PLACEMENT_DECLINES
+    if answer is not None and domain_id is not None:
+        await repository.record_seller_answer(domain_id=domain_id, answer=answer, reply_id=reply.id)
 
     await AccessRepository(session).record(
         AuditAction.PRICE_REVIEWED,
         author_id=author.id,
         target=f"reply:{reply_id}",
         details={
-            "действие": "разбор цены подтверждён",
+            "действие": "донор не продаёт размещения"
+            if body.declines
+            else "разбор цены подтверждён",
             "белая": str(body.price_white) if body.price_white is not None else None,
             "серая": str(body.price_grey) if body.price_grey is not None else None,
             "валюта": body.currency,
@@ -82,4 +92,6 @@ async def review(
     await session.commit()
 
     logger.info("разбор: ответ №%s подтверждён, цена в базу — %s", reply_id, stored)
-    return Reviewed(id=reply_id, reviewed_by=author.email, stored_price=stored)
+    return Reviewed(
+        id=reply_id, reviewed_by=author.email, stored_price=stored, seller_answer=answer
+    )

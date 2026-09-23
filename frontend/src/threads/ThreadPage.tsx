@@ -96,9 +96,10 @@ interface IncomingProps {
     price_grey: string | null;
     currency: string | null;
   }) => void;
+  onDecline: () => void;
 }
 
-function Incoming({ incoming, canReview, busy, onConfirm }: IncomingProps) {
+function Incoming({ incoming, canReview, busy, onConfirm, onDecline }: IncomingProps) {
   const kind = REPLY_KINDS[incoming.kind];
   const hasPrice = incoming.price_white !== null || incoming.price_grey !== null;
   // Разбирают только ответы людей: у автоответчика и отказа доставки
@@ -173,7 +174,13 @@ function Incoming({ incoming, canReview, busy, onConfirm }: IncomingProps) {
       )}
 
       {reviewable && (
-        <PriceReview incoming={incoming} canReview={canReview} busy={busy} onConfirm={onConfirm} />
+        <PriceReview
+          incoming={incoming}
+          canReview={canReview}
+          busy={busy}
+          onConfirm={onConfirm}
+          onDecline={onDecline}
+        />
       )}
     </Card>
   );
@@ -194,14 +201,24 @@ export function ThreadPage() {
     mutationFn: ({
       replyId,
       values,
+      declines = false,
     }: {
       replyId: number;
       values: { price_white: string | null; price_grey: string | null; currency: string | null };
-    }) => reviewReply(replyId, { ...values, payment_methods: [] }),
+      declines?: boolean;
+    }) =>
+      reviewReply(replyId, { ...values, payment_methods: [], ...(declines ? { declines } : {}) }),
     onSuccess: async (result) => {
       // Список диалогов тоже меняется: состояние «ждёт разбора» уходит.
       await queryClient.invalidateQueries({ queryKey: ['thread', id] });
       await queryClient.invalidateQueries({ queryKey: ['threads'] });
+      if (result.seller_answer === 'declines') {
+        notifications.show({
+          message: 'Отмечено: донор не продаёт размещения — домен уходит из отбора на год',
+          color: 'green',
+        });
+        return;
+      }
       notifications.show({
         message: result.stored_price
           ? 'Цена подтверждена и записана в карточку донора'
@@ -239,6 +256,13 @@ export function ThreadPage() {
           canReview={can('prices')}
           busy={confirm.isPending && confirm.variables?.replyId === incoming.id}
           onConfirm={(values) => confirm.mutate({ replyId: incoming.id, values })}
+          onDecline={() =>
+            confirm.mutate({
+              replyId: incoming.id,
+              values: { price_white: null, price_grey: null, currency: null },
+              declines: true,
+            })
+          }
         />
       ),
     })),

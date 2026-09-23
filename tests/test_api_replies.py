@@ -217,6 +217,46 @@ class TestReviewing:
         assert reply is not None
         assert reply.price_white is None
 
+    async def test_decline_lands_on_the_domain(
+        self, client: AsyncClient, reviewer_token: str, unsure: ReplyModel, session: AsyncSession
+    ) -> None:
+        """«Не продаёт размещения» — одним нажатием: для гест-постинга это
+        ответ на главный вопрос письма, и он уходит в отбор."""
+        response = await client.patch(
+            f"/api/replies/{unsure.id}", json={"declines": True}, headers=bearer(reviewer_token)
+        )
+
+        body = response.json()
+        assert body["seller_answer"] == "declines"
+        assert body["stored_price"] is False
+        domain = (await session.execute(select(DomainModel))).scalars().one()
+        assert domain.seller_answer == "declines"
+        reply = await session.get(ReplyModel, unsure.id)
+        assert reply is not None
+        assert reply.placement == "declines"
+
+    async def test_confirmed_price_means_the_site_sells(
+        self, client: AsyncClient, reviewer_token: str, unsure: ReplyModel, session: AsyncSession
+    ) -> None:
+        await client.patch(
+            f"/api/replies/{unsure.id}",
+            json={"price_white": "300", "currency": "EUR"},
+            headers=bearer(reviewer_token),
+        )
+        domain = (await session.execute(select(DomainModel))).scalars().one()
+        assert domain.seller_answer == "sells"
+
+    async def test_decline_with_a_price_is_refused(
+        self, client: AsyncClient, reviewer_token: str, unsure: ReplyModel
+    ) -> None:
+        response = await client.patch(
+            f"/api/replies/{unsure.id}",
+            json={"declines": True, "price_white": "100", "currency": "USD"},
+            headers=bearer(reviewer_token),
+        )
+        assert response.status_code == 422
+        assert "не бывают" in response.text
+
     async def test_review_is_written_to_the_journal(
         self, client: AsyncClient, reviewer_token: str, unsure: ReplyModel, session: AsyncSession
     ) -> None:

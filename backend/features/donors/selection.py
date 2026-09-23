@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
@@ -86,9 +86,24 @@ def _human_advice() -> ColumnElement[Any]:
     )
 
 
+#: Ответ донора → совет. Цена или «продаём» — площадка, «не продаём» — нет.
+ANSWER_ADVICE: dict[str, str] = {"sells": "accept", "free": "accept", "declines": "reject"}
+
+
+def _answer_advice() -> ColumnElement[Any]:
+    return case(
+        *(
+            (DomainModel.seller_answer == answer, advice)
+            for answer, advice in ANSWER_ADVICE.items()
+        ),
+        else_=None,
+    )
+
+
 def _site_advice() -> ColumnElement[Any]:
-    """Действующий совет о сайте: человек сильнее модели."""
-    return func.coalesce(_human_advice(), DomainModel.judge_recommendation)
+    """Действующий совет о сайте. Ответ самого донора сильнее всех: для
+    гест-постинга он и есть правда. Человек сильнее модели."""
+    return func.coalesce(_answer_advice(), _human_advice(), DomainModel.judge_recommendation)
 
 
 def _tab() -> ColumnElement[Any]:
@@ -124,6 +139,7 @@ class SelectionFilters:
     only_disagreements: bool = False
     only_unreviewed: bool = False
     only_unjudged: bool = False
+    only_answered: bool = False
     limit: int = 100
     offset: int = 0
 
@@ -151,6 +167,11 @@ class SelectionSummary:
     reviewed: int
     disagreements: int
     layers: dict[str, LayerScore]
+    #: Сколько доноров ответили на письмо, продают ли они размещение.
+    answered: int = 0
+    #: Сходимость слоёв судьи с ответами доноров — точность отбора
+    #: в главном для гест-постинга, а не в «издание или продавец».
+    answer_layers: dict[str, LayerScore] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,6 +206,8 @@ def _narrow(statement: Select[Any], filters: SelectionFilters) -> Select[Any]:
         statement = statement.where(_disagrees())
     if filters.only_unreviewed:
         statement = statement.where(DomainModel.human_intent.is_(None))
+    if filters.only_answered:
+        statement = statement.where(DomainModel.seller_answer.is_not(None))
     if filters.only_unjudged:
         # База, собранная до судьи: вердикта у неё нет, и «принят» здесь
         # значит только «прошёл пороги».
@@ -239,12 +262,34 @@ class SelectionBrowser:
                 agreed[key] += 1
             else:
                 disagreements += 1
+        answered, answer_layers = await self._answer_scores()
         return SelectionSummary(
             tabs={tab.value: 0 for tab in Tab} | dict(tabs.tuples().all()),
             reviewed=total_reviewed,
             disagreements=disagreements,
             layers={key: LayerScore(checked[key], agreed[key]) for key in checked},
+            answered=answered,
+            answer_layers=answer_layers,
         )
+
+    async def _answer_scores(self) -> tuple[int, dict[str, LayerScore]]:
+        """Судья против ответа донора. «Посмотри» судьи в счёт не идёт."""
+        rows = await self._session.execute(
+            select(
+                DomainModel.judge_decided_by, DomainModel.judge_recommendation, _answer_advice()
+            ).where(DomainModel.seller_answer.is_not(None))
+        )
+        checked: Counter[str] = Counter()
+        agreed: Counter[str] = Counter()
+        answered = 0
+        for layer, machine, answer in rows.all():
+            answered += 1
+            if machine not in ("accept", "reject"):
+                continue
+            key = layer or "model"
+            checked[key] += 1
+            agreed[key] += int(machine == answer)
+        return answered, {key: LayerScore(checked[key], agreed[key]) for key in checked}
 
     async def row(self, domain_id: int) -> SelectionRow:
         found = (await self._session.execute(_base().where(DomainModel.id == domain_id))).first()

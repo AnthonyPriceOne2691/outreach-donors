@@ -58,6 +58,7 @@ const BRAND: SelectionCard = {
     judged_at: '2026-09-23T10:00:00+00:00',
   },
   human: NOBODY,
+  seller: { answer: null, answered_at: null, price: null, currency: null },
   disagrees: false,
 };
 
@@ -88,6 +89,8 @@ function view(rows: SelectionCard[], extra: Partial<SelectionView> = {}): Select
     reviewed: 4,
     disagreements: 1,
     layers: { rule: { checked: 2, agreed: 2 }, model: { checked: 2, agreed: 1 } },
+    answered: 3,
+    answer_layers: { rule: { checked: 1, agreed: 1 }, model: { checked: 2, agreed: 1 } },
     ...extra,
   };
 }
@@ -144,9 +147,9 @@ describe('экран отбора', () => {
   it('сводка показывает сходимость по слоям судьи', async () => {
     await openScreen();
 
-    expect(screen.getByText(/правило 2 из 2/)).toBeInTheDocument();
-    expect(screen.getByText(/модель 1 из 2/)).toBeInTheDocument();
-    expect(screen.getByText(/арбитр — не проверяли/)).toBeInTheDocument();
+    expect(screen.getByText(/Сходится с человеком/)).toHaveTextContent(
+      'правило 2 из 2 · модель 1 из 2 · арбитр — не проверяли',
+    );
   });
 
   it('решение человека уходит на сервер типом сайта', async () => {
@@ -230,5 +233,31 @@ describe('экран отбора', () => {
     renderWith(<AppRoutes />, '/selection');
 
     expect(await screen.findByText('Принятых под фильтр нет.')).toBeInTheDocument();
+  });
+
+  it('ответ донора виден в строке и в сходимости судьи', async () => {
+    // Для гест-постинга ответ сайта — правда первого сорта: «не продаёт»
+    // должно быть видно рядом с вердиктом судьи, а не только в переписке.
+    const declined = {
+      ...BRAND,
+      seller: {
+        answer: 'declines' as const,
+        answered_at: '2026-09-23T10:00:00+00:00',
+        price: null,
+        currency: null,
+      },
+    };
+    const sold = {
+      ...WEAK,
+      seller: { answer: 'sells' as const, answered_at: null, price: '250.00', currency: 'EUR' },
+    };
+    await openScreen({ [ACCEPTED]: { body: view([declined, sold]) } });
+
+    expect(within(rowOf('brand.test')).getByText('не продаёт')).toBeInTheDocument();
+    expect(within(rowOf('weak.test')).getByText('продаёт')).toBeInTheDocument();
+    expect(within(rowOf('weak.test')).getByText(/250.00 EUR/)).toBeInTheDocument();
+    expect(screen.getByText(/Судья угадал по ответам доноров/)).toHaveTextContent(
+      'правило 1 из 1 · модель 1 из 2 · арбитр — ответов нет',
+    );
   });
 });

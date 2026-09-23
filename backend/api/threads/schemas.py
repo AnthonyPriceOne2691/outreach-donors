@@ -99,6 +99,8 @@ class IncomingCard(BaseModel):
     currency: str | None
     payment_methods: list[str] | None
     confidence: float | None
+    #: Продаёт ли донор размещение по разбору: `sells`, `declines`, `unclear`.
+    placement: str | None
     #: Ждёт ли разбор человека. Считается, а не хранится: второе поле
     #: разошлось бы с уверенностью при первой правке порога.
     needs_review: bool
@@ -120,6 +122,7 @@ class IncomingCard(BaseModel):
             currency=reply.currency,
             payment_methods=reply.payment_methods,
             confidence=reply.confidence,
+            placement=reply.placement,
             needs_review=waiting_for_review(
                 reply.kind, reply.confidence, reviewed=reply.reviewed_at is not None
             ),

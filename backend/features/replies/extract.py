@@ -72,6 +72,13 @@ sponsored, when the reply names a different one.
 - "payment_methods": array of short strings, empty if none are named.
 - "placement_days": integer or null — how long publication takes, in days.
 - "link_type": "dofollow", "nofollow" or null.
+- "placement": "sells", "free", "declines" or "unclear" — will the sender \
+publish an article or link from us? "sells" if they name a price or say they \
+accept paid or sponsored posts; "free" if they refuse payment but accept a \
+guest post for free; "declines" ONLY if they plainly accept neither paid nor \
+free guest posts or links; otherwise "unclear".
+- "placement_quote": string or null — the exact words from the reply that \
+support "placement", copied verbatim, 3 to 15 words.
 - "confidence": number between 0 and 1 — how sure you are about the fields above.
 - "note": short string or null — what made you unsure, in Russian.
 
@@ -96,6 +103,11 @@ class Extracted:
     payment_methods: tuple[str, ...] = ()
     placement_days: int | None = None
     link_type: str | None = None
+    #: Продаёт ли донор размещение: `sells`, `declines`, `unclear`.
+    #: Для гест-постинга это главный ответ письма — важнее цены: без него
+    #: «не продаём» и «цену не поняли» неотличимы и оба падают в ручную очередь.
+    placement: str = "unclear"
+    placement_quote: str | None = None
     confidence: float = 0.0
     #: Что снизило уверенность — словами, для человека в карточке.
     notes: tuple[str, ...] = field(default_factory=tuple)
@@ -104,6 +116,11 @@ class Extracted:
     @property
     def has_price(self) -> bool:
         return self.price_white is not None or self.price_grey is not None
+
+    @property
+    def declines(self) -> bool:
+        """Донор сам сказал, что размещений не продаёт."""
+        return self.placement == PLACEMENT_DECLINES and not self.has_price
 
     def lowered(self, to: float, why: str) -> Extracted:
         """Понизить уверенность и сказать, почему.
@@ -114,6 +131,24 @@ class Extracted:
         if to >= self.confidence:
             return self
         return replace(self, confidence=to, notes=(*self.notes, why))
+
+
+PLACEMENT_SELLS = "sells"
+#: Платных не берёт, гостевой пост — бесплатно. Для гест-постинга это
+#: согласие, а не отказ: 23.09 модель прочла «we don't sell links, but you are
+#: welcome to submit a guest post for free» как отказ, и домен ушёл бы из
+#: отбора на год.
+PLACEMENT_FREE = "free"
+PLACEMENT_DECLINES = "declines"
+PLACEMENT_UNCLEAR = "unclear"
+PLACEMENTS = frozenset({PLACEMENT_SELLS, PLACEMENT_FREE, PLACEMENT_DECLINES, PLACEMENT_UNCLEAR})
+
+
+def _quote_in(quote: str, text: str) -> bool:
+    def squeeze(value: str) -> str:
+        return " ".join(value.lower().split())
+
+    return squeeze(quote) in squeeze(text)
 
 
 def normalize_currency(raw: str | None) -> str | None:
@@ -180,6 +215,16 @@ def temper(found: Extracted, *, text: str) -> Extracted:
         # Число без валюты положить в базу нельзя: «250» — это не цена.
         result = result.lowered(0.3, "цена названа, а валюта — нет")
 
+    if found.placement == PLACEMENT_DECLINES and found.has_price:
+        # «Не продаём» и цена в одном ответе — противоречие, решает человек.
+        result = result.lowered(0.3, "сказал «не продаём», но назвал цену")
+    if found.placement == PLACEMENT_DECLINES and not (
+        found.placement_quote and _quote_in(found.placement_quote, text)
+    ):
+        # Тот же приём, что у цены и у судьи: отказ без дословной опоры —
+        # догадка, а по нему домен уходит из отбора на год.
+        result = result.lowered(0.0, "«не продаём» без дословной цитаты из письма")
+
     return result
 
 
@@ -231,9 +276,22 @@ def parse_form(content: str) -> Extracted | None:
         else (),
         placement_days=_as_days(body.get("placement_days")),
         link_type=_as_link_type(body.get("link_type")),
+        placement=_as_placement(body.get("placement")),
+        placement_quote=_as_quote(body.get("placement_quote")),
         confidence=_as_confidence(body.get("confidence")),
         notes=(str(note)[:200],) if note else (),
     )
+
+
+def _as_placement(raw: Any) -> str:
+    value = str(raw or "").strip().lower()
+    return value if value in PLACEMENTS else PLACEMENT_UNCLEAR
+
+
+def _as_quote(raw: Any) -> str | None:
+    if not isinstance(raw, str):
+        return None
+    return raw.strip()[:300] or None
 
 
 def _as_days(raw: Any) -> int | None:
