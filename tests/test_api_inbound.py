@@ -30,6 +30,7 @@ from backend.features.core.models.outreach import (
     ThreadModel,
 )
 from backend.features.letters import reply_to
+from backend.shared.sliding_window import SlidingWindow
 from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -64,8 +65,11 @@ def inbound_setup(monkeypatch: pytest.MonkeyPatch) -> NoQueue:
     queue = NoQueue()
     monkeypatch.setattr(inbound_routes, "runs_queue", lambda: queue)
     # Счётчик частоты живёт в памяти процесса и общий на все тесты:
-    # без очистки десятый тест ловил бы отказ от девятого.
-    inbound_routes._throttle.clear("testclient")
+    # без свежего окна десятый тест ловил бы отказ от девятого. Чистить
+    # по ключу нельзя: адрес клиента зависит от транспорта тестов
+    # (`testclient` у одного, `127.0.0.1` у другого) — очистка по чужому
+    # ключу молча ничего не делала.
+    monkeypatch.setattr(inbound_routes, "_throttle", SlidingWindow())
     return queue
 
 
@@ -139,6 +143,25 @@ class TestWhoIsLetIn:
         )
 
         assert response.status_code == 403
+
+    async def test_secret_as_basic_auth_password_is_let_in(
+        self, client: AsyncClient, sent: MessageModel
+    ) -> None:
+        """Платформа без своих заголовков: секрет паролем в адресе вебхука."""
+        response = await client.post(
+            "/api/inbound/replies", data=form_for(sent, "250 EUR"), auth=("inbound", SECRET)
+        )
+
+        assert response.status_code == 200
+
+    async def test_wrong_basic_auth_password_is_refused(
+        self, client: AsyncClient, sent: MessageModel
+    ) -> None:
+        for auth in (("inbound", "wrong-secret"), (SECRET, "")):
+            response = await client.post(
+                "/api/inbound/replies", data=form_for(sent, "250 EUR"), auth=auth
+            )
+            assert response.status_code == 403, auth
 
     async def test_missing_secret_in_settings_refuses_everyone(
         self, client: AsyncClient, sent: MessageModel, monkeypatch: pytest.MonkeyPatch

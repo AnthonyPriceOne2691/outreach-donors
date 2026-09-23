@@ -32,7 +32,7 @@ from backend.features.core.models.access import UserModel
 from backend.features.runs.spending import SpendingRepository
 from backend.features.runs.thresholds import ThresholdsRepository, consequences, defaults
 from backend.features.serp.dataforseo import SerpError
-from backend.features.serp.factory import build_provider
+from backend.features.serp.factory import UnknownProviderError, build_provider
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["настройки"])
@@ -164,7 +164,14 @@ async def _serp_balance() -> tuple[Decimal | None, str | None]:
     Ahrefs, и спрашивать его не о чем.
     """
     ahrefs = AhrefsClient()
-    provider = build_provider(ahrefs)
+    try:
+        provider = build_provider(ahrefs)
+    except UnknownProviderError as exc:
+        # Не подключён — не авария: экран расхода обязан открываться и до
+        # того, как на сервер положили ключи выдачи.
+        await ahrefs.aclose()
+        logger.warning("расход: источник выдачи не настроен (%s)", exc)
+        return None, "Источник выдачи не подключён — остаток узнать не у кого."
     balance = getattr(provider, "balance", None)
     try:
         if balance is None:

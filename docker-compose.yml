@@ -25,6 +25,16 @@
 # в `docker-compose.prod.yml`, который накладывается сверху.
 name: outreach-donors
 
+# **Весь `.env` доходит до контейнеров.** Список ниже — не перечень того,
+# что передаётся, а то, что задаётся поверх: адреса базы и очереди внутри
+# сети докера и безопасные умолчания. Раньше контейнер получал ТОЛЬКО
+# этот список, и ключ почтовой платформы, режим судья и прочее, чего
+# в списке не было, не доезжали никогда — включить почту на сервере
+# одним `.env` было нельзя.
+x-backend-env-file: &backend-env-file
+  - path: .env
+    required: false
+
 x-backend-env: &backend-env
   STORAGE_DSN: "postgresql+asyncpg://outreach:${POSTGRES_PASSWORD:?нужен POSTGRES_PASSWORD}@postgres:5432/outreach"
   STORAGE_REDIS_URL: "redis://redis:6379/0"
@@ -87,6 +97,7 @@ services:
       context: .
       target: backend
     command: alembic upgrade head
+    env_file: *backend-env-file
     environment: *backend-env
     restart: "no"
     depends_on:
@@ -98,6 +109,7 @@ services:
     build:
       context: .
       target: backend
+    env_file: *backend-env-file
     environment: *backend-env
     restart: unless-stopped
     healthcheck:
@@ -127,6 +139,7 @@ services:
       context: .
       target: backend
     command: python -m backend.workers.main
+    env_file: *backend-env-file
     environment: *backend-env
     restart: unless-stopped
     depends_on:
@@ -146,6 +159,7 @@ services:
       context: .
       target: backend
     command: python -m backend.workers.reaper
+    env_file: *backend-env-file
     environment: *backend-env
     restart: unless-stopped
     depends_on:
@@ -165,6 +179,7 @@ services:
       context: .
       target: backend
     command: python -m backend.workers.followups
+    env_file: *backend-env-file
     environment: *backend-env
     restart: unless-stopped
     depends_on:

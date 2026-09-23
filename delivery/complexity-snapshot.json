@@ -112,9 +112,9 @@
       "worst": "—"
     },
     "backend/api/inbound/routes.py": {
-      "lines": 154,
+      "lines": 181,
       "complexity": 11,
-      "worst": "take_reply:95"
+      "worst": "take_reply:121"
     },
     "backend/api/inbound/schemas.py": {
       "lines": 29,
@@ -237,8 +237,8 @@
       "worst": "—"
     },
     "backend/api/settings/routes.py": {
-      "lines": 181,
-      "complexity": 4,
+      "lines": 188,
+      "complexity": 5,
       "worst": "_serp_balance:159"
     },
     "backend/api/settings/schemas.py": {
@@ -947,9 +947,9 @@
       "worst": "—"
     },
     "backend/features/ops/silence.py": {
-      "lines": 306,
+      "lines": 321,
       "complexity": 7,
-      "worst": "_crawl_blocked:234"
+      "worst": "_crawl_blocked:249"
     },
     "backend/features/outreach/__init__.py": {
       "lines": 2,

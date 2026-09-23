@@ -11,20 +11,33 @@
 Боевые отличия компоуза — в `docker-compose.prod.yml`: лимиты памяти
 и процессора, потолок журналов, фронт только на петле.
 
-## Порядок первой выкатки
+## Подготовка машины (один раз)
 
-Ничего из этого ещё не делалось: **сервис не развёрнут ни разу.** Ниже
-порядок, а не отчёт.
+```bash
+# Docker с плагином compose, nginx, certbot, htpasswd
+sudo apt install -y docker.io docker-compose-v2 nginx certbot python3-certbot-nginx apache2-utils
+# Фаервол: наружу только ssh, 80 и 443
+sudo ufw allow OpenSSH && sudo ufw allow 'Nginx Full' && sudo ufw enable
+# Каталог бэкапов
+sudo mkdir -p /srv/backups/outreach
+```
+
+DNS: A-запись `outreach.ДОМЕН` на адрес машины — до шага 5, иначе
+certbot не выпустит сертификат.
+
+## Порядок первой выкатки
 
 ```bash
 # 1. Код и настройки
 git clone https://github.com/AnthonyPriceOne2691/outreach-donors /srv/outreach-donors
 cd /srv/outreach-donors
-cp .env.example .env && $EDITOR .env      # пароль базы, секрет пропусков, ключи
+cp .env.example .env && $EDITOR .env
+#    обязательно: POSTGRES_PASSWORD (openssl rand -hex 24),
+#    ACCESS_JWT_SECRET (openssl rand -hex 32), BACKEND_IMAGE и WEB_IMAGE
+#    (раскомментировать — иначе компоуз соберёт образ на машине),
+#    ключи Ahrefs, выдачи и модели. Почту — не сейчас, см. ниже.
 
 # 2. Образы из реестра, а не сборка на машине
-export BACKEND_IMAGE=ghcr.io/anthonypriceone2691/outreach-donors-backend:main
-export WEB_IMAGE=ghcr.io/anthonypriceone2691/outreach-donors-web:main
 docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
 
 # 3. Подъём: миграции идут одноразовым контейнером до остальных
@@ -33,23 +46,67 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 # 4. Первый админ
 docker compose exec api outreach user-add --email ivan@site.com --role admin
 
-# 5. Прокси хоста и сертификат
+# 5. Прокси хоста, пароль на оболочку и сертификат
+sudo htpasswd -c /etc/nginx/outreach.htpasswd команда
 sudo cp deploy/proxy/outreach.conf /etc/nginx/sites-available/outreach
+sudo sed -i 's/outreach.ПРИМЕР.ru/outreach.ДОМЕН/' /etc/nginx/sites-available/outreach
 sudo ln -s /etc/nginx/sites-available/outreach /etc/nginx/sites-enabled/
-sudo certbot --nginx -d outreach.ПРИМЕР.ru -d cases.ПРИМЕР.ru
 sudo nginx -t && sudo systemctl reload nginx
+sudo certbot --nginx -d outreach.ДОМЕН
 
 # 6. Бэкапы
 sudo cp deploy/backup.cron /etc/cron.d/outreach-backup
 ```
 
-**Сборка на сервере не нужна и нежелательна.** Сборка фронта берёт
-2–3 ГБ памяти, а рядом работает соседняя система: `docker compose build`
-на этой машине — это способ однажды её уронить. Образы собирает и
-публикует CI при слиянии в `main`.
+**Образы задаются в `.env`, а не `export`.** Раньше инструкция ставила
+их командой в шаге 2 — в новом шелле при обновлении их уже не было,
+и `up -d` начинал сборку на машине.
 
-**Что нужно от соседней системы:** перестать публиковать 8080 наружу.
-Оба проекта слушают петлю, наружу смотрит только прокси хоста.
+**Периметр — два слоя.** Оболочка приложения и схема API закрыты
+паролем прокси, сам API — входом сервиса; вход ограничен по частоте
+и на прокси, и в сервере. Пароля прокси на `/api/` нет намеренно: фронт
+шлёт пропуск заголовком `Authorization`, и basic auth на том же заголовке
+отказал бы каждому запросу. Вебхуки почты и страница отписки поэтому
+открыты без него — у них своя защита (`docs/SECURITY.md`).
+
+**Проверка после подъёма:**
+
+```bash
+curl -s https://outreach.ДОМЕН/api/health                  # {"status": "жив"}
+curl -so /dev/null -w '%{http_code}\n' https://outreach.ДОМЕН/            # 401 — пароль прокси
+curl -so /dev/null -w '%{http_code}\n' https://outreach.ДОМЕН/api/docs    # 401
+docker compose -f docker-compose.yml -f docker-compose.prod.yml ps        # все healthy / running
+```
+
+## Подключение почты (на боевой машине, когда готовы домены)
+
+До этого сервис работает целиком: прогоны, отбор, контакты, очередь
+писем. Экран писем говорит, чего не хватает для отправки, и ничего
+не уходит наружу. Код для подключения не меняется — только `.env`
+и кабинет платформы.
+
+1. **Домены.** У каждого почтового домена — SPF, DKIM, DMARC; в SendGrid —
+   Domain Authentication. Письмо с неподписанного домена уходит в спам.
+2. **`.env`:**
+   - `OUTREACH_SENDGRID_API_KEY` — ключ с правом Mail Send;
+   - `OUTREACH_SENDER_NAME`, `OUTREACH_POSTAL_ADDRESS` — имя и адрес в письме;
+   - `OUTREACH_UNSUBSCRIBE_URL=https://outreach.ДОМЕН/api/unsubscribe`;
+   - `OUTREACH_REPLY_DOMAIN` — поддомен для ответов (его MX — на SendGrid);
+   - `OUTREACH_INBOUND_SECRET` — `openssl rand -hex 32`;
+   - `OUTREACH_EVENTS_PUBLIC_KEY` — из кабинета, после включения подписи событий;
+   - `OUTREACH_ALLOWED_RECIPIENTS` — **на первые дни свои ящики**, потом очистить;
+   - последним — `OUTREACH_TRANSPORT=sendgrid`.
+3. **Кабинет SendGrid:**
+   - Inbound Parse на `OUTREACH_REPLY_DOMAIN`, адрес
+     `https://inbound:СЕКРЕТ@outreach.ДОМЕН/api/inbound/replies` — секрет
+     паролем в адресе: своих заголовков платформа не шлёт;
+   - Event Webhook на `https://outreach.ДОМЕН/api/events/delivery`,
+     с подписью (Signed Event Webhook).
+4. **Домены отправки** — на экране «Домены рассылки»: там же разгон.
+5. `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d` —
+   контейнеры пересоздаются с новым `.env` (настройки читаются при старте).
+6. Первое письмо — себе (предохранитель из п. 2), проверить заголовки,
+   ответ и отписку; потом снять предохранитель.
 
 ## Обновление
 
@@ -91,6 +148,5 @@ scripts/restore.sh backups/2026-09-21-2030 --yes    # выполнит
 - **Замера `docker stats` под нагрузкой.** Лимиты в `docker-compose.prod.yml`
   — оценка от объёмов, а не измерение. Их придётся пересчитать после
   первого настоящего прогона на машине; до этого 32 ГБ — расчёт, а не факт.
-- **Выкатки как таковой.** Решение Anthony 21.09.2026: катим, когда
-  будут двадцать почтовых доменов и учётка SendGrid — раньше сервису
-  нечего делать на боевой машине.
+- **Выкатки как таковой.** 24.09.2026 решение пересмотрено: катим без
+  почты, почту подключаем на боевой машине (раздел выше).
