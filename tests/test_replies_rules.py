@@ -8,7 +8,9 @@
 
 from __future__ import annotations
 
+import json
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from backend.features.core.domain import ReplyKind
@@ -457,3 +459,61 @@ def test_confident_decline_needs_no_review() -> None:
     assert consequences.store_declines
     assert not consequences.needs_review
     assert consequences.stop_chain
+
+
+# --- евро, крипта и числа целиком -------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("raw", "want"),
+    [
+        ("120,50", "120.50"), ("1.200", "1200"), ("1,200", "1200"), ("1.200,50", "1200.50"),
+        ("1,200.50", "1200.50"), ("0.005", "0.005"), ("0,05", "0.05"), ("12 000", "12000"),
+        ("1 200,00", "1200.00"), (0.05, "0.05"),
+    ],
+)  # fmt: skip
+def test_european_and_english_numbers(raw: object, want: str) -> None:
+    """Раньше запятая выбрасывалась: «120,50 €» становилось 12050, «1.200 €» — 1,2."""
+    assert as_price(raw) == Decimal(want)
+
+
+@pytest.mark.parametrize(
+    ("value", "text", "want"),
+    [
+        ("120.5", "Preis 120,50 €", True),
+        ("120", "Preis 120,50 €", False),
+        ("1200", "Preis 1.200 €", True),
+        ("0.05", "rate 0.05 BTC", True),
+        ("0.05", "we have 10 pages", False),
+        ("1250", "price 1200", False),
+    ],
+)
+def test_number_must_appear_whole(value: str, text: str, want: bool) -> None:
+    """Подстрокой «120» находилось внутри «120,50», а у «0,05» бралось «0» —
+    и неверная цена ложилась в базу сама (эталонный прогон 23.09)."""
+    assert appears_in(Decimal(value), text) is want
+
+
+@pytest.mark.parametrize(
+    ("raw", "code"),
+    [
+        ("USDT", "USDT"), ("USDT TRC20", "USDT"), ("Tether (TRC-20)", "USDT"), ("₮", "USDT"),
+        ("₿", "BTC"), ("bitcoin", "BTC"), ("ETH", "ETH"), ("USDC", "USDC"), ("TON", "TON"),
+        ("рублей", "RUB"), ("долларов", "USD"), ("Euro", "EUR"), ("€", "EUR"), ("usd", "USD"),
+    ],
+)  # fmt: skip
+def test_currency_words_not_substrings(raw: str, code: str) -> None:
+    """«usd» внутри «usdt» делал из USDT доллар: для гест-постинга это другой
+    способ оплаты, и потерять его значит не знать, чем платить."""
+    assert normalize_currency(raw) == code
+
+
+def test_golden_set_is_well_formed() -> None:
+    """Эталон — ворота для правки промпта; испорченный файл молча их открыл бы."""
+    path = Path(__file__).parent.parent / "scripts" / "data" / "reply_parse_golden.jsonl"
+    cases = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+    assert len(cases) >= 40
+    assert len({c["id"] for c in cases}) == len(cases), "id повторяются"
+    for case in cases:
+        assert case["expect"]["placement"] in {"sells", "free", "declines", "unclear"}
+        assert set(case["expect"]) == {"placement", "price_white", "price_grey", "currency"}

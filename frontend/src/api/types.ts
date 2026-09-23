@@ -614,3 +614,19 @@ export interface SelectionView {
   /** Сходимость судьи с ответами доноров — точность отбора в главном. */
   answer_layers: Partial<Record<JudgeDecider, { checked: number; agreed: number }>>;
 }
+
+// --- калибровка разбора ответов -----------------------------------------
+
+export interface VersionCalibration {
+  version: string;
+  reviewed: number;
+  as_is: number;
+  edited: number;
+  wrong: Record<string, number>;
+  auto_stored: number;
+  waiting: number;
+}
+
+export interface CalibrationView {
+  versions: VersionCalibration[];
+}

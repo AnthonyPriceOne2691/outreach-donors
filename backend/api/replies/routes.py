@@ -27,10 +27,11 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
-from backend.api.replies.schemas import ReviewBody, Reviewed
+from backend.api.replies.schemas import Calibration, ReviewBody, Reviewed, VersionCalibration
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
+from backend.features.replies.calibration import calibrate
 from backend.features.replies.extract import PLACEMENT_DECLINES, PLACEMENT_SELLS
 from backend.features.replies.repository import ReplyRepository
 
@@ -39,6 +40,33 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/replies", tags=["ответы"])
 
 _reviewer = Depends(needs(Permission.PRICES))
+_viewer = Depends(needs(Permission.VIEW))
+
+
+@router.get("/calibration", response_model=Calibration, summary="Калибровка разбора")
+async def calibration(
+    _: UserModel = _viewer,
+    session: AsyncSession = Depends(db_session),
+) -> Calibration:
+    """Предложение модели против решения человека — по версиям промпта.
+
+    Считается там, где смотрел человек: автоматически положенная цена
+    сверки не имеет и идёт отдельным числом.
+    """
+    return Calibration(
+        versions=[
+            VersionCalibration(
+                version=score.version,
+                reviewed=score.reviewed,
+                as_is=score.as_is,
+                edited=score.edited,
+                wrong=score.wrong,
+                auto_stored=score.auto_stored,
+                waiting=score.waiting,
+            )
+            for score in await calibrate(session)
+        ]
+    )
 
 
 @router.patch("/{reply_id}", response_model=Reviewed, summary="Подтвердить разбор цены")
