@@ -184,9 +184,22 @@ describe('очередь писем', () => {
 
     // Наверху — почему так, у кнопки — почему она не нажимается. Разными
     // словами: два одинаковых предупреждения на экране читаются как сбой.
-    expect(screen.getByText(/OUTREACH_SENDER_NAME/)).toBeInTheDocument();
+    // Имя настройки в окружении человеку на экране ничего не говорит.
+    expect(screen.getByText(/Не задано: имя отправителя/)).toBeInTheDocument();
+    expect(screen.queryByText(/OUTREACH_SENDER_NAME/)).not.toBeInTheDocument();
     expect(screen.getByText(/Кнопка не нажимается/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Отправить' })).toBeDisabled();
+  });
+
+  it('незаданное имя отправителя в письме — тихая пометка, а не крик', async () => {
+    await openLetters({
+      blocked_by: ['OUTREACH_SENDER_NAME'],
+      letters: [{ ...LETTER, body: 'Best regards,\n«ИМЯ ОТПРАВИТЕЛЯ НЕ ЗАДАНО»' }],
+    });
+
+    expect(screen.getByText(/\[имя отправителя\]/)).toBeInTheDocument();
+    expect(screen.queryByText(/НЕ ЗАДАНО/)).not.toBeInTheDocument();
+    expect(screen.getByText(/подставится при подключении почты/)).toBeInTheDocument();
   });
 
   it('отличие вне коридора объясняется словами, а не только цветом', async () => {

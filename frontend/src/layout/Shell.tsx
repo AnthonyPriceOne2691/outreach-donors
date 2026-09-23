@@ -72,18 +72,26 @@ export function Shell() {
           h="100%"
           px="md"
           justify="space-between"
+          wrap="nowrap"
           className="glass"
           style={{ height: '100%' }}
         >
-          <Group gap="sm">
+          {/* Обе половины шапки не переносятся: на узком окне роль и выход
+              выпадали под шапку, за пределы стекла. Имя сервиса ужимается,
+              роль на телефоне не показывается — она есть в «Обзоре». */}
+          <Group gap="sm" wrap="nowrap" style={{ minWidth: 0 }}>
             <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
-            <Title order={4}>{SERVICE_NAME}</Title>
+            <Title order={4} style={{ whiteSpace: 'nowrap' }}>
+              {SERVICE_NAME}
+            </Title>
           </Group>
-          <Group gap="sm">
-            <Text size="sm" c="dimmed" visibleFrom="sm">
+          <Group gap="sm" wrap="nowrap" style={{ flexShrink: 0 }}>
+            <Text size="sm" c="dimmed" visibleFrom="md">
               {user?.email}
             </Text>
-            <Badge variant="light">{user ? ROLE_TITLES[user.role] : ''}</Badge>
+            <Badge variant="light" visibleFrom="sm">
+              {user ? ROLE_TITLES[user.role] : ''}
+            </Badge>
             <Button
               size="compact-sm"
               variant="subtle"
@@ -129,7 +137,10 @@ export function Shell() {
       <AppShell.Main>
         {/* Ключ по пути: без него подъём играет один раз за жизнь рамы,
             и переход между экранами выглядит подменой картинки. */}
-        <div className="riseIn" key={location.pathname}>
+        {/* Ширина рабочей области — одна на все экраны, а не своя у каждого:
+            экраны шириной 1010, 1230 и 1420 пикселей подряд читаются как
+            прыгающая рама. */}
+        <div className="riseIn workArea" key={location.pathname}>
           <Outlet />
         </div>
       </AppShell.Main>

@@ -38,6 +38,7 @@ import { useState } from 'react';
 import { fetchForms, formFilled, formGaveUp } from '../api/contacts';
 import type { FormCard } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
+import { formatCompact, formatDate } from '../format';
 
 const FORMS_QUERY_KEY = ['forms'] as const;
 
@@ -136,12 +137,8 @@ export function FormsPage() {
                   <Table.Td>
                     <Badge variant="light">{row.dr ?? '—'}</Badge>
                   </Table.Td>
-                  <Table.Td>{row.org_traffic ?? '—'}</Table.Td>
-                  <Table.Td>
-                    {row.attempted_at
-                      ? new Date(row.attempted_at).toLocaleDateString('ru-RU')
-                      : '—'}
-                  </Table.Td>
+                  <Table.Td>{formatCompact(row.org_traffic)}</Table.Td>
+                  <Table.Td>{formatDate(row.attempted_at)}</Table.Td>
                   {mayWork ? (
                     <Table.Td>
                       <Group gap="xs" justify="flex-end">

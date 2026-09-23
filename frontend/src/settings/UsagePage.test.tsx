@@ -60,15 +60,32 @@ describe('расход', () => {
   it('остаток у источника выдачи виден отдельно от Ahrefs', async () => {
     await openUsage();
 
-    expect(screen.getByText(/на счету источника выдачи 51\.90 \$/)).toBeInTheDocument();
-    expect(screen.getByText(/у провайдера осталось 913000/)).toBeInTheDocument();
+    // Деньги и числа — по-русски: запятая в деньгах, разряды в больших числах.
+    expect(screen.getByText(/на счету источника выдачи 51,90 \$/)).toBeInTheDocument();
+    expect(screen.getByText(/у провайдера осталось 913\s000/)).toBeInTheDocument();
   });
 
   it('трата на выдачу показана в деньгах', async () => {
     await openUsage();
 
     expect(screen.getByText(/Выдача с начала месяца/)).toBeInTheDocument();
-    expect(screen.getAllByText(/0\.36 \$/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/0,36 \$/).length).toBeGreaterThan(0);
+  });
+
+  it('статьи названы словами, а не кодами операций', async () => {
+    await openUsage({
+      ...SPENDING,
+      articles: [
+        ...SPENDING.articles,
+        { provider: 'llm', operation: 'site_judge', calls: 3, units: 1200, amount_usd: '0' },
+        { provider: 'llm', operation: 'brand_new_thing', calls: 1, units: 5, amount_usd: '0' },
+      ],
+    });
+
+    expect(screen.getByText('судья площадок')).toBeInTheDocument();
+    expect(screen.queryByText('site_judge')).not.toBeInTheDocument();
+    // Незнакомая операция не пропадает и не выдаёт себя за знакомую.
+    expect(screen.getByText('прочее (brand_new_thing)')).toBeInTheDocument();
   });
 
   it('там, где платят не деньгами, нулей в долларах нет', async () => {

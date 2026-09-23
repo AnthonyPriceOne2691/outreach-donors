@@ -233,14 +233,14 @@ class Sending:
         """Громкая метка в тексте — отказ, а не предупреждение.
 
         Проверяется сохранённый текст, а не нынешние настройки: письмо
-        уходит таким, каким его утвердил человек.
+        уходит таким, каким его утвердил человек. Отказ — словами для экрана.
         """
         unset = compose.unset_in(target.message.body or "")
         if unset:
+            names = ", ".join(title.split(" НЕ ЗАДАН")[0].lower() for title in unset)
             raise NotReadyError(
-                f"В письме №{target.message.id} незаполненное: {', '.join(unset)}. "
-                "Заполнить настройки (имя отправителя — OUTREACH_SENDER_NAME) "
-                "и собрать очередь заново"
+                f"Письмо №{target.message.id} пока не отправить: не задано {names} — "
+                "настраивается при подключении почты, после него очередь собирается заново"
             )
 
     async def _cadence(self, campaign_id: int) -> list[int] | None:

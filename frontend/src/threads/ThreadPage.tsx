@@ -32,15 +32,15 @@ import { MESSAGE_STATUSES, REPLY_KINDS, THREAD_STATES } from '../api/labels';
 import { fetchThread, reviewReply } from '../api/outreach';
 import type { IncomingCard, LetterCard, MessageStatus } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
+import { formatDateTime } from '../format';
+import { readable } from '../letters/LetterPreview';
 import { PriceReview } from './PriceReview';
 
 function refusalOf(error: unknown): string {
   return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
 }
 
-function when(moment: string | null): string {
-  return moment === null ? '—' : new Date(moment).toLocaleString('ru-RU');
-}
+const when = formatDateTime;
 
 /** Одна галочка — принято платформой, две — доставлено получателю. */
 function DeliveryMark({ status }: { status: MessageStatus }) {
@@ -55,7 +55,10 @@ function DeliveryMark({ status }: { status: MessageStatus }) {
 
 function Letter({ letter }: { letter: LetterCard }) {
   return (
-    <Card className="glassQuiet" p="md" ml={0} mr="15%">
+    // Та же ширина и то же стекло, что у шапки и ответов: письмо уже
+    // соседей и со своим скруглением читалось как вставка из другого экрана.
+    // Чьё сообщение — говорит значок, а не отступ.
+    <Card className="glass" p="md">
       <Group justify="space-between" gap="xs" mb="xs">
         <Group gap="xs">
           <Badge variant="light" color="lagoon">
@@ -75,8 +78,9 @@ function Letter({ letter }: { letter: LetterCard }) {
           {letter.subject}
         </Text>
       )}
+      {/* Громкая метка незаданной подписи — тихой пометкой, как на экране писем. */}
       <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
-        {letter.body}
+        {readable(letter.body ?? '').text}
       </Text>
       {letter.uniqueness_pct !== null && (
         <Text size="xs" c="dimmed" mt="xs">
@@ -108,7 +112,7 @@ function Incoming({ incoming, canReview, busy, onConfirm, onDecline }: IncomingP
   const files = incoming.attachments ?? [];
 
   return (
-    <Card className="glass" p="md" ml="15%" mr={0}>
+    <Card className="glass" p="md">
       <Group justify="space-between" gap="xs" mb="xs">
         <Group gap="xs">
           <Badge variant="light" color={kind.color}>
@@ -269,7 +273,7 @@ export function ThreadPage() {
   ].sort((a, b) => a.at.localeCompare(b.at));
 
   return (
-    <Stack gap="lg" maw={900}>
+    <Stack gap="lg">
       <Card className="glassPanel" p="xl">
         <Group justify="space-between" align="flex-start">
           <Stack gap={6}>
@@ -298,9 +302,8 @@ export function ThreadPage() {
 
       <Card className="glass" p="md">
         <Text size="sm" c="dimmed">
-          Ответить прямо отсюда можно будет, когда появится право на отправку и первые почтовые
-          домены: ответ уходит от того же отправителя, что вёл переписку — менять ящик на середине
-          разговора значит попасть в спам.
+          Ответ из карточки появится вместе с подключением почты. Он уйдёт с того же ящика, что вёл
+          переписку: смена отправителя посреди разговора уводит письма в спам.
         </Text>
       </Card>
     </Stack>

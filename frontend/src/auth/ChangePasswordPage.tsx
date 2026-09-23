@@ -7,19 +7,41 @@
  * заставляют писать `Password1!` и записывать его на бумажке.
  */
 
-import { Alert, Button, Card, Center, PasswordInput, Stack, Text, Title } from '@mantine/core';
+import {
+  Alert,
+  Button,
+  Card,
+  Center,
+  Group,
+  PasswordInput,
+  Stack,
+  Text,
+  Title,
+} from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { changePassword } from '../api/auth';
+import { SERVICE_NAME } from '../brand';
 import { useSession } from './AuthProvider';
 
 const MIN_LENGTH = 10;
 
 export function ChangePasswordPage() {
-  const { user, refresh } = useSession();
+  const { user, refresh, signOut } = useSession();
+  // С разовым паролем уйти некуда, кроме выхода: остальное закрыто,
+  // пока пароль не сменён. Иначе — отмена возвращает туда, откуда пришли.
+  const forced = user?.must_change_password === true;
+  const leave = () => {
+    if (forced) {
+      signOut();
+      void navigate('/login', { replace: true });
+    } else {
+      void navigate('/');
+    }
+  };
   const navigate = useNavigate();
   const [refusal, setRefusal] = useState<string | null>(null);
 
@@ -48,13 +70,16 @@ export function ChangePasswordPage() {
   });
 
   return (
-    <Center h="100vh">
-      <Card className="glass riseIn" w={440} p="xl">
+    <Center mih="100dvh" px="md" py="xl">
+      <Card className="glass riseIn" w="100%" maw={440} p="xl">
         <form onSubmit={submit}>
           <Stack>
             <div>
+              <Text size="sm" c="dimmed">
+                {SERVICE_NAME}
+              </Text>
               <Title order={3}>Смена пароля</Title>
-              {user?.must_change_password === true && (
+              {forced && (
                 <Text size="sm" c="dimmed">
                   Пароль выдан разовым. Пока он не сменён, остальное закрыто.
                 </Text>
@@ -83,16 +108,20 @@ export function ChangePasswordPage() {
               autoComplete="new-password"
               {...form.getInputProps('repeat')}
             />
-            <Button
-              type="submit"
-              size="md"
-              mt="md"
-              className="press"
-              variant="gradient"
-              loading={form.submitting}
-            >
-              Сменить
-            </Button>
+            <Group mt="md" gap="sm" grow>
+              <Button variant="default" size="md" className="press" onClick={leave}>
+                {forced ? 'Выйти' : 'Отмена'}
+              </Button>
+              <Button
+                type="submit"
+                size="md"
+                className="press"
+                variant="gradient"
+                loading={form.submitting}
+              >
+                Сменить
+              </Button>
+            </Group>
           </Stack>
         </form>
       </Card>

@@ -37,6 +37,7 @@ import { fetchThresholds, previewThresholds, saveThresholds } from '../api/setti
 import type { ThresholdsBody } from '../api/types';
 import { Metric } from '../components/Metric';
 import { useSession } from '../auth/AuthProvider';
+import { formatDateTime, formatNumber } from '../format';
 
 const THRESHOLDS_KEY = ['thresholds'] as const;
 
@@ -109,7 +110,7 @@ export function ThresholdsPage() {
   };
 
   return (
-    <Stack gap="lg" maw={1000}>
+    <Stack gap="lg">
       <Card className="glassPanel" p="xl">
         <Stack gap="md">
           <Stack gap={6}>
@@ -187,7 +188,15 @@ export function ThresholdsPage() {
           <Title order={5} mb="sm">
             Что станет с базой
           </Title>
-          {preview.isFetching ? (
+          {/* Пока черновик совпадает с действующими, последствий нет по
+              определению — и экран не показывает их, даже если пересчёт
+              по нынешним правилам дал бы расхождение со старыми вердиктами. */}
+          {!changed ? (
+            <Text size="sm" c="dimmed">
+              Пороги совпадают с действующими — база не изменится. Измените порог, и здесь появится,
+              кто выпадет и кто вернётся.
+            </Text>
+          ) : preview.isFetching ? (
             <Loader size="sm" aria-label="Считаем последствия" />
           ) : preview.data === undefined ? (
             <Text size="sm" c="dimmed">
@@ -196,15 +205,15 @@ export function ThresholdsPage() {
           ) : (
             <Stack gap="sm">
               <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
-                <Metric title="Подходит сейчас" value={preview.data.suitable_now} />
-                <Metric title="Будет подходить" value={preview.data.suitable_after} />
+                <Metric title="Подходит сейчас" value={formatNumber(preview.data.suitable_now)} />
+                <Metric title="Будет подходить" value={formatNumber(preview.data.suitable_after)} />
                 <Metric
                   title="Выпадет из базы"
-                  value={preview.data.falls_out}
+                  value={formatNumber(preview.data.falls_out)}
                   color={preview.data.falls_out > 0 ? 'yellow' : undefined}
                   hint={`из них с ценой: ${preview.data.falls_out_with_price}`}
                 />
-                <Metric title="Вернётся в базу" value={preview.data.comes_back} />
+                <Metric title="Вернётся в базу" value={formatNumber(preview.data.comes_back)} />
               </SimpleGrid>
 
               {preview.data.falls_out_with_price > 0 && (
@@ -250,13 +259,16 @@ export function ThresholdsPage() {
                   </Group>
                 </Table.Td>
                 <Table.Td>{version.min_dr}</Table.Td>
-                <Table.Td>{version.min_org_traffic}</Table.Td>
-                <Table.Td>{version.min_refdomains}</Table.Td>
-                <Table.Td>{version.min_keywords}</Table.Td>
+                <Table.Td>{formatNumber(version.min_org_traffic)}</Table.Td>
+                <Table.Td>{formatNumber(version.min_refdomains)}</Table.Td>
+                <Table.Td>{formatNumber(version.min_keywords)}</Table.Td>
                 <Table.Td>
+                  {/* Автор неизвестен у версий, заведённых до учёток, —
+                      тогда только дата, без слова «неизвестно» в каждой строке. */}
                   <Text size="sm" c="dimmed">
-                    {version.created_by ?? 'неизвестно'} ·{' '}
-                    {new Date(version.created_at).toLocaleString('ru-RU')}
+                    {version.created_by === null
+                      ? formatDateTime(version.created_at)
+                      : `${version.created_by} · ${formatDateTime(version.created_at)}`}
                   </Text>
                 </Table.Td>
               </Table.Tr>

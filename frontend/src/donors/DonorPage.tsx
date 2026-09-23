@@ -28,7 +28,8 @@ import { IconArrowLeft } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 
-import { CONTACT_SOURCES, CONTACT_STATUSES, DONOR_STATUSES } from '../api/labels';
+import { CONTACT_SOURCES, CONTACT_STATUSES, countryTitle, DONOR_STATUSES } from '../api/labels';
+import { formatDate, formatNumber } from '../format';
 import { Metric } from '../components/Metric';
 import { fetchDonor } from '../api/runs';
 
@@ -36,9 +37,7 @@ function refusalOf(error: unknown): string {
   return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
 }
 
-function when(moment: string | null): string {
-  return moment === null ? '—' : new Date(moment).toLocaleDateString('ru-RU');
-}
+const when = formatDate;
 
 export function DonorPage() {
   const { id } = useParams<{ id: string }>();
@@ -60,7 +59,7 @@ export function DonorPage() {
   if (data === undefined) return null;
 
   return (
-    <Stack gap="lg" maw={980}>
+    <Stack gap="lg">
       <Card className="glassPanel" p="xl">
         <Group justify="space-between" align="flex-start">
           <Stack gap={6}>
@@ -94,13 +93,10 @@ export function DonorPage() {
 
       <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
         <Metric title="DR" value={data.dr ?? '—'} />
-        <Metric
-          title="Органический трафик"
-          value={data.org_traffic === null ? '—' : data.org_traffic.toLocaleString('ru-RU')}
-        />
+        <Metric title="Органический трафик" value={formatNumber(data.org_traffic)} />
         <Metric
           title="Гео"
-          value={data.geo ?? '—'}
+          value={data.geo === null ? '—' : countryTitle(data.geo)}
           hint={
             data.geo_top_share === null
               ? undefined
@@ -131,7 +127,7 @@ export function DonorPage() {
           <Group gap="xs">
             {data.geo_breakdown.map((row) => (
               <Badge key={row.country} variant="light">
-                {row.country} · {(row.share * 100).toFixed(0)}%
+                {countryTitle(row.country)} · {(row.share * 100).toFixed(0)}%
               </Badge>
             ))}
           </Group>

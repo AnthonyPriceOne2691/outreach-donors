@@ -28,6 +28,26 @@ import { useQuery } from '@tanstack/react-query';
 import { operationTitle, USAGE_PROVIDERS } from '../api/labels';
 import { Metric } from '../components/Metric';
 import { fetchUsage } from '../api/settings';
+import { formatDate, formatNumber, formatUsd } from '../format';
+
+/** Единица счёта у каждого провайдера — своя: Ahrefs берёт юнитами,
+ *  модель — токенами, отправка считает письма. «Юн.» у всех подряд
+ *  называло токены модели юнитами Ahrefs. */
+const UNIT_TITLES: Record<string, string> = {
+  ahrefs: 'юн.',
+  llm: 'ток.',
+};
+
+/** «1 письмо, 4 письма, 5 писем» — у сокращений склонять нечего. */
+function unitOf(provider: string, count: number): string {
+  if (provider !== 'email') return UNIT_TITLES[provider] ?? 'юн.';
+  const tens = count % 100;
+  const ones = count % 10;
+  if (tens >= 11 && tens <= 14) return 'писем';
+  if (ones === 1) return 'письмо';
+  if (ones >= 2 && ones <= 4) return 'письма';
+  return 'писем';
+}
 
 function refusalOf(error: unknown): string {
   return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
@@ -47,15 +67,15 @@ export function UsagePage() {
   if (data === undefined) return null;
 
   return (
-    <Stack gap="lg" maw={1000}>
+    <Stack gap="lg">
       <Card className="glassPanel" p="xl">
         <Stack gap="md">
           <Stack gap={6}>
             <Title order={3}>Расход</Title>
             <Text size="sm" c="dimmed" maw={680}>
-              С {new Date(data.since).toLocaleDateString('ru-RU')} — лимиты месячные. Остаток
-              спрашивается у провайдера, а не считается по своей таблице: ключ Ahrefs общий с
-              соседней системой, и её траты нам не видны.
+              С {formatDate(data.since)} — лимиты месячные. Остаток спрашивается у провайдера, а не
+              считается по своей таблице: ключ Ahrefs общий с соседней системой, и её траты нам не
+              видны.
             </Text>
           </Stack>
 
@@ -66,8 +86,8 @@ export function UsagePage() {
           <Stack gap={6}>
             <Group justify="space-between">
               <Text size="sm">
-                Мы потратили с начала месяца: <b>{data.ahrefs_spent_by_us}</b> из {data.ahrefs_cap}{' '}
-                по нашему капу
+                Мы потратили с начала месяца: <b>{formatNumber(data.ahrefs_spent_by_us)}</b> из{' '}
+                {formatNumber(data.ahrefs_cap)} по нашему капу
               </Text>
               {data.ahrefs_left === null ? (
                 <Text size="sm" c="dimmed">
@@ -75,7 +95,8 @@ export function UsagePage() {
                 </Text>
               ) : (
                 <Text size="sm" c="dimmed">
-                  у провайдера осталось {data.ahrefs_left} — с учётом чужих трат на общем ключе
+                  у провайдера осталось {formatNumber(data.ahrefs_left)} — с учётом чужих трат на
+                  общем ключе
                 </Text>
               )}
             </Group>
@@ -102,12 +123,12 @@ export function UsagePage() {
               поэтому чужих трат в остатке нет и вычитать нечего. */}
           <Group justify="space-between">
             <Text size="sm">
-              Выдача с начала месяца: <b>{Number(data.serp_spent_by_us).toFixed(2)} $</b>
+              Выдача с начала месяца: <b>{formatUsd(data.serp_spent_by_us)}</b>
             </Text>
             <Text size="sm" c="dimmed">
               {data.serp_left_usd === null
                 ? (data.serp_left_error ?? 'остаток у источника выдачи неизвестен')
-                : `на счету источника выдачи ${Number(data.serp_left_usd).toFixed(2)} $`}
+                : `на счету источника выдачи ${formatUsd(data.serp_left_usd)}`}
             </Text>
           </Group>
         </Stack>
@@ -122,7 +143,9 @@ export function UsagePage() {
           // источник выдачи — деньгами, модель — токенами. Показывать
           // «0.00 $» там, где платят не деньгами, значит уверять, что
           // трат не было: так экран и врал про выдачу до этого среза.
-          const value = units > 0 ? `${units} юн.` : amount > 0 ? `${amount.toFixed(2)} $` : '—';
+          const unit = unitOf(key, units);
+          const value =
+            units > 0 ? `${formatNumber(units)} ${unit}` : amount > 0 ? formatUsd(amount) : '—';
           return (
             <Metric
               key={key}
@@ -131,7 +154,7 @@ export function UsagePage() {
               hint={
                 spent
                   ? units > 0 && amount > 0
-                    ? `и ${amount.toFixed(2)} $`
+                    ? `и ${formatUsd(amount)}`
                     : undefined
                   : 'трат не было'
               }
@@ -147,40 +170,44 @@ export function UsagePage() {
             что и сам запрос к провайдеру.
           </Text>
         ) : (
-          <Table className="dataTable" verticalSpacing="sm" horizontalSpacing="md">
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Статья</Table.Th>
-                <Table.Th>Провайдер</Table.Th>
-                <Table.Th>Запросов</Table.Th>
-                <Table.Th>Юнитов</Table.Th>
-                <Table.Th>Денег</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {data.articles.map((article) => (
-                <Table.Tr key={`${article.provider}-${article.operation}`}>
-                  <Table.Td>
-                    <Text fw={500}>{operationTitle(article.operation)}</Text>
-                  </Table.Td>
-                  <Table.Td>
-                    <Group justify="center">
-                      <Badge variant="light" color={USAGE_PROVIDERS[article.provider].color}>
-                        {USAGE_PROVIDERS[article.provider].title}
-                      </Badge>
-                    </Group>
-                  </Table.Td>
-                  <Table.Td>{article.calls}</Table.Td>
-                  <Table.Td>{article.units > 0 ? article.units : '—'}</Table.Td>
-                  <Table.Td>
-                    {Number(article.amount_usd) > 0
-                      ? `${Number(article.amount_usd).toFixed(2)} $`
-                      : '—'}
-                  </Table.Td>
+          <Table.ScrollContainer minWidth={620}>
+            <Table className="dataTable" verticalSpacing="sm" horizontalSpacing="md">
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Статья</Table.Th>
+                  <Table.Th>Провайдер</Table.Th>
+                  <Table.Th>Запросов</Table.Th>
+                  <Table.Th>Единиц</Table.Th>
+                  <Table.Th>Денег</Table.Th>
                 </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
+              </Table.Thead>
+              <Table.Tbody>
+                {data.articles.map((article) => (
+                  <Table.Tr key={`${article.provider}-${article.operation}`}>
+                    <Table.Td>
+                      <Text fw={500}>{operationTitle(article.operation)}</Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <Group justify="center">
+                        <Badge variant="light" color={USAGE_PROVIDERS[article.provider].color}>
+                          {USAGE_PROVIDERS[article.provider].title}
+                        </Badge>
+                      </Group>
+                    </Table.Td>
+                    <Table.Td>{formatNumber(article.calls)}</Table.Td>
+                    <Table.Td>
+                      {article.units > 0
+                        ? `${formatNumber(article.units)} ${unitOf(article.provider, article.units)}`
+                        : '—'}
+                    </Table.Td>
+                    <Table.Td>
+                      {Number(article.amount_usd) > 0 ? formatUsd(article.amount_usd) : '—'}
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
         )}
       </Card>
     </Stack>

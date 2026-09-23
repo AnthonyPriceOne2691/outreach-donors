@@ -29,12 +29,13 @@ import {
   Text,
   Title,
 } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 
-import { REVIEW_DECISIONS } from '../api/labels';
+import { countryTitle, REVIEW_DECISIONS } from '../api/labels';
 import { decideCandidates, loadAccuracy, loadReview } from '../api/review';
 import type { AccuracyView, ReviewDecision } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
@@ -42,6 +43,11 @@ import { Metric } from '../components/Metric';
 import { CandidateRow } from './CandidateRow';
 
 const STATUSES = Object.keys(REVIEW_DECISIONS) as ReviewDecision[];
+
+/** Сколько строк показывать за раз. Прогон даёт сотни кандидатов, и
+ *  таблица в четыреста строк на одном экране — это прокрутка без конца
+ *  и заметная пауза при каждом решении. */
+const PAGE = 50;
 
 const EMPTY: Record<ReviewDecision, string> = {
   pending: 'Предложенных нет: всё рассмотрено или скрыто как сомнительное.',
@@ -93,6 +99,9 @@ export function RunReviewPage() {
   const [status, setStatus] = useState<ReviewDecision>('pending');
   const [showDoubtful, setShowDoubtful] = useState(false);
   const [picked, setPicked] = useState<Set<number>>(new Set());
+  const [shownCount, setShownCount] = useState(PAGE);
+  // На узком окне три вкладки в ряд ужимали подписи до «Отклон…».
+  const narrow = useMediaQuery('(max-width: 36em)');
 
   const review = useQuery({
     queryKey: ['review', runId, status, showDoubtful],
@@ -129,6 +138,7 @@ export function RunReviewPage() {
 
   const switchTo = (next: ReviewDecision) => {
     setPicked(new Set());
+    setShownCount(PAGE);
     setStatus(next);
   };
 
@@ -142,7 +152,8 @@ export function RunReviewPage() {
   }
 
   const view = review.data;
-  const rows = view.rows;
+  const rows = view.rows.slice(0, shownCount);
+  const rest = view.rows.length - rows.length;
   const allPicked = rows.length > 0 && rows.every((row) => picked.has(row.candidate_id));
   const toggle = (id: number, on: boolean) =>
     setPicked((was) => {
@@ -160,7 +171,7 @@ export function RunReviewPage() {
           <Stack gap={6}>
             <Title order={3}>Прогон №{view.run.id}: рассмотрение</Title>
             <Text size="sm" c="dimmed" maw={720}>
-              {view.run.country.toUpperCase()}, ключей {view.run.keywords}. Годные по порогам ждут
+              {countryTitle(view.run.country)}, ключей {view.run.keywords}. Годные по порогам ждут
               решения: контакты ищутся и письма собираются только принятым. Судья сортирует очередь
               и подсказывает, но не решает; сомнительные скрыты, а не выброшены.
             </Text>
@@ -172,6 +183,8 @@ export function RunReviewPage() {
       <Card className="glassPanel" p="xl">
         <Stack gap="md">
           <SegmentedControl
+            orientation={narrow ? 'vertical' : 'horizontal'}
+            fullWidth={narrow}
             value={status}
             onChange={(value) => switchTo(value as ReviewDecision)}
             data={STATUSES.map((value) => ({
@@ -186,6 +199,7 @@ export function RunReviewPage() {
                 checked={showDoubtful}
                 onChange={(event) => {
                   setPicked(new Set());
+                  setShownCount(PAGE);
                   setShowDoubtful(event.currentTarget.checked);
                 }}
               />
@@ -234,7 +248,11 @@ export function RunReviewPage() {
           </Text>
         ) : (
           <Table.ScrollContainer minWidth={1100}>
-            <Table className="dataTable" verticalSpacing="sm" horizontalSpacing="md">
+            <Table
+              className={mayDecide ? 'dataTable pickFirst' : 'dataTable'}
+              verticalSpacing="sm"
+              horizontalSpacing="md"
+            >
               <Table.Thead>
                 <Table.Tr>
                   {mayDecide && (
@@ -274,6 +292,16 @@ export function RunReviewPage() {
               </Table.Tbody>
             </Table>
           </Table.ScrollContainer>
+        )}
+        {rest > 0 && (
+          <Group justify="center" gap="sm" p="sm">
+            <Text size="sm" c="dimmed">
+              Показано {rows.length} из {view.rows.length}
+            </Text>
+            <Button variant="light" onClick={() => setShownCount((was) => was + PAGE)}>
+              Показать ещё {Math.min(PAGE, rest)}
+            </Button>
+          </Group>
         )}
       </Card>
     </Stack>

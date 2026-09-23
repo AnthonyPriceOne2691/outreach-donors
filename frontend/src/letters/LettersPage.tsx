@@ -36,6 +36,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 
 import { buildLetters, editLetter, listLetters, sendLetter, skipLetter } from '../api/letters';
+import { mailSettingsList } from '../api/labels';
 import type { LetterDraft, QueuedLetter } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { Metric } from '../components/Metric';
@@ -196,23 +197,24 @@ export function LettersPage() {
             </Grid.Col>
             <Grid.Col span={{ base: 6, sm: 3 }}>
               <Metric
-                title="Транспорт"
-                value={view.transport.real ? view.transport.name : 'нет'}
-                hint={view.transport.real ? 'письма уходят' : 'наружу ничего не уходит'}
+                title="Почта"
+                value={view.transport.real ? view.transport.name : 'не подключена'}
+                hint={view.transport.real ? 'письма уходят' : 'подключается на рабочем сервере'}
                 color={view.transport.real ? undefined : 'yellow'}
               />
             </Grid.Col>
           </Grid>
 
           {view.blocked_by.length > 0 ? (
-            <Alert color="yellow" title="Отправить нельзя ни одно письмо">
-              Не заполнено: {view.blocked_by.join(', ')}. Очередь собирается и видна, но отправка
-              откажет: в письме вместо значения стоит громкая метка.
+            <Alert color="yellow" title="Отправка пока не подключена">
+              Не задано: {mailSettingsList(view.blocked_by)} — настраивается при подключении почты.
+              Очередь собирается и видна, письма можно читать и править; отправить их получится
+              после подключения.
             </Alert>
           ) : null}
 
           {view.transport.problem !== null ? (
-            <Alert color="yellow" title="Транспорта нет">
+            <Alert color="yellow" title="Почта не подключилась">
               {view.transport.problem}
             </Alert>
           ) : null}
@@ -337,7 +339,7 @@ interface RowProps {
 function LetterRow({ letter, active, onChoose }: RowProps) {
   return (
     <Card
-      className={active ? 'glassQuiet press' : 'press liftable'}
+      className={active ? 'glassQuiet press' : 'glassSlot press liftable'}
       p="sm"
       style={{ cursor: 'pointer' }}
       onClick={onChoose}

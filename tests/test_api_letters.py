@@ -369,4 +369,6 @@ class TestSending:
         response = await client.post(f"/api/letters/{letter.id}/send", headers=bearer(admin_token))
 
         assert response.status_code == 409
-        assert "ИМЯ ОТПРАВИТЕЛЯ" in response.json()["detail"]
+        detail = response.json()["detail"]
+        assert "не задано имя отправителя" in detail
+        assert "OUTREACH_" not in detail

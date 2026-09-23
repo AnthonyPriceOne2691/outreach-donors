@@ -52,6 +52,7 @@ import { addSuppression, listSuppressions, removeSuppression } from '../api/outr
 import { SUPPRESSION_REASON_TITLES } from '../api/labels';
 import type { StopEntry, SuppressionReason } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
+import { formatDate } from '../format';
 
 const STOP_LIST_QUERY_KEY = ['suppressions'] as const;
 
@@ -81,13 +82,7 @@ function refusalOf(error: unknown): string {
   return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
 }
 
-function when(moment: string): string {
-  return new Date(moment).toLocaleDateString('ru-RU', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  });
-}
+const when = formatDate;
 
 export function SuppressionsPage() {
   const { can } = useSession();

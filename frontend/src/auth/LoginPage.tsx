@@ -69,8 +69,9 @@ export function LoginPage() {
   });
 
   return (
-    <Center h="100vh">
-      <Card className="glass riseIn" w={400} p="xl">
+    // Поле по краям — на телефоне карточка иначе встаёт вплотную к рамке экрана.
+    <Center mih="100dvh" px="md" py="xl">
+      <Card className="glass riseIn" w="100%" maw={400} p="xl">
         <form onSubmit={submit}>
           <Stack>
             <div>

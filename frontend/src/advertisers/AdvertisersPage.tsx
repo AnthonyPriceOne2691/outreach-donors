@@ -47,7 +47,7 @@ const QUERY_KEY = ['advertisers'] as const;
 
 /** Как называется каждый исход скоринга на человеческом языке. */
 const VERDICTS: Record<CandidateCard['verdict'], { label: string; color: string }> = {
-  bought: { label: 'куплена', color: 'teal' },
+  bought: { label: 'куплена', color: 'green' },
   pending: { label: 'спорно', color: 'yellow' },
   skipped: { label: 'мимо', color: 'gray' },
   blocked: { label: 'кому не пишем', color: 'gray' },
