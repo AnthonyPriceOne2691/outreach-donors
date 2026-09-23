@@ -36,8 +36,18 @@ import { formatDate, formatNumber, formatUsd } from '../format';
 const UNIT_TITLES: Record<string, string> = {
   ahrefs: 'юн.',
   llm: 'ток.',
-  email: 'писем',
 };
+
+/** «1 письмо, 4 письма, 5 писем» — у сокращений склонять нечего. */
+function unitOf(provider: string, count: number): string {
+  if (provider !== 'email') return UNIT_TITLES[provider] ?? 'юн.';
+  const tens = count % 100;
+  const ones = count % 10;
+  if (tens >= 11 && tens <= 14) return 'писем';
+  if (ones === 1) return 'письмо';
+  if (ones >= 2 && ones <= 4) return 'письма';
+  return 'писем';
+}
 
 function refusalOf(error: unknown): string {
   return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
@@ -133,7 +143,7 @@ export function UsagePage() {
           // источник выдачи — деньгами, модель — токенами. Показывать
           // «0.00 $» там, где платят не деньгами, значит уверять, что
           // трат не было: так экран и врал про выдачу до этого среза.
-          const unit = UNIT_TITLES[key] ?? 'юн.';
+          const unit = unitOf(key, units);
           const value =
             units > 0 ? `${formatNumber(units)} ${unit}` : amount > 0 ? formatUsd(amount) : '—';
           return (
@@ -187,7 +197,7 @@ export function UsagePage() {
                     <Table.Td>{formatNumber(article.calls)}</Table.Td>
                     <Table.Td>
                       {article.units > 0
-                        ? `${formatNumber(article.units)} ${UNIT_TITLES[article.provider] ?? ''}`
+                        ? `${formatNumber(article.units)} ${unitOf(article.provider, article.units)}`
                         : '—'}
                     </Table.Td>
                     <Table.Td>
