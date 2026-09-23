@@ -40,6 +40,9 @@ class DomainModel(TimestampedMixin, Base):
     judge_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
     judge_source_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     judge_model: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Версия промпта судьи. Точность против человека считается по версии:
+    # пересуд меняет не всех, и без отметки старое смешается с новым.
+    judge_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # Кто решил: правило, модель или арбитр. Без этого точность судьи —
     # одно число на всех, и не видно, какой слой ошибается.
     judge_decided_by: Mapped[str | None] = mapped_column(String(8), nullable=True)

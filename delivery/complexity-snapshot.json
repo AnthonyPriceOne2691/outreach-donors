@@ -612,7 +612,7 @@
       "worst": "_enum:29"
     },
     "backend/features/core/models/domain.py": {
-      "lines": 84,
+      "lines": 87,
       "complexity": 0,
       "worst": "—"
     },
@@ -731,6 +731,11 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/donors/author_door.py": {
+      "lines": 114,
+      "complexity": 5,
+      "worst": "_door_in_url:69"
+    },
     "backend/features/donors/backfill.py": {
       "lines": 281,
       "complexity": 16,
@@ -767,19 +772,19 @@
       "worst": "normalize_host:37"
     },
     "backend/features/donors/judging.py": {
-      "lines": 323,
+      "lines": 354,
       "complexity": 13,
-      "worst": "judge_candidates:260"
+      "worst": "judge_candidates:291"
     },
     "backend/features/donors/publisher_judge.py": {
-      "lines": 430,
+      "lines": 470,
       "complexity": 9,
-      "worst": "parse:245"
+      "worst": "parse:283"
     },
     "backend/features/donors/repository.py": {
-      "lines": 244,
+      "lines": 247,
       "complexity": 8,
-      "worst": "_donor_values:223"
+      "worst": "_donor_values:226"
     },
     "backend/features/donors/selection.py": {
       "lines": 354,
@@ -1225,6 +1230,11 @@
       "lines": 235,
       "complexity": 8,
       "worst": "compare:162"
+    },
+    "scripts/eval_judge.py": {
+      "lines": 170,
+      "complexity": 15,
+      "worst": "report:116"
     },
     "scripts/eval_reply_parse.py": {
       "lines": 163,

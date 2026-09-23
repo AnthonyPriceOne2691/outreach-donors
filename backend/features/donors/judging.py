@@ -28,8 +28,10 @@ from dataclasses import dataclass, field, replace
 import httpx
 
 from backend.config import judge as cfg
+from backend.features.donors.author_door import author_door, open_door
 from backend.features.donors.home_signals import HomeSignals, check_home
 from backend.features.donors.publisher_judge import (
+    PROMPT_VERSION,
     Decider,
     Intent,
     Judgement,
@@ -161,20 +163,38 @@ async def second_opinion(
       страховщик — 23.09 модель пропустила восемь таких);
     - главная не открылась — остаётся вердикт модели.
     """
-    judged = {Intent.SELLS_OWN, Intent.REFERS_OUT, Intent.EDITORIAL_ADS}
-    if home_client is None or verdict.decided_by is Decider.RULE or verdict.intent not in judged:
+    if home_client is None or verdict.decided_by is Decider.RULE or verdict.intent not in DISPUTED:
         return verdict, None
-
     home = await check_home(home_client, host)
+    return await settle(http, host=host, text=text, verdict=verdict, home=home), home
+
+
+#: Вердикты модели, которые главная может подтвердить или оспорить.
+#: `sells_placement` и `link_vendor` сюда не входят: продажа размещения —
+#: вопрос о СТРАНИЦЕ приёма, а не о витрине, и корзина на главной его
+#: не отменяет (прогон №18: `/pricing` отрезал продавца гостевых статей).
+DISPUTED = frozenset({Intent.SELLS_OWN, Intent.REFERS_OUT, Intent.EDITORIAL_ADS})
+
+
+async def settle(
+    http: httpx.AsyncClient,
+    *,
+    host: str,
+    text: SerpText | None,
+    verdict: Judgement,
+    home: HomeSignals,
+) -> Judgement:
+    """Вердикт модели и уже прочитанная главная → итог. Без скачивания:
+    эталон (`scripts/eval_judge.py`) подаёт сюда главную из файла."""
     if not home.reached:
-        return verdict, home
+        return verdict
     if verdict.intent is Intent.SELLS_OWN:
         if not home.sells:
-            return verdict, home
+            return verdict
         marks = ", ".join((*home.shop, *home.service)[:3])
         return replace(
             verdict, reason=f"{verdict.reason} · главная: {marks}", decided_by=Decider.RULE
-        ), home
+        )
 
     serp = source_text(text.title, text.description) if text else ""
     ruling = await arbitrate(http, host=host, serp=serp, home=home)
@@ -185,7 +205,7 @@ async def second_opinion(
             recommendation=Recommendation.REVIEW,
             reason=f"{ruling.reason} · на главной не видно продажи — посмотри",
         )
-    return ruling, home
+    return ruling
 
 
 async def through_index(
@@ -226,6 +246,15 @@ async def through_index(
     return cost
 
 
+def door_of(text: SerpText | None, home: HomeSignals | None) -> str | None:
+    """Зовёт ли сайт авторов: страница из выдачи или меню главной."""
+    return author_door(
+        text.url if text else None,
+        text.title if text else None,
+        home.nav if home is not None and home.reached else (),
+    )
+
+
 def _collect(
     results: Mapping[str, tuple[Judgement, HomeSignals | None]],
     texts: Mapping[str, SerpText],
@@ -235,8 +264,9 @@ def _collect(
     """Вердикты — в записи для базы и в счёт прохода."""
     verdicts: dict[str, JudgeRecord] = {}
     rejected: set[str] = set()
-    for host, (verdict, home) in results.items():
+    for host, (judged, home) in results.items():
         text = texts.get(host)
+        verdict = open_door(judged, door_of(text, home))
         summary.record(verdict, paid=host in unpaid)
         if home is not None and not home.reached:
             summary.home_unreached += 1
@@ -249,6 +279,7 @@ def _collect(
             quote=verdict.quote,
             source_url=text.url if text else None,
             model=verdict.model,
+            version=PROMPT_VERSION if verdict.model else None,
             decided_by=verdict.decided_by.value,
             home=home.as_dict() if home is not None else None,
         )
