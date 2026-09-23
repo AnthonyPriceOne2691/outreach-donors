@@ -376,6 +376,11 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/config/judge.py": {
+      "lines": 90,
+      "complexity": 0,
+      "worst": "—"
+    },
     "backend/config/llm.py": {
       "lines": 56,
       "complexity": 0,
@@ -567,7 +572,7 @@
       "worst": "_enum:29"
     },
     "backend/features/core/models/domain.py": {
-      "lines": 37,
+      "lines": 65,
       "complexity": 0,
       "worst": "—"
     },
@@ -711,10 +716,20 @@
       "complexity": 9,
       "worst": "normalize_host:37"
     },
+    "backend/features/donors/judging.py": {
+      "lines": 146,
+      "complexity": 10,
+      "worst": "judge_candidates:93"
+    },
+    "backend/features/donors/publisher_judge.py": {
+      "lines": 308,
+      "complexity": 9,
+      "worst": "parse:214"
+    },
     "backend/features/donors/repository.py": {
-      "lines": 151,
+      "lines": 224,
       "complexity": 8,
-      "worst": "_donor_values:130"
+      "worst": "_donor_values:203"
     },
     "backend/features/donors/verdict.py": {
       "lines": 101,
@@ -967,14 +982,14 @@
       "worst": "recover:127"
     },
     "backend/features/runs/pipeline.py": {
-      "lines": 345,
-      "complexity": 5,
-      "worst": "execute_run:225"
+      "lines": 417,
+      "complexity": 8,
+      "worst": "execute_run:271"
     },
     "backend/features/runs/planning.py": {
-      "lines": 238,
-      "complexity": 5,
-      "worst": "gather_candidates:148"
+      "lines": 293,
+      "complexity": 6,
+      "worst": "gather_candidates:193"
     },
     "backend/features/runs/repository.py": {
       "lines": 269,
@@ -1002,9 +1017,9 @@
       "worst": "_take_organic:63"
     },
     "backend/features/serp/dataforseo.py": {
-      "lines": 348,
-      "complexity": 10,
-      "worst": "_fetch:271"
+      "lines": 364,
+      "complexity": 11,
+      "worst": "_organic:123"
     },
     "backend/features/serp/factory.py": {
       "lines": 64,
@@ -1017,9 +1032,9 @@
       "worst": "serp_language:78"
     },
     "backend/features/serp/protocol.py": {
-      "lines": 64,
+      "lines": 80,
       "complexity": 1,
-      "worst": "search:53"
+      "worst": "search:69"
     },
     "backend/shared/__init__.py": {
       "lines": 1,

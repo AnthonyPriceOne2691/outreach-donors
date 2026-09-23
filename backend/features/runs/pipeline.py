@@ -31,6 +31,10 @@ import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
+import httpx
+
+from backend.config import judge as judge_cfg
+from backend.config import llm as llm_cfg
 from backend.features.ahrefs.client import AhrefsClient
 from backend.features.ahrefs.units import (
     UnitsCost,
@@ -39,6 +43,7 @@ from backend.features.ahrefs.units import (
 from backend.features.core.domain import DonorStatus, RunStatus, Stage
 from backend.features.core.models.run import RunModel
 from backend.features.donors.collect import collect
+from backend.features.donors.judging import JudgePass, JudgeSummary, judge_candidates
 from backend.features.donors.repository import DonorRepository
 from backend.features.donors.verdict import Thresholds
 from backend.features.runs.budget import units_left
@@ -78,6 +83,13 @@ class RunReport:
     free_by_operation: dict[str, int] = field(default_factory=dict)
     """Сколько запросов обслужил кэш провайдера. Не трата, но показатель:
     по нему видно, что повторные обращения действительно бесплатны."""
+
+    judge: JudgeSummary | None = None
+    """Итог судьи площадки. `None` — судья выключен (режим `off`).
+
+    Отдельным полем, а не смешано с отсевом по порогам: судья и пороги
+    отвечают на разные вопросы, и сложив их, мы потеряли бы ровно то,
+    ради чего судья заведён, — сколько мусора проходит ЧЕРЕЗ пороги."""
 
     @property
     def spent_on_estimated(self) -> int:
@@ -222,6 +234,40 @@ async def _record_search_cost(deps: RunDeps, run: RunModel, candidates: Candidat
     await deps.runs.session_commit()
 
 
+async def _judge_candidates(
+    deps: RunDeps, plan: RunPlan, candidates: Candidates
+) -> JudgePass | None:
+    """Суд до первой траты у Ahrefs. `None` — судья выключен.
+
+    Место вызова выбрано ценой, а не удобством: за домен, который мы всё
+    равно отбросим, платить метриками незачем. В наблюдении он не режет,
+    но считает сэкономленное — см. `donors/judging.py`.
+    """
+    if judge_cfg.MODE is judge_cfg.JudgeMode.OFF or not plan.new:
+        return None
+
+    fresh = await deps.donors.fresh_judged(plan.new)
+    async with httpx.AsyncClient(timeout=llm_cfg.TIMEOUT_S) as http:
+        outcome = await judge_candidates(http, plan.new, candidates.texts, already_judged=fresh)
+
+    # Вердикты сохраняются СРАЗУ, до метрик: прогон, упавший на Ahrefs,
+    # не должен стоить уже оплаченных токенов.
+    await deps.donors.save_judgements(outcome.verdicts)
+    await deps.runs.session_commit()
+    logger.info(
+        "Судья площадки (%s): судили %s, из кэша %s, отрезал бы %s (сэкономил бы %s юнитов), "
+        "к человеку %s, токенов %s",
+        judge_cfg.MODE.value,
+        outcome.summary.judged,
+        outcome.summary.from_cache,
+        outcome.summary.would_cut,
+        outcome.summary.units_saved,
+        outcome.summary.to_review,
+        outcome.summary.tokens,
+    )
+    return outcome
+
+
 async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
     """Прогон целиком: от списка ключей до сохранённых доноров и отчёта.
 
@@ -278,7 +324,16 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
                 await deps.runs.record_usage(run_id=run.id, operation=operation, cost=cost)
 
         try:
-            async for batch in collect(plan.new, deps.client, request.thresholds, request.country):
+            judged = await _judge_candidates(deps, plan, candidates)
+            targets = plan.new
+            if judged is not None:
+                report.judge = judged.summary
+                if judge_cfg.MODE is judge_cfg.JudgeMode.ENFORCE:
+                    # Режет ТОЛЬКО в этом режиме. В наблюдении список
+                    # отрезанных посчитан и записан, но не применён.
+                    targets = [host for host in plan.new if host not in judged.rejected]
+
+            async for batch in collect(targets, deps.client, request.thresholds, request.country):
                 await deps.donors.save_results(batch)
                 for result in batch:
                     report.record(result.status, result.reason)
@@ -337,6 +392,23 @@ def _run_stats(report: RunReport, failure: str | None) -> dict[str, object]:
         "units_saved_by_cache": report.plan.savings_from_cache,
         "units_saved_by_gate": report.plan.savings_from_gate,
     }
+    if report.judge is not None:
+        # Отдельной веткой, а не строками в общем словаре: у выключенного
+        # судьи нулей быть не должно. Ноль читается как «судил и никого
+        # не нашёл», а это другая новость, чем «не судил вовсе».
+        summary = report.judge
+        stats["judge"] = {
+            "mode": judge_cfg.MODE.value,
+            "judged": summary.judged,
+            "from_cache": summary.from_cache,
+            "would_cut": summary.would_cut,
+            "to_review": summary.to_review,
+            "by_intent": dict(summary.by_intent),
+            "tokens": summary.tokens,
+            # В наблюдении это «сэкономил бы», во включённом — «сэкономил».
+            # Число одно, и по режиму рядом видно, какое из двух.
+            "units_saved": summary.units_saved,
+        }
     if failure is not None:
         # Причина остановки хранится рядом с цифрами, а не только в логе:
         # через неделю лог уже не найдут, а запись прогона останется.

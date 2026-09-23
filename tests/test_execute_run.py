@@ -328,3 +328,129 @@ class TestTheGateStopsTheRoute:
         assert run.stats["excluded"] == 1
         assert run.stats["excluded_by_reason"] == {"в стоп-листе": 1}
         assert run.stats["units_saved_by_gate"] > 0
+
+
+class TestTheJudgeStandsBeforeTheBill:
+    """Судья стоит ДО Ahrefs, и в наблюдении он не режет.
+
+    Проверяется не качество вердикта — оно не в нашей власти, — а две вещи,
+    которые целиком наши: за кого мы заплатили и кого потеряли.
+    """
+
+    class Titled(FakeSerp):
+        """Выдача с заголовками: без текста судить не по чему."""
+
+        async def search(
+            self, keywords: Sequence[str], country: str, *, depth_pages: int = 1
+        ) -> dict[str, list[SerpResult]]:
+            return {
+                kw: [
+                    SerpResult(i + 1, u, title=f"Заголовок {u}")
+                    for i, u in enumerate(self._urls)
+                ]
+                for kw in keywords
+            }
+
+    @staticmethod
+    def _judge(monkeypatch: pytest.MonkeyPatch, rejects: set[str]) -> None:
+        from backend.features.donors.publisher_judge import Intent, Judgement, Recommendation
+
+        async def fake(http: object, **kwargs: object) -> Judgement:
+            host = str(kwargs["host"])
+            if host in rejects:
+                return Judgement(
+                    Intent.SELLS_OWN, Recommendation.REJECT, "Заголовок", "продаёт своё", "m", 400
+                )
+            return Judgement(
+                Intent.REFERS_OUT, Recommendation.ACCEPT, "Заголовок", "обзоры", "m", 400
+            )
+
+        monkeypatch.setattr("backend.features.donors.judging.judge_host", fake)
+
+    async def test_в_наблюдении_считает_но_не_режет(
+        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from backend.config.judge import JudgeMode
+
+        monkeypatch.setattr("backend.config.judge.MODE", JudgeMode.SHADOW)
+        self._judge(monkeypatch, rejects={"brand.com"})
+
+        paid: list[str] = []
+        serp = self.Titled(["https://brand.com/a", "https://media.com/a"])
+        client = _ahrefs({"brand.com": GOOD, "media.com": GOOD}, watch=paid)
+
+        report = await execute_run(
+            await _deps(session, serp, client),
+            RunRequest(
+                keywords=["k"],
+                country="us",
+                thresholds=T,
+                settings_id=await _settings_id(session),
+            ),
+        )
+
+        assert report.judge is not None
+        assert report.judge.would_cut == 1, "отрезал бы бренд"
+        assert report.judge.units_saved > 0, "и это число обосновывает включение"
+        # ⚠ Главное: в наблюдении он НЕ режет. За бренд мы всё равно заплатили.
+        assert "brand.com" in paid
+        assert {"brand.com", "media.com"} <= set(paid)
+
+    async def test_включённый_режет_до_первой_траты(
+        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from backend.config.judge import JudgeMode
+
+        monkeypatch.setattr("backend.config.judge.MODE", JudgeMode.ENFORCE)
+        self._judge(monkeypatch, rejects={"brand.com"})
+
+        paid: list[str] = []
+        serp = self.Titled(["https://brand.com/a", "https://media.com/a"])
+        client = _ahrefs({"brand.com": GOOD, "media.com": GOOD}, watch=paid)
+
+        report = await execute_run(
+            await _deps(session, serp, client),
+            RunRequest(
+                keywords=["k"],
+                country="us",
+                thresholds=T,
+                settings_id=await _settings_id(session),
+            ),
+        )
+
+        assert report.judge is not None and report.judge.would_cut == 1
+        # За отрезанный домен Ahrefs не спрашивали вовсе — в этом вся выгода.
+        assert "brand.com" not in paid, "заплатили за домен, который сами же отбросили"
+        assert "media.com" in paid
+
+    async def test_вердикт_ложится_на_домен_и_переживает_прогон(
+        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Вердикт — свойство САЙТА: второму этапу он нужен с обратным знаком."""
+        from backend.config.judge import JudgeMode
+
+        monkeypatch.setattr("backend.config.judge.MODE", JudgeMode.SHADOW)
+        self._judge(monkeypatch, rejects={"brand.com"})
+
+        serp = self.Titled(["https://brand.com/a"])
+        client = _ahrefs({"brand.com": GOOD})
+        await execute_run(
+            await _deps(session, serp, client),
+            RunRequest(
+                keywords=["k"],
+                country="us",
+                thresholds=T,
+                settings_id=await _settings_id(session),
+            ),
+        )
+
+        row = (
+            await session.execute(select(DomainModel).where(DomainModel.host == "brand.com"))
+        ).scalar_one()
+        assert row.site_intent == "sells_own"
+        assert row.judge_recommendation == "reject"
+        assert row.judge_source_url == "https://brand.com/a"
+        assert row.judged_at is not None
+        # Решение человека не трогается судом: расхождение считать не из чего,
+        # если пересуд его затирает.
+        assert row.human_intent is None

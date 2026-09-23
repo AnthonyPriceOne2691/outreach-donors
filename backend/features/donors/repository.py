@@ -12,18 +12,31 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import asdict
+from collections.abc import Mapping, Sequence
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import filters
+from backend.config import judge as judge_cfg
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.donors.collect import DomainResult
+
+
+@dataclass(frozen=True, slots=True)
+class JudgeRecord:
+    """Вердикт судьи в том виде, в каком он ложится на домен."""
+
+    intent: str
+    recommendation: str
+    reason: str
+    quote: str | None = None
+    source_url: str | None = None
+    model: str | None = None
 
 
 def _is_partial(result: DomainResult) -> bool:
@@ -63,6 +76,66 @@ class DonorRepository:
             .where(DonorModel.metrics_refreshed_at > border)
         )
         return set(rows.scalars().all())
+
+    async def fresh_judged(
+        self,
+        hosts: Sequence[str],
+        *,
+        ttl_days: int = judge_cfg.TTL_DAYS,
+        now: datetime | None = None,
+    ) -> dict[str, str]:
+        """Домены со свежим вердиктом судьи: хост → рекомендация.
+
+        Это и есть кэш судьи — отдельного хранилища он не требует. Срок
+        свой и длиннее метрик: способ заработка сайт меняет раз в годы.
+        """
+        if not hosts:
+            return {}
+
+        moment = now or datetime.now(UTC)
+        border = moment - timedelta(days=ttl_days)
+        rows = await self._session.execute(
+            select(DomainModel.host, DomainModel.judge_recommendation)
+            .where(DomainModel.host.in_(hosts))
+            .where(DomainModel.judged_at.is_not(None))
+            .where(DomainModel.judged_at > border)
+        )
+        return {host: rec or "" for host, rec in rows.all()}
+
+    async def save_judgements(
+        self,
+        verdicts: Mapping[str, JudgeRecord],
+        *,
+        now: datetime | None = None,
+    ) -> int:
+        """Вердикты судьи на домены. Возвращает число записей.
+
+        ⚠ Решение человека здесь НЕ трогается ни при каких условиях.
+        Пересуженный домен обновляет мнение модели, а отметка человека
+        остаётся: расхождение между ними — единственный измеритель того,
+        как часто модель ошибается, и затирать его пересудом значит
+        каждый раз обнулять счёт.
+        """
+        if not verdicts:
+            return 0
+
+        moment = now or datetime.now(UTC)
+        await self.ensure_domains(list(verdicts))
+        for host, record in verdicts.items():
+            await self._session.execute(
+                update(DomainModel)
+                .where(DomainModel.host == host)
+                .values(
+                    site_intent=record.intent,
+                    judge_recommendation=record.recommendation,
+                    judge_quote=record.quote,
+                    judge_reason=record.reason,
+                    judge_source_url=record.source_url,
+                    judge_model=record.model,
+                    judged_at=moment,
+                )
+            )
+        return len(verdicts)
 
     async def ensure_domains(self, hosts: Sequence[str]) -> dict[str, int]:
         """Заводит отсутствующие домены и возвращает соответствие хост → id.
