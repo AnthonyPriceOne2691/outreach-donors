@@ -194,17 +194,17 @@ class Sending:
             )
 
     def _check_ready(self, target: _Target) -> None:
-        """Незаполненный юридический блок — отказ, а не предупреждение.
+        """Громкая метка в тексте — отказ, а не предупреждение.
 
-        Без физического адреса и рабочей отписки рассылка нарушает законы
-        почти во всех целевых странах, а домены выгорают за недели.
+        Проверяется сохранённый текст, а не нынешние настройки: письмо
+        уходит таким, каким его утвердил человек.
         """
         unset = compose.unset_in(target.message.body or "")
         if unset:
             raise NotReadyError(
                 f"В письме №{target.message.id} незаполненное: {', '.join(unset)}. "
-                "Заполнить OUTREACH_SENDER_NAME, OUTREACH_POSTAL_ADDRESS "
-                "и OUTREACH_UNSUBSCRIBE_URL и собрать очередь заново"
+                "Заполнить настройки (имя отправителя — OUTREACH_SENDER_NAME) "
+                "и собрать очередь заново"
             )
 
     async def _cadence(self, campaign_id: int) -> list[int] | None:

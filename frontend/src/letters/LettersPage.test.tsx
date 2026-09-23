@@ -148,12 +148,12 @@ describe('очередь писем', () => {
     expect(screen.getByText('Наружу письмо не уйдёт')).toBeInTheDocument();
   });
 
-  it('незаполненный юридический блок блокирует кнопку', async () => {
-    await openLetters({ blocked_by: ['OUTREACH_POSTAL_ADDRESS', 'OUTREACH_UNSUBSCRIBE_URL'] });
+  it('незаполненная обязательная настройка блокирует кнопку', async () => {
+    await openLetters({ blocked_by: ['OUTREACH_SENDER_NAME'] });
 
     // Наверху — почему так, у кнопки — почему она не нажимается. Разными
     // словами: два одинаковых предупреждения на экране читаются как сбой.
-    expect(screen.getByText(/OUTREACH_UNSUBSCRIBE_URL/)).toBeInTheDocument();
+    expect(screen.getByText(/OUTREACH_SENDER_NAME/)).toBeInTheDocument();
     expect(screen.getByText(/Кнопка не нажимается/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Отправить' })).toBeDisabled();
   });

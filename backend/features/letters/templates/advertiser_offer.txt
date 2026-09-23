@@ -52,8 +52,3 @@ No commitment and no retainer: you approve every placement before it is bought, 
 [signature] fixed
 Best regards,
 {{sender_name}}
-
-[legal] fixed
-{{postal_address}}
-You are receiving this because your link appears on a site we monitor for paid placements.
-To stop hearing from us, unsubscribe here: {{unsubscribe_url}}

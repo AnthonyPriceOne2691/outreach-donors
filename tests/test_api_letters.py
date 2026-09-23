@@ -195,17 +195,17 @@ class TestQueue:
     async def test_queue_says_what_blocks_sending(
         self, client: AsyncClient, admin_token: str
     ) -> None:
-        """Юридический блок не заполнен — отправить нельзя ни одно письмо,
+        """Имя отправителя не задано — отправить нельзя ни одно письмо,
         и узнать об этом надо до нажатия, а не после.
 
         Настройки здесь не подменяются нарочно: это состояние сервиса
-        на сегодня, и экран обязан его показывать.
+        на сегодня, и экран обязан его показывать. Адрес и отписка
+        отправку больше не держат — юридический блок снят 23.09.2026.
         """
         response = await client.get("/api/letters", headers=bearer(admin_token))
 
         blocked = response.json()["blocked_by"]
-        assert "OUTREACH_POSTAL_ADDRESS" in blocked
-        assert "OUTREACH_UNSUBSCRIBE_URL" in blocked
+        assert blocked == ["OUTREACH_SENDER_NAME"]
 
     async def test_filled_settings_block_nothing(
         self, client: AsyncClient, admin_token: str, letter: MessageModel
@@ -338,7 +338,7 @@ class TestSending:
         )
         assert sent.status is MessageStatus.SENT
 
-    async def test_unfilled_legal_block_refuses(
+    async def test_unfilled_sender_name_refuses(
         self,
         client: AsyncClient,
         admin_token: str,
@@ -348,7 +348,7 @@ class TestSending:
         """Проверяется текст письма, а не настройки: отправляем мы текст.
 
         Настройку могли заполнить после того, как письмо собрали, —
-        и в письме всё равно стоит метка вместо адреса отписки.
+        и в письме всё равно стоит метка вместо имени отправителя.
         """
         letter.body = compose.assemble(
             compose.render(
@@ -367,4 +367,4 @@ class TestSending:
         response = await client.post(f"/api/letters/{letter.id}/send", headers=bearer(admin_token))
 
         assert response.status_code == 409
-        assert "ОТПИСКИ" in response.json()["detail"]
+        assert "ИМЯ ОТПРАВИТЕЛЯ" in response.json()["detail"]

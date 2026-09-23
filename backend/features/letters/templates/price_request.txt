@@ -1,47 +1,56 @@
-# Запрос цены размещения. Язык — английский: ГЕО старта US, а язык письма
-# берётся от ГЕО прогона, не от языка донора.
+# Запрос цены размещения — боевой текст, 23.09.2026. Язык английский:
+# ГЕО старта US, а язык письма берётся от ГЕО прогона, не от языка донора.
 #
-# ТЕКСТ ВЫДУМАН. Боевой приходит со стороны задачи.
-# Меняется содержимое зон, а не их набор: набор задан требованиями и проверяется
-# при разборе.
+# Это умолчание: при создании рассылки текст правится на экране, и
+# рассылка хранит свой вариант. Правка там проходит тот же разбор, что
+# и этот файл, — набор зон, подпись, достижимость коридора.
+#
+# Меняется содержимое зон, а не их набор: набор задан требованиями
+# и проверяется при разборе.
 #
 # Зона `rewrite` уходит в модель и переписывается под конкретного донора.
-# Зона `fixed` в модель не уходит вовсе — там условия сделки, подпись
-# и юридический блок.
+# Зона `fixed` в модель не уходит вовсе — там кто мы, условия и подпись.
+#
+# Список вопросов лежит в `ask`, то есть переписывается: по требованиям
+# «формулировка вопроса» — переписываемая зона, и без списка переписываемая
+# часть занимала бы 20% письма — нижний край коридора был бы недостижим.
+# Сами вопросы модель потерять не может: число пунктов сверяется после
+# переписывания, и зона с потерянным пунктом остаётся шаблонной.
+#
+# Юридического блока нет: юридические требования сняты решением стороны
+# задачи 23.09.2026 (см. okf/letter-zones.md).
 #
 # В подписи имя человека, а не адрес ящика: ящик выбирается в момент
 # отправки из тех, что сегодня могут писать, а текст письма к этому
-# моменту уже утверждён человеком. Обратный адрес даёт заголовок
-# «куда отвечать», а не тело письма.
+# моменту уже утверждён человеком.
 #
-# Абзац — одна строка, без переносов по ширине. Переносы были, и на
-# экране они рвали фразу посередине: неизменяемые зоны ломались
-# по семьдесят восьмому знаку, а переписанные моделью — нет, и письмо
-# читалось как собранное из двух кусков. Почтовые клиенты переносят
-# сами; жёсткий перенос переживает пересылку хуже, чем его отсутствие.
+# Абзац — одна строка, без переносов по ширине: жёсткий перенос рвёт
+# фразу посередине и переживает пересылку хуже, чем его отсутствие.
+# Пункты списка — по строке на пункт.
 
-subject: Advertising rates for {{host}}
+subject: Guest article on {{host}}
 
 [greeting] rewrite
-Hi there,
+Hi,
 
 [opening] rewrite
-I have been reading through {{host}} over the past few days, and the way you cover your subject is a good match for what my clients are looking for.
+I stumbled upon your site while looking for materials on my topic, and I really liked your article.
 
 [offer] fixed
-I work with an agency that places sponsored articles for its clients, and we are putting together a shortlist of publishers we can work with on a regular basis rather than as a one-off.
+I run content partnerships for a few SaaS and tech brands, and we're looking for sites to publish sponsored guest articles on.
 
 [ask] rewrite
-Could you let me know what you charge for a placement? If the rate depends on whether the article carries a sponsored label, both numbers would be helpful.
+Before I send anything over, could you let me know:
+1. Do you accept paid guest posts / sponsored articles?
+2. What's the price per article (with one dofollow link to a client site)?
+3. Are links dofollow or nofollow by default?
+4. Do you publish articles for sensitive niches (crypto, iGaming, CBD, forex)? If so, is there a separate rate?
+5. Which payment methods do you accept (PayPal, Wise, card, crypto)?
+6. Is there a discount for bulk orders — e.g. 5–10 articles per month?
 
 [terms] fixed
-We pay per published article and send the draft over for your approval before anything goes live. Please also let me know which payment methods you accept.
+We supply ready-to-publish content written to your guidelines, and we pay promptly.
 
 [signature] fixed
 Best regards,
 {{sender_name}}
-
-[legal] fixed
-{{postal_address}}
-You are receiving this because your site is listed as accepting paid content.
-To stop hearing from us, unsubscribe here: {{unsubscribe_url}}
