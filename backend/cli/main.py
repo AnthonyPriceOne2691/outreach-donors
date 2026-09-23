@@ -280,8 +280,10 @@ def _print_judge(report: RunReport) -> None:
     print(f"  {cut} {judge.would_cut}, к человеку {judge.to_review}")
     for who, count in sorted(judge.by_decider.items(), key=lambda kv: -kv[1]):
         print(f"    решено {DECIDERS.get(who, who):<18} {count}")
+    if judge.from_index:
+        print(f"  главная закрыта, судил по индексу поиска: {judge.from_index}")
     if judge.home_unreached:
-        print(f"  главная не открылась: {judge.home_unreached} — решала одна выдача")
+        print(f"  главная не открылась и в индексе нет: {judge.home_unreached} — решала выдача")
     if judge.units_saved:
         print(f"  юнитов сэкономил бы: {judge.units_saved:,} (нижняя граница)".replace(",", " "))
 

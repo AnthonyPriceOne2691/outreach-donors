@@ -47,7 +47,7 @@ import httpx
 
 from backend.config import judge as cfg
 from backend.config import llm as llm_cfg
-from backend.features.donors.home_signals import HomeSignals
+from backend.features.donors.home_signals import HomeSignals, looks_denied
 from backend.shared.llm import Refusal, content_of, is_reasoning, post_chat, tokens_of
 
 logger = logging.getLogger(__name__)
@@ -199,41 +199,6 @@ def is_platform(host: str) -> bool:
     `google-maps-guide.co.ke` — сайт, к платформе отношения не имеющий.
     """
     return any(label in cfg.PLATFORM_LABELS for label in dns_labels(host))
-
-
-#: Признаки того, что нам отдали не страницу сайта, а отказ. Сравнение по
-#: нижнему регистру, вхождением: формулировки у защит разные, а слова общие.
-#:
-#: ⚠ Без этой проверки судья выносит вердикт по тексту вроде «Access to this
-#: page has been denied» — и иногда угадывает, что и есть худший случай:
-#: замер соврал в свою пользу, а мы записали случайное попадание в точность.
-#: Класс назван в каноне соседней системы (`gnc.com`), у нас пойман на живом
-#: прогоне 23.09: `edmunds.com` со страницей 403 получил «площадка» (угадал),
-#: `trivago.com` с той же страницей — «не площадка» (промахнулся). Ни то,
-#: ни другое не знание.
-DENIAL_MARKERS: tuple[str, ...] = (
-    "access denied",
-    "access to this page",
-    "403",
-    "forbidden",
-    "attention required",
-    "just a moment",
-    "are you human",
-    "verify you are human",
-    "captcha",
-    "bot detection",
-    "request blocked",
-    "unusual traffic",
-    "not acceptable",
-    "service unavailable",
-    "site temporarily unavailable",
-)
-
-
-def looks_denied(text: str) -> bool:
-    """Текст похож на отказ доступа, а не на страницу сайта."""
-    lowered = text.lower()
-    return any(marker in lowered for marker in DENIAL_MARKERS)
 
 
 def source_text(title: str | None, description: str | None) -> str:

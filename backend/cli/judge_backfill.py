@@ -97,8 +97,10 @@ def _print_report(report: BackfillReport) -> None:
     print(f"  судили {judge.judged}, отрезал бы {judge.would_cut}, к человеку {judge.to_review}")
     for who, count in sorted(judge.by_decider.items(), key=lambda kv: -kv[1]):
         print(f"    решено {who:<10} {count}")
+    if judge.from_index:
+        print(f"  главная закрыта, судил по индексу: {judge.from_index}")
     if judge.home_unreached:
-        print(f"  главная не открылась: {judge.home_unreached}")
+        print(f"  главная не открылась и в индексе нет: {judge.home_unreached}")
     print(f"  токенов {judge.tokens:,}, выдача ${report.serp_cost_usd:.3f}".replace(",", " "))
     print("\nРезультат — на экране «Отбор», фильтр «Судья не смотрел» должен опустеть.")
 

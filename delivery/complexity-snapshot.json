@@ -337,9 +337,9 @@
       "worst": "_add_reply:285"
     },
     "backend/cli/judge_backfill.py": {
-      "lines": 120,
-      "complexity": 5,
-      "worst": "cmd_judge_backfill:41"
+      "lines": 122,
+      "complexity": 6,
+      "worst": "_print_report:90"
     },
     "backend/cli/keywords_pool.py": {
       "lines": 148,
@@ -352,7 +352,7 @@
       "worst": "_print_build:82"
     },
     "backend/cli/main.py": {
-      "lines": 414,
+      "lines": 416,
       "complexity": 9,
       "worst": "_print_report:222"
     },
@@ -712,7 +712,7 @@
       "worst": "—"
     },
     "backend/features/donors/backfill.py": {
-      "lines": 273,
+      "lines": 281,
       "complexity": 16,
       "worst": "plan_backfill:87"
     },
@@ -737,9 +737,9 @@
       "worst": "build_breakdown:60"
     },
     "backend/features/donors/home_signals.py": {
-      "lines": 232,
-      "complexity": 10,
-      "worst": "_schema_marks:142"
+      "lines": 310,
+      "complexity": 12,
+      "worst": "_shop_marks:220"
     },
     "backend/features/donors/host.py": {
       "lines": 62,
@@ -747,14 +747,14 @@
       "worst": "normalize_host:37"
     },
     "backend/features/donors/judging.py": {
-      "lines": 246,
-      "complexity": 11,
-      "worst": "judge_candidates:181"
+      "lines": 323,
+      "complexity": 13,
+      "worst": "judge_candidates:260"
     },
     "backend/features/donors/publisher_judge.py": {
-      "lines": 465,
+      "lines": 430,
       "complexity": 9,
-      "worst": "parse:280"
+      "worst": "parse:245"
     },
     "backend/features/donors/repository.py": {
       "lines": 244,
@@ -765,6 +765,11 @@
       "lines": 309,
       "complexity": 9,
       "worst": "tally_reviews:284"
+    },
+    "backend/features/donors/site_index.py": {
+      "lines": 63,
+      "complexity": 13,
+      "worst": "index_homes:35"
     },
     "backend/features/donors/verdict.py": {
       "lines": 101,
@@ -1017,9 +1022,9 @@
       "worst": "recover:127"
     },
     "backend/features/runs/pipeline.py": {
-      "lines": 441,
+      "lines": 449,
       "complexity": 8,
-      "worst": "execute_run:293"
+      "worst": "execute_run:300"
     },
     "backend/features/runs/planning.py": {
       "lines": 291,

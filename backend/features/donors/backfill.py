@@ -250,7 +250,13 @@ async def backfill(
     for start in range(0, len(judged), CHUNK):
         chunk = judged[start : start + CHUNK]
         outcome = await judge_candidates(
-            http, chunk, texts, already_judged={}, paid=[], home_client=home_client
+            http,
+            chunk,
+            texts,
+            already_judged={},
+            paid=[],
+            home_client=home_client,
+            index=provider,
         )
         await repository.save_judgements(
             {
@@ -260,6 +266,8 @@ async def backfill(
         )
         if outcome.summary.tokens:
             usage.record(session, operation=JUDGE_OPERATION, units=outcome.summary.tokens)
+        if outcome.summary.index_usd:
+            usage.record(session, operation=SERP_OPERATION, amount_usd=outcome.summary.index_usd)
         await session.commit()
         summary.merge(outcome.summary)
         if progress is not None:

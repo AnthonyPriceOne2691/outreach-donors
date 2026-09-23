@@ -266,6 +266,9 @@ async def _judge_candidates(
             already_judged=fresh,
             paid=plan.new,
             home_client=home if judge_cfg.HOME_CHECK else None,
+            # Закрытую главную смотрим глазами индекса: `site:` у того же
+            # источника выдачи, что и сам прогон.
+            index=deps.provider if judge_cfg.HOME_CHECK else None,
         )
 
     # Вердикты сохраняются СРАЗУ, до метрик: прогон, упавший на Ahrefs,
@@ -274,6 +277,10 @@ async def _judge_candidates(
     if outcome.summary.tokens:
         await deps.runs.record_tokens(
             run_id=run.id, operation=JUDGE_OPERATION, tokens=outcome.summary.tokens
+        )
+    if outcome.summary.index_usd:
+        await deps.runs.record_money(
+            run_id=run.id, operation=SERP_OPERATION, amount_usd=outcome.summary.index_usd
         )
     await deps.runs.session_commit()
     logger.info(
@@ -428,6 +435,7 @@ def _run_stats(report: RunReport, failure: str | None) -> dict[str, object]:
             "by_intent": dict(summary.by_intent),
             "by_decider": dict(summary.by_decider),
             "home_unreached": summary.home_unreached,
+            "from_index": summary.from_index,
             "tokens": summary.tokens,
             # В наблюдении это «сэкономил бы», во включённом — «сэкономил».
             # Число одно, и по режиму рядом видно, какое из двух.
