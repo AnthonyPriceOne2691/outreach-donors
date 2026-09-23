@@ -10,7 +10,13 @@ from backend.features.donors.judging import (
     JudgeSummary,
     judge_candidates,
 )
-from backend.features.donors.publisher_judge import Decider, Intent, Judgement, Recommendation
+from backend.features.donors.publisher_judge import (
+    PROMPT_VERSION,
+    Decider,
+    Intent,
+    Judgement,
+    Recommendation,
+)
 from backend.features.runs.planning import SerpText
 from backend.features.serp.protocol import SerpResult
 
@@ -442,7 +448,5 @@ async def test_placement_seller_skips_the_storefront(monkeypatch: pytest.MonkeyP
 
 @pytest.mark.asyncio
 async def test_verdict_carries_prompt_version(judge: FakeJudge) -> None:
-    from backend.features.donors.publisher_judge import PROMPT_VERSION
-
     result = await judge_candidates(None, ["media.example"], TEXTS)  # type: ignore[arg-type]
     assert result.verdicts["media.example"].version == PROMPT_VERSION

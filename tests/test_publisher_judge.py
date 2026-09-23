@@ -13,6 +13,8 @@ import pytest
 from backend.config.judge import PLATFORM_LABELS
 from backend.features.donors.home_signals import HomeSignals
 from backend.features.donors.publisher_judge import (
+    ADVICE,
+    ARBITER_SYSTEM,
     SYSTEM,
     Decider,
     Intent,
@@ -342,14 +344,10 @@ def test_placement_seller_is_accepted_and_vendor_cut() -> None:
 
 def test_both_prompts_know_placement() -> None:
     """Арбитр без новых видов вернул бы продавца размещения в «продаёт своё»."""
-    from backend.features.donors.publisher_judge import ARBITER_SYSTEM
-
     for prompt in (SYSTEM, ARBITER_SYSTEM):
         assert "sells_placement" in prompt
         assert "link_vendor" in prompt
 
 
 def test_every_intent_has_advice() -> None:
-    from backend.features.donors.publisher_judge import ADVICE
-
     assert set(ADVICE) == set(Intent)
