@@ -34,12 +34,13 @@ import { notifications } from '@mantine/notifications';
 import { IconCalculator, IconPlayerPlay, IconSparkles } from '@tabler/icons-react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 
 import { countryTitle, RUN_STATUSES } from '../api/labels';
 import { Metric } from '../components/Metric';
 import { buildPool, fetchMarketLanguages, fetchPresets } from '../api/keywords';
 import { estimateRun, fetchCountries, listRuns, startRun } from '../api/runs';
-import type { Forecast, RunStatus } from '../api/types';
+import type { Forecast, RunCard, RunStatus } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 
 function refusalOf(error: unknown): string {
@@ -135,6 +136,36 @@ function judgeCut(run: { stats: Record<string, unknown> | null }): number | null
   if (typeof judge !== 'object' || judge === null) return null;
   const cut = (judge as Record<string, unknown>)['would_cut'];
   return typeof cut === 'number' ? cut : null;
+}
+
+/** Очередь рассмотрения прогона: сколько ждёт решения и ссылка к нему.
+ *  Прогон кончается очередью, а не базой, — без этой ячейки её не найти. */
+function ReviewCell({ run }: { run: RunCard }) {
+  const pending = run.queue.pending ?? 0;
+  const accepted = run.queue.accepted ?? 0;
+  const rejected = run.queue.rejected ?? 0;
+  if (pending + accepted + rejected === 0) {
+    return (
+      <Text size="xs" c="dimmed">
+        очереди нет
+      </Text>
+    );
+  }
+  return (
+    <Stack gap={4} align="center">
+      <Button
+        component={Link}
+        to={`/runs/${run.id}/review`}
+        size="compact-sm"
+        variant={pending > 0 ? 'filled' : 'default'}
+      >
+        {pending > 0 ? `Рассмотреть ${pending}` : 'Открыть'}
+      </Button>
+      <Text size="xs" c="dimmed">
+        принято {accepted} · отклонено {rejected}
+      </Text>
+    </Stack>
+  );
 }
 
 function excludedIn(run: { stats: Record<string, unknown> | null }): number {
@@ -445,6 +476,7 @@ export function RunPage() {
               <Table.Th>Факт</Table.Th>
               <Table.Th>Расхождение</Table.Th>
               <Table.Th>Судья</Table.Th>
+              <Table.Th>Рассмотрение</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
@@ -517,6 +549,9 @@ export function RunPage() {
                       {Math.round((run.disagreements / run.reviewed) * 100)}%
                     </Badge>
                   )}
+                </Table.Td>
+                <Table.Td>
+                  <ReviewCell run={run} />
                 </Table.Td>
               </Table.Tr>
             ))}

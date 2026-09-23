@@ -35,7 +35,7 @@ from backend.features.access.repository import AccessRepository
 from backend.features.core import usage
 from backend.features.core.domain import AuditAction, MessageStatus, SenderStatus, Stage
 from backend.features.core.models.domain import DomainModel
-from backend.features.core.models.donor import ContactModel
+from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, SenderModel
 from backend.features.letters import chain, compose, reply_to, unsubscribe
@@ -56,6 +56,16 @@ class NotQueuedError(SendError):
 
 class SuppressedError(SendError):
     """Донор или адрес в стоп-листе."""
+
+
+class RejectedDonorError(SuppressedError):
+    """Донора отклонили после сборки письма. Для цепочки — как стоп-лист:
+    писать ему больше не будем."""
+
+
+class UndecidedDonorError(SendError):
+    """Донора вернули в «предложен» после сборки письма: пока человек
+    решает, писать нельзя, но и обрывать разговор из-за этого нельзя."""
 
 
 class NotReadyError(SendError):
@@ -116,6 +126,7 @@ class Sending:
         """
         target = await self._target(message_id)
         await self._check_suppression(target)
+        await self._check_review(target)
         self._check_ready(target)
 
         sender = (
@@ -166,6 +177,31 @@ class Sending:
                 "очереди. Письмо стоит убрать и собрать очередь заново"
             )
         return _Target(message=message, host=host, email=email, stage=stage)
+
+    async def _check_review(self, target: _Target) -> None:
+        """Решение человека проверяется при отправке, а не только при сборке.
+
+        Между сборкой и отправкой человек может передумать: принять, вернуть
+        в «предложен», отклонить (Anthony, 24.09.2026). Без этой проверки
+        письмо, собранное для принятого, ушло бы отклонённому. Только для
+        доноров: рекламодатели Этапа 2 проходят рассмотрение иначе.
+        """
+        if target.stage is not Stage.DONORS or target.message.domain_id is None:
+            return
+        review = await self._session.scalar(
+            select(DonorModel.review).where(DonorModel.domain_id == target.message.domain_id)
+        )
+        if review == "accepted":
+            return
+        if review == "rejected":
+            raise RejectedDonorError(
+                f"Донора {target.host} отклонили после сборки письма №{target.message.id} — "
+                "писать ему нельзя. Письмо стоит убрать из очереди"
+            )
+        raise UndecidedDonorError(
+            f"Донора {target.host} вернули на рассмотрение после сборки письма "
+            f"№{target.message.id}. Сначала решить на экране прогона"
+        )
 
     async def _check_suppression(self, target: _Target) -> None:
         """Стоп-лист на двух уровнях: адрес блокирует себя, донор — все свои

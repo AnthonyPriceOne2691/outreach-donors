@@ -62,6 +62,24 @@ const LETTER_DEFAULT = {
   ],
 };
 
+/** Прогон, в котором кого-то приняли: из него и собирается рассылка. */
+const RUN_WITH_ACCEPTED = {
+  id: 18,
+  status: 'done',
+  country: 'us',
+  keywords: 100,
+  estimated_units: 14983,
+  actual_units: 16998,
+  estimate_error: 0.134,
+  stats: null,
+  started_at: '2026-09-23T16:21:00Z',
+  alive_at: '2026-09-23T16:40:00Z',
+  hosts: 535,
+  reviewed: 0,
+  disagreements: 0,
+  queue: { pending: 380, accepted: 14 },
+};
+
 const VIEW = {
   letters: [LETTER, OFF_CORRIDOR],
   followup_default: [7, 14],
@@ -81,6 +99,7 @@ async function openLetters(
   const recorded = serve({
     'GET /api/auth/me': { body: who },
     'GET /api/letters': { body: { ...VIEW, ...view } },
+    'GET /api/runs': { body: { runs: [RUN_WITH_ACCEPTED], workers: 1 } },
     ...(routes as Record<string, never>),
   });
   renderWith(<AppRoutes />, '/letters');
@@ -132,12 +151,13 @@ describe('цепочка писем', () => {
     const user = userEvent.setup();
 
     await user.type(screen.getByLabelText('Кампания'), 'Май');
+    await user.click(await screen.findByLabelText(/№18/));
     await user.clear(screen.getByLabelText('Добивка 1, дней'));
     await user.type(screen.getByLabelText('Добивка 1, дней'), '3');
     await user.click(screen.getByRole('button', { name: 'Собрать очередь' }));
 
     const call = recorded.calls.find((one: Call) => one.path === '/api/letters/build');
-    expect(call?.body).toMatchObject({ campaign: 'Май', followup_days: [3, 14] });
+    expect(call?.body).toMatchObject({ campaign: 'Май', followup_days: [3, 14], run_ids: [18] });
   });
 });
 
@@ -268,6 +288,7 @@ describe('текст первого письма', () => {
     const user = userEvent.setup();
 
     await user.type(screen.getByLabelText('Кампания'), 'Май');
+    await user.click(await screen.findByLabelText(/№18/));
     await user.click(screen.getByRole('button', { name: 'Собрать очередь' }));
 
     // Иначе одноимённая рассылка упиралась бы в «у неё уже свой текст».
@@ -293,6 +314,7 @@ describe('текст первого письма', () => {
     expect(screen.getByText('поправлен')).toBeInTheDocument();
 
     await user.type(screen.getByLabelText('Кампания'), 'Май');
+    await user.click(await screen.findByLabelText(/№18/));
     await user.click(screen.getByRole('button', { name: 'Собрать очередь' }));
 
     const call = recorded.calls.find((one: Call) => one.path === '/api/letters/build');
@@ -329,5 +351,18 @@ describe('текст первого письма', () => {
 
     expect(screen.getByLabelText('Условия')).toHaveValue('We pay promptly.');
     expect(screen.getByText('по умолчанию')).toBeInTheDocument();
+  });
+});
+
+describe('прогоны рассылки', () => {
+  it('без выбранного прогона собрать нельзя', async () => {
+    await openLetters();
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Кампания'), 'Май');
+
+    // Рассылка — из принятых доноров выбранных прогонов, а не из всей базы.
+    expect(screen.getByRole('button', { name: 'Собрать очередь' })).toBeDisabled();
+    expect(await screen.findByLabelText(/№18.*принято 14/)).toBeInTheDocument();
   });
 });

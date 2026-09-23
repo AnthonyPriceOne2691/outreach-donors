@@ -256,6 +256,8 @@ export interface RunCard {
    *  раз разошёлся с судьёй. Считается при чтении: решают после прогона. */
   reviewed: number;
   disagreements: number;
+  /** Очередь рассмотрения: статус → сколько. Пусто — прогон сделан до очереди. */
+  queue: Partial<Record<ReviewDecision, number>>;
 }
 
 export interface RunsView {
@@ -466,6 +468,8 @@ export interface BuildLettersRequest {
   /** Поправленный текст первого письма. Нет — текст по умолчанию
    *  у новой рассылки или собственный у найденной. */
   letter?: LetterDraft;
+  /** Прогоны, из принятых доноров которых собирается рассылка. */
+  run_ids?: number[];
 }
 
 export interface BuildQueued {
@@ -654,4 +658,72 @@ export interface VersionCalibration {
 
 export interface CalibrationView {
   versions: VersionCalibration[];
+}
+
+// --- Рассмотрение прогона ---
+
+export type ReviewDecision = 'pending' | 'accepted' | 'rejected';
+export type ReviewTier = 'likely' | 'open' | 'doubtful';
+
+export interface CandidateCard {
+  candidate_id: number;
+  domain_id: number;
+  host: string;
+  status: ReviewDecision;
+  /** Ярус по совету судьи: сверху вероятные доноры, внизу сомнительные. */
+  tier: ReviewTier;
+  /** Решение перенесено из прошлого прогона. */
+  carried: boolean;
+  decided_by: string | null;
+  decided_at: string | null;
+  note: string | null;
+  dr: number | null;
+  org_traffic: number | null;
+  geo: string | null;
+  geo_top_share: number | null;
+  contact_status: ContactStatus | null;
+  /** По каким ключам прогона нашёлся домен. */
+  found_by: string[];
+  machine: MachineView;
+  seller: SellerView;
+}
+
+export interface ReviewRunHead {
+  id: number;
+  country: string;
+  keywords: number;
+  created_at: string;
+}
+
+export interface ReviewView {
+  run: ReviewRunHead;
+  rows: CandidateCard[];
+  counts: Record<ReviewDecision, number>;
+  /** Скрыто под фильтром сомнительных: судья советует отказ. */
+  hidden: number;
+}
+
+export interface DecideResult {
+  changed: number;
+  accepted: number;
+  contacts_job_id: string | null;
+}
+
+export interface AgreementView {
+  advised: number;
+  agreed: number;
+  precision: number | null;
+}
+
+/** Судья против человека: по этим числам решают, доверять ли судье больше. */
+export interface AccuracyView {
+  decided: number;
+  by_advice: Record<string, AgreementView>;
+  by_layer: Record<string, Record<string, AgreementView>>;
+  by_intent: Record<string, Record<string, AgreementView>>;
+  unjudged: number;
+  asked_to_review: number;
+  auto_accept_ready: boolean;
+  auto_accept_precision: number;
+  auto_accept_min_decisions: number;
 }

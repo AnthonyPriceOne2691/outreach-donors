@@ -14,6 +14,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+from backend.features.contacts.repository import ContactRepository
 from backend.features.core.domain import ContactStatus, RunStatus, Stage, UserRole
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.domain import DomainModel
@@ -476,3 +477,79 @@ class TestApi:
     async def test_unknown_run_is_a_404(self, client: AsyncClient, operator_token: str) -> None:
         response = await client.get("/api/review/runs/999999", headers=bearer(operator_token))
         assert response.status_code == 404
+
+
+class TestChangingYourMind:
+    """Требование Anthony 24.09.2026: отклонённого по ошибке можно вернуть,
+    принятого — вернуть в «предложен» и затем отклонить. На каждом шаге
+    проверяется то, что от решения зависит: донор, гейт следующего
+    прогона, поиск контактов."""
+
+    async def _one(self, session: AsyncSession) -> tuple[RunModel, int]:
+        run = await _run(session)
+        await _judged(session, "blog.test", "accept")
+        await RunReview(session).queue_run(run.id, ["blog.test"])
+        return run, (await _candidate_ids(session, run.id))["blog.test"]
+
+    async def _state(self, session: AsyncSession) -> tuple[str | None, bool, list[str]]:
+        donor = await _donor(session, "blog.test")
+        excluded = await Exclusions(session).excluded_hosts(["blog.test"], now=NOW)
+        contacts = await ContactRepository(session).pending_hosts(now=NOW)
+        return donor.review, "blog.test" in excluded, contacts
+
+    async def test_accepted_goes_back_to_pending_and_then_to_rejected(
+        self, session: AsyncSession
+    ) -> None:
+        run, cid = await self._one(session)
+        review = RunReview(session)
+
+        await review.decide(run.id, [cid], Decision.ACCEPTED, by="a")
+        assert await self._state(session) == ("accepted", False, ["blog.test"])
+
+        await review.decide(run.id, [cid], Decision.PENDING, by="a")
+        assert await self._state(session) == (None, False, [])
+
+        await review.decide(run.id, [cid], Decision.REJECTED, by="a")
+        assert await self._state(session) == ("rejected", True, [])
+
+    async def test_rejected_by_mistake_comes_back(self, session: AsyncSession) -> None:
+        run, cid = await self._one(session)
+        review = RunReview(session)
+
+        await review.decide(run.id, [cid], Decision.REJECTED, by="a")
+        assert await self._state(session) == ("rejected", True, [])
+
+        await review.decide(run.id, [cid], Decision.PENDING, by="a")
+        assert await self._state(session) == (None, False, [])
+
+        await review.decide(run.id, [cid], Decision.ACCEPTED, by="a")
+        assert await self._state(session) == ("accepted", False, ["blog.test"])
+
+    async def test_undone_decision_leaves_the_judge_score(self, session: AsyncSession) -> None:
+        """Отменённое решение не должно считаться мнением человека."""
+        run, cid = await self._one(session)
+        review = RunReview(session)
+        await review.decide(run.id, [cid], Decision.REJECTED, by="a")
+
+        await review.decide(run.id, [cid], Decision.PENDING, by="a")
+
+        assert (await review.accuracy()).decided == 0
+
+    async def test_the_whole_cycle_through_the_api(
+        self, client: AsyncClient, operator_token: str, session: AsyncSession, queue: FakeQueue
+    ) -> None:
+        run, cid = await self._one(session)
+        await session.commit()
+
+        for decision in ("accepted", "pending", "rejected", "pending", "accepted"):
+            response = await client.post(
+                f"/api/review/runs/{run.id}/decide",
+                json={"candidate_ids": [cid], "decision": decision},
+                headers=bearer(operator_token),
+            )
+            assert response.status_code == 200, (decision, response.text)
+
+        page = await client.get(
+            f"/api/review/runs/{run.id}?status=accepted", headers=bearer(operator_token)
+        )
+        assert [row["host"] for row in page.json()["rows"]] == ["blog.test"]

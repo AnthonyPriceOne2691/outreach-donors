@@ -119,6 +119,9 @@ class RunCard(BaseModel):
     #: раз разошёлся с судьёй. Считается при чтении: решают после прогона.
     reviewed: int
     disagreements: int
+    #: Очередь рассмотрения: `pending` / `accepted` / `rejected` → сколько.
+    #: Пусто — прогон сделан до очереди.
+    queue: dict[str, int] = {}
 
     @classmethod
     def of(cls, row: RunRow) -> RunCard:
@@ -137,6 +140,7 @@ class RunCard(BaseModel):
             hosts=len(candidates["hosts"]) if candidates.get("hosts") is not None else None,
             reviewed=row.review.reviewed,
             disagreements=row.review.disagreements,
+            queue=row.queue,
         )
 
 
