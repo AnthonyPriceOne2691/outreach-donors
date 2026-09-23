@@ -43,7 +43,7 @@ from backend.features.core.models.outreach import MessageModel
 from backend.features.letters import compose, guards
 from backend.features.letters.repository import Candidate, LetterRepository
 from backend.features.letters.rewrite import Personalization, RewriteClient
-from backend.features.letters.template import Template, default
+from backend.features.letters.template import Template, default, parse
 from backend.features.letters.uniqueness import corridor_verdict, difference
 
 logger = logging.getLogger(__name__)
@@ -77,6 +77,9 @@ class BuildRequest:
     #: Задаётся при создании рассылки: сроки подбирают по отклику,
     #: и менять их у идущих цепочек задним числом нельзя.
     followup_days: tuple[int, ...] = ()
+    #: Текст письма, утверждённый на экране. Пусто — шаблон из кода.
+    #: Ложится в рассылку при её создании; у найденной не меняется.
+    letter_template: str | None = None
 
 
 @dataclass
@@ -113,17 +116,22 @@ class QueueBuilder:
 
     async def build(self, request: BuildRequest) -> BuildReport:
         """Подготовить письма и поставить их в очередь."""
-        # Метрики Ahrefs в письме запрещены правилами Ahrefs. Неизменяемые
-        # зоны одинаковы во всех письмах, поэтому шаблон проверяется один
-        # раз — до того, как на него потратят двести вызовов модели.
-        guards.assert_no_metrics(self._template.body)
-
         campaign = await self._repo.campaign(
             name=request.campaign_name,
             stage=request.stage,
             run_id=request.run_id,
             followup_days=request.followup_days,
+            letter_template=request.letter_template,
         )
+        # Текст рассылки, а не умолчание: его утвердили при её создании.
+        letter_template = (
+            parse(campaign.letter_template) if campaign.letter_template else self._template
+        )
+        # Метрики Ahrefs в письме запрещены правилами Ahrefs. Неизменяемые
+        # зоны одинаковы во всех письмах, поэтому шаблон проверяется один
+        # раз — до того, как на него потратят двести вызовов модели.
+        guards.assert_no_metrics(letter_template.body)
+
         report = BuildReport(campaign_id=campaign.id)
         report.funnel = (await self._repo.funnel(request.stage)).as_report()
         report.blocked_by = compose.missing_settings()
@@ -135,7 +143,13 @@ class QueueBuilder:
 
         candidates = await self._repo.candidates(request.stage, limit=request.limit)
         for candidate in candidates:
-            await self._prepare(candidate, campaign_id=campaign.id, request=request, report=report)
+            await self._prepare(
+                candidate,
+                letter_template,
+                campaign_id=campaign.id,
+                request=request,
+                report=report,
+            )
 
         logger.info(
             "письма: подготовлено %s из %s, токенов %s, вне коридора %s",
@@ -149,6 +163,7 @@ class QueueBuilder:
     async def _prepare(
         self,
         candidate: Candidate,
+        letter_template: Template,
         *,
         campaign_id: int,
         request: BuildRequest,
@@ -156,7 +171,7 @@ class QueueBuilder:
     ) -> None:
         """Одно письмо: текст, проверки, запись в очередь."""
         rendered = compose.render(
-            self._template,
+            letter_template,
             compose.values_for(host=candidate.host, domain_id=candidate.domain_id),
         )
         rewritten = await self._rewriter.rewrite(

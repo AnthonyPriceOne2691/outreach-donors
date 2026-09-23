@@ -82,9 +82,9 @@
       "worst": "of:71"
     },
     "backend/api/errors.py": {
-      "lines": 99,
+      "lines": 109,
       "complexity": 3,
-      "worst": "handle:85"
+      "worst": "handle:95"
     },
     "backend/api/events/__init__.py": {
       "lines": 1,
@@ -142,14 +142,14 @@
       "worst": "—"
     },
     "backend/api/letters/routes.py": {
-      "lines": 174,
-      "complexity": 2,
-      "worst": "_transport_card:53"
+      "lines": 193,
+      "complexity": 3,
+      "worst": "build:85"
     },
     "backend/api/letters/schemas.py": {
-      "lines": 177,
+      "lines": 218,
       "complexity": 3,
-      "worst": "followups_for:74"
+      "worst": "followups_for:75"
     },
     "backend/api/main.py": {
       "lines": 13,
@@ -607,7 +607,7 @@
       "worst": "_enum:18"
     },
     "backend/features/core/models/outreach.py": {
-      "lines": 278,
+      "lines": 284,
       "complexity": 2,
       "worst": "_enum:37"
     },
@@ -812,9 +812,9 @@
       "worst": "—"
     },
     "backend/features/letters/building.py": {
-      "lines": 207,
+      "lines": 222,
       "complexity": 4,
-      "worst": "_prepare:149"
+      "worst": "build:117"
     },
     "backend/features/letters/chain.py": {
       "lines": 55,
@@ -825,6 +825,11 @@
       "lines": 187,
       "complexity": 3,
       "worst": "missing_settings:121"
+    },
+    "backend/features/letters/draft.py": {
+      "lines": 149,
+      "complexity": 6,
+      "worst": "to_text:77"
     },
     "backend/features/letters/events.py": {
       "lines": 225,
@@ -857,7 +862,7 @@
       "worst": "message_id_from:76"
     },
     "backend/features/letters/repository.py": {
-      "lines": 303,
+      "lines": 310,
       "complexity": 3,
       "worst": "campaign:253"
     },
@@ -1162,7 +1167,7 @@
       "worst": "sweep:38"
     },
     "backend/workers/jobs.py": {
-      "lines": 223,
+      "lines": 228,
       "complexity": 2,
       "worst": "_run:40"
     },
@@ -1217,9 +1222,14 @@
       "worst": "_select:46"
     },
     "scripts/ui_contrast.py": {
-      "lines": 489,
+      "lines": 261,
       "complexity": 9,
-      "worst": "main:437"
+      "worst": "main:209"
+    },
+    "scripts/ui_screens.py": {
+      "lines": 280,
+      "complexity": 2,
+      "worst": "show_decided:242"
     }
   }
 }

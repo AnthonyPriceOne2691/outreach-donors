@@ -36,9 +36,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 
 import { buildLetters, editLetter, listLetters, sendLetter, skipLetter } from '../api/letters';
-import type { QueuedLetter } from '../api/types';
+import type { LetterDraft, QueuedLetter } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { Metric } from '../components/Metric';
+import { LetterDraftEditor, draftOf, sameDraft } from './LetterDraftEditor';
 import { LetterPreview, percentOf, toneOf } from './LetterPreview';
 
 const LETTERS_QUERY_KEY = ['letters'] as const;
@@ -57,6 +58,9 @@ export function LettersPage() {
   // по отклику, и у рассылки, которая уже идёт, они меняться не должны.
   // Пусто — значит взять умолчание сервера.
   const [followups, setFollowups] = useState<(number | null)[]>([null, null]);
+  // Правка текста письма. `null` — не трогали: тогда на сервер ничего
+  // не уходит, и одноимённая рассылка дополняется своим текстом.
+  const [letterEdit, setLetterEdit] = useState<LetterDraft | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: LETTERS_QUERY_KEY,
@@ -67,6 +71,9 @@ export function LettersPage() {
   // и наблюдатель за очередью срабатывал бы всегда. Пустой список — константа.
   const letters = useMemo(() => data?.letters ?? [], [data]);
   const defaultDays = useMemo(() => data?.followup_default ?? [], [data]);
+  const letterDefault = data?.letter_default ?? null;
+  const letterChanged =
+    letterEdit !== null && letterDefault !== null && !sameDraft(letterEdit, draftOf(letterDefault));
   const selected = letters.find((letter) => letter.id === chosen) ?? letters[0] ?? null;
 
   // Выбранное письмо могло уйти из очереди — отправили, пропустили.
@@ -84,6 +91,7 @@ export function LettersPage() {
         campaign: campaign.trim(),
         limit,
         followup_days: followups.map((days, index) => days ?? defaultDays[index] ?? 0),
+        ...(letterChanged && letterEdit !== null ? { letter: letterEdit } : {}),
       }),
     onSuccess: async () => {
       await refresh();
@@ -252,6 +260,14 @@ export function LettersPage() {
                 Собрать очередь
               </Button>
             </Group>
+          ) : null}
+
+          {can('send') && letterDefault !== null ? (
+            <LetterDraftEditor
+              fallback={letterDefault}
+              value={letterEdit ?? draftOf(letterDefault)}
+              onChange={setLetterEdit}
+            />
           ) : null}
         </Stack>
       </Card>

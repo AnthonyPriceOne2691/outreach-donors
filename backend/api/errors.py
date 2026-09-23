@@ -29,11 +29,14 @@ from backend.features.access.repository import EmailTakenError
 from backend.features.access.tokens import SecretMissingError, TokenError
 from backend.features.contacts.forms import UnknownFormError
 from backend.features.donors.browse import UnknownDonorError
+from backend.features.letters.compose import ComposeError
+from backend.features.letters.draft import LetterConflictError
 from backend.features.letters.guards import ForbiddenContentError
 from backend.features.letters.repository import UnknownLetterError
 from backend.features.letters.review import NotEditableError
 from backend.features.letters.sending import SendError
 from backend.features.letters.stoplist import StopListError
+from backend.features.letters.template import TemplateError
 from backend.features.letters.transport import TransportError
 from backend.features.outreach.repository import UnknownSenderError, UnknownThreadError
 from backend.features.replies.repository import UnknownReplyError
@@ -52,7 +55,7 @@ STATUSES: dict[type[Exception], int] = {
     UnknownThreadError: status.HTTP_404_NOT_FOUND,
     UnknownLetterError: status.HTTP_404_NOT_FOUND,
     UnknownReplyError: status.HTTP_404_NOT_FOUND,
-    # Письмо не отправлено: стоп-лист, незаполненный юридический блок,
+    # Письмо не отправлено: стоп-лист, незаполненная настройка письма,
     # некому писать сегодня, письмо уже ушло. Все четыре — про состояние,
     # а не про запрос, и все четыре человек чинит сам.
     SendError: status.HTTP_409_CONFLICT,
@@ -62,6 +65,13 @@ STATUSES: dict[type[Exception], int] = {
     TransportError: status.HTTP_409_CONFLICT,
     # Метрики Ahrefs в письме: правка человека, которую нельзя принять.
     ForbiddenContentError: status.HTTP_400_BAD_REQUEST,
+    # Текст письма с экрана не разобрался как шаблон: нет зоны, подписи,
+    # коридор недостижим, неизвестная подстановка. Сообщение говорит,
+    # что поправить.
+    TemplateError: status.HTTP_400_BAD_REQUEST,
+    ComposeError: status.HTTP_400_BAD_REQUEST,
+    # У рассылки уже свой текст письма — это состояние, а не запрос.
+    LetterConflictError: status.HTTP_409_CONFLICT,
     # Ручная очередь форм: донора в ней уже нет — либо адрес нашёлся,
     # либо очередь разобрал кто-то другой. Это состояние, а не запрос.
     UnknownFormError: status.HTTP_409_CONFLICT,

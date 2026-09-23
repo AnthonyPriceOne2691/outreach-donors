@@ -110,6 +110,7 @@ async def _build_letters(
     niche: Sequence[str],
     limit: int,
     followup_days: Sequence[int],
+    letter_template: str | None,
 ) -> dict[str, Any]:
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -123,6 +124,7 @@ async def _build_letters(
                     niche=tuple(niche),
                     limit=limit,
                     followup_days=tuple(followup_days),
+                    letter_template=letter_template,
                 )
             )
             await session.commit()
@@ -146,6 +148,7 @@ def build_letter_queue(
     niche: Sequence[str] = (),
     limit: int = 50,
     followup_days: Sequence[int] = (),
+    letter_template: str | None = None,
 ) -> dict[str, Any]:
     """Собрать очередь писем. Ничего не отправляет.
 
@@ -158,7 +161,9 @@ def build_letter_queue(
     """
     setup_logging()
     check_storage()
-    return asyncio.run(_build_letters(campaign, country, niche, limit, followup_days))
+    return asyncio.run(
+        _build_letters(campaign, country, niche, limit, followup_days, letter_template)
+    )
 
 
 async def _search_contacts(limit: int, use_browser: bool, paid_first: bool) -> dict[str, Any]:

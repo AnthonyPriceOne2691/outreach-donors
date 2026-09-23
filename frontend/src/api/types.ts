@@ -421,10 +421,32 @@ export interface QueuedLetter {
   followups: Followup[];
 }
 
+export interface LetterZone {
+  name: string;
+  /** `rewrite` — переписывает модель под донора, `fixed` — уходит как есть. */
+  kind: 'rewrite' | 'fixed';
+  title: string;
+  text: string;
+}
+
+/** Текст первого письма по зонам — для правки перед созданием рассылки. */
+export interface LetterDraftView {
+  subject: string;
+  zones: LetterZone[];
+}
+
+/** Поправленный текст: тема и содержимое зон по именам. */
+export interface LetterDraft {
+  subject: string;
+  zones: Record<string, string>;
+}
+
 export interface LettersView {
   letters: QueuedLetter[];
   /** Сроки добивок по умолчанию: их предлагает сервер, а не помнит фронт. */
   followup_default: number[];
+  /** Текст первого письма по умолчанию — тот, что лежит в коде. */
+  letter_default: LetterDraftView;
   /** Настройки, из-за которых отправить нельзя ни одно письмо. */
   blocked_by: string[];
   transport: LetterTransport;
@@ -441,6 +463,9 @@ export interface BuildLettersRequest {
   limit?: number;
   /** Через сколько дней после предыдущего письма уходят добивки. */
   followup_days?: number[];
+  /** Поправленный текст первого письма. Нет — текст по умолчанию
+   *  у новой рассылки или собственный у найденной. */
+  letter?: LetterDraft;
 }
 
 export interface BuildQueued {

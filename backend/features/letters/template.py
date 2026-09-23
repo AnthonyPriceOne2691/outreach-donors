@@ -31,7 +31,7 @@ from backend.config import outreach as cfg
 from backend.features.letters.uniqueness import words
 
 #: Заголовок зоны: `[имя] вид`.
-_HEADER_RE = re.compile(r"^\[([a-z_]+)\]\s+(\w+)\s*$")
+HEADER_RE = re.compile(r"^\[([a-z_]+)\]\s+(\w+)\s*$")
 _SUBJECT_PREFIX = "subject:"
 
 #: Подстановка `{{имя}}`.
@@ -203,7 +203,7 @@ def _scan(text: str) -> tuple[str, list[Zone]]:
         if raw.startswith("#"):
             continue
 
-        header = _HEADER_RE.match(raw)
+        header = HEADER_RE.match(raw)
         if header is not None:
             _finish(draft, zones)
             draft = _Draft(header.group(1), _kind_of(header.group(2), line_no), [])

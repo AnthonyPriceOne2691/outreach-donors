@@ -99,6 +99,12 @@ class CampaignModel(TimestampedMixin, Base):
     # общая на всё, меняется вместе с историей уже идущих цепочек.
     followup_days: Mapped[list[int] | None] = mapped_column(JSONB, nullable=True)
 
+    # Текст первого письма, как его утвердили при создании рассылки, —
+    # в формате шаблона с зонами. Пусто — шаблон из кода. Хранится целиком,
+    # а не правкой к умолчанию: шаблон в коде поменяют, а письма идущей
+    # рассылки должны оставаться утверждённым текстом.
+    letter_template: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     messages: Mapped[list[MessageModel]] = relationship("MessageModel", back_populates="campaign")
 
 
