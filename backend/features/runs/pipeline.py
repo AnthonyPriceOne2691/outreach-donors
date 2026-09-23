@@ -46,6 +46,7 @@ from backend.features.donors.collect import collect
 from backend.features.donors.judging import JudgePass, JudgeSummary, judge_candidates
 from backend.features.donors.repository import DonorRepository
 from backend.features.donors.verdict import Thresholds
+from backend.features.review.candidates import QueueReport, RunReview
 from backend.features.runs.budget import units_left
 from backend.features.runs.planning import (
     Candidates,
@@ -93,6 +94,9 @@ class RunReport:
     Отдельным полем, а не смешано с отсевом по порогам: судья и пороги
     отвечают на разные вопросы, и сложив их, мы потеряли бы ровно то,
     ради чего судья заведён, — сколько мусора проходит ЧЕРЕЗ пороги."""
+
+    review: QueueReport | None = None
+    """Что прогон положил на рассмотрение человеку. `None` — очереди нет."""
 
     @property
     def spent_on_estimated(self) -> int:
@@ -164,6 +168,10 @@ class RunDeps:
     donors: DonorRepository
     runs: RunRepository
     exclusions: ExclusionSource
+    #: Очередь на рассмотрение. Пусто — прогон по-старому кладёт годных
+    #: сразу в базу; оба боевых вызова её передают, умолчание — уступка
+    #: тестам ядра прогона, которым очередь не нужна.
+    review: RunReview | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -370,6 +378,12 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
                 await flush_usage()
                 # Пачка сохранена — это чекпоинт: повторный прогон её пропустит.
                 await deps.runs.session_commit()
+
+            if deps.review is not None:
+                # Свежие домены тоже: прогон их нашёл, и человек должен их
+                # увидеть — просто платить за них не пришлось.
+                report.review = await deps.review.queue_run(run.id, [*plan.new, *plan.fresh])
+                await deps.runs.session_commit()
         except Exception as exc:
             status = RunStatus.STOPPED
             failure = f"{type(exc).__name__}: {exc}"
@@ -442,6 +456,8 @@ def _run_stats(report: RunReport, failure: str | None) -> dict[str, object]:
             # Число одно, и по режиму рядом видно, какое из двух.
             "units_saved": summary.units_saved,
         }
+    if report.review is not None:
+        stats["review"] = {"pending": report.review.pending, "carried": report.review.carried}
     if failure is not None:
         # Причина остановки хранится рядом с цифрами, а не только в логе:
         # через неделю лог уже не найдут, а запись прогона останется.

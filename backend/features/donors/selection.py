@@ -100,14 +100,14 @@ def _answer_advice() -> ColumnElement[Any]:
     )
 
 
-def _site_advice() -> ColumnElement[Any]:
+def site_advice() -> ColumnElement[Any]:
     """Действующий совет о сайте. Ответ самого донора сильнее всех: для
     гест-постинга он и есть правда. Человек сильнее модели."""
     return func.coalesce(_answer_advice(), _human_advice(), DomainModel.judge_recommendation)
 
 
 def _tab() -> ColumnElement[Any]:
-    advice = _site_advice()
+    advice = site_advice()
     return case(
         (
             or_(DonorModel.status == DonorStatus.UNSUITABLE, advice == "reject"),

@@ -43,6 +43,12 @@ def add_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-ar
         default="",
         help="ключи прогона через запятую — ниша, по которой донор нашёлся",
     )
+    build.add_argument(
+        "--runs",
+        default="",
+        help="номера прогонов через запятую: в рассылку идут их принятые доноры, "
+        "страна и ниша берутся из прогонов",
+    )
 
     show = sub.add_parser("letters", help="что стоит в очереди на отправку")
     show.add_argument("--limit", type=int, default=20, help="сколько строк показать")
@@ -69,6 +75,7 @@ async def cmd_letters_build(args: argparse.Namespace) -> int:
                     country=args.country,
                     niche=niche,
                     limit=args.limit,
+                    run_ids=tuple(int(x) for x in args.runs.split(",") if x.strip()),
                 )
             )
             await session.commit()

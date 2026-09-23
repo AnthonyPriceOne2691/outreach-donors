@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from dataclasses import replace
 from typing import Any
 
 import httpx
@@ -15,10 +16,11 @@ from backend.features.core.domain import DonorStatus, RunStatus, SuppressionReas
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.ops import SuppressionModel, UsageRecordModel
-from backend.features.core.models.run import RunModel
+from backend.features.core.models.run import RunCandidateModel, RunModel
 from backend.features.donors.publisher_judge import Intent, Judgement, Recommendation
 from backend.features.donors.repository import DonorRepository
 from backend.features.donors.verdict import Thresholds
+from backend.features.review.candidates import RunReview
 from backend.features.runs.exclusions import ExclusionReason, Exclusions
 from backend.features.runs.pipeline import RunDeps, RunRequest, execute_run
 from backend.features.runs.repository import RunRepository
@@ -464,3 +466,35 @@ class TestTheJudgeStandsBeforeTheBill:
         # Решение человека не трогается судом: расхождение считать не из чего,
         # если пересуд его затирает.
         assert row.human_intent is None
+
+
+class TestRunEndsInAReviewQueue:
+    """Прогон 23.09.2026: пороги признали годными nih.gov и reddit.com,
+    а первые письма ушли бы брендам. Теперь прогон кончается очередью."""
+
+    async def test_suitable_waits_for_a_human_and_undisputed_never_reach_ahrefs(
+        self, session: AsyncSession
+    ) -> None:
+        asked: list[str] = []
+        serp = FakeSerp(["https://good.com/a", "https://nih.gov/b", "https://www.reddit.com/r/x"])
+        deps = await _deps(
+            session,
+            serp,
+            _ahrefs({"good.com": GOOD, "nih.gov": GOOD, "reddit.com": GOOD}, watch=asked),
+        )
+        deps = replace(deps, review=RunReview(session))
+
+        report = await execute_run(deps, RunRequest(["crm"], "us", T, await _settings_id(session)))
+
+        assert "nih.gov" not in asked
+        assert "reddit.com" not in asked
+        assert report.review is not None
+        assert report.review.pending == 1
+        candidate = (await session.execute(select(RunCandidateModel))).scalar_one()
+        assert candidate.status == "pending"
+        run = (await session.execute(select(RunModel))).scalar_one()
+        assert run.stats["review"]["pending"] == 1
+        assert run.stats["excluded_by_reason"] == {
+            "гос. или учебная зона": 1,
+            "платформа или соцсеть": 1,
+        }

@@ -16,7 +16,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
-from sqlalchemy import func, select, update
+from sqlalchemy import ColumnElement, and_, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,6 +29,25 @@ from backend.features.core.models.donor import ContactModel, DonorModel
 #: Исходы, которые повторяются при следующем прогоне: мы не спросили, а не
 #: узнали, что контакта нет.
 RETRIABLE = frozenset({ContactStatus.NO_QUOTA, ContactStatus.RATE_LIMITED, ContactStatus.ERROR})
+
+
+def _needs_contact(border: datetime) -> ColumnElement[bool]:
+    """Кому пора искать контакт: принятым человеком донорам без свежей попытки.
+
+    Только принятым: контакт ищется после решения человека, а не до. Прогон
+    23.09.2026 искал адреса всем «годным» по порогам — и нашёл
+    `copyright@x.com` и `weee@microsoft.com`. Со скрейпером это время,
+    с платным сервисом — деньги за каждый бренд и госсайт.
+    """
+    return and_(
+        DonorModel.status == DonorStatus.SUITABLE,
+        DonorModel.review == "accepted",
+        or_(
+            DonorModel.contact_attempted_at.is_(None),
+            DonorModel.contact_attempted_at < border,
+            DonorModel.contact_status.in_(tuple(RETRIABLE)),
+        ),
+    )
 
 
 class ContactQueue(Protocol):
@@ -106,12 +125,7 @@ class ContactRepository:
         rows = await self._session.execute(
             select(DomainModel.host)
             .join(DonorModel, DonorModel.domain_id == DomainModel.id)
-            .where(DonorModel.status == DonorStatus.SUITABLE)
-            .where(
-                DonorModel.contact_attempted_at.is_(None)
-                | (DonorModel.contact_attempted_at < border)
-                | DonorModel.contact_status.in_(tuple(RETRIABLE))
-            )
+            .where(_needs_contact(border))
             .order_by(DonorModel.dr.desc().nullslast())
             .limit(limit)
         )
@@ -129,12 +143,7 @@ class ContactRepository:
             await self._session.scalar(
                 select(func.count(DomainModel.host))
                 .join(DonorModel, DonorModel.domain_id == DomainModel.id)
-                .where(DonorModel.status == DonorStatus.SUITABLE)
-                .where(
-                    DonorModel.contact_attempted_at.is_(None)
-                    | (DonorModel.contact_attempted_at < border)
-                    | DonorModel.contact_status.in_(tuple(RETRIABLE))
-                )
+                .where(_needs_contact(border))
             )
             or 0
         )

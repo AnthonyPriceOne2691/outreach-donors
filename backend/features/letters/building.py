@@ -33,7 +33,8 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from collections.abc import Sequence
+from dataclasses import dataclass, field, replace
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,6 +42,7 @@ from backend.features.contacts.quality import rejection_reason
 from backend.features.core import usage
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.outreach import MessageModel
+from backend.features.core.models.run import RunModel
 from backend.features.letters import compose, guards
 from backend.features.letters.repository import Candidate, LetterRepository
 from backend.features.letters.rewrite import Personalization, RewriteClient
@@ -81,6 +83,67 @@ class BuildRequest:
     #: Текст письма, утверждённый на экране. Пусто — шаблон из кода.
     #: Ложится в рассылку при её создании; у найденной не меняется.
     letter_template: str | None = None
+    #: Прогоны, из принятых доноров которых собирается рассылка. Пусто —
+    #: все принятые (командная строка, тесты); экран шлёт прогоны всегда.
+    run_ids: tuple[int, ...] = ()
+
+
+class LetterScopeError(ValueError):
+    """Из этих прогонов рассылку не собрать. Сообщение говорит, что сделать."""
+
+
+@dataclass(frozen=True, slots=True)
+class RunScope:
+    """Что прогоны рассылки задают письму: страну и нишу каждого донора."""
+
+    country: str | None = None
+    #: Домен → ключи, по которым он нашёлся. Это ниша для переписывания
+    #: вступления — точнее, чем ключи всей рассылки через запятую.
+    found_by: dict[str, list[str]] = field(default_factory=dict)
+
+
+async def run_scope(repo: LetterRepository, run_ids: Sequence[int]) -> RunScope:
+    """Проверить прогоны рассылки и достать из них страну и нишу.
+
+    Отказ — до постановки сборки: рассылка по прогонам разных стран ушла
+    бы одним языком, а по прогону с неоконченным поиском контактов — части
+    принятых, и остальные молча выпали бы (так же сборку держит соседняя
+    система, пока контакты собираются).
+    """
+    if not run_ids:
+        return RunScope()
+    runs = await repo.runs(run_ids)
+    country = _one_country(runs, run_ids)
+    pending = await repo.contacts_pending(run_ids)
+    if pending:
+        raise LetterScopeError(
+            f"Контакты ещё не искали у {pending} принятых доноров этих прогонов. "
+            "Дождаться поиска контактов — иначе они выпадут из рассылки"
+        )
+    return RunScope(country=country, found_by=_found_by(runs))
+
+
+def _one_country(runs: Sequence[RunModel], run_ids: Sequence[int]) -> str:
+    missing = sorted(set(run_ids) - {run.id for run in runs})
+    if missing:
+        raise LetterScopeError(f"Прогонов {', '.join(map(str, missing))} нет")
+    countries = sorted({run.country.lower() for run in runs})
+    if len(countries) > 1:
+        raise LetterScopeError(
+            f"Прогоны из разных стран ({', '.join(countries)}): язык письма берётся от страны. "
+            "Собрать по рассылке на страну"
+        )
+    return countries[0]
+
+
+def _found_by(runs: Sequence[RunModel]) -> dict[str, list[str]]:
+    """Ключи, по которым нашёлся каждый домен, — из всех прогонов рассылки."""
+    merged: dict[str, list[str]] = {}
+    for run in runs:
+        for host, keys in ((run.candidates or {}).get("found_by") or {}).items():
+            known = merged.setdefault(host, [])
+            known.extend(key for key in keys if key not in known)
+    return merged
 
 
 @dataclass
@@ -120,6 +183,11 @@ class QueueBuilder:
 
     async def build(self, request: BuildRequest) -> BuildReport:
         """Подготовить письма и поставить их в очередь."""
+        # Прогоны проверяются до того, как заведена рассылка: отказ по ним
+        # не должен оставлять пустую рассылку с их именем.
+        scope = await run_scope(self._repo, request.run_ids)
+        if scope.country is not None and scope.country != request.country.lower():
+            request = replace(request, country=scope.country)
         campaign = await self._repo.campaign(
             name=request.campaign_name,
             stage=request.stage,
@@ -137,7 +205,9 @@ class QueueBuilder:
         guards.assert_no_metrics(letter_template.body)
 
         report = BuildReport(campaign_id=campaign.id)
-        report.funnel = (await self._repo.funnel(request.stage)).as_report()
+        report.funnel = (
+            await self._repo.funnel(request.stage, run_ids=request.run_ids)
+        ).as_report()
         report.blocked_by = compose.missing_settings()
         if report.blocked_by:
             logger.warning(
@@ -145,7 +215,9 @@ class QueueBuilder:
                 ", ".join(report.blocked_by),
             )
 
-        candidates = await self._repo.candidates(request.stage, limit=request.limit)
+        candidates = await self._repo.candidates(
+            request.stage, limit=request.limit, run_ids=request.run_ids
+        )
         for candidate in candidates:
             if self._bad_address(candidate, report):
                 continue
@@ -155,6 +227,7 @@ class QueueBuilder:
                 campaign_id=campaign.id,
                 request=request,
                 report=report,
+                found_by=scope.found_by,
             )
 
         logger.info(
@@ -193,6 +266,7 @@ class QueueBuilder:
         campaign_id: int,
         request: BuildRequest,
         report: BuildReport,
+        found_by: dict[str, list[str]],
     ) -> None:
         """Одно письмо: текст, проверки, запись в очередь."""
         rendered = compose.render(
@@ -201,7 +275,11 @@ class QueueBuilder:
         )
         rewritten = await self._rewriter.rewrite(
             rendered,
-            Personalization(host=candidate.host, country=request.country, niche=request.niche),
+            Personalization(
+                host=candidate.host,
+                country=request.country,
+                niche=tuple(found_by.get(candidate.host, ())) or request.niche,
+            ),
         )
         for note in rewritten.notes:
             report.notes[note] = report.notes.get(note, 0) + 1

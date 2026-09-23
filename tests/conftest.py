@@ -261,13 +261,23 @@ def filled_legal(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def make_donor(
-    session: AsyncSession, host: str, *, email: str | None = None, dr: int = 30
+    session: AsyncSession,
+    host: str,
+    *,
+    email: str | None = None,
+    dr: int = 30,
+    review: str | None = "accepted",
 ) -> DomainModel:
-    """Подходящий донор, при желании с адресом."""
+    """Подходящий донор, при желании с адресом.
+
+    По умолчанию — принятый человеком: контакты и письма получают только
+    принятых, и «донор, готовый к работе» в тестах значит именно это.
+    `review=None` — годный по порогам, но ещё не рассмотренный.
+    """
     domain = DomainModel(host=host)
     session.add(domain)
     await session.flush()
-    session.add(DonorModel(domain_id=domain.id, status=DonorStatus.SUITABLE, dr=dr))
+    session.add(DonorModel(domain_id=domain.id, status=DonorStatus.SUITABLE, dr=dr, review=review))
     if email is not None:
         session.add(ContactModel(domain_id=domain.id, email=email, source=ContactSource.PAGE))
     await session.flush()

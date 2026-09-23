@@ -36,8 +36,10 @@ from backend.features.core.domain import (
 )
 from backend.features.core.models.advertisers import SupplierDonorModel
 from backend.features.core.models.domain import DomainModel
+from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, ThreadModel
+from backend.features.donors.publisher_judge import is_platform, is_public_zone
 
 #: Письмо ушло от нас и не было отвергнуто. Отказ доставки сюда
 #: не входит: до адресата мы не добрались, и считать это «мы ему уже
@@ -53,6 +55,13 @@ class ExclusionReason(StrEnum):
     SUPPLIER = "supplier"
     SILENT = "silent"
     DECLINES = "declines"
+    #: Человек отклонил в прошлом прогоне. Смотреть второй раз незачем,
+    #: платить за метрики — тем более.
+    REJECTED = "rejected"
+    #: Гос., учебная или военная зона: размещений не продаёт по уставу.
+    PUBLIC_ZONE = "public_zone"
+    #: Соцсеть, UGC-площадка, маркетплейс: разместиться там нельзя.
+    PLATFORM = "platform"
 
     @property
     def caption(self) -> str:
@@ -65,6 +74,9 @@ _CAPTIONS = {
     ExclusionReason.SUPPLIER: "поставщик агентства",
     ExclusionReason.SILENT: "писали, не ответил",
     ExclusionReason.DECLINES: "ответил: размещений не продаёт",
+    ExclusionReason.REJECTED: "отклонён человеком",
+    ExclusionReason.PUBLIC_ZONE: "гос. или учебная зона",
+    ExclusionReason.PLATFORM: "платформа или соцсеть",
 }
 
 
@@ -74,6 +86,26 @@ def counts(excluded: dict[str, ExclusionReason]) -> dict[str, int]:
     for reason in excluded.values():
         tally[reason.caption] = tally.get(reason.caption, 0) + 1
     return tally
+
+
+def by_name(hosts: Sequence[str]) -> dict[str, ExclusionReason]:
+    """Бесспорное по одному имени домена — без базы и без модели.
+
+    Строка «кому не пишем» требований (wikipedia / gov / edu / соцсети)
+    стояла только в Этапе 2, и прогон 23.09.2026 заплатил метриками
+    за reddit.com, linkedin.com, youtube.com, nih.gov и cornell.edu —
+    все признаны «годными». Здесь только классы, где ошибиться нельзя:
+    зона домена и платформа. «Похоже на бренд» сюда не идёт — это
+    мнение судьи, и оно ошибается (cloudways.com со страницей для
+    авторов правило судьи отрезало).
+    """
+    found: dict[str, ExclusionReason] = {}
+    for host in hosts:
+        if is_public_zone(host):
+            found[host] = ExclusionReason.PUBLIC_ZONE
+        elif is_platform(host):
+            found[host] = ExclusionReason.PLATFORM
+    return found
 
 
 class Exclusions:
@@ -112,7 +144,7 @@ class Exclusions:
             return {}
 
         moment = now or datetime.now(UTC)
-        found: dict[str, ExclusionReason] = {}
+        found: dict[str, ExclusionReason] = by_name(hosts)
         for host in await self._silent(hosts, stage, moment):
             found[host] = ExclusionReason.SILENT
         if stage is Stage.DONORS:
@@ -120,10 +152,22 @@ class Exclusions:
             # Рекламодателем тот же сайт быть может — ему письмо о другом.
             for host in await self._declined(hosts, moment):
                 found[host] = ExclusionReason.DECLINES
+            for host in await self._rejected(hosts):
+                found[host] = ExclusionReason.REJECTED
         for host in await self._suppliers(hosts, moment):
             found[host] = ExclusionReason.SUPPLIER
         found.update(await self._stoplisted(hosts, stage, moment))
         return found
+
+    async def _rejected(self, hosts: Sequence[str]) -> list[str]:
+        """Отклонены человеком — последним решением по домену."""
+        rows = await self._session.execute(
+            select(DomainModel.host)
+            .join(DonorModel, DonorModel.domain_id == DomainModel.id)
+            .where(DomainModel.host.in_(hosts))
+            .where(DonorModel.review == "rejected")
+        )
+        return [host for (host,) in rows.all()]
 
     async def _declined(self, hosts: Sequence[str], moment: datetime) -> list[str]:
         """Сами ответили «не продаём размещения» — и не так давно."""

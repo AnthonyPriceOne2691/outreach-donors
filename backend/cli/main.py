@@ -37,6 +37,8 @@ from backend.cli.keywords_pool import add_parser as add_keywords_parser
 from backend.cli.keywords_pool import cmd_keywords
 from backend.cli.letters_queue import add_parser as add_letters_parser
 from backend.cli.letters_queue import cmd_letters, cmd_letters_build, cmd_letters_send
+from backend.cli.review_queue import add_parser as add_review_queue_parser
+from backend.cli.review_queue import cmd_review_queue
 from backend.cli.senders_admin import add_parser as add_senders_parser
 from backend.cli.senders_admin import cmd_sender_add, cmd_senders
 from backend.config import ahrefs as ahrefs_cfg
@@ -47,6 +49,7 @@ from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.ahrefs.units import Quota
 from backend.features.donors.geo import assert_settings_allow_limited_fetch
 from backend.features.donors.repository import DonorRepository
+from backend.features.review.candidates import RunReview
 from backend.features.runs.budget import (
     CapExceededError,
     QuotaUnavailableError,
@@ -188,6 +191,7 @@ async def cmd_run(args: argparse.Namespace) -> int:
                 donors=donors,
                 runs=runs,
                 exclusions=Exclusions(session),
+                review=RunReview(session),
             )
             report = await execute_run(
                 deps,
@@ -244,23 +248,29 @@ def _print_report(report: RunReport) -> None:
         for operation, count in sorted(report.free_by_operation.items(), key=lambda kv: -kv[1]):
             print(f"  {operation:<18} {count}")
     _print_judge(report)
+    _print_review(report)
     if abs(error) > 0.2:
-        assumed = 0.39  # доля, заложенная в смету по замеру Ф2
-        actual = report.actual_pass_share
         print(f"\nСмета разошлась с фактом на {error:+.0%}.")
-        if abs(actual - assumed) > 0.1:
-            # Воронка объясняет расхождение чаще, чем цены: она зависит от
-            # ниши, а цены у провайдера меняются редко.
+        # Смета — верхняя граница: метрики на все новые домены, доля
+        # запросов по странам из истории страны (okf/funnel-calibration.md).
+        # Перерасход значит, что прогон дороже своей истории.
+        if error > 0:
             print(
-                f"  Причина, скорее всего, в воронке: до запроса по странам дошли "
-                f"{actual:.0%} проверенных вместо заложенных {assumed:.0%}. "
-                f"Сильная выдача даёт сильные домены, и дорогая ступень видит больше."
+                "  Трата выше сметы: запросов по странам понадобилось больше, чем "
+                "в прошлых прогонах этой страны, или изменились цены — "
+                "scripts/measure_units.py"
             )
-        else:
-            print(
-                "  Воронка совпала с ожидаемой — значит, изменились цены. "
-                "Стоит перемерить: scripts/measure_units.py"
-            )
+
+
+def _print_review(report: RunReport) -> None:
+    """Прогон кончается очередью: сказать, сколько ждёт человека и где."""
+    review = report.review
+    if review is None:
+        return
+    print(f"\nНа рассмотрение:      {review.pending}")
+    for decision, count in review.carried.items():
+        print(f"  решено раньше ({decision}): {count}")
+    print("  Решить — экран прогона: контакты и письма получат только принятые.")
 
 
 #: Кто решил — словами оператора, а не кодами модели.
@@ -321,6 +331,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     add_keywords_parser(sub)
     add_backfill_parser(sub)
+    add_review_queue_parser(sub)
 
     demo = sub.add_parser(
         "demo-seed",
@@ -386,6 +397,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] =
     "user-reset": cmd_user_reset,
     "keywords": cmd_keywords,
     "judge-backfill": cmd_judge_backfill,
+    "review-queue": cmd_review_queue,
     "demo-seed": cmd_demo_seed,
     "letters-build": cmd_letters_build,
     "letters": cmd_letters,

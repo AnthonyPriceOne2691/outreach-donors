@@ -14,7 +14,7 @@ from backend.features.core.models.outreach import (
     SenderModel,
     ThreadModel,
 )
-from backend.features.core.models.run import RunModel, RunSettingsModel
+from backend.features.core.models.run import RunCandidateModel, RunModel, RunSettingsModel
 
 __all__ = [
     "AdvertiserModel",
@@ -28,6 +28,7 @@ __all__ = [
     "MessageModel",
     "OutLinkModel",
     "ReplyModel",
+    "RunCandidateModel",
     "RunModel",
     "RunSettingsModel",
     "SenderModel",
