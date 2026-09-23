@@ -256,6 +256,8 @@ export const HUMAN_INTENTS: Record<HumanIntent, string> = {
 /** Тип сайта по судье — словами оператора. Ярлык у каждого кандидата:
  *  по нему видно, какой тип судья путает чаще всего. */
 export const SITE_INTENTS: Record<string, string> = {
+  sells_placement: 'продаёт размещение',
+  link_vendor: 'посредник',
   editorial_ads: 'издание',
   refers_out: 'обзорщик',
   sells_own: 'продаёт своё',

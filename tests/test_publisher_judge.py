@@ -13,6 +13,8 @@ import pytest
 from backend.config.judge import PLATFORM_LABELS
 from backend.features.donors.home_signals import HomeSignals
 from backend.features.donors.publisher_judge import (
+    ADVICE,
+    ARBITER_SYSTEM,
     SYSTEM,
     Decider,
     Intent,
@@ -325,3 +327,27 @@ async def test_public_zone_is_cut_without_the_model() -> None:
     assert verdict.recommendation is Recommendation.REJECT
     assert verdict.decided_by is Decider.RULE
     assert verdict.tokens == 0
+
+
+# --- судья v2: продажа размещения у себя и у чужих ---------------------------
+
+
+def test_placement_seller_is_accepted_and_vendor_cut() -> None:
+    text = "We offer paid guest post publishing on our blog. Buy backlinks on 5000 sites."
+    seller = parse(
+        json.dumps({"intent": "sells_placement", "quote": "paid guest post publishing"}), text
+    )
+    vendor = parse(json.dumps({"intent": "link_vendor", "quote": "Buy backlinks on 5000"}), text)
+    assert seller.recommendation is Recommendation.ACCEPT
+    assert vendor.recommendation is Recommendation.REJECT
+
+
+def test_both_prompts_know_placement() -> None:
+    """Арбитр без новых видов вернул бы продавца размещения в «продаёт своё»."""
+    for prompt in (SYSTEM, ARBITER_SYSTEM):
+        assert "sells_placement" in prompt
+        assert "link_vendor" in prompt
+
+
+def test_every_intent_has_advice() -> None:
+    assert set(ADVICE) == set(Intent)

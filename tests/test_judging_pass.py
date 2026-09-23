@@ -10,7 +10,13 @@ from backend.features.donors.judging import (
     JudgeSummary,
     judge_candidates,
 )
-from backend.features.donors.publisher_judge import Decider, Intent, Judgement, Recommendation
+from backend.features.donors.publisher_judge import (
+    PROMPT_VERSION,
+    Decider,
+    Intent,
+    Judgement,
+    Recommendation,
+)
 from backend.features.runs.planning import SerpText
 from backend.features.serp.protocol import SerpResult
 
@@ -371,3 +377,76 @@ async def test_index_failure_keeps_model_verdicts(
     )
 
     assert result.verdicts["media.example"].recommendation == "accept"
+
+
+# --- продажа размещения и дверь для авторов (судья v2) -----------------------
+
+
+@pytest.mark.asyncio
+async def test_brand_with_author_page_goes_to_human(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Выдача пришла со страницы приёма авторов — отказ становится «посмотри».
+
+    Прогон №18: 31 из 58 таких сайтов отрезан как «продаёт своё».
+    """
+
+    async def brand(http: object, **kwargs: object) -> Judgement:
+        return Judgement(Intent.SELLS_OWN, Recommendation.REJECT, "q", "свой сервис", "m", 5)
+
+    monkeypatch.setattr("backend.features.donors.judging.judge_host", brand)
+    texts = {"tool.example": SerpText(url="https://tool.example/blog/write-for-us/", title="Blog")}
+    result = await judge_candidates(None, ["tool.example"], texts)  # type: ignore[arg-type]
+
+    record = result.verdicts["tool.example"]
+    assert record.recommendation == "review"
+    assert "write-for-us" in record.reason
+    assert record.intent == "sells_own", "вид модели не переписывается — по нему считают точность"
+    assert "tool.example" not in result.rejected
+    assert result.summary.would_cut == 0
+
+
+@pytest.mark.asyncio
+async def test_article_about_guest_posts_is_not_a_door(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Статья ПРО гостевые посты у продавца инструмента — не приглашение."""
+
+    async def brand(http: object, **kwargs: object) -> Judgement:
+        return Judgement(Intent.SELLS_OWN, Recommendation.REJECT, "q", "свой сервис", "m", 5)
+
+    monkeypatch.setattr("backend.features.donors.judging.judge_host", brand)
+    url = "https://tool.example/blog/guest-posting-opportunities"
+    texts = {"tool.example": SerpText(url=url, title="Guest posting opportunities in 2026")}
+    result = await judge_candidates(None, ["tool.example"], texts)  # type: ignore[arg-type]
+
+    assert result.verdicts["tool.example"].recommendation == "reject"
+
+
+@pytest.mark.asyncio
+async def test_placement_seller_skips_the_storefront(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`/pricing` на главной не отменяет платных гостевых статей у себя."""
+
+    async def seller(http: object, **kwargs: object) -> Judgement:
+        return Judgement(
+            Intent.SELLS_PLACEMENT, Recommendation.ACCEPT, "paid guest post", "продаёт", "m", 5
+        )
+
+    async def storefront(client: object, host: str) -> HomeSignals:
+        raise AssertionError("за продавцом размещения главную не спрашивают")
+
+    monkeypatch.setattr("backend.features.donors.judging.judge_host", seller)
+    monkeypatch.setattr("backend.features.donors.judging.check_home", storefront)
+    texts = {"lab.example": SerpText(url="https://lab.example/write-for-us", title="Write for us")}
+    result = await judge_candidates(
+        None,  # type: ignore[arg-type]
+        ["lab.example"],
+        texts,
+        home_client=object(),  # type: ignore[arg-type]
+    )
+
+    record = result.verdicts["lab.example"]
+    assert record.recommendation == "accept"
+    assert record.intent == "sells_placement"
+
+
+@pytest.mark.asyncio
+async def test_verdict_carries_prompt_version(judge: FakeJudge) -> None:
+    result = await judge_candidates(None, ["media.example"], TEXTS)  # type: ignore[arg-type]
+    assert result.verdicts["media.example"].version == PROMPT_VERSION
