@@ -7,9 +7,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from datetime import datetime
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Index, String
+from sqlalchemy import DateTime, Index, String
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.features.core.models._mixins import TimestampedMixin
@@ -26,7 +28,39 @@ class DomainModel(TimestampedMixin, Base):
     # Корневой домен без протокола, www и поддоменов — ключ дедупликации.
     host: Mapped[str] = mapped_column(String(253), nullable=False, unique=True)
 
-    __table_args__ = (Index("idx_domains_host", "host"),)
+    # --- судья площадки -----------------------------------------------------
+    #
+    # ⚠ Здесь, а не у донора. Способ заработка — свойство САЙТА, и второму
+    # этапу он нужен с обратным знаком: `sells_own` для донора отказ, а для
+    # поиска рекламодателей — лучший кандидат. Отметка времени даёт кэш
+    # даром: повторный прогон домен не пересуживает.
+    site_intent: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    judge_recommendation: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    judge_quote: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    judge_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    judge_source_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    judge_model: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Кто решил: правило, модель или арбитр. Без этого точность судьи —
+    # одно число на всех, и не видно, какой слой ошибается.
+    judge_decided_by: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    # Что сказала главная: открылась ли и какие признаки магазина нашлись.
+    judge_home: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    judged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # --- решение человека ---------------------------------------------------
+    #
+    # Сильнее модели, но её вердикт НЕ переписывает: расхождение между ними
+    # и есть измеритель того, как часто она ошибается.
+    human_intent: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    human_verdict_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    human_note: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+    __table_args__ = (
+        Index("idx_domains_host", "host"),
+        Index("idx_domains_judge_recommendation", "judge_recommendation"),
+    )
 
     donor: Mapped[DonorModel | None] = relationship(
         "DonorModel", back_populates="domain", uselist=False

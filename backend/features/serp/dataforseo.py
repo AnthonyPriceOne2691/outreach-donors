@@ -134,7 +134,21 @@ def _organic(items: Sequence[Any], wanted: int) -> list[SerpResult]:
         url, position = item.get("url"), item.get("rank_absolute")
         if not isinstance(url, str) or not isinstance(position, int):
             continue
-        out.append(SerpResult(position=position, url=url))
+        # Заголовок и описание берём здесь же: провайдер отдаёт их в каждой
+        # органической позиции, отдельного запроса они не стоят, а без них
+        # судья площадки не по чему судить (`donors/publisher_judge.py`).
+        title = item.get("title")
+        description = item.get("description")
+        out.append(
+            SerpResult(
+                position=position,
+                url=url,
+                title=title if isinstance(title, str) and title.strip() else None,
+                description=(
+                    description if isinstance(description, str) and description.strip() else None
+                ),
+            )
+        )
         if len(out) >= wanted:
             break
     return out

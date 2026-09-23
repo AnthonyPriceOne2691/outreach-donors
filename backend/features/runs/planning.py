@@ -56,6 +56,30 @@ class ExclusionSource(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class SerpText:
+    """Что выдача написала о домене: заголовок, описание и адрес страницы."""
+
+    url: str
+    title: str | None = None
+    description: str | None = None
+
+    @property
+    def empty(self) -> bool:
+        return not (self.title or self.description)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"url": self.url, "title": self.title, "description": self.description}
+
+    @classmethod
+    def restored(cls, payload: dict[str, Any]) -> SerpText:
+        return cls(
+            url=str(payload.get("url", "")),
+            title=payload.get("title"),
+            description=payload.get("description"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class Candidates:
     """Что дала выдача после нормализации и дедупликации."""
 
@@ -70,6 +94,20 @@ class Candidates:
     """Во что обошлась эта выдача. Ноль у восстановленной: за неё уже
     заплачено и уже записано в журнал прошлой попыткой, а вторая строка
     расхода превратила бы продолжение прогона в удвоение счёта."""
+
+    texts: dict[str, SerpText] = field(default_factory=dict)
+    """Заголовок, описание и адрес ВЕРХНЕЙ позиции каждого домена.
+
+    ⚠ Это не украшение выдачи, а единственный текст, по которому судья
+    площадки отличает сайт, продающий своё, от того, кто пишет про чужое.
+    Он уже оплачен вместе с выдачей и приходит даже от тех, кто не пустит
+    нас на сайт, — а таких четверть, и закрываются в основном крупные
+    бренды, то есть ровно те, кого важнее всего опознать.
+
+    Берётся ВЕРХНЯЯ позиция домена: она пришла под наш ключ, значит это
+    страница по теме, а не витрина магазина. Замер 23.09: заглавная
+    страница и статья одного и того же сайта дают разные вердикты, и
+    ошибается именно заглавная."""
 
     @property
     def duplicates(self) -> int:
@@ -89,6 +127,9 @@ class Candidates:
             # Цена сохраняется ради отчёта, а не ради повторной записи:
             # `restored()` намеренно возвращает ноль.
             "cost_usd": self.cost_usd,
+            # Текст едет вместе с выдачей: продолжение прогона не покупает
+            # её заново, а без текста судья на второй попытке ослеп бы.
+            "texts": {host: text.as_dict() for host, text in self.texts.items()},
         }
 
     @classmethod
@@ -105,6 +146,10 @@ class Candidates:
             results=int(payload["results"]),
             empty_keywords=list(payload.get("empty_keywords", ())),
             dropped=int(payload.get("dropped", 0)),
+            texts={
+                host: SerpText.restored(value)
+                for host, value in (payload.get("texts") or {}).items()
+            },
         )
 
 
@@ -164,6 +209,7 @@ async def gather_candidates(
     cost = max(0.0, getattr(provider, "spent", 0.0) - before)
 
     seen: dict[str, None] = {}
+    texts: dict[str, SerpText] = {}
     results = 0
     dropped = 0
     empty: list[str] = []
@@ -178,6 +224,12 @@ async def gather_candidates(
                 dropped += 1
                 continue
             seen.setdefault(host, None)
+            # Текст берётся от ПЕРВОЙ встреченной позиции домена, то есть
+            # от самой высокой: порядок выдачи здесь сохранён. Ниже по
+            # списку тот же домен встречается служебными страницами,
+            # и судить по ним значит судить не то.
+            if host not in texts:
+                texts[host] = SerpText(url=row.url, title=row.title, description=row.description)
 
     return Candidates(
         hosts=list(seen),
@@ -186,6 +238,7 @@ async def gather_candidates(
         empty_keywords=empty,
         dropped=dropped,
         cost_usd=cost,
+        texts=texts,
     )
 
 
