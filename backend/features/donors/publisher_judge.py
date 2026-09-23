@@ -47,7 +47,7 @@ import httpx
 
 from backend.config import judge as cfg
 from backend.config import llm as llm_cfg
-from backend.features.donors.home_signals import HomeSignals
+from backend.features.donors.home_signals import HomeSignals, looks_denied
 from backend.shared.llm import Refusal, content_of, is_reasoning, post_chat, tokens_of
 
 logger = logging.getLogger(__name__)
@@ -165,6 +165,33 @@ def dns_labels(host: str) -> list[str]:
     return [label for label in clean.split(".") if label]
 
 
+#: Метки государственных, учебных и военных зон. Стоят ПРЕДПОСЛЕДНЕЙ меткой
+#: перед страной (`gov.in`, `gob.es`, `ac.uk`, `go.jp`) или последней (`.gov`).
+PUBLIC_ZONE_LABELS: frozenset[str] = frozenset(
+    {"gov", "gob", "gouv", "govt", "gv", "go", "mil", "edu", "ac", "gc"}
+)
+PUBLIC_ZONE_TLDS: frozenset[str] = frozenset({"gov", "mil", "edu"})
+
+
+def is_public_zone(host: str) -> bool:
+    """Государственный, учебный или военный домен.
+
+    Размещений такие сайты не продают, а коммерческая страница на них почти
+    всегда паразитная — взломанный сайт, на котором чужой контент ловит
+    трафик. 23.09 модель приняла `rajasthan.gov.in` со статьёй о букмекерах
+    Южной Африки: по тексту это обзор, по зоне — взлом.
+
+    ⚠ `go` считается только перед двухбуквенной страной: `go.jp` — зона,
+    а `go.com` — обычный сайт.
+    """
+    labels = dns_labels(host)
+    if len(labels) < 2:
+        return False
+    if labels[-1] in PUBLIC_ZONE_TLDS:
+        return True
+    return len(labels) >= 3 and len(labels[-1]) == 2 and labels[-2] in PUBLIC_ZONE_LABELS
+
+
 def is_platform(host: str) -> bool:
     """Платформа из денилиста.
 
@@ -172,41 +199,6 @@ def is_platform(host: str) -> bool:
     `google-maps-guide.co.ke` — сайт, к платформе отношения не имеющий.
     """
     return any(label in cfg.PLATFORM_LABELS for label in dns_labels(host))
-
-
-#: Признаки того, что нам отдали не страницу сайта, а отказ. Сравнение по
-#: нижнему регистру, вхождением: формулировки у защит разные, а слова общие.
-#:
-#: ⚠ Без этой проверки судья выносит вердикт по тексту вроде «Access to this
-#: page has been denied» — и иногда угадывает, что и есть худший случай:
-#: замер соврал в свою пользу, а мы записали случайное попадание в точность.
-#: Класс назван в каноне соседней системы (`gnc.com`), у нас пойман на живом
-#: прогоне 23.09: `edmunds.com` со страницей 403 получил «площадка» (угадал),
-#: `trivago.com` с той же страницей — «не площадка» (промахнулся). Ни то,
-#: ни другое не знание.
-DENIAL_MARKERS: tuple[str, ...] = (
-    "access denied",
-    "access to this page",
-    "403",
-    "forbidden",
-    "attention required",
-    "just a moment",
-    "are you human",
-    "verify you are human",
-    "captcha",
-    "bot detection",
-    "request blocked",
-    "unusual traffic",
-    "not acceptable",
-    "service unavailable",
-    "site temporarily unavailable",
-)
-
-
-def looks_denied(text: str) -> bool:
-    """Текст похож на отказ доступа, а не на страницу сайта."""
-    lowered = text.lower()
-    return any(marker in lowered for marker in DENIAL_MARKERS)
 
 
 def source_text(title: str | None, description: str | None) -> str:
@@ -286,34 +278,31 @@ def parse(content: str, text: str) -> Judgement:
     return Judgement(intent, ADVICE[intent], quote, why or "по тексту выдачи")
 
 
-async def judge_host(
-    http: httpx.AsyncClient,
-    *,
-    host: str,
-    title: str | None,
-    description: str | None,
-    model: str | None = None,
-    api_key: str | None = None,
-) -> Judgement:
-    """Вердикт по одному домену. Не бросает: любой сбой — «посмотри»."""
+def before_model(host: str, text: str) -> Judgement | None:
+    """Всё, что решается без модели и не стоит ни одного токена.
+
+    Порядок — от окончательного к осторожному: платформа и госзона режутся
+    правилом, пустой текст и страница-отказ идут человеку.
+    """
     if is_platform(host):
         return Judgement(
-            Intent.NONE,
+            Intent.NONE, Recommendation.REJECT, None, "платформа из денилиста",
+            decided_by=Decider.RULE,
+        )  # fmt: skip
+    if is_public_zone(host):
+        return Judgement(
+            Intent.NON_COMMERCIAL,
             Recommendation.REJECT,
             None,
-            "платформа из денилиста",
+            "государственная или учебная зона: размещений не продаёт, "
+            "коммерческая страница на ней — чужой контент",
             decided_by=Decider.RULE,
         )
-
-    text = source_text(title, description)
     if not text:
         return Judgement(
-            Intent.UNKNOWN,
-            Recommendation.REVIEW,
-            None,
-            "выдача не дала ни заголовка, ни описания",
-            decided_by=Decider.RULE,
-        )
+            Intent.UNKNOWN, Recommendation.REVIEW, None,
+            "выдача не дала ни заголовка, ни описания", decided_by=Decider.RULE,
+        )  # fmt: skip
     if looks_denied(text):
         # Судить отказ доступа нельзя даже когда получается: правильный
         # ответ здесь был бы угадан, а не прочитан.
@@ -324,6 +313,23 @@ async def judge_host(
             f"вместо страницы пришёл отказ доступа: {text[:60]!r}",
             decided_by=Decider.RULE,
         )
+    return None
+
+
+async def judge_host(
+    http: httpx.AsyncClient,
+    *,
+    host: str,
+    title: str | None,
+    description: str | None,
+    model: str | None = None,
+    api_key: str | None = None,
+) -> Judgement:
+    """Вердикт по одному домену. Не бросает: любой сбой — «посмотри»."""
+    text = source_text(title, description)
+    ruled = before_model(host, text)
+    if ruled is not None:
+        return ruled
 
     chosen = model or llm_cfg.JUDGE_MODEL
     answer = await post_chat(
@@ -355,17 +361,18 @@ async def judge_host(
 
 ARBITER_SYSTEM = (
     "Тебе показывают сайт с двух сторон: страницу из поисковой выдачи и его "
-    "главную. Они спорят: страница похожа на статью, а на главной есть признаки "
-    "магазина. Реши, как зарабатывает САЙТ ЦЕЛИКОМ, а не эта страница.\n"
+    "главную. Страница похожа на статью; реши, как зарабатывает САЙТ ЦЕЛИКОМ, "
+    "а не эта страница.\n"
     'Верни строгий JSON: {"intent": ..., "quote": ..., "why": ...}\n'
-    "intent — одно из: sells_own (магазин или производитель со своим журналом: "
-    "статьи ведут к покупке у него же), editorial_ads (издание, которое заодно "
-    "продаёт подписку, мерч или свои материалы: главное у него — статьи), "
-    "refers_out (обзорщик и сравнитель, уводит к чужим магазинам), "
-    "non_commercial (по уставу не продаёт рекламу: госорган, общественный "
-    "вещатель, потребительская организация).\n"
-    "Смотри на меню главной: каталог товаров и корзина говорят о магазине, "
-    "разделы новостей и рубрики — об издании. Кто владелец домена, можно брать "
+    "intent — одно из: sells_own (сайт продаёт СВОЁ — товар, услугу, свой "
+    "программный сервис, страховку, приём у врача, работу агентства; статьи "
+    "служат этим продажам), editorial_ads (издание: главное у него — статьи, "
+    "а подписка, мерч или свои тесты — сбоку), refers_out (обзорщик и "
+    "сравнитель, уводит к чужим), non_commercial (по уставу не продаёт рекламу: "
+    "госорган, общественный вещатель, потребительская организация).\n"
+    "Главное свидетельство — меню главной: «Продукт», «Решения», «Цены», "
+    "«Услуги», «Записаться», каталог и корзина говорят о продаже своего; "
+    "рубрики, новости, обзоры — об издании. Кто владелец домена, можно брать "
     "из собственного знания.\n"
     "quote — ДОСЛОВНЫЙ кусок присланного текста, 3-12 слов, из любой из двух "
     "частей. why — одно короткое предложение."

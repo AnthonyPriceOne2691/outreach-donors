@@ -12,6 +12,7 @@ from backend.features.donors.judging import (
 )
 from backend.features.donors.publisher_judge import Decider, Intent, Judgement, Recommendation
 from backend.features.runs.planning import SerpText
+from backend.features.serp.protocol import SerpResult
 
 TEXTS = {
     "brand.example": SerpText(url="https://brand.example/a", title="Buy direct at Brand"),
@@ -208,9 +209,11 @@ async def test_publisher_with_cart_goes_to_arbiter(
 
 
 @pytest.mark.asyncio
-async def test_quiet_home_keeps_model_verdict(
+async def test_arbiter_reject_without_sales_goes_to_human(
     judge: FakeJudge, monkeypatch: pytest.MonkeyPatch, arbiter: list[str]
 ) -> None:
+    """Правило доказательства: отрезать может только структура. Замер 23.09 —
+    арбитр без него отрезал 5 из 77 изданий с магазином или курсом сбоку."""
     monkeypatch.setattr(
         "backend.features.donors.judging.check_home", FakeHome({"media.example": QUIET})
     )
@@ -221,8 +224,28 @@ async def test_quiet_home_keeps_model_verdict(
         home_client=object(),  # type: ignore[arg-type]
     )
 
-    assert result.verdicts["media.example"].decided_by == "model"
-    assert arbiter == []
+    assert arbiter == ["media.example"], "блог компании по выдаче неотличим от издания"
+    record = result.verdicts["media.example"]
+    assert record.decided_by == "arbiter"
+    assert record.recommendation == "review"
+
+
+@pytest.mark.asyncio
+async def test_service_marks_let_arbiter_cut(
+    judge: FakeJudge, monkeypatch: pytest.MonkeyPatch, arbiter: list[str]
+) -> None:
+    service = HomeSignals(reached=True, service=("path:/pricing",), title="Product")
+    monkeypatch.setattr(
+        "backend.features.donors.judging.check_home", FakeHome({"media.example": service})
+    )
+    result = await judge_candidates(
+        None,
+        ["media.example"],
+        TEXTS,
+        home_client=object(),  # type: ignore[arg-type]
+    )
+
+    assert result.verdicts["media.example"].recommendation == "reject"
 
 
 @pytest.mark.asyncio
@@ -268,3 +291,83 @@ async def test_only_unpaid_domains_give_savings(judge: FakeJudge) -> None:
 
     assert result.summary.would_cut == 1
     assert result.summary.units_saved == 0
+
+
+# --- закрытая главная: образ из индекса поиска ------------------------------
+
+
+class Index:
+    """Источник выдачи для `site:`: запоминает, о ком спросили."""
+
+    spent = 0.0
+
+    def __init__(self) -> None:
+        self.asked: list[str] = []
+
+    async def search(
+        self, keywords: list[str], country: str, **_: object
+    ) -> dict[str, list[SerpResult]]:
+        self.asked.extend(keywords)
+        self.spent += 0.006 * len(keywords)
+        return {
+            key: [
+                SerpResult(1, f"https://{key[5:]}/", "P2P exchange: buy bitcoin", "Buy and sell"),
+                SerpResult(2, f"https://{key[5:]}/sell", "Sell crypto without fees"),
+            ]
+            for key in keywords
+        }
+
+
+@pytest.mark.asyncio
+async def test_closed_home_is_judged_through_the_index(
+    judge: FakeJudge, monkeypatch: pytest.MonkeyPatch, arbiter: list[str]
+) -> None:
+    """23.09 все четыре ошибки пяти рынков — продавцы за закрытой главной,
+    принятые по статье. Индекс видит их всё равно; структуры в нём нет,
+    поэтому отказ по индексу идёт человеку, а не в отказ."""
+    monkeypatch.setattr(
+        "backend.features.donors.judging.check_home",
+        FakeHome({"media.example": CLOSED, "brand.example": CLOSED, "blocked.example": CLOSED}),
+    )
+    index = Index()
+    result = await judge_candidates(
+        None,
+        list(TEXTS),
+        TEXTS,
+        home_client=object(),
+        index=index,  # type: ignore[arg-type]
+    )
+
+    # Спрашиваем только про принятых моделью: отрезанным и «посмотри» спорить не о чем.
+    assert index.asked == ["site:media.example"]
+    record = result.verdicts["media.example"]
+    assert record.decided_by == "arbiter"
+    assert record.recommendation == "review"
+    assert record.home is not None
+    assert record.home["via"] == "index"
+    assert result.summary.from_index == 1
+    assert result.summary.index_usd == pytest.approx(0.006)
+
+
+@pytest.mark.asyncio
+async def test_index_failure_keeps_model_verdicts(
+    judge: FakeJudge, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Broken:
+        spent = 0.0
+
+        async def search(self, *_: object, **__: object) -> dict[str, list[SerpResult]]:
+            raise RuntimeError("источник лёг")
+
+    monkeypatch.setattr(
+        "backend.features.donors.judging.check_home", FakeHome({"media.example": CLOSED})
+    )
+    result = await judge_candidates(
+        None,
+        ["media.example"],
+        TEXTS,
+        home_client=object(),
+        index=Broken(),  # type: ignore[arg-type]
+    )
+
+    assert result.verdicts["media.example"].recommendation == "accept"

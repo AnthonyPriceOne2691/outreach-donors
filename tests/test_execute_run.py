@@ -364,6 +364,9 @@ class TestTheJudgeStandsBeforeTheBill:
             )
 
         monkeypatch.setattr("backend.features.donors.judging.judge_host", fake)
+        # ⚠ Без этого проход ходил за главными brand.com и media.com в живую
+        # сеть: тесты зеленели только потому, что сеть была.
+        monkeypatch.setattr("backend.config.judge.HOME_CHECK", False)
 
     async def test_shadow_counts_but_does_not_cut(
         self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
@@ -392,6 +395,17 @@ class TestTheJudgeStandsBeforeTheBill:
         # ⚠ Главное: в наблюдении он НЕ режет. За бренд мы всё равно заплатили.
         assert "brand.com" in paid
         assert {"brand.com", "media.com"} <= set(paid)
+        # Токены судьи — строка журнала, как у сборки ключей: без неё
+        # журнал показывал, что судья работает даром.
+        spent = (
+            await session.execute(
+                select(UsageRecordModel).where(UsageRecordModel.operation == "site_judge")
+            )
+        ).scalar_one()
+        assert spent.units == 800
+        # ⚠ И в «факт» прогона токены не идут: у модели единица — токен,
+        # у Ahrefs — юнит. 23.09 они сложились, и факт вышел 26 203 при 901.
+        assert report.spent_units == sum(report.spent_by_operation.values())
 
     async def test_enforce_cuts_before_first_spend(
         self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch

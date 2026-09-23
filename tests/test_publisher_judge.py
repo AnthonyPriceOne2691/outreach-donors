@@ -14,12 +14,14 @@ from backend.config.judge import PLATFORM_LABELS
 from backend.features.donors.home_signals import HomeSignals
 from backend.features.donors.publisher_judge import (
     SYSTEM,
+    Decider,
     Intent,
     Judgement,
     Recommendation,
     arbiter_text,
     build_payload,
     is_platform,
+    is_public_zone,
     judge_host,
     parse,
     source_text,
@@ -288,3 +290,38 @@ def test_reasoning_effort_comes_from_settings(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr("backend.config.judge.REASONING_EFFORT", "low")
     payload = build_payload("gpt-5-mini", "x.test", "текст")
     assert payload["reasoning_effort"] == "low"
+
+
+# --- государственные и учебные зоны -----------------------------------------
+
+
+@pytest.mark.parametrize(
+    "host",
+    ["rajasthan.gov.in", "interior.gob.es", "ox.ac.uk", "mhlw.go.jp", "nih.gov", "mit.edu",
+     "www.gov.br", "army.mil", "canada.gc.ca", "wien.gv.at"],
+)  # fmt: skip
+def test_public_zone_is_recognised(host: str) -> None:
+    """Размещений не продают, а коммерческая страница на них — взлом:
+    23.09 модель приняла rajasthan.gov.in со статьёй о букмекерах."""
+    assert is_public_zone(host)
+
+
+@pytest.mark.parametrize(
+    "host", ["go.com", "google.com", "education.com", "mygov.com", "gov.tech", "edu.example"]
+)
+def test_lookalikes_are_not_public_zones(host: str) -> None:
+    """`go` — зона только перед страной: `go.jp` да, `go.com` нет."""
+    assert not is_public_zone(host)
+
+
+@pytest.mark.asyncio
+async def test_public_zone_is_cut_without_the_model() -> None:
+    verdict = await judge_host(
+        None,  # type: ignore[arg-type]
+        host="rajasthan.gov.in",
+        title="How to compare betting platforms in South Africa",
+        description=None,
+    )
+    assert verdict.recommendation is Recommendation.REJECT
+    assert verdict.decided_by is Decider.RULE
+    assert verdict.tokens == 0

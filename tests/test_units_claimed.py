@@ -59,6 +59,18 @@ class TestClaimedUnits:
         await _run(repo, status=RunStatus.RUNNING, estimate=10_000, spent=3_000)
         assert await repo.claimed_units() == 7_000
 
+    async def test_judge_tokens_do_not_eat_the_hold(self, session: AsyncSession) -> None:
+        """Токены судьи лежат в том же столбце с номером прогона. Засчитанные
+        как юниты, они обнуляли удержание, едва судья отработал, — и сосед
+        мог занять бюджет, который на деле ещё держится (23.09)."""
+        repo = await _repo(session)
+        run_id = await _run(repo, status=RunStatus.RUNNING, estimate=10_000, spent=3_000)
+        await repo.record_tokens(run_id=run_id, operation="site_judge", tokens=25_000)
+        await repo.session_flush()
+
+        assert await repo.claimed_units() == 7_000
+        assert await repo.spent_units(run_id) == 3_000, "факт прогона — только юниты Ahrefs"
+
     async def test_closed_run_holds_nothing(self, session: AsyncSession) -> None:
         """За закрытый прогон говорит журнал расхода, а не смета."""
         repo = await _repo(session)

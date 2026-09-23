@@ -36,6 +36,45 @@ from backend.features.contacts.pages import PageFetcher
 
 logger = logging.getLogger(__name__)
 
+#: Признаки того, что нам отдали не страницу сайта, а отказ. Сравнение по
+#: нижнему регистру, вхождением: формулировки у защит разные, а слова общие.
+#:
+#: ⚠ Без этой проверки судья выносит вердикт по тексту вроде «Access to this
+#: page has been denied» — и иногда угадывает, что и есть худший случай:
+#: замер соврал в свою пользу, а мы записали случайное попадание в точность.
+#: Класс назван в каноне соседней системы (`gnc.com`), у нас пойман на живом
+#: прогоне 23.09: `edmunds.com` со страницей 403 получил «площадка» (угадал),
+#: `trivago.com` с той же страницей — «не площадка» (промахнулся). Ни то,
+#: ни другое не знание.
+DENIAL_MARKERS: tuple[str, ...] = (
+    "access denied",
+    "access to this page",
+    "403",
+    "forbidden",
+    "attention required",
+    "just a moment",
+    "are you human",
+    "verify you are human",
+    "captcha",
+    "bot detection",
+    "request blocked",
+    "unusual traffic",
+    "not acceptable",
+    "service unavailable",
+    "site temporarily unavailable",
+    # Заглушки защит, пойманные 23.09 на закрытых главных: браузер и простой
+    # запрос получали их вместо сайта, и без маркера это был бы «текст».
+    "ddos-guard",
+    "human verification",
+)
+
+
+def looks_denied(text: str) -> bool:
+    """Текст похож на отказ доступа, а не на страницу сайта."""
+    lowered = text.lower()
+    return any(marker in lowered for marker in DENIAL_MARKERS)
+
+
 #: Типы schema.org, которые ставит только тот, кто продаёт у себя.
 SHOP_TYPES: frozenset[str] = frozenset({"Product", "OfferCatalog", "Store", "OnlineStore"})
 
@@ -47,6 +86,34 @@ SHOP_ENGINES: tuple[str, ...] = ("shopify", "woocommerce", "magento", "bigcommer
 CART_PATH = re.compile(
     r"/(cart|basket|warenkorb|panier|carrito|carrello|koszyk|winkelwagen|kosik|kosar"
     r"|korzina|sepet|carrinho|varukorg|handlekurv|ostoskori|kurv)(?:[/?#.]|$)"
+)
+
+#: Корзина словом — у магазинов, где она нарисована скриптом, а не ссылкой.
+#: Только ЦЕЛАЯ подпись кнопки или ссылки («Giỏ hàng», «Keranjang (2)»),
+#: а не вхождение: «корзина потребителя» в статье — не корзина. Замер 23.09:
+#: у 3 из 20 продавцов без других признаков, у 0 из 95 изданий.
+CART_WORD = re.compile(
+    r"^\s*(cart|basket|shopping cart|shopping bag|my cart|giỏ hàng|keranjang"
+    r"|keranjang belanja|carrito|carrinho|warenkorb|panier|koszyk|корзина|cesta|sepet"
+    r"|winkelwagen|varukorg|carrello)\s*(\(\d+\)|\d+)?\s*$",
+    re.IGNORECASE,
+)
+
+#: Разметка услуги: так себя размечает тот, кто продаёт СВОЮ работу —
+#: стоматология, агентство, программный сервис. Замер 23.09: у 5 из 15
+#: компаний-услуг, у 0 из 19 изданий.
+SERVICE_TYPES: frozenset[str] = frozenset({
+    "LocalBusiness", "ProfessionalService", "FinancialService", "InsuranceAgency",
+    "Dentist", "MedicalBusiness", "MedicalClinic", "LegalService",
+    "SoftwareApplication", "WebApplication",
+})  # fmt: skip
+
+#: Путь продажи услуги. ⚠ Без `login`, `signup`, `register`: вход и
+#: регистрация есть у изданий (nerdwallet, investopedia, wallethub) — замер
+#: 23.09. Тарифы и демо — нет: их держит тот, кто продаёт свой сервис.
+SERVICE_PATH = re.compile(
+    r"/(pricing|demo|request-a-demo|book-a-demo|contact-sales|free-trial|get-started"
+    r"|appointments?|book-appointment|get-a-quote|request-a-quote)(?:[/?#.]|$)"
 )
 
 #: Сколько текста главной уходит арбитру. Заголовок, описание и меню —
@@ -61,31 +128,51 @@ class HomeSignals:
 
     reached: bool
     shop: tuple[str, ...] = ()
+    service: tuple[str, ...] = ()
     title: str = ""
     description: str = ""
     nav: tuple[str, ...] = field(default_factory=tuple)
     error: str = ""
+    #: Откуда образ главной: `page` — сама страница, `index` — индекс поиска,
+    #: когда сайт закрылся (`site_index.py`). В индексе нет структуры.
+    via: str = "page"
 
     @property
     def is_shop(self) -> bool:
         return bool(self.shop)
+
+    @property
+    def sells(self) -> bool:
+        """Главная структурно подтверждает продажу своего: товар или услугу."""
+        return bool(self.shop or self.service)
 
     def as_dict(self) -> dict[str, Any]:
         """Для записи на домен: по этому видно, на чём стояло решение."""
         return {
             "reached": self.reached,
             "shop": list(self.shop),
+            "service": list(self.service),
             "title": self.title[:200],
             "error": self.error,
+            "via": self.via,
         }
 
     def as_text(self) -> str:
         """Главная глазами арбитра."""
+        if self.via == "index":
+            lines = [
+                "(сайт закрыт от нас, это его главная и страницы в индексе поиска)",
+                f"Заголовок: {self.title}",
+                f"Описание: {self.description}",
+            ]
+            if self.nav:
+                lines.append("Другие страницы: " + " · ".join(self.nav))
+            return "\n".join(lines)
         lines = [f"Заголовок: {self.title}", f"Описание: {self.description}"]
         if self.nav:
             lines.append("Меню: " + " · ".join(self.nav))
-        if self.shop:
-            lines.append("Признаки магазина: " + ", ".join(self.shop))
+        if self.shop or self.service:
+            lines.append("Признаки продажи: " + ", ".join((*self.shop, *self.service)))
         return "\n".join(lines)
 
 
@@ -144,7 +231,39 @@ def _shop_marks(tree: HTMLParser) -> list[str]:
         if (match := CART_PATH.search((link.attributes.get("href") or "").lower()))
     }
     marks.extend(f"cart:/{name}" for name in sorted(carts))
+    if not carts and _has_cart_word(tree):
+        marks.append("cart:слово")
     return marks
+
+
+def _has_cart_word(tree: HTMLParser) -> bool:
+    for node in tree.css("a, button"):
+        text = " ".join((node.text(strip=True) or "").split())
+        label = node.attributes.get("aria-label") or node.attributes.get("title") or ""
+        if any(value and CART_WORD.match(value) for value in (text, label)):
+            return True
+    return False
+
+
+def _types_of(item: dict[str, Any]) -> list[str]:
+    kind = item.get("@type")
+    values = kind if isinstance(kind, list) else [kind]
+    return [value for value in values if isinstance(value, str)]
+
+
+def _service_marks(tree: HTMLParser) -> list[str]:
+    marks = {
+        f"schema:{value}"
+        for item in _schema_items(tree)
+        for value in _types_of(item)
+        if value in SERVICE_TYPES
+    }
+    marks |= {
+        f"path:/{match.group(1)}"
+        for link in tree.css("a[href]")
+        if (match := SERVICE_PATH.search((link.attributes.get("href") or "").lower()))
+    }
+    return sorted(marks)
 
 
 def _nav_texts(tree: HTMLParser) -> tuple[str, ...]:
@@ -166,6 +285,7 @@ def read_home(html: str) -> HomeSignals:
     return HomeSignals(
         reached=True,
         shop=tuple(_shop_marks(tree)),
+        service=tuple(_service_marks(tree)),
         title=" ".join((title_node.text() if title_node else "").split())[:200],
         description=((description.attributes.get("content") if description else "") or "")[:400],
         nav=_nav_texts(tree),
@@ -182,4 +302,8 @@ async def check_home(client: httpx.AsyncClient, host: str) -> HomeSignals:
         return HomeSignals(reached=False, error=type(exc).__name__)
     if page is None:
         return HomeSignals(reached=False, error="закрылась" if fetcher.blocked else "не ответила")
-    return read_home(page.html)
+    signals = read_home(page.html)
+    if looks_denied(f"{signals.title} {signals.description}"):
+        # Заглушка защиты с кодом 200 — это закрытая главная, а не её текст.
+        return HomeSignals(reached=False, error=f"заглушка защиты: {signals.title[:40]!r}")
+    return signals
