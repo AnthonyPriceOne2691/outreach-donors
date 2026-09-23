@@ -32,6 +32,7 @@ import { UsagePage } from './settings/UsagePage';
 import { ThreadPage } from './threads/ThreadPage';
 import { ThreadsPage } from './threads/ThreadsPage';
 import { UsersPage } from './users/UsersPage';
+import { SelectionPage } from './selection/SelectionPage';
 
 export function createQueryClient(): QueryClient {
   return new QueryClient({
@@ -85,6 +86,14 @@ export function AppRoutes() {
           element={
             <RequireAccess permission="view">
               <DonorPage />
+            </RequireAccess>
+          }
+        />
+        <Route
+          path="/selection"
+          element={
+            <RequireAccess permission="view">
+              <SelectionPage />
             </RequireAccess>
           }
         />

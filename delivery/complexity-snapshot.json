@@ -27,9 +27,9 @@
       "worst": "of:37"
     },
     "backend/api/app.py": {
-      "lines": 78,
+      "lines": 80,
       "complexity": 1,
-      "worst": "create_app:38"
+      "worst": "create_app:39"
     },
     "backend/api/auth/__init__.py": {
       "lines": 1,
@@ -182,9 +182,24 @@
       "worst": "effective_cap:42"
     },
     "backend/api/runs/schemas.py": {
-      "lines": 166,
+      "lines": 172,
       "complexity": 3,
-      "worst": "of:120"
+      "worst": "of:124"
+    },
+    "backend/api/selection/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/api/selection/routes.py": {
+      "lines": 102,
+      "complexity": 3,
+      "worst": "decide:69"
+    },
+    "backend/api/selection/schemas.py": {
+      "lines": 125,
+      "complexity": 10,
+      "worst": "of:58"
     },
     "backend/api/senders/__init__.py": {
       "lines": 1,
@@ -537,7 +552,7 @@
       "worst": "—"
     },
     "backend/features/core/domain.py": {
-      "lines": 221,
+      "lines": 224,
       "complexity": 0,
       "worst": "—"
     },
@@ -732,9 +747,14 @@
       "worst": "parse:253"
     },
     "backend/features/donors/repository.py": {
-      "lines": 231,
+      "lines": 244,
       "complexity": 8,
-      "worst": "_donor_values:210"
+      "worst": "_donor_values:223"
+    },
+    "backend/features/donors/selection.py": {
+      "lines": 309,
+      "complexity": 9,
+      "worst": "tally_reviews:284"
     },
     "backend/features/donors/verdict.py": {
       "lines": 101,
@@ -962,9 +982,9 @@
       "worst": "—"
     },
     "backend/features/runs/browse.py": {
-      "lines": 54,
-      "complexity": 3,
-      "worst": "estimate_error:30"
+      "lines": 65,
+      "complexity": 4,
+      "worst": "_hosts:62"
     },
     "backend/features/runs/budget.py": {
       "lines": 72,
@@ -1167,9 +1187,9 @@
       "worst": "_select:46"
     },
     "scripts/ui_contrast.py": {
-      "lines": 450,
+      "lines": 486,
       "complexity": 9,
-      "worst": "main:398"
+      "worst": "main:434"
     }
   }
 }

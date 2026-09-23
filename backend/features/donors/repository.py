@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +26,7 @@ from backend.config import judge as judge_cfg
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.donors.collect import DomainResult
+from backend.features.donors.selection import human_advice
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,10 +90,15 @@ class DonorRepository:
         ttl_days: int = judge_cfg.TTL_DAYS,
         now: datetime | None = None,
     ) -> dict[str, str]:
-        """Домены со свежим вердиктом судьи: хост → рекомендация.
+        """Домены, которые не судятся заново: хост → действующий совет.
 
         Это и есть кэш судьи — отдельного хранилища он не требует. Срок
         свой и длиннее метрик: способ заработка сайт меняет раз в годы.
+
+        **Решение человека сильнее и не протухает.** Домен, по которому
+        человек сказал своё, не пересуживается вовсе, а режется или
+        проходит по его слову: спросить модель снова значит заплатить
+        токенами за мнение, которое всё равно ничего не решит.
         """
         if not hosts:
             return {}
@@ -100,12 +106,19 @@ class DonorRepository:
         moment = now or datetime.now(UTC)
         border = moment - timedelta(days=ttl_days)
         rows = await self._session.execute(
-            select(DomainModel.host, DomainModel.judge_recommendation)
+            select(DomainModel.host, DomainModel.judge_recommendation, DomainModel.human_intent)
             .where(DomainModel.host.in_(hosts))
-            .where(DomainModel.judged_at.is_not(None))
-            .where(DomainModel.judged_at > border)
+            .where(
+                or_(
+                    DomainModel.human_intent.is_not(None),
+                    DomainModel.judged_at > border,
+                )
+            )
         )
-        return {host: rec or "" for host, rec in rows.all()}
+        found: dict[str, str] = {}
+        for host, machine, human in rows.all():
+            found[host] = human_advice(human) if human else (machine or "")
+        return found
 
     async def save_judgements(
         self,

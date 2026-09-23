@@ -245,6 +245,10 @@ export interface RunCard {
   alive_at: string;
   /** Сколько доменов дала выдача. Появляется раньше любых трат. */
   hosts: number | null;
+  /** Сколько доменов прогона посмотрел человек на экране отбора и сколько
+   *  раз разошёлся с судьёй. Считается при чтении: решают после прогона. */
+  reviewed: number;
+  disagreements: number;
 }
 
 export interface RunsView {
@@ -543,4 +547,51 @@ export interface CandidatesView {
   waiting: number;
   /** Счётчики по всем вердиктам: по отсеянным видно, что список работает. */
   counts: Record<string, number>;
+}
+
+// --- отбор: кто принят, кто отклонён, кем и почему ----------------------
+
+export type SelectionTab = 'accepted' | 'review' | 'rejected';
+export type JudgeDecider = 'rule' | 'model' | 'arbiter';
+export type HumanIntent = 'publisher' | 'sells_own' | 'non_commercial';
+
+export interface MachineView {
+  intent: string | null;
+  recommendation: 'accept' | 'review' | 'reject' | null;
+  decided_by: JudgeDecider | null;
+  quote: string | null;
+  reason: string | null;
+  source_url: string | null;
+  home_shop: string[];
+  home_reached: boolean | null;
+  judged_at: string | null;
+}
+
+export interface HumanView {
+  intent: HumanIntent | null;
+  note: string | null;
+  decided_at: string | null;
+}
+
+export interface SelectionCard {
+  domain_id: number;
+  host: string;
+  tab: SelectionTab;
+  donor_id: number | null;
+  status: DonorStatus | null;
+  reject_reason: string | null;
+  dr: number | null;
+  org_traffic: number | null;
+  machine: MachineView;
+  human: HumanView;
+  disagrees: boolean;
+}
+
+export interface SelectionView {
+  rows: SelectionCard[];
+  total: number;
+  tabs: Record<SelectionTab, number>;
+  reviewed: number;
+  disagreements: number;
+  layers: Partial<Record<JudgeDecider, { checked: number; agreed: number }>>;
 }

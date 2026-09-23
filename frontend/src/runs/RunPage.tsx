@@ -128,6 +128,15 @@ function Estimate({ forecast }: { forecast: Forecast }) {
  * и «проверили 140» — разные новости, и без второй разница между ними
  * выглядит как потеря доменов.
  */
+/** Сколько отрезал бы судья — из ветки отчёта. `null` — судья был выключен:
+ *  ноль читался бы как «судил и никого не нашёл», а это другая новость. */
+function judgeCut(run: { stats: Record<string, unknown> | null }): number | null {
+  const judge = run.stats?.['judge'];
+  if (typeof judge !== 'object' || judge === null) return null;
+  const cut = (judge as Record<string, unknown>)['would_cut'];
+  return typeof cut === 'number' ? cut : null;
+}
+
 function excludedIn(run: { stats: Record<string, unknown> | null }): number {
   const value = run.stats?.['excluded'];
   return typeof value === 'number' ? value : 0;
@@ -425,7 +434,7 @@ export function RunPage() {
       )}
 
       <Card className="glass" p="xs">
-        <Table className="dataTable" verticalSpacing="sm" horizontalSpacing="md" miw={760}>
+        <Table className="dataTable" verticalSpacing="sm" horizontalSpacing="md" miw={860}>
           <Table.Thead>
             <Table.Tr>
               <Table.Th>Прогон</Table.Th>
@@ -435,6 +444,7 @@ export function RunPage() {
               <Table.Th>Смета</Table.Th>
               <Table.Th>Факт</Table.Th>
               <Table.Th>Расхождение</Table.Th>
+              <Table.Th>Судья</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
@@ -480,6 +490,33 @@ export function RunPage() {
                   {run.estimate_error === null
                     ? '—'
                     : `${run.estimate_error > 0 ? '+' : ''}${(run.estimate_error * 100).toFixed(0)}%`}
+                </Table.Td>
+                <Table.Td>
+                  {/* Доля расхождений человека с судьёй — единственная проверка
+                      судьи, как расхождение сметы и факта — проверка сметы. */}
+                  {judgeCut(run) === null ? (
+                    <Text size="xs" c="dimmed">
+                      выключен
+                    </Text>
+                  ) : (
+                    <Text size="sm">отрезал бы {judgeCut(run)}</Text>
+                  )}
+                  {/* Цвет несёт значок, а не текст: янтарь — «нужно внимание»,
+                      и на подложке значка чернила держат норму контраста. */}
+                  {run.reviewed === 0 ? (
+                    <Text size="xs" c="dimmed">
+                      человек не смотрел
+                    </Text>
+                  ) : (
+                    <Badge
+                      variant="light"
+                      size="sm"
+                      color={run.disagreements > 0 ? 'yellow' : 'green'}
+                    >
+                      расходится {run.disagreements} из {run.reviewed} ·{' '}
+                      {Math.round((run.disagreements / run.reviewed) * 100)}%
+                    </Badge>
+                  )}
                 </Table.Td>
               </Table.Tr>
             ))}
