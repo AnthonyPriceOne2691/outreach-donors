@@ -49,6 +49,21 @@ async function openThreads() {
   const recorded = serve({
     'GET /api/auth/me': { body: ADMIN },
     'GET /api/threads': { body: THREADS },
+    'GET /api/replies/calibration': {
+      body: {
+        versions: [
+          {
+            version: 'reply-parse-v4-named-price',
+            reviewed: 10,
+            as_is: 7,
+            edited: 3,
+            wrong: { price_white: 2, price_grey: 0, currency: 1, placement: 0 },
+            auto_stored: 12,
+            waiting: 4,
+          },
+        ],
+      },
+    },
   });
   renderWith(<AppRoutes />, '/threads');
   await screen.findByText('digest-weekly.example.test');
@@ -91,5 +106,17 @@ describe('диалоги', () => {
     await user.type(screen.getByLabelText('Поиск по донору или адресу'), 'такого нет');
 
     expect(screen.getByText(/всего диалогов/)).toBeInTheDocument();
+  });
+
+  it('калибровка разбора видна рядом с диалогами', async () => {
+    // Какие поля человек правит чаще — тем и занимается следующая версия
+    // промпта. Приём соседней системы, работавший в бою.
+    await openThreads();
+
+    expect(
+      await screen.findByText(
+        /подтвердил как есть 7 из 10, поправил 3 — чаще всего белая цена 2, валюта 1/,
+      ),
+    ).toBeInTheDocument();
   });
 });

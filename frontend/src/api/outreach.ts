@@ -1,4 +1,5 @@
 import type {
+  CalibrationView,
   Reviewed,
   ReviewPrice,
   SenderCard,
@@ -21,6 +22,11 @@ export function enableSender(id: number): Promise<SenderCard> {
 
 export function disableSender(id: number, reason: string): Promise<SenderCard> {
   return request<SenderCard>(`/senders/${id}/disable`, { method: 'POST', body: { reason } });
+}
+
+/** Калибровка разбора: предложение модели против решения человека. */
+export function fetchCalibration(): Promise<CalibrationView> {
+  return request<CalibrationView>('/replies/calibration');
 }
 
 export function listThreads(): Promise<ThreadCard[]> {

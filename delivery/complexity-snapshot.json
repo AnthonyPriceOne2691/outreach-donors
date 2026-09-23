@@ -162,12 +162,12 @@
       "worst": "—"
     },
     "backend/api/replies/routes.py": {
-      "lines": 98,
+      "lines": 126,
       "complexity": 10,
-      "worst": "review:45"
+      "worst": "review:73"
     },
     "backend/api/replies/schemas.py": {
-      "lines": 45,
+      "lines": 66,
       "complexity": 4,
       "worst": "_declines_without_price:28"
     },
@@ -607,7 +607,7 @@
       "worst": "_enum:18"
     },
     "backend/features/core/models/outreach.py": {
-      "lines": 273,
+      "lines": 278,
       "complexity": 2,
       "worst": "_enum:37"
     },
@@ -951,15 +951,20 @@
       "complexity": 5,
       "worst": "thread_ids:69"
     },
+    "backend/features/replies/calibration.py": {
+      "lines": 122,
+      "complexity": 10,
+      "worst": "differences:73"
+    },
     "backend/features/replies/classify.py": {
       "lines": 165,
       "complexity": 3,
       "worst": "_header_says:57"
     },
     "backend/features/replies/extract.py": {
-      "lines": 383,
+      "lines": 464,
       "complexity": 12,
-      "worst": "temper:199"
+      "worst": "normalize_currency:187"
     },
     "backend/features/replies/inbound.py": {
       "lines": 130,
@@ -972,13 +977,13 @@
       "worst": "attachments_from:105"
     },
     "backend/features/replies/outcome.py": {
-      "lines": 149,
+      "lines": 163,
       "complexity": 9,
-      "worst": "decide:63"
+      "worst": "decide:66"
     },
     "backend/features/replies/pipeline.py": {
-      "lines": 322,
-      "complexity": 7,
+      "lines": 325,
+      "complexity": 8,
       "worst": "parse:228"
     },
     "backend/features/replies/quoting.py": {
@@ -1180,6 +1185,11 @@
       "lines": 235,
       "complexity": 8,
       "worst": "compare:162"
+    },
+    "scripts/eval_reply_parse.py": {
+      "lines": 154,
+      "complexity": 16,
+      "worst": "report:108"
     },
     "scripts/gates.py": {
       "lines": 336,

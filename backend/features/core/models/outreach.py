@@ -257,6 +257,11 @@ class ReplyModel(TimestampedMixin, Base):
     #: Продаёт ли донор размещение по разбору ответа: `sells`, `declines`,
     #: `unclear`. Отдельно от цены: «не продаём» — ответ, а не пустая цена.
     placement: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    #: Что предложила модель, нетронутым, с версией промпта. Решение человека
+    #: ложится в поля выше, а этот снимок остаётся — по расхождению между ними
+    #: и калибруется разбор (приём соседней системы: предложение модели против
+    #: действия оператора, по версиям промпта).
+    model_parse: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     reviewed_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

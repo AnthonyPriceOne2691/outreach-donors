@@ -42,3 +42,24 @@ class Reviewed(BaseModel):
     stored_price: bool
     #: Что легло на домен как ответ донора: `sells`, `declines` или ничего.
     seller_answer: str | None = None
+
+
+class VersionCalibration(BaseModel):
+    """Калибровка одной версии промпта разбора."""
+
+    version: str
+    reviewed: int
+    as_is: int
+    edited: int
+    #: Поле → сколько раз человек его поправил.
+    wrong: dict[str, int]
+    #: Цена положена сама, без человека: сверять не с чем.
+    auto_stored: int
+    #: Ждут человека: решения ещё нет.
+    waiting: int
+
+
+class Calibration(BaseModel):
+    """Что предложила модель против того, что решил человек, по версиям."""
+
+    versions: list[VersionCalibration]

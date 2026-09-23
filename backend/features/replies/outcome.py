@@ -58,6 +58,9 @@ class Consequences:
     store_declines: bool = False
     #: Донор уверенно сказал «бесплатно возьмём» — тоже на домен, как согласие.
     store_free: bool = False
+    #: Донор уверенно сказал «продаём», но цены не назвал: цену ждёт человек,
+    #: а ответ «продаёт» на домен ложится сразу — он от цены не зависит.
+    store_sells: bool = False
 
 
 def decide(
@@ -109,7 +112,8 @@ def decide(
 
 
 def _answer_without_price(found: Extracted | None, limit: float) -> Consequences | None:
-    """Ответ на главный вопрос письма без цены: «не продаём» или «бесплатно».
+    """Ответ на главный вопрос письма без цены: «не продаём», «бесплатно»
+    или «продаём, но цену не назвал».
 
     Разбирать тут человеку нечего — цены не будет ни в одном из двух, — но
     это ответы, а не пустое место: для гест-постинга первый убирает домен
@@ -121,6 +125,16 @@ def _answer_without_price(found: Extracted | None, limit: float) -> Consequences
         return Consequences(stop_chain=True, remember_answering_address=True, store_declines=True)
     if found.placement == "free":
         return Consequences(stop_chain=True, remember_answering_address=True, store_free=True)
+    if found.placement == "sells":
+        # «Продаём», а цены нет: её ждёт человек, но ответ «продаёт» от цены
+        # не зависит и ложится на домен сразу.
+        return Consequences(
+            stop_chain=True,
+            remember_answering_address=True,
+            needs_review=True,
+            review_reason="продаёт, но цену не назвал",
+            store_sells=True,
+        )
     return None
 
 

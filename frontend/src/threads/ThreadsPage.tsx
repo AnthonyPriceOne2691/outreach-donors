@@ -30,6 +30,7 @@ import { useNavigate } from 'react-router-dom';
 import { THREAD_STATES } from '../api/labels';
 import { listThreads } from '../api/outreach';
 import type { ThreadCard, ThreadState } from '../api/types';
+import { ParseCalibration } from './ParseCalibration';
 
 const THREADS_QUERY_KEY = ['threads'] as const;
 
@@ -107,6 +108,8 @@ export function ThreadsPage() {
               onChange={(event) => setSearch(event.currentTarget.value)}
             />
           </Group>
+
+          <ParseCalibration />
 
           {/* Счётчики — это и фильтр: щелчок по состоянию оставляет только его.
               Отдельный список фильтров рядом со счётчиками означал бы два

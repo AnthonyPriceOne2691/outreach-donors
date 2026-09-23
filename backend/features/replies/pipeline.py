@@ -244,6 +244,8 @@ class Parser:
             await self._seller_answer(reply, extract_mod.PLACEMENT_SELLS)
         if consequences.store_declines:
             await self._seller_answer(reply, extract_mod.PLACEMENT_DECLINES)
+        if consequences.store_sells:
+            await self._seller_answer(reply, extract_mod.PLACEMENT_SELLS)
         if consequences.store_free:
             await self._seller_answer(reply, extract_mod.PLACEMENT_FREE)
 
@@ -287,6 +289,7 @@ class Parser:
 
 def _write_back_placement(reply: ReplyModel, found: Extracted) -> None:
     reply.placement = found.placement
+    reply.model_parse = found.snapshot()
 
 
 def _write_back(reply: ReplyModel, found: Extracted) -> None:

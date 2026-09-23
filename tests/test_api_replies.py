@@ -41,6 +41,7 @@ HOST = "donor.example.test"
 
 REVIEW_ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("PATCH", "/api/replies/{reply}", {"price_white": "250", "currency": "EUR"}, "prices"),
+    ("GET", "/api/replies/calibration", None, "view"),
 ]
 
 
@@ -87,6 +88,15 @@ async def unsure(session: AsyncSession) -> ReplyModel:
         price_white=Decimal("250"),
         currency="EUR",
         confidence=0.4,
+        placement="sells",
+        model_parse={
+            "price_white": "250",
+            "price_grey": None,
+            "currency": "EUR",
+            "placement": "sells",
+            "confidence": 0.4,
+            "prompt_version": "v-test",
+        },
     )
     session.add(reply)
     await session.commit()
@@ -335,3 +345,68 @@ class TestDonorIsFoundEvenWithoutTheLetter:
         assert response.json()["stored_price"] is True
         donor = (await session.execute(select(DonorModel))).scalars().one()
         assert donor.last_price == Decimal("275.00")
+
+
+class TestCalibration:
+    """Предложение модели против решения человека — приём, который в соседней
+    системе работал в бою для черновиков ответов. Здесь — для полей разбора."""
+
+    async def _calibration(self, client: AsyncClient, token: str) -> dict[str, Any]:
+        response = await client.get("/api/replies/calibration", headers=bearer(token))
+        assert response.status_code == 200, response.text
+        versions = response.json()["versions"]
+        assert len(versions) == 1
+        return versions[0]
+
+    async def test_confirmed_as_is(
+        self, client: AsyncClient, reviewer_token: str, unsure: ReplyModel
+    ) -> None:
+        await client.patch(
+            f"/api/replies/{unsure.id}",
+            json={"price_white": "250.00", "currency": "eur"},
+            headers=bearer(reviewer_token),
+        )
+
+        score = await self._calibration(client, reviewer_token)
+        assert score["version"] == "v-test"
+        assert (score["reviewed"], score["as_is"], score["edited"]) == (1, 1, 0)
+
+    async def test_corrected_field_is_named(
+        self, client: AsyncClient, reviewer_token: str, unsure: ReplyModel, session: AsyncSession
+    ) -> None:
+        await client.patch(
+            f"/api/replies/{unsure.id}",
+            json={"price_white": "300", "currency": "EUR"},
+            headers=bearer(reviewer_token),
+        )
+
+        score = await self._calibration(client, reviewer_token)
+        assert score["edited"] == 1
+        assert score["wrong"]["price_white"] == 1
+        assert score["wrong"]["currency"] == 0
+        # ⚠ Снимок модели правкой человека не переписан — иначе считать не с чем.
+        reply = await session.get(ReplyModel, unsure.id)
+        assert reply is not None
+        await session.refresh(reply)
+        assert reply.model_parse is not None
+        assert reply.model_parse["price_white"] == "250"
+
+    async def test_decline_over_a_price_is_a_placement_miss(
+        self, client: AsyncClient, reviewer_token: str, unsure: ReplyModel
+    ) -> None:
+        await client.patch(
+            f"/api/replies/{unsure.id}", json={"declines": True}, headers=bearer(reviewer_token)
+        )
+
+        score = await self._calibration(client, reviewer_token)
+        assert score["wrong"]["placement"] == 1
+        assert score["wrong"]["price_white"] == 1
+
+    async def test_unreviewed_is_not_scored(
+        self, client: AsyncClient, reviewer_token: str, unsure: ReplyModel
+    ) -> None:
+        """Без человека сверять не с чем — это не «точность», а пустое место."""
+        score = await self._calibration(client, reviewer_token)
+        assert score["reviewed"] == 0
+        assert score["waiting"] == 1, "уверенность 0,4 — ждёт человека, а не положена сама"
+        assert score["auto_stored"] == 0
