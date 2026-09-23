@@ -39,6 +39,7 @@ const UNSURE = {
   currency: 'EUR',
   payment_methods: null,
   confidence: 0.4,
+  placement: 'unclear',
   needs_review: true,
   reviewed_by: null,
   reviewed_at: null,
@@ -138,6 +139,31 @@ describe('карточка переписки', () => {
     await user.click(screen.getByRole('button', { name: 'Подтвердить' }));
 
     expect(await screen.findByText(/в карточку донора ничего не пошло/)).toBeInTheDocument();
+  });
+
+  it('«не продаёт размещения» уходит одним нажатием, без цены', async () => {
+    // Для гест-постинга это ответ на главный вопрос письма: «цены нет»
+    // и «не продаём» — разные ответы, и второй убирает домен из отбора.
+    const recorded = await openThread(
+      {},
+      {
+        'PATCH /api/replies/7': {
+          body: {
+            id: 7,
+            reviewed_by: 'админ@site.com',
+            stored_price: false,
+            seller_answer: 'declines',
+          },
+        },
+      },
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Не продаёт размещения' }));
+
+    await screen.findByText(/донор не продаёт размещения/);
+    const patch = recorded.calls.find((call: Call) => call.method === 'PATCH');
+    expect(patch?.body).toMatchObject({ declines: true, price_white: null, price_grey: null });
   });
 
   it('у автоответчика разбирать нечего', async () => {

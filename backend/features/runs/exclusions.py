@@ -52,6 +52,7 @@ class ExclusionReason(StrEnum):
     STOPLIST = "stoplist"
     SUPPLIER = "supplier"
     SILENT = "silent"
+    DECLINES = "declines"
 
     @property
     def caption(self) -> str:
@@ -63,6 +64,7 @@ _CAPTIONS = {
     ExclusionReason.STOPLIST: "в стоп-листе",
     ExclusionReason.SUPPLIER: "поставщик агентства",
     ExclusionReason.SILENT: "писали, не ответил",
+    ExclusionReason.DECLINES: "ответил: размещений не продаёт",
 }
 
 
@@ -81,9 +83,16 @@ class Exclusions:
     за что иначе платят полный путь.
     """
 
-    def __init__(self, session: AsyncSession, *, silence_days: int = cfg.SILENCE_DAYS) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        silence_days: int = cfg.SILENCE_DAYS,
+        decline_days: int = cfg.DECLINE_DAYS,
+    ) -> None:
         self._session = session
         self._silence_days = silence_days
+        self._decline_days = decline_days
 
     async def excluded_hosts(
         self,
@@ -94,9 +103,9 @@ class Exclusions:
     ) -> dict[str, ExclusionReason]:
         """Домены, которые в прогон не идут, и почему.
 
-        Причина у домена одна, хотя совпасть могут все три. Порядок
-        от слабой к сильной: молчание перебивается поставщиком,
-        поставщик — стоп-листом. Иначе донор, который отписался
+        Причина у домена одна, хотя совпасть могут все. Порядок
+        от слабой к сильной: молчание перебивается ответом «не продаём»,
+        ответ — поставщиком, поставщик — стоп-листом. Иначе донор, который отписался
         и молчит, объяснялся бы оператору молчанием.
         """
         if not hosts:
@@ -106,10 +115,26 @@ class Exclusions:
         found: dict[str, ExclusionReason] = {}
         for host in await self._silent(hosts, stage, moment):
             found[host] = ExclusionReason.SILENT
+        if stage is Stage.DONORS:
+            # Только донорам: «не продаём размещения» — ответ про донорство.
+            # Рекламодателем тот же сайт быть может — ему письмо о другом.
+            for host in await self._declined(hosts, moment):
+                found[host] = ExclusionReason.DECLINES
         for host in await self._suppliers(hosts, moment):
             found[host] = ExclusionReason.SUPPLIER
         found.update(await self._stoplisted(hosts, stage, moment))
         return found
+
+    async def _declined(self, hosts: Sequence[str], moment: datetime) -> list[str]:
+        """Сами ответили «не продаём размещения» — и не так давно."""
+        border = moment - timedelta(days=self._decline_days)
+        rows = await self._session.execute(
+            select(DomainModel.host)
+            .where(DomainModel.host.in_(hosts))
+            .where(DomainModel.seller_answer == "declines")
+            .where(DomainModel.seller_answer_at > border)
+        )
+        return [host for (host,) in rows.all()]
 
     async def _stoplisted(
         self, hosts: Sequence[str], stage: Stage, moment: datetime

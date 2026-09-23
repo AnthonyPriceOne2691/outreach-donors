@@ -41,6 +41,8 @@ class ThreadState(StrEnum):
     REPLIED = "replied"  # ответил человек
     NEEDS_REVIEW = "needs_review"  # ответил, но цену подтверждает человек
     PRICED = "priced"  # из ответа получена цена
+    DECLINED = "declined"  # донор ответил: размещений не продаёт
+    FREE = "free"  # платных не берёт, гостевой пост — бесплатно
     BOUNCED = "bounced"  # отказ доставки
     UNSUBSCRIBED = "unsubscribed"  # отписался
     STOPPED = "stopped"  # цепочка остановлена руками
@@ -85,6 +87,20 @@ def _state(messages: Sequence[MessageModel], replies: Sequence[ReplyModel]) -> T
         for r in replies
     )
 
+    # «Не продаём» — законченный ответ, как и цена: работы по нему нет,
+    # а в списке он не должен выглядеть как «ответил, что-то непонятное».
+    declined = any(
+        r.placement == "declines"
+        and not waiting_for_review(r.kind, r.confidence, reviewed=r.reviewed_at is not None)
+        for r in replies
+    )
+
+    free = any(
+        r.placement == "free"
+        and not waiting_for_review(r.kind, r.confidence, reviewed=r.reviewed_at is not None)
+        for r in replies
+    )
+
     waiting = any(
         waiting_for_review(r.kind, r.confidence, reviewed=r.reviewed_at is not None)
         for r in replies
@@ -93,6 +109,8 @@ def _state(messages: Sequence[MessageModel], replies: Sequence[ReplyModel]) -> T
     rules: tuple[tuple[bool, ThreadState], ...] = (
         (ReplyKind.UNSUBSCRIBE in kinds, ThreadState.UNSUBSCRIBED),
         (has_price, ThreadState.PRICED),
+        (declined, ThreadState.DECLINED),
+        (free, ThreadState.FREE),
         # Раньше «ответил»: у обоих состояний ответ уже есть, но одно
         # требует работы, а другое нет, и по списку принимают решения.
         (waiting, ThreadState.NEEDS_REVIEW),

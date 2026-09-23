@@ -30,6 +30,9 @@ export interface PriceReviewProps {
     price_grey: string | null;
     currency: string | null;
   }) => void;
+  /** Донор ответил «не продаём размещения». Для гест-постинга это ответ на
+   *  главный вопрос письма: он уходит в отбор, и домен выходит из прогонов. */
+  onDecline: () => void;
 }
 
 function clean(value: string): string | null {
@@ -37,7 +40,7 @@ function clean(value: string): string | null {
   return trimmed === '' ? null : trimmed;
 }
 
-export function PriceReview({ incoming, canReview, busy, onConfirm }: PriceReviewProps) {
+export function PriceReview({ incoming, canReview, busy, onConfirm, onDecline }: PriceReviewProps) {
   const [white, setWhite] = useState(incoming.price_white ?? '');
   const [grey, setGrey] = useState(incoming.price_grey ?? '');
   const [currency, setCurrency] = useState(incoming.currency ?? '');
@@ -63,6 +66,12 @@ export function PriceReview({ incoming, canReview, busy, onConfirm }: PriceRevie
             </Badge>
           )}
         </Group>
+      )}
+
+      {incoming.placement === 'declines' && !incoming.needs_review && (
+        <Badge variant="light" color="gray">
+          донор: размещений не продаёт
+        </Badge>
       )}
 
       {incoming.needs_review && (
@@ -114,6 +123,17 @@ export function PriceReview({ incoming, canReview, busy, onConfirm }: PriceRevie
           }
         >
           Подтвердить
+        </Button>
+        {/* Отдельной кнопкой, а не пустыми полями: «цены нет в письме» и
+            «донор сказал, что не продаёт» — разные ответы, и второй убирает
+            домен из отбора на год. */}
+        <Button
+          variant="default"
+          className="press"
+          disabled={!canReview || busy}
+          onClick={onDecline}
+        >
+          Не продаёт размещения
         </Button>
       </Group>
 

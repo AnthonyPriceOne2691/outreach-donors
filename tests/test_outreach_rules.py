@@ -52,6 +52,7 @@ def _reply(
     price: Decimal | None = None,
     confidence: float | None = None,
     reviewed: bool = False,
+    placement: str | None = None,
 ) -> ReplyModel:
     reply = ReplyModel(
         thread_id=1,
@@ -60,6 +61,7 @@ def _reply(
         price_white=price,
         confidence=confidence,
         reviewed_at=NOW if reviewed else None,
+        placement=placement,
     )
     reply.created_at = NOW
     return reply
@@ -181,6 +183,31 @@ class TestThreadState:
         )
 
         assert summary.state is ThreadState.PRICED
+
+    def test_decline_is_a_finished_answer(self) -> None:
+        """«Не продаём» — законченный ответ, как цена: работы по нему нет."""
+        summary = summarize(
+            [_message(MessageStatus.DELIVERED)],
+            [_reply(ReplyKind.HUMAN, confidence=0.9, placement="declines")],
+        )
+
+        assert summary.state is ThreadState.DECLINED
+
+    def test_free_guest_post_is_its_own_state(self) -> None:
+        summary = summarize(
+            [_message(MessageStatus.DELIVERED)],
+            [_reply(ReplyKind.HUMAN, confidence=0.9, placement="free")],
+        )
+
+        assert summary.state is ThreadState.FREE
+
+    def test_unsure_decline_still_waits(self) -> None:
+        summary = summarize(
+            [_message(MessageStatus.DELIVERED)],
+            [_reply(ReplyKind.HUMAN, confidence=0.0, placement="declines")],
+        )
+
+        assert summary.state is ThreadState.NEEDS_REVIEW
 
     def test_unsubscribe_beats_everything(self) -> None:
         summary = summarize(

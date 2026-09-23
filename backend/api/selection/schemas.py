@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -32,6 +33,16 @@ class MachineView(BaseModel):
     judged_at: datetime | None
 
 
+class SellerView(BaseModel):
+    """Что донор сам ответил на письмо. Для гест-постинга — правда первого
+    сорта: сильнее и судьи, и человека."""
+
+    answer: str | None
+    answered_at: datetime | None
+    price: Decimal | None
+    currency: str | None
+
+
 class HumanView(BaseModel):
     intent: HumanIntent | None
     note: str | None
@@ -52,6 +63,7 @@ class SelectionCard(BaseModel):
     org_traffic: int | None
     machine: MachineView
     human: HumanView
+    seller: SellerView
     disagrees: bool
 
     @classmethod
@@ -80,6 +92,12 @@ class SelectionCard(BaseModel):
                 home_reached=home.get("reached") if home else None,
                 judged_at=domain.judged_at,
             ),
+            seller=SellerView(
+                answer=domain.seller_answer,
+                answered_at=domain.seller_answer_at,
+                price=donor.last_price if donor else None,
+                currency=donor.last_price_currency if donor else None,
+            ),
             human=HumanView(
                 intent=HumanIntent(domain.human_intent) if domain.human_intent else None,
                 note=domain.human_note,
@@ -103,6 +121,8 @@ class SelectionView(BaseModel):
     reviewed: int
     disagreements: int
     layers: dict[str, LayerView]
+    answered: int
+    answer_layers: dict[str, LayerView]
 
     @classmethod
     def of(cls, page: SelectionPage, summary: SelectionSummary) -> SelectionView:
@@ -115,6 +135,11 @@ class SelectionView(BaseModel):
             layers={
                 key: LayerView(checked=score.checked, agreed=score.agreed)
                 for key, score in summary.layers.items()
+            },
+            answered=summary.answered,
+            answer_layers={
+                key: LayerView(checked=score.checked, agreed=score.agreed)
+                for key, score in summary.answer_layers.items()
             },
         )
 

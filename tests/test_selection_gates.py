@@ -121,6 +121,33 @@ class TestWhoDoesNotEnterTheRun:
 
         assert found == {"quiet.example.test": ExclusionReason.SILENT}
 
+    async def test_the_one_who_declined_is_out_for_a_year(self, session: AsyncSession) -> None:
+        """Донор сам ответил «не продаём размещения»: платить за его метрики
+        и писать снова незачем. Год — как у молчания."""
+        session.add(
+            DomainModel(
+                host="no.example.test",
+                seller_answer="declines",
+                seller_answer_at=NOW - timedelta(days=100),
+            )
+        )
+        session.add(
+            DomainModel(
+                host="long.example.test",
+                seller_answer="declines",
+                seller_answer_at=NOW - timedelta(days=400),
+            )
+        )
+        await session.flush()
+
+        gate = Exclusions(session)
+        found = await gate.excluded_hosts(["no.example.test", "long.example.test"], now=NOW)
+        assert found == {"no.example.test": ExclusionReason.DECLINES}
+
+        # Рекламодателем тот же сайт быть может — ему письмо о другом.
+        other = await gate.excluded_hosts(["no.example.test"], stage=Stage.ADVERTISERS, now=NOW)
+        assert other == {}
+
     async def test_silence_runs_out(self, session: AsyncSession) -> None:
         await _wrote_to(session, "old.example.test", sent_at=NOW - timedelta(days=400))
 

@@ -207,6 +207,26 @@ class ReplyRepository:
         donor.last_price_currency = currency
         donor.last_price_at = now or datetime.now(UTC)
 
+    async def record_seller_answer(
+        self,
+        *,
+        domain_id: int,
+        answer: str,
+        reply_id: int | None,
+        now: datetime | None = None,
+    ) -> None:
+        """Ответ самого донора — на домен, рядом с вердиктом судьи.
+
+        Вердикт судьи и решение человека не трогаются: по расхождению с ними
+        считается, как часто отбор ошибается в главном для гест-постинга.
+        """
+        domain = await self._session.get(DomainModel, domain_id)
+        if domain is None:
+            return
+        domain.seller_answer = answer
+        domain.seller_answer_at = now or datetime.now(UTC)
+        domain.seller_answer_reply_id = reply_id
+
     async def stop_chain(self, thread_id: int | None) -> int:
         """Остановить цепочку: ни одного следующего письма этому донору.
 

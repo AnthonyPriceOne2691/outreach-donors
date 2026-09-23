@@ -72,6 +72,7 @@ export function SelectionPage() {
   const [onlyDisagreements, setOnlyDisagreements] = useState(false);
   const [onlyUnreviewed, setOnlyUnreviewed] = useState(false);
   const [onlyUnjudged, setOnlyUnjudged] = useState(false);
+  const [onlyAnswered, setOnlyAnswered] = useState(false);
   const [page, setPage] = useState(1);
 
   const query = useQuery({
@@ -83,6 +84,7 @@ export function SelectionPage() {
       onlyDisagreements,
       onlyUnreviewed,
       onlyUnjudged,
+      onlyAnswered,
       page,
     ],
     queryFn: () =>
@@ -93,6 +95,7 @@ export function SelectionPage() {
         only_disagreements: onlyDisagreements,
         only_unreviewed: onlyUnreviewed,
         only_unjudged: onlyUnjudged,
+        only_answered: onlyAnswered,
         limit: PAGE_SIZE,
         offset: (page - 1) * PAGE_SIZE,
       }),
@@ -152,10 +155,11 @@ export function SelectionPage() {
             </Text>
           </Stack>
 
-          <SimpleGrid cols={{ base: 2, sm: 5 }} spacing="sm">
+          <SimpleGrid cols={{ base: 2, sm: 3, lg: 6 }} spacing="sm">
             {TABS.map((value) => (
               <Metric key={value} title={SELECTION_TABS[value].title} value={tabs[value]} />
             ))}
+            <Metric title="Ответили доноры" value={data?.answered ?? 0} />
             <Metric title="Смотрел человек" value={reviewed} />
             <Metric
               title="Расходится с судьёй"
@@ -165,6 +169,18 @@ export function SelectionPage() {
             />
           </SimpleGrid>
 
+          {/* Главное число для гест-постинга: угадал ли судья, продаёт ли сайт
+              размещение, — по ответам самих сайтов. Сходимость с человеком
+              отвечает на другой вопрос: «издание или продавец своего». */}
+          <Text size="sm">
+            Судья угадал по ответам доноров:{' '}
+            {DECIDERS.map((who) => {
+              const score = data?.answer_layers[who];
+              return `${JUDGE_DECIDERS[who].title} ${
+                score === undefined ? '— ответов нет' : `${score.agreed} из ${score.checked}`
+              }`;
+            }).join(' · ')}
+          </Text>
           <Text size="sm" c="dimmed">
             Сходится с человеком:{' '}
             {DECIDERS.map((who) => {
@@ -216,6 +232,11 @@ export function SelectionPage() {
               onChange={(event) => reset(setOnlyUnreviewed)(event.currentTarget.checked)}
             />
             <Switch
+              label="Донор ответил"
+              checked={onlyAnswered}
+              onChange={(event) => reset(setOnlyAnswered)(event.currentTarget.checked)}
+            />
+            <Switch
               label="Судья не смотрел"
               checked={onlyUnjudged}
               onChange={(event) => reset(setOnlyUnjudged)(event.currentTarget.checked)}
@@ -230,13 +251,14 @@ export function SelectionPage() {
             {EMPTY[tab]}
           </Text>
         ) : (
-          <Table.ScrollContainer minWidth={960}>
+          <Table.ScrollContainer minWidth={1080}>
             <Table className="dataTable" verticalSpacing="sm" horizontalSpacing="md">
               <Table.Thead>
                 <Table.Tr>
                   <Table.Th>Домен</Table.Th>
                   <Table.Th>Пороги</Table.Th>
                   <Table.Th>Судья</Table.Th>
+                  <Table.Th>Донор ответил</Table.Th>
                   <Table.Th>Человек</Table.Th>
                 </Table.Tr>
               </Table.Thead>

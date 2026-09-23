@@ -158,6 +158,7 @@ SCREENS: dict[str, dict] = {
             # не дотягивал до нормы в тёмной теме, и мерили его впервые.
             ("статус письма", ".glassQuiet p[data-size='xs']", NORM),
             ("кнопка «Подтвердить»", "button:has-text('Подтвердить')", BIG),
+            ("кнопка «Не продаёт»", "button:has-text('Не продаёт размещения')", BIG),
             ("пункт меню", "nav a", NORM),
         ],
     },
@@ -259,6 +260,8 @@ SCREENS: dict[str, dict] = {
             ("домен в строке", "table tbody td a", NORM),
             ("вердикт судьи значком", "table tbody td:nth-child(3) .mantine-Badge-label", NORM),
             ("цитата судьи", "table tbody td:nth-child(3) p", NORM),
+            # Ответ донора — главное для гест-постинга, значком в своей колонке.
+            ("ответ донора", "table tbody td:nth-child(4) .mantine-Badge-label", NORM),
             ("кнопка решения", "table tbody button", BIG),
             ("пункт меню", "nav a", NORM),
         ],

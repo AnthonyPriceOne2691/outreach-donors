@@ -57,6 +57,8 @@ export const THREAD_STATES: Record<ThreadState, { title: string; color: string }
   replied: { title: 'ответил человек', color: 'teal' },
   needs_review: { title: 'ждёт разбора', color: 'yellow' },
   priced: { title: 'цена получена', color: 'green' },
+  declined: { title: 'не продаёт размещения', color: 'gray' },
+  free: { title: 'гостевой — бесплатно', color: 'green' },
   bounced: { title: 'отказ доставки', color: 'yellow' },
   unsubscribed: { title: 'отписался', color: 'red' },
   stopped: { title: 'цепочка остановлена', color: 'gray' },

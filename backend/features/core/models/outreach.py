@@ -254,6 +254,9 @@ class ReplyModel(TimestampedMixin, Base):
     # Ниже порога — в ручную очередь, а не в базу. Приёмка требует не более
     # 5% ошибок извлечения, без этой ветки порог не держится.
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: Продаёт ли донор размещение по разбору ответа: `sells`, `declines`,
+    #: `unclear`. Отдельно от цены: «не продаём» — ответ, а не пустая цена.
+    placement: Mapped[str | None] = mapped_column(String(16), nullable=True)
     reviewed_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

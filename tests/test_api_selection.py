@@ -291,6 +291,46 @@ class TestHumanDecision:
         assert response.status_code == 404
 
 
+class TestSellerAnswer:
+    async def test_donor_answer_is_stronger_than_judge_and_human(
+        self,
+        client: AsyncClient,
+        admin_token: str,
+        session: AsyncSession,
+        field: dict[str, DomainModel],
+    ) -> None:
+        """Для гест-постинга ответ самого сайта — правда первого сорта."""
+        media = field["media"]
+        media.human_intent = "publisher"
+        media.seller_answer = "declines"
+        media.seller_answer_at = NOW
+        await session.commit()
+
+        rejected = await _hosts(client, admin_token, tab="rejected")
+        assert "media.test" in rejected
+
+    async def test_judge_is_scored_against_donor_answers(
+        self,
+        client: AsyncClient,
+        admin_token: str,
+        session: AsyncSession,
+        field: dict[str, DomainModel],
+    ) -> None:
+        """Главное число для гест-постинга: как часто судья угадал, продаёт
+        ли сайт размещение, — по ответам самих сайтов, по каждому слою."""
+        field["media"].seller_answer = "sells"  # судья: площадка — угадал
+        field["weak"].seller_answer = "declines"  # судья: площадка — промах
+        field["unsure"].seller_answer = "sells"  # судья: «посмотри» — не в счёт
+        await session.commit()
+
+        body = (await client.get("/api/selection", headers=bearer(admin_token))).json()
+        assert body["answered"] == 3
+        assert body["answer_layers"] == {"model": {"checked": 2, "agreed": 1}}
+
+        answered = await _hosts(client, admin_token, tab="rejected", only_answered=True)
+        assert answered == ["weak.test"]
+
+
 class TestNextRun:
     async def test_human_verdict_wins_and_never_expires(
         self, session: AsyncSession, field: dict[str, DomainModel]

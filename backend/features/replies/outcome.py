@@ -54,6 +54,10 @@ class Consequences:
     needs_review: bool = False
     #: Почему ждёт человека — словами, для карточки.
     review_reason: str | None = None
+    #: Донор уверенно сказал «не продаём» — ответ ложится на домен.
+    store_declines: bool = False
+    #: Донор уверенно сказал «бесплатно возьмём» — тоже на домен, как согласие.
+    store_free: bool = False
 
 
 def decide(
@@ -78,6 +82,10 @@ def decide(
         return Consequences()
 
     # Ответил человек.
+    answered = _answer_without_price(found, limit)
+    if answered is not None:
+        return answered
+
     if found is None or not found.has_price:
         # Ответ без распознанной цены — это тоже очередь на разбор,
         # а не пустое место: «ответили, цена не распознана» стоит прямым
@@ -98,6 +106,22 @@ def decide(
         needs_review=not confident,
         review_reason=None if confident else _why(found, limit),
     )
+
+
+def _answer_without_price(found: Extracted | None, limit: float) -> Consequences | None:
+    """Ответ на главный вопрос письма без цены: «не продаём» или «бесплатно».
+
+    Разбирать тут человеку нечего — цены не будет ни в одном из двух, — но
+    это ответы, а не пустое место: для гест-постинга первый убирает домен
+    из отбора, второй подтверждает его.
+    """
+    if found is None or found.has_price or found.confidence < limit:
+        return None
+    if found.placement == "declines":
+        return Consequences(stop_chain=True, remember_answering_address=True, store_declines=True)
+    if found.placement == "free":
+        return Consequences(stop_chain=True, remember_answering_address=True, store_free=True)
+    return None
 
 
 def _why(found: Extracted, limit: float) -> str:

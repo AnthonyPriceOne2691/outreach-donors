@@ -103,6 +103,45 @@ function Machine({ row }: { row: SelectionCard }) {
   );
 }
 
+/** Ответ самого донора на письмо. Для гест-постинга — правда первого
+ *  сорта: сильнее судьи и человека, и экран показывает его отдельно. */
+function Seller({ row }: { row: SelectionCard }) {
+  const seller = row.seller;
+  if (seller.answer === null) {
+    return (
+      <Text size="xs" c="dimmed">
+        не отвечал
+      </Text>
+    );
+  }
+  if (seller.answer === 'free') {
+    return (
+      <Badge variant="light" color="green">
+        берёт бесплатно
+      </Badge>
+    );
+  }
+  if (seller.answer === 'declines') {
+    return (
+      <Badge variant="light" color="red">
+        не продаёт
+      </Badge>
+    );
+  }
+  return (
+    <Stack gap={2} align="center">
+      <Badge variant="light" color="green">
+        продаёт
+      </Badge>
+      {seller.price !== null && (
+        <Text size="xs" c="dimmed">
+          {seller.price} {seller.currency ?? ''}
+        </Text>
+      )}
+    </Stack>
+  );
+}
+
 function Human({ row, mayDecide, busy, onDecide }: Props) {
   const chosen = row.human.intent;
   if (!mayDecide) {
@@ -156,6 +195,9 @@ export function SelectionRow(props: Props) {
       </Table.Td>
       <Table.Td>
         <Machine row={row} />
+      </Table.Td>
+      <Table.Td>
+        <Seller row={row} />
       </Table.Td>
       <Table.Td>
         <Human {...props} />
