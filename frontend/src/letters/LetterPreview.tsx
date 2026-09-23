@@ -60,6 +60,24 @@ export function toneOf(letter: QueuedLetter): 'green' | 'yellow' {
   return letter.verdict === null ? 'green' : 'yellow';
 }
 
+/** Метка незаданного значения, как её ставит сервер: «ИМЯ ОТПРАВИТЕЛЯ НЕ ЗАДАНО». */
+const UNSET_MARK = /«([А-ЯЁ ]+?) НЕ ЗАДАН[ОА]?»/g;
+
+/** Письмо для чтения: громкие метки сервера — тихой пометкой в скобках.
+ *
+ *  Метка громкая намеренно — по ней отправка отказывает, и в самом тексте
+ *  она остаётся (в правке видна как есть). Но читать письмо, где подпись
+ *  кричит заглавными, — значит видеть поломку там, где просто ещё
+ *  не подключили почту. */
+export function readable(text: string): { text: string; unset: boolean } {
+  let unset = false;
+  const softened = text.replace(UNSET_MARK, (_, title: string) => {
+    unset = true;
+    return `[${title.toLowerCase()}]`;
+  });
+  return { text: softened, unset };
+}
+
 export function LetterPreview({
   letter,
   corridor,
@@ -88,6 +106,7 @@ export function LetterPreview({
   const followup = letter.followups.find((step) => `step${step.step}` === tab) ?? null;
 
   const blocked = blockedBy.length > 0;
+  const shown = readable(letter.body ?? '');
 
   return (
     <Card className="glass" p="xl">
@@ -163,15 +182,20 @@ export function LetterPreview({
                 задают его ритм, а свёрнутое в одну строку письмо читается
                 иначе, чем уйдёт адресату. */}
             <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
-              {letter.body}
+              {shown.text}
             </Text>
+            {shown.unset ? (
+              <Text size="xs" c="dimmed">
+                В квадратных скобках — то, что подставится при подключении почты.
+              </Text>
+            ) : null}
           </Stack>
         )}
 
         {!transportIsReal && followup === null ? (
           <Alert color="yellow" title="Наружу письмо не уйдёт">
-            Транспорт не настроен: письмо будет помечено отправленным, но адресат его не получит.
-            Работает только на выдуманных доменах.
+            Почта ещё не подключена: письмо будет помечено отправленным, но адресат его не получит.
+            Отправка заработает после подключения на рабочем сервере.
           </Alert>
         ) : null}
 
@@ -181,8 +205,7 @@ export function LetterPreview({
             как сбой, а не как забота. */}
         {blocked && followup === null ? (
           <Text size="sm" c="dimmed">
-            Кнопка не нажимается: не заполнено {blockedBy.length} из обязательных настроек —
-            подробности наверху экрана.
+            Кнопка не нажимается, пока не подключена почта — подробности наверху экрана.
           </Text>
         ) : null}
 

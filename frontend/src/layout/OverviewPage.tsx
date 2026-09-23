@@ -1,16 +1,30 @@
 /**
- * Обзор. Пока честно говорит, что уже в браузере, а что ещё командой.
+ * Обзор: кто вошёл, что молчит, из чего состоит работа.
  *
- * Пустая главная с надписью «добро пожаловать» хуже, чем список того,
- * чего здесь ещё нет: человек иначе ищет отсутствующий раздел глазами
- * и спрашивает, что сломалось.
+ * Пустая главная с надписью «добро пожаловать» хуже, чем короткая карта
+ * сервиса: человек иначе ищет нужный раздел глазами. И отдельной строкой —
+ * что отправка писем подключается на рабочем сервере: без неё очередь
+ * писем, которая никуда не уходит, читается как поломка.
  */
 
-import { Alert, Badge, Card, Group, List, Loader, Stack, Text, Title } from '@mantine/core';
+import {
+  Alert,
+  Anchor,
+  Badge,
+  Card,
+  Group,
+  Loader,
+  SimpleGrid,
+  Stack,
+  Text,
+  Title,
+} from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 
 import { fetchWatchdog } from '../api/settings';
 import { permissionTitle } from '../api/labels';
+import type { Permission } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 
 /**
@@ -29,18 +43,20 @@ function Watchdog() {
   });
 
   if (!can('view')) return null;
-  if (isLoading) return <Loader aria-label="Смотрим, что молчит" size="sm" />;
 
   const alarms = data?.alarms ?? [];
-  if (alarms.length === 0) {
+  // Ожидание — внутри карточки, а не одиноким кружком над ней.
+  if (isLoading || alarms.length === 0) {
     return (
       <Card className="glass" p="lg">
-        <Title order={5} mb={4}>
-          Сторож тишины
-        </Title>
+        <Group gap="xs" mb={4}>
+          <Title order={5}>Сторож тишины</Title>
+          {isLoading && <Loader aria-label="Смотрим, что молчит" size="xs" />}
+        </Group>
         <Text size="sm" c="dimmed">
-          Тихо и правильно: письма, ответы и фоновые проходы идут как ожидается. Сторож отличает
-          «ничего не происходит» от «мы перестали слышать» — и молчит только в первом случае.
+          {isLoading
+            ? 'Проверяем, что письма, ответы и фоновые проходы идут как ожидается.'
+            : 'Тихо и правильно: письма, ответы и фоновые проходы идут как ожидается. Сторож отличает «ничего не происходит» от «мы перестали слышать» — и молчит только в первом случае.'}
         </Text>
       </Card>
     );
@@ -57,17 +73,67 @@ function Watchdog() {
   );
 }
 
+interface Step {
+  path: string;
+  title: string;
+  text: string;
+  permission?: Permission;
+}
+
+/** Порядок — порядок работы: от ключей до цены. */
+const STEPS: Step[] = [
+  {
+    path: '/run',
+    title: 'Прогон',
+    text: 'Смета до запуска, сбор доменов из выдачи, метрики и судья площадок.',
+    permission: 'view',
+  },
+  {
+    path: '/selection',
+    title: 'Отбор',
+    text: 'Кто прошёл пороги и почему, спорные — на разбор человеку.',
+    permission: 'view',
+  },
+  {
+    path: '/donors',
+    title: 'Доноры',
+    text: 'База площадок с метриками, трафиком по странам и контактами.',
+    permission: 'view',
+  },
+  {
+    path: '/letters',
+    title: 'Письма',
+    text: 'Очередь первых писем и добивок: текст виден и правится до отправки.',
+    permission: 'view',
+  },
+  {
+    path: '/threads',
+    title: 'Диалоги',
+    text: 'Переписка с донорами и распознанные цены на подтверждение.',
+    permission: 'view',
+  },
+  {
+    path: '/usage',
+    title: 'Расход',
+    text: 'На что ушли юниты и деньги и сколько осталось.',
+    permission: 'view',
+  },
+];
+
 export function OverviewPage() {
-  const { user } = useSession();
+  const { user, can } = useSession();
+  const steps = STEPS.filter((step) => step.permission === undefined || can(step.permission));
 
   return (
-    <Stack maw={760} gap="lg">
-      <Watchdog />
+    <Stack gap="lg">
       <Card className="glassPanel" p="xl">
         <Stack gap="sm">
           <Title order={3}>Обзор</Title>
           <Text>
-            Вошли как <b>{user?.email}</b>.
+            Вошли как <b>{user?.email}</b>.{' '}
+            <Anchor component={Link} to="/password" size="sm">
+              Сменить пароль
+            </Anchor>
           </Text>
           <Group gap="xs">
             <Text size="sm" c="dimmed">
@@ -82,36 +148,30 @@ export function OverviewPage() {
         </Stack>
       </Card>
 
-      <Card className="glass" p="lg">
-        <Title order={5} mb="xs">
-          Что сейчас в браузере
-        </Title>
-        <List size="sm" spacing={4}>
-          <List.Item>Вход, смена своего пароля</List.Item>
-          <List.Item>Учётки: завести, выдать права, сбросить пароль, отключить — админу</List.Item>
-          <List.Item>Прогон: смета до запуска и запуск через очередь</List.Item>
-          <List.Item>Доноры: таблица с фильтрами и карточка с адресами</List.Item>
-          <List.Item>Диалоги: список переписок и карточка с распознанными ценами</List.Item>
-          <List.Item>Пороги: версии с предпросмотром последствий</List.Item>
-          <List.Item>Расход: на что ушли юниты и деньги, сколько осталось</List.Item>
-          <List.Item>
-            Домены рассылки: разгон, дневной расход, включение и выключение — админу
-          </List.Item>
-        </List>
-      </Card>
+      <Watchdog />
+
+      {steps.length > 0 && (
+        <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
+          {steps.map((step) => (
+            <Card key={step.path} className="glass" p="lg">
+              <Anchor component={Link} to={step.path} fw={600}>
+                {step.title}
+              </Anchor>
+              <Text size="sm" c="dimmed" mt={4}>
+                {step.text}
+              </Text>
+            </Card>
+          ))}
+        </SimpleGrid>
+      )}
 
       <Card className="glass" p="lg">
         <Title order={5} mb="xs">
-          Что пока делается командой
+          Отправка писем
         </Title>
-        <List size="sm" spacing={4}>
-          <List.Item>Сборка пула ключей по пресетам углов</List.Item>
-          <List.Item>Поиск контактов ступенями</List.Item>
-          <List.Item>Отправка писем: ждёт почтовых доменов и шаблона</List.Item>
-        </List>
-        <Text size="sm" c="dimmed" mt="sm">
-          Экраны прогона и доноров — следующий срез. Порядок и причины — в проектном документе
-          веб-слоя.
+        <Text size="sm" c="dimmed">
+          Почта подключается при развёртывании на рабочем сервере. До этого письма собираются,
+          читаются и правятся как обычно, но наружу не уходят — экран писем говорит об этом прямо.
         </Text>
       </Card>
     </Stack>

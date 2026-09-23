@@ -341,7 +341,7 @@ class TestSending:
         await _build(session)
         letter = (await session.execute(select(MessageModel))).scalars().one()
 
-        with pytest.raises(NotReadyError, match="ИМЯ ОТПРАВИТЕЛЯ"):
+        with pytest.raises(NotReadyError, match="не задано имя отправителя"):
             await Sending(session, NullTransport(), now=NOW).send(letter.id)
 
     async def test_no_sender_leaves_the_letter_in_the_queue(
