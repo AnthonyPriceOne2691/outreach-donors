@@ -74,7 +74,9 @@ class SelectionCard(BaseModel):
                 quote=domain.judge_quote,
                 reason=domain.judge_reason,
                 source_url=domain.judge_source_url,
-                home_shop=list(home.get("shop") or []),
+                # Признаки продажи своего — и товара, и услуги: по ним видно,
+                # почему судья решил правилом, а не моделью.
+                home_shop=[*(home.get("shop") or []), *(home.get("service") or [])],
                 home_reached=home.get("reached") if home else None,
                 judged_at=domain.judged_at,
             ),

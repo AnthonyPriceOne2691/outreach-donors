@@ -208,9 +208,11 @@ async def test_publisher_with_cart_goes_to_arbiter(
 
 
 @pytest.mark.asyncio
-async def test_quiet_home_keeps_model_verdict(
+async def test_arbiter_reject_without_sales_goes_to_human(
     judge: FakeJudge, monkeypatch: pytest.MonkeyPatch, arbiter: list[str]
 ) -> None:
+    """Правило доказательства: отрезать может только структура. Замер 23.09 —
+    арбитр без него отрезал 5 из 77 изданий с магазином или курсом сбоку."""
     monkeypatch.setattr(
         "backend.features.donors.judging.check_home", FakeHome({"media.example": QUIET})
     )
@@ -221,8 +223,28 @@ async def test_quiet_home_keeps_model_verdict(
         home_client=object(),  # type: ignore[arg-type]
     )
 
-    assert result.verdicts["media.example"].decided_by == "model"
-    assert arbiter == []
+    assert arbiter == ["media.example"], "блог компании по выдаче неотличим от издания"
+    record = result.verdicts["media.example"]
+    assert record.decided_by == "arbiter"
+    assert record.recommendation == "review"
+
+
+@pytest.mark.asyncio
+async def test_service_marks_let_arbiter_cut(
+    judge: FakeJudge, monkeypatch: pytest.MonkeyPatch, arbiter: list[str]
+) -> None:
+    service = HomeSignals(reached=True, service=("path:/pricing",), title="Product")
+    monkeypatch.setattr(
+        "backend.features.donors.judging.check_home", FakeHome({"media.example": service})
+    )
+    result = await judge_candidates(
+        None,
+        ["media.example"],
+        TEXTS,
+        home_client=object(),  # type: ignore[arg-type]
+    )
+
+    assert result.verdicts["media.example"].recommendation == "reject"
 
 
 @pytest.mark.asyncio

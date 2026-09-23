@@ -221,6 +221,12 @@ class RunRepository:
         """
         return usage.record(self._session, operation=operation, units=cost.billable, run_id=run_id)
 
+    async def record_tokens(
+        self, *, run_id: int | None, operation: str, tokens: int
+    ) -> UsageRecordModel:
+        """Строка расхода в токенах — так платит модель."""
+        return usage.record(self._session, operation=operation, units=tokens, run_id=run_id)
+
     async def record_money(
         self, *, run_id: int | None, operation: str, amount_usd: float
     ) -> UsageRecordModel:

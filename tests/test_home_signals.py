@@ -85,3 +85,35 @@ def test_product_with_only_rating_is_a_review_not_a_shop() -> None:
         '{"@type": "Product", "name": "X", "aggregateRating": {"ratingValue": 4}}</script>',
     )
     assert read_home(html).shop == ()
+
+
+@pytest.mark.parametrize(
+    ("html", "mark"),
+    [
+        (page('<a href="/pricing">Pricing</a>'), "path:/pricing"),
+        (page('<a href="https://x.test/contact-sales/">Talk to sales</a>'), "path:/contact-sales"),
+        (page('<a href="/book-appointment">Book</a>'), "path:/book-appointment"),
+        (
+            page("", '<script type="application/ld+json">{"@type": "Dentist"}</script>'),
+            "schema:Dentist",
+        ),
+        (
+            page(
+                "", '<script type="application/ld+json">{"@type": "SoftwareApplication"}</script>'
+            ),
+            "schema:SoftwareApplication",
+        ),
+    ],
+)
+def test_service_mark_is_found(html: str, mark: str) -> None:
+    """Услуга без корзины: стоматология, агентство, программный сервис.
+    23.09 модель пропустила восемь таких блогов как издания."""
+    signals = read_home(html)
+    assert mark in signals.service
+    assert signals.sells
+
+
+@pytest.mark.parametrize("href", ["/login", "/signup", "/register", "/subscribe", "/newsletter"])
+def test_login_and_signup_are_not_service_marks(href: str) -> None:
+    """Вход и регистрация есть у изданий — nerdwallet, investopedia, wallethub."""
+    assert read_home(page(f'<a href="{href}">x</a>')).service == ()

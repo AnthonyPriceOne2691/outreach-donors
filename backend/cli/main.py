@@ -31,6 +31,8 @@ from backend.cli.contact_search import cmd_contacts
 from backend.cli.crawl_probe import add_parser as add_crawl_parser
 from backend.cli.crawl_probe import cmd_crawl
 from backend.cli.demo_data import cmd_demo_seed
+from backend.cli.judge_backfill import add_parser as add_backfill_parser
+from backend.cli.judge_backfill import cmd_judge_backfill
 from backend.cli.keywords_pool import add_parser as add_keywords_parser
 from backend.cli.keywords_pool import cmd_keywords
 from backend.cli.letters_queue import add_parser as add_letters_parser
@@ -312,6 +314,7 @@ def build_parser() -> argparse.ArgumentParser:
     user_reset.add_argument("--email", required=True, help="почта сотрудника")
 
     add_keywords_parser(sub)
+    add_backfill_parser(sub)
 
     demo = sub.add_parser(
         "demo-seed",
@@ -376,6 +379,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] =
     "user-add": cmd_user_add,
     "user-reset": cmd_user_reset,
     "keywords": cmd_keywords,
+    "judge-backfill": cmd_judge_backfill,
     "demo-seed": cmd_demo_seed,
     "letters-build": cmd_letters_build,
     "letters": cmd_letters,

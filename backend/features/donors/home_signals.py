@@ -49,6 +49,23 @@ CART_PATH = re.compile(
     r"|korzina|sepet|carrinho|varukorg|handlekurv|ostoskori|kurv)(?:[/?#.]|$)"
 )
 
+#: Разметка услуги: так себя размечает тот, кто продаёт СВОЮ работу —
+#: стоматология, агентство, программный сервис. Замер 23.09: у 5 из 15
+#: компаний-услуг, у 0 из 19 изданий.
+SERVICE_TYPES: frozenset[str] = frozenset({
+    "LocalBusiness", "ProfessionalService", "FinancialService", "InsuranceAgency",
+    "Dentist", "MedicalBusiness", "MedicalClinic", "LegalService",
+    "SoftwareApplication", "WebApplication",
+})  # fmt: skip
+
+#: Путь продажи услуги. ⚠ Без `login`, `signup`, `register`: вход и
+#: регистрация есть у изданий (nerdwallet, investopedia, wallethub) — замер
+#: 23.09. Тарифы и демо — нет: их держит тот, кто продаёт свой сервис.
+SERVICE_PATH = re.compile(
+    r"/(pricing|demo|request-a-demo|book-a-demo|contact-sales|free-trial|get-started"
+    r"|appointments?|book-appointment|get-a-quote|request-a-quote)(?:[/?#.]|$)"
+)
+
 #: Сколько текста главной уходит арбитру. Заголовок, описание и меню —
 #: этого хватает, чтобы понять, чем сайт торгует, и не хватает, чтобы
 #: утопить модель в подвале страницы.
@@ -61,6 +78,7 @@ class HomeSignals:
 
     reached: bool
     shop: tuple[str, ...] = ()
+    service: tuple[str, ...] = ()
     title: str = ""
     description: str = ""
     nav: tuple[str, ...] = field(default_factory=tuple)
@@ -70,11 +88,17 @@ class HomeSignals:
     def is_shop(self) -> bool:
         return bool(self.shop)
 
+    @property
+    def sells(self) -> bool:
+        """Главная структурно подтверждает продажу своего: товар или услугу."""
+        return bool(self.shop or self.service)
+
     def as_dict(self) -> dict[str, Any]:
         """Для записи на домен: по этому видно, на чём стояло решение."""
         return {
             "reached": self.reached,
             "shop": list(self.shop),
+            "service": list(self.service),
             "title": self.title[:200],
             "error": self.error,
         }
@@ -84,8 +108,8 @@ class HomeSignals:
         lines = [f"Заголовок: {self.title}", f"Описание: {self.description}"]
         if self.nav:
             lines.append("Меню: " + " · ".join(self.nav))
-        if self.shop:
-            lines.append("Признаки магазина: " + ", ".join(self.shop))
+        if self.shop or self.service:
+            lines.append("Признаки продажи: " + ", ".join((*self.shop, *self.service)))
         return "\n".join(lines)
 
 
@@ -147,6 +171,27 @@ def _shop_marks(tree: HTMLParser) -> list[str]:
     return marks
 
 
+def _types_of(item: dict[str, Any]) -> list[str]:
+    kind = item.get("@type")
+    values = kind if isinstance(kind, list) else [kind]
+    return [value for value in values if isinstance(value, str)]
+
+
+def _service_marks(tree: HTMLParser) -> list[str]:
+    marks = {
+        f"schema:{value}"
+        for item in _schema_items(tree)
+        for value in _types_of(item)
+        if value in SERVICE_TYPES
+    }
+    marks |= {
+        f"path:/{match.group(1)}"
+        for link in tree.css("a[href]")
+        if (match := SERVICE_PATH.search((link.attributes.get("href") or "").lower()))
+    }
+    return sorted(marks)
+
+
 def _nav_texts(tree: HTMLParser) -> tuple[str, ...]:
     seen: list[str] = []
     for link in tree.css("nav a, header a"):
@@ -166,6 +211,7 @@ def read_home(html: str) -> HomeSignals:
     return HomeSignals(
         reached=True,
         shop=tuple(_shop_marks(tree)),
+        service=tuple(_service_marks(tree)),
         title=" ".join((title_node.text() if title_node else "").split())[:200],
         description=((description.attributes.get("content") if description else "") or "")[:400],
         nav=_nav_texts(tree),

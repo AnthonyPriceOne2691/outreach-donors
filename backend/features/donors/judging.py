@@ -89,6 +89,20 @@ class JudgeSummary:
         """
         return self.would_cut_paid * (UNITS_DR + UNITS_METRICS)
 
+    def merge(self, other: JudgeSummary) -> None:
+        """Сложить итог другого прохода — досуд идёт пачками."""
+        self.judged += other.judged
+        self.from_cache += other.from_cache
+        self.would_cut += other.would_cut
+        self.would_cut_paid += other.would_cut_paid
+        self.to_review += other.to_review
+        self.tokens += other.tokens
+        self.home_unreached += other.home_unreached
+        for key, count in other.by_intent.items():
+            self.by_intent[key] = self.by_intent.get(key, 0) + count
+        for key, count in other.by_decider.items():
+            self.by_decider[key] = self.by_decider.get(key, 0) + count
+
     def record(self, verdict: Judgement, *, paid: bool) -> None:
         self.judged += 1
         self.tokens += verdict.tokens
@@ -120,36 +134,48 @@ async def second_opinion(
     text: SerpText | None,
     verdict: Judgement,
 ) -> tuple[Judgement, HomeSignals | None]:
-    """Главная как вторая сторона: подтверждает судью или зовёт арбитра.
+    """Главная как вторая сторона. Способ заработка — свойство сайта, а не
+    страницы, и выдача показывает страницу.
 
-    Три исхода, и у каждого свой автор:
-    - «продаёт своё» и на главной корзина — решено ПРАВИЛОМ: две независимые
-      стороны сказали одно, человеку тут смотреть нечего;
-    - «издание» и на главной корзина — СПОР, решает арбитр по обеим сторонам.
-      Сразу в отказ нельзя: замер 23.09 — корзина есть и у изданий, которые
-      продают свои тесты (konsument.at), и у сообществ (wunschkind);
-    - главная молчит или не открылась — остаётся вердикт модели.
+    **Правило доказательства: отрезать может только структура.** Модель
+    отказывает, лишь когда главная подтверждает продажу своего — корзиной,
+    разметкой услуги, тарифами. Без подтверждения её отказ идёт человеку:
+    замер 23.09 — арбитр, судивший всех, поймал 16 из 16 компаний-услуг,
+    но отрезал и 5 из 77 изданий, у которых сбоку свой магазин или курс.
+    С правилом — ноль ложных отказов, и ни одна компания не прошла в приём.
 
-    Главную спрашиваем только у тех, о ком модель вынесла суждение: у
-    платформы, «посмотри» и некоммерческих спорить не с чем.
+    Исходы:
+    - «продаёт своё» по выдаче и продажа на главной — решено ПРАВИЛОМ;
+    - «издание» по выдаче — всегда к арбитру, если главная открылась:
+      блог компании по выдаче неотличим от издания (стоматология, агентство,
+      страховщик — 23.09 модель пропустила восемь таких);
+    - главная не открылась — остаётся вердикт модели.
     """
     judged = {Intent.SELLS_OWN, Intent.REFERS_OUT, Intent.EDITORIAL_ADS}
     if home_client is None or verdict.decided_by is Decider.RULE or verdict.intent not in judged:
         return verdict, None
 
     home = await check_home(home_client, host)
-    if not home.reached or not home.is_shop:
+    if not home.reached:
         return verdict, home
     if verdict.intent is Intent.SELLS_OWN:
-        marks = ", ".join(home.shop[:3])
+        if not home.sells:
+            return verdict, home
+        marks = ", ".join((*home.shop, *home.service)[:3])
         return replace(
             verdict, reason=f"{verdict.reason} · главная: {marks}", decided_by=Decider.RULE
         ), home
 
     serp = source_text(text.title, text.description) if text else ""
     ruling = await arbitrate(http, host=host, serp=serp, home=home)
-    # Токены обоих вызовов: арбитр — не бесплатное уточнение.
-    return replace(ruling, tokens=ruling.tokens + verdict.tokens), home
+    ruling = replace(ruling, tokens=ruling.tokens + verdict.tokens)
+    if ruling.recommendation is Recommendation.REJECT and not home.sells:
+        ruling = replace(
+            ruling,
+            recommendation=Recommendation.REVIEW,
+            reason=f"{ruling.reason} · на главной не видно продажи — посмотри",
+        )
+    return ruling, home
 
 
 async def judge_candidates(

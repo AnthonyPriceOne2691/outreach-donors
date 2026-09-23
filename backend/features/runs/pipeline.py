@@ -65,6 +65,8 @@ logger = logging.getLogger(__name__)
 #: Как называется расход на выдачу в журнале. Единица — доллар:
 #: основной источник берёт деньгами, а не юнитами.
 SERP_OPERATION = "serp_search"
+#: Токены судьи площадки — строка журнала, как у сборки ключей.
+JUDGE_OPERATION = "site_judge"
 
 # Операции, которые покрывает смета. Выдача в неё не входит: к моменту, когда
 # смета показывается человеку, она уже потрачена, и включать её значило бы
@@ -236,7 +238,7 @@ async def _record_search_cost(deps: RunDeps, run: RunModel, candidates: Candidat
 
 
 async def _judge_candidates(
-    deps: RunDeps, plan: RunPlan, candidates: Candidates
+    deps: RunDeps, run: RunModel, plan: RunPlan, candidates: Candidates
 ) -> JudgePass | None:
     """Суд до первой траты у Ahrefs. `None` — судья выключен.
 
@@ -267,8 +269,12 @@ async def _judge_candidates(
         )
 
     # Вердикты сохраняются СРАЗУ, до метрик: прогон, упавший на Ahrefs,
-    # не должен стоить уже оплаченных токенов.
+    # не должен стоить уже оплаченных токенов. Токены — в журнал рядом.
     await deps.donors.save_judgements(outcome.verdicts)
+    if outcome.summary.tokens:
+        await deps.runs.record_tokens(
+            run_id=run.id, operation=JUDGE_OPERATION, tokens=outcome.summary.tokens
+        )
     await deps.runs.session_commit()
     logger.info(
         "Судья площадки (%s): судили %s, из кэша %s, отрезал бы %s (сэкономил бы %s юнитов), "
@@ -340,7 +346,7 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
                 await deps.runs.record_usage(run_id=run.id, operation=operation, cost=cost)
 
         try:
-            judged = await _judge_candidates(deps, plan, candidates)
+            judged = await _judge_candidates(deps, run, plan, candidates)
             targets = plan.new
             if judged is not None:
                 report.judge = judged.summary
