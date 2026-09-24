@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import ColumnElement, and_, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,7 +27,7 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.donors.author_door import opened_reason, opens
 from backend.features.donors.collect import DomainResult
-from backend.features.donors.publisher_judge import Recommendation
+from backend.features.donors.publisher_judge import Decider, Recommendation
 from backend.features.donors.selection import human_advice
 
 
@@ -51,6 +51,23 @@ class JudgeRecord:
     #: строка — меню главной смотрели, двери нет; `None` — не смотрели,
     #: и прежнее знание о двери пересуд не стирает.
     door: str | None = None
+
+
+def judged_for_real() -> ColumnElement[bool]:
+    """Вердикт на домене вынесен: модель ответила или решило правило.
+
+    Строка без модели и не от правила — след сбоя: до 25.09.2026 отказ
+    модели ложился на домен как вердикт «посмотри» и полгода держал его
+    без суда (прогон №21 — 44 домена на сервере без ключа). Такая строка
+    не кэш и не вердикт: судья и досуд берут домен снова.
+    """
+    # `coalesce`: сравнение с NULL в SQL даёт NULL, и `NOT` от него — тоже
+    # NULL, то есть строка старого судьи без отметки «кто решил» выпала бы
+    # и из кэша, и из досуда разом.
+    return or_(
+        DomainModel.judge_model.is_not(None),
+        func.coalesce(DomainModel.judge_decided_by, "") == Decider.RULE.value,
+    )
 
 
 def _is_partial(result: DomainResult) -> bool:
@@ -107,6 +124,8 @@ class DonorRepository:
         человек сказал своё, не пересуживается вовсе, а режется или
         проходит по его слову: спросить модель снова значит заплатить
         токенами за мнение, которое всё равно ничего не решит.
+
+        След сбоя модели кэшем не считается (`judged_for_real`).
         """
         if not hosts:
             return {}
@@ -119,7 +138,7 @@ class DonorRepository:
             .where(
                 or_(
                     DomainModel.human_intent.is_not(None),
-                    DomainModel.judged_at > border,
+                    and_(DomainModel.judged_at > border, judged_for_real()),
                 )
             )
         )
@@ -198,6 +217,36 @@ class DonorRepository:
             if door and opens(domain.site_intent, domain.judge_recommendation):
                 domain.judge_recommendation = Recommendation.REVIEW.value
                 domain.judge_reason = opened_reason(domain.judge_reason or "", door)
+                opened += 1
+        await self._session.flush()
+        return opened
+
+    async def open_doors(self, hosts: Sequence[str], pages: Mapping[str, str]) -> int:
+        """Дверь со страницы выдачи — на домен; отказ «продаёт своё» при
+        известной двери — к человеку. Возвращает, сколько отказов открыто.
+
+        `pages` — двери, увиденные на странице, по которой прогон нашёл
+        домен. Незнание уступает знанию: NULL и «двери нет» в меню
+        сменяются дверью страницы, найденная раньше дверь остаётся.
+
+        Отказ открывается у каждого домена из `hosts`, чья дверь известна,
+        а не только у тех, где она нашлась сейчас: вердикт мог быть вынесен
+        до правила двери или взят прогоном из кэша, не видев страницы, по
+        которой домен пришёл в этот раз. Очередь №18: nextinhr.com со
+        страницей `/write-for-us` лежал в отказе. Решение человека
+        не трогается.
+        """
+        opened = 0
+        domains = await self._session.scalars(
+            select(DomainModel).where(DomainModel.host.in_(list(dict.fromkeys(hosts))))
+        )
+        for domain in domains:
+            page = pages.get(domain.host)
+            if page and not domain.site_door:
+                domain.site_door = page[:256]
+            if domain.site_door and opens(domain.site_intent, domain.judge_recommendation):
+                domain.judge_recommendation = Recommendation.REVIEW.value
+                domain.judge_reason = opened_reason(domain.judge_reason or "", domain.site_door)
                 opened += 1
         await self._session.flush()
         return opened

@@ -369,6 +369,33 @@ describe('прогон', () => {
     // У выключенного судьи нуля нет — «выключен» и «никого не нашёл» разные новости.
     expect(screen.getByText('выключен')).toBeInTheDocument();
     expect(screen.getByText('человек не смотрел')).toBeInTheDocument();
+    // Модель отвечала — метки о молчании нет.
+    expect(screen.queryByText(/модель не ответила/)).not.toBeInTheDocument();
+  });
+
+  it('говорит, что модель не ответила судье, а не «отрезал бы 0»', async () => {
+    // Прогон №21, 24.09.2026: ключа модели на сервере не было, а таблица
+    // показывала «отрезал бы 0» — как у судьи, который никого не нашёл.
+    const silent = {
+      ...STOPPED,
+      id: 21,
+      status: 'done',
+      stats: {
+        judge: {
+          mode: 'shadow',
+          would_cut: 0,
+          unanswered: 44,
+          unanswered_reason: 'модель, запрос (чинить): LLM_API_KEY не задан',
+        },
+      },
+    };
+    await openRun({ 'GET /api/runs': { body: { runs: [silent], workers: 1 } } });
+
+    const badge = await screen.findByText('модель не ответила: 44');
+    expect(badge.closest('[title]')).toHaveAttribute(
+      'title',
+      'модель, запрос (чинить): LLM_API_KEY не задан',
+    );
   });
 });
 

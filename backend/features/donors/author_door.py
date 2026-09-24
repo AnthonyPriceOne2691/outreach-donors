@@ -11,6 +11,12 @@ opportunities` и `/glossary/guest-blogging` — статьи ПРО госте�
 пишут те, кто продаёт инструменты; дверью они не являются. Поэтому последний
 сегмент пути сверяется целиком или по началу, а не вхождением.
 
+⚠ **Подборка площадок — тоже не дверь.** «80+ Technology Write for Us
+Sites», «Top 12 Guest Post Sites»: адрес и заголовок говорят «пишите для
+нас», а зовёт страница к чужим — её пишут агентства и биржи. Очередь №18:
+`w3era.com/write-for-us-technology-blogs`. Отличает её заголовок: число
+или «лучшие» рядом со словом «сайты».
+
 Дверь не принимает домен сама. Она только не даёт отрезать «продаёт своё»
 молча: такой домен уходит человеку с пометкой, где дверь нашлась.
 """
@@ -25,6 +31,17 @@ from backend.features.donors.publisher_judge import Intent, Judgement, Recommend
 
 #: Сегмент пути, который где угодно в себе значит «пишите для нас».
 AUTHOR_SLUG_ANYWHERE = re.compile(r"write-?for-?(us|me)|writeforus")
+
+#: Заголовок подборки площадок: число (не год) или «лучшие / топ / список»,
+#: а дальше в том же куске заголовка — «сайты», «блоги», «площадки».
+#: Словарь рынка, а не ниши — как у страниц для авторов ниже.
+SITE_LIST = re.compile(
+    r"(?:\b(?!(?:19|20)\d\d\b)\d+\+?"
+    r"|\b(?:best|top|list|besten?|mejores|meilleurs|migliori|melhores|najlepsze)\b)"
+    r"[^|]*?\b(?:sites|websites|blogs|platforms|opportunities|seiten|webseiten|sitios"
+    r"|siti|stron[ay]?|blogów|plataformas|piattaforme)\b",
+    re.IGNORECASE,
+)
 
 #: Сегмент пути целиком — страница для авторов.
 AUTHOR_SLUG = re.compile(
@@ -88,12 +105,19 @@ def _door_in_menu(nav: tuple[str, ...]) -> str | None:
     return None
 
 
+def lists_sites(title: str | None) -> bool:
+    """Заголовок подборки чужих площадок: страница зовёт не к себе."""
+    return title is not None and SITE_LIST.search(title) is not None
+
+
 def author_door(url: str | None, title: str | None, nav: tuple[str, ...] = ()) -> str | None:
     """Где сайт зовёт авторов или рекламодателей. `None` — нигде.
 
     Возвращает то, что увидит человек в причине: страницу или пункт меню.
+    Подборка площадок дверью страницы не считается, меню сайта — считается.
     """
-    return _door_in_url(url) or _door_in_title(title) or _door_in_menu(nav)
+    page = None if lists_sites(title) else (_door_in_url(url) or _door_in_title(title))
+    return page or _door_in_menu(nav)
 
 
 def opens(intent: str | None, recommendation: str | None) -> bool:

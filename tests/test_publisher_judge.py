@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 
+import httpx
 import pytest
 from backend.config.judge import PLATFORM_LABELS
 from backend.features.donors.home_signals import HomeSignals
@@ -21,6 +22,7 @@ from backend.features.donors.publisher_judge import (
     Judgement,
     Recommendation,
     arbiter_text,
+    arbitrate,
     build_payload,
     is_platform,
     is_public_zone,
@@ -351,3 +353,83 @@ def test_both_prompts_know_placement() -> None:
 
 def test_every_intent_has_advice() -> None:
     assert set(ADVICE) == set(Intent)
+
+
+# --- модель не ответила: это не вердикт -------------------------------------
+
+
+class Answers:
+    """Клиент модели без сети: один и тот же ответ на каждый вызов."""
+
+    def __init__(self, status: int, body: dict[str, object]) -> None:
+        self.status, self.body = status, body
+        self.calls = 0
+
+    async def post(self, url: str, **kwargs: object) -> httpx.Response:
+        self.calls += 1
+        return httpx.Response(self.status, json=self.body, request=httpx.Request("POST", url))
+
+
+def _chat(content: str, tokens: int = 500) -> dict[str, object]:
+    return {"choices": [{"message": {"content": content}}], "usage": {"total_tokens": tokens}}
+
+
+TITLE = "Write for Us - Home Blog"
+
+
+async def _judge(http: Answers) -> Judgement:
+    return await judge_host(
+        http,  # type: ignore[arg-type]
+        host="blog.example",
+        title=TITLE,
+        description=None,
+        model="gpt-5-mini",
+        api_key="sk-test",
+    )
+
+
+async def test_a_refusal_is_not_a_verdict() -> None:
+    """Отказ — «посмотри», чтобы домен дошёл до человека, но с пометкой:
+    на домен он не ляжет и кэшем судьи не станет."""
+    verdict = await _judge(Answers(401, {"error": {"message": "Incorrect API key"}}))
+
+    assert verdict.unanswered
+    assert verdict.recommendation is Recommendation.REVIEW
+    assert verdict.model is None
+    assert "Incorrect API key" in verdict.reason
+
+
+async def test_an_empty_answer_is_not_a_verdict_but_its_tokens_count() -> None:
+    """Рассуждение съело потолок, и ответа нет: вердикта тоже нет, а токены
+    потрачены и должны попасть в журнал."""
+    verdict = await _judge(Answers(200, _chat("", tokens=2000)))
+
+    assert verdict.unanswered
+    assert verdict.tokens == 2000
+    assert verdict.model == "gpt-5-mini"
+
+
+async def test_an_answer_is_a_verdict() -> None:
+    answer = json.dumps({"intent": "editorial_ads", "quote": "Write for Us", "why": "блог"})
+    verdict = await _judge(Answers(200, _chat(answer)))
+
+    assert not verdict.unanswered
+    assert verdict.intent is Intent.EDITORIAL_ADS
+    assert verdict.tokens == 500
+
+
+async def test_an_arbiter_that_did_not_answer_is_not_a_verdict() -> None:
+    home = HomeSignals(reached=True, title="Home Blog", nav=("Shop", "Blog"))
+
+    verdict = await arbitrate(
+        Answers(503, {"error": {"message": "overloaded"}}),  # type: ignore[arg-type]
+        host="blog.example",
+        serp=TITLE,
+        home=home,
+        model="gpt-5-mini",
+        api_key="sk-test",
+    )
+
+    assert verdict.unanswered
+    assert verdict.decided_by is Decider.ARBITER
+    assert verdict.reason.startswith("арбитр: ")

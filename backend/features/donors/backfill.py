@@ -34,7 +34,7 @@ from dataclasses import dataclass, field, replace
 from urllib.parse import urlparse
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import judge as judge_cfg
@@ -44,9 +44,9 @@ from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.run import RunModel
 from backend.features.donors.home_signals import check_home
 from backend.features.donors.judging import JudgeSummary, judge_candidates
-from backend.features.donors.repository import DonorRepository, JudgeRecord
+from backend.features.donors.repository import DonorRepository, JudgeRecord, judged_for_real
 from backend.features.runs.pipeline import JUDGE_OPERATION, SERP_OPERATION
-from backend.features.runs.planning import SerpText, gather_candidates
+from backend.features.runs.planning import SerpText, gather_candidates, saved_texts
 from backend.features.serp.protocol import SerpProvider
 
 logger = logging.getLogger(__name__)
@@ -89,6 +89,9 @@ async def plan_backfill(
 ) -> BackfillPlan:
     """Домены доноров без вердикта судьи и без решения человека.
 
+    Без вердикта — и тот, у кого на домене лишь след сбоя модели
+    (`repository.judged_for_real`): модель не ответила, судить надо снова.
+
     `rejudge` — пересудить и тех, у кого вердикт уже есть: судья улучшился,
     а старые вердикты вынесены прежним. Решение человека не трогается и тут.
     """
@@ -99,7 +102,7 @@ async def plan_backfill(
         .order_by(DonorModel.dr.desc().nullslast(), DomainModel.host)
     )
     if not rejudge:
-        statement = statement.where(DomainModel.judged_at.is_(None))
+        statement = statement.where(or_(DomainModel.judged_at.is_(None), not_(judged_for_real())))
     rows = await session.execute(statement)
     every = [host for (host,) in rows.all()]
     real = [host for host in every if not host.endswith(RESERVED_SUFFIX)]
@@ -109,20 +112,13 @@ async def plan_backfill(
     searches: list[tuple[str, list[str], int]] = []
     runs = await session.execute(select(RunModel).order_by(RunModel.id.desc()))
     for run in runs.scalars().all():
-        texts = (run.candidates or {}).get("texts")
-        if not isinstance(texts, dict):
+        if not isinstance((run.candidates or {}).get("texts"), dict):
             if run.keywords:
                 searches.append((run.country, list(run.keywords), run.depth_pages or 1))
             continue
-        for host, value in texts.items():
+        for host, text in saved_texts(run.candidates).items():
             # Прогоны идут от свежих к старым: первый найденный текст — свежий.
-            if host in saved or not isinstance(value, dict) or not value.get("url"):
-                continue
-            saved[host] = SerpText(
-                url=str(value["url"]),
-                title=value.get("title"),
-                description=value.get("description"),
-            )
+            saved.setdefault(host, text)
     wanted = set(hosts)
     return BackfillPlan(
         hosts=hosts,

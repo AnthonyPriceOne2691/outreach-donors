@@ -23,7 +23,9 @@
 
 **Отказ модели не отбрасывает домен.** Сбой, пустой ответ, нечитаемый
 формат — всё это «посмотри», а не «не подходит»: хоронить домен за то, что
-у нас не сработала модель, дороже, чем показать его человеку.
+у нас не сработала модель, дороже, чем показать его человеку. Но если
+модель не ответила вовсе (`Judgement.unanswered`), это «посмотри» — не
+вердикт: на домен оно не ложится, и в следующий раз домен судится снова.
 
 **Граница, найденная дымовым прогоном 23.09.** Сайт, который и публикует,
 и торгует своим (`kingarthurbaking.com` — рецепты плюс собственный магазин
@@ -190,6 +192,10 @@ class Judgement:
     #: платформа из денилиста и домен без текста выдачи.
     tokens: int = 0
     decided_by: Decider = Decider.MODEL
+    #: Модель не ответила (отказ, сбой, пустой ответ): вердикта нет. На домен
+    #: не ложится, кэшем не становится — иначе сбой одного вечера держит домен
+    #: без суда полгода (прогон №21, 24.09.2026 — 44 домена без ключа).
+    unanswered: bool = False
 
     @property
     def would_cut(self) -> bool:
@@ -378,11 +384,16 @@ async def judge_host(
     )
     if isinstance(answer, Refusal):
         logger.warning("%s: %s (%s)", TOPIC, answer, host)
-        return Judgement(Intent.UNKNOWN, Recommendation.REVIEW, None, str(answer))
+        return Judgement(Intent.UNKNOWN, Recommendation.REVIEW, None, str(answer), unanswered=True)
 
     content = content_of(answer, topic=TOPIC)
     if not content:
-        return Judgement(Intent.UNKNOWN, Recommendation.REVIEW, None, "пустой ответ модели")
+        # Оплачен: рассуждение съело потолок и до ответа не дошло.
+        empty = "пустой ответ модели"
+        tokens = tokens_of(answer)
+        return Judgement(
+            Intent.UNKNOWN, Recommendation.REVIEW, None, empty, chosen, tokens, unanswered=True
+        )
 
     verdict = parse(content, text)
     return Judgement(
@@ -450,14 +461,18 @@ async def arbitrate(
     if isinstance(answer, Refusal):
         logger.warning("%s, арбитр: %s (%s)", TOPIC, answer, host)
         return Judgement(
-            Intent.UNKNOWN, Recommendation.REVIEW, None, str(answer), decided_by=Decider.ARBITER
+            Intent.UNKNOWN,
+            Recommendation.REVIEW,
+            None,
+            f"арбитр: {answer}",
+            decided_by=Decider.ARBITER,
+            unanswered=True,
         )
     content = content_of(answer, topic=TOPIC)
-    verdict = (
-        parse(content, text)
-        if content
-        else Judgement(Intent.UNKNOWN, Recommendation.REVIEW, None, "пустой ответ модели")
+    silent = Judgement(
+        Intent.UNKNOWN, Recommendation.REVIEW, None, "арбитр: пустой ответ модели", unanswered=True
     )
+    verdict = parse(content, text) if content else silent
     return Judgement(
         verdict.intent,
         verdict.recommendation,
@@ -466,4 +481,5 @@ async def arbitrate(
         chosen,
         tokens_of(answer),
         Decider.ARBITER,
+        unanswered=verdict.unanswered,
     )

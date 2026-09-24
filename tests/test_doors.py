@@ -19,6 +19,7 @@ from backend.features.donors.judging import door_record
 from backend.features.donors.repository import DonorRepository, JudgeRecord
 from backend.features.review.candidates import RunReview
 from backend.features.runs.pipeline import RunRequest, execute_run
+from backend.features.runs.planning import SerpText
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import make_donor
@@ -58,7 +59,13 @@ class TestDoorCheck:
         assert await _door(session, "plain.test") == ""
         # Не открылась — не «двери нет»: про такой сайт мы не знаем ничего.
         assert await _door(session, "closed.test") is None
-        assert report.as_dict() == {"checked": 3, "found": 1, "unreached": 1, "opened": 0}
+        assert report.as_dict() == {
+            "checked": 3,
+            "found": 1,
+            "unreached": 1,
+            "opened": 0,
+            "on_page": 0,
+        }
 
     async def test_late_door_opens_a_sells_own_reject_as_the_judge_would(
         self, session: AsyncSession
@@ -86,6 +93,81 @@ class TestDoorCheck:
         # Посредник со страницей для авторов всё равно посредник.
         assert other.judge_recommendation == "reject"
         assert report.opened == 1
+
+    async def test_the_page_the_run_found_is_a_door_without_fetching_the_home(
+        self, session: AsyncSession
+    ) -> None:
+        """Прогон нашёл домен по странице для авторов — дверь видна сразу.
+        «Двери нет» в меню уступает двери страницы, а отказ «продаёт своё»,
+        вынесенный без неё, уходит человеку. Очередь №18: nextinhr.com
+        со страницей `/write-for-us` лежал в отказе."""
+        brand = await make_donor(session, "brand.test")
+        brand.site_door = ""
+        brand.site_intent, brand.judge_recommendation = "sells_own", "reject"
+        brand.judge_reason = "продаёт свою платформу"
+        await session.flush()
+        homes = Homes({})
+        pages = {
+            "brand.test": SerpText(url="https://brand.test/write-for-us", title="Write for Us")
+        }
+
+        report = await DoorCheck(homes)(DonorRepository(session), ["brand.test"], pages=pages)
+
+        await session.refresh(brand)
+        assert brand.site_door == "страница «write-for-us»"
+        assert brand.judge_recommendation == "review"
+        assert brand.judge_reason == (
+            "продаёт свою платформу · страница «write-for-us» — бренд принимает статьи, посмотри"
+        )
+        assert homes.asked == [], "дверь уже видна — главную не качаем"
+        assert (report.on_page, report.opened) == (1, 1)
+
+    async def test_a_known_door_is_not_replaced_by_the_page(self, session: AsyncSession) -> None:
+        known = await make_donor(session, "known.test")
+        known.site_door = "меню главной: «Advertise»"
+        await session.flush()
+        pages = {
+            "known.test": SerpText(url="https://known.test/write-for-us", title="Write for Us")
+        }
+
+        await DoorCheck(Homes({}))(DonorRepository(session), ["known.test"], pages=pages)
+
+        assert await _door(session, "known.test") == "меню главной: «Advertise»"
+
+    async def test_a_reject_that_never_saw_the_known_door_goes_to_the_human(
+        self, session: AsyncSession
+    ) -> None:
+        """Вердикт взят прогоном из кэша или вынесен до правила двери, а дверь
+        на домене уже известна: правило то же, что при суде."""
+        brand = await make_donor(session, "brand.test")
+        brand.site_door = "меню главной: «Advertise»"
+        brand.site_intent, brand.judge_recommendation = "sells_own", "reject"
+        brand.judge_reason = "продаёт своё"
+        await session.flush()
+
+        report = await DoorCheck(Homes({}))(DonorRepository(session), ["brand.test"])
+
+        await session.refresh(brand)
+        assert brand.judge_recommendation == "review"
+        assert report.opened == 1
+
+    async def test_a_list_of_other_sites_is_not_a_door(self, session: AsyncSession) -> None:
+        """Подборка «80+ Write for Us Sites» зовёт к чужим, а не к себе:
+        её пишут агентства и биржи. Очередь №18: w3era.com."""
+        await make_donor(session, "agency.test")
+        pages = {
+            "agency.test": SerpText(
+                url="https://agency.test/write-for-us-technology-blogs",
+                title="80+ Technology Write for Us Sites | Guest Post Blogs 2026",
+            )
+        }
+        homes = Homes({"agency.test": read_home(PLAIN)})
+
+        report = await DoorCheck(homes)(DonorRepository(session), ["agency.test"], pages=pages)
+
+        assert report.on_page == 0
+        assert homes.asked == ["agency.test"]
+        assert await _door(session, "agency.test") == ""
 
     async def test_known_doors_are_not_fetched_again(self, session: AsyncSession) -> None:
         known = await make_donor(session, "known.test")
@@ -157,6 +239,21 @@ class TestTheRunLooksAtItsQueue:
         assert await _door(session, "good.com") == "меню главной: «Advertise»"
         assert report.doors is not None
         assert report.doors.found == 1
+
+    async def test_the_run_hands_its_pages_to_the_door_check(self, session: AsyncSession) -> None:
+        """Страница, по которой прогон нашёл домен, — та же дверь, что меню,
+        только бесплатно и без главной."""
+        serp = FakeSerp(["https://good.com/write-for-us"])
+        deps = await _deps(session, serp, _ahrefs({"good.com": GOOD}))
+        homes = Homes({})
+        deps = replace(deps, review=RunReview(session), doors=DoorCheck(homes))
+
+        report = await execute_run(deps, RunRequest(["crm"], "us", T, await _settings_id(session)))
+
+        assert homes.asked == []
+        assert await _door(session, "good.com") == "страница «write-for-us»"
+        assert report.doors is not None
+        assert report.doors.on_page == 1
 
     async def test_a_broken_check_does_not_break_the_run(self, session: AsyncSession) -> None:
         """Платное уже сделано и лежит в очереди: сбой проверки меню —

@@ -362,13 +362,13 @@
       "worst": "_add_reply:285"
     },
     "backend/cli/doors.py": {
-      "lines": 86,
+      "lines": 97,
       "complexity": 6,
-      "worst": "cmd_doors:50"
+      "worst": "cmd_doors:52"
     },
     "backend/cli/judge_backfill.py": {
-      "lines": 122,
-      "complexity": 6,
+      "lines": 127,
+      "complexity": 7,
       "worst": "_print_report:90"
     },
     "backend/cli/keywords_pool.py": {
@@ -747,14 +747,14 @@
       "worst": "—"
     },
     "backend/features/donors/author_door.py": {
-      "lines": 127,
+      "lines": 151,
       "complexity": 5,
-      "worst": "_door_in_url:69"
+      "worst": "_door_in_url:86"
     },
     "backend/features/donors/backfill.py": {
-      "lines": 281,
-      "complexity": 16,
-      "worst": "plan_backfill:87"
+      "lines": 277,
+      "complexity": 14,
+      "worst": "backfill:203"
     },
     "backend/features/donors/browse.py": {
       "lines": 183,
@@ -767,9 +767,9 @@
       "worst": "_screen_batch:117"
     },
     "backend/features/donors/doors.py": {
-      "lines": 139,
+      "lines": 179,
       "complexity": 7,
-      "worst": "__call__:79"
+      "worst": "__call__:93"
     },
     "backend/features/donors/export.py": {
       "lines": 57,
@@ -792,19 +792,19 @@
       "worst": "normalize_host:37"
     },
     "backend/features/donors/judging.py": {
-      "lines": 365,
+      "lines": 389,
       "complexity": 13,
-      "worst": "judge_candidates:302"
+      "worst": "judge_candidates:326"
     },
     "backend/features/donors/publisher_judge.py": {
-      "lines": 470,
+      "lines": 486,
       "complexity": 9,
-      "worst": "parse:283"
+      "worst": "parse:289"
     },
     "backend/features/donors/repository.py": {
-      "lines": 289,
+      "lines": 338,
       "complexity": 8,
-      "worst": "_donor_values:268"
+      "worst": "_donor_values:317"
     },
     "backend/features/donors/selection.py": {
       "lines": 354,
@@ -1117,17 +1117,17 @@
       "worst": "recover:141"
     },
     "backend/features/runs/pipeline.py": {
-      "lines": 364,
+      "lines": 378,
       "complexity": 9,
-      "worst": "execute_run:250"
+      "worst": "execute_run:264"
     },
     "backend/features/runs/planning.py": {
-      "lines": 315,
+      "lines": 331,
       "complexity": 7,
-      "worst": "gather_candidates:210"
+      "worst": "gather_candidates:226"
     },
     "backend/features/runs/report.py": {
-      "lines": 179,
+      "lines": 183,
       "complexity": 9,
       "worst": "run_stats:114"
     },
@@ -1197,9 +1197,9 @@
       "worst": "is_demo:19"
     },
     "backend/shared/llm.py": {
-      "lines": 168,
+      "lines": 196,
       "complexity": 6,
-      "worst": "post_chat:93"
+      "worst": "post_chat:126"
     },
     "backend/shared/logs/__init__.py": {
       "lines": 6,
@@ -1217,9 +1217,9 @@
       "worst": "—"
     },
     "backend/shared/net/retry.py": {
-      "lines": 135,
+      "lines": 142,
       "complexity": 7,
-      "worst": "with_retries:85"
+      "worst": "with_retries:92"
     },
     "backend/shared/net/url_guard.py": {
       "lines": 168,

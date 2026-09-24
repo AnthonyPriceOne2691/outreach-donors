@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -19,6 +20,7 @@ from backend.features.donors import backfill as module
 from backend.features.donors.backfill import FROM_HOME, backfill, plan_backfill
 from backend.features.donors.home_signals import HomeSignals
 from backend.features.donors.publisher_judge import Intent, Judgement, Recommendation
+from backend.features.donors.repository import DonorRepository
 from backend.features.donors.verdict import Thresholds
 from backend.features.runs.planning import Candidates, SerpText
 from backend.features.runs.repository import RunRepository
@@ -207,3 +209,47 @@ async def test_without_serp_goes_straight_to_home(
 
     assert report.no_text == 3, "без текста не судим: вердикт по пустоте был бы угадан"
     assert report.judge.judged == 1
+
+
+async def _verdicts_of_every_kind(session: AsyncSession) -> None:
+    now = datetime.now(UTC)
+    # След сбоя: до 25.09.2026 отказ модели ложился на домен так (№21, 44 домена).
+    await _donor(
+        session, "silent.com", site_intent="unknown", judge_recommendation="review",
+        judge_decided_by="model", judged_at=now,
+    )  # fmt: skip
+    # Старый судья без отметки «кто решил» и без модели — тоже не вердикт.
+    await _donor(
+        session, "oldjudge.com", site_intent="unknown", judge_recommendation="review",
+        judged_at=now,
+    )  # fmt: skip
+    await _donor(
+        session, "judged.com", site_intent="editorial_ads", judge_recommendation="accept",
+        judge_model="gpt-5-mini", judge_decided_by="model", judged_at=now,
+    )  # fmt: skip
+    await _donor(
+        session, "platform.com", site_intent="none", judge_recommendation="reject",
+        judge_decided_by="rule", judged_at=now,
+    )  # fmt: skip
+
+
+async def test_a_trace_of_a_silent_model_is_judged_again(session: AsyncSession) -> None:
+    """Досуд берёт домен, у которого на месте вердикта лишь след сбоя модели,
+    а настоящий вердикт и решение правила не трогает."""
+    await _verdicts_of_every_kind(session)
+
+    plan = await plan_backfill(session)
+
+    assert set(plan.hosts) == {"silent.com", "oldjudge.com"}
+
+
+async def test_the_judge_cache_does_not_trust_a_silent_model(session: AsyncSession) -> None:
+    """Кэш судьи — отметка времени на домене. След сбоя ею быть не должен:
+    иначе домен полгода не судится вовсе."""
+    await _verdicts_of_every_kind(session)
+
+    fresh = await DonorRepository(session).fresh_judged(
+        ["silent.com", "oldjudge.com", "judged.com", "platform.com"]
+    )
+
+    assert set(fresh) == {"judged.com", "platform.com"}

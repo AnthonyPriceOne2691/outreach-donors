@@ -17,20 +17,28 @@
 про такой сайт мы не знаем ничего, и записать ему «двери нет» значило
 бы поставить его ниже тех, у кого её точно нет, по выдумке. Сколько
 не открылось — отдельное число в отчёте, а не отсутствие записи.
+
+**Сначала — страница, по которой домен нашёлся.** Если это страница
+для авторов, качать главную незачем: дверь уже видна, и бесплатно.
+Судья видит ту же страницу, но только когда судит: вердикт из кэша
+или вынесенный до правила двери её не видел, и отказ «продаёт своё»
+у такого домена открывается здесь.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from types import MappingProxyType
 
 from backend.config import judge as judge_cfg
 from backend.features.donors.author_door import author_door
 from backend.features.donors.home_signals import HomeSignals, check_home
 from backend.features.donors.repository import DonorRepository
+from backend.features.runs.planning import SerpText
 from backend.shared.net.url_guard import guarded_client
 
 logger = logging.getLogger(__name__)
@@ -47,13 +55,15 @@ CHUNK = 40
 
 @dataclass(slots=True)
 class DoorReport:
-    """Что увидела проверка. Три числа, потому что новости три."""
+    """Что увидела проверка. Каждое число — своя новость."""
 
     checked: int = 0
     found: int = 0
     unreached: int = 0
     #: Отказов «продаёт своё», которые дверь перевела к человеку.
     opened: int = 0
+    #: Дверь видна на самой странице выдачи — главную не качали.
+    on_page: int = 0
 
     def as_dict(self) -> dict[str, int]:
         return {
@@ -61,8 +71,12 @@ class DoorReport:
             "found": self.found,
             "unreached": self.unreached,
             "opened": self.opened,
+            "on_page": self.on_page,
         }
 
+
+#: Страниц выдачи нет — так зовут проверку тесты и старые вызовы.
+NO_PAGES: Mapping[str, SerpText] = MappingProxyType({})
 
 FetchHome = Callable[[str], Awaitable[HomeSignals]]
 Checkpoint = Callable[[], Awaitable[None]]
@@ -81,14 +95,18 @@ class DoorCheck:
         donors: DonorRepository,
         hosts: Sequence[str],
         *,
+        pages: Mapping[str, SerpText] = NO_PAGES,
         checkpoint: Checkpoint | None = None,
     ) -> DoorReport:
-        """Посмотреть меню главных у тех, про чью дверь не знаем.
+        """Двери очереди: страница выдачи, потом меню главных у тех, про
+        чью дверь всё ещё не знаем.
 
-        `checkpoint` фиксирует записанное после каждой пачки. Без него
-        записанное ждёт фиксации вызывающего — так в тестах.
+        `pages` — по какой странице прогон нашёл домен. `checkpoint`
+        фиксирует записанное после каждой пачки. Без него записанное ждёт
+        фиксации вызывающего — так в тестах.
         """
         report = DoorReport()
+        await self._pages(donors, hosts, pages, report, checkpoint)
         unknown = await donors.hosts_without_door(hosts)
         for start in range(0, len(unknown), CHUNK):
             chunk = unknown[start : start + CHUNK]
@@ -106,14 +124,36 @@ class DoorCheck:
             if checkpoint is not None:
                 await checkpoint()
         logger.info(
-            "двери сайтов: проверено %s, зовут авторов или рекламодателей %s, не открылись %s, "
-            "отказов «продаёт своё» отдано человеку %s",
+            "двери сайтов: на странице выдачи %s, главных проверено %s, зовут авторов "
+            "или рекламодателей %s, не открылись %s, отказов «продаёт своё» отдано человеку %s",
+            report.on_page,
             report.checked,
             report.found,
             report.unreached,
             report.opened,
         )
         return report
+
+    @staticmethod
+    async def _pages(
+        donors: DonorRepository,
+        hosts: Sequence[str],
+        pages: Mapping[str, SerpText],
+        report: DoorReport,
+        checkpoint: Checkpoint | None,
+    ) -> None:
+        """Дверь на странице выдачи — бесплатно и до главных: у кого она
+        видна, того главную качать незачем."""
+        on_page: dict[str, str] = {}
+        for host in hosts:
+            text = pages.get(host)
+            door = author_door(text.url, text.title) if text is not None else None
+            if door:
+                on_page[host] = door
+        report.on_page = len(on_page)
+        report.opened = await donors.open_doors(hosts, on_page)
+        if checkpoint is not None and (on_page or report.opened):
+            await checkpoint()
 
     async def _home(self, host: str) -> HomeSignals:
         async with self._limit:

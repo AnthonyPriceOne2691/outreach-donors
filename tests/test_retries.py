@@ -35,6 +35,20 @@ class TestWhatIsRepeated:
         assert response.status_code == 200
         assert seen == [status, 200]
 
+    async def test_a_request_we_could_not_build_is_not_repeated(self) -> None:
+        """Пустой ключ даёт заголовок `Bearer `, и httpx его не собирает.
+        До сети запрос не дошёл, повтор соберёт его так же — ждать нечего."""
+        calls: list[int] = []
+
+        async def call() -> httpx.Response:
+            calls.append(1)
+            raise httpx.LocalProtocolError("Illegal header value b'Bearer '")
+
+        with pytest.raises(httpx.LocalProtocolError):
+            await with_retries(call, attempts=3, topic="проверка")
+
+        assert calls == [1]
+
     async def test_permanent_refusal_is_not_repeated(self) -> None:
         """«Неверный ключ» повтором не лечится: три попытки — это
         втрое дольше идти к тому же ответу."""
