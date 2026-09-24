@@ -15,8 +15,10 @@
 внутри запроса означал бы повторные списания там, где сеть подтормозила.
 Вебхук делает всё дешёвое и отвечает; цену разбирает очередь.
 
-**Модель зовётся только для ответов людей.** Разбирать цену в отказе
-доставки или в автоответчике — платить за заведомо пустой результат.
+**Модель зовётся только для ответов людей — и только доноров.** Разбирать
+цену в отказе доставки или в автоответчике — платить за заведомо пустой
+результат; разбирать её в ответе рекламодателя — записать его расход
+ценой площадки (`outcome.ADVERTISER_LEAD`).
 
 **Непривязанное сохраняется.** Ответ, который не удалось соотнести, —
 это не мусор, а потерянный донор. Молча отброшенный, он выглядит как
@@ -33,7 +35,7 @@ from datetime import UTC, datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core import usage
-from backend.features.core.domain import ReplyKind
+from backend.features.core.domain import ReplyKind, Stage
 from backend.features.core.models.outreach import ReplyModel
 from backend.features.replies import binding, classify, outcome
 from backend.features.replies import extract as extract_mod
@@ -131,7 +133,7 @@ class Inbox:
 
         # Решения, не зависящие от цены: остановка цепочки, стоп-лист,
         # отметка мёртвого адреса, запоминание отвечающего.
-        consequences = outcome.decide(verdict.kind, None)
+        consequences = outcome.decide(verdict.kind, None, stage=addressee.stage)
         await self._apply(consequences, incoming=incoming, addressee=addressee)
 
         return Accepted(
@@ -142,7 +144,7 @@ class Inbox:
             bound=True,
             needs_review=consequences.needs_review,
             review_reason=consequences.review_reason,
-            parse_pending=verdict.kind is ReplyKind.HUMAN,
+            parse_pending=verdict.kind is ReplyKind.HUMAN and addressee.stage is Stage.DONORS,
         )
 
     # --- шаги ---
@@ -232,6 +234,11 @@ class Parser:
             # Разбирать нечего, и это не ошибка: задача могла быть
             # поставлена до того, как вид ответа уточнили.
             return Parsed(reply_id, 0.0, False, False, None, 0)
+        if await self._repo.stage_of(reply) is Stage.ADVERTISERS:
+            # Приём такой разбор не ставит; пришла задача — значит, её
+            # поставили в обход, и платить за неё модели незачем.
+            logger.warning("разбор: ответ №%s — %s, отказ", reply_id, outcome.ADVERTISER_LEAD)
+            return Parsed(reply_id, 0.0, False, True, outcome.ADVERTISER_LEAD, 0)
 
         found = await self._extractor.extract(_as_incoming(reply))
         if found.tokens_spent:

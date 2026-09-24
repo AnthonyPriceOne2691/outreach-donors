@@ -1,0 +1,30 @@
+# Первое напоминание рекламодателю (шаг 1). Уходит само, по сроку
+# рассылки после первого письма.
+#
+# Текст черновой, как и у оффера: боевой приходит со стороны задачи.
+#
+# Зон три и все неизменяемые: модель сюда не зовут (решение 21.09.2026).
+# Запреты те же, что у оффера: ни цены донора, ни метрик.
+#
+# **Найденной ссылки здесь нет намеренно.** Она названа в первом письме,
+# а оно процитировано в треде целиком. Подставлять её снова значило бы
+# брать ссылку у рекламодателя в день добивки — а лучшая ссылка при
+# пересчёте обхода меняется, и напоминание говорило бы о другой
+# площадке, чем письмо, на которое оно ссылается.
+#
+# **Тема ниже — запасная.** Добивка уходит темой отправленного первого
+# письма (`followups.Chain.compose_letter`): переписка одна, и у адресата
+# письма должны лежать одной веткой. Эта строка нужна разбору и сработает,
+# только если первого письма в переписке почему-то нет.
+
+subject: Following up on your placements
+
+[greeting] fixed
+Hi again,
+
+[reminder] fixed
+Just following up on my note from last week about the sponsored placement of yours that I came across. If you place articles like that regularly, a one-line reply with roughly how often and where would be enough for me to come back with what the same placements would cost through us.
+
+[signature] fixed
+Best regards,
+{{sender_name}}

@@ -28,6 +28,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from backend.config import outreach as cfg
+from backend.features.core.domain import Stage
 from backend.features.letters.uniqueness import words
 
 #: Заголовок зоны: `[имя] вид`.
@@ -102,10 +103,22 @@ class Spec:
     #: Проверять ли достижимость коридора уникальности. У добивки
     #: переписываемых зон нет вовсе, и проверка отказала бы всегда.
     corridor: bool
+    #: Подстановки, которые обязаны дойти до адресата дословно: стоять
+    #: хотя бы в одной неизменяемой зоне и ни в одной переписываемой.
+    verbatim: tuple[str, ...] = ()
 
 
 #: Первое письмо: набор зон задан ТЗ, уникализация обязательна.
 FIRST = Spec(zones=REQUIRED_ZONES, corridor=True)
+
+#: Оффер рекламодателю: зоны и коридор те же, что у письма донору, плюс
+#: найденная ссылка дословно. Требование пишет письмо «под конкретную
+#: найденную ссылку — страницу и анкор»; в переписываемой зоне модель
+#: вправе её пересказать или выбросить — промпт запрещает ей утверждать,
+#: что она читала статью, и фраза про конкретную страницу первая на вылет.
+ADVERTISER = Spec(
+    zones=REQUIRED_ZONES, corridor=True, verbatim=("donor_host", "page_url", "anchor")
+)
 
 #: Добивка: шаблон целиком, модель не участвует (решение 21.09.2026).
 FOLLOWUP = Spec(zones=FOLLOWUP_ZONES, corridor=False)
@@ -255,6 +268,29 @@ def _check_placeholders(template: Template) -> None:
             )
 
 
+def _check_verbatim(template: Template, spec: Spec) -> None:
+    """Подстановки, которые модель не должна видеть, — только в неизменяемых зонах.
+
+    Проверяется при разборе, а не у адресата: письмо, где анкор пересказан
+    своими словами, выглядит готовым и уходит, и увидеть потерю можно
+    только в чужом ящике.
+    """
+    for name in spec.verbatim:
+        token = f"{{{{{name}}}}}"
+        loose = [z.name for z in template.of_kind(ZoneKind.REWRITE) if token in z.text]
+        if loose:
+            raise TemplateError(
+                f"Подстановка {token} стоит в переписываемой зоне «{', '.join(loose)}»: "
+                "модель может её пересказать или выбросить. Перенести в неизменяемую зону"
+            )
+        if not any(token in z.text for z in template.of_kind(ZoneKind.FIXED)):
+            raise TemplateError(
+                f"В письме нет подстановки {token}: письмо рекламодателю пишется под "
+                "найденную ссылку — площадку, страницу и анкор. Поставить её "
+                "в неизменяемую зону"
+            )
+
+
 def _check_corridor(template: Template) -> None:
     """Достижим ли нижний край коридора вообще.
 
@@ -283,6 +319,7 @@ def parse(text: str, spec: Spec = FIRST) -> Template:
     _check_zones(zones, spec)
     template = Template(subject=subject, zones=tuple(zones))
     _check_placeholders(template)
+    _check_verbatim(template, spec)
     if spec.corridor:
         _check_corridor(template)
     return template
@@ -318,17 +355,55 @@ def advertiser() -> Template:
     не набором зон, а тем, чего в них нельзя, — и место, где это
     записано, должно быть одно.
     """
-    return load(ADVERTISER_PATH)
+    return load(ADVERTISER_PATH, ADVERTISER)
 
 
-def followup(step: int) -> Template:
+#: Первое письмо этапа: файл по умолчанию и требования к нему. Этап
+#: письма — этап рассылки, и перепутать их значит отправить рекламодателю
+#: вопрос о цене его же размещения.
+_FIRST_LETTER: dict[Stage, tuple[Path, Spec]] = {
+    Stage.DONORS: (DEFAULT_PATH, FIRST),
+    Stage.ADVERTISERS: (ADVERTISER_PATH, ADVERTISER),
+}
+
+
+def spec_for(stage: Stage) -> Spec:
+    """Требования к первому письму этапа."""
+    return _FIRST_LETTER[stage][1]
+
+
+def for_stage(stage: Stage) -> Template:
+    """Первое письмо этапа по умолчанию."""
+    path, spec = _FIRST_LETTER[stage]
+    return load(path, spec)
+
+
+def of_campaign(stage: Stage, stored: str | None) -> Template:
+    """Текст первого письма рассылки: утверждённый при её создании или умолчание этапа.
+
+    Сохранённый текст разбирается требованиями своего этапа: оффер
+    рекламодателю без найденной ссылки не должен собраться, откуда бы
+    он ни пришёл.
+    """
+    return parse(stored, spec_for(stage)) if stored else for_stage(stage)
+
+
+#: Имена файлов добивок по этапам: `<префикс>_<шаг>.txt`.
+_FOLLOWUP_PREFIX: dict[Stage, str] = {
+    Stage.DONORS: "followup",
+    Stage.ADVERTISERS: "advertiser_followup",
+}
+
+
+def followup(step: int, stage: Stage = Stage.DONORS) -> Template:
     """Шаблон добивки. Шаг 1 — первое напоминание, 2 — последнее.
 
     Шаблоны лежат файлами рядом с первым письмом, а не строками в базе:
     текст добивки один на всю рассылку, правится редко и должен
-    проходить ревью кодом.
+    проходить ревью кодом. У этапов добивки свои: донору напоминают
+    о вопросе про цену, рекламодателю — об оффере.
     """
-    path = TEMPLATES / f"followup_{step}.txt"
+    path = TEMPLATES / f"{_FOLLOWUP_PREFIX[stage]}_{step}.txt"
     if not path.exists():
         raise TemplateError(
             f"Шаблона добивки для шага {step} нет ({path.name}). "

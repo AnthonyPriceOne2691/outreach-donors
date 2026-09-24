@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.features.access.repository import AccessRepository
 from backend.features.core import usage
 from backend.features.core.domain import AuditAction, MessageStatus, SenderStatus, Stage
+from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.ops import SuppressionModel
@@ -61,6 +62,11 @@ class SuppressedError(SendError):
 class RejectedDonorError(SuppressedError):
     """Донора отклонили после сборки письма. Для цепочки — как стоп-лист:
     писать ему больше не будем."""
+
+
+class RemovedAdvertiserError(SuppressedError):
+    """Рекламодателя сняли после сборки письма: стоп-лист поставщиков или
+    общий отсеял его задним числом. Для цепочки — как стоп-лист."""
 
 
 class UndecidedDonorError(SendError):
@@ -183,10 +189,11 @@ class Sending:
 
         Между сборкой и отправкой человек может передумать: принять, вернуть
         в «предложен», отклонить (Anthony, 24.09.2026). Без этой проверки
-        письмо, собранное для принятого, ушло бы отклонённому. Только для
-        доноров: рекламодатели Этапа 2 проходят рассмотрение иначе.
+        письмо, собранное для принятого, ушло бы отклонённому. Рекламодатели
+        Этапа 2 рассмотрения донора не проходят, у них своя проверка.
         """
-        if target.stage is not Stage.DONORS or target.message.domain_id is None:
+        if target.stage is Stage.ADVERTISERS:
+            await self._check_advertiser(target)
             return
         review = await self._session.scalar(
             select(DonorModel.review).where(DonorModel.domain_id == target.message.domain_id)
@@ -202,6 +209,23 @@ class Sending:
             f"Донора {target.host} вернули на рассмотрение после сборки письма "
             f"№{target.message.id}. Сначала решить на экране прогона"
         )
+
+    async def _check_advertiser(self, target: _Target) -> None:
+        """Рекламодатель ещё рекламодатель.
+
+        Перевод кандидатов снимает тех, кого стоп-лист поставщиков или общий
+        отсеял задним числом: донор стал партнёром — и его рекламодатели
+        теперь чужие клиенты. Письмо, собранное до этого, уйти не должно,
+        а добивка — тем более: для цепочки это как стоп-лист.
+        """
+        still = await self._session.scalar(
+            select(AdvertiserModel.id).where(AdvertiserModel.domain_id == target.message.domain_id)
+        )
+        if still is None:
+            raise RemovedAdvertiserError(
+                f"Рекламодателя {target.host} сняли после сборки письма №{target.message.id}: "
+                "его отсеял стоп-лист поставщиков или общий. Письмо стоит убрать из очереди"
+            )
 
     async def _check_suppression(self, target: _Target) -> None:
         """Стоп-лист на двух уровнях: адрес блокирует себя, донор — все свои
@@ -238,9 +262,15 @@ class Sending:
         unset = compose.unset_in(target.message.body or "")
         if unset:
             names = ", ".join(title.split(" НЕ ЗАДАН")[0].lower() for title in unset)
+            # Пустую ссылку подключение почты не лечит: у рекламодателя
+            # не нашлось, под что писать, и письмо собирается заново.
+            cure = (
+                "письмо стоит убрать и собрать очередь заново"
+                if compose.LINK_TITLES & set(unset)
+                else "настраивается при подключении почты, после него очередь собирается заново"
+            )
             raise NotReadyError(
-                f"Письмо №{target.message.id} пока не отправить: не задано {names} — "
-                "настраивается при подключении почты, после него очередь собирается заново"
+                f"Письмо №{target.message.id} пока не отправить: не задано {names} — {cure}"
             )
 
     async def _cadence(self, campaign_id: int) -> list[int] | None:

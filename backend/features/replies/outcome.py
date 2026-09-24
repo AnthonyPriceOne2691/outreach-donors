@@ -25,6 +25,12 @@
 **Цена ниже порога уверенности не попадает в базу.** Она остаётся
 при ответе и ждёт человека: приёмка требует не более 5% ошибок, и без
 этой ветки порог не держится.
+
+**Ответ рекламодателя — лид, а не цена.** Этап 2 предлагает ему покупать
+размещения дешевле, и «мы платим $300 за статью» в ответе — его расход,
+а не цена площадки. Разобранный как цена донора, он лёг бы в карточку
+сайта, который заодно бывает донором, и стал бы ценой, которой никто
+не называл. Такой ответ ведёт человек.
 """
 
 from __future__ import annotations
@@ -32,8 +38,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from backend.config import outreach as cfg
-from backend.features.core.domain import ReplyKind
+from backend.features.core.domain import ReplyKind, Stage
 from backend.features.replies.extract import Extracted
+
+#: Почему ответ рекламодателя ждёт человека — словами, для карточки.
+ADVERTISER_LEAD = "ответ рекламодателя — лид: цену не разбираем, его ведёт человек"
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,8 +77,9 @@ def decide(
     found: Extracted | None = None,
     *,
     threshold: float | None = None,
+    stage: Stage = Stage.DONORS,
 ) -> Consequences:
-    """Последствия одного ответа."""
+    """Последствия одного ответа. Этап — этап рассылки, на письмо которой ответили."""
     limit = cfg.PRICE_CONFIDENCE_THRESHOLD if threshold is None else threshold
 
     if kind is ReplyKind.BOUNCE:
@@ -84,7 +94,20 @@ def decide(
         # а не событие.
         return Consequences()
 
-    # Ответил человек.
+    if stage is Stage.ADVERTISERS:
+        # Ответил рекламодатель: цепочка кончилась, дальше — человек.
+        return Consequences(
+            stop_chain=True,
+            remember_answering_address=True,
+            needs_review=True,
+            review_reason=ADVERTISER_LEAD,
+        )
+
+    return _donor_answer(found, limit)
+
+
+def _donor_answer(found: Extracted | None, limit: float) -> Consequences:
+    """Ответил донор: цена, её отсутствие или ответ на главный вопрос без неё."""
     answered = _answer_without_price(found, limit)
     if answered is not None:
         return answered

@@ -40,7 +40,7 @@ from backend.features.letters.stoplist import StopListError
 from backend.features.letters.template import TemplateError
 from backend.features.letters.transport import TransportError
 from backend.features.outreach.repository import UnknownSenderError, UnknownThreadError
-from backend.features.replies.repository import UnknownReplyError
+from backend.features.replies.repository import NotAPriceError, UnknownReplyError
 from backend.features.review.candidates import NotInRunError
 from backend.features.review.candidates import UnknownRunError as ReviewUnknownRunError
 from backend.features.runs.browse import UnknownRunError
@@ -63,6 +63,8 @@ STATUSES: dict[type[Exception], int] = {
     # а не про запрос, и все четыре человек чинит сам.
     SendError: status.HTTP_409_CONFLICT,
     NotEditableError: status.HTTP_409_CONFLICT,
+    # Подтверждать цену в ответе рекламодателя: его расход не цена площадки.
+    NotAPriceError: status.HTTP_409_CONFLICT,
     # Транспорта нет или он не тот. Это тоже состояние развёртывания,
     # и текст отказа называет, чего не хватает.
     TransportError: status.HTTP_409_CONFLICT,

@@ -26,8 +26,19 @@
 #   {{donor_host}}  — площадка, где нашли ссылку
 #   {{page_url}}    — конкретная страница с ссылкой
 #   {{anchor}}      — текст той самой ссылки
-# Они и есть персонализация, которую требует требование: письмо пишется
+# Они и есть персонализация, которую просит требование: письмо пишется
 # «под конкретную найденную ссылку — страницу и анкор».
+#
+# **Все три стоят в неизменяемой зоне `offer`, и разбор это проверяет**
+# (`template.ADVERTISER`). Раньше фраза со ссылкой жила во вступлении,
+# то есть уходила в модель, а промпт запрещает ей утверждать, что она
+# читала статью: фраза про конкретную страницу вылетала бы первой,
+# а с ней и вся персонализация. Вступление поэтому общее — оно о нас,
+# а не о странице.
+#
+# Переписываемая часть — около половины письма. Меньше нельзя: у прежнего
+# текста она занимала 38%, и даже просьба «поменяй половину» давала
+# письмо у самого нижнего края коридора отличия.
 #
 # Абзац — одна строка, без переносов по ширине: жёсткий перенос рвёт
 # фразу посередине и переживает пересылку хуже, чем его отсутствие.
@@ -35,19 +46,19 @@
 subject: Your placement on {{donor_host}}
 
 [greeting] rewrite
-Hello,
+Hello there,
 
 [opening] rewrite
-I came across your link on {{donor_host}} — the one anchored "{{anchor}}" on {{page_url}}. That is the kind of placement I work with every week, which is why I am writing.
+I arrange sponsored articles on publisher sites for a living, so a good part of my week goes into looking at who places links where. Your company came up while I was going through one of the sites I work with.
 
 [offer] fixed
-I run placements on sites like this one for a living, and I buy them at agency rates rather than at the price a publisher quotes to a direct advertiser. If you are placing articles there regularly, I can almost certainly get you the same spot for less than you are paying now.
+It was your link on {{donor_host}}, anchored "{{anchor}}", on this page: {{page_url}}. I buy placements on sites like that one at agency rates, below what a publisher quotes to a direct advertiser, so I can most likely get you the same spot for less.
 
 [ask] rewrite
-Would it be worth a short conversation? If you tell me roughly how often you place and where, I will come back with what it would cost through us.
+Would it make sense to compare notes? If you let me know roughly how often you place articles and on which sites, I will come back with what the same placements would cost through us, and you can judge for yourself whether switching is worth it.
 
 [terms] fixed
-No commitment and no retainer: you approve every placement before it is bought, you see the live URL, and you pay per article. If our price is not better than yours, I will say so and we both save the time.
+No commitment and no retainer: you approve each placement before it is bought, you get the live URL, and you pay per article. If we cannot beat your current price, I will tell you so.
 
 [signature] fixed
 Best regards,

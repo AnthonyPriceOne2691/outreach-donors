@@ -1,0 +1,24 @@
+# Последнее напоминание рекламодателю (шаг 2). После него цепочка
+# кончается.
+#
+# Текст черновой, как и у оффера: боевой приходит со стороны задачи.
+#
+# Письмо прямо говорит, что оно последнее, — по той же причине, что
+# и у донора: адресат, получивший три письма без обещания замолчать,
+# жмёт «спам», а жалоба бьёт по всем доменам рассылки этапа разом.
+# Рекламодатель нас не звал, и этот этап конфликтнее первого.
+#
+# Тема — запасная, как и у первого напоминания: уходит тема первого
+# письма переписки.
+
+subject: Following up on your placements
+
+[greeting] fixed
+Hello,
+
+[reminder] fixed
+This is my last note about getting your sponsored placements for less — I won't write again after this one. If it is of interest, just reply and I'll take it from there. If not, no reply is needed, and thank you for your time.
+
+[signature] fixed
+Best regards,
+{{sender_name}}

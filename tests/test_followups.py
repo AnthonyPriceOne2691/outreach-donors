@@ -266,6 +266,20 @@ class TestThePass:
         # И сразу назначен срок последнего письма цепочки.
         assert followup.next_action_at == later + timedelta(days=2)
 
+    async def test_followup_keeps_the_subject_the_first_letter_went_with(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        """Тема первого письма могла быть поправлена на экране — у этого
+        она «Advertising rates», а у шаблона добивки «Guest article on …».
+        Добивка чужой темой легла бы у донора отдельной веткой."""
+        first, _ = await _chain_start(session, followup_days=[1, 2])
+
+        await send_due(session, transport=NullTransport(), limit=5, now=NOW + timedelta(days=2))
+
+        followup = await session.scalar(select(MessageModel).where(MessageModel.step == 1))
+        assert followup is not None
+        assert followup.subject == first.subject == "Advertising rates"
+
     async def test_transport_gets_the_thread_anchor(
         self, session: AsyncSession, filled_legal: None
     ) -> None:

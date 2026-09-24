@@ -35,7 +35,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select, update
@@ -159,20 +159,29 @@ class Chain:
         await self._session.flush()
 
     async def compose_letter(self, claimed: Claimed) -> compose.Letter:
-        """Текст добивки: шаблон шага с подстановками этого донора.
+        """Текст добивки: шаблон шага этапа рассылки с подстановками адресата.
 
         Модель не участвует — решение 21.09.2026. Запреты те же, что
         у первого письма: метрики Ahrefs в письмо не просачиваются
         (`guards`), незаполненная подстановка видна в тексте
         и останавливает отправку.
+
+        **Тема — у отправленного первого письма, а не у шаблона добивки.**
+        Переписка одна, и у адресата письма должны лежать одной веткой.
+        Тема шаблона совпадала с первым письмом, только пока оно уходило
+        темой по умолчанию: тема, поправленная на экране, или тема оффера
+        с площадкой, которую пересчёт обхода успел сменить, давали добивку
+        отдельной веткой — о другом, чем письмо, на которое она ссылается.
         """
+        stage = await self._stage(claimed.campaign_id)
         rendered = compose.render(
-            template.followup(claimed.step),
+            template.followup(claimed.step, stage),
             compose.values_for(host=claimed.host, domain_id=claimed.domain_id),
         )
         letter = compose.assemble(rendered, {})
         guards.assert_no_metrics(letter.body)
-        return letter
+        first = await self._first_subject(claimed.thread_id)
+        return replace(letter, subject=first) if first else letter
 
     async def materialize(self, claimed: Claimed, letter: compose.Letter) -> MessageModel:
         """Завести строку добивки. В очередь согласования она не идёт.
@@ -240,6 +249,18 @@ class Chain:
         if campaign is None:
             raise FollowupError(f"Рассылки №{campaign_id} нет — добивка осиротела")
         return campaign.stage
+
+    async def _first_subject(self, thread_id: int | None) -> str | None:
+        """Тема первого письма переписки — та, с которой оно ушло."""
+        if thread_id is None:
+            return None
+        subject = await self._session.scalar(
+            select(MessageModel.subject)
+            .where(MessageModel.thread_id == thread_id, MessageModel.step == FIRST_STEP)
+            .order_by(MessageModel.id)
+            .limit(1)
+        )
+        return subject.strip() if subject and subject.strip() else None
 
     async def _anchor(self, thread_id: int | None) -> str | None:
         """Идентификатор первого письма переписки у почты.

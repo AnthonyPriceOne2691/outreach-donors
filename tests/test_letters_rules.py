@@ -26,6 +26,8 @@ from backend.features.letters.rewrite import (
     parse_zones,
 )
 from backend.features.letters.template import (
+    ADVERTISER,
+    ADVERTISER_PATH,
     REQUIRED_ZONES,
     REWRITE_YIELD,
     Template,
@@ -485,6 +487,62 @@ class TestAdvertiserTemplate:
 
         assert letter.rewritable_share * REWRITE_YIELD >= 0.15
 
+    def test_the_found_link_never_reaches_the_model(self) -> None:
+        """Промпт запрещает модели утверждать, что она читала статью, —
+        фраза про конкретную страницу в переписываемой зоне вылетела бы
+        первой, а с ней и персонализация, которую просит требование.
+        Поэтому ссылка стоит только там, куда модель не смотрит."""
+        link = compose.FoundLink(
+            donor_host="donor.test", page_url="https://donor.test/best-tools/", anchor="best tools"
+        )
+        rendered = compose.render(advertiser(), compose.values_for(host="brand.test", link=link))
+
+        to_model = " ".join(zone.text for zone in rendered.rewritable())
+        assert not {"donor.test", "https://donor.test/best-tools/", "best tools"} & {
+            value for value in (link.donor_host, link.page_url, link.anchor) if value in to_model
+        }
+        kept = compose.assemble(rendered, {"opening": "Totally different words here."}).body
+        assert '"best tools"' in kept
+        assert "https://donor.test/best-tools/" in kept
+
+    def test_a_link_in_a_rewritten_zone_is_refused(self) -> None:
+        """Шаблон правят на экране; анкор, перенесённый во вступление,
+        собрался бы и ушёл пересказанным — видно это было бы только
+        у адресата."""
+        text = ADVERTISER_PATH.read_text(encoding="utf-8").replace(
+            "Your company came up", 'Your "{{anchor}}" link came up'
+        )
+
+        with pytest.raises(TemplateError, match="переписываемой зоне «opening»"):
+            parse(text, ADVERTISER)
+
+    def test_a_letter_without_the_link_is_refused(self) -> None:
+        text = ADVERTISER_PATH.read_text(encoding="utf-8").replace('anchored "{{anchor}}", ', "")
+
+        with pytest.raises(TemplateError, match="нет подстановки"):
+            parse(text, ADVERTISER)
+
+    def test_the_donor_letter_does_not_know_the_link(self) -> None:
+        """`{{anchor}}` в письме донору — опечатка, а не пустота: без ссылки
+        подстановки нет вовсе, и сборка называет это громко."""
+        text = _template_text(offer="We saw your link anchored {{anchor}}.")
+
+        with pytest.raises(compose.ComposeError, match="anchor"):
+            compose.render(parse(text), compose.values_for(host="site.test"))
+
+    def test_an_empty_link_is_loud_and_named_as_such(self) -> None:
+        """Пустой анкор при сборке — громкая метка в тексте, и отправка
+        по ней откажет: письмо «под ссылку» без ссылки уходить не должно."""
+        link = compose.FoundLink(
+            donor_host="donor.test", page_url="https://donor.test/p", anchor=" "
+        )
+        letter = compose.assemble(
+            compose.render(advertiser(), compose.values_for(host="brand.test", link=link)), {}
+        )
+
+        assert "АНКОР ССЫЛКИ НЕ ЗАДАН" in compose.unset_in(letter.body)
+        assert compose.LINK_TITLES & set(compose.unset_in(letter.body))
+
 
 class TestRewriteKeepsTheQuestions:
     """Боевой текст (23.09.2026) держит шесть вопросов в переписываемой
@@ -530,13 +588,30 @@ class TestChangeShare:
         assert CHANGE_MIN <= share < 0.35
 
     def test_small_rewritable_part_asks_for_the_most(self) -> None:
-        """У оффера рекламодателю переписывается ~38%: чтобы дойти до
-        середины коридора, просить надо больше половины — упираемся в потолок."""
-        values = {**compose.values_for(host="site.test"), "donor_host": "d.test"}
-        values |= {"page_url": "https://d.test/p", "anchor": "best tools"}
-        rendered = compose.render(advertiser(), values)
+        """Переписываемая часть — треть письма: чтобы дойти до середины
+        коридора, просить надо больше половины — упираемся в потолок."""
+        text = _template_text(
+            offer=" ".join(["We place sponsored articles for clients every week."] * 6),
+            terms=" ".join(["We pay per published article, on time."] * 6),
+        )
+        rendered = compose.render(parse(text), compose.values_for(host="site.test"))
 
         assert change_share(rendered) == CHANGE_MAX
+
+    def test_advertiser_offer_reaches_the_middle_below_the_ceiling(self) -> None:
+        """У оффера рекламодателю переписывалось 38% письма, и даже просьба
+        «поменяй половину» оставляла его у нижнего края коридора. Фраза
+        со ссылкой ушла в неизменяемую зону, вступление и вопрос выросли —
+        середина коридора достижима без упора в потолок, даже с длинным
+        адресом страницы."""
+        link = compose.FoundLink(
+            donor_host="techradar-like.example",
+            page_url="https://techradar-like.example/best/vpn-services-for-streaming-2026/",
+            anchor="best VPN for streaming",
+        )
+        rendered = compose.render(advertiser(), compose.values_for(host="brand.test", link=link))
+
+        assert CHANGE_MIN <= change_share(rendered) < CHANGE_MAX
 
     def test_share_reaches_the_model(self) -> None:
         payload = build_payload(

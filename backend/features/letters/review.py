@@ -58,8 +58,14 @@ def edit(
     subject: str,
     body: str,
     template: Template | None = None,
+    link: compose.FoundLink | None = None,
 ) -> Reviewed:
-    """Заменить текст письма руками и пересчитать отличие."""
+    """Заменить текст письма руками и пересчитать отличие.
+
+    `template` — текст рассылки письма, `link` — ссылка рекламодателя:
+    отличие оффера, отмеренное от вопроса донору о цене, было бы числом
+    ни о чём.
+    """
     _editable(message)
 
     text = body.strip()
@@ -72,7 +78,7 @@ def edit(
 
     plain = compose.render(
         template or default(),
-        compose.values_for(host=host, domain_id=message.domain_id),
+        compose.values_for(host=host, domain_id=message.domain_id, link=link),
     ).body
     uniqueness = difference(plain, text)
 

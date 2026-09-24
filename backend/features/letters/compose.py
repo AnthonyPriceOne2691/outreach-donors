@@ -51,7 +51,31 @@ _UNSET_TITLES = {
     "sender_name": "ИМЯ ОТПРАВИТЕЛЯ НЕ ЗАДАНО",
     "postal_address": "ФИЗИЧЕСКИЙ АДРЕС НЕ ЗАДАН",
     "unsubscribe_url": "АДРЕС ОТПИСКИ НЕ ЗАДАН",
+    "donor_host": "ПЛОЩАДКА ССЫЛКИ НЕ ЗАДАНА",
+    "page_url": "СТРАНИЦА ССЫЛКИ НЕ ЗАДАНА",
+    "anchor": "АНКОР ССЫЛКИ НЕ ЗАДАН",
 }
+
+#: Подстановки найденной ссылки. Есть только у письма рекламодателю.
+LINK_VALUES = ("donor_host", "page_url", "anchor")
+
+#: Как выглядит пустая ссылка в тексте. Отдельно от настроек: пустую
+#: ссылку не лечит подключение почты — её лечит пересборка очереди.
+LINK_TITLES = frozenset(_UNSET_TITLES[name] for name in LINK_VALUES)
+
+
+@dataclass(frozen=True, slots=True)
+class FoundLink:
+    """Ссылка, под которую пишется письмо рекламодателю.
+
+    Требование — персонализация «под конкретную найденную ссылку — страницу
+    и анкор». Все три значения идут в письмо дословно: они стоят только
+    в неизменяемых зонах (`template.ADVERTISER`), и модель их не видит.
+    """
+
+    donor_host: str
+    page_url: str
+    anchor: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,7 +108,9 @@ class Letter:
 _PROBE_DOMAIN_ID = 0
 
 
-def values_for(*, host: str, domain_id: int | None = None) -> dict[str, str]:
+def values_for(
+    *, host: str, domain_id: int | None = None, link: FoundLink | None = None
+) -> dict[str, str]:
     """Значения подстановок.
 
     **Ящика здесь нет намеренно.** Письмо подписано именем человека, а
@@ -97,13 +123,24 @@ def values_for(*, host: str, domain_id: int | None = None) -> dict[str, str]:
     по которой страница узнаёт, кого отписывать. Без номера донора
     (предпросмотр шаблона) ссылки нет, и письмо с таким текстом
     отправка не пропустит.
+
+    **Найденная ссылка — только у письма рекламодателю.** Письмо донору
+    её не знает, и `{{anchor}}` в нём — опечатка, а не пустота: без
+    `link` подстановки нет вовсе, и сборка скажет «значения нет».
     """
-    return {
+    values = {
         "host": host,
         "sender_name": cfg.SENDER_NAME,
         "postal_address": cfg.POSTAL_ADDRESS,
         "unsubscribe_url": unsubscribe.url_for(domain_id),
     }
+    if link is not None:
+        values |= {
+            "donor_host": link.donor_host,
+            "page_url": link.page_url,
+            "anchor": link.anchor,
+        }
+    return values
 
 
 def missing(values: dict[str, str]) -> list[str]:
