@@ -1,8 +1,9 @@
-"""Посмотреть меню главных у очереди: `outreach doors`.
+"""Двери у очереди: `outreach doors`.
 
 Новый прогон делает это сам (`donors.doors`), а очередь, положенная
 до того, двери не знает: у неё признак «продаёт размещение» есть только
-по ответу сайта и по судье. Команда досматривает главные тех, кто ждёт
+по ответу сайта и по судье. Команда смотрит страницу выдачи, по которой
+домен нашёлся (она сохранена в прогоне), и главные тех, кто ждёт
 решения, — бесплатно, по одному запросу на домен; уже известное второй
 раз не качается. Повтор безопасен.
 """
@@ -20,6 +21,7 @@ from backend.features.core.models.run import RunCandidateModel, RunModel
 from backend.features.donors.doors import door_check
 from backend.features.donors.repository import DonorRepository
 from backend.features.review.candidates import Decision, RunReview
+from backend.features.runs.planning import saved_texts
 
 EXIT_OK = 0
 EXIT_NO_RUN = 2
@@ -50,7 +52,7 @@ async def _run_ids(session: AsyncSession, run: int | None) -> list[int]:
 async def cmd_doors(args: argparse.Namespace) -> int:
     check_storage()
     engine = create_async_engine(storage.DSN)
-    totals = {"checked": 0, "found": 0, "unreached": 0, "opened": 0}
+    totals = {"checked": 0, "found": 0, "unreached": 0, "opened": 0, "on_page": 0}
     try:
         async with (
             async_sessionmaker(engine, expire_on_commit=False)() as session,
@@ -64,13 +66,21 @@ async def cmd_doors(args: argparse.Namespace) -> int:
                 return EXIT_NO_RUN
             review, donors = RunReview(session), DonorRepository(session)
             for run_id in await _run_ids(session, args.run):
+                # Прогон есть всегда: на него ссылается очередь.
+                run = await session.get_one(RunModel, run_id)
                 report = await doors(
-                    donors, await review.pending_hosts(run_id), checkpoint=session.commit
+                    donors,
+                    await review.pending_hosts(run_id),
+                    # Страница, по которой прогон нашёл домен, — из записи
+                    # прогона: выдачу второй раз не покупаем.
+                    pages=saved_texts(run.candidates),
+                    checkpoint=session.commit,
                 )
                 for key, value in report.as_dict().items():
                     totals[key] += value
                 print(
-                    f"Прогон №{run_id}: главных проверено {report.checked}, "
+                    f"Прогон №{run_id}: дверь на странице выдачи у {report.on_page}, "
+                    f"главных проверено {report.checked}, "
                     f"зовут авторов или рекламодателей {report.found}, "
                     f"не открылись {report.unreached}, "
                     f"отказов «продаёт своё» отдано человеку {report.opened}."
@@ -79,7 +89,8 @@ async def cmd_doors(args: argparse.Namespace) -> int:
         await engine.dispose()
 
     print(
-        f"Итого: проверено {totals['checked']}, дверь у {totals['found']}, "
-        f"не открылись {totals['unreached']}, отдано человеку {totals['opened']}."
+        f"Итого: на странице выдачи {totals['on_page']}, проверено {totals['checked']}, "
+        f"дверь у {totals['found']}, не открылись {totals['unreached']}, "
+        f"отдано человеку {totals['opened']}."
     )
     return EXIT_OK

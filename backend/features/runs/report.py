@@ -151,6 +151,10 @@ def run_stats(report: RunReport, failure: str | None, *, retry: bool = False) ->
             "from_cache": summary.from_cache,
             "would_cut": summary.would_cut,
             "to_review": summary.to_review,
+            # Модель не ответила — не «судил и не отрезал»: экран прогонов
+            # показывает это отдельной меткой с причиной.
+            "unanswered": summary.unanswered,
+            "unanswered_reason": summary.unanswered_reason,
             "by_intent": dict(summary.by_intent),
             "by_decider": dict(summary.by_decider),
             "home_unreached": summary.home_unreached,

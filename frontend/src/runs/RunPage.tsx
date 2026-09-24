@@ -140,6 +140,27 @@ function judgeCut(run: { stats: Record<string, unknown> | null }): number | null
   return typeof cut === 'number' ? cut : null;
 }
 
+/** Модель не ответила судье: у этих доменов вердикта нет, следующий прогон
+ *  судит их снова. Отдельной меткой, а не нулём в «отрезал бы»: прогон №21
+ *  без ключа модели показывал «отрезал бы 0», и неработающий судья выглядел
+ *  как судья, никого не отрезавший. Причина — в подсказке: что чинить. */
+function JudgeSilence({ run }: { run: { stats: Record<string, unknown> | null } }) {
+  const judge = run.stats?.['judge'];
+  if (typeof judge !== 'object' || judge === null) return null;
+  const { unanswered, unanswered_reason: reason } = judge as Record<string, unknown>;
+  if (typeof unanswered !== 'number' || unanswered === 0) return null;
+  return (
+    <Badge
+      variant="light"
+      size="sm"
+      color="red"
+      title={typeof reason === 'string' ? reason : undefined}
+    >
+      модель не ответила: {unanswered}
+    </Badge>
+  );
+}
+
 /** Очередь рассмотрения прогона: сколько ждёт решения и ссылка к нему.
  *  Прогон кончается очередью, а не базой, — без этой ячейки её не найти. */
 function ReviewCell({ run }: { run: RunCard }) {
@@ -558,6 +579,7 @@ export function RunPage() {
                     ) : (
                       <Text size="sm">отрезал бы {judgeCut(run)}</Text>
                     )}
+                    <JudgeSilence run={run} />
                     {/* Цвет несёт значок, а не текст: янтарь — «нужно внимание»,
                       и на подложке значка чернила держат норму контраста. */}
                     {run.reviewed === 0 ? (

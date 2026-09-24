@@ -79,6 +79,22 @@ class SerpText:
         )
 
 
+def saved_texts(candidates: dict[str, Any] | None) -> dict[str, SerpText]:
+    """Страницы выдачи, сохранённые в строке прогона (`runs.candidates`).
+
+    У прогонов, собранных до сохранения текста, их нет — пустой словарь.
+    Запись без адреса пропускается: страница без адреса не страница.
+    """
+    texts = (candidates or {}).get("texts")
+    if not isinstance(texts, dict):
+        return {}
+    return {
+        host: SerpText.restored(value)
+        for host, value in texts.items()
+        if isinstance(value, dict) and value.get("url")
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class Candidates:
     """Что дала выдача после нормализации и дедупликации."""

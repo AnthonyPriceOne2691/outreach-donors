@@ -450,3 +450,38 @@ async def test_placement_seller_skips_the_storefront(monkeypatch: pytest.MonkeyP
 async def test_verdict_carries_prompt_version(judge: FakeJudge) -> None:
     result = await judge_candidates(None, ["media.example"], TEXTS)  # type: ignore[arg-type]
     assert result.verdicts["media.example"].version == PROMPT_VERSION
+
+
+@pytest.mark.asyncio
+async def test_an_unanswered_host_is_counted_but_not_recorded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Модель не ответила — вердикта нет: на домен запись не идёт, и
+    следующий прогон судит его снова. Счёт отдельный и с причиной: прогон
+    №21 без ключа модели отчитался «судили 59, токенов 0»."""
+    silent = Judgement(
+        Intent.UNKNOWN,
+        Recommendation.REVIEW,
+        None,
+        "модель, запрос (чинить): LLM_API_KEY не задан",
+        unanswered=True,
+    )
+    media = Judgement(Intent.REFERS_OUT, Recommendation.ACCEPT, "Reviews", "обзоры", "m", 410)
+    fake = FakeJudge({"brand.example": silent, "media.example": media})
+    monkeypatch.setattr("backend.features.donors.judging.judge_host", fake)
+
+    result = await judge_candidates(None, ["brand.example", "media.example"], TEXTS)  # type: ignore[arg-type]
+
+    assert set(result.verdicts) == {"media.example"}
+    assert result.summary.unanswered == 1
+    assert "LLM_API_KEY" in (result.summary.unanswered_reason or "")
+    assert result.summary.judged == 1
+    assert result.summary.to_review == 0, "«посмотри» без ответа модели — не совет судьи"
+
+
+def test_merge_sums_unanswered_and_keeps_the_first_reason() -> None:
+    total = JudgeSummary(unanswered=2, unanswered_reason="нет ключа")
+    total.merge(JudgeSummary(unanswered=3, unanswered_reason="перегрузка"))
+    total.merge(JudgeSummary())
+
+    assert (total.unanswered, total.unanswered_reason) == (5, "нет ключа")

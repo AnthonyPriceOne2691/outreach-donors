@@ -468,6 +468,32 @@ class TestTheJudgeStandsBeforeTheBill:
         # если пересуд его затирает.
         assert row.human_intent is None
 
+    async def test_a_judge_without_a_key_says_so_and_leaves_no_verdict(
+        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Прогон №21, 24.09.2026: ключа модели на сервере не было, а отчёт
+        говорил «судили 59, отрезал бы 0» — неработающий судья выглядел как
+        судья, никого не отрезавший, и полгода держал домены без суда."""
+        monkeypatch.setattr("backend.config.judge.MODE", JudgeMode.SHADOW)
+        monkeypatch.setattr("backend.config.judge.HOME_CHECK", False)
+        monkeypatch.setattr("backend.config.llm.API_KEY", "")
+
+        serp = self.Titled(["https://brand.com/a"])
+        await execute_run(
+            await _deps(session, serp, _ahrefs({"brand.com": GOOD})),
+            RunRequest(["k"], "us", T, await _settings_id(session)),
+        )
+
+        run = (await session.execute(select(RunModel))).scalar_one()
+        judge = run.stats["judge"]
+        assert (judge["unanswered"], judge["judged"]) == (1, 0)
+        assert "LLM_API_KEY" in judge["unanswered_reason"]
+        row = (
+            await session.execute(select(DomainModel).where(DomainModel.host == "brand.com"))
+        ).scalar_one()
+        assert row.judged_at is None, "след сбоя не должен становиться кэшем судьи"
+        assert row.judge_recommendation is None
+
 
 class TestRunEndsInAReviewQueue:
     """Прогон 23.09.2026: пороги признали годными nih.gov и reddit.com,

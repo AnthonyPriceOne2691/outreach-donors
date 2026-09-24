@@ -56,6 +56,9 @@ async def _domain(
             recommendation, "unknown"
         )
         domain.judge_decided_by = decided_by or "model"
+        # Вердикт, вынесенный моделью, несёт её имя; строка без него — след
+        # сбоя модели, и кэш судьи её вердиктом не считает.
+        domain.judge_model = "gpt-5-mini"
         domain.judge_quote = quote
         domain.judge_reason = "по тексту выдачи"
         domain.judged_at = NOW

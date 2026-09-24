@@ -82,6 +82,13 @@ def delay_for(attempt: int, response: httpx.Response | None = None) -> float:
     return base + random.uniform(0, 0.5)  # noqa: S311 — разброс, а не криптография
 
 
+def _last_try(exc: httpx.HTTPError, attempt: int, attempts: int) -> bool:
+    """Дальше не повторяем: попытки кончились — или запрос не собран у нас.
+    До сети такой запрос не дошёл, повтор соберёт его так же, и ждать между
+    попытками нечего (пустой ключ даёт заголовок `Bearer `)."""
+    return attempt == attempts - 1 or isinstance(exc, httpx.LocalProtocolError)
+
+
 async def with_retries(
     call: Callable[[], Awaitable[httpx.Response]],
     *,
@@ -101,7 +108,7 @@ async def with_retries(
         try:
             last = await call()
         except httpx.HTTPError as exc:
-            if attempt == attempts - 1:
+            if _last_try(exc, attempt, attempts):
                 raise
             pause = delay_for(attempt)
             logger.warning(

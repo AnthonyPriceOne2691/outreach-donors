@@ -29,7 +29,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 import httpx
@@ -54,6 +54,7 @@ from backend.features.runs.planning import (
     Candidates,
     ExclusionSource,
     RunPlan,
+    SerpText,
     gather_candidates,
     plan_run,
 )
@@ -167,8 +168,11 @@ async def _record_search_cost(deps: RunDeps, run: RunModel, candidates: Candidat
     await deps.runs.session_commit()
 
 
-async def _check_doors(deps: RunDeps, run: RunModel, report: RunReport) -> None:
-    """Меню главных у очереди: кто сам продаёт размещение — наверх.
+async def _check_doors(
+    deps: RunDeps, run: RunModel, report: RunReport, pages: Mapping[str, SerpText]
+) -> None:
+    """Двери очереди — страница выдачи и меню главных: кто сам продаёт
+    размещение — наверх.
 
     Сбой здесь прогон не роняет: платное уже сделано и лежит в очереди,
     а без двери очередь просто не поднимет продающих. Причина — в запись
@@ -180,6 +184,7 @@ async def _check_doors(deps: RunDeps, run: RunModel, report: RunReport) -> None:
         report.doors = await deps.doors(
             deps.donors,
             await deps.review.pending_hosts(run.id),
+            pages=pages,
             checkpoint=deps.runs.session_commit,
         )
     except Exception as exc:
@@ -244,6 +249,15 @@ async def _judge_candidates(
         outcome.summary.to_review,
         outcome.summary.tokens,
     )
+    if outcome.summary.unanswered:
+        # Громко: домены ушли человеку без совета, а вердикт у них будет
+        # только при следующем суде. Причина — что чинить.
+        logger.error(
+            "Прогон %s: модель не ответила судье по %s доменам — %s",
+            run.id,
+            outcome.summary.unanswered,
+            outcome.summary.unanswered_reason,
+        )
     return outcome
 
 
@@ -326,7 +340,7 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
                 # увидеть — просто платить за них не пришлось.
                 report.review = await deps.review.queue_run(run.id, [*plan.new, *plan.fresh])
                 await deps.runs.session_commit()
-                await _check_doors(deps, run, report)
+                await _check_doors(deps, run, report, candidates.texts)
         except Exception as exc:
             failure = described(exc)
             status = _status_after(exc, run.id)

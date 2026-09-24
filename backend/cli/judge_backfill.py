@@ -95,6 +95,11 @@ def _print_report(report: BackfillReport) -> None:
     if report.no_text:
         print(f"  текста не нашлось нигде: {report.no_text} — остались без вердикта")
     print(f"  судили {judge.judged}, отрезал бы {judge.would_cut}, к человеку {judge.to_review}")
+    if judge.unanswered:
+        print(
+            f"  ⚠ модель не ответила по {judge.unanswered}: {judge.unanswered_reason}"
+            " — вердикта у них нет, повтор команды возьмёт их снова"
+        )
     for who, count in sorted(judge.by_decider.items(), key=lambda kv: -kv[1]):
         print(f"    решено {who:<10} {count}")
     if judge.from_index:

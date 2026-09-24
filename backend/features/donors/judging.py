@@ -68,7 +68,16 @@ class JudgeSummary:
     """Скольких отрезал бы. В `enforce` это и есть отрезанные."""
 
     to_review: int = 0
-    """Скольких отправил человеку: спорные, отказы доступа, сбои модели."""
+    """Скольких отправил человеку советом «посмотри»: спорные, отказы доступа."""
+
+    unanswered: int = 0
+    """Модель не ответила: вердикта нет, домен ушёл человеку без совета
+    и в следующий раз судится снова. Отдельным числом, а не в `judged`:
+    прогон №21 без ключа модели отчитался «судили 59, токенов 0» — судья,
+    который не работал, выглядел как судья, никого не отрезавший."""
+
+    unanswered_reason: str | None = None
+    """Почему не ответила — первая причина: что чинить."""
 
     tokens: int = 0
     by_intent: dict[str, int] = field(default_factory=dict)
@@ -106,6 +115,8 @@ class JudgeSummary:
         self.would_cut += other.would_cut
         self.would_cut_paid += other.would_cut_paid
         self.to_review += other.to_review
+        self.unanswered += other.unanswered
+        self.unanswered_reason = self.unanswered_reason or other.unanswered_reason
         self.tokens += other.tokens
         self.home_unreached += other.home_unreached
         self.from_index += other.from_index
@@ -116,8 +127,13 @@ class JudgeSummary:
             self.by_decider[key] = self.by_decider.get(key, 0) + count
 
     def record(self, verdict: Judgement, *, paid: bool) -> None:
-        self.judged += 1
         self.tokens += verdict.tokens
+        if verdict.unanswered:
+            self.unanswered += 1
+            if self.unanswered_reason is None:
+                self.unanswered_reason = verdict.reason[:300]
+            return
+        self.judged += 1
         self.by_intent[verdict.intent.value] = self.by_intent.get(verdict.intent.value, 0) + 1
         who = verdict.decided_by.value
         self.by_decider[who] = self.by_decider.get(who, 0) + 1
@@ -270,7 +286,13 @@ def _collect(
     summary: JudgeSummary,
     unpaid: Collection[str],
 ) -> tuple[dict[str, JudgeRecord], set[str]]:
-    """Вердикты — в записи для базы и в счёт прохода."""
+    """Вердикты — в записи для базы и в счёт прохода.
+
+    Ответ, которого модель не дала, считается, но в записи не попадает:
+    на домене остаётся прежнее знание (или никакого), и следующий прогон
+    судит его снова. Дверь такого домена досмотрит проверка очереди
+    (`donors.doors`) — она видит и страницу выдачи.
+    """
     verdicts: dict[str, JudgeRecord] = {}
     rejected: set[str] = set()
     for host, (judged, home) in results.items():
@@ -278,6 +300,8 @@ def _collect(
         door = door_of(text, home)
         verdict = open_door(judged, door)
         summary.record(verdict, paid=host in unpaid)
+        if verdict.unanswered:
+            continue
         if home is not None and not home.reached:
             summary.home_unreached += 1
         if home is not None and home.via == "index":

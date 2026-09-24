@@ -55,6 +55,7 @@ class RefusalKind(StrEnum):
     NETWORK = "сеть"  # до провайдера не дошли
     REFUSED = "отказ"  # провайдер ответил и отказал
     FORMAT = "формат"  # ответил, но разобрать нечего
+    LOCAL = "запрос"  # запрос не собран у нас: ключ или заголовок
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +91,38 @@ def _message_of(response: httpx.Response) -> str:
     return response.text[:300]
 
 
+def _unusable_key(api_key: str, topic: str) -> Refusal | None:
+    """Ключ, с которым запрос не собрать. `None` — ключ годится для заголовка."""
+    if not api_key.strip():
+        # Пустой ключ — не сбой связи, и повтор его не починит. Без этой
+        # проверки httpx не собирает заголовок `Bearer ` и роняет
+        # LocalProtocolError — наследника HTTPError, то есть «сеть, можно
+        # повторить». 24.09.2026 судья на сервере без ключа так записал
+        # 44 домена прогона №21: отказ звал повторять, а чинить надо было
+        # настройку.
+        detail = "LLM_API_KEY не задан — впишите ключ модели в .env"
+    elif not api_key.isascii():
+        # Ключ едет в HTTP-заголовке, а заголовки только ASCII. Без этой
+        # проверки httpx роняет UnicodeEncodeError мимо всей обработки
+        # отказов: вызывающий получает трассировку, которая не называет
+        # ни ключ, ни что делать. Тот же класс, что у секрета приёма —
+        # он тоже едет заголовком и тоже обязан быть латиницей.
+        detail = "ключ модели содержит не-ASCII символы — заголовок с ним не собрать"
+    else:
+        return None
+    logger.error("%s: %s", topic, detail)
+    return Refusal(RefusalKind.LOCAL, detail, permanent=True)
+
+
+def _unreached(exc: httpx.HTTPError) -> Refusal:
+    """До провайдера не дошли. Обрыв связи повторяем, несобранный запрос — нет:
+    он не собран у нас, и повтор соберёт его так же (пробел или перевод
+    строки в ключе, битый заголовок)."""
+    if isinstance(exc, httpx.LocalProtocolError):
+        return Refusal(RefusalKind.LOCAL, f"запрос не собран: {exc}", permanent=True)
+    return Refusal(RefusalKind.NETWORK, repr(exc), permanent=False)
+
+
 async def post_chat(
     http: httpx.AsyncClient,
     *,
@@ -101,15 +134,9 @@ async def post_chat(
     # Повторы общие на все внешние сервисы: до них один обрыв связи
     # означал письмо, оставшееся шаблонным, или ответ, оставшийся
     # неразобранным, — и оба случая выглядели как «модель отказала».
-    if not api_key.isascii():
-        # Ключ едет в HTTP-заголовке, а заголовки только ASCII. Без этой
-        # проверки httpx роняет UnicodeEncodeError мимо всей обработки
-        # отказов: вызывающий получает трассировку, которая не называет
-        # ни ключ, ни что делать. Тот же класс, что у секрета приёма —
-        # он тоже едет заголовком и тоже обязан быть латиницей.
-        detail = "ключ модели содержит не-ASCII символы — заголовок с ним не собрать"
-        logger.error("%s: %s", topic, detail)
-        return Refusal(RefusalKind.REFUSED, detail, permanent=True)
+    refusal = _unusable_key(api_key, topic)
+    if refusal is not None:
+        return refusal
 
     try:
         response = await with_retries(
@@ -122,8 +149,9 @@ async def post_chat(
             topic=topic,
         )
     except httpx.HTTPError as exc:
-        logger.exception("%s: модель недоступна (%r)", topic, exc)
-        return Refusal(RefusalKind.NETWORK, repr(exc), permanent=False)
+        refusal = _unreached(exc)
+        logger.exception("%s: %s", topic, refusal)
+        return refusal
 
     if response.status_code >= 400:
         # Отказ называется целиком: «плохой запрос» без текста провайдера
