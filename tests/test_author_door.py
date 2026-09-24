@@ -96,6 +96,37 @@ def test_a_door_page_is_not_taken_for_a_list(title: str) -> None:
     assert author_door("https://a.example/write-for-us", title) is not None, title
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        # Очередь №21: gardenrant.com пришёл страницей автора-гостя.
+        "https://a.example/author/gardenrant-guest/",
+        "https://a.example/home/category/guest-post",
+        "https://a.example/tag/guest-posts/",
+        "https://a.example/author/guest-author",
+        "https://a.example/kategorie/gastbeitraege/",
+        "https://a.example/categoria/articulo-invitado",
+    ],
+)
+def test_an_archive_of_guest_posts_is_a_door(url: str) -> None:
+    assert author_door(url, None) is not None, url
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        # Рубрика ПРО гостевые посты, а не из них.
+        "https://a.example/tag/guest-posting-tips/",
+        "https://a.example/category/gastronomie/",
+        "https://a.example/author/john-smith/",
+        # Не архив: статья с таким адресом может быть о гостевых постах.
+        "https://a.example/blog/guest-post",
+    ],
+)
+def test_other_archives_are_not_doors(url: str) -> None:
+    assert author_door(url, None) is None, url
+
+
 def test_title_and_menu_open_the_door() -> None:
     assert author_door("https://a.example/p/123", "Write For Us | Tech Blog")
     assert author_door(None, None, ("Product", "Pricing", "Advertise"))
