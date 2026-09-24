@@ -95,3 +95,13 @@ def test_headers_survive_error_responses() -> None:
     for line in _code(SNIPPET.read_text(encoding="utf-8")).splitlines():
         if line.strip().startswith("add_header"):
             assert line.rstrip().endswith("always;"), line
+
+
+def test_api_address_is_resolved_per_request() -> None:
+    """`proxy_pass http://api:8000` запоминает адрес сервера при старте nginx:
+    выкатка, пересоздавшая только api, даёт 502 на всё API до перезапуска web
+    (воспроизведено 24.09.2026). Адрес — только через переменную и resolver."""
+    conf = _code(NGINX.read_text(encoding="utf-8"))
+    assert re.search(r"resolver\s+127\.0\.0\.11\b", conf), "нет resolver DNS докера"
+    fixed = re.findall(r"proxy_pass\s+https?://[^;]+;", conf)
+    assert fixed == [], f"адрес сервера зашит в proxy_pass: {fixed} — через $api_upstream"
