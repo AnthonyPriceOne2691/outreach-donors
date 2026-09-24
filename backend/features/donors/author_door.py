@@ -58,6 +58,21 @@ AUTHOR_SLUG = re.compile(
     r"|escreva-para-(?:nos|a-gente)|napisz-dla-nas|schrijf-voor-ons)$"
 )
 
+#: Архив гостевых статей: автор-гость или рубрика «гостевые». Сайт с таким
+#: архивом чужие статьи публикует. Только под разделом архива — `/author/`,
+#: `/category/`, `/tag/`: `/blog/guest-post` может оказаться статьёй ПРО
+#: гостевые посты. Очередь №21: gardenrant.com пришёл страницей
+#: `/author/gardenrant-guest` и был скрыт как магазин мерча.
+ARCHIVE_PARENTS: frozenset[str] = frozenset({
+    "author", "authors", "category", "categories", "tag", "tags", "autor", "autore",
+    "auteur", "kategorie", "categoria", "categorie", "rubrik", "rubrique",
+})  # fmt: skip
+GUEST_ARCHIVE = re.compile(
+    r"(?:^|-)(?:guests?|gastautor(?:en)?|gastbeitr(?:ag|aege)|invitados?|ospiti?"
+    r"|convidados?|goscinn[aey])"
+    r"(?:-(?:posts?|authors?|bloggers?|contributors?|articles?|writers?|blog))?$"
+)
+
 #: Те же слова в заголовке выдачи или пункте меню главной.
 AUTHOR_PHRASES: tuple[str, ...] = (
     "write for us", "write for me", "become a contributor", "contribute to",
@@ -90,6 +105,13 @@ def _door_in_url(url: str | None) -> str | None:
     return None
 
 
+def _door_in_archive(url: str | None) -> str | None:
+    parts = urlsplit(url).path.lower().strip("/").split("/") if url else []
+    if len(parts) >= 2 and parts[-2] in ARCHIVE_PARENTS and GUEST_ARCHIVE.search(parts[-1]):
+        return f"страница «{parts[-2]}/{parts[-1]}»"
+    return None
+
+
 def _door_in_title(title: str | None) -> str | None:
     lowered = (title or "").lower()
     if any(phrase in lowered for phrase in AUTHOR_PHRASES):
@@ -116,7 +138,11 @@ def author_door(url: str | None, title: str | None, nav: tuple[str, ...] = ()) -
     Возвращает то, что увидит человек в причине: страницу или пункт меню.
     Подборка площадок дверью страницы не считается, меню сайта — считается.
     """
-    page = None if lists_sites(title) else (_door_in_url(url) or _door_in_title(title))
+    page = (
+        None
+        if lists_sites(title)
+        else (_door_in_url(url) or _door_in_archive(url) or _door_in_title(title))
+    )
     return page or _door_in_menu(nav)
 
 

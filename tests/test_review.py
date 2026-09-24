@@ -636,6 +636,24 @@ class TestSellersFirst:
 
         assert order == ["plain.test", "overruled.test"]
 
+    async def test_a_middleman_with_a_door_is_not_lifted(self, session: AsyncSession) -> None:
+        """Биржа со страницей «пишите для нас» зовёт к чужим площадкам:
+        судья назвал её посредником, и дверь её не поднимает. Очередь №21:
+        adsy.com и vefogix.com стояли первыми в «посмотреть»."""
+        await _judged(session, "blog.test", "review", intent="sells_own")
+        market = await _judged(session, "market.test", "review", intent="link_vendor")
+        market.site_door = "страница «home-improvement-write-for-us»"
+        await self._dr(session, "blog.test", 60)
+        await self._dr(session, "market.test", 30)
+        run = await _run(session)
+        review = RunReview(session)
+        await review.queue_run(run.id, ["blog.test", "market.test"])
+
+        page = await review.page(run.id, status=Decision.PENDING)
+
+        assert [row.domain.host for row in page.rows] == ["blog.test", "market.test"]
+        assert page.rows[-1].sells is None
+
     async def test_big_site_shelf_still_wins(self, session: AsyncSession) -> None:
         """Крупный сайт с «Advertise» продаёт рекламу, а не гостевые посты:
         полка сильнее двери."""

@@ -62,6 +62,10 @@ def sells_placement() -> ColumnElement[Any]:
     человек назвал сайт чем-то другим, ни судья, ни дверь его не поднимут.
     Дверь — страница для авторов или пункт меню «Advertise» — последней:
     она про то, что сайт зовёт, а не про то, что он точно продаёт.
+
+    Посредника дверь не поднимает: биржа со страницей «пишите для нас»
+    зовёт к чужим площадкам (`author_door.opens` решает так же). Очередь
+    №21: adsy.com и vefogix.com стояли первыми в «посмотреть».
     """
     return case(
         (DomainModel.seller_answer == "declines", null()),
@@ -73,6 +77,7 @@ def sells_placement() -> ColumnElement[Any]:
         ),
         (DomainModel.human_intent.is_not(None), null()),
         (DomainModel.site_intent == "sells_placement", literal("судья: продаёт размещение у себя")),
+        (DomainModel.site_intent == "link_vendor", null()),
         (func.coalesce(DomainModel.site_door, "") != "", DomainModel.site_door),
         else_=null(),
     )
