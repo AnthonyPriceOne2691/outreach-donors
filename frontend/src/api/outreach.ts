@@ -1,5 +1,6 @@
 import type {
   CalibrationView,
+  LeadTaken,
   Reviewed,
   ReviewPrice,
   SenderCard,
@@ -41,6 +42,11 @@ export function fetchThread(id: number): Promise<ThreadView> {
  *  уверенности модели и кладёт цену в карточку донора. */
 export function reviewReply(id: number, body: ReviewPrice): Promise<Reviewed> {
   return request<Reviewed>(`/replies/${id}`, { method: 'PATCH', body });
+}
+
+/** Ответ рекламодателя — в работу. Повторно — отказ: лид уже кто-то ведёт. */
+export function takeLead(id: number): Promise<LeadTaken> {
+  return request<LeadTaken>(`/replies/${id}/lead`, { method: 'POST' });
 }
 
 export function listSuppressions(): Promise<StopListView> {

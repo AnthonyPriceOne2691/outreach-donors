@@ -64,6 +64,8 @@ export const THREAD_STATES: Record<ThreadState, { title: string; color: string }
   bounced: { title: 'отказ доставки', color: 'yellow' },
   unsubscribed: { title: 'отписался', color: 'red' },
   stopped: { title: 'цепочка остановлена', color: 'gray' },
+  lead: { title: 'лид — ждёт человека', color: 'yellow' },
+  lead_taken: { title: 'лид в работе', color: 'green' },
 };
 
 export const MESSAGE_STATUSES: Record<MessageStatus, string> = {

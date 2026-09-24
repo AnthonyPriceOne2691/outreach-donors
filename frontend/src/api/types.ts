@@ -81,13 +81,17 @@ export type ThreadState =
   | 'free'
   | 'bounced'
   | 'unsubscribed'
-  | 'stopped';
+  | 'stopped'
+  | 'lead'
+  | 'lead_taken';
 
 export interface ThreadCard {
   id: number;
   host: string;
   contact_email: string | null;
   campaign: string;
+  /** Этап рассылки: донору писали о цене, рекламодателю — оффер. */
+  stage: LetterStage;
   state: ThreadState;
   messages_sent: number;
   last_event_at: string | null;
@@ -142,6 +146,15 @@ export interface IncomingCard {
   needs_review: boolean;
   reviewed_by: string | null;
   reviewed_at: string | null;
+  /** Ответ рекламодателя — лид: его не разбирают, а берут в работу. */
+  lead: boolean;
+}
+
+/** Лид взят в работу: кто и когда. */
+export interface LeadTaken {
+  id: number;
+  reviewed_by: string;
+  reviewed_at: string;
 }
 
 export interface ReviewPrice {
