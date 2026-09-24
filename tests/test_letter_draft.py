@@ -175,6 +175,11 @@ class TestBuildRoute:
         )
 
         assert queue.kwargs[0]["letter_template"] is None
+        # Сборка уходит с повторами временных сбоев и с итогом на неделю:
+        # без планировщика и этих параметров упавшая сборка молчала бы.
+        assert queue.kwargs[0]["retry"].max == 3
+        assert queue.kwargs[0]["retry"].intervals == [30, 120, 600]
+        assert queue.kwargs[0]["result_ttl"] == 7 * 24 * 60 * 60
 
     async def test_broken_letter_is_refused_before_the_queue(
         self, client: AsyncClient, admin_token: str, queue: FakeQueue

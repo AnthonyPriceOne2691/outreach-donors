@@ -30,6 +30,9 @@ _FORBIDDEN: tuple[tuple[re.Pattern[str], str], ...] = (
 class ForbiddenContentError(ValueError):
     """В письме то, чего в нём быть не может. Сообщение называет что и где."""
 
+    #: Повтор задачи это не исправит (`runs/failures.py`).
+    permanent = True
+
 
 def metrics_leak(text: str) -> str | None:
     """Что из метрик просочилось в текст. `None` — чисто.

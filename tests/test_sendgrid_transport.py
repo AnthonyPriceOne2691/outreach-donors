@@ -28,6 +28,16 @@ SENT = Outgoing(
 )
 
 
+@pytest.fixture(autouse=True)
+def _no_real_pauses(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Повторы проверяются по поведению, а не по часам."""
+
+    async def instant(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr("backend.features.letters.sendgrid._sleep", instant)
+
+
 def _transport(
     handler: Any, *, allowlist: tuple[str, ...] = ()
 ) -> tuple[SendGridTransport, list[dict[str, Any]]]:
@@ -160,3 +170,88 @@ class TestTheSafetyCatch:
         transport, _ = _transport(_accepted)
 
         assert await transport.send(SENT) == "sg-42"
+
+
+class TestOnlyClearRefusalsAreRetried:
+    """429 и 5xx — «не приняла»: повтор безопасен. Обрыв и таймаут — нет:
+    письмо могло уйти, а ключа идемпотентности у платформы нет."""
+
+    @pytest.fixture(autouse=True)
+    def pauses(self, monkeypatch: pytest.MonkeyPatch) -> list[float]:
+        taken: list[float] = []
+
+        async def instant(seconds: float) -> None:
+            taken.append(seconds)
+
+        monkeypatch.setattr("backend.features.letters.sendgrid._sleep", instant)
+        return taken
+
+    async def test_platform_hiccup_is_retried_and_letter_goes(self, pauses: list[float]) -> None:
+        answers = iter(
+            [httpx.Response(503), httpx.Response(202, headers={MESSAGE_ID_HEADER: "sg-7"})]
+        )
+        transport, seen = _transport(lambda _r: next(answers))
+
+        assert await transport.send(SENT) == "sg-7"
+        assert len(seen) == 2
+        assert pauses == [2.0]
+
+    async def test_retry_after_is_honoured_but_capped(self, pauses: list[float]) -> None:
+        answers = iter(
+            [
+                httpx.Response(429, headers={"Retry-After": "600"}),
+                httpx.Response(202, headers={MESSAGE_ID_HEADER: "sg-8"}),
+            ]
+        )
+        transport, _ = _transport(lambda _r: next(answers))
+
+        assert await transport.send(SENT) == "sg-8"
+        assert pauses == [30.0], "минуты у кнопки не ждём"
+
+    async def test_timeout_is_never_retried(self, pauses: list[float]) -> None:
+        calls = {"n": 0}
+
+        def slow(_request: httpx.Request) -> httpx.Response:
+            calls["n"] += 1
+            raise httpx.ReadTimeout("не дождались ответа")
+
+        transport, _ = _transport(slow)
+        with pytest.raises(TransportError, match="могло уйти"):
+            await transport.send(SENT)
+        assert calls["n"] == 1, "второе такое же письмо донору — жалоба на спам"
+        assert pauses == []
+
+    async def test_bad_request_is_not_retried(self, pauses: list[float]) -> None:
+        transport, seen = _transport(lambda _r: httpx.Response(400, text="bad"))
+
+        with pytest.raises(TransportError, match="400"):
+            await transport.send(SENT)
+        assert len(seen) == 1
+
+    async def test_gives_up_after_three_attempts(self, pauses: list[float]) -> None:
+        transport, seen = _transport(lambda _r: httpx.Response(502))
+
+        with pytest.raises(TransportError, match="502"):
+            await transport.send(SENT)
+        assert len(seen) == 3
+        assert pauses == [2.0, 5.0]
+
+
+async def test_unreachable_platform_is_retried_safely(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Соединение не установилось — письмо точно не ушло, повтор безопасен."""
+
+    async def instant(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr("backend.features.letters.sendgrid._sleep", instant)
+    calls = {"n": 0}
+
+    def flaky(_request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ConnectError("сеть")
+        return httpx.Response(202, headers={MESSAGE_ID_HEADER: "sg-9"})
+
+    transport, _ = _transport(flaky)
+    assert await transport.send(SENT) == "sg-9"
+    assert calls["n"] == 2

@@ -15,9 +15,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
+from rq import get_current_job
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.config import storage
@@ -38,8 +39,41 @@ from backend.features.runs.repository import REASON_KEY, RunRepository
 from backend.features.runs.thresholds import defaults
 from backend.features.serp.factory import build_provider
 from backend.shared.logs import setup_logging
+from backend.shared.queue import remember_job_error
 
 logger = logging.getLogger(__name__)
+
+
+def _settled(work: Callable[[], dict[str, Any]], *, what: str) -> dict[str, Any]:
+    """Постоянный отказ — итог задачи, а не падение.
+
+    Очередь повторяет упавшую задачу (`queue.RETRY_INTERVALS`), и это верно
+    для сети и 5xx. Ошибку в шаблоне, неверный ключ или настройку повтор
+    не исправит: трижды прийти к тому же ответу значит трижды его спрятать.
+    Такой исход возвращается с причиной, и экран показывает «не выполнена».
+    """
+    try:
+        return work()
+    except Exception as exc:
+        if not is_permanent(exc):
+            _remember_error(exc, what=what)
+            raise
+        logger.warning("%s не выполнена: %s", what, described(exc))
+        return {"error": described(exc), "permanent": True}
+
+
+def _remember_error(exc: BaseException, *, what: str) -> None:
+    """Причина — рядом с задачей, до того как очередь отложит её на повтор.
+
+    rq не хранит исключение попытки, ушедшей на повтор (проверено на 2.12:
+    ни итога, ни `exc_info`, а мету перезаписывает своей копией задачи),
+    и экран показал бы «ждёт повтора» без причины.
+    """
+    job = get_current_job()
+    if job is None:
+        logger.info("%s: не в очереди — причину сбоя запоминать негде", what)
+        return
+    remember_job_error(job.id, described(exc))
 
 
 async def _run(run_id: int) -> dict[str, Any]:
@@ -214,8 +248,11 @@ def build_letter_queue(
     """
     setup_logging()
     check_storage()
-    return asyncio.run(
-        _build_letters(campaign, country, niche, limit, followup_days, letter_template, run_ids)
+    return _settled(
+        lambda: asyncio.run(
+            _build_letters(campaign, country, niche, limit, followup_days, letter_template, run_ids)
+        ),
+        what="сборка писем",
     )
 
 
@@ -245,7 +282,10 @@ def find_contacts(
     """
     setup_logging()
     check_storage()
-    return asyncio.run(_search_contacts(limit, use_browser, paid_first))
+    return _settled(
+        lambda: asyncio.run(_search_contacts(limit, use_browser, paid_first)),
+        what="поиск контактов",
+    )
 
 
 async def _parse_reply(reply_id: int) -> dict[str, Any]:
@@ -277,4 +317,4 @@ def parse_reply(reply_id: int) -> dict[str, Any]:
     """
     setup_logging()
     check_storage()
-    return asyncio.run(_parse_reply(reply_id))
+    return _settled(lambda: asyncio.run(_parse_reply(reply_id)), what=f"разбор ответа №{reply_id}")

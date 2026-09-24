@@ -266,3 +266,31 @@ class TestCountries:
 
         with pytest.raises(markets.UnknownMarketError):
             language_code("зз")
+
+
+class TestWhichRefusalIsRetried:
+    """Прогон повторяет временное и останавливается на постоянном
+    (`runs/failures.py`). Ошибка выдачи сама говорит, какая она."""
+
+    @pytest.mark.parametrize("code", [500, 503, 429, 408])
+    async def test_passing_trouble_is_not_permanent(self, code: int) -> None:
+        def answer(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(code, text="временно")
+
+        with pytest.raises(SerpError) as caught:
+            await _provider(answer).search(["к"], "us")
+        assert not caught.value.permanent, f"{code} проходит сам — прогон стоит продолжить"
+
+    @pytest.mark.parametrize("code", [401, 402, 403, 404])
+    async def test_key_money_and_rights_are_permanent(self, code: int) -> None:
+        def answer(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(code, text="нельзя")
+
+        with pytest.raises(SerpError) as caught:
+            await _provider(answer).search(["к"], "us")
+        assert caught.value.permanent, f"{code} повтором не лечится"
+
+    async def test_unknown_country_is_permanent(self) -> None:
+        with pytest.raises(SerpError) as caught:
+            await _provider(lambda _r: httpx.Response(200)).search(["к"], "zz")
+        assert caught.value.permanent

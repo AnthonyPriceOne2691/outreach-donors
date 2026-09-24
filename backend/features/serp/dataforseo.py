@@ -350,12 +350,12 @@ class DataForSeoProvider:
             raise SerpError(f"Провайдер выдачи недоступен: {exc!r}") from exc
 
         if response.status_code >= 400:
-            # 5xx сюда доходит, уже исчерпав повторы запроса, — это временно;
-            # 4xx (ключ, права, деньги на счёте, неверный запрос) повтором
-            # не лечится.
+            # 5xx, 429 и 408 сюда доходят, уже исчерпав повторы запроса, —
+            # это временно; прочие 4xx (ключ, права, деньги на счёте, неверный
+            # запрос) повтором не лечатся.
             raise SerpError(
                 f"Провайдер выдачи ответил {response.status_code}: {response.text[:200]}",
-                permanent=response.status_code < 500,
+                permanent=response.status_code < 500 and response.status_code not in (408, 429),
             )
 
         try:

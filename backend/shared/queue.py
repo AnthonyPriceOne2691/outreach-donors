@@ -18,10 +18,11 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from redis import Redis
 from redis.exceptions import RedisError
-from rq import Queue, Worker
+from rq import Queue, Retry, Worker
 from rq.exceptions import NoSuchJobError
 from rq.job import Job
 
@@ -45,6 +46,48 @@ CONTACTS_JOB = "backend.workers.jobs.find_contacts"
 #: Час — потолок, после которого задача считается зависшей: без него
 #: умолчание в три минуты убивало бы каждый настоящий прогон.
 JOB_TIMEOUT = 3600
+
+#: Паузы перед повторами задачи, упавшей на временном сбое: сеть, 5xx,
+#: база. Три попытки сверху: полминуты на мигнувшую сеть, две минуты
+#: на перезапуск провайдера, десять — на короткую аварию. Прогона это
+#: не касается: его повторами владеет разбор мёртвых, и второй слой
+#: повторов поверх него только запутал бы, кто что перезапустил.
+#: ⚠ Паузы работают, только если воркер запущен с планировщиком
+#: (`workers/main.py`): без него отложенные повторы копятся и не
+#: срабатывают никогда — ровно так было в соседней системе.
+RETRY_INTERVALS = (30, 120, 600)
+
+#: Сколько хранится итог задачи. Умолчание rq — восемь минут, и человек,
+#: открывший экран через час, не узнал бы, чем кончилась сборка.
+RESULT_TTL = 7 * 24 * 60 * 60
+
+
+#: Причина сбоя попытки, ушедшей на повтор. Отдельным ключом, а не в мете
+#: задачи: rq при повторе сохраняет задачу своей копией и мету затирает
+#: (проверено на 2.12), а исключения такой попытки не хранит вовсе.
+JOB_ERROR_KEY = "outreach:job-error:{job_id}"
+
+
+def remember_job_error(job_id: str, text: str, redis: Redis | None = None) -> None:
+    """Запомнить причину сбоя задачи — чтобы «ждёт повтора» было с причиной."""
+    try:
+        (redis or connection()).set(JOB_ERROR_KEY.format(job_id=job_id), text[:500], ex=RESULT_TTL)
+    except RedisError as exc:
+        logger.warning("очередь: причину сбоя задачи %s не записать — %s", job_id, exc)
+
+
+def job_error(job_id: str, redis: Redis | None = None) -> str | None:
+    """Последняя запомненная причина сбоя задачи."""
+    raw = (redis or connection()).get(JOB_ERROR_KEY.format(job_id=job_id))
+    return raw.decode("utf-8") if isinstance(raw, bytes) else raw
+
+
+def with_retries() -> dict[str, Any]:
+    """Параметры постановки для задач с повтором: всё, кроме прогона."""
+    return {
+        "retry": Retry(max=len(RETRY_INTERVALS), interval=list(RETRY_INTERVALS)),
+        "result_ttl": RESULT_TTL,
+    }
 
 
 def connection() -> Redis:

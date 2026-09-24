@@ -26,6 +26,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 import httpx
@@ -118,20 +119,79 @@ class SendGridTransport:
         return provider_id
 
     async def _post(self, payload: dict[str, object]) -> httpx.Response:
-        try:
-            response = await self._http.post(
-                API_URL,
-                json=payload,
-                headers={"Authorization": f"Bearer {self._key}"},
-            )
-        except httpx.HTTPError as exc:
-            raise TransportError(f"Почтовая платформа недоступна: {exc!r}") from exc
+        """Отдать письмо, повторив только то, что точно не ушло.
 
+        **Повторяется «не приняла»:** 429 и 5xx — это ответ платформы, письмо
+        не ушло; соединение, которое не установилось, — тоже. **Не повторяется
+        обрыв после отправки** (таймаут ожидания ответа и подобное): платформа
+        могла принять письмо до того, как ответ потерялся, ключа идемпотентности
+        у SendGrid нет, и повтор вслепую отправил бы донору второе такое же
+        письмо — это жалоба на спам, а не лишняя строка.
+        """
+        for attempt in range(1, SEND_ATTEMPTS + 1):
+            response = await self._attempt(payload, last=attempt == SEND_ATTEMPTS)
+            if response is not None and (
+                response.status_code not in RETRY_STATUSES or attempt == SEND_ATTEMPTS
+            ):
+                break
+            pause = _pause(response, attempt)
+            logger.warning(
+                "письма: платформа не приняла (%s) — повтор через %.0f с (попытка %s из %s)",
+                response.status_code if response is not None else "нет соединения",
+                pause,
+                attempt + 1,
+                SEND_ATTEMPTS,
+            )
+            await _sleep(pause)
+
+        assert response is not None  # последняя попытка либо ответила, либо бросила
         if response.status_code >= 400:
             raise TransportError(
                 f"Платформа отказала ({response.status_code}): {response.text[:300]}"
             )
         return response
+
+    async def _attempt(self, payload: dict[str, object], *, last: bool) -> httpx.Response | None:
+        """Одна попытка. `None` — соединение не установилось, можно повторить."""
+        try:
+            return await self._http.post(
+                API_URL,
+                json=payload,
+                headers={"Authorization": f"Bearer {self._key}"},
+            )
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            if last:
+                raise TransportError(
+                    f"Почтовая платформа недоступна ({exc!r}) — письмо не ушло"
+                ) from exc
+            logger.warning("письма: платформа недоступна (%r) — письмо не ушло", exc)
+            return None
+        except httpx.HTTPError as exc:
+            raise TransportError(
+                f"Почтовая платформа не ответила ({exc!r}) — письмо могло уйти. "
+                "Вслепую не повторяем: ключа идемпотентности у платформы нет. "
+                "Проверить в её кабинете (Activity) и только потом отправлять снова"
+            ) from exc
+
+
+#: Явный отказ платформы «не приняла»: частота и её собственные сбои.
+RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
+SEND_ATTEMPTS = 3
+#: Паузы между попытками, если платформа не назвала свою (`Retry-After`).
+BACKOFF_SEC = (2.0, 5.0)
+#: Потолок ожидания: `Retry-After` бывает в минутах, а человек ждёт у кнопки.
+MAX_PAUSE_SEC = 30.0
+
+#: Отдельным именем, чтобы тест гасил паузу здесь, а не у всего процесса
+#: (урок `shared/net/retry.py`).
+_sleep = asyncio.sleep
+
+
+def _pause(response: httpx.Response | None, attempt: int) -> float:
+    raw = response.headers.get("Retry-After", "") if response is not None else ""
+    if raw.strip().isdigit():
+        return min(float(raw), MAX_PAUSE_SEC)
+    return BACKOFF_SEC[min(attempt - 1, len(BACKOFF_SEC) - 1)]
 
 
 def _payload(outgoing: Outgoing) -> dict[str, object]:

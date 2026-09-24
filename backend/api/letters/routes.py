@@ -41,7 +41,7 @@ from backend.features.letters.repository import LetterRepository
 from backend.features.letters.sending import Sending
 from backend.features.letters.transport import TransportError
 from backend.features.letters.transport_factory import build_transport
-from backend.shared.queue import BUILD_JOB, runs_queue
+from backend.shared.queue import BUILD_JOB, runs_queue, with_retries
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +107,7 @@ async def build(
         followup_days=body.followup_days,
         letter_template=letter_template,
         run_ids=body.run_ids,
+        **with_retries(),
     )
     await AccessRepository(session).record(
         AuditAction.RUN_STARTED,

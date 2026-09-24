@@ -34,6 +34,9 @@ from backend.features.letters.template import (
 class ComposeError(ValueError):
     """Собрать письмо нельзя: не хватает значения для подстановки."""
 
+    #: Повтор задачи это не исправит (`runs/failures.py`).
+    permanent = True
+
 
 #: Значения, без которых письмо не отправляется. Домен донора есть всегда,
 #: имя отправителя приходит из настроек.
