@@ -1067,9 +1067,9 @@
       "worst": "excluded_hosts:129"
     },
     "backend/features/runs/lifecycle.py": {
-      "lines": 226,
+      "lines": 246,
       "complexity": 9,
-      "worst": "recover:127"
+      "worst": "recover:143"
     },
     "backend/features/runs/pipeline.py": {
       "lines": 466,
@@ -1177,7 +1177,7 @@
       "worst": "assert_safe_url:88"
     },
     "backend/shared/queue.py": {
-      "lines": 168,
+      "lines": 200,
       "complexity": 7,
       "worst": "job_alive:120"
     },
@@ -1217,7 +1217,7 @@
       "worst": "main:18"
     },
     "backend/workers/reaper.py": {
-      "lines": 107,
+      "lines": 109,
       "complexity": 4,
       "worst": "sweep:57"
     },

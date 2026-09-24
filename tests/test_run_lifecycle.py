@@ -29,6 +29,7 @@ from backend.features.runs.pipeline import RunDeps, RunRequest, execute_run
 from backend.features.runs.planning import Candidates
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.thresholds import defaults
+from backend.shared.queue import last_error_line
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.test_execute_run import GOOD, FakeSerp, T, _ahrefs
@@ -315,3 +316,72 @@ class TestSavedSerpIsNotBoughtTwice:
         await session.refresh(run)
 
         assert run.candidates["hosts"] == ["good.com"]
+
+
+class TestFailureIsNamed:
+    """Упавшая задача — не умерший воркер. 24.09.2026 прогоны №19 и №20
+    падали на MissingGreenlet, а в записи стояло «воркер умер»."""
+
+    TRACE_LINE = "sqlalchemy.exc.MissingGreenlet: greenlet_spawn has not been called"
+
+    async def test_resume_note_carries_the_exception(self, session: AsyncSession) -> None:
+        run = await _run_row(session, status=RunStatus.QUEUED, silent_for=RESUME_AFTER_SEC + 10)
+
+        await recover(
+            RunRepository(session),
+            alive=lambda _: False,
+            enqueue=Enqueued(),
+            failure=lambda _: self.TRACE_LINE,
+        )
+        await session.refresh(run)
+
+        assert f"задача упала: {self.TRACE_LINE}" in run.stats["причина"]
+        assert "воркер умер" not in run.stats["причина"]
+
+    async def test_stop_reason_carries_the_exception(self, session: AsyncSession) -> None:
+        run = await _run_row(
+            session,
+            status=RunStatus.QUEUED,
+            silent_for=STALE_AFTER_SEC + 10,
+            stats={RESUMES_KEY: MAX_RESUMES},
+        )
+
+        await recover(
+            RunRepository(session),
+            alive=lambda _: False,
+            enqueue=Enqueued(),
+            failure=lambda _: self.TRACE_LINE,
+        )
+        await session.refresh(run)
+
+        assert run.status is RunStatus.STOPPED
+        assert self.TRACE_LINE in run.stats["причина"]
+
+    async def test_dead_worker_is_still_called_so(self, session: AsyncSession) -> None:
+        """Нет исключения — значит, правда умер процесс: причина прежняя."""
+        run = await _run_row(session, status=RunStatus.RUNNING, silent_for=RESUME_AFTER_SEC + 10)
+
+        await recover(
+            RunRepository(session),
+            alive=lambda _: False,
+            enqueue=Enqueued(),
+            failure=lambda _: None,
+        )
+        await session.refresh(run)
+
+        assert "воркер умер" in run.stats["причина"]
+
+
+def test_last_error_line_is_the_exception_itself() -> None:
+    trace = (
+        "Traceback (most recent call last):\n"
+        '  File "/app/backend/workers/jobs.py", line 70, in _run\n'
+        "    cap=run.settings.units_cap,\n"
+        "sqlalchemy.exc.MissingGreenlet: greenlet_spawn has not been called\n\n"
+    )
+    assert last_error_line(trace) == (
+        "sqlalchemy.exc.MissingGreenlet: greenlet_spawn has not been called"
+    )
+    assert last_error_line("") is None
+    assert last_error_line(None) is None
+    assert len(last_error_line("x" * 500) or "") == 200
