@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import subprocess
 import sys
@@ -90,7 +91,10 @@ def git_binding() -> tuple[str, ...]:
             text=True,
             check=True,
         ).stdout.split()
-    except (OSError, subprocess.CalledProcessError):
+    except (OSError, subprocess.CalledProcessError) as exc:
+        logging.getLogger(__name__).warning(
+            "git не назвал свои переменные привязки (%s) — беру запасной список", exc
+        )
         return _GIT_BINDING_FALLBACK
     return tuple(sorted(set(listed) | set(_GIT_BINDING_FALLBACK)))
 
