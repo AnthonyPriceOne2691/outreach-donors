@@ -136,9 +136,7 @@ class ReviewView(BaseModel):
     keywords: list[KeywordYieldView] | None = None
 
     @classmethod
-    def of(
-        cls, page: ReviewPage, keywords: list[KeywordYield] | None = None
-    ) -> ReviewView:
+    def of(cls, page: ReviewPage, keywords: list[KeywordYield] | None = None) -> ReviewView:
         run = page.run
         return cls(
             run=RunHead(
