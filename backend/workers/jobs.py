@@ -47,6 +47,7 @@ async def _run(run_id: int) -> dict[str, Any]:
         async with factory() as session:
             runs = RunRepository(session)
             run = await runs.get(run_id)
+            settings = await runs.settings_of(run)
             # Удары о жизни идут своей короткой сессией: длинная в это
             # время занята пачкой доменов, и ждать её значит молчать
             # ровно тогда, когда прогон работает.
@@ -67,7 +68,7 @@ async def _run(run_id: int) -> dict[str, Any]:
                             country=run.country,
                             thresholds=defaults(),
                             settings_id=run.settings_id,
-                            cap=run.settings.units_cap,
+                            cap=settings.units_cap,
                             depth_pages=run.depth_pages,
                             run=run,
                         ),

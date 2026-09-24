@@ -142,6 +142,20 @@ class RunRepository:
             raise UnknownRunError(f"Прогона №{run_id} нет")
         return run
 
+    async def settings_of(self, run: RunModel) -> RunSettingsModel:
+        """Настройки прогона — явным запросом, а не `run.settings`.
+
+        Связь ленивая, и её чтение в асинхронной сессии — синхронный запрос
+        к базе, который падает (MissingGreenlet). Так и было до 24.09.2026:
+        задача прогона из очереди падала на первой строке, ни один прогон
+        с кнопки экрана не доходил до выдачи. Консольный прогон шёл мимо —
+        там потолок передаётся готовым.
+        """
+        settings = await self._session.get(RunSettingsModel, run.settings_id)
+        if settings is None:
+            raise UnknownRunError(f"У прогона №{run.id} нет настроек №{run.settings_id}")
+        return settings
+
     async def bind_job(self, run: RunModel, job_id: str | None) -> None:
         """Связать прогон с задачей очереди. Вызывается и при постановке,
         и при продолжении: старый номер после смерти воркера отвечает
