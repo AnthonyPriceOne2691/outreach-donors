@@ -25,7 +25,7 @@ from backend.features.ops.silence import report as silence_report
 from backend.features.runs.lifecycle import recover
 from backend.features.runs.repository import RunRepository
 from backend.shared.logs import setup_logging
-from backend.shared.queue import RUN_JOB, job_alive, runs_queue
+from backend.shared.queue import RUN_JOB, job_alive, job_failure, runs_queue
 from backend.workers.ticker import every
 
 logger = logging.getLogger(__name__)
@@ -62,7 +62,9 @@ async def sweep() -> None:
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with factory() as session:
-            outcome = await recover(RunRepository(session), alive=job_alive, enqueue=_enqueue)
+            outcome = await recover(
+                RunRepository(session), alive=job_alive, enqueue=_enqueue, failure=job_failure
+            )
         if outcome.resumed or outcome.stopped or outcome.unknown:
             logger.info("Разбор прогонов: %s", outcome.as_report)
     finally:

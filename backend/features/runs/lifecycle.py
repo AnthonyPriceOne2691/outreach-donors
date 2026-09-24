@@ -64,6 +64,22 @@ REASON_KEY = "причина"
 
 #: Жива ли задача: `True` / `False` / `None` (выяснить не удалось).
 AliveCheck = Callable[[str | None], bool | None]
+
+#: Почему задача упала: строка исключения или `None` — не падала / не узнать.
+FailureCheck = Callable[[str | None], str | None]
+
+
+def _no_failure(_job_id: str | None) -> str | None:
+    return None
+
+
+def _cause(failure: FailureCheck, job_id: str | None) -> str:
+    """Упавшая задача и умерший воркер для разбора одинаково «мертвы», но
+    человеку нужна причина: у первой она есть, и подменять её нельзя."""
+    fell = failure(job_id)
+    return f"задача упала: {fell}" if fell else "воркер умер"
+
+
 #: Поставить задачу прогону заново. Возвращает номер новой задачи.
 Enqueue = Callable[[int], str | None]
 
@@ -129,6 +145,7 @@ async def recover(
     *,
     alive: AliveCheck,
     enqueue: Enqueue,
+    failure: FailureCheck = _no_failure,
     now: datetime | None = None,
 ) -> Recovery:
     """Один проход: продолжить осиротевших, закрыть безнадёжных.
@@ -163,6 +180,7 @@ async def recover(
 
             silent_for = (moment - _updated_at(run)).total_seconds()
             attempts = resumes_done(run)
+            cause = _cause(failure, run.job_id)
             if attempts < MAX_RESUMES:
                 job_id = enqueue(run.id)
                 if job_id is None:
@@ -175,15 +193,16 @@ async def recover(
                         run,
                         **{
                             RESUMES_KEY: attempts + 1,
-                            REASON_KEY: "воркер умер, прогон продолжен по сохранённой выдаче",
+                            REASON_KEY: f"{cause}; прогон продолжен по сохранённой выдаче",
                         },
                     ),
                 )
                 resumed.append(run.id)
                 logger.warning(
-                    "Прогон %s молчит %.0f с — задача мертва, поставлена новая (%s, попытка %s)",
+                    "Прогон %s молчит %.0f с — %s, поставлена новая задача (%s, попытка %s)",
                     run.id,
                     silent_for,
+                    cause,
                     job_id,
                     attempts + 1,
                 )
@@ -200,7 +219,7 @@ async def recover(
                     run,
                     **{
                         REASON_KEY: (
-                            f"остановлен разбором: воркер умер, продолжений {attempts} "
+                            f"остановлен разбором: {cause}, продолжений {attempts} "
                             f"из {MAX_RESUMES}, молчание {silent_for:.0f} с"
                         )
                     },
@@ -208,9 +227,10 @@ async def recover(
             )
             stopped.append(run.id)
             logger.error(
-                "Прогон %s закрыт как мёртвый: молчит %.0f с, продолжения исчерпаны",
+                "Прогон %s закрыт как мёртвый: молчит %.0f с, продолжения исчерпаны (%s)",
                 run.id,
                 silent_for,
+                cause,
             )
 
     await repository.session_commit()

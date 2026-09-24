@@ -157,6 +157,38 @@ def job_alive(job_id: str | None, redis: Redis | None = None) -> bool | None:
         return None
 
 
+def job_failure(job_id: str | None, redis: Redis | None = None) -> str | None:
+    """Почему задача упала — строка самого исключения. `None` — не падала
+    или узнать не вышло.
+
+    Без этого разбор мёртвых прогонов пишет «воркер умер» и про задачу,
+    которая честно упала с исключением. 24.09.2026 так выглядели прогоны
+    №19 и №20: задача падала на MissingGreenlet, а в записи прогона стояло
+    «воркер умер, прогон продолжен» — неправда вместо причины.
+    """
+    if not job_id:
+        return None
+    try:
+        job = Job.fetch(job_id, connection=redis or Redis.from_url(storage.REDIS_URL))
+        if job.get_status(refresh=True) != "failed":
+            return None
+        result = job.latest_result()
+        trace = result.exc_string if result is not None else None
+    except (NoSuchJobError, ValueError) as exc:
+        logger.info("очередь: задачи %s нет — почему упала, не узнать (%s)", job_id, exc)
+        return None
+    except RedisError as exc:
+        logger.warning("очередь: не удалось узнать, почему упала задача %s — %s", job_id, exc)
+        return None
+    return last_error_line(trace)
+
+
+def last_error_line(trace: str | None) -> str | None:
+    """Из трассировки — последняя непустая строка: само исключение, без стека."""
+    lines = [line.strip() for line in (trace or "").splitlines() if line.strip()]
+    return lines[-1][:200] if lines else None
+
+
 def _worker_lives(job: Job, connection: Redis) -> bool:
     """Жив ли воркер, взявший задачу. Его ключ держится собственным
     heartbeat rq и исчезает вместе с процессом — в отличие от состояния
