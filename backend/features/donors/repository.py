@@ -25,7 +25,9 @@ from backend.config import filters
 from backend.config import judge as judge_cfg
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
+from backend.features.donors.author_door import opened_reason, opens
 from backend.features.donors.collect import DomainResult
+from backend.features.donors.publisher_judge import Recommendation
 from backend.features.donors.selection import human_advice
 
 
@@ -180,13 +182,25 @@ class DonorRepository:
         )
         return list(rows.scalars().all())
 
-    async def save_doors(self, doors: dict[str, str]) -> None:
-        """Записать увиденное: где дверь или пустую строку — «двери нет»."""
+    async def save_doors(self, doors: dict[str, str]) -> int:
+        """Записать увиденное: где дверь или пустую строку — «двери нет».
+
+        Нашлась дверь у отказа «продаёт своё» — вердикт идёт к человеку,
+        как если бы судья видел меню сам (`author_door.open_door`). Решение
+        человека не трогается. Возвращает, сколько отказов так открыто.
+        """
+        opened = 0
         for host, door in doors.items():
-            await self._session.execute(
-                update(DomainModel).where(DomainModel.host == host).values(site_door=door[:256])
-            )
+            domain = await self._session.scalar(select(DomainModel).where(DomainModel.host == host))
+            if domain is None:
+                continue
+            domain.site_door = door[:256]
+            if door and opens(domain.site_intent, domain.judge_recommendation):
+                domain.judge_recommendation = Recommendation.REVIEW.value
+                domain.judge_reason = opened_reason(domain.judge_reason or "", door)
+                opened += 1
         await self._session.flush()
+        return opened
 
     async def ensure_domains(self, hosts: Sequence[str]) -> dict[str, int]:
         """Заводит отсутствующие домены и возвращает соответствие хост → id.

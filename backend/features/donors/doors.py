@@ -52,9 +52,16 @@ class DoorReport:
     checked: int = 0
     found: int = 0
     unreached: int = 0
+    #: Отказов «продаёт своё», которые дверь перевела к человеку.
+    opened: int = 0
 
     def as_dict(self) -> dict[str, int]:
-        return {"checked": self.checked, "found": self.found, "unreached": self.unreached}
+        return {
+            "checked": self.checked,
+            "found": self.found,
+            "unreached": self.unreached,
+            "opened": self.opened,
+        }
 
 
 FetchHome = Callable[[str], Awaitable[HomeSignals]]
@@ -95,14 +102,16 @@ class DoorCheck:
                 door = author_door(None, None, home.nav) or ""
                 report.found += bool(door)
                 doors[host] = door
-            await donors.save_doors(doors)
+            report.opened += await donors.save_doors(doors)
             if checkpoint is not None:
                 await checkpoint()
         logger.info(
-            "двери сайтов: проверено %s, зовут авторов или рекламодателей %s, не открылись %s",
+            "двери сайтов: проверено %s, зовут авторов или рекламодателей %s, не открылись %s, "
+            "отказов «продаёт своё» отдано человеку %s",
             report.checked,
             report.found,
             report.unreached,
+            report.opened,
         )
         return report
 

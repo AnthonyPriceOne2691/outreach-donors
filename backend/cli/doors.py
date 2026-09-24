@@ -50,7 +50,7 @@ async def _run_ids(session: AsyncSession, run: int | None) -> list[int]:
 async def cmd_doors(args: argparse.Namespace) -> int:
     check_storage()
     engine = create_async_engine(storage.DSN)
-    totals = {"checked": 0, "found": 0, "unreached": 0}
+    totals = {"checked": 0, "found": 0, "unreached": 0, "opened": 0}
     try:
         async with (
             async_sessionmaker(engine, expire_on_commit=False)() as session,
@@ -72,13 +72,14 @@ async def cmd_doors(args: argparse.Namespace) -> int:
                 print(
                     f"Прогон №{run_id}: главных проверено {report.checked}, "
                     f"зовут авторов или рекламодателей {report.found}, "
-                    f"не открылись {report.unreached}."
+                    f"не открылись {report.unreached}, "
+                    f"отказов «продаёт своё» отдано человеку {report.opened}."
                 )
     finally:
         await engine.dispose()
 
     print(
         f"Итого: проверено {totals['checked']}, дверь у {totals['found']}, "
-        f"не открылись {totals['unreached']}."
+        f"не открылись {totals['unreached']}, отдано человеку {totals['opened']}."
     )
     return EXIT_OK
