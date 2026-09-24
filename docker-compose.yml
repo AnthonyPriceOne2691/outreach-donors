@@ -222,8 +222,11 @@ services:
       context: .
       target: web
     restart: unless-stopped
+    # Здоров — значит отдаёт и страницу, и API через себя. Проверка одной
+    # страницы не видела бы главного отказа этого контейнера: 502 на API
+    # при устаревшем адресе сервера (см. resolver в deploy/nginx.conf).
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/ && wget -q -O /dev/null http://127.0.0.1/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3
