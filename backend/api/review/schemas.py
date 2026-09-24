@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from backend.api.selection.schemas import MachineView, SellerView
+from backend.features.review.keyword_yield import KeywordYield
 from backend.features.review.candidates import (
     AUTO_ACCEPT_MIN_DECISIONS,
     AUTO_ACCEPT_PRECISION,
@@ -90,6 +91,33 @@ class CandidateCard(BaseModel):
         )
 
 
+class KeywordYieldView(BaseModel):
+    """Что дал один ключ: сколько нашёл и что из этого решил человек."""
+
+    keyword: str
+    #: Доменов в выдаче по ключу — всех, до порогов и судьи.
+    found: int
+    #: Дошли до рассмотрения (годны по порогам).
+    queued: int
+    accepted: int
+    rejected: int
+    pending: int
+    #: В скольких прогонах ключ был.
+    runs: int
+
+    @classmethod
+    def of(cls, row: KeywordYield) -> KeywordYieldView:
+        return cls(
+            keyword=row.keyword,
+            found=row.found,
+            queued=row.queued,
+            accepted=row.accepted,
+            rejected=row.rejected,
+            pending=row.pending,
+            runs=row.runs,
+        )
+
+
 class RunHead(BaseModel):
     id: int
     country: str
@@ -103,9 +131,14 @@ class ReviewView(BaseModel):
     counts: dict[str, int]
     #: Скрыто под фильтром сомнительных (судья советует отказ).
     hidden: int
+    #: Что дали ключи прогона. `None` — прогон не хранит, какой ключ что
+    #: нашёл (запущен до 23.09.2026): это «не знаем», а не таблица нулей.
+    keywords: list[KeywordYieldView] | None = None
 
     @classmethod
-    def of(cls, page: ReviewPage) -> ReviewView:
+    def of(
+        cls, page: ReviewPage, keywords: list[KeywordYield] | None = None
+    ) -> ReviewView:
         run = page.run
         return cls(
             run=RunHead(
@@ -117,6 +150,7 @@ class ReviewView(BaseModel):
             rows=[CandidateCard.of(row) for row in page.rows],
             counts=page.counts,
             hidden=page.hidden,
+            keywords=None if keywords is None else [KeywordYieldView.of(row) for row in keywords],
         )
 
 

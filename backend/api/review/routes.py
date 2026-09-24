@@ -23,6 +23,7 @@ from backend.features.contacts.repository import ContactRepository
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
 from backend.features.review.candidates import Decision, RunReview
+from backend.features.review.keyword_yield import run_yield
 from backend.shared.queue import CONTACTS_JOB, remember_contacts_job, runs_queue, with_retries
 
 logger = logging.getLogger(__name__)
@@ -46,7 +47,7 @@ async def review(
     session: AsyncSession = Depends(db_session),
 ) -> ReviewView:
     page = await RunReview(session).page(run_id, status=status, show_doubtful=show_doubtful)
-    return ReviewView.of(page)
+    return ReviewView.of(page, await run_yield(session, page.run))
 
 
 @router.post("/runs/{run_id}/decide", response_model=DecideResult, summary="Решение человека")
