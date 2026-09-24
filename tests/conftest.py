@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import subprocess
 import sys
@@ -59,6 +60,67 @@ from sqlalchemy.ext.asyncio import (
 )
 
 _ROOT = Path(__file__).resolve().parent.parent
+
+#: Переменные, которыми git привязывает команду к репозиторию, — на случай,
+#: если сам git не ответил (`git rev-parse --local-env-vars`, git 2.52).
+_GIT_BINDING_FALLBACK = (
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_COMMON_DIR",
+    "GIT_CONFIG",
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_DIR",
+    "GIT_GRAFT_FILE",
+    "GIT_IMPLICIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_NO_REPLACE_OBJECTS",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_PREFIX",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_SHALLOW_FILE",
+    "GIT_WORK_TREE",
+)
+
+
+def git_binding() -> tuple[str, ...]:
+    """Имена переменных, привязывающих git к репозиторию, — у самого git."""
+    try:
+        listed = subprocess.run(
+            ["git", "rev-parse", "--local-env-vars"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.split()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        logging.getLogger(__name__).warning(
+            "git не назвал свои переменные привязки (%s) — беру запасной список", exc
+        )
+        return _GIT_BINDING_FALLBACK
+    return tuple(sorted(set(listed) | set(_GIT_BINDING_FALLBACK)))
+
+
+def drop_git_binding(environ: dict[str, str] | os._Environ[str]) -> list[str]:
+    """Убрать из окружения привязку git к репозиторию. Возвращает, что убрано.
+
+    **Тесты зовут git во временных папках** (гейт публичного репозитория
+    собирает там свой `git init` и `git add -A`) и должны попадать в эти
+    папки, а не в наш репозиторий. Хук перед пушем из связанного дерева
+    (`git worktree`) получает от git абсолютный `GIT_DIR` — из основной копии
+    не получает никакого, — и тесты, запущенные хуком, унаследовали бы его.
+    24.09.2026 так и вышло: `git init` во временной папке переинициализировал
+    настоящий репозиторий (`core.bare = true` — основная копия перестала быть
+    рабочей), а `git add -A` заменил индекс дерева одним файлом из теста.
+    Хук теперь сбрасывает эти переменные сам; здесь — второй рубеж для
+    любого другого запуска.
+    """
+    dropped = [name for name in git_binding() if name in environ]
+    for name in dropped:
+        del environ[name]
+    return dropped
+
+
+# До любого теста и любой фикстуры: оснастка ниже сама зовёт подпроцессы.
+drop_git_binding(os.environ)
 
 TEST_DSN = os.getenv(
     "TEST_STORAGE_DSN",
