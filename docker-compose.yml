@@ -142,6 +142,14 @@ services:
     env_file: *backend-env-file
     environment: *backend-env
     restart: unless-stopped
+    # Воркер опознаётся в очереди по имени хоста контейнера: зарегистрирован
+    # и свежий признак жизни у rq — значит, берёт задачи.
+    healthcheck:
+      test: ["CMD", "python", "-m", "backend.workers.health", "worker"]
+      interval: 60s
+      timeout: 15s
+      retries: 2
+      start_period: 30s
     depends_on:
       postgres:
         condition: service_healthy
@@ -162,6 +170,16 @@ services:
     env_file: *backend-env-file
     environment: *backend-env
     restart: unless-stopped
+    # Процесс жив — ещё не значит, что цикл идёт: зависшее ожидание снаружи
+    # неотличимо от работы. Проверка читает отметки о жизни, которые цикл
+    # оставляет на каждом круге (`workers/health.py`). Докер по ней НЕ
+    # перезапускает — показывает `unhealthy` в `docker compose ps`.
+    healthcheck:
+      test: ["CMD", "python", "-m", "backend.workers.health", "beats"]
+      interval: 60s
+      timeout: 15s
+      retries: 2
+      start_period: 60s
     depends_on:
       postgres:
         condition: service_healthy
@@ -182,6 +200,16 @@ services:
     env_file: *backend-env-file
     environment: *backend-env
     restart: unless-stopped
+    # Процесс жив — ещё не значит, что цикл идёт: зависшее ожидание снаружи
+    # неотличимо от работы. Проверка читает отметки о жизни, которые цикл
+    # оставляет на каждом круге (`workers/health.py`). Докер по ней НЕ
+    # перезапускает — показывает `unhealthy` в `docker compose ps`.
+    healthcheck:
+      test: ["CMD", "python", "-m", "backend.workers.health", "beats"]
+      interval: 60s
+      timeout: 15s
+      retries: 2
+      start_period: 60s
     depends_on:
       postgres:
         condition: service_healthy
@@ -194,6 +222,12 @@ services:
       context: .
       target: web
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     ports:
       # 8080 занят соседней системой на этой же машине, 80 требует прав.
       - "${WEB_PORT:-8090}:80"

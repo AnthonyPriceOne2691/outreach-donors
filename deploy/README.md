@@ -75,8 +75,16 @@ sudo cp deploy/backup.cron /etc/cron.d/outreach-backup
 curl -s https://outreach.ДОМЕН/api/health                  # {"status": "жив"}
 curl -so /dev/null -w '%{http_code}\n' https://outreach.ДОМЕН/            # 401 — пароль прокси
 curl -so /dev/null -w '%{http_code}\n' https://outreach.ДОМЕН/api/docs    # 401
-docker compose -f docker-compose.yml -f docker-compose.prod.yml ps        # все healthy / running
+docker compose -f docker-compose.yml -f docker-compose.prod.yml ps        # все (healthy), кроме migrate
 ```
+
+**Здоровье фоновых процессов.** У каждого долгоживущего контейнера своя
+проверка: воркер — по своей отметке в очереди, циклы добивок и разбора —
+по отметкам о жизни на каждом круге, web — по ответу nginx. `unhealthy`
+значит «процесс жив, но работу не делает» (завис или падает на каждом
+проходе); причину называет `docker inspect --format '{{json .State.Health}}' <контейнер>`.
+⚠ Докер `unhealthy` сам НЕ перезапускает — `docker compose restart <сервис>`
+делает человек, посмотрев причину.
 
 ## Подключение почты (на боевой машине, когда готовы домены)
 

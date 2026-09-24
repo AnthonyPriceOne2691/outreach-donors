@@ -1201,6 +1201,11 @@
       "complexity": 4,
       "worst": "sweep:38"
     },
+    "backend/workers/health.py": {
+      "lines": 112,
+      "complexity": 9,
+      "worst": "worker_problems:73"
+    },
     "backend/workers/jobs.py": {
       "lines": 234,
       "complexity": 2,
@@ -1217,9 +1222,9 @@
       "worst": "sweep:57"
     },
     "backend/workers/ticker.py": {
-      "lines": 32,
+      "lines": 69,
       "complexity": 3,
-      "worst": "every:23"
+      "worst": "every:49"
     },
     "scripts/check_hunter.py": {
       "lines": 159,
