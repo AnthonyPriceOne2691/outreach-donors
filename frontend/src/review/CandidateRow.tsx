@@ -36,6 +36,18 @@ function Site({ row }: { row: CandidateCard }) {
         DR {row.dr ?? '—'} · трафик {formatCompact(row.org_traffic)}
         {row.geo !== null && ` · ${countryTitle(row.geo)}${share === null ? '' : ` ${share}%`}`}
       </Text>
+      {/* Почему строка стоит первой в ярусе: для гест-постинга это главный
+          признак донора, и человек должен видеть, на чём он держится. */}
+      {row.sells !== null && (
+        <Group gap={6} wrap="nowrap" data-sells>
+          <Badge variant="light" color="green" size="sm">
+            продаёт размещение
+          </Badge>
+          <Text size="xs" c="dimmed">
+            {row.sells}
+          </Text>
+        </Group>
+      )}
       {row.carried && (
         <Badge variant="outline" color="gray" size="sm">
           решено раньше

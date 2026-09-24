@@ -48,6 +48,7 @@ function card(id: number, host: string, extra: Record<string, unknown> = {}) {
     geo_top_share: 0.62,
     contact_status: null,
     found_by: ['saas blog write for us', 'martech blog submit article', 'saas seo strategy'],
+    sells: null,
     machine: MACHINE,
     seller: SELLER,
     ...extra,
@@ -105,6 +106,26 @@ describe('рассмотрение прогона', () => {
 
     const blind = screen.getByText('unjudged.example.test').closest('tr') as HTMLElement;
     expect(within(blind).getByText('судья не смотрел')).toBeInTheDocument();
+  });
+
+  it('продающий размещение сайт говорит, на чём держится его место наверху', async () => {
+    await openReview({
+      [PENDING]: {
+        body: {
+          ...VIEW,
+          rows: [
+            card(1, 'martech.example.test', { sells: 'меню главной: «Advertise»' }),
+            card(2, 'plain.example.test'),
+          ],
+        },
+      },
+    });
+
+    const seller = screen.getByText('martech.example.test').closest('tr') as HTMLElement;
+    expect(within(seller).getByText('продаёт размещение')).toBeInTheDocument();
+    expect(within(seller).getByText('меню главной: «Advertise»')).toBeInTheDocument();
+    const plain = screen.getByText('plain.example.test').closest('tr') as HTMLElement;
+    expect(within(plain).queryByText('продаёт размещение')).not.toBeInTheDocument();
   });
 
   it('видно, по каким ключам нашёлся домен', async () => {

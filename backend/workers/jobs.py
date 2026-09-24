@@ -26,6 +26,7 @@ from backend.config.startup_checks import check_collect, check_storage
 from backend.features.ahrefs.client import AhrefsClient
 from backend.features.contacts.search import search_contacts
 from backend.features.core.domain import Stage
+from backend.features.donors.doors import door_check
 from backend.features.donors.repository import DonorRepository
 from backend.features.letters.building import BuildRequest, QueueBuilder
 from backend.features.letters.rewrite import RewriteClient
@@ -90,7 +91,7 @@ async def _run(run_id: int) -> dict[str, Any]:
             # Удары о жизни идут своей короткой сессией: длинная в это
             # время занята пачкой доменов, и ждать её значит молчать
             # ровно тогда, когда прогон работает.
-            async with factory() as ticker:
+            async with factory() as ticker, door_check() as doors:
                 beat = asyncio.create_task(heartbeat(RunRepository(ticker), run_id))
                 try:
                     report = await execute_run(
@@ -101,6 +102,7 @@ async def _run(run_id: int) -> dict[str, Any]:
                             runs=runs,
                             exclusions=Exclusions(session),
                             review=RunReview(session),
+                            doors=doors,
                         ),
                         RunRequest(
                             keywords=list(run.keywords),

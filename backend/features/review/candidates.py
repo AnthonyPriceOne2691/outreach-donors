@@ -24,6 +24,13 @@
 **Решение можно снять.** Отмена возвращает кандидата в «предложен»,
 а донору — предыдущее решение по другим прогонам, если оно было.
 В соседней системе отказ вечный и без отмены, и это её известная беда.
+
+**Внутри яруса первыми — те, кто сам продаёт размещение.** Для
+гест-постинга это главный признак донора, и смотреть его надо раньше
+всего остального: сайт сам сказал «продаём», человек или судья поняли,
+что он продаёт статьи у себя, или он зовёт авторов и рекламодателей
+со страницы и из меню главной (`donors.doors`). Признак считается одной
+формулой (`sells_placement`) — по ней и сортировка, и подпись в строке.
 """
 
 from __future__ import annotations
@@ -35,7 +42,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import ColumnElement, case, func, select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,7 +50,7 @@ from backend.features.core.domain import DonorStatus
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.run import RunCandidateModel, RunModel
-from backend.features.donors.selection import site_advice
+from backend.features.review.ordering import Tier, sells_placement, shelf, tier, tier_order
 
 logger = logging.getLogger(__name__)
 
@@ -54,49 +61,12 @@ class Decision(StrEnum):
     REJECTED = "rejected"
 
 
-class Tier(StrEnum):
-    """Ярус очереди по совету о сайте. Порядок — порядок показа."""
-
-    LIKELY = "likely"  # советуют принять
-    OPEN = "open"  # «посмотри» или совета нет
-    DOUBTFUL = "doubtful"  # советуют отказ — скрыт под фильтром
-
-
 class UnknownRunError(ValueError):
     """Прогона с таким номером нет."""
 
 
 class NotInRunError(ValueError):
     """Кандидаты не из этого прогона. Сообщение называет номера."""
-
-
-def tier() -> ColumnElement[Any]:
-    advice = site_advice()
-    return case(
-        (advice == "accept", Tier.LIKELY.value),
-        (advice == "reject", Tier.DOUBTFUL.value),
-        else_=Tier.OPEN.value,
-    )
-
-
-#: Полка крупных сайтов: внутри яруса домены с DR не ниже этого — в конце.
-#: Строка «кому не пишем» требований называет «домены DR > 80»; судья
-#: честно зовёт forbes.com и reuters.com изданиями, но гостевой пост
-#: им не продашь, и первыми в очереди стоять они не должны. Полка, а не
-#: отказ: решает человек.
-BIG_SITE_DR = 80
-
-
-def _shelf() -> ColumnElement[Any]:
-    return case((DonorModel.dr >= BIG_SITE_DR, 1), else_=0)
-
-
-def _tier_order() -> ColumnElement[Any]:
-    return case(
-        (tier() == Tier.LIKELY.value, 0),
-        (tier() == Tier.OPEN.value, 1),
-        else_=2,
-    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +93,9 @@ class CandidateRow:
     tier: Tier
     #: По каким ключам прогона нашёлся домен.
     found_by: list[str]
+    #: Почему сайт стоит первым в ярусе: он продаёт размещение у себя.
+    #: Пусто — такого признака нет.
+    sells: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,6 +235,17 @@ class RunReview:
         await self._session.flush()
         return QueueReport(pending=pending, carried=carried)
 
+    async def pending_hosts(self, run_id: int) -> list[str]:
+        """Домены прогона, ждущие решения человека."""
+        rows = await self._session.execute(
+            select(DomainModel.host)
+            .join(RunCandidateModel, RunCandidateModel.domain_id == DomainModel.id)
+            .where(RunCandidateModel.run_id == run_id)
+            .where(RunCandidateModel.status == Decision.PENDING.value)
+            .order_by(DomainModel.host)
+        )
+        return list(rows.scalars().all())
+
     async def page(
         self, run_id: int, *, status: Decision, show_doubtful: bool = False
     ) -> ReviewPage:
@@ -273,7 +257,12 @@ class RunReview:
             statement = statement.where(tier() != Tier.DOUBTFUL.value)
         result = await self._session.execute(
             statement.order_by(
-                _tier_order(), _shelf(), DonorModel.dr.desc().nullslast(), DomainModel.host
+                tier_order(),
+                shelf(),
+                # Внутри яруса и полки — сначала продающие размещение.
+                sells_placement().is_(None),
+                DonorModel.dr.desc().nullslast(),
+                DomainModel.host,
             )
         )
         found_by = (run.candidates or {}).get("found_by") or {}
@@ -284,8 +273,9 @@ class RunReview:
                 donor=donor,
                 tier=Tier(row_tier),
                 found_by=list(found_by.get(domain.host, [])),
+                sells=sells,
             )
-            for candidate, domain, donor, row_tier in result.all()
+            for candidate, domain, donor, row_tier, sells in result.all()
         ]
         return ReviewPage(
             run=run,
@@ -420,7 +410,13 @@ class RunReview:
 
     def _rows(self, run_id: int) -> Any:
         return (
-            select(RunCandidateModel, DomainModel, DonorModel, tier().label("tier"))
+            select(
+                RunCandidateModel,
+                DomainModel,
+                DonorModel,
+                tier().label("tier"),
+                sells_placement().label("sells"),
+            )
             .join(DomainModel, DomainModel.id == RunCandidateModel.domain_id)
             .join(DonorModel, DonorModel.domain_id == RunCandidateModel.domain_id)
             .where(RunCandidateModel.run_id == run_id)

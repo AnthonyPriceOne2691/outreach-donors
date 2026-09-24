@@ -255,6 +255,15 @@ def door_of(text: SerpText | None, home: HomeSignals | None) -> str | None:
     )
 
 
+def door_record(door: str | None, home: HomeSignals | None) -> str | None:
+    """Что записать о двери. Нашлась — где; не нашлась, а меню главной
+    смотрели — пустая строка; меню не смотрели — `None`, то есть «не знаем»:
+    отсутствие двери в выдаче не значит, что её нет в меню."""
+    if door is not None:
+        return door
+    return "" if home is not None and home.reached else None
+
+
 def _collect(
     results: Mapping[str, tuple[Judgement, HomeSignals | None]],
     texts: Mapping[str, SerpText],
@@ -266,7 +275,8 @@ def _collect(
     rejected: set[str] = set()
     for host, (judged, home) in results.items():
         text = texts.get(host)
-        verdict = open_door(judged, door_of(text, home))
+        door = door_of(text, home)
+        verdict = open_door(judged, door)
         summary.record(verdict, paid=host in unpaid)
         if home is not None and not home.reached:
             summary.home_unreached += 1
@@ -282,6 +292,7 @@ def _collect(
             version=PROMPT_VERSION if verdict.model else None,
             decided_by=verdict.decided_by.value,
             home=home.as_dict() if home is not None else None,
+            door=door_record(door, home),
         )
         if verdict.recommendation is Recommendation.REJECT:
             rejected.add(host)

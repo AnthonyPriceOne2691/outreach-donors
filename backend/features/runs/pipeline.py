@@ -10,7 +10,8 @@
           → отчёт со сверкой сметы и факта
 
 Первые пять шагов живут в `planning.py`: до первой траты и решается,
-что вообще будет куплено. Здесь — исполнение и отчёт.
+что вообще будет куплено. Здесь — исполнение; итог и его запись
+в прогон — `report.py`.
 
 Два свойства, ради которых всё это и написано.
 
@@ -29,7 +30,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import httpx
 
@@ -37,16 +38,16 @@ from backend.config import judge as judge_cfg
 from backend.config import llm as llm_cfg
 from backend.features.ahrefs.client import AhrefsClient
 from backend.features.ahrefs.units import (
-    UnitsCost,
     UsageCollector,
 )
-from backend.features.core.domain import DonorStatus, RunStatus, Stage
+from backend.features.core.domain import RunStatus, Stage
 from backend.features.core.models.run import RunModel
 from backend.features.donors.collect import collect
-from backend.features.donors.judging import JudgePass, JudgeSummary, judge_candidates
+from backend.features.donors.doors import DoorCheck
+from backend.features.donors.judging import JudgePass, judge_candidates
 from backend.features.donors.repository import DonorRepository
 from backend.features.donors.verdict import Thresholds
-from backend.features.review.candidates import QueueReport, RunReview
+from backend.features.review.candidates import RunReview
 from backend.features.runs.budget import units_left
 from backend.features.runs.failures import described, is_permanent
 from backend.features.runs.planning import (
@@ -56,7 +57,8 @@ from backend.features.runs.planning import (
     gather_candidates,
     plan_run,
 )
-from backend.features.runs.repository import REASON_KEY, RunRepository
+from backend.features.runs.report import RunReport, run_stats
+from backend.features.runs.repository import RunRepository
 from backend.features.serp.protocol import SerpProvider
 from backend.shared.logs import run_context
 from backend.shared.net.url_guard import guarded_client
@@ -69,90 +71,6 @@ logger = logging.getLogger(__name__)
 SERP_OPERATION = "serp_search"
 #: Токены судьи площадки — строка журнала, как у сборки ключей.
 JUDGE_OPERATION = "site_judge"
-
-# Операции, которые покрывает смета. Выдача в неё не входит: к моменту, когда
-# смета показывается человеку, она уже потрачена, и включать её значило бы
-# просить подтвердить трату, которой не избежать.
-ESTIMATED_OPERATIONS = frozenset({"batch_metrics", "by_country"})
-
-
-@dataclass(slots=True)
-class RunReport:
-    """Итог прогона. Отвечает на два вопроса: что получили и во что обошлось."""
-
-    plan: RunPlan
-    by_status: dict[DonorStatus, int] = field(default_factory=dict)
-    reject_reasons: dict[str, int] = field(default_factory=dict)
-    spent_units: int = 0
-    spent_by_operation: dict[str, int] = field(default_factory=dict)
-    free_by_operation: dict[str, int] = field(default_factory=dict)
-    """Сколько запросов обслужил кэш провайдера. Не трата, но показатель:
-    по нему видно, что повторные обращения действительно бесплатны."""
-
-    judge: JudgeSummary | None = None
-    """Итог судьи площадки. `None` — судья выключен (режим `off`).
-
-    Отдельным полем, а не смешано с отсевом по порогам: судья и пороги
-    отвечают на разные вопросы, и сложив их, мы потеряли бы ровно то,
-    ради чего судья заведён, — сколько мусора проходит ЧЕРЕЗ пороги."""
-
-    review: QueueReport | None = None
-    """Что прогон положил на рассмотрение человеку. `None` — очереди нет."""
-
-    @property
-    def spent_on_estimated(self) -> int:
-        """Траты по тем операциям, которые смета покрывает."""
-        return sum(
-            units
-            for operation, units in self.spent_by_operation.items()
-            if operation in ESTIMATED_OPERATIONS
-        )
-
-    @property
-    def actual_pass_share(self) -> float:
-        """Какая доля проверенных дошла до запроса по странам.
-
-        Главный источник расхождения со сметой — именно она, а не цены.
-        Смета считается по замеренной воронке, а воронка зависит от ниши:
-        на сырых доменах порог проходят 39%, на выдаче по коммерческим
-        ключам — заметно больше, потому что там изначально сильные сайты.
-        """
-        checked = len(self.plan.new)
-        if not checked:
-            return 0.0
-        passed = self.by_status.get(DonorStatus.SUITABLE, 0) + self.by_status.get(
-            DonorStatus.UNCHECKED, 0
-        )
-        return passed / checked
-
-    @property
-    def estimate_error(self) -> float:
-        """Насколько смета разошлась с фактом.
-
-        Сравниваются только сопоставимые траты: смета покрывает запросы
-        метрик, но не выдачу. Сложив их, мы получили бы стабильное
-        расхождение на стоимость выдачи и решили бы, что цены плывут,
-        хотя плывёт только наша арифметика.
-        """
-        planned = self.plan.estimate.total
-        if not planned:
-            return 0.0
-        return (self.spent_on_estimated - planned) / planned
-
-    def record(self, status: DonorStatus, reason: str) -> None:
-        self.by_status[status] = self.by_status.get(status, 0) + 1
-        if status is DonorStatus.UNSUITABLE:
-            key = reason.split(" ", maxsplit=1)[0] if reason else "без причины"
-            self.reject_reasons[key] = self.reject_reasons.get(key, 0) + 1
-
-    def add_usage(self, operation: str, cost: UnitsCost) -> None:
-        if cost.was_free:
-            self.free_by_operation[operation] = self.free_by_operation.get(operation, 0) + 1
-            return
-        self.spent_units += cost.billable
-        self.spent_by_operation[operation] = (
-            self.spent_by_operation.get(operation, 0) + cost.billable
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +91,9 @@ class RunDeps:
     #: сразу в базу; оба боевых вызова её передают, умолчание — уступка
     #: тестам ядра прогона, которым очередь не нужна.
     review: RunReview | None = None
+    #: Меню главных у очереди. Пусто — не смотреть: тесты ядра не ходят
+    #: в сеть, а боевой вызов передаёт проверку с клиентом для чужих сайтов.
+    doors: DoorCheck | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -244,6 +165,26 @@ async def _record_search_cost(deps: RunDeps, run: RunModel, candidates: Candidat
         run_id=run.id, operation=SERP_OPERATION, amount_usd=candidates.cost_usd
     )
     await deps.runs.session_commit()
+
+
+async def _check_doors(deps: RunDeps, run: RunModel, report: RunReport) -> None:
+    """Меню главных у очереди: кто сам продаёт размещение — наверх.
+
+    Сбой здесь прогон не роняет: платное уже сделано и лежит в очереди,
+    а без двери очередь просто не поднимет продающих. Причина — в запись
+    прогона, а не только в лог.
+    """
+    if deps.doors is None or deps.review is None:
+        return
+    try:
+        report.doors = await deps.doors(
+            deps.donors,
+            await deps.review.pending_hosts(run.id),
+            checkpoint=deps.runs.session_commit,
+        )
+    except Exception as exc:
+        logger.exception("Прогон %s: меню главных не посмотрели", run.id)
+        report.doors_failure = described(exc)[:300]
 
 
 async def _judge_candidates(
@@ -385,6 +326,7 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
                 # увидеть — просто платить за них не пришлось.
                 report.review = await deps.review.queue_run(run.id, [*plan.new, *plan.fresh])
                 await deps.runs.session_commit()
+                await _check_doors(deps, run, report)
         except Exception as exc:
             failure = described(exc)
             status = _status_after(exc, run.id)
@@ -400,7 +342,7 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
                 run,
                 status=status,
                 actual_units=report.spent_units,
-                stats=_run_stats(report, failure, retry=status is RunStatus.RUNNING),
+                stats=run_stats(report, failure, retry=status is RunStatus.RUNNING),
             )
             await deps.runs.session_commit()
 
@@ -419,64 +361,3 @@ def _status_after(exc: BaseException, run_id: int) -> RunStatus:
         return RunStatus.STOPPED
     logger.exception("Прогон %s прерван сбоем, будет продолжен", run_id)
     return RunStatus.RUNNING
-
-
-def _run_stats(report: RunReport, failure: str | None, *, retry: bool = False) -> dict[str, object]:
-    """Отчёт прогона в том виде, в каком его читает человек.
-
-    Расхождение сметы с фактом попадает сюда намеренно: заметное отклонение
-    значит, что цены у провайдера изменились и замер пора повторить.
-    """
-    candidates = report.plan.candidates
-    stats: dict[str, object] = {
-        "keywords": candidates.keywords,
-        "serp_results": candidates.results,
-        "unique_hosts": len(candidates.hosts),
-        "duplicates_collapsed": candidates.duplicates,
-        "urls_unparsed": candidates.dropped,
-        "keywords_without_results": candidates.empty_keywords,
-        "already_fresh": len(report.plan.fresh),
-        "excluded": len(report.plan.excluded),
-        "excluded_by_reason": report.plan.excluded_by_reason,
-        "checked_now": len(report.plan.new),
-        "by_status": {status.value: count for status, count in report.by_status.items()},
-        "reject_reasons": report.reject_reasons,
-        "units_estimated": report.plan.estimate.total,
-        "units_spent": report.spent_units,
-        "units_by_operation": dict(report.spent_by_operation),
-        "free_requests": dict(report.free_by_operation),
-        "estimate_error": round(report.estimate_error, 3),
-        "actual_pass_share": round(report.actual_pass_share, 3),
-        "units_saved_by_cache": report.plan.savings_from_cache,
-        "units_saved_by_gate": report.plan.savings_from_gate,
-    }
-    if report.judge is not None:
-        # Отдельной веткой, а не строками в общем словаре: у выключенного
-        # судьи нулей быть не должно. Ноль читается как «судил и никого
-        # не нашёл», а это другая новость, чем «не судил вовсе».
-        summary = report.judge
-        stats["judge"] = {
-            "mode": judge_cfg.MODE.value,
-            "judged": summary.judged,
-            "from_cache": summary.from_cache,
-            "would_cut": summary.would_cut,
-            "to_review": summary.to_review,
-            "by_intent": dict(summary.by_intent),
-            "by_decider": dict(summary.by_decider),
-            "home_unreached": summary.home_unreached,
-            "from_index": summary.from_index,
-            "tokens": summary.tokens,
-            # В наблюдении это «сэкономил бы», во включённом — «сэкономил».
-            # Число одно, и по режиму рядом видно, какое из двух.
-            "units_saved": summary.units_saved,
-        }
-    if report.review is not None:
-        stats["review"] = {"pending": report.review.pending, "carried": report.review.carried}
-    if failure is not None:
-        # Причина остановки хранится рядом с цифрами, а не только в логе:
-        # через неделю лог уже не найдут, а запись прогона останется.
-        stats["failure"] = failure
-        stats[REASON_KEY] = (
-            f"сбой, будет продолжен: {failure}" if retry else f"остановлен: {failure}"
-        )[:500]
-    return stats

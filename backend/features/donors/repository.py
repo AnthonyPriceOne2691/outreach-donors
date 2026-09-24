@@ -25,7 +25,9 @@ from backend.config import filters
 from backend.config import judge as judge_cfg
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
+from backend.features.donors.author_door import opened_reason, opens
 from backend.features.donors.collect import DomainResult
+from backend.features.donors.publisher_judge import Recommendation
 from backend.features.donors.selection import human_advice
 
 
@@ -45,6 +47,10 @@ class JudgeRecord:
     decided_by: str | None = None
     #: Что сказала главная; `None` — не спрашивали.
     home: dict[str, Any] | None = None
+    #: Где сайт зовёт авторов или рекламодателей (`author_door`). Пустая
+    #: строка — меню главной смотрели, двери нет; `None` — не смотрели,
+    #: и прежнее знание о двери пересуд не стирает.
+    door: str | None = None
 
 
 def _is_partial(result: DomainResult) -> bool:
@@ -142,6 +148,9 @@ class DonorRepository:
         moment = now or datetime.now(UTC)
         await self.ensure_domains(list(verdicts))
         for host, record in verdicts.items():
+            # Незнание о двери не перетирает знание: пересуд без главной
+            # не должен стирать «Advertise», найденный прошлым судом.
+            door = {} if record.door is None else {"site_door": record.door[:256]}
             await self._session.execute(
                 update(DomainModel)
                 .where(DomainModel.host == host)
@@ -156,9 +165,42 @@ class DonorRepository:
                     judge_decided_by=record.decided_by,
                     judge_home=record.home,
                     judged_at=moment,
+                    **door,
                 )
             )
         return len(verdicts)
+
+    async def hosts_without_door(self, hosts: Sequence[str]) -> list[str]:
+        """Домены, про чью дверь для авторов ещё не знаем (`site_door IS NULL`)."""
+        if not hosts:
+            return []
+        rows = await self._session.execute(
+            select(DomainModel.host)
+            .where(DomainModel.host.in_(list(dict.fromkeys(hosts))))
+            .where(DomainModel.site_door.is_(None))
+            .order_by(DomainModel.host)
+        )
+        return list(rows.scalars().all())
+
+    async def save_doors(self, doors: dict[str, str]) -> int:
+        """Записать увиденное: где дверь или пустую строку — «двери нет».
+
+        Нашлась дверь у отказа «продаёт своё» — вердикт идёт к человеку,
+        как если бы судья видел меню сам (`author_door.open_door`). Решение
+        человека не трогается. Возвращает, сколько отказов так открыто.
+        """
+        opened = 0
+        for host, door in doors.items():
+            domain = await self._session.scalar(select(DomainModel).where(DomainModel.host == host))
+            if domain is None:
+                continue
+            domain.site_door = door[:256]
+            if door and opens(domain.site_intent, domain.judge_recommendation):
+                domain.judge_recommendation = Recommendation.REVIEW.value
+                domain.judge_reason = opened_reason(domain.judge_reason or "", door)
+                opened += 1
+        await self._session.flush()
+        return opened
 
     async def ensure_domains(self, hosts: Sequence[str]) -> dict[str, int]:
         """Заводит отсутствующие домены и возвращает соответствие хост → id.

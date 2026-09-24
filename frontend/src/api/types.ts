@@ -729,6 +729,8 @@ export interface CandidateCard {
   contact_status: ContactStatus | null;
   /** По каким ключам прогона нашёлся домен. */
   found_by: string[];
+  /** Почему стоит первым в ярусе: сайт сам продаёт размещение. Пусто — признака нет. */
+  sells: string | null;
   machine: MachineView;
   seller: SellerView;
 }
