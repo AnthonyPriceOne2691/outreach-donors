@@ -20,7 +20,7 @@ import { Badge, Button, Group, Stack, Text, TextInput, Textarea } from '@mantine
 import { IconChevronDown } from '@tabler/icons-react';
 import { useId, useState } from 'react';
 
-import type { LetterDraft, LetterDraftView } from '../api/types';
+import type { LetterDraft, LetterDraftView, LetterStage } from '../api/types';
 
 export function draftOf(view: LetterDraftView): LetterDraft {
   return {
@@ -40,9 +40,29 @@ interface Props {
   fallback: LetterDraftView;
   value: LetterDraft;
   onChange: (next: LetterDraft) => void;
+  /** От этапа — подстановки и то, под кого модель переписывает зоны. */
+  stage?: LetterStage;
 }
 
-export function LetterDraftEditor({ fallback, value, onChange }: Props) {
+/** Что можно подставить в текст и что нельзя трогать — по этапу. */
+const HINTS: Record<LetterStage, { placeholders: string; rewrite: string }> = {
+  donors: {
+    placeholders:
+      '{{host}} — сайт донора, {{sender_name}} — имя в подписи. Пункты списка вопросов ' +
+      'модель переписывает, но потерять не может: письмо с потерянным пунктом уходит с исходной ' +
+      'формулировкой.',
+    rewrite: 'Переписывает модель под каждого донора',
+  },
+  advertisers: {
+    placeholders:
+      '{{donor_host}} — площадка, где нашли ссылку, {{page_url}} — страница, {{anchor}} — анкор, ' +
+      '{{sender_name}} — имя в подписи. Ссылка стоит только в неизменяемых зонах: в переписываемой ' +
+      'модель могла бы её пересказать, и сервер такой текст не примет. Цену донора не называть.',
+    rewrite: 'Переписывает модель под каждого рекламодателя',
+  },
+};
+
+export function LetterDraftEditor({ fallback, value, onChange, stage = 'donors' }: Props) {
   const [open, setOpen] = useState(false);
   const bodyId = useId();
   const edited = !sameDraft(value, draftOf(fallback));
@@ -88,9 +108,7 @@ export function LetterDraftEditor({ fallback, value, onChange }: Props) {
         <Stack gap="sm" id={bodyId}>
           <Text size="sm" c="dimmed" maw={680}>
             Текст закрепляется за рассылкой при её создании и дальше не меняется. Подстановки:{' '}
-            {'{{host}}'} — сайт донора, {'{{sender_name}}'} — имя в подписи. Пункты списка вопросов
-            модель переписывает, но потерять не может: письмо с потерянным пунктом уходит с исходной
-            формулировкой.
+            {HINTS[stage].placeholders}
           </Text>
           <TextInput
             label="Тема"
@@ -102,9 +120,7 @@ export function LetterDraftEditor({ fallback, value, onChange }: Props) {
               key={zone.name}
               label={zone.title}
               description={
-                zone.kind === 'rewrite'
-                  ? 'Переписывает модель под каждого донора'
-                  : 'Уходит как есть, модель не видит'
+                zone.kind === 'rewrite' ? HINTS[stage].rewrite : 'Уходит как есть, модель не видит'
               }
               autosize
               minRows={1}

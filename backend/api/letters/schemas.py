@@ -5,7 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from backend.config import outreach as cfg
-from backend.features.core.domain import MessageStatus
+from backend.features.core.domain import MessageStatus, Stage
 from backend.features.letters import compose, template
 from backend.features.letters.chain import MAX_STEPS, cadence
 from backend.features.letters.draft import Draft, default_draft
@@ -53,7 +53,13 @@ class QueuedLetterCard(BaseModel):
             body=row.message.body,
             uniqueness=share,
             verdict=corridor_verdict(share) if share is not None else None,
-            followups=followups_for(row.host, row.followup_days, domain_id=row.message.domain_id),
+            followups=followups_for(
+                row.host,
+                row.followup_days,
+                domain_id=row.message.domain_id,
+                stage=row.stage,
+                subject=row.message.subject,
+            ),
         )
 
 
@@ -73,21 +79,30 @@ class FollowupCard(BaseModel):
 
 
 def followups_for(
-    host: str, days: list[int] | None, *, domain_id: int | None = None
+    host: str,
+    days: list[int] | None,
+    *,
+    domain_id: int | None = None,
+    stage: Stage = Stage.DONORS,
+    subject: str | None = None,
 ) -> list[FollowupCard]:
-    """Добивки донора: шаблон шага с его подстановками.
+    """Добивки адресата: шаблон шага этапа с его подстановками.
 
     Собирается на месте, а не хранится: текст добивки один на всю
     рассылку и живёт файлом в коде. Хранить его копией у каждого письма
     значит завести вторую правду, которая разойдётся с первой правкой
     шаблона.
+
+    `subject` — тема первого письма: с ней добивки и уйдут
+    (`followups.Chain.compose_letter`), и показывать другую значило бы
+    согласовать не то, что отправится.
     """
     schedule = cadence(days)
     cards: list[FollowupCard] = []
     for step in range(1, MAX_STEPS):
         letter = compose.assemble(
             compose.render(
-                template.followup(step),
+                template.followup(step, stage),
                 compose.values_for(host=host, domain_id=domain_id),
             ),
             {},
@@ -95,7 +110,7 @@ def followups_for(
         cards.append(
             FollowupCard(
                 step=step,
-                subject=letter.subject,
+                subject=(subject or "").strip() or letter.subject,
                 body=letter.body,
                 in_days=schedule[step - 1] if step <= len(schedule) else 0,
             )
@@ -164,6 +179,8 @@ class LettersView(BaseModel):
     адреса» выглядит одинаково.
     """
 
+    #: Чья это очередь: доноров (вопрос о цене) или рекламодателей (оффер).
+    stage: Stage = Stage.DONORS
     letters: list[QueuedLetterCard]
     #: Сроки добивок по умолчанию — для формы создания рассылки.
     #: Отдаёт сервер, а не хранит фронт: второй экземпляр чисел
@@ -183,6 +200,9 @@ class LettersView(BaseModel):
 
 class BuildRequestBody(BaseModel):
     campaign: str
+    #: Кому: донорам — вопрос о цене, рекламодателям — оффер под найденную
+    #: ссылку. У рекламодателей прогонов нет, `run_ids` для них — отказ.
+    stage: Stage = Stage.DONORS
     country: str = "us"
     #: Ключи прогона: ниша, по которой донор нашёлся.
     niche: list[str] = []

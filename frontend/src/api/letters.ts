@@ -1,14 +1,16 @@
 import type {
   BuildLettersRequest,
   BuildQueued,
+  LetterStage,
   LettersView,
   QueuedLetter,
   SendResult,
 } from './types';
 import { request } from './client';
 
-export function listLetters(): Promise<LettersView> {
-  return request<LettersView>('/letters');
+/** Очередь этапа. Донорам — без параметра: это умолчание сервера. */
+export function listLetters(stage: LetterStage = 'donors'): Promise<LettersView> {
+  return request<LettersView>(stage === 'donors' ? '/letters' : `/letters?stage=${stage}`);
 }
 
 export function buildLetters(body: BuildLettersRequest): Promise<BuildQueued> {

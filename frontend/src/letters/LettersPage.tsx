@@ -15,6 +15,11 @@
  * обязательная настройка и ненастоящий транспорт — не мелкий шрифт внизу,
  * а предупреждение рядом с кнопкой, и кнопка при первом из них
  * не нажимается.
+ *
+ * **Этапы не смешиваются.** Вопрос донору о цене и оффер рекламодателю
+ * читаются разными глазами и уходят с разных доменов: у каждого своя
+ * очередь, свой текст по умолчанию и своя воронка. У рекламодателей нет
+ * прогонов — их находит обход доноров, — поэтому и выбора прогонов нет.
  */
 
 import {
@@ -26,6 +31,7 @@ import {
   Group,
   Loader,
   NumberInput,
+  SegmentedControl,
   Stack,
   Text,
   TextInput,
@@ -37,7 +43,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { buildLetters, editLetter, listLetters, sendLetter, skipLetter } from '../api/letters';
 import { mailSettingsList } from '../api/labels';
-import type { LetterDraft, QueuedLetter } from '../api/types';
+import type { LetterDraft, LetterStage, QueuedLetter } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { Metric } from '../components/Metric';
 import { LetterDraftEditor, draftOf, sameDraft } from './LetterDraftEditor';
@@ -51,12 +57,62 @@ function refusalOf(error: unknown): string {
   return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
 }
 
-/** Где экран помнит номер последней сборки. */
+/** Где экран помнит номер последней сборки — у каждого этапа свой. */
 const BUILD_JOB_KEY = 'letters:last-build-job';
+
+/** Где экран помнит выбранный этап: вернувшись, человек продолжает там же. */
+const STAGE_KEY = 'letters:stage';
+
+function jobKeyOf(stage: LetterStage): string {
+  return stage === 'donors' ? BUILD_JOB_KEY : `${BUILD_JOB_KEY}:${stage}`;
+}
+
+function remembered(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function remember(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Хранилище недоступно (приватное окно) — помним до перезагрузки.
+  }
+}
+
+const STAGES: { value: LetterStage; label: string }[] = [
+  { value: 'donors', label: 'Донорам' },
+  { value: 'advertisers', label: 'Рекламодателям' },
+];
+
+/** Что экран говорит об этапе — словами человека. */
+const ABOUT: Record<LetterStage, { lead: string; placeholder: string; who: string }> = {
+  donors: {
+    lead:
+      'Очередь на отправку. Приветствие, вступление и вопрос переписаны моделью под ' +
+      'конкретного донора; оффер, условия и подпись неизменны — модель их не видит вовсе.',
+    placeholder: 'Май, ниша ремонта',
+    who: 'донор',
+  },
+  advertisers: {
+    lead:
+      'Оффер рекламодателям под найденную ссылку: площадка, страница и анкор стоят в ' +
+      'неизменяемой части письма дословно, цена донора не называется. Приветствие, вступление ' +
+      'и вопрос переписаны моделью под рекламодателя.',
+    placeholder: 'Сентябрь, рекламодатели ставок',
+    who: 'рекламодатель',
+  },
+};
 
 export function LettersPage() {
   const { can } = useSession();
   const queryClient = useQueryClient();
+  const [stage, setStage] = useState<LetterStage>(() =>
+    remembered(STAGE_KEY) === 'advertisers' ? 'advertisers' : 'donors',
+  );
   const [chosen, setChosen] = useState<number | null>(null);
   const [campaign, setCampaign] = useState('');
   const [limit, setLimit] = useState<number>(50);
@@ -71,18 +127,27 @@ export function LettersPage() {
   const [runIds, setRunIds] = useState<number[]>([]);
   // Номер последней сборки переживает перезагрузку страницы: сборка идёт
   // минутами, и человек, вернувшийся к экрану, должен увидеть, чем кончилась.
-  const [buildJob, setBuildJob] = useState<string | null>(() => {
-    try {
-      return window.localStorage.getItem(BUILD_JOB_KEY);
-    } catch {
-      return null;
-    }
-  });
+  const [buildJobs, setBuildJobs] = useState<Record<LetterStage, string | null>>(() => ({
+    donors: remembered(jobKeyOf('donors')),
+    advertisers: remembered(jobKeyOf('advertisers')),
+  }));
+  const buildJob = buildJobs[stage];
 
   const { data, isLoading, error } = useQuery({
-    queryKey: LETTERS_QUERY_KEY,
-    queryFn: listLetters,
+    queryKey: [...LETTERS_QUERY_KEY, stage],
+    queryFn: () => listLetters(stage),
   });
+
+  // Правка текста, выбранные прогоны и письмо — свои у каждого этапа:
+  // текст вопроса донору, уехавший в оффер рекламодателю, сервер
+  // не примет, а человек не поймёт, откуда он взялся.
+  const switchStage = (next: LetterStage) => {
+    setStage(next);
+    setChosen(null);
+    setLetterEdit(null);
+    setRunIds([]);
+    remember(STAGE_KEY, next);
+  };
 
   // `data?.letters ?? []` в теле создаёт новый массив на каждую отрисовку,
   // и наблюдатель за очередью срабатывал бы всегда. Пустой список — константа.
@@ -106,18 +171,16 @@ export function LettersPage() {
     mutationFn: () =>
       buildLetters({
         campaign: campaign.trim(),
+        stage,
         limit,
         followup_days: followups.map((days, index) => days ?? defaultDays[index] ?? 0),
         ...(letterChanged && letterEdit !== null ? { letter: letterEdit } : {}),
-        run_ids: runIds,
+        // У рекламодателей прогонов нет: сервер откажет, если их прислать.
+        ...(stage === 'donors' ? { run_ids: runIds } : {}),
       }),
     onSuccess: async (queued) => {
-      setBuildJob(queued.job_id);
-      try {
-        window.localStorage.setItem(BUILD_JOB_KEY, queued.job_id);
-      } catch {
-        // Хранилище недоступно (приватное окно) — строка исхода живёт до перезагрузки.
-      }
+      setBuildJobs((was) => ({ ...was, [stage]: queued.job_id }));
+      remember(jobKeyOf(stage), queued.job_id);
       await refresh();
       notifications.show({
         message: 'Сборка ушла в очередь задач: каждое письмо стоит вызова модели, это минуты',
@@ -148,7 +211,7 @@ export function LettersPage() {
     onSuccess: async () => {
       await refresh();
       notifications.show({
-        message: 'Письмо убрано из очереди, этот донор в следующей сборке не появится',
+        message: `Письмо убрано из очереди, этот ${ABOUT[stage].who} в следующей сборке не появится`,
         color: 'yellow',
       });
     },
@@ -189,9 +252,15 @@ export function LettersPage() {
         <Stack gap="md">
           <Stack gap={6}>
             <Title order={3}>Письма</Title>
+            <SegmentedControl
+              aria-label="Кому письма"
+              value={stage}
+              onChange={(value) => switchStage(value as LetterStage)}
+              data={STAGES}
+              style={{ alignSelf: 'flex-start' }}
+            />
             <Text size="sm" c="dimmed" maw={680}>
-              Очередь на отправку. Приветствие, вступление и вопрос переписаны моделью под
-              конкретного донора; оффер, условия и подпись неизменны — модель их не видит вовсе.
+              {ABOUT[stage].lead}
             </Text>
           </Stack>
 
@@ -211,7 +280,11 @@ export function LettersPage() {
               <Metric
                 title="Ещё не писали"
                 value={view.funnel['ещё не писали'] ?? 0}
-                hint={`подходящих ${view.funnel['подходящих'] ?? 0}`}
+                hint={
+                  stage === 'donors'
+                    ? `подходящих ${view.funnel['подходящих'] ?? 0}`
+                    : `рекламодателей ${view.funnel['рекламодателей'] ?? 0}`
+                }
               />
             </Grid.Col>
             <Grid.Col span={{ base: 6, sm: 3 }}>
@@ -243,7 +316,7 @@ export function LettersPage() {
               <TextInput
                 label="Кампания"
                 description="Одноимённая дополняется, а не заводится второй раз"
-                placeholder="Май, ниша ремонта"
+                placeholder={ABOUT[stage].placeholder}
                 value={campaign}
                 w={280}
                 onChange={(event) => setCampaign(event.currentTarget.value)}
@@ -279,7 +352,7 @@ export function LettersPage() {
                 color="lagoon"
                 className="press"
                 loading={build.isPending}
-                disabled={campaign.trim() === '' || runIds.length === 0}
+                disabled={campaign.trim() === '' || (stage === 'donors' && runIds.length === 0)}
                 onClick={() => build.mutate()}
               >
                 Собрать очередь
@@ -291,10 +364,14 @@ export function LettersPage() {
             <JobLine jobId={buildJob} onFinished={() => void refresh()} />
           ) : null}
 
-          {can('send') ? <RunPicker value={runIds} onChange={setRunIds} /> : null}
+          {can('send') && stage === 'donors' ? (
+            <RunPicker value={runIds} onChange={setRunIds} />
+          ) : null}
 
           {can('send') && letterDefault !== null ? (
             <LetterDraftEditor
+              key={stage}
+              stage={stage}
               fallback={letterDefault}
               value={letterEdit ?? draftOf(letterDefault)}
               onChange={setLetterEdit}
@@ -308,9 +385,24 @@ export function LettersPage() {
           <Stack gap="xs">
             <Text fw={500}>Очередь пуста</Text>
             <Text size="sm" c="dimmed">
-              Подходящих доноров {view.funnel['подходящих'] ?? 0}, из них с адресом{' '}
-              {view.funnel['с адресом'] ?? 0}, и ещё не писали {view.funnel['ещё не писали'] ?? 0}.
-              Если последнее число ноль — написаны все; если ноль второе — пора добрать контакты.
+              {stage === 'donors' ? (
+                <>
+                  Подходящих доноров {view.funnel['подходящих'] ?? 0}, из них с адресом{' '}
+                  {view.funnel['с адресом'] ?? 0}, и ещё не писали{' '}
+                  {view.funnel['ещё не писали'] ?? 0}. Если последнее число ноль — написаны все;
+                  если ноль второе — пора добрать контакты.
+                </>
+              ) : (
+                <>
+                  Рекламодателей {view.funnel['рекламодателей'] ?? 0}, из них с найденной ссылкой{' '}
+                  {view.funnel['со ссылкой'] ?? 0}, со свежей ценой донора{' '}
+                  {view.funnel['цена донора свежая'] ?? 0}, с адресом{' '}
+                  {view.funnel['с адресом'] ?? 0}, и ещё не писали{' '}
+                  {view.funnel['ещё не писали'] ?? 0}. Ноль на цене значит, что сначала нужны ответы
+                  доноров с ценой: оффер «мы дешевле» без неё не пишется; ноль на адресе — пора
+                  искать контакты рекламодателей.
+                </>
+              )}
             </Text>
           </Stack>
         </Card>

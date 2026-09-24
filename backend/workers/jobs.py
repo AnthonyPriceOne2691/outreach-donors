@@ -25,6 +25,7 @@ from backend.config import storage
 from backend.config.startup_checks import check_collect, check_storage
 from backend.features.ahrefs.client import AhrefsClient
 from backend.features.contacts.search import search_contacts
+from backend.features.core.domain import Stage
 from backend.features.donors.repository import DonorRepository
 from backend.features.letters.building import BuildRequest, QueueBuilder
 from backend.features.letters.rewrite import RewriteClient
@@ -195,6 +196,7 @@ async def _build_letters(
     followup_days: Sequence[int],
     letter_template: str | None,
     run_ids: Sequence[int],
+    stage: Stage,
 ) -> dict[str, Any]:
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -204,6 +206,7 @@ async def _build_letters(
             report = await QueueBuilder(session, rewriter).build(
                 BuildRequest(
                     campaign_name=campaign,
+                    stage=stage,
                     country=country,
                     niche=tuple(niche),
                     limit=limit,
@@ -236,6 +239,7 @@ def build_letter_queue(
     followup_days: Sequence[int] = (),
     letter_template: str | None = None,
     run_ids: Sequence[int] = (),
+    stage: str = Stage.DONORS.value,
 ) -> dict[str, Any]:
     """Собрать очередь писем. Ничего не отправляет.
 
@@ -245,12 +249,25 @@ def build_letter_queue(
 
     Проверки конфига здесь свои — задача из очереди идёт мимо тех, что
     стоят на маршруте.
+
+    Этап приходит строкой, а не перечислением: задача живёт в очереди
+    дольше версии кода, и строка переживает выкатку, а снимок чужого
+    класса — не обязательно. Задача, поставленная до этапов, — Этап 1.
     """
     setup_logging()
     check_storage()
     return _settled(
         lambda: asyncio.run(
-            _build_letters(campaign, country, niche, limit, followup_days, letter_template, run_ids)
+            _build_letters(
+                campaign,
+                country,
+                niche,
+                limit,
+                followup_days,
+                letter_template,
+                run_ids,
+                Stage(stage),
+            )
         ),
         what="сборка писем",
     )

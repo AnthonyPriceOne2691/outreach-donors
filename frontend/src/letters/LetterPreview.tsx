@@ -146,7 +146,7 @@ export function LetterPreview({
         {followup !== null ? (
           <Stack gap="xs">
             <Text size="sm" c="dimmed">
-              Уйдёт сама через {followup.in_days} дн. после предыдущего письма — если донор не
+              Уйдёт сама через {followup.in_days} дн. после предыдущего письма — если адресат не
               ответит, не отпишется и письмо не вернётся отказом доставки.
             </Text>
             <Text fw={500}>{followup.subject}</Text>
