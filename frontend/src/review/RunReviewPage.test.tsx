@@ -229,3 +229,60 @@ describe('передумать', () => {
     },
   );
 });
+
+describe('что дали ключи прогона', () => {
+  it('прогон без разметки ключей говорит «не знаем», а не показывает нули', async () => {
+    await openReview({ [PENDING]: { body: { ...VIEW, keywords: null } } });
+
+    expect(screen.getByText(/этот прогон не хранит/)).toBeInTheDocument();
+  });
+
+  it('сводка видна сразу, таблица — по кнопке', async () => {
+    await openReview({
+      [PENDING]: {
+        body: {
+          ...VIEW,
+          keywords: [
+            {
+              keyword: 'saas blog write for us',
+              found: 12,
+              queued: 5,
+              accepted: 2,
+              rejected: 1,
+              pending: 2,
+              runs: 1,
+            },
+            {
+              keyword: 'best crm software',
+              found: 30,
+              queued: 4,
+              accepted: 0,
+              rejected: 4,
+              pending: 0,
+              runs: 1,
+            },
+            {
+              keyword: 'empty key',
+              found: 0,
+              queued: 0,
+              accepted: 0,
+              rejected: 0,
+              pending: 0,
+              runs: 1,
+            },
+          ],
+        },
+      },
+    });
+    const user = userEvent.setup();
+
+    expect(
+      screen.getByText('Принятых дали 1 из 3 ключей, только отказы — 1, ничего не нашли — 1.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('best crm software')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Что дали ключи прогона' }));
+
+    expect(screen.getByText('best crm software')).toBeInTheDocument();
+  });
+});

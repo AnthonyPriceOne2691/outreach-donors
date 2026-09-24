@@ -23,7 +23,7 @@ for us» — площадки. Теперь это число, а не разб�
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 from sqlalchemy import select
@@ -67,18 +67,18 @@ def _found_by(run: RunModel) -> Mapping[str, Sequence[str]] | None:
 
 def _tally(
     keyword: str,
-    hosts: Iterable[str],
+    hosts: Collection[str],
     decisions: Mapping[str, str | None],
     *,
     runs: int = 1,
 ) -> KeywordYield:
-    """Сосчитать один ключ. `decisions`: домен → решение; нет домена —
-    до рассмотрения не дошёл; `None` — дошёл, но решения нет."""
-    unique = set(hosts)
-    queued = [decisions[host] for host in unique if host in decisions]
+    """Сосчитать один ключ. `hosts` — без повторов (их собирают множеством
+    или из `found_by`, где домен один раз). `decisions`: домен → решение;
+    нет домена — до рассмотрения не дошёл; `None` — дошёл, решения нет."""
+    queued = [decisions[host] for host in hosts if host in decisions]
     return KeywordYield(
         keyword=keyword,
-        found=len(unique),
+        found=len(hosts),
         queued=len(queued),
         accepted=sum(1 for decision in queued if decision == ACCEPTED),
         rejected=sum(1 for decision in queued if decision == REJECTED),

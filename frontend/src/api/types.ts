@@ -742,9 +742,25 @@ export interface ReviewRunHead {
   created_at: string;
 }
 
+/** Что дал один ключ: сколько нашёл и что из этого решил человек. */
+export interface KeywordYield {
+  keyword: string;
+  /** Доменов в выдаче по ключу — всех, до порогов и судьи. */
+  found: number;
+  /** Дошли до рассмотрения (годны по порогам). */
+  queued: number;
+  accepted: number;
+  rejected: number;
+  pending: number;
+  /** В скольких прогонах ключ был. */
+  runs: number;
+}
+
 export interface ReviewView {
   run: ReviewRunHead;
   rows: CandidateCard[];
+  /** Что дали ключи прогона. `null` — прогон не хранит, какой ключ что нашёл. */
+  keywords: KeywordYield[] | null;
   counts: Record<ReviewDecision, number>;
   /** Скрыто под фильтром сомнительных: судья советует отказ. */
   hidden: number;

@@ -8,7 +8,6 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from backend.api.selection.schemas import MachineView, SellerView
-from backend.features.review.keyword_yield import KeywordYield
 from backend.features.review.candidates import (
     AUTO_ACCEPT_MIN_DECISIONS,
     AUTO_ACCEPT_PRECISION,
@@ -18,6 +17,7 @@ from backend.features.review.candidates import (
     JudgeAccuracy,
     ReviewPage,
 )
+from backend.features.review.keyword_yield import KeywordYield
 from backend.features.review.ordering import Tier
 
 
