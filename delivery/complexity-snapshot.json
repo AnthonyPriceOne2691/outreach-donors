@@ -152,14 +152,14 @@
       "worst": "—"
     },
     "backend/api/letters/routes.py": {
-      "lines": 200,
+      "lines": 240,
       "complexity": 5,
-      "worst": "build:86"
+      "worst": "build:100"
     },
     "backend/api/letters/schemas.py": {
-      "lines": 221,
-      "complexity": 3,
-      "worst": "followups_for:75"
+      "lines": 241,
+      "complexity": 5,
+      "worst": "followups_for:81"
     },
     "backend/api/main.py": {
       "lines": 13,
@@ -372,9 +372,9 @@
       "worst": "cmd_keywords:83"
     },
     "backend/cli/letters_queue.py": {
-      "lines": 155,
+      "lines": 163,
       "complexity": 6,
-      "worst": "_print_build:89"
+      "worst": "_print_build:97"
     },
     "backend/cli/main.py": {
       "lines": 432,
@@ -1232,9 +1232,9 @@
       "worst": "worker_problems:73"
     },
     "backend/workers/jobs.py": {
-      "lines": 321,
+      "lines": 338,
       "complexity": 4,
-      "worst": "_mark:169"
+      "worst": "_mark:170"
     },
     "backend/workers/main.py": {
       "lines": 29,
@@ -1297,9 +1297,9 @@
       "worst": "main:209"
     },
     "scripts/ui_screens.py": {
-      "lines": 320,
+      "lines": 336,
       "complexity": 2,
-      "worst": "show_decided:282"
+      "worst": "show_decided:298"
     }
   }
 }
