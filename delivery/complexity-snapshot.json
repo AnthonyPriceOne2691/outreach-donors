@@ -192,7 +192,7 @@
       "worst": "decide:54"
     },
     "backend/api/review/schemas.py": {
-      "lines": 210,
+      "lines": 208,
       "complexity": 5,
       "worst": "machine_of:24"
     },
