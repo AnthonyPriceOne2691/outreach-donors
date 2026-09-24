@@ -37,6 +37,7 @@ import { useParams } from 'react-router-dom';
 
 import { countryTitle, REVIEW_DECISIONS } from '../api/labels';
 import { decideCandidates, loadAccuracy, loadReview } from '../api/review';
+import { KeywordYieldCard } from './KeywordYieldCard';
 import type { AccuracyView, ReviewDecision } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { Metric } from '../components/Metric';
@@ -303,6 +304,11 @@ export function RunReviewPage() {
             </Button>
           </Group>
         )}
+      </Card>
+
+      {/* Отдача ключей — для следующего прогона, поэтому под очередью. */}
+      <Card className="glass" p="md">
+        <KeywordYieldCard keywords={view.keywords ?? null} />
       </Card>
     </Stack>
   );

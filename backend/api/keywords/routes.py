@@ -14,11 +14,12 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
 from backend.api.keywords.schemas import PoolRequestBody, PoolView
+from backend.api.review.schemas import KeywordYieldView
 from backend.config import llm as llm_cfg
 from backend.features.core import usage
 from backend.features.core.domain import Permission
@@ -26,11 +27,29 @@ from backend.features.core.models.access import UserModel
 from backend.features.keywords.angles import PRESETS, UnknownPresetError
 from backend.features.keywords.client import KeygenClient, LlmError
 from backend.features.keywords.generator import PoolBuilder
+from backend.features.review.keyword_yield import country_yield
 from backend.features.serp import markets
 
 router = APIRouter(prefix="/keywords", tags=["ключи"])
 
 _runner = Depends(needs(Permission.RUN))
+
+
+@router.get(
+    "/yield", response_model=list[KeywordYieldView], summary="Ключи страны, дававшие доноров"
+)
+async def keyword_yield(
+    country: str = Query(min_length=2, max_length=8, description="страна прогонов"),
+    _: UserModel = _runner,
+    session: AsyncSession = Depends(db_session),
+) -> list[KeywordYieldView]:
+    """Ключи прошлых прогонов страны, по которым нашлись принятые доноры.
+
+    Для формы запуска: следующий прогон собирается из ключей, которые
+    уже давали доноров, а не из всех подряд. Право то же, что у сборки
+    ключей, — это часть запуска прогона.
+    """
+    return [KeywordYieldView.of(row) for row in await country_yield(session, country)]
 
 
 @router.get("/presets", response_model=list[str], summary="Обкатанные наборы углов")

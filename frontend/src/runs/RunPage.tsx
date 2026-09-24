@@ -39,6 +39,7 @@ import { Link } from 'react-router-dom';
 import { countryTitle, RUN_STATUSES } from '../api/labels';
 import { Metric } from '../components/Metric';
 import { buildPool, fetchMarketLanguages, fetchPresets } from '../api/keywords';
+import { ProvenKeywords } from './ProvenKeywords';
 import { estimateRun, fetchCountries, listRuns, startRun } from '../api/runs';
 import type { Forecast, RunCard, RunStatus } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
@@ -375,6 +376,18 @@ export function RunPage() {
               value={keywords}
               onChange={(event) => setKeywords(event.currentTarget.value)}
             />
+
+            {/* Обратная связь прошлых прогонов: ключи, которые уже давали
+                принятых доноров в этой стране. */}
+            {canRun ? (
+              <ProvenKeywords
+                country={country}
+                current={list}
+                onAdd={(extra) =>
+                  setKeywords((was) => [was.trim(), ...extra].filter(Boolean).join('\n'))
+                }
+              />
+            ) : null}
           </Stack>
 
           <Group align="flex-end" gap="md">

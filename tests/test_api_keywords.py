@@ -29,6 +29,8 @@ POOL_BODY = {"preset": "reviews", "country": "za", "topics": ["ставки"], "
 ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("GET", "/api/keywords/presets", None, "run"),
     ("GET", "/api/keywords/languages?country=za", None, "run"),
+    # Ключи страны, дававшие доноров, — часть запуска прогона.
+    ("GET", "/api/keywords/yield?country=us", None, "run"),
     ("POST", "/api/keywords", POOL_BODY, "run"),
 ]
 

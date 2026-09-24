@@ -80,6 +80,7 @@ async function openRun(routes: Record<string, unknown> = {}) {
     'GET /api/auth/me': { body: ADMIN },
     'GET /api/runs/countries': { body: ['us', 'de'] },
     'GET /api/runs': { body: { runs: [], workers: 1 } },
+    'GET /api/keywords/yield?country=us': { body: [] },
     ...(routes as Record<string, never>),
   });
   renderWith(<AppRoutes />, '/run');
@@ -385,5 +386,51 @@ describe('рассмотрение прогона', () => {
     await openRun({ 'GET /api/runs': { body: { runs: [QUEUED], workers: 1 } } });
 
     expect(await screen.findByText('очереди нет')).toBeInTheDocument();
+  });
+});
+
+const PROVEN = [
+  {
+    keyword: 'saas blog write for us',
+    found: 40,
+    queued: 12,
+    accepted: 5,
+    rejected: 3,
+    pending: 4,
+    runs: 2,
+  },
+  {
+    keyword: 'martech guest post',
+    found: 22,
+    queued: 6,
+    accepted: 2,
+    rejected: 1,
+    pending: 3,
+    runs: 1,
+  },
+];
+
+describe('ключи, дававшие доноров', () => {
+  it('видны у поля ключей и добавляются одной кнопкой', async () => {
+    await openRun({ 'GET /api/keywords/yield?country=us': { body: PROVEN } });
+    const user = userEvent.setup();
+
+    expect(await screen.findByText(/Ключи, дававшие принятых доноров/)).toBeInTheDocument();
+    expect(screen.getByText('saas blog write for us · принято 5')).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Ключевые слова'), 'martech guest post');
+    await user.click(screen.getByRole('button', { name: 'Добавить в список — 1' }));
+
+    // Свой список оператора остаётся его списком: дописано только недостающее.
+    expect(screen.getByLabelText('Ключевые слова')).toHaveValue(
+      'martech guest post\nsaas blog write for us',
+    );
+  });
+
+  it('когда таких ключей нет, блока нет вовсе', async () => {
+    await openRun();
+
+    await screen.findByLabelText('Ключевые слова');
+    expect(screen.queryByText(/Ключи, дававшие принятых доноров/)).not.toBeInTheDocument();
   });
 });
