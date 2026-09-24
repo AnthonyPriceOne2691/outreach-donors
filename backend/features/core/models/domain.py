@@ -48,6 +48,12 @@ class DomainModel(TimestampedMixin, Base):
     judge_decided_by: Mapped[str | None] = mapped_column(String(8), nullable=True)
     # Что сказала главная: открылась ли и какие признаки магазина нашлись.
     judge_home: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    # Где сайт сам зовёт авторов или рекламодателей: страница «write for us»
+    # из выдачи, её заголовок, пункт меню главной «Advertise» — словами,
+    # как увидит человек (`donors.author_door`). Для гест-постинга это
+    # признак «продаёт размещение у себя», и очередь рассмотрения ставит
+    # таких первыми. NULL — не смотрели; пустая строка — смотрели, двери нет.
+    site_door: Mapped[str | None] = mapped_column(String(256), nullable=True)
     judged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # --- ответ самого донора ------------------------------------------------

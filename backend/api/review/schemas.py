@@ -55,6 +55,8 @@ class CandidateCard(BaseModel):
     contact_status: str | None
     #: По каким ключам прогона нашёлся домен.
     found_by: list[str]
+    #: Почему стоит первым в ярусе: сайт продаёт размещение у себя.
+    sells: str | None
     machine: MachineView
     seller: SellerView
 
@@ -77,6 +79,7 @@ class CandidateCard(BaseModel):
             geo_top_share=donor.geo_top_share,
             contact_status=donor.contact_status.value if donor.contact_status else None,
             found_by=row.found_by,
+            sells=row.sells,
             machine=machine_of(row),
             seller=SellerView(
                 answer=domain.seller_answer,

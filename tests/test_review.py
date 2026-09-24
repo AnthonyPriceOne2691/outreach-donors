@@ -553,3 +553,98 @@ class TestChangingYourMind:
             f"/api/review/runs/{run.id}?status=accepted", headers=bearer(operator_token)
         )
         assert [row["host"] for row in page.json()["rows"]] == ["blog.test"]
+
+
+class TestSellersFirst:
+    """Внутри яруса первыми — те, кто сам продаёт размещение: для
+    гест-постинга это главный признак донора."""
+
+    async def _queue(self, session: AsyncSession, *hosts: str) -> list[str]:
+        run = await _run(session)
+        review = RunReview(session)
+        await review.queue_run(run.id, list(hosts))
+        page = await review.page(run.id, status=Decision.PENDING)
+        return [row.domain.host for row in page.rows]
+
+    async def _dr(self, session: AsyncSession, host: str, dr: int) -> None:
+        (await _donor(session, host)).dr = dr
+        await session.flush()
+
+    async def test_door_lifts_a_smaller_site_above_a_bigger_one(
+        self, session: AsyncSession
+    ) -> None:
+        plain = await _judged(session, "plain.test", "accept")
+        seller = await _judged(session, "seller.test", "accept")
+        seller.site_door = "меню главной: «Advertise»"
+        await self._dr(session, plain.host, 60)
+        await self._dr(session, seller.host, 30)
+
+        order = await self._queue(session, "plain.test", "seller.test")
+
+        assert order == ["seller.test", "plain.test"]
+
+    async def test_row_says_why_it_is_first(self, session: AsyncSession) -> None:
+        seller = await _judged(session, "seller.test", "accept")
+        seller.site_door = "меню главной: «Advertise»"
+        await session.flush()
+        run = await _run(session)
+        review = RunReview(session)
+        await review.queue_run(run.id, ["seller.test"])
+
+        page = await review.page(run.id, status=Decision.PENDING)
+
+        assert page.rows[0].sells == "меню главной: «Advertise»"
+
+    async def test_judge_and_answer_count_too(self, session: AsyncSession) -> None:
+        await _judged(session, "plain.test", "accept")
+        await _judged(session, "judged.test", "accept", intent="sells_placement")
+        answered = await _judged(session, "answered.test", "accept")
+        answered.seller_answer = "sells"
+        for host, dr in (("plain.test", 70), ("judged.test", 40), ("answered.test", 20)):
+            await self._dr(session, host, dr)
+
+        order = await self._queue(session, "plain.test", "judged.test", "answered.test")
+
+        assert order == ["judged.test", "answered.test", "plain.test"]
+
+    async def test_no_from_the_site_beats_any_door(self, session: AsyncSession) -> None:
+        """«Не продаём» — ответ самого сайта, сильнее меню и судьи: такой
+        сайт уходит к сомнительным и признака «продаёт» не несёт."""
+        await _judged(session, "plain.test", "accept")
+        refused = await _judged(session, "refused.test", "accept", intent="sells_placement")
+        refused.site_door = "меню главной: «Advertise»"
+        refused.seller_answer = "declines"
+        await session.flush()
+        run = await _run(session)
+        review = RunReview(session)
+        await review.queue_run(run.id, ["plain.test", "refused.test"])
+
+        page = await review.page(run.id, status=Decision.PENDING, show_doubtful=True)
+
+        assert [row.domain.host for row in page.rows] == ["plain.test", "refused.test"]
+        assert page.rows[-1].sells is None
+
+    async def test_human_opinion_beats_judge_and_door(self, session: AsyncSession) -> None:
+        await _judged(session, "plain.test", "accept")
+        overruled = await _judged(session, "overruled.test", "accept", intent="sells_placement")
+        overruled.site_door = "меню главной: «Advertise»"
+        overruled.human_intent = "editorial_ads"
+        await self._dr(session, "plain.test", 50)
+        await self._dr(session, "overruled.test", 30)
+
+        order = await self._queue(session, "plain.test", "overruled.test")
+
+        assert order == ["plain.test", "overruled.test"]
+
+    async def test_big_site_shelf_still_wins(self, session: AsyncSession) -> None:
+        """Крупный сайт с «Advertise» продаёт рекламу, а не гостевые посты:
+        полка сильнее двери."""
+        big = await _judged(session, "forbes.test", "accept")
+        big.site_door = "меню главной: «Advertise»"
+        await _judged(session, "niche-blog.test", "accept")
+        await self._dr(session, "forbes.test", 94)
+        await self._dr(session, "niche-blog.test", 30)
+
+        order = await self._queue(session, "forbes.test", "niche-blog.test")
+
+        assert order == ["niche-blog.test", "forbes.test"]

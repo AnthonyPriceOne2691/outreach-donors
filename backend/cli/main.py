@@ -31,6 +31,8 @@ from backend.cli.contact_search import cmd_contacts
 from backend.cli.crawl_probe import add_parser as add_crawl_parser
 from backend.cli.crawl_probe import cmd_crawl
 from backend.cli.demo_data import cmd_demo_seed
+from backend.cli.doors import add_parser as add_doors_parser
+from backend.cli.doors import cmd_doors
 from backend.cli.judge_backfill import add_parser as add_backfill_parser
 from backend.cli.judge_backfill import cmd_judge_backfill
 from backend.cli.keywords_pool import add_parser as add_keywords_parser
@@ -47,6 +49,7 @@ from backend.config import judge as judge_cfg
 from backend.config.startup_checks import ConfigError, check_collect, check_storage
 from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.ahrefs.units import Quota
+from backend.features.donors.doors import door_check
 from backend.features.donors.geo import assert_settings_allow_limited_fetch
 from backend.features.donors.repository import DonorRepository
 from backend.features.review.candidates import RunReview
@@ -56,8 +59,9 @@ from backend.features.runs.budget import (
     units_left,
 )
 from backend.features.runs.exclusions import Exclusions
-from backend.features.runs.pipeline import RunDeps, RunReport, RunRequest, execute_run
+from backend.features.runs.pipeline import RunDeps, RunRequest, execute_run
 from backend.features.runs.planning import RunPlan, gather_candidates, plan_run
+from backend.features.runs.report import RunReport
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.spending import cap_left
 from backend.features.runs.thresholds import defaults
@@ -185,29 +189,31 @@ async def cmd_run(args: argparse.Namespace) -> int:
                 price_ttl_days=filters.PRICE_TTL_DAYS,
                 units_cap=allowed,
             )
-            deps = RunDeps(
-                provider=provider,
-                client=client,
-                donors=donors,
-                runs=runs,
-                exclusions=Exclusions(session),
-                review=RunReview(session),
-            )
-            report = await execute_run(
-                deps,
-                RunRequest(
-                    keywords=keywords,
-                    country=args.country,
-                    thresholds=defaults(),
-                    settings_id=settings.id,
-                    cap=allowed,
-                    depth_pages=args.depth,
-                    # Выдачу уже купили — по ней показана смета и получено
-                    # подтверждение. Без этой строки прогон покупал бы её
-                    # второй раз, и подтверждение стоило бы денег.
-                    candidates=candidates,
-                ),
-            )
+            async with door_check() as doors:
+                deps = RunDeps(
+                    provider=provider,
+                    client=client,
+                    donors=donors,
+                    runs=runs,
+                    exclusions=Exclusions(session),
+                    review=RunReview(session),
+                    doors=doors,
+                )
+                report = await execute_run(
+                    deps,
+                    RunRequest(
+                        keywords=keywords,
+                        country=args.country,
+                        thresholds=defaults(),
+                        settings_id=settings.id,
+                        cap=allowed,
+                        depth_pages=args.depth,
+                        # Выдачу уже купили — по ней показана смета и получено
+                        # подтверждение. Без этой строки прогон покупал бы её
+                        # второй раз, и подтверждение стоило бы денег.
+                        candidates=candidates,
+                    ),
+                )
             await session.commit()
             _print_report(report)
     finally:
@@ -332,6 +338,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_keywords_parser(sub)
     add_backfill_parser(sub)
     add_review_queue_parser(sub)
+    add_doors_parser(sub)
 
     demo = sub.add_parser(
         "demo-seed",
@@ -398,6 +405,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] =
     "keywords": cmd_keywords,
     "judge-backfill": cmd_judge_backfill,
     "review-queue": cmd_review_queue,
+    "doors": cmd_doors,
     "demo-seed": cmd_demo_seed,
     "letters-build": cmd_letters_build,
     "letters": cmd_letters,

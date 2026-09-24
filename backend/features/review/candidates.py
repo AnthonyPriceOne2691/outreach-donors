@@ -24,6 +24,13 @@
 **Решение можно снять.** Отмена возвращает кандидата в «предложен»,
 а донору — предыдущее решение по другим прогонам, если оно было.
 В соседней системе отказ вечный и без отмены, и это её известная беда.
+
+**Внутри яруса первыми — те, кто сам продаёт размещение.** Для
+гест-постинга это главный признак донора, и смотреть его надо раньше
+всего остального: сайт сам сказал «продаём», человек или судья поняли,
+что он продаёт статьи у себя, или он зовёт авторов и рекламодателей
+со страницы и из меню главной (`donors.doors`). Признак считается одной
+формулой (`sells_placement`) — по ней и сортировка, и подпись в строке.
 """
 
 from __future__ import annotations
@@ -35,7 +42,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import ColumnElement, case, func, select, update
+from sqlalchemy import ColumnElement, case, func, literal, null, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -91,6 +98,30 @@ def _shelf() -> ColumnElement[Any]:
     return case((DonorModel.dr >= BIG_SITE_DR, 1), else_=0)
 
 
+def sells_placement() -> ColumnElement[Any]:
+    """Продаёт ли сайт размещение у себя — словами, почему; NULL — не видно.
+
+    Порядок — порядок силы. Ответ самого сайта сильнее всех: «не продаём»
+    гасит любые догадки. Мнение человека о типе сайта сильнее судьи: если
+    человек назвал сайт чем-то другим, ни судья, ни дверь его не поднимут.
+    Дверь — страница для авторов или пункт меню «Advertise» — последней:
+    она про то, что сайт зовёт, а не про то, что он точно продаёт.
+    """
+    return case(
+        (DomainModel.seller_answer == "declines", null()),
+        (DomainModel.seller_answer == "sells", literal("сам сказал: продаёт размещение")),
+        (DomainModel.seller_answer == "free", literal("сам сказал: берёт статьи бесплатно")),
+        (
+            DomainModel.human_intent == "sells_placement",
+            literal("человек: продаёт размещение у себя"),
+        ),
+        (DomainModel.human_intent.is_not(None), null()),
+        (DomainModel.site_intent == "sells_placement", literal("судья: продаёт размещение у себя")),
+        (func.coalesce(DomainModel.site_door, "") != "", DomainModel.site_door),
+        else_=null(),
+    )
+
+
 def _tier_order() -> ColumnElement[Any]:
     return case(
         (tier() == Tier.LIKELY.value, 0),
@@ -123,6 +154,9 @@ class CandidateRow:
     tier: Tier
     #: По каким ключам прогона нашёлся домен.
     found_by: list[str]
+    #: Почему сайт стоит первым в ярусе: он продаёт размещение у себя.
+    #: Пусто — такого признака нет.
+    sells: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,6 +296,17 @@ class RunReview:
         await self._session.flush()
         return QueueReport(pending=pending, carried=carried)
 
+    async def pending_hosts(self, run_id: int) -> list[str]:
+        """Домены прогона, ждущие решения человека."""
+        rows = await self._session.execute(
+            select(DomainModel.host)
+            .join(RunCandidateModel, RunCandidateModel.domain_id == DomainModel.id)
+            .where(RunCandidateModel.run_id == run_id)
+            .where(RunCandidateModel.status == Decision.PENDING.value)
+            .order_by(DomainModel.host)
+        )
+        return list(rows.scalars().all())
+
     async def page(
         self, run_id: int, *, status: Decision, show_doubtful: bool = False
     ) -> ReviewPage:
@@ -273,7 +318,12 @@ class RunReview:
             statement = statement.where(tier() != Tier.DOUBTFUL.value)
         result = await self._session.execute(
             statement.order_by(
-                _tier_order(), _shelf(), DonorModel.dr.desc().nullslast(), DomainModel.host
+                _tier_order(),
+                _shelf(),
+                # Внутри яруса и полки — сначала продающие размещение.
+                sells_placement().is_(None),
+                DonorModel.dr.desc().nullslast(),
+                DomainModel.host,
             )
         )
         found_by = (run.candidates or {}).get("found_by") or {}
@@ -284,8 +334,9 @@ class RunReview:
                 donor=donor,
                 tier=Tier(row_tier),
                 found_by=list(found_by.get(domain.host, [])),
+                sells=sells,
             )
-            for candidate, domain, donor, row_tier in result.all()
+            for candidate, domain, donor, row_tier, sells in result.all()
         ]
         return ReviewPage(
             run=run,
@@ -420,7 +471,13 @@ class RunReview:
 
     def _rows(self, run_id: int) -> Any:
         return (
-            select(RunCandidateModel, DomainModel, DonorModel, tier().label("tier"))
+            select(
+                RunCandidateModel,
+                DomainModel,
+                DonorModel,
+                tier().label("tier"),
+                sells_placement().label("sells"),
+            )
             .join(DomainModel, DomainModel.id == RunCandidateModel.domain_id)
             .join(DonorModel, DonorModel.domain_id == RunCandidateModel.domain_id)
             .where(RunCandidateModel.run_id == run_id)

@@ -45,6 +45,10 @@ class JudgeRecord:
     decided_by: str | None = None
     #: Что сказала главная; `None` — не спрашивали.
     home: dict[str, Any] | None = None
+    #: Где сайт зовёт авторов или рекламодателей (`author_door`). Пустая
+    #: строка — меню главной смотрели, двери нет; `None` — не смотрели,
+    #: и прежнее знание о двери пересуд не стирает.
+    door: str | None = None
 
 
 def _is_partial(result: DomainResult) -> bool:
@@ -142,6 +146,9 @@ class DonorRepository:
         moment = now or datetime.now(UTC)
         await self.ensure_domains(list(verdicts))
         for host, record in verdicts.items():
+            # Незнание о двери не перетирает знание: пересуд без главной
+            # не должен стирать «Advertise», найденный прошлым судом.
+            door = {} if record.door is None else {"site_door": record.door[:256]}
             await self._session.execute(
                 update(DomainModel)
                 .where(DomainModel.host == host)
@@ -156,9 +163,30 @@ class DonorRepository:
                     judge_decided_by=record.decided_by,
                     judge_home=record.home,
                     judged_at=moment,
+                    **door,
                 )
             )
         return len(verdicts)
+
+    async def hosts_without_door(self, hosts: Sequence[str]) -> list[str]:
+        """Домены, про чью дверь для авторов ещё не знаем (`site_door IS NULL`)."""
+        if not hosts:
+            return []
+        rows = await self._session.execute(
+            select(DomainModel.host)
+            .where(DomainModel.host.in_(list(dict.fromkeys(hosts))))
+            .where(DomainModel.site_door.is_(None))
+            .order_by(DomainModel.host)
+        )
+        return list(rows.scalars().all())
+
+    async def save_doors(self, doors: dict[str, str]) -> None:
+        """Записать увиденное: где дверь или пустую строку — «двери нет»."""
+        for host, door in doors.items():
+            await self._session.execute(
+                update(DomainModel).where(DomainModel.host == host).values(site_door=door[:256])
+            )
+        await self._session.flush()
 
     async def ensure_domains(self, hosts: Sequence[str]) -> dict[str, int]:
         """Заводит отсутствующие домены и возвращает соответствие хост → id.
