@@ -36,7 +36,7 @@ from typing import Any
 
 from backend.features.core.domain import RunStatus
 from backend.features.core.models.run import RunModel
-from backend.features.runs.repository import RunRepository
+from backend.features.runs.repository import REASON_KEY, RESUMES_KEY, RunRepository
 
 logger = logging.getLogger(__name__)
 
@@ -59,8 +59,6 @@ MAX_RESUMES = 2
 
 #: Ключ счётчика в отчёте прогона. Лежит там же, где остальной отчёт:
 #: человек, разбирающий «почему прогон странный», читает одно место.
-RESUMES_KEY = "продолжений"
-REASON_KEY = "причина"
 
 #: Жива ли задача: `True` / `False` / `None` (выяснить не удалось).
 AliveCheck = Callable[[str | None], bool | None]

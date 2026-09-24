@@ -18,9 +18,11 @@ from typing import Any
 
 import pytest
 from backend.config import filters
-from backend.features.core.domain import Stage
+from backend.config.startup_checks import ConfigError
+from backend.features.core.domain import RunStatus, Stage
+from backend.features.runs.budget import CapExceededError
 from backend.features.runs.pipeline import RunDeps, RunRequest
-from backend.features.runs.repository import RunRepository
+from backend.features.runs.repository import RunRepository, unique_share_from
 from backend.features.runs.thresholds import defaults
 from backend.workers import jobs
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -93,3 +95,109 @@ async def test_queued_run_reaches_the_pipeline_with_its_own_cap(
     assert request.keywords == ["home improvement write for us", "best cordless drill"]
     assert request.country == "us"
     assert result["run"] == run.id
+
+
+# --- исход прогона — в самом прогоне ---------------------------------------
+
+
+async def _queued_run(session: AsyncSession, *, cap: int = 3000) -> Any:
+    runs = RunRepository(session)
+    settings = await runs.create_settings(
+        defaults(),
+        geo_top_n=filters.GEO_TOP_N,
+        geo_min_share=filters.GEO_MIN_SHARE,
+        metrics_ttl_days=filters.METRICS_TTL_DAYS,
+        price_ttl_days=filters.PRICE_TTL_DAYS,
+        units_cap=cap,
+    )
+    run = await runs.create_run(
+        stage=Stage.DONORS, settings_id=settings.id, keywords=["a"], country="de", depth_pages=1
+    )
+    await session.commit()
+    return run
+
+
+@pytest.fixture
+def failing(monkeypatch: pytest.MonkeyPatch, pipeline: dict[str, Any]) -> dict[str, Any]:
+    """Сбор падает тем, что задаст тест; настройки считаются в порядке."""
+    monkeypatch.setattr(jobs, "check_collect", lambda: None)
+
+    def fail_with(error: Exception) -> None:
+        async def execute(deps: RunDeps, request: RunRequest) -> None:
+            raise error
+
+        monkeypatch.setattr(jobs, "execute_run", execute)
+
+    return {"fail_with": fail_with}
+
+
+async def test_cap_refusal_closes_the_run_with_its_reason(
+    session: AsyncSession, failing: dict[str, Any]
+) -> None:
+    """Потолок — решение человека, а не сбой: прогон закрывается сразу, без
+    исключения и без перезапусков. 24.09.2026 №22 вместо этого падал,
+    перезапускался дважды, а в записи стояло «воркер умер»."""
+    run = await _queued_run(session)
+    failing["fail_with"](
+        CapExceededError("Прогон обойдётся в 3480 юнитов, доступно 3000. Новых доменов 61 из 62")
+    )
+
+    result = await jobs._search(run.id)
+    await session.refresh(run)
+
+    assert run.status is RunStatus.STOPPED
+    assert "3480" in run.stats["причина"]
+    assert "воркер умер" not in run.stats["причина"]
+    assert result["refused"]
+
+
+async def test_unexpected_failure_is_written_and_still_raised(
+    session: AsyncSession, failing: dict[str, Any]
+) -> None:
+    """Неожиданное падение пробрасывается — очередь и разбор должны его
+    видеть, — но причина лежит в прогоне уже сейчас, а не через три минуты."""
+    run = await _queued_run(session)
+    failing["fail_with"](RuntimeError("провайдер лёг"))
+
+    with pytest.raises(RuntimeError):
+        await jobs._search(run.id)
+    await session.refresh(run)
+
+    assert run.stats["причина"] == "сбой, будет продолжен: RuntimeError: провайдер лёг"
+    assert run.status is not RunStatus.STOPPED, "решение о повторе — за разбором"
+
+
+async def test_config_refusal_does_not_reach_the_pipeline(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch, pipeline: dict[str, Any]
+) -> None:
+    run = await _queued_run(session)
+
+    def broken() -> None:
+        raise ConfigError("SERP_LOGIN пуст — выдачу покупать не на что")
+
+    monkeypatch.setattr(jobs, "check_collect", broken)
+
+    await jobs._search(run.id)
+    await session.refresh(run)
+
+    assert "request" not in pipeline, "с неверной настройкой сбор не начинается"
+    assert run.status is RunStatus.STOPPED
+    assert "SERP_LOGIN" in run.stats["причина"]
+
+
+# --- доля уникальных доменов для сметы до запуска ---------------------------
+
+
+def test_unique_share_takes_the_worst_recent_run() -> None:
+    history = [
+        {"serp_results": 86, "unique_hosts": 70},  # 0,81
+        {"serp_results": 853, "unique_hosts": 535},  # 0,63
+        {"serp_results": 500, "unique_hosts": 85},  # 0,17 — старый замер
+    ]
+    assert unique_share_from(history, 0.5) == pytest.approx(70 / 86)
+
+
+def test_tiny_runs_do_not_count_and_no_history_gives_default() -> None:
+    assert unique_share_from([{"serp_results": 3, "unique_hosts": 3}], 0.85) == 0.85
+    assert unique_share_from([], 0.85) == 0.85
+    assert unique_share_from([{"serp_results": 40}], 0.85) == 0.85

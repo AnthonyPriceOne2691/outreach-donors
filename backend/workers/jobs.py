@@ -14,6 +14,7 @@ loop».
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Sequence
 from typing import Any
 
@@ -30,12 +31,15 @@ from backend.features.replies.extract import ExtractClient
 from backend.features.replies.pipeline import Parser
 from backend.features.review.candidates import RunReview
 from backend.features.runs.exclusions import Exclusions
+from backend.features.runs.failures import described, is_permanent
 from backend.features.runs.lifecycle import heartbeat
 from backend.features.runs.pipeline import RunDeps, RunRequest, execute_run
-from backend.features.runs.repository import RunRepository
+from backend.features.runs.repository import REASON_KEY, RunRepository
 from backend.features.runs.thresholds import defaults
 from backend.features.serp.factory import build_provider
 from backend.shared.logs import setup_logging
+
+logger = logging.getLogger(__name__)
 
 
 async def _run(run_id: int) -> dict[str, Any]:
@@ -103,8 +107,50 @@ def run_donor_search(run_id: int) -> dict[str, Any]:
     """
     setup_logging()
     check_storage()
-    check_collect()
-    return asyncio.run(_run(run_id))
+    return asyncio.run(_search(run_id))
+
+
+async def _search(run_id: int) -> dict[str, Any]:
+    """Прогон и его исход — в самом прогоне, а не только в журнале воркера.
+
+    Экран читает причину из записи прогона. Без этой обёртки упавшая задача
+    оставляла прогон «в очереди» или «идёт», и правду о нём узнавал только
+    разбор мёртвых через три минуты — и то гадая.
+    """
+    try:
+        check_collect()
+        return await _run(run_id)
+    except Exception as exc:
+        if is_permanent(exc):
+            # Повтор не поможет (`runs/failures.py`): закрыть сразу, с причиной.
+            logger.warning("Прогон %s остановлен: %s", run_id, described(exc))
+            await _mark(run_id, f"остановлен: {described(exc)}", stop=True)
+            return {"run": run_id, "refused": described(exc)}
+        # Не глушим: очередь должна увидеть падение, а разбор — продолжить
+        # прогон с последней точки. Но причина в прогоне — уже сейчас.
+        await _mark(run_id, f"сбой, будет продолжен: {described(exc)}", stop=False)
+        raise
+
+
+async def _mark(run_id: int, reason: str, *, stop: bool) -> None:
+    """Записать причину в прогон. Своя сессия: основная могла сломаться
+    вместе с задачей. Сбой записи не глушит исходную ошибку — только
+    громко логируется."""
+    engine = create_async_engine(storage.DSN)
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+            runs = RunRepository(session)
+            run = await runs.get(run_id)
+            stats = {**(run.stats or {}), REASON_KEY: reason[:500]}
+            if stop:
+                await runs.stop_run(run, stats=stats)
+            else:
+                await runs.save_stats(run, stats)
+            await session.commit()
+    except Exception:
+        logger.exception("Прогон %s: причину «%s» записать не удалось", run_id, reason[:120])
+    finally:
+        await engine.dispose()
 
 
 async def _build_letters(
