@@ -35,6 +35,7 @@ from backend.features.core.models.outreach import (
     MessageModel,
     ReplyModel,
     SenderModel,
+    ThreadModel,
 )
 from backend.features.letters import reply_to
 from backend.features.letters.building import BuildRequest, LetterScopeError, QueueBuilder
@@ -52,7 +53,7 @@ from backend.features.replies.extract import Extracted
 from backend.features.replies.inbound import Incoming
 from backend.features.replies.outcome import ADVERTISER_LEAD
 from backend.features.replies.pipeline import Inbox, Parser
-from backend.features.replies.repository import NotAPriceError, ReplyRepository
+from backend.features.replies.repository import LeadError, NotAPriceError, ReplyRepository
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import make_donor, make_sender
@@ -505,3 +506,41 @@ class TestAnAdvertiserAnswers:
 
         assert reply.reviewed_at is None
         assert reply.price_white is None
+
+
+class TestTakingTheLead:
+    """Лид — не цена: его не разбирают, а берут в работу."""
+
+    async def test_lead_is_taken_once(
+        self, session: AsyncSession, filled_legal: None, inbound_secret: None
+    ) -> None:
+        letter = await sent_offer(session)
+        got = await Inbox(session, now=NOW).accept(answer_to(letter, "Tell me more."))
+        reply = await session.get(ReplyModel, got.reply_id)
+        assert reply is not None
+        repository = ReplyRepository(session)
+
+        taken_at = await repository.take_lead(reply, by="anna@parsingprices.com", now=NOW)
+
+        assert taken_at == NOW
+        assert reply.reviewed_by == "anna@parsingprices.com"
+        with pytest.raises(LeadError, match=r"уже в работе: взял anna@parsingprices\.com"):
+            await repository.take_lead(reply, by="ivan@parsingprices.com")
+
+    async def test_donor_answer_is_not_a_lead(self, session: AsyncSession) -> None:
+        """Ответ донора разбирают как цену; «взять лидом» его нельзя."""
+        domain = await make_donor(
+            session, "donor-two.example.test", email="ed@donor-two.example.test"
+        )
+        campaign = CampaignModel(name="Доноры", stage=Stage.DONORS, status="draft")
+        session.add(campaign)
+        await session.flush()
+        thread = ThreadModel(domain_id=domain.id, campaign_id=campaign.id)
+        session.add(thread)
+        await session.flush()
+        reply = ReplyModel(thread_id=thread.id, kind=ReplyKind.HUMAN, raw_body="$200")
+        session.add(reply)
+        await session.flush()
+
+        with pytest.raises(LeadError, match="не лид"):
+            await ReplyRepository(session).take_lead(reply, by="anna@parsingprices.com")

@@ -43,6 +43,10 @@ class NotAPriceError(ValueError):
     """Ответ рекламодателя: цены площадки в нём нет, подтверждать нечего."""
 
 
+class LeadError(ValueError):
+    """Лидом этот ответ не взять: он не лид или уже в работе."""
+
+
 @dataclass(frozen=True, slots=True)
 class Addressee:
     """Наше письмо и всё, что нужно, чтобы применить последствия."""
@@ -362,6 +366,34 @@ class ReplyRepository:
         reply.payment_methods = payment_methods or None
         reply.reviewed_by = by[:128]
         reply.reviewed_at = now or datetime.now(UTC)
+
+    async def take_lead(
+        self, reply: ReplyModel, *, by: str, now: datetime | None = None
+    ) -> datetime:
+        """Взять ответ рекламодателя в работу.
+
+        Лид — не цена: разбирать в нём нечего, решение одно — кто его ведёт.
+        Кладётся туда же, где у донора подтверждение разбора (`reviewed_*`):
+        «ждёт человека» у обоих этапов считается по одному полю.
+
+        **Взятый второй раз — отказ, а не тихое «ещё раз взят».** Двое,
+        открывших один лид, должны узнать друг о друге до письма клиенту,
+        а не после.
+        """
+        if reply.kind is not ReplyKind.HUMAN or await self.stage_of(reply) is not Stage.ADVERTISERS:
+            raise LeadError(
+                f"Ответ №{reply.id} — не лид: лидом становится ответ человека на оффер "
+                "рекламодателю. Ответ донора разбирают как цену"
+            )
+        if reply.reviewed_at is not None:
+            raise LeadError(
+                f"Лид по ответу №{reply.id} уже в работе: взял {reply.reviewed_by} "
+                f"{reply.reviewed_at:%d.%m.%Y %H:%M} UTC"
+            )
+        moment = now or datetime.now(UTC)
+        reply.reviewed_by = by[:128]
+        reply.reviewed_at = moment
+        return moment
 
     async def unbound(self, *, limit: int = 100) -> Sequence[ReplyModel]:
         """Ответы, которые не удалось соотнести ни с одним нашим письмом."""

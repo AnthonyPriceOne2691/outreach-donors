@@ -29,7 +29,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { MESSAGE_STATUSES, REPLY_KINDS, THREAD_STATES } from '../api/labels';
-import { fetchThread, reviewReply } from '../api/outreach';
+import { fetchThread, reviewReply, takeLead } from '../api/outreach';
 import type { IncomingCard, LetterCard, MessageStatus } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { formatDateTime } from '../format';
@@ -91,6 +91,42 @@ function Letter({ letter }: { letter: LetterCard }) {
   );
 }
 
+interface LeadProps {
+  incoming: IncomingCard;
+  canTake: boolean;
+  busy: boolean;
+  onTake: () => void;
+}
+
+/**
+ * Ответ рекламодателя — лид. Цены в нём нет: «мы платим $300» — его расход,
+ * а не цена площадки, и формы разбора здесь быть не должно (сервер её
+ * отвергнет). Решение одно — кто его ведёт.
+ */
+function LeadAction({ incoming, canTake, busy, onTake }: LeadProps) {
+  if (incoming.reviewed_at !== null) {
+    return (
+      <Text size="sm" c="dimmed" mt="sm">
+        В работе: {incoming.reviewed_by}, {when(incoming.reviewed_at)}
+      </Text>
+    );
+  }
+  return (
+    <Stack gap="xs" mt="sm">
+      <Text size="sm" c="dimmed">
+        Ответ рекламодателя — лид: цену в нём не разбираем, его ведёт человек.
+      </Text>
+      {canTake ? (
+        <Group>
+          <Button color="lagoon" className="press" loading={busy} onClick={onTake}>
+            Взять в работу
+          </Button>
+        </Group>
+      ) : null}
+    </Stack>
+  );
+}
+
 interface IncomingProps {
   incoming: IncomingCard;
   canReview: boolean;
@@ -101,9 +137,10 @@ interface IncomingProps {
     currency: string | null;
   }) => void;
   onDecline: () => void;
+  onTakeLead: () => void;
 }
 
-function Incoming({ incoming, canReview, busy, onConfirm, onDecline }: IncomingProps) {
+function Incoming({ incoming, canReview, busy, onConfirm, onDecline, onTakeLead }: IncomingProps) {
   const kind = REPLY_KINDS[incoming.kind];
   const hasPrice = incoming.price_white !== null || incoming.price_grey !== null;
   // Разбирают только ответы людей: у автоответчика и отказа доставки
@@ -121,6 +158,11 @@ function Incoming({ incoming, canReview, busy, onConfirm, onDecline }: IncomingP
           {incoming.needs_review && (
             <Badge variant="light" color="yellow">
               ждёт разбора
+            </Badge>
+          )}
+          {incoming.lead && (
+            <Badge variant="light" color={incoming.reviewed_at === null ? 'yellow' : 'green'}>
+              {incoming.reviewed_at === null ? 'лид' : 'лид в работе'}
             </Badge>
           )}
         </Group>
@@ -177,7 +219,9 @@ function Incoming({ incoming, canReview, busy, onConfirm, onDecline }: IncomingP
         </>
       )}
 
-      {reviewable && (
+      {incoming.lead ? (
+        <LeadAction incoming={incoming} canTake={canReview} busy={busy} onTake={onTakeLead} />
+      ) : reviewable ? (
         <PriceReview
           incoming={incoming}
           canReview={canReview}
@@ -185,7 +229,7 @@ function Incoming({ incoming, canReview, busy, onConfirm, onDecline }: IncomingP
           onConfirm={onConfirm}
           onDecline={onDecline}
         />
-      )}
+      ) : null}
     </Card>
   );
 }
@@ -234,6 +278,18 @@ export function ThreadPage() {
       notifications.show({ title: 'Не подтвердили', message: refusalOf(failure), color: 'red' }),
   });
 
+  const lead = useMutation({
+    mutationFn: (replyId: number) => takeLead(replyId),
+    onSuccess: async () => {
+      // Список тоже меняется: лид перестаёт ждать человека.
+      await queryClient.invalidateQueries({ queryKey: ['thread', id] });
+      await queryClient.invalidateQueries({ queryKey: ['threads'] });
+      notifications.show({ message: 'Лид взят в работу', color: 'green' });
+    },
+    onError: (failure) =>
+      notifications.show({ title: 'Не взяли', message: refusalOf(failure), color: 'red' }),
+  });
+
   if (isLoading) return <Loader aria-label="Загружаем переписку" m="md" />;
   if (error) {
     return (
@@ -258,7 +314,10 @@ export function ThreadPage() {
           key={`incoming-${incoming.id}`}
           incoming={incoming}
           canReview={can('prices')}
-          busy={confirm.isPending && confirm.variables?.replyId === incoming.id}
+          busy={
+            (confirm.isPending && confirm.variables?.replyId === incoming.id) ||
+            (lead.isPending && lead.variables === incoming.id)
+          }
           onConfirm={(values) => confirm.mutate({ replyId: incoming.id, values })}
           onDecline={() =>
             confirm.mutate({
@@ -267,6 +326,7 @@ export function ThreadPage() {
               declines: true,
             })
           }
+          onTakeLead={() => lead.mutate(incoming.id)}
         />
       ),
     })),
@@ -285,6 +345,7 @@ export function ThreadPage() {
             </Group>
             <Text size="sm" c="dimmed">
               {data.card.contact_email ?? 'адрес не определён'} · кампания «{data.card.campaign}»
+              {data.card.stage === 'advertisers' ? ' · рекламодатель' : ''}
             </Text>
           </Stack>
           <Button

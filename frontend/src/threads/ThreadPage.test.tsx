@@ -228,3 +228,78 @@ describe('карточка переписки', () => {
     expect(within(header as HTMLElement).getByText('ждёт разбора')).toBeInTheDocument();
   });
 });
+
+/** Учётка, у которой право разбирать ответы отобрано точечно. */
+const OPERATOR_WITHOUT_PRICES = {
+  ...OPERATOR,
+  permissions: OPERATOR.permissions.filter((one) => one !== 'prices'),
+};
+
+const LEAD = {
+  ...UNSURE,
+  id: 21,
+  raw_body: 'Interesting. We pay about $300 per article at the moment.',
+  from_email: 'marketing@brand.example.test',
+  price_white: null,
+  currency: null,
+  confidence: null,
+  placement: null,
+  needs_review: false,
+  lead: true,
+};
+
+const LEAD_VIEW = {
+  card: {
+    ...VIEW.card,
+    stage: 'advertisers',
+    state: 'lead',
+    campaign: 'Сентябрь',
+  },
+  letters: [LETTER],
+  incoming: [LEAD],
+};
+
+describe('ответ рекламодателя', () => {
+  it('это лид: вместо формы цены — одно действие', async () => {
+    await openThread(LEAD_VIEW);
+
+    // «Мы платим $300» — его расход, а не цена площадки: формы разбора нет.
+    expect(screen.queryByLabelText('Белая цена')).not.toBeInTheDocument();
+    expect(screen.getByText(/цену в нём не разбираем/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Взять в работу' })).toBeInTheDocument();
+    expect(screen.getByText(/· рекламодатель/)).toBeInTheDocument();
+  });
+
+  it('«взять в работу» уходит на сервер', async () => {
+    const recorded = await openThread(LEAD_VIEW, {
+      'POST /api/replies/21/lead': {
+        body: { id: 21, reviewed_by: 'админ@site.com', reviewed_at: '2026-09-24T16:00:00Z' },
+      },
+    });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Взять в работу' }));
+
+    expect(recorded.calls.some((call: Call) => call.path === '/api/replies/21/lead')).toBe(true);
+  });
+
+  it('взятый лид говорит, кто его ведёт, и кнопки больше нет', async () => {
+    await openThread({
+      ...LEAD_VIEW,
+      card: { ...LEAD_VIEW.card, state: 'lead_taken' },
+      incoming: [
+        { ...LEAD, reviewed_by: 'anna@parsingprices.com', reviewed_at: '2026-09-24T16:00:00Z' },
+      ],
+    });
+
+    expect(screen.getByText(/В работе: anna@parsingprices\.com/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Взять в работу' })).not.toBeInTheDocument();
+  });
+
+  it('без права разбирать ответы лид виден, а кнопки нет', async () => {
+    await openThread(LEAD_VIEW, {}, OPERATOR_WITHOUT_PRICES);
+
+    expect(screen.getByText(/цену в нём не разбираем/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Взять в работу' })).not.toBeInTheDocument();
+  });
+});

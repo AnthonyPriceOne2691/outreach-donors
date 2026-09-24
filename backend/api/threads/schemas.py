@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from backend.features.core.domain import MessageStatus, ReplyKind
+from backend.features.core.domain import MessageStatus, ReplyKind, Stage
 from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.outreach.repository import ThreadDetail, ThreadRow
 from backend.features.outreach.threads import ThreadState
@@ -27,6 +27,8 @@ class ThreadCard(BaseModel):
     host: str
     contact_email: str | None
     campaign: str
+    #: Этап рассылки: донору писали о цене, рекламодателю — оффер.
+    stage: Stage
     state: ThreadState
     messages_sent: int
     last_event_at: datetime | None
@@ -42,6 +44,7 @@ class ThreadCard(BaseModel):
             host=row.host,
             contact_email=row.contact_email,
             campaign=row.campaign_name,
+            stage=row.stage,
             state=row.summary.state,
             messages_sent=row.summary.messages_sent,
             last_event_at=row.summary.last_event_at,
@@ -104,11 +107,15 @@ class IncomingCard(BaseModel):
     #: Ждёт ли разбор человека. Считается, а не хранится: второе поле
     #: разошлось бы с уверенностью при первой правке порога.
     needs_review: bool
+    #: Ответ рекламодателя: не цена, а лид. Его не разбирают, а берут
+    #: в работу — `reviewed_by`/`reviewed_at` тогда говорят, кто и когда.
+    lead: bool
     reviewed_by: str | None
     reviewed_at: datetime | None
 
     @classmethod
-    def of(cls, reply: ReplyModel) -> IncomingCard:
+    def of(cls, reply: ReplyModel, stage: Stage = Stage.DONORS) -> IncomingCard:
+        lead = stage is Stage.ADVERTISERS and reply.kind is ReplyKind.HUMAN
         return cls(
             id=reply.id,
             kind=reply.kind,
@@ -123,9 +130,12 @@ class IncomingCard(BaseModel):
             payment_methods=reply.payment_methods,
             confidence=reply.confidence,
             placement=reply.placement,
-            needs_review=waiting_for_review(
+            # У лида нечего разбирать: форма цены для него — отказ.
+            needs_review=not lead
+            and waiting_for_review(
                 reply.kind, reply.confidence, reviewed=reply.reviewed_at is not None
             ),
+            lead=lead,
             reviewed_by=reply.reviewed_by,
             reviewed_at=reply.reviewed_at,
         )
@@ -143,5 +153,5 @@ class ThreadView(BaseModel):
         return cls(
             card=ThreadCard.of(detail.row),
             letters=[LetterCard.of(m) for m in detail.messages],
-            incoming=[IncomingCard.of(r) for r in detail.replies],
+            incoming=[IncomingCard.of(r, detail.row.stage) for r in detail.replies],
         )

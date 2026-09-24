@@ -18,6 +18,12 @@
 цена не извлеклась уверенно, требует действия: по нему надо принять
 решение руками. Показывать такой диалог как «ответил» значит прятать
 очередь работы внутри слова, которое звучит как «всё хорошо».
+
+**Ответ рекламодателя — лид, а не цена.** Его не разбирают
+(`replies.outcome.ADVERTISER_LEAD`), и «ждёт разбора» с формой цены
+было бы неправдой: подтверждение цены для него — отказ. Диалог Этапа 2
+ждёт человека, пока хоть один ответ не взят в работу, — новый ответ
+после взятого снова работа.
 """
 
 from __future__ import annotations
@@ -28,7 +34,7 @@ from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from backend.features.core.domain import MessageStatus, ReplyKind
+from backend.features.core.domain import MessageStatus, ReplyKind, Stage
 from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.replies.outcome import waiting_for_review
 
@@ -46,6 +52,8 @@ class ThreadState(StrEnum):
     BOUNCED = "bounced"  # отказ доставки
     UNSUBSCRIBED = "unsubscribed"  # отписался
     STOPPED = "stopped"  # цепочка остановлена руками
+    LEAD = "lead"  # ответил рекламодатель — лид ждёт человека
+    LEAD_TAKEN = "lead_taken"  # лид взят в работу
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,7 +75,15 @@ def _last_at(messages: Sequence[MessageModel], replies: Sequence[ReplyModel]) ->
     return max(moments) if moments else None
 
 
-def _state(messages: Sequence[MessageModel], replies: Sequence[ReplyModel]) -> ThreadState:
+#: Правило состояния: условие и что оно значит.
+_Rules = tuple[tuple[bool, ThreadState], ...]
+
+
+def _state(
+    messages: Sequence[MessageModel],
+    replies: Sequence[ReplyModel],
+    stage: Stage = Stage.DONORS,
+) -> ThreadState:
     """Первое подошедшее правило и есть состояние.
 
     Порядок здесь — не деталь реализации, а сама договорённость: отписка
@@ -75,9 +91,39 @@ def _state(messages: Sequence[MessageModel], replies: Sequence[ReplyModel]) -> T
     а цена сильнее просто ответа, потому что ради неё всё и затевалось.
     Поэтому правила лежат списком, а не цепочкой `if` — список видно
     целиком и переставить в нём строку значит изменить правило осознанно.
+
+    Что считать ответом, решает этап: у донора — цена и её разбор,
+    у рекламодателя — лид.
     """
     kinds = {r.kind for r in replies}
     statuses = {m.status for m in messages}
+    answered = _lead_rules(replies) if stage is Stage.ADVERTISERS else _answer_rules(replies)
+
+    rules: _Rules = (
+        (ReplyKind.UNSUBSCRIBE in kinds, ThreadState.UNSUBSCRIBED),
+        *answered,
+        (MessageStatus.BOUNCED in statuses, ThreadState.BOUNCED),
+        (MessageStatus.STOPPED in statuses, ThreadState.STOPPED),
+        (bool({MessageStatus.SENT, MessageStatus.DELIVERED} & statuses), ThreadState.WAITING),
+    )
+    for matched, state in rules:
+        if matched:
+            return state
+    return ThreadState.QUEUED
+
+
+def _lead_rules(replies: Sequence[ReplyModel]) -> _Rules:
+    """Ответ рекламодателя: лид ждёт человека, пока его не взяли в работу."""
+    human = [r for r in replies if r.kind is ReplyKind.HUMAN]
+    return (
+        (any(r.reviewed_at is None for r in human), ThreadState.LEAD),
+        (bool(human), ThreadState.LEAD_TAKEN),
+    )
+
+
+def _answer_rules(replies: Sequence[ReplyModel]) -> _Rules:
+    """Ответ донора: цена, «не продаём», «бесплатно», ждёт разбора, просто ответил."""
+    kinds = {r.kind for r in replies}
     # Цена считается полученной, только если её не ждёт человек: иначе
     # диалог с неуверенным разбором выглядел бы законченным, а список
     # диалогов врал бы именно там, где по нему принимают решения.
@@ -106,8 +152,7 @@ def _state(messages: Sequence[MessageModel], replies: Sequence[ReplyModel]) -> T
         for r in replies
     )
 
-    rules: tuple[tuple[bool, ThreadState], ...] = (
-        (ReplyKind.UNSUBSCRIBE in kinds, ThreadState.UNSUBSCRIBED),
+    return (
         (has_price, ThreadState.PRICED),
         (declined, ThreadState.DECLINED),
         (free, ThreadState.FREE),
@@ -115,24 +160,21 @@ def _state(messages: Sequence[MessageModel], replies: Sequence[ReplyModel]) -> T
         # требует работы, а другое нет, и по списку принимают решения.
         (waiting, ThreadState.NEEDS_REVIEW),
         (ReplyKind.HUMAN in kinds, ThreadState.REPLIED),
-        (MessageStatus.BOUNCED in statuses, ThreadState.BOUNCED),
-        (MessageStatus.STOPPED in statuses, ThreadState.STOPPED),
-        (bool({MessageStatus.SENT, MessageStatus.DELIVERED} & statuses), ThreadState.WAITING),
     )
-    for matched, state in rules:
-        if matched:
-            return state
-    return ThreadState.QUEUED
 
 
-def summarize(messages: Sequence[MessageModel], replies: Sequence[ReplyModel]) -> ThreadSummary:
+def summarize(
+    messages: Sequence[MessageModel],
+    replies: Sequence[ReplyModel],
+    stage: Stage = Stage.DONORS,
+) -> ThreadSummary:
     """Свести письма и входящие в одну строку списка."""
     priced = next(
         (r for r in replies if r.price_white is not None or r.price_grey is not None), None
     )
     human = [r for r in replies if r.kind is ReplyKind.HUMAN]
     return ThreadSummary(
-        state=_state(messages, replies),
+        state=_state(messages, replies, stage),
         messages_sent=sum(
             1
             for m in messages

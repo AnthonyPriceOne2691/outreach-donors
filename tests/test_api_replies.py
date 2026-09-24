@@ -42,6 +42,8 @@ HOST = "donor.example.test"
 REVIEW_ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("PATCH", "/api/replies/{reply}", {"price_white": "250", "currency": "EUR"}, "prices"),
     ("GET", "/api/replies/calibration", None, "view"),
+    # Ответы, ждущие человека, разбирает один человек, какого бы этапа они ни были.
+    ("POST", "/api/replies/{reply}/lead", None, "prices"),
 ]
 
 
