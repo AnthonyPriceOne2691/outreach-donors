@@ -17,8 +17,8 @@ from backend.features.review.candidates import (
     Decision,
     JudgeAccuracy,
     ReviewPage,
-    Tier,
 )
+from backend.features.review.ordering import Tier
 
 
 def machine_of(row: CandidateRow) -> MachineView:

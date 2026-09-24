@@ -96,18 +96,31 @@ def author_door(url: str | None, title: str | None, nav: tuple[str, ...] = ()) -
     return _door_in_url(url) or _door_in_title(title) or _door_in_menu(nav)
 
 
-def open_door(verdict: Judgement, door: str | None) -> Judgement:
-    """Отказ «продаёт своё» при открытой двери — к человеку, а не в отказ.
+def opens(intent: str | None, recommendation: str | None) -> bool:
+    """Открывает ли дверь этот вердикт: отказ «продаёт своё».
 
     Трогается только `sells_own`: посредник со страницей для авторов всё
     равно посредник, а платформы и госзоны режутся до модели с другим видом.
     """
-    if door is None or verdict.intent is not Intent.SELLS_OWN:
-        return verdict
-    if verdict.recommendation is not Recommendation.REJECT:
+    return intent == Intent.SELLS_OWN.value and recommendation == Recommendation.REJECT.value
+
+
+def opened_reason(reason: str, door: str) -> str:
+    """Причина вердикта, который дверь перевела из отказа к человеку."""
+    return f"{reason} · {door} — бренд принимает статьи, посмотри"[:256]
+
+
+def open_door(verdict: Judgement, door: str | None) -> Judgement:
+    """Отказ «продаёт своё» при открытой двери — к человеку, а не в отказ.
+
+    То же правило действует и позже, когда дверь нашлась проверкой меню
+    главных у очереди (`donors.doors`): судья меню не видел, а правило
+    от этого не меняется.
+    """
+    if door is None or not opens(verdict.intent.value, verdict.recommendation.value):
         return verdict
     return replace(
         verdict,
         recommendation=Recommendation.REVIEW,
-        reason=f"{verdict.reason} · {door} — бренд принимает статьи, посмотри"[:256],
+        reason=opened_reason(verdict.reason, door),
     )

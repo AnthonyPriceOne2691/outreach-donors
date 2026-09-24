@@ -227,6 +227,9 @@ SCREENS: dict[str, dict] = {
             ),
             ("переключатель сомнительных", ".mantine-Switch-label", NORM),
             ("домен в строке", "table tbody td a", NORM),
+            # Почему строка первая в ярусе: сайт сам продаёт размещение.
+            ("признак «продаёт»", "table tbody [data-sells] .mantine-Badge-label", NORM),
+            ("почему поднят", "table tbody [data-sells] p", NORM),
             ("ключ, по которому нашёлся", "table tbody td:nth-child(3) p", NORM),
             ("ярус очереди", "table tbody .mantine-Badge-root[data-variant='dot']", NORM),
             ("совет судьи", "table tbody .mantine-Badge-root[data-variant='light']", NORM),

@@ -58,7 +58,34 @@ class TestDoorCheck:
         assert await _door(session, "plain.test") == ""
         # Не открылась — не «двери нет»: про такой сайт мы не знаем ничего.
         assert await _door(session, "closed.test") is None
-        assert report.as_dict() == {"checked": 3, "found": 1, "unreached": 1}
+        assert report.as_dict() == {"checked": 3, "found": 1, "unreached": 1, "opened": 0}
+
+    async def test_late_door_opens_a_sells_own_reject_as_the_judge_would(
+        self, session: AsyncSession
+    ) -> None:
+        """Судья меню не видел и отрезал «продаёт своё»; дверь нашлась позже.
+        Правило то же, что при суде: такой отказ — к человеку, не в отказ.
+        Решение человека при этом не трогается."""
+        brand = await make_donor(session, "brand.test")
+        brand.site_intent, brand.judge_recommendation = "sells_own", "reject"
+        brand.judge_reason = "продаёт свой продукт"
+        other = await make_donor(session, "other.test")
+        other.site_intent, other.judge_recommendation = "link_vendor", "reject"
+        await session.flush()
+        homes = Homes({"brand.test": read_home(ADVERTISE), "other.test": read_home(ADVERTISE)})
+
+        report = await DoorCheck(homes)(DonorRepository(session), ["brand.test", "other.test"])
+
+        await session.refresh(brand)
+        await session.refresh(other)
+        assert brand.judge_recommendation == "review"
+        assert brand.judge_reason == (
+            "продаёт свой продукт · меню главной: «Advertise» — бренд принимает статьи, посмотри"
+        )
+        assert brand.human_intent is None
+        # Посредник со страницей для авторов всё равно посредник.
+        assert other.judge_recommendation == "reject"
+        assert report.opened == 1
 
     async def test_known_doors_are_not_fetched_again(self, session: AsyncSession) -> None:
         known = await make_donor(session, "known.test")
