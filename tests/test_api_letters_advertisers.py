@@ -12,12 +12,14 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
+from backend.config import outreach as outreach_cfg
 from backend.features.core.domain import Stage, UserRole
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.outreach import CampaignModel
 from backend.features.letters import compose, draft, template
 from backend.features.letters.building import BuildRequest, QueueBuilder
+from backend.features.replies.pipeline import Inbox
 from backend.workers import jobs
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -27,12 +29,16 @@ from tests.test_letter_draft import FakeQueue
 from tests.test_letters_advertisers import (
     ANCHOR,
     DONOR,
+    NOW,
     PAGE,
+    SECRET,
     FakeRewriter,
+    answer_to,
     build_offers,
     make_advertiser,
     offers,
     priced_donor,
+    sent_offer,
 )
 
 MakeUser = Callable[..., Awaitable[UserModel]]
@@ -280,3 +286,64 @@ class TestTheJob:
         jobs.build_letter_queue("Сентябрь", stage="advertisers")
 
         assert seen == [Stage.DONORS, Stage.ADVERTISERS]
+
+
+class TestTheLeadInDialogs:
+    """Ответ рекламодателя в диалогах: лид со своим действием, а не форма цены."""
+
+    async def test_lead_is_shown_taken_and_not_taken_twice(
+        self,
+        client: AsyncClient,
+        admin_token: str,
+        session: AsyncSession,
+        filled_legal: None,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(outreach_cfg, "INBOUND_SECRET", SECRET)
+        monkeypatch.setattr(outreach_cfg, "REPLY_DOMAIN", "replies.ours.test")
+        letter = await sent_offer(session)
+        got = await Inbox(session, now=NOW).accept(answer_to(letter, "We might be interested."))
+        await session.commit()
+
+        shown = (
+            await client.get(f"/api/threads/{letter.thread_id}", headers=bearer(admin_token))
+        ).json()
+        assert shown["card"]["state"] == "lead"
+        assert shown["card"]["stage"] == "advertisers"
+        assert shown["incoming"][0]["lead"] is True
+        assert shown["incoming"][0]["needs_review"] is False
+
+        taken = await client.post(f"/api/replies/{got.reply_id}/lead", headers=bearer(admin_token))
+        assert taken.status_code == 200, taken.text
+        assert taken.json()["reviewed_by"] == "админ@site.com"
+
+        after = (
+            await client.get(f"/api/threads/{letter.thread_id}", headers=bearer(admin_token))
+        ).json()
+        assert after["card"]["state"] == "lead_taken"
+        again = await client.post(f"/api/replies/{got.reply_id}/lead", headers=bearer(admin_token))
+        assert again.status_code == 409
+        assert "уже в работе" in again.json()["detail"]
+
+    async def test_price_form_on_a_lead_is_refused(
+        self,
+        client: AsyncClient,
+        admin_token: str,
+        session: AsyncSession,
+        filled_legal: None,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(outreach_cfg, "INBOUND_SECRET", SECRET)
+        monkeypatch.setattr(outreach_cfg, "REPLY_DOMAIN", "replies.ours.test")
+        letter = await sent_offer(session)
+        got = await Inbox(session, now=NOW).accept(answer_to(letter, "We pay $300 per article."))
+        await session.commit()
+
+        response = await client.patch(
+            f"/api/replies/{got.reply_id}",
+            json={"price_white": "300", "currency": "USD"},
+            headers=bearer(admin_token),
+        )
+
+        assert response.status_code == 409
+        assert "лид" in response.json()["detail"]

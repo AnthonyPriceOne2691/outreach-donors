@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, model_validator
@@ -42,6 +43,14 @@ class Reviewed(BaseModel):
     stored_price: bool
     #: Что легло на домен как ответ донора: `sells`, `declines` или ничего.
     seller_answer: str | None = None
+
+
+class LeadTaken(BaseModel):
+    """Лид взят в работу: кто и когда."""
+
+    id: int
+    reviewed_by: str
+    reviewed_at: datetime
 
 
 class VersionCalibration(BaseModel):

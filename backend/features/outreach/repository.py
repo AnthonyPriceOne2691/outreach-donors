@@ -16,6 +16,7 @@ from sqlalchemy import true as sa_true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from backend.features.core.domain import Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.outreach import (
@@ -45,6 +46,8 @@ class ThreadRow:
     contact_email: str | None
     campaign_name: str
     summary: ThreadSummary
+    #: Этап рассылки: у донора ответ — цена, у рекламодателя — лид.
+    stage: Stage = Stage.DONORS
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,7 +117,13 @@ class OutreachRepository:
 
     async def threads(self, *, limit: int = 200) -> list[ThreadRow]:
         rows = await self._session.execute(
-            select(ThreadModel, DomainModel.host, ContactModel.email, CampaignModel.name)
+            select(
+                ThreadModel,
+                DomainModel.host,
+                ContactModel.email,
+                CampaignModel.name,
+                CampaignModel.stage,
+            )
             .join(DomainModel, DomainModel.id == ThreadModel.domain_id)
             .join(CampaignModel, CampaignModel.id == ThreadModel.campaign_id)
             .outerjoin(ContactModel, ContactModel.id == ThreadModel.contact_id)
@@ -133,14 +142,21 @@ class OutreachRepository:
                 host=host,
                 contact_email=email,
                 campaign_name=campaign,
-                summary=summarize(messages.get(thread.id, []), thread.replies),
+                summary=summarize(messages.get(thread.id, []), thread.replies, stage),
+                stage=stage,
             )
-            for thread, host, email, campaign in found
+            for thread, host, email, campaign, stage in found
         ]
 
     async def thread(self, thread_id: int) -> ThreadDetail:
         rows = await self._session.execute(
-            select(ThreadModel, DomainModel.host, ContactModel.email, CampaignModel.name)
+            select(
+                ThreadModel,
+                DomainModel.host,
+                ContactModel.email,
+                CampaignModel.name,
+                CampaignModel.stage,
+            )
             .join(DomainModel, DomainModel.id == ThreadModel.domain_id)
             .join(CampaignModel, CampaignModel.id == ThreadModel.campaign_id)
             .outerjoin(ContactModel, ContactModel.id == ThreadModel.contact_id)
@@ -151,7 +167,7 @@ class OutreachRepository:
         if found is None:
             raise UnknownThreadError(f"Диалога №{thread_id} нет")
 
-        thread, host, email, campaign = found
+        thread, host, email, campaign, stage = found
         messages = (await self._messages_by_thread([thread.id])).get(thread.id, [])
         # Письма и входящие идут вперемешку по времени — как в переписке.
         replies = sorted(thread.replies, key=lambda r: r.created_at)
@@ -161,7 +177,8 @@ class OutreachRepository:
                 host=host,
                 contact_email=email,
                 campaign_name=campaign,
-                summary=summarize(messages, replies),
+                summary=summarize(messages, replies, stage),
+                stage=stage,
             ),
             messages=messages,
             replies=replies,

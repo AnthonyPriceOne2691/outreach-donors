@@ -227,3 +227,55 @@ class TestThreadState:
 
         assert summary.state is ThreadState.QUEUED
         assert summary.messages_sent == 0
+
+
+class TestAdvertiserThreadState:
+    """Ответ рекламодателя — лид, а не цена: «ждёт разбора» с формой цены
+    было бы неправдой, подтверждение цены для него — отказ."""
+
+    def test_answer_is_a_lead_waiting_for_a_human(self) -> None:
+        summary = summarize(
+            [_message(MessageStatus.DELIVERED)], [_reply(ReplyKind.HUMAN)], Stage.ADVERTISERS
+        )
+
+        assert summary.state is ThreadState.LEAD
+
+    def test_taken_lead_waits_for_nobody(self) -> None:
+        summary = summarize(
+            [_message(MessageStatus.DELIVERED)],
+            [_reply(ReplyKind.HUMAN, reviewed=True)],
+            Stage.ADVERTISERS,
+        )
+
+        assert summary.state is ThreadState.LEAD_TAKEN
+
+    def test_new_answer_after_a_taken_one_is_work_again(self) -> None:
+        summary = summarize(
+            [_message(MessageStatus.DELIVERED)],
+            [_reply(ReplyKind.HUMAN, reviewed=True), _reply(ReplyKind.HUMAN)],
+            Stage.ADVERTISERS,
+        )
+
+        assert summary.state is ThreadState.LEAD
+
+    def test_unsubscribe_is_still_stronger(self) -> None:
+        summary = summarize(
+            [_message(MessageStatus.DELIVERED)],
+            [_reply(ReplyKind.HUMAN), _reply(ReplyKind.UNSUBSCRIBE)],
+            Stage.ADVERTISERS,
+        )
+
+        assert summary.state is ThreadState.UNSUBSCRIBED
+
+    def test_auto_reply_is_still_silence(self) -> None:
+        summary = summarize(
+            [_message(MessageStatus.DELIVERED)], [_reply(ReplyKind.AUTO_REPLY)], Stage.ADVERTISERS
+        )
+
+        assert summary.state is ThreadState.WAITING
+
+    def test_donor_answer_is_unchanged(self) -> None:
+        """Этап 1 не должен заметить правки: тот же ответ — «ждёт разбора»."""
+        summary = summarize([_message(MessageStatus.DELIVERED)], [_reply(ReplyKind.HUMAN)])
+
+        assert summary.state is ThreadState.NEEDS_REVIEW

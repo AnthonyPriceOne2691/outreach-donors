@@ -27,7 +27,13 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
-from backend.api.replies.schemas import Calibration, ReviewBody, Reviewed, VersionCalibration
+from backend.api.replies.schemas import (
+    Calibration,
+    LeadTaken,
+    ReviewBody,
+    Reviewed,
+    VersionCalibration,
+)
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
@@ -67,6 +73,31 @@ async def calibration(
             for score in await calibrate(session)
         ]
     )
+
+
+@router.post("/{reply_id}/lead", response_model=LeadTaken, summary="Взять лид в работу")
+async def take_lead(
+    reply_id: int,
+    author: UserModel = _reviewer,
+    session: AsyncSession = Depends(db_session),
+) -> LeadTaken:
+    """Ответ рекламодателя — в работу. Цену в нём не разбирают, его ведёт человек.
+
+    Право то же, что у разбора цены: ответы, ждущие человека, разбирает
+    один и тот же человек, какого бы этапа они ни были.
+    """
+    repository = ReplyRepository(session)
+    reply = await repository.reply(reply_id)
+    taken_at = await repository.take_lead(reply, by=author.email)
+    await AccessRepository(session).record(
+        AuditAction.LEAD_TAKEN,
+        author_id=author.id,
+        target=f"reply:{reply_id}",
+        details={"действие": "лид взят в работу", "от кого ответ": reply.from_email},
+    )
+    await session.commit()
+    logger.info("лиды: ответ №%s взят в работу", reply_id)
+    return LeadTaken(id=reply_id, reviewed_by=author.email, reviewed_at=taken_at)
 
 
 @router.patch("/{reply_id}", response_model=Reviewed, summary="Подтвердить разбор цены")
