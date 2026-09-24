@@ -149,7 +149,7 @@ export const theme = createTheme({
         withItemsBorders: false,
       },
       styles: {
-        root: { background: 'var(--glass-fill-quiet)', border: '1px solid var(--glass-edge)' },
+        root: { background: 'var(--segment-fill)', border: '1px solid var(--glass-edge)' },
         indicator: {
           background: 'color-mix(in oklab, var(--accent) 26%, transparent)',
           border: '1px solid var(--glass-edge)',

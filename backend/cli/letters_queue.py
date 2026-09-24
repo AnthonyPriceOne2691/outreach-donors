@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.config import storage
 from backend.config.startup_checks import check_storage
-from backend.features.core.domain import MessageStatus
+from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.outreach import MessageModel
 from backend.features.letters.building import BuildReport, BuildRequest, QueueBuilder
@@ -34,8 +34,15 @@ EXIT_NOT_SENT = 7
 
 
 def add_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
-    build = sub.add_parser("letters-build", help="собрать очередь писем по базе доноров")
+    build = sub.add_parser("letters-build", help="собрать очередь писем донорам или рекламодателям")
     build.add_argument("--campaign", required=True, help="имя кампании: одноимённая дополняется")
+    build.add_argument(
+        "--stage",
+        choices=[stage.value for stage in Stage],
+        default=Stage.DONORS.value,
+        help="кому: donors — вопрос о цене принятым донорам, advertisers — оффер "
+        "рекламодателям под найденную ссылку (без --runs)",
+    )
     build.add_argument("--limit", type=int, default=50, help="сколько писем готовить за раз")
     build.add_argument("--country", default="us", help="страна прогона: от неё язык письма")
     build.add_argument(
@@ -72,6 +79,7 @@ async def cmd_letters_build(args: argparse.Namespace) -> int:
             report = await QueueBuilder(session, rewriter).build(
                 BuildRequest(
                     campaign_name=args.campaign,
+                    stage=Stage(args.stage),
                     country=args.country,
                     niche=niche,
                     limit=args.limit,

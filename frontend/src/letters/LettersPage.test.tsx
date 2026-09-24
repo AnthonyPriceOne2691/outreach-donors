@@ -379,3 +379,123 @@ describe('прогоны рассылки', () => {
     expect(await screen.findByLabelText(/№18.*принято 14/)).toBeInTheDocument();
   });
 });
+
+const OFFER = {
+  ...LETTER,
+  id: 21,
+  host: 'brand.example.test',
+  email: 'marketing@brand.example.test',
+  campaign: 'Сентябрь',
+  subject: 'Your placement on donor.example.test',
+  body: 'Hello there,\n\nIt was your link on donor.example.test, anchored "best CRM".',
+};
+
+const OFFER_VIEW = {
+  ...VIEW,
+  stage: 'advertisers',
+  letters: [OFFER],
+  letter_default: {
+    subject: 'Your placement on {{donor_host}}',
+    zones: [
+      { name: 'greeting', kind: 'rewrite', title: 'Приветствие', text: 'Hello there,' },
+      {
+        name: 'offer',
+        kind: 'fixed',
+        title: 'Кто мы',
+        text: 'It was your link on {{donor_host}}, anchored "{{anchor}}", on {{page_url}}.',
+      },
+      {
+        name: 'signature',
+        kind: 'fixed',
+        title: 'Подпись',
+        text: 'Best regards,\n{{sender_name}}',
+      },
+    ],
+  },
+  funnel: {
+    рекламодателей: 5,
+    'со ссылкой': 5,
+    'цена донора свежая': 0,
+    'с адресом': 0,
+    'вне стоп-листа': 0,
+    'ещё не писали': 0,
+  },
+};
+
+describe('этапы рассылки', () => {
+  it('рекламодатели — своя очередь, и оффер не спутать с вопросом донору', async () => {
+    const recorded = await openLetters(
+      {},
+      { 'GET /api/letters?stage=advertisers': { body: OFFER_VIEW } },
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('radio', { name: 'Рекламодателям' }));
+
+    expect(await screen.findAllByText('brand.example.test')).not.toHaveLength(0);
+    expect(screen.queryByText('digest-weekly.example.test')).not.toBeInTheDocument();
+    expect(
+      recorded.calls.some((call: Call) => call.path === '/api/letters?stage=advertisers'),
+    ).toBe(true);
+  });
+
+  it('у рекламодателей нет прогонов: собрать можно без них, и этап уходит на сервер', async () => {
+    const recorded = await openLetters(
+      {},
+      {
+        'GET /api/letters?stage=advertisers': { body: OFFER_VIEW },
+        'POST /api/letters/build': { body: { job_id: 'j' } },
+      },
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('radio', { name: 'Рекламодателям' }));
+    await screen.findAllByText('brand.example.test');
+
+    await user.type(screen.getByLabelText('Кампания'), 'Сентябрь');
+
+    expect(screen.queryByText('Прогоны рассылки')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Собрать очередь' }));
+    const call = recorded.calls.find((one: Call) => one.path === '/api/letters/build');
+    expect(call?.body).toMatchObject({ campaign: 'Сентябрь', stage: 'advertisers' });
+    expect(call?.body).not.toHaveProperty('run_ids');
+  });
+
+  it('пустая очередь рекламодателей называет ступень, на которой они кончились', async () => {
+    await openLetters(
+      {},
+      { 'GET /api/letters?stage=advertisers': { body: { ...OFFER_VIEW, letters: [] } } },
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('radio', { name: 'Рекламодателям' }));
+
+    expect(await screen.findByText(/со свежей ценой донора 0/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Кончились на ступени «цена донора свежая»: сначала нужны ответы доноров/),
+    ).toBeInTheDocument();
+    // Воронка накопительная: «с адресом 0» стоит после нуля на цене и про адреса
+    // не говорит — совет искать контакты отправил бы платить за поиск впустую.
+    expect(screen.queryByText(/искать контакты/)).not.toBeInTheDocument();
+  });
+
+  it('переключение этапа запоминается: вернувшись, человек продолжает там же', async () => {
+    await openLetters({}, { 'GET /api/letters?stage=advertisers': { body: OFFER_VIEW } });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('radio', { name: 'Рекламодателям' }));
+
+    expect(localStorage.getItem('letters:stage')).toBe('advertisers');
+  });
+
+  it('выбранный этап помнится до следующего захода', async () => {
+    localStorage.setItem('letters:stage', 'advertisers');
+
+    const recorded = await openLetters(
+      {},
+      { 'GET /api/letters?stage=advertisers': { body: OFFER_VIEW } },
+    );
+
+    expect(await screen.findAllByText('brand.example.test')).not.toHaveLength(0);
+    expect(recorded.calls.some((call: Call) => call.path === '/api/letters')).toBe(false);
+  });
+});

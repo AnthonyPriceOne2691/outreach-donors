@@ -443,7 +443,12 @@ export interface LetterDraft {
   zones: Record<string, string>;
 }
 
+/** Этап рассылки: донорам — вопрос о цене, рекламодателям — оффер под найденную ссылку. */
+export type LetterStage = 'donors' | 'advertisers';
+
 export interface LettersView {
+  /** Чья это очередь: у этапов свои письма, текст по умолчанию и воронка. */
+  stage: LetterStage;
   letters: QueuedLetter[];
   /** Сроки добивок по умолчанию: их предлагает сервер, а не помнит фронт. */
   followup_default: number[];
@@ -453,13 +458,15 @@ export interface LettersView {
   blocked_by: string[];
   transport: LetterTransport;
   corridor: Corridor;
-  /** Где кончились доноры: пустая очередь при «всем написали» и при
-   *  «ни у кого нет адреса» выглядит одинаково. */
+  /** Где кончились адресаты: пустая очередь при «всем написали» и при
+   *  «ни у кого нет адреса» выглядит одинаково. Ступени у этапов свои. */
   funnel: Record<string, number>;
 }
 
 export interface BuildLettersRequest {
   campaign: string;
+  /** Кому. Нет — донорам: так сервер понимает и старые запросы. */
+  stage?: LetterStage;
   country?: string;
   niche?: string[];
   limit?: number;
@@ -468,7 +475,8 @@ export interface BuildLettersRequest {
   /** Поправленный текст первого письма. Нет — текст по умолчанию
    *  у новой рассылки или собственный у найденной. */
   letter?: LetterDraft;
-  /** Прогоны, из принятых доноров которых собирается рассылка. */
+  /** Прогоны, из принятых доноров которых собирается рассылка. У
+   *  рекламодателей прогонов нет — сервер откажет, если их прислать. */
   run_ids?: number[];
 }
 
