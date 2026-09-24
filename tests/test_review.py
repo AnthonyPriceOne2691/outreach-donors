@@ -27,8 +27,8 @@ from backend.features.review.candidates import (
     Decision,
     NotInRunError,
     RunReview,
-    Tier,
 )
+from backend.features.review.ordering import Tier
 from backend.features.runs.exclusions import ExclusionReason, Exclusions, by_name
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.thresholds import defaults

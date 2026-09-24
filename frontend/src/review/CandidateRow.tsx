@@ -39,7 +39,7 @@ function Site({ row }: { row: CandidateCard }) {
       {/* Почему строка стоит первой в ярусе: для гест-постинга это главный
           признак донора, и человек должен видеть, на чём он держится. */}
       {row.sells !== null && (
-        <Group gap={6} wrap="nowrap">
+        <Group gap={6} wrap="nowrap" data-sells>
           <Badge variant="light" color="green" size="sm">
             продаёт размещение
           </Badge>
