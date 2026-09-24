@@ -827,9 +827,9 @@
       "worst": "—"
     },
     "backend/features/keywords/angles.py": {
-      "lines": 133,
+      "lines": 147,
       "complexity": 3,
-      "worst": "preset:116"
+      "worst": "preset:130"
     },
     "backend/features/keywords/client.py": {
       "lines": 157,
@@ -841,15 +841,20 @@
       "complexity": 6,
       "worst": "interleave:57"
     },
+    "backend/features/keywords/footprints.py": {
+      "lines": 131,
+      "complexity": 4,
+      "worst": "with_niche:106"
+    },
     "backend/features/keywords/generator.py": {
-      "lines": 367,
+      "lines": 421,
       "complexity": 6,
-      "worst": "_backfill:332"
+      "worst": "_backfill:386"
     },
     "backend/features/keywords/hygiene.py": {
-      "lines": 187,
+      "lines": 205,
       "complexity": 12,
-      "worst": "parse_phrases:153"
+      "worst": "parse_phrases:171"
     },
     "backend/features/letters/__init__.py": {
       "lines": 1,

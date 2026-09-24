@@ -34,6 +34,12 @@ from backend.features.keywords.dedup import (
     drop_near_duplicates,
     split_over_angles,
 )
+from backend.features.keywords.footprints import (
+    expand,
+    templates_for,
+    topics_needed,
+    with_niche,
+)
 from backend.features.keywords.hygiene import clean
 
 logger = logging.getLogger(__name__)
@@ -256,6 +262,10 @@ class PoolBuilder:
         if cap <= 0:
             return Pool(keywords=[], report=report)
         _refuse_if_too_thin(cap, combinations)
+        if angles[0].footprints:
+            return await self._footprints(
+                angles[0], cap=cap, country=country, combinations=combinations, report=report
+            )
 
         collected: list[str] = []
         seen: set[str] = set()
@@ -274,6 +284,50 @@ class PoolBuilder:
 
         report.refusals = list(self._client.refusals)
         return _settle(deduped[:cap], cap=cap, report=report)
+
+    async def _footprints(
+        self,
+        angle: Angle,
+        *,
+        cap: int,
+        country: str,
+        combinations: Sequence[tuple[str, str]],
+        report: PoolReport,
+    ) -> Pool:
+        """Набор «guest»: темы у модели, слова футпринта — по таблице языка.
+
+        Шаблоны каждого языка проверяются до первого вызова: рынок без
+        футпринтов отказывает, не потратив ни токена. Почти-дубли убираются
+        среди тем — запросы одной темы различаются шаблоном, и дедуп по
+        словам их бы схлопнул (`keywords/footprints.py`).
+        """
+        templates = {language: templates_for(language) for _, language in combinations}
+        seen: set[str] = set()
+        collected: list[str] = []
+        shares = split_over_angles(cap, len(combinations))
+        for (topic, language), share in zip(combinations, shares, strict=True):
+            want = topics_needed(share, templates[language])
+            if want == 0:
+                continue
+            asked = with_niche(
+                topic,
+                await self._ask_angle(
+                    angle, want + cfg.ANGLE_BUFFER, country, language, topic, seen, report
+                ),
+                templates[language],
+            )
+            topics = drop_near_duplicates(asked)
+            report.near_duplicates += len(asked) - len(topics)
+            report.per_angle[angle.title] = report.per_angle.get(angle.title, 0) + len(topics)
+            keys, rejected = clean(expand(topics[:want], templates[language]))
+            report.rejected.update(rejected)
+            collected.extend(keys[:share])
+            _count(report, topic=topic, language=language, got=len(keys[:share]))
+
+        report.tokens = self._client.tokens_spent
+        report.calls = self._client.calls
+        report.refusals = list(self._client.refusals)
+        return _settle(list(dict.fromkeys(collected))[:cap], cap=cap, report=report)
 
     async def _one(
         self,
