@@ -45,7 +45,13 @@ MAX_BACKOFF_SEC = 60.0
 
 
 class AhrefsError(RuntimeError):
-    """Запрос не удался и повторять его незачем."""
+    """Запрос не удался. `permanent` — повтор не поможет: ключ, права,
+    неверный запрос, непонятный ответ. Без признака — повторы запроса
+    кончились на временном сбое, и прогон стоит продолжить позже."""
+
+    def __init__(self, message: str, *, permanent: bool = False) -> None:
+        super().__init__(message)
+        self.permanent = permanent
 
 
 @dataclass(slots=True)
@@ -240,7 +246,9 @@ class AhrefsClient:
                 self.on_usage(operation, cost)
 
             if response.status_code in FATAL_STATUSES:
-                raise AhrefsError(f"{operation}: {response.status_code} {response.text[:200]}")
+                raise AhrefsError(
+                    f"{operation}: {response.status_code} {response.text[:200]}", permanent=True
+                )
             if response.status_code in RETRY_STATUSES:
                 # Текст провайдера кладётся в ошибку СРАЗУ. Без него исход
                 # «не удалось за N попыток» одинаков для перегрузки и для
@@ -295,5 +303,6 @@ def _rows(payload: Any, operation: str) -> list[dict[str, Any]]:
     raise AhrefsError(
         f"{operation}: ответ Ahrefs не разобран — ожидался список строк, "
         f"получено {type(payload).__name__}. Скорее всего, провайдер изменил "
-        f"форму ответа."
+        f"форму ответа.",
+        permanent=True,
     )

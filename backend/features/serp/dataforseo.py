@@ -88,11 +88,20 @@ RESULTS_PER_PAGE = 10
 
 
 class SerpError(RuntimeError):
-    """Провайдер выдачи отказал или ответил непонятным."""
+    """Провайдер выдачи отказал или ответил непонятным. `permanent` — повтор
+    не поможет (ключ, права, страна); без признака — временный сбой."""
+
+    permanent: bool = False
+
+    def __init__(self, message: str, *, permanent: bool = False) -> None:
+        super().__init__(message)
+        self.permanent = permanent or type(self).permanent
 
 
 class UnknownCountryError(SerpError):
     """Страны нет в карте кодов. Промахнуться страной хуже, чем не начать."""
+
+    permanent = True
 
 
 def location_code(country: str) -> int:
@@ -341,8 +350,12 @@ class DataForSeoProvider:
             raise SerpError(f"Провайдер выдачи недоступен: {exc!r}") from exc
 
         if response.status_code >= 400:
+            # 5xx сюда доходит, уже исчерпав повторы запроса, — это временно;
+            # 4xx (ключ, права, деньги на счёте, неверный запрос) повтором
+            # не лечится.
             raise SerpError(
-                f"Провайдер выдачи ответил {response.status_code}: {response.text[:200]}"
+                f"Провайдер выдачи ответил {response.status_code}: {response.text[:200]}",
+                permanent=response.status_code < 500,
             )
 
         try:

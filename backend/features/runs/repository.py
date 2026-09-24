@@ -82,6 +82,61 @@ def _by_country_units(stats: dict[str, Any]) -> int:
     return int((stats.get("units_by_operation") or {}).get("by_country") or 0)
 
 
+#: Пометки о судьбе прогона в его отчёте. Их читает экран («причина») и
+#: разбор мёртвых («продолжений» — сколько раз уже продолжали).
+REASON_KEY = "причина"
+RESUMES_KEY = "продолжений"
+
+
+def carried_notes(previous: dict[str, Any] | None, *, finished: bool) -> dict[str, Any]:
+    """Что из прежнего отчёта переживает новый.
+
+    Отчёт попытки заменяет отчёт прошлой — но пометки о продолжениях не
+    её, а прогона: без них счётчик разбора обнулялся бы на каждой попытке,
+    а человек не узнал бы, что прогон прерывался. Законченный прогон
+    получает итог «продолжен после сбоя», а не «будет продолжен».
+    """
+    notes = previous or {}
+    resumes = int(notes.get(RESUMES_KEY) or 0)
+    if not resumes:
+        return {}
+    kept: dict[str, Any] = {RESUMES_KEY: resumes}
+    if finished:
+        kept[REASON_KEY] = f"продолжен после сбоя ({resumes} раз): {notes.get(REASON_KEY, '')}"[
+            :500
+        ]
+    return kept
+
+
+#: Сколько последних прогонов с выдачей смотрит смета до запуска.
+UNIQUE_HISTORY_WINDOW = 20
+
+#: Меньше результатов — доля по прогону — шум: три ключа дают 20 доменов
+#: из 27, и такой прогон ничего не говорит о большом.
+MIN_RESULTS_FOR_SHARE = 20
+
+
+def unique_share_from(history: Sequence[dict[str, Any]], default: float) -> float:
+    """Доля уникальных доменов среди результатов выдачи — худшая из недавних.
+
+    На вход — отчёты прогонов от НОВЫХ к старым. Худшая, а не средняя,
+    по той же причине, что и вся смета до запуска: занижение значит, что
+    прогон купит выдачу и упрётся в потолок уже после покупки. Доля
+    от ниши и страны почти не зависит (0,38–0,85 на 16 прогонах
+    22–24.09.2026) — зависит от того, насколько ключи перекрываются, —
+    поэтому история общая, а не по стране.
+    """
+    shares: list[float] = []
+    for stats in history:
+        results = int(stats.get("serp_results") or 0)
+        unique = int(stats.get("unique_hosts") or 0)
+        if results >= MIN_RESULTS_FOR_SHARE and unique:
+            shares.append(min(1.0, unique / results))
+        if len(shares) >= UNIQUE_HISTORY_WINDOW:
+            break
+    return max(shares) if shares else default
+
+
 class RunRepository:
     """Доступ к прогонам, их настройкам и журналу расхода."""
 
@@ -182,9 +237,15 @@ class RunRepository:
 
     async def set_estimate(self, run: RunModel, estimated_units: int) -> None:
         """Смета прогона, посчитанная по настоящим доменам. Появляется
-        после выдачи: при постановке точного числа ещё нет."""
-        run.estimated_units = estimated_units
-        await self._session.flush()
+        после выдачи: при постановке точного числа ещё нет.
+
+        **Ставится один раз.** Продолжение после сбоя считает смету по
+        оставшимся доменам — меньше первой, — и переписанная она ломала бы
+        «смету против факта»: факт считается по журналу за все попытки.
+        """
+        if run.estimated_units is None:
+            run.estimated_units = estimated_units
+            await self._session.flush()
 
     async def touch(self, run_id: int) -> None:
         """Отметить, что прогон жив.
@@ -225,6 +286,16 @@ class RunRepository:
             .order_by(RunModel.id.desc())
         )
         return country_share_from([(c, stats or {}) for c, stats in rows.all()], country)
+
+    async def unique_share(self, default: float) -> float:
+        """Доля уникальных доменов для сметы до запуска — из своей истории."""
+        rows = await self._session.execute(
+            select(RunModel.stats)
+            .where(RunModel.status == RunStatus.DONE)
+            .order_by(RunModel.id.desc())
+            .limit(UNIQUE_HISTORY_WINDOW * 2)
+        )
+        return unique_share_from([stats or {} for stats in rows.scalars().all()], default)
 
     async def stale(self, *, status: RunStatus, older_than: datetime) -> list[RunModel]:
         """Прогоны в этом состоянии, о которых давно ничего не слышно."""
@@ -332,7 +403,10 @@ class RunRepository:
         прогон, навсегда оставшийся «идёт», выглядит как зависший сервис."""
         run.status = status
         run.actual_units = actual_units
-        run.stats = stats
+        run.stats = {
+            **carried_notes(run.stats, finished=status is RunStatus.DONE),
+            **stats,
+        }
         await self._session.flush()
 
     async def spent_units(self, run_id: int) -> int:

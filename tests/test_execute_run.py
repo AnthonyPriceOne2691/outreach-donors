@@ -6,12 +6,13 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from dataclasses import replace
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 import pytest
 from backend.config.judge import JudgeMode
-from backend.features.ahrefs.client import AhrefsClient
+from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.core.domain import DonorStatus, RunStatus, SuppressionReason
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
@@ -498,3 +499,153 @@ class TestRunEndsInAReviewQueue:
             "гос. или учебная зона": 1,
             "платформа или соцсеть": 1,
         }
+
+
+# --- сбой посередине: повтор и сохранность уже собранного --------------------
+
+
+def _flaky_ahrefs(metrics: dict[str, dict[str, Any]], *, broken: dict[str, bool]) -> AhrefsClient:
+    """Провайдер, у которого пакетный запрос метрик отвечает 503, пока
+    `broken["on"]`. Просев (первый пакет) проходит: он уже оплачен, и сбой
+    случается на середине — ровно тот случай, где страшно потерять сделанное."""
+    batches = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        cost = {"x-api-units-cost-total-actual": "10"}
+        if path.endswith("limits-and-usage"):
+            return httpx.Response(200, json={"limits_and_usage": QUOTA})
+        if path.endswith("batch-analysis"):
+            batches["n"] += 1
+            if broken["on"] and batches["n"] >= 2:
+                return httpx.Response(503, text="upstream down")
+            hosts = [t["url"] for t in json.loads(request.content)["targets"]]
+            rows = [{"url": f"{h}/", **metrics[h]} for h in hosts if h in metrics]
+            return httpx.Response(200, json={"domains": rows}, headers=cost)
+        return httpx.Response(
+            200, json={"metrics": [{"country": "us", "org_traffic": 8000}]}, headers=cost
+        )
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.test")
+    return AhrefsClient(api_key="k", http=http)
+
+
+async def _mark_collected(session: AsyncSession, host: str) -> None:
+    """Домен, чьи метрики уже куплены, — как если бы первая попытка успела
+    сохранить свою пачку до сбоя."""
+    domain = (
+        await session.execute(select(DomainModel).where(DomainModel.host == host))
+    ).scalar_one_or_none()
+    if domain is None:
+        domain = DomainModel(host=host)
+        session.add(domain)
+        await session.flush()
+    session.add(
+        DonorModel(
+            domain_id=domain.id,
+            status=DonorStatus.SUITABLE,
+            dr=40,
+            metrics_refreshed_at=datetime.now(UTC),
+        )
+    )
+    await session.flush()
+
+
+class TestTransientFailureIsRetriedNotBuried:
+    async def test_network_minute_leaves_the_run_for_the_next_attempt(
+        self, session: AsyncSession
+    ) -> None:
+        """Сеть, 5xx после всех повторов запроса — это не повод хоронить
+        прогон: он остаётся «идёт», и разбор продолжит его с последней точки."""
+        broken = {"on": True}
+        deps = await _deps(
+            session,
+            FakeSerp(["https://good.com"]),
+            _flaky_ahrefs({"good.com": GOOD}, broken=broken),
+        )
+
+        with pytest.raises(AhrefsError) as caught:
+            await execute_run(deps, RunRequest(["crm"], "us", T, await _settings_id(session)))
+
+        assert not caught.value.permanent
+        run = (await session.execute(select(RunModel))).scalar_one()
+        assert run.status is RunStatus.RUNNING
+        assert run.stats["причина"].startswith("сбой, будет продолжен: AhrefsError")
+        assert run.actual_units is not None
+        assert run.actual_units > 0, "просев оплачен и записан"
+
+    async def test_permanent_refusal_still_stops_at_once(self, session: AsyncSession) -> None:
+        deps = await _deps(
+            session,
+            FakeSerp(["https://good.com"]),
+            _ahrefs({"good.com": GOOD}, fail_after_screen=True),
+        )
+        with pytest.raises(AhrefsError) as caught:
+            await execute_run(deps, RunRequest(["crm"], "us", T, await _settings_id(session)))
+
+        assert caught.value.permanent, "403 повтором не лечится"
+        run = (await session.execute(select(RunModel))).scalar_one()
+        assert run.status is RunStatus.STOPPED
+        assert run.stats["причина"].startswith("остановлен: AhrefsError")
+
+    async def test_failed_attempts_keep_what_the_run_already_has(
+        self, session: AsyncSession
+    ) -> None:
+        """Упавшая попытка не подтирает сделанное: выдача, первая смета,
+        журнал расхода и пометки разбора переживают и второе падение."""
+        broken = {"on": True}
+        serp = FakeSerp(["https://good.com", "https://also-good.com"])
+        metrics = {"good.com": GOOD, "also-good.com": GOOD}
+        deps = await _deps(session, serp, _flaky_ahrefs(metrics, broken=broken))
+        request = RunRequest(["crm"], "us", T, await _settings_id(session))
+
+        with pytest.raises(AhrefsError):
+            await execute_run(deps, request)
+        run = (await session.execute(select(RunModel))).scalar_one()
+        estimate, hosts = run.estimated_units, list(run.candidates["hosts"])
+        spent_first = run.actual_units
+        # Так разбор мёртвых помечает продолжение.
+        run.stats = {**run.stats, "продолжений": 1}
+        # Один домен первая попытка успела собрать: вторая считает смету по
+        # остатку — меньше первой — и затереть ею первую нельзя.
+        await _mark_collected(session, "also-good.com")
+        await session.flush()
+
+        with pytest.raises(AhrefsError):
+            await execute_run(
+                await _deps(session, serp, _flaky_ahrefs(metrics, broken=broken)),
+                replace(request, run=run),
+            )
+        await session.refresh(run)
+
+        assert run.candidates["hosts"] == hosts, "выдача не покупается и не теряется"
+        assert run.estimated_units == estimate, "смета — обещание первой попытки"
+        assert run.actual_units >= spent_first, "факт — по журналу за все попытки"
+        assert run.stats["продолжений"] == 1, "счётчик разбора не обнуляется"
+        assert run.status is RunStatus.RUNNING
+
+    async def test_resumed_run_finishes_with_its_history(self, session: AsyncSession) -> None:
+        broken = {"on": True}
+        serp = FakeSerp(["https://good.com"])
+        deps = await _deps(session, serp, _flaky_ahrefs({"good.com": GOOD}, broken=broken))
+        request = RunRequest(["crm"], "us", T, await _settings_id(session))
+        with pytest.raises(AhrefsError):
+            await execute_run(deps, request)
+        run = (await session.execute(select(RunModel))).scalar_one()
+        estimate = run.estimated_units
+        run.stats = {**run.stats, "продолжений": 1}
+        await session.flush()
+
+        broken["on"] = False
+        await execute_run(
+            await _deps(session, serp, _flaky_ahrefs({"good.com": GOOD}, broken=broken)),
+            replace(request, run=run),
+        )
+        await session.refresh(run)
+
+        assert run.status is RunStatus.DONE
+        assert run.estimated_units == estimate
+        assert run.stats["продолжений"] == 1
+        assert run.stats["причина"].startswith("продолжен после сбоя (1 раз)")
+        donor = (await session.execute(select(DonorModel))).scalar_one()
+        assert donor.status is DonorStatus.SUITABLE

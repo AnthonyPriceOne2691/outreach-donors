@@ -192,7 +192,7 @@
       "worst": "—"
     },
     "backend/api/runs/routes.py": {
-      "lines": 176,
+      "lines": 177,
       "complexity": 2,
       "worst": "effective_cap:42"
     },
@@ -502,9 +502,9 @@
       "worst": "—"
     },
     "backend/features/ahrefs/client.py": {
-      "lines": 300,
+      "lines": 309,
       "complexity": 11,
-      "worst": "_request:209"
+      "worst": "_request:215"
     },
     "backend/features/ahrefs/units.py": {
       "lines": 233,
@@ -1057,24 +1057,29 @@
       "worst": "units_left:27"
     },
     "backend/features/runs/estimate.py": {
-      "lines": 127,
+      "lines": 131,
       "complexity": 2,
-      "worst": "budget:70"
+      "worst": "budget:73"
     },
     "backend/features/runs/exclusions.py": {
       "lines": 253,
       "complexity": 8,
       "worst": "excluded_hosts:129"
     },
+    "backend/features/runs/failures.py": {
+      "lines": 36,
+      "complexity": 2,
+      "worst": "is_permanent:28"
+    },
     "backend/features/runs/lifecycle.py": {
-      "lines": 246,
+      "lines": 244,
       "complexity": 9,
-      "worst": "recover:143"
+      "worst": "recover:141"
     },
     "backend/features/runs/pipeline.py": {
-      "lines": 466,
+      "lines": 483,
       "complexity": 9,
-      "worst": "execute_run:308"
+      "worst": "execute_run:309"
     },
     "backend/features/runs/planning.py": {
       "lines": 315,
@@ -1082,9 +1087,9 @@
       "worst": "gather_candidates:210"
     },
     "backend/features/runs/repository.py": {
-      "lines": 360,
-      "complexity": 6,
-      "worst": "_own_runs:74"
+      "lines": 434,
+      "complexity": 8,
+      "worst": "unique_share_from:119"
     },
     "backend/features/runs/spending.py": {
       "lines": 143,
@@ -1107,9 +1112,9 @@
       "worst": "_take_organic:63"
     },
     "backend/features/serp/dataforseo.py": {
-      "lines": 362,
+      "lines": 375,
       "complexity": 11,
-      "worst": "_organic:123"
+      "worst": "_organic:132"
     },
     "backend/features/serp/factory.py": {
       "lines": 64,
@@ -1207,9 +1212,9 @@
       "worst": "worker_problems:73"
     },
     "backend/workers/jobs.py": {
-      "lines": 235,
-      "complexity": 2,
-      "worst": "_run:41"
+      "lines": 281,
+      "complexity": 4,
+      "worst": "_mark:135"
     },
     "backend/workers/main.py": {
       "lines": 26,

@@ -48,6 +48,7 @@ from backend.features.donors.repository import DonorRepository
 from backend.features.donors.verdict import Thresholds
 from backend.features.review.candidates import QueueReport, RunReview
 from backend.features.runs.budget import units_left
+from backend.features.runs.failures import described, is_permanent
 from backend.features.runs.planning import (
     Candidates,
     ExclusionSource,
@@ -55,7 +56,7 @@ from backend.features.runs.planning import (
     gather_candidates,
     plan_run,
 )
-from backend.features.runs.repository import RunRepository
+from backend.features.runs.repository import REASON_KEY, RunRepository
 from backend.features.serp.protocol import SerpProvider
 from backend.shared.logs import run_context
 from backend.shared.net.url_guard import guarded_client
@@ -385,9 +386,8 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
                 report.review = await deps.review.queue_run(run.id, [*plan.new, *plan.fresh])
                 await deps.runs.session_commit()
         except Exception as exc:
-            status = RunStatus.STOPPED
-            failure = f"{type(exc).__name__}: {exc}"
-            logger.exception("Прогон %s остановлен на середине", run.id)
+            failure = described(exc)
+            status = _status_after(exc, run.id)
             raise
         finally:
             # Траты, сделанные до сбоя, записываются обязательно: прогон, упавший
@@ -400,14 +400,28 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
                 run,
                 status=status,
                 actual_units=report.spent_units,
-                stats=_run_stats(report, failure),
+                stats=_run_stats(report, failure, retry=status is RunStatus.RUNNING),
             )
             await deps.runs.session_commit()
 
         return report
 
 
-def _run_stats(report: RunReport, failure: str | None) -> dict[str, object]:
+def _status_after(exc: BaseException, run_id: int) -> RunStatus:
+    """Статус прогона, прерванного сбоем посередине.
+
+    Временный сбой оставляет «идёт»: разбор мёртвых продолжит прогон
+    с последней сохранённой пачки. Остановить здесь значило бы похоронить
+    прогон из-за сетевой минуты. Остановка — только когда повтор не поможет.
+    """
+    if is_permanent(exc):
+        logger.exception("Прогон %s остановлен на середине: повтор не поможет", run_id)
+        return RunStatus.STOPPED
+    logger.exception("Прогон %s прерван сбоем, будет продолжен", run_id)
+    return RunStatus.RUNNING
+
+
+def _run_stats(report: RunReport, failure: str | None, *, retry: bool = False) -> dict[str, object]:
     """Отчёт прогона в том виде, в каком его читает человек.
 
     Расхождение сметы с фактом попадает сюда намеренно: заметное отклонение
@@ -462,4 +476,7 @@ def _run_stats(report: RunReport, failure: str | None) -> dict[str, object]:
         # Причина остановки хранится рядом с цифрами, а не только в логе:
         # через неделю лог уже не найдут, а запись прогона останется.
         stats["failure"] = failure
+        stats[REASON_KEY] = (
+            f"сбой, будет продолжен: {failure}" if retry else f"остановлен: {failure}"
+        )[:500]
     return stats

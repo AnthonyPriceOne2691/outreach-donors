@@ -26,7 +26,7 @@ from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.runs.browse import RunBrowser
 from backend.features.runs.budget import units_left
-from backend.features.runs.estimate import forecast
+from backend.features.runs.estimate import UNIQUE_SHARE, forecast
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.spending import ahrefs_spent_this_month, cap_left
 from backend.features.runs.thresholds import defaults
@@ -91,6 +91,7 @@ async def estimate(
             units_spent_this_month=spent,
             run_ceiling=body.cap,
             country_share=await RunRepository(session).country_call_share(body.country),
+            unique_share=await RunRepository(session).unique_share(UNIQUE_SHARE),
         )
     )
 
