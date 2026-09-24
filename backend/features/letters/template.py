@@ -41,6 +41,9 @@ PLACEHOLDER_RE = re.compile(r"\{\{([a-z_]+)\}\}")
 class TemplateError(ValueError):
     """Шаблон разобрать нельзя. Сообщение называет строку и что делать."""
 
+    #: Повтор задачи это не исправит (`runs/failures.py`).
+    permanent = True
+
 
 class ZoneKind(StrEnum):
     #: Уходит в модель и переписывается под донора.

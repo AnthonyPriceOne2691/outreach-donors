@@ -27,9 +27,9 @@
       "worst": "of:37"
     },
     "backend/api/app.py": {
-      "lines": 82,
+      "lines": 84,
       "complexity": 1,
-      "worst": "create_app:40"
+      "worst": "create_app:41"
     },
     "backend/api/auth/__init__.py": {
       "lines": 1,
@@ -52,14 +52,14 @@
       "worst": "—"
     },
     "backend/api/contacts/routes.py": {
-      "lines": 155,
-      "complexity": 5,
-      "worst": "_last_report:143"
+      "lines": 160,
+      "complexity": 6,
+      "worst": "state:62"
     },
     "backend/api/contacts/schemas.py": {
-      "lines": 88,
+      "lines": 93,
       "complexity": 1,
-      "worst": "of:57"
+      "worst": "of:62"
     },
     "backend/api/deps.py": {
       "lines": 98,
@@ -121,6 +121,16 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/api/jobs/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/api/jobs/routes.py": {
+      "lines": 64,
+      "complexity": 2,
+      "worst": "outcome:56"
+    },
     "backend/api/keywords/__init__.py": {
       "lines": 1,
       "complexity": 0,
@@ -142,7 +152,7 @@
       "worst": "—"
     },
     "backend/api/letters/routes.py": {
-      "lines": 199,
+      "lines": 200,
       "complexity": 5,
       "worst": "build:86"
     },
@@ -177,7 +187,7 @@
       "worst": "—"
     },
     "backend/api/review/routes.py": {
-      "lines": 97,
+      "lines": 101,
       "complexity": 2,
       "worst": "decide:53"
     },
@@ -837,9 +847,9 @@
       "worst": "—"
     },
     "backend/features/letters/building.py": {
-      "lines": 325,
+      "lines": 334,
       "complexity": 7,
-      "worst": "build:184"
+      "worst": "build:187"
     },
     "backend/features/letters/chain.py": {
       "lines": 55,
@@ -847,9 +857,9 @@
       "worst": "cadence:30"
     },
     "backend/features/letters/compose.py": {
-      "lines": 187,
+      "lines": 190,
       "complexity": 3,
-      "worst": "missing_settings:121"
+      "worst": "missing_settings:124"
     },
     "backend/features/letters/draft.py": {
       "lines": 149,
@@ -867,9 +877,9 @@
       "worst": "_deliver:315"
     },
     "backend/features/letters/guards.py": {
-      "lines": 56,
+      "lines": 59,
       "complexity": 3,
-      "worst": "metrics_leak:34"
+      "worst": "metrics_leak:37"
     },
     "backend/features/letters/masking.py": {
       "lines": 91,
@@ -902,9 +912,9 @@
       "worst": "parse_zones:155"
     },
     "backend/features/letters/sendgrid.py": {
-      "lines": 168,
-      "complexity": 5,
-      "worst": "_payload:137"
+      "lines": 228,
+      "complexity": 8,
+      "worst": "_post:121"
     },
     "backend/features/letters/sending.py": {
       "lines": 387,
@@ -917,9 +927,9 @@
       "worst": "remove:158"
     },
     "backend/features/letters/template.py": {
-      "lines": 335,
+      "lines": 338,
       "complexity": 9,
-      "worst": "_check_zones:219"
+      "worst": "_check_zones:222"
     },
     "backend/features/letters/transport.py": {
       "lines": 114,
@@ -945,6 +955,11 @@
       "lines": 1,
       "complexity": 0,
       "worst": "—"
+    },
+    "backend/features/ops/job_outcome.py": {
+      "lines": 167,
+      "complexity": 10,
+      "worst": "_outcome:115"
     },
     "backend/features/ops/silence.py": {
       "lines": 321,
@@ -1182,9 +1197,9 @@
       "worst": "assert_safe_url:88"
     },
     "backend/shared/queue.py": {
-      "lines": 200,
+      "lines": 243,
       "complexity": 7,
-      "worst": "job_alive:120"
+      "worst": "job_alive:163"
     },
     "backend/shared/sliding_window.py": {
       "lines": 75,
@@ -1212,12 +1227,12 @@
       "worst": "worker_problems:73"
     },
     "backend/workers/jobs.py": {
-      "lines": 281,
+      "lines": 321,
       "complexity": 4,
-      "worst": "_mark:135"
+      "worst": "_mark:169"
     },
     "backend/workers/main.py": {
-      "lines": 26,
+      "lines": 29,
       "complexity": 1,
       "worst": "main:18"
     },

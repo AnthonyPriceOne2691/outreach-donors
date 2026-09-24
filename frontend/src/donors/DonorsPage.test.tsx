@@ -130,3 +130,31 @@ describe('доноры', () => {
     expect(recorded.calls.some((call) => call.path.includes('status=unchecked'))).toBe(true);
   });
 });
+
+describe('исход поиска контактов', () => {
+  it('упавший поиск виден с причиной, а не тишиной', async () => {
+    await openDonors({
+      'GET /api/contacts': {
+        body: {
+          ...CONTACTS,
+          job_id: 'job-9',
+          job: {
+            job_id: 'job-9',
+            kind: 'поиск контактов',
+            state: 'failed',
+            title: 'упала',
+            error: 'ConnectError: сеть',
+            report: null,
+            retries_left: 0,
+            next_try_at: null,
+            ended_at: '2026-09-24T12:00:00Z',
+          },
+        },
+      },
+    });
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Поиск контактов: упала — ConnectError: сеть',
+    );
+  });
+});

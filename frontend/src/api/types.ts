@@ -535,6 +535,30 @@ export interface ContactsState {
   job_id: string | null;
   last: Record<string, unknown> | null;
   workers: number | null;
+  /** Исход последней задачи целиком — в том числе упавшей или ждущей повтора. */
+  job?: JobCard | null;
+}
+
+/** Исход фоновой задачи словами человека (`/api/jobs/{id}`). */
+export type JobState =
+  | 'queued'
+  | 'running'
+  | 'retry_wait'
+  | 'done'
+  | 'refused'
+  | 'failed'
+  | 'unknown';
+
+export interface JobCard {
+  job_id: string;
+  kind: string;
+  state: JobState;
+  title: string;
+  error: string | null;
+  report: Record<string, unknown> | null;
+  retries_left: number | null;
+  next_try_at: string | null;
+  ended_at: string | null;
 }
 
 export interface ContactsQueued {

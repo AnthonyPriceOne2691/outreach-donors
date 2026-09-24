@@ -6,6 +6,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from backend.api.jobs.routes import JobCard
 from backend.features.contacts.forms import FormRow
 
 
@@ -24,6 +25,10 @@ class ContactsState(BaseModel):
     job_id: str | None = None
     #: Отчёт последней законченной задачи: по ступеням, как в консоли.
     last: dict[str, object] | None = None
+    #: Исход последней задачи целиком — в том числе упавшей или ждущей
+    #: повтора. Раньше видно было только удачную, и упавший поиск выглядел
+    #: как тишина.
+    job: JobCard | None = None
     #: Сколько воркеров слушает очередь. `null` — очередь не ответила.
     workers: int | None = None
 

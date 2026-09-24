@@ -18,7 +18,10 @@ from backend.shared.queue import QUEUE_NAME, connection
 def main() -> None:
     setup_logging()
     check_storage()
-    Worker([QUEUE_NAME], connection=connection()).work(with_scheduler=False)
+    # С планировщиком: без него повторы задач с паузой (`queue.RETRY_INTERVALS`)
+    # копятся отложенными и не срабатывают никогда. Планировщик на очередь
+    # один — rq держит его замком, и второй воркер его не запустит.
+    Worker([QUEUE_NAME], connection=connection()).work(with_scheduler=True)
 
 
 if __name__ == "__main__":

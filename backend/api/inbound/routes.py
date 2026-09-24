@@ -41,7 +41,7 @@ from backend.config import outreach as cfg
 from backend.features.replies.inbound import MAX_BODY_CHARS, masked_for_log
 from backend.features.replies.mime import from_form
 from backend.features.replies.pipeline import Inbox
-from backend.shared.queue import PARSE_JOB, runs_queue
+from backend.shared.queue import PARSE_JOB, runs_queue, with_retries
 from backend.shared.sliding_window import SlidingWindow
 
 logger = logging.getLogger(__name__)
@@ -157,7 +157,7 @@ async def take_reply(
     if outcome.parse_pending and outcome.reply_id is not None:
         # Разбор цены — задача очереди: платный вызов модели внутри
         # вебхука означал бы повторные списания при таймауте платформы.
-        runs_queue().enqueue(PARSE_JOB, outcome.reply_id)
+        runs_queue().enqueue(PARSE_JOB, outcome.reply_id, **with_retries())
 
     logger.info(
         "приём: письмо от %s — %s",

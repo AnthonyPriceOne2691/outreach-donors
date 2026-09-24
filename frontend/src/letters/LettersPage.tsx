@@ -43,12 +43,16 @@ import { Metric } from '../components/Metric';
 import { LetterDraftEditor, draftOf, sameDraft } from './LetterDraftEditor';
 import { LetterPreview, percentOf, toneOf } from './LetterPreview';
 import { RunPicker } from './RunPicker';
+import { JobLine } from '../jobs/JobLine';
 
 const LETTERS_QUERY_KEY = ['letters'] as const;
 
 function refusalOf(error: unknown): string {
   return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
 }
+
+/** Где экран помнит номер последней сборки. */
+const BUILD_JOB_KEY = 'letters:last-build-job';
 
 export function LettersPage() {
   const { can } = useSession();
@@ -65,6 +69,15 @@ export function LettersPage() {
   const [letterEdit, setLetterEdit] = useState<LetterDraft | null>(null);
   // Прогоны рассылки: письма получают только принятые доноры выбранных.
   const [runIds, setRunIds] = useState<number[]>([]);
+  // Номер последней сборки переживает перезагрузку страницы: сборка идёт
+  // минутами, и человек, вернувшийся к экрану, должен увидеть, чем кончилась.
+  const [buildJob, setBuildJob] = useState<string | null>(() => {
+    try {
+      return window.localStorage.getItem(BUILD_JOB_KEY);
+    } catch {
+      return null;
+    }
+  });
 
   const { data, isLoading, error } = useQuery({
     queryKey: LETTERS_QUERY_KEY,
@@ -98,7 +111,13 @@ export function LettersPage() {
         ...(letterChanged && letterEdit !== null ? { letter: letterEdit } : {}),
         run_ids: runIds,
       }),
-    onSuccess: async () => {
+    onSuccess: async (queued) => {
+      setBuildJob(queued.job_id);
+      try {
+        window.localStorage.setItem(BUILD_JOB_KEY, queued.job_id);
+      } catch {
+        // Хранилище недоступно (приватное окно) — строка исхода живёт до перезагрузки.
+      }
       await refresh();
       notifications.show({
         message: 'Сборка ушла в очередь задач: каждое письмо стоит вызова модели, это минуты',
@@ -266,6 +285,10 @@ export function LettersPage() {
                 Собрать очередь
               </Button>
             </Group>
+          ) : null}
+
+          {buildJob !== null ? (
+            <JobLine jobId={buildJob} onFinished={() => void refresh()} />
           ) : null}
 
           {can('send') ? <RunPicker value={runIds} onChange={setRunIds} /> : null}

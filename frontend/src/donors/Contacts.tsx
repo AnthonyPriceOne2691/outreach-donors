@@ -20,6 +20,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { fetchContactsState, searchContacts } from '../api/contacts';
 import { useSession } from '../auth/AuthProvider';
+import { JobOutcome } from '../jobs/JobLine';
 
 const CONTACTS_QUERY_KEY = ['contacts-state'] as const;
 
@@ -106,6 +107,9 @@ export function Contacts() {
           <Text size="sm" c="dimmed">
             {report}
           </Text>
+        )}
+        {data?.job && data.job.state !== 'done' && data.job.state !== 'running' && (
+          <JobOutcome job={data.job} />
         )}
       </Stack>
     </Card>

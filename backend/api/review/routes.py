@@ -23,7 +23,7 @@ from backend.features.contacts.repository import ContactRepository
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
 from backend.features.review.candidates import Decision, RunReview
-from backend.shared.queue import CONTACTS_JOB, remember_contacts_job, runs_queue
+from backend.shared.queue import CONTACTS_JOB, remember_contacts_job, runs_queue, with_retries
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,11 @@ async def decide(
     if report.accepted_domains:
         pending = await ContactRepository(session).pending_count()
         job = runs_queue().enqueue(
-            CONTACTS_JOB, max(pending, len(report.accepted_domains)), False, False
+            CONTACTS_JOB,
+            max(pending, len(report.accepted_domains)),
+            False,
+            False,
+            **with_retries(),
         )
         job_id = str(job.id)
         remember_contacts_job(job_id)

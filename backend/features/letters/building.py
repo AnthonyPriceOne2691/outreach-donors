@@ -91,6 +91,9 @@ class BuildRequest:
 class LetterScopeError(ValueError):
     """Из этих прогонов рассылку не собрать. Сообщение говорит, что сделать."""
 
+    #: Повтор задачи это не исправит (`runs/failures.py`).
+    permanent = True
+
 
 @dataclass(frozen=True, slots=True)
 class RunScope:
@@ -204,6 +207,11 @@ class QueueBuilder:
         # раз — до того, как на него потратят двести вызовов модели.
         guards.assert_no_metrics(letter_template.body)
 
+        # Чекпоинт: рассылка заведена. Дальше каждое письмо фиксируется
+        # отдельно — упавшая сборка не теряет подготовленного и потраченных
+        # на него токенов, а повтор продолжает с того же места: написанным
+        # письмо уже считается (`_not_written`).
+        await self._session.commit()
         report = BuildReport(campaign_id=campaign.id)
         report.funnel = (
             await self._repo.funnel(request.stage, run_ids=request.run_ids)
@@ -229,6 +237,7 @@ class QueueBuilder:
                 report=report,
                 found_by=scope.found_by,
             )
+            await self._session.commit()
 
         logger.info(
             "письма: подготовлено %s из %s, токенов %s, вне коридора %s",

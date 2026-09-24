@@ -506,3 +506,47 @@ class TestDecisionChangedAfterBuild:
         outcome = await Sending(session, NullTransport(), now=NOW).send(letter.id)
 
         assert outcome.message_id == letter.id
+
+
+class TestBuildSurvivesAFailure:
+    """Упавшая сборка не теряет подготовленного: каждое письмо — чекпоинт."""
+
+    async def test_prepared_letters_and_their_tokens_stay(
+        self, session: AsyncSession, filled_legal: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        await make_donor(session, "one.example.test", email="info@one.example.test", dr=50)
+        await make_donor(session, "two.example.test", email="ads@two.example.test", dr=40)
+        # Сессия настоящей задачи при падении откатывается, тестовая — нет:
+        # поэтому смотрим прямо, фиксируется ли каждое письмо.
+        commits: list[int] = []
+        real_commit = session.commit
+
+        async def counted() -> None:
+            commits.append(await session.scalar(select(func.count(MessageModel.id))) or 0)
+            await real_commit()
+
+        monkeypatch.setattr(session, "commit", counted)
+
+        class DiesOnSecond(FakeRewriter):
+            async def rewrite(self, rendered: object, about: object) -> RewriteResult:
+                if len(self.seen) == 1:
+                    raise RuntimeError("модель легла посреди сборки")
+                return await super().rewrite(rendered, about)
+
+        with pytest.raises(RuntimeError):
+            await _build(session, rewriter=DiesOnSecond())
+
+        letters = (await session.execute(select(MessageModel))).scalars().all()
+        assert len(letters) == 1
+        assert commits[-1] == 1, "первое письмо зафиксировано до падения, а не в конце"
+        spent = await session.scalar(
+            select(func.count(UsageRecordModel.id)).where(
+                UsageRecordModel.operation == "letter_rewrite"
+            )
+        )
+        assert spent == 1, "токены первого письма записаны"
+
+        # Повтор задачи продолжает с того же места и не пишет второе письмо тому же.
+        report = await _build(session)
+        assert report.prepared == 1  # type: ignore[attr-defined]
+        assert await session.scalar(select(func.count(MessageModel.id))) == 2

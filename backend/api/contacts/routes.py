@@ -32,18 +32,21 @@ from backend.api.contacts.schemas import (
     SearchBody,
 )
 from backend.api.deps import db_session, needs
+from backend.api.jobs.routes import JobCard
 from backend.config import contacts as contacts_cfg
 from backend.features.access.repository import AccessRepository
 from backend.features.contacts import forms
 from backend.features.contacts.repository import ContactRepository
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
+from backend.features.ops.job_outcome import job_outcome
 from backend.shared.queue import (
     CONTACTS_JOB,
     contacts_job_id,
     job_alive,
     remember_contacts_job,
     runs_queue,
+    with_retries,
     workers_alive,
 )
 
@@ -64,12 +67,14 @@ async def state(
     pending = await ContactRepository(session).pending_count()
     job_id = contacts_job_id()
     running = bool(job_id) and job_alive(job_id) is True
+    outcome = job_outcome(job_id) if job_id else None
     return ContactsState(
         pending=pending,
         running=running,
         job_id=job_id,
         last=_last_report(job_id) if job_id and not running else None,
         workers=workers_alive(),
+        job=JobCard.of(outcome) if outcome is not None else None,
     )
 
 
@@ -81,7 +86,7 @@ async def search(
 ) -> ContactsQueued:
     """Поставить поиск контактов в очередь."""
     pending = await ContactRepository(session).pending_count()
-    job = runs_queue().enqueue(CONTACTS_JOB, body.limit, body.use_browser, False)
+    job = runs_queue().enqueue(CONTACTS_JOB, body.limit, body.use_browser, False, **with_retries())
     remember_contacts_job(str(job.id))
     logger.info("контакты: %s поставил поиск, ждёт %s доноров", author.email, pending)
     return ContactsQueued(job_id=str(job.id), pending=pending)
