@@ -218,7 +218,8 @@ OUTREACH_INBOUND_SECRET=$(openssl rand -hex 32)   # им подписана ме
 .venv/bin/outreach run --keywords ключи.txt --country us
 .venv/bin/outreach contacts --limit 100    # поиск адресов подходящим донорам
 .venv/bin/outreach contacts --no-paid      # только бесплатные ступени
-.venv/bin/outreach letters-build --campaign «Май» --limit 50   # собрать очередь писем
+.venv/bin/outreach letters-build --campaign «Май» --limit 50 --runs 18   # письма донорам прогона
+.venv/bin/outreach letters-build --campaign «Сентябрь» --stage advertisers  # офферы рекламодателям
 .venv/bin/outreach letters                 # что стоит в очереди и с каким отличием
 .venv/bin/outreach letters-send --id 42    # отправить одно письмо
 .venv/bin/outreach demo-seed              # выдуманные домены и переписка — посмотреть экраны

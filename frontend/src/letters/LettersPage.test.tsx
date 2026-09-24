@@ -470,7 +470,21 @@ describe('этапы рассылки', () => {
     await user.click(screen.getByRole('radio', { name: 'Рекламодателям' }));
 
     expect(await screen.findByText(/со свежей ценой донора 0/)).toBeInTheDocument();
-    expect(screen.getByText(/сначала нужны ответы доноров с ценой/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Кончились на ступени «цена донора свежая»: сначала нужны ответы доноров/),
+    ).toBeInTheDocument();
+    // Воронка накопительная: «с адресом 0» стоит после нуля на цене и про адреса
+    // не говорит — совет искать контакты отправил бы платить за поиск впустую.
+    expect(screen.queryByText(/искать контакты/)).not.toBeInTheDocument();
+  });
+
+  it('переключение этапа запоминается: вернувшись, человек продолжает там же', async () => {
+    await openLetters({}, { 'GET /api/letters?stage=advertisers': { body: OFFER_VIEW } });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('radio', { name: 'Рекламодателям' }));
+
+    expect(localStorage.getItem('letters:stage')).toBe('advertisers');
   });
 
   it('выбранный этап помнится до следующего захода', async () => {
