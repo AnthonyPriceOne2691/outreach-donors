@@ -69,6 +69,24 @@ def _script_families(text: str) -> set[str]:
     return families
 
 
+def same_script(first: str, second: str) -> bool:
+    """Одна ли письменность у двух кусков запроса — с латиницей наравне.
+
+    В правиле отсева латиница нейтральна: марки пишут ею и внутри
+    кириллических запросов. А тема футпринта нужна на письме самого
+    футпринта: «ставки на спорт write for us» отсев пропускает, но так
+    никто не ищет (замер 24.09 — такой запрос встал первым в пул).
+    """
+
+    def scripts(text: str) -> set[str]:
+        found = _script_families(text)
+        if any(ch.isalpha() and unicodedata.name(ch, "").startswith("LATIN") for ch in text):
+            found.add("LATIN")
+        return found
+
+    return scripts(first) == scripts(second)
+
+
 def _current_year() -> int:
     return datetime.now(tz=zoneinfo.ZoneInfo("UTC")).year
 

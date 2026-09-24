@@ -31,6 +31,8 @@ class Angle:
     prompt: str  # имя файла промпта без расширения
     focus: str  # подставляется в промпт как «focus ONLY on this content angle»
     title: str  # как угол называется у нас, для отчётов и логов
+    #: Модель даёт темы, а запрос собирает таблица футпринтов (`footprints`).
+    footprints: bool = False
 
 
 # --- Новости -------------------------------------------------------------
@@ -93,6 +95,14 @@ TROUBLE = Angle(
 )
 
 
+# --- Гостевые: сайт сам зовёт авторов --------------------------------------
+GUEST_TOPICS = Angle(
+    "topics",
+    "sections and subtopics of the niche that local blogs and online magazines write about",
+    "темы для футпринтов",
+    footprints=True,
+)
+
 #: Пресеты — обкатанные наборы. Порядок внутри набора важен: первым углам
 #: достаётся остаток при делении потолка, и первыми они идут в выдачу.
 PRESETS: dict[str, tuple[Angle, ...]] = {
@@ -104,6 +114,10 @@ PRESETS: dict[str, tuple[Angle, ...]] = {
     "guides": (HOW_TO, RULES, TROUBLE),
     # Смешанный: когда ниша заранее неизвестна и нужен широкий охват.
     "wide": (BREAKING, LOCAL_POLITICS, BEST_OF, COMPARISON, HOW_TO, RULES),
+    # Гостевые: «<тема> write for us» и соседи — ищет тех, кто сам зовёт
+    # авторов и продаёт размещение. Прогоны №21/№24: донор в разы дешевле
+    # тематических запросов (`keywords/footprints.py`).
+    "guest": (GUEST_TOPICS,),
 }
 
 DEFAULT_PRESET = "wide"
