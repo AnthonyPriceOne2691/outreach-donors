@@ -39,6 +39,10 @@ class UnknownReplyError(ValueError):
     """Ответа с таким номером нет."""
 
 
+class NotAPriceError(ValueError):
+    """Ответ рекламодателя: цены площадки в нём нет, подтверждать нечего."""
+
+
 @dataclass(frozen=True, slots=True)
 class Addressee:
     """Наше письмо и всё, что нужно, чтобы применить последствия."""
@@ -106,6 +110,27 @@ class ReplyRepository:
             host=host,
             stage=stage,
         )
+
+    async def stage_of(self, reply: ReplyModel) -> Stage | None:
+        """Этап рассылки, на письмо которой ответили. `None` — ответ ни к чему
+        не привязан. Порядок тот же, что у `domain_of`: диалог переживает
+        удаление письма."""
+        if reply.thread_id is not None:
+            stage = await self._session.scalar(
+                select(CampaignModel.stage)
+                .join(ThreadModel, ThreadModel.campaign_id == CampaignModel.id)
+                .where(ThreadModel.id == reply.thread_id)
+            )
+            if stage is not None:
+                return stage
+        if reply.message_id is None:
+            return None
+        found: Stage | None = await self._session.scalar(
+            select(CampaignModel.stage)
+            .join(MessageModel, MessageModel.campaign_id == CampaignModel.id)
+            .where(MessageModel.id == reply.message_id)
+        )
+        return found
 
     async def domain_of(self, reply: ReplyModel) -> int | None:
         """Чей это донор.
@@ -321,7 +346,16 @@ class ReplyRepository:
         Уверенность при этом не трогаем: она осталась тем, что сказала
         модель, и переписать её значило бы стереть след — потом никто
         не проверит, часто ли модель ошибается.
+
+        **Ответ рекламодателя подтвердить нельзя.** Цена из него легла бы
+        в карточку донора, если сайт заодно донор: его расход стал бы ценой
+        площадки. Отказ — до записи, а не после.
         """
+        if await self.stage_of(reply) is Stage.ADVERTISERS:
+            raise NotAPriceError(
+                f"Ответ №{reply.id} — от рекламодателя: это лид, а не цена площадки, "
+                "и в карточку донора он не ложится. Вести его в переписке"
+            )
         reply.price_white = price_white
         reply.price_grey = price_grey
         reply.currency = currency

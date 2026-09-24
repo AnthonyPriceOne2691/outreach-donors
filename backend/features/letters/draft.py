@@ -13,6 +13,10 @@
 
 **Правится только содержимое зон.** Их набор и вид заданы требованиями:
 экран не может ни добавить зону, ни сделать условия переписываемыми.
+
+**Правка идёт требованиями своего этапа.** Оффер рекламодателю разбирается
+как оффер: найденная ссылка обязана остаться в неизменяемой зоне, и её
+подстановки известны только ему — в письме донору `{{anchor}}` опечатка.
 """
 
 from __future__ import annotations
@@ -20,14 +24,16 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from backend.features.core.domain import Stage
 from backend.features.letters import compose, guards
 from backend.features.letters.template import (
     HEADER_RE,
     Template,
     TemplateError,
     ZoneKind,
-    default,
+    for_stage,
     parse,
+    spec_for,
 )
 
 #: Названия зон для человека. Ключи — имена из требований.
@@ -70,17 +76,17 @@ class Draft:
         )
 
 
-def default_draft() -> Draft:
-    return Draft.of(default())
+def default_draft(stage: Stage = Stage.DONORS) -> Draft:
+    return Draft.of(for_stage(stage))
 
 
-def to_text(subject: str, zones: Mapping[str, str]) -> str:
+def to_text(subject: str, zones: Mapping[str, str], stage: Stage = Stage.DONORS) -> str:
     """Черновик с экрана — в текст шаблона, проверенный как файл.
 
-    Порядок и вид зон берутся у умолчания: экран правит содержимое,
+    Порядок и вид зон берутся у умолчания этапа: экран правит содержимое,
     а не устройство письма.
     """
-    like = default()
+    like = for_stage(stage)
     unknown = sorted(set(zones) - {z.name for z in like.zones})
     if unknown:
         raise TemplateError(
@@ -98,8 +104,8 @@ def to_text(subject: str, zones: Mapping[str, str]) -> str:
         lines += [f"[{zone.name}] {zone.kind.value}", text, ""]
     text = "\n".join(lines)
 
-    checked = parse(text)
-    _check_values(checked)
+    checked = parse(text, spec_for(stage))
+    _check_values(checked, stage)
     return text
 
 
@@ -122,8 +128,13 @@ def _check_lines(zone: str, text: str) -> None:
             )
 
 
-def _check_values(checked: Template) -> None:
-    known = set(compose.values_for(host=""))
+#: Ссылка для проверки подстановок: значения не важны, важны имена.
+_PROBE_LINK = compose.FoundLink(donor_host="", page_url="", anchor="")
+
+
+def _check_values(checked: Template, stage: Stage) -> None:
+    link = _PROBE_LINK if stage is Stage.ADVERTISERS else None
+    known = set(compose.values_for(host="", link=link))
     unknown = sorted(checked.placeholders() - known)
     if unknown:
         names = ", ".join(f"{{{{{name}}}}}" for name in unknown)

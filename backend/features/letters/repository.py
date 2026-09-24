@@ -2,47 +2,31 @@
 
 Собраны здесь по той же причине, что и у остальной рассылки: ни сборка
 очереди, ни веб-слой не должны знать, из скольких таблиц складывается
-«кому мы ещё не писали».
-
-**Отсев считается по ступеням.** Запрос мог бы вернуть просто список
-годных доноров, но тогда пустая очередь выглядела бы одинаково при
-«все уже написаны» и «ни у кого нет контакта» — а это разные новости
-и разные действия. Поэтому рядом со списком идёт воронка: сколько
-подходящих, у скольких есть адрес, скольких вычеркнул стоп-лист,
-скольким уже писали.
+«кому мы ещё не писали». Сам отбор — кого можно собрать и где кончились
+адресаты — живёт в `recipients.py`; здесь его вход, очередь и записи.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from typing import Any, TypeVar
+from typing import Any
 
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.core.domain import DonorStatus, MessageStatus, Stage
+from backend.features.core.domain import MessageStatus, Stage
+from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
-from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import (
     CampaignModel,
     MessageModel,
     ThreadModel,
 )
 from backend.features.core.models.run import RunCandidateModel, RunModel
-
-
-@dataclass(frozen=True, slots=True)
-class Candidate:
-    """Донор, которому можно написать, и адрес, на который."""
-
-    domain_id: int
-    host: str
-    contact_id: int
-    email: str
-    dr: int | None
+from backend.features.letters.compose import FoundLink
+from backend.features.letters.recipients import AdvertiserFunnel, Candidate, Funnel, Recipients
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,179 +40,35 @@ class QueuedLetter:
     #: Сроки добивок рассылки. Нужны экрану: согласуя первое письмо,
     #: человек согласует цепочку, и когда уйдут остальные — часть решения.
     followup_days: list[int] | None = None
+    #: Этап рассылки: от него шаблон, против которого меряется правка,
+    #: и добивки, которые показываются рядом.
+    stage: Stage = Stage.DONORS
+    #: Нынешняя лучшая ссылка рекламодателя. Пусто у донора — и у
+    #: рекламодателя, которого сняли после сборки письма.
+    link: FoundLink | None = None
 
 
 class UnknownLetterError(ValueError):
     """Письма с таким номером нет."""
 
 
-@dataclass(frozen=True, slots=True)
-class Funnel:
-    """Сколько доноров отсеялось на каждой ступени отбора."""
-
-    suitable: int
-    accepted: int
-    with_contact: int
-    not_suppressed: int
-    not_written: int
-
-    def as_report(self) -> dict[str, int]:
-        return {
-            "подходящих": self.suitable,
-            "принятых": self.accepted,
-            "с адресом": self.with_contact,
-            "вне стоп-листа": self.not_suppressed,
-            "ещё не писали": self.not_written,
-        }
-
-
-#: Любой запрос отбора: ступени стоп-листа и «уже писали» дописывают
-#: условия и не трогают набор колонок, поэтому тип сохраняется.
-_Query = TypeVar("_Query", bound=Select[Any])
-
-
 class LetterRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    # --- отбор ---
+    # --- отбор (`recipients.py`) ---
 
-    def _suitable(self) -> Select[tuple[int]]:
-        return (
-            select(DomainModel.id)
-            .join(DonorModel, DonorModel.domain_id == DomainModel.id)
-            .where(DonorModel.status == DonorStatus.SUITABLE)
-        )
-
-    def _accepted(self, statement: _Query, run_ids: Sequence[int] = ()) -> _Query:
-        """Принятые человеком — и, если названы прогоны, принятые в них.
-
-        Пороги отвечают «годен ли по цифрам», человек — «берём ли»: без
-        этой ступени первые письма прогона 23.09.2026 ушли бы x.com
-        и microsoft.com. Прогоны сужают рассылку до своей страны и ниши:
-        из всей базы в неё попадали бы сайты ставок из ЮАР рядом с SaaS.
-        """
-        statement = statement.where(DonorModel.review == "accepted")
-        if not run_ids:
-            return statement
-        in_runs = (
-            select(RunCandidateModel.id)
-            .where(RunCandidateModel.domain_id == DomainModel.id)
-            .where(RunCandidateModel.run_id.in_(run_ids))
-            .where(RunCandidateModel.status == "accepted")
-            .exists()
-        )
-        return statement.where(in_runs)
-
-    def _has_contact(self, statement: _Query) -> _Query:
-        return statement.where(
-            select(ContactModel.id).where(ContactModel.domain_id == DomainModel.id).exists()
-        )
-
-    def _not_suppressed(self, statement: _Query, stage: Stage) -> _Query:
-        """Стоп-лист работает на двух уровнях: адрес блокирует себя, донор —
-        все свои адреса. Пустой этап в записи значит «на обоих этапах»."""
-        stage_matches = or_(SuppressionModel.stage.is_(None), SuppressionModel.stage == stage)
-        in_force = SuppressionModel.in_force(datetime.now(UTC))
-        by_domain = (
-            select(SuppressionModel.id)
-            .where(SuppressionModel.domain_id == DomainModel.id)
-            .where(stage_matches)
-            .where(in_force)
-            .exists()
-        )
-        by_email = (
-            select(SuppressionModel.id)
-            .where(SuppressionModel.email == ContactModel.email)
-            .where(ContactModel.domain_id == DomainModel.id)
-            .where(stage_matches)
-            .where(in_force)
-            .exists()
-        )
-        return statement.where(~by_domain).where(~by_email)
-
-    def _not_written(self, statement: _Query, stage: Stage) -> _Query:
-        """Одно письмо на донора за раз (docs/OUTREACH_THREADS.md).
-
-        Проверяется по этапу, а не по кампании: вторая кампания того же
-        этапа — это второе письмо тому же человеку, и для него это
-        рассылка по всем найденным ящикам, то есть спам.
-        """
-        written = (
-            select(MessageModel.id)
-            .join(CampaignModel, CampaignModel.id == MessageModel.campaign_id)
-            .where(MessageModel.domain_id == DomainModel.id)
-            .where(CampaignModel.stage == stage)
-            .exists()
-        )
-        return statement.where(~written)
-
-    async def funnel(self, stage: Stage, *, run_ids: Sequence[int] = ()) -> Funnel:
-        """Воронка отбора: где именно кончились доноры."""
-        base = self._suitable()
-        accepted = self._accepted(base, run_ids)
-        with_contact = self._has_contact(accepted)
-        not_suppressed = self._not_suppressed(with_contact, stage)
-        not_written = self._not_written(not_suppressed, stage)
-
-        return Funnel(
-            suitable=await self._count(base),
-            accepted=await self._count(accepted),
-            with_contact=await self._count(with_contact),
-            not_suppressed=await self._count(not_suppressed),
-            not_written=await self._count(not_written),
-        )
-
-    async def _count(self, statement: Select[Any]) -> int:
-        rows = await self._session.execute(select(func.count()).select_from(statement.subquery()))
-        return int(rows.scalar_one())
+    async def funnel(
+        self, stage: Stage, *, run_ids: Sequence[int] = ()
+    ) -> Funnel | AdvertiserFunnel:
+        """Воронка отбора: где именно кончились адресаты этапа."""
+        return await Recipients(self._session).funnel(stage, run_ids=run_ids)
 
     async def candidates(
         self, stage: Stage, *, limit: int, run_ids: Sequence[int] = ()
     ) -> list[Candidate]:
-        """Кому писать, по одному адресу на донора.
-
-        Лучший адрес — тот, с которого уже отвечали: дальше пишем тому,
-        кто отвечает, а не в ящик, где письмо пролежало неделю. Дальше
-        по оценке проверки адреса, дальше по возрасту записи.
-        """
-        inner = (
-            select(
-                DomainModel.id.label("domain_id"),
-                DomainModel.host.label("host"),
-                ContactModel.id.label("contact_id"),
-                ContactModel.email.label("email"),
-                DonorModel.dr.label("dr"),
-            )
-            .join(DonorModel, DonorModel.domain_id == DomainModel.id)
-            .join(ContactModel, ContactModel.domain_id == DomainModel.id)
-            .where(DonorModel.status == DonorStatus.SUITABLE)
-            .distinct(DomainModel.id)
-            .order_by(
-                DomainModel.id,
-                ContactModel.last_replied_at.desc().nullslast(),
-                ContactModel.verification_score.desc().nullslast(),
-                ContactModel.id,
-            )
-        )
-        inner = self._accepted(inner, run_ids)
-        inner = self._not_suppressed(inner, stage)
-        inner = self._not_written(inner, stage)
-
-        picked = inner.subquery()
-        rows = await self._session.execute(
-            select(picked).order_by(picked.c.dr.desc().nullslast(), picked.c.domain_id).limit(limit)
-        )
-        return [
-            Candidate(
-                domain_id=row.domain_id,
-                host=row.host,
-                contact_id=row.contact_id,
-                email=row.email,
-                dr=row.dr,
-            )
-            for row in rows
-        ]
+        """Кому писать, по одному адресу на адресата этапа."""
+        return await Recipients(self._session).candidates(stage, limit=limit, run_ids=run_ids)
 
     # --- очередь ---
 
@@ -240,41 +80,62 @@ class LetterRepository:
                 ContactModel.email,
                 CampaignModel.name,
                 CampaignModel.followup_days,
+                CampaignModel.stage,
+                AdvertiserModel.best_donor_host,
+                AdvertiserModel.best_page_url,
+                AdvertiserModel.best_anchor,
             )
             .join(DomainModel, DomainModel.id == MessageModel.domain_id)
             .join(CampaignModel, CampaignModel.id == MessageModel.campaign_id)
             .outerjoin(ContactModel, ContactModel.id == MessageModel.contact_id)
+            # Ссылка нужна только письмам Этапа 2: у донора, который заодно
+            # чей-то рекламодатель, её быть не должно.
+            .outerjoin(
+                AdvertiserModel,
+                (AdvertiserModel.domain_id == MessageModel.domain_id)
+                & (CampaignModel.stage == Stage.ADVERTISERS),
+            )
         )
 
-    async def queued(self, *, limit: int = 200) -> list[QueuedLetter]:
-        """Что ждёт отправки.
+    @staticmethod
+    def _queued_letter(row: Any) -> QueuedLetter:
+        message, host, email, campaign, days, stage, donor_host, page_url, anchor = row
+        link = (
+            FoundLink(donor_host=donor_host, page_url=page_url, anchor=anchor)
+            if donor_host and page_url and anchor
+            else None
+        )
+        return QueuedLetter(
+            message=message,
+            host=host,
+            email=email,
+            campaign=campaign,
+            followup_days=days,
+            stage=stage,
+            link=link,
+        )
+
+    async def queued(self, *, stage: Stage | None = None, limit: int = 200) -> list[QueuedLetter]:
+        """Что ждёт отправки — всё или одного этапа.
 
         Только очередь: отправленное живёт в диалогах, и смешивать их
         в одном списке значит потерять смысл экрана — здесь то, по чему
-        человек принимает решение прямо сейчас.
+        человек принимает решение прямо сейчас. Этапы разводятся по той же
+        причине: оффер рекламодателю и вопрос донору о цене читаются
+        разными глазами.
         """
-        rows = await self._session.execute(
-            self._letters()
-            .where(MessageModel.status == MessageStatus.QUEUED)
-            .order_by(MessageModel.id)
-            .limit(limit)
-        )
-        return [
-            QueuedLetter(
-                message=message, host=host, email=email, campaign=campaign, followup_days=days
-            )
-            for message, host, email, campaign, days in rows.all()
-        ]
+        statement = self._letters().where(MessageModel.status == MessageStatus.QUEUED)
+        if stage is not None:
+            statement = statement.where(CampaignModel.stage == stage)
+        rows = await self._session.execute(statement.order_by(MessageModel.id).limit(limit))
+        return [self._queued_letter(row) for row in rows.all()]
 
     async def letter(self, message_id: int) -> QueuedLetter:
         rows = await self._session.execute(self._letters().where(MessageModel.id == message_id))
         found = rows.first()
         if found is None:
             raise UnknownLetterError(f"Письма №{message_id} нет")
-        message, host, email, campaign, days = found
-        return QueuedLetter(
-            message=message, host=host, email=email, campaign=campaign, followup_days=days
-        )
+        return self._queued_letter(found)
 
     # --- запись ---
 

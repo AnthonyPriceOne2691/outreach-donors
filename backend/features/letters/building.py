@@ -28,6 +28,12 @@
 посмотреть текст, — а промолчать нельзя: человек нажмёт «отправить»
 и узнает об этом на третьем письме. Поэтому отчёт несёт список того,
 чем отправка заблокирована, а сама отправка отказывает жёстко.
+
+**Этап рассылки решает всё остальное.** Этап 1 пишет принятым донорам
+выбранных прогонов и спрашивает цену; Этап 2 пишет рекламодателям,
+найденным обходом, оффер под их же ссылку. У второго нет прогонов,
+свой шаблон со своими запретами (`template.ADVERTISER`) и своя воронка;
+кому писать, отвечает один вход `LetterRepository.candidates(stage)`.
 """
 
 from __future__ import annotations
@@ -41,12 +47,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.features.contacts.quality import rejection_reason
 from backend.features.core import usage
 from backend.features.core.domain import MessageStatus, Stage
-from backend.features.core.models.outreach import MessageModel
+from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.core.models.run import RunModel
 from backend.features.letters import compose, guards
-from backend.features.letters.repository import Candidate, LetterRepository
+from backend.features.letters.recipients import Candidate
+from backend.features.letters.repository import LetterRepository
 from backend.features.letters.rewrite import Personalization, RewriteClient
-from backend.features.letters.template import Template, default, parse
+from backend.features.letters.template import Template, for_stage, of_campaign
 from backend.features.letters.uniqueness import corridor_verdict, difference
 
 logger = logging.getLogger(__name__)
@@ -105,14 +112,25 @@ class RunScope:
     found_by: dict[str, list[str]] = field(default_factory=dict)
 
 
-async def run_scope(repo: LetterRepository, run_ids: Sequence[int]) -> RunScope:
+async def run_scope(
+    repo: LetterRepository, run_ids: Sequence[int], *, stage: Stage = Stage.DONORS
+) -> RunScope:
     """Проверить прогоны рассылки и достать из них страну и нишу.
 
     Отказ — до постановки сборки: рассылка по прогонам разных стран ушла
     бы одним языком, а по прогону с неоконченным поиском контактов — части
     принятых, и остальные молча выпали бы (так же сборку держит соседняя
     система, пока контакты собираются).
+
+    У рекламодателей прогонов нет: их находит обход доноров, а не выдача.
+    Прогоны, названные для Этапа 2, — ошибка формы, и молча их не взять:
+    человек решил бы, что рассылка сужена до них.
     """
+    if stage is Stage.ADVERTISERS and run_ids:
+        raise LetterScopeError(
+            "Рекламодатели собираются не по прогонам: их находит обход доноров, "
+            "а не выдача. Прогоны для рассылки рекламодателям не выбирать"
+        )
     if not run_ids:
         return RunScope()
     runs = await repo.runs(run_ids)
@@ -181,14 +199,15 @@ class QueueBuilder:
     ) -> None:
         self._session = session
         self._rewriter = rewriter
-        self._template = template or default()
+        #: Пусто — умолчание этапа рассылки (`template.for_stage`).
+        self._template = template
         self._repo = LetterRepository(session)
 
     async def build(self, request: BuildRequest) -> BuildReport:
         """Подготовить письма и поставить их в очередь."""
         # Прогоны проверяются до того, как заведена рассылка: отказ по ним
         # не должен оставлять пустую рассылку с их именем.
-        scope = await run_scope(self._repo, request.run_ids)
+        scope = await run_scope(self._repo, request.run_ids, stage=request.stage)
         if scope.country is not None and scope.country != request.country.lower():
             request = replace(request, country=scope.country)
         campaign = await self._repo.campaign(
@@ -198,10 +217,7 @@ class QueueBuilder:
             followup_days=request.followup_days,
             letter_template=request.letter_template,
         )
-        # Текст рассылки, а не умолчание: его утвердили при её создании.
-        letter_template = (
-            parse(campaign.letter_template) if campaign.letter_template else self._template
-        )
+        letter_template = self._letter_template(campaign)
         # Метрики Ahrefs в письме запрещены правилами Ahrefs. Неизменяемые
         # зоны одинаковы во всех письмах, поэтому шаблон проверяется один
         # раз — до того, как на него потратят двести вызовов модели.
@@ -248,6 +264,17 @@ class QueueBuilder:
         )
         return report
 
+    def _letter_template(self, campaign: CampaignModel) -> Template:
+        """Текст рассылки, а не умолчание: его утвердили при её создании.
+
+        Разбирается требованиями этапа рассылки — и сохранённый, и умолчание:
+        оффер рекламодателю без найденной ссылки не соберётся ни из базы,
+        ни из файла.
+        """
+        if campaign.letter_template:
+            return of_campaign(campaign.stage, campaign.letter_template)
+        return self._template or for_stage(campaign.stage)
+
     @staticmethod
     def _bad_address(candidate: Candidate, report: BuildReport) -> bool:
         """Адрес перепроверяется фильтром качества при каждой сборке.
@@ -280,7 +307,9 @@ class QueueBuilder:
         """Одно письмо: текст, проверки, запись в очередь."""
         rendered = compose.render(
             letter_template,
-            compose.values_for(host=candidate.host, domain_id=candidate.domain_id),
+            compose.values_for(
+                host=candidate.host, domain_id=candidate.domain_id, link=candidate.link
+            ),
         )
         rewritten = await self._rewriter.rewrite(
             rendered,
