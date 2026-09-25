@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+from backend.config import outreach as cfg
 from backend.features.core.domain import (
     ContactSource,
     MessageStatus,
@@ -32,6 +33,7 @@ from backend.features.core.models.outreach import (
 )
 from fastapi import FastAPI
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
 
@@ -327,6 +329,33 @@ class TestThreads:
         assert body["letters"][0]["subject"] == "Стоимость размещения"
         assert "250 EUR" in body["incoming"][0]["raw_body"]
         assert body["incoming"][0]["price_white"] == "250.00"
+
+    async def test_letter_share_and_corridor_come_from_the_server(
+        self,
+        client: AsyncClient,
+        operator_token: str,
+        thread: ThreadModel,
+        session: AsyncSession,
+    ) -> None:
+        """Отличие письма — долей, как у письма в очереди, а коридор — с сервера.
+
+        Поле в базе называется `uniqueness_pct`, но хранит долю; карточка
+        отдавала его под этим именем, экран поверил имени и печатал «0%»
+        у письма с отличием 19%, а рядом — вшитое «цель 15–25%».
+        """
+        letter = (await session.execute(select(MessageModel))).scalars().one()
+        letter.uniqueness_pct = 0.19
+        await session.commit()
+
+        response = await client.get(f"/api/threads/{thread.id}", headers=bearer(operator_token))
+
+        body = response.json()
+        assert body["letters"][0]["uniqueness"] == 0.19
+        assert "uniqueness_pct" not in body["letters"][0]
+        assert body["corridor"] == {
+            "min": cfg.UNIQUENESS_TARGET_MIN,
+            "max": cfg.UNIQUENESS_TARGET_MAX,
+        }
 
     async def test_unknown_thread_is_not_found(
         self, client: AsyncClient, operator_token: str

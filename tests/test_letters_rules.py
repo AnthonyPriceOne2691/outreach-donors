@@ -208,6 +208,37 @@ class TestUniqueness:
         assert uniqueness.corridor_verdict(0.20) is None
         assert uniqueness.corridor_verdict(0.90) is not None
 
+    @pytest.mark.parametrize(
+        ("value", "shown"),
+        [
+            (0.254, "25,4%"),
+            (0.19, "19%"),
+            (0.04, "4%"),
+            (0.0, "0%"),
+            (0.28125, "28,1%"),
+            # У края коридора десятой мало: «25%» у отличия выше 25% — ложь.
+            (0.2504, "25,04%"),
+            (0.1496, "14,96%"),
+            # На самом краю — в коридоре, лишних знаков не нужно.
+            (0.25, "25%"),
+            (0.15, "15%"),
+        ],
+    )
+    def test_percent_does_not_argue_with_the_corridor(self, value: float, shown: str) -> None:
+        """Целыми процентами 0,254 — «отличие 25% выше коридора 15–25%»:
+        фраза, опровергающая себя (аудит 25.09.2026). То же правило у экрана
+        писем, и число в вердикте совпадает с числом на значке."""
+        assert uniqueness.percent_text(value) == shown
+
+    def test_verdict_speaks_the_same_number(self) -> None:
+        verdict = uniqueness.corridor_verdict(0.254)
+
+        assert verdict is not None
+        assert verdict.startswith("отличие 25,4% выше коридора 15–25%")
+        assert uniqueness.corridor_verdict(0.1496) == (
+            "отличие 14,96% ниже коридора 15–25%: письмо слишком похоже на шаблон"
+        )
+
     def test_reordered_sentences_count_as_change(self) -> None:
         """Сравнение позиционное: для читателя переставленные предложения —
         другое письмо, для множества слов — то же самое."""

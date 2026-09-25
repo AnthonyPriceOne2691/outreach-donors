@@ -18,6 +18,9 @@
  * Узнать о втором письме от донора — худший способ увидеть его текст.
  * Править их нельзя: текст добивки один на всю рассылку и живёт
  * шаблоном в коде, иначе у каждого письма заведётся своя правда.
+ *
+ * **Незаданное — тихой пометкой везде: в первом письме, в добивках и в
+ * правке** (`letterText.ts`). Громкая метка сервера на экран не попадает.
  */
 
 import {
@@ -32,9 +35,10 @@ import {
   Textarea,
   TextInput,
 } from '@mantine/core';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { Corridor, QueuedLetter } from '../api/types';
+import { readable, restored, uniquenessText } from './letterText';
 
 export interface LetterPreviewProps {
   letter: QueuedLetter;
@@ -50,32 +54,21 @@ export interface LetterPreviewProps {
   onSave: (subject: string, body: string) => void;
 }
 
-export function percentOf(share: number | null): string {
-  return share === null ? '—' : `${Math.round(share * 100)}%`;
-}
-
 /** Зелёный — в коридоре, янтарь — нет. Те же два смысла, что и везде:
  *  «готово» и «нужно внимание». Третьего оттенка тут не бывает. */
 export function toneOf(letter: QueuedLetter): 'green' | 'yellow' {
   return letter.verdict === null ? 'green' : 'yellow';
 }
 
-/** Метка незаданного значения, как её ставит сервер: «ИМЯ ОТПРАВИТЕЛЯ НЕ ЗАДАНО». */
-const UNSET_MARK = /«([А-ЯЁ ]+?) НЕ ЗАДАН[ОА]?»/g;
-
-/** Письмо для чтения: громкие метки сервера — тихой пометкой в скобках.
- *
- *  Метка громкая намеренно — по ней отправка отказывает, и в самом тексте
- *  она остаётся (в правке видна как есть). Но читать письмо, где подпись
- *  кричит заглавными, — значит видеть поломку там, где просто ещё
- *  не подключили почту. */
-export function readable(text: string): { text: string; unset: boolean } {
-  let unset = false;
-  const softened = text.replace(UNSET_MARK, (_, title: string) => {
-    unset = true;
-    return `[${title.toLowerCase()}]`;
-  });
-  return { text: softened, unset };
+/** Пояснение к пометкам в скобках — под любым текстом, где они есть. */
+function UnsetHint({ editing = false }: { editing?: boolean }) {
+  return (
+    <Text size="xs" c="dimmed">
+      {editing
+        ? 'В квадратных скобках — то, что подставится при подключении почты: оставьте как есть или впишите значение.'
+        : 'В квадратных скобках — то, что подставится при подключении почты.'}
+    </Text>
+  );
 }
 
 export function LetterPreview({
@@ -90,45 +83,58 @@ export function LetterPreview({
   onSave,
 }: LetterPreviewProps) {
   const [editing, setEditing] = useState(false);
-  const [subject, setSubject] = useState(letter.subject ?? '');
-  const [body, setBody] = useState(letter.body ?? '');
+  // Правят то же, что читают: с тихими пометками вместо громких меток.
+  const [subject, setSubject] = useState(() => readable(letter.subject).text);
+  const [body, setBody] = useState(() => readable(letter.body).text);
   const [tab, setTab] = useState<string>('first');
+  const card = useRef<HTMLDivElement>(null);
 
   // Смена письма сбрасывает правку: иначе текст одного донора уехал бы
   // в письмо другому — а это ровно та ошибка, которую уже не отозвать.
   useEffect(() => {
     setEditing(false);
-    setSubject(letter.subject ?? '');
-    setBody(letter.body ?? '');
+    setSubject(readable(letter.subject).text);
+    setBody(readable(letter.body).text);
     setTab('first');
   }, [letter.id, letter.subject, letter.body]);
+
+  // Закреплённая карточка прокручивается внутри себя, и новое письмо
+  // открывалось бы с середины — там, где дочитали прежнее.
+  useEffect(() => {
+    if (card.current !== null) card.current.scrollTop = 0;
+  }, [letter.id]);
 
   const followup = letter.followups.find((step) => `step${step.step}` === tab) ?? null;
 
   const blocked = blockedBy.length > 0;
-  const shown = readable(letter.body ?? '');
+  const shown = readable(letter.body);
+  const title = readable(letter.subject);
+  const next = followup === null ? null : readable(followup.body);
 
   return (
-    <Card className="glass" p="xl">
+    <Card className="glass letterPreview scrollSlim" p="xl" ref={card}>
       <Stack gap="md">
         <Group justify="space-between" align="flex-start" wrap="nowrap">
-          <Stack gap={4}>
-            <Text fw={600}>{letter.host}</Text>
-            <Text size="xs" c="dimmed">
+          <Stack gap={4} style={{ minWidth: 0 }}>
+            <Text fw={600} style={{ overflowWrap: 'anywhere' }}>
+              {letter.host}
+            </Text>
+            <Text size="xs" c="dimmed" style={{ overflowWrap: 'anywhere' }}>
               {letter.email ?? 'адрес не определён'} · кампания «{letter.campaign}»
             </Text>
           </Stack>
           {/* Не ужимается: на узком окне значок сжимался до «отли…»,
               то есть до слова, которое ничего не значит. */}
           <Badge variant="light" color={toneOf(letter)} style={{ flexShrink: 0 }}>
-            отличие {percentOf(letter.uniqueness)}
+            отличие {uniquenessText(letter.uniqueness, corridor)}
           </Badge>
         </Group>
 
+        {/* Коридор назван один раз — в самом вердикте сервера: «Коридор —
+            15–25%» следом за «…выше коридора 15–25%» читался повтором. */}
         {letter.verdict !== null ? (
           <Alert color="yellow" title="Отличие вне коридора">
-            {letter.verdict}. Коридор — {Math.round(corridor.min * 100)}–
-            {Math.round(corridor.max * 100)}%. Письмо можно отправить и таким, но лучше поправить.
+            {letter.verdict}. Письмо можно отправить и таким, но лучше поправить.
           </Alert>
         ) : null}
 
@@ -143,16 +149,17 @@ export function LetterPreview({
           </Tabs.List>
         </Tabs>
 
-        {followup !== null ? (
+        {followup !== null && next !== null ? (
           <Stack gap="xs">
             <Text size="sm" c="dimmed">
               Уйдёт сама через {followup.in_days} дн. после предыдущего письма — если адресат не
               ответит, не отпишется и письмо не вернётся отказом доставки.
             </Text>
-            <Text fw={500}>{followup.subject}</Text>
+            <Text fw={500}>{readable(followup.subject).text}</Text>
             <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
-              {followup.body}
+              {next.text}
             </Text>
+            {next.unset ? <UnsetHint /> : null}
             <Text size="xs" c="dimmed">
               Текст добивки один на всю рассылку и правится шаблоном в коде: модель его не трогает.
             </Text>
@@ -171,24 +178,21 @@ export function LetterPreview({
               value={body}
               onChange={(event) => setBody(event.currentTarget.value)}
             />
+            {shown.unset || title.unset ? <UnsetHint editing /> : null}
             <Text size="xs" c="dimmed">
               Проценты пересчитаются после сохранения — от шаблона, который лежит сейчас.
             </Text>
           </Stack>
         ) : (
           <Stack gap="xs">
-            <Text fw={500}>{letter.subject}</Text>
+            <Text fw={500}>{title.text}</Text>
             {/* Письмо — обычный текст, и переносы в нём значимые: абзацы
                 задают его ритм, а свёрнутое в одну строку письмо читается
                 иначе, чем уйдёт адресату. */}
             <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
               {shown.text}
             </Text>
-            {shown.unset ? (
-              <Text size="xs" c="dimmed">
-                В квадратных скобках — то, что подставится при подключении почты.
-              </Text>
-            ) : null}
+            {shown.unset || title.unset ? <UnsetHint /> : null}
           </Stack>
         )}
 
@@ -226,7 +230,9 @@ export function LetterPreview({
                   color="lagoon"
                   loading={busy}
                   className="press"
-                  onClick={() => onSave(subject, body)}
+                  onClick={() =>
+                    onSave(restored(subject, letter.subject), restored(body, letter.body))
+                  }
                 >
                   Сохранить
                 </Button>

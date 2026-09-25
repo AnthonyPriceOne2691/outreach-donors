@@ -7,7 +7,7 @@
  * что выдача досталась даром.
  */
 
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
@@ -114,5 +114,37 @@ describe('расход', () => {
     });
 
     expect(screen.getByText('Не удалось узнать остаток у источника выдачи.')).toBeInTheDocument();
+  });
+});
+
+describe('плитки расхода', () => {
+  it('единица — словом под числом, а не хвостом, который рвётся на телефоне', async () => {
+    await openUsage({
+      ...SPENDING,
+      units_by_provider: { ahrefs: 6416, llm: 2180924, email: 4 },
+    });
+
+    const tile = screen.getByText('модель').closest('.mantine-Card-root') as HTMLElement;
+    // Число и единица — разными строками: «2 180 924 ток.» не влезало
+    // в плитку и ломалось на «2 180 924» и «ток.».
+    expect(within(tile).getByText(/^2\s180\s924$/)).toBeInTheDocument();
+    // «2 180 924 токена», а не «токенов»: слово согласуется с числом.
+    expect(within(tile).getByText('токена')).toBeInTheDocument();
+    const mail = screen.getByText('отправка').closest('.mantine-Card-root') as HTMLElement;
+    expect(within(mail).getByText('4')).toBeInTheDocument();
+    expect(within(mail).getByText('письма')).toBeInTheDocument();
+  });
+
+  it('юниты и деньги у одного провайдера — одной подписью', async () => {
+    await openUsage({
+      ...SPENDING,
+      units_by_provider: { ahrefs: 6416 },
+      amount_by_provider: { ahrefs: '1.5' },
+    });
+
+    const tile = screen
+      .getByText('метрики Ahrefs', { selector: 'p' })
+      .closest('.mantine-Card-root') as HTMLElement;
+    expect(within(tile).getByText(/^юнитов и 1,50 \$$/)).toBeInTheDocument();
   });
 });

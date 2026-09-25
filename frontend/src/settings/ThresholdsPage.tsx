@@ -11,6 +11,13 @@
  * не должна переписывать вердикты прошлых прогонов — иначе через полгода
  * непонятно, почему домен отсеялся. История версий с автором и датой
  * лежит здесь же.
+ *
+ * **Пересчёт не перерисовывает блок последствий.** Пока идёт новый расчёт,
+ * прежние числа стоят приглушёнными: значок загрузки на месте блока на
+ * каждое изменение порога заставлял экран прыгать под рукой.
+ *
+ * **Текст трёх карточек начинается с одной кромки** — 32 px от края стекла
+ * (аудит 25.09.2026: было 32, 20 и 26).
  */
 
 import {
@@ -30,7 +37,7 @@ import {
 import { useDebouncedValue } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { IconDeviceFloppy } from '@tabler/icons-react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 
 import { refusalOf } from '../api/client';
@@ -41,6 +48,20 @@ import { useSession } from '../auth/AuthProvider';
 import { formatDateTime, formatNumber } from '../format';
 
 const THRESHOLDS_KEY = ['thresholds'] as const;
+
+/** Колонки истории. Первая — номер со значком «действует» (124 px шрифтом
+ *  экрана, замер 25.09.2026), последняя — остаток: в ней адрес автора и
+ *  время. Числа — по шесть знаков с разрядами, заголовок «Реф. домены» —
+ *  85 px. Плюс 32 px полей ячейки. */
+const COLUMNS: { title: string; width?: string }[] = [
+  { title: 'Версия', width: '11rem' },
+  { title: 'DR', width: '5rem' },
+  { title: 'Трафик', width: '7.5rem' },
+  { title: 'Реф. домены', width: '8rem' },
+  { title: 'Ключи', width: '7rem' },
+  { title: 'Кто и когда' },
+];
+const TABLE_MIN_WIDTH = 880;
 
 function same(a: ThresholdsBody, b: ThresholdsBody): boolean {
   return (
@@ -76,6 +97,7 @@ export function ThresholdsPage() {
     queryKey: ['thresholds-preview', debounced],
     queryFn: () => previewThresholds(debounced as ThresholdsBody),
     enabled: debounced !== null && canEdit,
+    placeholderData: keepPreviousData,
   });
 
   const save = useMutation({
@@ -181,7 +203,7 @@ export function ThresholdsPage() {
       </Card>
 
       {canEdit && (
-        <Card className="glass" p="lg">
+        <Card className="glass" p="xl">
           <Title order={5} mb="sm">
             Что станет с базой
           </Title>
@@ -193,14 +215,21 @@ export function ThresholdsPage() {
               Пороги совпадают с действующими — база не изменится. Измените порог, и здесь появится,
               кто выпадет и кто вернётся.
             </Text>
-          ) : preview.isFetching ? (
-            <Loader size="sm" aria-label="Считаем последствия" />
           ) : preview.data === undefined ? (
-            <Text size="sm" c="dimmed">
-              Последствия считаются по всей базе — измените порог, и они появятся.
-            </Text>
+            preview.isFetching ? (
+              <Loader size="sm" aria-label="Считаем последствия" />
+            ) : (
+              <Text size="sm" c="dimmed">
+                Последствия считаются по всей базе — измените порог, и они появятся.
+              </Text>
+            )
           ) : (
-            <Stack gap="sm">
+            <Stack
+              gap="sm"
+              className="staleable"
+              data-stale={preview.isFetching || undefined}
+              aria-busy={preview.isFetching || undefined}
+            >
               <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
                 <Metric title="Подходит сейчас" value={formatNumber(preview.data.suitable_now)} />
                 <Metric title="Будет подходить" value={formatNumber(preview.data.suitable_after)} />
@@ -230,50 +259,65 @@ export function ThresholdsPage() {
         </Card>
       )}
 
-      <Card className="glass" p="xs">
-        <Table className="dataTable" verticalSpacing="sm" horizontalSpacing="md">
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>Версия</Table.Th>
-              <Table.Th>DR</Table.Th>
-              <Table.Th>Трафик</Table.Th>
-              <Table.Th>Реф. домены</Table.Th>
-              <Table.Th>Ключи</Table.Th>
-              <Table.Th>Кто и когда</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {(data?.history ?? []).map((version) => (
-              <Table.Tr key={version.version}>
-                <Table.Td>
-                  <Group gap="xs">
-                    <Text fw={500}>№{version.version}</Text>
-                    {version.version === data?.current?.version && (
-                      <Badge variant="light" color="green">
-                        действует
-                      </Badge>
-                    )}
-                  </Group>
-                </Table.Td>
-                <Table.Td>{version.min_dr}</Table.Td>
-                <Table.Td>{formatNumber(version.min_org_traffic)}</Table.Td>
-                <Table.Td>{formatNumber(version.min_refdomains)}</Table.Td>
-                <Table.Td>{formatNumber(version.min_keywords)}</Table.Td>
-                <Table.Td>
-                  {/* Автор неизвестен у версий, заведённых до учёток, —
-                      тогда только дата, без слова «неизвестно» в каждой строке. */}
-                  <Text size="sm" c="dimmed">
-                    {version.created_by === null
-                      ? formatDateTime(version.created_at)
-                      : `${version.created_by} · ${formatDateTime(version.created_at)}`}
-                  </Text>
-                </Table.Td>
+      {/* Поля карточки с таблицей — вместе с полем ячейки те же 32 px, что
+          у карточек выше. */}
+      <Card className="glass" p="md">
+        <Table.ScrollContainer minWidth={TABLE_MIN_WIDTH} type="native" className="scrollSlim">
+          <Table
+            className="dataTable fixedTable"
+            layout="fixed"
+            tabularNums
+            verticalSpacing="sm"
+            horizontalSpacing="md"
+          >
+            <colgroup>
+              {COLUMNS.map((column) => (
+                <col
+                  key={column.title}
+                  style={column.width ? { width: column.width } : undefined}
+                />
+              ))}
+            </colgroup>
+            <Table.Thead>
+              <Table.Tr>
+                {COLUMNS.map((column) => (
+                  <Table.Th key={column.title}>{column.title}</Table.Th>
+                ))}
               </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
+            </Table.Thead>
+            <Table.Tbody>
+              {(data?.history ?? []).map((version) => (
+                <Table.Tr key={version.version}>
+                  <Table.Td>
+                    <Group gap="xs" wrap="nowrap">
+                      <Text fw={500}>№{version.version}</Text>
+                      {version.version === data?.current?.version && (
+                        <Badge variant="light" color="green">
+                          действует
+                        </Badge>
+                      )}
+                    </Group>
+                  </Table.Td>
+                  <Table.Td>{formatNumber(version.min_dr)}</Table.Td>
+                  <Table.Td>{formatNumber(version.min_org_traffic)}</Table.Td>
+                  <Table.Td>{formatNumber(version.min_refdomains)}</Table.Td>
+                  <Table.Td>{formatNumber(version.min_keywords)}</Table.Td>
+                  <Table.Td className="wrapCell">
+                    {/* Автор неизвестен у версий, заведённых до учёток, —
+                        тогда только дата, без слова «неизвестно» в каждой строке. */}
+                    <Text size="sm" c="dimmed" className="cellName">
+                      {version.created_by === null
+                        ? formatDateTime(version.created_at)
+                        : `${version.created_by} · ${formatDateTime(version.created_at)}`}
+                    </Text>
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </Table.ScrollContainer>
         {(data?.history ?? []).length === 0 && (
-          <Text size="sm" c="dimmed" p="lg">
+          <Text size="sm" c="dimmed" p="md">
             Версий ещё нет — действуют умолчания. Первая появится здесь после сохранения, вместе с
             автором и датой.
           </Text>

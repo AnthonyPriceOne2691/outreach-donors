@@ -23,7 +23,8 @@ const LETTER = {
   subject: 'Advertising rates',
   body: 'Good afternoon,',
   sent_at: '2026-09-18T10:00:00+00:00',
-  uniqueness_pct: 19,
+  // Доля 0–1, как её отдаёт сервер: письмо с отличием 19%.
+  uniqueness: 0.19,
 };
 
 const UNSURE = {
@@ -61,6 +62,7 @@ const VIEW = {
   },
   letters: [LETTER],
   incoming: [UNSURE],
+  corridor: { min: 0.15, max: 0.25 },
 };
 
 async function openThread(
@@ -301,5 +303,25 @@ describe('ответ рекламодателя', () => {
 
     expect(screen.getByText(/цену в нём не разбираем/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Взять в работу' })).not.toBeInTheDocument();
+  });
+});
+
+describe('числа в переписке', () => {
+  it('отличие письма — долей с сервера и с коридором с сервера', async () => {
+    // Сервер отдаёт долю 0–1. Раньше карточка читала её процентами и
+    // печатала «0%» у письма с отличием 19%, а коридор был вшит.
+    await openThread({ corridor: { min: 0.1, max: 0.3 } });
+
+    expect(screen.getByText('Отличие от шаблона 19% — коридор 10–30%')).toBeInTheDocument();
+  });
+
+  it('разобранная цена — деньгами: разряды, запятая, знак валюты', async () => {
+    await openThread({
+      incoming: [{ ...UNSURE, price_white: '1250.00', price_grey: '180.00' }],
+    });
+
+    expect(screen.getByText('белая 1 250,00 €')).toBeInTheDocument();
+    expect(screen.getByText('серая 180,00 €')).toBeInTheDocument();
+    expect(screen.queryByText(/1250\.00 EUR|180\.00 EUR/)).not.toBeInTheDocument();
   });
 });

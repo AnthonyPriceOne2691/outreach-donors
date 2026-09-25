@@ -432,3 +432,26 @@ function homeSignalTitle(mark: string): string {
 export function homeSignalsText(marks: string[]): string {
   return [...new Set(marks.map(homeSignalTitle))].join(', ');
 }
+
+// --- письма и почта: имена настроек в тексте отказа (второй проход, 25.09.2026) ---
+
+/** Настройки почты, которые сервер называет в тексте отказа транспорта:
+ *  «OUTREACH_SENDGRID_API_KEY не задан — …». Текст пишется для журнала,
+ *  и имя переменной там на месте; на экране — словами. */
+const MAIL_SETTING_WORDS: Record<string, string> = {
+  OUTREACH_SENDGRID_API_KEY: 'ключ почтовой платформы',
+  OUTREACH_ALLOWED_RECIPIENTS: 'список разрешённых получателей',
+  OUTREACH_REPLY_DOMAIN: 'домен для ответов',
+  OUTREACH_TRANSPORT: 'способ отправки',
+};
+
+/** Текст сервера без имён переменных окружения: каждое — словами. Имя
+ *  переменной на экране ничего не говорит тому, кто его читает, а ищут его
+ *  по журналу сервера, где оно осталось. */
+export function settingsInWords(text: string): string {
+  const spoken = text.replace(
+    /OUTREACH_[A-Z_]+/g,
+    (key) => MAIL_SETTING_WORDS[key] ?? mailSettingTitle(key),
+  );
+  return spoken === text ? text : spoken.charAt(0).toUpperCase() + spoken.slice(1);
+}

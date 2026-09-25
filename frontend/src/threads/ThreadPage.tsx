@@ -26,15 +26,15 @@ import {
 import { IconArrowLeft, IconCheck, IconChecks } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { refusalOf } from '../api/client';
 import { MESSAGE_STATUSES, REPLY_KINDS, THREAD_STATES } from '../api/labels';
 import { fetchThread, reviewReply, takeLead } from '../api/outreach';
-import type { IncomingCard, LetterCard, MessageStatus } from '../api/types';
+import type { Corridor, IncomingCard, LetterCard, MessageStatus } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
-import { formatDateTime } from '../format';
-import { readable } from '../letters/LetterPreview';
+import { formatDateTime, formatMoney } from '../format';
+import { corridorText, readable, uniquenessText } from '../letters/letterText';
 import { PriceReview } from './PriceReview';
 
 const when = formatDateTime;
@@ -50,7 +50,7 @@ function DeliveryMark({ status }: { status: MessageStatus }) {
   return null;
 }
 
-function Letter({ letter }: { letter: LetterCard }) {
+function Letter({ letter, corridor }: { letter: LetterCard; corridor: Corridor }) {
   return (
     // Та же ширина и то же стекло, что у шапки и ответов: письмо уже
     // соседей и со своим скруглением читалось как вставка из другого экрана.
@@ -72,16 +72,20 @@ function Letter({ letter }: { letter: LetterCard }) {
       </Group>
       {letter.subject !== null && (
         <Text fw={500} mb={4}>
-          {letter.subject}
+          {readable(letter.subject).text}
         </Text>
       )}
       {/* Громкая метка незаданной подписи — тихой пометкой, как на экране писем. */}
       <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
-        {readable(letter.body ?? '').text}
+        {readable(letter.body).text}
       </Text>
-      {letter.uniqueness_pct !== null && (
+      {/* Доля, а не проценты: сервер отдаёт 0–1, как у письма в очереди.
+          Прежде здесь печаталось «0%» у письма с отличием 19%. Коридор —
+          с сервера, слово — то же, что на экране писем. */}
+      {letter.uniqueness !== null && (
         <Text size="xs" c="dimmed" mt="xs">
-          Отличие от шаблона {letter.uniqueness_pct.toFixed(0)}% — цель 15–25%
+          Отличие от шаблона {uniquenessText(letter.uniqueness, corridor)} — коридор{' '}
+          {corridorText(corridor)}
         </Text>
       )}
     </Card>
@@ -199,12 +203,12 @@ function Incoming({ incoming, canReview, busy, onConfirm, onDecline, onTakeLead 
           <Group gap="sm">
             {incoming.price_white !== null && (
               <Badge variant="light" color="green">
-                белая {incoming.price_white} {incoming.currency}
+                белая {formatMoney(incoming.price_white, incoming.currency)}
               </Badge>
             )}
             {incoming.price_grey !== null && (
               <Badge variant="light" color="yellow">
-                серая {incoming.price_grey} {incoming.currency}
+                серая {formatMoney(incoming.price_grey, incoming.currency)}
               </Badge>
             )}
             {(incoming.payment_methods ?? []).map((method) => (
@@ -234,6 +238,11 @@ function Incoming({ incoming, canReview, busy, onConfirm, onDecline, onTakeLead 
 export function ThreadPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  // Откуда пришли: список с фильтром из адреса. «К списку» возвращает туда
+  // же, а не на весь список — иначе фильтр с главной терялся бы на первом
+  // же открытом диалоге.
+  const from = (useLocation().state as { from?: unknown } | null)?.from;
+  const back = `/threads${typeof from === 'string' && from.startsWith('?') ? from : ''}`;
   const { can } = useSession();
   const queryClient = useQueryClient();
   const { data, isLoading, error } = useQuery({
@@ -302,7 +311,7 @@ export function ThreadPage() {
   const timeline = [
     ...data.letters.map((letter) => ({
       at: letter.sent_at ?? '',
-      node: <Letter key={`letter-${letter.id}`} letter={letter} />,
+      node: <Letter key={`letter-${letter.id}`} letter={letter} corridor={data.corridor} />,
     })),
     ...data.incoming.map((incoming) => ({
       at: incoming.received_at,
@@ -349,7 +358,7 @@ export function ThreadPage() {
             variant="subtle"
             className="press"
             leftSection={<IconArrowLeft size={16} />}
-            onClick={() => void navigate('/threads')}
+            onClick={() => void navigate(back)}
           >
             К списку
           </Button>

@@ -7,9 +7,10 @@
  * человек не узнал о препятствии после нажатия.
  */
 
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { notifications } from '@mantine/notifications';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
 import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
@@ -17,6 +18,11 @@ import { renderWith } from '../test/render';
 import type { Call } from '../test/server';
 import { serve } from '../test/server';
 
+/** Адрес запроса из того, что отдали в `fetch`. */
+function urlOf(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input;
+  return input instanceof URL ? input.href : input.url;
+}
 const LETTER = {
   id: 7,
   host: 'digest-weekly.example.test',
@@ -120,6 +126,8 @@ async function openLetters(
   });
   renderWith(<AppRoutes />, '/letters');
   await screen.findByRole('heading', { name: 'Письма' });
+  // Заголовок стоит и до прихода очереди — ждём саму очередь.
+  await screen.findByText('В очереди');
   return recorded;
 }
 
@@ -531,5 +539,201 @@ describe('этапы рассылки', () => {
 
     expect(await screen.findAllByText('brand.example.test')).not.toHaveLength(0);
     expect(recorded.calls.some((call: Call) => call.path === '/api/letters')).toBe(false);
+  });
+});
+
+const UNSIGNED_BODY = 'Good afternoon,\n\nBest regards,\n«ИМЯ ОТПРАВИТЕЛЯ НЕ ЗАДАНО»';
+
+describe('незаданное — тихой пометкой везде', () => {
+  it('в добивке громких меток нет, как и в первом письме', async () => {
+    await openLetters({
+      blocked_by: ['OUTREACH_SENDER_NAME'],
+      letters: [
+        {
+          ...LETTER,
+          body: UNSIGNED_BODY,
+          followups: [{ ...LETTER.followups[0], body: 'Hi again,\n\n«ИМЯ ОТПРАВИТЕЛЯ НЕ ЗАДАНО»' }],
+        },
+      ],
+    });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('tab', { name: 'Добивка 1' }));
+
+    expect(screen.getByText(/Hi again/)).toHaveTextContent('[имя отправителя]');
+    expect(screen.queryByText(/НЕ ЗАДАН/)).not.toBeInTheDocument();
+    expect(screen.getByText(/подставится при подключении почты/)).toBeInTheDocument();
+  });
+
+  it('в правке — пометка, а на сервер уходит громкая метка: по ней отправка откажет', async () => {
+    const recorded = await openLetters(
+      { letters: [{ ...LETTER, body: UNSIGNED_BODY }] },
+      { 'PATCH /api/letters/7': { body: { ...LETTER, body: UNSIGNED_BODY } } },
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Поправить' }));
+    const field = screen.getByLabelText('Текст письма');
+    expect(field).toHaveValue('Good afternoon,\n\nBest regards,\n[имя отправителя]');
+    expect(screen.queryByDisplayValue(/НЕ ЗАДАН/)).not.toBeInTheDocument();
+
+    await user.type(field, '{Control>}{Home}{/Control}Dear editor, ');
+    await user.click(screen.getByRole('button', { name: 'Сохранить' }));
+
+    await screen.findByText(/Сохранено/);
+    const patch = recorded.calls.find((call: Call) => call.method === 'PATCH');
+    expect(patch?.body).toMatchObject({
+      body: 'Dear editor, Good afternoon,\n\nBest regards,\n«ИМЯ ОТПРАВИТЕЛЯ НЕ ЗАДАНО»',
+    });
+  });
+});
+
+describe('отличие вне коридора', () => {
+  const ABOVE = {
+    ...LETTER,
+    id: 9,
+    host: 'edge.example.test',
+    uniqueness: 0.254,
+    verdict: 'отличие 25,4% выше коридора 15–25%: переписано больше, чем просили',
+  };
+
+  it('с десятой, и коридор назван один раз', async () => {
+    await openLetters({ letters: [ABOVE] });
+
+    // Целыми процентами вышло бы «25% выше коридора 15–25%».
+    expect(screen.getByText('отличие 25,4%')).toBeInTheDocument();
+    const alert = screen.getByText('Отличие вне коридора').closest('[role="alert"]')!;
+    expect(alert.textContent?.match(/15–25%/g)).toHaveLength(1);
+  });
+});
+
+describe('смена этапа', () => {
+  it('не убирает верх экрана: прежняя очередь стоит приглушённой, пока не придёт новая', async () => {
+    await openLetters();
+    // Ответ очереди рекламодателей держим, пока не отпустим: так видно,
+    // что стоит на экране в промежутке.
+    const answered = vi.mocked(globalThis.fetch).getMockImplementation()!;
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => {
+      if (urlOf(input).includes('stage=advertisers')) {
+        await gate;
+        return new Response(JSON.stringify(OFFER_VIEW), {
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return answered(input, init);
+    });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('radio', { name: 'Рекламодателям' }));
+
+    expect(screen.getByRole('heading', { name: 'Письма' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Загружаем очередь писем')).not.toBeInTheDocument();
+    const queue = screen.getByText('city-news.example.test').closest('[aria-busy]');
+    expect(queue).toHaveAttribute('data-stale', 'true');
+
+    release();
+
+    expect(await screen.findAllByText('brand.example.test')).not.toHaveLength(0);
+    expect(screen.queryByText('city-news.example.test')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-stale]')).toBeNull();
+  });
+});
+
+describe('выбранное письмо на виду', () => {
+  /** Узкое окно: очередь и письмо — в одну колонку. Заглушку снимает
+   *  `restoreAllMocks` после теста (`test/setup.ts`). */
+  function narrowWindow() {
+    vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({
+      matches: query.includes('max-width: 61.99em'),
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }));
+  }
+
+  it('на узком окне выбор письма прокручивает к нему', async () => {
+    narrowWindow();
+    const scrolled = vi.spyOn(Element.prototype, 'scrollIntoView');
+    await openLetters();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByText('city-news.example.test'));
+
+    await waitFor(() => expect(scrolled).toHaveBeenCalled());
+    const target = scrolled.mock.contexts.at(-1) as HTMLElement;
+    expect(within(target).getByText(/ниже коридора/)).toBeInTheDocument();
+  });
+
+  it('рядом с очередью письмо и так видно — прокрутки нет', async () => {
+    const scrolled = vi.spyOn(Element.prototype, 'scrollIntoView');
+    await openLetters();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByText('city-news.example.test'));
+
+    expect(await screen.findByText(/ниже коридора/)).toBeInTheDocument();
+    expect(scrolled).not.toHaveBeenCalled();
+  });
+
+  it('письмо выбирают и с клавиатуры', async () => {
+    await openLetters();
+    const user = userEvent.setup();
+
+    const row = screen.getByText('city-news.example.test').closest('[role="button"]')!;
+    (row as HTMLElement).focus();
+    await user.keyboard('{Enter}');
+
+    expect(await screen.findByText(/ниже коридора/)).toBeInTheDocument();
+  });
+});
+
+describe('отказ транспорта словами', () => {
+  // Хранилище уведомлений Mantine общее на весь файл, и сверх пяти видимых
+  // новые ждут в очереди: после тестов выше отказ не показался бы вовсе.
+  beforeEach(() => notifications.clean());
+
+  it('имя переменной окружения на экран не попадает', async () => {
+    await openLetters({
+      transport: {
+        name: '—',
+        real: false,
+        problem:
+          'OUTREACH_SENDGRID_API_KEY не задан — боевой транспорт выбран, а ключа платформы нет. ' +
+          'Письма никуда не уйдут',
+      },
+    });
+
+    expect(screen.getByText(/^Ключ почтовой платформы не задан — боевой транспорт/)).toBeVisible();
+    expect(screen.queryByText(/OUTREACH_/)).not.toBeInTheDocument();
+  });
+
+  it('и в отказе отправки тоже', async () => {
+    await openLetters(
+      {},
+      {
+        'POST /api/letters/7/send': {
+          status: 409,
+          body: {
+            detail:
+              'Адрес editor@x.test не в списке разрешённых получателей ' +
+              '(OUTREACH_ALLOWED_RECIPIENTS). Пока список не пуст, боевая отправка идёт только на свои адреса',
+          },
+        },
+      },
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Отправить' }));
+
+    expect(await screen.findByText(/\(список разрешённых получателей\)/)).toBeInTheDocument();
+    expect(screen.queryByText(/OUTREACH_/)).not.toBeInTheDocument();
   });
 });

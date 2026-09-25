@@ -6,8 +6,9 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from backend.api.letters.schemas import Corridor
 from backend.features.core.domain import MessageStatus, ReplyKind, Stage
 from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.outreach.repository import ThreadDetail, ThreadRow
@@ -64,7 +65,12 @@ class LetterCard(BaseModel):
     subject: str | None
     body: str | None
     sent_at: datetime | None
-    uniqueness_pct: float | None
+    #: Доля изменённых слов относительно шаблона, 0–1 — как у письма
+    #: в очереди (`QueuedLetterCard.uniqueness`). Поле базы называется
+    #: `uniqueness_pct`, но хранит долю: карточка отдавала его под этим
+    #: именем, экран поверил имени и печатал «отличие 0%» у письма
+    #: с отличием 19% (25.09.2026). Имя в ответе — по смыслу, не по колонке.
+    uniqueness: float | None
 
     @classmethod
     def of(cls, message: MessageModel) -> LetterCard:
@@ -75,7 +81,7 @@ class LetterCard(BaseModel):
             subject=message.subject,
             body=message.body,
             sent_at=message.sent_at,
-            uniqueness_pct=message.uniqueness_pct,
+            uniqueness=message.uniqueness_pct,
         )
 
 
@@ -147,6 +153,10 @@ class ThreadView(BaseModel):
     card: ThreadCard
     letters: list[LetterCard]
     incoming: list[IncomingCard]
+    #: Коридор отличия — рядом с отличием письма. Отдаёт сервер: на карточке
+    #: стояло вшитое «цель 15–25%», которое разошлось бы с настройкой
+    #: при первой её правке.
+    corridor: Corridor = Field(default_factory=Corridor)
 
     @classmethod
     def of(cls, detail: ThreadDetail) -> ThreadView:

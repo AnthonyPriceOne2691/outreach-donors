@@ -117,3 +117,14 @@ describe('домены рассылки', () => {
     expect(screen.getByText(/«домены рассылки»/)).toBeInTheDocument();
   });
 });
+
+describe('отправлено сегодня', () => {
+  it('полоса — общий `Meter` сервиса, а не серая дорожка Mantine', async () => {
+    await openSenders();
+
+    const bar = screen.getByRole('progressbar', { name: 'Отправлено сегодня 6 из 20' });
+    // Дорожка общей полосы — светлая ступень цвета заполнения, заданная
+    // классом `meter`; у голого `Progress` её нет, и дорожка серая.
+    expect(bar.closest('.meter')).not.toBeNull();
+  });
+});

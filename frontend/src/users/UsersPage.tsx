@@ -178,7 +178,9 @@ export function UsersPage() {
         </Group>
       </Card>
 
-      <Card className="glass" p="xs">
+      {/* Поля карточки с таблицей — вместе с полем ячейки те же 32 px, что
+          у панели сверху: текст соседних карточек начинается с одного места. */}
+      <Card className="glass" p="md">
         <ScrollArea className="scrollSlim" type="auto">
           <Table className="dataTable" verticalSpacing="sm" horizontalSpacing="md" miw={760}>
             <Table.Thead>

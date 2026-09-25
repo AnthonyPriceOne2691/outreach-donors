@@ -110,7 +110,8 @@ export interface LetterCard {
   subject: string | null;
   body: string | null;
   sent_at: string | null;
-  uniqueness_pct: number | null;
+  /** Доля изменённых слов относительно шаблона, 0–1 — как у письма в очереди. */
+  uniqueness: number | null;
 }
 
 export type ReplyKind = 'human' | 'auto_reply' | 'bounce' | 'unsubscribe';
@@ -177,6 +178,8 @@ export interface ThreadView {
   card: ThreadCard;
   letters: LetterCard[];
   incoming: IncomingCard[];
+  /** Коридор отличия — с сервера, как и на экране писем. */
+  corridor: Corridor;
 }
 
 export type DonorStatus = 'suitable' | 'unsuitable' | 'unchecked';
