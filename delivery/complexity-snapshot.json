@@ -992,14 +992,14 @@
       "worst": "—"
     },
     "backend/features/ops/job_outcome.py": {
-      "lines": 167,
+      "lines": 175,
       "complexity": 10,
-      "worst": "_outcome:115"
+      "worst": "_outcome:116"
     },
     "backend/features/ops/overview.py": {
-      "lines": 262,
+      "lines": 266,
       "complexity": 5,
-      "worst": "_letters:212"
+      "worst": "_letters:216"
     },
     "backend/features/ops/silence.py": {
       "lines": 321,
