@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from pydantic import BaseModel, Field
 
 from backend.config import outreach as cfg
@@ -10,7 +12,11 @@ from backend.features.letters import compose, template
 from backend.features.letters.chain import MAX_STEPS, cadence
 from backend.features.letters.draft import Draft, default_draft
 from backend.features.letters.repository import QueuedLetter
+from backend.features.letters.transport import TransportError
+from backend.features.letters.transport_factory import build_transport
 from backend.features.letters.uniqueness import corridor_verdict
+
+logger = logging.getLogger(__name__)
 
 
 class QueuedLetterCard(BaseModel):
@@ -136,6 +142,22 @@ class Transport(BaseModel):
     real: bool
     #: Почему транспорт не собрался, если не собрался.
     problem: str | None = None
+
+    @classmethod
+    def current(cls) -> Transport:
+        """Каким транспортом располагаем — для экрана писем и главной.
+
+        Отказ собрать транспорт — это не поломка экрана, а его содержание:
+        человек должен видеть, что отправлять нечем, и почему.
+        """
+        try:
+            transport = build_transport()
+        except TransportError as exc:
+            # В лог тоже, а не только на экран: человек прочтёт и забудет,
+            # а разбираться, почему рассылка стоит, будут по логам сервера.
+            logger.warning("письма: транспорт не собран — %s", exc)
+            return cls(name="—", real=False, problem=str(exc))
+        return cls(name=transport.name, real=transport.real)
 
 
 class LetterZoneView(BaseModel):

@@ -16,7 +16,6 @@ import {
   Card,
   Group,
   Loader,
-  Progress,
   SimpleGrid,
   Stack,
   Table,
@@ -26,6 +25,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 
 import { operationTitle, USAGE_PROVIDERS } from '../api/labels';
+import { Meter } from '../components/Meter';
 import { Metric } from '../components/Metric';
 import { fetchUsage } from '../api/settings';
 import { formatDate, formatNumber, formatUsd } from '../format';
@@ -100,15 +100,10 @@ export function UsagePage() {
                 </Text>
               )}
             </Group>
-            <Progress
-              value={
-                data.ahrefs_cap === 0
-                  ? 0
-                  : Math.min(100, (data.ahrefs_spent_by_us / data.ahrefs_cap) * 100)
-              }
-              color="lagoon"
-              radius="xl"
-              size="sm"
+            <Meter
+              spent={data.ahrefs_spent_by_us}
+              cap={data.ahrefs_cap}
+              label="Юниты Ahrefs с начала месяца"
             />
           </Stack>
 

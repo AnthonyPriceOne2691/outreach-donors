@@ -1,7 +1,7 @@
 import { screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { JobCard } from '../api/types';
-import { TOKEN_KEY } from '../test/fixtures';
+import { ADMIN, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import { JobLine, jobSentence } from './JobLine';
@@ -48,7 +48,7 @@ describe('исход задачи', () => {
 
   it('строка сама спрашивает задачу и один раз говорит, что та кончилась', async () => {
     localStorage.setItem(TOKEN_KEY, 'пропуск');
-    serve({ 'GET /api/jobs/job-7': { body: BASE } });
+    serve({ 'GET /api/auth/me': { body: ADMIN }, 'GET /api/jobs/job-7': { body: BASE } });
     const finished = vi.fn();
 
     renderWith(<JobLine jobId="job-7" onFinished={finished} />);

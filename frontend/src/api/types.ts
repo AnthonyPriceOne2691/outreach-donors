@@ -549,6 +549,59 @@ export interface WatchdogView {
   alarms: AlarmCard[];
 }
 
+/** Доноры по ходу работы — независимые числа, а не воронка: адреса у части
+ *  доноров искали раньше, чем появилось решение человека. */
+export interface OverviewDonors {
+  total: number;
+  /** Не проверены метриками — не отсеяны, их добирают позже. */
+  unchecked: number;
+  suitable: number;
+  accepted: number;
+  rejected: number;
+  with_email: number;
+  form_only: number;
+  /** Скольким донорам ушло хотя бы одно письмо. */
+  written: number;
+  /** Сколько ответили человеком, а не автоответчиком. */
+  replied: number;
+  priced: number;
+  /** Цена не старше срока годности. */
+  priced_fresh: number;
+}
+
+/** Что без человека не сдвинется. */
+export interface OverviewWaiting {
+  /** Доменов ждут решения в очередях прогонов — каждый один раз. */
+  review: number;
+  /** Прогоны с ожидающими, новые первыми. */
+  review_runs: number[];
+  prices: number;
+  leads: number;
+  forms: number;
+  advertisers: number;
+}
+
+export interface OverviewLetters {
+  queued: number;
+  /** Ушло всего, вместе с отказами доставки. */
+  sent: number;
+  delivered: number;
+  bounced: number;
+}
+
+export interface OverviewView {
+  donors: OverviewDonors;
+  waiting: OverviewWaiting;
+  letters: Record<LetterStage, OverviewLetters>;
+  /** Последний прогон — той же карточкой, что строка истории прогонов. */
+  last_run: RunCard | null;
+  /** Юниты Ahrefs, потраченные нами с начала месяца, — по своей таблице. */
+  ahrefs_units: number;
+  ahrefs_cap: number;
+  serp_usd: string;
+  transport: LetterTransport;
+}
+
 /** Состояние поиска контактов: сколько ждёт, идёт ли сейчас, чем кончился прошлый. */
 export interface ContactsState {
   pending: number;

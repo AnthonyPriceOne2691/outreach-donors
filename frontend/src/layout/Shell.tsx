@@ -13,12 +13,14 @@
 import { AppShell, Badge, Burger, Button, Group, NavLink, Stack, Text, Title } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { IconLogout } from '@tabler/icons-react';
+import { useMemo } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 import { SERVICE_NAME } from '../brand';
 import { ROLE_TITLES } from '../api/labels';
 import type { Permission } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
+import { navbarWidth } from './navWidth';
 import { ThemeToggle } from './ThemeToggle';
 
 interface Section {
@@ -48,6 +50,11 @@ export function Shell() {
   const navigate = useNavigate();
   const location = useLocation();
   const [opened, { toggle }] = useDisclosure();
+  const sections = SECTIONS.filter(
+    (section) => section.permission === undefined || can(section.permission),
+  );
+  const titles = sections.map((section) => section.title).join('\n');
+  const navWidth = useMemo(() => navbarWidth(titles.split('\n')), [titles]);
 
   const leave = () => {
     signOut();
@@ -57,7 +64,7 @@ export function Shell() {
   return (
     <AppShell
       header={{ height: 68 }}
-      navbar={{ width: 232, breakpoint: 'sm', collapsed: { mobile: !opened } }}
+      navbar={{ width: navWidth, breakpoint: 'sm', collapsed: { mobile: !opened } }}
       padding="lg"
       styles={{
         // Рама прозрачна: полотно живёт на `body` и должно просвечивать
@@ -108,9 +115,7 @@ export function Shell() {
       <AppShell.Navbar p="sm">
         <Stack h="100%" justify="space-between" className="glassFrame" p="xs" gap="xs">
           <Stack gap={4}>
-            {SECTIONS.filter(
-              (section) => section.permission === undefined || can(section.permission),
-            ).map((section) => (
+            {sections.map((section) => (
               <NavLink
                 key={section.path}
                 label={section.title}

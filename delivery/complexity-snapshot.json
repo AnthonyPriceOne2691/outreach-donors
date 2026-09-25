@@ -27,9 +27,9 @@
       "worst": "of:37"
     },
     "backend/api/app.py": {
-      "lines": 84,
+      "lines": 86,
       "complexity": 1,
-      "worst": "create_app:41"
+      "worst": "create_app:42"
     },
     "backend/api/auth/__init__.py": {
       "lines": 1,
@@ -152,19 +152,34 @@
       "worst": "—"
     },
     "backend/api/letters/routes.py": {
-      "lines": 240,
+      "lines": 219,
       "complexity": 5,
-      "worst": "build:100"
+      "worst": "build:79"
     },
     "backend/api/letters/schemas.py": {
-      "lines": 241,
+      "lines": 263,
       "complexity": 5,
-      "worst": "followups_for:81"
+      "worst": "followups_for:87"
     },
     "backend/api/main.py": {
       "lines": 13,
       "complexity": 0,
       "worst": "—"
+    },
+    "backend/api/overview/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/api/overview/routes.py": {
+      "lines": 32,
+      "complexity": 1,
+      "worst": "summary:27"
+    },
+    "backend/api/overview/schemas.py": {
+      "lines": 112,
+      "complexity": 3,
+      "worst": "of:101"
     },
     "backend/api/replies/__init__.py": {
       "lines": 1,
@@ -981,6 +996,11 @@
       "complexity": 10,
       "worst": "_outcome:115"
     },
+    "backend/features/ops/overview.py": {
+      "lines": 262,
+      "complexity": 5,
+      "worst": "_letters:212"
+    },
     "backend/features/ops/silence.py": {
       "lines": 321,
       "complexity": 7,
@@ -992,7 +1012,7 @@
       "worst": "—"
     },
     "backend/features/outreach/repository.py": {
-      "lines": 212,
+      "lines": 213,
       "complexity": 4,
       "worst": "sent_today:80"
     },
@@ -1322,14 +1342,14 @@
       "worst": "_select:46"
     },
     "scripts/ui_contrast.py": {
-      "lines": 261,
+      "lines": 269,
       "complexity": 9,
-      "worst": "main:209"
+      "worst": "main:217"
     },
     "scripts/ui_screens.py": {
-      "lines": 339,
+      "lines": 361,
       "complexity": 2,
-      "worst": "show_decided:301"
+      "worst": "show_decided:323"
     }
   }
 }

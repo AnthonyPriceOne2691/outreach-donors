@@ -6,6 +6,7 @@ import {
   Notification,
   SegmentedControl,
   Switch,
+  Text,
   createTheme,
   Modal,
   NumberInput,
@@ -56,6 +57,12 @@ const glassField = {
   },
 } as const;
 
+/** Шрифтовой ряд сервиса. Вынесен из темы, потому что по нему же холст
+ *  меряет подписи меню (`layout/navWidth.ts`): второй экземпляр строки
+ *  разошёлся бы с первым на первой правке. */
+export const FONT_STACK =
+  'ui-sans-serif, -apple-system, "SF Pro Text", Inter, "Segoe UI", system-ui, sans-serif';
+
 export const theme = createTheme({
   primaryColor: 'lagoon',
   /* Ступень заливки глубже рабочей: на рабочей белый текст даёт 2,7 : 1
@@ -71,8 +78,7 @@ export const theme = createTheme({
   defaultGradient: { from: 'lagoon.7', to: 'lagoon.9', deg: 135 },
   colors: { lagoon },
   defaultRadius: 'lg',
-  fontFamily:
-    'ui-sans-serif, -apple-system, "SF Pro Text", Inter, "Segoe UI", system-ui, sans-serif',
+  fontFamily: FONT_STACK,
   headings: { fontWeight: '650' },
   radius: {
     xs: rem(8),
@@ -92,6 +98,24 @@ export const theme = createTheme({
     Badge: Badge.extend({ defaultProps: { radius: 'xl', tt: 'none' } }),
     Card: Card.extend({ defaultProps: { radius: 'xl', withBorder: false } }),
     Paper: Paper.extend({ defaultProps: { radius: 'xl' } }),
+    // Цвет `Text` у Mantine — `color: var(--text-color)` без запасного
+    // значения, и переменную компонент ставит себе только при пропсе
+    // `color`. Без пропса она не определена, и цвет наследуется — но только
+    // пока её не определил кто-то выше: переменная сама наследуется. Имя
+    // ходовое, расширения браузера ставят его на всю страницу, и 25.09.2026
+    // у Anthony в тёмной теме почернели «Вошли как», номера прогонов и
+    // вердикты судьи — ровно `#000` по пикселям снимка, не наши чернила.
+    //
+    // `currentColor` в свойстве `color` означает «как у родителя» — то же
+    // наследование, только объявленное самим компонентом, и чужое значение
+    // до него не доходит. Цвет из пропса Mantine кладёт позже темы, щит его
+    // не перекрывает; `c` пишется свойством `color` напрямую и не зависит
+    // от переменной вовсе.
+    Text: Text.extend({
+      styles: (_theme, props) => ({
+        root: props.color ? {} : { '--text-color': 'currentColor' },
+      }),
+    }),
     TextInput: TextInput.extend({ defaultProps: { radius: 'xl' }, styles: glassField }),
     PasswordInput: PasswordInput.extend({ defaultProps: { radius: 'xl' }, styles: glassField }),
     NumberInput: NumberInput.extend({ defaultProps: { radius: 'xl' }, styles: glassField }),

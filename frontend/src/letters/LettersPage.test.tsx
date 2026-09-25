@@ -80,6 +80,19 @@ const RUN_WITH_ACCEPTED = {
   queue: { pending: 380, accepted: 14 },
 };
 
+/** Задача сборки, как её отдаёт сервер сразу после постановки. */
+const BUILD_JOB = {
+  job_id: 'j',
+  kind: 'сборка писем',
+  state: 'queued',
+  title: 'в очереди',
+  error: null,
+  report: null,
+  retries_left: 3,
+  next_try_at: null,
+  ended_at: null,
+};
+
 const VIEW = {
   letters: [LETTER, OFF_CORRIDOR],
   followup_default: [7, 14],
@@ -100,6 +113,8 @@ async function openLetters(
     'GET /api/auth/me': { body: who },
     'GET /api/letters': { body: { ...VIEW, ...view } },
     'GET /api/runs': { body: { runs: [RUN_WITH_ACCEPTED], workers: 1 } },
+    // После «Собрать очередь» строка задачи сама спрашивает её исход.
+    'GET /api/jobs/j': { body: BUILD_JOB },
     ...(routes as Record<string, never>),
   });
   renderWith(<AppRoutes />, '/letters');

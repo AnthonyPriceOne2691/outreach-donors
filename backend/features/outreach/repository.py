@@ -115,7 +115,8 @@ class OutreachRepository:
 
     # --- диалоги ---
 
-    async def threads(self, *, limit: int = 200) -> list[ThreadRow]:
+    async def threads(self, *, limit: int | None = 200) -> list[ThreadRow]:
+        """Диалоги, новые первыми. `None` — все: так их считает главная."""
         rows = await self._session.execute(
             select(
                 ThreadModel,

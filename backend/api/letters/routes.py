@@ -20,8 +20,6 @@
 
 from __future__ import annotations
 
-import logging
-
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,32 +44,13 @@ from backend.features.letters.building import run_scope
 from backend.features.letters.repository import LetterRepository, QueuedLetter
 from backend.features.letters.sending import Sending
 from backend.features.letters.template import Template, of_campaign
-from backend.features.letters.transport import TransportError
 from backend.features.letters.transport_factory import build_transport
 from backend.shared.queue import BUILD_JOB, runs_queue, with_retries
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/letters", tags=["письма"])
 
 _viewer = Depends(needs(Permission.VIEW))
 _sender = Depends(needs(Permission.SEND))
-
-
-def _transport_card() -> Transport:
-    """Каким транспортом располагаем.
-
-    Отказ собрать транспорт — это не поломка экрана, а его содержание:
-    человек должен видеть, что отправлять нечем, и почему.
-    """
-    try:
-        transport = build_transport()
-    except TransportError as exc:
-        # В лог тоже, а не только на экран: человек прочтёт и забудет,
-        # а разбираться, почему рассылка стоит, будут по логам сервера.
-        logger.warning("письма: транспорт не собран — %s", exc)
-        return Transport(name="—", real=False, problem=str(exc))
-    return Transport(name=transport.name, real=transport.real)
 
 
 #: Этап словами — для журнала действий.
@@ -90,7 +69,7 @@ async def queue(
         letters=[QueuedLetterCard.of(row) for row in await repository.queued(stage=stage)],
         letter_default=LetterDraftView.of(draft.default_draft(stage)),
         blocked_by=compose.missing_settings(),
-        transport=_transport_card(),
+        transport=Transport.current(),
         corridor=Corridor(),
         funnel=(await repository.funnel(stage)).as_report(),
     )

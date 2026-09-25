@@ -129,6 +129,14 @@ def probe_notification(page, scheme, email):
     Меряется пояснение, а не заголовок: заголовок сообщает факт отказа,
     а что делать — написано именно в пояснении.
     """
+    # Тема ставится здесь же. Раньше проба мерила уведомление в той теме,
+    # в какой экран оставил предыдущий замер, то есть «светлое» уведомление
+    # мерилось в тёмной теме; а уведомление первого вызова ещё висело, когда
+    # всплывало второе, и проба по тексту находила два (25.09.2026).
+    # Перезагрузка решает оба: тема своя, прежних уведомлений нет.
+    page.evaluate("s => localStorage.setItem('mantine-color-scheme-value', s)", scheme)
+    page.reload()
+    page.wait_for_timeout(900)
     row = page.locator("tr", has_text=email)
     row.get_by_label(f"Учётка {email} включена").click(force=True)
     expect(page.get_by_text("самого себя")).to_be_visible()
@@ -138,10 +146,10 @@ def probe_notification(page, scheme, email):
     body = page.get_by_text("Нельзя снять права с самого себя").first
     value = contrast(shot, body.bounding_box())
     if value is None:
-        print(f"  {'текст уведомления об отказе':28} НЕ ИЗМЕРЕНО: в куске одна краска")
+        print(f"  {'уведомление об отказе, ' + scheme:28} НЕ ИЗМЕРЕНО: в куске одна краска")
         return False
     mark = "ок" if value >= NORM else "МАЛО"
-    print(f"  {'текст уведомления об отказе':28} {value:5.2f} : 1  при норме {NORM}  {mark}")
+    print(f"  {'уведомление об отказе, ' + scheme:28} {value:5.2f} : 1  при норме {NORM}  {mark}")
     return value >= NORM
 
 

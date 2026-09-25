@@ -12,7 +12,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
-import { ADMIN, OPERATOR, signedIn } from '../test/fixtures';
+import { ADMIN, HOME_ROUTES, OPERATOR, signedIn } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 
@@ -31,6 +31,7 @@ describe('смена сотрудника в одной вкладке', () => {
       }),
       'GET /api/auth/me': { body: OPERATOR },
       'GET /api/users': { body: [] },
+      ...HOME_ROUTES,
     });
     renderWith(<AppRoutes />, '/login');
 
@@ -55,6 +56,7 @@ describe('пропуск отозвали на стороне сервера', (
     serve({
       'POST /api/auth/login': { body: signedIn(ADMIN) },
       'GET /api/users': { status: 401, body: { detail: 'Пропуск просрочен — войдите заново' } },
+      ...HOME_ROUTES,
     });
     renderWith(<AppRoutes />, '/login');
 
