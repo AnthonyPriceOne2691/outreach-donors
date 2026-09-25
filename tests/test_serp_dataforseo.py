@@ -53,10 +53,13 @@ class Provider:
         results: dict[str, list[dict[str, Any]]] | None = None,
         refuse: set[str] | None = None,
         queue_rounds: int = 0,
+        ready: set[str] | None = None,
     ) -> None:
         self.results = results or {}
         self.refuse = refuse or set()
         self.queue_rounds = queue_rounds
+        #: Ключи, задачи по которым готовы сразу, сколько бы ни ждали остальные.
+        self.ready = ready or set()
         self.posts = 0
         self.gets: list[str] = []
         self._ids: dict[str, str] = {}
@@ -79,7 +82,8 @@ class Provider:
         self.gets.append(task_id)
         keyword = self._ids.get(task_id, "")
 
-        if self.queue_rounds and self.gets.count(task_id) <= self.queue_rounds:
+        waiting = keyword not in self.ready and self.gets.count(task_id) <= self.queue_rounds
+        if self.queue_rounds and waiting:
             return httpx.Response(
                 200,
                 json={"status_code": 20000, "tasks": [{"status_code": 40602, "result": None}]},
@@ -230,17 +234,41 @@ class TestWaiting:
         assert [r.url for r in out["к"]] == ["https://a.com/"]
         assert len(site.gets) == 3  # два раза «в очереди», третий — готово
 
-    async def test_never_ready_leaves_keyword_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Не дождались — ключ остаётся пустым, но это видно в логе,
-        а не выглядит как «ничего не нашлось»."""
+    async def test_never_ready_keyword_is_absent_not_empty(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Не дождались — ключа нет в ответе. Пустой список по протоколу значит
+        «ничего не нашлось», и до 25.09.2026 недождавшийся ключ выглядел так же:
+        выдача оплачена, а в отчёте — неудачный ключ."""
         monkeypatch.setattr("backend.features.serp.dataforseo.cfg.POLL_INTERVAL_S", 0)
         monkeypatch.setattr("backend.features.serp.dataforseo.cfg.POLL_ATTEMPTS", 2)
-        site = Provider(results={"к": [_organic(1, "https://a.com/")]}, queue_rounds=99)
+        site = Provider(
+            results={"к": [_organic(1, "https://a.com/")], "м": []},
+            queue_rounds=99,
+            ready={"м"},
+        )
 
-        out = await _provider(site).search(["к"], "us")
+        out = await _provider(site).search(["к", "м"], "us")
 
-        assert out["к"] == []
-        assert len(site.gets) == 2
+        assert "к" not in out
+        assert out["м"] == []
+
+    async def test_deeper_serp_is_waited_for_longer(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Сто результатов провайдер собирает десятью страницами, и задача
+        идёт дольше: окно ожидания растёт с глубиной. Задача, готовая на пятом
+        опросе, у топ-10 с окном в два опроса потерялась бы, а у топ-30 —
+        дождана."""
+        monkeypatch.setattr("backend.features.serp.dataforseo.cfg.POLL_INTERVAL_S", 0)
+        monkeypatch.setattr("backend.features.serp.dataforseo.cfg.POLL_ATTEMPTS", 2)
+
+        shallow = Provider(results={"к": [_organic(1, "https://a.com/")]}, queue_rounds=4)
+        assert "к" not in await _provider(shallow).search(["к"], "us", depth_pages=1)
+        assert len(shallow.gets) == 2
+
+        deep = Provider(results={"к": [_organic(1, "https://a.com/")]}, queue_rounds=4)
+        out = await _provider(deep).search(["к"], "us", depth_pages=3)
+        assert [r.url for r in out["к"]] == ["https://a.com/"]
+        assert len(deep.gets) == 5
 
 
 class TestCountries:

@@ -486,6 +486,24 @@ describe('прогон', () => {
       'модель, запрос (чинить): LLM_API_KEY не задан',
     );
   });
+
+  it('ключи, выдачу по которым провайдер не отдал, — меткой, а не «ничего не нашлось»', async () => {
+    // Выдача оплачена, а не пришла: провайдер не успел. Без метки прогон
+    // выглядел прогоном по неудачным ключам.
+    const short = {
+      ...STOPPED,
+      id: 30,
+      status: 'done',
+      keywords: 10,
+      stats: { keywords_lost: ['ключ один', 'ключ два'], keywords_without_results: ['пусто'] },
+      reason: null,
+    };
+    await openRun({ 'GET /api/runs?page=1': history([short, QUEUED]) });
+
+    expect(await screen.findByText('без выдачи: 2 из 10')).toBeInTheDocument();
+    // У прогона без потерь метки нет.
+    expect(screen.getAllByText(/без выдачи/)).toHaveLength(1);
+  });
 });
 
 describe('история прогонов по страницам', () => {

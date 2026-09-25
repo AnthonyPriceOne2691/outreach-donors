@@ -32,7 +32,9 @@ class _Serp(DomainSettings):
         default=0.0006, validation_alias="SERP_PRICE_PER_KEYWORD_USD"
     )
     # Отложенный режим: задача ставится, результат забирается опросом.
-    # Пауза и число попыток дают потолок ожидания на пачку.
+    # Пауза и число попыток дают потолок ожидания на пачку. Попытки — на
+    # каждую страницу глубины: сто результатов провайдер собирает десятью
+    # страницами, и окно топ-10 для них не годится (25.09.2026).
     poll_interval_s: float = Field(default=5.0, validation_alias="SERP_POLL_INTERVAL_S")
     poll_attempts: int = Field(default=24, validation_alias="SERP_POLL_ATTEMPTS")
 

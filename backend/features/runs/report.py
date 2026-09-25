@@ -129,6 +129,9 @@ def run_stats(
         "duplicates_collapsed": candidates.duplicates,
         "urls_unparsed": candidates.dropped,
         "keywords_without_results": candidates.empty_keywords,
+        # Выдача оплачена, а не пришла: провайдер не успел. Отдельно от «ничего
+        # не нашлось» — экран истории показывает их меткой в строке прогона.
+        "keywords_lost": candidates.lost_keywords,
         "already_fresh": len(report.plan.fresh),
         "excluded": len(report.plan.excluded),
         "excluded_by_reason": report.plan.excluded_by_reason,

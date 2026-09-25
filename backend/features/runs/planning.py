@@ -125,6 +125,14 @@ class Candidates:
     страница и статья одного и того же сайта дают разные вердикты, и
     ошибается именно заглавная."""
 
+    lost_keywords: list[str] = field(default_factory=list)
+    """Ключи, выдачу по которым провайдер не отдал: заплачено, а не пришло.
+
+    Не то же, что `empty_keywords` («по ключу ничего не нашлось»): до
+    25.09.2026 недождавшийся ключ попадал туда же, и прогон, у которого
+    провайдер не успел отдать треть выдачи, выглядел прогоном по неудачным
+    ключам. Экран истории показывает их отдельной меткой."""
+
     found_by: dict[str, list[str]] = field(default_factory=dict)
     """По каким ключам нашёлся каждый домен, в порядке выдачи.
 
@@ -148,6 +156,7 @@ class Candidates:
             "keywords": self.keywords,
             "results": self.results,
             "empty_keywords": list(self.empty_keywords),
+            "lost_keywords": list(self.lost_keywords),
             "dropped": self.dropped,
             # Цена сохраняется ради отчёта, а не ради повторной записи:
             # `restored()` намеренно возвращает ноль.
@@ -171,6 +180,7 @@ class Candidates:
             keywords=int(payload["keywords"]),
             results=int(payload["results"]),
             empty_keywords=list(payload.get("empty_keywords", ())),
+            lost_keywords=list(payload.get("lost_keywords", ())),
             dropped=int(payload.get("dropped", 0)),
             texts={
                 host: SerpText.restored(value)
@@ -273,11 +283,22 @@ async def gather_candidates(
         keywords=len(answer),
         results=results,
         empty_keywords=empty,
+        lost_keywords=_lost(keywords, answer),
         dropped=dropped,
         cost_usd=cost,
         texts=texts,
         found_by=found_by,
     )
+
+
+def _lost(keywords: Sequence[str], answer: dict[str, Any]) -> list[str]:
+    """Запрошенные ключи, которых нет в ответе источника.
+
+    Источник чистит ключ от пробелов по краям, поэтому сверка — и сырым
+    ключом, и чистым: иначе « ключ» числился бы потерянным при полной выдаче.
+    """
+    requested = dict.fromkeys(key for key in keywords if key.strip())
+    return [key for key in requested if key not in answer and key.strip() not in answer]
 
 
 async def plan_run(

@@ -266,9 +266,20 @@ class DataForSeoProvider:
     async def _collect(
         self, tasks: dict[str, str], out: dict[str, list[SerpResult]], wanted: int
     ) -> None:
-        """Забрать готовое. Не дождались — это видно, а не тихий ноль."""
+        """Забрать готовое. Не дождались — это видно, а не тихий ноль.
+
+        **Окно ожидания растёт с глубиной.** Сто результатов провайдер
+        собирает десятью страницами, и задача глубины 10 идёт дольше задачи
+        топ-10; окно, рассчитанное на топ-10, отрезало бы оплаченную выдачу.
+
+        **Не дождались — ключа нет в ответе.** Раньше он оставался пустым
+        списком и в отчёте прогона выглядел как «ничего не нашлось», хотя
+        выдача оплачена и просто не пришла. По протоколу источника пустой
+        список — «ничего не нашлось», отсутствие — «потерялся по дороге»:
+        прогон считает такие ключи отдельно (`Candidates.lost_keywords`).
+        """
         pending = dict(tasks)
-        deadline = cfg.POLL_ATTEMPTS
+        deadline = cfg.POLL_ATTEMPTS * max(1, wanted // RESULTS_PER_PAGE)
 
         for attempt in range(deadline):
             if not pending:
@@ -290,6 +301,8 @@ class DataForSeoProvider:
                 deadline * cfg.POLL_INTERVAL_S,
                 list(pending)[:5],
             )
+            for keyword in pending:
+                out.pop(keyword, None)
 
     async def _fetch(self, task_id: str) -> list[Any] | None:
         """Результат задачи. `None` — ещё не готово."""
