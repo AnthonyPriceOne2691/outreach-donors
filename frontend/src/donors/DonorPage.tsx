@@ -1,6 +1,6 @@
 /**
  * Карточка донора: метрики, срок годности, адреса и ступень, которая
- * их дала.
+ * их дала, — и поиск адреса, если его нет (`DonorAddresses`).
  *
  * **Срок годности показан датой, а не словом «свежие».** За данные
  * в сроке уже заплачено, и повторный прогон их не трогает — человек,
@@ -9,6 +9,9 @@
  * **Ступень рядом с адресом** нужна по той же причине: адрес со страницы
  * сайта и адрес из платного сервиса стоили разного, и решение «добирать
  * ли платным» принимают, глядя на это.
+ *
+ * **«К списку» возвращает туда, откуда пришли** — на ту же страницу с теми
+ * же фильтрами: список держит их в адресе и передаёт его сюда.
  */
 
 import {
@@ -20,28 +23,35 @@ import {
   Loader,
   SimpleGrid,
   Stack,
-  Table,
   Text,
   Title,
 } from '@mantine/core';
 import { IconArrowLeft } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
-import { CONTACT_SOURCES, CONTACT_STATUSES, countryTitle, DONOR_STATUSES } from '../api/labels';
-import { formatDate, formatNumber } from '../format';
+import { refusalOf } from '../api/client';
+import { countryTitle, DONOR_STATUSES } from '../api/labels';
+import { formatDate, formatNumber, formatShare } from '../format';
 import { Metric } from '../components/Metric';
 import { fetchDonor } from '../api/runs';
-
-function refusalOf(error: unknown): string {
-  return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
-}
+import { DonorAddresses } from './DonorAddresses';
 
 const when = formatDate;
+
+/** Адрес списка, из которого пришли: строка параметров с фильтрами и
+ *  страницей. Пришли не из списка — просто список. */
+function backTo(state: unknown): string {
+  if (state && typeof state === 'object' && 'from' in state && typeof state.from === 'string') {
+    return state.from.startsWith('?') ? state.from : '';
+  }
+  return '';
+}
 
 export function DonorPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { data, isLoading, error } = useQuery({
     queryKey: ['donor', id],
     queryFn: () => fetchDonor(Number(id)),
@@ -65,14 +75,11 @@ export function DonorPage() {
           <Stack gap={6}>
             <Group gap="sm">
               <Title order={3}>{data.host}</Title>
+              {/* Исход поиска адреса — в разделе «Адреса», а не здесь:
+                  один и тот же значок дважды читается как сбой. */}
               <Badge variant="light" color={DONOR_STATUSES[data.status].color}>
                 {DONOR_STATUSES[data.status].title}
               </Badge>
-              {data.contact_status !== null && (
-                <Badge variant="light" color={CONTACT_STATUSES[data.contact_status].color}>
-                  {CONTACT_STATUSES[data.contact_status].title}
-                </Badge>
-              )}
             </Group>
             {data.reject_reason !== null && (
               <Text size="sm" c="dimmed">
@@ -84,7 +91,7 @@ export function DonorPage() {
             variant="subtle"
             className="press"
             leftSection={<IconArrowLeft size={16} />}
-            onClick={() => void navigate('/donors')}
+            onClick={() => void navigate(`/donors${backTo(location.state)}`)}
           >
             К списку
           </Button>
@@ -100,7 +107,7 @@ export function DonorPage() {
           hint={
             data.geo_top_share === null
               ? undefined
-              : `доля рынка ${(data.geo_top_share * 100).toFixed(0)}%`
+              : `доля рынка ${formatShare(data.geo_top_share)}`
           }
         />
         <Metric
@@ -127,51 +134,14 @@ export function DonorPage() {
           <Group gap="xs">
             {data.geo_breakdown.map((row) => (
               <Badge key={row.country} variant="light">
-                {countryTitle(row.country)} · {(row.share * 100).toFixed(0)}%
+                {countryTitle(row.country)} · {formatShare(row.share)}
               </Badge>
             ))}
           </Group>
         </Card>
       )}
 
-      <Card className="glass" p="xs">
-        <Table className="dataTable" verticalSpacing="sm" horizontalSpacing="md">
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>Адрес</Table.Th>
-              <Table.Th>Откуда</Table.Th>
-              <Table.Th>Писали</Table.Th>
-              <Table.Th>Отвечали</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {data.contacts.map((contact) => (
-              <Table.Tr key={contact.id}>
-                <Table.Td>{contact.email}</Table.Td>
-                <Table.Td>{CONTACT_SOURCES[contact.source]}</Table.Td>
-                <Table.Td>{when(contact.last_contacted_at)}</Table.Td>
-                <Table.Td>
-                  {/* Отвечающий адрес важнее найденного: дальше пишем тому,
-                      кто отвечает, а не в ящик, где письмо пролежало неделю. */}
-                  {contact.last_replied_at === null ? (
-                    '—'
-                  ) : (
-                    <Badge variant="light" color="green">
-                      {when(contact.last_replied_at)}
-                    </Badge>
-                  )}
-                </Table.Td>
-              </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
-        {data.contacts.length === 0 && (
-          <Text size="sm" c="dimmed" p="lg">
-            Адресов нет. Это не тупик: лестница контактов идёт от бесплатных ступеней к платной, и
-            домен может закрыться на следующем заходе.
-          </Text>
-        )}
-      </Card>
+      <DonorAddresses donor={data} />
 
       {data.last_price !== null && (
         <Card className="glass" p="lg">

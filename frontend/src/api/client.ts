@@ -106,14 +106,19 @@ async function raise(response: Response): Promise<never> {
   throw new ApiError(response.status, detail);
 }
 
+/** Пропуск заголовком. Одно место на все запросы: выгрузка файлом когда-то
+ *  шла простой ссылкой, без него, и сервер отвечал ей 401. */
+function withPass(headers: Record<string, string>): Record<string, string> {
+  const token = readToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  return headers;
+}
+
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, anonymous = false } = options;
   const headers: Record<string, string> = {};
   if (body !== undefined) headers['content-type'] = 'application/json';
-  if (!anonymous) {
-    const token = readToken();
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-  }
+  if (!anonymous) withPass(headers);
 
   const response = await fetch(`/api${path}`, {
     method,
@@ -124,4 +129,31 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   if (!response.ok) await raise(response);
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
+}
+
+/** Файл с сервера: тело и имя, которое сервер для него назвал. */
+export interface Downloaded {
+  blob: Blob;
+  filename: string | null;
+}
+
+function filenameOf(response: Response): string | null {
+  const header = response.headers.get('Content-Disposition') ?? '';
+  const found = /filename="?([^";]+)"?/i.exec(header);
+  return found?.[1] ?? null;
+}
+
+/**
+ * Скачать файл тем же путём, что и остальные запросы: с пропуском и с тем же
+ * разбором отказа.
+ *
+ * Простая ссылка на `/api/...` пропуска не несёт — заголовок ей не задать, —
+ * и выгрузка доноров так и получала 401 вместо файла, а тест смотрел только
+ * на адрес ссылки. Отказ здесь — то же исключение, что у `request`, с текстом
+ * сервера.
+ */
+export async function download(path: string): Promise<Downloaded> {
+  const response = await fetch(`/api${path}`, { headers: withPass({}) });
+  if (!response.ok) await raise(response);
+  return { blob: await response.blob(), filename: filenameOf(response) };
 }
