@@ -26,6 +26,10 @@
  * ответ на вопрос «почему ему полгода не писали» — а его сюда и приходят
  * задавать. Она помечена и вынесена числом в шапку: список из одних
  * истёкших записей не то же самое, что пустой.
+ *
+ * **Таблица — с шириной колонок по самому длинному и прокруткой на узком
+ * окне**: на телефоне в карточке без прокрутки значок причины ужимался до
+ * «отписа…», а колонки правее не было видно вовсе (аудит 25.09.2026).
  */
 
 import {
@@ -80,6 +84,21 @@ function endOf(term: Term): string | null {
 }
 
 const when = formatDate;
+
+/** Колонки слева направо. Ширина первой — остаток: в ней домен или адрес.
+ *  Остальные — по самому длинному, замеренному шрифтом экрана 25.09.2026:
+ *  значок «пожаловался» — 102 px, дата — 75, значок «истёк 25.09.2026» —
+ *  128, кнопка «Снять» — 60. Автор записи — адрес учётки, он переносится.
+ *  Плюс 32 px полей ячейки и запас. */
+const COLUMNS: { title: string; width?: string }[] = [
+  { title: 'Кому не пишем' },
+  { title: 'Причина', width: '9rem' },
+  { title: 'Кто завёл', width: '12rem' },
+  { title: 'Когда', width: '7.5rem' },
+  { title: 'Срок', width: '10.5rem' },
+];
+const ACTIONS_WIDTH = '6rem';
+const TABLE_MIN_WIDTH = 920;
 
 export function SuppressionsPage() {
   const { can } = useSession();
@@ -204,63 +223,81 @@ export function SuppressionsPage() {
         </Card>
       ) : null}
 
-      <Card className="glassPanel" p="xl">
+      {/* Поля карточки с таблицей — вместе с полем ячейки те же 32 px, что
+          у панелей выше: текст соседних карточек начинается с одного места. */}
+      <Card className="glassPanel" p={rows.length === 0 ? 'xl' : 'md'}>
         {rows.length === 0 ? (
           <Text size="sm" c="dimmed">
             Список пуст. Сюда попадают те, кто отписался или пожаловался, и те, кого внесли руками.
           </Text>
         ) : (
-          <Table className="dataTable" verticalSpacing="sm" horizontalSpacing="md" miw={760}>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Кому не пишем</Table.Th>
-                <Table.Th>Причина</Table.Th>
-                <Table.Th>Кто завёл</Table.Th>
-                <Table.Th>Когда</Table.Th>
-                <Table.Th>Срок</Table.Th>
-                {mayChange ? <Table.Th /> : null}
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {rows.map((row) => (
-                <Table.Tr key={row.id}>
-                  <Table.Td>{row.host ?? row.email}</Table.Td>
-                  <Table.Td>
-                    <Badge color={row.donor_decision ? 'red' : 'gray'} variant="light">
-                      {SUPPRESSION_REASON_TITLES[row.reason]}
-                    </Badge>
-                  </Table.Td>
-                  <Table.Td>{row.created_by ?? '—'}</Table.Td>
-                  <Table.Td>{when(row.created_at)}</Table.Td>
-                  <Table.Td>
-                    {row.expires_at === null ? (
-                      <Text size="sm">навсегда</Text>
-                    ) : row.expired ? (
-                      <Badge color="gray" variant="outline">
-                        истёк {when(row.expires_at)}
-                      </Badge>
-                    ) : (
-                      <Text size="sm">до {when(row.expires_at)}</Text>
-                    )}
-                  </Table.Td>
-                  {mayChange ? (
-                    <Table.Td>
-                      <Button
-                        variant="subtle"
-                        size="compact-sm"
-                        onClick={() => {
-                          setRemoving(row);
-                          setWhy('');
-                        }}
-                      >
-                        Снять
-                      </Button>
-                    </Table.Td>
-                  ) : null}
+          <Table.ScrollContainer minWidth={TABLE_MIN_WIDTH} type="native" className="scrollSlim">
+            <Table
+              className="dataTable fixedTable"
+              layout="fixed"
+              tabularNums
+              verticalSpacing="sm"
+              horizontalSpacing="md"
+            >
+              <colgroup>
+                {COLUMNS.map((column) => (
+                  <col
+                    key={column.title}
+                    style={column.width ? { width: column.width } : undefined}
+                  />
+                ))}
+                {mayChange ? <col style={{ width: ACTIONS_WIDTH }} /> : null}
+              </colgroup>
+              <Table.Thead>
+                <Table.Tr>
+                  {COLUMNS.map((column) => (
+                    <Table.Th key={column.title}>{column.title}</Table.Th>
+                  ))}
+                  {mayChange ? <Table.Th /> : null}
                 </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
+              </Table.Thead>
+              <Table.Tbody>
+                {rows.map((row) => (
+                  <Table.Tr key={row.id}>
+                    <Table.Td className="cellName">{row.host ?? row.email}</Table.Td>
+                    <Table.Td>
+                      <Badge color={row.donor_decision ? 'red' : 'gray'} variant="light">
+                        {SUPPRESSION_REASON_TITLES[row.reason]}
+                      </Badge>
+                    </Table.Td>
+                    <Table.Td className="wrapCell cellName">{row.created_by ?? '—'}</Table.Td>
+                    <Table.Td>{when(row.created_at)}</Table.Td>
+                    <Table.Td>
+                      {row.expires_at === null ? (
+                        <Text size="sm">навсегда</Text>
+                      ) : row.expired ? (
+                        <Badge color="gray" variant="outline">
+                          истёк {when(row.expires_at)}
+                        </Badge>
+                      ) : (
+                        <Text size="sm">до {when(row.expires_at)}</Text>
+                      )}
+                    </Table.Td>
+                    {mayChange ? (
+                      <Table.Td>
+                        <Button
+                          variant="subtle"
+                          size="compact-sm"
+                          className="press"
+                          onClick={() => {
+                            setRemoving(row);
+                            setWhy('');
+                          }}
+                        >
+                          Снять
+                        </Button>
+                      </Table.Td>
+                    ) : null}
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
         )}
       </Card>
 

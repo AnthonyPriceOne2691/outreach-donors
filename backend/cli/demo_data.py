@@ -204,7 +204,9 @@ async def _seed_sent_today(session: AsyncSession, senders: list[SenderModel], no
                     status=MessageStatus.SENT,
                     subject=f"Advertising rates for {host}",
                     body=LETTER_BODY,
-                    uniqueness_pct=0.19,
+                    # Отличие не назначается: текст собран не из шаблона,
+                    # мерить его не от чего (см. `_seed_threads`).
+                    uniqueness_pct=None,
                     sent_at=now - timedelta(hours=number + 1),
                     idempotency_key=f"{Stage.DONORS.value}:{host}:0",
                 )
@@ -375,7 +377,13 @@ async def _seed_threads(session: AsyncSession, now: datetime) -> int:
                 ),
                 subject="Стоимость размещения статьи",
                 body=LETTER_BODY,
-                uniqueness_pct=18.0 + order,
+                # Отличия нет: текст написан здесь, а не собран из шаблона, и
+                # мерить его не от чего. Раньше стояло «18.0 + номер» — число,
+                # назначенное рядом с текстом (третий раз того же урока),
+                # да ещё в процентах там, где поле хранит долю: карточка
+                # диалога, написанная под эти данные, печатала «0%» у каждого
+                # настоящего письма с отличием 19% (25.09.2026).
+                uniqueness_pct=None,
                 sent_at=sent_at,
                 idempotency_key=f"demo:{host}:0",
             )
@@ -391,7 +399,8 @@ async def _seed_threads(session: AsyncSession, now: datetime) -> int:
                     status=MessageStatus.SENT,
                     subject="Re: Стоимость размещения статьи",
                     body="Добрый день! Поднимаю письмо — возможно, оно потерялось.",
-                    uniqueness_pct=22.0,
+                    # У добивки коридора нет вовсе (`letters/template.py`).
+                    uniqueness_pct=None,
                     sent_at=sent_at + timedelta(days=7),
                     idempotency_key=f"demo:{host}:1",
                 )

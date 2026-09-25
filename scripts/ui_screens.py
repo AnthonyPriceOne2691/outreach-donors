@@ -170,42 +170,6 @@ SCREENS: dict[str, dict] = {
             ("текст причины", "[role='dialog'] [data-run-reason]", NORM),
         ],
     },
-    "suppressions": {
-        "path": "/suppressions",
-        "ready": ("button", "Больше не писать"),
-        # Кнопка «Больше не писать» выключена, пока поле пусто: замер
-        # заполняет его сам (см. `fill_target` в `main`).
-        "probes": [
-            ("заголовок раздела", "h3", BIG),
-            ("пояснение под ним", "p.mantine-Text-root", NORM),
-            # Главное на экране: кому не пишем и по чьему решению.
-            ("адресат в строке", "table tbody tr td", NORM),
-            ("причина значком", "table tbody .mantine-Badge-label", NORM),
-            ("кто завёл запись", "table tbody tr td:nth-child(3)", NORM),
-            ("кнопка «Снять»", "table tbody button", BIG),
-            ("кнопка «Больше не писать»", "button:has-text('Больше не писать')", BIG),
-            ("пункт меню", "nav a", NORM),
-        ],
-    },
-    "advertisers": {
-        "path": "/advertisers",
-        # Готовность — по заголовку, а не по кнопке строки: очередь спорных
-        # бывает пустой, и тогда кнопки нет вовсе. Замер 22.09.2026 на этом
-        # и встал: экран был исправен, а измерить его было нечем. Строки
-        # достаёт подготовка — переключателем «показывать решённые».
-        "ready": ("heading", "Рекламодатели: спорные"),
-        "probes": [
-            ("заголовок раздела", "h3", BIG),
-            ("пояснение под ним", "p.mantine-Text-root", NORM),
-            # Главное на экране: причины балла. Человек решает по ним,
-            # а не по числу, и читать их придётся каждому спорному.
-            ("причина балла", "table tbody li", NORM),
-            ("балл значком", "table tbody .mantine-Badge-label", NORM),
-            ("счётчик вердиктов", ".mantine-Badge-label", NORM),
-            ("кнопка «Пишем»", "table tbody button", BIG),
-            ("пункт меню", "nav a", NORM),
-        ],
-    },
     "selection": {
         "path": "/selection",
         "ready": ("heading", "Отбор"),
@@ -446,31 +410,6 @@ def estimate(page):
     page.wait_for_timeout(400)
 
 
-def fill_target(page):
-    """Главная кнопка экрана оживает только с заполненным полем.
-
-    Тот же урок, что со сметой: у выключенной кнопки меряется
-    серое на сером, и она выглядит безупречной, ни разу
-    не проверенной.
-    """
-    page.get_by_label("Домен или адрес").fill("supplier.example.test")
-    expect(page.get_by_role("button", name="Больше не писать")).to_be_enabled()
-    page.wait_for_timeout(200)
-
-
-def show_decided(page):
-    """Достать строки, когда очередь спорных пуста.
-
-    Решённые лежат за переключателем. Без них на экране нет ни таблицы,
-    ни причин балла, ни кнопки — то есть ровно того, ради чего экран
-    и меряют. Правило «каждый экран меряется» без этого невыполнимо,
-    а невыполнимое правило не выполняется.
-    """
-    if page.locator("table tbody tr").count() == 0:
-        page.get_by_role("switch", name="Показывать решённые").click()
-        page.wait_for_timeout(500)
-
-
 def open_letter_draft(page):
     """Раскрыть правку текста письма и поправить зону.
 
@@ -492,7 +431,10 @@ def open_letter_draft(page):
 #: повода: мерить нечего, пока экран пуст или главная кнопка выключена.
 PREPARE = {
     "run": estimate,
-    "suppressions": fill_target,
-    "advertisers": show_decided,
     "letter-draft": open_letter_draft,
 }
+
+from ui_screens_mail import mail_prepare, mail_screens  # noqa: E402
+
+SCREENS.update(mail_screens(NORM, BIG))
+PREPARE.update(mail_prepare())

@@ -13,26 +13,17 @@
  * сколько ушло сегодня»), развёрнутая — на все остальные.
  */
 
-import {
-  Badge,
-  Button,
-  Card,
-  Collapse,
-  Group,
-  Progress,
-  Stack,
-  Text,
-  Tooltip,
-} from '@mantine/core';
+import { Badge, Box, Button, Card, Collapse, Group, Stack, Text, Tooltip } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { IconChevronDown } from '@tabler/icons-react';
 import { useState } from 'react';
 
-import type { SenderCard as Box } from '../api/types';
+import type { SenderCard as Mailbox } from '../api/types';
+import { Meter } from '../components/Meter';
 
 export interface DomainGroup {
   domain: string;
-  boxes: Box[];
+  boxes: Mailbox[];
   enabled: boolean;
   sentToday: number;
   allowance: number;
@@ -143,16 +134,16 @@ export function SenderCard({ group, busy, onSwitch }: Props) {
             </Text>
           )}
 
-          <Progress
-            value={
-              group.allowance === 0 ? 0 : Math.min(100, (group.sentToday / group.allowance) * 100)
-            }
-            color={group.enabled ? 'lagoon' : 'gray'}
-            radius="xl"
-            size="xs"
-            maw={320}
-            aria-label={`Отправлено сегодня ${group.sentToday} из ${group.allowance}`}
-          />
+          {/* Общая полоса «потрачено из лимита», как у расхода на главной:
+              серая дорожка Mantine на стекле читалась чужой деталью (аудит
+              25.09.2026). Янтарь с 80 % — дневной потолок разгона близко. */}
+          <Box maw={320}>
+            <Meter
+              spent={group.sentToday}
+              cap={group.allowance}
+              label={`Отправлено сегодня ${group.sentToday} из ${group.allowance}`}
+            />
+          </Box>
 
           {narrow && <Group justify="flex-end">{toggle}</Group>}
         </Stack>

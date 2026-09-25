@@ -7,13 +7,18 @@
 
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
 import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 
+/** Адрес запроса из того, что отдали в `fetch`. */
+function urlOf(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input;
+  return input instanceof URL ? input.href : input.url;
+}
 const CURRENT = {
   version: 2,
   created_by: 'ivan@site.com',
@@ -125,5 +130,38 @@ describe('пороги', () => {
     expect(await screen.findByText('Править пороги не разрешено')).toBeInTheDocument();
     expect(screen.getByLabelText('DR не ниже')).toBeDisabled();
     expect(screen.getByText('№2')).toBeInTheDocument();
+  });
+});
+
+describe('пересчёт последствий', () => {
+  it('не прячет прежние числа за значком загрузки: блок стоит приглушённым до ответа', async () => {
+    let answers = 0;
+    let release = () => {};
+    await openThresholds({
+      'POST /api/settings/preview': () => {
+        answers += 1;
+        return { body: CONSEQUENCES };
+      },
+    });
+    await touchDr();
+    expect(await screen.findByText('13')).toBeInTheDocument();
+
+    const answered = vi.mocked(globalThis.fetch).getMockImplementation()!;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => {
+      if (urlOf(input).endsWith('/settings/preview')) await gate;
+      return answered(input, init);
+    });
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText('DR не ниже'), '0');
+
+    await waitFor(() => expect(screen.getByText('13').closest('[data-stale]')).not.toBeNull());
+    expect(screen.queryByLabelText('Считаем последствия')).not.toBeInTheDocument();
+
+    release();
+    await waitFor(() => expect(document.querySelector('[data-stale]')).toBeNull());
+    expect(answers).toBeGreaterThanOrEqual(2);
   });
 });

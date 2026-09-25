@@ -8,6 +8,11 @@
  *
  * Поэтому недоступный остаток не прячет расход: он показывается
  * отдельной строкой «спросить не удалось», а не пустым экраном.
+ *
+ * **Единица в плитке — словом под числом, а не хвостом за ним.** На
+ * телефоне «2 180 924 ток.» не влезало в плитку и ломалось на «2 180 924»
+ * и «ток.» отдельной строкой (аудит 25.09.2026). Число — крупно, «токенов»
+ * — подписью, как «подходящих 840» у плиток писем.
  */
 
 import {
@@ -29,7 +34,7 @@ import { operationTitle, USAGE_PROVIDERS } from '../api/labels';
 import { Meter } from '../components/Meter';
 import { Metric } from '../components/Metric';
 import { fetchUsage } from '../api/settings';
-import { formatDate, formatNumber, formatUsd } from '../format';
+import { formatDate, formatNumber, formatUsd, plural } from '../format';
 
 /** Единица счёта у каждого провайдера — своя: Ahrefs берёт юнитами,
  *  модель — токенами, отправка считает письма. «Юн.» у всех подряд
@@ -39,16 +44,59 @@ const UNIT_TITLES: Record<string, string> = {
   llm: 'ток.',
 };
 
+/** Та же единица словом — для плитки, где под числом есть место. */
+const UNITS: [string, string, string] = ['юнит', 'юнита', 'юнитов'];
+const UNIT_WORDS: Record<string, [string, string, string]> = {
+  ahrefs: UNITS,
+  llm: ['токен', 'токена', 'токенов'],
+  email: ['письмо', 'письма', 'писем'],
+};
+
 /** «1 письмо, 4 письма, 5 писем» — у сокращений склонять нечего. */
 function unitOf(provider: string, count: number): string {
   if (provider !== 'email') return UNIT_TITLES[provider] ?? 'юн.';
-  const tens = count % 100;
-  const ones = count % 10;
-  if (tens >= 11 && tens <= 14) return 'писем';
-  if (ones === 1) return 'письмо';
-  if (ones >= 2 && ones <= 4) return 'письма';
-  return 'писем';
+  return plural(count, 'письмо', 'письма', 'писем');
 }
+
+/** Единица словом, согласованная с числом: «6 416 юнитов», «4 письма». */
+function unitWord(provider: string, count: number): string {
+  const [one, few, many] = UNIT_WORDS[provider] ?? UNITS;
+  return plural(count, one, few, many);
+}
+
+/** Плитка провайдера: число — крупно, единица и деньги — подписью под ним. */
+function tileOf(
+  provider: string,
+  units: number,
+  amount: number,
+): { value: string; hint: string | undefined } {
+  if (units > 0) {
+    const unit = unitWord(provider, units);
+    return {
+      value: formatNumber(units),
+      hint: amount > 0 ? `${unit} и ${formatUsd(amount)}` : unit,
+    };
+  }
+  // У провайдеров разная валюта счёта: Ahrefs берёт юнитами, источник
+  // выдачи — деньгами, модель — токенами. Показывать «0.00 $» там, где
+  // платят не деньгами, значит уверять, что трат не было: так экран
+  // и врал про выдачу до этого среза.
+  if (amount > 0) return { value: formatUsd(amount), hint: undefined };
+  return { value: '—', hint: 'трат не было' };
+}
+
+/** Колонки статей. Первая — остаток: в ней название статьи. Остальные — по
+ *  самому длинному, замеренному шрифтом экрана 25.09.2026: значок «метрики
+ *  Ahrefs» — 116 px (на телефоне он ужимался до «метрики Ahr…»), «12 345 678
+ *  ток.» — 104, «1 234,56 $» — 69. Плюс 32 px полей ячейки. */
+const COLUMNS: { title: string; width?: string }[] = [
+  { title: 'Статья' },
+  { title: 'Провайдер', width: '9.5rem' },
+  { title: 'Запросов', width: '7rem' },
+  { title: 'Единиц', width: '9rem' },
+  { title: 'Денег', width: '7rem' },
+];
+const TABLE_MIN_WIDTH = 720;
 
 export function UsagePage() {
   const { data, isLoading, error } = useQuery({ queryKey: ['usage'], queryFn: fetchUsage });
@@ -128,63 +176,59 @@ export function UsagePage() {
 
       <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
         {Object.entries(USAGE_PROVIDERS).map(([key, provider]) => {
-          const units = data.units_by_provider[key] ?? 0;
-          const amount = Number(data.amount_by_provider[key] ?? '0');
-          const spent = units > 0 || amount > 0;
-          // У провайдеров разная валюта счёта: Ahrefs берёт юнитами,
-          // источник выдачи — деньгами, модель — токенами. Показывать
-          // «0.00 $» там, где платят не деньгами, значит уверять, что
-          // трат не было: так экран и врал про выдачу до этого среза.
-          const unit = unitOf(key, units);
-          const value =
-            units > 0 ? `${formatNumber(units)} ${unit}` : amount > 0 ? formatUsd(amount) : '—';
-          return (
-            <Metric
-              key={key}
-              title={provider.title}
-              value={value}
-              hint={
-                spent
-                  ? units > 0 && amount > 0
-                    ? `и ${formatUsd(amount)}`
-                    : undefined
-                  : 'трат не было'
-              }
-            />
+          const tile = tileOf(
+            key,
+            data.units_by_provider[key] ?? 0,
+            Number(data.amount_by_provider[key] ?? '0'),
           );
+          return <Metric key={key} title={provider.title} value={tile.value} hint={tile.hint} />;
         })}
       </SimpleGrid>
 
-      <Card className="glass" p="xs">
+      {/* Поля карточки с таблицей — вместе с полем ячейки те же 32 px, что
+          у панели сверху: текст соседних карточек начинается с одного места. */}
+      <Card className="glass" p="md">
         {data.articles.length === 0 ? (
-          <Text size="sm" c="dimmed" p="lg">
+          <Text size="sm" c="dimmed" p="md">
             С начала месяца трат не было. Это не поломка учёта: расход пишется той же транзакцией,
             что и сам запрос к провайдеру.
           </Text>
         ) : (
-          <Table.ScrollContainer minWidth={620}>
-            <Table className="dataTable" verticalSpacing="sm" horizontalSpacing="md">
+          <Table.ScrollContainer minWidth={TABLE_MIN_WIDTH} type="native" className="scrollSlim">
+            <Table
+              className="dataTable fixedTable"
+              layout="fixed"
+              tabularNums
+              verticalSpacing="sm"
+              horizontalSpacing="md"
+            >
+              <colgroup>
+                {COLUMNS.map((column) => (
+                  <col
+                    key={column.title}
+                    style={column.width ? { width: column.width } : undefined}
+                  />
+                ))}
+              </colgroup>
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th>Статья</Table.Th>
-                  <Table.Th>Провайдер</Table.Th>
-                  <Table.Th>Запросов</Table.Th>
-                  <Table.Th>Единиц</Table.Th>
-                  <Table.Th>Денег</Table.Th>
+                  {COLUMNS.map((column) => (
+                    <Table.Th key={column.title}>{column.title}</Table.Th>
+                  ))}
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
                 {data.articles.map((article) => (
                   <Table.Tr key={`${article.provider}-${article.operation}`}>
                     <Table.Td>
-                      <Text fw={500}>{operationTitle(article.operation)}</Text>
+                      <Text fw={500} className="cellName">
+                        {operationTitle(article.operation)}
+                      </Text>
                     </Table.Td>
                     <Table.Td>
-                      <Group justify="center">
-                        <Badge variant="light" color={USAGE_PROVIDERS[article.provider].color}>
-                          {USAGE_PROVIDERS[article.provider].title}
-                        </Badge>
-                      </Group>
+                      <Badge variant="light" color={USAGE_PROVIDERS[article.provider].color}>
+                        {USAGE_PROVIDERS[article.provider].title}
+                      </Badge>
                     </Table.Td>
                     <Table.Td>{formatNumber(article.calls)}</Table.Td>
                     <Table.Td>

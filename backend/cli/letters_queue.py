@@ -27,7 +27,7 @@ from backend.features.letters.building import BuildReport, BuildRequest, QueueBu
 from backend.features.letters.rewrite import RewriteClient
 from backend.features.letters.sending import SendError, Sending
 from backend.features.letters.transport_factory import build_transport
-from backend.features.letters.uniqueness import corridor_verdict
+from backend.features.letters.uniqueness import corridor_verdict, percent_text
 
 EXIT_OK = 0
 EXIT_NOT_SENT = 7
@@ -136,7 +136,7 @@ async def cmd_letters(args: argparse.Namespace) -> int:
         share = uniqueness or 0.0
         verdict = corridor_verdict(share)
         mark = f"  ← {verdict}" if verdict else ""
-        print(f"№{message_id:>5}  {host:<40} отличие {round(share * 100):>3}%{mark}")
+        print(f"№{message_id:>5}  {host:<40} отличие {percent_text(share):>6}{mark}")
     return EXIT_OK
 
 

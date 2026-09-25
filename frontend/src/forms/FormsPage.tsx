@@ -14,6 +14,11 @@
  * становится обычным и уйдёт в очередь писем. Не вышло — закрываем
  * без адреса: висеть здесь вечно строка не должна, а срок годности
  * вернёт донора, если что-то изменится.
+ *
+ * **Таблица — с шириной колонок по самому длинному и прокруткой на узком
+ * окне.** В карточке без прокрутки на телефоне были видны две колонки из
+ * пяти, и значок DR «100» ужимался до «1…» (аудит 25.09.2026). Кнопки —
+ * по центру своей колонки, как всё, кроме имени, а не прижаты вправо.
  */
 
 import {
@@ -42,6 +47,23 @@ import { useSession } from '../auth/AuthProvider';
 import { formatCompact, formatDate } from '../format';
 
 const FORMS_QUERY_KEY = ['forms'] as const;
+
+/** Колонки слева направо. Ширина первой — остаток: в ней домен. Остальные —
+ *  по самому длинному содержимому, замеренному шрифтом экрана 25.09.2026:
+ *  значок «100» — 44 px, «12,3 млрд», дата; кнопки «Вписать адрес» и «Не
+ *  вышло» с зазором — 221 (на глаз вышло 196, и кнопки обрезались до
+ *  «Вписать адре»). Плюс 32 px полей ячейки. */
+const COLUMNS: { title: string; width?: string }[] = [
+  { title: 'Донор' },
+  { title: 'DR', width: '5rem' },
+  { title: 'Трафик', width: '7.5rem' },
+  { title: 'Искали', width: '8rem' },
+];
+const ACTIONS_WIDTH = '16.25rem';
+
+/** Уже этого таблица уезжает в прокрутку: колонкам — их ширины (588 px),
+ *  домену — не меньше двухсот. */
+const TABLE_MIN_WIDTH = 790;
 
 export function FormsPage() {
   const { can } = useSession();
@@ -107,63 +129,99 @@ export function FormsPage() {
         </Stack>
       </Card>
 
-      <Card className="glassPanel" p="xl">
+      {/* Поля карточки с таблицей — вместе с полем ячейки те же 32 px, что у
+          панели сверху: иначе текст соседних карточек начинается с разных
+          мест (аудит 25.09.2026). */}
+      <Card className="glassPanel" p={rows.length === 0 ? 'xl' : 'md'}>
         {rows.length === 0 ? (
           <Text size="sm" c="dimmed">
             Очередь пуста. Сюда попадают доноры, у которых лестница нашла форму, но не нашла адреса.
           </Text>
         ) : (
-          <Table className="dataTable" verticalSpacing="sm" horizontalSpacing="md" miw={760}>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Донор</Table.Th>
-                <Table.Th>DR</Table.Th>
-                <Table.Th>Трафик</Table.Th>
-                <Table.Th>Искали</Table.Th>
-                {mayWork ? <Table.Th /> : null}
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {rows.map((row) => (
-                <Table.Tr key={row.donor_id}>
-                  <Table.Td>
-                    <Anchor href={`https://${row.host}`} target="_blank" rel="noreferrer">
-                      {row.host}
-                    </Anchor>
-                  </Table.Td>
-                  <Table.Td>
-                    <Badge variant="light">{row.dr ?? '—'}</Badge>
-                  </Table.Td>
-                  <Table.Td>{formatCompact(row.org_traffic)}</Table.Td>
-                  <Table.Td>{formatDate(row.attempted_at)}</Table.Td>
-                  {mayWork ? (
-                    <Table.Td>
-                      <Group gap="xs" justify="flex-end">
-                        <Button
-                          size="compact-sm"
-                          onClick={() => {
-                            setFilling(row);
-                            setEmail('');
-                          }}
-                        >
-                          Вписать адрес
-                        </Button>
-                        <Button
-                          size="compact-sm"
-                          variant="subtle"
-                          color="gray"
-                          loading={giveUp.isPending && giveUp.variables?.donor_id === row.donor_id}
-                          onClick={() => giveUp.mutate(row)}
-                        >
-                          Не вышло
-                        </Button>
-                      </Group>
-                    </Table.Td>
-                  ) : null}
+          <Table.ScrollContainer minWidth={TABLE_MIN_WIDTH} type="native" className="scrollSlim">
+            <Table
+              className="dataTable fixedTable"
+              layout="fixed"
+              tabularNums
+              verticalSpacing="sm"
+              horizontalSpacing="md"
+            >
+              <colgroup>
+                {COLUMNS.map((column) => (
+                  <col
+                    key={column.title}
+                    style={column.width ? { width: column.width } : undefined}
+                  />
+                ))}
+                {mayWork ? <col style={{ width: ACTIONS_WIDTH }} /> : null}
+              </colgroup>
+              <Table.Thead>
+                <Table.Tr>
+                  {COLUMNS.map((column) => (
+                    <Table.Th key={column.title}>{column.title}</Table.Th>
+                  ))}
+                  {mayWork ? <Table.Th /> : null}
                 </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
+              </Table.Thead>
+              <Table.Tbody>
+                {rows.map((row) => (
+                  <Table.Tr key={row.donor_id}>
+                    <Table.Td>
+                      {/* Имя — чернилами, как у доноров и диалогов: бирюзовая
+                          ссылка в верхних строках стоит на бирюзовом углу
+                          полотна, и замер дал 4,30 : 1 при норме 4,5
+                          (25.09.2026). Что это ссылка, говорит подчёркивание
+                          под курсором. */}
+                      <Anchor
+                        href={`https://${row.host}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        c="var(--ink)"
+                        fw={500}
+                        underline="hover"
+                        className="cellName"
+                      >
+                        {row.host}
+                      </Anchor>
+                    </Table.Td>
+                    <Table.Td>
+                      <Badge variant="light">{row.dr ?? '—'}</Badge>
+                    </Table.Td>
+                    <Table.Td>{formatCompact(row.org_traffic)}</Table.Td>
+                    <Table.Td>{formatDate(row.attempted_at)}</Table.Td>
+                    {mayWork ? (
+                      <Table.Td>
+                        <Group gap="xs" justify="center" wrap="nowrap">
+                          <Button
+                            size="compact-sm"
+                            className="press"
+                            onClick={() => {
+                              setFilling(row);
+                              setEmail('');
+                            }}
+                          >
+                            Вписать адрес
+                          </Button>
+                          <Button
+                            size="compact-sm"
+                            variant="subtle"
+                            color="gray"
+                            className="press"
+                            loading={
+                              giveUp.isPending && giveUp.variables?.donor_id === row.donor_id
+                            }
+                            onClick={() => giveUp.mutate(row)}
+                          >
+                            Не вышло
+                          </Button>
+                        </Group>
+                      </Table.Td>
+                    ) : null}
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
         )}
       </Card>
 
