@@ -97,8 +97,14 @@ async function openDonors(
   return recorded;
 }
 
-/** Текст файла. Здесь `Blob` от jsdom, и `text()` у него нет, а читатель есть. */
+/**
+ * Текст файла. `Blob` сюда приходит двух родов, смотря по версии Node:
+ * от Node — его отдаёт `Response.blob()`, у него есть `text()`, а `FileReader`
+ * из jsdom его не принимает (так тест упал в CI на Node 22, 25.09.2026);
+ * от jsdom — `text()` у него нет, зато его читает `FileReader`.
+ */
 function textOf(blob: Blob): Promise<string> {
+  if (typeof (blob as Partial<Blob>).text === 'function') return blob.text();
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () =>
