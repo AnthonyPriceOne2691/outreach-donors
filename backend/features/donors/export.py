@@ -8,16 +8,31 @@
 уступки Excel: с запятой он раскладывает русские строки в одну
 колонку, без метки — показывает кракозябры. Файл открывают в Excel,
 а не в редакторе, и спорить с этим дороже, чем уступить.
+
+**Слова — те же, что на экране.** До 25.09.2026 вердикт, исход поиска
+и регион уходили в файл кодами (`unsuitable`, `found`, `us`), а доля
+региона — сырым числом `0.19888…`. Экран называет их «не подходит»,
+«адрес найден», «США» и «20%», и файл рядом с ним читался бы как
+выгрузка из другой системы. Слова берутся там же, где их берёт причина
+отсева (`donors/wording.py`).
 """
 
 from __future__ import annotations
 
 import csv
 import io
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from backend.features.donors.browse import DonorRow
+from backend.features.donors.wording import (
+    CONTACT_STATUS_TITLES,
+    DONOR_STATUS_TITLES,
+    NOT_SEARCHED,
+    country_title,
+    reject_reason_text,
+    share_text,
+)
 
 #: Заголовок и поле строки таблицы. Порядок — как на экране.
 COLUMNS: tuple[tuple[str, str], ...] = (
@@ -36,15 +51,36 @@ COLUMNS: tuple[tuple[str, str], ...] = (
 )
 
 
+#: Поля, которые экран показывает словами, а не как хранятся. Остальные
+#: уходят как есть: числа, цена, даты.
+WORDS: dict[str, Callable[[Any], str | None]] = {
+    "status": lambda status: DONOR_STATUS_TITLES[status],
+    "reject_reason": reject_reason_text,
+    "geo": country_title,
+    "geo_top_share": share_text,
+    # Пусто — не «пусто», а «не искали»: «не нашли» и «не искали» решаются
+    # по-разному, и на экране у них разные слова.
+    "contact_status": lambda status: (
+        NOT_SEARCHED if status is None else CONTACT_STATUS_TITLES[status]
+    ),
+}
+
+
 def to_csv(rows: Sequence[DonorRow]) -> bytes:
     """Строки таблицы доноров одним файлом."""
     buffer = io.StringIO()
     writer = csv.writer(buffer, delimiter=";", lineterminator="\r\n")
     writer.writerow([title for title, _ in COLUMNS])
     for row in rows:
-        writer.writerow([_cell(_value(row, field)) for _, field in COLUMNS])
+        writer.writerow([_cell(_said(field, _value(row, field))) for _, field in COLUMNS])
     # Метка порядка байтов — ради Excel, см. модуль.
     return buffer.getvalue().encode("utf-8-sig")
+
+
+def _said(field: str, value: Any) -> Any:
+    """Значение поля словами экрана, если экран говорит о нём словами."""
+    words = WORDS.get(field)
+    return value if words is None else words(value)
 
 
 def _value(row: DonorRow, field: str) -> Any:

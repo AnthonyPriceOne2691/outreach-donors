@@ -14,6 +14,10 @@ class _Serp(DomainSettings):
     timeout_s: float = Field(default=60.0, validation_alias="SERP_TIMEOUT_S")
     # Глубина выдачи: страница = 10 результатов. Топ-10.
     depth_pages: int = Field(default=1, validation_alias="SERP_DEPTH_PAGES")
+    # Глубже ста результатов на ключ прогон не берёт: столько и предлагает
+    # экран (10, 20, 30, 50, 100). Провайдер принимает до 700 и берёт деньги
+    # за каждые десять — смета растёт вместе с глубиной, а не упирается в неё.
+    max_depth_pages: int = Field(default=10, validation_alias="SERP_MAX_DEPTH_PAGES")
     # Ключей за прогон. Приёмка идёт на 500 — это пять прогонов.
     max_keywords_per_run: int = Field(default=100, validation_alias="SERP_MAX_KEYWORDS_PER_RUN")
     # Песочница провайдера: те же схемы и учётка, ответы выдуманные,
@@ -40,6 +44,7 @@ LOGIN: str = _s.login
 PASSWORD: str = _s.password
 TIMEOUT_S: float = _s.timeout_s
 DEPTH_PAGES: int = _s.depth_pages
+MAX_DEPTH_PAGES: int = _s.max_depth_pages
 MAX_KEYWORDS_PER_RUN: int = _s.max_keywords_per_run
 SANDBOX: bool = _s.sandbox
 PRICE_PER_KEYWORD_USD: float = _s.price_per_keyword_usd

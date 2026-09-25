@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.features.core.domain import DonorStatus
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
+from backend.shared.database.ids import storable
 
 logger = logging.getLogger(__name__)
 
@@ -292,7 +293,11 @@ class SelectionBrowser:
         return answered, {key: LayerScore(checked[key], agreed[key]) for key in checked}
 
     async def row(self, domain_id: int) -> SelectionRow:
-        found = (await self._session.execute(_base().where(DomainModel.id == domain_id))).first()
+        found = (
+            (await self._session.execute(_base().where(DomainModel.id == domain_id))).first()
+            if storable(domain_id)
+            else None
+        )
         if found is None:
             raise UnknownDomainError(f"Домена №{domain_id} в отборе нет")
         domain, donor, tab, disagrees = found

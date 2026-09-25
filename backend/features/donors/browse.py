@@ -24,6 +24,7 @@ from backend.features.contacts.repository import search_refusal
 from backend.features.core.domain import ContactStatus, DonorStatus
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
+from backend.shared.database.ids import storable
 
 
 class UnknownDonorError(ValueError):
@@ -149,6 +150,8 @@ class DonorBrowser:
         )
 
     async def card(self, donor_id: int) -> DonorCard:
+        if not storable(donor_id):
+            raise UnknownDonorError(f"Донора №{donor_id} нет")
         rows = await self._session.execute(
             select(DonorModel, DomainModel.host)
             .join(DomainModel, DomainModel.id == DonorModel.domain_id)

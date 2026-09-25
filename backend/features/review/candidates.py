@@ -42,7 +42,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import ColumnElement, false, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -50,7 +50,16 @@ from backend.features.core.domain import DonorStatus
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.run import RunCandidateModel, RunModel
-from backend.features.review.ordering import Tier, sells_placement, shelf, tier, tier_order
+from backend.features.review.ordering import (
+    SellsBy,
+    Tier,
+    sells_placement,
+    sells_source,
+    shelf,
+    tier,
+    tier_order,
+)
+from backend.shared.database.ids import storable
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +105,8 @@ class CandidateRow:
     #: Почему сайт стоит первым в ярусе: он продаёт размещение у себя.
     #: Пусто — такого признака нет.
     sells: str | None = None
+    #: Чей голос это сказал: экран показывает признак в колонке источника.
+    sells_by: SellsBy | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,6 +169,17 @@ class JudgeAccuracy:
             accept.advised >= AUTO_ACCEPT_MIN_DECISIONS
             and (accept.precision or 0.0) >= AUTO_ACCEPT_PRECISION
         )
+
+
+def _of_run(run_id: int) -> ColumnElement[bool]:
+    """Строки одного прогона. Номер, которого не бывает в столбце, — пустой
+    счёт, а не переполнение базы."""
+    return RunCandidateModel.run_id == run_id if storable(run_id) else false()
+
+
+def _voice(value: str | None) -> SellsBy | None:
+    """Источник признака «продаёт» из строки выборки."""
+    return None if value is None else SellsBy(value)
 
 
 def _agreement_key(recommendation: str | None, status: str) -> tuple[str, bool] | None:
@@ -249,9 +271,7 @@ class RunReview:
     async def page(
         self, run_id: int, *, status: Decision, show_doubtful: bool = False
     ) -> ReviewPage:
-        run = await self._session.get(RunModel, run_id)
-        if run is None:
-            raise UnknownRunError(f"Прогона №{run_id} нет")
+        run = await self._run(run_id)
         statement = self._rows(run_id).where(RunCandidateModel.status == status.value)
         if status is Decision.PENDING and not show_doubtful:
             statement = statement.where(tier() != Tier.DOUBTFUL.value)
@@ -274,8 +294,9 @@ class RunReview:
                 tier=Tier(row_tier),
                 found_by=list(found_by.get(domain.host, [])),
                 sells=sells,
+                sells_by=_voice(sells_by),
             )
-            for candidate, domain, donor, row_tier, sells in result.all()
+            for candidate, domain, donor, row_tier, sells, sells_by in result.all()
         ]
         return ReviewPage(
             run=run,
@@ -283,6 +304,14 @@ class RunReview:
             counts=await self._counts(run_id),
             hidden=await self._hidden(run_id),
         )
+
+    async def _run(self, run_id: int) -> RunModel:
+        """Прогон по номеру — или отказ. Номер, которого не бывает в столбце,
+        — тот же «нет такого», а не переполнение базы."""
+        run = await self._session.get(RunModel, run_id) if storable(run_id) else None
+        if run is None:
+            raise UnknownRunError(f"Прогона №{run_id} нет")
+        return run
 
     async def decide(
         self,
@@ -325,8 +354,12 @@ class RunReview:
     async def _of_run(self, run_id: int, candidate_ids: Sequence[int]) -> list[RunCandidateModel]:
         """Кандидаты — и только этого прогона: чужой номер значит, что экран
         показывает устаревший список."""
+        # Номер за пределами столбца кандидатом быть не может — он «чужой»,
+        # как и любой другой несуществующий, а не повод для пятисотки.
         found = await self._session.execute(
-            select(RunCandidateModel).where(RunCandidateModel.id.in_(candidate_ids))
+            select(RunCandidateModel).where(
+                RunCandidateModel.id.in_([one for one in candidate_ids if storable(one)])
+            )
         )
         candidates = list(found.scalars().all())
         ours = {c.id for c in candidates if c.run_id == run_id}
@@ -352,7 +385,7 @@ class RunReview:
             .where(RunCandidateModel.carried.is_(False))
         )
         if run_id is not None:
-            statement = statement.where(RunCandidateModel.run_id == run_id)
+            statement = statement.where(_of_run(run_id))
         by_advice: dict[str, Agreement] = {}
         by_layer: dict[str, dict[str, Agreement]] = {}
         by_intent: dict[str, dict[str, Agreement]] = {}
@@ -416,6 +449,7 @@ class RunReview:
                 DonorModel,
                 tier().label("tier"),
                 sells_placement().label("sells"),
+                sells_source().label("sells_by"),
             )
             .join(DomainModel, DomainModel.id == RunCandidateModel.domain_id)
             .join(DonorModel, DonorModel.domain_id == RunCandidateModel.domain_id)

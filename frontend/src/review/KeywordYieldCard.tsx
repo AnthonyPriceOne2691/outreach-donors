@@ -7,7 +7,9 @@
  * когда до этого дошло.
  *
  * **«Не знаем» — не таблица нулей.** Прогоны до 23.09.2026 не хранили,
- * какой ключ что нашёл, и для них это сказано словами.
+ * какой ключ что нашёл; для них карточки нет вовсе, а сказано это наверху
+ * экрана рассмотрения — там, где видно (до 25.09.2026 пояснение стояло
+ * здесь, под полусотней строк очереди).
  */
 
 import { Badge, Button, Group, Stack, Table, Text } from '@mantine/core';
@@ -17,7 +19,7 @@ import { useId, useState } from 'react';
 import type { KeywordYield } from '../api/types';
 
 interface Props {
-  keywords: KeywordYield[] | null;
+  keywords: KeywordYield[];
 }
 
 function Summary({ rows }: { rows: KeywordYield[] }) {
@@ -38,15 +40,6 @@ function Summary({ rows }: { rows: KeywordYield[] }) {
 export function KeywordYieldCard({ keywords }: Props) {
   const [open, setOpen] = useState(false);
   const bodyId = useId();
-
-  if (keywords === null) {
-    return (
-      <Text size="sm" c="dimmed">
-        Какой ключ что нашёл, этот прогон не хранит — он запущен до того, как это стали записывать.
-        Отдачу его ключей не посчитать.
-      </Text>
-    );
-  }
 
   return (
     <Stack gap="sm">

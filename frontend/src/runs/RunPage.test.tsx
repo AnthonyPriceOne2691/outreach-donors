@@ -6,6 +6,7 @@
  * запустить, если цена не помещается в остаток.
  */
 
+import { notifications } from '@mantine/notifications';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
@@ -85,7 +86,9 @@ const STOPPED = {
 
 /** Ответ истории: страница, её размер и сколько прогонов всего. */
 function history(runs: unknown[], extra: Record<string, unknown> = {}) {
-  return { body: { runs, total: runs.length, page: 1, limit: 10, workers: 1, ...extra } };
+  return {
+    body: { runs, total: runs.length, page: 1, limit: 10, workers: 1, queued: 0, ...extra },
+  };
 }
 
 async function openRun(routes: Record<string, unknown> = {}, path = '/run') {
@@ -182,7 +185,9 @@ describe('сборка ключей моделью', () => {
     // Язык экран не выбирает и не шлёт: его задаёт рынок.
     expect(call?.body).not.toHaveProperty('language');
     // И показывает до сборки, на чём соберётся, — на двух языках пул дороже вдвое.
-    expect(screen.getByText(/Языки рынка: English, French/)).toBeInTheDocument();
+    // Словами экрана, а не так, как язык называет сервер для модели.
+    expect(screen.getByText('Языки рынка: английский, французский')).toBeInTheDocument();
+    expect(screen.queryByText(/English/)).not.toBeInTheDocument();
   });
 
   it('неполный пул из-за отказов модели назван вслух', async () => {
@@ -339,7 +344,12 @@ describe('прогон', () => {
     await user.click(hint);
 
     const told = await screen.findByRole('dialog', { name: 'Почему остановлен' });
-    expect(told).toHaveTextContent(STOP_REASON);
+    // «Остановлен» уже сказано заголовком — текст начинается с того, кто
+    // и почему остановил, а не с повтора (аудит 25.09.2026).
+    expect(told).toHaveTextContent(
+      'Закрыт разбором зависших прогонов: ' + STOP_REASON.slice('остановлен разбором: '.length),
+    );
+    expect(told.textContent).not.toMatch(/остановлен разбором/);
     // Сырой текст из базы экран не берёт: причину готовит сервер.
     expect(screen.queryByText(/сырой текст/)).not.toBeInTheDocument();
   });
@@ -629,5 +639,189 @@ describe('ключи, дававшие доноров', () => {
 
     await screen.findByLabelText('Ключевые слова');
     expect(screen.queryByText(/Ключи, дававшие принятых доноров/)).not.toBeInTheDocument();
+  });
+});
+
+/** Пункты того выпадающего списка, в котором есть пункт `known`. Пункты всех
+ *  списков экрана лежат в документе сразу (в jsdom они `display: none`),
+ *  и общий поиск по роли смешал бы страны с глубиной. */
+async function optionsNear(known: string): Promise<(string | null)[]> {
+  const option = await screen.findByRole('option', { name: known, hidden: true });
+  const list = option.closest('[role="listbox"]');
+  if (!(list instanceof HTMLElement)) throw new Error(`у пункта «${known}» нет списка`);
+  return within(list)
+    .getAllByRole('option', { hidden: true })
+    .map((one) => one.textContent);
+}
+
+describe('глубина выдачи', () => {
+  // Замечание 25.09.2026: «Глубина, страниц» (1–5) стала выпадающим списком
+  // «Глубина выдачи» на 10, 20, 30, 50 и 100 результатов, по умолчанию 10.
+  // На сервер глубина уходит страницами по десять — так её считает смета.
+  // Выпадающий список Mantine в jsdom остаётся `display: none` — раскладки
+  // здесь нет, и без `hidden` его пункты не видны запросу. Клик настоящий.
+  async function pickDepth(user: ReturnType<typeof userEvent.setup>, title: string) {
+    await user.click(screen.getByRole('textbox', { name: 'Глубина выдачи' }));
+    await user.click(await screen.findByRole('option', { name: title, hidden: true }));
+  }
+
+  it('по умолчанию 10 результатов, и в списке ровно пять глубин', async () => {
+    await openRun();
+    const user = userEvent.setup();
+
+    const field = screen.getByRole('textbox', { name: 'Глубина выдачи' });
+    expect(field).toHaveValue('10 результатов');
+    await user.click(field);
+
+    expect(await optionsNear('10 результатов')).toEqual([
+      '10 результатов',
+      '20 результатов',
+      '30 результатов',
+      '50 результатов',
+      '100 результатов',
+    ]);
+  });
+
+  it('сто результатов уходят на сервер десятью страницами — и в смету, и в запуск', async () => {
+    const deep = { ...FITS, depth_pages: 10, expected_results: 200 };
+    const recorded = await openRun({
+      'POST /api/runs/estimate': { body: deep },
+      'POST /api/runs': { body: { run_id: 7, job_id: 'abc', note: 'Прогон встал в очередь.' } },
+    });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
+    await pickDepth(user, '100 результатов');
+    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
+
+    // Подпись сметы — теми же словами, что поле.
+    expect(await screen.findByText('2 ключа × 100 результатов')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Запустить/ }));
+
+    await waitFor(() =>
+      expect(recorded.calls.filter((call) => call.method === 'POST')).toHaveLength(2),
+    );
+    const sent = recorded.calls.filter((call) => call.method === 'POST').map((call) => call.body);
+    expect(sent).toEqual([
+      { keywords: ['ремонт', 'дизайн'], country: 'us', depth_pages: 10 },
+      { keywords: ['ремонт', 'дизайн'], country: 'us', depth_pages: 10 },
+    ]);
+  });
+
+  it('смена глубины после сметы — смета устарела, запуск закрыт', async () => {
+    // На ста результатах выдача вдесятеро дороже: обещать цену топ-10 нельзя.
+    await openRun({ 'POST /api/runs/estimate': { body: FITS } });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
+    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
+    await screen.findByText('до 177');
+    await pickDepth(user, '50 результатов');
+
+    expect(await screen.findByText('Смета устарела')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Запустить/ })).toBeDisabled();
+  });
+
+  it('отказ сервера за пределом глубины виден его словами', async () => {
+    // Уведомления живут в общем хранилище Mantine и копятся от теста к тесту:
+    // сверх пяти новые встают в очередь и не видны. Этому тесту нужно своё.
+    notifications.clean();
+    notifications.cleanQueue();
+    const refusal =
+      'Глубина выдачи — от 10 до 100 результатов на ключ, то есть от 1 до 10 страниц по 10; пришло 20.';
+    await openRun({
+      'POST /api/runs/estimate': {
+        status: 422,
+        body: { detail: [{ type: 'depth_out_of_range', msg: refusal }] },
+      },
+    });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт');
+    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
+
+    expect(await screen.findByText(refusal)).toBeInTheDocument();
+    expect(screen.getByText('Смета не посчиталась')).toBeInTheDocument();
+  });
+});
+
+describe('режим сборки моделью', () => {
+  const MODEL = {
+    'GET /api/keywords/presets': { body: ['guest', 'guides', 'media', 'reviews', 'wide'] },
+    'GET /api/keywords/languages?country=us': { body: ['English'] },
+  };
+
+  it('наборы углов — словами, по умолчанию широкий охват, а на сервер уходит код', async () => {
+    const recorded = await openRun({ ...MODEL, 'POST /api/keywords': { body: POOL } });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('radio', { name: 'Собрать моделью' }));
+    const preset = await screen.findByRole('textbox', { name: 'Набор углов' });
+    expect(preset).toHaveValue('широкий охват');
+    await user.click(preset);
+    // Ни одного кода: аудит 25.09.2026 нашёл здесь wide/guest/guides/media/reviews.
+    expect(await optionsNear('широкий охват')).toEqual([
+      'гостевые посты',
+      'инструкции и правила',
+      'новости и издания',
+      'обзоры и подборки',
+      'широкий охват',
+    ]);
+    await user.click(screen.getByRole('option', { name: 'гостевые посты', hidden: true }));
+    await user.click(screen.getByRole('button', { name: 'Собрать' }));
+
+    await waitFor(() =>
+      expect(recorded.calls.some((call) => call.path === '/api/keywords')).toBe(true),
+    );
+    const call = recorded.calls.find((item) => item.path === '/api/keywords');
+    expect(call?.body).toMatchObject({ preset: 'guest' });
+    expect(screen.getByText('Язык рынка: английский')).toBeInTheDocument();
+  });
+
+  it('незнакомый набор назван общими словами с кодом, а не голым кодом', async () => {
+    await openRun({ ...MODEL, 'GET /api/keywords/presets': { body: ['wide', 'podcasts'] } });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('radio', { name: 'Собрать моделью' }));
+    await user.click(await screen.findByRole('textbox', { name: 'Набор углов' }));
+
+    expect(
+      await screen.findByRole('option', { name: 'другой набор (podcasts)', hidden: true }),
+    ).toBeInTheDocument();
+  });
+
+  it('свои ключи — поля сборки не отрисованы вовсе, а не спрятаны', async () => {
+    // jsdom считает спрятанное невидимым, и тест на `hidden` был бы зелёным
+    // при полях, стоящих на экране (урок 21.09.2026). Проверяется документ.
+    await openRun(MODEL);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('radio', { name: 'Собрать моделью' }));
+    expect(await screen.findByRole('textbox', { name: 'Набор углов' })).toBeInTheDocument();
+    await user.click(screen.getByRole('radio', { name: 'Свои ключи' }));
+
+    await waitFor(() => expect(document.querySelector('[data-unfold]')).not.toBeInTheDocument());
+    expect(screen.queryByLabelText('Набор углов', { selector: 'input' })).toBeNull();
+    expect(screen.queryByText(/Сборка ничего платного не тратит/)).toBeNull();
+  });
+});
+
+describe('задачу некому взять', () => {
+  it('предупреждение видно и со второй страницы истории', async () => {
+    // Прогон в очереди — на первой странице, а смотрят вторую. До 25.09.2026
+    // экран искал его только среди своих строк и молчал.
+    await openRun(
+      {
+        'GET /api/runs?page=2': history(finished(2, 2), {
+          total: 12,
+          page: 2,
+          workers: 0,
+          queued: 1,
+        }),
+      },
+      '/run?page=2',
+    );
+
+    expect(await screen.findByText('Задачу некому взять')).toBeInTheDocument();
   });
 });

@@ -315,3 +315,120 @@ export const REVIEW_TIERS: Record<ReviewTier, { title: string; color: string }> 
   open: { title: 'посмотреть', color: 'gray' },
   doubtful: { title: 'сомнительно', color: 'red' },
 };
+
+/** Наборы углов для сборки ключей моделью (`keywords/angles.py`). Список
+ *  приходит с сервера кодами — здесь только подписи; новый набор, которого
+ *  здесь ещё нет, виден общими словами с кодом, а не голым кодом. */
+const KEYWORD_PRESET_TITLES: Record<string, string> = {
+  wide: 'широкий охват',
+  guest: 'гостевые посты',
+  media: 'новости и издания',
+  reviews: 'обзоры и подборки',
+  guides: 'инструкции и правила',
+};
+
+export function presetTitle(code: string): string {
+  return KEYWORD_PRESET_TITLES[code] ?? `другой набор (${code})`;
+}
+
+/** Языки рынка. Сервер называет их по-английски — так их понимает модель
+ *  (`serp/markets.py`), а на экране они по-русски. */
+const LANGUAGE_TITLES: Record<string, string> = {
+  Arabic: 'арабский',
+  Bulgarian: 'болгарский',
+  Croatian: 'хорватский',
+  Czech: 'чешский',
+  Danish: 'датский',
+  Dutch: 'нидерландский',
+  English: 'английский',
+  Estonian: 'эстонский',
+  Filipino: 'филиппинский',
+  Finnish: 'финский',
+  French: 'французский',
+  German: 'немецкий',
+  Greek: 'греческий',
+  Hebrew: 'иврит',
+  Hungarian: 'венгерский',
+  Indonesian: 'индонезийский',
+  Italian: 'итальянский',
+  Japanese: 'японский',
+  Kazakh: 'казахский',
+  Latvian: 'латышский',
+  Lithuanian: 'литовский',
+  Malay: 'малайский',
+  Norwegian: 'норвежский',
+  Polish: 'польский',
+  Portuguese: 'португальский',
+  Romanian: 'румынский',
+  Russian: 'русский',
+  Slovak: 'словацкий',
+  Slovenian: 'словенский',
+  Spanish: 'испанский',
+  Swedish: 'шведский',
+  Thai: 'тайский',
+  Turkish: 'турецкий',
+  Ukrainian: 'украинский',
+  Vietnamese: 'вьетнамский',
+};
+
+export function languageTitle(name: string): string {
+  return LANGUAGE_TITLES[name] ?? `другой язык (${name})`;
+}
+
+/** Признаки продажи своего на главной (`donors/home_signals.py`): сервер
+ *  пишет их метками вида `cart:/warenkorb`, `path:/pricing`,
+ *  `schema:SoftwareApplication`. Человеку нужно, что именно нашлось. */
+const SCHEMA_TITLES: Record<string, string> = {
+  Product: 'разметка товара с ценой',
+  OfferCatalog: 'каталог товаров в разметке',
+  LocalBusiness: 'разметка местной фирмы',
+  ProfessionalService: 'разметка услуги',
+  FinancialService: 'разметка финансовой услуги',
+  InsuranceAgency: 'разметка страховой',
+  Dentist: 'разметка клиники',
+  MedicalBusiness: 'разметка клиники',
+  MedicalClinic: 'разметка клиники',
+  LegalService: 'разметка юридической услуги',
+  SoftwareApplication: 'разметка программы',
+  WebApplication: 'разметка программы',
+};
+
+const SERVICE_PATH_TITLES: Record<string, string> = {
+  pricing: 'страница тарифов',
+  demo: 'запись на демо',
+  'request-a-demo': 'запись на демо',
+  'book-a-demo': 'запись на демо',
+  'contact-sales': 'связь с продажами',
+  'free-trial': 'пробный период',
+  'get-started': 'кнопка «начать»',
+  appointment: 'запись на приём',
+  appointments: 'запись на приём',
+  'book-appointment': 'запись на приём',
+  'get-a-quote': 'запрос цены',
+  'request-a-quote': 'запрос цены',
+};
+
+function homeSignalTitle(mark: string): string {
+  const cut = mark.indexOf(':');
+  const kind = cut < 0 ? mark : mark.slice(0, cut);
+  const value = cut < 0 ? '' : mark.slice(cut + 1);
+  if (kind === 'cart') return value === 'слово' ? 'кнопка корзины' : 'ссылка на корзину';
+  if (kind === 'engine') return 'движок магазина';
+  if (kind === 'og' && value === 'product') return 'страница товара в разметке';
+  if (kind === 'schema') {
+    // `ElectronicsStore`, `HomeGoodsStore` и прочие — подтипы магазина.
+    if (value.endsWith('Store')) return 'разметка магазина';
+    return SCHEMA_TITLES[value] ?? `другой признак (${mark})`;
+  }
+  if (kind === 'path') {
+    return SERVICE_PATH_TITLES[value.replace(/^\//, '')] ?? `другой признак (${mark})`;
+  }
+  return `другой признак (${mark})`;
+}
+
+/** Признаки главной словами, без повторов: «ссылка на корзину, разметка
+ *  товара с ценой». Две метки одного смысла (`/demo` и `/book-a-demo`) —
+ *  одно слово. */
+export function homeSignalsText(marks: string[]): string {
+  return [...new Set(marks.map(homeSignalTitle))].join(', ');
+}

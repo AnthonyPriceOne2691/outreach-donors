@@ -11,6 +11,16 @@
  * точное число доменов известно только после выдачи, а выдача уже трата.
  * Смета считает худший случай (все домены новые), а точная проверка идёт
  * второй раз, по настоящим доменам, до первого платного запроса.
+ *
+ * **Поля — компактным ровным рядом** (замечание 25.09.2026: «страна и
+ * глубина неоправданно широкие»). Ширина поля — по самому длинному, что
+ * в нём бывает («Саудовская Аравия», «100 результатов»), подписи
+ * и пояснения на одной высоте (`fieldRow`), на телефоне поле — во всю
+ * ширину, по одному в строке (`runFields`). Так же и в режиме сборки
+ * моделью: там было три высоты подписи.
+ *
+ * **Режим сборки раскрывается в два такта** (`Unfold`): сначала место,
+ * потом содержимое.
  */
 
 import {
@@ -34,15 +44,43 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { useEffect, useState } from 'react';
 
 import { refusalOf } from '../api/client';
-import { countryTitle } from '../api/labels';
+import { countryTitle, languageTitle, presetTitle } from '../api/labels';
 import { Metric } from '../components/Metric';
 import { buildPool, fetchMarketLanguages, fetchPresets } from '../api/keywords';
 import { ProvenKeywords } from './ProvenKeywords';
 import { ACTIVE, pagesOf, RunHistory, useHistoryPage } from './RunHistory';
 import { estimateRun, fetchCountries, listRuns, startRun } from '../api/runs';
-import type { Forecast } from '../api/types';
+import type { Forecast, RunRequest } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { formatNumber, formatUsd } from '../format';
+import {
+  DEFAULT_DEPTH,
+  DEPTHS,
+  depthTitle,
+  keywordsTitle,
+  pagesOf as depthPages,
+  RESULTS_PER_PAGE,
+} from './depth';
+import type { Depth } from './depth';
+import { Unfold } from './Unfold';
+
+/** Набор углов, пока человек не выбрал другой, — тот же, что берёт сервер
+ *  по умолчанию (`angles.DEFAULT_PRESET`). */
+const DEFAULT_PRESET = 'wide';
+
+/** Ширины полей ряда — по самому длинному значению шрифтом экрана, а не на
+ *  глаз: «Саудовская Аравия» в поле страны, «100 результатов» в поле
+ *  глубины, «инструкции и правила» в наборе углов. На телефоне (уже `xs`)
+ *  поле — во всю ширину: разной длины поля одно под другим читались бы
+ *  рваным краем. */
+const WIDTH = {
+  country: 200,
+  depth: 176,
+  cap: 190,
+  preset: 206,
+  topics: 260,
+  poolCap: 140,
+} as const;
 
 function parseKeywords(text: string): string[] {
   return text
@@ -58,7 +96,8 @@ function Estimate({ forecast }: { forecast: Forecast }) {
         <Metric
           title="Результатов выдачи"
           value={formatNumber(forecast.expected_results)}
-          hint={`${forecast.keywords} ключей × ${forecast.depth_pages} стр.`}
+          // Те же слова, что у поля: «глубина выдачи — 20 результатов».
+          hint={`${keywordsTitle(forecast.keywords)} × ${depthTitle(forecast.depth_pages * RESULTS_PER_PAGE)}`}
         />
         <Metric
           title="Уникальных доменов"
@@ -83,7 +122,8 @@ function Estimate({ forecast }: { forecast: Forecast }) {
 
       {/* Выдача платится деньгами, а не юнитами, и кнопку не блокирует:
           без неё прогона нет вовсе. Но названа она должна быть — до этой
-          строки расход на выдачу не показывался нигде. */}
+          строки расход на выдачу не показывался нигде. Провайдер берёт за
+          каждые десять результатов: сто результатов — вдесятеро дороже. */}
       <Text size="sm" c="dimmed">
         Выдача обойдётся примерно в <b>{formatUsd(forecast.serp_cost_usd)}</b> — это другой счёт, не
         юниты Ahrefs. Потрачено нами юнитов с начала месяца:{' '}
@@ -98,7 +138,7 @@ function Estimate({ forecast }: { forecast: Forecast }) {
       ) : (
         <Alert color="red" title="Не помещается в бюджет">
           Не хватает {formatNumber(forecast.shortfall)} юнитов. Сократите список ключей или глубину
-          — либо поднимите кап, если остаток у провайдера позволяет.
+          выдачи — либо поднимите кап, если остаток у провайдера позволяет.
         </Alert>
       )}
     </Stack>
@@ -109,13 +149,15 @@ export function RunPage() {
   const { can } = useSession();
   const [keywords, setKeywords] = useState('');
   const [country, setCountry] = useState('us');
-  const [depth, setDepth] = useState(1);
+  const [depth, setDepth] = useState<Depth>(DEFAULT_DEPTH);
   const [cap, setCap] = useState<number | ''>('');
   const [forecast, setForecast] = useState<Forecast | null>(null);
+  // О чём спрашивали смету: ключи, страна, глубина и потолок одной строкой.
+  const [askedFor, setAskedFor] = useState<string | null>(null);
   // Ключи по требованиям приносит оператор, поэтому «свои» — умолчание,
   // а сборка моделью это второй режим того же поля, а не замена ему.
   const [source, setSource] = useState<'manual' | 'model'>('manual');
-  const [preset, setPreset] = useState<string | null>(null);
+  const [preset, setPreset] = useState<string>(DEFAULT_PRESET);
   const [topics, setTopics] = useState<string[]>([]);
   const [poolCap, setPoolCap] = useState<number | ''>(30);
 
@@ -150,11 +192,17 @@ export function RunPage() {
     // экран молчит от нажатия до конца работы, и единственный способ
     // узнать, идёт ли она, — перезагрузить страницу.
     refetchInterval: (query) =>
-      (query.state.data?.runs ?? []).some((run) => ACTIVE.has(run.status)) ? 5000 : false,
+      (query.state.data?.queued ?? 0) > 0 ||
+      (query.state.data?.runs ?? []).some((run) => ACTIVE.has(run.status))
+        ? 5000
+        : false,
   });
   const view = runs.data ?? null;
   const rows = view?.runs ?? [];
-  const waiting = rows.some((run) => run.status === 'queued');
+  // Очередь — по всей истории, а не по этой странице: прогон, ждущий на
+  // первой странице, не виден тому, кто смотрит вторую, а «некому взять»
+  // касается и его.
+  const waiting = (view?.queued ?? 0) > 0 || rows.some((run) => run.status === 'queued');
   const pages = pagesOf(view);
   const settled = view !== null && !runs.isPlaceholderData;
 
@@ -166,17 +214,17 @@ export function RunPage() {
   }, [settled, page, pages, goToPage]);
 
   const list = parseKeywords(keywords);
-  const body = {
+  const body: RunRequest = {
     keywords: list,
     country,
-    depth_pages: depth,
+    depth_pages: depthPages(depth),
     ...(typeof cap === 'number' ? { cap } : {}),
   };
 
   const pool = useMutation({
     mutationFn: () =>
       buildPool({
-        preset: preset ?? 'wide',
+        preset,
         country,
         topics,
         cap: typeof poolCap === 'number' ? poolCap : 30,
@@ -187,11 +235,11 @@ export function RunPage() {
       setKeywords(built.keywords.join('\n'));
       setForecast(null);
       notifications.show({
-        title: `Собрано ${built.keywords.length} ключей`,
+        title: `Собрано ${keywordsTitle(built.keywords.length)}`,
         message:
           built.refusals.length > 0
             ? `Модель ${built.model} отказала ${built.refusals.length} раз(а) — пул неполный: ${built.refusals[0]}`
-            : `Модель ${built.model}, ${built.tokens} токенов, языки: ${built.languages.join(', ')}. Проверьте список перед сметой.`,
+            : `Модель ${built.model}, ${built.tokens} токенов, языки: ${built.languages.map(languageTitle).join(', ')}. Проверьте список перед сметой.`,
         color: built.refusals.length > 0 ? 'yellow' : 'green',
       });
     },
@@ -204,8 +252,11 @@ export function RunPage() {
   });
 
   const estimate = useMutation({
-    mutationFn: () => estimateRun(body),
-    onSuccess: setForecast,
+    mutationFn: (asked: RunRequest) => estimateRun(asked),
+    onSuccess: (made, asked) => {
+      setForecast(made);
+      setAskedFor(JSON.stringify(asked));
+    },
     onError: (failure) =>
       notifications.show({
         title: 'Смета не посчиталась',
@@ -229,10 +280,13 @@ export function RunPage() {
       notifications.show({ title: 'Прогон не запущен', message: refusalOf(failure), color: 'red' }),
   });
 
-  // Смета устаревает, как только меняют ключи или страну: показывать
-  // старые числа рядом с новым списком — это обещание цены, которой нет.
-  const stale = forecast !== null && forecast.keywords !== list.length;
+  // Смета устаревает, как только меняют ключи, страну, глубину или потолок:
+  // показывать старые числа рядом с новым вопросом — это обещание цены,
+  // которой нет. Глубина — вдесятеро дороже на ста результатах, а до
+  // 25.09.2026 устаревание смотрело только на число ключей.
+  const stale = forecast !== null && askedFor !== JSON.stringify(body);
   const canRun = can('run');
+  const languages = marketLanguages.data ?? [];
 
   return (
     <Stack gap="lg">
@@ -248,22 +302,26 @@ export function RunPage() {
           </Stack>
 
           <Stack gap="xs">
-            <SegmentedControl
-              value={source}
-              onChange={(value) => setSource(value as 'manual' | 'model')}
-              disabled={!canRun}
-              data={[
-                { label: 'Свои ключи', value: 'manual' },
-                { label: 'Собрать моделью', value: 'model' },
-              ]}
-            />
+            {/* Переключатель и секция сборки — без общего промежутка: отступ
+                секции растёт вместе с её высотой, иначе поле ключей
+                сдвигалось бы на десять пикселей рывком в первом кадре. */}
+            <div>
+              <SegmentedControl
+                value={source}
+                onChange={(value) => setSource(value as 'manual' | 'model')}
+                disabled={!canRun}
+                fullWidth
+                data={[
+                  { label: 'Свои ключи', value: 'manual' },
+                  { label: 'Собрать моделью', value: 'model' },
+                ]}
+              />
 
-            {source === 'model' ? (
-              // Вложенный блок берёт `glassSolid`, а не `glassPanel`:
-              // второй слой того же рецепта в тёмной теме выходит светлой
-              // плитой, и весь приглушённый текст на ней выцветает —
-              // намерено 2.46 : 1 при норме 4.5.
-              <Card className="glassSolid" p="md" withBorder>
+              {/* Вложенный блок берёт `glassSolid`, а не `glassPanel`:
+                  второй слой того же рецепта в тёмной теме выходит светлой
+                  плитой, и весь приглушённый текст на ней выцветает —
+                  намерено 2.46 : 1 при норме 4.5. */}
+              <Unfold open={source === 'model'} className="glassSolid" p="md" mt="xs">
                 <Stack gap="sm">
                   <Text size="sm" c="dimmed">
                     Сборка ничего платного не тратит — только модель. Фразы попадут в поле ниже, и
@@ -274,37 +332,43 @@ export function RunPage() {
                   <Text size="sm" c="dimmed">
                     {marketLanguages.isError
                       ? 'Язык этого рынка не выводится — сборка откажет и скажет почему.'
-                      : `Языки рынка: ${(marketLanguages.data ?? []).join(', ') || '…'}`}
+                      : `${languages.length === 1 ? 'Язык' : 'Языки'} рынка: ${languages.map(languageTitle).join(', ') || '…'}`}
                   </Text>
-                  <Group align="flex-end" gap="md" wrap="wrap">
+                  <Group align="flex-end" gap="md" className="fieldRow runFields">
                     <Select
                       label="Набор углов"
-                      description="Свои углы не пишут — только обкатанные наборы"
-                      data={presets.data ?? []}
+                      description="Только обкатанные наборы"
+                      data={(presets.data ?? [DEFAULT_PRESET]).map((code) => ({
+                        value: code,
+                        label: presetTitle(code),
+                      }))}
                       value={preset}
-                      onChange={setPreset}
-                      placeholder={presets.isPending ? 'загружаются…' : 'wide'}
-                      w={190}
+                      allowDeselect={false}
+                      onChange={(value) => value !== null && setPreset(value)}
+                      comboboxProps={{ width: 'target', position: 'bottom-start' }}
+                      w={{ base: '100%', xs: WIDTH.preset }}
                     />
                     <TagsInput
                       label="Про что"
-                      description="Несколько тем дают больше доменов"
+                      description="Несколько тем — больше доменов"
                       placeholder={topics.length === 0 ? 'ставки на спорт' : ''}
                       value={topics}
                       onChange={setTopics}
                       clearable
-                      w={260}
+                      w={{ base: '100%', xs: WIDTH.topics }}
                     />
                     <NumberInput
                       label="Сколько ключей"
+                      description="От 1 до 100"
                       min={1}
                       max={100}
                       value={poolCap}
                       onChange={(value) => setPoolCap(typeof value === 'number' ? value : '')}
-                      w={150}
+                      w={{ base: '100%', xs: WIDTH.poolCap }}
                     />
                     <Button
                       variant="light"
+                      className="press"
                       leftSection={<IconSparkles size={16} />}
                       onClick={() => pool.mutate()}
                       loading={pool.isPending}
@@ -314,8 +378,8 @@ export function RunPage() {
                     </Button>
                   </Group>
                 </Stack>
-              </Card>
-            ) : null}
+              </Unfold>
+            </div>
 
             <Textarea
               label="Ключевые слова"
@@ -341,11 +405,11 @@ export function RunPage() {
             ) : null}
           </Stack>
 
-          <Group align="flex-end" gap="md">
+          <Group align="flex-end" gap="md" className="fieldRow runFields">
             <Select
               label="Страна выдачи"
               description="Список приходит с сервера"
-              w={260}
+              w={{ base: '100%', xs: WIDTH.country }}
               searchable
               value={country}
               data={(countries.data ?? []).map((code) => ({
@@ -353,15 +417,23 @@ export function RunPage() {
                 label: countryTitle(code),
               }))}
               onChange={(value) => value !== null && setCountry(value)}
+              comboboxProps={{ width: 'target', position: 'bottom-start' }}
             />
-            <NumberInput
-              label="Глубина, страниц"
-              description="10 результатов на странице"
-              w={180}
-              min={1}
-              max={5}
-              value={depth}
-              onChange={(value) => setDepth(typeof value === 'number' ? value : 1)}
+            <Select
+              label="Глубина выдачи"
+              description="На каждый ключ"
+              w={{ base: '100%', xs: WIDTH.depth }}
+              value={String(depth)}
+              allowDeselect={false}
+              data={DEPTHS.map((results) => ({
+                value: String(results),
+                label: depthTitle(results),
+              }))}
+              onChange={(value) => {
+                const chosen = DEPTHS.find((results) => String(results) === value);
+                if (chosen !== undefined) setDepth(chosen);
+              }}
+              comboboxProps={{ width: 'target', position: 'bottom-start' }}
             />
             {/* Своя планка на прогон: попробовать нишу дёшево, не сокращая
                 список ключей. Больше остатка по капу её всё равно не
@@ -369,38 +441,40 @@ export function RunPage() {
             <NumberInput
               label="Потолок юнитов"
               description="Пусто — весь остаток по капу"
-              w={200}
+              w={{ base: '100%', xs: WIDTH.cap }}
               min={1}
               step={1000}
               value={cap}
               onChange={(value) => setCap(typeof value === 'number' ? value : '')}
             />
-            <Button
-              variant="default"
-              className="press"
-              leftSection={<IconCalculator size={18} />}
-              loading={estimate.isPending}
-              disabled={list.length === 0}
-              onClick={() => estimate.mutate()}
-            >
-              Посчитать смету
-            </Button>
-            <Button
-              className="press"
-              variant="gradient"
-              leftSection={<IconPlayerPlay size={18} />}
-              loading={launch.isPending}
-              disabled={forecast === null || !forecast.affordable || stale || !canRun}
-              onClick={() => launch.mutate()}
-            >
-              Запустить
-            </Button>
+            <Group gap="sm" className="runActions">
+              <Button
+                variant="default"
+                className="press"
+                leftSection={<IconCalculator size={18} />}
+                loading={estimate.isPending}
+                disabled={list.length === 0}
+                onClick={() => estimate.mutate(body)}
+              >
+                Посчитать смету
+              </Button>
+              <Button
+                className="press"
+                variant="gradient"
+                leftSection={<IconPlayerPlay size={18} />}
+                loading={launch.isPending}
+                disabled={forecast === null || !forecast.affordable || stale || !canRun}
+                onClick={() => launch.mutate()}
+              >
+                Запустить
+              </Button>
+            </Group>
           </Group>
 
           {stale && (
             <Alert color="yellow" title="Смета устарела">
-              Список ключей изменился после расчёта. Посчитайте смету заново — иначе кнопка обещает
-              цену, которой уже нет.
+              Ключи, страна, глубина выдачи или потолок изменились после расчёта. Посчитайте смету
+              заново — иначе кнопка обещает цену, которой уже нет.
             </Alert>
           )}
           {!canRun && (
