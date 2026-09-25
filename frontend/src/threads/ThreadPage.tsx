@@ -28,6 +28,7 @@ import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { refusalOf } from '../api/client';
 import { MESSAGE_STATUSES, REPLY_KINDS, THREAD_STATES } from '../api/labels';
 import { fetchThread, reviewReply, takeLead } from '../api/outreach';
 import type { IncomingCard, LetterCard, MessageStatus } from '../api/types';
@@ -35,10 +36,6 @@ import { useSession } from '../auth/AuthProvider';
 import { formatDateTime } from '../format';
 import { readable } from '../letters/LetterPreview';
 import { PriceReview } from './PriceReview';
-
-function refusalOf(error: unknown): string {
-  return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
-}
 
 const when = formatDateTime;
 

@@ -35,6 +35,7 @@ from rq.exceptions import NoSuchJobError
 from rq.job import Job
 from rq.registry import ScheduledJobRegistry
 
+from backend.features.runs.reasons import explained_line
 from backend.shared.queue import (
     BUILD_JOB,
     CONTACTS_JOB,
@@ -128,7 +129,7 @@ def _outcome(job: Job, conn: Redis) -> JobOutcome:
         job_id=job.id,
         kind=KINDS.get(job.func_name or "", job.func_name or "задача"),
         state=state,
-        error=_error_of(state, status, report, result, job, conn),
+        error=_error_of(state, report, result, job, conn),
         report=report,
         retries_left=job.retries_left,
         next_try_at=_next_try(job, conn) if state == "retry_wait" else None,
@@ -138,21 +139,28 @@ def _outcome(job: Job, conn: Redis) -> JobOutcome:
 
 def _error_of(
     state: str,
-    status: str,
     report: dict[str, Any] | None,
     result: Any,
     job: Job,
     conn: Redis,
 ) -> str | None:
-    """Причина — только у тех исходов, где она есть."""
+    """Причина — только у тех исходов, где она есть, и словами человека.
+
+    Имя класса исключения на экран не выходит (правило `runs/reasons.py`):
+    до 25.09.2026 строка задачи на экранах писем и контактов печатала
+    «TemplateError: …», а без сохранённой причины — «задача failed», статус
+    очереди по-английски. Сырой текст с классом остаётся в журнале и в самой
+    очереди — по нему сбой и ищут.
+    """
     if state == "refused" and report is not None:
-        return str(report["error"])
+        return explained_line(str(report["error"]))
     if state not in {"retry_wait", "failed"}:
         return None
     # Попытка, ушедшая на повтор, итога не оставляет: причину кладёт рядом
     # сама задача (`workers/jobs._remember_error`).
     found = last_error_line(result.exc_string) if result is not None else None
-    return found or job_error(job.id, conn) or f"задача {status}"
+    raw = found or job_error(job.id, conn)
+    return explained_line(raw) if raw else "причина не сохранилась"
 
 
 def _next_try(job: Job, conn: Redis) -> datetime | None:

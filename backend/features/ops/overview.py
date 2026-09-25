@@ -126,6 +126,10 @@ class Overview:
 async def overview(session: AsyncSession, *, now: datetime | None = None) -> Overview:
     """Собрать главную. Каждое число — правилом своего экрана."""
     moment = now or datetime.now(UTC)
+    # Все диалоги, а не последние двести, как в списке: сводка считает по всем.
+    # Состояние выводится в питоне правилом `summarize`, поэтому грузятся
+    # и письма. На тысячах диалогов запрос станет заметным — тогда счёт
+    # переводить в SQL, сохранив правило одним местом.
     threads = await OutreachRepository(session).threads(limit=None)
     spending = await SpendingRepository(session).since_month_start(now=moment)
     return Overview(

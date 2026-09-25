@@ -35,16 +35,13 @@ import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
+import { refusalOf } from '../api/client';
 import { fetchForms, formFilled, formGaveUp } from '../api/contacts';
 import type { FormCard } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { formatCompact, formatDate } from '../format';
 
 const FORMS_QUERY_KEY = ['forms'] as const;
-
-function refusalOf(error: unknown): string {
-  return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
-}
 
 export function FormsPage() {
   const { can } = useSession();

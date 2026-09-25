@@ -27,6 +27,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { refusalOf } from '../api/client';
 import { THREAD_STATES } from '../api/labels';
 import { formatDateTime } from '../format';
 import { listThreads } from '../api/outreach';
@@ -34,10 +35,6 @@ import type { ThreadCard, ThreadState } from '../api/types';
 import { ParseCalibration } from './ParseCalibration';
 
 const THREADS_QUERY_KEY = ['threads'] as const;
-
-function refusalOf(error: unknown): string {
-  return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
-}
 
 const when = formatDateTime;
 

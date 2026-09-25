@@ -65,7 +65,9 @@ def test_finished_with_a_reason_is_refused(fetched: dict[str, Any]) -> None:
     )
     outcome = job_outcome("job-1", redis=object())  # type: ignore[arg-type]
     assert outcome is not None
-    assert (outcome.state, outcome.error) == ("refused", "TemplateError: нет зоны")
+    # Имя класса — для журнала, на экран выходит сообщение (правило
+    # `runs/reasons.py`); в самой очереди текст остаётся полным.
+    assert (outcome.state, outcome.error) == ("refused", "нет зоны")
 
 
 def test_waiting_for_retry_names_the_reason_and_the_time(fetched: dict[str, Any]) -> None:
@@ -74,7 +76,7 @@ def test_waiting_for_retry_names_the_reason_and_the_time(fetched: dict[str, Any]
     outcome = job_outcome("job-1", redis=object())  # type: ignore[arg-type]
     assert outcome is not None
     assert (outcome.state, outcome.title) == ("retry_wait", "ждёт повтора")
-    assert outcome.error == "ConnectError: сеть"
+    assert outcome.error == "сеть"
     assert outcome.next_try_at == AT
     assert outcome.retries_left == 2
 
@@ -84,7 +86,25 @@ def test_failed_carries_the_last_exception_line(fetched: dict[str, Any]) -> None
     fetched["job"] = _job(JobStatus.FAILED, exc=trace)
     outcome = job_outcome("job-1", redis=object())  # type: ignore[arg-type]
     assert outcome is not None
-    assert (outcome.state, outcome.error) == ("failed", "RuntimeError: база легла")
+    assert (outcome.state, outcome.error) == ("failed", "база легла")
+
+
+def test_foreign_message_is_named_in_general_words(fetched: dict[str, Any]) -> None:
+    """Чужое сообщение (библиотека, сеть) — общими словами и именем в скобках:
+    по имени сбой находят в журнале, а английская строка человеку не нужна."""
+    trace = "Traceback (most recent call last):\n  File x\nhttpx.ReadTimeout: timed out\n"
+    fetched["job"] = _job(JobStatus.FAILED, exc=trace)
+    outcome = job_outcome("job-1", redis=object())  # type: ignore[arg-type]
+    assert outcome is not None
+    assert outcome.error == "техническая ошибка (ReadTimeout)"
+
+
+def test_lost_reason_is_said_in_words_not_by_queue_status(fetched: dict[str, Any]) -> None:
+    """Без сохранённой причины раньше выходило «задача failed»."""
+    fetched["job"] = _job(JobStatus.FAILED)
+    outcome = job_outcome("job-1", redis=object())  # type: ignore[arg-type]
+    assert outcome is not None
+    assert outcome.error == "причина не сохранилась"
 
 
 @pytest.mark.parametrize(

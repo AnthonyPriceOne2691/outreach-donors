@@ -39,6 +39,7 @@ import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
+import { refusalOf } from '../api/client';
 import { decideCandidate, fetchCandidates } from '../api/advertisers';
 import type { CandidateCard } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
@@ -52,10 +53,6 @@ const VERDICTS: Record<CandidateCard['verdict'], { label: string; color: string 
   skipped: { label: 'мимо', color: 'gray' },
   blocked: { label: 'кому не пишем', color: 'gray' },
 };
-
-function refusalOf(error: unknown): string {
-  return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
-}
 
 export function AdvertisersPage() {
   const { can } = useSession();

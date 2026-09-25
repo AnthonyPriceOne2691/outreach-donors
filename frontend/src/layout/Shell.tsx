@@ -113,7 +113,7 @@ export function Shell() {
       </AppShell.Header>
 
       <AppShell.Navbar p="sm">
-        <Stack h="100%" justify="space-between" className="glassFrame" p="xs" gap="xs">
+        <Stack h="100%" justify="space-between" className="glassFrame navFrame" p="xs" gap="xs">
           <Stack gap={4}>
             {sections.map((section) => (
               <NavLink

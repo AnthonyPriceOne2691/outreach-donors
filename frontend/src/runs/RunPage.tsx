@@ -33,6 +33,7 @@ import { IconCalculator, IconPlayerPlay, IconSparkles } from '@tabler/icons-reac
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 
+import { refusalOf } from '../api/client';
 import { countryTitle } from '../api/labels';
 import { Metric } from '../components/Metric';
 import { buildPool, fetchMarketLanguages, fetchPresets } from '../api/keywords';
@@ -42,10 +43,6 @@ import { estimateRun, fetchCountries, listRuns, startRun } from '../api/runs';
 import type { Forecast } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { formatNumber, formatUsd } from '../format';
-
-function refusalOf(error: unknown): string {
-  return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
-}
 
 function parseKeywords(text: string): string[] {
   return text

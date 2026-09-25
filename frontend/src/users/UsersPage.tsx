@@ -30,6 +30,7 @@ import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
+import { refusalOf } from '../api/client';
 import type { AccessPatch, OneTimePassword, Role, UserCard } from '../api/types';
 import { listUsers, patchUser, resetPassword } from '../api/users';
 import { useSession } from '../auth/AuthProvider';
@@ -39,10 +40,6 @@ import { OneTimePasswordModal } from './OneTimePasswordModal';
 import { PermissionsPopover } from './PermissionsPopover';
 
 const USERS_QUERY_KEY = ['users'] as const;
-
-function refusalOf(error: unknown): string {
-  return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
-}
 
 export function UsersPage() {
   const queryClient = useQueryClient();
