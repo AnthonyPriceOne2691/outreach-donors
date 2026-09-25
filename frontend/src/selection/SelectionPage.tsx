@@ -41,7 +41,7 @@ import {
 import { useDebouncedValue, useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { refusalOf } from '../api/client';
 import { HUMAN_INTENTS, JUDGE_DECIDERS, SELECTION_TABS } from '../api/labels';
@@ -98,6 +98,10 @@ export function SelectionPage() {
   // Поиск уходит на сервер после паузы в наборе: иначе каждая буква —
   // запрос, и «3» на пути к «30» — отдельный фильтр.
   const [typed] = useDebouncedValue(search.trim(), TYPING_PAUSE_MS);
+  // Новый поиск — с первой страницы, но когда он ушёл на сервер, а не на
+  // каждую букву: иначе с третьей страницы набор спрашивал бы первую
+  // страницу старого поиска.
+  useEffect(() => setPage(1), [typed]);
   // На узком окне три вкладки в ряд резали «Отклонены — 727» до «О».
   const narrow = useMediaQuery('(max-width: 36em)');
 
@@ -242,7 +246,7 @@ export function SelectionPage() {
               aria-label="Поиск по домену или причине"
               w={{ base: '100%', xs: 260 }}
               value={search}
-              onChange={(event) => reset(setSearch)(event.currentTarget.value)}
+              onChange={(event) => setSearch(event.currentTarget.value)}
             />
             <Select
               aria-label="Кто решил у судьи"
