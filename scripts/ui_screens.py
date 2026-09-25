@@ -199,7 +199,7 @@ SCREENS: dict[str, dict] = {
             ("пояснение под ним", "p.mantine-Text-root", NORM),
             # Главное на экране: причины балла. Человек решает по ним,
             # а не по числу, и читать их придётся каждому спорному.
-            ("причина балла", "table tbody li", NORM),
+            ("причина балла", "table tbody td:nth-child(4) p", NORM),
             ("балл значком", "table tbody .mantine-Badge-label", NORM),
             ("счётчик вердиктов", ".mantine-Badge-label", NORM),
             ("кнопка «Пишем»", "table tbody button", BIG),
@@ -496,3 +496,8 @@ PREPARE = {
     "advertisers": show_decided,
     "letter-draft": open_letter_draft,
 }
+
+from ui_screens_mail import mail_prepare, mail_screens  # noqa: E402
+
+SCREENS.update(mail_screens(NORM, BIG))
+PREPARE.update(mail_prepare())
