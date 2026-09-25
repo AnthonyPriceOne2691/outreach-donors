@@ -75,7 +75,9 @@ function SearchState({ donor }: { donor: DonorFullCard }) {
 
 function AddressTable({ donor }: { donor: DonorFullCard }) {
   return (
-    <Table.ScrollContainer minWidth={560} type="native" className="scrollSlim">
+    // Таблица выступает на поле ячейки (`bleedTable`): адрес встаёт на ту же
+    // левую линию, что заголовок раздела, а подсветка строки — шире текста.
+    <Table.ScrollContainer minWidth={560} type="native" className="scrollSlim bleedTable">
       <Table className="dataTable donorAddresses" verticalSpacing="sm" horizontalSpacing="sm">
         <Table.Thead>
           <Table.Tr>
@@ -163,7 +165,7 @@ export function DonorAddresses({ donor }: { donor: DonorFullCard }) {
   const mayStart = empty && donor.contact_refusal === null && !searching;
 
   return (
-    <Card className="glass" p="lg">
+    <Card className="glass" p="xl">
       <Stack gap="sm">
         <Group justify="space-between" align="center" gap="sm">
           <Title order={5}>Адреса</Title>

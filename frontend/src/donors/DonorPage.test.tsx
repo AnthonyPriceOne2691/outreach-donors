@@ -215,12 +215,43 @@ describe('карточка донора: возврат к списку', () => 
 
     await user.click(await screen.findByRole('link', { name: 'card.example.test' }));
     await screen.findByRole('heading', { name: 'card.example.test' });
-    await user.click(screen.getByRole('button', { name: 'К списку' }));
+    // Возврат — ссылка над заголовком, как «К прогонам» у карточки прогона.
+    const back = screen.getByRole('link', { name: 'К списку' });
+    expect(back).toHaveAttribute('href', '/donors?status=suitable&page=2');
+    await user.click(back);
 
     expect(await screen.findByRole('textbox', { name: 'Вердикт' })).toHaveValue('подходит · 25');
     const lists = recorded.calls.filter((call) => call.path.startsWith('/api/donors?'));
     expect(new Set(lists.map((call) => call.path))).toEqual(
       new Set(['/api/donors?status=suitable&limit=20&offset=20']),
     );
+  });
+});
+
+describe('карточка донора: номер из адреса', () => {
+  it('не номер — «такого донора нет» словами, без запроса с NaN', async () => {
+    // Аудит 25.09.2026: `/donors/abc` уходил на сервер с `NaN`, и экран
+    // показывал английский отказ разбора «Input should be a valid integer…».
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    const recorded = serve({ 'GET /api/auth/me': { body: ADMIN } });
+    renderWith(<AppRoutes />, '/donors/abc');
+
+    expect(await screen.findByRole('heading', { name: 'Такого донора нет' })).toBeVisible();
+    expect(screen.getByText(/«abc» в адресе — не номер донора/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'К списку' })).toHaveAttribute('href', '/donors');
+    expect(recorded.calls.map((call) => call.path)).toEqual(['/api/auth/me']);
+  });
+
+  it('такого нет в базе — словами сервера и со ссылкой к списку', async () => {
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    serve({
+      'GET /api/auth/me': { body: ADMIN },
+      'GET /api/donors/404': { status: 404, body: { detail: 'Донора №404 нет' } },
+    });
+    renderWith(<AppRoutes />, '/donors/404');
+
+    expect(await screen.findByRole('heading', { name: 'Такого донора нет' })).toBeVisible();
+    expect(screen.getByText(/Донора №404 нет\./)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'К списку' })).toBeInTheDocument();
   });
 });

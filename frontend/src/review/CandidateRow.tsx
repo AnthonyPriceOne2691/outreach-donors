@@ -5,18 +5,30 @@
  * **Ярлык судьи есть всегда.** Даже когда человек уже решил: по расхождению
  * решения с ярлыком меряется точность судьи, и прятать ярлык после решения
  * значит прятать то, по чему судье когда-нибудь доверят приём.
+ *
+ * **«Продаёт размещение» — один раз, в колонке своего источника.** До
+ * 25.09.2026 строка печатала это трижды: значком у домена, пояснением
+ * «судья: продаёт размещение у себя» рядом и ярлыком судьи. Сервер называет,
+ * чей голос это сказал (`sells_by`): ответ сайта виден в «Донор ответил»,
+ * тип сайта по судье — у судьи, и у домена признак стоит, только если его
+ * больше нигде нет — решение человека или дверь на сайте.
+ *
+ * **Колонки «Нашёлся по ключам» нет, если прогон этого не хранит** — вместо
+ * столбца прочерков пояснение стоит наверху экрана.
  */
 
 import { Anchor, Badge, Button, Checkbox, Group, Stack, Table, Text, Tooltip } from '@mantine/core';
 
 import { CONTACT_STATUSES, countryTitle, REVIEW_TIERS } from '../api/labels';
-import type { CandidateCard, ReviewDecision } from '../api/types';
+import type { ReviewCandidate, ReviewDecision } from '../api/types';
 import { JudgeVerdict, SellerAnswer } from '../components/JudgeVerdict';
 import { formatCompact } from '../format';
 
 interface Props {
-  row: CandidateCard;
+  row: ReviewCandidate;
   mayDecide: boolean;
+  /** Хранит ли прогон, по каким ключам нашёлся домен: нет — нет и колонки. */
+  withKeywords: boolean;
   busy: boolean;
   checked: boolean;
   onCheck: (checked: boolean) => void;
@@ -25,8 +37,17 @@ interface Props {
 
 const KEYWORDS_SHOWN = 2;
 
-function Site({ row }: { row: CandidateCard }) {
+/** Что стоит рядом со значком «продаёт размещение» у домена. Ответ сайта
+ *  и тип по судье здесь не повторяются: они видны в своих колонках. */
+function sellsNote(row: ReviewCandidate): string | null {
+  if (row.sells_by === 'human') return 'так решил человек';
+  if (row.sells_by === 'door') return row.sells;
+  return null;
+}
+
+function Site({ row }: { row: ReviewCandidate }) {
   const share = row.geo_top_share === null ? null : Math.round(row.geo_top_share * 100);
+  const note = sellsNote(row);
   return (
     <Stack gap={2}>
       <Anchor href={`https://${row.host}`} target="_blank" rel="noreferrer" fw={500}>
@@ -38,13 +59,13 @@ function Site({ row }: { row: CandidateCard }) {
       </Text>
       {/* Почему строка стоит первой в ярусе: для гест-постинга это главный
           признак донора, и человек должен видеть, на чём он держится. */}
-      {row.sells !== null && (
-        <Group gap={6} wrap="nowrap" data-sells>
+      {note !== null && (
+        <Group gap={6} wrap="wrap" data-sells>
           <Badge variant="light" color="green" size="sm">
             продаёт размещение
           </Badge>
           <Text size="xs" c="dimmed">
-            {row.sells}
+            {note}
           </Text>
         </Group>
       )}
@@ -69,7 +90,9 @@ function FoundBy({ keywords }: { keywords: string[] }) {
   const shown = keywords.slice(0, KEYWORDS_SHOWN);
   const rest = keywords.length - shown.length;
   return (
-    <Stack gap={2}>
+    // Метка — для замера контраста: колонки может не быть вовсе, и проба
+    // по номеру ячейки мерила бы тогда соседнюю колонку.
+    <Stack gap={2} data-found-by>
       {shown.map((keyword) => (
         <Text key={keyword} size="xs">
           {keyword}
@@ -139,7 +162,7 @@ function Decision({ row, mayDecide, busy, onDecide }: Props) {
 }
 
 export function CandidateRow(props: Props) {
-  const { row, mayDecide, checked, onCheck } = props;
+  const { row, mayDecide, withKeywords, busy, checked, onCheck } = props;
   const tier = REVIEW_TIERS[row.tier];
   return (
     <Table.Tr>
@@ -148,6 +171,7 @@ export function CandidateRow(props: Props) {
           <Checkbox
             aria-label={`Выбрать ${row.host}`}
             checked={checked}
+            disabled={busy}
             onChange={(event) => onCheck(event.currentTarget.checked)}
           />
         </Table.Td>
@@ -155,9 +179,11 @@ export function CandidateRow(props: Props) {
       <Table.Td>
         <Site row={row} />
       </Table.Td>
-      <Table.Td>
-        <FoundBy keywords={row.found_by} />
-      </Table.Td>
+      {withKeywords && (
+        <Table.Td>
+          <FoundBy keywords={row.found_by} />
+        </Table.Td>
+      )}
       <Table.Td>
         <Stack gap={6} align="center">
           <Badge variant="dot" color={tier.color}>

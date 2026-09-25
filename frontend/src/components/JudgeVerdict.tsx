@@ -9,11 +9,17 @@
  *
  * **Цитата обязательна к показу.** Без неё вердикт нельзя проверить,
  * а проверка — то, ради чего человек смотрит очередь.
+ *
+ * **Значки переносятся, а не режутся.** Ряд «не площадка · продаёт
+ * размещение · арбитр» шире колонки судьи, и в одну строку он ужимал
+ * значки до «площа…» и «арб…» (аудит 25.09.2026): слово, обрезанное до
+ * четырёх букв, не значит ничего. Признаки главной — словами, а не
+ * метками сервера («cart:/warenkorb» → «ссылка на корзину»).
  */
 
 import { Anchor, Badge, Group, Stack, Text, Tooltip } from '@mantine/core';
 
-import { JUDGE_ADVICE, JUDGE_DECIDERS, SITE_INTENTS } from '../api/labels';
+import { homeSignalsText, JUDGE_ADVICE, JUDGE_DECIDERS, SITE_INTENTS } from '../api/labels';
 import type { MachineView, SellerView } from '../api/types';
 
 export function JudgeVerdict({ machine }: { machine: MachineView }) {
@@ -29,7 +35,7 @@ export function JudgeVerdict({ machine }: { machine: MachineView }) {
   const intent = machine.intent === null ? null : (SITE_INTENTS[machine.intent] ?? 'другой тип');
   return (
     <Stack gap={4} align="center">
-      <Group gap={6} justify="center" wrap="nowrap">
+      <Group gap={6} justify="center" wrap="wrap">
         <Badge variant="light" color={advice.color}>
           {advice.title}
         </Badge>
@@ -62,8 +68,8 @@ export function JudgeVerdict({ machine }: { machine: MachineView }) {
           </Anchor>
         )}
         {machine.home_shop.length > 0 && (
-          <Text size="xs" c="dimmed">
-            главная: {machine.home_shop.join(', ')}
+          <Text size="xs" c="dimmed" ta="center">
+            главная: {homeSignalsText(machine.home_shop)}
           </Text>
         )}
         {machine.home_reached === false && (

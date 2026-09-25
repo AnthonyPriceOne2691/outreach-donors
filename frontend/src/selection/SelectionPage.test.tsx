@@ -8,9 +8,9 @@
  * ли решение человека на сервер и остаётся ли рядом вердикт машины.
  */
 
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
 import type { SelectionCard, SelectionView } from '../api/types';
@@ -18,6 +18,12 @@ import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import type { Call } from '../test/server';
 import { serve } from '../test/server';
+
+/** Адрес запроса, как его видит заглушка сети. */
+function urlOf(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input;
+  return input instanceof URL ? input.toString() : input.url;
+}
 
 const MACHINE_NONE = {
   intent: null,
@@ -121,7 +127,8 @@ describe('экран отбора', () => {
     expect(row.getByText('не площадка')).toBeInTheDocument();
     expect(row.getByText('правило')).toBeInTheDocument();
     expect(row.getByText('«Kaffee online kaufen»')).toBeInTheDocument();
-    expect(row.getByText(/главная: cart:\/warenkorb/)).toBeInTheDocument();
+    // Признак главной — словами, а не меткой сервера `cart:/warenkorb`.
+    expect(row.getByText('главная: ссылка на корзину')).toBeInTheDocument();
     expect(row.getByRole('link', { name: 'страница' })).toHaveAttribute(
       'href',
       'https://brand.test/ratgeber',
@@ -259,5 +266,87 @@ describe('экран отбора', () => {
     expect(screen.getByText(/Судья угадал по ответам доноров/)).toHaveTextContent(
       'правило 1 из 1 · модель 1 из 2 · арбитр — ответов нет',
     );
+  });
+});
+
+describe('улики судьи словами', () => {
+  it('признаки главной — словами и без повторов', async () => {
+    // Аудит 25.09.2026: «главная: path:/pricing, schema:SoftwareApplication,
+    // cart:слово» стояло на ~25 строках отбора.
+    const service = {
+      ...BRAND,
+      machine: {
+        ...BRAND.machine,
+        home_shop: [
+          'path:/pricing',
+          'schema:SoftwareApplication',
+          'cart:слово',
+          'path:/demo',
+          'path:/book-a-demo',
+          'schema:ElectronicsStore',
+          'engine:shopify',
+          'og:product',
+          'schema:Thing',
+        ],
+      },
+    };
+    await openScreen({ [ACCEPTED]: { body: view([service]) } });
+
+    expect(within(rowOf('brand.test')).getByText(/^главная:/)).toHaveTextContent(
+      'главная: страница тарифов, разметка программы, кнопка корзины, запись на демо, ' +
+        'разметка магазина, движок магазина, страница товара в разметке, ' +
+        'другой признак (schema:Thing)',
+    );
+  });
+});
+
+describe('смена вкладки и фильтра — не перезагрузка', () => {
+  it('пока едет вкладка, сводка и фильтры стоят, прежние строки видны', async () => {
+    await openScreen({ [REJECTED]: { body: view([CUT]) } });
+    const served = vi.mocked(globalThis.fetch).getMockImplementation();
+    if (served === undefined) throw new Error('сеть не подменена');
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => {
+      if (urlOf(input).includes('tab=rejected')) await gate;
+      return served(input, init);
+    });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByText('Отклонены — 3'));
+
+    expect(screen.queryByLabelText('Загружаем отбор')).toBeNull();
+    expect(screen.getByRole('heading', { name: 'Отбор' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Поиск по домену или причине')).toBeInTheDocument();
+    const stale = within(rowOf('brand.test'));
+    expect(rowOf('brand.test').closest('[data-stale]')).not.toBeNull();
+    expect(stale.getByRole('button', { name: 'Площадка' })).toBeDisabled();
+
+    release();
+
+    // `cut.test` есть и среди прежних строк — ждём, пока уйдут остальные.
+    await waitFor(() => expect(screen.queryByText('brand.test')).toBeNull());
+    expect(screen.getByText('cut.test')).toBeInTheDocument();
+    expect(document.querySelector('[data-stale]')).toBeNull();
+  });
+
+  it('поиск не теряет поле на каждой букве и спрашивает сервер после паузы', async () => {
+    // Раньше каждая буква меняла ключ запроса, экран заменялся крутилкой,
+    // и поле поиска пропадало вместе с ним — вместе с фокусом.
+    const found = 'GET /api/selection?tab=accepted&search=brand&limit=50&offset=0';
+    const recorded = await openScreen({ [found]: { body: view([BRAND]) } });
+    const user = userEvent.setup();
+
+    const field = screen.getByLabelText('Поиск по домену или причине');
+    await user.type(field, 'brand');
+
+    expect(field).toHaveFocus();
+    expect(field).toHaveValue('brand');
+    await waitFor(() => expect(screen.queryByText('weak.test')).toBeNull());
+    const searches = recorded.calls.filter((call: Call) => call.path.includes('search='));
+    // Одна пауза — один запрос, а не запрос на каждую букву.
+    expect(searches.map((call: Call) => call.path)).toEqual([found.slice(4)]);
   });
 });

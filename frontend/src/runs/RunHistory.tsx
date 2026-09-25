@@ -20,7 +20,7 @@
 
 import { Badge, Box, Button, Card, Group, Pagination, Stack, Table, Text } from '@mantine/core';
 import { useCallback } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 
 import { countryTitle, RUN_STATUSES } from '../api/labels';
 import type { RunCard, RunsView, RunStatus } from '../api/types';
@@ -140,8 +140,10 @@ function JudgeSilence({ run }: { run: { stats: Record<string, unknown> | null } 
 }
 
 /** Очередь рассмотрения прогона: сколько ждёт решения и ссылка к нему.
- *  Прогон кончается очередью, а не базой, — без этой ячейки её не найти. */
-function ReviewCell({ run }: { run: RunCard }) {
+ *  Прогон кончается очередью, а не базой, — без этой ячейки её не найти.
+ *  Ссылка несёт страницу истории (`from`): «К прогонам» в карточке ведёт
+ *  на ту же страницу, а не на первую. */
+function ReviewCell({ run, from }: { run: RunCard; from: string }) {
   const pending = run.queue.pending ?? 0;
   const accepted = run.queue.accepted ?? 0;
   const rejected = run.queue.rejected ?? 0;
@@ -157,6 +159,7 @@ function ReviewCell({ run }: { run: RunCard }) {
       <Button
         component={Link}
         to={`/runs/${run.id}/review`}
+        state={{ from }}
         size="compact-sm"
         variant={pending > 0 ? 'filled' : 'default'}
       >
@@ -174,7 +177,7 @@ function excludedIn(run: { stats: Record<string, unknown> | null }): number {
   return typeof value === 'number' ? value : 0;
 }
 
-function HistoryRow({ run }: { run: RunCard }) {
+function HistoryRow({ run, from }: { run: RunCard; from: string }) {
   return (
     <Table.Tr>
       <Table.Td>
@@ -251,7 +254,7 @@ function HistoryRow({ run }: { run: RunCard }) {
         )}
       </Table.Td>
       <Table.Td>
-        <ReviewCell run={run} />
+        <ReviewCell run={run} from={from} />
       </Table.Td>
     </Table.Tr>
   );
@@ -266,6 +269,7 @@ interface Props {
 export function RunHistory({ view, page, onPage }: Props) {
   const rows = view?.runs ?? [];
   const pages = pagesOf(view);
+  const { search } = useLocation();
 
   return (
     <Card className="glass" p="xs">
@@ -292,7 +296,7 @@ export function RunHistory({ view, page, onPage }: Props) {
           </Table.Thead>
           <Table.Tbody>
             {rows.map((run) => (
-              <HistoryRow key={run.id} run={run} />
+              <HistoryRow key={run.id} run={run} from={search} />
             ))}
           </Table.Tbody>
         </Table>

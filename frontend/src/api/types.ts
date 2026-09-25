@@ -291,6 +291,9 @@ export interface RunsView {
   /** Сколько воркеров слушает очередь. `null` — спросить не удалось,
    *  и это не ноль: неизвестность и пустота требуют разных слов. */
   workers: number | null;
+  /** Сколько прогонов стоит в очереди — по всей истории, а не на этой
+   *  странице: «задачу некому взять» касается и того, кто смотрит вторую. */
+  queued: number;
 }
 
 export interface RunQueued {
@@ -779,7 +782,10 @@ export interface CalibrationView {
 export type ReviewDecision = 'pending' | 'accepted' | 'rejected';
 export type ReviewTier = 'likely' | 'open' | 'doubtful';
 
-export interface CandidateCard {
+/** Кандидат очереди рассмотрения прогона. Имя своё, а не `CandidateCard`:
+ *  так называется кандидат в рекламодатели, и два интерфейса с одним именем
+ *  TypeScript молча склеивал в один — у каждого появлялись чужие поля. */
+export interface ReviewCandidate {
   candidate_id: number;
   domain_id: number;
   host: string;
@@ -800,9 +806,15 @@ export interface CandidateCard {
   found_by: string[];
   /** Почему стоит первым в ярусе: сайт сам продаёт размещение. Пусто — признака нет. */
   sells: string | null;
+  /** Чей голос сказал «продаёт»: признак показывается один раз, в колонке
+   *  своего источника (ответ — у «Донор ответил», судья — у судьи). */
+  sells_by: SellsBy | null;
   machine: MachineView;
   seller: SellerView;
 }
+
+/** Откуда известно, что сайт продаёт размещение. */
+export type SellsBy = 'answer' | 'human' | 'judge' | 'door';
 
 export interface ReviewRunHead {
   id: number;
@@ -827,7 +839,7 @@ export interface KeywordYield {
 
 export interface ReviewView {
   run: ReviewRunHead;
-  rows: CandidateCard[];
+  rows: ReviewCandidate[];
   /** Что дали ключи прогона. `null` — прогон не хранит, какой ключ что нашёл. */
   keywords: KeywordYield[] | null;
   counts: Record<ReviewDecision, number>;

@@ -14,6 +14,12 @@
  *
  * **Вердикт машины решением человека не переписывается** — сервер держит
  * оба, экран показывает оба.
+ *
+ * **Смена вкладки или фильтра — не перезагрузка** (25.09.2026). Раньше
+ * новый ключ запроса заменял весь экран крутилкой, а поиск терял поле на
+ * каждой букве: поле пропадало вместе с экраном. Теперь сводка и фильтры
+ * стоят на месте, прежние строки видны приглушёнными до прихода новых,
+ * а поиск уходит на сервер после паузы в наборе.
  */
 
 import {
@@ -32,8 +38,9 @@ import {
   TextInput,
   Title,
 } from '@mantine/core';
+import { useDebouncedValue, useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
 import { refusalOf } from '../api/client';
@@ -42,9 +49,26 @@ import { decideSite, listSelection } from '../api/selection';
 import type { HumanIntent, JudgeDecider, SelectionCard, SelectionTab } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { Metric } from '../components/Metric';
+import { TYPING_PAUSE_MS } from '../donors/useTyped';
 import { SelectionRow } from './SelectionRow';
 
 const PAGE_SIZE = 50;
+
+/** Колонки и их ширины — по самому длинному содержимому, домену остаток:
+ *  значок «подходит» ужимался до «подхо…» на вкладке «К разбору» (аудит
+ *  25.09.2026), потому что колонку порогов сжимала соседняя. Решение
+ *  человека — три кнопки в ряд (~312 px); у судьи редкий длинный ряд
+ *  значков переносится целыми значками. */
+const WIDTH = {
+  thresholds: '11rem',
+  judge: '20rem',
+  seller: '9.5rem',
+  human: '21.5rem',
+} as const;
+
+/** Уже этого таблица не сжимается и уезжает в прокрутку: колонкам — их
+ *  ширины, домену — не меньше двухсот. */
+const MIN_WIDTH = 1180;
 const QUERY_KEY = ['selection'] as const;
 const TABS = Object.keys(SELECTION_TABS) as SelectionTab[];
 const DECIDERS = Object.keys(JUDGE_DECIDERS) as JudgeDecider[];
@@ -71,12 +95,17 @@ export function SelectionPage() {
   const [onlyUnjudged, setOnlyUnjudged] = useState(false);
   const [onlyAnswered, setOnlyAnswered] = useState(false);
   const [page, setPage] = useState(1);
+  // Поиск уходит на сервер после паузы в наборе: иначе каждая буква —
+  // запрос, и «3» на пути к «30» — отдельный фильтр.
+  const [typed] = useDebouncedValue(search.trim(), TYPING_PAUSE_MS);
+  // На узком окне три вкладки в ряд резали «Отклонены — 727» до «О».
+  const narrow = useMediaQuery('(max-width: 36em)');
 
   const query = useQuery({
     queryKey: [
       ...QUERY_KEY,
       tab,
-      search,
+      typed,
       decider,
       onlyDisagreements,
       onlyUnreviewed,
@@ -87,7 +116,7 @@ export function SelectionPage() {
     queryFn: () =>
       listSelection({
         tab,
-        ...(search.trim() !== '' ? { search: search.trim() } : {}),
+        ...(typed !== '' ? { search: typed } : {}),
         ...(decider !== null ? { decided_by: decider } : {}),
         only_disagreements: onlyDisagreements,
         only_unreviewed: onlyUnreviewed,
@@ -96,6 +125,9 @@ export function SelectionPage() {
         limit: PAGE_SIZE,
         offset: (page - 1) * PAGE_SIZE,
       }),
+    // Смена вкладки или фильтра не убирает экран: прежние строки стоят,
+    // пока едут новые.
+    placeholderData: keepPreviousData,
   });
 
   const decide = useMutation({
@@ -119,23 +151,23 @@ export function SelectionPage() {
       setPage(1);
     };
 
-  if (query.isLoading && query.data === undefined) {
-    return <Loader aria-label="Загружаем отбор" m="md" />;
-  }
-  if (query.error) {
-    return (
+  if (query.data === undefined) {
+    // Первого ответа ещё нет — или не будет: крутилка только до первого
+    // ответа, дальше экран не пропадает.
+    return query.error ? (
       <Alert color="red" title="Отбор не загрузился" m="md">
         {refusalOf(query.error)}
       </Alert>
+    ) : (
+      <Loader aria-label="Загружаем отбор" m="md" />
     );
   }
 
   const data = query.data;
-  const rows = data?.rows ?? [];
-  const tabs = data?.tabs ?? { accepted: 0, review: 0, rejected: 0 };
-  const pages = Math.max(1, Math.ceil((data?.total ?? 0) / PAGE_SIZE));
-  const reviewed = data?.reviewed ?? 0;
-  const disagreements = data?.disagreements ?? 0;
+  // Строки прежней вкладки или фильтра — ждут замены: решать по ним нельзя.
+  const stale = query.isPlaceholderData;
+  const { rows, tabs, reviewed, disagreements } = data;
+  const pages = Math.max(1, Math.ceil(data.total / PAGE_SIZE));
   const mayDecide = can('prices');
 
   return (
@@ -156,7 +188,7 @@ export function SelectionPage() {
             {TABS.map((value) => (
               <Metric key={value} title={SELECTION_TABS[value].title} value={tabs[value]} />
             ))}
-            <Metric title="Ответили доноры" value={data?.answered ?? 0} />
+            <Metric title="Ответили доноры" value={data.answered} />
             <Metric title="Смотрел человек" value={reviewed} />
             <Metric
               title="Расходится с судьёй"
@@ -172,7 +204,7 @@ export function SelectionPage() {
           <Text size="sm">
             Судья угадал по ответам доноров:{' '}
             {DECIDERS.map((who) => {
-              const score = data?.answer_layers[who];
+              const score = data.answer_layers[who];
               return `${JUDGE_DECIDERS[who].title} ${
                 score === undefined ? '— ответов нет' : `${score.agreed} из ${score.checked}`
               }`;
@@ -181,7 +213,7 @@ export function SelectionPage() {
           <Text size="sm" c="dimmed">
             Сходится с человеком:{' '}
             {DECIDERS.map((who) => {
-              const score = data?.layers[who];
+              const score = data.layers[who];
               return `${JUDGE_DECIDERS[who].title} ${
                 score === undefined ? '— не проверяли' : `${score.agreed} из ${score.checked}`
               }`;
@@ -193,6 +225,8 @@ export function SelectionPage() {
       <Card className="glassPanel" p="xl">
         <Stack gap="md">
           <SegmentedControl
+            orientation={narrow ? 'vertical' : 'horizontal'}
+            fullWidth={narrow}
             value={tab}
             onChange={(value) => reset(setTab)(value as SelectionTab)}
             data={TABS.map((value) => ({
@@ -200,24 +234,28 @@ export function SelectionPage() {
               label: `${SELECTION_TABS[value].title} — ${tabs[value]}`,
             }))}
           />
+          {/* Два ряда: поля и флажки. Одним рядом на 1440 четвёртый флажок
+              переносился один (аудит 25.09.2026). */}
           <Group gap="md" align="flex-end">
             <TextInput
               placeholder="Домен или причина"
               aria-label="Поиск по домену или причине"
-              w={260}
+              w={{ base: '100%', xs: 260 }}
               value={search}
               onChange={(event) => reset(setSearch)(event.currentTarget.value)}
             />
             <Select
               aria-label="Кто решил у судьи"
               placeholder="Кто решил у судьи"
-              w={200}
+              w={{ base: '100%', xs: 200 }}
               clearable
               value={decider}
               onChange={(value) => reset(setDecider)(value as JudgeDecider | null)}
               data={DECIDERS.map((who) => ({ value: who, label: JUDGE_DECIDERS[who].title }))}
               comboboxProps={{ width: 'target', position: 'bottom-start' }}
             />
+          </Group>
+          <Group gap="lg">
             <Switch
               label="Только расхождения"
               checked={onlyDisagreements}
@@ -242,14 +280,31 @@ export function SelectionPage() {
         </Stack>
       </Card>
 
-      <Card className="glass" p="xs">
+      <Card
+        className="glass staleRows"
+        p="xs"
+        data-stale={stale || undefined}
+        aria-busy={stale || undefined}
+      >
         {rows.length === 0 ? (
           <Text size="sm" c="dimmed" p="lg">
-            {EMPTY[tab]}
+            {stale ? 'Загружаем…' : EMPTY[tab]}
           </Text>
         ) : (
-          <Table.ScrollContainer minWidth={1080}>
-            <Table className="dataTable" verticalSpacing="sm" horizontalSpacing="md">
+          <Table.ScrollContainer minWidth={MIN_WIDTH} type="native" className="scrollSlim">
+            <Table
+              className="dataTable selectionTable"
+              layout="fixed"
+              verticalSpacing="sm"
+              horizontalSpacing="md"
+            >
+              <colgroup>
+                <col />
+                <col style={{ width: WIDTH.thresholds }} />
+                <col style={{ width: WIDTH.judge }} />
+                <col style={{ width: WIDTH.seller }} />
+                <col style={{ width: WIDTH.human }} />
+              </colgroup>
               <Table.Thead>
                 <Table.Tr>
                   <Table.Th>Домен</Table.Th>
@@ -265,7 +320,10 @@ export function SelectionPage() {
                     key={row.domain_id}
                     row={row}
                     mayDecide={mayDecide}
-                    busy={decide.isPending && decide.variables?.row.domain_id === row.domain_id}
+                    busy={
+                      stale ||
+                      (decide.isPending && decide.variables?.row.domain_id === row.domain_id)
+                    }
                     onDecide={(target, intent) => decide.mutate({ row: target, intent })}
                   />
                 ))}

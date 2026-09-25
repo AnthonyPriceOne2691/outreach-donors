@@ -11,59 +11,75 @@
  * ли платным» принимают, глядя на это.
  *
  * **«К списку» возвращает туда, откуда пришли** — на ту же страницу с теми
- * же фильтрами: список держит их в адресе и передаёт его сюда.
+ * же фильтрами: список держит их в адресе и передаёт его сюда. Стоит над
+ * заголовком слева — там же, где «К прогонам» у карточки прогона: одно
+ * действие на всех экранах в одном месте (`BackLink`).
+ *
+ * **Номер из адреса проверяется до запроса.** «abc» в адресе раньше уходил
+ * на сервер как `NaN`, и экран показывал английский отказ разбора; теперь —
+ * «такого донора нет» словами и ссылка к списку.
+ *
+ * **Одна левая кромка у всех разделов.** Заголовок карточки стоял на 250 px,
+ * разделы под ним — на 238, адреса в таблице — на третьей линии (аудит
+ * 25.09.2026): поля у разделов теперь те же, что у заголовка, а таблица
+ * адресов выступает на поле ячейки, и адрес встаёт на ту же линию.
  */
 
-import {
-  Alert,
-  Badge,
-  Button,
-  Card,
-  Group,
-  Loader,
-  SimpleGrid,
-  Stack,
-  Text,
-  Title,
-} from '@mantine/core';
-import { IconArrowLeft } from '@tabler/icons-react';
+import { Alert, Badge, Card, Group, Loader, SimpleGrid, Stack, Text, Title } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router-dom';
 
-import { refusalOf } from '../api/client';
+import { ApiError, refusalOf } from '../api/client';
+import { rowIdOf } from '../api/ids';
 import { countryTitle, DONOR_STATUSES } from '../api/labels';
 import { formatDate, formatNumber, formatShare } from '../format';
+import { BackLink, backTo } from '../components/BackLink';
 import { Metric } from '../components/Metric';
 import { fetchDonor } from '../api/runs';
 import { DonorAddresses } from './DonorAddresses';
 
 const when = formatDate;
 
-/** Адрес списка, из которого пришли: строка параметров с фильтрами и
- *  страницей. Пришли не из списка — просто список. */
-function backTo(state: unknown): string {
-  if (state && typeof state === 'object' && 'from' in state && typeof state.from === 'string') {
-    return state.from.startsWith('?') ? state.from : '';
-  }
-  return '';
+/** Донора нет: номер негодный или такого нет в базе. */
+function NoSuchDonor({ back, said }: { back: string; said: string }) {
+  return (
+    <Card className="glassPanel" p="xl">
+      <Stack gap={6}>
+        <BackLink to={back}>К списку</BackLink>
+        <Title order={3}>Такого донора нет</Title>
+        <Text size="sm" c="dimmed" maw={720}>
+          {said} Все доноры — в списке, карточка открывается щелчком по строке.
+        </Text>
+      </Stack>
+    </Card>
+  );
 }
 
 export function DonorPage() {
-  const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
-  const location = useLocation();
+  const raw = useParams<{ id: string }>().id;
+  const id = rowIdOf(raw);
+  const back = `/donors${backTo(useLocation().state)}`;
   const { data, isLoading, error } = useQuery({
-    queryKey: ['donor', id],
-    queryFn: () => fetchDonor(Number(id)),
-    enabled: id !== undefined,
+    queryKey: ['donor', String(id)],
+    queryFn: () => fetchDonor(id ?? 0),
+    enabled: id !== null,
   });
 
+  if (id === null) {
+    return <NoSuchDonor back={back} said={`«${raw ?? ''}» в адресе — не номер донора.`} />;
+  }
+  if (error instanceof ApiError && error.status === 404) {
+    return <NoSuchDonor back={back} said={`${refusalOf(error)}.`} />;
+  }
   if (isLoading) return <Loader aria-label="Загружаем донора" m="md" />;
   if (error) {
     return (
-      <Alert color="red" title="Донор не загрузился" m="md">
-        {refusalOf(error)}
-      </Alert>
+      <Stack gap="lg">
+        <BackLink to={back}>К списку</BackLink>
+        <Alert color="red" title="Донор не загрузился">
+          {refusalOf(error)}
+        </Alert>
+      </Stack>
     );
   }
   if (data === undefined) return null;
@@ -71,31 +87,22 @@ export function DonorPage() {
   return (
     <Stack gap="lg">
       <Card className="glassPanel" p="xl">
-        <Group justify="space-between" align="flex-start">
-          <Stack gap={6}>
-            <Group gap="sm">
-              <Title order={3}>{data.host}</Title>
-              {/* Исход поиска адреса — в разделе «Адреса», а не здесь:
-                  один и тот же значок дважды читается как сбой. */}
-              <Badge variant="light" color={DONOR_STATUSES[data.status].color}>
-                {DONOR_STATUSES[data.status].title}
-              </Badge>
-            </Group>
-            {data.reject_reason !== null && (
-              <Text size="sm" c="dimmed">
-                Причина отсева: {data.reject_reason}
-              </Text>
-            )}
-          </Stack>
-          <Button
-            variant="subtle"
-            className="press"
-            leftSection={<IconArrowLeft size={16} />}
-            onClick={() => void navigate(`/donors${backTo(location.state)}`)}
-          >
-            К списку
-          </Button>
-        </Group>
+        <Stack gap={6}>
+          <BackLink to={back}>К списку</BackLink>
+          <Group gap="sm">
+            <Title order={3}>{data.host}</Title>
+            {/* Исход поиска адреса — в разделе «Адреса», а не здесь:
+                один и тот же значок дважды читается как сбой. */}
+            <Badge variant="light" color={DONOR_STATUSES[data.status].color}>
+              {DONOR_STATUSES[data.status].title}
+            </Badge>
+          </Group>
+          {data.reject_reason !== null && (
+            <Text size="sm" c="dimmed">
+              Причина отсева: {data.reject_reason}
+            </Text>
+          )}
+        </Stack>
       </Card>
 
       <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
@@ -122,7 +129,7 @@ export function DonorPage() {
       </SimpleGrid>
 
       {data.geo_breakdown !== null && data.geo_breakdown.length > 0 && (
-        <Card className="glass" p="lg">
+        <Card className="glass" p="xl">
           <Title order={5} mb="xs">
             Откуда трафик
           </Title>
@@ -146,7 +153,7 @@ export function DonorPage() {
       <DonorAddresses key={data.id} donor={data} />
 
       {data.last_price !== null && (
-        <Card className="glass" p="lg">
+        <Card className="glass" p="xl">
           <Title order={5} mb="xs">
             Последняя цена
           </Title>

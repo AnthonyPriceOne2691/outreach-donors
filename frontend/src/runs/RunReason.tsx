@@ -22,6 +22,27 @@ interface Props {
   status: RunStatus;
 }
 
+/** Зачины, которыми сервер начинает причину остановки (`workers/jobs.py`,
+ *  `runs/lifecycle.py`). Под заголовком «Почему остановлен» «остановлен:»
+ *  было бы повтором; кто остановил — разбор зависших — остаётся словами. */
+const STOP_LEADS: [string, string][] = [
+  ['остановлен разбором: ', 'Закрыт разбором зависших прогонов: '],
+  ['остановлен: ', ''],
+];
+
+/** Причина без повтора заголовка. Незнакомый зачин показывается как есть:
+ *  лишнее слово лучше потерянного. */
+export function reasonText(reason: string, stopped: boolean): string {
+  if (!stopped) return reason;
+  for (const [lead, said] of STOP_LEADS) {
+    if (reason.startsWith(lead)) {
+      const rest = reason.slice(lead.length);
+      return said === '' ? rest.charAt(0).toUpperCase() + rest.slice(1) : said + rest;
+    }
+  }
+  return reason;
+}
+
 export function RunReason({ reason, status }: Props) {
   const [opened, setOpened] = useState(false);
   // Цвет — по смыслу. Остановленный сам не продолжится, ждать нечего:
@@ -74,7 +95,7 @@ export function RunReason({ reason, status }: Props) {
           data-run-reason
           style={{ whiteSpace: 'pre-line', overflowWrap: 'break-word' }}
         >
-          {reason}
+          {reasonText(reason, stopped)}
         </Text>
       </Popover.Dropdown>
     </Popover>

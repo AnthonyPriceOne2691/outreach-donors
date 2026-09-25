@@ -9,13 +9,19 @@
 
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
 import { ADMIN, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import type { Call } from '../test/server';
 import { serve } from '../test/server';
+
+/** Адрес запроса, как его видит заглушка сети. */
+function urlOf(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input;
+  return input instanceof URL ? input.toString() : input.url;
+}
 
 const MACHINE = {
   intent: 'editorial_ads',
@@ -49,6 +55,7 @@ function card(id: number, host: string, extra: Record<string, unknown> = {}) {
     contact_status: null,
     found_by: ['saas blog write for us', 'martech blog submit article', 'saas seo strategy'],
     sells: null,
+    sells_by: null,
     machine: MACHINE,
     seller: SELLER,
     ...extra,
@@ -66,6 +73,17 @@ const VIEW = {
   ],
   counts: { pending: 394, accepted: 0, rejected: 0 },
   hidden: 278,
+  keywords: [
+    {
+      keyword: 'saas blog write for us',
+      found: 12,
+      queued: 5,
+      accepted: 0,
+      rejected: 0,
+      pending: 5,
+      runs: 1,
+    },
+  ],
 };
 
 const ACCURACY = {
@@ -91,7 +109,9 @@ async function openReview(routes: Record<string, unknown> = {}, who = ADMIN) {
     ...(routes as Record<string, never>),
   });
   renderWith(<AppRoutes />, '/runs/18/review');
-  await screen.findByRole('heading', { name: 'Прогон №18: рассмотрение' });
+  // Заголовок стоит с первого кадра (номер — из адреса); очередь — когда
+  // пришёл ответ: по вкладкам со счётчиками.
+  await screen.findByRole('radio', { name: 'Предложены — 394' });
   return recorded;
 }
 
@@ -114,7 +134,10 @@ describe('рассмотрение прогона', () => {
         body: {
           ...VIEW,
           rows: [
-            card(1, 'martech.example.test', { sells: 'меню главной: «Advertise»' }),
+            card(1, 'martech.example.test', {
+              sells: 'меню главной: «Advertise»',
+              sells_by: 'door',
+            }),
             card(2, 'plain.example.test'),
           ],
         },
@@ -221,8 +244,8 @@ describe('передумать', () => {
       await user.click(
         screen.getByText(new RegExp(`^${status === 'accepted' ? 'Приняты' : 'Отклонены'} —`)),
       );
-      const row = (await screen.findByText('martech.example.test')).closest('tr') as HTMLElement;
-      await user.click(within(row).getByRole('button', { name: 'Вернуть' }));
+      // Пока вкладка едет, видны строки прежней — кнопки «Вернуть» у них нет.
+      await user.click(await screen.findByRole('button', { name: 'Вернуть' }));
 
       const call = recorded.calls.find((one: Call) => one.path.endsWith('/decide'));
       expect(call?.body).toEqual({ candidate_ids: [1], decision: 'pending' });
@@ -231,10 +254,24 @@ describe('передумать', () => {
 });
 
 describe('что дали ключи прогона', () => {
-  it('прогон без разметки ключей говорит «не знаем», а не показывает нули', async () => {
+  it('прогон без разметки ключей: колонки нет, а сказано это наверху', async () => {
+    // Аудит 25.09.2026: у прогона №18 колонка «Нашёлся по ключам» была
+    // столбцом прочерков, а пояснение стояло внизу, после полусотни строк.
     await openReview({ [PENDING]: { body: { ...VIEW, keywords: null } } });
 
-    expect(screen.getByText(/этот прогон не хранит/)).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'Нашёлся по ключам' })).toBeNull();
+    const said = screen.getByText(/этот прогон не хранит/);
+    const table = screen.getByRole('table');
+    // Пояснение — выше таблицы, а не под ней.
+    expect(said.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Что дали ключи прогона' })).toBeNull();
+  });
+
+  it('прогон с разметкой ключей: колонка есть', async () => {
+    await openReview();
+
+    expect(screen.getByRole('columnheader', { name: 'Нашёлся по ключам' })).toBeInTheDocument();
+    expect(screen.queryByText(/этот прогон не хранит/)).toBeNull();
   });
 
   it('сводка видна сразу, таблица — по кнопке', async () => {
@@ -284,5 +321,220 @@ describe('что дали ключи прогона', () => {
     await user.click(screen.getByRole('button', { name: 'Что дали ключи прогона' }));
 
     expect(screen.getByText('best crm software')).toBeInTheDocument();
+  });
+});
+
+describe('«продаёт размещение» — один раз в строке', () => {
+  // Аудит 25.09.2026: значок у домена, пояснение «судья: продаёт размещение
+  // у себя» и ярлык судьи — одно и то же трижды. Признак стоит в колонке
+  // своего источника.
+  const JUDGE_SELLS = { ...MACHINE, intent: 'sells_placement' };
+
+  function times(host: string, text: string): number {
+    const row = screen.getByText(host).closest('tr') as HTMLElement;
+    return within(row).queryAllByText(text).length;
+  }
+
+  it('сказал судья — только ярлык судьи', async () => {
+    await openReview({
+      [PENDING]: {
+        body: {
+          ...VIEW,
+          rows: [
+            card(1, 'judged.example.test', {
+              machine: JUDGE_SELLS,
+              sells: 'судья: продаёт размещение у себя',
+              sells_by: 'judge',
+            }),
+          ],
+        },
+      },
+    });
+
+    expect(times('judged.example.test', 'продаёт размещение')).toBe(1);
+    expect(screen.queryByText(/судья: продаёт размещение у себя/)).toBeNull();
+  });
+
+  it('сказал сам сайт — только в «Донор ответил»', async () => {
+    await openReview({
+      [PENDING]: {
+        body: {
+          ...VIEW,
+          rows: [
+            card(1, 'answered.example.test', {
+              seller: { answer: 'sells', answered_at: null, price: null, currency: null },
+              sells: 'сам сказал: продаёт размещение',
+              sells_by: 'answer',
+            }),
+          ],
+        },
+      },
+    });
+
+    expect(times('answered.example.test', 'продаёт размещение')).toBe(0);
+    expect(times('answered.example.test', 'продаёт')).toBe(1);
+    expect(screen.queryByText(/сам сказал/)).toBeNull();
+  });
+
+  it('решил человек — у домена, словами, без повтора', async () => {
+    await openReview({
+      [PENDING]: {
+        body: {
+          ...VIEW,
+          rows: [
+            card(1, 'human.example.test', {
+              sells: 'человек: продаёт размещение у себя',
+              sells_by: 'human',
+            }),
+          ],
+        },
+      },
+    });
+
+    expect(times('human.example.test', 'продаёт размещение')).toBe(1);
+    expect(times('human.example.test', 'так решил человек')).toBe(1);
+  });
+});
+
+describe('возврат к прогонам', () => {
+  it('«К прогонам» стоит над заголовком и ведёт к истории', async () => {
+    await openReview();
+
+    const back = screen.getByRole('link', { name: 'К прогонам' });
+    expect(back).toHaveAttribute('href', '/run');
+    const title = screen.getByRole('heading', { name: 'Прогон №18: рассмотрение' });
+    expect(back.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('пришли со второй страницы истории — на неё и возвращает', async () => {
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    const queued = {
+      id: 18,
+      status: 'done',
+      country: 'us',
+      keywords: 100,
+      estimated_units: 1,
+      actual_units: 1,
+      estimate_error: 0,
+      stats: null,
+      started_at: '2026-09-23T16:21:00Z',
+      alive_at: '2026-09-23T16:40:00Z',
+      hosts: 535,
+      reviewed: 0,
+      disagreements: 0,
+      queue: { pending: 394 },
+      reason: null,
+    };
+    const recorded = serve({
+      'GET /api/auth/me': { body: ADMIN },
+      'GET /api/runs/countries': { body: ['us'] },
+      'GET /api/keywords/yield?country=us': { body: [] },
+      'GET /api/runs?page=2': {
+        body: { runs: [queued], total: 12, page: 2, limit: 10, workers: 1, queued: 0 },
+      },
+      [PENDING]: { body: VIEW },
+      'GET /api/review/accuracy': { body: ACCURACY },
+    });
+    renderWith(<AppRoutes />, '/run?page=2');
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('link', { name: 'Рассмотреть 394' }));
+    const back = await screen.findByRole('link', { name: 'К прогонам' });
+    expect(back).toHaveAttribute('href', '/run?page=2');
+    await user.click(back);
+
+    const pager = await screen.findByRole('navigation', { name: 'Страницы истории прогонов' });
+    expect(within(pager).getByRole('button', { name: 'Страница 2' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(recorded.calls.some((call: Call) => call.path === '/api/runs?page=1')).toBe(false);
+  });
+});
+
+describe('смена вкладки — не перезагрузка', () => {
+  // Замечание 25.09.2026: переключение «Предложены / Приняты / Отклонены»
+  // выглядело перезагрузкой — весь экран заменялся крутилкой. Верх экрана
+  // должен стоять, прежние строки — быть видны до прихода новых.
+  it('пока едет новая вкладка, верх экрана и прежние строки на месте', async () => {
+    const accepted = {
+      ...VIEW,
+      rows: [card(5, 'taken.example.test', { status: 'accepted', decided_by: 'оператор' })],
+      counts: { pending: 393, accepted: 1, rejected: 0 },
+    };
+    await openReview({ 'GET /api/review/runs/18?status=accepted': { body: accepted } });
+    // Ответ по «Приняты» задерживается, пока тест его не отпустит.
+    const served = vi.mocked(globalThis.fetch).getMockImplementation();
+    if (served === undefined) throw new Error('сеть не подменена');
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => {
+      if (urlOf(input).includes('status=accepted')) await gate;
+      return served(input, init);
+    });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByText('Приняты — 0'));
+
+    // Ни крутилки вместо экрана, ни пропавшего верха.
+    expect(screen.queryByLabelText('Загружаем очередь')).toBeNull();
+    expect(screen.getByRole('heading', { name: 'Прогон №18: рассмотрение' })).toBeInTheDocument();
+    expect(screen.getByText('рано')).toBeInTheDocument();
+    // Счётчики во вкладках не мигают — прежние числа стоят.
+    expect(screen.getByRole('radio', { name: 'Предложены — 394' })).toBeInTheDocument();
+    // Прежние строки видны, но приглушены и решать по ним нельзя.
+    const row = screen.getByText('martech.example.test').closest('tr') as HTMLElement;
+    expect(row.closest('[data-stale]')).not.toBeNull();
+    expect(within(row).getByRole('button', { name: 'Принять' })).toBeDisabled();
+
+    release();
+
+    expect(await screen.findByText('taken.example.test')).toBeInTheDocument();
+    expect(screen.queryByText('martech.example.test')).toBeNull();
+    expect(document.querySelector('[data-stale]')).toBeNull();
+    expect(screen.getByRole('radio', { name: 'Приняты — 1' })).toBeInTheDocument();
+  });
+});
+
+describe('номер прогона из адреса', () => {
+  it('не номер — «такого прогона нет» словами, без запроса с NaN', async () => {
+    // Аудит 25.09.2026: `/runs/abc/review` уходил на сервер с `NaN`, и экран
+    // показывал «Input should be a valid integer…».
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    const recorded = serve({ 'GET /api/auth/me': { body: ADMIN } });
+    renderWith(<AppRoutes />, '/runs/abc/review');
+
+    expect(await screen.findByRole('heading', { name: 'Такого прогона нет' })).toBeVisible();
+    expect(screen.getByText(/«abc» в адресе — не номер прогона/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'К прогонам' })).toHaveAttribute('href', '/run');
+    expect(recorded.calls.map((call: Call) => call.path)).toEqual(['/api/auth/me']);
+  });
+
+  it('номер больше, чем бывает, — так же, без запроса', async () => {
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    const recorded = serve({ 'GET /api/auth/me': { body: ADMIN } });
+    renderWith(<AppRoutes />, '/runs/99999999999/review');
+
+    expect(await screen.findByRole('heading', { name: 'Такого прогона нет' })).toBeVisible();
+    expect(recorded.calls.map((call: Call) => call.path)).toEqual(['/api/auth/me']);
+  });
+
+  it('такого нет в базе — словами сервера и со ссылкой назад', async () => {
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    serve({
+      'GET /api/auth/me': { body: ADMIN },
+      'GET /api/review/runs/999?status=pending': {
+        status: 404,
+        body: { detail: 'Прогона №999 нет' },
+      },
+      'GET /api/review/accuracy': { body: ACCURACY },
+    });
+    renderWith(<AppRoutes />, '/runs/999/review');
+
+    expect(await screen.findByRole('heading', { name: 'Такого прогона нет' })).toBeVisible();
+    expect(screen.getByText(/Прогона №999 нет\./)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'К прогонам' })).toBeInTheDocument();
   });
 });
