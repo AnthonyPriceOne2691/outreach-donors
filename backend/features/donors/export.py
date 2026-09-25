@@ -17,7 +17,9 @@ import io
 from collections.abc import Sequence
 from typing import Any
 
-#: Заголовок и как достать значение. Порядок — как на экране.
+from backend.features.donors.browse import DonorRow
+
+#: Заголовок и поле строки таблицы. Порядок — как на экране.
 COLUMNS: tuple[tuple[str, str], ...] = (
     ("домен", "host"),
     ("вердикт", "status"),
@@ -34,15 +36,30 @@ COLUMNS: tuple[tuple[str, str], ...] = (
 )
 
 
-def to_csv(rows: Sequence[Any]) -> bytes:
+def to_csv(rows: Sequence[DonorRow]) -> bytes:
     """Строки таблицы доноров одним файлом."""
     buffer = io.StringIO()
     writer = csv.writer(buffer, delimiter=";", lineterminator="\r\n")
     writer.writerow([title for title, _ in COLUMNS])
     for row in rows:
-        writer.writerow([_cell(getattr(row, field, None)) for _, field in COLUMNS])
+        writer.writerow([_cell(_value(row, field)) for _, field in COLUMNS])
     # Метка порядка байтов — ради Excel, см. модуль.
     return buffer.getvalue().encode("utf-8-sig")
+
+
+def _value(row: DonorRow, field: str) -> Any:
+    """Поле строки: домен и число адресов — у самой строки, остальное — у донора.
+
+    До 25.09.2026 значение бралось только у строки — с умолчанием «пусто»,
+    а у неё из двенадцати колонок есть две. Файл выходил с доменами и
+    пустыми вердиктами, причинами, DR и трафиком; тесты смотрели только на
+    заголовок и на домены, а с экрана выгрузка не скачивалась вовсе, и
+    содержимое файла никто не видел. Умолчания здесь больше нет: поле,
+    которого нет ни у строки, ни у донора, — ошибка, а не пустая ячейка.
+    """
+    if hasattr(row, field):
+        return getattr(row, field)
+    return getattr(row.donor, field)
 
 
 def _cell(value: Any) -> str:

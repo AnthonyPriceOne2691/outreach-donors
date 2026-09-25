@@ -1,5 +1,5 @@
 /**
- * База доноров: таблица со статусом, причиной отсева и фильтрами.
+ * База доноров: одна панель — шапка, таблица с фильтрами, страницы.
  *
  * **«Не проверен» и «не подходит» — разные состояния**, и в таблице они
  * разного цвета. Спутать их значит копить ложные отказы: домен без данных
@@ -8,261 +8,216 @@
  * **Причина отсева показывается всегда.** «Не подходит» без причины —
  * это решение, которое нельзя оспорить, а пороги у нас версионируются
  * именно затем, чтобы прошлые решения объяснялись.
+ *
+ * **Экран — одна панель** (замечание 25.09.2026). Блоки «Контакты» и
+ * «Доноры» над таблицей убраны: адреса и их поиск — в карточке донора,
+ * фильтры — в шапке таблицы под своими колонками, общий поиск адресов —
+ * строкой «ждут адреса: N · найти», выгрузка — справа в шапке.
+ *
+ * **По двадцать на страницу, страница и фильтры — в адресе.** Любая смена
+ * фильтра возвращает на первую страницу: двадцатая страница старого
+ * вопроса ничего не говорит о новом.
  */
 
-import {
-  Alert,
-  Badge,
-  Button,
-  Card,
-  Group,
-  Loader,
-  NumberInput,
-  Pagination,
-  Stack,
-  Switch,
-  Table,
-  Text,
-  TextInput,
-  Title,
-} from '@mantine/core';
-import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Box, Button, Card, Group, Loader, Pagination, Stack, Text, Title } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
+import { notifications } from '@mantine/notifications';
+import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
+import { useCallback, useEffect, useMemo } from 'react';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 
-import { CONTACT_STATUSES, countryTitle, DONOR_STATUSES } from '../api/labels';
-import { formatCompact } from '../format';
+import { refusalOf } from '../api/client';
+import { exportDonors, saveFile } from '../api/donors';
 import { listDonors } from '../api/runs';
-import type { DonorStatus } from '../api/types';
-import { Contacts } from './Contacts';
+import type { DonorRowCard } from '../api/types';
+import { formatNumber } from '../format';
+import { DonorsTable } from './DonorsTable';
+import {
+  emptinessOf,
+  isFiltered,
+  NO_FILTERS,
+  PAGE_SIZE,
+  queryOf,
+  readFilters,
+  totalOf,
+  writeFilters,
+} from './donorFilters';
+import type { DonorFilters } from './donorFilters';
+import { usePendingContacts } from './PendingContacts';
+import { useTyped } from './useTyped';
 
-const PAGE_SIZE = 50;
+/** Набранный поиск совпадает с адресом без пробелов по краям: пробел
+ *  в конце — это ещё набор, а не новый фильтр. */
+const sameSearch = (draft: string, committed: string) => draft.trim() === committed;
+const sameNumber = (draft: number | null, committed: number | null) => draft === committed;
 
-function refusalOf(error: unknown): string {
-  return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
-}
-
-const traffic = formatCompact;
+/** Стрелки переключателя страниц словами — те же, что у истории прогонов. */
+const CONTROL_NAMES: Record<string, string> = {
+  previous: 'Предыдущая страница',
+  next: 'Следующая страница',
+  first: 'Первая страница',
+  last: 'Последняя страница',
+};
 
 export function DonorsPage() {
   const navigate = useNavigate();
-  const [status, setStatus] = useState<DonorStatus | null>(null);
-  const [search, setSearch] = useState('');
-  const [minDr, setMinDr] = useState<number | null>(null);
-  const [onlyWithContact, setOnlyWithContact] = useState(false);
-  const [page, setPage] = useState(1);
+  const location = useLocation();
+  const [params, setParams] = useSearchParams();
+  const filters = useMemo(() => readFilters(params), [params]);
+  const contacts = usePendingContacts();
+  // На телефоне переключатель страниц без соседей текущей: с ними девять
+  // кнопок не влезали в строку, и «54 ›» уезжали на вторую.
+  const phone = useMediaQuery('(max-width: 30em)') === true;
+
+  // Смена фильтра — замена записи в истории, а не новая: «назад» ведёт
+  // туда, откуда пришли, а не по буквам поиска. Страница — новая запись.
+  const apply = useCallback(
+    (patch: Partial<DonorFilters>) =>
+      setParams((current) => writeFilters({ ...readFilters(current), ...patch, page: 1 }), {
+        replace: true,
+      }),
+    [setParams],
+  );
+  const turn = useCallback(
+    (page: number) => setParams((current) => writeFilters({ ...readFilters(current), page })),
+    [setParams],
+  );
+
+  // Поиск и порог DR печатают — в адрес они уходят после паузы в наборе.
+  const [search, setSearch] = useTyped(
+    filters.search,
+    (value) => apply({ search: value.trim() }),
+    sameSearch,
+  );
+  const [minDr, setMinDr] = useTyped(filters.minDr, (value) => apply({ minDr: value }), sameNumber);
 
   const query = useQuery({
-    queryKey: ['donors', status, search, minDr, onlyWithContact, page],
+    queryKey: [
+      'donors',
+      filters.status,
+      filters.search,
+      filters.minDr,
+      filters.address,
+      filters.page,
+    ],
     queryFn: () =>
       listDonors({
-        ...(status !== null ? { status } : {}),
-        ...(search.trim() !== '' ? { search: search.trim() } : {}),
-        ...(minDr !== null ? { min_dr: minDr } : {}),
-        ...(onlyWithContact ? { has_contact: true } : {}),
+        ...queryOf(filters),
         limit: PAGE_SIZE,
-        offset: (page - 1) * PAGE_SIZE,
+        offset: (filters.page - 1) * PAGE_SIZE,
+      }),
+    // Пока идёт новая страница, стоит старая: иначе таблица с фильтрами
+    // исчезала бы на каждую букву поиска вместе с полем, в котором печатают.
+    placeholderData: keepPreviousData,
+  });
+
+  const data = query.data;
+  const settled = data !== undefined && !query.isPlaceholderData;
+  const pages = Math.max(1, Math.ceil((data?.total ?? 0) / PAGE_SIZE));
+
+  // Страница из старой ссылки может оказаться за концом: вместо пустоты
+  // с «ничего не нашлось» — последняя настоящая страница.
+  useEffect(() => {
+    if (settled && data.rows.length === 0 && data.total > 0 && filters.page > pages) {
+      setParams((current) => writeFilters({ ...readFilters(current), page: pages }), {
+        replace: true,
+      });
+    }
+  }, [settled, data, filters.page, pages, setParams]);
+
+  const download = useMutation({
+    mutationFn: () => exportDonors(queryOf(filters)),
+    onSuccess: (file) => saveFile(file, 'donors.csv'),
+    onError: (failure) =>
+      notifications.show({
+        title: 'Выгрузка не удалась',
+        message: refusalOf(failure),
+        color: 'red',
       }),
   });
 
-  if (query.isLoading) return <Loader aria-label="Загружаем доноров" m="md" />;
-  if (query.error) {
-    return (
-      <Alert color="red" title="База не загрузилась" m="md">
-        {refusalOf(query.error)}
-      </Alert>
-    );
+  if (data === undefined && query.isPending) {
+    return <Loader aria-label="Загружаем доноров" m="md" />;
   }
 
-  const data = query.data;
-  const rows = data?.rows ?? [];
-  const counts = data?.counts ?? {};
-  const pages = Math.max(1, Math.ceil((data?.total ?? 0) / PAGE_SIZE));
-
-  const pick = (value: DonorStatus | null) => {
-    setStatus(value);
-    setPage(1);
-  };
-
-  const filters = new URLSearchParams({
-    ...(status !== null ? { status } : {}),
-    ...(search.trim() !== '' ? { search: search.trim() } : {}),
-    ...(minDr !== null ? { min_dr: String(minDr) } : {}),
-    ...(onlyWithContact ? { has_contact: 'true' } : {}),
-  });
+  const counts = data?.counts ?? null;
+  const all = counts === null ? null : totalOf(counts);
+  const open = (donor: DonorRowCard) =>
+    void navigate(`/donors/${donor.id}`, { state: { from: location.search } });
 
   return (
-    <Stack gap="lg">
-      <Contacts />
-
-      <Card className="glassPanel" p="xl">
-        <Stack gap="md">
-          <Group justify="space-between" align="flex-start">
-            <Stack gap={6}>
-              <Title order={3}>Доноры</Title>
-              <Text size="sm" c="dimmed" maw={620}>
-                «Не проверен» — не «не подходит»: у домена не было данных, и его надо добрать позже.
-                Причина отсева показана рядом со статусом.
+    <Card className="glassPanel" p="lg">
+      <Stack gap="sm">
+        <Group justify="space-between" align="center" gap="sm">
+          <Group gap="sm" align="baseline" wrap="nowrap">
+            <Title order={3}>Доноры</Title>
+            {data !== undefined && all !== null && (
+              // Полными чернилами, как подпись плитки: число стоит в углу
+              // панели, на блике стекла, и приглушённый тон там в тёмной
+              // теме не держал норму (замер 25.09.2026 по ядру буквы).
+              <Text size="sm" c="var(--ink)" className="donorsFound">
+                {isFiltered(filters)
+                  ? `найдено ${formatNumber(data.total)} из ${formatNumber(all)}`
+                  : `всего ${formatNumber(all)}`}
               </Text>
-            </Stack>
-            <Group gap="sm" align="flex-end">
-              <TextInput
-                placeholder="Домен или причина отсева"
-                aria-label="Поиск по домену или причине отсева"
-                w={280}
-                value={search}
-                onChange={(event) => {
-                  setSearch(event.currentTarget.value);
-                  setPage(1);
-                }}
-              />
-              {/* Выгружается то, что видно: фильтр — часть вопроса,
-                  на который отвечают файлом. Выгрузка «всего» при
-                  включённом фильтре не совпала бы с экраном. */}
-              <Button
-                component="a"
-                href={`/api/donors/export?${filters.toString()}`}
-                variant="default"
-                className="press"
-              >
-                Выгрузить
-              </Button>
-            </Group>
+            )}
           </Group>
-
-          <Group gap="xs">
-            <Badge
-              variant={status === null ? 'filled' : 'light'}
-              color="lagoon"
+          <Group gap="md" align="center">
+            {contacts.control}
+            {/* Выгружается то, что видно: фильтр — часть вопроса, на который
+                отвечают файлом. Выгрузка «всего» при включённом фильтре
+                не совпала бы с экраном. */}
+            <Button
+              variant="default"
               className="press"
-              style={{ cursor: 'pointer' }}
-              onClick={() => pick(null)}
+              loading={download.isPending}
+              onClick={() => download.mutate()}
             >
-              все — {Object.values(counts).reduce((sum, count) => sum + count, 0)}
-            </Badge>
-            {Object.entries(counts).map(([value, count]) => (
-              <Badge
-                key={value}
-                variant={status === value ? 'filled' : 'light'}
-                color={DONOR_STATUSES[value as DonorStatus].color}
-                className="press"
-                style={{ cursor: 'pointer' }}
-                onClick={() => pick(status === value ? null : (value as DonorStatus))}
-              >
-                {DONOR_STATUSES[value as DonorStatus].title} — {count}
-              </Badge>
-            ))}
+              Выгрузить
+            </Button>
           </Group>
-
-          <Group gap="lg">
-            <NumberInput
-              label="DR не ниже"
-              w={140}
-              min={0}
-              max={100}
-              value={minDr ?? ''}
-              onChange={(value) => {
-                setMinDr(typeof value === 'number' ? value : null);
-                setPage(1);
-              }}
-            />
-            <Switch
-              label="Только с найденным адресом"
-              checked={onlyWithContact}
-              onChange={(event) => {
-                setOnlyWithContact(event.currentTarget.checked);
-                setPage(1);
-              }}
-            />
-          </Group>
-        </Stack>
-      </Card>
-
-      <Card className="glass" p="xs">
-        {rows.length === 0 ? (
-          <Text size="sm" c="dimmed" p="lg">
-            Под фильтр ничего не попало. Это не пустая база: всего доноров{' '}
-            {Object.values(counts).reduce((sum, count) => sum + count, 0)}.
-          </Text>
-        ) : (
-          <Table className="dataTable" verticalSpacing="sm" horizontalSpacing="md" miw={900}>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Донор</Table.Th>
-                <Table.Th>Вердикт</Table.Th>
-                <Table.Th>DR</Table.Th>
-                <Table.Th>Трафик</Table.Th>
-                <Table.Th>Гео</Table.Th>
-                <Table.Th>Адреса</Table.Th>
-                <Table.Th>Данные</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {rows.map((donor) => (
-                <Table.Tr
-                  key={donor.id}
-                  style={{ cursor: 'pointer' }}
-                  onClick={() => void navigate(`/donors/${donor.id}`)}
-                >
-                  <Table.Td>
-                    <Text fw={500}>{donor.host}</Text>
-                    {donor.reject_reason !== null && (
-                      <Text size="xs" c="dimmed">
-                        {donor.reject_reason}
-                      </Text>
-                    )}
-                  </Table.Td>
-                  <Table.Td>
-                    <Group justify="center">
-                      <Badge variant="light" color={DONOR_STATUSES[donor.status].color}>
-                        {DONOR_STATUSES[donor.status].title}
-                      </Badge>
-                    </Group>
-                  </Table.Td>
-                  <Table.Td>{donor.dr ?? '—'}</Table.Td>
-                  <Table.Td>{traffic(donor.org_traffic)}</Table.Td>
-                  <Table.Td>
-                    {donor.geo === null
-                      ? '—'
-                      : `${countryTitle(donor.geo)}${
-                          donor.geo_top_share === null
-                            ? ''
-                            : ` · ${(donor.geo_top_share * 100).toFixed(0)}%`
-                        }`}
-                  </Table.Td>
-                  <Table.Td>
-                    <Group justify="center" gap={6}>
-                      <Text size="sm">{donor.contacts}</Text>
-                      {donor.contact_status !== null && (
-                        <Badge
-                          variant="light"
-                          size="sm"
-                          color={CONTACT_STATUSES[donor.contact_status].color}
-                        >
-                          {CONTACT_STATUSES[donor.contact_status].title}
-                        </Badge>
-                      )}
-                    </Group>
-                  </Table.Td>
-                  <Table.Td>
-                    {/* Свежесть — это про деньги: за свежие данные второй раз
-                        не платят, поэтому она видна в таблице, а не в карточке. */}
-                    <Badge variant="light" color={donor.fresh ? 'green' : 'gray'}>
-                      {donor.fresh ? 'в сроке' : 'пора обновить'}
-                    </Badge>
-                  </Table.Td>
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
-        )}
-      </Card>
-
-      {pages > 1 && (
-        <Group justify="center">
-          <Pagination value={page} onChange={setPage} total={pages} radius="xl" />
         </Group>
-      )}
-    </Stack>
+
+        {contacts.outcome !== null && <Stack gap={6}>{contacts.outcome}</Stack>}
+
+        <DonorsTable
+          rows={data?.rows ?? []}
+          stale={query.isPlaceholderData && query.isFetching}
+          refusal={query.error ? refusalOf(query.error) : null}
+          empty={settled && data.rows.length === 0 ? emptinessOf(filters, data.counts) : null}
+          from={location.search}
+          filters={filters}
+          counts={counts}
+          search={search}
+          onSearch={setSearch}
+          minDr={minDr}
+          onMinDr={setMinDr}
+          onFilter={apply}
+          onOpen={open}
+          onReset={() => setParams(writeFilters(NO_FILTERS), { replace: true })}
+        />
+
+        {pages > 1 && (
+          // Тот же вид, что у истории прогонов: навигация с именем, номер —
+          // в своём элементе (по нему и меряют контраст, а не по кругу кнопки).
+          <Box component="nav" aria-label="Страницы доноров">
+            <Group justify="center">
+              <Pagination
+                value={Math.min(filters.page, pages)}
+                onChange={turn}
+                total={pages}
+                siblings={phone ? 0 : 1}
+                radius="xl"
+                getItemProps={(number) => ({
+                  'aria-label': `Страница ${number}`,
+                  children: <span data-page-number>{number}</span>,
+                })}
+                getControlProps={(control) => ({ 'aria-label': CONTROL_NAMES[control] })}
+              />
+            </Group>
+          </Box>
+        )}
+      </Stack>
+    </Card>
   );
 }

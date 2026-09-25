@@ -1,4 +1,4 @@
-"""Поиск контактов пачкой: один путь для консоли и для кнопки.
+"""Поиск контактов пачкой: один путь для консоли, для кнопки и для карточки донора.
 
 Раньше весь порядок работы жил в консольной команде, и запустить поиск
 мог только инженер. Это ломало главное обещание веб-слоя: сотрудник
@@ -141,6 +141,7 @@ async def search_contacts(
     no_paid: bool = False,
     on_batch: Callable[[int, int], None] | None = None,
     queue: ContactQueue | None = None,
+    donor_id: int | None = None,
 ) -> SearchReport:
     """Пройти лестницу по тем, кому нужен контакт.
 
@@ -148,9 +149,14 @@ async def search_contacts(
     Лестница при этом одна — она работает с голым хостом и про роль
     домена не знает. Две очереди с двумя порядками работы разъехались бы
     на первой правке, и разъехались бы молча.
+
+    `donor_id` сужает очередь доноров до одного — поиск с карточки. Это
+    тот же проход, а не второй: правило «кому искать» проверяется заново
+    уже здесь, в задаче, — между нажатием и исполнением общий поиск мог
+    успеть найти адрес, и тогда проходить нечего.
     """
     report = SearchReport()
-    repository = queue if queue is not None else ContactRepository(session)
+    repository = queue if queue is not None else ContactRepository(session, donor_id=donor_id)
     hosts = await repository.pending_hosts(limit=limit)
     report.pending = len(hosts)
     if not hosts:

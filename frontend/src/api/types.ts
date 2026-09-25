@@ -188,7 +188,11 @@ export type ContactStatus =
   | 'rate_limited'
   | 'blocked'
   | 'error';
-export type ContactSource = 'mx' | 'page' | 'rdap' | 'paid' | 'form' | 'manual';
+/** Ступень лестницы, давшая адрес, — значения сервера (`ContactSource`).
+ *  До 25.09.2026 здесь стояли `mx`, `rdap`, `paid`, `form`, которых сервер
+ *  не отдаёт, а `whois` и `provider` не было: колонка «Откуда» в карточке
+ *  у адресов платного сервиса была пустой. Сверку держит тест сервера. */
+export type ContactSource = 'page' | 'whois' | 'provider' | 'manual';
 export type RunStatus = 'queued' | 'estimating' | 'running' | 'done' | 'stopped';
 
 export interface PoolRequest {
@@ -337,6 +341,9 @@ export interface DonorFullCard extends Omit<DonorRowCard, 'contacts'> {
   contact_attempted_at: string | null;
   last_price_at: string | null;
   contacts: ContactCard[];
+  /** Почему поиск адреса сейчас не ставится; `null` — ставится. Правило то же,
+   *  что у общего поиска, и решает его сервер — экран только показывает. */
+  contact_refusal: string | null;
 }
 
 export interface ThresholdsBody {

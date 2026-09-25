@@ -20,6 +20,7 @@ from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import filters as filters_cfg
+from backend.features.contacts.repository import search_refusal
 from backend.features.core.domain import ContactStatus, DonorStatus
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
@@ -68,6 +69,11 @@ class DonorCard:
     contacts: Sequence[ContactModel]
     fresh: bool
     expires_at: datetime | None
+    #: Почему поиск адреса сейчас не ставится; `None` — ставится. Считается
+    #: сервером тем же правилом, что набирает общую очередь поиска: экран
+    #: объясняет отказ до нажатия, а не узнаёт о нём после. Без умолчания:
+    #: `None` здесь значит «можно искать», и забытое поле разрешало бы молча.
+    contact_refusal: str | None
 
 
 def _is_fresh(donor: DonorModel, *, now: datetime) -> bool:
@@ -98,8 +104,12 @@ class DonorBrowser:
                 or_(DomainModel.host.ilike(needle), DonorModel.reject_reason.ilike(needle))
             )
         if filters.has_contact is not None:
-            condition = DonorModel.contact_status == ContactStatus.FOUND
-            statement = statement.where(condition if filters.has_contact else ~condition)
+            found = DonorModel.contact_status == ContactStatus.FOUND
+            # «Нет адреса» — это и «искали, не нашли», и «ещё не искали». У второго
+            # исход пуст, а NULL в SQL ни равен, ни не равен «найден»: голое
+            # отрицание теряло всех, кого ещё не искали.
+            missing = or_(DonorModel.contact_status.is_(None), ~found)
+            statement = statement.where(found if filters.has_contact else missing)
         return statement
 
     async def page(self, filters: DonorFilters) -> DonorPage:
@@ -160,6 +170,7 @@ class DonorBrowser:
             contacts=contacts.scalars().all(),
             fresh=_is_fresh(donor, now=datetime.now(UTC)),
             expires_at=_expires_at(donor),
+            contact_refusal=await search_refusal(self._session, donor),
         )
 
     async def counts_by_status(self) -> dict[DonorStatus, int]:

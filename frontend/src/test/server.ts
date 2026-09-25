@@ -16,6 +16,8 @@ import { vi } from 'vitest';
 export interface Answer {
   status?: number;
   body?: unknown;
+  /** Тело как есть, не JSON: файл выгрузки. Тип — заголовком. */
+  raw?: string;
   headers?: Record<string, string>;
 }
 
@@ -70,8 +72,9 @@ export function serve(routes: Record<string, Route>): Recorded {
 
       const answer = typeof route === 'function' ? route(call) : route;
       const status = answer.status ?? 200;
+      const body = status === 204 ? null : (answer.raw ?? JSON.stringify(answer.body ?? null));
       return Promise.resolve(
-        new Response(status === 204 ? null : JSON.stringify(answer.body ?? null), {
+        new Response(body, {
           status,
           headers: { 'content-type': 'application/json', ...(answer.headers ?? {}) },
         }),

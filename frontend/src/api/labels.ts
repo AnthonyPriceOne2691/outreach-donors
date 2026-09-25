@@ -109,15 +109,19 @@ export const CONTACT_STATUSES: Record<ContactStatus, { title: string; color: str
 };
 
 /** Ступень лестницы, которая дала адрес. Порядок в подписях тот же,
- *  что и в самой лестнице: от бесплатных к платной. */
+ *  что и в самой лестнице: от бесплатных к платной. Адрес, вписанный по
+ *  ответу на форму, — «вручную»: его нашла не лестница, а человек. */
 export const CONTACT_SOURCES: Record<ContactSource, string> = {
-  mx: 'запись MX',
   page: 'страница сайта',
-  rdap: 'RDAP',
-  paid: 'платный сервис',
-  form: 'форма на сайте',
-  manual: 'заведён вручную',
+  whois: 'данные регистратора',
+  provider: 'платный сервис',
+  manual: 'вписан вручную',
 };
+
+/** Адрес ещё не искали: исхода нет вовсе. Отдельным словом, а не пустым
+ *  местом и не «адреса нет» — «не нашли» и «не искали» решаются по-разному:
+ *  первое ждёт срока, второе — поиска. */
+export const NOT_SEARCHED = { title: 'не искали', color: 'gray' } as const;
 
 export const RUN_STATUSES: Record<RunStatus, { title: string; color: string }> = {
   queued: { title: 'в очереди', color: 'gray' },

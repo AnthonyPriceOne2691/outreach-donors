@@ -28,6 +28,7 @@ from backend.features.access.permissions import AccessDeniedError
 from backend.features.access.repository import EmailTakenError
 from backend.features.access.tokens import SecretMissingError, TokenError
 from backend.features.contacts.forms import UnknownFormError
+from backend.features.contacts.repository import SearchRefusedError
 from backend.features.donors.browse import UnknownDonorError
 from backend.features.letters.building import LetterScopeError
 from backend.features.letters.compose import ComposeError
@@ -87,6 +88,9 @@ STATUSES: dict[type[Exception], int] = {
     # Ручная очередь форм: донора в ней уже нет — либо адрес нашёлся,
     # либо очередь разобрал кто-то другой. Это состояние, а не запрос.
     UnknownFormError: status.HTTP_409_CONFLICT,
+    # Поиск адреса одному донору: правило «кому искать» его не берёт —
+    # не принят, не подходит, искали недавно. Состояние, а не запрос.
+    SearchRefusedError: status.HTTP_409_CONFLICT,
     # Стоп-лист: уже там, такого нет, снятие отписки без причины.
     # Всё это про состояние списка и про то, что человек чинит сам.
     StopListError: status.HTTP_409_CONFLICT,
