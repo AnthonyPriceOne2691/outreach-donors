@@ -16,6 +16,7 @@ import { ChangePasswordPage } from './auth/ChangePasswordPage';
 import { LoginPage } from './auth/LoginPage';
 import { RequireAccess } from './auth/RequireAccess';
 import { Backdrop } from './layout/Backdrop';
+import { NotFoundPage } from './layout/NotFoundPage';
 import { OverviewPage } from './layout/OverviewPage';
 import { Shell } from './layout/Shell';
 import { theme } from './theme';
@@ -186,6 +187,9 @@ export function AppRoutes() {
             </RequireAccess>
           }
         />
+        {/* Неизвестный адрес — внутри рамы: с меню и объяснением, а не пустым
+            полотном. Гость до него не дойдёт — рама сперва спросит пропуск. */}
+        <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>
   );

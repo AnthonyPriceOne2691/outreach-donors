@@ -1,10 +1,11 @@
 /**
- * Обзор: сторож тишины и сводка.
+ * Обзор: тревоги сторожа тишины и сводка.
  *
- * Сторож стоит на главной, потому что поломка этого класса не
- * показывает себя нигде: человек увидит, что «всё тихо», и закроет
- * вкладку. Поэтому проверяется и то, что тревога видна, и то, что
- * в тишине по делу экран не пугает.
+ * Тревога сторожа встаёт на главной, потому что поломка этого класса не
+ * показывает себя нигде. А в тишине сторожа на экране нет вовсе
+ * (замечание 25.09.2026): карточка «всё тихо» ничего не сообщала. Поэтому
+ * проверяется и то, что тревога видна, и то, что в тишине карточки нет,
+ * хотя сторож спрошен.
  *
  * Сводка проверяется по тому, по чему решают: сколько ждёт человека
  * и куда ведёт каждая плитка, в каком состоянии почта и сколько
@@ -19,12 +20,15 @@ import type { OverviewView } from '../api/types';
 import { AppRoutes } from '../App';
 import { ADMIN, OVERVIEW, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
-import type { Answer } from '../test/server';
+import type { Answer, Recorded } from '../test/server';
 import { serve } from '../test/server';
 
-async function openOverview(alarms: unknown[] = [], overview: Answer = { body: OVERVIEW }) {
+async function openOverview(
+  alarms: unknown[] = [],
+  overview: Answer = { body: OVERVIEW },
+): Promise<Recorded> {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
-  serve({
+  const recorded = serve({
     'GET /api/auth/me': { body: ADMIN },
     'GET /api/watchdog': { body: { alarms } },
     'GET /api/overview': overview,
@@ -32,6 +36,7 @@ async function openOverview(alarms: unknown[] = [], overview: Answer = { body: O
   renderWith(<AppRoutes />, '/');
   // «Обзор» есть и в меню, и в заголовке карточки — ждём заголовок.
   await screen.findByRole('heading', { name: 'Обзор' });
+  return recorded;
 }
 
 /** Плитка сводки по её подписи — она же ссылка целиком. */
@@ -56,10 +61,15 @@ describe('сторож тишины на обзоре', () => {
     expect(screen.getByText(/ни по одному не пришло события/)).toBeInTheDocument();
   });
 
-  it('в тишине по делу экран не пугает', async () => {
-    await openOverview([]);
+  it('в тишине сторожа на экране нет, но спрошен он всё равно', async () => {
+    const recorded = await openOverview([]);
 
-    expect(await screen.findByText(/Тихо и правильно/)).toBeInTheDocument();
+    // Сводка отрисована — значит, ответ сторожа тоже успел прийти.
+    await screen.findByText('Рассмотреть домены');
+    expect(recorded.calls.some((call) => call.path === '/api/watchdog')).toBe(true);
+    expect(screen.queryByText('Сторож тишины')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Тихо и правильно/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });
 
@@ -72,9 +82,17 @@ describe('сводка на главной', () => {
     expect(within(review).getByText('394')).toBeInTheDocument();
     expect(within(review).getByText('в очереди №18')).toBeInTheDocument();
 
-    expect(await tile('Разобрать цены')).toHaveAttribute('href', '/threads');
+    // В тот же фильтр, которым плитка посчитана, а не во весь список.
+    expect(await tile('Разобрать цены')).toHaveAttribute('href', '/threads?state=needs_review');
+    expect(await tile('Лиды рекламодателей')).toHaveAttribute('href', '/threads?state=lead');
     expect(await tile('Заполнить формы')).toHaveAttribute('href', '/forms');
     expect(await tile('Спорные рекламодатели')).toHaveAttribute('href', '/advertisers');
+  });
+
+  it('доноры с адресом — ссылкой на тот же фильтр списка доноров', async () => {
+    await openOverview();
+
+    expect(await tile('С адресом')).toHaveAttribute('href', '/donors?has_contact=true');
   });
 
   it('пустая очередь говорит, что пусто, а рассмотрение ведёт к прогонам', async () => {

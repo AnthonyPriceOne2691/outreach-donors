@@ -8,12 +8,15 @@
  * Шапка и боковая колонка — стекло: они стоят поверх полотна, и именно
  * на них держится ощущение глубины. Содержимое — на своей панели, чтобы
  * длинный текст не читался поверх пёстрого пятна фона.
+ *
+ * Шапка уезжает со страницей, колонка меню остаётся на экране и поднимается
+ * к верхнему краю вслед за шапкой (`shellLift.ts`, замечание 25.09.2026).
  */
 
 import { AppShell, Badge, Burger, Button, Group, NavLink, Stack, Text, Title } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { IconLogout } from '@tabler/icons-react';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 import { SERVICE_NAME } from '../brand';
@@ -21,6 +24,7 @@ import { ROLE_TITLES } from '../api/labels';
 import type { Permission } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { navbarWidth } from './navWidth';
+import { followScroll } from './shellLift';
 import { ThemeToggle } from './ThemeToggle';
 
 interface Section {
@@ -45,6 +49,10 @@ const SECTIONS: Section[] = [
   { path: '/users', title: 'Учётки', permission: 'users' },
 ];
 
+/** Высота шапки. Одна на раму и на подъём колонки меню: разойдись они —
+ *  колонка поднималась бы не до края или заезжала за него. */
+const HEADER_HEIGHT = 68;
+
 export function Shell() {
   const { user, can, signOut } = useSession();
   const navigate = useNavigate();
@@ -61,9 +69,16 @@ export function Shell() {
     void navigate('/login', { replace: true });
   };
 
+  const frame = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (frame.current === null) return undefined;
+    return followScroll(frame.current, HEADER_HEIGHT);
+  }, []);
+
   return (
     <AppShell
-      header={{ height: 68 }}
+      ref={frame}
+      header={{ height: HEADER_HEIGHT }}
       navbar={{ width: navWidth, breakpoint: 'sm', collapsed: { mobile: !opened } }}
       padding="lg"
       styles={{

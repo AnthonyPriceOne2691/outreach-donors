@@ -20,13 +20,15 @@
 Зато найденное этим способом закрывается насовсем — правкой токенов
 в `frontend/src/styles/glass.css`, а не подбором на глаз.
 
-**Чего этот способ не умеет.** На мелком тонком тексте в тесном куске
-он занижает: сглаживание даёт много полупрозрачных пикселей, и среднее
-«чернил» съезжает к фону. Проверено эталоном — текст, который в других
-местах даёт 8 : 1, в поле ввода намерился на 3.9 : 1. Поэтому для мелкого
-текста сравнивают не с нормой, а с заведомо годным элементом в том же
-месте: если подсказка тише значения в том же поле на четверть, а не
-втрое — она в порядке.
+**Мелкий текст меряется по ядру буквы.** У тонкого штриха почти каждый
+пиксель — край, сглаженный в сторону фона, и среднее «чернил» съезжает
+к фону: текст, который в других местах даёт 8 : 1, в поле ввода намерился
+на 3.9 : 1, подпись судьи в истории прогонов — 4,12 при ядре буквы 6,6
+(аудит 25.09.2026). Цвет, которым текст написан, несут пиксели середины
+штриха. Поэтому у текста мельче 14 px чернила — треть пикселей, дальше
+всех от фона, а фон — среднее своей группы; такая точка печатается
+с пометкой «по ядру». Крупный текст меряется средним, как раньше: у него
+середина штриха и есть большинство пикселей.
 
 Что он нашёл 19.09.2026, когда стекло стало прозрачнее:
   • тихий текст на свету — 3.8 : 1 при норме 4.5 (чернила посветлели
@@ -85,7 +87,7 @@ def _otsu(hist, total):
     return threshold / 255
 
 
-def contrast(path, box, pad=6):
+def contrast(path, box, pad=6, core=False):
     """Отношение контраста между буквами и фоном под ними.
     `None` — измерить не удалось: в куске одна краска.
 
@@ -105,7 +107,8 @@ def contrast(path, box, pad=6):
             int((box["y"] + box["height"] + pad) * SCALE),
         )
     )
-    lums = [lum(p) for p in crop.getdata()]
+    # `getdata` уходит из Pillow 14; новый вызов есть с 12-й.
+    lums = [lum(p) for p in crop.get_flattened_data()]
     hist = [0] * 256
     for value in lums:
         hist[min(255, int(value * 255))] += 1
@@ -118,8 +121,24 @@ def contrast(path, box, pad=6):
         # за край снимка, и выключенный — серое на сером. Раньше здесь
         # стояло 21.0, и оба случая печатались как безупречный результат.
         return None
-    a, b = sum(dark) / len(dark), sum(light) / len(light)
-    return (b + 0.05) / (a + 0.05)
+    return _ratio(dark, light, core)
+
+
+def _ratio(dark, light, core):
+    """Отношение групп: средних — или ядра чернил к среднему фона.
+
+    Чернила — меньшая группа: в куске с полями вокруг текста фона всегда
+    больше, чем букв. Ядро — треть пикселей чернил, дальше всех от фона.
+    """
+    if core:
+        ink, ground = (dark, light) if len(dark) <= len(light) else (light, dark)
+        ordered = sorted(ink, reverse=ink is light)
+        part = ordered[: max(1, len(ordered) // 3)]
+        a, b = sum(part) / len(part), sum(ground) / len(ground)
+    else:
+        a, b = sum(dark) / len(dark), sum(light) / len(light)
+    hi, lo = max(a, b), min(a, b)
+    return (hi + 0.05) / (lo + 0.05)
 
 
 def probe_notification(page, scheme, email):
@@ -153,6 +172,10 @@ def probe_notification(page, scheme, email):
     return value >= NORM
 
 
+#: Мелкий текст — мельче 14 px: у него почти весь штрих из краёв.
+SMALL_TEXT = "node => parseFloat(getComputedStyle(node).fontSize) < 14"
+
+
 def measurable(page, selector):
     """Элемент и причина, по которой мерить его нельзя.
 
@@ -165,10 +188,11 @@ def measurable(page, selector):
         return None, f"не найден ({selector})"
     if el.is_disabled():
         return None, "выключен — у выключенного меряется серое на сером"
-    # В середину окна, а не «если нужно»: прокрутка к краю ставит элемент
-    # под закреплённую шапку, и меряется её стекло поверх него. 23.09 так
+    # В середину окна, а не «если нужно»: прокрутка к краю ставила элемент
+    # под закреплённую шапку, и мерилось её стекло поверх него. 23.09 так
     # «провалились» подписи плиток сметы в светлой теме и подпись поля
-    # цены (1,34 : 1) — на снимке обе читаются легко.
+    # цены (1,34 : 1) — на снимке обе читаются легко. С 25.09 шапка уезжает
+    # со страницей, но середина окна осталась: у края стоит колонка меню.
     el.evaluate("node => node.scrollIntoView({block: 'center'})")
     page.wait_for_timeout(300)
     return el, None
@@ -200,14 +224,16 @@ def run(page, scheme, shot, probes, prepare=None):
         # раньше это печаталось как 21 : 1 и считалось отличным.
         frame = shot.replace(".png", f"-{index}.png")
         page.screenshot(path=frame)
-        value = contrast(frame, el.bounding_box())
+        small = el.evaluate(SMALL_TEXT)
+        value = contrast(frame, el.bounding_box(), core=small)
         if value is None:
             print(f"  {name:28} НЕ ИЗМЕРЕНО: в куске одна краска")
             worst_ok = False
             continue
         mark = "ок" if value >= norm else "МАЛО"
         worst_ok &= value >= norm
-        print(f"  {name:28} {value:5.2f} : 1  при норме {norm}  {mark}")
+        how = "  по ядру" if small else ""
+        print(f"  {name:28} {value:5.2f} : 1  при норме {norm}  {mark}{how}")
     return worst_ok
 
 
