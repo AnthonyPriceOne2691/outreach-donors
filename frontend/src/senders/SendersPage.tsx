@@ -15,16 +15,13 @@ import { Alert, Card, Loader, Stack, Text, Title } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
+import { refusalOf } from '../api/client';
 import { disableSender, enableSender, listSenders } from '../api/outreach';
 import type { SenderCard } from '../api/types';
 import { SenderCard as DomainCard } from './SenderCard';
 import type { DomainGroup } from './SenderCard';
 
 const SENDERS_QUERY_KEY = ['senders'] as const;
-
-function refusalOf(error: unknown): string {
-  return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
-}
 
 function groupByDomain(senders: SenderCard[]): DomainGroup[] {
   const groups = new Map<string, SenderCard[]>();

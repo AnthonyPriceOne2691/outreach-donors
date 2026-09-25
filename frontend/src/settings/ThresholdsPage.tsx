@@ -33,6 +33,7 @@ import { IconDeviceFloppy } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 
+import { refusalOf } from '../api/client';
 import { fetchThresholds, previewThresholds, saveThresholds } from '../api/settings';
 import type { ThresholdsBody } from '../api/types';
 import { Metric } from '../components/Metric';
@@ -40,10 +41,6 @@ import { useSession } from '../auth/AuthProvider';
 import { formatDateTime, formatNumber } from '../format';
 
 const THRESHOLDS_KEY = ['thresholds'] as const;
-
-function refusalOf(error: unknown): string {
-  return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
-}
 
 function same(a: ThresholdsBody, b: ThresholdsBody): boolean {
   return (

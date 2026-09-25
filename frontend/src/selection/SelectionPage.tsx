@@ -36,6 +36,7 @@ import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
+import { refusalOf } from '../api/client';
 import { HUMAN_INTENTS, JUDGE_DECIDERS, SELECTION_TABS } from '../api/labels';
 import { decideSite, listSelection } from '../api/selection';
 import type { HumanIntent, JudgeDecider, SelectionCard, SelectionTab } from '../api/types';
@@ -54,10 +55,6 @@ const EMPTY: Record<SelectionTab, string> = {
   review: 'Разбирать нечего: судья ни о ком не попросил посмотреть, у всех доноров есть данные.',
   rejected: 'Отклонённых под фильтр нет.',
 };
-
-function refusalOf(error: unknown): string {
-  return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
-}
 
 function share(part: number, whole: number): string {
   return whole === 0 ? '—' : `${Math.round((part / whole) * 100)}%`;

@@ -428,6 +428,16 @@ html:root[data-mantine-color-scheme='dark'] {
   box-shadow: var(--glass-shadow), var(--glass-inner);
 }
 
+/* На телефоне колонка меню встаёт поверх содержимого, а не рядом с ним:
+   сквозь раму просвечивали числа главной, и под переключателем тем
+   читалось «394 / в очереди №18» (снимок 25.09.2026). Поверх содержимого —
+   плотное стекло, как у окон и выпадающих списков. */
+@media (max-width: 47.99em) {
+  .navFrame {
+    background-color: var(--glass-fill-solid);
+  }
+}
+
 .glassQuiet {
   background: var(--quiet-fill);
   border: 1px solid var(--glass-edge);

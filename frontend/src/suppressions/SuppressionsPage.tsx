@@ -48,6 +48,7 @@ import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
+import { refusalOf } from '../api/client';
 import { addSuppression, listSuppressions, removeSuppression } from '../api/outreach';
 import { SUPPRESSION_REASON_TITLES } from '../api/labels';
 import type { StopEntry, SuppressionReason } from '../api/types';
@@ -76,10 +77,6 @@ function endOf(term: Term): string | null {
   const until = new Date();
   until.setFullYear(until.getFullYear() + 1);
   return until.toISOString();
-}
-
-function refusalOf(error: unknown): string {
-  return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
 }
 
 const when = formatDate;

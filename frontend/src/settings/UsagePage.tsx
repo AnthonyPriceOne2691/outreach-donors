@@ -24,6 +24,7 @@ import {
 } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 
+import { refusalOf } from '../api/client';
 import { operationTitle, USAGE_PROVIDERS } from '../api/labels';
 import { Meter } from '../components/Meter';
 import { Metric } from '../components/Metric';
@@ -47,10 +48,6 @@ function unitOf(provider: string, count: number): string {
   if (ones === 1) return 'письмо';
   if (ones >= 2 && ones <= 4) return 'письма';
   return 'писем';
-}
-
-function refusalOf(error: unknown): string {
-  return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
 }
 
 export function UsagePage() {
