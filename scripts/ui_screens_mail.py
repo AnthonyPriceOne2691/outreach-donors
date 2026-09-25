@@ -86,15 +86,21 @@ def mail_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("пункт меню", "nav a", norm),
             ],
         },
+        # Пробы — внутри карточки домена: шапка тоже `.glass`, и проба
+        # `.glass p` первой брала почту в шапке (25.09.2026).
         "senders": {
             "path": "/senders",
             "ready": ("heading", "Домены рассылки"),
             "probes": [
                 ("заголовок раздела", "h3", big),
-                ("домен", ".glass p", norm),
-                ("значок состояния", ".glass .mantine-Badge-label", norm),
-                ("сколько ушло сегодня", ".glass p[data-size='xs']", norm),
-                ("кнопка «Выключить»", ".glass button:has-text('Выключить')", big),
+                ("домен", ".mantine-Card-root.glass p", norm),
+                ("значок состояния", ".mantine-Card-root.glass .mantine-Badge-label", norm),
+                ("сколько ушло сегодня", ".mantine-Card-root.glass p[data-size='xs']", norm),
+                (
+                    "кнопка «Выключить»",
+                    ".mantine-Card-root.glass button:has-text('Выключить')",
+                    big,
+                ),
                 ("пункт меню", "nav a", norm),
             ],
         },
