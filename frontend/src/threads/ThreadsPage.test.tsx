@@ -223,7 +223,7 @@ describe('диалоги', () => {
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole('link', { name: 'green-blog.example.test' }));
-    await user.click(await screen.findByRole('button', { name: 'К списку' }));
+    await user.click(await screen.findByRole('link', { name: 'К списку' }));
 
     expect(await screen.findByText('green-blog.example.test')).toBeInTheDocument();
     expect(screen.getByTestId('where')).toHaveTextContent('/threads?state=waiting');

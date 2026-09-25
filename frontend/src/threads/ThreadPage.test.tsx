@@ -325,3 +325,28 @@ describe('числа в переписке', () => {
     expect(screen.queryByText(/1250\.00 EUR|180\.00 EUR/)).not.toBeInTheDocument();
   });
 });
+
+describe('номер диалога из адреса', () => {
+  it('не номер — «такого диалога нет» без запроса к серверу, и ссылка к списку', async () => {
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    const recorded = serve({ 'GET /api/auth/me': { body: ADMIN } });
+    renderWith(<AppRoutes />, '/threads/abc');
+
+    expect(await screen.findByRole('heading', { name: 'Такого диалога нет' })).toBeVisible();
+    expect(screen.getByText(/«abc» в адресе — не номер диалога/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'К списку' })).toHaveAttribute('href', '/threads');
+    expect(recorded.calls.some((call: Call) => call.path.startsWith('/api/threads'))).toBe(false);
+  });
+
+  it('нет в базе — те же слова, что и у сервера', async () => {
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    serve({
+      'GET /api/auth/me': { body: ADMIN },
+      'GET /api/threads/9999': { status: 404, body: { detail: 'Диалога №9999 нет' } },
+    });
+    renderWith(<AppRoutes />, '/threads/9999');
+
+    expect(await screen.findByRole('heading', { name: 'Такого диалога нет' })).toBeVisible();
+    expect(screen.getByText(/Диалога №9999 нет/)).toBeInTheDocument();
+  });
+});

@@ -191,7 +191,7 @@ export function AdvertisersPage() {
       {/* Поля карточки с таблицей — вместе с полем ячейки те же 32 px, что
           у панели сверху: текст соседних карточек начинается с одного места. */}
       <Card
-        className="glassPanel staleable"
+        className="glassPanel staleRows"
         p={rows.length === 0 ? 'xl' : 'md'}
         data-stale={stale || undefined}
         aria-busy={stale || undefined}

@@ -457,7 +457,7 @@ function QueueControls({
     // Прежний этап — приглушён и не нажимается: текст первого письма
     // донорам, поправленный под переключателем «Рекламодателям», сервер
     // бы не принял, а человек не понял бы, откуда он взялся.
-    <Stack gap="md" className="staleable" data-stale={stale || undefined} inert={stale}>
+    <Stack gap="md" className="staleRows" data-stale={stale || undefined} inert={stale}>
       <Grid gutter="sm">
         <Grid.Col span={{ base: 6, sm: 3 }}>
           <Metric title="В очереди" value={letters.length} />
@@ -615,7 +615,7 @@ function Queue({
 }: QueueProps) {
   if (letters.length === 0) {
     return (
-      <Card className="glass staleable" p="xl" data-stale={stale || undefined}>
+      <Card className="glass staleRows" p="xl" data-stale={stale || undefined}>
         <Stack gap="xs">
           <Text fw={500}>Очередь пуста</Text>
           <Text size="sm" c="dimmed">
@@ -644,7 +644,7 @@ function Queue({
     <Grid
       gutter="lg"
       align="flex-start"
-      className="staleable"
+      className="staleRows"
       data-stale={stale || undefined}
       inert={stale}
       aria-busy={stale || undefined}

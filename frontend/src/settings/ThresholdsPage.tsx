@@ -226,7 +226,7 @@ export function ThresholdsPage() {
           ) : (
             <Stack
               gap="sm"
-              className="staleable"
+              className="staleRows"
               data-stale={preview.isFetching || undefined}
               aria-busy={preview.isFetching || undefined}
             >

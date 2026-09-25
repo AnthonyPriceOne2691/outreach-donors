@@ -9,6 +9,10 @@
  * Отметки доставки — одна галочка и две: принято платформой и доставлено
  * на сервер получателя. Прочитано не показываем: отслеживание открытий
  * требует картинки-маячка, а она сама по себе повод уйти в спам.
+ *
+ * **«К списку» — над заголовком, как у карточек донора и прогона**
+ * (`BackLink`), и возвращает к списку с тем же фильтром. **Номер из адреса
+ * проверяется до запроса** (`rowIdOf`): «abc» уходил бы на сервер как `NaN`.
  */
 
 import {
@@ -23,16 +27,18 @@ import {
   Text,
   Title,
 } from '@mantine/core';
-import { IconArrowLeft, IconCheck, IconChecks } from '@tabler/icons-react';
+import { IconCheck, IconChecks } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router-dom';
 
-import { refusalOf } from '../api/client';
+import { ApiError, refusalOf } from '../api/client';
+import { rowIdOf } from '../api/ids';
 import { MESSAGE_STATUSES, REPLY_KINDS, THREAD_STATES } from '../api/labels';
 import { fetchThread, reviewReply, takeLead } from '../api/outreach';
 import type { Corridor, IncomingCard, LetterCard, MessageStatus } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
+import { BackLink, backTo } from '../components/BackLink';
 import { formatDateTime, formatMoney } from '../format';
 import { corridorText, readable, uniquenessText } from '../letters/letterText';
 import { PriceReview } from './PriceReview';
@@ -235,20 +241,34 @@ function Incoming({ incoming, canReview, busy, onConfirm, onDecline, onTakeLead 
   );
 }
 
+/** Диалога нет: номер негодный или такого нет в базе. */
+function NoSuchThread({ back, said }: { back: string; said: string }) {
+  return (
+    <Card className="glassPanel" p="xl">
+      <Stack gap={6}>
+        <BackLink to={back}>К списку</BackLink>
+        <Title order={3}>Такого диалога нет</Title>
+        <Text size="sm" c="dimmed" maw={720}>
+          {said} Все диалоги — в списке, переписка открывается щелчком по строке.
+        </Text>
+      </Stack>
+    </Card>
+  );
+}
+
 export function ThreadPage() {
-  const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
+  const raw = useParams<{ id: string }>().id;
+  const id = rowIdOf(raw);
   // Откуда пришли: список с фильтром из адреса. «К списку» возвращает туда
   // же, а не на весь список — иначе фильтр с главной терялся бы на первом
   // же открытом диалоге.
-  const from = (useLocation().state as { from?: unknown } | null)?.from;
-  const back = `/threads${typeof from === 'string' && from.startsWith('?') ? from : ''}`;
+  const back = `/threads${backTo(useLocation().state)}`;
   const { can } = useSession();
   const queryClient = useQueryClient();
   const { data, isLoading, error } = useQuery({
-    queryKey: ['thread', id],
-    queryFn: () => fetchThread(Number(id)),
-    enabled: id !== undefined,
+    queryKey: ['thread', String(id)],
+    queryFn: () => fetchThread(id ?? 0),
+    enabled: id !== null,
   });
 
   const confirm = useMutation({
@@ -264,7 +284,7 @@ export function ThreadPage() {
       reviewReply(replyId, { ...values, payment_methods: [], ...(declines ? { declines } : {}) }),
     onSuccess: async (result) => {
       // Список диалогов тоже меняется: состояние «ждёт разбора» уходит.
-      await queryClient.invalidateQueries({ queryKey: ['thread', id] });
+      await queryClient.invalidateQueries({ queryKey: ['thread', String(id)] });
       await queryClient.invalidateQueries({ queryKey: ['threads'] });
       if (result.seller_answer === 'declines') {
         notifications.show({
@@ -288,7 +308,7 @@ export function ThreadPage() {
     mutationFn: (replyId: number) => takeLead(replyId),
     onSuccess: async () => {
       // Список тоже меняется: лид перестаёт ждать человека.
-      await queryClient.invalidateQueries({ queryKey: ['thread', id] });
+      await queryClient.invalidateQueries({ queryKey: ['thread', String(id)] });
       await queryClient.invalidateQueries({ queryKey: ['threads'] });
       notifications.show({ message: 'Лид взят в работу', color: 'green' });
     },
@@ -296,12 +316,21 @@ export function ThreadPage() {
       notifications.show({ title: 'Не взяли', message: refusalOf(failure), color: 'red' }),
   });
 
+  if (id === null) {
+    return <NoSuchThread back={back} said={`«${raw ?? ''}» в адресе — не номер диалога.`} />;
+  }
+  if (error instanceof ApiError && error.status === 404) {
+    return <NoSuchThread back={back} said={`${refusalOf(error)}.`} />;
+  }
   if (isLoading) return <Loader aria-label="Загружаем переписку" m="md" />;
   if (error) {
     return (
-      <Alert color="red" title="Переписка не загрузилась" m="md">
-        {refusalOf(error)}
-      </Alert>
+      <Stack gap="lg">
+        <BackLink to={back}>К списку</BackLink>
+        <Alert color="red" title="Переписка не загрузилась">
+          {refusalOf(error)}
+        </Alert>
+      </Stack>
     );
   }
   if (data === undefined) return null;
@@ -341,28 +370,19 @@ export function ThreadPage() {
   return (
     <Stack gap="lg">
       <Card className="glassPanel" p="xl">
-        <Group justify="space-between" align="flex-start">
-          <Stack gap={6}>
-            <Group gap="sm">
-              <Title order={3}>{data.card.host}</Title>
-              <Badge variant="light" color={THREAD_STATES[data.card.state].color}>
-                {THREAD_STATES[data.card.state].title}
-              </Badge>
-            </Group>
-            <Text size="sm" c="dimmed">
-              {data.card.contact_email ?? 'адрес не определён'} · кампания «{data.card.campaign}»
-              {data.card.stage === 'advertisers' ? ' · рекламодатель' : ''}
-            </Text>
-          </Stack>
-          <Button
-            variant="subtle"
-            className="press"
-            leftSection={<IconArrowLeft size={16} />}
-            onClick={() => void navigate(back)}
-          >
-            К списку
-          </Button>
-        </Group>
+        <Stack gap={6}>
+          <BackLink to={back}>К списку</BackLink>
+          <Group gap="sm">
+            <Title order={3}>{data.card.host}</Title>
+            <Badge variant="light" color={THREAD_STATES[data.card.state].color}>
+              {THREAD_STATES[data.card.state].title}
+            </Badge>
+          </Group>
+          <Text size="sm" c="dimmed">
+            {data.card.contact_email ?? 'адрес не определён'} · кампания «{data.card.campaign}»
+            {data.card.stage === 'advertisers' ? ' · рекламодатель' : ''}
+          </Text>
+        </Stack>
       </Card>
 
       <Stack gap="md">{timeline.map((item) => item.node)}</Stack>

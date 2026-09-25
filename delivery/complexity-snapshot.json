@@ -1367,14 +1367,14 @@
       "worst": "main:121"
     },
     "scripts/ui_screens.py": {
-      "lines": 504,
+      "lines": 441,
       "complexity": 2,
       "worst": "open_reason:17"
     },
     "scripts/ui_screens_mail.py": {
-      "lines": 121,
-      "complexity": 1,
-      "worst": "mail_screens:19"
+      "lines": 190,
+      "complexity": 2,
+      "worst": "show_decided:162"
     }
   }
 }
