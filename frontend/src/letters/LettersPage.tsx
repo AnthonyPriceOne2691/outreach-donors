@@ -484,7 +484,15 @@ function QueueControls({
         <Grid.Col span={{ base: 6, sm: 3 }}>
           <Metric
             title="Почта"
-            value={view.transport.real ? view.transport.name : 'не подключена'}
+            value={
+              view.transport.real ? (
+                view.transport.name
+              ) : (
+                // Слова переносятся по слогам: на телефоне «подключена» шире
+                // плитки и вылезала за её край (на 17 px при 390, аудит 25.09).
+                <span className="tileWords">не подключена</span>
+              )
+            }
             hint={view.transport.real ? 'письма уходят' : 'подключается на рабочем сервере'}
             color={view.transport.real ? undefined : 'yellow'}
           />
