@@ -49,7 +49,9 @@ const lagoon: [string, string, string, string, string, string, string, string, s
  *  как заплатка из другого макета: оно единственное на экране непрозрачное. */
 const glassField = {
   input: {
-    background: 'var(--glass-fill-quiet)',
+    // Своя переменная, а не общая дымка: в тёмной теме поле — тёмный тон
+    // (`--field-fill` в glass.css), иначе значение тонуло над ярким местом.
+    background: 'var(--field-fill)',
     borderColor: 'var(--glass-edge)',
     backdropFilter: 'blur(14px)',
     WebkitBackdropFilter: 'blur(14px)',
