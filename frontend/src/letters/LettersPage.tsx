@@ -41,6 +41,7 @@ import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 
+import { refusalOf } from '../api/client';
 import { buildLetters, editLetter, listLetters, sendLetter, skipLetter } from '../api/letters';
 import { mailSettingsList } from '../api/labels';
 import type { LetterDraft, LetterStage, QueuedLetter } from '../api/types';
@@ -52,10 +53,6 @@ import { RunPicker } from './RunPicker';
 import { JobLine } from '../jobs/JobLine';
 
 const LETTERS_QUERY_KEY = ['letters'] as const;
-
-function refusalOf(error: unknown): string {
-  return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
-}
 
 /** Где экран помнит номер последней сборки — у каждого этапа свой. */
 const BUILD_JOB_KEY = 'letters:last-build-job';
