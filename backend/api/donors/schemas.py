@@ -13,6 +13,7 @@ from backend.features.core.models.donor import ContactModel
 from backend.features.donors.browse import DonorCard as CardData
 from backend.features.donors.browse import DonorPage as PageData
 from backend.features.donors.browse import DonorRow
+from backend.features.donors.wording import reject_reason_text
 
 
 class DonorRowCard(BaseModel):
@@ -20,7 +21,8 @@ class DonorRowCard(BaseModel):
 
     `reject_reason` отдаётся всегда: «не подходит» без причины — это
     решение, которое нельзя оспорить, а пороги у нас версионируются
-    именно затем, чтобы прошлые решения объяснялись.
+    именно затем, чтобы прошлые решения объяснялись. Отдаётся словами:
+    код страны в ней — названием (`donors/wording.py`).
     """
 
     id: int
@@ -45,7 +47,7 @@ class DonorRowCard(BaseModel):
             id=donor.id,
             host=row.host,
             status=donor.status,
-            reject_reason=donor.reject_reason,
+            reject_reason=reject_reason_text(donor.reject_reason),
             dr=donor.dr,
             org_traffic=donor.org_traffic,
             geo=donor.geo,
@@ -139,7 +141,7 @@ class DonorFullCard(BaseModel):
             id=donor.id,
             host=card.host,
             status=donor.status,
-            reject_reason=donor.reject_reason,
+            reject_reason=reject_reason_text(donor.reject_reason),
             dr=donor.dr,
             org_traffic=donor.org_traffic,
             geo=donor.geo,

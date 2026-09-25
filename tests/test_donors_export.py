@@ -23,6 +23,7 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.donors import export
 from backend.features.donors.browse import DonorBrowser, DonorFilters
+from backend.features.donors.wording import CONTACT_STATUS_TITLES, DONOR_STATUS_TITLES
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
@@ -83,14 +84,14 @@ async def test_every_column_carries_the_value(
     assert _rows(response.content) == [
         {
             "домен": "weak.example.test",
-            "вердикт": "unsuitable",
+            "вердикт": "не подходит",
             "причина отсева": "dr ниже порога",
             "DR": "8",
             "трафик": "2400000000",
-            "регион": "de",
-            "доля региона": "0.4",
+            "регион": "Германия",
+            "доля региона": "40%",
             "адресов": "1",
-            "исход поиска": "found",
+            "исход поиска": "адрес найден",
             "цена": "50.00",
             "валюта": "EUR",
             "метрики от": "2026-09-18",
@@ -107,12 +108,14 @@ async def test_file_is_the_same_rows_as_the_screen_page(
     exported = _rows((await client.get("/api/donors/export", headers=bearer(token))).content)[0]
 
     assert exported["домен"] == screen["host"]
-    assert exported["вердикт"] == screen["status"]
+    # Коды экран переводит сам (`labels.ts`) — теми же словами, что файл:
+    # их сверку держит `test_donor_wording.py`.
+    assert exported["вердикт"] == DONOR_STATUS_TITLES[screen["status"]]
     assert exported["причина отсева"] == screen["reject_reason"]
     assert int(exported["DR"]) == screen["dr"]
     assert int(exported["трафик"]) == screen["org_traffic"]
     assert int(exported["адресов"]) == screen["contacts"]
-    assert exported["исход поиска"] == screen["contact_status"]
+    assert exported["исход поиска"] == CONTACT_STATUS_TITLES[screen["contact_status"]]
 
 
 async def test_unknown_column_is_loud_not_empty(
@@ -125,3 +128,36 @@ async def test_unknown_column_is_loud_not_empty(
 
     with pytest.raises(AttributeError):
         export.to_csv(page.rows)
+
+
+async def test_codes_leave_the_file_as_words(
+    client: AsyncClient, token: str, session: AsyncSession
+) -> None:
+    """Регион, доля и исход поиска — словами и процентом, как на экране.
+
+    До 25.09.2026 в файле стояли `us`, `0.19888…` и пустой исход у тех,
+    кому адрес не искали, — а экран называет их «США · 20%» и «не искали».
+    Причина отсева с кодом страны — названием, и у старой записи тоже.
+    """
+    domain = DomainModel(host="far.example.test")
+    session.add(domain)
+    await session.flush()
+    session.add(
+        DonorModel(
+            domain_id=domain.id,
+            status=DonorStatus.UNSUITABLE,
+            reject_reason="ng не входит в топ-5 и даёт меньше 20%",
+            geo="us",
+            geo_top_share=0.19888,
+            contact_status=None,
+        )
+    )
+    await session.commit()
+
+    exported = _rows((await client.get("/api/donors/export", headers=bearer(token))).content)
+    row = next(one for one in exported if one["домен"] == "far.example.test")
+
+    assert row["регион"] == "США"
+    assert row["доля региона"] == "20%"
+    assert row["исход поиска"] == "не искали"
+    assert row["причина отсева"] == "Нигерия не входит в топ-5 и даёт меньше 20%"

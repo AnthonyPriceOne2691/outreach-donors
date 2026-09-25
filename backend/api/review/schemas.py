@@ -18,7 +18,7 @@ from backend.features.review.candidates import (
     ReviewPage,
 )
 from backend.features.review.keyword_yield import KeywordYield
-from backend.features.review.ordering import Tier
+from backend.features.review.ordering import SellsBy, Tier
 
 
 def machine_of(row: CandidateRow) -> MachineView:
@@ -58,6 +58,9 @@ class CandidateCard(BaseModel):
     found_by: list[str]
     #: Почему стоит первым в ярусе: сайт продаёт размещение у себя.
     sells: str | None
+    #: Чей голос это сказал: ответ сайта, человек, судья или дверь на сайте.
+    #: Экран показывает признак один раз — в колонке своего источника.
+    sells_by: SellsBy | None = None
     machine: MachineView
     seller: SellerView
 
@@ -81,6 +84,7 @@ class CandidateCard(BaseModel):
             contact_status=donor.contact_status.value if donor.contact_status else None,
             found_by=row.found_by,
             sells=row.sells,
+            sells_by=row.sells_by,
             machine=machine_of(row),
             seller=SellerView(
                 answer=domain.seller_answer,

@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from operator import itemgetter
 from typing import Any
 
 from sqlalchemy import ColumnElement, case, func, literal, null
@@ -54,8 +55,24 @@ def shelf() -> ColumnElement[Any]:
     return case((DonorModel.dr >= BIG_SITE_DR, 1), else_=0)
 
 
-def sells_placement() -> ColumnElement[Any]:
-    """Продаёт ли сайт размещение у себя — словами, почему; NULL — не видно.
+class SellsBy(StrEnum):
+    """Откуда известно, что сайт продаёт размещение, — чей это голос.
+
+    Экран показывает признак один раз, в колонке его источника: ответ
+    сайта — в «Донор ответил», тип сайта по судье — у судьи. До 25.09.2026
+    строка печатала «продаёт размещение» трижды: значком у домена,
+    пояснением «судья: продаёт размещение у себя» рядом и ярлыком судьи.
+    """
+
+    ANSWER = "answer"  # сайт сам ответил на письмо
+    HUMAN = "human"  # человек назвал тип сайта на «Отборе»
+    JUDGE = "judge"  # тип сайта по судье
+    DOOR = "door"  # страница для авторов или пункт меню главной
+
+
+def _sells_branches() -> list[tuple[ColumnElement[bool], Any, Any]]:
+    """Условие → пояснение → источник. Одна таблица на оба выражения:
+    порядок и подпись не могут разойтись с источником.
 
     Порядок — порядок силы. Ответ самого сайта сильнее всех: «не продаём»
     гасит любые догадки. Мнение человека о типе сайта сильнее судьи: если
@@ -67,20 +84,44 @@ def sells_placement() -> ColumnElement[Any]:
     зовёт к чужим площадкам (`author_door.opens` решает так же). Очередь
     №21: adsy.com и vefogix.com стояли первыми в «посмотреть».
     """
-    return case(
-        (DomainModel.seller_answer == "declines", null()),
-        (DomainModel.seller_answer == "sells", literal("сам сказал: продаёт размещение")),
-        (DomainModel.seller_answer == "free", literal("сам сказал: берёт статьи бесплатно")),
+    answer = literal(SellsBy.ANSWER.value)
+    human = literal(SellsBy.HUMAN.value)
+    judge = literal(SellsBy.JUDGE.value)
+    door = literal(SellsBy.DOOR.value)
+    return [
+        (DomainModel.seller_answer == "declines", null(), null()),
+        (DomainModel.seller_answer == "sells", literal("сам сказал: продаёт размещение"), answer),
+        (
+            DomainModel.seller_answer == "free",
+            literal("сам сказал: берёт статьи бесплатно"),
+            answer,
+        ),
         (
             DomainModel.human_intent == "sells_placement",
             literal("человек: продаёт размещение у себя"),
+            human,
         ),
-        (DomainModel.human_intent.is_not(None), null()),
-        (DomainModel.site_intent == "sells_placement", literal("судья: продаёт размещение у себя")),
-        (DomainModel.site_intent == "link_vendor", null()),
-        (func.coalesce(DomainModel.site_door, "") != "", DomainModel.site_door),
-        else_=null(),
-    )
+        (DomainModel.human_intent.is_not(None), null(), null()),
+        (
+            DomainModel.site_intent == "sells_placement",
+            literal("судья: продаёт размещение у себя"),
+            judge,
+        ),
+        (DomainModel.site_intent == "link_vendor", null(), null()),
+        (func.coalesce(DomainModel.site_door, "") != "", DomainModel.site_door, door),
+    ]
+
+
+def sells_placement() -> ColumnElement[Any]:
+    """Продаёт ли сайт размещение у себя — словами, почему; NULL — не видно.
+    Из таблицы берутся условие и пояснение."""
+    return case(*map(itemgetter(0, 1), _sells_branches()), else_=null())
+
+
+def sells_source() -> ColumnElement[Any]:
+    """Чей голос сказал «продаёт» (`SellsBy`); NULL — признака нет.
+    Из той же таблицы — условие и источник."""
+    return case(*map(itemgetter(0, 2), _sells_branches()), else_=null())
 
 
 def tier_order() -> ColumnElement[Any]:

@@ -13,9 +13,11 @@ from dataclasses import dataclass, field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.features.core.domain import RunStatus
 from backend.features.core.models.run import RunCandidateModel, RunModel
 from backend.features.donors.selection import ReviewTally, tally_reviews
 from backend.features.review.candidates import Decision
+from backend.shared.database.ids import storable
 
 #: Сколько прогонов на странице истории. Число живёт только здесь: экран
 #: узнаёт его из ответа и сам не хранит — второй экземпляр на фронте
@@ -57,6 +59,11 @@ class RunsPage:
 
     rows: list[RunRow]
     total: int
+    #: Сколько прогонов стоит в очереди — по всей истории, а не на этой
+    #: странице. По нему экран говорит «задачу некому взять»: прогон в очереди
+    #: на первой странице не виден тому, кто смотрит вторую, а предупреждение
+    #: касается и его.
+    queued: int = 0
 
 
 class RunBrowser:
@@ -72,10 +79,17 @@ class RunBrowser:
         иначе выглядела бы поломкой.
         """
         total = await self._session.scalar(select(func.count()).select_from(RunModel))
+        queued = await self._session.scalar(
+            select(func.count()).select_from(RunModel).where(RunModel.status == RunStatus.QUEUED)
+        )
         rows = await self._session.execute(
             select(RunModel).order_by(RunModel.id.desc()).limit(size).offset((number - 1) * size)
         )
-        return RunsPage(rows=await self._rows(list(rows.scalars().all())), total=int(total or 0))
+        return RunsPage(
+            rows=await self._rows(list(rows.scalars().all())),
+            total=int(total or 0),
+            queued=int(queued or 0),
+        )
 
     async def with_accepted(self) -> list[RunRow]:
         """Прогоны, в которых человек кого-то принял, — все, новые сверху.
@@ -101,7 +115,7 @@ class RunBrowser:
         ]
 
     async def one(self, run_id: int) -> RunRow:
-        run = await self._session.get(RunModel, run_id)
+        run = await self._session.get(RunModel, run_id) if storable(run_id) else None
         if run is None:
             raise UnknownRunError(f"Прогона №{run_id} нет")
         tallies = await tally_reviews(self._session, {run.id: _hosts(run)})

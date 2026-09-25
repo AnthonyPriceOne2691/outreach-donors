@@ -178,6 +178,7 @@ async def all_runs(
         page=page,
         limit=limit,
         workers=workers_alive(),
+        queued=found.queued,
     )
 
 

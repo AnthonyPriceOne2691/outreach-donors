@@ -16,6 +16,7 @@ from backend.features.donors.selection import (
     SelectionSummary,
     Tab,
 )
+from backend.features.donors.wording import reject_reason_text
 
 
 class MachineView(BaseModel):
@@ -76,7 +77,7 @@ class SelectionCard(BaseModel):
             tab=row.tab,
             donor_id=donor.id if donor else None,
             status=donor.status if donor else None,
-            reject_reason=donor.reject_reason if donor else None,
+            reject_reason=reject_reason_text(donor.reject_reason) if donor else None,
             dr=donor.dr if donor else None,
             org_traffic=donor.org_traffic if donor else None,
             machine=MachineView(

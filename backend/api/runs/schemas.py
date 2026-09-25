@@ -6,22 +6,34 @@ from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
+from pydantic_core import PydanticCustomError
 
 from backend.config import serp as serp_cfg
 from backend.features.core.domain import RunStatus
 from backend.features.runs.browse import RunRow
-from backend.features.runs.estimate import RunForecast
+from backend.features.runs.estimate import RESULTS_PER_PAGE, RunForecast
 from backend.features.runs.reasons import readable
 from backend.features.runs.repository import REASON_KEY
 
 
 class RunRequestBody(BaseModel):
     """Чего хотим от прогона. Ключи приходят списком, а не текстом:
-    разбор текста в обработчике — это правило, уехавшее в веб-слой."""
+    разбор текста в обработчике — это правило, уехавшее в веб-слой.
+
+    **Отказы — своим текстом, а не умолчанием разбора.** Экран показывает
+    отказ целиком, и умолчание давало бы «Input should be less than or equal
+    to 5» или «Value error, …» — по-английски и без того, что делать.
+    Поэтому проверки здесь бросают `PydanticCustomError`: его сообщение
+    доходит до человека как написано.
+    """
 
     keywords: list[str] = Field(min_length=1, max_length=500)
     country: str = Field(min_length=2, max_length=8)
-    depth_pages: int = Field(default=1, ge=1, le=5)
+    #: Глубина выдачи — страницами по десять результатов: провайдер берёт
+    #: деньги за каждые десять, и смета считает в них же. Экран предлагает
+    #: 10, 20, 30, 50 и 100 результатов; сервер принимает любую глубину
+    #: от одной страницы до `MAX_DEPTH_PAGES` (командная строка берёт и 40).
+    depth_pages: int = 1
     #: Потолок юнитов на этот прогон. Пусто — остаток по месячному капу.
     #: Нужен, чтобы попробовать нишу дёшево: без него единственный способ
     #: ограничить трату — сократить список ключей, а это другой вопрос.
@@ -35,12 +47,33 @@ class RunRequestBody(BaseModel):
         применялась нигде, а прогон принимал впятеро больше ключей,
         чем заложено в требования."""
         if len(keywords) > serp_cfg.MAX_KEYWORDS_PER_RUN:
-            raise ValueError(
+            raise PydanticCustomError(
+                "too_many_keywords",
                 f"За прогон берём не больше {serp_cfg.MAX_KEYWORDS_PER_RUN} ключей, "
                 f"пришло {len(keywords)}. Разбейте список на несколько прогонов: "
-                "так видно смету каждого и можно остановиться на середине"
+                "так видно смету каждого и можно остановиться на середине",
             )
         return keywords
+
+    @field_validator("depth_pages")
+    @classmethod
+    def _depth_the_screen_offers(cls, depth: int) -> int:
+        """Глубина — от одной страницы выдачи до потолка из настроек.
+
+        Прислать число результатов вместо страниц («50» вместо «5») —
+        самая вероятная ошибка на этой границе, и цена её — вдесятеро
+        дороже выдача. Поэтому отказ называет обе единицы.
+        """
+        most = serp_cfg.MAX_DEPTH_PAGES
+        if not 1 <= depth <= most:
+            raise PydanticCustomError(
+                "depth_out_of_range",
+                f"Глубина выдачи — от {RESULTS_PER_PAGE} до {most * RESULTS_PER_PAGE} "
+                f"результатов на ключ, то есть от 1 до {most} страниц по "
+                f"{RESULTS_PER_PAGE}; пришло {depth}. Глубина передаётся страницами, "
+                "а не числом результатов",
+            )
+        return depth
 
 
 class Forecast(BaseModel):
@@ -172,6 +205,9 @@ class RunsView(BaseModel):
     #: Сколько воркеров слушает очередь. `None` — спросить не удалось,
     #: и это не ноль: неизвестность и пустота требуют разных слов.
     workers: int | None
+    #: Сколько прогонов стоит в очереди — по всей истории, а не на этой
+    #: странице: «задачу некому взять» касается и того, кто смотрит вторую.
+    queued: int = 0
 
 
 class RunQueued(BaseModel):
