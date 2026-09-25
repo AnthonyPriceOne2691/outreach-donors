@@ -12,7 +12,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
@@ -24,7 +24,7 @@ from backend.features.access.repository import AccessRepository
 from backend.features.ahrefs.client import AhrefsClient
 from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
-from backend.features.runs.browse import RunBrowser
+from backend.features.runs.browse import MAX_PAGE_SIZE, PAGE_SIZE, RunBrowser
 from backend.features.runs.budget import units_left
 from backend.features.runs.estimate import UNIQUE_SHARE, forecast
 from backend.features.runs.repository import RunRepository
@@ -152,19 +152,48 @@ async def start_run(
     return RunQueued(run_id=run.id, job_id=str(job.id))
 
 
-@router.get("", response_model=RunsView, summary="История прогонов")
+@router.get("", response_model=RunsView, summary="История прогонов, по странице")
 async def all_runs(
     _: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
+    page: int = Query(default=1, ge=1, description="страница истории, с единицы"),
+    limit: int = Query(
+        default=PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE, description="прогонов на странице"
+    ),
 ) -> RunsView:
-    """Список прогонов и то, есть ли кому их выполнять.
+    """Страница истории прогонов и то, есть ли кому их выполнять.
+
+    Страница — номером, а не сдвигом: экран держит в адресе номер
+    (`?page=2`), а размер страницы знает только сервер и называет его
+    в ответе. Со сдвигом экрану пришлось бы хранить свою копию размера.
 
     Про воркеров спрашивается здесь, а не отдельным маршрутом: экран,
     на котором нажимают «Запустить», — единственное место, где ответ
     «задачу некому взять» приходит вовремя.
     """
-    rows = await RunBrowser(session).recent()
-    return RunsView(runs=[RunCard.of(row) for row in rows], workers=workers_alive())
+    found = await RunBrowser(session).page(page, size=limit)
+    return RunsView(
+        runs=[RunCard.of(row) for row in found.rows],
+        total=found.total,
+        page=page,
+        limit=limit,
+        workers=workers_alive(),
+    )
+
+
+@router.get("/with-accepted", response_model=list[RunCard], summary="Прогоны с принятыми донорами")
+async def runs_with_accepted(
+    _: UserModel = _viewer,
+    session: AsyncSession = Depends(db_session),
+) -> list[RunCard]:
+    """Из каких прогонов можно собрать рассылку — все, без страниц.
+
+    Отдельным маршрутом, а не страницей истории: выбор прогонов на экране
+    писем брал общий список и оставлял в нём прогоны с принятыми, и срез
+    по странице (раньше — по тридцати последним) молча прятал бы старый
+    прогон, из которого ещё есть что собрать.
+    """
+    return [RunCard.of(row) for row in await RunBrowser(session).with_accepted()]
 
 
 @router.get("/{run_id}", response_model=RunCard, summary="Один прогон")

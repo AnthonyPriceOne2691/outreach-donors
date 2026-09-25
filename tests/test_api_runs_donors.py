@@ -37,6 +37,7 @@ ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("POST", "/api/runs/estimate", RUN_BODY, "run"),
     ("POST", "/api/runs", RUN_BODY, "run"),
     ("GET", "/api/runs", None, "view"),
+    ("GET", "/api/runs/with-accepted", None, "view"),
     ("GET", "/api/runs/{run}", None, "view"),
     ("GET", "/api/donors", None, "view"),
     ("GET", "/api/donors/{donor}", None, "view"),

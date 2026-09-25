@@ -16,6 +16,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
 from backend.config import filters
 from backend.config.startup_checks import ConfigError
@@ -146,8 +147,10 @@ async def test_cap_refusal_closes_the_run_with_its_reason(
     await session.refresh(run)
 
     assert run.status is RunStatus.STOPPED
-    assert "3480" in run.stats["причина"]
-    assert "воркер умер" not in run.stats["причина"]
+    assert run.stats["причина"] == (
+        "остановлен: Прогон обойдётся в 3480 юнитов, доступно 3000. Новых доменов 61 из 62"
+    ), "сообщение потолка говорит, что делать, — имя класса экрану не нужно (25.09.2026)"
+    assert "CapExceededError" in run.stats["failure"], "а журналу нужно: по нему ищут"
     assert result["refused"]
 
 
@@ -163,8 +166,25 @@ async def test_unexpected_failure_is_written_and_still_raised(
         await jobs._search(run.id)
     await session.refresh(run)
 
-    assert run.stats["причина"] == "сбой, будет продолжен: RuntimeError: провайдер лёг"
+    assert run.stats["причина"] == "сбой, будет продолжен: провайдер лёг"
+    assert run.stats["failure"] == "RuntimeError: провайдер лёг"
     assert run.status is not RunStatus.STOPPED, "решение о повторе — за разбором"
+
+
+async def test_foreign_failure_is_named_in_general_words(
+    session: AsyncSession, failing: dict[str, Any]
+) -> None:
+    """Чужое исключение говорит по-английски и для разработчика: на экран —
+    общие слова и имя класса в скобках, полный текст — рядом, для поиска."""
+    run = await _queued_run(session)
+    failing["fail_with"](httpx.ReadTimeout("The read operation timed out"))
+
+    with pytest.raises(httpx.ReadTimeout):
+        await jobs._search(run.id)
+    await session.refresh(run)
+
+    assert run.stats["причина"] == "сбой, будет продолжен: техническая ошибка (ReadTimeout)"
+    assert run.stats["failure"] == "ReadTimeout: The read operation timed out"
 
 
 async def test_config_refusal_does_not_reach_the_pipeline(
@@ -182,7 +202,7 @@ async def test_config_refusal_does_not_reach_the_pipeline(
 
     assert "request" not in pipeline, "с неверной настройкой сбор не начинается"
     assert run.status is RunStatus.STOPPED
-    assert "SERP_LOGIN" in run.stats["причина"]
+    assert run.stats["причина"] == "остановлен: SERP_LOGIN пуст — выдачу покупать не на что"
 
 
 # --- доля уникальных доменов для сметы до запуска ---------------------------

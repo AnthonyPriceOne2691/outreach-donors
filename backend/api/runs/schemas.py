@@ -11,6 +11,8 @@ from backend.config import serp as serp_cfg
 from backend.features.core.domain import RunStatus
 from backend.features.runs.browse import RunRow
 from backend.features.runs.estimate import RunForecast
+from backend.features.runs.reasons import readable
+from backend.features.runs.repository import REASON_KEY
 
 
 class RunRequestBody(BaseModel):
@@ -122,6 +124,11 @@ class RunCard(BaseModel):
     #: Очередь рассмотрения: `pending` / `accepted` / `rejected` → сколько.
     #: Пусто — прогон сделан до очереди.
     queue: dict[str, int] = {}
+    #: Почему прогон остановлен или прерывался — словами человека. Имени
+    #: класса исключения здесь нет, даже если оно записано в отчёте: причины
+    #: до 25.09.2026 лежат в базе сырыми и показываются чисто, а сам отчёт
+    #: не переписывается (`runs/reasons.py`). `None` — причины нет.
+    reason: str | None = None
 
     @classmethod
     def of(cls, row: RunRow) -> RunCard:
@@ -141,6 +148,7 @@ class RunCard(BaseModel):
             reviewed=row.review.reviewed,
             disagreements=row.review.disagreements,
             queue=row.queue,
+            reason=readable((row.run.stats or {}).get(REASON_KEY)),
         )
 
 
@@ -154,6 +162,13 @@ class RunsView(BaseModel):
     """
 
     runs: list[RunCard]
+    #: Сколько прогонов всего, а не на этой странице: по нему экран считает
+    #: страницы и отличает «прогонов нет» от «на этой странице пусто».
+    total: int
+    #: Какая это страница (с единицы) и сколько прогонов на ней помещается.
+    #: Размер страницы задаёт сервер — экран берёт его отсюда, а не держит свой.
+    page: int
+    limit: int
     #: Сколько воркеров слушает очередь. `None` — спросить не удалось,
     #: и это не ноль: неизвестность и пустота требуют разных слов.
     workers: int | None

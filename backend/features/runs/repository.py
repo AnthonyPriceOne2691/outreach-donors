@@ -86,6 +86,9 @@ def _by_country_units(stats: dict[str, Any]) -> int:
 #: разбор мёртвых («продолжений» — сколько раз уже продолжали).
 REASON_KEY = "причина"
 RESUMES_KEY = "продолжений"
+#: Сбой как есть, с именем класса исключения: по нему ищут в журнале.
+#: На экран идёт причина — словами человека (`runs/reasons.py`).
+FAILURE_KEY = "failure"
 
 
 def carried_notes(previous: dict[str, Any] | None, *, finished: bool) -> dict[str, Any]:

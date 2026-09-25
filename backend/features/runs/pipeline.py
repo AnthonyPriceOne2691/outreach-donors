@@ -304,7 +304,7 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
     with run_context(run.id):
         report = RunReport(plan=plan)
         status = RunStatus.DONE
-        failure: str | None = None
+        failed: BaseException | None = None
 
         # Клиент сообщает о тратах в копилку; прогон сливает её в журнал на каждом
         # чекпоинте. Без этой связки клиент считал бы расход в никуда, а журнал
@@ -342,7 +342,7 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
                 await deps.runs.session_commit()
                 await _check_doors(deps, run, report, candidates.texts)
         except Exception as exc:
-            failure = described(exc)
+            failed = exc
             status = _status_after(exc, run.id)
             raise
         finally:
@@ -356,7 +356,7 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
                 run,
                 status=status,
                 actual_units=report.spent_units,
-                stats=run_stats(report, failure, retry=status is RunStatus.RUNNING),
+                stats=run_stats(report, failed, retry=status is RunStatus.RUNNING),
             )
             await deps.runs.session_commit()
 

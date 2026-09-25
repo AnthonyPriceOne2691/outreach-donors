@@ -596,7 +596,9 @@ class TestTransientFailureIsRetriedNotBuried:
         assert not caught.value.permanent
         run = (await session.execute(select(RunModel))).scalar_one()
         assert run.status is RunStatus.RUNNING
-        assert run.stats["причина"].startswith("сбой, будет продолжен: AhrefsError")
+        # Сообщение наше и по-русски — оно и есть причина; класс — для поиска.
+        assert run.stats["причина"].startswith("сбой, будет продолжен: batch_metrics: не удалось")
+        assert run.stats["failure"].startswith("AhrefsError: ")
         assert run.actual_units is not None
         assert run.actual_units > 0, "просев оплачен и записан"
 
@@ -612,7 +614,9 @@ class TestTransientFailureIsRetriedNotBuried:
         assert caught.value.permanent, "403 повтором не лечится"
         run = (await session.execute(select(RunModel))).scalar_one()
         assert run.status is RunStatus.STOPPED
-        assert run.stats["причина"].startswith("остановлен: AhrefsError")
+        # Сырой ответ провайдера — не слова для человека: общие слова и класс.
+        assert run.stats["причина"] == "остановлен: техническая ошибка (AhrefsError)"
+        assert "403" in run.stats["failure"]
 
     async def test_failed_attempts_keep_what_the_run_already_has(
         self, session: AsyncSession

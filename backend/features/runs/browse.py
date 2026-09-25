@@ -15,6 +15,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.models.run import RunCandidateModel, RunModel
 from backend.features.donors.selection import ReviewTally, tally_reviews
+from backend.features.review.candidates import Decision
+
+#: Сколько прогонов на странице истории. Число живёт только здесь: экран
+#: узнаёт его из ответа и сам не хранит — второй экземпляр на фронте
+#: разошёлся бы с этим при первой правке.
+PAGE_SIZE = 10
+
+#: Больше за раз не отдаём: страница истории — чтение глазами, а не выгрузка.
+MAX_PAGE_SIZE = 50
 
 
 class UnknownRunError(ValueError):
@@ -42,15 +51,49 @@ class RunRow:
         return (actual - estimated) / estimated
 
 
+@dataclass(frozen=True, slots=True)
+class RunsPage:
+    """Страница истории и сколько прогонов всего — по нему считают страницы."""
+
+    rows: list[RunRow]
+    total: int
+
+
 class RunBrowser:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def recent(self, *, limit: int = 30) -> list[RunRow]:
+    async def page(self, number: int, *, size: int = PAGE_SIZE) -> RunsPage:
+        """Страница истории, новые сверху. Номер — с единицы.
+
+        Страница за концом — пустая, с настоящим `total`, а не отказ: экран
+        узнаёт из неё, сколько страниц есть на самом деле, и переходит
+        на последнюю. Ссылка на пятую страницу, открытая после чистки базы,
+        иначе выглядела бы поломкой.
+        """
+        total = await self._session.scalar(select(func.count()).select_from(RunModel))
         rows = await self._session.execute(
-            select(RunModel).order_by(RunModel.id.desc()).limit(limit)
+            select(RunModel).order_by(RunModel.id.desc()).limit(size).offset((number - 1) * size)
         )
-        runs = list(rows.scalars().all())
+        return RunsPage(rows=await self._rows(list(rows.scalars().all())), total=int(total or 0))
+
+    async def with_accepted(self) -> list[RunRow]:
+        """Прогоны, в которых человек кого-то принял, — все, новые сверху.
+
+        Из них собирается рассылка. Страницы здесь нет намеренно: первые
+        десять прогонов по дате и прогоны, из которых есть что собрать, —
+        разные списки, и срез по странице молча прятал бы старый прогон
+        с принятыми донорами.
+        """
+        accepted = select(RunCandidateModel.run_id).where(
+            RunCandidateModel.status == Decision.ACCEPTED.value
+        )
+        rows = await self._session.execute(
+            select(RunModel).where(RunModel.id.in_(accepted)).order_by(RunModel.id.desc())
+        )
+        return await self._rows(list(rows.scalars().all()))
+
+    async def _rows(self, runs: list[RunModel]) -> list[RunRow]:
         tallies = await tally_reviews(self._session, {run.id: _hosts(run) for run in runs})
         queues = await self._queues([run.id for run in runs])
         return [
