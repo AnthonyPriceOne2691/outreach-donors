@@ -8,13 +8,20 @@
  *
  * Показываются только прогоны, где уже есть принятые: из остальных
  * собирать нечего, и выбор такого прогона выглядел бы как поломка.
+ *
+ * **Список свой, а не страница истории.** Раньше выбор брал общий список
+ * прогонов и отсеивал его здесь, а общий список отдавал последние тридцать;
+ * с историей по десять на странице старый прогон с принятыми пропал бы
+ * из выбора молча. Теперь сервер отдаёт ровно такие прогоны и все сразу,
+ * а ключ кэша свой: страница истории его не затирает, а решение
+ * на рассмотрении (`['runs']`) обновляет оба.
  */
 
 import { Checkbox, Group, Stack, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 
 import { countryTitle } from '../api/labels';
-import { listRuns } from '../api/runs';
+import { listRunsWithAccepted } from '../api/runs';
 
 interface Props {
   value: number[];
@@ -22,8 +29,8 @@ interface Props {
 }
 
 export function RunPicker({ value, onChange }: Props) {
-  const { data } = useQuery({ queryKey: ['runs'], queryFn: listRuns });
-  const ready = (data?.runs ?? []).filter((run) => (run.queue.accepted ?? 0) > 0);
+  const { data } = useQuery({ queryKey: ['runs', 'with-accepted'], queryFn: listRunsWithAccepted });
+  const ready = data ?? [];
 
   if (ready.length === 0) {
     return (

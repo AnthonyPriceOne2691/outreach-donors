@@ -78,6 +78,7 @@ const RUN_WITH_ACCEPTED = {
   reviewed: 0,
   disagreements: 0,
   queue: { pending: 380, accepted: 14 },
+  reason: null,
 };
 
 /** Задача сборки, как её отдаёт сервер сразу после постановки. */
@@ -112,7 +113,7 @@ async function openLetters(
   const recorded = serve({
     'GET /api/auth/me': { body: who },
     'GET /api/letters': { body: { ...VIEW, ...view } },
-    'GET /api/runs': { body: { runs: [RUN_WITH_ACCEPTED], workers: 1 } },
+    'GET /api/runs/with-accepted': { body: [RUN_WITH_ACCEPTED] },
     // После «Собрать очередь» строка задачи сама спрашивает её исход.
     'GET /api/jobs/j': { body: BUILD_JOB },
     ...(routes as Record<string, never>),
@@ -173,6 +174,24 @@ describe('цепочка писем', () => {
 
     const call = recorded.calls.find((one: Call) => one.path === '/api/letters/build');
     expect(call?.body).toMatchObject({ campaign: 'Май', followup_days: [3, 14], run_ids: [18] });
+  });
+});
+
+describe('прогоны рассылки', () => {
+  it('в выборе все прогоны с принятыми, а не первая страница истории', async () => {
+    // История прогонов с 25.09.2026 отдаётся страницами по десять. Выбор
+    // рассылки брал тот же список и молча потерял бы старые прогоны
+    // с принятыми донорами; теперь у него свой запрос.
+    const ready = Array.from({ length: 12 }, (_, index) => ({
+      ...RUN_WITH_ACCEPTED,
+      id: 30 - index,
+      queue: { accepted: index + 1 },
+    }));
+    const recorded = await openLetters({}, { 'GET /api/runs/with-accepted': { body: ready } });
+
+    expect(await screen.findByLabelText(/№19 /)).toBeInTheDocument();
+    expect(screen.getAllByRole('checkbox', { name: /^№\d+ · / })).toHaveLength(12);
+    expect(recorded.calls.some((call: Call) => call.path.startsWith('/api/runs?'))).toBe(false);
   });
 });
 

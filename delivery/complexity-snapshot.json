@@ -1347,14 +1347,14 @@
       "worst": "_select:46"
     },
     "scripts/ui_contrast.py": {
-      "lines": 269,
+      "lines": 272,
       "complexity": 9,
-      "worst": "main:217"
+      "worst": "main:220"
     },
     "scripts/ui_screens.py": {
-      "lines": 361,
+      "lines": 408,
       "complexity": 2,
-      "worst": "show_decided:323"
+      "worst": "open_reason:17"
     }
   }
 }

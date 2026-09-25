@@ -6,7 +6,7 @@
  * запустить, если цена не помещается в остаток.
  */
 
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
@@ -61,7 +61,15 @@ const QUEUED = {
   reviewed: 0,
   disagreements: 0,
   queue: {},
+  reason: null,
 };
+
+/** Причина, как её отдаёт сервер: без имени класса — его убирает сервер,
+ *  и из записей до 25.09.2026 тоже. */
+const STOP_REASON =
+  'остановлен разбором: задача упала: Прогон обойдётся в 3480 юнитов, доступно 3000. ' +
+  'Новых доменов 61 из 62; сократите список ключей или поднимите кап., продолжений 2 из 2, ' +
+  'молчание 901 с';
 
 const STOPPED = {
   ...QUEUED,
@@ -71,21 +79,36 @@ const STOPPED = {
   actual_units: 120,
   estimate_error: -0.6,
   hosts: 42,
-  stats: { причина: 'остановлен разбором: воркер умер, продолжений 2 из 2' },
+  stats: { причина: 'сырой текст из базы — экран его не показывает' },
+  reason: STOP_REASON,
 };
 
-async function openRun(routes: Record<string, unknown> = {}) {
+/** Ответ истории: страница, её размер и сколько прогонов всего. */
+function history(runs: unknown[], extra: Record<string, unknown> = {}) {
+  return { body: { runs, total: runs.length, page: 1, limit: 10, workers: 1, ...extra } };
+}
+
+async function openRun(routes: Record<string, unknown> = {}, path = '/run') {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   const recorded = serve({
     'GET /api/auth/me': { body: ADMIN },
     'GET /api/runs/countries': { body: ['us', 'de'] },
-    'GET /api/runs': { body: { runs: [], workers: 1 } },
+    'GET /api/runs?page=1': history([]),
     'GET /api/keywords/yield?country=us': { body: [] },
     ...(routes as Record<string, never>),
   });
-  renderWith(<AppRoutes />, '/run');
+  renderWith(<AppRoutes />, path);
   await screen.findByLabelText('Ключевые слова');
   return recorded;
+}
+
+/** Прогоны с номерами от `from` вниз — законченные, без причин. */
+function finished(from: number, count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    ...QUEUED,
+    id: from - index,
+    status: 'done',
+  }));
 }
 
 /** Поле тем: у Mantine `TagsInput` подпись носят два поля — видимое
@@ -283,7 +306,7 @@ describe('прогон', () => {
   });
 
   it('прогон в очереди виден до первой траты', async () => {
-    await openRun({ 'GET /api/runs': { body: { runs: [QUEUED], workers: 1 } } });
+    await openRun({ 'GET /api/runs?page=1': history([QUEUED]) });
 
     expect(await screen.findByText('в очереди')).toBeInTheDocument();
     // Смета и домены появятся позже — но сам прогон на экране уже есть.
@@ -291,23 +314,78 @@ describe('прогон', () => {
   });
 
   it('очередь без воркера — это не работающий сервис', async () => {
-    await openRun({ 'GET /api/runs': { body: { runs: [QUEUED], workers: 0 } } });
+    await openRun({ 'GET /api/runs?page=1': history([QUEUED], { workers: 0 }) });
 
     expect(await screen.findByText('Задачу некому взять')).toBeInTheDocument();
   });
 
   it('пока воркер жив, про него ничего не говорят', async () => {
-    await openRun({ 'GET /api/runs': { body: { runs: [QUEUED], workers: 1 } } });
+    await openRun({ 'GET /api/runs?page=1': history([QUEUED]) });
     await screen.findByText('в очереди');
 
     expect(screen.queryByText('Задачу некому взять')).not.toBeInTheDocument();
   });
 
-  it('у остановленного прогона видна причина, а не пустая ячейка', async () => {
-    await openRun({ 'GET /api/runs': { body: { runs: [STOPPED], workers: 1 } } });
+  it('у остановленного прогона причина — за «!», целиком и по нажатию', async () => {
+    // Замечание 25.09.2026: причина в три-пять строк раздувала колонку
+    // состояния. В ячейке — значок, текст целиком — в поповере.
+    await openRun({ 'GET /api/runs?page=1': history([STOPPED]) });
+    const user = userEvent.setup();
 
-    expect(await screen.findByText(/воркер умер/)).toBeInTheDocument();
+    const hint = await screen.findByRole('button', { name: 'Почему остановлен' });
     expect(screen.getByText('42')).toBeInTheDocument();
+    expect(screen.queryByText(/Прогон обойдётся/)).not.toBeInTheDocument();
+
+    await user.click(hint);
+
+    const told = await screen.findByRole('dialog', { name: 'Почему остановлен' });
+    expect(told).toHaveTextContent(STOP_REASON);
+    // Сырой текст из базы экран не берёт: причину готовит сервер.
+    expect(screen.queryByText(/сырой текст/)).not.toBeInTheDocument();
+  });
+
+  it('«!» есть только там, где есть причина, — не спрятан, а не отрисован', async () => {
+    await openRun({ 'GET /api/runs?page=1': history([STOPPED, { ...QUEUED, id: 5 }]) });
+
+    await screen.findByText('№5');
+    expect(screen.getAllByRole('button', { name: 'Почему остановлен', hidden: true })).toHaveLength(
+      1,
+    );
+    expect(screen.queryAllByRole('button', { name: 'Что случилось', hidden: true })).toHaveLength(
+      0,
+    );
+  });
+
+  it('прерывавшийся, но продолженный прогон спрашивает «что случилось»', async () => {
+    // Остановленный — отказ: «почему остановлен». Продолженный после сбоя —
+    // не отказ, а повод посмотреть: имя и цвет у значка другие.
+    const resumed = {
+      ...QUEUED,
+      id: 8,
+      status: 'done',
+      reason: 'продолжен после сбоя (1 раз): задача упала: техническая ошибка (ReadTimeout)',
+    };
+    await openRun({ 'GET /api/runs?page=1': history([resumed]) });
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Что случилось' }));
+
+    expect(await screen.findByRole('dialog', { name: 'Что случилось' })).toHaveTextContent(
+      'техническая ошибка (ReadTimeout)',
+    );
+  });
+
+  it('Esc закрывает причину и возвращает фокус на «!»', async () => {
+    await openRun({ 'GET /api/runs?page=1': history([STOPPED]) });
+    const user = userEvent.setup();
+    const hint = await screen.findByRole('button', { name: 'Почему остановлен' });
+
+    await user.click(hint);
+    await screen.findByRole('dialog', { name: 'Почему остановлен' });
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => expect(hint).toHaveAttribute('aria-expanded', 'false'));
+    expect(hint).toHaveFocus();
   });
 
   it('исключённые доменом стоят рядом с числом доменов, а не вместо него', async () => {
@@ -316,8 +394,9 @@ describe('прогон', () => {
       id: 5,
       status: 'done',
       stats: { excluded: 12, excluded_by_reason: { 'в стоп-листе': 12 } },
+      reason: null,
     };
-    await openRun({ 'GET /api/runs': { body: { runs: [gated], workers: 1 } } });
+    await openRun({ 'GET /api/runs?page=1': history([gated]) });
 
     expect(await screen.findByText('42')).toBeInTheDocument();
     expect(screen.getByText('исключено 12')).toBeInTheDocument();
@@ -362,7 +441,7 @@ describe('прогон', () => {
       reviewed: 4,
       disagreements: 1,
     };
-    await openRun({ 'GET /api/runs': { body: { runs: [judged, QUEUED], workers: 1 } } });
+    await openRun({ 'GET /api/runs?page=1': history([judged, QUEUED]) });
 
     expect(await screen.findByText('отрезал бы 26')).toBeInTheDocument();
     expect(screen.getByText(/расходится 1 из 4/)).toBeInTheDocument();
@@ -389,7 +468,7 @@ describe('прогон', () => {
         },
       },
     };
-    await openRun({ 'GET /api/runs': { body: { runs: [silent], workers: 1 } } });
+    await openRun({ 'GET /api/runs?page=1': history([silent]) });
 
     const badge = await screen.findByText('модель не ответила: 44');
     expect(badge.closest('[title]')).toHaveAttribute(
@@ -399,10 +478,101 @@ describe('прогон', () => {
   });
 });
 
+describe('история прогонов по страницам', () => {
+  // Замечание 25.09.2026: «пагинация, максимум 10 прогонов на странице».
+  // Страницу считает сервер; экран спрашивает номер и показывает ответ.
+  const PAGER = 'Страницы истории прогонов';
+
+  it('десять прогонов — одна страница, и переключателя нет вовсе', async () => {
+    await openRun({ 'GET /api/runs?page=1': history(finished(10, 10)) });
+
+    await screen.findByText('№10');
+    expect(screen.queryByRole('navigation', { name: PAGER, hidden: true })).not.toBeInTheDocument();
+  });
+
+  it('больше десяти — переключатель, и вторая страница спрашивается у сервера', async () => {
+    const recorded = await openRun({
+      'GET /api/runs?page=1': history(finished(12, 10), { total: 12 }),
+      'GET /api/runs?page=2': history(finished(2, 2), { total: 12, page: 2 }),
+    });
+    const user = userEvent.setup();
+
+    const pager = await screen.findByRole('navigation', { name: PAGER });
+    await user.click(within(pager).getByRole('button', { name: 'Страница 2' }));
+
+    expect(await screen.findByText('№1')).toBeInTheDocument();
+    expect(screen.queryByText('№12')).not.toBeInTheDocument();
+    expect(recorded.calls.some((call) => call.path === '/api/runs?page=2')).toBe(true);
+    // Экран не режет список сам: на странице ровно то, что прислал сервер.
+    expect(screen.getAllByRole('row')).toHaveLength(1 + 2);
+  });
+
+  it('номер страницы — в адресе: вторая по ссылке открывается второй', async () => {
+    const recorded = await openRun(
+      { 'GET /api/runs?page=2': history(finished(2, 2), { total: 12, page: 2 }) },
+      '/run?page=2',
+    );
+
+    expect(await screen.findByText('№2')).toBeInTheDocument();
+    expect(recorded.calls.some((call) => call.path === '/api/runs?page=1')).toBe(false);
+    const pager = screen.getByRole('navigation', { name: PAGER });
+    expect(within(pager).getByRole('button', { name: 'Страница 2' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+  });
+
+  it('страница за концом уводит на последнюю, а не показывает «прогонов нет»', async () => {
+    const recorded = await openRun(
+      {
+        'GET /api/runs?page=5': history([], { total: 12, page: 5 }),
+        'GET /api/runs?page=2': history(finished(2, 2), { total: 12, page: 2 }),
+      },
+      '/run?page=5',
+    );
+
+    expect(await screen.findByText('№2')).toBeInTheDocument();
+    expect(recorded.calls.map((call) => call.path)).toContain('/api/runs?page=2');
+    expect(screen.queryByText(/Прогонов ещё не было/)).not.toBeInTheDocument();
+  });
+
+  it('негодный номер в адресе — первая страница, а не отказ сервера', async () => {
+    const recorded = await openRun({}, '/run?page=abc');
+
+    expect(await screen.findByText(/Прогонов ещё не было/)).toBeInTheDocument();
+    expect(recorded.calls.some((call) => call.path === '/api/runs?page=1')).toBe(true);
+  });
+
+  it('после запуска со второй страницы новый прогон виден на первой', async () => {
+    const recorded = await openRun(
+      {
+        'GET /api/runs?page=2': history(finished(2, 2), { total: 12, page: 2 }),
+        'GET /api/runs?page=1': history(finished(13, 10), { total: 13 }),
+        'POST /api/runs/estimate': { body: FITS },
+        'POST /api/runs': { body: { run_id: 13, job_id: 'abc', note: 'Прогон встал в очередь.' } },
+      },
+      '/run?page=2',
+    );
+    const user = userEvent.setup();
+    await screen.findByText('№2');
+
+    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
+    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
+    await screen.findByText('до 177');
+    await user.click(screen.getByRole('button', { name: /Запустить/ }));
+
+    expect(await screen.findByText('№13')).toBeInTheDocument();
+    const launched = recorded.calls.findIndex(
+      (call) => call.method === 'POST' && call.path === '/api/runs',
+    );
+    expect(recorded.calls.slice(launched).map((call) => call.path)).toContain('/api/runs?page=1');
+  });
+});
+
 describe('рассмотрение прогона', () => {
   it('прогон с очередью ведёт к рассмотрению и говорит, сколько ждёт решения', async () => {
     const queued = { ...QUEUED, id: 18, status: 'done', queue: { pending: 394, accepted: 3 } };
-    await openRun({ 'GET /api/runs': { body: { runs: [queued], workers: 1 } } });
+    await openRun({ 'GET /api/runs?page=1': history([queued]) });
 
     const link = await screen.findByRole('link', { name: 'Рассмотреть 394' });
     expect(link).toHaveAttribute('href', '/runs/18/review');
@@ -410,7 +580,7 @@ describe('рассмотрение прогона', () => {
   });
 
   it('прогон до очереди так и называется, а не показывает нули', async () => {
-    await openRun({ 'GET /api/runs': { body: { runs: [QUEUED], workers: 1 } } });
+    await openRun({ 'GET /api/runs?page=1': history([QUEUED]) });
 
     expect(await screen.findByText('очереди нет')).toBeInTheDocument();
   });
