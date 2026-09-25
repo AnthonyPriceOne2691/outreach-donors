@@ -43,6 +43,7 @@ import { Link } from 'react-router-dom';
 import { CONTACT_STATUSES, countryTitle, DONOR_STATUSES, NOT_SEARCHED } from '../api/labels';
 import type { DonorRowCard, DonorStatus } from '../api/types';
 import { formatCompact, formatNumber, formatShare } from '../format';
+import { totalOf } from './donorFilters';
 import type { DonorFilters } from './donorFilters';
 
 /** Колонки слева направо. Ширина первой — остаток: в ней домен, и ей
@@ -108,8 +109,7 @@ function FilterRow({
   onMinDr,
   onFilter,
 }: FilterRowProps) {
-  const all =
-    counts === null ? undefined : Object.values(counts).reduce((sum, count) => sum + count, 0);
+  const all = counts === null ? undefined : totalOf(counts);
   return (
     <Table.Tr className="donorsFilters">
       <Table.Th>

@@ -141,7 +141,9 @@ export function DonorPage() {
         </Card>
       )}
 
-      <DonorAddresses donor={data} />
+      {/* Ключ по донору: номер задачи поиска помнится по донору, и карточка
+          другого донора не должна унаследовать его от предыдущей. */}
+      <DonorAddresses key={data.id} donor={data} />
 
       {data.last_price !== null && (
         <Card className="glass" p="lg">
