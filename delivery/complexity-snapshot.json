@@ -1347,9 +1347,14 @@
       "worst": "_select:46"
     },
     "scripts/ui_contrast.py": {
-      "lines": 272,
+      "lines": 298,
       "complexity": 9,
-      "worst": "main:220"
+      "worst": "main:246"
+    },
+    "scripts/ui_hover.py": {
+      "lines": 172,
+      "complexity": 8,
+      "worst": "main:121"
     },
     "scripts/ui_screens.py": {
       "lines": 493,

@@ -8,9 +8,16 @@
  *
  * Выравнивание по центру: в плитке живёт одно число, и колонка чисел,
  * прижатых влево, читается как таблица без заголовков.
+ *
+ * **Числа ряда стоят на одной линии.** Плитка — три строки общей сетки
+ * ряда (`metricTile`, подсетка): подпись, число, пояснение. Подпись в две
+ * строки у одной плитки раньше сдвигала её число на 17 px вниз против
+ * соседних, а плитки в колонках разной высоты выходили 86 и 107 px (аудит
+ * 25.09.2026, №22). Теперь строка сетки одна на весь ряд, и её высоту
+ * задаёт самая длинная подпись.
  */
 
-import { Card, Stack, Text } from '@mantine/core';
+import { Card, Text } from '@mantine/core';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -28,13 +35,14 @@ interface Props {
 }
 
 export function Metric({ title, value, hint, color, to }: Props) {
+  // Три строки — прямые дети плитки: подсетка раскладывает только их.
   const body = (
-    <Stack gap={4} align="center" ta="center">
+    <>
       {/* Подпись — полными чернилами. Она стоит в верхней части плитки,
           на блике стекла, и приглушённый тон там не держал норму в тёмной
           теме: 4,44 : 1, при том что пояснение того же тона внизу плитки
           давало 6,03 (замер 23.09). Иерархию держат размер и вес числа. */}
-      <Text size="xs" c="var(--ink)">
+      <Text size="xs" c="var(--ink)" className="metricTitle">
         {title}
       </Text>
       <Text fw={600} fz="xl" c={color ?? 'inherit'}>
@@ -45,18 +53,18 @@ export function Metric({ title, value, hint, color, to }: Props) {
           {hint}
         </Text>
       )}
-    </Stack>
+    </>
   );
 
   if (to === undefined) {
     return (
-      <Card className="glassQuiet" p="md">
+      <Card className="glassQuiet metricTile" p="md">
         {body}
       </Card>
     );
   }
   return (
-    <Card component={Link} to={to} className="glassQuiet metricLink press" p="md">
+    <Card component={Link} to={to} className="glassQuiet metricTile metricLink press" p="md">
       {body}
     </Card>
   );

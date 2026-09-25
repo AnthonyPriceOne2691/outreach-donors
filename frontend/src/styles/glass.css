@@ -78,6 +78,9 @@
      местом полотна (4,2 : 1, подсказка — 2,2), 25.09.2026. */
   --field-fill: var(--glass-fill-quiet);
   --glass-edge: rgb(255 255 255 / 0.72);
+  /* Кромка поля и обычной кнопки. На стекле это светлая кромка стекла,
+     на плотном стекле светлой темы — чернила (правило ниже, у `glassSolid`). */
+  --field-edge: var(--glass-edge);
   /* Волосяная линия-разделитель. Отдельный токен от кромки: кромка светлая
      (она рисует блик), а разделитель обязан быть темнее фона — на светлой
      теме белая линия не видна вовсе. */
@@ -262,6 +265,42 @@ html:root[data-mantine-color-scheme='dark'] {
   --canvas-base: oklch(14% 0.025 215);
 }
 
+/* Заливка статусных кнопок и значков (`color="green"`, `"yellow"`…) — глубокой
+   ступенью, одной в обеих темах. Mantine берёт восьмую ступень палитры, и под
+   белым текстом это не читается: «Принять» в очереди рассмотрения — 3,45 : 1,
+   значок «не сменил разовый пароль» на жёлтом — 2,48 : 1 при норме 4,5 (аудит
+   25.09.2026, №12). Тот же урок, что с главной кнопкой сервиса 21.09: под
+   белым текстом ступень берут глубже рабочей. Числа — отношение к белому:
+   мята 5,6, янтарь 5,7, роза 6,1, апельсин 5,8. Наведение — ещё на ступень
+   глубже, а не светлее. */
+html:root[data-mantine-color-scheme] {
+  --mantine-color-green-filled: oklch(50% 0.14 150);
+  --mantine-color-green-filled-hover: oklch(46% 0.14 150);
+  --mantine-color-teal-filled: oklch(50% 0.12 170);
+  --mantine-color-teal-filled-hover: oklch(46% 0.12 170);
+  --mantine-color-yellow-filled: oklch(52% 0.13 70);
+  --mantine-color-yellow-filled-hover: oklch(48% 0.13 70);
+  --mantine-color-orange-filled: oklch(52% 0.15 50);
+  --mantine-color-orange-filled-hover: oklch(48% 0.15 50);
+  --mantine-color-red-filled: oklch(52% 0.18 25);
+  --mantine-color-red-filled-hover: oklch(48% 0.18 25);
+}
+
+/* Выключенное — тихое стекло и бледные чернила, а не серые пилюли Mantine
+   (в тёмной теме — тёмно-серые плашки, чужие на стекле). Переменные общие:
+   их берут и кнопки, и поля, и значки, — одна правка на все выключенные. */
+html:root[data-mantine-color-scheme='light'] {
+  --mantine-color-disabled: rgb(12 40 50 / 0.07);
+  --mantine-color-disabled-color: var(--ink-faint);
+  --mantine-color-disabled-border: var(--hairline);
+}
+
+html:root[data-mantine-color-scheme='dark'] {
+  --mantine-color-disabled: rgb(255 255 255 / 0.05);
+  --mantine-color-disabled-color: var(--ink-faint);
+  --mantine-color-disabled-border: var(--hairline);
+}
+
 /* Кадр до запуска скриптов: атрибута ещё нет, и белое полотно у человека
    с тёмной системой вспыхивает на всю страницу. Красится только фон —
    остальное придёт из блока выше через мгновение, а держать здесь копию
@@ -411,6 +450,16 @@ html:root[data-mantine-color-scheme='dark'] {
   box-shadow: var(--glass-shadow), var(--glass-inner);
 }
 
+/* Поле и обычная кнопка на плотном стекле светлой темы (окна, блок сборки
+   ключей моделью). Белая кромка и белая дымка поля на почти белой подложке
+   не видны вовсе: в окне «Вписать адрес» поле читалось строкой текста,
+   а «Отмена» — словом без кнопки (снимок 25.09.2026). Кромка здесь — чернила,
+   поле — лёгкий тон. В тёмной теме подложка тёмная, и светлая кромка видна. */
+html:root[data-mantine-color-scheme='light'] .glassSolid {
+  --field-edge: rgb(12 40 50 / 0.42);
+  --field-fill: rgb(12 40 50 / 0.035);
+}
+
 /* Плотное стекло на всплывающем окне Mantine. Положение у всплывающего
    своё — `position: absolute` и координаты от цели, — а `relative` из
    `.glassSolid` возвращал его в поток, в самый конец страницы: поповер
@@ -436,6 +485,28 @@ html:root[data-mantine-color-scheme='dark'] {
   border: 1px solid var(--glass-edge);
   border-radius: var(--radius-glass);
   box-shadow: var(--glass-shadow), var(--glass-inner);
+}
+
+/* Шапка уезжает со страницей, колонка меню — нет (замечание 25.09.2026:
+   «хедер прокручивается вместе с остальным… он не несёт полезной информации»).
+   Закреплённая шапка оставляла содержимое проезжать под стеклом: строки
+   таблицы читались над шапкой и вокруг неё, а сама она закрывала заголовок
+   карточки. Теперь шапка — в начале страницы, как обычный заголовок.
+
+   Колонка меню закреплена и поднимается ровно на столько, на сколько уехала
+   шапка (`--shell-lift` пишет `layout/shellLift.ts`), — иначе над меню
+   оставалась бы пустая полоса на её месте. Переход по `top` и `height`,
+   который Mantine вешает на колонку, снят: он отставал бы от прокрутки
+   на 200 мс, и меню ползло бы за страницей. `transform` остаётся — им
+   колонка выезжает на телефоне. */
+.mantine-AppShell-header {
+  position: absolute;
+}
+
+.mantine-AppShell-navbar {
+  top: calc(var(--app-shell-header-offset, 0rem) - var(--shell-lift, 0px));
+  height: calc(100dvh - var(--app-shell-header-offset, 0rem) + var(--shell-lift, 0px));
+  transition-property: transform;
 }
 
 /* На телефоне колонка меню встаёт поверх содержимого, а не рядом с ним:
@@ -795,9 +866,7 @@ html:root[data-mantine-color-scheme='dark'] .orb4 {
 .mantine-ActionIcon-root,
 .mantine-Badge-root,
 .mantine-Switch-track,
-.mantine-Select-input,
-.mantine-TextInput-input,
-.mantine-PasswordInput-input,
+.mantine-Input-input,
 .mantine-SegmentedControl-indicator,
 .mantine-Combobox-option {
   transition:
@@ -826,6 +895,7 @@ html:root[data-mantine-color-scheme='dark'] .orb4 {
 
 .mantine-Select-dropdown,
 .mantine-MultiSelect-dropdown,
+.mantine-TagsInput-dropdown,
 .mantine-Autocomplete-dropdown {
   background-color: var(--glass-fill-solid);
   background-image: var(--glass-sheen);
@@ -835,6 +905,40 @@ html:root[data-mantine-color-scheme='dark'] .orb4 {
   border-radius: var(--radius-inner);
   box-shadow: var(--glass-shadow);
   color: var(--ink);
+}
+
+/* Подсказка по наведению — плотное стекло с чернилами, как всё, что встаёт
+   поверх содержимого. Умолчание Mantine — тёмно-серая плашка на свету
+   и светло-серая с чёрным текстом в темноте (аудит 25.09.2026, №26:
+   подсказки судьи и переключателя темы). Переменные, а не свойства: Mantine
+   читает их с запасным значением, и цвет из пропса по-прежнему сильнее. */
+.mantine-Tooltip-tooltip {
+  --tooltip-bg: var(--glass-fill-solid);
+  --tooltip-color: var(--ink);
+  border: 1px solid var(--glass-edge);
+  backdrop-filter: blur(var(--blur-glass)) saturate(185%);
+  -webkit-backdrop-filter: blur(var(--blur-glass)) saturate(185%);
+  box-shadow: var(--glass-shadow);
+}
+
+/* Разделитель — волосяная линия сервиса, а не серая третья ступень Mantine:
+   в карточке диалога она читалась темнее кромок стекла вокруг. */
+html:root .mantine-Divider-root {
+  --divider-color: var(--hairline);
+}
+
+/* Метка в поле тегов («Про что» на прогоне) — подложка акцента, как у
+   выбранного пункта списка, а не серая плашка Mantine (в темноте —
+   непрозрачная тёмно-серая). */
+html:root .mantine-Pill-root {
+  background-color: color-mix(in oklab, var(--accent) 18%, transparent);
+  color: var(--ink);
+}
+
+/* Крестик окна отвечает на курсор той же подложкой, что тихие кнопки,
+   а не серым кругом Mantine. */
+.mantine-CloseButton-root:hover:not(:disabled, [data-disabled]) {
+  background-color: color-mix(in oklab, var(--accent) 14%, transparent);
 }
 
 /* Подписи пунктов стоят в одну колонку. Галочка у выбранного — лишний
@@ -892,15 +996,33 @@ html:root[data-mantine-color-scheme='dark'] .orb4 {
     transform 140ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-/* Заливные и градиентные: свет и подъём на пиксель. Тень при этом растёт —
-   без неё подъём читается как сдвиг, а не как «кнопка поднялась». */
+/* Под курсором кнопка стоит на месте: меняются свет, тень и подложка,
+   а не положение. До 25.09.2026 заливные и тихие кнопки поднимались
+   на пиксель, и Anthony увидел это на всех экранах сразу: «при наведении
+   кнопка как будто подпрыгивает — убрать». Пиксель подъёма в ряду кнопок
+   читается не как отклик, а как дрожь, и мешает попасть в соседнюю.
+   Движение у кнопки одно — вдавливание при нажатии (ниже). */
+
+/* Заливные и градиентные: свет и тень. Не осветление заливки — оно вернуло
+   бы кнопку к ступени, на которой белый текст не читается. */
 .mantine-Button-root[data-variant='filled']:hover:not(:disabled),
 .mantine-Button-root[data-variant='gradient']:hover:not(:disabled) {
-  /* Отклик тенью и подъёмом, а не осветлением: осветление вернуло бы
-     кнопку к ступени, на которой белый текст не читается. */
   filter: brightness(1.03);
-  transform: translateY(-1px);
   box-shadow: 0 10px 22px -12px color-mix(in oklab, var(--accent) 75%, transparent);
+}
+
+/* Обычная кнопка (`variant="default"`) — тихое стекло с кромкой и чернилами.
+   Умолчание Mantine — непрозрачная белая пилюля с серой рамкой и чёрным
+   текстом (в темноте — тёмно-серая): на стекле единственная плотная плашка
+   на экране, «Отклонить» рядом с «Принять» читалась деталью другого макета
+   (аудит 25.09.2026, №11). Свойства пишутся напрямую, а не переменными
+   `--button-*`: их Mantine ставит в `style` элемента, и класс их не перебьёт. */
+.mantine-Button-root[data-variant='default']:not(:disabled, [data-disabled]) {
+  background-color: var(--quiet-fill);
+  border-color: var(--field-edge);
+  color: var(--ink);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
 /* Тихие и обычные: подложка цветом сервиса. Серая подсветка Mantine
@@ -910,16 +1032,15 @@ html:root[data-mantine-color-scheme='dark'] .orb4 {
 .mantine-ActionIcon-root[data-variant='subtle']:hover:not(:disabled) {
   background: color-mix(in oklab, var(--accent) 14%, transparent);
   border-color: color-mix(in oklab, var(--accent) 35%, var(--glass-edge));
-  transform: translateY(-1px);
 }
 
 /* ⚠ `[data-variant]` здесь не для красоты: без него правило весит меньше
    наведения выше (там есть атрибут варианта), а мышь при нажатии всегда
    наведена. До 23.09 нажатие у заливных и тихих кнопок не срабатывало
-   вовсе — оставался подъём от наведения, и кнопка казалась вялой. */
+   вовсе — его перебивало наведение, и кнопка казалась вялой. */
 .mantine-Button-root[data-variant]:active:not(:disabled),
 .mantine-ActionIcon-root[data-variant]:active:not(:disabled) {
-  transform: translateY(0) scale(0.975);
+  transform: scale(0.975);
   /* Вдавливание почти мгновенное, отпускание — по общему правилу выше.
      При 160 мс в обе стороны быстрый щелчок (~100 мс) отпускал кнопку
      раньше, чем она доходила до дна, и нажатие почти не чувствовалось. */
@@ -938,22 +1059,23 @@ html:root[data-mantine-color-scheme='dark'] .orb4 {
   background: color-mix(in oklab, var(--accent) 12%, transparent);
 }
 
-/* Поле ввода отвечает на фокус кромкой цвета сервиса — плавно, а не
-   рывком: рывок читается как перерисовка формы. */
-.mantine-TextInput-input,
-.mantine-PasswordInput-input,
-.mantine-Select-input,
-.mantine-Textarea-input {
+/* Поле ввода отвечает на фокус кольцом цвета сервиса — плавно, а не
+   рывком: рывок читается как перерисовка формы.
+
+   Селектор — общий класс поля (`mantine-Input-input`), а не список имён.
+   По списку фокус с клавиатуры был не виден у числовых полей на прогоне,
+   письмах, порогах и у DR на донорах (аудит 25.09.2026, №13): `NumberInput`
+   в перечень не попал. `:focus-within` — для полей, у которых фокус живёт
+   на вложенном элементе (`TagsInput`, пароль). */
+.mantine-Input-input {
   transition:
     background-color 200ms ease,
     border-color 200ms ease,
     box-shadow 200ms ease;
 }
 
-.mantine-TextInput-input:focus,
-.mantine-PasswordInput-input:focus,
-.mantine-Select-input:focus,
-.mantine-Textarea-input:focus {
+.mantine-Input-input:focus,
+.mantine-Input-input:focus-within {
   border-color: color-mix(in oklab, var(--accent) 55%, var(--glass-edge));
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent);
 }
@@ -968,6 +1090,22 @@ html:root[data-mantine-color-scheme='dark'] .orb4 {
 
 .mantine-Switch-thumb {
   transition: transform 220ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Выключенный переключатель: дорожка — поле с кромкой из чернил, как у флажка.
+   Умолчание Mantine — серая дорожка (gray.3 на свету, dark.5 в темноте),
+   к подложке 1,03–1,26 : 1 при норме 3 для границы элемента: на «Отборе»,
+   «Рекламодателях» и рассмотрении дорожки не было видно, в темноте
+   переключатель читался радиокнопкой — один бегунок (аудит 25.09.2026, №10).
+   Кромка — тенью внутрь, а не рамкой: рамка меняла бы размер дорожки,
+   и бегунок съезжал бы с оси. Включённый не трогается — он акцентный. */
+.mantine-Switch-input:not(:checked):not(:disabled) + .mantine-Switch-track {
+  --switch-bg: var(--field-fill);
+  box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--ink) 62%, transparent);
+}
+
+.mantine-Switch-input:not(:checked):not(:disabled) + .mantine-Switch-track .mantine-Switch-thumb {
+  background-color: color-mix(in oklab, var(--ink) 70%, transparent);
 }
 
 /* Флажок: рамка из чернил, а не серое умолчание Mantine. На стекле
@@ -993,6 +1131,30 @@ html:root[data-mantine-color-scheme='dark'] .orb4 {
 .metricLink:hover {
   background-color: color-mix(in oklab, var(--accent) 12%, var(--quiet-fill));
   border-color: color-mix(in oklab, var(--accent) 45%, var(--glass-edge));
+}
+
+/* Плитка с числом — подсетка ряда (`components/Metric`): подпись, число
+   и пояснение ложатся на три общие строки сетки, в которой стоят плитки.
+   Числа ряда поэтому на одной линии, даже когда подпись одной плитки
+   переносится в две строки, и плитки ряда одной высоты (аудит 25.09.2026,
+   №22: на 390 px числа скакали на 17 px, на «Письмах» плитки выходили
+   86 и 107 px). Подпись прижата к числу, пояснение — под ним.
+
+   Вне сетки (плитка в колонке `Grid`) подсетки нет — строки свои, а плитка
+   тянется на всю высоту колонки и держит содержимое посередине. */
+.mantine-Card-root.metricTile {
+  display: grid;
+  grid-row: span 3;
+  grid-template-rows: subgrid;
+  row-gap: 4px;
+  align-content: center;
+  justify-items: center;
+  text-align: center;
+  height: 100%;
+}
+
+.metricTile > .metricTitle {
+  align-self: end;
 }
 
 /* На телефоне плитки сводки идут по две, и последняя в нечётном ряду стоит
@@ -1055,18 +1217,21 @@ html:root[data-mantine-color-scheme='dark'] .orb4 {
   color: var(--ink-soft);
 }
 
-/* Карточка, по которой можно щёлкнуть (строка списка диалогов, домен
-   рассылки): поднимается под курсором. Обычные карточки не трогаются —
-   поднимающийся текст раздражает. */
+/* Карточка, по которой можно щёлкнуть целиком (строка очереди писем): под
+   курсором меняется кромка, а не положение. До 25.09.2026 она поднималась
+   на два пикселя — то же «подпрыгивание», что у кнопок, и убрано вместе
+   с ним: в списке строк прыгающая строка мешает прицелиться в соседнюю. */
+/* Переход перечисляет всё, что меняется у такой строки: одно свойство
+   `transition` у последнего класса отменяет списки `glassSlot` и `press`,
+   и подложка менялась бы рывком, а нажатие — мгновенно. */
 .liftable {
   transition:
-    transform 180ms cubic-bezier(0.32, 0.72, 0, 1),
-    box-shadow 220ms ease,
-    border-color 200ms ease;
+    background 200ms ease,
+    border-color 200ms ease,
+    transform 140ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .liftable:hover {
-  transform: translateY(-2px);
   border-color: color-mix(in oklab, var(--accent) 30%, var(--glass-edge));
 }
 
@@ -1096,6 +1261,17 @@ html:root[data-mantine-color-scheme='dark'] .orb4 {
    «готово», янтарь — «нужно внимание», и смысл остаётся за подложкой. */
 .mantine-Badge-root[data-variant='light'] {
   color: color-mix(in oklab, var(--badge-color) 40%, var(--ink) 60%);
+}
+
+/* Значок в ряду не отдаёт свою ширину соседям. Умолчание флекса — ужиматься,
+   и значок сжимался до многоточия раньше, чем ряд успевал перенестись:
+   «площа…», «арб…», «продаёт разме…» на рассмотрении, «подхо…» на «Отборе»,
+   «отписа…» в стоп-листе (аудит 25.09.2026, №5). Слово, обрезанное до
+   четырёх букв, не значит ничего (21.09). Место значку дают перенос ряда
+   и ширина колонки — это правится на экранах; многоточие остаётся только
+   значку длиннее всей своей ячейки. */
+.mantine-Badge-root {
+  flex-shrink: 0;
 }
 
 /* Невыбранный сегмент — приглушённый тон: он предлагает, а не сообщает. */

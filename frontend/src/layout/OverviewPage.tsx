@@ -43,13 +43,18 @@ import { Metric } from '../components/Metric';
 import { formatDateTime, formatNumber, formatShare, formatUsd } from '../format';
 
 /**
- * Сторож тишины на главной, а не в отдельном разделе: поломка этого
- * класса не показывает себя нигде, и человек не пойдёт её искать —
- * он увидит, что «всё тихо», и закроет вкладку.
+ * Тревоги сторожа тишины — на главной, а не в отдельном разделе: поломка
+ * этого класса не показывает себя нигде, и человек не пойдёт её искать.
+ *
+ * **Когда тихо, сторожа на экране нет.** Карточка «Сторож тишины» с текстом
+ * «тихо и правильно» стояла на главной всегда и ничего не сообщала
+ * (замечание 25.09.2026: «убрать плашку сторожа с главной»). Сторож
+ * по-прежнему спрашивается каждые пять минут, и тревога встаёт красной
+ * полосой над сводкой — появление полосы и есть сигнал.
  */
 function Watchdog() {
   const { can } = useSession();
-  const { data, isLoading } = useQuery({
+  const { data } = useQuery({
     queryKey: ['watchdog'],
     queryFn: fetchWatchdog,
     enabled: can('view'),
@@ -57,25 +62,8 @@ function Watchdog() {
     refetchInterval: 5 * 60 * 1000,
   });
 
-  if (!can('view')) return null;
-
   const alarms = data?.alarms ?? [];
-  // Ожидание — внутри карточки, а не одиноким кружком над ней.
-  if (isLoading || alarms.length === 0) {
-    return (
-      <Card className="glass" p="lg">
-        <Group gap="xs" mb={4}>
-          <Title order={5}>Сторож тишины</Title>
-          {isLoading && <Loader aria-label="Смотрим, что молчит" size="xs" />}
-        </Group>
-        <Text size="sm" c="dimmed">
-          {isLoading
-            ? 'Проверяем, что письма, ответы и фоновые проходы идут как ожидается.'
-            : 'Тихо и правильно: письма, ответы и фоновые проходы идут как ожидается. Сторож отличает «ничего не происходит» от «мы перестали слышать» — и молчит только в первом случае.'}
-        </Text>
-      </Card>
-    );
-  }
+  if (!can('view') || alarms.length === 0) return null;
 
   return (
     <Stack gap="sm">
@@ -104,8 +92,11 @@ function Section({
 }) {
   return (
     <Card className="glass" p="lg">
-      <Group justify="space-between" align="center" mb="md" gap="xs">
-        <Group gap="sm" align="center">
+      {/* Ссылка раздела всегда в первой строке справа: на телефоне заголовок
+          со значком переносится сам, а «К письмам» уезжала под заголовок
+          и читалась подписью значка (аудит 25.09.2026, №28). */}
+      <Group justify="space-between" align="flex-start" mb="md" gap="xs" wrap="nowrap">
+        <Group gap="sm" align="center" style={{ minWidth: 0 }}>
           <Title order={5}>{title}</Title>
           {aside}
         </Group>
@@ -113,7 +104,17 @@ function Section({
             стекла читались бледнее цвета, которым написаны, — замер дал
             4,03 : 1 при ядре буквы 6,3 : 1 (25.09.2026). */}
         {to !== undefined && (
-          <Anchor component={Link} to={to} size="sm" fw={500}>
+          <Anchor
+            component={Link}
+            to={to}
+            size="sm"
+            fw={500}
+            style={{
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+              lineHeight: 'var(--mantine-h5-line-height)',
+            }}
+          >
             {toTitle}
           </Anchor>
         )}
@@ -153,7 +154,9 @@ function WaitingSection({ waiting }: { waiting: OverviewWaiting }) {
           value={formatNumber(waiting.prices)}
           hint={waiting.prices > 0 ? 'цену подтверждает человек' : 'все ответы разобраны'}
           color={attention(waiting.prices)}
-          to="/threads"
+          // В тот же фильтр, которым плитка считается: весь список диалогов
+          // прятал нужные среди сотни остальных (аудит 25.09.2026, №25).
+          to="/threads?state=needs_review"
         />
         <Metric
           title="Заполнить формы"
@@ -167,7 +170,7 @@ function WaitingSection({ waiting }: { waiting: OverviewWaiting }) {
           value={formatNumber(waiting.leads)}
           hint={waiting.leads > 0 ? 'ответили на оффер' : 'новых лидов нет'}
           color={attention(waiting.leads)}
-          to="/threads"
+          to="/threads?state=lead"
         />
         <Metric
           title="Спорные рекламодатели"
@@ -220,10 +223,14 @@ function DonorsSection({ donors }: { donors: OverviewDonors }) {
                 : 'решений не было'
           }
         />
+        {/* Фильтр списка доноров считает «с адресом» тем же правилом, что
+            сводка (исход поиска — «найден»): число плитки и длина списка
+            совпадают. */}
         <Metric
           title="С адресом"
           value={formatNumber(donors.with_email)}
           hint={donors.form_only > 0 ? `и ${formatNumber(donors.form_only)} с формой` : undefined}
+          to="/donors?has_contact=true"
         />
         <Metric title="Написали" value={formatNumber(donors.written)} hint="хоть одно письмо" />
         <Metric
@@ -327,9 +334,13 @@ function RunSection({ data }: { data: OverviewView }) {
       <Stack gap="md">
         <LastRunLine run={data.last_run} />
         <Stack gap={6} className="hairline" pt="md">
+          {/* «Потрачено из потолка» — одна единица смысла: на телефоне строка
+              рвалась между «из» и потолком (аудит 25.09.2026, №28). */}
           <Text size="sm">
-            Юниты Ahrefs с начала месяца: <b>{formatNumber(data.ahrefs_units)}</b> из{' '}
-            {formatNumber(data.ahrefs_cap)}
+            Юниты Ahrefs с начала месяца:{' '}
+            <span style={{ whiteSpace: 'nowrap' }}>
+              <b>{formatNumber(data.ahrefs_units)}</b> из {formatNumber(data.ahrefs_cap)}
+            </span>
           </Text>
           <Meter
             spent={data.ahrefs_units}

@@ -8,11 +8,13 @@ import {
   Switch,
   Text,
   createTheme,
+  Input,
   Modal,
   NumberInput,
   PasswordInput,
   Paper,
   Select,
+  TagsInput,
   Textarea,
   TextInput,
   rem,
@@ -52,11 +54,22 @@ const glassField = {
     // Своя переменная, а не общая дымка: в тёмной теме поле — тёмный тон
     // (`--field-fill` в glass.css), иначе значение тонуло над ярким местом.
     background: 'var(--field-fill)',
-    borderColor: 'var(--glass-edge)',
+    // Своя кромка, а не кромка стекла: на плотном стекле светлой темы
+    // (окна) белая кромка не видна, и поле читалось строкой текста.
+    borderColor: 'var(--field-edge)',
     backdropFilter: 'blur(14px)',
     WebkitBackdropFilter: 'blur(14px)',
     color: 'var(--ink)',
   },
+} as const;
+
+/** Список под полем и по его ширине. Без этого он уезжал влево и оказывался
+ *  уже поля — видно на снимке. Один на все поля со списком. */
+const dropdownBelow = {
+  position: 'bottom-start',
+  width: 'target',
+  offset: 6,
+  transitionProps: { transition: 'pop', duration: 180 },
 } as const;
 
 /** Шрифтовой ряд сервиса. Вынесен из темы, потому что по нему же холст
@@ -118,26 +131,21 @@ export const theme = createTheme({
         root: props.color ? {} : { '--text-color': 'currentColor' },
       }),
     }),
-    TextInput: TextInput.extend({ defaultProps: { radius: 'xl' }, styles: glassField }),
-    PasswordInput: PasswordInput.extend({ defaultProps: { radius: 'xl' }, styles: glassField }),
-    NumberInput: NumberInput.extend({ defaultProps: { radius: 'xl' }, styles: glassField }),
+    // Стекло поля задаётся один раз — у `Input`, на котором построены все
+    // поля Mantine: стили темы для `Input` получают и `TextInput`, и `Select`,
+    // и `TagsInput`. До 25.09.2026 оно перечислялось у каждого поля по имени,
+    // и `TagsInput` («Про что» на экране прогона), которого в списке не было,
+    // стоял белым непрозрачным полем посреди стекла (аудит, №26). Новое поле
+    // теперь стеклянное само, а не после того, как его заметят на снимке.
+    Input: Input.extend({ styles: glassField }),
+    TextInput: TextInput.extend({ defaultProps: { radius: 'xl' } }),
+    PasswordInput: PasswordInput.extend({ defaultProps: { radius: 'xl' } }),
+    NumberInput: NumberInput.extend({ defaultProps: { radius: 'xl' } }),
     // Многострочное поле — то же стекло: белая простыня посреди
     // полупрозрачной панели видна первой, а это всего лишь поле ввода.
-    Textarea: Textarea.extend({ defaultProps: { radius: 'lg' }, styles: glassField }),
-    Select: Select.extend({
-      defaultProps: {
-        radius: 'xl',
-        // Список раскрывается под полем и по его ширине. Без этого он
-        // уезжал влево и оказывался уже поля — видно на снимке.
-        comboboxProps: {
-          position: 'bottom-start',
-          width: 'target',
-          offset: 6,
-          transitionProps: { transition: 'pop', duration: 180 },
-        },
-      },
-      styles: glassField,
-    }),
+    Textarea: Textarea.extend({ defaultProps: { radius: 'lg' } }),
+    Select: Select.extend({ defaultProps: { radius: 'xl', comboboxProps: dropdownBelow } }),
+    TagsInput: TagsInput.extend({ defaultProps: { radius: 'xl', comboboxProps: dropdownBelow } }),
     // Уведомление всплывает поверх работы — ему тем более нельзя быть
     // единственной непрозрачной плашкой на экране.
     //
@@ -198,7 +206,14 @@ export const theme = createTheme({
     Modal: Modal.extend({
       // Окно встаёт поверх работы: сквозь него не должно быть видно
       // таблицу под ним, иначе подписи накладываются друг на друга.
-      classNames: { content: 'glassSolid', header: 'glassSolid' },
+      //
+      // Стекло — у окна, а не у его шапки. Шапка с тем же классом стояла
+      // отдельной плитой внутри окна — со своей кромкой, тенью и радиусом
+      // 28, а заголовок оказывался в шести пикселях от её края (аудит
+      // 25.09.2026, №24). Фон шапки прозрачный: умолчание Mantine — цвет
+      // страницы, в тёмной теме это непрозрачная серая полоса поверх стекла.
+      classNames: { content: 'glassSolid' },
+      styles: { header: { background: 'transparent' } },
       defaultProps: {
         radius: 'xl',
         centered: true,
