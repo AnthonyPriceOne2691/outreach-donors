@@ -320,7 +320,11 @@ class TestSavedSerpIsNotBoughtTwice:
 
 class TestFailureIsNamed:
     """Упавшая задача — не умерший воркер. 24.09.2026 прогоны №19 и №20
-    падали на MissingGreenlet, а в записи стояло «воркер умер»."""
+    падали на MissingGreenlet, а в записи стояло «воркер умер».
+
+    Строку трассировки на экран не несут: 25.09.2026 колонка состояния
+    читалась как «backend.features.runs.budget.CapExceededError: …».
+    Причина — словами человека, строка как есть — рядом, для поиска."""
 
     TRACE_LINE = "sqlalchemy.exc.MissingGreenlet: greenlet_spawn has not been called"
 
@@ -335,8 +339,30 @@ class TestFailureIsNamed:
         )
         await session.refresh(run)
 
-        assert f"задача упала: {self.TRACE_LINE}" in run.stats["причина"]
-        assert "воркер умер" not in run.stats["причина"]
+        assert run.stats["причина"] == (
+            "задача упала: техническая ошибка (MissingGreenlet); "
+            "прогон продолжен по сохранённой выдаче"
+        )
+        assert run.stats["failure"] == self.TRACE_LINE
+
+    async def test_our_refusal_is_told_in_its_own_words(self, session: AsyncSession) -> None:
+        """Наш отказ сам говорит, что делать: он и становится причиной."""
+        run = await _run_row(session, status=RunStatus.RUNNING, silent_for=RESUME_AFTER_SEC + 10)
+        line = (
+            "backend.features.runs.budget.CapExceededError: Прогон обойдётся в 3480 юнитов, "
+            "доступно 3000; сократите список ключей или поднимите кап."
+        )
+
+        await recover(
+            RunRepository(session),
+            alive=lambda _: False,
+            enqueue=Enqueued(),
+            failure=lambda _: line,
+        )
+        await session.refresh(run)
+
+        assert run.stats["причина"].startswith("задача упала: Прогон обойдётся в 3480 юнитов")
+        assert "CapExceededError" not in run.stats["причина"]
 
     async def test_stop_reason_carries_the_exception(self, session: AsyncSession) -> None:
         run = await _run_row(
@@ -355,7 +381,11 @@ class TestFailureIsNamed:
         await session.refresh(run)
 
         assert run.status is RunStatus.STOPPED
-        assert self.TRACE_LINE in run.stats["причина"]
+        assert run.stats["причина"].startswith(
+            "остановлен разбором: задача упала: техническая ошибка (MissingGreenlet), "
+            f"продолжений {MAX_RESUMES} из {MAX_RESUMES}"
+        )
+        assert run.stats["failure"] == self.TRACE_LINE
 
     async def test_dead_worker_is_still_called_so(self, session: AsyncSession) -> None:
         """Нет исключения — значит, правда умер процесс: причина прежняя."""
@@ -370,6 +400,7 @@ class TestFailureIsNamed:
         await session.refresh(run)
 
         assert "воркер умер" in run.stats["причина"]
+        assert "failure" not in run.stats, "сбоя не было — и пустой пометки нет"
 
 
 def test_last_error_line_is_the_exception_itself() -> None:

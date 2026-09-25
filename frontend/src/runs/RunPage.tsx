@@ -15,7 +15,6 @@
 
 import {
   Alert,
-  Badge,
   Button,
   Card,
   Group,
@@ -24,7 +23,6 @@ import {
   SegmentedControl,
   SimpleGrid,
   Stack,
-  Table,
   Text,
   Textarea,
   TagsInput,
@@ -32,34 +30,21 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconCalculator, IconPlayerPlay, IconSparkles } from '@tabler/icons-react';
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 
-import { countryTitle, RUN_STATUSES } from '../api/labels';
+import { countryTitle } from '../api/labels';
 import { Metric } from '../components/Metric';
 import { buildPool, fetchMarketLanguages, fetchPresets } from '../api/keywords';
 import { ProvenKeywords } from './ProvenKeywords';
+import { ACTIVE, pagesOf, RunHistory, useHistoryPage } from './RunHistory';
 import { estimateRun, fetchCountries, listRuns, startRun } from '../api/runs';
-import type { Forecast, RunCard, RunStatus } from '../api/types';
+import type { Forecast } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
-import { formatDateTime, formatNumber, formatUsd } from '../format';
+import { formatNumber, formatUsd } from '../format';
 
 function refusalOf(error: unknown): string {
   return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
-}
-
-/** Состояния, в которых прогон ещё не кончился: пока такой есть,
- *  список обновляется сам. */
-const ACTIVE = new Set<RunStatus>(['queued', 'estimating', 'running']);
-
-/** Сколько прошло с последней отметки о жизни. У идущего прогона это
- *  удар heartbeat: по времени последней записи медленный прогон
- *  неотличим от мёртвого, а по отметке — отличим. */
-function aliveFor(moment: string): string {
-  const seconds = Math.max(0, Math.round((Date.now() - new Date(moment).getTime()) / 1000));
-  if (seconds < 90) return `${seconds} с назад`;
-  return `${Math.round(seconds / 60)} мин назад`;
 }
 
 function parseKeywords(text: string): string[] {
@@ -123,79 +108,6 @@ function Estimate({ forecast }: { forecast: Forecast }) {
   );
 }
 
-/**
- * Сколько доменов прогон отсёк, не заплатив за них: стоп-лист,
- * поставщики агентства и те, кто промолчал на письмо.
- *
- * Стоит рядом с числом доменов, а не вместо него: «выдача дала 200»
- * и «проверили 140» — разные новости, и без второй разница между ними
- * выглядит как потеря доменов.
- */
-/** Сколько отрезал бы судья — из ветки отчёта. `null` — судья был выключен:
- *  ноль читался бы как «судил и никого не нашёл», а это другая новость. */
-function judgeCut(run: { stats: Record<string, unknown> | null }): number | null {
-  const judge = run.stats?.['judge'];
-  if (typeof judge !== 'object' || judge === null) return null;
-  const cut = (judge as Record<string, unknown>)['would_cut'];
-  return typeof cut === 'number' ? cut : null;
-}
-
-/** Модель не ответила судье: у этих доменов вердикта нет, следующий прогон
- *  судит их снова. Отдельной меткой, а не нулём в «отрезал бы»: прогон №21
- *  без ключа модели показывал «отрезал бы 0», и неработающий судья выглядел
- *  как судья, никого не отрезавший. Причина — в подсказке: что чинить. */
-function JudgeSilence({ run }: { run: { stats: Record<string, unknown> | null } }) {
-  const judge = run.stats?.['judge'];
-  if (typeof judge !== 'object' || judge === null) return null;
-  const { unanswered, unanswered_reason: reason } = judge as Record<string, unknown>;
-  if (typeof unanswered !== 'number' || unanswered === 0) return null;
-  return (
-    <Badge
-      variant="light"
-      size="sm"
-      color="red"
-      title={typeof reason === 'string' ? reason : undefined}
-    >
-      модель не ответила: {unanswered}
-    </Badge>
-  );
-}
-
-/** Очередь рассмотрения прогона: сколько ждёт решения и ссылка к нему.
- *  Прогон кончается очередью, а не базой, — без этой ячейки её не найти. */
-function ReviewCell({ run }: { run: RunCard }) {
-  const pending = run.queue.pending ?? 0;
-  const accepted = run.queue.accepted ?? 0;
-  const rejected = run.queue.rejected ?? 0;
-  if (pending + accepted + rejected === 0) {
-    return (
-      <Text size="xs" c="dimmed">
-        очереди нет
-      </Text>
-    );
-  }
-  return (
-    <Stack gap={4} align="center">
-      <Button
-        component={Link}
-        to={`/runs/${run.id}/review`}
-        size="compact-sm"
-        variant={pending > 0 ? 'filled' : 'default'}
-      >
-        {pending > 0 ? `Рассмотреть ${pending}` : 'Открыть'}
-      </Button>
-      <Text size="xs" c="dimmed">
-        принято {accepted} · отклонено {rejected}
-      </Text>
-    </Stack>
-  );
-}
-
-function excludedIn(run: { stats: Record<string, unknown> | null }): number {
-  const value = run.stats?.['excluded'];
-  return typeof value === 'number' ? value : 0;
-}
-
 export function RunPage() {
   const { can } = useSession();
   const [keywords, setKeywords] = useState('');
@@ -226,9 +138,17 @@ export function RunPage() {
     queryFn: () => fetchMarketLanguages(country),
     enabled: source === 'model',
   });
+  const queryClient = useQueryClient();
+  const [page, goToPage] = useHistoryPage();
   const runs = useQuery({
-    queryKey: ['runs'],
-    queryFn: listRuns,
+    // Ключ со словом `history`: выбор прогонов на экране писем — свой запрос
+    // (`['runs', 'with-accepted']`), и страница истории его не затирает.
+    // Решение на рассмотрении сбрасывает `['runs']` — то есть оба.
+    queryKey: ['runs', 'history', page],
+    queryFn: () => listRuns(page),
+    // Пока следующая страница едет, видна прежняя: пустая таблица на долю
+    // секунды читалась бы как «прогонов нет».
+    placeholderData: keepPreviousData,
     // Пока есть незакрытый прогон, список обновляется сам. Без этого
     // экран молчит от нажатия до конца работы, и единственный способ
     // узнать, идёт ли она, — перезагрузить страницу.
@@ -238,6 +158,15 @@ export function RunPage() {
   const view = runs.data ?? null;
   const rows = view?.runs ?? [];
   const waiting = rows.some((run) => run.status === 'queued');
+  const pages = pagesOf(view);
+  const settled = view !== null && !runs.isPlaceholderData;
+
+  // Страница за концом — ссылка, открытая после того, как прогонов стало
+  // меньше, или номер, набранный руками. Сервер отдаёт её пустой и говорит,
+  // сколько всего; экран уходит на последнюю, заменяя адрес, а не добавляя.
+  useEffect(() => {
+    if (settled && page > pages) goToPage(pages, true);
+  }, [settled, page, pages, goToPage]);
 
   const list = parseKeywords(keywords);
   const body = {
@@ -293,7 +222,11 @@ export function RunPage() {
     onSuccess: async (queued) => {
       notifications.show({ title: 'Прогон в очереди', message: queued.note, color: 'green' });
       setForecast(null);
-      await runs.refetch();
+      // Новый прогон встаёт первым на первой странице — туда и ведём, иначе
+      // со второй страницы запуск выглядел бы как «ничего не случилось».
+      // Сбрасывается весь `['runs']`: сдвинулись все страницы, а не одна.
+      goToPage(1);
+      await queryClient.invalidateQueries({ queryKey: ['runs'] });
     },
     onError: (failure) =>
       notifications.show({ title: 'Прогон не запущен', message: refusalOf(failure), color: 'red' }),
@@ -499,119 +432,7 @@ export function RunPage() {
         </Card>
       )}
 
-      <Card className="glass" p="xs">
-        {/* Таблица шире телефона — на узком окне уезжает в прокрутку, а не
-            ужимает колонки: значок «закончен» сжимался до «законч…»,
-            а «человек не смотрел» вставал по слову в строку. */}
-        <Table.ScrollContainer minWidth={1040}>
-          <Table className="dataTable" verticalSpacing="sm" horizontalSpacing="md">
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Прогон</Table.Th>
-                <Table.Th>Состояние</Table.Th>
-                <Table.Th>Ключей</Table.Th>
-                <Table.Th>Доменов</Table.Th>
-                <Table.Th>Смета</Table.Th>
-                <Table.Th>Факт</Table.Th>
-                <Table.Th>Расхождение</Table.Th>
-                <Table.Th>Судья</Table.Th>
-                <Table.Th>Рассмотрение</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {rows.map((run) => (
-                <Table.Tr key={run.id}>
-                  <Table.Td>
-                    <Text fw={500}>№{run.id}</Text>
-                    <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
-                      {countryTitle(run.country)}
-                    </Text>
-                    <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
-                      {formatDateTime(run.started_at)}
-                    </Text>
-                  </Table.Td>
-                  <Table.Td>
-                    <Group justify="center" gap={6} wrap="nowrap">
-                      <Badge
-                        variant="light"
-                        color={RUN_STATUSES[run.status].color}
-                        style={{ flexShrink: 0 }}
-                      >
-                        {RUN_STATUSES[run.status].title}
-                      </Badge>
-                      {ACTIVE.has(run.status) && (
-                        <Text size="xs" c="dimmed">
-                          {aliveFor(run.alive_at)}
-                        </Text>
-                      )}
-                    </Group>
-                    {typeof run.stats?.['причина'] === 'string' && (
-                      <Text size="xs" c="dimmed" ta="center">
-                        {run.stats['причина']}
-                      </Text>
-                    )}
-                  </Table.Td>
-                  <Table.Td>{formatNumber(run.keywords)}</Table.Td>
-                  <Table.Td>
-                    {formatNumber(run.hosts)}
-                    {excludedIn(run) ? (
-                      <Text size="xs" c="dimmed">
-                        исключено {excludedIn(run)}
-                      </Text>
-                    ) : null}
-                  </Table.Td>
-                  <Table.Td>{formatNumber(run.estimated_units)}</Table.Td>
-                  <Table.Td>{formatNumber(run.actual_units)}</Table.Td>
-                  <Table.Td>
-                    {/* Расхождение сметы и факта — единственная проверка сметы.
-                      Без неё оценка расхода ничем не подтверждается. */}
-                    {run.estimate_error === null
-                      ? '—'
-                      : `${run.estimate_error > 0 ? '+' : ''}${(run.estimate_error * 100).toFixed(0)}%`}
-                  </Table.Td>
-                  <Table.Td style={{ whiteSpace: 'nowrap' }}>
-                    {/* Доля расхождений человека с судьёй — единственная проверка
-                      судьи, как расхождение сметы и факта — проверка сметы. */}
-                    {judgeCut(run) === null ? (
-                      <Text size="xs" c="dimmed">
-                        выключен
-                      </Text>
-                    ) : (
-                      <Text size="sm">отрезал бы {judgeCut(run)}</Text>
-                    )}
-                    <JudgeSilence run={run} />
-                    {/* Цвет несёт значок, а не текст: янтарь — «нужно внимание»,
-                      и на подложке значка чернила держат норму контраста. */}
-                    {run.reviewed === 0 ? (
-                      <Text size="xs" c="dimmed">
-                        человек не смотрел
-                      </Text>
-                    ) : (
-                      <Badge
-                        variant="light"
-                        size="sm"
-                        color={run.disagreements > 0 ? 'yellow' : 'green'}
-                      >
-                        расходится {run.disagreements} из {run.reviewed} ·{' '}
-                        {Math.round((run.disagreements / run.reviewed) * 100)}%
-                      </Badge>
-                    )}
-                  </Table.Td>
-                  <Table.Td>
-                    <ReviewCell run={run} />
-                  </Table.Td>
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
-        </Table.ScrollContainer>
-        {rows.length === 0 && (
-          <Text size="sm" c="dimmed" p="lg">
-            Прогонов ещё не было. Первый появится здесь сразу после запуска — вместе со сметой, с
-            которой его потом сравнят.
-          </Text>
-        )}
-      </Card>
+      <RunHistory view={view} page={page} onPage={goToPage} />
     </Stack>
   );
 }

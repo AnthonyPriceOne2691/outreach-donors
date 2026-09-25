@@ -16,8 +16,10 @@ from backend.features.core.domain import DonorStatus
 from backend.features.donors.doors import DoorReport
 from backend.features.donors.judging import JudgeSummary
 from backend.features.review.candidates import QueueReport
+from backend.features.runs.failures import described
 from backend.features.runs.planning import RunPlan
-from backend.features.runs.repository import REASON_KEY
+from backend.features.runs.reasons import explained
+from backend.features.runs.repository import FAILURE_KEY, REASON_KEY
 
 # Операции, которые покрывает смета. Выдача в неё не входит: к моменту, когда
 # смета показывается человеку, она уже потрачена, и включать её значило бы
@@ -111,7 +113,9 @@ class RunReport:
         )
 
 
-def run_stats(report: RunReport, failure: str | None, *, retry: bool = False) -> dict[str, object]:
+def run_stats(
+    report: RunReport, failed: BaseException | None, *, retry: bool = False
+) -> dict[str, object]:
     """Отчёт прогона в том виде, в каком его читает человек.
 
     Расхождение сметы с фактом попадает сюда намеренно: заметное отклонение
@@ -172,11 +176,11 @@ def run_stats(report: RunReport, failure: str | None, *, retry: bool = False) ->
             if report.doors is not None
             else {"failure": report.doors_failure}
         )
-    if failure is not None:
+    if failed is not None:
         # Причина остановки хранится рядом с цифрами, а не только в логе:
         # через неделю лог уже не найдут, а запись прогона останется.
-        stats["failure"] = failure
-        stats[REASON_KEY] = (
-            f"сбой, будет продолжен: {failure}" if retry else f"остановлен: {failure}"
-        )[:500]
+        # Сбой с именем класса — для поиска, причина — для экрана.
+        stats[FAILURE_KEY] = described(failed)
+        lead = "сбой, будет продолжен" if retry else "остановлен"
+        stats[REASON_KEY] = f"{lead}: {explained(failed)}"[:500]
     return stats

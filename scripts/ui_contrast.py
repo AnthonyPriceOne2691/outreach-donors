@@ -186,7 +186,10 @@ def run(page, scheme, shot, probes, prepare=None):
         prepare(page)
     print(f"\n{scheme}:")
     worst_ok = True
-    for index, (name, selector, norm) in enumerate(probes):
+    for index, (name, selector, norm, *show) in enumerate(probes):
+        # Шаг, который делает точку видимой (открыть поповер), — перед ней.
+        for step in show:
+            step(page)
         el, refusal = measurable(page, selector)
         if el is None:
             print(f"  {name:28} НЕ ИЗМЕРЕНО: {refusal}")

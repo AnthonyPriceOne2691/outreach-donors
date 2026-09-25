@@ -36,7 +36,13 @@ from typing import Any
 
 from backend.features.core.domain import RunStatus
 from backend.features.core.models.run import RunModel
-from backend.features.runs.repository import REASON_KEY, RESUMES_KEY, RunRepository
+from backend.features.runs.reasons import explained_line
+from backend.features.runs.repository import (
+    FAILURE_KEY,
+    REASON_KEY,
+    RESUMES_KEY,
+    RunRepository,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -71,11 +77,30 @@ def _no_failure(_job_id: str | None) -> str | None:
     return None
 
 
-def _cause(failure: FailureCheck, job_id: str | None) -> str:
+@dataclass(frozen=True, slots=True)
+class _Cause:
+    """Почему прогон молчит — дважды: словами для экрана (`said`) и строкой
+    исключения как есть, с именем класса (`detail`), по которой сбой ищут
+    в журнале. До 25.09.2026 на экран шла строка трассировки целиком,
+    и колонка состояния читалась как «backend.features.runs.budget.
+    CapExceededError: …» (`runs/reasons.py`)."""
+
+    said: str
+    detail: str | None = None
+
+    @property
+    def logged(self) -> str:
+        """Для журнала — строка исключения, а нет её — те же слова."""
+        return self.detail or self.said
+
+
+def _cause(failure: FailureCheck, job_id: str | None) -> _Cause:
     """Упавшая задача и умерший воркер для разбора одинаково «мертвы», но
     человеку нужна причина: у первой она есть, и подменять её нельзя."""
     fell = failure(job_id)
-    return f"задача упала: {fell}" if fell else "воркер умер"
+    if not fell:
+        return _Cause("воркер умер")
+    return _Cause(f"задача упала: {explained_line(fell)}", fell)
 
 
 #: Поставить задачу прогону заново. Возвращает номер новой задачи.
@@ -132,9 +157,10 @@ def resumes_done(run: RunModel) -> int:
 
 def _with_note(run: RunModel, **fields: Any) -> dict[str, Any]:
     """Отчёт прогона плюс пометки разбора. Старое не затирается: в нём
-    лежит то, что прогон успел сделать до смерти."""
+    лежит то, что прогон успел сделать до смерти, — поэтому и пустая
+    пометка не ложится поверх записанной."""
     stats = dict(run.stats or {})
-    stats.update(fields)
+    stats.update({key: value for key, value in fields.items() if value is not None})
     return stats
 
 
@@ -191,7 +217,8 @@ async def recover(
                         run,
                         **{
                             RESUMES_KEY: attempts + 1,
-                            REASON_KEY: f"{cause}; прогон продолжен по сохранённой выдаче",
+                            REASON_KEY: f"{cause.said}; прогон продолжен по сохранённой выдаче",
+                            FAILURE_KEY: cause.detail,
                         },
                     ),
                 )
@@ -200,7 +227,7 @@ async def recover(
                     "Прогон %s молчит %.0f с — %s, поставлена новая задача (%s, попытка %s)",
                     run.id,
                     silent_for,
-                    cause,
+                    cause.logged,
                     job_id,
                     attempts + 1,
                 )
@@ -217,9 +244,10 @@ async def recover(
                     run,
                     **{
                         REASON_KEY: (
-                            f"остановлен разбором: {cause}, продолжений {attempts} "
+                            f"остановлен разбором: {cause.said}, продолжений {attempts} "
                             f"из {MAX_RESUMES}, молчание {silent_for:.0f} с"
-                        )
+                        ),
+                        FAILURE_KEY: cause.detail,
                     },
                 ),
             )
@@ -228,7 +256,7 @@ async def recover(
                 "Прогон %s закрыт как мёртвый: молчит %.0f с, продолжения исчерпаны (%s)",
                 run.id,
                 silent_for,
-                cause,
+                cause.logged,
             )
 
     await repository.session_commit()

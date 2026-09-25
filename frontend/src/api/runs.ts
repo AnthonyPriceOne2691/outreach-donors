@@ -1,4 +1,12 @@
-import type { DonorFullCard, DonorsPage, Forecast, RunQueued, RunRequest, RunsView } from './types';
+import type {
+  DonorFullCard,
+  DonorsPage,
+  Forecast,
+  RunCard,
+  RunQueued,
+  RunRequest,
+  RunsView,
+} from './types';
 import { request } from './client';
 
 export function fetchCountries(): Promise<string[]> {
@@ -13,8 +21,16 @@ export function startRun(body: RunRequest): Promise<RunQueued> {
   return request<RunQueued>('/runs', { method: 'POST', body });
 }
 
-export function listRuns(): Promise<RunsView> {
-  return request<RunsView>('/runs');
+/** Страница истории прогонов, с единицы. Размер страницы называет сервер
+ *  в ответе (`limit`): своей копии числа у экрана нет. */
+export function listRuns(page: number): Promise<RunsView> {
+  return request<RunsView>(`/runs?page=${page}`);
+}
+
+/** Прогоны, в которых кого-то приняли, — все, без страниц: из них
+ *  собирается рассылка, и страница истории не должна их урезать. */
+export function listRunsWithAccepted(): Promise<RunCard[]> {
+  return request<RunCard[]>('/runs/with-accepted');
 }
 
 export interface DonorQuery {

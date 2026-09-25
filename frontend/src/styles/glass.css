@@ -401,6 +401,22 @@ html:root[data-mantine-color-scheme='dark'] {
   box-shadow: var(--glass-shadow), var(--glass-inner);
 }
 
+/* Плотное стекло на всплывающем окне Mantine. Положение у всплывающего
+   своё — `position: absolute` и координаты от цели, — а `relative` из
+   `.glassSolid` возвращал его в поток, в самый конец страницы: поповер
+   причины у истории прогонов открывался под таблицей, в семистах
+   пикселях от своего «!», и тем же страдал поповер прав на экране учёток
+   (замерено 25.09.2026 по координатам в браузере; тесты в jsdom
+   раскладки не видят). Кромка стрелки — та же, что у окна. */
+.mantine-Popover-dropdown.glassSolid {
+  position: absolute;
+  --popover-border-color: var(--glass-edge);
+}
+
+.mantine-Popover-dropdown.glassSolid[data-fixed] {
+  position: fixed;
+}
+
 .glassFrame {
   position: relative;
   background-color: var(--glass-fill-frame);
@@ -732,6 +748,17 @@ html:root[data-mantine-color-scheme='dark'] .orb4 {
   text-align: left;
 }
 
+/* История прогонов (замечание 25.09.2026: «выровнять колонки»). Ширины
+   заданы в разметке при фиксированной раскладке — колонки не прыгают
+   от страницы к странице. Содержимое ячейки — посередине по вертикали.
+   Строка в ячейке не переносится: подписи под числом короткие, и
+   «исключено / 3» в три строки значило, что колонке не дали места,
+   а не что ей нужен перенос. Место дают ширины, узкому окну — прокрутка. */
+.runsTable td {
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
 /* Кликабельная строка списка по умолчанию прозрачна: у карточки Mantine
    своя непрозрачная заливка, и строки очереди писем стояли белыми
    плашками поверх стекла (серыми в тёмной теме). */
@@ -971,6 +998,41 @@ html:root[data-mantine-color-scheme='dark'] .orb4 {
 
 .meter[data-tone='rose'] {
   --meter-fill: var(--rose-warm);
+}
+
+/* Переключатель страниц. Умолчание Mantine — белые кнопки с серой рамкой
+   (в темноте — тёмно-серые) и заливка у текущей: на стекле это плашки
+   из чужого макета. Кнопки — подложка вложенного блока с кромкой (в тёмной
+   теме — тёмный тон, а не белая дымка: на «Донорах» и «Отборе» переключатель
+   стоит прямо на полотне, над яркими пятнами); текущая — подложка акцента
+   и полные чернила, как выбранный сегмент: она сообщает, где ты, а не
+   предлагает действие. Наведение — та же подложка тише, как у тихих кнопок. */
+.mantine-Pagination-control {
+  background-color: var(--quiet-fill);
+  border-color: var(--glass-edge);
+  color: var(--ink);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  font-variant-numeric: tabular-nums;
+  transition:
+    background-color 160ms cubic-bezier(0.32, 0.72, 0, 1),
+    border-color 160ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.mantine-Pagination-control:hover:not(:disabled, [data-disabled], [data-active]) {
+  background-color: color-mix(in oklab, var(--accent) 14%, transparent);
+  border-color: color-mix(in oklab, var(--accent) 35%, var(--glass-edge));
+}
+
+.mantine-Pagination-control[data-active] {
+  background-color: color-mix(in oklab, var(--accent) 26%, transparent);
+  border-color: color-mix(in oklab, var(--accent) 55%, var(--glass-edge));
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.mantine-Pagination-dots {
+  color: var(--ink-soft);
 }
 
 /* Карточка, по которой можно щёлкнуть (строка списка диалогов, домен

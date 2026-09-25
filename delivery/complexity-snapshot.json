@@ -217,14 +217,14 @@
       "worst": "—"
     },
     "backend/api/runs/routes.py": {
-      "lines": 177,
+      "lines": 206,
       "complexity": 2,
       "worst": "effective_cap:42"
     },
     "backend/api/runs/schemas.py": {
-      "lines": 176,
-      "complexity": 3,
-      "worst": "of:127"
+      "lines": 191,
+      "complexity": 4,
+      "worst": "of:134"
     },
     "backend/api/selection/__init__.py": {
       "lines": 1,
@@ -1112,9 +1112,9 @@
       "worst": "—"
     },
     "backend/features/runs/browse.py": {
-      "lines": 83,
+      "lines": 126,
       "complexity": 4,
-      "worst": "_hosts:80"
+      "worst": "_hosts:123"
     },
     "backend/features/runs/budget.py": {
       "lines": 72,
@@ -1137,9 +1137,9 @@
       "worst": "is_permanent:28"
     },
     "backend/features/runs/lifecycle.py": {
-      "lines": 244,
+      "lines": 272,
       "complexity": 9,
-      "worst": "recover:141"
+      "worst": "recover:167"
     },
     "backend/features/runs/pipeline.py": {
       "lines": 378,
@@ -1151,15 +1151,20 @@
       "complexity": 7,
       "worst": "gather_candidates:226"
     },
+    "backend/features/runs/reasons.py": {
+      "lines": 110,
+      "complexity": 4,
+      "worst": "explained_line:81"
+    },
     "backend/features/runs/report.py": {
-      "lines": 183,
+      "lines": 187,
       "complexity": 9,
-      "worst": "run_stats:114"
+      "worst": "run_stats:116"
     },
     "backend/features/runs/repository.py": {
-      "lines": 434,
+      "lines": 437,
       "complexity": 8,
-      "worst": "unique_share_from:119"
+      "worst": "unique_share_from:122"
     },
     "backend/features/runs/spending.py": {
       "lines": 143,
@@ -1282,9 +1287,9 @@
       "worst": "worker_problems:73"
     },
     "backend/workers/jobs.py": {
-      "lines": 340,
+      "lines": 348,
       "complexity": 4,
-      "worst": "_mark:172"
+      "worst": "_mark:176"
     },
     "backend/workers/main.py": {
       "lines": 29,
@@ -1342,14 +1347,14 @@
       "worst": "_select:46"
     },
     "scripts/ui_contrast.py": {
-      "lines": 269,
+      "lines": 272,
       "complexity": 9,
-      "worst": "main:217"
+      "worst": "main:220"
     },
     "scripts/ui_screens.py": {
-      "lines": 361,
+      "lines": 408,
       "complexity": 2,
-      "worst": "show_decided:323"
+      "worst": "open_reason:17"
     }
   }
 }
