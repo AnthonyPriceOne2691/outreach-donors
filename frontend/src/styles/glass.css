@@ -1513,8 +1513,12 @@ html:root .mantine-Pill-root {
    она уже уехала (`--shell-lift`, `layout/shellLift.ts`). На узком окне
    закрепления нет — письмо стоит над очередью, и выбор прокручивает к нему. */
 .letterPreviewCol {
+  /* Карточка отстоит от колонки на поле сетки (`--grid-col-padding`): без
+     него верх карточки вставал на 10 px ниже колонки меню, а низ в правке —
+     вплотную к краю окна (замер 25.09.2026). */
   --letter-top: calc(
-    var(--app-shell-header-offset, 0rem) - var(--shell-lift, 0px) + var(--mantine-spacing-sm)
+    var(--app-shell-header-offset, 0rem) - var(--shell-lift, 0px) + var(--mantine-spacing-sm) -
+      var(--grid-col-padding, 0px)
   );
   scroll-margin-top: var(--mantine-spacing-sm);
 }
@@ -1526,7 +1530,9 @@ html:root .mantine-Pill-root {
   }
 
   .letterPreviewCol .letterPreview {
-    max-height: calc(100dvh - var(--letter-top) - var(--mantine-spacing-sm));
+    max-height: calc(
+      100dvh - var(--letter-top) - var(--grid-col-padding, 0px) - var(--mantine-spacing-sm)
+    );
     overflow-y: auto;
   }
 }
