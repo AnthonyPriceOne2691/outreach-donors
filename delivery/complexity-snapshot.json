@@ -297,9 +297,9 @@
       "worst": "all_threads:25"
     },
     "backend/api/threads/schemas.py": {
-      "lines": 158,
+      "lines": 168,
       "complexity": 3,
-      "worst": "of:117"
+      "worst": "of:123"
     },
     "backend/api/unsubscribe/__init__.py": {
       "lines": 1,
@@ -372,9 +372,9 @@
       "worst": "—"
     },
     "backend/cli/demo_data.py": {
-      "lines": 443,
+      "lines": 452,
       "complexity": 7,
-      "worst": "_add_reply:285"
+      "worst": "_add_reply:287"
     },
     "backend/cli/doors.py": {
       "lines": 97,
@@ -982,9 +982,9 @@
       "worst": "build_transport:16"
     },
     "backend/features/letters/uniqueness.py": {
-      "lines": 77,
+      "lines": 116,
       "complexity": 3,
-      "worst": "difference:37"
+      "worst": "difference:48"
     },
     "backend/features/letters/unsubscribe.py": {
       "lines": 98,
@@ -1367,9 +1367,14 @@
       "worst": "main:121"
     },
     "scripts/ui_screens.py": {
-      "lines": 499,
+      "lines": 504,
       "complexity": 2,
       "worst": "open_reason:17"
+    },
+    "scripts/ui_screens_mail.py": {
+      "lines": 115,
+      "complexity": 1,
+      "worst": "mail_screens:19"
     }
   }
 }

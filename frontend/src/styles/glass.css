@@ -1455,7 +1455,8 @@ html:root .mantine-Pill-root {
    в разметке по самому длинному содержимому, раскладка фиксированная,
    строка в ячейке не переносится, узкому окну — прокрутка. На телефоне
    таблица в карточке без прокрутки показывала две колонки из пяти, а значки
-   ужимались до «цепочка остановле…», «отписа…», «де…» и «1…». */
+   ужимались до «цепочка остановле…», «отписа…», «де…» и «1…». Не ужиматься
+   значку велит общее правило выше, место ему — ширины колонок здесь. */
 
 .fixedTable td,
 .fixedTable th {
@@ -1465,12 +1466,6 @@ html:root .mantine-Pill-root {
 .fixedTable td:not(:first-child),
 .fixedTable th:not(:first-child) {
   white-space: nowrap;
-}
-
-/* Значок в ячейке не ужимается до многоточия: место ему дают ширины
-   колонок, а слово, обрезанное до четырёх букв, не значит ничего. */
-.fixedTable .mantine-Badge-root {
-  flex-shrink: 0;
 }
 
 /* Колонка с текстом — причины, анкор, автор записи — переносится: её
@@ -1513,20 +1508,25 @@ html:root .mantine-Pill-root {
 /* Письмо рядом с очередью закреплено: выбранное из середины списка иначе
    открывалось в четырёх с половиной тысячах пикселей выше окна. Письмо
    длиннее окна прокручивается внутри своей карточки, а не уезжает под
-   край вместе с кнопками. На узком окне закрепления нет — письмо стоит
-   над очередью, и выбор прокручивает к нему (отступ — под шапку). */
+   край вместе с кнопками. Верх — там же, где верх колонки меню: шапка
+   уезжает со страницей, и отступ под неё — её высота минус то, на сколько
+   она уже уехала (`--shell-lift`, `layout/shellLift.ts`). На узком окне
+   закрепления нет — письмо стоит над очередью, и выбор прокручивает к нему. */
 .letterPreviewCol {
-  scroll-margin-top: calc(var(--app-shell-header-offset, 0rem) + var(--mantine-spacing-md));
+  --letter-top: calc(
+    var(--app-shell-header-offset, 0rem) - var(--shell-lift, 0px) + var(--mantine-spacing-sm)
+  );
+  scroll-margin-top: var(--mantine-spacing-sm);
 }
 
 @media (min-width: 62em) {
   .letterPreviewCol {
     position: sticky;
-    top: calc(var(--app-shell-header-offset, 0rem) + var(--mantine-spacing-md));
+    top: var(--letter-top);
   }
 
   .letterPreviewCol .letterPreview {
-    max-height: calc(100dvh - var(--app-shell-header-offset, 0rem) - 2 * var(--mantine-spacing-md));
+    max-height: calc(100dvh - var(--letter-top) - var(--mantine-spacing-sm));
     overflow-y: auto;
   }
 }

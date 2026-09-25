@@ -717,7 +717,7 @@ function LetterRow({ letter, corridor, active, onChoose }: RowProps) {
             {letter.email ?? 'адрес не определён'}
           </Text>
         </Stack>
-        <Badge variant="light" color={toneOf(letter)} style={{ flexShrink: 0 }}>
+        <Badge variant="light" color={toneOf(letter)}>
           {uniquenessText(letter.uniqueness, corridor)}
         </Badge>
       </Group>
