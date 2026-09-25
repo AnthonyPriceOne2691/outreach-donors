@@ -139,6 +139,15 @@ function JudgeSilence({ run }: { run: { stats: Record<string, unknown> | null } 
   );
 }
 
+/** Ключи, выдачу по которым провайдер не отдал: заплачено, а не пришло.
+ *  Отдельно от «ничего не нашлось» (25.09.2026): раньше они сливались,
+ *  и прогон, у которого провайдер не успел, выглядел прогоном по неудачным
+ *  ключам. Глубина 100 результатов собирается дольше, и такое вероятнее. */
+function lostKeywords(run: { stats: Record<string, unknown> | null }): number {
+  const lost = run.stats?.['keywords_lost'];
+  return Array.isArray(lost) ? lost.length : 0;
+}
+
 /** Очередь рассмотрения прогона: сколько ждёт решения и ссылка к нему.
  *  Прогон кончается очередью, а не базой, — без этой ячейки её не найти.
  *  Ссылка несёт страницу истории (`from`): «К прогонам» в карточке ведёт
@@ -207,6 +216,13 @@ function HistoryRow({ run, from }: { run: RunCard; from: string }) {
           {ACTIVE.has(run.status) && (
             <Text size="xs" c="dimmed">
               {aliveFor(run.alive_at)}
+            </Text>
+          )}
+          {/* В колонке состояния, а не у числа ключей: это про то, чем
+              кончился прогон, и в узкой колонке ключей метка не помещается. */}
+          {lostKeywords(run) > 0 && (
+            <Text size="xs" c="red">
+              без выдачи: {lostKeywords(run)} из {formatNumber(run.keywords)}
             </Text>
           )}
         </Stack>

@@ -35,6 +35,27 @@ class FakeSerp:
         }
 
 
+class LosingSerp:
+    """Источник, который чистит ключи, как DataForSEO, и теряет часть из них:
+    ключа, задачу по которому не дождались, в ответе нет вовсе."""
+
+    name = "losing"
+
+    def __init__(self, answer: dict[str, list[str]], *, lost: set[str]) -> None:
+        self._answer = answer
+        self._lost = lost
+
+    async def search(
+        self, keywords: Sequence[str], country: str, *, depth_pages: int = 1
+    ) -> dict[str, list[SerpResult]]:
+        clean = dict.fromkeys(k.strip() for k in keywords if k.strip())
+        return {
+            kw: [SerpResult(position=i + 1, url=u) for i, u in enumerate(self._answer.get(kw, []))]
+            for kw in clean
+            if kw not in self._lost
+        }
+
+
 class FakeFreshness:
     def __init__(self, fresh: set[str]) -> None:
         self._fresh = fresh
@@ -105,6 +126,28 @@ class TestCandidates:
         serp = FakeSerp({"a": ["https://good.com"], "b": []})
         candidates = await gather_candidates(serp, ["a", "b"], "us")
         assert candidates.empty_keywords == ["b"]
+        assert candidates.lost_keywords == []
+
+    async def test_keyword_the_source_never_returned_is_lost_not_empty(self) -> None:
+        """Выдача оплачена, а не пришла: источник не дождался задачи и ключа
+        в ответе нет. Это не «ничего не нашлось» — до 25.09.2026 такие ключи
+        считались пустыми, и прогон, у которого провайдер не успел, выглядел
+        прогоном по неудачным ключам."""
+        serp = LosingSerp({"a": ["https://good.com"], "b": []}, lost={"c"})
+
+        candidates = await gather_candidates(serp, ["a", "b", " c ", "a"], "us")
+
+        assert candidates.empty_keywords == ["b"]
+        assert candidates.lost_keywords == [" c "]
+        restored = Candidates.restored(candidates.as_dict())
+        assert restored.lost_keywords == [" c "]
+
+    async def test_source_that_trims_keywords_loses_nothing(self) -> None:
+        """Источник чистит ключ от пробелов: « a » в ответе — «a». Сверка по
+        сырому ключу записала бы полную выдачу в потерянные."""
+        serp = LosingSerp({"a": ["https://good.com"]}, lost=set())
+        candidates = await gather_candidates(serp, [" a "], "us")
+        assert candidates.lost_keywords == []
 
 
 class TestPlanning:

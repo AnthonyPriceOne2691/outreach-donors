@@ -467,7 +467,7 @@
       "worst": "—"
     },
     "backend/config/serp.py": {
-      "lines": 53,
+      "lines": 55,
       "complexity": 0,
       "worst": "—"
     },
@@ -1152,9 +1152,9 @@
       "worst": "execute_run:264"
     },
     "backend/features/runs/planning.py": {
-      "lines": 331,
+      "lines": 352,
       "complexity": 7,
-      "worst": "gather_candidates:226"
+      "worst": "gather_candidates:236"
     },
     "backend/features/runs/reasons.py": {
       "lines": 110,
@@ -1162,7 +1162,7 @@
       "worst": "explained_line:81"
     },
     "backend/features/runs/report.py": {
-      "lines": 187,
+      "lines": 190,
       "complexity": 9,
       "worst": "run_stats:116"
     },
@@ -1192,7 +1192,7 @@
       "worst": "_take_organic:63"
     },
     "backend/features/serp/dataforseo.py": {
-      "lines": 375,
+      "lines": 388,
       "complexity": 11,
       "worst": "_organic:132"
     },
