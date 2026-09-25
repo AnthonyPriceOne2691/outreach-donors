@@ -283,13 +283,19 @@ def build_letter_queue(
     )
 
 
-async def _search_contacts(limit: int, use_browser: bool, paid_first: bool) -> dict[str, Any]:
+async def _search_contacts(
+    limit: int, use_browser: bool, paid_first: bool, donor_id: int | None = None
+) -> dict[str, Any]:
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with factory() as session:
             report = await search_contacts(
-                session, limit=limit, use_browser=use_browser, paid_first=paid_first
+                session,
+                limit=limit,
+                use_browser=use_browser,
+                paid_first=paid_first,
+                donor_id=donor_id,
             )
             await session.commit()
             return report.as_dict()
@@ -298,7 +304,10 @@ async def _search_contacts(limit: int, use_browser: bool, paid_first: bool) -> d
 
 
 def find_contacts(
-    limit: int = 100, use_browser: bool = False, paid_first: bool = False
+    limit: int = 100,
+    use_browser: bool = False,
+    paid_first: bool = False,
+    donor_id: int | None = None,
 ) -> dict[str, Any]:
     """Лестница контактов по донорам, которым он нужен.
 
@@ -306,12 +315,17 @@ def find_contacts(
     соединение всё это время значит потерять работу, если человек
     закрыл вкладку. Отчёт остаётся в результате задачи — по нему
     экран показывает, чем кончилось.
+
+    `donor_id` — поиск с карточки одного донора. Задача та же, а не своя:
+    та же лестница, те же повторы и тот же разбор исхода на экране.
+    Свой путь задачи понадобился бы разбору исходов (`ops/job_outcome`)
+    отдельной строкой, и без неё экран показал бы имя функции.
     """
     setup_logging()
     check_storage()
     return _settled(
-        lambda: asyncio.run(_search_contacts(limit, use_browser, paid_first)),
-        what="поиск контактов",
+        lambda: asyncio.run(_search_contacts(limit, use_browser, paid_first, donor_id)),
+        what="поиск контактов" if donor_id is None else f"поиск адреса донора №{donor_id}",
     )
 
 

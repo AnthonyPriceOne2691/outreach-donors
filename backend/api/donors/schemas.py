@@ -127,6 +127,10 @@ class DonorFullCard(BaseModel):
     last_price_currency: str | None
     last_price_at: datetime | None
     contacts: list[ContactCard]
+    #: Почему поиск адреса сейчас не ставится; пусто — ставится. Правило
+    #: то же, что у общего поиска, и решает его сервер: второй экземпляр
+    #: на экране разошёлся бы с ним на первой правке.
+    contact_refusal: str | None
 
     @classmethod
     def of(cls, card: CardData) -> DonorFullCard:
@@ -152,4 +156,5 @@ class DonorFullCard(BaseModel):
             last_price_currency=donor.last_price_currency,
             last_price_at=donor.last_price_at,
             contacts=[ContactCard.of(contact) for contact in card.contacts],
+            contact_refusal=card.contact_refusal,
         )

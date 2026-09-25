@@ -10,6 +10,11 @@
 
 **Поиск идёт задачей.** Сотня доменов — это минуты; выполнять их
 внутри запроса значит потерять работу, если человек закрыл вкладку.
+
+**Один донор — тот же поиск.** С карточки донора ставится та же задача,
+суженная до него, и под тем же правом: правило «кому искать» одно
+(`contacts/repository._needs_contact`), и отказ называет, какое его
+условие не выполнено.
 """
 
 from __future__ import annotations
@@ -36,9 +41,15 @@ from backend.api.jobs.routes import JobCard
 from backend.config import contacts as contacts_cfg
 from backend.features.access.repository import AccessRepository
 from backend.features.contacts import forms
-from backend.features.contacts.repository import ContactRepository
+from backend.features.contacts.repository import (
+    ContactRepository,
+    SearchRefusedError,
+    search_refusal,
+)
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
+from backend.features.core.models.donor import DonorModel
+from backend.features.donors.browse import UnknownDonorError
 from backend.features.ops.job_outcome import job_outcome
 from backend.shared.queue import (
     CONTACTS_JOB,
@@ -90,6 +101,32 @@ async def search(
     remember_contacts_job(str(job.id))
     logger.info("контакты: %s поставил поиск, ждёт %s доноров", author.email, pending)
     return ContactsQueued(job_id=str(job.id), pending=pending)
+
+
+@router.post("/donors/{donor_id}", response_model=ContactsQueued, summary="Найти адрес донору")
+async def search_one(
+    donor_id: int,
+    author: UserModel = _runner,
+    session: AsyncSession = Depends(db_session),
+) -> ContactsQueued:
+    """Поставить поиск адреса одному донору — с его карточки.
+
+    Правило проверяется до постановки: отказ приходит сразу и словами,
+    а не пустой задачей через минуту. Задача проверит его ещё раз — между
+    нажатием и исполнением общий поиск мог успеть найти адрес.
+
+    Номер задачи не запоминается как «поиск контактов»: то место — про
+    общий поиск, и один донор выдал бы на экране списка чужой исход.
+    """
+    donor = await session.get(DonorModel, donor_id)
+    if donor is None:
+        raise UnknownDonorError(f"Донора №{donor_id} нет")
+    refusal = await search_refusal(session, donor)
+    if refusal is not None:
+        raise SearchRefusedError(refusal)
+    job = runs_queue().enqueue(CONTACTS_JOB, 1, False, False, donor_id, **with_retries())
+    logger.info("контакты: %s поставил поиск адреса донору №%s", author.email, donor_id)
+    return ContactsQueued(job_id=str(job.id), pending=1)
 
 
 @router.get("/forms", response_model=FormsView, summary="Ручная очередь форм")

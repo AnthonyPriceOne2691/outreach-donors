@@ -8,10 +8,16 @@
 
 Адрес принадлежит домену, а не донору: на Этапе 2 тот же сайт выступает
 рекламодателем, и второй раз его контакт искать незачем.
+
+Правило «кому искать» здесь одно (`_needs_contact`) и работает в двух
+масштабах: общая очередь и один донор с его карточки. Рядом — оно же
+словами (`refusal_of`): экран говорит, почему поиск не ставится, до нажатия,
+а не отказом после.
 """
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
@@ -25,6 +31,8 @@ from backend.features.contacts.ladder import LadderResult
 from backend.features.core.domain import ContactStatus, DonorStatus
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
+
+logger = logging.getLogger(__name__)
 
 #: Исходы, которые повторяются при следующем прогоне: мы не спросили, а не
 #: узнали, что контакта нет.
@@ -47,6 +55,63 @@ def _needs_contact(border: datetime) -> ColumnElement[bool]:
             DonorModel.contact_attempted_at < border,
             DonorModel.contact_status.in_(tuple(RETRIABLE)),
         ),
+    )
+
+
+class SearchRefusedError(ValueError):
+    """Поиск адреса этому донору сейчас не ставится. Текст говорит почему."""
+
+
+#: Отказ, который правило вынесло, а объяснение не нашло. Так быть не должно:
+#: `refusal_of` читает вслух то же правило, что `_needs_contact` проверяет
+#: запросом. Если случилось — отказ всё равно честный, а расхождение в журнале.
+UNEXPLAINED = "Донор не ждёт поиска адреса по общему правилу — причину назвать не удалось."
+
+
+def _not_entitled(donor: DonorModel) -> str | None:
+    """Кому поиск не положен вовсе, пока не изменится сам донор: не подходит
+    по порогам или не принят человеком. Первые два условия `_needs_contact`."""
+    if donor.status is DonorStatus.UNCHECKED:
+        return "Адрес ищут только подходящим донорам, а этого пороги ещё не проверяли."
+    if donor.status is not DonorStatus.SUITABLE:
+        return "Адрес ищут только подходящим донорам — этот не прошёл пороги."
+    if donor.review == "rejected":
+        return "Донора отклонил человек — адрес ему не ищут."
+    if donor.review != "accepted":
+        return (
+            "Адрес ищут после решения человека: донора сначала принимают на рассмотрении прогона."
+        )
+    return None
+
+
+def refusal_of(
+    donor: DonorModel, *, now: datetime, ttl_days: int = cfg.CONTACT_TTL_DAYS
+) -> str | None:
+    """Почему донору сейчас не ищут адрес — словами для экрана. `None` — ищут.
+
+    Это `_needs_contact`, прочитанное вслух, условие за условием и в том же
+    порядке. Решает всё равно запрос (`search_refusal`): здесь только имя
+    невыполненного условия. Разойтись им не даёт тест, прогоняющий обе
+    стороны по всем сочетаниям состояний донора.
+
+    Исход прошлого поиска здесь не пересказывается: карточка показывает его
+    сама, значком и датой. Отказ отвечает на другой вопрос — почему нельзя
+    сейчас и когда станет можно.
+    """
+    never = _not_entitled(donor)
+    if never is not None:
+        return never
+    attempted = donor.contact_attempted_at
+    if attempted is None or donor.contact_status in RETRIABLE:
+        return None
+    # Строго «раньше»: запрос берёт попытку старше границы (`<`), и на самой
+    # границе донор ещё не ждёт — иначе экран обещал бы поиск, а сервер отказал.
+    again = attempted + timedelta(days=ttl_days)
+    if again < now:
+        return None
+    return (
+        f"Повторный поиск — не раньше {again:%d.%m.%Y}: до тех пор исход прошлого "
+        "считается свежим, а повтор прошёл бы ту же лестницу вплоть до платной ступени."
     )
 
 
@@ -101,10 +166,21 @@ async def save_addresses(
 
 
 class ContactRepository:
-    """Доступ к контактам доноров."""
+    """Доступ к контактам доноров.
 
-    def __init__(self, session: AsyncSession) -> None:
+    `donor_id` сужает очередь до одного донора — поиск с его карточки. Правило
+    «кому искать» при этом то же (`_needs_contact`) с одним условием больше:
+    узкая очередь — не второй отбор, а тот же, и второй экземпляр правила
+    разошёлся бы с первым на первой правке.
+    """
+
+    def __init__(self, session: AsyncSession, *, donor_id: int | None = None) -> None:
         self._session = session
+        self._donor_id = donor_id
+
+    def _waiting(self, border: datetime) -> ColumnElement[bool]:
+        rule = _needs_contact(border)
+        return rule if self._donor_id is None else and_(rule, DonorModel.id == self._donor_id)
 
     async def pending_hosts(
         self,
@@ -125,7 +201,7 @@ class ContactRepository:
         rows = await self._session.execute(
             select(DomainModel.host)
             .join(DonorModel, DonorModel.domain_id == DomainModel.id)
-            .where(_needs_contact(border))
+            .where(self._waiting(border))
             .order_by(DonorModel.dr.desc().nullslast())
             .limit(limit)
         )
@@ -143,7 +219,7 @@ class ContactRepository:
             await self._session.scalar(
                 select(func.count(DomainModel.host))
                 .join(DonorModel, DonorModel.domain_id == DomainModel.id)
-                .where(_needs_contact(border))
+                .where(self._waiting(border))
             )
             or 0
         )
@@ -177,3 +253,26 @@ class ContactRepository:
                 .where(DonorModel.domain_id == domain_id)
                 .values(contact_status=result.status, contact_attempted_at=moment)
             )
+
+
+async def search_refusal(
+    session: AsyncSession, donor: DonorModel, *, now: datetime | None = None
+) -> str | None:
+    """Почему этому донору нельзя поставить поиск адреса; `None` — можно.
+
+    Решает тот же запрос, что набирает общую очередь, суженный до донора:
+    «можно» ровно тогда, когда общий поиск взял бы его сам. `refusal_of`
+    только называет причину отказа — решение за ним не остаётся.
+    """
+    moment = now or datetime.now(UTC)
+    if await ContactRepository(session, donor_id=donor.id).pending_count(now=moment):
+        return None
+    reason = refusal_of(donor, now=moment)
+    if reason is None:
+        logger.warning(
+            "контакты: донор №%s не ждёт поиска, а объяснение правила этого не видит — "
+            "`refusal_of` разошёлся с `_needs_contact`",
+            donor.id,
+        )
+        return UNEXPLAINED
+    return reason

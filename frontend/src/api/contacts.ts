@@ -20,6 +20,12 @@ export function searchContacts(body: {
   return request<ContactsQueued>('/contacts', { method: 'POST', body });
 }
 
+/** Поиск адреса одному донору — с его карточки. Та же задача, что у общего
+ *  поиска, суженная до донора; не ставится — сервер говорит почему. */
+export function searchDonorContact(donorId: number): Promise<ContactsQueued> {
+  return request<ContactsQueued>(`/contacts/donors/${donorId}`, { method: 'POST' });
+}
+
 export function fetchForms(): Promise<FormsView> {
   return request<FormsView>('/contacts/forms');
 }
