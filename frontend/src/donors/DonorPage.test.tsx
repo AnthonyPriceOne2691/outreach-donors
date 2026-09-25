@@ -180,12 +180,16 @@ describe('карточка донора: адреса', () => {
     localStorage.setItem('donor:7:contacts-job', 'job-7');
     await openCard(CARD, {
       'GET /api/jobs/job-7': {
-        body: { ...job('failed', 'упала'), error: 'ConnectError: сеть', retries_left: 0 },
+        body: {
+          ...job('failed', 'упала'),
+          error: 'техническая ошибка (ConnectError)',
+          retries_left: 0,
+        },
       },
     });
 
     expect(await screen.findByRole('status')).toHaveTextContent(
-      'Поиск контактов: упала — ConnectError: сеть',
+      'Поиск контактов: упала — техническая ошибка (ConnectError)',
     );
     expect(localStorage.getItem('donor:7:contacts-job')).toBe('job-7');
   });

@@ -52,9 +52,9 @@
       "worst": "—"
     },
     "backend/api/contacts/routes.py": {
-      "lines": 160,
+      "lines": 197,
       "complexity": 6,
-      "worst": "state:62"
+      "worst": "state:73"
     },
     "backend/api/contacts/schemas.py": {
       "lines": 93,
@@ -77,14 +77,14 @@
       "worst": "all_donors:32"
     },
     "backend/api/donors/schemas.py": {
-      "lines": 156,
+      "lines": 161,
       "complexity": 3,
       "worst": "of:71"
     },
     "backend/api/errors.py": {
-      "lines": 121,
+      "lines": 125,
       "complexity": 3,
-      "worst": "handle:107"
+      "worst": "handle:111"
     },
     "backend/api/events/__init__.py": {
       "lines": 1,
@@ -592,12 +592,12 @@
       "worst": "_vcard_emails:40"
     },
     "backend/features/contacts/repository.py": {
-      "lines": 180,
-      "complexity": 4,
-      "worst": "save_addresses:78"
+      "lines": 279,
+      "complexity": 5,
+      "worst": "_not_entitled:71"
     },
     "backend/features/contacts/search.py": {
-      "lines": 193,
+      "lines": 199,
       "complexity": 9,
       "worst": "search_contacts:135"
     },
@@ -772,9 +772,9 @@
       "worst": "backfill:203"
     },
     "backend/features/donors/browse.py": {
-      "lines": 183,
+      "lines": 194,
       "complexity": 6,
-      "worst": "_narrow:90"
+      "worst": "_narrow:96"
     },
     "backend/features/donors/collect.py": {
       "lines": 294,
@@ -787,9 +787,9 @@
       "worst": "__call__:93"
     },
     "backend/features/donors/export.py": {
-      "lines": 57,
+      "lines": 74,
       "complexity": 4,
-      "worst": "to_csv:37"
+      "worst": "to_csv:39"
     },
     "backend/features/donors/geo.py": {
       "lines": 159,
@@ -1287,7 +1287,7 @@
       "worst": "worker_problems:73"
     },
     "backend/workers/jobs.py": {
-      "lines": 348,
+      "lines": 362,
       "complexity": 4,
       "worst": "_mark:176"
     },
@@ -1352,7 +1352,7 @@
       "worst": "main:220"
     },
     "scripts/ui_screens.py": {
-      "lines": 408,
+      "lines": 493,
       "complexity": 2,
       "worst": "open_reason:17"
     }

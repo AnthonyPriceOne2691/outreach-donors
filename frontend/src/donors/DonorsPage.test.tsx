@@ -396,7 +396,7 @@ describe('ждут адреса', () => {
             kind: 'поиск контактов',
             state: 'failed',
             title: 'упала',
-            error: 'ConnectError: сеть',
+            error: 'техническая ошибка (ConnectError)',
             report: null,
             retries_left: 0,
             next_try_at: null,
@@ -407,7 +407,7 @@ describe('ждут адреса', () => {
     });
 
     expect(await screen.findByRole('status')).toHaveTextContent(
-      'Поиск контактов: упала — ConnectError: сеть',
+      'Поиск контактов: упала — техническая ошибка (ConnectError)',
     );
   });
 });
