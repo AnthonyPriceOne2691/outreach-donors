@@ -66,6 +66,13 @@
      5,4 : 1 (24.09.2026, экраны «Письма» и «Отбор»). Контраст подписи
      не должен зависеть от того, где на экране стоит переключатель. */
   --segment-fill: var(--glass-fill-quiet);
+  /* Подложка вложенного блока (`glassQuiet`: плитки, выбранное письмо).
+     На свету — тихое стекло; в темноте — тёмный тон, как у переключателя.
+     Белая дымка там высветляла яркое место полотна: 25.09.2026 колонка меню
+     стала уже, плитки уехали на 35 px к бирюзовому углу, и подпись плитки
+     на «Отборе» и «Письмах» упала с 4,73 до 4,40 : 1 при норме 4,5 —
+     второй раз тот же урок, что с переключателем. */
+  --quiet-fill: var(--glass-fill-quiet);
   --glass-edge: rgb(255 255 255 / 0.72);
   /* Волосяная линия-разделитель. Отдельный токен от кромки: кромка светлая
      (она рисует блик), а разделитель обязан быть темнее фона — на светлой
@@ -200,6 +207,7 @@ html:root[data-mantine-color-scheme='dark'] {
   --glass-fill-solid: rgb(14 26 32 / 0.94);
   --glass-fill-quiet: rgb(255 255 255 / 0.06);
   --segment-fill: var(--glass-fill-frame);
+  --quiet-fill: rgb(6 16 22 / 0.3);
   --glass-edge: rgb(255 255 255 / 0.16);
   --hairline: rgb(255 255 255 / 0.14);
   --glass-shadow: 0 24px 60px -26px rgb(0 0 0 / 0.72), 0 0 0 0.5px rgb(255 255 255 / 0.06);
@@ -405,7 +413,7 @@ html:root[data-mantine-color-scheme='dark'] {
 }
 
 .glassQuiet {
-  background: var(--glass-fill-quiet);
+  background: var(--quiet-fill);
   border: 1px solid var(--glass-edge);
   border-radius: var(--radius-inner);
   /* Приглушённый тон внутри вложенного блока — на ступень ближе к чернилам.
@@ -922,6 +930,47 @@ html:root[data-mantine-color-scheme='dark'] .orb4 {
 .mantine-Checkbox-input:not(:checked) {
   border: 1.5px solid color-mix(in oklab, var(--ink) 75%, transparent);
   background: var(--glass-fill-quiet);
+}
+
+/* Плитка-ссылка (`Metric` с адресом): вся плитка ведёт на экран, где с её
+   числом работают. Под курсором меняются кромка и подложка — как у строки
+   списка, а не подъём: плиток на главной ряд, и прыгающий ряд мешает
+   прицелиться в соседнюю. Нажатие чувствуется через `press`. */
+.metricLink {
+  transition:
+    background-color 200ms ease,
+    border-color 200ms ease,
+    transform 140ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.metricLink:hover {
+  background-color: color-mix(in oklab, var(--accent) 12%, var(--quiet-fill));
+  border-color: color-mix(in oklab, var(--accent) 45%, var(--glass-edge));
+}
+
+/* На телефоне плитки сводки идут по две, и последняя в нечётном ряду стоит
+   одна с дырой справа. Она растягивается во всю ширину. */
+@media (max-width: 47.99em) {
+  .metricGrid > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Полоса «потрачено из лимита» (`Meter`). Дорожка — светлая ступень того же
+   цвета, что и заполнение, а не серое умолчание Mantine: серая дорожка
+   на стекле читается чужой деталью. Цвет заполнения — от тяжести: акцент,
+   янтарь с 80 %, роза, когда лимит выбран. */
+.meter {
+  --meter-fill: var(--accent);
+  background-color: color-mix(in oklab, var(--meter-fill) 20%, transparent);
+}
+
+.meter[data-tone='amber'] {
+  --meter-fill: var(--amber-warm);
+}
+
+.meter[data-tone='rose'] {
+  --meter-fill: var(--rose-warm);
 }
 
 /* Карточка, по которой можно щёлкнуть (строка списка диалогов, домен

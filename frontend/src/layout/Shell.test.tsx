@@ -10,14 +10,14 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
-import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
+import { ADMIN, HOME_ROUTES, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 
 describe('рама приложения', () => {
   it('оператор не видит раздела учёток', async () => {
     localStorage.setItem(TOKEN_KEY, 'пропуск');
-    serve({ 'GET /api/auth/me': { body: OPERATOR } });
+    serve({ 'GET /api/auth/me': { body: OPERATOR }, ...HOME_ROUTES });
     renderWith(<AppRoutes />, '/');
 
     await screen.findByText(/Вошли как/);
@@ -26,7 +26,7 @@ describe('рама приложения', () => {
 
   it('админ видит', async () => {
     localStorage.setItem(TOKEN_KEY, 'пропуск');
-    serve({ 'GET /api/auth/me': { body: ADMIN } });
+    serve({ 'GET /api/auth/me': { body: ADMIN }, ...HOME_ROUTES });
     renderWith(<AppRoutes />, '/');
 
     expect(await screen.findByText('Учётки')).toBeInTheDocument();
@@ -34,7 +34,7 @@ describe('рама приложения', () => {
 
   it('выход убирает пропуск и возвращает на вход', async () => {
     localStorage.setItem(TOKEN_KEY, 'пропуск');
-    serve({ 'GET /api/auth/me': { body: ADMIN } });
+    serve({ 'GET /api/auth/me': { body: ADMIN }, ...HOME_ROUTES });
     renderWith(<AppRoutes />, '/');
     await screen.findByText('Учётки');
 

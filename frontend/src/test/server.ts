@@ -33,6 +33,17 @@ export interface Recorded {
   calls: Call[];
 }
 
+/**
+ * Незаписанные запросы, пойманные с начала теста.
+ *
+ * Бросить ошибку из `fetch` мало: запрос через TanStack Query превращает её
+ * в состояние экрана («не загрузилось»), и тест, который это состояние не
+ * проверяет, остаётся зелёным. Так 25.09.2026 прошли тесты главной, хотя
+ * новый маршрут сводки в них записан не был. Поэтому промах ещё и
+ * запоминается, а `afterEach` в `setup.ts` роняет по нему тест.
+ */
+export const misses: string[] = [];
+
 export function serve(routes: Record<string, Route>): Recorded {
   const recorded: Recorded = { calls: [] };
 
@@ -52,9 +63,9 @@ export function serve(routes: Record<string, Route>): Recorded {
 
       const route = routes[`${method} ${path}`];
       if (route === undefined) {
-        throw new Error(
-          `Ответ на «${method} ${path}» не записан. Записаны: ${Object.keys(routes).join(', ')}`,
-        );
+        const miss = `Ответ на «${method} ${path}» не записан. Записаны: ${Object.keys(routes).join(', ')}`;
+        misses.push(miss);
+        throw new Error(miss);
       }
 
       const answer = typeof route === 'function' ? route(call) : route;

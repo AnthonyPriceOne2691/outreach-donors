@@ -7,7 +7,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
-import { NEWCOMER, OPERATOR, TOKEN_KEY } from '../test/fixtures';
+import { HOME_ROUTES, NEWCOMER, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 
@@ -52,6 +52,7 @@ describe('смена своего пароля', () => {
         changed = true;
         return { status: 204 };
       },
+      ...HOME_ROUTES,
     });
     renderWith(<AppRoutes />, '/password');
     await screen.findByText('Смена пароля');

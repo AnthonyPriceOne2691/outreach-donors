@@ -10,7 +10,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
-import { ADMIN, NEWCOMER, TOKEN_KEY, signedIn } from '../test/fixtures';
+import { ADMIN, HOME_ROUTES, NEWCOMER, TOKEN_KEY, signedIn } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 
@@ -23,7 +23,7 @@ async function enter(email: string, password: string) {
 
 describe('вход', () => {
   it('пускает и запоминает пропуск', async () => {
-    const recorded = serve({ 'POST /api/auth/login': { body: signedIn(ADMIN) } });
+    const recorded = serve({ 'POST /api/auth/login': { body: signedIn(ADMIN) }, ...HOME_ROUTES });
     renderWith(<AppRoutes />, '/login');
 
     await enter('админ@site.com', 'пароль-для-теста');

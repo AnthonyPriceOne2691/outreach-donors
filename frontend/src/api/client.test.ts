@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { AuthError, DeniedError, TooManyAttemptsError, request } from './client';
 import { TOKEN_KEY } from '../test/fixtures';
-import { serve } from '../test/server';
+import { misses, serve } from '../test/server';
 
 describe('запрос к серверу', () => {
   beforeEach(() => localStorage.setItem(TOKEN_KEY, 'пропуск'));
@@ -91,5 +91,9 @@ describe('запрос к серверу', () => {
     serve({ 'GET /api/auth/me': { body: {} } });
 
     expect(() => fetch('/api/опечатка')).toThrow(/не записан/);
+    // Промах ещё и запомнен: экран на TanStack Query проглатывает брошенное
+    // как «не загрузилось», и тест роняет уже `afterEach`. Здесь промах
+    // нарочный — забираем его, проверив.
+    expect(misses.splice(0)).toEqual([expect.stringMatching(/опечатка/)]);
   });
 });

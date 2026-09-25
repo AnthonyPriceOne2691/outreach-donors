@@ -12,6 +12,7 @@
 
 import { Card, Stack, Text } from '@mantine/core';
 import type { ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 
 interface Props {
   title: string;
@@ -20,28 +21,43 @@ interface Props {
   /** Цвет числа. По умолчанию обычные чернила: цветом помечают то,
    *  на что смотреть, а если помечено всё — не помечено ничего. */
   color?: string | undefined;
+  /** Куда ведёт плитка. С адресом плитка — ссылка целиком: число на главной
+   *  — это вход в экран, где с ним работают, и искать рядом отдельную
+   *  ссылку «перейти» незачем. */
+  to?: string | undefined;
 }
 
-export function Metric({ title, value, hint, color }: Props) {
+export function Metric({ title, value, hint, color, to }: Props) {
+  const body = (
+    <Stack gap={4} align="center" ta="center">
+      {/* Подпись — полными чернилами. Она стоит в верхней части плитки,
+          на блике стекла, и приглушённый тон там не держал норму в тёмной
+          теме: 4,44 : 1, при том что пояснение того же тона внизу плитки
+          давало 6,03 (замер 23.09). Иерархию держат размер и вес числа. */}
+      <Text size="xs" c="var(--ink)">
+        {title}
+      </Text>
+      <Text fw={600} fz="xl" c={color ?? 'inherit'}>
+        {value}
+      </Text>
+      {hint !== undefined && (
+        <Text size="xs" c="dimmed">
+          {hint}
+        </Text>
+      )}
+    </Stack>
+  );
+
+  if (to === undefined) {
+    return (
+      <Card className="glassQuiet" p="md">
+        {body}
+      </Card>
+    );
+  }
   return (
-    <Card className="glassQuiet" p="md">
-      <Stack gap={4} align="center" ta="center">
-        {/* Подпись — полными чернилами. Она стоит в верхней части плитки,
-            на блике стекла, и приглушённый тон там не держал норму в тёмной
-            теме: 4,44 : 1, при том что пояснение того же тона внизу плитки
-            давало 6,03 (замер 23.09). Иерархию держат размер и вес числа. */}
-        <Text size="xs" c="var(--ink)">
-          {title}
-        </Text>
-        <Text fw={600} fz="xl" c={color ?? 'inherit'}>
-          {value}
-        </Text>
-        {hint !== undefined && (
-          <Text size="xs" c="dimmed">
-            {hint}
-          </Text>
-        )}
-      </Stack>
+    <Card component={Link} to={to} className="glassQuiet metricLink press" p="md">
+      {body}
     </Card>
   );
 }

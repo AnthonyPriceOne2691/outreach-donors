@@ -52,6 +52,12 @@ export class TooManyAttemptsError extends ApiError {
   }
 }
 
+/** Текст отказа для экрана: сообщение сервера целиком, а если его нет —
+ *  честное «без объяснения», а не пустое место. */
+export function refusalOf(error: unknown): string {
+  return error instanceof Error ? error.message : 'Сервер отказал без объяснения';
+}
+
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PATCH';
   body?: unknown;
