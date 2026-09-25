@@ -1372,7 +1372,7 @@
       "worst": "open_reason:17"
     },
     "scripts/ui_screens_mail.py": {
-      "lines": 115,
+      "lines": 121,
       "complexity": 1,
       "worst": "mail_screens:19"
     }
