@@ -134,7 +134,10 @@ SCREENS: dict[str, dict] = {
             # компонента пережил бы смену типа молча и мерил бы соседа.
             ("подпись поля «Про что»", ".mantine-TagsInput-label", NORM),
             ("описание под полем", ".mantine-TagsInput-description", NORM),
-            ("языки рынка", ".mantine-Card-root p.mantine-Text-root:last-of-type", NORM),
+            # Языки — вторая строка раскрытой секции (`Unfold`). Значение поля
+            # целиком не меряется: вырезка берёт кромку поля (3,27 при 6,37).
+            ("языки рынка", "[data-unfold='content'] p.mantine-Text-root >> nth=1", NORM),
+            ("подпись глубины", ".mantine-InputWrapper-label:text-is('Глубина выдачи')", NORM),
             ("кнопка «Собрать»", "button:has-text('Собрать')", BIG),
             ("пункт меню", "nav a", NORM),
             # История по страницам (25.09.2026). Переключатель Mantine перекрашен
@@ -299,7 +302,10 @@ SCREENS: dict[str, dict] = {
             # Почему строка первая в ярусе: сайт сам продаёт размещение.
             ("признак «продаёт»", "table tbody [data-sells] .mantine-Badge-label", NORM),
             ("почему поднят", "table tbody [data-sells] p", NORM),
-            ("ключ, по которому нашёлся", "table tbody td:nth-child(3) p", NORM),
+            # По метке, а не номеру колонки: у старого прогона колонки ключей нет.
+            ("ключ, по которому нашёлся", "table tbody [data-found-by] p", NORM),
+            ("«К прогонам»", "a.backLink", NORM),
+            ("пояснение про ключи", "p:has-text('этот прогон не хранит')", NORM),
             ("ярус очереди", "table tbody .mantine-Badge-root[data-variant='dot']", NORM),
             ("совет судьи", "table tbody .mantine-Badge-root[data-variant='light']", NORM),
             ("тип сайта", "table tbody .mantine-Badge-root[data-variant='outline']", NORM),
@@ -384,7 +390,7 @@ SCREENS: dict[str, dict] = {
         "probes": [
             ("домен карточки", "h3", BIG),
             ("значок вердикта", ".glassPanel .mantine-Badge-label", NORM),
-            ("кнопка «К списку»", "button:has-text('К списку')", BIG),
+            ("«К списку»", "a.backLink", NORM),
             ("заголовок «Адреса»", "h5:text-is('Адреса')", NORM),
             (
                 "исход поиска значком",

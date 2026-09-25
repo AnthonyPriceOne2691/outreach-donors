@@ -1367,7 +1367,7 @@
       "worst": "main:121"
     },
     "scripts/ui_screens.py": {
-      "lines": 493,
+      "lines": 499,
       "complexity": 2,
       "worst": "open_reason:17"
     }
