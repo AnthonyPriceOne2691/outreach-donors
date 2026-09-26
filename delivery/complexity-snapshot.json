@@ -567,9 +567,9 @@
       "worst": "_step_pages:278"
     },
     "backend/features/contacts/manual.py": {
-      "lines": 180,
+      "lines": 183,
       "complexity": 8,
-      "worst": "remove:152"
+      "worst": "remove:155"
     },
     "backend/features/contacts/mx.py": {
       "lines": 207,
@@ -1382,9 +1382,14 @@
       "worst": "main:121"
     },
     "scripts/ui_screens.py": {
-      "lines": 491,
+      "lines": 412,
       "complexity": 2,
       "worst": "open_reason:21"
+    },
+    "scripts/ui_screens_donors.py": {
+      "lines": 172,
+      "complexity": 1,
+      "worst": "donor_screens:19"
     },
     "scripts/ui_screens_mail.py": {
       "lines": 190,
