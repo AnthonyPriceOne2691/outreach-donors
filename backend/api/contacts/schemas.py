@@ -81,9 +81,23 @@ class FormsView(BaseModel):
 
 
 class FilledBody(BaseModel):
-    """Форму заполнили, и донор дал адрес."""
+    """Форму заполнили, и донор дал адрес.
 
-    email: str = Field(min_length=5, max_length=255)
+    Вид и длину адреса проверяет `contacts.manual` — словами, как и у адреса
+    с карточки донора; ограничения схемы отказали бы по-английски.
+    """
+
+    email: str
+
+
+class AddressBody(BaseModel):
+    """Адрес, вписанный с карточки донора.
+
+    Без ограничений схемы: их отказ пришёл бы по-английски. Длину и вид
+    адреса проверяет `contacts.manual` — словами.
+    """
+
+    email: str
 
 
 class GiveUpBody(BaseModel):

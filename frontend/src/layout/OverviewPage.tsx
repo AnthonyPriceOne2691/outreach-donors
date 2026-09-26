@@ -190,30 +190,37 @@ function priceHint(donors: OverviewDonors): string {
   return `свежих ${formatNumber(donors.priced_fresh)}`;
 }
 
+/**
+ * Воронка: от проверенного домена до донора с ценой (решение 26.09.2026).
+ *
+ * «Донор» здесь значит одно — домен, принятый человеком: то же, что на экране
+ * «Доноры», куда ведёт плитка. Записей в базе больше — у каждого домена, за
+ * чьи метрики заплатил прогон, — и это «проверено доменов», а не доноры:
+ * «доноров 1 065» над пустым списком доноров читалось бы как сбой. Всё, что
+ * ниже «Доноров», считается среди них — тем же правилом, что у списка.
+ */
 function DonorsSection({ donors }: { donors: OverviewDonors }) {
   const checked = donors.total - donors.unchecked;
   return (
-    <Section title="Доноры" to="/donors" toTitle="Все доноры">
+    // Ссылки у раздела нет: «Доноры» — плитка-ссылка внутри, и две ссылки
+    // на один экран в одном разделе читались бы как два разных места.
+    <Section title="Воронка доноров">
       <SimpleGrid cols={{ base: 2, sm: 4, lg: 7 }} spacing="sm" className="metricGrid">
         <Metric
-          title="В базе"
+          title="Проверено доменов"
           value={formatNumber(donors.total)}
-          hint={
-            donors.unchecked > 0
-              ? `не проверено ${formatNumber(donors.unchecked)}`
-              : 'все проверены'
-          }
+          hint={donors.unchecked > 0 ? `не проверено ${formatNumber(donors.unchecked)}` : undefined}
         />
         <Metric
           title="Прошли пороги"
           value={formatNumber(donors.suitable)}
           hint={checked > 0 ? `${formatShare(donors.suitable / checked)} проверенных` : undefined}
         />
-        {/* «Принял человек», а не «Приняты»: на «Отборе» «Приняты» — вкладка
-            судьи и порогов, и одно слово с двумя числами на двух экранах
-            читалось бы как расхождение. */}
+        {/* «Доноры» — принятые человеком. Не «Приняты»: на «Отборе» «Приняты» —
+            вкладка судьи и порогов, и одно слово с двумя числами на двух
+            экранах читалось бы как расхождение. */}
         <Metric
-          title="Принял человек"
+          title="Доноры"
           value={formatNumber(donors.accepted)}
           hint={
             donors.rejected > 0
@@ -222,10 +229,11 @@ function DonorsSection({ donors }: { donors: OverviewDonors }) {
                 ? 'отклонённых нет'
                 : 'решений не было'
           }
+          to="/donors"
         />
         {/* Фильтр списка доноров считает «с адресом» тем же правилом, что
-            сводка (исход поиска — «найден»): число плитки и длина списка
-            совпадают. */}
+            сводка (среди доноров, исход поиска — «найден»): число плитки
+            и длина списка совпадают. */}
         <Metric
           title="С адресом"
           value={formatNumber(donors.with_email)}

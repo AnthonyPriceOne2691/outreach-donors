@@ -1,9 +1,14 @@
 /**
- * База доноров: одна панель — шапка, таблица с фильтрами, страницы.
+ * Доноры: одна панель — шапка, таблица с фильтрами, страницы.
+ *
+ * **Донор — домен, принятый человеком** (решение 26.09.2026). Запись в базе
+ * есть у каждого домена, за чьи метрики заплатил прогон; донором он
+ * становится на рассмотрении прогона. Экран, его счётчики и выгрузка — только
+ * доноры; пустой экран ведёт туда, где их принимают, и говорит, сколько ждёт.
  *
  * **«Не проверен» и «не подходит» — разные состояния**, и в таблице они
- * разного цвета. Спутать их значит копить ложные отказы: домен без данных
- * Ahrefs надо добрать позже, а не закрыть.
+ * разного цвета. У принятого донора вердикт может смениться после переобмера
+ * метрик — это сигнал, и фильтр вердикта его находит.
  *
  * **Причина отсева показывается всегда.** «Не подходит» без причины —
  * это решение, которое нельзя оспорить, а пороги у нас версионируются
@@ -16,7 +21,11 @@
  *
  * **По двадцать на страницу, страница и фильтры — в адресе.** Любая смена
  * фильтра возвращает на первую страницу: двадцатая страница старого
- * вопроса ничего не говорит о новом.
+ * вопроса ничего не говорит о новом. Отметки в адрес не пишутся: они —
+ * набор номеров, который переживает смену страницы и фильтра (`picks.ts`).
+ *
+ * **Кнопка выгрузки одна**, и её подпись говорит, что ляжет в файл:
+ * всех, найденных или отмеченных (`exporting.ts`).
  */
 
 import { Box, Button, Card, Group, Loader, Pagination, Stack, Text, Title } from '@mantine/core';
@@ -27,7 +36,7 @@ import { useCallback, useEffect, useMemo } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { refusalOf } from '../api/client';
-import { exportDonors, saveFile } from '../api/donors';
+import { exportCounts, exportDonors, exportPicked, saveFile } from '../api/donors';
 import { listDonors } from '../api/runs';
 import type { DonorRowCard } from '../api/types';
 import { formatNumber } from '../format';
@@ -43,7 +52,9 @@ import {
   writeFilters,
 } from './donorFilters';
 import type { DonorFilters } from './donorFilters';
+import { exportOutcome, exportPlan } from './exporting';
 import { usePendingContacts } from './PendingContacts';
+import { usePicks } from './picks';
 import { useTyped } from './useTyped';
 
 /** Набранный поиск совпадает с адресом без пробелов по краям: пробел
@@ -65,6 +76,7 @@ export function DonorsPage() {
   const [params, setParams] = useSearchParams();
   const filters = useMemo(() => readFilters(params), [params]);
   const contacts = usePendingContacts();
+  const picks = usePicks();
   // На телефоне переключатель страниц без соседей текущей: с ними девять
   // кнопок не влезали в строку, и «54 ›» уезжали на вторую.
   const phone = useMediaQuery('(max-width: 30em)') === true;
@@ -83,23 +95,21 @@ export function DonorsPage() {
     [setParams],
   );
 
-  // Поиск и порог DR печатают — в адрес они уходят после паузы в наборе.
+  // Поиск и пороги печатают — в адрес они уходят после паузы в наборе.
   const [search, setSearch] = useTyped(
     filters.search,
     (value) => apply({ search: value.trim() }),
     sameSearch,
   );
   const [minDr, setMinDr] = useTyped(filters.minDr, (value) => apply({ minDr: value }), sameNumber);
+  const [minTraffic, setMinTraffic] = useTyped(
+    filters.minTraffic,
+    (value) => apply({ minTraffic: value }),
+    sameNumber,
+  );
 
   const query = useQuery({
-    queryKey: [
-      'donors',
-      filters.status,
-      filters.search,
-      filters.minDr,
-      filters.address,
-      filters.page,
-    ],
+    queryKey: ['donors', writeFilters(filters).toString()],
     queryFn: () =>
       listDonors({
         ...queryOf(filters),
@@ -125,9 +135,23 @@ export function DonorsPage() {
     }
   }, [settled, data, filters.page, pages, setParams]);
 
+  const plan =
+    data === undefined
+      ? null
+      : exportPlan({
+          picked: picks.picked.size,
+          filtered: isFiltered(filters),
+          found: data.total,
+          limit: data.export_limit,
+        });
+
   const download = useMutation({
-    mutationFn: () => exportDonors(queryOf(filters)),
-    onSuccess: (file) => saveFile(file, 'donors.csv'),
+    mutationFn: () =>
+      plan?.picked === true ? exportPicked([...picks.picked]) : exportDonors(queryOf(filters)),
+    onSuccess: (file) => {
+      saveFile(file, 'donors.csv');
+      notifications.show({ message: exportOutcome(exportCounts(file), plan?.picked === true) });
+    },
     onError: (failure) =>
       notifications.show({
         title: 'Выгрузка не удалась',
@@ -164,16 +188,32 @@ export function DonorsPage() {
           </Group>
           <Group gap="md" align="center">
             {contacts.control}
-            {/* Выгружается то, что видно: фильтр — часть вопроса, на который
-                отвечают файлом. Выгрузка «всего» при включённом фильтре
-                не совпала бы с экраном. */}
+            {picks.picked.size > 0 && (
+              // Отметки живут и на других страницах и под другим фильтром —
+              // их число и снятие видны здесь, а не только флажками строк.
+              <Group gap={6} wrap="nowrap" className="pickedLine">
+                <Text size="sm">
+                  отмечено: <b>{formatNumber(picks.picked.size)}</b>
+                </Text>
+                <Text size="sm" c="dimmed" aria-hidden>
+                  ·
+                </Text>
+                <Button variant="subtle" size="compact-sm" className="press" onClick={picks.clear}>
+                  снять отметку
+                </Button>
+              </Group>
+            )}
+            {/* Подпись говорит, что ляжет в файл. Пока едет новый ответ, число
+                в подписи — от прежнего фильтра, а выгрузка ушла бы с новым:
+                кнопка ждёт ответа, а не обещает прежнее число. */}
             <Button
               variant="default"
               className="press"
               loading={download.isPending}
+              disabled={plan === null || plan.empty || (query.isPlaceholderData && !plan.picked)}
               onClick={() => download.mutate()}
             >
-              Выгрузить
+              {plan?.label ?? 'Выгрузить'}
             </Button>
           </Group>
         </Group>
@@ -184,14 +224,25 @@ export function DonorsPage() {
           rows={data?.rows ?? []}
           stale={query.isPlaceholderData && query.isFetching}
           refusal={query.error ? refusalOf(query.error) : null}
-          empty={settled && data.rows.length === 0 ? emptinessOf(filters, data.counts) : null}
+          empty={
+            settled && data.rows.length === 0
+              ? emptinessOf(filters, data.counts, data.waiting)
+              : null
+          }
           from={location.search}
           filters={filters}
-          counts={counts}
+          facets={
+            data === undefined
+              ? null
+              : { counts: data.counts, countries: data.countries, freshness: data.freshness }
+          }
           search={search}
           onSearch={setSearch}
           minDr={minDr}
           onMinDr={setMinDr}
+          minTraffic={minTraffic}
+          onMinTraffic={setMinTraffic}
+          picks={picks}
           onFilter={apply}
           onOpen={open}
           onReset={() => setParams(writeFilters(NO_FILTERS), { replace: true })}

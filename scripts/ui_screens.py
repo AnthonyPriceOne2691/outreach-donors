@@ -63,7 +63,10 @@ SCREENS: dict[str, dict] = {
             ("значок «почта не подключена»", ".mantine-Badge-label:has-text('почта')", NORM),
             ("строка последнего прогона", "p:has-text('ключей')", NORM),
             ("подпись полосы расхода", "p:has-text('Юниты Ahrefs')", NORM),
-            ("ссылка «Все доноры»", "a:has-text('Все доноры')", NORM),
+            # Раздел доноров — воронка (26.09.2026): ссылка на список — сама
+            # плитка «Доноры», отдельной ссылки у раздела нет.
+            ("заголовок «Воронка доноров»", "h5:text-is('Воронка доноров')", NORM),
+            ("подпись плитки «Доноры»", ".metricLink p:text-is('Доноры')", NORM),
             ("пункт меню", "nav a", NORM),
         ],
     },
@@ -354,91 +357,6 @@ SCREENS: dict[str, dict] = {
             ("кнопка «Вернуть исходный»", "button:has-text('Вернуть исходный текст')", BIG),
         ],
     },
-    # Доноры — одна панель: шапка, таблица с фильтрами под заголовками
-    # колонок, страницы (замечание 25.09.2026). Мерится то, по чему выбирают
-    # донора, — домен, вердикт, адрес — и сами фильтры: их значение в поле
-    # и подсказка пустого (подсказку сверяют со значением рядом, а не с
-    # нормой, — см. шапку `ui_contrast.py`). «Ждут адреса» отрисовывается,
-    # только когда ждущие есть: на базе без принятых доноров точка честно
-    # «не измерена».
-    "donors": {
-        "path": "/donors",
-        "ready": ("heading", "Доноры"),
-        "probes": [
-            ("заголовок экрана", "h3:text-is('Доноры')", BIG),
-            ("сколько найдено", ".donorsFound", NORM),
-            ("кнопка «Выгрузить»", "button:has-text('Выгрузить')", BIG),
-            ("«ждут адреса»", ".pendingContacts p", NORM),
-            ("подпись колонки", ".donorsTable thead th:text-is('Трафик')", NORM),
-            ("значение фильтра вердикта", "input[aria-label='Вердикт']", NORM),
-            ("значение фильтра адресов", "input[aria-label='Адреса']", NORM),
-            ("подсказка поиска", "input[aria-label='Поиск по домену или причине отсева']", NORM),
-            ("подсказка «не ниже»", "input[aria-label='DR не ниже']", NORM),
-            ("домен в строке", ".donorsTable tbody a.donorHost", NORM),
-            ("причина отсева", ".donorsTable tbody td:first-child p", NORM),
-            ("значок вердикта", ".donorsTable tbody td:nth-child(2) .mantine-Badge-label", NORM),
-            ("число в «Адресах»", ".donorsTable .addressCount", NORM),
-            ("значок исхода поиска", ".donorsTable .addressCell .mantine-Badge-label", NORM),
-            ("значок свежести", ".donorsTable tbody td:nth-child(7) .mantine-Badge-label", NORM),
-            (
-                "номер другой страницы",
-                "nav[aria-label='Страницы доноров'] button:not([aria-current]) "
-                "[data-page-number]:text-is('2')",
-                NORM,
-            ),
-            (
-                "номер текущей страницы",
-                "nav[aria-label='Страницы доноров'] button[aria-current='page'] [data-page-number]",
-                NORM,
-            ),
-            ("пункт меню", "nav a", NORM),
-        ],
-    },
-    # Карточка донора с найденным адресом: раздел «Адреса» — что есть,
-    # откуда, когда искали. Номер донора зависит от базы, поэтому карточка
-    # открывается из списка — первой строкой с найденным адресом.
-    "donor": {
-        "path": "/donors",
-        "ready": ("heading", "Доноры"),
-        "open_row_with": "адрес найден",
-        "probes": [
-            ("домен карточки", "h3", BIG),
-            ("значок вердикта", ".glassPanel .mantine-Badge-label", NORM),
-            ("«К списку»", "a.backLink", NORM),
-            ("заголовок «Адреса»", "h5:text-is('Адреса')", NORM),
-            (
-                "исход поиска значком",
-                ".mantine-Card-root:has(h5:text-is('Адреса')) .mantine-Badge-label",
-                NORM,
-            ),
-            ("когда искали", "p:has-text('Искали')", NORM),
-            # Адрес и ступень — по своим элементам, а не по ячейкам: ячейка во
-            # всю ширину колонки над розовым пятном, и Оцу делил фон с его
-            # переливом — 2,3 : 1 тёмному тексту на светлом (25.09.2026).
-            ("адрес в строке", ".donorAddresses .donorEmail", NORM),
-            ("откуда адрес", ".donorAddresses .donorSource", NORM),
-            ("пункт меню", "nav a", NORM),
-        ],
-    },
-    # Та же карточка без адреса: почему поиск не ставится — или кнопка поиска.
-    # Кнопка есть только у принятого человеком донора без свежей попытки: на
-    # базе без таких доноров точка честно «не измерена», а отказ — измерен.
-    "donor-search": {
-        "path": "/donors",
-        "ready": ("heading", "Доноры"),
-        "open_row_with": "не искали",
-        "probes": [
-            ("заголовок «Адреса»", "h5:text-is('Адреса')", NORM),
-            (
-                "значок «не искали»",
-                ".mantine-Card-root:has(h5:text-is('Адреса')) .mantine-Badge-label",
-                NORM,
-            ),
-            ("«ещё не искали»", "p:has-text('ещё не искали')", NORM),
-            ("почему поиск не ставится", "p:has-text('Адрес ищут')", NORM),
-            ("кнопка «Найти адрес»", "button:has-text('Найти адрес')", BIG),
-        ],
-    },
 }
 
 
@@ -484,7 +402,10 @@ PREPARE = {
     "letter-draft": open_letter_draft,
 }
 
+from ui_screens_donors import donor_prepare, donor_screens  # noqa: E402
 from ui_screens_mail import mail_prepare, mail_screens  # noqa: E402
 
 SCREENS.update(mail_screens(NORM, BIG))
 PREPARE.update(mail_prepare())
+SCREENS.update(donor_screens(NORM, BIG))
+PREPARE.update(donor_prepare())

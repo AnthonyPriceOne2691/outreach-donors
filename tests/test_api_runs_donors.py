@@ -42,11 +42,14 @@ ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("GET", "/api/donors", None, "view"),
     ("GET", "/api/donors/{donor}", None, "view"),
     ("GET", "/api/donors/export", None, "view"),
+    ("POST", "/api/donors/export", {"ids": [1]}, "view"),
 ]
 
 
 @pytest.fixture
 async def donors(session: AsyncSession) -> list[DonorModel]:
+    """Три донора — принятые человеком: список показывает только их
+    (решение 26.09.2026, `donors/standing.py`)."""
     made: list[DonorModel] = []
     for index, (host, status, dr, reason) in enumerate(
         [
@@ -65,6 +68,7 @@ async def donors(session: AsyncSession) -> list[DonorModel]:
             reject_reason=reason,
             org_traffic=1000 * (index + 1),
             metrics_refreshed_at=NOW - timedelta(days=index),
+            review="accepted",
         )
         session.add(donor)
         if index == 0:

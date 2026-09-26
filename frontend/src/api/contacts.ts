@@ -6,7 +6,7 @@
  * человек закроет вкладку, и работа пропадёт.
  */
 
-import type { ContactsQueued, ContactsState, FormCard, FormsView } from './types';
+import type { ContactsQueued, ContactsState, DonorFullCard, FormCard, FormsView } from './types';
 import { request } from './client';
 
 export function fetchContactsState(): Promise<ContactsState> {
@@ -24,6 +24,22 @@ export function searchContacts(body: {
  *  поиска, суженная до донора; не ставится — сервер говорит почему. */
 export function searchDonorContact(donorId: number): Promise<ContactsQueued> {
   return request<ContactsQueued>(`/contacts/donors/${donorId}`, { method: 'POST' });
+}
+
+/** Вписать донору адрес руками — с его карточки. Ответ — карточка целиком:
+ *  адрес меняет исход поиска и то, на какой адрес уйдёт письмо. */
+export function addDonorAddress(donorId: number, email: string): Promise<DonorFullCard> {
+  return request<DonorFullCard>(`/contacts/donors/${donorId}/addresses`, {
+    method: 'POST',
+    body: { email },
+  });
+}
+
+/** Удалить адрес донора, которому ещё не писали. */
+export function removeDonorAddress(donorId: number, contactId: number): Promise<DonorFullCard> {
+  return request<DonorFullCard>(`/contacts/donors/${donorId}/addresses/${contactId}`, {
+    method: 'DELETE',
+  });
 }
 
 export function fetchForms(): Promise<FormsView> {

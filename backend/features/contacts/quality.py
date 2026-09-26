@@ -180,6 +180,10 @@ _RULES: tuple[tuple[Callable[[str, str, str], bool], str], ...] = (
 )
 
 
+#: Отказ, когда строка вовсе не адрес: у него нет адреса в хвосте.
+NOT_AN_ADDRESS = "не похож на адрес"
+
+
 def rejection_reason(email: str) -> str | None:
     """Почему адресом нельзя пользоваться. `None` — можно.
 
@@ -188,7 +192,7 @@ def rejection_reason(email: str) -> str | None:
     """
     value = email.strip().lower()
     if not value or not EMAIL_RE.fullmatch(value):
-        return "не похож на адрес"
+        return NOT_AN_ADDRESS
 
     local, _, domain = value.partition("@")
     for matches, title in _RULES:

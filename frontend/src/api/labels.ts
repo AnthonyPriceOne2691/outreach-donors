@@ -12,6 +12,7 @@
 import type {
   ContactSource,
   ContactStatus,
+  DonorFreshness,
   DonorStatus,
   HumanIntent,
   JudgeDecider,
@@ -127,6 +128,16 @@ export const CONTACT_SOURCES: Record<ContactSource, string> = {
  *  местом и не «адреса нет» — «не нашли» и «не искали» решаются по-разному:
  *  первое ждёт срока, второе — поиска. */
 export const NOT_SEARCHED = { title: 'не искали', color: 'gray' } as const;
+
+/** Метрики донора — колонка «Данные» и её фильтр (26.09.2026). Состояние
+ *  считает сервер одним условием на значок и фильтр (`browse.freshness`).
+ *  «Не проверялись» — не «пора обновить»: у второго данные были и устарели,
+ *  у первого их не было вовсе, и обновлять нечего. */
+export const DONOR_FRESHNESS: Record<DonorFreshness, { title: string; color: string }> = {
+  fresh: { title: 'в сроке', color: 'green' },
+  stale: { title: 'пора обновить', color: 'gray' },
+  never: { title: 'не проверялись', color: 'gray' },
+};
 
 export const RUN_STATUSES: Record<RunStatus, { title: string; color: string }> = {
   queued: { title: 'в очереди', color: 'gray' },

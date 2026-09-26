@@ -31,6 +31,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from backend.config import filters as filters_cfg
+from backend.features.contacts.preference import preferred_first
+from backend.features.contacts.quality import rejection_reason
 from backend.features.core.domain import DonorStatus, Stage
 from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
@@ -52,6 +54,16 @@ class Candidate:
     dr: int | None
     #: Найденная ссылка — только у рекламодателя: под неё пишется письмо.
     link: FoundLink | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class LetterAddress:
+    """Куда ушло бы первое письмо донору — адрес или причина, почему никуда."""
+
+    contact_id: int | None = None
+    #: Почему письмо не соберётся ни на один адрес. Пусто вместе с адресом —
+    #: у донора нет адресов вовсе, и сказать тут нечего.
+    blocked: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,6 +219,72 @@ class Recipients:
             not_written=await self._count(not_written),
         )
 
+    def _donor_picks(self, run_ids: Sequence[int] = ()) -> Select[Any]:
+        """Один адрес на донора, которому можно писать, — лучший по порядку
+        `preferred_first`, среди адресов вне стоп-листа.
+
+        Им пользуются и сборка очереди (`candidates`), и карточка донора
+        (`letter_address`): «на какой адрес уйдёт письмо» — один запрос,
+        а не два похожих.
+        """
+        inner = (
+            select(
+                DomainModel.id.label("domain_id"),
+                DomainModel.host.label("host"),
+                ContactModel.id.label("contact_id"),
+                ContactModel.email.label("email"),
+                DonorModel.dr.label("dr"),
+            )
+            .join(DonorModel, DonorModel.domain_id == DomainModel.id)
+            .join(ContactModel, ContactModel.domain_id == DomainModel.id)
+            .where(DonorModel.status == DonorStatus.SUITABLE)
+            .distinct(DomainModel.id)
+            .order_by(DomainModel.id, *preferred_first())
+        )
+        inner = self._accepted(inner, run_ids)
+        inner = self._not_suppressed(inner, Stage.DONORS)
+        return self._not_written(inner)
+
+    async def letter_address(self, domain_id: int) -> LetterAddress:
+        """На какой адрес ушло бы первое письмо донору, если собрать очередь
+        сейчас, — или почему не ушло бы никакое.
+
+        Адрес — тот же запрос, что у сборки (`_donor_picks`), суженный
+        до донора; и та же перепроверка адреса, что у сборки перед письмом
+        (`building._bad_address`): не прошедший её адрес сборка пропускает
+        вместе с донором, а не переходит к следующему. Причина отказа нужна
+        экрану, только когда адреса нет: называется первое невыполненное
+        условие сборки.
+        """
+        picked = (
+            await self._session.execute(self._donor_picks().where(DomainModel.id == domain_id))
+        ).first()
+        if picked is not None:
+            bad = rejection_reason(picked.email)
+            if bad is None:
+                return LetterAddress(contact_id=picked.contact_id)
+            return LetterAddress(
+                blocked=f"письмо не соберётся: адрес для него не проходит проверку ({bad})"
+            )
+        return LetterAddress(blocked=await self._why_not(domain_id))
+
+    async def _why_not(self, domain_id: int) -> str | None:
+        """Первое условие сборки, которое донор не прошёл. `None` — адресов нет."""
+        one = select(DomainModel.id).where(DomainModel.id == domain_id)
+        donor = one.join(DonorModel, DonorModel.domain_id == DomainModel.id)
+        if not await self._exists(self._has_contact(one)):
+            return None
+        if not await self._exists(donor.where(DonorModel.status == DonorStatus.SUITABLE)):
+            return "письма не собираются: донор не прошёл пороги"
+        if not await self._exists(self._accepted(donor)):
+            return "письма уходят только донорам, принятым человеком"
+        if not await self._exists(self._not_written(one)):
+            return "донору уже писали — следующие письма идут в тот же диалог"
+        return "все адреса донора в стоп-листе"
+
+    async def _exists(self, statement: Select[Any]) -> bool:
+        return (await self._session.execute(statement.limit(1))).first() is not None
+
     async def _count(self, statement: Select[Any]) -> int:
         rows = await self._session.execute(select(func.count()).select_from(statement.subquery()))
         return int(rows.scalar_one())
@@ -227,30 +305,7 @@ class Recipients:
         """
         if stage is Stage.ADVERTISERS:
             return await self._advertiser_candidates(limit=limit)
-        inner = (
-            select(
-                DomainModel.id.label("domain_id"),
-                DomainModel.host.label("host"),
-                ContactModel.id.label("contact_id"),
-                ContactModel.email.label("email"),
-                DonorModel.dr.label("dr"),
-            )
-            .join(DonorModel, DonorModel.domain_id == DomainModel.id)
-            .join(ContactModel, ContactModel.domain_id == DomainModel.id)
-            .where(DonorModel.status == DonorStatus.SUITABLE)
-            .distinct(DomainModel.id)
-            .order_by(
-                DomainModel.id,
-                ContactModel.last_replied_at.desc().nullslast(),
-                ContactModel.verification_score.desc().nullslast(),
-                ContactModel.id,
-            )
-        )
-        inner = self._accepted(inner, run_ids)
-        inner = self._not_suppressed(inner, stage)
-        inner = self._not_written(inner)
-
-        picked = inner.subquery()
+        picked = self._donor_picks(run_ids).subquery()
         rows = await self._session.execute(
             select(picked).order_by(picked.c.dr.desc().nullslast(), picked.c.domain_id).limit(limit)
         )
@@ -347,12 +402,7 @@ class Recipients:
             .join(AdvertiserModel, AdvertiserModel.domain_id == DomainModel.id)
             .join(ContactModel, ContactModel.domain_id == DomainModel.id)
             .distinct(DomainModel.id)
-            .order_by(
-                DomainModel.id,
-                ContactModel.last_replied_at.desc().nullslast(),
-                ContactModel.verification_score.desc().nullslast(),
-                ContactModel.id,
-            )
+            .order_by(DomainModel.id, *preferred_first())
         )
         inner = self._with_link(inner)
         inner = self._fresh_price(inner, now or datetime.now(UTC))

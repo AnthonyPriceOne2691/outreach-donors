@@ -5,20 +5,27 @@
  * фильтров над таблицей убрать, «функционал размазать по фильтрам в
  * таблице». Поиск стоит под «Донором», вердикт — под «Вердиктом», порог DR —
  * под «DR», адрес — под «Адресами»: что сужает колонку, видно, не читая
- * подписей.
+ * подписей. С 26.09.2026 фильтр есть под каждой колонкой: трафик «не ниже»,
+ * страна со счётчиками и поиском по названию, срок метрик.
+ *
+ * **Отметка — первой колонкой** (замечание 26.09.2026: «заведи возможность
+ * отмечать, какие именно доноры можно выгрузить»). Флажок в шапке — все
+ * на этой странице; отмечена часть — промежуточное состояние. Имя донора
+ * при этом по-прежнему читается слева (`dataTable pickFirst`).
  *
  * **Ширины заданы, раскладка фиксированная.** При автоматической колонки
  * подстраиваются под содержимое страницы, и таблица «прыгает» от страницы
- * к странице и от фильтра к фильтру. Ширины подобраны так, чтобы самый
- * длинный значок влезал целиком: значок, ужатый до многоточия, не значит
- * ничего (урок 21.09.2026).
+ * к странице и от фильтра к фильтру. Ширины — по самому длинному, что
+ * в колонке бывает, включая то, чего нет в сегодняшних данных, и замерены
+ * шрифтом экрана: значок, ужатый до многоточия, не значит ничего (урок
+ * 21.09.2026), а обрезанное значение фильтра — не то значение.
  *
  * **На телефоне строка фильтров уезжает в прокрутку вместе с таблицей.**
  * Фильтр остаётся под своей колонкой, а не переезжает в отдельную стопку
  * над таблицей: вторая раскладка — второй экран для проверки, и связь
- * «фильтр — колонка» на ней теряется. Поиск по домену — в первой колонке
- * и виден без прокрутки; к остальным фильтрам ведёт та же прокрутка, что
- * и к их колонкам.
+ * «фильтр — колонка» на ней теряется. Поиск по домену и отметка — в первых
+ * колонках и видны без прокрутки; к остальным фильтрам ведёт та же
+ * прокрутка, что и к их колонкам.
  */
 
 import {
@@ -27,6 +34,7 @@ import {
   Anchor,
   Badge,
   Button,
+  Checkbox,
   Group,
   NumberInput,
   Select,
@@ -40,32 +48,51 @@ import { IconInfoCircle } from '@tabler/icons-react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
-import { CONTACT_STATUSES, countryTitle, DONOR_STATUSES, NOT_SEARCHED } from '../api/labels';
-import type { DonorRowCard, DonorStatus } from '../api/types';
+import {
+  CONTACT_STATUSES,
+  countryTitle,
+  DONOR_FRESHNESS,
+  DONOR_STATUSES,
+  NOT_SEARCHED,
+} from '../api/labels';
+import type { DonorFreshness, DonorRowCard, DonorStatus } from '../api/types';
 import { formatCompact, formatNumber, formatShare } from '../format';
-import { totalOf } from './donorFilters';
-import type { DonorFilters } from './donorFilters';
+import { FRESHNESS, totalOf, TRAFFIC_DIGITS } from './donorFilters';
+import type { DonorFilters, Emptiness } from './donorFilters';
+import type { Picks } from './picks';
 
-/** Колонки слева направо. Ширина первой — остаток: в ней домен, и ей
- *  отдаётся всё, что не нужно остальным. Остальные — по самому длинному
- *  содержимому, замеренному шрифтом экрана (25.09.2026): поле «не подходит
- *  · 1 225» — 159 px, число со значком «предел запросов» — 140, значок «не
- *  проверялись» — 118, подсказка «не ниже» — 71, плюс поля ячейки. Страна
- *  с длинным именем («Великобритания · 62%») переносится на вторую строку,
- *  а не расширяет колонку: домену место нужнее. */
+/** Колонки слева направо. Ширина донора — остаток: в ней домен, и ей
+ *  отдаётся всё, что не нужно остальным. Остальные — по самому длинному,
+ *  что в колонке бывает, замеренному шрифтом экрана (холстом по живому
+ *  элементу, 26.09.2026), плюс поля ячейки, поля и стрелки списка:
+ *  - вердикт — поле «не проверен · 1 225» (116 px текста);
+ *  - DR — подсказка «не ниже» (48);
+ *  - трафик — порог «1 000 000 000» (84): миллиарды бывают, у крупнейшего
+ *    сайта базы пять;
+ *  - гео — строка «Саудовская Аравия · 62%» (173); в поле — только название,
+ *    счётчик — в списке: по названию в поле ищут;
+ *  - адреса — число и значок «предел запросов» (140);
+ *  - данные — поле «не проверялись · 1 225» (135). */
 const COLUMNS: { title: string; width?: string }[] = [
+  { title: 'Отметка', width: '2.5rem' },
   { title: 'Донор' },
-  { title: 'Вердикт', width: '11.25rem' },
+  { title: 'Вердикт', width: '11rem' },
   { title: 'DR', width: '6rem' },
-  { title: 'Трафик', width: '5.75rem' },
-  { title: 'Гео', width: '9.5rem' },
-  { title: 'Адреса', width: '10.25rem' },
-  { title: 'Данные', width: '8.75rem' },
+  { title: 'Трафик', width: '8rem' },
+  { title: 'Гео', width: '12.25rem' },
+  { title: 'Адреса', width: '10rem' },
+  { title: 'Данные', width: '12.25rem' },
 ];
 
 /** Уже этого таблица не сжимается и уезжает в прокрутку: остальным
- *  колонкам — их ширины (824 px), домену — не меньше ста семидесяти. */
-export const TABLE_MIN_WIDTH = 1000;
+ *  колонкам — их ширины (992 px), домену — сто шестьдесят, чтобы поместилась
+ *  подсказка «Домен или причина». На 1440 px таблица шире (1161) — прокрутки
+ *  нет; на 1280 и уже — есть. */
+export const TABLE_MIN_WIDTH = 1152;
+
+/** Стрелка списка в поле фильтра — уже умолчания (28 px): на 1440 px шесть
+ *  пикселей на поле — это место, которого не хватало колонке домена. */
+const ARROW_WIDTH = 22;
 
 const STATUSES = Object.keys(DONOR_STATUSES) as DonorStatus[];
 
@@ -88,34 +115,69 @@ function counted(title: string, count: number | undefined): string {
   return count === undefined ? title : `${title} · ${formatNumber(count)}`;
 }
 
+/** Сводка сервера для вариантов фильтров. `null` — ещё не пришла: подписи
+ *  без чисел, а не с нулями. */
+export interface Facets {
+  counts: Record<string, number>;
+  countries: Record<string, number>;
+  freshness: Partial<Record<DonorFreshness, number>>;
+}
+
+/** Страны — какие есть у доноров: частые сверху, при равенстве — по имени.
+ *  Подпись — только название: по нему в поле ищут, а счётчик рисует список. */
+function countryOptions(facets: Facets | null): { value: string; label: string }[] {
+  const countries = Object.entries(facets?.countries ?? {});
+  countries.sort(
+    ([a, left], [b, right]) => right - left || countryTitle(a).localeCompare(countryTitle(b), 'ru'),
+  );
+  return countries.map(([code]) => ({ value: code, label: countryTitle(code) }));
+}
+
 interface FilterRowProps {
   filters: DonorFilters;
-  /** Сводка по всей базе. `null` — ещё не пришла: без чисел, а не с нулями. */
-  counts: Record<string, number> | null;
-  /** Поиск и порог DR — как набраны сейчас: в адрес они уходят после паузы. */
+  facets: Facets | null;
+  /** Поиск и пороги — как набраны сейчас: в адрес они уходят после паузы. */
   search: string;
   onSearch: (value: string) => void;
   minDr: number | null;
   onMinDr: (value: number | null) => void;
+  minTraffic: number | null;
+  onMinTraffic: (value: number | null) => void;
   onFilter: (patch: Partial<DonorFilters>) => void;
+}
+
+function numberOf(value: number | string): number | null {
+  return typeof value === 'number' ? value : null;
 }
 
 function FilterRow({
   filters,
-  counts,
+  facets,
   search,
   onSearch,
   minDr,
   onMinDr,
+  minTraffic,
+  onMinTraffic,
   onFilter,
 }: FilterRowProps) {
-  const all = counts === null ? undefined : totalOf(counts);
+  const all = facets === null ? undefined : totalOf(facets.counts);
+  const geo = filters.geo;
+  const countries = countryOptions(facets);
+  // Страна из адреса, которой у доноров нет, — всё равно вариант: иначе
+  // поле показало бы «все», а таблица была бы сужена до неё.
+  if (geo !== null && !countries.some((option) => option.value === geo)) {
+    countries.push({ value: geo, label: countryTitle(geo) });
+  }
+  const countryCount = (code: string) =>
+    facets === null ? undefined : code === 'all' ? all : (facets.countries[code] ?? 0);
   return (
-    <Table.Tr className="donorsFilters">
+    <Table.Tr className="filterRow">
+      <Table.Th />
       <Table.Th>
-        {/* Без значка лупы: на ноутбуке в 1280 px колонка домена — 177 px,
-            и значок съедал ровно те пять пикселей, которых не хватало
-            подсказке. Что это поиск, говорит сама подсказка. */}
+        {/* Без значка лупы: на ноутбуке колонка домена узкая, и значок съедал
+            ровно те пиксели, которых не хватало подсказке. Что это поиск,
+            говорит сама подсказка. */}
         <TextInput
           size="xs"
           placeholder="Домен или причина"
@@ -128,6 +190,7 @@ function FilterRow({
         <Select
           size="xs"
           aria-label="Вердикт"
+          rightSectionWidth={ARROW_WIDTH}
           allowDeselect={false}
           value={filters.status ?? 'all'}
           onChange={(value) =>
@@ -139,7 +202,7 @@ function FilterRow({
               value: status,
               label: counted(
                 DONOR_STATUSES[status].title,
-                counts === null ? undefined : (counts[status] ?? 0),
+                facets === null ? undefined : (facets.counts[status] ?? 0),
               ),
             })),
           ]}
@@ -157,15 +220,50 @@ function FilterRow({
           allowNegative={false}
           hideControls
           value={minDr ?? ''}
-          onChange={(value) => onMinDr(typeof value === 'number' ? value : null)}
+          onChange={(value) => onMinDr(numberOf(value))}
         />
       </Table.Th>
-      <Table.Th />
-      <Table.Th />
+      <Table.Th>
+        {/* Разряды — пробелом, как у чисел на экране: «1 000 000» читается,
+            «1000000» — пересчитывается по нулям. */}
+        <NumberInput
+          size="xs"
+          placeholder="не ниже"
+          aria-label="Трафик не ниже"
+          min={0}
+          max={10 ** TRAFFIC_DIGITS - 1}
+          clampBehavior="strict"
+          allowDecimal={false}
+          allowNegative={false}
+          thousandSeparator=" "
+          hideControls
+          value={minTraffic ?? ''}
+          onChange={(value) => onMinTraffic(numberOf(value))}
+        />
+      </Table.Th>
+      <Table.Th>
+        {/* Стран может быть много — поле ищет по названию: «герм» находит
+            «Германия · 32». */}
+        <Select
+          size="xs"
+          aria-label="Гео"
+          rightSectionWidth={ARROW_WIDTH}
+          searchable
+          allowDeselect={false}
+          nothingFoundMessage="Такой страны у доноров нет"
+          value={geo ?? 'all'}
+          onChange={(value) => onFilter({ geo: value === null || value === 'all' ? null : value })}
+          data={[{ value: 'all', label: 'все' }, ...countries]}
+          renderOption={({ option }) => (
+            <span>{counted(option.label, countryCount(option.value))}</span>
+          )}
+        />
+      </Table.Th>
       <Table.Th>
         <Select
           size="xs"
           aria-label="Адреса"
+          rightSectionWidth={ARROW_WIDTH}
           allowDeselect={false}
           value={addressValue(filters.address)}
           onChange={(value) =>
@@ -174,7 +272,28 @@ function FilterRow({
           data={ADDRESS_OPTIONS}
         />
       </Table.Th>
-      <Table.Th />
+      <Table.Th>
+        <Select
+          size="xs"
+          aria-label="Данные"
+          rightSectionWidth={ARROW_WIDTH}
+          allowDeselect={false}
+          value={filters.freshness ?? 'all'}
+          onChange={(value) =>
+            onFilter({ freshness: FRESHNESS.find((state) => state === value) ?? null })
+          }
+          data={[
+            { value: 'all', label: counted('все', all) },
+            ...FRESHNESS.map((state) => ({
+              value: state,
+              label: counted(
+                DONOR_FRESHNESS[state].title,
+                facets === null ? undefined : (facets.freshness[state] ?? 0),
+              ),
+            })),
+          ]}
+        />
+      </Table.Th>
     </Table.Tr>
   );
 }
@@ -218,26 +337,30 @@ function AddressCell({ donor }: { donor: DonorRowCard }) {
   );
 }
 
-function freshness(donor: DonorRowCard): { title: string; color: string } {
-  // Слово то же, что в карточке: данных не было — «не проверялись»,
-  // а не «пора обновить» — обновлять нечего.
-  if (donor.metrics_refreshed_at === null) return { title: 'не проверялись', color: 'gray' };
-  return donor.fresh
-    ? { title: 'в сроке', color: 'green' }
-    : { title: 'пора обновить', color: 'gray' };
-}
-
 interface RowProps {
   donor: DonorRowCard;
-  href: { pathname: string };
   from: string;
+  picked: boolean;
+  onPick: (id: number) => void;
   onOpen: (donor: DonorRowCard) => void;
 }
 
-function DonorRow({ donor, href, from, onOpen }: RowProps) {
-  const fresh = freshness(donor);
+function DonorRow({ donor, from, picked, onPick, onOpen }: RowProps) {
+  // Слово считает сервер тем же условием, что фильтр «Данные»: данных
+  // не было — «не проверялись», а не «пора обновить» — обновлять нечего.
+  const fresh = DONOR_FRESHNESS[donor.freshness];
   return (
     <Table.Tr style={{ cursor: 'pointer' }} onClick={() => onOpen(donor)}>
+      {/* Щелчок по ячейке отметки не открывает карточку: промахнуться мимо
+          флажка на пару пикселей — не повод уходить со страницы. */}
+      <Table.Td onClick={(event) => event.stopPropagation()}>
+        <Checkbox
+          size="sm"
+          aria-label={`Отметить ${donor.host}`}
+          checked={picked}
+          onChange={() => onPick(donor.id)}
+        />
+      </Table.Td>
       <Table.Td>
         {/* Ссылка, а не только строка: с клавиатуры до строки не дойти,
             а карточку донора открывают и в новой вкладке. Цвет — чернила,
@@ -247,7 +370,7 @@ function DonorRow({ donor, href, from, onOpen }: RowProps) {
             где сейчас плывёт пятно (замер 25.09.2026). */}
         <Anchor
           component={Link}
-          to={href}
+          to={{ pathname: `/donors/${donor.id}` }}
           state={{ from }}
           fw={500}
           c="var(--ink)"
@@ -305,11 +428,48 @@ function WholeRow({ children }: { children: ReactNode }) {
   );
 }
 
-export interface Emptiness {
-  title: string;
-  detail: string;
-  /** Есть ли что сбросить: без фильтров кнопка ничего бы не сделала. */
-  resettable: boolean;
+function EmptyRow({ empty, onReset }: { empty: Emptiness; onReset: () => void }) {
+  return (
+    <WholeRow>
+      <Stack gap={6} align="flex-start" py="sm">
+        <Text size="sm" fw={500}>
+          {empty.title}
+        </Text>
+        <Text size="sm" c="dimmed" maw={720}>
+          {empty.detail}
+        </Text>
+        <Group gap="sm">
+          {empty.path !== undefined && (
+            <Button component={Link} to={empty.path.to} size="compact-sm" className="press">
+              {empty.path.label}
+            </Button>
+          )}
+          {empty.resettable && (
+            <Button variant="subtle" size="compact-sm" className="press" onClick={onReset}>
+              Сбросить фильтры
+            </Button>
+          )}
+        </Group>
+      </Stack>
+    </WholeRow>
+  );
+}
+
+/** Флажок «все на этой странице»: отмечена часть — промежуточное состояние. */
+function PickAll({ rows, picks }: { rows: DonorRowCard[]; picks: Picks }) {
+  const ids = rows.map((donor) => donor.id);
+  const on = ids.filter((id) => picks.picked.has(id)).length;
+  const all = ids.length > 0 && on === ids.length;
+  return (
+    <Checkbox
+      size="sm"
+      aria-label="Отметить всех на этой странице"
+      checked={all}
+      indeterminate={on > 0 && !all}
+      disabled={ids.length === 0}
+      onChange={() => picks.setAll(ids, !all)}
+    />
+  );
 }
 
 interface Props extends FilterRowProps {
@@ -320,6 +480,7 @@ interface Props extends FilterRowProps {
   refusal: string | null;
   /** Откуда пришли в карточку: адрес списка с фильтрами — для «назад». */
   from: string;
+  picks: Picks;
   onOpen: (donor: DonorRowCard) => void;
   onReset: () => void;
 }
@@ -330,6 +491,7 @@ export function DonorsTable({
   empty,
   refusal,
   from,
+  picks,
   onOpen,
   onReset,
   ...filters
@@ -337,7 +499,7 @@ export function DonorsTable({
   return (
     <Table.ScrollContainer minWidth={TABLE_MIN_WIDTH} type="native" className="scrollSlim">
       <Table
-        className="dataTable donorsTable"
+        className="dataTable pickFirst filteredTable donorsTable"
         layout="fixed"
         tabularNums
         verticalSpacing="sm"
@@ -350,7 +512,10 @@ export function DonorsTable({
         </colgroup>
         <Table.Thead>
           <Table.Tr>
-            {COLUMNS.map((column) => (
+            <Table.Th>
+              <PickAll rows={stale ? [] : rows} picks={picks} />
+            </Table.Th>
+            {COLUMNS.slice(1).map((column) => (
               <Table.Th key={column.title}>
                 {column.title === 'Вердикт' ? (
                   <Group gap={2} justify="center" wrap="nowrap">
@@ -365,7 +530,7 @@ export function DonorsTable({
           </Table.Tr>
           <FilterRow {...filters} />
         </Table.Thead>
-        <Table.Tbody data-stale={stale || undefined}>
+        <Table.Tbody className="staleRows" data-stale={stale || undefined}>
           {refusal !== null && (
             <WholeRow>
               <Alert color="red" title="Доноры не загрузились">
@@ -373,30 +538,15 @@ export function DonorsTable({
               </Alert>
             </WholeRow>
           )}
-          {refusal === null && empty !== null && (
-            <WholeRow>
-              <Stack gap={6} align="flex-start" py="sm">
-                <Text size="sm" fw={500}>
-                  {empty.title}
-                </Text>
-                <Text size="sm" c="dimmed">
-                  {empty.detail}
-                </Text>
-                {empty.resettable && (
-                  <Button variant="subtle" size="compact-sm" className="press" onClick={onReset}>
-                    Сбросить фильтры
-                  </Button>
-                )}
-              </Stack>
-            </WholeRow>
-          )}
+          {refusal === null && empty !== null && <EmptyRow empty={empty} onReset={onReset} />}
           {refusal === null &&
             rows.map((donor) => (
               <DonorRow
                 key={donor.id}
                 donor={donor}
-                href={{ pathname: `/donors/${donor.id}` }}
                 from={from}
+                picked={picks.picked.has(donor.id)}
+                onPick={picks.toggle}
                 onOpen={onOpen}
               />
             ))}
