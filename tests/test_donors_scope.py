@@ -14,12 +14,21 @@ import csv
 import io
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
-from backend.features.core.domain import ContactSource, ContactStatus, DonorStatus, Stage, UserRole
+from backend.features.core.domain import (
+    ContactSource,
+    ContactStatus,
+    DonorStatus,
+    MessageStatus,
+    Stage,
+    UserRole,
+)
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
+from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.core.models.run import RunCandidateModel, RunModel
 from backend.features.ops.overview import overview
 from backend.features.review.candidates import Decision, RunReview
@@ -245,3 +254,33 @@ async def test_waiting_names_the_path_to_the_first_donors(
 
     assert body["waiting"] == {"domains": view.waiting.review, "runs": view.waiting.review_runs}
     assert body["waiting"]["domains"] == 2
+
+
+async def test_letters_and_prices_below_donors_count_only_donors(
+    session: AsyncSession, four: dict[str, DonorModel]
+) -> None:
+    """Письмо ушло и цена пришла, а потом человек отклонил домен: в воронке
+    доноров его нет ни в «написали», ни в «с ценой» — выше по воронке он уже
+    не донор, и ниже его не считают."""
+    campaign = CampaignModel(stage=Stage.DONORS, name="Воронка", status="running")
+    session.add(campaign)
+    await session.flush()
+    for key in ("accepted", "rejected"):
+        donor = four[key]
+        donor.last_price = Decimal(100)
+        donor.last_price_currency = "USD"
+        donor.last_price_at = NOW - timedelta(days=1)
+        session.add(
+            MessageModel(
+                campaign_id=campaign.id,
+                domain_id=donor.domain_id,
+                status=MessageStatus.SENT,
+                sent_at=NOW - timedelta(days=2),
+                idempotency_key=f"test:funnel:{key}",
+            )
+        )
+    await session.flush()
+
+    donors = (await overview(session)).donors
+
+    assert (donors.written, donors.priced, donors.priced_fresh) == (1, 1, 1)
