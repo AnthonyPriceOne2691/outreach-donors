@@ -58,6 +58,8 @@ async def donor(session: AsyncSession) -> DonorModel:
         last_price=Decimal("50.00"),
         last_price_currency="EUR",
         metrics_refreshed_at=CHECKED,
+        # Выгружаются доноры — принятые человеком (решение 26.09.2026).
+        review="accepted",
     )
     session.add(donor)
     session.add(
@@ -150,6 +152,7 @@ async def test_codes_leave_the_file_as_words(
             geo="us",
             geo_top_share=0.19888,
             contact_status=None,
+            review="accepted",
         )
     )
     await session.commit()

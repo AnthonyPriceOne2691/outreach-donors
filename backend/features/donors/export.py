@@ -15,6 +15,12 @@
 «адрес найден», «США» и «20%», и файл рядом с ним читался бы как
 выгрузка из другой системы. Слова берутся там же, где их берёт причина
 отсева (`donors/wording.py`).
+
+**Потолок строк — один, и у отмеченных тоже** (26.09.2026). Файл —
+не больше `EXPORT_LIMIT` строк: выгрузка всей базы одним ответом однажды
+положит сервер ровно в тот момент, когда его попросят об отчёте. Номеров
+отмеченных — не больше столько же, и отказ говорит это словами, а не
+файлом, в котором молча не хватает строк.
 """
 
 from __future__ import annotations
@@ -33,6 +39,33 @@ from backend.features.donors.wording import (
     reject_reason_text,
     share_text,
 )
+
+#: Потолок строк файла и числа отмеченных номеров. Экран получает его
+#: с сервера (`DonorsPage.export_limit`) и не обещает больше.
+EXPORT_LIMIT = 10_000
+
+
+class PickRefusedError(ValueError):
+    """Отмеченных не выгрузить: ни одного или больше потолка. Текст говорит почему."""
+
+
+def _spaced(number: int) -> str:
+    """Число с разрядами, как на экране: «10 000»."""
+    return f"{number:,}".replace(",", "\u00a0")
+
+
+def checked_picks(ids: Sequence[int]) -> list[int]:
+    """Номера отмеченных — или отказ словами."""
+    unique = list(dict.fromkeys(ids))
+    if not unique:
+        raise PickRefusedError("Не отмечено ни одного донора — выгружать нечего.")
+    if len(unique) > EXPORT_LIMIT:
+        raise PickRefusedError(
+            f"Отмечено {_spaced(len(unique))} — в файл за раз идёт не больше "
+            f"{_spaced(EXPORT_LIMIT)}. Снимите часть отметок или выгрузите найденных фильтром."
+        )
+    return unique
+
 
 #: Заголовок и поле строки таблицы. Порядок — как на экране.
 COLUMNS: tuple[tuple[str, str], ...] = (

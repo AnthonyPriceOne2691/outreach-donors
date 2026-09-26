@@ -63,6 +63,13 @@ ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("GET", "/api/contacts/forms", None, "view"),
     ("POST", "/api/contacts/forms/{donor}/filled", {"email": "editor@form.example.test"}, "run"),
     ("POST", "/api/contacts/forms/{donor}/give-up", {}, "run"),
+    (
+        "POST",
+        "/api/contacts/donors/{donor}/addresses",
+        {"email": "ads@waiting.example.test"},
+        "run",
+    ),
+    ("DELETE", "/api/contacts/donors/{donor}/addresses/{contact}", None, "run"),
 ]
 
 
@@ -147,7 +154,7 @@ class TestWhoIsLetIn:
         body: dict[str, Any] | None,
         permission: str,
     ) -> None:
-        response = await client.request(method, path.format(donor=waiting.id), json=body)
+        response = await client.request(method, path.format(donor=waiting.id, contact=1), json=body)
         assert response.status_code == 401
 
     @pytest.mark.parametrize(("method", "path", "body", "permission"), ROUTES)
@@ -165,7 +172,10 @@ class TestWhoIsLetIn:
         """Смотреть очередь и ставить поиск — разные права: лестница кончается
         платной ступенью, и поиск — такая же трата, как прогон."""
         response = await client.request(
-            method, path.format(donor=waiting.id), json=body, headers=bearer(viewer_token)
+            method,
+            path.format(donor=waiting.id, contact=1),
+            json=body,
+            headers=bearer(viewer_token),
         )
 
         if permission == "run":
@@ -183,7 +193,8 @@ class TestWhoIsLetIn:
             for method in methods
         }
         in_table = {
-            (method, path.replace("{donor}", "{donor_id}")) for method, path, _, _ in ROUTES
+            (method, path.replace("{donor}", "{donor_id}").replace("{contact}", "{contact_id}"))
+            for method, path, _, _ in ROUTES
         }
         assert in_app == in_table
 

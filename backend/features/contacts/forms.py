@@ -26,6 +26,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import contacts as cfg
+from backend.features.contacts import manual
 from backend.features.core.domain import ContactSource, ContactStatus
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
@@ -114,22 +115,17 @@ async def monthly_left(session: AsyncSession, *, now: datetime | None = None) ->
 
 
 async def filled(session: AsyncSession, donor_id: int, *, email: str) -> FormRow:
-    """Форму заполнили, донор дал адрес. Дальше он обычный донор."""
+    """Форму заполнили, донор дал адрес. Дальше он обычный донор.
+
+    Адрес записывается тем же правилом, что вписанный с карточки донора
+    (`manual.add`): с той же проверкой, отказом на дубликат словами и тем же
+    исходом «адрес найден».
+    """
     row = await _row(session, donor_id)
-    session.add(
-        ContactModel(
-            domain_id=row.domain_id,
-            email=email.strip().lower(),
-            source=ContactSource.MANUAL,
-            # Адрес пришёл от самого донора — проверять его нечем
-            # и незачем: он написал его нам сам.
-            verification_status="manual",
-            verification_score=100,
-        )
-    )
     donor = await session.get(DonorModel, donor_id)
-    if donor is not None:
-        donor.contact_status = ContactStatus.FOUND
+    if donor is None:
+        raise UnknownFormError(f"Донора №{donor_id} нет")
+    await manual.add(session, donor, email)
     logger.info("ручная очередь: %s дал адрес", row.host)
     return row
 

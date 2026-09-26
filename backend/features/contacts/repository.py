@@ -13,6 +13,12 @@
 масштабах: общая очередь и один донор с его карточки. Рядом — оно же
 словами (`refusal_of`): экран говорит, почему поиск не ставится, до нажатия,
 а не отказом после.
+
+**Адрес, вписанный человеком, закрывает поиск** (26.09.2026). Лестница
+кончается платной ступенью, а лучше адреса, который человек взял у самого
+донора, она не найдёт: такого донора общий поиск не берёт — ни в первый
+раз, ни по истечении срока, — и его исход проход не перезаписывает
+(`manual_address`).
 """
 
 from __future__ import annotations
@@ -28,15 +34,30 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import contacts as cfg
 from backend.features.contacts.ladder import LadderResult
-from backend.features.core.domain import ContactStatus, DonorStatus
+from backend.features.core.domain import ContactSource, ContactStatus, DonorStatus
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
+from backend.features.donors.standing import donor_now, is_donor
 
 logger = logging.getLogger(__name__)
 
 #: Исходы, которые повторяются при следующем прогоне: мы не спросили, а не
 #: узнали, что контакта нет.
 RETRIABLE = frozenset({ContactStatus.NO_QUOTA, ContactStatus.RATE_LIMITED, ContactStatus.ERROR})
+
+
+def manual_address() -> ColumnElement[bool]:
+    """У донора есть адрес, вписанный человеком (`ContactSource.MANUAL`).
+
+    Так же записан и адрес, с которого донор ответил (`replies`): он тоже
+    пришёл от самого донора, и лестница его не улучшит.
+    """
+    return (
+        select(ContactModel.id)
+        .where(ContactModel.domain_id == DonorModel.domain_id)
+        .where(ContactModel.source == ContactSource.MANUAL)
+        .exists()
+    )
 
 
 def _needs_contact(border: datetime) -> ColumnElement[bool]:
@@ -46,10 +67,14 @@ def _needs_contact(border: datetime) -> ColumnElement[bool]:
     23.09.2026 искал адреса всем «годным» по порогам — и нашёл
     `copyright@x.com` и `weee@microsoft.com`. Со скрейпером это время,
     с платным сервисом — деньги за каждый бренд и госсайт.
+
+    И без вписанного руками адреса: он лучше всего, что найдёт лестница,
+    а её последняя ступень платная.
     """
     return and_(
         DonorModel.status == DonorStatus.SUITABLE,
-        DonorModel.review == "accepted",
+        is_donor(),
+        ~manual_address(),
         or_(
             DonorModel.contact_attempted_at.is_(None),
             DonorModel.contact_attempted_at < border,
@@ -77,22 +102,34 @@ def _not_entitled(donor: DonorModel) -> str | None:
         return "Адрес ищут только подходящим донорам — этот не прошёл пороги."
     if donor.review == "rejected":
         return "Донора отклонил человек — адрес ему не ищут."
-    if donor.review != "accepted":
+    if not donor_now(donor):
         return (
             "Адрес ищут после решения человека: донора сначала принимают на рассмотрении прогона."
         )
     return None
 
 
+#: Почему не ищут донору с вписанным руками адресом.
+MANUAL_REFUSAL = (
+    "Адрес вписан человеком — лестницей его не ищут: лучше она не найдёт, "
+    "а её последняя ступень платная."
+)
+
+
 def refusal_of(
-    donor: DonorModel, *, now: datetime, ttl_days: int = cfg.CONTACT_TTL_DAYS
+    donor: DonorModel,
+    *,
+    now: datetime,
+    ttl_days: int = cfg.CONTACT_TTL_DAYS,
+    manual: bool = False,
 ) -> str | None:
     """Почему донору сейчас не ищут адрес — словами для экрана. `None` — ищут.
 
     Это `_needs_contact`, прочитанное вслух, условие за условием и в том же
     порядке. Решает всё равно запрос (`search_refusal`): здесь только имя
     невыполненного условия. Разойтись им не даёт тест, прогоняющий обе
-    стороны по всем сочетаниям состояний донора.
+    стороны по всем сочетаниям состояний донора. `manual` — есть ли у донора
+    вписанный руками адрес (`manual_address`).
 
     Исход прошлого поиска здесь не пересказывается: карточка показывает его
     сама, значком и датой. Отказ отвечает на другой вопрос — почему нельзя
@@ -101,6 +138,8 @@ def refusal_of(
     never = _not_entitled(donor)
     if never is not None:
         return never
+    if manual:
+        return MANUAL_REFUSAL
     attempted = donor.contact_attempted_at
     if attempted is None or donor.contact_status in RETRIABLE:
         return None
@@ -243,7 +282,12 @@ class ContactRepository:
         self, results: Sequence[LadderResult], ids: dict[str, int], moment: datetime
     ) -> None:
         """Исход и отметка времени по каждому донору — их пара и есть
-        идемпотентность."""
+        идемпотентность.
+
+        Донора, которому человек вписал адрес, пока шёл проход, исход прохода
+        не перезаписывает: «адреса нет» рядом с вписанным адресом — неправда,
+        и фильтр «с адресом» его бы потерял.
+        """
         for result in results:
             domain_id = ids.get(result.host)
             if domain_id is None:
@@ -251,6 +295,7 @@ class ContactRepository:
             await self._session.execute(
                 update(DonorModel)
                 .where(DonorModel.domain_id == domain_id)
+                .where(~manual_address())
                 .values(contact_status=result.status, contact_attempted_at=moment)
             )
 
@@ -267,7 +312,13 @@ async def search_refusal(
     moment = now or datetime.now(UTC)
     if await ContactRepository(session, donor_id=donor.id).pending_count(now=moment):
         return None
-    reason = refusal_of(donor, now=moment)
+    manual = await session.scalar(
+        select(ContactModel.id)
+        .where(ContactModel.domain_id == donor.domain_id)
+        .where(ContactModel.source == ContactSource.MANUAL)
+        .limit(1)
+    )
+    reason = refusal_of(donor, now=moment, manual=manual is not None)
     if reason is None:
         logger.warning(
             "контакты: донор №%s не ждёт поиска, а объяснение правила этого не видит — "

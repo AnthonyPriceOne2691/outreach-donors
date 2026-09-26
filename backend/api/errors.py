@@ -28,8 +28,14 @@ from backend.features.access.permissions import AccessDeniedError
 from backend.features.access.repository import EmailTakenError
 from backend.features.access.tokens import SecretMissingError, TokenError
 from backend.features.contacts.forms import UnknownFormError
+from backend.features.contacts.manual import (
+    AddressConflictError,
+    AddressInvalidError,
+    UnknownAddressError,
+)
 from backend.features.contacts.repository import SearchRefusedError
 from backend.features.donors.browse import UnknownDonorError
+from backend.features.donors.export import PickRefusedError
 from backend.features.letters.building import LetterScopeError
 from backend.features.letters.compose import ComposeError
 from backend.features.letters.draft import LetterConflictError
@@ -91,6 +97,13 @@ STATUSES: dict[type[Exception], int] = {
     # Поиск адреса одному донору: правило «кому искать» его не берёт —
     # не принят, не подходит, искали недавно. Состояние, а не запрос.
     SearchRefusedError: status.HTTP_409_CONFLICT,
+    # Адрес, вписанный руками: не адрес или адрес, которым не пользуются, —
+    # запрос; уже есть у донора или по нему шла переписка — состояние.
+    AddressInvalidError: status.HTTP_400_BAD_REQUEST,
+    AddressConflictError: status.HTTP_409_CONFLICT,
+    UnknownAddressError: status.HTTP_404_NOT_FOUND,
+    # Выгрузка отмеченных: ни одного или больше потолка — это запрос.
+    PickRefusedError: status.HTTP_400_BAD_REQUEST,
     # Стоп-лист: уже там, такого нет, снятие отписки без причины.
     # Всё это про состояние списка и про то, что человек чинит сам.
     StopListError: status.HTTP_409_CONFLICT,

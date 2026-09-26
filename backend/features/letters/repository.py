@@ -15,6 +15,7 @@ from typing import Any
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.features.contacts.repository import manual_address
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
@@ -208,6 +209,10 @@ class LetterRepository:
 
         Рассылка по прогону, у которого поиск контактов не закончен, ушла
         бы части доноров, а остальные молча выпали бы до следующей сборки.
+
+        Донор с вписанным руками адресом поиска не ждёт: общий поиск его
+        не берёт (`contacts.repository.manual_address`), и считать его
+        ждущим значило бы запереть сборку по прогону навсегда.
         """
         rows = await self._session.execute(
             select(func.count(func.distinct(RunCandidateModel.domain_id)))
@@ -215,5 +220,6 @@ class LetterRepository:
             .where(RunCandidateModel.run_id.in_(run_ids))
             .where(RunCandidateModel.status == "accepted")
             .where(DonorModel.contact_attempted_at.is_(None))
+            .where(~manual_address())
         )
         return int(rows.scalar_one())

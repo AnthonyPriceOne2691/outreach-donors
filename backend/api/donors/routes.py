@@ -1,68 +1,63 @@
-"""База доноров: таблица с фильтрами и карточка.
+"""База доноров: таблица с фильтрами, выгрузка и карточка.
 
 Смотреть базу может каждый, у кого есть доступ: это то же содержимое,
 что и переписка. Тратить деньги — другое право и другой экран.
+
+**Список — только доноры, принятые человеком** (`donors/standing.py`,
+решение 26.09.2026). Карточка открывается у любой записи `donors`
+и сама говорит, донор это или кандидат.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
-from backend.api.donors.schemas import DonorFullCard, DonorsPage
-from backend.features.core.domain import DonorStatus, Permission
+from backend.api.donors.schemas import (
+    DonorFullCard,
+    DonorPageQuery,
+    DonorQuery,
+    DonorsPage,
+    PickedBody,
+)
+from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
-from backend.features.donors.browse import DonorBrowser, DonorFilters
-from backend.features.donors.export import to_csv
+from backend.features.donors.browse import DonorBrowser, DonorRow
+from backend.features.donors.export import EXPORT_LIMIT, checked_picks, to_csv
+from backend.features.donors.standing import waiting
 
 router = APIRouter(prefix="/donors", tags=["доноры"])
 
 _viewer = Depends(needs(Permission.VIEW))
 
-#: Потолок строк выгрузки. Экран отдаёт по сотне, файл читают не глазами;
-#: но и без потолка нельзя — выгрузка всей базы одним ответом однажды
-#: положит сервер ровно в тот момент, когда его попросят об отчёте.
-EXPORT_LIMIT = 10_000
-
 
 @router.get("", response_model=DonorsPage, summary="Таблица доноров")
 async def all_donors(
+    query: Annotated[DonorPageQuery, Query()],
     _: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
-    status: DonorStatus | None = Query(default=None, description="вердикт по донору"),
-    search: str | None = Query(default=None, description="по домену или причине отсева"),
-    min_dr: int | None = Query(default=None, ge=0, le=100),
-    has_contact: bool | None = Query(default=None, description="найден ли адрес"),
-    limit: int = Query(default=100, ge=1, le=500),
-    offset: int = Query(default=0, ge=0),
 ) -> DonorsPage:
     browser = DonorBrowser(session)
-    page = await browser.page(
-        DonorFilters(
-            status=status,
-            search=search,
-            min_dr=min_dr,
-            has_contact=has_contact,
-            limit=limit,
-            offset=offset,
-        )
+    page = await browser.page(query.filters(limit=query.limit, offset=query.offset))
+    # Счётчики фильтров — по всем донорам экрана, а не по странице: они
+    # отвечают на вопрос «что вообще есть», а не «что видно сейчас».
+    return DonorsPage.of(
+        page,
+        await browser.facets(),
+        export_limit=EXPORT_LIMIT,
+        waiting=await waiting(session),
     )
-    # Сводка считается по всей базе, а не по странице: она отвечает
-    # на вопрос «что вообще есть», а не «что видно сейчас».
-    return DonorsPage.of(page, await browser.counts_by_status())
 
 
-@router.get("/export", summary="Выгрузка таблицы доноров")
+@router.get("/export", summary="Выгрузка найденных доноров")
 async def export(
+    query: Annotated[DonorQuery, Query()],
     _: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
-    status: DonorStatus | None = Query(default=None, description="вердикт по донору"),
-    search: str | None = Query(default=None, description="по домену или причине отсева"),
-    min_dr: int | None = Query(default=None, ge=0, le=100),
-    has_contact: bool | None = Query(default=None, description="найден ли адрес"),
 ) -> Response:
     """Те же строки, что на экране, файлом.
 
@@ -71,24 +66,47 @@ async def export(
     при включённом фильтре давала бы файл, не совпадающий с экраном,
     и разбираться в этом пришлось бы уже в чужой таблице.
 
-    Потолок строк выше экранного: файл читают не глазами.
+    Потолок строк выше экранного: файл читают не глазами. Сколько строк
+    в файле и сколько нашлось всего — заголовками ответа: экран говорит
+    об этом словами, а не обещает больше, чем в файле.
     """
-    page = await DonorBrowser(session).page(
-        DonorFilters(
-            status=status,
-            search=search,
-            min_dr=min_dr,
-            has_contact=has_contact,
-            limit=EXPORT_LIMIT,
-            offset=0,
-        )
+    page = await DonorBrowser(session).page(query.filters(limit=EXPORT_LIMIT))
+    return _file(page.rows, {"X-Export-Asked": page.total})
+
+
+@router.post("/export", summary="Выгрузка отмеченных доноров")
+async def export_picked(
+    body: PickedBody,
+    _: UserModel = _viewer,
+    session: AsyncSession = Depends(db_session),
+) -> Response:
+    """Отмеченные на экране доноры файлом — независимо от фильтра.
+
+    Номера — телом запроса: тысячи номеров в адресе упёрлись бы в предел
+    строки запроса у прокси. Номер, переставший быть донором между отметкой
+    и выгрузкой, в файл не идёт, а заголовки ответа говорят, сколько таких.
+    """
+    picked = await DonorBrowser(session).picked(checked_picks(body.ids), limit=EXPORT_LIMIT)
+    return _file(
+        picked.rows,
+        {
+            "X-Export-Asked": picked.asked,
+            "X-Export-Not-Donors": picked.not_donors,
+            "X-Export-Missing": picked.missing,
+        },
     )
-    body = to_csv(page.rows)
+
+
+def _file(rows: list[DonorRow], counts: dict[str, int]) -> Response:
     stamp = datetime.now(UTC).strftime("%Y-%m-%d")
     return Response(
-        content=body,
+        content=to_csv(rows),
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="donors-{stamp}.csv"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="donors-{stamp}.csv"',
+            "X-Export-Rows": str(len(rows)),
+            **{name: str(value) for name, value in counts.items()},
+        },
     )
 
 

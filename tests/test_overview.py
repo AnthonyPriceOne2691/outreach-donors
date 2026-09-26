@@ -156,7 +156,9 @@ class TestDonors:
 
         assert (donors.total, donors.unchecked, donors.suitable) == (5, 1, 3)
         assert (donors.accepted, donors.rejected) == (2, 1)
-        assert (donors.with_email, donors.form_only) == (2, 1)
+        # Воронка ниже «доноров» — среди доноров (решение 26.09.2026): форма
+        # у отклонённого домена донора не делает, и в «с формой» он не входит.
+        assert (donors.with_email, donors.form_only) == (2, 0)
         # Цена старше срока годности — цена, но не свежая: по ней уже не работают.
         assert (donors.priced, donors.priced_fresh) == (2, 1)
 
