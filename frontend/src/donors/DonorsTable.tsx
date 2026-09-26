@@ -350,11 +350,7 @@ function DonorRow({ donor, from, picked, onPick, onOpen }: RowProps) {
   // не было — «не проверялись», а не «пора обновить» — обновлять нечего.
   const fresh = DONOR_FRESHNESS[donor.freshness];
   return (
-    <Table.Tr
-      style={{ cursor: 'pointer' }}
-      data-picked={picked || undefined}
-      onClick={() => onOpen(donor)}
-    >
+    <Table.Tr style={{ cursor: 'pointer' }} onClick={() => onOpen(donor)}>
       {/* Щелчок по ячейке отметки не открывает карточку: промахнуться мимо
           флажка на пару пикселей — не повод уходить со страницы. */}
       <Table.Td onClick={(event) => event.stopPropagation()}>
