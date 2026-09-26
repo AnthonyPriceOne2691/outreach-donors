@@ -15,18 +15,33 @@
  * значки до «площа…» и «арб…» (аудит 25.09.2026): слово, обрезанное до
  * четырёх букв, не значит ничего. Признаки главной — словами, а не
  * метками сервера («cart:/warenkorb» → «ссылка на корзину»).
+ *
+ * **Слова — те же, что у фильтров отбора** (26.09.2026): «судья не смотрел»,
+ * «не отвечал», «берёт бесплатно» лежат в `api/labels.ts` одним местом,
+ * и выбранное в фильтре значение стоит в строке тем же словом. Цена —
+ * общей функцией денег: сырая строка сервера «250.00 EUR» стояла рядом
+ * с «1 250,00 €» на соседних экранах.
  */
 
 import { Anchor, Badge, Group, Stack, Text, Tooltip } from '@mantine/core';
 
-import { homeSignalsText, JUDGE_ADVICE, JUDGE_DECIDERS, SITE_INTENTS } from '../api/labels';
+import {
+  homeSignalsText,
+  JUDGE_ABSENT,
+  JUDGE_ADVICE,
+  JUDGE_DECIDERS,
+  NO_ANSWER,
+  SELLER_ANSWERS,
+  SITE_INTENTS,
+} from '../api/labels';
 import type { MachineView, SellerView } from '../api/types';
+import { formatMoney } from '../format';
 
 export function JudgeVerdict({ machine }: { machine: MachineView }) {
   if (machine.recommendation === null) {
     return (
       <Badge variant="outline" color="yellow">
-        судья не смотрел
+        {JUDGE_ABSENT}
       </Badge>
     );
   }
@@ -88,32 +103,19 @@ export function SellerAnswer({ seller }: { seller: SellerView }) {
   if (seller.answer === null) {
     return (
       <Text size="xs" c="dimmed">
-        не отвечал
+        {NO_ANSWER}
       </Text>
     );
   }
-  if (seller.answer === 'free') {
-    return (
-      <Badge variant="light" color="green">
-        берёт бесплатно
-      </Badge>
-    );
-  }
-  if (seller.answer === 'declines') {
-    return (
-      <Badge variant="light" color="red">
-        не продаёт
-      </Badge>
-    );
-  }
+  const answer = SELLER_ANSWERS[seller.answer];
   return (
     <Stack gap={2} align="center">
-      <Badge variant="light" color="green">
-        продаёт
+      <Badge variant="light" color={answer.color}>
+        {answer.title}
       </Badge>
-      {seller.price !== null && (
+      {seller.answer === 'sells' && seller.price !== null && (
         <Text size="xs" c="dimmed">
-          {seller.price} {seller.currency ?? ''}
+          {formatMoney(seller.price, seller.currency)}
         </Text>
       )}
     </Stack>

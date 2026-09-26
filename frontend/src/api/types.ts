@@ -710,6 +710,14 @@ export interface CandidatesView {
 export type SelectionTab = 'accepted' | 'review' | 'rejected';
 export type JudgeDecider = 'rule' | 'model' | 'arbiter';
 export type HumanIntent = 'publisher' | 'sells_own' | 'non_commercial';
+export type SellerAnswerKind = 'sells' | 'free' | 'declines';
+
+/** Фильтры под колонками отбора — по одному на колонку. `none` — «из этого
+ *  источника ничего»: донора нет, вердикта нет, ответа нет. */
+export type SelectionThresholds = DonorStatus | 'none';
+export type SelectionJudge = JudgeDecider | 'none';
+export type SelectionAnswer = 'answered' | 'none' | SellerAnswerKind;
+export type SelectionHuman = 'unreviewed' | 'reviewed' | 'disagrees';
 
 export interface MachineView {
   intent: string | null;
@@ -724,7 +732,7 @@ export interface MachineView {
 }
 
 export interface SellerView {
-  answer: 'sells' | 'free' | 'declines' | null;
+  answer: SellerAnswerKind | null;
   answered_at: string | null;
   price: string | null;
   currency: string | null;
@@ -754,6 +762,9 @@ export interface SelectionCard {
 export interface SelectionView {
   rows: SelectionCard[];
   total: number;
+  /** Номер страницы и её размер — размер называет сервер. */
+  page: number;
+  limit: number;
   tabs: Record<SelectionTab, number>;
   reviewed: number;
   disagreements: number;

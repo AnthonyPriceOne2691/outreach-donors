@@ -14,7 +14,7 @@
 
 import { Anchor, Badge, Button, Group, Stack, Table, Text } from '@mantine/core';
 
-import { DONOR_STATUSES, HUMAN_INTENTS } from '../api/labels';
+import { DONOR_STATUSES, HUMAN_INTENTS, NOT_REACHED, SELECTION_HUMAN } from '../api/labels';
 import type { HumanIntent, SelectionCard } from '../api/types';
 import { JudgeVerdict, SellerAnswer } from '../components/JudgeVerdict';
 
@@ -31,7 +31,7 @@ function Thresholds({ row }: { row: SelectionCard }) {
   if (row.status === null) {
     return (
       <Text size="xs" c="dimmed">
-        до Ahrefs не дошёл
+        {NOT_REACHED}
       </Text>
     );
   }
@@ -54,7 +54,7 @@ function Human({ row, mayDecide, busy, onDecide }: Props) {
   if (!mayDecide) {
     return (
       <Text size="sm" c={chosen === null ? 'dimmed' : 'inherit'}>
-        {chosen === null ? 'не смотрел' : HUMAN_INTENTS[chosen]}
+        {chosen === null ? SELECTION_HUMAN.unreviewed : HUMAN_INTENTS[chosen]}
       </Text>
     );
   }
@@ -76,7 +76,7 @@ function Human({ row, mayDecide, busy, onDecide }: Props) {
       </Group>
       {row.disagrees && (
         <Badge variant="light" color="yellow" size="sm">
-          разошёлся с судьёй
+          {SELECTION_HUMAN.disagrees}
         </Badge>
       )}
     </Stack>

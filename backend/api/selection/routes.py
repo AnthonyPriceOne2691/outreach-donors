@@ -22,11 +22,16 @@ from backend.api.selection.schemas import DecisionBody, SelectionCard, Selection
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
-from backend.features.donors.publisher_judge import Decider
 from backend.features.donors.selection import (
+    MAX_PAGE_SIZE,
+    PAGE_SIZE,
+    AnswerFilter,
+    HumanFilter,
+    JudgeFilter,
     SelectionBrowser,
     SelectionFilters,
     Tab,
+    ThresholdsFilter,
     UnknownDomainError,
 )
 
@@ -37,30 +42,32 @@ _reviewer = Depends(needs(Permission.PRICES))
 
 
 class SelectionQuery(BaseModel):
-    """Фильтры экрана отбора — одной моделью: флагов стало больше, чем
-    разумно держать отдельными параметрами обработчика."""
+    """Фильтры экрана отбора — одной моделью, по фильтру на колонку таблицы
+    (26.09.2026): прежние четыре флага над таблицей стали фильтрами под
+    своими колонками.
+
+    Страница — номером, а не сдвигом: экран держит в адресе номер, а размер
+    страницы знает только сервер и называет его в ответе."""
 
     tab: Tab = Field(default=Tab.ACCEPTED, description="принят, к разбору, отклонён")
     search: str | None = Field(default=None, description="по домену или причине")
-    decided_by: Decider | None = Field(default=None, description="кто вынес вердикт судьи")
-    only_disagreements: bool = Field(default=False, description="человек и машина разошлись")
-    only_unreviewed: bool = Field(default=False, description="человек ещё не смотрел")
-    only_unjudged: bool = Field(default=False, description="судья не смотрел")
-    only_answered: bool = Field(default=False, description="донор ответил, продаёт ли")
-    limit: int = Field(default=100, ge=1, le=500)
-    offset: int = Field(default=0, ge=0)
+    thresholds: ThresholdsFilter | None = Field(default=None, description="вердикт порогов")
+    judge: JudgeFilter | None = Field(default=None, description="кто вынес вердикт судьи")
+    answer: AnswerFilter | None = Field(default=None, description="что ответил донор")
+    human: HumanFilter | None = Field(default=None, description="смотрел ли человек")
+    page: int = Field(default=1, ge=1, le=1_000_000, description="страница, с единицы")
+    limit: int = Field(default=PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE, description="доменов на странице")
 
     def filters(self) -> SelectionFilters:
         return SelectionFilters(
             tab=self.tab,
             search=self.search,
-            decided_by=self.decided_by.value if self.decided_by else None,
-            only_disagreements=self.only_disagreements,
-            only_unreviewed=self.only_unreviewed,
-            only_unjudged=self.only_unjudged,
-            only_answered=self.only_answered,
-            limit=self.limit,
-            offset=self.offset,
+            thresholds=self.thresholds,
+            judge=self.judge,
+            answer=self.answer,
+            human=self.human,
+            page=self.page,
+            size=self.limit,
         )
 
 
@@ -71,7 +78,13 @@ async def selection(
     session: AsyncSession = Depends(db_session),
 ) -> SelectionView:
     browser = SelectionBrowser(session)
-    return SelectionView.of(await browser.page(query.filters()), await browser.summary())
+    filters = query.filters()
+    return SelectionView.of(
+        await browser.page(filters),
+        await browser.summary(),
+        page_number=filters.page,
+        limit=filters.size,
+    )
 
 
 @router.post("/{domain_id}/decide", response_model=SelectionCard, summary="Решение человека")
