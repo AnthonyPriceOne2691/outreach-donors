@@ -33,6 +33,7 @@ const CARD: DonorFullCard = {
   metrics_refreshed_at: '2026-09-18T10:00:00+00:00',
   expires_at: '2027-03-17T10:00:00+00:00',
   fresh: true,
+  freshness: 'fresh',
   contact_status: null,
   contact_attempted_at: null,
   last_price: null,
@@ -40,6 +41,10 @@ const CARD: DonorFullCard = {
   last_price_at: null,
   contacts: [],
   contact_refusal: null,
+  review: 'accepted',
+  review_run: 18,
+  letter_contact_id: null,
+  letter_blocked: null,
 };
 
 function job(state: JobCard['state'], title: string): JobCard {
@@ -89,6 +94,7 @@ describe('карточка донора: адреса', () => {
           source: 'provider',
           last_contacted_at: null,
           last_replied_at: null,
+          removal_refusal: null,
         },
       ],
     });
@@ -151,7 +157,9 @@ describe('карточка донора: адреса', () => {
     await openCard(CARD, {}, { ...OPERATOR, permissions: ['view'] });
 
     expect(
-      within(addresses()).getByText(/Поиск ставит сотрудник с правом «запускать прогоны»/),
+      within(addresses()).getByText(
+        'Ставить поиск, вписывать и удалять адреса может сотрудник с правом «запускать прогоны».',
+      ),
     ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Найти адрес' })).toBeNull();
   });
@@ -206,6 +214,10 @@ describe('карточка донора: возврат к списку', () => 
           rows: [{ ...CARD, contacts: 0 }],
           total: 25,
           counts: { suitable: 25, unsuitable: 3 },
+          countries: { us: 28 },
+          freshness: { fresh: 28 },
+          export_limit: 10_000,
+          waiting: { domains: 0, runs: [] },
         },
       },
       'GET /api/donors/7': { body: CARD },

@@ -23,16 +23,33 @@
  * разделы под ним — на 238, адреса в таблице — на третьей линии (аудит
  * 25.09.2026): поля у разделов теперь те же, что у заголовка, а таблица
  * адресов выступает на поле ячейки, и адрес встаёт на ту же линию.
+ *
+ * **Донор — только принятый человеком** (решение 26.09.2026). Карточка
+ * открывается у любой записи базы, но шапка говорит правду: запись без
+ * решения — кандидат, ждёт решения в очереди прогона; отклонённая — не донор.
+ * Решают не здесь, а в очереди прогона, и шапка ведёт туда.
  */
 
-import { Alert, Badge, Card, Group, Loader, SimpleGrid, Stack, Text, Title } from '@mantine/core';
+import {
+  Alert,
+  Anchor,
+  Badge,
+  Card,
+  Group,
+  Loader,
+  SimpleGrid,
+  Stack,
+  Text,
+  Title,
+} from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
-import { useLocation, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 
 import { ApiError, refusalOf } from '../api/client';
 import { rowIdOf } from '../api/ids';
 import { countryTitle, DONOR_STATUSES } from '../api/labels';
-import { formatDate, formatNumber, formatShare } from '../format';
+import type { DonorFullCard } from '../api/types';
+import { formatDate, formatMoney, formatNumber, formatShare } from '../format';
 import { BackLink, backTo } from '../components/BackLink';
 import { Metric } from '../components/Metric';
 import { fetchDonor } from '../api/runs';
@@ -52,6 +69,38 @@ function NoSuchDonor({ back, said }: { back: string; said: string }) {
         </Text>
       </Stack>
     </Card>
+  );
+}
+
+/** Не донор — кто тогда и где о нём решают. Для донора — ничего: его
+ *  шапка и так говорит, что он донор. */
+function Standing({ donor }: { donor: DonorFullCard }) {
+  if (donor.review === 'accepted') return null;
+  const run = donor.review_run;
+  const where =
+    run === null ? null : (
+      <Anchor component={Link} to={`/runs/${run}/review`} size="sm" fw={500}>
+        в очереди прогона №{run}
+      </Anchor>
+    );
+  if (donor.review === 'rejected') {
+    return (
+      <Text size="sm" className="donorStanding">
+        Не донор: отклонён человеком{where === null ? '' : ' '}
+        {where}. Решение можно снять там же.
+      </Text>
+    );
+  }
+  return (
+    <Text size="sm" className="donorStanding">
+      {where === null ? (
+        // Не решали и в очереди его нет: либо не прошёл пороги, либо запись
+        // старше очередей рассмотрения.
+        'Не донор: проверенный домен, решения человека по нему нет, в очередях прогонов он не стоит.'
+      ) : (
+        <>Кандидат, а не донор: ждёт решения человека {where}.</>
+      )}
+    </Text>
   );
 }
 
@@ -97,6 +146,7 @@ export function DonorPage() {
               {DONOR_STATUSES[data.status].title}
             </Badge>
           </Group>
+          <Standing donor={data} />
           {data.reject_reason !== null && (
             <Text size="sm" c="dimmed">
               Причина отсева: {data.reject_reason}
@@ -159,9 +209,10 @@ export function DonorPage() {
           </Title>
           {/* Валюта приходит с ценой, а не подставляется здесь: конвертации
               в сервисе нет, и «USD» рядом с числом в евро — это не подпись,
-              а неверное число. */}
+              а неверное число. Деньги — общей функцией, как на остальных
+              экранах: сырой строкой сервера цена печаталась «250.00 EUR». */}
           <Text>
-            {data.last_price} {data.last_price_currency ?? ''} · {when(data.last_price_at)}
+            {formatMoney(data.last_price, data.last_price_currency)} · {when(data.last_price_at)}
           </Text>
         </Card>
       )}

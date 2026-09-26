@@ -305,6 +305,9 @@ export interface RunQueued {
   note: string;
 }
 
+/** Метрики донора: в сроке, пора обновить, не проверялись (`browse.Freshness`). */
+export type DonorFreshness = 'fresh' | 'stale' | 'never';
+
 export interface DonorRowCard {
   id: number;
   host: string;
@@ -321,12 +324,29 @@ export interface DonorRowCard {
   metrics_refreshed_at: string | null;
   /** Данные ещё в сроке годности: за них уже заплачено. */
   fresh: boolean;
+  /** То же правило, что у фильтра «Данные», — считает сервер. */
+  freshness: DonorFreshness;
+}
+
+/** Кто ждёт решения человека: из них получаются доноры. */
+export interface DonorsWaiting {
+  domains: number;
+  /** Прогоны, в очередях которых ждут, новые первыми. */
+  runs: number[];
 }
 
 export interface DonorsPage {
   rows: DonorRowCard[];
   total: number;
+  /** Вердикт → сколько доноров, по всем донорам экрана, а не по фильтру. */
   counts: Record<string, number>;
+  /** Страна (код) → сколько доноров: варианты фильтра «Гео». */
+  countries: Record<string, number>;
+  /** Состояние метрик → сколько доноров: варианты фильтра «Данные». */
+  freshness: Partial<Record<DonorFreshness, number>>;
+  /** Сколько строк выгрузка кладёт в файл за раз. */
+  export_limit: number;
+  waiting: DonorsWaiting;
 }
 
 export interface ContactCard {
@@ -335,7 +355,12 @@ export interface ContactCard {
   source: ContactSource;
   last_contacted_at: string | null;
   last_replied_at: string | null;
+  /** Почему адрес нельзя удалить; `null` — можно. */
+  removal_refusal: string | null;
 }
+
+/** Решение человека о домене: донор — только принятый (`donors/standing.py`). */
+export type DonorReview = 'accepted' | 'rejected';
 
 export interface DonorFullCard extends Omit<DonorRowCard, 'contacts'> {
   geo_breakdown: { country: string; share: number }[] | null;
@@ -346,10 +371,19 @@ export interface DonorFullCard extends Omit<DonorRowCard, 'contacts'> {
   expires_at: string | null;
   contact_attempted_at: string | null;
   last_price_at: string | null;
+  /** Адреса в том порядке, в каком их берёт сборка писем: лучший первым. */
   contacts: ContactCard[];
   /** Почему поиск адреса сейчас не ставится; `null` — ставится. Правило то же,
    *  что у общего поиска, и решает его сервер — экран только показывает. */
   contact_refusal: string | null;
+  /** `null` — кандидат, ещё не решали. */
+  review: DonorReview | null;
+  /** Прогон, в очереди которого о домене решают или решили. */
+  review_run: number | null;
+  /** На какой адрес ушло бы первое письмо — запросом сборки писем. */
+  letter_contact_id: number | null;
+  /** Почему письмо не соберётся ни на один адрес; `null` с адресом — адресов нет. */
+  letter_blocked: string | null;
 }
 
 export interface ThresholdsBody {

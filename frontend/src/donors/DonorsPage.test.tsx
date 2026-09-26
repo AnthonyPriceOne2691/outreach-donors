@@ -34,6 +34,7 @@ const ROWS = [
     last_price_currency: null,
     metrics_refreshed_at: '2026-09-18T10:00:00+00:00',
     fresh: true,
+    freshness: 'fresh',
   },
   {
     id: 2,
@@ -50,6 +51,7 @@ const ROWS = [
     last_price_currency: null,
     metrics_refreshed_at: '2026-06-01T10:00:00+00:00',
     fresh: false,
+    freshness: 'stale',
   },
   {
     id: 3,
@@ -66,12 +68,20 @@ const ROWS = [
     last_price_currency: null,
     metrics_refreshed_at: null,
     fresh: false,
+    freshness: 'never',
   },
 ];
 
 const COUNTS = { suitable: 1, unsuitable: 1, unchecked: 3 };
-const PAGE = { rows: ROWS, total: 3, counts: COUNTS };
-const NOTHING = { rows: [], total: 0, counts: COUNTS };
+/** Счётчики фильтров и прочее, что сервер кладёт рядом со страницей. */
+const FACETS = {
+  countries: { us: 1, de: 1 },
+  freshness: { fresh: 1, stale: 1, never: 3 },
+  export_limit: 10_000,
+  waiting: { domains: 0, runs: [] },
+};
+const PAGE = { rows: ROWS, total: 3, counts: COUNTS, ...FACETS };
+const NOTHING = { rows: [], total: 0, counts: COUNTS, ...FACETS };
 /** База на три страницы: сорок пять доноров, и сводка сходится с ними. */
 const BIG = { suitable: 40, unsuitable: 2, unchecked: 3 };
 
@@ -172,6 +182,7 @@ describe('доноры: таблица', () => {
           rows: [{ ...ROWS[0], id: 21, host: 'second.example.test' }],
           total: 45,
           counts: BIG,
+          ...FACETS,
         },
       },
     });
@@ -225,13 +236,15 @@ describe('доноры: таблица', () => {
     await openDonors();
     const user = userEvent.setup();
 
-    await user.click(screen.getByRole('textbox', { name: 'Вердикт' }));
+    const field = screen.getByRole('textbox', { name: 'Вердикт' });
+    await user.click(field);
 
-    expect(
-      await screen.findByRole('option', { name: 'не проверен · 3', hidden: true }),
-    ).toBeTruthy();
-    expect(screen.getByRole('option', { name: 'не подходит · 1', hidden: true })).toBeTruthy();
-    expect(screen.getByRole('option', { name: 'все · 5', hidden: true })).toBeTruthy();
+    // Списков на строке фильтров несколько, и «все · 5» есть не только у
+    // вердикта: пункты ищутся в списке этого поля.
+    const list = within(document.getElementById(field.getAttribute('aria-controls') ?? '')!);
+    expect(await list.findByRole('option', { name: 'не проверен · 3', hidden: true })).toBeTruthy();
+    expect(list.getByRole('option', { name: 'не подходит · 1', hidden: true })).toBeTruthy();
+    expect(list.getByRole('option', { name: 'все · 5', hidden: true })).toBeTruthy();
   });
 
   it('пояснение «не проверен ≠ не подходит» — подсказкой у фильтра вердикта', async () => {
@@ -292,7 +305,7 @@ describe('доноры: таблица', () => {
     const user = userEvent.setup();
 
     expect(
-      screen.getByText('Условия: вердикт «не проверен», DR не ниже 30. Всего доноров в базе — 5.'),
+      screen.getByText('Условия: вердикт «не проверен», DR не ниже 30. Всего доноров — 5.'),
     ).toBeInTheDocument();
     // Фильтры остаются на месте: условие поправляют тут же, не возвращаясь.
     expect(screen.getByRole('textbox', { name: 'DR не ниже' })).toHaveValue('30');
@@ -303,7 +316,7 @@ describe('доноры: таблица', () => {
     expect(listCalls(recorded).at(-1)).toBe('/api/donors?limit=20&offset=0');
   });
 
-  it('вердикта нет во всей базе — так и сказано, а не «сузьте условия»', async () => {
+  it('вердикта нет ни у одного донора — так и сказано, а не «сузьте условия»', async () => {
     await openDonors(
       {
         [donorsAt('status=unchecked&limit=20&offset=0')]: {
@@ -313,7 +326,7 @@ describe('доноры: таблица', () => {
       { path: '/donors?status=unchecked', ready: 'С вердиктом «не проверен» доноров нет.' },
     );
 
-    expect(screen.getByText(/Нет во всей базе/)).toBeInTheDocument();
+    expect(screen.getByText(/Нет ни у одного донора/)).toBeInTheDocument();
   });
 
   it('строка открывает карточку донора', async () => {
@@ -329,6 +342,10 @@ describe('доноры: таблица', () => {
           contact_attempted_at: null,
           last_price_at: null,
           contact_refusal: 'Адрес ищут только подходящим донорам — этот не прошёл пороги.',
+          review: 'accepted',
+          review_run: 18,
+          letter_contact_id: null,
+          letter_blocked: null,
         },
       },
     });
@@ -469,7 +486,7 @@ describe('выгрузка', () => {
     );
     const user = userEvent.setup();
 
-    await user.click(screen.getByRole('button', { name: 'Выгрузить' }));
+    await user.click(screen.getByRole('button', { name: 'Выгрузить найденных · 3' }));
 
     await waitFor(() => expect(clicked).toHaveLength(1));
     const call = recorded.calls.find((sent) => sent.path.startsWith('/api/donors/export'));
@@ -494,7 +511,7 @@ describe('выгрузка', () => {
     });
     const user = userEvent.setup();
 
-    await user.click(screen.getByRole('button', { name: 'Выгрузить' }));
+    await user.click(screen.getByRole('button', { name: 'Выгрузить всех · 3' }));
 
     expect(
       await screen.findByText('Выгрузка не собралась: база не ответила — повторите через минуту'),

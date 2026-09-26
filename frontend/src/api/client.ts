@@ -59,7 +59,7 @@ export function refusalOf(error: unknown): string {
 }
 
 interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PATCH';
+  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   body?: unknown;
   /** Вход — единственный запрос без пропуска. */
   anonymous?: boolean;
@@ -131,10 +131,12 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   return (await response.json()) as T;
 }
 
-/** Файл с сервера: тело и имя, которое сервер для него назвал. */
+/** Файл с сервера: тело, имя, которое сервер для него назвал, и заголовки
+ *  ответа — по ним экран говорит, сколько строк легло в файл. */
 export interface Downloaded {
   blob: Blob;
   filename: string | null;
+  headers: Headers;
 }
 
 function filenameOf(response: Response): string | null {
@@ -152,8 +154,23 @@ function filenameOf(response: Response): string | null {
  * на адрес ссылки. Отказ здесь — то же исключение, что у `request`, с текстом
  * сервера.
  */
-export async function download(path: string): Promise<Downloaded> {
-  const response = await fetch(`/api${path}`, { headers: withPass({}) });
+export async function download(
+  path: string,
+  options: { method?: 'GET' | 'POST'; body?: unknown } = {},
+): Promise<Downloaded> {
+  const { method = 'GET', body } = options;
+  // Тело — JSON и только у POST: номера отмеченных доноров едут телом,
+  // потому что тысячи номеров в адресе упёрлись бы в предел строки у прокси.
+  const headers = withPass(body === undefined ? {} : { 'content-type': 'application/json' });
+  const response = await fetch(`/api${path}`, {
+    method,
+    headers,
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
   if (!response.ok) await raise(response);
-  return { blob: await response.blob(), filename: filenameOf(response) };
+  return {
+    blob: await response.blob(),
+    filename: filenameOf(response),
+    headers: response.headers,
+  };
 }

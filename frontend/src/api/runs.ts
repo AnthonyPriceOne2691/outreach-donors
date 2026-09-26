@@ -38,6 +38,9 @@ export interface DonorQuery {
   search?: string;
   min_dr?: number;
   has_contact?: boolean;
+  min_traffic?: number;
+  geo?: string;
+  freshness?: string;
   limit?: number;
   offset?: number;
 }
