@@ -44,6 +44,7 @@ import {
   Loader,
   NumberInput,
   SegmentedControl,
+  SimpleGrid,
   Stack,
   Text,
   TextInput,
@@ -458,46 +459,42 @@ function QueueControls({
     // донорам, поправленный под переключателем «Рекламодателям», сервер
     // бы не принял, а человек не понял бы, откуда он взялся.
     <Stack gap="md" className="staleRows" data-stale={stale || undefined} inert={stale}>
-      <Grid gutter="sm">
-        <Grid.Col span={{ base: 6, sm: 3 }}>
-          <Metric title="В очереди" value={letters.length} />
-        </Grid.Col>
-        <Grid.Col span={{ base: 6, sm: 3 }}>
-          <Metric
-            title="Вне коридора"
-            value={offCorridor}
-            hint={`коридор ${corridorText(view.corridor)}`}
-            color={offCorridor > 0 ? 'yellow' : undefined}
-          />
-        </Grid.Col>
-        <Grid.Col span={{ base: 6, sm: 3 }}>
-          <Metric
-            title="Ещё не писали"
-            value={view.funnel['ещё не писали'] ?? 0}
-            hint={
-              stage === 'donors'
-                ? `подходящих ${view.funnel['подходящих'] ?? 0}`
-                : `рекламодателей ${view.funnel['рекламодателей'] ?? 0}`
-            }
-          />
-        </Grid.Col>
-        <Grid.Col span={{ base: 6, sm: 3 }}>
-          <Metric
-            title="Почта"
-            value={
-              view.transport.real ? (
-                view.transport.name
-              ) : (
-                // Слова переносятся по слогам: на телефоне «подключена» шире
-                // плитки и вылезала за её край (на 17 px при 390, аудит 25.09).
-                <span className="tileWords">не подключена</span>
-              )
-            }
-            hint={view.transport.real ? 'письма уходят' : 'подключается на рабочем сервере'}
-            color={view.transport.real ? undefined : 'yellow'}
-          />
-        </Grid.Col>
-      </Grid>
+      {/* Плитки — прямые дети сетки: так они подсетка её ряда, и числа стоят
+          на одной линии. В колонках `Grid` подсетки не было — у «В очереди»
+          без пояснения подпись и число сидели на 10 px ниже соседних (замер
+          26.09.2026), на телефоне так же стояли «Ещё не писали» и «Почта». */}
+      <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="sm">
+        <Metric title="В очереди" value={letters.length} />
+        <Metric
+          title="Вне коридора"
+          value={offCorridor}
+          hint={`коридор ${corridorText(view.corridor)}`}
+          color={offCorridor > 0 ? 'yellow' : undefined}
+        />
+        <Metric
+          title="Ещё не писали"
+          value={view.funnel['ещё не писали'] ?? 0}
+          hint={
+            stage === 'donors'
+              ? `подходящих ${view.funnel['подходящих'] ?? 0}`
+              : `рекламодателей ${view.funnel['рекламодателей'] ?? 0}`
+          }
+        />
+        <Metric
+          title="Почта"
+          value={
+            view.transport.real ? (
+              view.transport.name
+            ) : (
+              // Слова переносятся по слогам: на телефоне «подключена» шире
+              // плитки и вылезала за её край (на 17 px при 390, аудит 25.09).
+              <span className="tileWords">не подключена</span>
+            )
+          }
+          hint={view.transport.real ? 'письма уходят' : 'подключается на рабочем сервере'}
+          color={view.transport.real ? undefined : 'yellow'}
+        />
+      </SimpleGrid>
 
       {view.blocked_by.length > 0 ? (
         <Alert color="yellow" title="Отправка пока не подключена">
