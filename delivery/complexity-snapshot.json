@@ -232,12 +232,12 @@
       "worst": "—"
     },
     "backend/api/selection/routes.py": {
-      "lines": 111,
+      "lines": 124,
       "complexity": 3,
-      "worst": "decide:78"
+      "worst": "decide:91"
     },
     "backend/api/selection/schemas.py": {
-      "lines": 153,
+      "lines": 161,
       "complexity": 13,
       "worst": "of:71"
     },
@@ -822,9 +822,9 @@
       "worst": "_donor_values:317"
     },
     "backend/features/donors/selection.py": {
-      "lines": 359,
+      "lines": 447,
       "complexity": 9,
-      "worst": "tally_reviews:334"
+      "worst": "tally_reviews:422"
     },
     "backend/features/donors/site_index.py": {
       "lines": 63,

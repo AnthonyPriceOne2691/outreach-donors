@@ -197,7 +197,7 @@ class TestTabs:
         self, client: AsyncClient, admin_token: str, field: dict[str, DomainModel]
     ) -> None:
         """«Принят» у базы до судьи значит только «прошёл пороги»."""
-        assert await _hosts(client, admin_token, tab="accepted", only_unjudged=True) == ["old.test"]
+        assert await _hosts(client, admin_token, tab="accepted", judge="none") == ["old.test"]
 
 
 class TestHumanDecision:
@@ -330,7 +330,7 @@ class TestSellerAnswer:
         assert body["answered"] == 3
         assert body["answer_layers"] == {"model": {"checked": 2, "agreed": 1}}
 
-        answered = await _hosts(client, admin_token, tab="rejected", only_answered=True)
+        answered = await _hosts(client, admin_token, tab="rejected", answer="answered")
         assert answered == ["weak.test"]
 
 

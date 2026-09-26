@@ -118,6 +118,10 @@ class LayerView(BaseModel):
 class SelectionView(BaseModel):
     rows: list[SelectionCard]
     total: int
+    #: Какая это страница и сколько на ней доменов: размер страницы знает
+    #: сервер, экран считает число страниц по нему.
+    page: int
+    limit: int
     tabs: dict[str, int]
     reviewed: int
     disagreements: int
@@ -126,10 +130,14 @@ class SelectionView(BaseModel):
     answer_layers: dict[str, LayerView]
 
     @classmethod
-    def of(cls, page: SelectionPage, summary: SelectionSummary) -> SelectionView:
+    def of(
+        cls, page: SelectionPage, summary: SelectionSummary, *, page_number: int, limit: int
+    ) -> SelectionView:
         return cls(
             rows=[SelectionCard.of(row) for row in page.rows],
             total=page.total,
+            page=page_number,
+            limit=limit,
             tabs=summary.tabs,
             reviewed=summary.reviewed,
             disagreements=summary.disagreements,

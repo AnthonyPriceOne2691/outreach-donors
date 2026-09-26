@@ -19,6 +19,12 @@
 какой ошибается: правило, которому верят без взгляда, или модель.
 Вердикт машины решением человека НЕ переписывается — расхождение и есть
 измеритель.
+
+**Фильтр — по колонке, тем же словом, что в её ячейке** (26.09.2026).
+Четыре флага над таблицей («только расхождения», «человек не смотрел»…)
+стали фильтрами под колонками: пороги, судья, ответ донора, человек.
+Каждый сужает ровно то, что его колонка показывает: «судья не смотрел» —
+это вердикта нет, как у значка, а не «даты суда нет».
 """
 
 from __future__ import annotations
@@ -36,9 +42,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.features.core.domain import DonorStatus
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
+from backend.features.donors.publisher_judge import Decider
 from backend.shared.database.ids import storable
 
 logger = logging.getLogger(__name__)
+
+#: Доменов на странице — замечание 26.09.2026: «максимум 20 на одной
+#: странице». Размер называет сервер, экран узнаёт его из ответа: второй
+#: экземпляр числа на фронте разошёлся бы с этим при первой правке.
+PAGE_SIZE = 20
+
+#: Больше за раз не отдаём: страница отбора — чтение глазами, а не выгрузка.
+MAX_PAGE_SIZE = 100
 
 
 class UnknownDomainError(ValueError):
@@ -132,17 +147,55 @@ def _disagrees() -> ColumnElement[Any]:
     )
 
 
+class ThresholdsFilter(StrEnum):
+    """Колонка «Пороги»: вердикт донора — или донора нет вовсе."""
+
+    SUITABLE = DonorStatus.SUITABLE.value
+    UNSUITABLE = DonorStatus.UNSUITABLE.value
+    UNCHECKED = DonorStatus.UNCHECKED.value
+    NONE = "none"  # до Ahrefs не дошёл: судья отрезал раньше, донора нет
+
+
+class JudgeFilter(StrEnum):
+    """Колонка «Судья»: кто вынес вердикт — или вердикта нет."""
+
+    RULE = Decider.RULE.value
+    MODEL = Decider.MODEL.value
+    ARBITER = Decider.ARBITER.value
+    NONE = "none"  # судья не смотрел
+
+
+class AnswerFilter(StrEnum):
+    """Колонка «Донор ответил»: ответил ли, и что именно."""
+
+    ANSWERED = "answered"
+    NONE = "none"
+    SELLS = "sells"
+    FREE = "free"
+    DECLINES = "declines"
+
+
+class HumanFilter(StrEnum):
+    """Колонка «Человек». Одним фильтром, а не двумя флагами: «не смотрел»
+    и «разошёлся с судьёй» друг друга исключают."""
+
+    UNREVIEWED = "unreviewed"
+    REVIEWED = "reviewed"
+    DISAGREES = "disagrees"
+
+
 @dataclass(frozen=True, slots=True)
 class SelectionFilters:
     tab: Tab = Tab.ACCEPTED
     search: str | None = None
-    decided_by: str | None = None
-    only_disagreements: bool = False
-    only_unreviewed: bool = False
-    only_unjudged: bool = False
-    only_answered: bool = False
-    limit: int = 100
-    offset: int = 0
+    thresholds: ThresholdsFilter | None = None
+    judge: JudgeFilter | None = None
+    answer: AnswerFilter | None = None
+    human: HumanFilter | None = None
+    #: Страница — с единицы. Страница за концом — пустая, с настоящим
+    #: `total`: по нему экран узнаёт, сколько страниц есть на самом деле.
+    page: int = 1
+    size: int = PAGE_SIZE
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,30 +243,65 @@ def _base() -> Select[Any]:
     )
 
 
+def _by_search(text: str) -> ColumnElement[bool]:
+    needle = f"%{text.strip().lower()}%"
+    return or_(
+        DomainModel.host.ilike(needle),
+        DonorModel.reject_reason.ilike(needle),
+        DomainModel.judge_reason.ilike(needle),
+    )
+
+
+def _by_thresholds(value: ThresholdsFilter) -> ColumnElement[bool]:
+    if value is ThresholdsFilter.NONE:
+        return DonorModel.id.is_(None)
+    return DonorModel.status == DonorStatus(value.value)
+
+
+def _by_judge(value: JudgeFilter) -> ColumnElement[bool]:
+    """Вердикта нет — как у значка «судья не смотрел»: по самому вердикту,
+    а не по дате суда. Слой — ровно тот, что стоит значком: вердикт без
+    отметки слоя (судья до трёх слоёв) ни под один слой не попадает, как
+    и значка слоя у него нет."""
+    if value is JudgeFilter.NONE:
+        return DomainModel.judge_recommendation.is_(None)
+    return DomainModel.judge_decided_by == value.value
+
+
+def _by_answer(value: AnswerFilter) -> ColumnElement[bool]:
+    if value is AnswerFilter.ANSWERED:
+        return DomainModel.seller_answer.is_not(None)
+    if value is AnswerFilter.NONE:
+        return DomainModel.seller_answer.is_(None)
+    return DomainModel.seller_answer == value.value
+
+
+def _by_human(value: HumanFilter) -> ColumnElement[bool]:
+    if value is HumanFilter.UNREVIEWED:
+        return DomainModel.human_intent.is_(None)
+    if value is HumanFilter.REVIEWED:
+        return DomainModel.human_intent.is_not(None)
+    return _disagrees()
+
+
+def _conditions(filters: SelectionFilters) -> list[ColumnElement[bool]]:
+    """Условия фильтров под колонками — все сразу, «и»."""
+    found = [_tab() == filters.tab.value]
+    if filters.search and filters.search.strip():
+        found.append(_by_search(filters.search))
+    if filters.thresholds is not None:
+        found.append(_by_thresholds(filters.thresholds))
+    if filters.judge is not None:
+        found.append(_by_judge(filters.judge))
+    if filters.answer is not None:
+        found.append(_by_answer(filters.answer))
+    if filters.human is not None:
+        found.append(_by_human(filters.human))
+    return found
+
+
 def _narrow(statement: Select[Any], filters: SelectionFilters) -> Select[Any]:
-    statement = statement.where(_tab() == filters.tab.value)
-    if filters.search:
-        needle = f"%{filters.search.strip().lower()}%"
-        statement = statement.where(
-            or_(
-                DomainModel.host.ilike(needle),
-                DonorModel.reject_reason.ilike(needle),
-                DomainModel.judge_reason.ilike(needle),
-            )
-        )
-    if filters.decided_by:
-        statement = statement.where(DomainModel.judge_decided_by == filters.decided_by)
-    if filters.only_disagreements:
-        statement = statement.where(_disagrees())
-    if filters.only_unreviewed:
-        statement = statement.where(DomainModel.human_intent.is_(None))
-    if filters.only_answered:
-        statement = statement.where(DomainModel.seller_answer.is_not(None))
-    if filters.only_unjudged:
-        # База, собранная до судьи: вердикта у неё нет, и «принят» здесь
-        # значит только «прошёл пороги».
-        statement = statement.where(DomainModel.judged_at.is_(None))
-    return statement
+    return statement.where(*_conditions(filters))
 
 
 class SelectionBrowser:
@@ -224,8 +312,8 @@ class SelectionBrowser:
         rows = await self._session.execute(
             _narrow(_base(), filters)
             .order_by(DonorModel.dr.desc().nullslast(), DomainModel.host)
-            .limit(filters.limit)
-            .offset(filters.offset)
+            .limit(filters.size)
+            .offset((filters.page - 1) * filters.size)
         )
         total = await self._session.execute(
             select(func.count()).select_from(_narrow(_base(), filters).subquery())
