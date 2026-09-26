@@ -20,119 +20,216 @@
  * каждой букве: поле пропадало вместе с экраном. Теперь сводка и фильтры
  * стоят на месте, прежние строки видны приглушёнными до прихода новых,
  * а поиск уходит на сервер после паузы в наборе.
+ *
+ * **Сводка и одна панель под ней** (замечание 26.09.2026). Плитки — одного
+ * вида и на одном уровне: пояснение с долей у последней держало пустую
+ * строку под числом у всех шести. Фильтры переехали из отдельной карточки
+ * в строку под заголовками колонок (`SelectionTable`), и над таблицей
+ * остался один переключатель вкладок — он стал шапкой панели с таблицей,
+ * а не карточкой ради одной строки: шапка, таблица с фильтрами и страницы —
+ * одна панель, как у доноров. По двадцать на страницу; вкладка, фильтры
+ * и страница — в адресе (`selectionFilters.ts`).
  */
 
 import {
   Alert,
+  Box,
   Card,
   Group,
   Loader,
   Pagination,
   SegmentedControl,
-  Select,
   SimpleGrid,
   Stack,
-  Switch,
-  Table,
   Text,
-  TextInput,
   Title,
 } from '@mantine/core';
-import { useDebouncedValue, useMediaQuery } from '@mantine/hooks';
+import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 import { refusalOf } from '../api/client';
 import { HUMAN_INTENTS, JUDGE_DECIDERS, SELECTION_TABS } from '../api/labels';
 import { decideSite, listSelection } from '../api/selection';
-import type { HumanIntent, JudgeDecider, SelectionCard, SelectionTab } from '../api/types';
+import type { HumanIntent, JudgeDecider, SelectionCard, SelectionView } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { Metric } from '../components/Metric';
-import { TYPING_PAUSE_MS } from '../donors/useTyped';
-import { SelectionRow } from './SelectionRow';
+import { useTyped } from '../donors/useTyped';
+import { formatNumber } from '../format';
+import {
+  emptinessOf,
+  NO_SELECTION_FILTERS,
+  queryOf,
+  readSelectionFilters,
+  SELECTION_TAB_KEYS,
+  writeSelectionFilters,
+} from './selectionFilters';
+import type { SelectionFilters } from './selectionFilters';
+import { SelectionTable } from './SelectionTable';
 
-const PAGE_SIZE = 50;
-
-/** Колонки и их ширины — по самому длинному содержимому, домену остаток:
- *  значок «подходит» ужимался до «подхо…» на вкладке «К разбору» (аудит
- *  25.09.2026), потому что колонку порогов сжимала соседняя. Решение
- *  человека — три кнопки в ряд (~312 px); у судьи редкий длинный ряд
- *  значков переносится целыми значками. */
-const WIDTH = {
-  thresholds: '11rem',
-  judge: '20rem',
-  seller: '9.5rem',
-  human: '21.5rem',
-} as const;
-
-/** Уже этого таблица не сжимается и уезжает в прокрутку: колонкам — их
- *  ширины, домену — не меньше двухсот. */
-const MIN_WIDTH = 1180;
 const QUERY_KEY = ['selection'] as const;
-const TABS = Object.keys(SELECTION_TABS) as SelectionTab[];
 const DECIDERS = Object.keys(JUDGE_DECIDERS) as JudgeDecider[];
 
-/** Что лежит на пустой вкладке — словами, а не молчанием. */
-const EMPTY: Record<SelectionTab, string> = {
-  accepted: 'Принятых под фильтр нет.',
-  review: 'Разбирать нечего: судья ни о ком не попросил посмотреть, у всех доноров есть данные.',
-  rejected: 'Отклонённых под фильтр нет.',
+/** Набранный поиск совпадает с адресом без пробелов по краям: пробел в конце —
+ *  это ещё набор, а не новый фильтр. */
+const sameSearch = (draft: string, committed: string) => draft.trim() === committed;
+
+/** Стрелки переключателя страниц словами — те же, что у доноров и истории. */
+const CONTROL_NAMES: Record<string, string> = {
+  previous: 'Предыдущая страница',
+  next: 'Следующая страница',
+  first: 'Первая страница',
+  last: 'Последняя страница',
 };
 
-function share(part: number, whole: number): string {
-  return whole === 0 ? '—' : `${Math.round((part / whole) * 100)}%`;
+type Score = Partial<Record<JudgeDecider, { checked: number; agreed: number }>>;
+
+/** «правило 2 из 2 · модель 1 из 2 · арбитр — не проверяли». */
+function scoreLine(score: Score, missing: string): string {
+  return DECIDERS.map((who) => {
+    const layer = score[who];
+    return `${JUDGE_DECIDERS[who].title} ${
+      layer === undefined
+        ? `— ${missing}`
+        : `${formatNumber(layer.agreed)} из ${formatNumber(layer.checked)}`
+    }`;
+  }).join(' · ');
+}
+
+/** Сводка по всему отбору, а не по странице: она отвечает на вопрос «насколько
+ *  верить машине», и фильтры таблицы её не трогают. */
+function Summary({ data }: { data: SelectionView }) {
+  return (
+    <Card className="glassPanel" p="xl">
+      <Stack gap="md">
+        <Stack gap={6}>
+          <Title order={3}>Отбор</Title>
+          <Text size="sm" c="dimmed" maw={720}>
+            Каждый домен лежит ровно на одной вкладке. Отклонённый — не прошёл пороги или судья
+            решил, что это не площадка; у каждого отказа названы автор и основание. Решение человека
+            сильнее судьи, но вердикт судьи не переписывает: по расхождению между ними видно, как
+            часто он ошибается.
+          </Text>
+        </Stack>
+
+        {/* Плитки без пояснений: доля расхождений («—» до первого решения
+            человека) держала пустую строку под числом у всех шести плиток
+            и опускала их содержимое ниже середины (замечание 26.09.2026). */}
+        <SimpleGrid cols={{ base: 2, sm: 3, lg: 6 }} spacing="sm">
+          {SELECTION_TAB_KEYS.map((value) => (
+            <Metric
+              key={value}
+              title={SELECTION_TABS[value].title}
+              value={formatNumber(data.tabs[value])}
+            />
+          ))}
+          <Metric title="Ответили доноры" value={formatNumber(data.answered)} />
+          <Metric title="Смотрел человек" value={formatNumber(data.reviewed)} />
+          <Metric
+            title="Расходится с судьёй"
+            value={formatNumber(data.disagreements)}
+            color={data.disagreements > 0 ? 'yellow' : undefined}
+          />
+        </SimpleGrid>
+
+        {/* Главное число для гест-постинга: угадал ли судья, продаёт ли сайт
+            размещение, — по ответам самих сайтов. Сходимость с человеком
+            отвечает на другой вопрос: «издание или продавец своего». */}
+        <Text size="sm">
+          Судья угадал по ответам доноров: {scoreLine(data.answer_layers, 'ответов нет')}
+        </Text>
+        <Text size="sm" c="dimmed">
+          Сходится с человеком: {scoreLine(data.layers, 'не проверяли')}
+        </Text>
+      </Stack>
+    </Card>
+  );
 }
 
 export function SelectionPage() {
   const { can } = useSession();
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState<SelectionTab>('accepted');
-  const [search, setSearch] = useState('');
-  const [decider, setDecider] = useState<JudgeDecider | null>(null);
-  const [onlyDisagreements, setOnlyDisagreements] = useState(false);
-  const [onlyUnreviewed, setOnlyUnreviewed] = useState(false);
-  const [onlyUnjudged, setOnlyUnjudged] = useState(false);
-  const [onlyAnswered, setOnlyAnswered] = useState(false);
-  const [page, setPage] = useState(1);
-  // Поиск уходит на сервер после паузы в наборе: иначе каждая буква —
-  // запрос, и «3» на пути к «30» — отдельный фильтр.
-  const [typed] = useDebouncedValue(search.trim(), TYPING_PAUSE_MS);
-  // Новый поиск — с первой страницы, но когда он ушёл на сервер, а не на
-  // каждую букву: иначе с третьей страницы набор спрашивал бы первую
-  // страницу старого поиска.
-  useEffect(() => setPage(1), [typed]);
+  const [params, setParams] = useSearchParams();
+  const filters = useMemo(() => readSelectionFilters(params), [params]);
   // На узком окне три вкладки в ряд резали «Отклонены — 727» до «О».
   const narrow = useMediaQuery('(max-width: 36em)');
+  // На телефоне переключатель страниц без соседей текущей: с ними кнопки
+  // не влезали в строку (урок доноров).
+  const phone = useMediaQuery('(max-width: 30em)') === true;
+
+  // Смена вкладки или фильтра — замена записи в истории и первая страница:
+  // «назад» ведёт туда, откуда пришли, а не по буквам поиска, а двадцатая
+  // страница старого вопроса ничего не говорит о новом. Страница — новая
+  // запись.
+  const apply = useCallback(
+    (patch: Partial<SelectionFilters>) =>
+      setParams(
+        (current) => writeSelectionFilters({ ...readSelectionFilters(current), ...patch, page: 1 }),
+        { replace: true },
+      ),
+    [setParams],
+  );
+  const turn = useCallback(
+    (page: number) =>
+      setParams((current) => writeSelectionFilters({ ...readSelectionFilters(current), page })),
+    [setParams],
+  );
+
+  // Поиск печатают: в адрес и на сервер он уходит после паузы в наборе.
+  const [search, setSearch] = useTyped(
+    filters.search,
+    (value) => apply({ search: value.trim() }),
+    sameSearch,
+  );
 
   const query = useQuery({
     queryKey: [
       ...QUERY_KEY,
-      tab,
-      typed,
-      decider,
-      onlyDisagreements,
-      onlyUnreviewed,
-      onlyUnjudged,
-      onlyAnswered,
-      page,
+      filters.tab,
+      filters.search,
+      filters.thresholds,
+      filters.judge,
+      filters.answer,
+      filters.human,
+      filters.page,
     ],
-    queryFn: () =>
-      listSelection({
-        tab,
-        ...(typed !== '' ? { search: typed } : {}),
-        ...(decider !== null ? { decided_by: decider } : {}),
-        only_disagreements: onlyDisagreements,
-        only_unreviewed: onlyUnreviewed,
-        only_unjudged: onlyUnjudged,
-        only_answered: onlyAnswered,
-        limit: PAGE_SIZE,
-        offset: (page - 1) * PAGE_SIZE,
-      }),
-    // Смена вкладки или фильтра не убирает экран: прежние строки стоят,
-    // пока едут новые.
+    queryFn: () => listSelection(queryOf(filters)),
+    // Смена вкладки, фильтра или страницы не убирает экран: прежние строки
+    // стоят, пока едут новые.
     placeholderData: keepPreviousData,
   });
+
+  // Сводка не зависит от фильтров, и отказ сервера на новом фильтре не должен
+  // убирать её с экрана вместе с фильтрами: отказ встаёт строкой в таблицу,
+  // а сверху остаётся последняя пришедшая сводка.
+  const [lastView, setLastView] = useState<SelectionView | undefined>(undefined);
+  useEffect(() => {
+    if (query.data !== undefined) setLastView(query.data);
+  }, [query.data]);
+  const data = query.data ?? lastView;
+
+  const answer = query.isPlaceholderData ? undefined : query.data;
+  // Страницы — по ответу на этот вопрос (или по прежнему, пока едет новый),
+  // а не по последней сводке: под строкой отказа переключатель страниц
+  // прежнего вопроса звал бы листать то, чего на экране нет.
+  const pages =
+    query.data === undefined ? 1 : Math.max(1, Math.ceil(query.data.total / query.data.limit));
+
+  // Страница из старой ссылки может оказаться за концом: вместо пустоты
+  // с «ничего не нашлось» — последняя настоящая страница.
+  useEffect(() => {
+    if (answer !== undefined && answer.rows.length === 0 && answer.total > 0) {
+      const last = Math.max(1, Math.ceil(answer.total / answer.limit));
+      if (filters.page > last) {
+        setParams(
+          (current) => writeSelectionFilters({ ...readSelectionFilters(current), page: last }),
+          { replace: true },
+        );
+      }
+    }
+  }, [answer, filters.page, setParams]);
 
   const decide = useMutation({
     mutationFn: ({ row, intent }: { row: SelectionCard; intent: HumanIntent | null }) =>
@@ -146,16 +243,7 @@ export function SelectionPage() {
       notifications.show({ title: 'Не записали', message: refusalOf(failure), color: 'red' }),
   });
 
-  // Любой фильтр возвращает на первую страницу: иначе сужение выдачи
-  // оставляет человека на странице, которой больше нет.
-  const reset =
-    <T,>(set: (value: T) => void) =>
-    (value: T) => {
-      set(value);
-      setPage(1);
-    };
-
-  if (query.data === undefined) {
+  if (data === undefined) {
     // Первого ответа ещё нет — или не будет: крутилка только до первого
     // ответа, дальше экран не пропадает.
     return query.error ? (
@@ -167,181 +255,78 @@ export function SelectionPage() {
     );
   }
 
-  const data = query.data;
   // Строки прежней вкладки или фильтра — ждут замены: решать по ним нельзя.
   const stale = query.isPlaceholderData;
-  const { rows, tabs, reviewed, disagreements } = data;
-  const pages = Math.max(1, Math.ceil(data.total / PAGE_SIZE));
-  const mayDecide = can('prices');
+  const refusal = query.data === undefined && query.error ? refusalOf(query.error) : null;
+  const rows = query.data?.rows ?? [];
 
   return (
     <Stack gap="lg">
-      <Card className="glassPanel" p="xl">
-        <Stack gap="md">
-          <Stack gap={6}>
-            <Title order={3}>Отбор</Title>
-            <Text size="sm" c="dimmed" maw={720}>
-              Каждый домен лежит ровно на одной вкладке. Отклонённый — не прошёл пороги или судья
-              решил, что это не площадка; у каждого отказа названы автор и основание. Решение
-              человека сильнее судьи, но вердикт судьи не переписывает: по расхождению между ними
-              видно, как часто он ошибается.
-            </Text>
-          </Stack>
+      <Summary data={data} />
 
-          <SimpleGrid cols={{ base: 2, sm: 3, lg: 6 }} spacing="sm">
-            {TABS.map((value) => (
-              <Metric key={value} title={SELECTION_TABS[value].title} value={tabs[value]} />
-            ))}
-            <Metric title="Ответили доноры" value={data.answered} />
-            <Metric title="Смотрел человек" value={reviewed} />
-            <Metric
-              title="Расходится с судьёй"
-              value={disagreements}
-              hint={share(disagreements, reviewed)}
-              color={disagreements > 0 ? 'yellow' : undefined}
-            />
-          </SimpleGrid>
-
-          {/* Главное число для гест-постинга: угадал ли судья, продаёт ли сайт
-              размещение, — по ответам самих сайтов. Сходимость с человеком
-              отвечает на другой вопрос: «издание или продавец своего». */}
-          <Text size="sm">
-            Судья угадал по ответам доноров:{' '}
-            {DECIDERS.map((who) => {
-              const score = data.answer_layers[who];
-              return `${JUDGE_DECIDERS[who].title} ${
-                score === undefined ? '— ответов нет' : `${score.agreed} из ${score.checked}`
-              }`;
-            }).join(' · ')}
-          </Text>
-          <Text size="sm" c="dimmed">
-            Сходится с человеком:{' '}
-            {DECIDERS.map((who) => {
-              const score = data.layers[who];
-              return `${JUDGE_DECIDERS[who].title} ${
-                score === undefined ? '— не проверяли' : `${score.agreed} из ${score.checked}`
-              }`;
-            }).join(' · ')}
-          </Text>
-        </Stack>
-      </Card>
-
-      <Card className="glassPanel" p="xl">
-        <Stack gap="md">
+      <Card className="glassPanel" p="md">
+        <Stack gap="sm">
           <SegmentedControl
             orientation={narrow ? 'vertical' : 'horizontal'}
             fullWidth={narrow}
-            value={tab}
-            onChange={(value) => reset(setTab)(value as SelectionTab)}
-            data={TABS.map((value) => ({
+            aria-label="Вкладки отбора"
+            value={filters.tab}
+            onChange={(value) => {
+              const tab = SELECTION_TAB_KEYS.find((key) => key === value);
+              if (tab !== undefined) apply({ tab });
+            }}
+            data={SELECTION_TAB_KEYS.map((value) => ({
               value,
-              label: `${SELECTION_TABS[value].title} — ${tabs[value]}`,
+              label: `${SELECTION_TABS[value].title} — ${formatNumber(data.tabs[value])}`,
             }))}
           />
-          {/* Два ряда: поля и флажки. Одним рядом на 1440 четвёртый флажок
-              переносился один (аудит 25.09.2026). */}
-          <Group gap="md" align="flex-end">
-            <TextInput
-              placeholder="Домен или причина"
-              aria-label="Поиск по домену или причине"
-              w={{ base: '100%', xs: 260 }}
-              value={search}
-              onChange={(event) => setSearch(event.currentTarget.value)}
-            />
-            <Select
-              aria-label="Кто решил у судьи"
-              placeholder="Кто решил у судьи"
-              w={{ base: '100%', xs: 200 }}
-              clearable
-              value={decider}
-              onChange={(value) => reset(setDecider)(value as JudgeDecider | null)}
-              data={DECIDERS.map((who) => ({ value: who, label: JUDGE_DECIDERS[who].title }))}
-              comboboxProps={{ width: 'target', position: 'bottom-start' }}
-            />
-          </Group>
-          <Group gap="lg">
-            <Switch
-              label="Только расхождения"
-              checked={onlyDisagreements}
-              onChange={(event) => reset(setOnlyDisagreements)(event.currentTarget.checked)}
-            />
-            <Switch
-              label="Человек не смотрел"
-              checked={onlyUnreviewed}
-              onChange={(event) => reset(setOnlyUnreviewed)(event.currentTarget.checked)}
-            />
-            <Switch
-              label="Донор ответил"
-              checked={onlyAnswered}
-              onChange={(event) => reset(setOnlyAnswered)(event.currentTarget.checked)}
-            />
-            <Switch
-              label="Судья не смотрел"
-              checked={onlyUnjudged}
-              onChange={(event) => reset(setOnlyUnjudged)(event.currentTarget.checked)}
-            />
-          </Group>
+
+          <SelectionTable
+            rows={rows}
+            stale={stale}
+            refusal={refusal}
+            empty={
+              answer !== undefined && rows.length === 0
+                ? emptinessOf(filters, answer.tabs[filters.tab])
+                : null
+            }
+            filters={filters}
+            search={search}
+            onSearch={setSearch}
+            onFilter={apply}
+            mayDecide={can('prices')}
+            deciding={decide.isPending ? (decide.variables?.row.domain_id ?? null) : null}
+            onDecide={(row, intent) => decide.mutate({ row, intent })}
+            onReset={() => {
+              setSearch('');
+              setParams(writeSelectionFilters({ ...NO_SELECTION_FILTERS, tab: filters.tab }), {
+                replace: true,
+              });
+            }}
+          />
+
+          {pages > 1 && (
+            // Тот же вид, что у доноров: навигация с именем, номер — в своём
+            // элементе (по нему меряют контраст, а не по кругу кнопки).
+            <Box component="nav" aria-label="Страницы отбора" pt="xs">
+              <Group justify="center">
+                <Pagination
+                  value={Math.min(filters.page, pages)}
+                  onChange={turn}
+                  total={pages}
+                  siblings={phone ? 0 : 1}
+                  radius="xl"
+                  getItemProps={(number) => ({
+                    'aria-label': `Страница ${number}`,
+                    children: <span data-page-number>{number}</span>,
+                  })}
+                  getControlProps={(control) => ({ 'aria-label': CONTROL_NAMES[control] })}
+                />
+              </Group>
+            </Box>
+          )}
         </Stack>
       </Card>
-
-      <Card
-        className="glass staleRows"
-        p="xs"
-        data-stale={stale || undefined}
-        aria-busy={stale || undefined}
-      >
-        {rows.length === 0 ? (
-          <Text size="sm" c="dimmed" p="lg">
-            {stale ? 'Загружаем…' : EMPTY[tab]}
-          </Text>
-        ) : (
-          <Table.ScrollContainer minWidth={MIN_WIDTH} type="native" className="scrollSlim">
-            <Table
-              className="dataTable selectionTable"
-              layout="fixed"
-              verticalSpacing="sm"
-              horizontalSpacing="md"
-            >
-              <colgroup>
-                <col />
-                <col style={{ width: WIDTH.thresholds }} />
-                <col style={{ width: WIDTH.judge }} />
-                <col style={{ width: WIDTH.seller }} />
-                <col style={{ width: WIDTH.human }} />
-              </colgroup>
-              <Table.Thead>
-                <Table.Tr>
-                  <Table.Th>Домен</Table.Th>
-                  <Table.Th>Пороги</Table.Th>
-                  <Table.Th>Судья</Table.Th>
-                  <Table.Th>Донор ответил</Table.Th>
-                  <Table.Th>Человек</Table.Th>
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {rows.map((row) => (
-                  <SelectionRow
-                    key={row.domain_id}
-                    row={row}
-                    mayDecide={mayDecide}
-                    busy={
-                      stale ||
-                      (decide.isPending && decide.variables?.row.domain_id === row.domain_id)
-                    }
-                    onDecide={(target, intent) => decide.mutate({ row: target, intent })}
-                  />
-                ))}
-              </Table.Tbody>
-            </Table>
-          </Table.ScrollContainer>
-        )}
-      </Card>
-
-      {pages > 1 && (
-        <Group justify="center">
-          <Pagination value={page} onChange={setPage} total={pages} radius="xl" />
-        </Group>
-      )}
     </Stack>
   );
 }

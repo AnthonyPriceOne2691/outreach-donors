@@ -8,28 +8,31 @@
 import { request } from './client';
 import type {
   HumanIntent,
-  JudgeDecider,
+  SelectionAnswer,
   SelectionCard,
+  SelectionHuman,
+  SelectionJudge,
   SelectionTab,
+  SelectionThresholds,
   SelectionView,
 } from './types';
 
+/** Вкладка, фильтры под колонками и страница. Размера страницы здесь нет:
+ *  его называет сервер и возвращает в ответе (`limit`). */
 export interface SelectionQuery {
   tab: SelectionTab;
   search?: string;
-  decided_by?: JudgeDecider;
-  only_disagreements?: boolean;
-  only_unreviewed?: boolean;
-  only_unjudged?: boolean;
-  only_answered?: boolean;
-  limit?: number;
-  offset?: number;
+  thresholds?: SelectionThresholds;
+  judge?: SelectionJudge;
+  answer?: SelectionAnswer;
+  human?: SelectionHuman;
+  page?: number;
 }
 
 export function listSelection(query: SelectionQuery): Promise<SelectionView> {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {
-    if (value !== undefined && value !== '' && value !== false) params.set(key, String(value));
+    if (value !== undefined && value !== '') params.set(key, String(value));
   }
   return request<SelectionView>(`/selection?${params.toString()}`);
 }

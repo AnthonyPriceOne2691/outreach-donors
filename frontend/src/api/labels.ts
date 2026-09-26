@@ -22,7 +22,12 @@ import type {
   ReviewTier,
   Role,
   RunStatus,
+  SelectionAnswer,
+  SelectionHuman,
+  SelectionJudge,
   SelectionTab,
+  SelectionThresholds,
+  SellerAnswerKind,
   SuppressionReason,
   ThreadState,
   UsageProvider,
@@ -288,6 +293,57 @@ export const HUMAN_INTENTS: Record<HumanIntent, string> = {
   publisher: 'Площадка',
   sells_own: 'Продаёт своё',
   non_commercial: 'Не продаёт места',
+};
+
+/** Слова ячеек отбора, общие со значениями фильтров под колонками
+ *  (26.09.2026): фильтр называет значение тем же словом, что стоит
+ *  в строке, — иначе, выбрав «до Ahrefs не дошёл», человек ищет глазами
+ *  другое слово. */
+export const NOT_REACHED = 'до Ahrefs не дошёл';
+export const JUDGE_ABSENT = 'судья не смотрел';
+export const NO_ANSWER = 'не отвечал';
+
+/** Ответ донора, продаёт ли он размещение. */
+export const SELLER_ANSWERS: Record<SellerAnswerKind, { title: string; color: string }> = {
+  sells: { title: 'продаёт', color: 'green' },
+  free: { title: 'берёт бесплатно', color: 'green' },
+  declines: { title: 'не продаёт', color: 'red' },
+};
+
+/** Фильтр под «Порогами»: вердикт донора — или донора нет вовсе. */
+export const SELECTION_THRESHOLDS: Record<SelectionThresholds, string> = {
+  suitable: DONOR_STATUSES.suitable.title,
+  unsuitable: DONOR_STATUSES.unsuitable.title,
+  unchecked: DONOR_STATUSES.unchecked.title,
+  none: NOT_REACHED,
+};
+
+/** Фильтр под «Судьёй» — кто вынес вердикт. Прежняя подпись «Кто решил
+ *  у судьи» читалась загадкой (замечание 26.09.2026). Значения — слова
+ *  значков в строке, а что за ними стоит, пункт списка говорит сам. */
+export const SELECTION_JUDGES: Record<SelectionJudge, { title: string; hint?: string }> = {
+  rule: JUDGE_DECIDERS.rule,
+  model: JUDGE_DECIDERS.model,
+  arbiter: JUDGE_DECIDERS.arbiter,
+  none: { title: JUDGE_ABSENT },
+};
+
+/** Фильтр под «Донор ответил»: ответил ли — и что именно. */
+export const SELECTION_ANSWERS: Record<SelectionAnswer, string> = {
+  answered: 'ответил',
+  none: NO_ANSWER,
+  sells: SELLER_ANSWERS.sells.title,
+  free: SELLER_ANSWERS.free.title,
+  declines: SELLER_ANSWERS.declines.title,
+};
+
+/** Фильтр под «Человеком» — одно поле вместо двух переключателей
+ *  («Только расхождения», «Человек не смотрел»), которые друг друга
+ *  исключали. Те же слова стоят в строке. */
+export const SELECTION_HUMAN: Record<SelectionHuman, string> = {
+  unreviewed: 'не смотрел',
+  reviewed: 'смотрел',
+  disagrees: 'разошёлся с судьёй',
 };
 
 /** Тип сайта по судье — словами оператора. Ярлык у каждого кандидата:

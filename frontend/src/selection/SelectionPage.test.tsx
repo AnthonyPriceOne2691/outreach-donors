@@ -39,8 +39,8 @@ const MACHINE_NONE = {
 
 const NOBODY = { intent: null, note: null, decided_at: null };
 
-const ACCEPTED = 'GET /api/selection?tab=accepted&limit=50&offset=0';
-const REJECTED = 'GET /api/selection?tab=rejected&limit=50&offset=0';
+const ACCEPTED = 'GET /api/selection?tab=accepted';
+const REJECTED = 'GET /api/selection?tab=rejected';
 
 const BRAND: SelectionCard = {
   domain_id: 7,
@@ -91,6 +91,8 @@ function view(rows: SelectionCard[], extra: Partial<SelectionView> = {}): Select
   return {
     rows,
     total: rows.length,
+    page: 1,
+    limit: 20,
     tabs: { accepted: 12, review: 2, rejected: 3 },
     reviewed: 4,
     disagreements: 1,
@@ -239,7 +241,7 @@ describe('экран отбора', () => {
     });
     renderWith(<AppRoutes />, '/selection');
 
-    expect(await screen.findByText('Принятых под фильтр нет.')).toBeInTheDocument();
+    expect(await screen.findByText('Принятых пока нет.')).toBeInTheDocument();
   });
 
   it('ответ донора виден в строке и в сходимости судьи', async () => {
@@ -262,7 +264,9 @@ describe('экран отбора', () => {
 
     expect(within(rowOf('brand.test')).getByText('не продаёт')).toBeInTheDocument();
     expect(within(rowOf('weak.test')).getByText('продаёт')).toBeInTheDocument();
-    expect(within(rowOf('weak.test')).getByText(/250.00 EUR/)).toBeInTheDocument();
+    // Деньги — общей функцией, как на остальных экранах, а не сырой строкой
+    // сервера «250.00 EUR».
+    expect(within(rowOf('weak.test')).getByText('250,00 €')).toBeInTheDocument();
     expect(screen.getByText(/Судья угадал по ответам доноров/)).toHaveTextContent(
       'правило 1 из 1 · модель 1 из 2 · арбитр — ответов нет',
     );
@@ -335,7 +339,7 @@ describe('смена вкладки и фильтра — не перезагр�
   it('поиск не теряет поле на каждой букве и спрашивает сервер после паузы', async () => {
     // Раньше каждая буква меняла ключ запроса, экран заменялся крутилкой,
     // и поле поиска пропадало вместе с ним — вместе с фокусом.
-    const found = 'GET /api/selection?tab=accepted&search=brand&limit=50&offset=0';
+    const found = 'GET /api/selection?tab=accepted&search=brand';
     const recorded = await openScreen({ [found]: { body: view([BRAND]) } });
     const user = userEvent.setup();
 

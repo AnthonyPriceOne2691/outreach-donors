@@ -13,6 +13,10 @@ BIG = 3.0  # норма для крупного (18pt+ или 14pt жирног�
 #: Навигация по страницам истории прогонов — по её подписи, а не по классу.
 PAGER = "nav[aria-label='Страницы истории прогонов']"
 
+#: Отбор: вкладки и страницы — по своим подписям (26.09.2026).
+SELECTION_TABS = "[aria-label='Вкладки отбора']"
+SELECTION_PAGER = "nav[aria-label='Страницы отбора']"
+
 
 def open_reason(page):
     """Открыть поповер причины у первого остановленного прогона.
@@ -25,6 +29,14 @@ def open_reason(page):
         return
     hint.first.click()
     expect(page.get_by_role("dialog", name="Почему остановлен")).to_be_visible()
+    page.wait_for_timeout(400)
+
+
+def open_judge_filter(page):
+    """Открыть список «Кто вынес вердикт»: у слоя судьи в нём объяснение,
+    и мерить надо его — мелкий приглушённый текст на плотном стекле."""
+    page.get_by_role("textbox", name="Кто вынес вердикт").click()
+    expect(page.locator("[data-combobox-option][value='rule']")).to_be_visible()
     page.wait_for_timeout(400)
 
 
@@ -170,26 +182,64 @@ SCREENS: dict[str, dict] = {
             ("текст причины", "[role='dialog'] [data-run-reason]", NORM),
         ],
     },
+    # Отбор (26.09.2026): сводка без пояснений под числом, под ней одна
+    # панель — вкладки, таблица с фильтрами под колонками, страницы. Вкладка
+    # отклонённых: на ней есть все фильтры (у принятых порогов нет) и значки
+    # отказа. Мерится то, по чему решают, и сами фильтры — значение в поле,
+    # подсказка поиска, объяснение слоя в списке судьи.
     "selection": {
-        "path": "/selection",
+        "path": "/selection?tab=rejected",
         "ready": ("heading", "Отбор"),
         "probes": [
             ("заголовок раздела", "h3", BIG),
             ("пояснение под ним", "p.mantine-Text-root", NORM),
             ("число в плитке", ".glassQuiet p:nth-child(2)", BIG),
             ("подпись плитки", ".glassQuiet p:nth-child(1)", NORM),
-            ("пояснение под числом", ".glassQuiet p:nth-child(3)", NORM),
-            # ⚠ Сегмент ищется внутри панели: первым на странице идёт
-            # переключатель тем из шапки (22.09 замер печатал «МАЛО» про него).
-            ("вкладка отбора", ".glassPanel .mantine-SegmentedControl-innerLabel", NORM),
+            # ⚠ Сегмент ищется внутри своего переключателя: первым на странице
+            # идёт переключатель тем из шапки (22.09 замер печатал «МАЛО» про него).
+            (
+                "вкладка, выбранная",
+                f"{SELECTION_TABS} label[data-active] .mantine-SegmentedControl-innerLabel",
+                NORM,
+            ),
+            (
+                "вкладка, другая",
+                f"{SELECTION_TABS} label:not([data-active]) .mantine-SegmentedControl-innerLabel",
+                NORM,
+            ),
+            ("подпись колонки", ".selectionTable thead th:text-is('Судья')", NORM),
+            ("значение фильтра порогов", "input[aria-label='Вердикт порогов']", NORM),
+            ("значение фильтра судьи", "input[aria-label='Кто вынес вердикт']", NORM),
+            ("подсказка поиска", "input[aria-label='Поиск по домену или причине']", NORM),
             # Главное на экране: кто отклонил и почему.
-            ("домен в строке", "table tbody td a", NORM),
-            ("вердикт судьи значком", "table tbody td:nth-child(3) .mantine-Badge-label", NORM),
-            ("цитата судьи", "table tbody td:nth-child(3) p", NORM),
-            # Ответ донора — главное для гест-постинга, значком в своей колонке.
-            ("ответ донора", "table tbody td:nth-child(4) .mantine-Badge-label", NORM),
-            ("кнопка решения", "table tbody button", BIG),
+            ("домен в строке", ".selectionTable tbody td a", NORM),
+            ("вердикт порогов", ".selectionTable td:nth-child(2) .mantine-Badge-label", NORM),
+            ("причина отказа порогов", ".selectionTable tbody td:nth-child(2) p", NORM),
+            ("вердикт судьи значком", ".selectionTable td:nth-child(3) .mantine-Badge-label", NORM),
+            ("цитата судьи", ".selectionTable tbody td:nth-child(3) p", NORM),
+            # Ответов доноров в базе разработки нет — меряется «не отвечал»:
+            # мелкий приглушённый текст в той же колонке.
+            ("ответ донора", ".selectionTable tbody td:nth-child(4) p", NORM),
+            ("кнопка решения", ".selectionTable tbody button", BIG),
+            (
+                "номер другой страницы",
+                f"{SELECTION_PAGER} button:not([aria-current]) [data-page-number]:text-is('2')",
+                NORM,
+            ),
+            (
+                "номер текущей страницы",
+                f"{SELECTION_PAGER} button[aria-current='page'] [data-page-number]",
+                NORM,
+            ),
             ("пункт меню", "nav a", NORM),
+            # Список ложится поверх таблицы — его точки последние.
+            (
+                "слой в списке судьи",
+                "[data-combobox-option][value='rule'] .mantine-Text-root:not(.optionHint)",
+                NORM,
+                open_judge_filter,
+            ),
+            ("объяснение слоя", "[data-combobox-option][value='rule'] .optionHint", NORM),
         ],
     },
     "letters": {
