@@ -4,18 +4,48 @@
  *
  * Замечание 26.09.2026: «заведи возможность отмечать, какие именно доноры
  * можно выгрузить». Отметка — не фильтр: в адрес она не пишется (ссылка,
- * отправленная коллеге, не должна приносить чужие отметки), а живёт в кэше
- * запросов под своим ключом. Кэш чистится при выходе целиком — отметки
- * одного человека не достаются следующему, вошедшему в ту же вкладку
- * (урок 19.09.2026: экран показывал предыдущего пользователя).
+ * отправленная коллеге, не должна приносить чужие отметки), а живёт в памяти
+ * вкладки — рядом с клиентом запросов и под пропуском вошедшего. Другой
+ * пропуск — другой набор: отметки одного человека не достаются следующему,
+ * вошедшему в ту же вкладку (урок 19.09.2026: экран показывал предыдущего
+ * пользователя).
+ *
+ * **Отметка ставится сразу, а не после.** Первая версия держала набор
+ * в кэше запросов, и тот сообщает об изменении не сразу, а следующей задачей:
+ * между щелчком и перерисовкой флажок успевал вернуться в «не отмечен»,
+ * и проверка браузером ловила это как «щелчок не изменил состояние». Здесь
+ * хранилище своё и синхронное (`useSyncExternalStore`).
  */
 
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import type { QueryClient } from '@tanstack/react-query';
+import { useCallback, useMemo, useSyncExternalStore } from 'react';
 
-const PICKS_KEY = ['donor-picks'] as const;
+import { readToken } from '../auth/session';
 
-const NOTHING: readonly number[] = [];
+interface Store {
+  /** Пропуск, под которым отмечали: сменился — отметки не наши. */
+  owner: string | null;
+  picked: ReadonlySet<number>;
+  listeners: Set<() => void>;
+}
+
+/** Набор на клиента запросов: у каждого приложения (и у каждого теста) свой. */
+const stores = new WeakMap<QueryClient, Store>();
+
+function storeOf(client: QueryClient): Store {
+  let store = stores.get(client);
+  if (store === undefined) {
+    store = { owner: readToken(), picked: new Set(), listeners: new Set() };
+    stores.set(client, store);
+  }
+  const owner = readToken();
+  if (owner !== store.owner) {
+    store.owner = owner;
+    store.picked = new Set();
+  }
+  return store;
+}
 
 export interface Picks {
   picked: ReadonlySet<number>;
@@ -27,48 +57,47 @@ export interface Picks {
 }
 
 export function usePicks(): Picks {
-  const queryClient = useQueryClient();
-  // Запроса к серверу нет: данные — только то, что положили руками.
-  // Срок и сборка мусора — бесконечные: отметки держатся, пока экран
-  // в карточке, а не пять минут умолчания.
-  const { data } = useQuery({
-    queryKey: PICKS_KEY,
-    queryFn: () => NOTHING,
-    initialData: NOTHING,
-    staleTime: Infinity,
-    gcTime: Infinity,
-  });
-  const picked = useMemo(() => new Set(data), [data]);
+  const client = useQueryClient();
+  const subscribe = useCallback(
+    (listener: () => void) => {
+      const { listeners } = storeOf(client);
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    [client],
+  );
+  const picked = useSyncExternalStore(subscribe, () => storeOf(client).picked);
 
   const update = useCallback(
-    (change: (current: Set<number>) => void) =>
-      queryClient.setQueryData<readonly number[]>(PICKS_KEY, (current) => {
-        const next = new Set(current ?? NOTHING);
-        change(next);
-        return [...next];
-      }),
-    [queryClient],
+    (change: (next: Set<number>) => void) => {
+      const store = storeOf(client);
+      const next = new Set(store.picked);
+      change(next);
+      store.picked = next;
+      for (const listener of store.listeners) listener();
+    },
+    [client],
   );
 
-  const toggle = useCallback(
-    (id: number) =>
-      update((next) => {
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
-      }),
-    [update],
+  return useMemo(
+    () => ({
+      picked,
+      toggle: (id: number) =>
+        update((next) => {
+          if (next.has(id)) next.delete(id);
+          else next.add(id);
+        }),
+      setAll: (ids: readonly number[], on: boolean) =>
+        update((next) => {
+          for (const id of ids) {
+            if (on) next.add(id);
+            else next.delete(id);
+          }
+        }),
+      clear: () => update((next) => next.clear()),
+    }),
+    [picked, update],
   );
-  const setAll = useCallback(
-    (ids: readonly number[], on: boolean) =>
-      update((next) => {
-        for (const id of ids) {
-          if (on) next.add(id);
-          else next.delete(id);
-        }
-      }),
-    [update],
-  );
-  const clear = useCallback(() => queryClient.setQueryData(PICKS_KEY, NOTHING), [queryClient]);
-
-  return { picked, toggle, setAll, clear };
 }

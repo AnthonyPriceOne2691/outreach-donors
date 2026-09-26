@@ -208,7 +208,9 @@ function AddressTable({ donor, mayChange, removing, onRemove }: TableProps) {
   return (
     // Таблица выступает на поле ячейки (`bleedTable`): адрес встаёт на ту же
     // левую линию, что заголовок раздела, а подсветка строки — шире текста.
-    <Table.ScrollContainer minWidth={600} type="native" className="scrollSlim bleedTable">
+    // Уже этого таблица уезжает в прокрутку: адрес, «данные регистратора»
+    // одной строкой, две даты и значок удаления.
+    <Table.ScrollContainer minWidth={680} type="native" className="scrollSlim bleedTable">
       <Table className="dataTable donorAddresses" verticalSpacing="sm" horizontalSpacing="sm">
         <Table.Thead>
           <Table.Tr>
@@ -294,7 +296,9 @@ function AddAddress({
     },
   });
   return (
-    <Group gap="xs" align="flex-start" wrap="nowrap" className="addAddress">
+    // Ряд переносится: на телефоне поле и кнопка вместе не помещаются, и
+    // кнопка обрезалась краем карточки до «Добавить ‹» (снимок 26.09.2026).
+    <Group gap="xs" align="flex-start" wrap="wrap" className="addAddress">
       <TextInput
         placeholder="editor@site.com"
         aria-label="Новый адрес почты"

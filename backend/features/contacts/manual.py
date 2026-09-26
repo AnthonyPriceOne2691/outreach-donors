@@ -87,8 +87,11 @@ def _checked(email: str) -> str:
     if reason == NOT_AN_ADDRESS:
         raise AddressInvalidError(f"«{value}» не похож на адрес почты.")
     if reason is not None:
-        # Причина называет правило и сам адрес: «заглушка вместо адреса: you@x.com».
-        raise AddressInvalidError(f"Такой адрес не записываем — {reason}.")
+        # Причина называет правило и адрес: «чужой отдел: …: privacy@x.com».
+        # Адрес — в начало фразы, правило — после: двоеточие на двоеточии
+        # в конце читалось бы как перечисление.
+        title = reason.removesuffix(f": {value}")
+        raise AddressInvalidError(f"Адрес {value} не записываем — {title}.")
     return value
 
 

@@ -63,7 +63,10 @@ SCREENS: dict[str, dict] = {
             ("значок «почта не подключена»", ".mantine-Badge-label:has-text('почта')", NORM),
             ("строка последнего прогона", "p:has-text('ключей')", NORM),
             ("подпись полосы расхода", "p:has-text('Юниты Ahrefs')", NORM),
-            ("ссылка «Все доноры»", "a:has-text('Все доноры')", NORM),
+            # Раздел доноров — воронка (26.09.2026): ссылка на список — сама
+            # плитка «Доноры», отдельной ссылки у раздела нет.
+            ("заголовок «Воронка доноров»", "h5:text-is('Воронка доноров')", NORM),
+            ("подпись плитки «Доноры»", ".metricLink p:text-is('Доноры')", NORM),
             ("пункт меню", "nav a", NORM),
         ],
     },
@@ -360,26 +363,34 @@ SCREENS: dict[str, dict] = {
     # и подсказка пустого (подсказку сверяют со значением рядом, а не с
     # нормой, — см. шапку `ui_contrast.py`). «Ждут адреса» отрисовывается,
     # только когда ждущие есть: на базе без принятых доноров точка честно
-    # «не измерена».
+    # «не измерена». С 26.09.2026 первой колонкой стоит отметка (номера
+    # колонок сдвинулись на одну), под каждой колонкой — фильтр, а в шапке —
+    # «отмечено: N» (подготовка отмечает первую строку).
     "donors": {
         "path": "/donors",
         "ready": ("heading", "Доноры"),
         "probes": [
             ("заголовок экрана", "h3:text-is('Доноры')", BIG),
             ("сколько найдено", ".donorsFound", NORM),
-            ("кнопка «Выгрузить»", "button:has-text('Выгрузить')", BIG),
+            ("кнопка выгрузки", "button:has-text('Выгрузить')", BIG),
+            ("«отмечено»", ".pickedLine p", NORM),
+            ("«снять отметку»", "button:has-text('снять отметку')", BIG),
             ("«ждут адреса»", ".pendingContacts p", NORM),
             ("подпись колонки", ".donorsTable thead th:text-is('Трафик')", NORM),
             ("значение фильтра вердикта", "input[aria-label='Вердикт']", NORM),
+            ("значение фильтра гео", "input[aria-label='Гео']", NORM),
             ("значение фильтра адресов", "input[aria-label='Адреса']", NORM),
+            ("значение фильтра данных", "input[aria-label='Данные']", NORM),
             ("подсказка поиска", "input[aria-label='Поиск по домену или причине отсева']", NORM),
-            ("подсказка «не ниже»", "input[aria-label='DR не ниже']", NORM),
+            ("подсказка «не ниже» у DR", "input[aria-label='DR не ниже']", NORM),
+            ("подсказка «не ниже» у трафика", "input[aria-label='Трафик не ниже']", NORM),
+            ("флажок строки", ".donorsTable tbody .mantine-Checkbox-input", BIG),
             ("домен в строке", ".donorsTable tbody a.donorHost", NORM),
-            ("причина отсева", ".donorsTable tbody td:first-child p", NORM),
-            ("значок вердикта", ".donorsTable tbody td:nth-child(2) .mantine-Badge-label", NORM),
+            ("причина отсева", ".donorsTable tbody td:nth-child(2) p", NORM),
+            ("значок вердикта", ".donorsTable tbody td:nth-child(3) .mantine-Badge-label", NORM),
             ("число в «Адресах»", ".donorsTable .addressCount", NORM),
             ("значок исхода поиска", ".donorsTable .addressCell .mantine-Badge-label", NORM),
-            ("значок свежести", ".donorsTable tbody td:nth-child(7) .mantine-Badge-label", NORM),
+            ("значок свежести", ".donorsTable tbody td:nth-child(8) .mantine-Badge-label", NORM),
             (
                 "номер другой страницы",
                 "nav[aria-label='Страницы доноров'] button:not([aria-current]) "
@@ -392,6 +403,18 @@ SCREENS: dict[str, dict] = {
                 NORM,
             ),
             ("пункт меню", "nav a", NORM),
+        ],
+    },
+    # Доноров нет вовсе (решение 26.09.2026: донор — принятый человеком):
+    # путь к рассмотрению прогона и сколько ждёт. Мерится на базе без
+    # принятых доноров — на другой базе точки честно «не измерены».
+    "donors-empty": {
+        "path": "/donors",
+        "ready": ("heading", "Доноры"),
+        "probes": [
+            ("«Доноров пока нет.»", "p:text-is('Доноров пока нет.')", NORM),
+            ("почему и куда", "p:has-text('когда его принимает человек')", NORM),
+            ("кнопка «Рассмотреть»", "a:has-text('Рассмотреть')", BIG),
         ],
     },
     # Карточка донора с найденным адресом: раздел «Адреса» — что есть,
@@ -417,6 +440,15 @@ SCREENS: dict[str, dict] = {
             # переливом — 2,3 : 1 тёмному тексту на светлом (25.09.2026).
             ("адрес в строке", ".donorAddresses .donorEmail", NORM),
             ("откуда адрес", ".donorAddresses .donorSource", NORM),
+            # С 26.09.2026: кто это — донор или кандидат; почему письмо не
+            # соберётся; удалить адрес; вписать адрес руками (подготовка
+            # вписывает адрес в поле, не нажимая: у пустого поля кнопка
+            # выключена, а у выключенной меряется серое на сером).
+            ("кандидат, а не донор", ".donorStanding", NORM),
+            ("отметка «письмо уйдёт сюда»", ".letterMark .mantine-Badge-label", NORM),
+            ("значок «удалить адрес»", "button[aria-label^='Удалить'] svg", BIG),
+            ("адрес в поле", "input[aria-label='Новый адрес почты']", NORM),
+            ("кнопка «Добавить адрес»", "button:has-text('Добавить адрес')", BIG),
             ("пункт меню", "nav a", NORM),
         ],
     },
@@ -477,11 +509,28 @@ def open_letter_draft(page):
     page.wait_for_timeout(300)
 
 
+def pick_first_donor(page):
+    """Отметить первую строку — появляется «отмечено: 1 · снять отметку»."""
+    page.locator(".donorsTable tbody .mantine-Checkbox-input").first.check()
+    expect(page.locator(".pickedLine")).to_be_visible()
+    page.wait_for_timeout(300)
+
+
+def type_an_address(page):
+    """Вписать адрес в поле, не нажимая: кнопка оживает, а у пустого поля
+    она выключена и не меряется."""
+    page.get_by_label("Новый адрес почты").fill("editor@probe.example.test")
+    expect(page.get_by_role("button", name="Добавить адрес")).to_be_enabled()
+    page.wait_for_timeout(300)
+
+
 #: Что сделать на экране до замера. Общего у этих шагов нет ничего, кроме
 #: повода: мерить нечего, пока экран пуст или главная кнопка выключена.
 PREPARE = {
     "run": estimate,
     "letter-draft": open_letter_draft,
+    "donors": pick_first_donor,
+    "donor": type_an_address,
 }
 
 from ui_screens_mail import mail_prepare, mail_screens  # noqa: E402
