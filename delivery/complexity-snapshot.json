@@ -622,9 +622,9 @@
       "worst": "find_emails:185"
     },
     "backend/features/contacts/quality.py": {
-      "lines": 267,
+      "lines": 277,
       "complexity": 6,
-      "worst": "weight:243"
+      "worst": "weight:253"
     },
     "backend/features/contacts/rdap.py": {
       "lines": 111,

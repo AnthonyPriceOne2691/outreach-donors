@@ -91,6 +91,14 @@ PLACEHOLDER_MAIL_DOMAIN = re.compile(
 
 NO_REPLY_MARKERS = ("noreply@", "no-reply@", "no_reply@", "donotreply@", "do-not-reply@")
 
+# Ключ телеметрии, а не ящик: у DSN Sentry локальная часть — 32 шестнадцатеричных
+# символа. Признак по ФОРМЕ, а не по домену, и это принципиально: список доменов
+# сервисов такое не ловит. Боевой прогон 27.09.2026 отдал три варианта подряд —
+# `@o317978.ingest.sentry.io`, `@sentry.wixpress.com`, `@sentry.zipify.com`, —
+# и последний это Sentry, поднятый на собственном домене площадки: сколько
+# доменов в список ни добавь, следующий будет новый. Форма же одна на всех.
+TELEMETRY_KEY_LOCAL = re.compile(r"^[0-9a-f]{32}$")
+
 # Зоны, которых не бывает в природе: RFC 2606 держит их под примеры.
 # Со страниц они приезжают из образцов в разметке — боевой прогон 27.09.2026
 # снял `contact@imaginarylane.example`.
@@ -177,6 +185,8 @@ _RULES: tuple[tuple[Callable[[str, str, str], bool], str], ...] = (
         lambda _v, _l, domain: bool(set(domain.split(".")[:-2]) & WRONG_DEPARTMENT_LABELS),
         "чужой отдел, выделенный поддоменом",
     ),
+    (lambda _v, local, _d: bool(TELEMETRY_KEY_LOCAL.match(local)), "ключ телеметрии, а не ящик"),
+    (lambda _v, _l, domain: domain.split(".")[0] == "sentry", "поддомен Sentry, а не почта"),
     (lambda _v, _l, domain: _is_vendor(domain), "домен сервиса, а не сайта"),
     (lambda _v, _l, domain: domain.endswith(RESERVED_TLDS), "зона под примеры, а не живая"),
     (

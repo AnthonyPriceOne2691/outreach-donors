@@ -233,6 +233,41 @@ class TestVendorSubdomains:
     def test_service_subdomain_is_rejected(self, email: str) -> None:
         assert rejection_reason(email) is not None
 
+    @pytest.mark.parametrize(
+        "email",
+        [
+            # Sentry на СВОЁМ домене площадки: списком доменов не ловится.
+            "e7d54b729aaf49ea8b2f80dae22860aa@sentry.zipify.com",
+            "73410f1915d84abc8b2dd1f1aabd1c82@sentry.hackmd.dev",
+            # И на чужом домене без слова sentry вовсе — остаётся форма ключа.
+            "f421b49239504a9a9acbf7335cb6e058@o317978.example-analytics.net",
+        ],
+    )
+    def test_telemetry_key_is_not_a_mailbox(self, email: str) -> None:
+        """32 шестнадцатеричных символа в локальной части — это DSN, не ящик.
+
+        Признак по форме, а не по домену: боевой прогон 27.09.2026 отдал три
+        варианта подряд, и последний был Sentry на домене самой площадки.
+        Сколько доменов в список ни добавь, следующий будет новый.
+        """
+        assert rejection_reason(email) is not None
+
+    def test_mangled_telemetry_key_is_still_not_a_mailbox(self) -> None:
+        """Сломанное JSON-экранирование приклеивает `u003e` к ключу.
+
+        Такой адрес форму ключа уже не проходит — 32 hex перестают быть
+        всей локальной частью, — и его ловит только то, что домен начинается
+        на `sentry.`. В данных прогона этот мусор встретился живьём
+        (`u003epress@hackmd.io` рядом с DSN того же сайта).
+        """
+        assert (
+            rejection_reason("u003ee7d54b729aaf49ea8b2f80dae22860aa@sentry.zipify.com") is not None
+        )
+
+    def test_hex_looking_but_short_local_part_survives(self) -> None:
+        """Граница: `abc123@site.com` — обычный адрес, а не ключ."""
+        assert rejection_reason("abc123@site.com") is None
+
     def test_own_domain_that_merely_ends_with_a_word_survives(self) -> None:
         """`mysentry.io` — не `sentry.io`: границей служит точка, а не подстрока."""
         assert rejection_reason("ads@mysentry.io") is None
