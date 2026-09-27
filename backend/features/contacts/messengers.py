@@ -34,6 +34,8 @@ from enum import StrEnum
 
 from selectolax.parser import HTMLParser
 
+from backend.features.core.domain import PageKind
+
 
 class MessengerKind(StrEnum):
     """Канал связи. Значение — то, что уедет в колонку таблицы."""
@@ -272,3 +274,45 @@ def extract_handle_guesses(html: str) -> set[Handle]:
     explicit = {(handle.kind, handle.value) for handle in extract_handles(html)}
     guesses = _collect(_visible_text(html), _GUESS_RULES, Trust.GUESSED)
     return {handle for handle in guesses if (handle.kind, handle.value) not in explicit}
+
+
+@dataclass(frozen=True, slots=True)
+class FoundHandle:
+    """Канал связи вместе с тем, откуда он взят.
+
+    Отдельный тип, а не поля в `Handle`: извлечение отвечает на вопрос
+    «что написано», а провенанс знает только тот, кто скачал страницу.
+    Вид страницы сохраняется по той же причине, по какой он сохраняется
+    у адреса: ник со страницы «advertise» ведёт к тому, кто называет
+    цену, а из подвала — к кому попало.
+    """
+
+    kind: MessengerKind
+    value: str
+    trust: Trust
+    page_kind: PageKind
+    page_url: str | None = None
+
+
+def harvest_handles(
+    html: str, *, page_kind: PageKind, page_url: str | None = None
+) -> set[FoundHandle]:
+    """Снять со страницы все каналы связи и подписать их страницей.
+
+    Догадки берутся наравне с явными ссылками — они отличимы по `trust`,
+    и решение, писать ли по догадке, остаётся за тем, кто читает итог.
+    Своего фильтра у каналов нет: у ника нет ни ролевой части, ни домена,
+    по которым адрес отсеивают в `quality.py`, а проверить ник можно
+    только попыткой написать.
+    """
+    found = extract_handles(html) | extract_handle_guesses(html)
+    return {
+        FoundHandle(
+            kind=handle.kind,
+            value=handle.value,
+            trust=handle.trust,
+            page_kind=page_kind,
+            page_url=page_url,
+        )
+        for handle in found
+    }
