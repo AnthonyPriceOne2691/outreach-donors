@@ -135,10 +135,12 @@ class TestGluedTail:
     def test_lowercase_tail_is_left_as_is(self) -> None:
         """Осознанный предел: строчный хвост от долгой зоны не отличить.
 
-        Такой адрес отобьётся при отправке, и это видно. Обрезанный
-        молча уехал бы чужому живому человеку.
+        Обрезанный адрес молча уехал бы чужому живому человеку. Не
+        починенный, он и не проходит — узкий случай, где зоны заведомо
+        нет, отсеивает фильтр годности.
         """
         assert repair_glued_domain("gmail.comand") == "gmail.comand"
+        assert rejection_reason("ads@gmail.comand") is not None
 
 
 class TestContactLinks:
@@ -321,6 +323,57 @@ class TestPlaceholderDomains:
         ],
     )
     def test_real_sites_with_similar_names_pass(self, email: str) -> None:
+        assert rejection_reason(email) is None
+
+
+class TestNotTheSitesMailbox:
+    """Прогон 27.09.2026 по 14 тыс. площадок: адреса, правдоподобные на вид и
+    даже подтверждённые проверкой ящика, но принадлежащие не сайту — хостеру
+    на странице-заглушке, платформе блогов в подвале публикации, юрфирме,
+    которая представляет платформу в ЕС. Писать туда о размещении бессмысленно."""
+
+    @pytest.mark.parametrize(
+        ("email", "marker"),
+        [
+            ("support@beget.com", "хостера"),
+            ("bills@beget.com", "хостера"),
+            ("info@hostinger.com", "хостера"),
+            ("support@ovh.com", "хостера"),
+            ("data-protection@hetzner.com", "хостера"),
+            ("support@substack.com", "платформы, а не автора"),
+            ("dsa@substackinc.com", "домен сервиса"),
+            ("eurepresentative.substack@twobirds.com", "представитель"),
+            ("ukrepresentative.substack@twobirds.com", "представитель"),
+            ("substack-dsa@lionheartsquared.eu", "представитель"),
+            ("mailaddress@client.com", "домен-заглушка"),
+            ("info@thenationnetwork.comif", "слипшимся хвостом"),
+            ("info@longlead.comor", "слипшимся хвостом"),
+        ],
+    )
+    def test_refused_with_its_reason(self, email: str, marker: str) -> None:
+        reason = rejection_reason(email)
+        assert reason is not None
+        assert marker in reason
+
+    @pytest.mark.parametrize(
+        "email",
+        [
+            # Автор на платформе — законный адрес: ящик платформы отличается формой.
+            "wethefifth@substack.com",
+            # `ovh` подстрокой в чужом имени — не хостер.
+            "info@lovhouse.com",
+            # Представитель по продажам — тот, кто нам и нужен.
+            "salesrepresentative@site.com",
+            # Долгие живые зоны, которые начинаются на com/net/org.
+            "hello@site.company",
+            "news@site.community",
+            "contact@north-star.network",
+            "info@thenationnetwork.com",
+            "editor@site.com.au",
+            "info@clientearth.org",
+        ],
+    )
+    def test_similar_real_addresses_pass(self, email: str) -> None:
         assert rejection_reason(email) is None
 
 
