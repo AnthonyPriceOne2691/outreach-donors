@@ -14,6 +14,7 @@ from backend.features.contacts.extract import (
     extract_emails,
     extract_obfuscated,
     find_contact_links,
+    repair_glued_domain,
 )
 from backend.features.contacts.quality import (
     Candidate,
@@ -80,6 +81,64 @@ class TestExtract:
         assert not trusted_guess("meet@the.com", site_host="site.com")
         assert trusted_guess("info@site.com", site_host="site.com")
         assert trusted_guess("editor@gmail.com", site_host="site.com")
+
+
+class TestGluedTail:
+    """Хвост соседнего слова, слипшийся с зоной адреса.
+
+    Проверяется в обе стороны, и вторая важнее первой: не починить адрес
+    значит потерять донора, а обрезать живую зону значит написать не тому,
+    кому писали, и не узнать об этом никогда.
+    """
+
+    @pytest.mark.parametrize(
+        ("html", "expected"),
+        [
+            ("<p>Пишите на ads@gmail.comJanuary 5, 2024</p>", "ads@gmail.com"),
+            ("<p>ads@site.com2024 год</p>", "ads@site.com"),
+            ("<p>ads@gmail.comЯнварь</p>", "ads@gmail.com"),
+        ],
+    )
+    def test_tail_is_cut_off(self, html: str, expected: str) -> None:
+        assert extract_emails(html) == {expected}
+
+    @pytest.mark.parametrize(
+        "domain",
+        ["example.company", "site.network", "x.institute", "y.international", "z.phone"],
+    )
+    def test_long_zone_survives(self, domain: str) -> None:
+        """Список известных зон обрезал бы `company` до `com`, а `institute` до `in`.
+
+        Именно так вела себя рабочая реализация, у которой список был.
+        """
+        assert repair_glued_domain(domain) == domain
+
+    @pytest.mark.parametrize(
+        "domain",
+        [
+            "site.xn--p1ai",
+            "сайт.рф",
+            # `xn--d1acj3b` (.дети) — та самая опасная форма: две строчные
+            # буквы, сразу за ними цифра. Держит её только привязка поиска
+            # к началу метки; снимут привязку — зона обрежется до `.acj`.
+            "site.xn--d1acj3b",
+        ],
+    )
+    def test_punycode_zone_survives(self, domain: str) -> None:
+        """Единственная зона с цифрами — punycode; по цифре её резать нельзя."""
+        assert repair_glued_domain(domain) == domain
+
+    @pytest.mark.parametrize("domain", ["SITE.COM", "Site.Com", "site.com", "site.co.uk"])
+    def test_ordinary_domain_is_untouched(self, domain: str) -> None:
+        assert repair_glued_domain(domain) == domain
+
+    def test_lowercase_tail_is_left_as_is(self) -> None:
+        """Осознанный предел: строчный хвост от долгой зоны не отличить.
+
+        Такой адрес отобьётся при отправке, и это видно. Обрезанный
+        молча уехал бы чужому живому человеку.
+        """
+        assert repair_glued_domain("gmail.comand") == "gmail.comand"
 
 
 class TestContactLinks:

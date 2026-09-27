@@ -36,10 +36,10 @@ from backend.features.contacts.extract import (
 )
 from backend.features.contacts.mx import DELIVERABLE, MailRoute, mail_route
 from backend.features.contacts.pages import (
-    LINK_MARKERS,
     FetchedPage,
     PageFetcher,
     has_contact_form,
+    language_hint,
     slug_urls,
 )
 from backend.features.contacts.provider import (
@@ -50,6 +50,7 @@ from backend.features.contacts.provider import (
     ProviderRateLimitError,
 )
 from backend.features.contacts.quality import Candidate, best, rejection_reason, trusted_guess
+from backend.features.contacts.slugs import LINK_MARKERS
 from backend.features.core.domain import ContactSource, ContactStatus, PageKind
 
 logger = logging.getLogger(__name__)
@@ -300,7 +301,11 @@ class ContactLadder:
         # Ссылки с главной идут впереди угадываемых слагов: там раздел
         # назван словами и лежит по любому адресу, хоть /p/12345.
         links = find_contact_links(home.html, slugs=LINK_MARKERS)
-        queue = fetcher.follow(home, links) + list(slug_urls(home.url))
+        # Язык берём с главной: она уже скачана, а слаги угадываются после.
+        # Без этого локальная площадка не пробуется на своём языке вовсе —
+        # потолок попыток кончается на английских слагах.
+        language = language_hint(home.html, host)
+        queue = fetcher.follow(home, links) + list(slug_urls(home.url, language=language))
         visited = {home.url}
 
         for url, kind in queue:
