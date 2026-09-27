@@ -586,6 +586,11 @@
       "complexity": 8,
       "worst": "remove:156"
     },
+    "backend/features/contacts/messengers.py": {
+      "lines": 275,
+      "complexity": 5,
+      "worst": "_collect:227"
+    },
     "backend/features/contacts/mx.py": {
       "lines": 207,
       "complexity": 10,
