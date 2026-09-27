@@ -188,6 +188,31 @@ class TestGuesses:
         assert extract_handles(html) == {Handle(MessengerKind.TELEGRAM, "adsdesk", Trust.EXPLICIT)}
         assert extract_handle_guesses(html) == set()
 
+    @pytest.mark.parametrize(
+        "html",
+        [
+            "<body><style>@keyframes spin{} @media all{}</style><p>текст</p></body>",
+            '<body><script type="application/ld+json">{"@type":"NewsArticle"}</script></body>',
+            "<body><noscript><style>@keyframes x{}</style></noscript></body>",
+        ],
+    )
+    def test_markup_is_not_prose(self, html: str) -> None:
+        """CSS-правила и ключи JSON-LD начинаются с собаки, но никами не являются.
+
+        Найдено живым прогоном 27.09.2026: из 9 977 «телеграмов» 8 661 были
+        `@keyframes`, `@media` и `@type` — шум заслонял находки в семь раз.
+        """
+        assert _guessed(html, MessengerKind.TELEGRAM) == set()
+
+    def test_label_needs_a_separator_or_an_at_sign(self) -> None:
+        """«Наш tg media открыт» — не подпись канала.
+
+        Пока разделитель был необязательным, любое слово после короткого
+        триггера `tg` становилось ником.
+        """
+        assert _guessed("<p>Наш tg media открыт</p>", MessengerKind.TELEGRAM) == set()
+        assert _guessed("<p>наш tg @adsdesk</p>", MessengerKind.TELEGRAM) == {"adsdesk"}
+
     def test_trust_is_marked(self) -> None:
         explicit = extract_handles('<a href="https://t.me/adsdesk">тг</a>')
         guessed = extract_handle_guesses("<p>пишите @adsdesk</p>")

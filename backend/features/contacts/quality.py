@@ -91,6 +91,17 @@ PLACEHOLDER_MAIL_DOMAIN = re.compile(
 
 NO_REPLY_MARKERS = ("noreply@", "no-reply@", "no_reply@", "donotreply@", "do-not-reply@")
 
+# Зоны, которых не бывает в природе: RFC 2606 держит их под примеры.
+# Со страниц они приезжают из образцов в разметке — боевой прогон 27.09.2026
+# снял `contact@imaginarylane.example`.
+#
+# ⚠️ `.test` и `.localhost` сюда НЕ входят намеренно, хотя тем же RFC они тоже
+# зарезервированы: на них стоят фикстуры этого репозитория (`site.example.test`),
+# и зона выбрана именно потому, что в живую сеть по ней не попасть. Запретив её,
+# мы отняли бы у тестов единственный безопасный домен. На страницах адрес в
+# зоне `.test` не встречается — в отличие от `.example`, который пишут в примерах.
+RESERVED_TLDS = (".example", ".invalid")
+
 # Адреса чужих отделов. Формально живые, но цену за размещение там не
 # называют, а письмо в отписку или в жалобы — это заявка на жалобу.
 # Пришло с боевого прогона: со страницы experian.com снялся `optout@`.
@@ -166,7 +177,8 @@ _RULES: tuple[tuple[Callable[[str, str, str], bool], str], ...] = (
         lambda _v, _l, domain: bool(set(domain.split(".")[:-2]) & WRONG_DEPARTMENT_LABELS),
         "чужой отдел, выделенный поддоменом",
     ),
-    (lambda _v, _l, domain: domain in VENDOR_DOMAINS, "домен сервиса, а не сайта"),
+    (lambda _v, _l, domain: _is_vendor(domain), "домен сервиса, а не сайта"),
+    (lambda _v, _l, domain: domain.endswith(RESERVED_TLDS), "зона под примеры, а не живая"),
     (
         lambda _v, _l, domain: bool(PLACEHOLDER_MAIL_DOMAIN.match(domain)),
         "домен-заглушка из примера на странице",
@@ -178,6 +190,22 @@ _RULES: tuple[tuple[Callable[[str, str, str], bool], str], ...] = (
     (lambda _v, _l, domain: domain.endswith(FILE_EXTENSIONS), "хвост имени файла"),
     (lambda _v, _l, domain: domain.startswith(".") or ".." in domain, "домен разобран неверно"),
 )
+
+
+def _is_vendor(domain: str) -> bool:
+    """Домен сервиса — он сам или любой его поддомен.
+
+    Точного совпадения не хватает, и это выяснилось на боевом прогоне:
+    со страниц приезжают ключи Sentry вида
+    `f421b49239504a9a9acbf7335cb6e058@o317978.ingest.sentry.io` и
+    `…@sentry.wixpress.com`. Домен в списке есть, но адрес был на ТРЕТЬЕМ
+    уровне, проверка `domain in VENDOR_DOMAINS` его не видела, и ключ
+    телеметрии уезжал в базу как контакт редакции — правдоподобный на вид
+    и мёртвый по существу.
+    """
+    if domain in VENDOR_DOMAINS:
+        return True
+    return any(domain.endswith(f".{vendor}") for vendor in VENDOR_DOMAINS)
 
 
 #: Отказ, когда строка вовсе не адрес: у него нет адреса в хвосте.

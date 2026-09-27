@@ -214,6 +214,43 @@ class TestRejection:
         assert marker in reason
 
 
+class TestVendorSubdomains:
+    """Домен сервиса на третьем уровне. Найдено боевым прогоном 27.09.2026.
+
+    Ключ телеметрии выглядит как адрес и проходит любую проверку формы:
+    списка доменов сервисов недостаточно, если сверять только точное
+    совпадение — адрес сидит на поддомене.
+    """
+
+    @pytest.mark.parametrize(
+        "email",
+        [
+            "f421b49239504a9a9acbf7335cb6e058@o317978.ingest.sentry.io",
+            "79baaa8e09c746d2b7401643b99792e0@sentry.wixpress.com",
+            "abc@www.google.com",
+        ],
+    )
+    def test_service_subdomain_is_rejected(self, email: str) -> None:
+        assert rejection_reason(email) is not None
+
+    def test_own_domain_that_merely_ends_with_a_word_survives(self) -> None:
+        """`mysentry.io` — не `sentry.io`: границей служит точка, а не подстрока."""
+        assert rejection_reason("ads@mysentry.io") is None
+
+    @pytest.mark.parametrize("email", ["contact@imaginarylane.example", "info@site.invalid"])
+    def test_reserved_zone_is_rejected(self, email: str) -> None:
+        """RFC 2606 держит эти зоны под примеры — со страниц они и приезжают."""
+        assert rejection_reason(email) is not None
+
+    def test_fixture_zone_stays_usable(self) -> None:
+        """`.test` тем же RFC зарезервирована, но на ней стоят фикстуры репо.
+
+        Запретив её, мы отняли бы у тестов единственный домен, по которому
+        нельзя случайно уйти в живую сеть.
+        """
+        assert rejection_reason("ads@site.example.test") is None
+
+
 class TestPlaceholderDomains:
     """Прогон 23.09.2026, 100 ключей US: со страниц снялись адреса из
     примеров — `support@yourcompany.com`, `you@yourbusiness.com`,
