@@ -359,6 +359,7 @@ Library.
     POST   /api/threads/{id}/status     состояние сделки, ставит человек
     POST   /api/threads/{id}/stop       остановить цепочку
     GET    /api/replies/{id}/attachments/{id}   вложение ответа, только на скачивание
+    GET    /api/replies/unbound         ответы без письма и почему, по странице
 
     GET    /api/senders                 домены и ящики рассылки     (админ)
     POST   /api/senders/{id}/enable     включить, с начала разгона  (админ)
