@@ -44,7 +44,7 @@ from backend.features.letters.building import run_scope
 from backend.features.letters.repository import LetterRepository, QueuedLetter
 from backend.features.letters.sending import Sending
 from backend.features.letters.template import Template, of_campaign
-from backend.features.letters.transport_factory import build_transport
+from backend.features.letters.transport_factory import build_transport, in_use
 from backend.shared.queue import BUILD_JOB, runs_queue, with_retries
 
 router = APIRouter(prefix="/letters", tags=["письма"])
@@ -210,7 +210,8 @@ async def send(
     По одному, а не пачкой: смысл экрана в том, что спорное решение видит
     человек, и кнопка «отправить всё» этот смысл отменяет.
     """
-    outcome = await Sending(session, build_transport()).send(letter_id, author_id=author.id)
+    async with in_use(build_transport()) as transport:
+        outcome = await Sending(session, transport).send(letter_id, author_id=author.id)
     return SendResult(
         id=outcome.message_id,
         sender_email=outcome.sender_email,

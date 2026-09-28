@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from backend.config import storage
 from backend.config.startup_checks import check_storage
 from backend.features.letters.followups import send_due
-from backend.features.letters.transport_factory import build_transport
+from backend.features.letters.transport_factory import build_transport, in_use
 from backend.shared.logs import setup_logging
 from backend.workers.ticker import every
 
@@ -38,15 +38,15 @@ BATCH = 20
 async def sweep() -> None:
     """Один проход по подошедшим добивкам.
 
-    Транспорт собирается на каждый проход вместе с сессией: настройки
-    отправки меняются без перезапуска процесса, и долгоживущий транспорт
-    продолжал бы слать по-старому.
+    Транспорт собирается на каждый проход вместе с сессией и закрывается
+    с ней же: настройки отправки меняются без перезапуска процесса,
+    а незакрытый транспорт оставлял бы по пулу соединений на каждый проход.
     """
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
-        async with factory() as session:
-            report = await send_due(session, transport=build_transport(), limit=BATCH)
+        async with factory() as session, in_use(build_transport()) as transport:
+            report = await send_due(session, transport=transport, limit=BATCH)
         if report.sent or report.postponed or report.stopped:
             logger.info("Добивки: %s", report.as_report)
     finally:

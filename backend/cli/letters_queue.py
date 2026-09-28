@@ -26,7 +26,8 @@ from backend.features.core.models.outreach import MessageModel
 from backend.features.letters.building import BuildReport, BuildRequest, QueueBuilder
 from backend.features.letters.rewrite import RewriteClient
 from backend.features.letters.sending import SendError, Sending
-from backend.features.letters.transport_factory import build_transport
+from backend.features.letters.transport import TransportError
+from backend.features.letters.transport_factory import build_transport, in_use
 from backend.features.letters.uniqueness import corridor_verdict, percent_text
 
 EXIT_OK = 0
@@ -142,7 +143,13 @@ async def cmd_letters(args: argparse.Namespace) -> int:
 
 async def cmd_letters_send(args: argparse.Namespace) -> int:
     """Отправить одно письмо."""
-    transport = build_transport()
+    try:
+        transport = build_transport()
+    except TransportError as exc:
+        # Словами, а не трассировкой: «транспорт sendgrid, ключа нет» — это
+        # настройка, и сообщение транспорта уже говорит, чего не хватает.
+        print(f"Письмо не отправлено: {exc}")
+        return EXIT_NOT_SENT
     if not transport.real:
         print(
             f"Транспорт «{transport.name}» ничего не отправляет: письмо будет помечено "
@@ -150,7 +157,7 @@ async def cmd_letters_send(args: argparse.Namespace) -> int:
         )
 
     factory = _sessions()
-    async with factory() as session:
+    async with factory() as session, in_use(transport):
         try:
             outcome = await Sending(session, transport).send(args.id)
         except SendError as exc:
