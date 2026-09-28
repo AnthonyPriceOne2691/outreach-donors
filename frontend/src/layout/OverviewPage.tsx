@@ -40,7 +40,7 @@ import type {
 import { useSession } from '../auth/AuthProvider';
 import { Meter } from '../components/Meter';
 import { Metric } from '../components/Metric';
-import { formatDateTime, formatNumber, formatShare, formatUsd } from '../format';
+import { formatDateTime, formatNumber, formatShare, formatUsd, plural } from '../format';
 
 /**
  * Тревоги сторожа тишины — на главной, а не в отдельном разделе: поломка
@@ -256,14 +256,36 @@ function DonorsSection({ donors }: { donors: OverviewDonors }) {
   );
 }
 
+/**
+ * Ответы, не привязанные ни к одному нашему письму, — строкой под плитками
+ * писем, и только когда они есть. Не плиткой в «Ждут человека»: убрать такой
+ * ответ оттуда пока нечем (привязки руками нет), и янтарное число стояло бы
+ * вечно — с первого же ответа на пробное письмо.
+ */
+function UnboundLine({ count }: { count: number }) {
+  if (count === 0) return null;
+  return (
+    <Text size="sm">
+      Не привязаны ни к одному нашему письму:{' '}
+      {/* Средний вес, как у ссылок разделов: тонкие бирюзовые штрихи на ярком
+          месте стекла читались бледнее своего цвета. */}
+      <Anchor component={Link} to="/threads?tab=unbound" size="sm" fw={500}>
+        {formatNumber(count)} {plural(count, 'ответ', 'ответа', 'ответов')}
+      </Anchor>
+    </Text>
+  );
+}
+
 function LettersSection({
   donors,
   advertisers,
   transport,
+  unbound,
 }: {
   donors: OverviewLetters;
   advertisers: OverviewLetters;
   transport: LetterTransport;
+  unbound: number;
 }) {
   const quietStageTwo = advertisers.queued === 0 && advertisers.sent === 0;
   return (
@@ -292,6 +314,7 @@ function LettersSection({
             color={attention(donors.bounced)}
           />
         </SimpleGrid>
+        <UnboundLine count={unbound} />
         {!transport.real && (
           <Text size="sm" c="dimmed">
             Почта подключается на рабочем сервере: до этого письма собираются и правятся, но наружу
@@ -409,6 +432,7 @@ function Dashboard() {
           donors={data.letters.donors}
           advertisers={data.letters.advertisers}
           transport={data.transport}
+          unbound={data.unbound_replies}
         />
         <RunSection data={data} />
       </SimpleGrid>

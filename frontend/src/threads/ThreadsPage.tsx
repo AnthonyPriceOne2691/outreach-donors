@@ -20,6 +20,13 @@
  * фиксированная, узкому окну — прокрутка: на телефоне таблица в карточке
  * без прокрутки показывала две колонки из пяти, а значок состояния
  * ужимался до «цепочка остановле…».
+ *
+ * **Вторая вкладка — «Не привязаны»** (28.09.2026): ответы, которые приём
+ * сохранил, но не соотнёс ни с одним нашим письмом (`UnboundReplies`).
+ * Вкладки — шапкой панели с таблицей, как на «Отборе», со счётчиками; вкладка
+ * и её страница — в адресе (`threadTabs.ts`). Число непривязанных спрашивается
+ * и на первой вкладке: без него вкладку, в которой что-то лежит, не отличить
+ * от пустой, а первая её страница из кэша открывает вкладку сразу.
  */
 
 import {
@@ -30,6 +37,7 @@ import {
   Card,
   Group,
   Loader,
+  SegmentedControl,
   Select,
   Stack,
   Table,
@@ -37,6 +45,7 @@ import {
   TextInput,
   Title,
 } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import { useQuery } from '@tanstack/react-query';
 import { useCallback, useMemo } from 'react';
 import type { ReactNode } from 'react';
@@ -46,6 +55,7 @@ import { refusalOf } from '../api/client';
 import { THREAD_STATES } from '../api/labels';
 import { listThreads } from '../api/outreach';
 import type { ThreadCard, ThreadState } from '../api/types';
+import { usePageParam } from '../components/PageSwitch';
 import { useTyped } from '../donors/useTyped';
 import { formatDateTime, formatMoney, formatNumber } from '../format';
 import { ParseCalibration } from './ParseCalibration';
@@ -59,6 +69,15 @@ import {
   writeThreadFilters,
 } from './threadFilters';
 import type { ThreadFilters } from './threadFilters';
+import {
+  readThreadTab,
+  THREAD_TAB_KEYS,
+  THREAD_TABS,
+  useUnboundPage,
+  writeThreadTab,
+} from './threadTabs';
+import type { ThreadTab } from './threadTabs';
+import { UnboundReplies } from './UnboundReplies';
 
 const THREADS_QUERY_KEY = ['threads'] as const;
 
@@ -85,6 +104,11 @@ const sameSearch = (draft: string, committed: string) => draft.trim() === commit
 /** «Ждёт разбора · 1»: точка, как у фильтров доноров. */
 function counted(title: string, count: number): string {
   return `${title} · ${formatNumber(count)}`;
+}
+
+/** «Не привязаны — 2», как у вкладок «Отбора»; пока числа нет — одно имя. */
+function tabLabel(tab: ThreadTab, count: number | undefined): string {
+  return count === undefined ? THREAD_TABS[tab] : `${THREAD_TABS[tab]} — ${formatNumber(count)}`;
 }
 
 /** Цена — по строке на белую и серую: «250,00 € / 180,00 €» без подписей
@@ -120,6 +144,13 @@ export function ThreadsPage() {
   const location = useLocation();
   const [params, setParams] = useSearchParams();
   const filters = useMemo(() => readThreadFilters(params), [params]);
+  const tab = readThreadTab(params);
+  const [page, goToPage] = usePageParam();
+  // На первой вкладке — ради числа во вкладке: первая страница, та же, что
+  // откроется на второй.
+  const unbound = useUnboundPage(tab === 'unbound' ? page : 1);
+  // На узком окне вкладки — во всю ширину, поровну.
+  const narrow = useMediaQuery('(max-width: 36em)') === true;
 
   // Смена фильтра — замена записи в истории, а не новая: «назад» ведёт туда,
   // откуда пришли, а не по буквам поиска.
@@ -157,8 +188,10 @@ export function ThreadsPage() {
   const typed = { ...filters, search: search.trim() };
   const shown = threads.filter((thread) => threadMatches(thread, typed));
 
-  if (isLoading) return <Loader aria-label="Загружаем диалоги" m="md" />;
-  if (error) {
+  // Крутилка и отказ — только у своей вкладки: вторая от списка диалогов
+  // не зависит и ждать его не должна.
+  if (tab === 'threads' && isLoading) return <Loader aria-label="Загружаем диалоги" m="md" />;
+  if (tab === 'threads' && error) {
     return (
       <Alert color="red" title="Диалоги не загрузились" m="md">
         {refusalOf(error)}
@@ -174,6 +207,16 @@ export function ThreadsPage() {
   const empty = shown.length === 0 ? threadEmptiness(typed, counts, threads.length) : null;
   const open = (thread: ThreadCard) =>
     void navigate(`/threads/${thread.id}`, { state: { from: location.search } });
+  const tabCounts: Record<ThreadTab, number | undefined> = {
+    threads: data?.length,
+    unbound: unbound.data?.total,
+  };
+  // Смена вкладки — замена записи в истории, как у «Отбора»; недонабранный
+  // поиск сбрасывается, чтобы не догнать новую вкладку своей записью в адрес.
+  const switchTab = (next: ThreadTab) => {
+    setSearch('');
+    setParams(writeThreadTab(next), { replace: true });
+  };
 
   return (
     <Stack gap="lg">
@@ -184,11 +227,13 @@ export function ThreadsPage() {
               <Title order={3}>Диалоги</Title>
               {/* Полными чернилами, как у доноров: число стоит в углу панели,
                   на блике стекла, и приглушённый тон там не держал норму. */}
-              <Text size="sm" c="var(--ink)">
-                {isThreadFiltered(typed)
-                  ? `найдено ${formatNumber(shown.length)} из ${formatNumber(threads.length)}`
-                  : `всего ${formatNumber(threads.length)}`}
-              </Text>
+              {data !== undefined && (
+                <Text size="sm" c="var(--ink)">
+                  {isThreadFiltered(typed)
+                    ? `найдено ${formatNumber(shown.length)} из ${formatNumber(threads.length)}`
+                    : `всего ${formatNumber(threads.length)}`}
+                </Text>
+              )}
             </Group>
             <Text size="sm" c="dimmed" maw={620}>
               Состояние диалога считается по последнему событию: автоответчик ответом не считается,
@@ -201,131 +246,152 @@ export function ThreadsPage() {
       </Card>
 
       <Card className="glass tableCard" p="md">
-        <Table.ScrollContainer minWidth={TABLE_MIN_WIDTH} type="native" className="scrollSlim">
-          <Table
-            className="dataTable fixedTable filteredTable"
-            layout="fixed"
-            tabularNums
-            verticalSpacing="sm"
-            horizontalSpacing="md"
-          >
-            <colgroup>
-              {COLUMNS.map((column) => (
-                <col
-                  key={column.title}
-                  style={column.width ? { width: column.width } : undefined}
-                />
-              ))}
-            </colgroup>
-            <Table.Thead>
-              <Table.Tr>
-                {COLUMNS.map((column) => (
-                  <Table.Th key={column.title}>{column.title}</Table.Th>
-                ))}
-              </Table.Tr>
-              <Table.Tr className="filterRow">
-                <Table.Th>
-                  <TextInput
-                    size="xs"
-                    placeholder="Донор или адрес"
-                    aria-label="Поиск по донору или адресу"
-                    value={search}
-                    onChange={(event) => setSearch(event.currentTarget.value)}
-                  />
-                </Table.Th>
-                <Table.Th>
-                  <Select
-                    size="xs"
-                    aria-label="Состояние"
-                    allowDeselect={false}
-                    value={filters.state ?? 'all'}
-                    onChange={(value) =>
-                      apply({ state: THREAD_STATE_KEYS.find((state) => state === value) ?? null })
-                    }
-                    data={[
-                      { value: 'all', label: counted('все', threads.length) },
-                      ...states.map((state) => ({
-                        value: state,
-                        label: counted(THREAD_STATES[state].title, counts.get(state) ?? 0),
-                      })),
-                    ]}
-                  />
-                </Table.Th>
-                <Table.Th />
-                <Table.Th />
-                <Table.Th />
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {empty !== null && (
-                <WholeRow>
-                  <Stack gap={6} align="flex-start" py="sm">
-                    <Text size="sm" fw={500}>
-                      {empty.title}
-                    </Text>
-                    <Text size="sm" c="dimmed">
-                      {empty.detail}
-                    </Text>
-                    {isThreadFiltered(typed) && (
-                      <Button
-                        variant="subtle"
-                        size="compact-sm"
-                        className="press"
-                        onClick={() => {
-                          setSearch('');
-                          setParams(writeThreadFilters(NO_THREAD_FILTERS), { replace: true });
-                        }}
-                      >
-                        Сбросить фильтры
-                      </Button>
-                    )}
-                  </Stack>
-                </WholeRow>
-              )}
-              {shown.map((thread) => (
-                <Table.Tr
-                  key={thread.id}
-                  style={{ cursor: 'pointer' }}
-                  onClick={() => open(thread)}
-                >
-                  <Table.Td>
-                    {/* Ссылка, а не только строка: с клавиатуры до строки не
-                        дойти, а диалог открывают и в новой вкладке. */}
-                    <Anchor
-                      component={Link}
-                      to={`/threads/${thread.id}`}
-                      state={{ from: location.search }}
-                      fw={500}
-                      c="var(--ink)"
-                      underline="hover"
-                      className="cellName"
-                      onClick={(event) => event.stopPropagation()}
+        <Stack gap="sm">
+          <SegmentedControl
+            aria-label="Вкладки диалогов"
+            fullWidth={narrow}
+            value={tab}
+            onChange={(value) => {
+              const next = THREAD_TAB_KEYS.find((key) => key === value);
+              if (next !== undefined && next !== tab) switchTab(next);
+            }}
+            data={THREAD_TAB_KEYS.map((key) => ({
+              value: key,
+              label: tabLabel(key, tabCounts[key]),
+            }))}
+          />
+          {tab === 'unbound' ? (
+            <UnboundReplies page={page} onPage={goToPage} />
+          ) : (
+            <Table.ScrollContainer minWidth={TABLE_MIN_WIDTH} type="native" className="scrollSlim">
+              <Table
+                className="dataTable fixedTable filteredTable"
+                layout="fixed"
+                tabularNums
+                verticalSpacing="sm"
+                horizontalSpacing="md"
+              >
+                <colgroup>
+                  {COLUMNS.map((column) => (
+                    <col
+                      key={column.title}
+                      style={column.width ? { width: column.width } : undefined}
+                    />
+                  ))}
+                </colgroup>
+                <Table.Thead>
+                  <Table.Tr>
+                    {COLUMNS.map((column) => (
+                      <Table.Th key={column.title}>{column.title}</Table.Th>
+                    ))}
+                  </Table.Tr>
+                  <Table.Tr className="filterRow">
+                    <Table.Th>
+                      <TextInput
+                        size="xs"
+                        placeholder="Донор или адрес"
+                        aria-label="Поиск по донору или адресу"
+                        value={search}
+                        onChange={(event) => setSearch(event.currentTarget.value)}
+                      />
+                    </Table.Th>
+                    <Table.Th>
+                      <Select
+                        size="xs"
+                        aria-label="Состояние"
+                        allowDeselect={false}
+                        value={filters.state ?? 'all'}
+                        onChange={(value) =>
+                          apply({
+                            state: THREAD_STATE_KEYS.find((state) => state === value) ?? null,
+                          })
+                        }
+                        data={[
+                          { value: 'all', label: counted('все', threads.length) },
+                          ...states.map((state) => ({
+                            value: state,
+                            label: counted(THREAD_STATES[state].title, counts.get(state) ?? 0),
+                          })),
+                        ]}
+                      />
+                    </Table.Th>
+                    <Table.Th />
+                    <Table.Th />
+                    <Table.Th />
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {empty !== null && (
+                    <WholeRow>
+                      <Stack gap={6} align="flex-start" py="sm">
+                        <Text size="sm" fw={500}>
+                          {empty.title}
+                        </Text>
+                        <Text size="sm" c="dimmed">
+                          {empty.detail}
+                        </Text>
+                        {isThreadFiltered(typed) && (
+                          <Button
+                            variant="subtle"
+                            size="compact-sm"
+                            className="press"
+                            onClick={() => {
+                              setSearch('');
+                              setParams(writeThreadFilters(NO_THREAD_FILTERS), { replace: true });
+                            }}
+                          >
+                            Сбросить фильтры
+                          </Button>
+                        )}
+                      </Stack>
+                    </WholeRow>
+                  )}
+                  {shown.map((thread) => (
+                    <Table.Tr
+                      key={thread.id}
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => open(thread)}
                     >
-                      {thread.host}
-                    </Anchor>
-                    <Text size="xs" c="dimmed" className="cellName">
-                      {thread.contact_email ?? 'адрес не определён'}
-                    </Text>
-                  </Table.Td>
-                  <Table.Td>
-                    <Badge variant="light" color={THREAD_STATES[thread.state].color}>
-                      {THREAD_STATES[thread.state].title}
-                    </Badge>
-                  </Table.Td>
-                  <Table.Td>{formatNumber(thread.messages_sent)}</Table.Td>
-                  <Table.Td>
-                    <PriceCell thread={thread} />
-                  </Table.Td>
-                  <Table.Td>
-                    <Text size="sm" c="dimmed">
-                      {formatDateTime(thread.last_event_at)}
-                    </Text>
-                  </Table.Td>
-                </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
-        </Table.ScrollContainer>
+                      <Table.Td>
+                        {/* Ссылка, а не только строка: с клавиатуры до строки не
+                        дойти, а диалог открывают и в новой вкладке. */}
+                        <Anchor
+                          component={Link}
+                          to={`/threads/${thread.id}`}
+                          state={{ from: location.search }}
+                          fw={500}
+                          c="var(--ink)"
+                          underline="hover"
+                          className="cellName"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          {thread.host}
+                        </Anchor>
+                        <Text size="xs" c="dimmed" className="cellName">
+                          {thread.contact_email ?? 'адрес не определён'}
+                        </Text>
+                      </Table.Td>
+                      <Table.Td>
+                        <Badge variant="light" color={THREAD_STATES[thread.state].color}>
+                          {THREAD_STATES[thread.state].title}
+                        </Badge>
+                      </Table.Td>
+                      <Table.Td>{formatNumber(thread.messages_sent)}</Table.Td>
+                      <Table.Td>
+                        <PriceCell thread={thread} />
+                      </Table.Td>
+                      <Table.Td>
+                        <Text size="sm" c="dimmed">
+                          {formatDateTime(thread.last_event_at)}
+                        </Text>
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </Table.ScrollContainer>
+          )}
+        </Stack>
       </Card>
     </Stack>
   );
