@@ -225,6 +225,16 @@ def _no_waiting_between_retries(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("backend.shared.net.retry.RateLimiter.acquire", no_waiting)
 
 
+@pytest.fixture(autouse=True)
+def _no_real_alerts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Тесты не шлют настоящих тревог, даже если в `.env` разработчика лежит
+    боевой токен бота: настройки читаются из `.env` рабочей копии, и прогон,
+    остановленный тестом, иначе уходил бы в чат живым сообщением. Тесты
+    тревог задают свой токен и свой транспорт (`tests/test_alerts.py`)."""
+    monkeypatch.setattr("backend.config.alerts.TELEGRAM_BOT_TOKEN", "")
+    monkeypatch.setattr("backend.config.alerts.TELEGRAM_CHAT_ID", "")
+
+
 @pytest.fixture
 def jwt_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     """Секрет подписи. Без него приложение не собирается — и это проверяется

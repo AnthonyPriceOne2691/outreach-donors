@@ -43,6 +43,7 @@ from backend.features.runs.repository import (
     RESUMES_KEY,
     RunRepository,
 )
+from backend.features.runs.stopped import tell_stopped
 
 logger = logging.getLogger(__name__)
 
@@ -180,7 +181,8 @@ async def recover(
     """
     moment = now or datetime.now(UTC)
     resumed: list[int] = []
-    stopped: list[int] = []
+    # Закрытые за проход и почему — для тревоги после фиксации.
+    stopped: dict[int, str] = {}
     unknown: list[int] = []
 
     # «В очереди» проверяется наравне с «идёт», и это отличие от соседней
@@ -238,20 +240,14 @@ async def recover(
                 # задача могла успеть начать работу.
                 continue
 
-            await repository.stop_run(
-                run,
-                stats=_with_note(
-                    run,
-                    **{
-                        REASON_KEY: (
-                            f"остановлен разбором: {cause.said}, продолжений {attempts} "
-                            f"из {MAX_RESUMES}, молчание {silent_for:.0f} с"
-                        ),
-                        FAILURE_KEY: cause.detail,
-                    },
-                ),
+            reason = (
+                f"остановлен разбором: {cause.said}, продолжений {attempts} "
+                f"из {MAX_RESUMES}, молчание {silent_for:.0f} с"
             )
-            stopped.append(run.id)
+            await repository.stop_run(
+                run, stats=_with_note(run, **{REASON_KEY: reason, FAILURE_KEY: cause.detail})
+            )
+            stopped[run.id] = reason
             logger.error(
                 "Прогон %s закрыт как мёртвый: молчит %.0f с, продолжения исчерпаны (%s)",
                 run.id,
@@ -260,7 +256,20 @@ async def recover(
             )
 
     await repository.session_commit()
-    return Recovery(resumed=resumed, stopped=stopped, unknown=unknown)
+    await _tell_stopped(stopped)
+    return Recovery(resumed=resumed, stopped=list(stopped), unknown=unknown)
+
+
+async def _tell_stopped(stopped: dict[int, str]) -> None:
+    """Тревога о каждом прогоне, закрытом за проход (`runs/stopped.py`).
+
+    После фиксации, а не рядом с записью: сообщить об остановке, которая
+    откатится вместе с транзакцией, значит соврать. Разбор выбирает только
+    открытые прогоны, и закрытый им в следующий проход уже не попадёт —
+    второй тревоги о том же прогоне отсюда не будет.
+    """
+    for run_id, reason in stopped.items():
+        await tell_stopped(run_id, reason)
 
 
 def _updated_at(run: RunModel) -> datetime:

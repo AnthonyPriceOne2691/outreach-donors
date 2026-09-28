@@ -18,19 +18,35 @@
 #
 #   scripts/backup.sh                       # в ./backups, хранить 3 копии
 #   BACKUP_DIR=/srv/backups KEEP=3 scripts/backup.sh
-#   BACKUP_UPLOAD='rclone copy {} storage:outreach/' scripts/backup.sh
+#   BACKUP_UPLOAD= scripts/backup.sh        # на этот раз без выгрузки
 #
 # `BACKUP_UPLOAD` — команда выгрузки во внешнее хранилище; `{}` в ней
-# заменяется на путь к готовому каталогу копии. Хранилище ещё не выбрано
-# (Storage Box, S3 или диск агентства), и до тех пор скрипт **говорит
-# вслух**, что копия осталась на той же машине: молчание здесь означало
-# бы бэкап, которого нет, ровно в тот день, когда он понадобится.
+# заменяется на путь к готовому каталогу копии. Не задана, а хранилище
+# описано (BACKUP_S3_* в `.env.ops`) — выгружает `scripts/offsite.sh`:
+# в Cloudflare R2 или Backblaze B2, с проверкой, что копия легла. Своя
+# команда (Storage Box, rsync) заменяет её целиком. Хранилища нет —
+# скрипт **говорит вслух**, что копия осталась на той же машине, и шлёт
+# об этом тревогу: молчание здесь означало бы бэкап, которого нет, ровно
+# в тот день, когда он понадобится.
 #
-# Восстановление — `scripts/restore.sh`. Бэкап, который ни разу
-# не восстанавливали, бэкапом не является.
+# **Любой отказ — тревога в Telegram** (`scripts/alert.sh`): компоуз
+# не ответил, дамп не снялся, выгрузка не прошла или не сошлась. Бэкап
+# идёт раз в неделю ночью, и его вывод читают только тогда, когда
+# копия уже нужна.
+#
+# Настройки — из окружения или из `.env.ops` и `.env` рядом с компоузом
+# (scripts/ops_env.sh): крон и ручной запуск перед выкаткой выгружают
+# одинаково.
+#
+# Восстановление — `scripts/restore.sh`, копия из хранилища — `scripts/
+# offsite.sh fetch`. Бэкап, который ни разу не восстанавливали, бэкапом
+# не является.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/ops_env.sh
+. "$ROOT/scripts/ops_env.sh"
+ops_env_load "$ROOT"
 BACKUP_DIR="${BACKUP_DIR:-$ROOT/backups}"
 # Три копии на машине — на быстрый откат. Глубина в 90 дней (требование)
 # держится внешним хранилищем, а не диском, на котором лежит база.
@@ -47,6 +63,45 @@ TARGET="$BACKUP_DIR/$STAMP"
 # предыдущий хороший бэкап, снятый в ту же минуту. Ротация тоже видит
 # только готовые копии.
 PARTIAL="$TARGET.partial"
+# Что сказали упавшие шаги — хвост уходит в тревогу. Вне каталога копии:
+# иначе он уехал бы в бэкап вместе с дампом.
+ERRS="$(mktemp "${TMPDIR:-/tmp}/outreach-backup.XXXXXX")"
+
+# Выгрузка по умолчанию — в хранилище из `.env.ops`, если оно описано.
+# Пустая BACKUP_UPLOAD в окружении — выгрузка выключена на этот запуск.
+if [ -z "${BACKUP_UPLOAD+x}" ] && [ -n "${BACKUP_S3_BUCKET:-}" ]; then
+  BACKUP_UPLOAD="$(printf '%q' "$ROOT/scripts/offsite.sh") upload {}"
+fi
+
+STEP="проверка компоуза"
+WHY=""
+
+# Один выход на все отказы: уборка недоснятого и тревога. `set -e` роняет
+# скрипт и на шаге, про который никто не подумал, — тогда в тревоге шаг
+# и код выхода, а подробности в журнале крона.
+#
+# `${STEP}` в скобках не для красоты: bash 3.2 в локали UTF-8 читает первый
+# байт «»» как букву имени, `$STEP»` становится несуществующей переменной,
+# и под `set -u` тревога об отказе падала сама. Живая проверка 28.09.2026.
+finish() {
+  local code=$?
+  rm -rf "$PARTIAL" "$ERRS"
+  if [ "$code" -ne 0 ]; then
+    "$ROOT/scripts/alert.sh" "бэкап НЕ снят или не уехал с машины — шаг «${STEP}»: ${WHY:-код выхода $code}. Вывод скрипта — в журнале крона (на сервере /var/log/outreach-backup.log)." || true
+  fi
+}
+trap finish EXIT
+
+fail() {
+  WHY="$1"
+  echo "$1" >&2
+  exit 1
+}
+
+# Хвост того, что шаг сказал в stderr, — одной строкой для тревоги.
+said() {
+  tail -n 3 "$ERRS" | tr '\n' ' '
+}
 
 cd "$ROOT"
 
@@ -56,48 +111,64 @@ cd "$ROOT"
 # в окружении, а бэкап сообщил, что база лежит. Сообщение, уводящее
 # в сторону, дороже отсутствия сообщения.
 if ! RUNNING="$($COMPOSE ps --status running --services 2>&1)"; then
-  echo "docker compose не отвечает — бэкап не снят:" >&2
   echo "$RUNNING" >&2
-  exit 1
+  fail "docker compose не отвечает — бэкап не снят: $(printf '%s' "$RUNNING" | head -n 2 | tr '\n' ' ')"
 fi
 
 if ! grep -qx postgres <<<"$RUNNING"; then
   # Молчаливый пустой архив хуже отсутствия архива: он выглядит как
   # бэкап и обнаруживается в день восстановления.
-  echo "postgres не запущен: бэкап не снят. Подними компоуз или задай COMPOSE" >&2
-  exit 1
+  fail "postgres не запущен: бэкап не снят. Подними компоуз или задай COMPOSE"
 fi
 
 rm -rf "$PARTIAL"
 mkdir -p "$PARTIAL"
-trap 'rm -rf "$PARTIAL"' EXIT
 
+STEP="дамп базы"
 # Архивный формат (-Fc), а не текстовый: восстанавливается выборочно и сжат.
-$COMPOSE exec -T postgres pg_dump -U outreach -d outreach -Fc > "$PARTIAL/outreach.dump"
+#
+# `</dev/null` у каждого `exec`: `exec -T` пересылает в контейнер stdin
+# скрипта, а у скрипта, запущенного из другого через stdin (`ssh … bash -s
+# < выкатка.sh`), это остаток вызывающего. Живая проверка 28.09.2026:
+# pg_dump проглотил его, и всё после бэкапа не выполнилось — молча.
+if ! $COMPOSE exec -T postgres pg_dump -U outreach -d outreach -Fc </dev/null >"$PARTIAL/outreach.dump" 2>"$ERRS"; then
+  cat "$ERRS" >&2
+  fail "pg_dump не прошёл: $(said)"
+fi
+# Архив pg_dump начинается подписью PGDMP. Без неё в файле что угодно —
+# например, текст ошибки, который `exec` отдал в stdout, — и такой
+# «бэкап» обнаружился бы в день восстановления.
+if [ "$(head -c 5 "$PARTIAL/outreach.dump")" != "PGDMP" ]; then
+  fail "дамп не похож на архив pg_dump (нет подписи PGDMP, размер $(wc -c <"$PARTIAL/outreach.dump" | tr -d ' ') байт)"
+fi
 
+STEP="версия схемы"
 # Версия схемы — рядом с дампом. По ней видно, каким кодом эту копию
 # поднимать: восстановленная база с более новой схемой в коде лечится
 # миграцией, с более старой — не лечится ничем.
-$COMPOSE exec -T postgres psql -U outreach -d outreach -tAc \
-  'select version_num from alembic_version' > "$PARTIAL/alembic_version.txt"
+if ! $COMPOSE exec -T postgres psql -U outreach -d outreach -tAc \
+  'select version_num from alembic_version' </dev/null >"$PARTIAL/alembic_version.txt" 2>"$ERRS"; then
+  cat "$ERRS" >&2
+  fail "версию схемы не прочитать: $(said)"
+fi
 
-cat > "$PARTIAL/README.txt" <<INFO
+cat >"$PARTIAL/README.txt" <<INFO
 Бэкап Parsing and Prices от $STAMP
   outreach.dump        — pg_dump -Fc базы outreach
   alembic_version.txt  — версия схемы на момент снятия
 Восстановление: scripts/restore.sh $TARGET --yes
+Копия из хранилища: scripts/offsite.sh fetch $STAMP <куда>
 INFO
 
-trap - EXIT
+STEP="сохранение копии"
 if [ -e "$TARGET" ]; then
   # Не затираем и не вкладываем: копия с этим именем уже есть, и любое
   # из двух действий молча портит одну из них.
-  rm -rf "$PARTIAL"
-  echo "копия $TARGET уже существует — бэкап не снят" >&2
-  exit 1
+  fail "копия $TARGET уже существует — бэкап не снят"
 fi
 mv "$PARTIAL" "$TARGET"
 
+STEP="ротация"
 # Ротация: считаем только готовые копии, `.partial` в счёт не идут.
 #
 # Без `mapfile` и без `head -n -N` намеренно: первого нет в bash 3.2,
@@ -106,7 +177,7 @@ mv "$PARTIAL" "$TARGET"
 # а проверяют бэкап ровно до неё.
 READY="$(ls -1d "$BACKUP_DIR"/*/ 2>/dev/null | grep -v '\.partial/$' | sort || true)"
 TOTAL="$(printf '%s' "$READY" | grep -c . || true)"
-EXTRA=$(( TOTAL - KEEP ))
+EXTRA=$((TOTAL - KEEP))
 if [ "$EXTRA" -gt 0 ]; then
   printf '%s\n' "$READY" | head -n "$EXTRA" | while read -r old; do
     [ -n "$old" ] || continue
@@ -119,13 +190,22 @@ SIZE="$(du -sh "$TARGET" | cut -f1)"
 echo "Снят бэкап: $TARGET ($SIZE), схема $(cat "$TARGET/alembic_version.txt")"
 
 if [ -n "${BACKUP_UPLOAD:-}" ]; then
-  # Команда задаётся целиком снаружи: хранилище ещё не выбрано, а зашитый
-  # в скрипт rclone пришлось бы править вместе с выбором.
-  CMD="${BACKUP_UPLOAD//\{\}/$TARGET}"
-  echo "Выгружаю: $CMD"
-  eval "$CMD"
+  STEP="выгрузка"
+  # Путь подставляется экранированным: в нём бывают пробелы (каталог
+  # разработки), и `eval` разрезал бы его на два аргумента.
+  CMD="${BACKUP_UPLOAD//\{\}/$(printf '%q' "$TARGET")}"
+  # В журнал — команда как задана и путь как есть: экранированный `%q`
+  # у bash 3.2 рвёт кириллицу в пути на байты.
+  echo "Выгружаю $TARGET: $BACKUP_UPLOAD"
+  if ! eval "$CMD" </dev/null 2>"$ERRS"; then
+    cat "$ERRS" >&2
+    fail "выгрузка не прошла, копия только на этой машине: $(said)"
+  fi
+  cat "$ERRS" >&2
   echo "Копия ушла во внешнее хранилище."
 else
-  echo "⚠ BACKUP_UPLOAD не задан — копия осталась на этой же машине." >&2
+  echo "⚠ Выгрузка не настроена — копия осталась на этой же машине." >&2
   echo "  Диск, на котором лежит база, защищает от чего угодно, кроме себя." >&2
+  echo "  Хранилище — BACKUP_S3_* в .env.ops, шаги — deploy/README.md." >&2
+  "$ROOT/scripts/alert.sh" "бэкап снят, но остался на этой же машине: хранилище не настроено (BACKUP_S3_* в .env.ops, шаги — deploy/README.md)." || true
 fi

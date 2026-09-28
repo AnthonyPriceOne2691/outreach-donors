@@ -39,6 +39,7 @@ from backend.features.runs.lifecycle import heartbeat
 from backend.features.runs.pipeline import RunDeps, RunRequest, execute_run
 from backend.features.runs.reasons import explained
 from backend.features.runs.repository import FAILURE_KEY, REASON_KEY, RunRepository
+from backend.features.runs.stopped import tell_stopped
 from backend.features.runs.thresholds import defaults
 from backend.features.serp.factory import build_provider
 from backend.shared.logs import setup_logging
@@ -176,8 +177,14 @@ async def _search(run_id: int) -> dict[str, Any]:
 async def _mark(run_id: int, reason: str, failed: BaseException, *, stop: bool) -> None:
     """Записать причину в прогон. Своя сессия: основная могла сломаться
     вместе с задачей. Сбой записи не глушит исходную ошибку — только
-    громко логируется."""
+    громко логируется.
+
+    Остановка — ещё и тревога человеку, но только если прогон закрыла
+    эта запись: отказ посреди сбора прогон уже закрыл сам и сам же о нём
+    сказал (`runs/stopped.py`). И только после фиксации: не записалось —
+    прогон остался открытым, и о нём скажет разбор мёртвых."""
     engine = create_async_engine(storage.DSN)
+    closed = False
     try:
         async with async_sessionmaker(engine, expire_on_commit=False)() as session:
             runs = RunRepository(session)
@@ -188,12 +195,15 @@ async def _mark(run_id: int, reason: str, failed: BaseException, *, stop: bool) 
                 FAILURE_KEY: described(failed)[:500],
             }
             if stop:
-                await runs.stop_run(run, stats=stats)
+                closed = await runs.stop_run(run, stats=stats)
             else:
                 await runs.save_stats(run, stats)
             await session.commit()
     except Exception:
         logger.exception("Прогон %s: причину «%s» записать не удалось", run_id, reason[:120])
+    else:
+        if closed:
+            await tell_stopped(run_id, reason[:500])
     finally:
         await engine.dispose()
 
