@@ -1,7 +1,7 @@
 """вложения ответов — отдельной таблицей и вместе с файлами
 
 Revision ID: 5946299ccd9a
-Revises: b7d3e9a15c42
+Revises: ea0d1f07e147
 Create Date: 2026-09-28 12:00:00.000000
 
 До этой миграции у ответа хранился только список вложений (`replies.attachments`,
@@ -30,7 +30,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "5946299ccd9a"
-down_revision: Union[str, Sequence[str], None] = "b7d3e9a15c42"
+down_revision: Union[str, Sequence[str], None] = "ea0d1f07e147"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
