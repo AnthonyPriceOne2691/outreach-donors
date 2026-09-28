@@ -17,9 +17,11 @@
 
 **Отказ доставки и жалоба на спам — разные последствия.** Первый
 означает «адреса нет»: контакт помечается негодным, и открывается
-следующий адрес донора. Вторая означает «этот человек считает нас
-спамом»: донор уходит в стоп-лист целиком, потому что писать ему
-второй раз — это следующая жалоба и выгоревший домен.
+следующий адрес донора — не дошедшее письмо «писали» не считается,
+и следующая сборка берёт следующий адрес (`attempts.py`). Вторая
+означает «этот человек считает нас спамом»: донор уходит в стоп-лист
+целиком, потому что писать ему второй раз — это следующая жалоба
+и выгоревший домен.
 
 **Домен паркуется по доле отказов, а не по их числу.** Один отказ
 из двух писем — это пятьдесят процентов и ничего не значит; поэтому
@@ -37,6 +39,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import outreach as cfg
+from backend.features.contacts.preference import DEAD
 from backend.features.core.domain import MessageStatus, SuppressionReason
 from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.ops import SuppressionModel
@@ -156,7 +159,7 @@ async def _bounced(
         return
     contact = await session.get(ContactModel, message.contact_id)
     if contact is not None:
-        contact.verification_status = "bounced"
+        contact.verification_status = DEAD
         contact.verification_score = 0
 
 

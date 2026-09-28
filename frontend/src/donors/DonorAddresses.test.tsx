@@ -30,6 +30,7 @@ function contact(id: number, email: string, fields: Partial<ContactCard> = {}): 
     last_contacted_at: null,
     last_replied_at: null,
     removal_refusal: null,
+    bounced: false,
     ...fields,
   };
 }

@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from backend.features.contacts.preference import DEAD
 from backend.features.core.domain import ContactSource, ContactStatus, DonorStatus
 from backend.features.core.models.donor import ContactModel
 from backend.features.donors.browse import DonorCard as CardData
@@ -179,6 +180,9 @@ class ContactCard(BaseModel):
     last_replied_at: datetime | None
     #: Почему адрес нельзя удалить; пусто — можно. Отказ виден до нажатия.
     removal_refusal: str | None = None
+    #: Письмо сюда не дошло: ящика нет или его больше не читают
+    #: (`preference.DEAD`). Письма на такой адрес не собираются.
+    bounced: bool = False
 
     @classmethod
     def of(cls, contact: ContactModel, refusal: str | None = None) -> ContactCard:
@@ -189,6 +193,7 @@ class ContactCard(BaseModel):
             last_contacted_at=contact.last_contacted_at,
             last_replied_at=contact.last_replied_at,
             removal_refusal=refusal,
+            bounced=contact.verification_status == DEAD,
         )
 
 
@@ -240,6 +245,9 @@ class DonorFullCard(BaseModel):
     #: Почему письмо не соберётся ни на один адрес. Пусто вместе с адресом —
     #: адресов нет.
     letter_blocked: str | None
+    #: Что сказать рядом с адресом письма: прежние письма не дошли, и это
+    #: уйдёт на следующий адрес. Пусто — сказать нечего.
+    letter_note: str | None = None
 
     @classmethod
     def of(cls, card: CardData) -> DonorFullCard:
@@ -273,4 +281,5 @@ class DonorFullCard(BaseModel):
             review_run=card.review_run,
             letter_contact_id=card.letter.contact_id,
             letter_blocked=card.letter.blocked,
+            letter_note=card.letter.note,
         )

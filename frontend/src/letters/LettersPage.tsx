@@ -62,7 +62,7 @@ import { mailSettingsList, settingsInWords } from '../api/labels';
 import type { Corridor, LetterDraft, LetterStage, LettersView, QueuedLetter } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { Metric } from '../components/Metric';
-import { formatPercent } from '../format';
+import { formatPercent, plural } from '../format';
 import { LetterDraftEditor, draftOf, sameDraft } from './LetterDraftEditor';
 import { LetterPreview, toneOf } from './LetterPreview';
 import { corridorText, uniquenessText } from './letterText';
@@ -126,6 +126,31 @@ const ADVERTISER_STOPS: [string, string][] = [
 function advertiserStop(funnel: Record<string, number>): string | null {
   const found = ADVERTISER_STOPS.find(([step]) => (funnel[step] ?? 0) === 0);
   return found === undefined ? null : `Кончились на ступени «${found[0]}»: ${found[1]}.`;
+}
+
+/**
+ * Кому прежнее письмо не дошло — словами, когда такие есть (28.09.2026).
+ * Не дошедшее письмо «писали» не считается: следующее уходит на следующий
+ * адрес, и такие адресаты уже внутри «ещё не писали». У кого адреса
+ * кончились — отдельно: из «ещё не писали» они выпали, и без этой фразы
+ * их было бы не отличить от тех, кому письмо дошло. Сервер шлёт обе строки
+ * только ненулевыми.
+ */
+function earlierLetters(funnel: Record<string, number>, stage: LetterStage): string | null {
+  const next = funnel['из них на следующий адрес'] ?? 0;
+  const gone = funnel['адреса кончились'] ?? 0;
+  const said: string[] = [];
+  if (next > 0) said.push(`Из них на следующий адрес — ${next}: прежнее письмо не дошло.`);
+  if (gone > 0) {
+    const whom =
+      stage === 'donors'
+        ? plural(gone, 'донора', 'доноров', 'доноров')
+        : plural(gone, 'рекламодателя', 'рекламодателей', 'рекламодателей');
+    // Вписать адрес руками можно только донору — в его карточке.
+    const cure = stage === 'donors' ? ' — новый адрес вписывают в карточке донора' : '';
+    said.push(`У ${gone} ${whom} адреса кончились: прежние письма не дошли${cure}.`);
+  }
+  return said.length > 0 ? said.join(' ') : null;
 }
 
 const STAGES: { value: LetterStage; label: string }[] = [
@@ -621,14 +646,15 @@ function Queue({
                 Подходящих доноров {view.funnel['подходящих'] ?? 0}, из них с адресом{' '}
                 {view.funnel['с адресом'] ?? 0}, и ещё не писали {view.funnel['ещё не писали'] ?? 0}
                 . Если последнее число ноль — написаны все; если ноль второе — пора добрать
-                контакты.
+                контакты. {earlierLetters(view.funnel, stage)}
               </>
             ) : (
               <>
                 Рекламодателей {view.funnel['рекламодателей'] ?? 0}, из них с найденной ссылкой{' '}
                 {view.funnel['со ссылкой'] ?? 0}, со свежей ценой донора{' '}
                 {view.funnel['цена донора свежая'] ?? 0}, с адресом {view.funnel['с адресом'] ?? 0},
-                и ещё не писали {view.funnel['ещё не писали'] ?? 0}. {advertiserStop(view.funnel)}
+                и ещё не писали {view.funnel['ещё не писали'] ?? 0}. {advertiserStop(view.funnel)}{' '}
+                {earlierLetters(view.funnel, stage)}
               </>
             )}
           </Text>

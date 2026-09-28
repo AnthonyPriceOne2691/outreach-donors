@@ -105,4 +105,5 @@ export const CARD: DonorFullCard = {
   review_run: 18,
   letter_contact_id: null,
   letter_blocked: null,
+  letter_note: null,
 };

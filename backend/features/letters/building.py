@@ -1,9 +1,10 @@
 """Сборка очереди: от списка доноров до писем со статусом «в очереди».
 
 Одно письмо на донора, на лучший из известных адресов — правило
-из `docs/OUTREACH_THREADS.md`. Отбор и его воронка живут в `repository.py`,
-текст — в `compose.py` и `rewrite.py`, здесь только порядок действий
-и то, что считается по дороге.
+из `docs/OUTREACH_THREADS.md`; не дошло — следующее на следующий адрес,
+новой попыткой со своим ключом (`attempts.py`). Отбор и его воронка
+живут в `recipients.py`, текст — в `compose.py` и `rewrite.py`, здесь
+только порядок действий и то, что считается по дороге.
 
 **Сборка ничего не отправляет.** Она готовит текст и ставит письма
 в очередь; отправляет человек с правом на отправку, глядя на предпросмотр.
@@ -58,17 +59,37 @@ from backend.features.letters.uniqueness import corridor_verdict, difference
 
 logger = logging.getLogger(__name__)
 
-#: Первое письмо цепочки. Добивки — шаги 1 и 2, они придут с Ф5.
+#: Первое письмо цепочки. Добивки — шаги 1 и 2 (`followups.py`).
 FIRST_STEP = 0
 
+#: Приставка номера попытки в ключе письма: `donors:site.com:0:a2`.
+_ATTEMPT_MARK = ":a"
 
-def idempotency_key(*, stage: Stage, host: str, step: int) -> str:
-    """Домен плюс этап плюс шаг.
+
+def idempotency_key(*, stage: Stage, host: str, step: int, attempt: int = 1) -> str:
+    """Домен плюс этап плюс шаг — и номер попытки со второй.
 
     Повтор задачи не должен отправить второе письмо тому же донору:
     это жалоба на спам, а не лишняя строка в базе.
+
+    Попытка — письмо на следующий адрес после отказа доставки
+    (`attempts.py`). У первой ключ прежний: письма, собранные до попыток,
+    остаются своими, и повтор их сборки упирается в тот же ключ.
     """
-    return f"{stage.value}:{host}:{step}"
+    key = f"{stage.value}:{host}:{step}"
+    return key if attempt <= 1 else f"{key}{_ATTEMPT_MARK}{attempt}"
+
+
+def attempt_of(key: str) -> int:
+    """Номер попытки из ключа письма. Ключ без номера — первая попытка.
+
+    Добивка наследует номер своей цепочки: иначе добивка второй попытки
+    получила бы ключ добивки первой и не вставилась бы в базу.
+    """
+    head, mark, number = key.rpartition(_ATTEMPT_MARK)
+    if not mark or not head or not number.isdigit():
+        return 1
+    return int(number)
 
 
 @dataclass(frozen=True, slots=True)
@@ -346,7 +367,10 @@ class QueueBuilder:
                 body=letter.body,
                 uniqueness_pct=uniqueness,
                 idempotency_key=idempotency_key(
-                    stage=request.stage, host=candidate.host, step=FIRST_STEP
+                    stage=request.stage,
+                    host=candidate.host,
+                    step=FIRST_STEP,
+                    attempt=candidate.attempt,
                 ),
             )
         )

@@ -18,6 +18,11 @@
  * сборки есть стоп-лист и перепроверка адреса, и своя копия правила здесь
  * разошлась бы с ней. Письмо не соберётся ни на один — сказано почему.
  *
+ * **Мёртвый адрес — внизу и с пометкой «не дошло»** (28.09.2026): отказ
+ * доставки и автоответ «ящик больше не читается» открывают следующий адрес,
+ * и отметка письма встаёт на него. Почему не на первый — словами сервера
+ * под таблицей: иначе человек видел бы отметку не там, где ждал.
+ *
  * **Кнопка поиска — только без адреса.** Адрес есть — искать нечего; срок
  * его годности ведёт общий поиск. Почему нельзя — до нажатия: решает сервер
  * тем же правилом, что у общего поиска, и присылает причину с карточкой.
@@ -234,6 +239,12 @@ function AddressTable({ donor, mayChange, removing, onRemove }: TableProps) {
                       письмо уйдёт сюда
                     </Badge>
                   )}
+                  {/* Цвет — у отказа доставки в списке диалогов: то же событие. */}
+                  {contact.bounced && (
+                    <Badge variant="light" color="yellow" size="sm" className="deadMark">
+                      не дошло
+                    </Badge>
+                  )}
                 </Group>
               </Table.Td>
               <Table.Td>
@@ -413,6 +424,12 @@ export function DonorAddresses({ donor }: { donor: DonorFullCard }) {
         {/* Письмо не соберётся ни на один адрес — почему, словами сборки. */}
         {!empty && donor.letter_contact_id === null && donor.letter_blocked !== null && (
           <Text size="sm">{sentence(donor.letter_blocked)}</Text>
+        )}
+        {/* Уйдёт, но не на первый: прежние письма не дошли. */}
+        {donor.letter_contact_id !== null && donor.letter_note !== null && (
+          <Text size="sm" className="letterNote">
+            {sentence(donor.letter_note)}
+          </Text>
         )}
 
         {empty && donor.contact_refusal !== null && <Text size="sm">{donor.contact_refusal}</Text>}

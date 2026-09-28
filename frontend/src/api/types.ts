@@ -370,6 +370,9 @@ export interface ContactCard {
   last_replied_at: string | null;
   /** Почему адрес нельзя удалить; `null` — можно. */
   removal_refusal: string | null;
+  /** Письмо сюда не дошло: ящика нет или его больше не читают. Письма
+   *  на такой адрес не собираются — следующее уходит на другой. */
+  bounced: boolean;
 }
 
 /** Решение человека о домене: донор — только принятый (`donors/standing.py`). */
@@ -397,6 +400,9 @@ export interface DonorFullCard extends Omit<DonorRowCard, 'contacts'> {
   letter_contact_id: number | null;
   /** Почему письмо не соберётся ни на один адрес; `null` с адресом — адресов нет. */
   letter_blocked: string | null;
+  /** Что сказать рядом с адресом письма: прежние письма не дошли, и это уйдёт
+   *  на следующий адрес. `null` — сказать нечего. */
+  letter_note: string | null;
 }
 
 export interface ThresholdsBody {

@@ -45,6 +45,7 @@ const CARD: DonorFullCard = {
   review_run: 18,
   letter_contact_id: null,
   letter_blocked: null,
+  letter_note: null,
 };
 
 function job(state: JobCard['state'], title: string): JobCard {
@@ -95,6 +96,7 @@ describe('карточка донора: адреса', () => {
           last_contacted_at: null,
           last_replied_at: null,
           removal_refusal: null,
+          bounced: false,
         },
       ],
     });
