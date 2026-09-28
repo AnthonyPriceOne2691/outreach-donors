@@ -44,7 +44,7 @@ from backend.features.donors.publisher_judge import is_platform, is_public_zone
 #: Письмо ушло от нас и не было отвергнуто. Отказ доставки сюда
 #: не входит: до адресата мы не добрались, и считать это «мы ему уже
 #: писали» значило бы похоронить донора из-за мёртвого ящика —
-#: лестница контактов найдёт ему другой.
+#: письмо уйдёт на следующий его адрес (`letters/attempts.py`).
 LEFT_OUR_HANDS = (MessageStatus.SENT, MessageStatus.DELIVERED)
 
 
