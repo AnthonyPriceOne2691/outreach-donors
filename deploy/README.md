@@ -90,31 +90,69 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml ps        # вс
 
 До этого сервис работает целиком: прогоны, отбор, контакты, очередь
 писем. Экран писем говорит, чего не хватает для отправки, и ничего
-не уходит наружу. Код для подключения не меняется — только `.env`
+не уходит наружу. Код для подключения не меняется — только DNS, `.env`
 и кабинет платформы.
 
-1. **Домены.** У каждого почтового домена — SPF, DKIM, DMARC; в SendGrid —
-   Domain Authentication. Письмо с неподписанного домена уходит в спам.
+**Каждый домен отправки подключается сам по себе.** Письмо с ящика
+`anna@mail-a.example` подписано `mail-a.example`, несёт `Message-ID`
+на `mail-a.example` и просит отвечать на `anna+метка@replies.mail-a.example`.
+Общего домена для ответов нет намеренно: он связал бы все домены между
+собой — упала его репутация, упали все (`docs/OUTREACH_THREADS.md`).
+Поэтому шаги 1, 3, 4 и 6 повторяются для каждого домена.
+
+**Inbound Parse есть только на тарифе Pro.** Без него ответы доноров
+принимать нечем, и подключать почту на меньшем тарифе незачем.
+
+1. **DNS каждого домена отправки** (пример — `mail-a.example`):
+   - три CNAME из Domain Authentication в кабинете SendGrid (с включённой
+     automated security) — подпись DKIM и SPF ведёт платформа;
+   - TXT `_dmarc.mail-a.example` со значением `v=DMARC1; p=none;` — на
+     старт: сначала смотрим, что проходит, ужесточаем потом;
+   - MX `replies.mail-a.example` → `mx.sendgrid.net`, приоритет 10 — сюда
+     приходят ответы доноров.
 2. **`.env`:**
    - `OUTREACH_SENDGRID_API_KEY` — ключ с правом Mail Send;
-   - `OUTREACH_SENDER_NAME`, `OUTREACH_POSTAL_ADDRESS` — имя и адрес в письме;
+   - `OUTREACH_SENDER_NAME` — имя в подписи письма;
    - `OUTREACH_UNSUBSCRIBE_URL=https://outreach.ДОМЕН/api/unsubscribe`;
-   - `OUTREACH_REPLY_DOMAIN` — поддомен для ответов (его MX — на SendGrid);
    - `OUTREACH_INBOUND_SECRET` — `openssl rand -hex 32`;
+   - `OUTREACH_REPLY_SUBDOMAIN` — приставка поддомена ответов, по умолчанию
+     `replies`; менять, только если MX из шага 1 заведён под другим именем;
    - `OUTREACH_EVENTS_PUBLIC_KEY` — из кабинета, после включения подписи событий;
-   - `OUTREACH_ALLOWED_RECIPIENTS` — **на первые дни свои ящики**, потом очистить;
+   - `OUTREACH_ALLOWED_RECIPIENTS` — **свои ящики**, до конца проверки (шаг 6);
    - последним — `OUTREACH_TRANSPORT=sendgrid`.
 3. **Кабинет SendGrid:**
-   - Inbound Parse на `OUTREACH_REPLY_DOMAIN`, адрес
-     `https://inbound:СЕКРЕТ@outreach.ДОМЕН/api/inbound/replies` — секрет
-     паролем в адресе: своих заголовков платформа не шлёт;
+   - Inbound Parse — на каждый `replies.<домен>`, адрес
+     `https://inbound:СЕКРЕТ@outreach.ДОМЕН/api/inbound/replies` (секрет
+     паролем в адресе: своих заголовков платформа не шлёт). Режим
+     разобранный: галку «POST the raw, full MIME message» не ставить;
    - Event Webhook на `https://outreach.ДОМЕН/api/events/delivery`,
-     с подписью (Signed Event Webhook).
-4. **Домены отправки** — на экране «Домены рассылки»: там же разгон.
+     с подписью (Signed Event Webhook);
+   - Tracking → Subscription Tracking **выключен**: иначе платформа
+     допишет в текст письма свою отписку;
+   - Click Tracking и Open Tracking выключены. Письмо и так выключает их
+     в каждом запросе, но включённые в кабинете — это ловушка для любого
+     письма, собранного мимо сервиса.
+4. **Ящики** — командой `outreach sender-add --email …` на каждый домен,
+   когда его DNS уже настроен: разгон идёт с минуты заведения. Видны
+   и включаются на экране «Домены рассылки».
 5. `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d` —
    контейнеры пересоздаются с новым `.env` (настройки читаются при старте).
-6. Первое письмо — себе (предохранитель из п. 2), проверить заголовки,
-   ответ и отписку; потом снять предохранитель.
+6. **Пробное письмо себе — с каждого домена, до снятия предохранителя:**
+
+   ```bash
+   docker compose exec api outreach mail-test --to свой@ящик --sender anna@mail-a.example
+   ```
+
+   Письмо то же, что уйдёт донору, только на свой ящик; в базу команда
+   не пишет ничего и донора не тратит. Она печатает номер письма
+   у платформы, наш `Message-ID` и что проверить в заголовках
+   полученного письма: DKIM=pass с `d=mail-a.example`, SPF=pass,
+   DMARC=pass, `Message-ID` ровно напечатанный (подменён платформой —
+   до первого донора не слать), Reply-To на `replies.mail-a.example`,
+   List-Unsubscribe. Потом ответить на письмо: ответ появится на экране
+   диалогов непривязанным — так проверяются MX и Inbound Parse.
+7. Всё сошлось на всех доменах — очистить `OUTREACH_ALLOWED_RECIPIENTS`
+   и повторить шаг 5.
 
 ## Обновление
 
