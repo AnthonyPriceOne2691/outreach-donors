@@ -177,9 +177,9 @@
       "worst": "summary:27"
     },
     "backend/api/overview/schemas.py": {
-      "lines": 112,
+      "lines": 115,
       "complexity": 3,
-      "worst": "of:101"
+      "worst": "of:103"
     },
     "backend/api/replies/__init__.py": {
       "lines": 1,
@@ -192,14 +192,14 @@
       "worst": "_ascii_name:28"
     },
     "backend/api/replies/routes.py": {
-      "lines": 189,
+      "lines": 222,
       "complexity": 10,
-      "worst": "review:136"
+      "worst": "review:169"
     },
     "backend/api/replies/schemas.py": {
-      "lines": 75,
+      "lines": 139,
       "complexity": 4,
-      "worst": "_declines_without_price:29"
+      "worst": "_declines_without_price:36"
     },
     "backend/api/review/__init__.py": {
       "lines": 1,
@@ -402,7 +402,7 @@
       "worst": "_print_build:98"
     },
     "backend/cli/mail_test.py": {
-      "lines": 234,
+      "lines": 235,
       "complexity": 6,
       "worst": "_report:180"
     },
@@ -687,7 +687,7 @@
       "worst": "_enum:18"
     },
     "backend/features/core/models/outreach.py": {
-      "lines": 293,
+      "lines": 303,
       "complexity": 2,
       "worst": "_enum:37"
     },
@@ -977,9 +977,9 @@
       "worst": "unsubscribe_domain:43"
     },
     "backend/features/letters/probe.py": {
-      "lines": 109,
+      "lines": 111,
       "complexity": 2,
-      "worst": "letter_for:69"
+      "worst": "letter_for:71"
     },
     "backend/features/letters/recipients.py": {
       "lines": 477,
@@ -987,9 +987,9 @@
       "worst": "_why_not:293"
     },
     "backend/features/letters/reply_to.py": {
-      "lines": 137,
-      "complexity": 6,
-      "worst": "message_id_from:110"
+      "lines": 153,
+      "complexity": 5,
+      "worst": "message_id_from:121"
     },
     "backend/features/letters/repository.py": {
       "lines": 227,
@@ -1057,9 +1057,9 @@
       "worst": "_outcome:116"
     },
     "backend/features/ops/overview.py": {
-      "lines": 262,
+      "lines": 269,
       "complexity": 5,
-      "worst": "_letters:237"
+      "worst": "_letters:244"
     },
     "backend/features/ops/silence.py": {
       "lines": 321,
@@ -1097,9 +1097,9 @@
       "worst": "keep:122"
     },
     "backend/features/replies/binding.py": {
-      "lines": 115,
+      "lines": 170,
       "complexity": 5,
-      "worst": "thread_ids:71"
+      "worst": "thread_ids:111"
     },
     "backend/features/replies/calibration.py": {
       "lines": 122,
@@ -1157,9 +1157,9 @@
       "worst": "compiled:456"
     },
     "backend/features/replies/pipeline.py": {
-      "lines": 449,
+      "lines": 459,
       "complexity": 8,
-      "worst": "parse:317"
+      "worst": "parse:327"
     },
     "backend/features/replies/quoting.py": {
       "lines": 187,
@@ -1177,14 +1177,19 @@
       "worst": "sort_out:149"
     },
     "backend/features/replies/repository.py": {
-      "lines": 454,
+      "lines": 463,
       "complexity": 7,
-      "worst": "add:345"
+      "worst": "add:357"
     },
     "backend/features/replies/robots.py": {
       "lines": 56,
       "complexity": 2,
       "worst": "robot:53"
+    },
+    "backend/features/replies/unbound.py": {
+      "lines": 143,
+      "complexity": 6,
+      "worst": "explain:132"
     },
     "backend/features/review/__init__.py": {
       "lines": 2,
@@ -1462,17 +1467,17 @@
       "worst": "_select:46"
     },
     "scripts/ui_contrast.py": {
-      "lines": 298,
+      "lines": 301,
       "complexity": 9,
       "worst": "main:246"
     },
     "scripts/ui_hover.py": {
-      "lines": 172,
+      "lines": 174,
       "complexity": 8,
-      "worst": "main:121"
+      "worst": "main:123"
     },
     "scripts/ui_screens.py": {
-      "lines": 418,
+      "lines": 421,
       "complexity": 2,
       "worst": "open_reason:21"
     },
@@ -1482,9 +1487,9 @@
       "worst": "donor_screens:19"
     },
     "scripts/ui_screens_mail.py": {
-      "lines": 239,
+      "lines": 306,
       "complexity": 2,
-      "worst": "show_decided:195"
+      "worst": "unbound_probes:32"
     }
   }
 }
