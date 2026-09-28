@@ -26,6 +26,7 @@ from backend.features.core.models.outreach import ReplyModel
 from backend.features.letters import reply_to
 from backend.features.letters.probe import PROBE_MESSAGE_ID
 from backend.features.replies.binding import Unbound
+from backend.features.replies.inbound import MAX_TEXT_CHARS
 from backend.features.replies.quoting import written_by_hand
 
 #: Ответов на странице — как у очереди форм. Размер называет сервер, экран
@@ -75,9 +76,11 @@ def preview(text: str) -> str:
 
     Без цитаты: в ней лежит наше собственное письмо, и начало ответа
     «Hi Anna, thank you for…» ничего не говорило бы, если бы строка
-    начиналась с нашей же цитаты (`quoting`).
+    начиналась с нашей же цитаты (`quoting`). Цитата ищется в начале письма,
+    а не во всём: строке нужны первые полторы сотни знаков, а письмо бывает
+    в двести тысяч — и таких на странице двадцать.
     """
-    line = " ".join(written_by_hand(text).split())
+    line = " ".join(written_by_hand(text[:MAX_TEXT_CHARS]).split())
     if len(line) <= PREVIEW_CHARS:
         return line
     return line[: PREVIEW_CHARS - 1].rstrip() + "…"
@@ -99,8 +102,9 @@ def labelled(addresses: Sequence[str] | None) -> int | None:
 #: сменённый секрет, и разбираться надо с ним, а не с ответами.
 _WORDS: dict[str, str] = {
     Unbound.NO_SUCH_LETTER: (
-        "Метка указывает на письмо{number}, а такого письма в базе нет — его удалили "
-        "вместе с рассылкой. " + _BY_HAND
+        "Метка указывает на письмо{number}, а такого письма в базе нет: его удалили вместе "
+        "с рассылкой — или оно ушло с другой установки с тем же секретом приёма ответов. "
+        + _BY_HAND
     ),
     Unbound.BAD_SIGNATURE: (
         "В адресе метка письма{number}, но подпись не сошлась: письмо ушло с другим секретом "
