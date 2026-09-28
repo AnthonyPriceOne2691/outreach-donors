@@ -64,10 +64,12 @@ class RecordingTransport:
         return f"provider-{len(self.handed)}"
 
 
-async def _donor_with_two_addresses(session: AsyncSession) -> tuple[DomainModel, ContactModel]:
+async def _donor_with_two_addresses(
+    session: AsyncSession, host: str = HOST
+) -> tuple[DomainModel, ContactModel]:
     """Донор: `info@` лучший (записан раньше), `editor@` — следующий."""
-    domain = await make_donor(session, HOST, email=INFO)
-    editor = ContactModel(domain_id=domain.id, email=EDITOR, source=ContactSource.PAGE)
+    domain = await make_donor(session, host, email=f"info@{host}")
+    editor = ContactModel(domain_id=domain.id, email=f"editor@{host}", source=ContactSource.PAGE)
     session.add(editor)
     await session.flush()
     return domain, editor
@@ -162,6 +164,35 @@ class TestAfterTheBounce:
         assert second is not None
         assert await _email_of(session, second) == EDITOR
         assert second.idempotency_key == f"donors:{HOST}:0:a2"
+
+    async def test_address_named_by_the_dead_mailbox_goes_first(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        """Мёртвый ящик сам назвал, куда писать (`replies/redirect.py`), — письмо
+        уходит туда, а не на следующий из найденных лестницей: адрес назвал
+        сам донор. Домен — с настоящей зоной: адрес на `.test` приём честно
+        считает чужим и отдаёт человеку."""
+        site = "gardenletters.co.uk"
+        await _donor_with_two_addresses(session, site)
+        await make_sender(session, "anna@mail-a.example.test")
+        first = await _sent(session, RecordingTransport())
+
+        await Inbox(session, now=NOW).accept(
+            Incoming(
+                message_id=f"<auto-3@{site}>",
+                to=("anna@mail-a.example.test",),
+                from_email=f"info@{site}",
+                subject="Automatic reply: Guest article",
+                text=f"This mailbox is no longer monitored. Please write to chief@{site}.",
+                in_reply_to=first.internet_message_id,
+                headers={"Auto-Submitted": "auto-replied"},
+            )
+        )
+        second = await _build(session)
+
+        assert second is not None
+        assert await _email_of(session, second) == f"chief@{site}"
+        assert second.idempotency_key == f"donors:{site}:0:a2"
 
     async def test_human_answer_means_no_next_letter_ever(
         self, session: AsyncSession, filled_legal: None

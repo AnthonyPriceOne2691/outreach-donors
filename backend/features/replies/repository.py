@@ -16,6 +16,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.features.contacts.preference import DEAD
 from backend.features.core.domain import (
     ContactSource,
     MessageStatus,
@@ -211,13 +212,19 @@ class ReplyRepository:
         )
 
     async def mark_contact_dead(self, contact_id: int | None) -> None:
-        """Пометить адрес негодным. Следующий адрес донора открывается тем,
-        что этот перестаёт быть лучшим."""
+        """Пометить адрес мёртвым (`preference.DEAD`, оценка 0).
+
+        Одной отметки мало, и до 28.09.2026 её одной и не хватало: мёртвый
+        адрес с оценкой 0 оставался лучшим, а не дошедшее письмо — «уже
+        писали». Следующий адрес открывает сборка писем: мёртвый адрес она
+        не берёт, а донора, у которого все письма не дошли и никто
+        не ответил, снова собирает — на следующий адрес (`letters/attempts.py`).
+        """
         if contact_id is None:
             return
         contact = await self._session.get(ContactModel, contact_id)
         if contact is not None:
-            contact.verification_status = "bounced"
+            contact.verification_status = DEAD
             contact.verification_score = 0
 
     async def remember_answering_address(
