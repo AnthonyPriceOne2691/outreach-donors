@@ -997,9 +997,9 @@
       "worst": "_post:133"
     },
     "backend/features/letters/sending.py": {
-      "lines": 455,
+      "lines": 492,
       "complexity": 5,
-      "worst": "_pinned_sender:327"
+      "worst": "_pinned_sender:364"
     },
     "backend/features/letters/stoplist.py": {
       "lines": 310,
