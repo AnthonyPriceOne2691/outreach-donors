@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 NOW = datetime(2026, 9, 28, 12, 0, tzinfo=UTC)
 SECRET = "s" * 32
-REPLY_DOMAIN = "replies.ours.test"
+REPLY_HOST = "replies.ours.test"
 HOST = "donor.example.test"
 BOUNDARY = "xYzZY"
 URL = "/api/inbound/replies"
@@ -98,7 +98,7 @@ def label_for(message: MessageModel) -> str:
     только метка после «+», а правила домена ответов меняются отдельно
     от приёма — тест приёма не должен падать от их правки.
     """
-    return f"anna+{reply_to.label_for(message.id, secret=SECRET)}@{REPLY_DOMAIN}"
+    return f"anna+{reply_to.label_for(message.id, secret=SECRET)}@{REPLY_HOST}"
 
 
 def multipart(
