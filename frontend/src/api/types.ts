@@ -116,11 +116,18 @@ export interface LetterCard {
 
 export type ReplyKind = 'human' | 'auto_reply' | 'bounce' | 'unsubscribe';
 
+/** Вложение ответа: сведения о файле. Сам файл — отдельным запросом
+ *  (`downloadAttachment`) и только на скачивание. */
 export interface ReplyAttachment {
-  имя: string;
-  байт: number;
-  тип: string | null;
-  принято: boolean;
+  id: number;
+  name: string;
+  /** Байт. `null` — размер неизвестен: файл назван, но не пришёл. */
+  size: number | null;
+  content_type: string | null;
+  /** Файл сохранён и скачивается. */
+  accepted: boolean;
+  /** Почему не сохранён — словами сервера. */
+  reason: string | null;
 }
 
 export interface IncomingCard {
@@ -134,7 +141,7 @@ export interface IncomingCard {
   subject: string | null;
   /** Прайс приходит вложением чаще, чем текстом: ответ с файлом
    *  не должен выглядеть пустым. */
-  attachments: ReplyAttachment[] | null;
+  attachments: ReplyAttachment[];
   price_white: string | null;
   price_grey: string | null;
   currency: string | null;

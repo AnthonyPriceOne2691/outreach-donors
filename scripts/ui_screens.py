@@ -105,6 +105,12 @@ SCREENS: dict[str, dict] = {
             ("статус письма", ".glass p[data-size='xs']", NORM),
             ("кнопка «Подтвердить»", "button:has-text('Подтвердить')", BIG),
             ("кнопка «Не продаёт»", "button:has-text('Не продаёт размещения')", BIG),
+            # Вложения ответа (28.09.2026). Меряются там, где они есть: у
+            # диалога без файлов точки честно печатаются «не найден».
+            ("имя вложения", ".replyFileTitle", NORM),
+            ("размер и причина", ".replyFiles li p[data-size='xs']", NORM),
+            ("отметка «не сохранён»", ".replyFileMark .mantine-Badge-label", NORM),
+            ("кнопка «Скачать»", ".replyFiles button", BIG),
             ("пункт меню", "nav a", NORM),
         ],
     },

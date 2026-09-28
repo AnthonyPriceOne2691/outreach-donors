@@ -11,7 +11,8 @@ import type {
   ThreadCard,
   ThreadView,
 } from './types';
-import { request } from './client';
+import { download, request } from './client';
+import type { Downloaded } from './client';
 
 export function listSenders(): Promise<SendersView> {
   return request<SendersView>('/senders');
@@ -42,6 +43,15 @@ export function fetchThread(id: number): Promise<ThreadView> {
  *  уверенности модели и кладёт цену в карточку донора. */
 export function reviewReply(id: number, body: ReviewPrice): Promise<Reviewed> {
   return request<Reviewed>(`/replies/${id}`, { method: 'PATCH', body });
+}
+
+/**
+ * Файл, присланный донором, — запросом с пропуском, а не ссылкой: простая
+ * ссылка заголовка `Authorization` не несёт и получала бы 401. Сервер отдаёт
+ * его только на скачивание, и имя файла — в заголовке ответа.
+ */
+export function downloadAttachment(replyId: number, attachmentId: number): Promise<Downloaded> {
+  return download(`/replies/${replyId}/attachments/${attachmentId}`);
 }
 
 /** Ответ рекламодателя — в работу. Повторно — отказ: лид уже кто-то ведёт. */

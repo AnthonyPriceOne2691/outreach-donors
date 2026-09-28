@@ -127,3 +127,17 @@ export function formatDateTime(moment: string | null | undefined): string {
         minute: '2-digit',
       });
 }
+
+const bytesFormat = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 });
+
+/**
+ * Размер файла: «812 байт», «12,4 КБ», «1,5 МБ». `null` — размер неизвестен
+ * (файл назван, но не пришёл), и это говорится словами, а не нулём: «0 байт»
+ * читалось бы как пустой файл.
+ */
+export function formatBytes(size: number | null | undefined): string {
+  if (size === null || size === undefined || Number.isNaN(size)) return 'размер неизвестен';
+  if (size < 1024) return `${whole.format(size)} ${plural(size, 'байт', 'байта', 'байт')}`;
+  if (size < 1024 * 1024) return `${bytesFormat.format(size / 1024)} КБ`;
+  return `${bytesFormat.format(size / (1024 * 1024))} МБ`;
+}
