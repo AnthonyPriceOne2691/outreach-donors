@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import Any
 
@@ -80,6 +81,20 @@ def job_error(job_id: str, redis: Redis | None = None) -> str | None:
     """Последняя запомненная причина сбоя задачи."""
     raw = (redis or connection()).get(JOB_ERROR_KEY.format(job_id=job_id))
     return raw.decode("utf-8") if isinstance(raw, bytes) else raw
+
+
+def parse_job_id(reply_id: int, message_id: str | None = None) -> str:
+    """Номер задачи разбора: один на ответ.
+
+    С ним постановка идемпотентна (`enqueue(..., unique=True)`): вебхук,
+    повторённый платформой дважды, не ставит второй платный разбор, пока
+    первый стоит в очереди, идёт или хранит итог. Хвост — от идентификатора
+    письма: номера ответов после восстановления базы из копии начинаются
+    заново, и новый ответ с номером старого не должен упереться в его давно
+    выполненную задачу. Повтор того же письма даёт тот же хвост.
+    """
+    tail = hashlib.sha256(message_id.encode()).hexdigest()[:12] if message_id else "0"
+    return f"parse-reply-{reply_id}-{tail}"
 
 
 def with_retries() -> dict[str, Any]:

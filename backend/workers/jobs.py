@@ -343,6 +343,9 @@ async def _parse_reply(reply_id: int) -> dict[str, Any]:
                 "stored_price": parsed.stored_price,
                 "needs_review": parsed.needs_review,
                 "tokens": parsed.tokens_spent,
+                # Почему модель не звали: без этого второй раз пришедшая
+                # задача выглядела бы разбором с нулевой уверенностью.
+                "skipped": parsed.skipped,
             }
     finally:
         await extractor.aclose()

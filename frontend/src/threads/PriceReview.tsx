@@ -14,6 +14,10 @@
  * модель. Обратного действия нет намеренно: передумав, он правит цифры
  * и подтверждает снова — это честнее, чем «отменить подтверждение»,
  * после которого непонятно, какое число считается верным.
+ *
+ * **Причина — от сервера, если она не «уверенности не хватило».** Автоответ
+ * с суммой модель не разбирала вовсе: объяснение про уверенность было бы
+ * неправдой, и человек искал бы разбор, которого нет.
  */
 
 import { Alert, Badge, Button, Group, Stack, Text, TextInput } from '@mantine/core';
@@ -55,11 +59,13 @@ export function PriceReview({ incoming, canReview, busy, onConfirm, onDecline }:
 
   return (
     <Stack gap="sm" mt="sm">
-      {incoming.confidence !== null && (
+      {(incoming.confidence !== null || incoming.reviewed_by !== null) && (
         <Group gap="sm">
-          <Text size="xs" c="dimmed">
-            уверенность разбора {(incoming.confidence * 100).toFixed(0)}%
-          </Text>
+          {incoming.confidence !== null && (
+            <Text size="xs" c="dimmed">
+              уверенность разбора {(incoming.confidence * 100).toFixed(0)}%
+            </Text>
+          )}
           {incoming.reviewed_by !== null && (
             <Badge variant="light" color="green">
               подтвердил {incoming.reviewed_by}
@@ -76,8 +82,9 @@ export function PriceReview({ incoming, canReview, busy, onConfirm, onDecline }:
 
       {incoming.needs_review && (
         <Alert color="yellow" title="Цену подтверждает человек">
-          Уверенности разбора не хватило, чтобы положить цену в карточку донора. Сверьте числа с
-          текстом письма выше и подтвердите — или поправьте.
+          {incoming.review_reason
+            ? `Причина: ${incoming.review_reason}. Впишите цену из текста письма выше и подтвердите.`
+            : 'Уверенности разбора не хватило, чтобы положить цену в карточку донора. Сверьте числа с текстом письма выше и подтвердите — или поправьте.'}
         </Alert>
       )}
 

@@ -2,13 +2,16 @@
 
 Решение отделено от его применения нарочно: применение — это запросы
 к базе, а решение — правила, и правила должны проверяться без базы.
-Здесь их шесть, и каждое оплачено чужим опытом.
+Здесь их семь, и каждое оплачено чужим опытом.
 
 **Ответ останавливает цепочку добивок.** Писать дальше человеку, который
 уже ответил, — неуважение, и он справедливо так это и воспримет.
 
 **Автоответчик не останавливает.** «Я в отпуске до понедельника» не значит
 «мне неинтересно»; оборвав на нём цепочку, мы потеряем донора ни на чём.
+Но автоответ с суммой в валюте ждёт человека: автоответы модель не
+разбирает, и цена из прайса тикет-системы или отпускной подписи иначе
+пропала бы молча.
 
 **Отписка блокирует адрес, а не донора.** Требование «больше не пишите»
 сильнее и распространяется на весь сайт, но решает это человек: разница
@@ -20,7 +23,9 @@
 обычно есть и другие адреса.
 
 **Адрес, с которого ответили, становится предпочтительным.** Дальше пишем
-тому, кто отвечает, а не в ящик, где письмо пролежало неделю.
+тому, кто отвечает, а не в ящик, где письмо пролежало неделю. Кроме робота:
+noreply предпочтительным не становится (`robots`), иначе следующее письмо
+донору ушло бы в ящик, который письма выбрасывает.
 
 **Цена ниже порога уверенности не попадает в базу.** Она остаётся
 при ответе и ждёт человека: приёмка требует не более 5% ошибок, и без
@@ -40,9 +45,17 @@ from dataclasses import dataclass
 from backend.config import outreach as cfg
 from backend.features.core.domain import ReplyKind, Stage
 from backend.features.replies.extract import Extracted
+from backend.features.replies.inbound import MAX_TEXT_CHARS
+from backend.features.replies.money import amounts_in
+from backend.features.replies.quoting import written_by_hand
 
 #: Почему ответ рекламодателя ждёт человека — словами, для карточки.
 ADVERTISER_LEAD = "ответ рекламодателя — лид: цену не разбираем, его ведёт человек"
+
+#: Почему автоответ ждёт человека — словами, для карточки.
+AUTO_REPLY_WITH_SUM = (
+    "автоответ с суммой в валюте — модель автоответы не разбирает, цену смотрит человек"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,8 +91,10 @@ def decide(
     *,
     threshold: float | None = None,
     stage: Stage = Stage.DONORS,
+    names_a_sum: bool = False,
 ) -> Consequences:
-    """Последствия одного ответа. Этап — этап рассылки, на письмо которой ответили."""
+    """Последствия одного ответа. Этап — этап рассылки, на письмо которой ответили;
+    `names_a_sum` — есть ли в написанном донором сумма в валюте (`names_a_sum()`)."""
     limit = cfg.PRICE_CONFIDENCE_THRESHOLD if threshold is None else threshold
 
     if kind is ReplyKind.BOUNCE:
@@ -90,9 +105,7 @@ def decide(
         return Consequences(stop_chain=True, suppress_email=True)
 
     if kind is ReplyKind.AUTO_REPLY:
-        # Ничего: ни остановки, ни отметок. Автоответчик — это тишина,
-        # а не событие.
-        return Consequences()
+        return _auto_reply(stage, names_a_sum=names_a_sum)
 
     if stage is Stage.ADVERTISERS:
         # Ответил рекламодатель: цепочка кончилась, дальше — человек.
@@ -104,6 +117,32 @@ def decide(
         )
 
     return _donor_answer(found, limit)
+
+
+def _auto_reply(stage: Stage, *, names_a_sum: bool) -> Consequences:
+    """Автоответчик — это тишина, а не событие: ни остановки, ни отметок.
+
+    Кроме суммы в валюте в том, что он написал. Автоответ с прайсом бывает —
+    тикет-система с `Precedence: bulk`, отпускная подпись с тарифом, — и цена
+    в нём тоже цена донора. Вид остаётся автоответом, цепочка добивок идёт,
+    как шла, а ответ ждёт человека тем же путём, что неуверенный разбор:
+    модель автоответы не разбирает, и без человека цена пропала бы молча.
+    Ответ рекламодателя сюда не относится: его сумма — его расход, а не цена.
+    """
+    if names_a_sum and stage is Stage.DONORS:
+        return Consequences(needs_review=True, review_reason=AUTO_REPLY_WITH_SUM)
+    return Consequences()
+
+
+def names_a_sum(text: str) -> bool:
+    """Есть ли в письме сумма в валюте — в том, что написал донор.
+
+    Та же часть письма, что читают правила вида и модель: начало, без
+    цитаты — в цитате наше письмо. По сохранённому тексту считается так же,
+    как при приёме, поэтому «ждёт человека» у автоответа не хранится,
+    а выводится: правка словаря валют доходит и до старых ответов.
+    """
+    return bool(amounts_in(written_by_hand(text[:MAX_TEXT_CHARS])))
 
 
 def _donor_answer(found: Extracted | None, limit: float) -> Consequences:
@@ -169,17 +208,29 @@ def _why(found: Extracted, limit: float) -> str:
     return f"{head}; {'; '.join(found.notes)}"
 
 
-def waiting_for_review(kind: ReplyKind, confidence: float | None, *, reviewed: bool) -> bool:
+def waiting_for_review(
+    kind: ReplyKind,
+    confidence: float | None,
+    *,
+    reviewed: bool,
+    names_a_sum: bool = False,
+) -> bool:
     """Ждёт ли разбор человека.
 
     Считается, а не хранится отдельным полем: второе поле разошлось бы
     с уверенностью при первой же правке порога, и очередь показывала бы
     не то, что в ней есть.
 
-    Ждут только ответы людей. У автоответчика и отказа доставки разбирать
+    Ждут ответы людей — и автоответ с суммой в валюте (`names_a_sum`,
+    только на письма доноров — это решает вызывающий): его цену модель
+    не разбирала. У остальных автоответов и у отказа доставки разбирать
     нечего, и держать их в очереди значит топить её тем, по чему решений
     не принимают.
     """
-    if reviewed or kind is not ReplyKind.HUMAN:
+    if reviewed:
+        return False
+    if kind is ReplyKind.AUTO_REPLY:
+        return names_a_sum
+    if kind is not ReplyKind.HUMAN:
         return False
     return (confidence or 0.0) < cfg.PRICE_CONFIDENCE_THRESHOLD

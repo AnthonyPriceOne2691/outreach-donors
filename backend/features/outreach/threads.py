@@ -17,7 +17,9 @@
 **«Ждёт разбора» — состояние, а не пометка.** Ответ человека, из которого
 цена не извлеклась уверенно, требует действия: по нему надо принять
 решение руками. Показывать такой диалог как «ответил» значит прятать
-очередь работы внутри слова, которое звучит как «всё хорошо».
+очередь работы внутри слова, которое звучит как «всё хорошо». Туда же —
+автоответ с суммой в валюте (`replies.outcome.AUTO_REPLY_WITH_SUM`):
+модель его не разбирала, и без человека цена в нём пропала бы.
 
 **Ответ рекламодателя — лид, а не цена.** Его не разбирают
 (`replies.outcome.ADVERTISER_LEAD`), и «ждёт разбора» с формой цены
@@ -36,7 +38,7 @@ from enum import StrEnum
 
 from backend.features.core.domain import MessageStatus, ReplyKind, Stage
 from backend.features.core.models.outreach import MessageModel, ReplyModel
-from backend.features.replies.outcome import waiting_for_review
+from backend.features.replies.outcome import AUTO_REPLY_WITH_SUM, names_a_sum, waiting_for_review
 
 
 class ThreadState(StrEnum):
@@ -121,36 +123,47 @@ def _lead_rules(replies: Sequence[ReplyModel]) -> _Rules:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class Review:
+    """Ждёт ли ответ человека и почему — одно правило для списка и карточки."""
+
+    waiting: bool
+    #: Почему цену в ответе не человека смотрит человек, — словами.
+    #: Пусто — обычный ответ, его ждут по уверенности разбора.
+    reason: str | None = None
+
+
+def review_of(reply: ReplyModel, stage: Stage = Stage.DONORS) -> Review:
+    """Ждёт ли ответ человека — у донора. У рекламодателя разбора цены нет
+    вовсе: его ответ — лид, и сумма в нём — его расход, а не цена.
+
+    Сумма в автоответе считается по сохранённому тексту и только у
+    автоответа: у остальных видов она на ожидание не влияет, а читать
+    текст каждого ответа ради списка незачем.
+    """
+    if stage is Stage.ADVERTISERS:
+        return Review(waiting=False)
+    priced = reply.kind is ReplyKind.AUTO_REPLY and names_a_sum(reply.raw_body)
+    waiting = waiting_for_review(
+        reply.kind, reply.confidence, reviewed=reply.reviewed_at is not None, names_a_sum=priced
+    )
+    return Review(waiting=waiting, reason=AUTO_REPLY_WITH_SUM if priced else None)
+
+
 def _answer_rules(replies: Sequence[ReplyModel]) -> _Rules:
     """Ответ донора: цена, «не продаём», «бесплатно», ждёт разбора, просто ответил."""
     kinds = {r.kind for r in replies}
+    judged = [(r, review_of(r).waiting) for r in replies]
     # Цена считается полученной, только если её не ждёт человек: иначе
     # диалог с неуверенным разбором выглядел бы законченным, а список
     # диалогов врал бы именно там, где по нему принимают решения.
-    has_price = any(
-        (r.price_white is not None or r.price_grey is not None)
-        and not waiting_for_review(r.kind, r.confidence, reviewed=r.reviewed_at is not None)
-        for r in replies
-    )
-
     # «Не продаём» — законченный ответ, как и цена: работы по нему нет,
     # а в списке он не должен выглядеть как «ответил, что-то непонятное».
-    declined = any(
-        r.placement == "declines"
-        and not waiting_for_review(r.kind, r.confidence, reviewed=r.reviewed_at is not None)
-        for r in replies
-    )
-
-    free = any(
-        r.placement == "free"
-        and not waiting_for_review(r.kind, r.confidence, reviewed=r.reviewed_at is not None)
-        for r in replies
-    )
-
-    waiting = any(
-        waiting_for_review(r.kind, r.confidence, reviewed=r.reviewed_at is not None)
-        for r in replies
-    )
+    settled = [r for r, waits in judged if not waits]
+    has_price = any(r.price_white is not None or r.price_grey is not None for r in settled)
+    declined = any(r.placement == "declines" for r in settled)
+    free = any(r.placement == "free" for r in settled)
+    waiting = len(settled) < len(judged)
 
     return (
         (has_price, ThreadState.PRICED),

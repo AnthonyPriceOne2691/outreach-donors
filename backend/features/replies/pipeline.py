@@ -8,7 +8,10 @@
 
 **Повтор проверяется первым.** Провайдер доставляет события «хотя бы
 один раз»; без этой проверки повтор дал бы второй ответ, второй разбор
-и второй платный вызов модели.
+и второй платный вызов модели. Но повтор — ещё и единственный шанс
+поставить разбор, который не встал в очередь: вебхук сохранил ответ,
+а очередь в ту минуту лежала. Такой ответ повтор отдаёт разбору снова
+(`Accepted.to_parse`), иначе он ждал бы разбора вечно.
 
 **Приём и разбор разведены, и это не удобство.** Вызов модели идёт
 секундами, а платформа повторяет вебхук по таймауту — платный разбор
@@ -18,7 +21,14 @@
 **Модель зовётся только для ответов людей — и только доноров.** Разбирать
 цену в отказе доставки или в автоответчике — платить за заведомо пустой
 результат; разбирать её в ответе рекламодателя — записать его расход
-ценой площадки (`outcome.ADVERTISER_LEAD`).
+ценой площадки (`outcome.ADVERTISER_LEAD`). Автоответ с суммой в валюте
+модели тоже не отдаётся — его цену смотрит человек (`outcome.AUTO_REPLY_WITH_SUM`).
+И один ответ разбирается один раз: разобранный или решённый человеком
+модели второй раз не уходит.
+
+**Мёртвый ящик сам называет следующий адрес** («пишите на editor@…»):
+на домене донора он сразу ложится в контакты, на чужом — ждёт человека
+(`redirect`).
 
 **Непривязанное сохраняется.** Ответ, который не удалось соотнести, —
 это не мусор, а потерянный донор. Молча отброшенный, он выглядит как
@@ -29,7 +39,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,7 +47,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.features.core import usage
 from backend.features.core.domain import ReplyKind, Stage
 from backend.features.core.models.outreach import ReplyModel
-from backend.features.replies import binding, classify, outcome
+from backend.features.replies import binding, classify, outcome, redirect
 from backend.features.replies import extract as extract_mod
 from backend.features.replies.attachments import ReplyFiles
 from backend.features.replies.extract import ExtractClient, Extracted
@@ -62,6 +72,18 @@ class Accepted:
     review_reason: str | None = None
     #: Разбор цены ещё впереди: он идёт задачей очереди.
     parse_pending: bool = False
+    #: Повтор вебхука застал ответ, чей разбор цены так и не шёл: номер
+    #: этого ответа. Разбор ставится снова — иначе он не пошёл бы никогда.
+    unparsed: int | None = None
+    #: Что назвал автоответ мёртвого ящика и что с этим сделано.
+    forwarding: redirect.Redirect = field(default_factory=redirect.Redirect)
+
+    @property
+    def to_parse(self) -> int | None:
+        """Какой ответ отдать разбору цены: только что принятый или застрявший."""
+        if self.parse_pending and self.reply_id is not None:
+            return self.reply_id
+        return self.unparsed
 
     @property
     def as_report(self) -> dict[str, object]:
@@ -73,6 +95,8 @@ class Accepted:
             "правило": self.rule,
             "повтор": self.duplicate,
             "ждёт человека": self.needs_review,
+            "разбор снова": self.unparsed,
+            "адреса из автоответа": self.forwarding.as_report,
         }
 
 
@@ -86,6 +110,8 @@ class Parsed:
     needs_review: bool
     review_reason: str | None
     tokens_spent: int
+    #: Почему модель не звали — словами. Пусто — звали.
+    skipped: str | None = None
 
 
 class Inbox:
@@ -101,9 +127,9 @@ class Inbox:
 
     async def accept(self, incoming: Incoming) -> Accepted:
         """Принять одно входящее письмо. Модель здесь не зовётся."""
-        if await self._repo.already_taken(incoming.message_id):
-            logger.info("приём: письмо %s уже принято — повтор вебхука", incoming.message_id)
-            return Accepted(reply_id=None, kind=None, way=binding.BindingWay.NONE, duplicate=True)
+        taken = await self._repo.taken(incoming.message_id)
+        if taken is not None:
+            return await self._repeated(incoming, taken)
 
         bound, addressee = await self._bind(incoming)
         verdict = classify.classify(incoming)
@@ -135,10 +161,54 @@ class Inbox:
                 review_reason="ответ не привязан к письму",
             )
 
-        # Решения, не зависящие от цены: остановка цепочки, стоп-лист,
-        # отметка мёртвого адреса, запоминание отвечающего.
-        consequences = outcome.decide(verdict.kind, None, stage=addressee.stage)
+        return await self._settle(reply, verdict, bound, incoming, addressee)
+
+    async def _repeated(self, incoming: Incoming, taken: ReplyModel) -> Accepted:
+        """Повтор вебхука: второго ответа не заводим.
+
+        Но если разбор цены у принятого ответа так и не шёл, повтор отдаёт
+        его разбору снова. Платформа повторяет письмо ровно тогда, когда
+        вебхук ответил не 2xx, — а так он отвечает, если ответ сохранён,
+        а очередь разбора в ту минуту лежала. Без этой ветки повтор видел
+        «уже принято», и ответ оставался «ждёт разбора» навсегда.
+        """
+        unparsed = taken.id if await self._repo.parse_never_ran(taken) else None
+        logger.info(
+            "приём: письмо %s уже принято ответом №%s — повтор вебхука%s",
+            incoming.message_id,
+            taken.id,
+            "; разбор цены так и не шёл — ставлю снова" if unparsed else "",
+        )
+        return Accepted(
+            reply_id=None,
+            kind=None,
+            way=binding.BindingWay.NONE,
+            duplicate=True,
+            unparsed=unparsed,
+        )
+
+    async def _settle(
+        self,
+        reply: ReplyModel,
+        verdict: classify.Verdict,
+        bound: binding.Binding,
+        incoming: Incoming,
+        addressee: Addressee,
+    ) -> Accepted:
+        """Решения, не зависящие от цены: остановка цепочки, стоп-лист,
+        отметка мёртвого адреса, запоминание отвечающего — и адреса,
+        которые назвал мёртвый ящик."""
+        auto = verdict.kind is ReplyKind.AUTO_REPLY
+        consequences = outcome.decide(
+            verdict.kind,
+            None,
+            stage=addressee.stage,
+            names_a_sum=auto and outcome.names_a_sum(incoming.text),
+        )
         await self._apply(consequences, incoming=incoming, addressee=addressee)
+        found = await self._redirect(verdict, incoming, addressee)
+        if auto and consequences.needs_review:
+            logger.info("приём: ответ №%s — %s", reply.id, consequences.review_reason)
 
         return Accepted(
             reply_id=reply.id,
@@ -146,9 +216,20 @@ class Inbox:
             way=bound.way,
             rule=verdict.rule,
             bound=True,
-            needs_review=consequences.needs_review,
-            review_reason=consequences.review_reason,
+            needs_review=consequences.needs_review or found.review_reason is not None,
+            review_reason=consequences.review_reason or found.review_reason,
             parse_pending=verdict.kind is ReplyKind.HUMAN and addressee.stage is Stage.DONORS,
+            forwarding=found,
+        )
+
+    async def _redirect(
+        self, verdict: classify.Verdict, incoming: Incoming, addressee: Addressee
+    ) -> redirect.Redirect:
+        """Мёртвый ящик сам назвал, куда писать, — взять адрес (`redirect`)."""
+        if verdict.rule != classify.DEAD_MAILBOX:
+            return redirect.Redirect()
+        return await redirect.follow(
+            self._session, incoming, domain_id=addressee.domain_id, host=addressee.host
         )
 
     # --- шаги ---
@@ -234,15 +315,9 @@ class Parser:
     async def parse(self, reply_id: int) -> Parsed:
         """Разобрать один ответ и применить последствия цены."""
         reply = await self._repo.reply(reply_id)
-        if reply.kind is not ReplyKind.HUMAN:
-            # Разбирать нечего, и это не ошибка: задача могла быть
-            # поставлена до того, как вид ответа уточнили.
-            return Parsed(reply_id, 0.0, False, False, None, 0)
-        if await self._repo.stage_of(reply) is Stage.ADVERTISERS:
-            # Приём такой разбор не ставит; пришла задача — значит, её
-            # поставили в обход, и платить за неё модели незачем.
-            logger.warning("разбор: ответ №%s — %s, отказ", reply_id, outcome.ADVERTISER_LEAD)
-            return Parsed(reply_id, 0.0, False, True, outcome.ADVERTISER_LEAD, 0)
+        skipped = await self._not_for_model(reply)
+        if skipped is not None:
+            return skipped
 
         found = await self._extractor.extract(_as_incoming(reply))
         if found.tokens_spent:
@@ -275,6 +350,25 @@ class Parser:
             tokens_spent=found.tokens_spent,
         )
 
+    async def _not_for_model(self, reply: ReplyModel) -> Parsed | None:
+        """Ответ, который модели не отдаётся, — с итогом без неё. `None` — отдаётся."""
+        if reply.kind is not ReplyKind.HUMAN:
+            # Разбирать нечего, и это не ошибка: задача могла быть
+            # поставлена до того, как вид ответа уточнили.
+            return _without_model(reply, "не ответ человека")
+        if reply.model_parse is not None or reply.reviewed_at is not None:
+            # Задача пришла второй раз — повтор вебхука, ручная постановка.
+            # Второй вызов модели стоил бы денег и затёр бы и снимок первого
+            # разбора, по которому калибруется модель, и решение человека.
+            logger.info("разбор: ответ №%s уже разобран или решён — модель не зову", reply.id)
+            return _without_model(reply, "уже разобран или решён человеком")
+        if await self._repo.stage_of(reply) is Stage.ADVERTISERS:
+            # Приём такой разбор не ставит; пришла задача — значит, её
+            # поставили в обход, и платить за неё модели незачем.
+            logger.warning("разбор: ответ №%s — %s, отказ", reply.id, outcome.ADVERTISER_LEAD)
+            return _without_model(reply, "ответ рекламодателя", why=outcome.ADVERTISER_LEAD)
+        return None
+
     async def _seller_answer(self, reply: ReplyModel, answer: str) -> None:
         domain_id = await self._repo.domain_of(reply)
         if domain_id is None:
@@ -296,6 +390,23 @@ class Parser:
             currency=found.currency,
             now=self._now or datetime.now(UTC),
         )
+
+
+def _without_model(reply: ReplyModel, skipped: str, *, why: str | None = None) -> Parsed:
+    """Итог разбора, в котором модель не звали: ждёт ли ответ человека —
+    по тому же правилу, что экран, а не «нет» по умолчанию."""
+    waiting = why is not None or outcome.waiting_for_review(
+        reply.kind, reply.confidence, reviewed=reply.reviewed_at is not None
+    )
+    return Parsed(
+        reply_id=reply.id,
+        confidence=reply.confidence or 0.0,
+        stored_price=False,
+        needs_review=waiting,
+        review_reason=why,
+        tokens_spent=0,
+        skipped=skipped,
+    )
 
 
 def _write_back_placement(reply: ReplyModel, found: Extracted) -> None:

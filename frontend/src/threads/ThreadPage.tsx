@@ -151,9 +151,10 @@ interface IncomingProps {
 function Incoming({ incoming, canReview, busy, onConfirm, onDecline, onTakeLead }: IncomingProps) {
   const kind = REPLY_KINDS[incoming.kind];
   const hasPrice = incoming.price_white !== null || incoming.price_grey !== null;
-  // Разбирают только ответы людей: у автоответчика и отказа доставки
-  // разбирать нечего.
-  const reviewable = incoming.kind === 'human';
+  // Разбирают ответы людей: у автоответчика и отказа доставки разбирать
+  // нечего. Кроме автоответа с суммой в валюте — у него сервер называет
+  // причину, и без формы цену из него было бы некуда вписать.
+  const reviewable = incoming.kind === 'human' || Boolean(incoming.review_reason);
 
   return (
     <Card className="glass" p="md">
