@@ -115,6 +115,20 @@ rclone_in_docker() {
     "$IMAGE" "$@"
 }
 
+# reachable — хранилище отвечает и ключ подходит. Отдельной пробой перед
+# работой: при недоступном адресе копирование у rclone 1.75.1 кончается
+# словами «is a file not a directory» (живая проверка 28.09.2026), а
+# настоящая причина — «no such host», неверная подпись — видна только
+# в отладочном выводе. Тревога с чужой причиной хуже тревоги без причины.
+# Коды: 0 — ответил, 3 — «каталога нет» (первая выгрузка), прочее — нет.
+reachable() {
+  local said code=0
+  said="$(rclone_in_docker "" lsf "$REMOTE" --max-depth 1 --retries 1 --low-level-retries 2 2>&1 >/dev/null)" || code=$?
+  if [ "$code" -ne 0 ] && [ "$code" -ne 3 ]; then
+    die "хранилище не отвечает или не пускает ($BACKUP_S3_ENDPOINT, бакет $BACKUP_S3_BUCKET): $(printf '%s' "$said" | tail -n 1)"
+  fi
+}
+
 upload() {
   local source="${1:-}" name
   [ -n "$source" ] || die "укажи каталог копии: scripts/offsite.sh upload <каталог>"
@@ -123,6 +137,7 @@ upload() {
   name="$(basename "$source")"
 
   echo "Выгружаю $name → $BACKUP_S3_BUCKET/$PREFIX/$name ($BACKUP_S3_ENDPOINT)"
+  reachable
   rclone_in_docker "$source:/backup:ro" copy /backup "$REMOTE/$name" --stats-one-line -v ||
     die "копирование в хранилище не прошло — причина строками rclone выше"
   # Отдельный проход по хранилищу: код выхода копирования говорит, что
@@ -151,6 +166,7 @@ fetch() {
   # как раз сравнивают.
   [ ! -e "$into/$name" ] || die "$into/$name уже есть — выбери другой каталог или убери её"
 
+  reachable
   rm -rf "$into/$name.partial"
   rclone_in_docker "$into:/restore" copy "$REMOTE/$name" "/restore/$name.partial" --stats-one-line -v ||
     die "скачать $name не вышло — причина строками rclone выше; какие копии есть — scripts/offsite.sh list"

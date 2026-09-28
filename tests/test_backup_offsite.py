@@ -9,10 +9,11 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
-from tests.ops_fakes import Host
+from tests.ops_fakes import ROOT, Host
 
 SECRET = "s3-secret-value-for-tests"
 TOKEN = "555:bot-token-for-tests"
@@ -70,13 +71,13 @@ class TestUpload:
         assert done.returncode == 0, done.stderr
         [stamp] = _copies(host)
         calls = _rclone(host)
-        assert [c["key"] for c in calls] == ["rclone copy", "rclone check"], (
-            "после копирования — отдельная сверка с хранилищем"
+        assert [c["key"] for c in calls] == ["rclone lsf", "rclone copy", "rclone check"], (
+            "проба хранилища, копирование и отдельная сверка с хранилищем"
         )
         remote = f"offsite:outreach-backups/outreach-donors/{stamp}"
-        assert calls[0]["argv"][-4:-2] == ["/backup", remote]
-        assert calls[1]["argv"][-4:] == ["check", "/backup", remote, "--one-way"]
-        assert calls[0]["listed"][f"{host.env['BACKUP_DIR']}/{stamp}:/backup:ro"] == [
+        assert calls[1]["argv"][-4:-2] == ["/backup", remote]
+        assert calls[2]["argv"][-4:] == ["check", "/backup", remote, "--one-way"]
+        assert calls[1]["listed"][f"{host.env['BACKUP_DIR']}/{stamp}:/backup:ro"] == [
             "README.txt",
             "alembic_version.txt",
             "outreach.dump",
@@ -95,12 +96,18 @@ class TestUpload:
             assert call["secret_in_env"] == SECRET
         assert _leaks(host, done, SECRET, TOKEN) == []
 
+    @pytest.mark.parametrize("locale", ["C", "C.UTF-8"])
     @pytest.mark.parametrize("failing", ["rclone copy", "rclone check"])
     def test_upload_or_check_failure_is_a_failed_backup_and_one_alert(
-        self, host: Host, failing: str
+        self, host: Host, failing: str, locale: str
     ) -> None:
         """Копия легла не целиком — это не «бэкап с замечанием», а бэкап,
-        которого вне машины нет. Локальная копия при этом остаётся."""
+        которого вне машины нет. Локальная копия при этом остаётся.
+
+        В двух локалях: у крона C, у человека UTF-8. 28.09.2026 живая
+        проверка в UTF-8 нашла, что тревога об отказе падала сама —
+        bash 3.2 читал `$STEP»` как другое имя."""
+        host.locale = locale
         host.scenario[failing] = {"code": 1, "err": "ERROR : outreach.dump: file not found\n"}
 
         done = host.run("backup.sh")
@@ -112,6 +119,25 @@ class TestUpload:
         assert "шаг «выгрузка»" in alert
         assert "file not found" in alert, "причина из вывода rclone — в тревоге"
         assert _leaks(host, done, SECRET, TOKEN) == []
+
+    def test_silent_storage_is_named_by_its_own_reason(self, host: Host) -> None:
+        """При недоступном адресе копирование у rclone кончается словами
+        «is a file not a directory» — тревога с чужой причиной. Проба перед
+        копированием называет настоящую."""
+        host.scenario["rclone lsf"] = {
+            "code": 1,
+            "err": "NOTICE: Failed to lsf: dial tcp: lookup acc123.r2.cloudflarestorage.com: no such host\n",
+        }
+
+        done = host.run("backup.sh")
+
+        assert done.returncode != 0
+        assert [c["key"] for c in _rclone(host)] == ["rclone lsf"], (
+            "копировать некуда — и не пробуем"
+        )
+        [alert] = host.alerts()
+        assert "хранилище не отвечает или не пускает" in alert
+        assert "no such host" in alert
 
     def test_without_storage_the_copy_stays_and_says_so(self, host: Host) -> None:
         """Хранилище не настроено: бэкап снят, выгрузки нет — и об этом
@@ -147,6 +173,18 @@ class TestUpload:
         [stamp] = _copies(host)
         assert seen.read_text() == f"{host.env['BACKUP_DIR']}/{stamp}"
         assert _rclone(host) == []
+
+    def test_dump_does_not_swallow_the_callers_script(self, host: Host) -> None:
+        """`exec -T` пересылает в контейнер stdin скрипта. Бэкап, запущенный
+        из выкатки, которую кормят через stdin (`ssh … bash -s < выкатка.sh`),
+        отдавал pg_dump её остаток, и всё после бэкапа молча не выполнялось.
+        Найдено живой проверкой 28.09.2026."""
+        done = host.run("backup.sh", stdin="docker compose pull && docker compose up -d\n")
+
+        assert done.returncode == 0, done.stderr
+        execs = [c for c in host.calls("docker") if str(c["key"]).startswith("compose exec")]
+        assert [c["key"] for c in execs] == ["compose exec pg_dump", "compose exec psql"]
+        assert [c["stdin"] for c in execs] == ["", ""], "остаток вызывающего не ушёл в контейнер"
 
 
 class TestFailuresBeforeUpload:
@@ -204,6 +242,20 @@ class TestFailuresBeforeUpload:
         assert "бэкап НЕ снят" in done.stderr, "текст тревоги не пропадает вместе с ней"
 
 
+def test_no_variable_runs_into_a_letter() -> None:
+    """`$ИМЯ` вплотную к букве не латиницей — в скобки: bash 3.2 в локали UTF-8
+    берёт первый байт буквы в имя, и под `set -u` скрипт падает на пустом
+    месте. Правило проверяется здесь, а не помнится."""
+    pattern = re.compile(r"\$[A-Za-z_][A-Za-z0-9_]*(?=[^\x00-\x7f])")
+    found = [
+        f"{script.name}:{number}: {line.strip()[:80]}"
+        for script in sorted((ROOT / "scripts").glob("*.sh"))
+        for number, line in enumerate(script.read_text(encoding="utf-8").splitlines(), 1)
+        if not line.lstrip().startswith("#") and pattern.search(line)
+    ]
+    assert found == [], "взять в скобки: ${ИМЯ}"
+
+
 class TestFetch:
     def test_fetch_downloads_checks_and_names_the_next_step(
         self, host: Host, tmp_path: Path
@@ -216,8 +268,8 @@ class TestFetch:
         assert (into / "2026-09-27-030000" / "outreach.dump").read_bytes().startswith(b"PGDMP")
         assert not (into / "2026-09-27-030000.partial").exists()
         calls = _rclone(host)
-        assert [c["key"] for c in calls] == ["rclone copy", "rclone check"]
-        assert calls[1]["argv"][-3:-1] == [
+        assert [c["key"] for c in calls] == ["rclone lsf", "rclone copy", "rclone check"]
+        assert calls[2]["argv"][-3:-1] == [
             "offsite:outreach-backups/outreach-donors/2026-09-27-030000",
             "/restore/2026-09-27-030000.partial",
         ]

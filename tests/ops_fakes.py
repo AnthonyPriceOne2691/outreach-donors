@@ -62,6 +62,9 @@ DEFAULTS = {
 
 key = key_of(argv)
 record["key"] = key
+if key.startswith("compose exec"):
+    # `exec -T` пересылает в контейнер stdin вызвавшего — как настоящий докер.
+    record["stdin"] = sys.stdin.read()
 answer = scenario.get(key, DEFAULTS.get(key, {}))
 code = answer.get("code", 0)
 
@@ -127,6 +130,9 @@ class Host:
     root: Path
     scenario: dict[str, Any] = field(default_factory=dict)
     env: dict[str, str] = field(default_factory=dict)
+    #: Локаль скрипта. У крона обычно C, у человека в терминале — UTF-8,
+    #: и bash 3.2 в UTF-8 разбирает `$ИМЯ»` иначе (`test_backup_offsite`).
+    locale: str = "C"
 
     @property
     def bin(self) -> Path:
@@ -167,7 +173,9 @@ class Host:
         """Тексты тревог, которые скрипты отдали curl."""
         return [row["data"].get("text", "") for row in self.calls("curl")]
 
-    def run(self, script: str, *args: str) -> subprocess.CompletedProcess[str]:
+    def run(
+        self, script: str, *args: str, stdin: str | None = None
+    ) -> subprocess.CompletedProcess[str]:
         scenario = self.root / "scenario.json"
         scenario.write_text(json.dumps(self.scenario, ensure_ascii=False), encoding="utf-8")
         environment = {
@@ -176,16 +184,21 @@ class Host:
             "PATH": f"{self.bin}{os.pathsep}{os.environ['PATH']}",
             "HOME": str(self.root),
             "TMPDIR": str(self.root),
-            "LANG": "C",
+            "LANG": self.locale,
             "OPS_ENV_DIR": str(self.settings),
             "FAKE_SCENARIO": str(scenario),
             "FAKE_LOG": str(self.log),
             **self.env,
         }
+        # stdin — пустой, если тест не задал свой: подделка докера читает его
+        # до конца, и терминал разработчика подвесил бы её навсегда.
         return subprocess.run(
             ["bash", str(ROOT / "scripts" / script), *args],
+            input=stdin if stdin is not None else "",
             capture_output=True,
             text=True,
+            # Байт, разрезавший букву, — не повод ронять тест до проверок.
+            errors="replace",
             env=environment,
             cwd=self.root,
             check=False,

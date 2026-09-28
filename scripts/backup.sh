@@ -79,11 +79,15 @@ WHY=""
 # Один выход на все отказы: уборка недоснятого и тревога. `set -e` роняет
 # скрипт и на шаге, про который никто не подумал, — тогда в тревоге шаг
 # и код выхода, а подробности в журнале крона.
+#
+# `${STEP}` в скобках не для красоты: bash 3.2 в локали UTF-8 читает первый
+# байт «»» как букву имени, `$STEP»` становится несуществующей переменной,
+# и под `set -u` тревога об отказе падала сама. Живая проверка 28.09.2026.
 finish() {
   local code=$?
   rm -rf "$PARTIAL" "$ERRS"
   if [ "$code" -ne 0 ]; then
-    "$ROOT/scripts/alert.sh" "бэкап НЕ снят или не уехал с машины — шаг «$STEP»: ${WHY:-код выхода $code}. Вывод скрипта — в журнале крона (на сервере /var/log/outreach-backup.log)." || true
+    "$ROOT/scripts/alert.sh" "бэкап НЕ снят или не уехал с машины — шаг «${STEP}»: ${WHY:-код выхода $code}. Вывод скрипта — в журнале крона (на сервере /var/log/outreach-backup.log)." || true
   fi
 }
 trap finish EXIT
@@ -122,7 +126,12 @@ mkdir -p "$PARTIAL"
 
 STEP="дамп базы"
 # Архивный формат (-Fc), а не текстовый: восстанавливается выборочно и сжат.
-if ! $COMPOSE exec -T postgres pg_dump -U outreach -d outreach -Fc >"$PARTIAL/outreach.dump" 2>"$ERRS"; then
+#
+# `</dev/null` у каждого `exec`: `exec -T` пересылает в контейнер stdin
+# скрипта, а у скрипта, запущенного из другого через stdin (`ssh … bash -s
+# < выкатка.sh`), это остаток вызывающего. Живая проверка 28.09.2026:
+# pg_dump проглотил его, и всё после бэкапа не выполнилось — молча.
+if ! $COMPOSE exec -T postgres pg_dump -U outreach -d outreach -Fc </dev/null >"$PARTIAL/outreach.dump" 2>"$ERRS"; then
   cat "$ERRS" >&2
   fail "pg_dump не прошёл: $(said)"
 fi
@@ -138,7 +147,7 @@ STEP="версия схемы"
 # поднимать: восстановленная база с более новой схемой в коде лечится
 # миграцией, с более старой — не лечится ничем.
 if ! $COMPOSE exec -T postgres psql -U outreach -d outreach -tAc \
-  'select version_num from alembic_version' >"$PARTIAL/alembic_version.txt" 2>"$ERRS"; then
+  'select version_num from alembic_version' </dev/null >"$PARTIAL/alembic_version.txt" 2>"$ERRS"; then
   cat "$ERRS" >&2
   fail "версию схемы не прочитать: $(said)"
 fi
@@ -185,8 +194,10 @@ if [ -n "${BACKUP_UPLOAD:-}" ]; then
   # Путь подставляется экранированным: в нём бывают пробелы (каталог
   # разработки), и `eval` разрезал бы его на два аргумента.
   CMD="${BACKUP_UPLOAD//\{\}/$(printf '%q' "$TARGET")}"
-  echo "Выгружаю: $CMD"
-  if ! eval "$CMD" 2>"$ERRS"; then
+  # В журнал — команда как задана и путь как есть: экранированный `%q`
+  # у bash 3.2 рвёт кириллицу в пути на байты.
+  echo "Выгружаю $TARGET: $BACKUP_UPLOAD"
+  if ! eval "$CMD" </dev/null 2>"$ERRS"; then
     cat "$ERRS" >&2
     fail "выгрузка не прошла, копия только на этой машине: $(said)"
   fi
