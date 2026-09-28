@@ -324,7 +324,6 @@ class ReplyRepository:
             inbound_message_id=incoming.message_id or None,
             from_email=incoming.from_email[:255],
             subject=incoming.subject[:512],
-            attachments=[a.as_record() for a in incoming.attachments] or None,
             price_white=found.price_white if found else None,
             price_grey=found.price_grey if found else None,
             currency=found.currency if found else None,

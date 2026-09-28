@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
 
 from pydantic import BaseModel, Field
 
 from backend.api.letters.schemas import Corridor
 from backend.features.core.domain import MessageStatus, ReplyKind, Stage
+from backend.features.core.models.attachment import ReplyAttachmentModel
 from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.outreach.repository import ThreadDetail, ThreadRow
 from backend.features.outreach.threads import ThreadState
@@ -85,6 +86,32 @@ class LetterCard(BaseModel):
         )
 
 
+class AttachmentCard(BaseModel):
+    """Вложение ответа: сведения о файле. Сам файл — отдельным запросом
+    (`GET /api/replies/{reply_id}/attachments/{id}`), только на скачивание."""
+
+    id: int
+    name: str
+    #: Байт. Пусто — размер неизвестен: файл назван, но не пришёл.
+    size: int | None
+    content_type: str | None
+    #: Файл сохранён и скачивается.
+    accepted: bool
+    #: Почему не сохранён — словами, для человека.
+    reason: str | None
+
+    @classmethod
+    def of(cls, row: ReplyAttachmentModel) -> AttachmentCard:
+        return cls(
+            id=row.id,
+            name=row.name,
+            size=row.size,
+            content_type=row.content_type,
+            accepted=row.accepted,
+            reason=row.reason,
+        )
+
+
 class IncomingCard(BaseModel):
     """Входящее письмо и то, что из него распознали.
 
@@ -102,7 +129,7 @@ class IncomingCard(BaseModel):
     subject: str | None
     #: Что пришло файлами. Прайс приходит вложением чаще, чем текстом,
     #: и ответ с вложением не должен выглядеть пустым.
-    attachments: list[dict[str, Any]] | None
+    attachments: list[AttachmentCard] = Field(default_factory=list)
     price_white: Decimal | None
     price_grey: Decimal | None
     currency: str | None
@@ -120,7 +147,12 @@ class IncomingCard(BaseModel):
     reviewed_at: datetime | None
 
     @classmethod
-    def of(cls, reply: ReplyModel, stage: Stage = Stage.DONORS) -> IncomingCard:
+    def of(
+        cls,
+        reply: ReplyModel,
+        stage: Stage = Stage.DONORS,
+        files: Sequence[ReplyAttachmentModel] = (),
+    ) -> IncomingCard:
         lead = stage is Stage.ADVERTISERS and reply.kind is ReplyKind.HUMAN
         return cls(
             id=reply.id,
@@ -129,7 +161,7 @@ class IncomingCard(BaseModel):
             received_at=reply.created_at,
             from_email=reply.from_email,
             subject=reply.subject,
-            attachments=reply.attachments,
+            attachments=list(map(AttachmentCard.of, files)),
             price_white=reply.price_white,
             price_grey=reply.price_grey,
             currency=reply.currency,
@@ -159,9 +191,13 @@ class ThreadView(BaseModel):
     corridor: Corridor = Field(default_factory=Corridor)
 
     @classmethod
-    def of(cls, detail: ThreadDetail) -> ThreadView:
+    def of(
+        cls, detail: ThreadDetail, files: Mapping[int, Sequence[ReplyAttachmentModel]]
+    ) -> ThreadView:
         return cls(
             card=ThreadCard.of(detail.row),
             letters=[LetterCard.of(m) for m in detail.messages],
-            incoming=[IncomingCard.of(r, detail.row.stage) for r in detail.replies],
+            incoming=[
+                IncomingCard.of(r, detail.row.stage, files.get(r.id, ())) for r in detail.replies
+            ],
         )

@@ -3,6 +3,7 @@
 from backend.features.core.models.access import AuditLogModel, UserModel
 from backend.features.core.models.advertiser import CandidateModel
 from backend.features.core.models.advertisers import AdvertiserModel, SupplierDonorModel
+from backend.features.core.models.attachment import ReplyAttachmentModel
 from backend.features.core.models.crawl import CrawlRunModel, OutLinkModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
@@ -27,6 +28,7 @@ __all__ = [
     "DonorModel",
     "MessageModel",
     "OutLinkModel",
+    "ReplyAttachmentModel",
     "ReplyModel",
     "RunCandidateModel",
     "RunModel",

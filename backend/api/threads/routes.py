@@ -15,6 +15,7 @@ from backend.api.threads.schemas import ThreadCard, ThreadView
 from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
 from backend.features.outreach.repository import OutreachRepository
+from backend.features.replies.attachments import ReplyFiles
 
 router = APIRouter(prefix="/threads", tags=["диалоги"])
 
@@ -36,4 +37,8 @@ async def one_thread(
     _: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> ThreadView:
-    return ThreadView.of(await OutreachRepository(session).thread(thread_id))
+    detail = await OutreachRepository(session).thread(thread_id)
+    # Вложения — одним запросом на всю переписку и без самих файлов:
+    # карточке нужны имена и размеры, а не мегабайты прайсов.
+    files = await ReplyFiles(session).listed(reply.id for reply in detail.replies)
+    return ThreadView.of(detail, files)

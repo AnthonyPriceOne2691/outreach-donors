@@ -47,6 +47,7 @@ from backend.features.letters.stoplist import StopListError
 from backend.features.letters.template import TemplateError
 from backend.features.letters.transport import TransportError
 from backend.features.outreach.repository import UnknownSenderError, UnknownThreadError
+from backend.features.replies.attachments import AttachmentNotKeptError, UnknownAttachmentError
 from backend.features.replies.repository import LeadError, NotAPriceError, UnknownReplyError
 from backend.features.review.candidates import NotInRunError
 from backend.features.review.candidates import UnknownRunError as ReviewUnknownRunError
@@ -65,6 +66,11 @@ STATUSES: dict[type[Exception], int] = {
     UnknownThreadError: status.HTTP_404_NOT_FOUND,
     UnknownLetterError: status.HTTP_404_NOT_FOUND,
     UnknownReplyError: status.HTTP_404_NOT_FOUND,
+    # Вложение ответа: нет такого у этого ответа — или есть, но файл не
+    # сохранён (опасный, лишний, слишком большой). Отдавать нечего в обоих
+    # случаях, и текст отказа говорит, какой из двух.
+    UnknownAttachmentError: status.HTTP_404_NOT_FOUND,
+    AttachmentNotKeptError: status.HTTP_404_NOT_FOUND,
     # Письмо не отправлено: стоп-лист, незаполненная настройка письма,
     # некому писать сегодня, письмо уже ушло. Все четыре — про состояние,
     # а не про запрос, и все четыре человек чинит сам.

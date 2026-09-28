@@ -10,8 +10,14 @@
   Inbound Parse): адрес вебхука `https://inbound:СЕКРЕТ@домен/api/inbound/replies`
   клиент превращает в заголовок, и в строку запроса секрет не попадает;
 * сравнение секрета постоянное по времени;
-* тело ограничено по размеру **до** разбора, а не после;
+* тело ограничено по размеру **до** разбора, а не после, — и тогда, когда
+  размер не объявлен: читается не больше потолка;
 * частота ограничена.
+
+**Форма читается по точным байтам, а не разбором веб-фреймворка**
+(`features/replies/form_data.py`): тот читает поля как UTF-8, не зная
+кодировки письма, и отказывает полю больше мегабайта — а на отказ
+платформа отвечает повторами и в конце концов бросает письмо.
 
 **Отвечаем 200 всему, что приняли,** — включая непонятое. Платформа
 повторяет доставку на любой не-2xx, и отказ на письме, которое мы всё
@@ -38,8 +44,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.api.deps import db_session
 from backend.api.inbound.schemas import Taken
 from backend.config import outreach as cfg
-from backend.features.replies.inbound import MAX_BODY_CHARS, masked_for_log
-from backend.features.replies.mime import from_form
+from backend.features.replies.form_data import FormError, read_form
+from backend.features.replies.inbound import MAX_BODY_CHARS, Incoming, masked_for_log
+from backend.features.replies.mime import incoming_from
 from backend.features.replies.pipeline import Inbox
 from backend.shared.queue import PARSE_JOB, runs_queue, with_retries
 from backend.shared.sliding_window import SlidingWindow
@@ -54,8 +61,8 @@ router = APIRouter(prefix="/inbound", tags=["приём ответов"])
 #: не приходит никогда.
 RATE_PER_MINUTE = 120
 
-#: Тело запроса целиком. Письмо режется отдельно и позже; это потолок
-#: на всё вместе, включая вложения в форме.
+#: Тело запроса целиком — предел письма у платформы приёма. Письмо режется
+#: отдельно и позже; это потолок на всё вместе, включая вложения в форме.
 MAX_REQUEST_BYTES = 30 * 1024 * 1024
 
 _throttle = SlidingWindow()
@@ -112,6 +119,50 @@ def _check_rate(client: str) -> None:
     _throttle.record(client)
 
 
+async def _body_within(request: Request, limit: int) -> bytes | None:
+    """Тело целиком, но не больше потолка. `None` — тело больше потолка.
+
+    Объявленный размер проверяется до чтения, но объявить его отправитель
+    не обязан: без этой проверки тело без `Content-Length` читалось бы
+    в память целиком, сколько бы его ни прислали.
+    """
+    body = bytearray()
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > limit:
+            return None
+    return bytes(body)
+
+
+def _too_large(response: Response, size: str) -> Taken:
+    logger.warning("приём: тело %s байт больше потолка — отказ до разбора", size)
+    # Прежнее имя кода (`…_REQUEST_ENTITY_TOO_LARGE`) Starlette объявила
+    # устаревшим: ветка отказа, не проверявшаяся ни одним тестом, упала бы
+    # с его удалением пятисоткой — и платформа повторяла бы письмо без конца.
+    response.status_code = status.HTTP_413_CONTENT_TOO_LARGE
+    return Taken(accepted=False, reason="Письмо больше допустимого размера")
+
+
+async def _letter_from(request: Request, response: Response) -> Incoming | Taken:
+    """Письмо из тела запроса — или отказ, если читать нечего.
+
+    Размер проверяется до чтения: объявленный — сразу, необъявленный — по ходу.
+    """
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > MAX_REQUEST_BYTES:
+        return _too_large(response, declared)
+    body = await _body_within(request, MAX_REQUEST_BYTES)
+    if body is None:
+        return _too_large(response, f"больше {MAX_REQUEST_BYTES} (размер не объявлен)")
+    try:
+        form = read_form(body, request.headers.get("content-type", ""))
+    except FormError as exc:
+        # Не форма — второй раз придёт то же самое: повтор не поможет.
+        logger.warning("приём: %s (%s байт)", exc, len(body))
+        return Taken(accepted=False, reason=str(exc))
+    return incoming_from(form)
+
+
 @router.post(
     "/replies",
     response_model=Taken,
@@ -136,14 +187,9 @@ async def take_reply(
         response.status_code = status.HTTP_403_FORBIDDEN
         return Taken(accepted=False, reason=str(exc))
 
-    declared = request.headers.get("content-length")
-    if declared and declared.isdigit() and int(declared) > MAX_REQUEST_BYTES:
-        logger.warning("приём: тело %s байт больше потолка — отказ до разбора", declared)
-        response.status_code = status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
-        return Taken(accepted=False, reason="Письмо больше допустимого размера")
-
-    form = await request.form(max_files=50, max_fields=200)
-    incoming = from_form({key: value for key, value in form.items() if isinstance(value, str)})
+    incoming = await _letter_from(request, response)
+    if isinstance(incoming, Taken):
+        return incoming
 
     if not incoming.from_email:
         # Письмо без отправителя разобрать нельзя, но и повторять его
