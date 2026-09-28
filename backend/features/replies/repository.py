@@ -23,6 +23,7 @@ from backend.features.core.domain import (
     ReplyKind,
     Stage,
     SuppressionReason,
+    ThreadStatus,
 )
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
@@ -315,6 +316,24 @@ class ReplyRepository:
         domain.seller_answer = answer
         domain.seller_answer_at = now or datetime.now(UTC)
         domain.seller_answer_reply_id = reply_id
+
+    async def mark_replied(self, thread_id: int | None) -> None:
+        """Диалог отвечен человеком.
+
+        Статус читает гейт молчания отбора (`runs/exclusions._silent`):
+        ответивший донор не должен выпасть из новых прогонов на год как
+        «писали, не ответил». До 28.09.2026 статус не ставил никто — гейт
+        опирался на то, чего не бывало, а тест ставил статус руками
+        в фикстуре и этого не видел.
+
+        Отписку ответ не перебивает: она сильнее, и диалог, закрытый кнопкой
+        отписки, отвеченным не становится.
+        """
+        if thread_id is None:
+            return
+        thread = await self._session.get(ThreadModel, thread_id)
+        if thread is not None and thread.status is ThreadStatus.OPEN:
+            thread.status = ThreadStatus.REPLIED
 
     async def stop_chain(self, thread_id: int | None) -> int:
         """Остановить цепочку: ни одного следующего письма этому донору.

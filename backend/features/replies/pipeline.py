@@ -218,6 +218,10 @@ class Inbox:
             names_a_sum=auto and outcome.names_a_sum(incoming.text),
         )
         await self._apply(consequences, incoming=incoming, addressee=addressee)
+        if verdict.kind is ReplyKind.HUMAN:
+            # По виду ответа, а не по последствиям: остановку цепочки дают
+            # и отказ, и отписка, а отвеченным диалог делает только человек.
+            await self._repo.mark_replied(addressee.message.thread_id)
         found = await self._redirect(verdict, incoming, addressee)
         if auto and consequences.needs_review:
             logger.info("приём: ответ №%s — %s", reply.id, consequences.review_reason)
