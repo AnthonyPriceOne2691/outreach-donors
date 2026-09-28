@@ -10,6 +10,7 @@ import type {
   SuppressionReason,
   ThreadCard,
   ThreadView,
+  UnboundView,
 } from './types';
 import { download, request } from './client';
 import type { Downloaded } from './client';
@@ -37,6 +38,11 @@ export function listThreads(): Promise<ThreadCard[]> {
 
 export function fetchThread(id: number): Promise<ThreadView> {
   return request<ThreadView>(`/threads/${id}`);
+}
+
+/** Страница ответов без письма, номер с единицы: размер страницы называет сервер. */
+export function listUnbound(page: number): Promise<UnboundView> {
+  return request<UnboundView>(`/replies/unbound?page=${page}`);
 }
 
 /** Подтвердить разбор цены человеком. Его решение сильнее любой

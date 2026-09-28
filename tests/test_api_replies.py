@@ -46,6 +46,8 @@ REVIEW_ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("POST", "/api/replies/{reply}/lead", None, "prices"),
     # Прайс файлом — то же содержимое переписки, что и текст письма.
     ("GET", "/api/replies/{reply}/attachments/{file}", None, "view"),
+    # Ответы без письма — та же переписка, только донор не найден.
+    ("GET", "/api/replies/unbound", None, "view"),
 ]
 
 

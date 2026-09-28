@@ -1626,3 +1626,78 @@ html:root .mantine-Pill-root {
   margin-top: 2px;
   color: var(--mantine-color-dimmed);
 }
+
+/* --- Непривязанные ответы (threads/UnboundReplies) ------------------------
+ * Список без маркеров и отступа браузера, строки — через волосяную линию.
+ * Заголовок строки — кликабельная подложка (`glassSlot`): под курсором
+ * меняются подложка и кромка, а не положение. Поле заголовка — 15 px: вместе
+ * с его прозрачной кромкой и полем карточки текст встаёт на те же 32 px
+ * от края стекла, что у соседней карточки и у ячеек таблицы диалогов;
+ * раскрытое письмо и пояснение над списком — на той же линии. */
+.unboundList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.unboundRow + .unboundRow {
+  border-top: 1px solid var(--hairline);
+}
+
+.unboundHead {
+  padding: 12px 15px;
+  cursor: pointer;
+}
+
+.unboundLines {
+  flex: 1;
+  min-width: 0;
+}
+
+.unboundToggle {
+  flex-shrink: 0;
+}
+
+.unboundChevron {
+  transition: transform 200ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.unboundChevron[data-open] {
+  transform: rotate(180deg);
+}
+
+/* Дата и счётчик вложений не рвутся: «28.09.2026, / 18:05» в две строки
+   читалось бы как две разные отметки. */
+.unboundWhen {
+  white-space: nowrap;
+}
+
+.unboundBody {
+  padding: 12px 16px 16px;
+}
+
+.unboundNote {
+  padding-inline: var(--mantine-spacing-md);
+}
+
+/* Ссылка чернилами посреди строки текста (главная, «не привязаны»). Бирюзовая
+   ссылка на светлом месте стекла мерилась 4,04 : 1 средним весом и 4,42 жирным
+   при норме 4,5 (28.09.2026); чернила держат норму на любом месте полотна.
+   Что это ссылка, говорит подчёркивание, а отклик на курсор — его цвет, а не
+   цвет букв: буквы под курсором не бледнеют. */
+.inkLink {
+  text-decoration-color: var(--ink-soft);
+  text-underline-offset: 3px;
+  transition: text-decoration-color 160ms ease;
+}
+
+.inkLink:hover {
+  text-decoration-color: var(--status-accent-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .unboundChevron,
+  .inkLink {
+    transition: none;
+  }
+}

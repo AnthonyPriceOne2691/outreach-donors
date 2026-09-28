@@ -20,8 +20,15 @@
 определяется по получателю — мы знаем, кому писали.
 
 **Непривязанное не выбрасывается.** Ответ, который не удалось соотнести,
-это не мусор, а потерянный донор: он сохраняется и виден отдельно.
+это не мусор, а потерянный донор: он сохраняется и виден отдельно
+(`replies/unbound.py`, вкладка «Не привязаны» на экране диалогов).
 Молча отброшенный ответ выглядит как «донор не ответил».
+
+**Почему не привязали — решается здесь и хранится у ответа** (`Unbound`).
+Пересчитать это потом по сохранённому нельзя и не нужно: заголовков
+цепочки у ответа нет, а к минуте, когда смотрит человек, секрет могли
+сменить, а письмо — удалить. Объяснение должно говорить о том, что
+случилось при приёме, а не о том, что вышло бы сейчас.
 """
 
 from __future__ import annotations
@@ -47,16 +54,49 @@ class BindingWay(StrEnum):
     NONE = "none"  # не привязали
 
 
+class Unbound(StrEnum):
+    """Почему ответ не привязан. Хранится у ответа (`replies.unbound_reason`).
+
+    Четыре случая — четыре разных действия человека. Метки нет — донора
+    ищут по отправителю и тексту. Подпись не сошлась — чинят секрет, пока
+    так не встали все ответы подряд. Письма нет — это пробное письмо,
+    удалённая рассылка или письмо другой установки с тем же секретом.
+    Цепочка чужая — ответили на пересланное.
+    """
+
+    #: Ни метки в адресе, ни заголовков цепочки: письмо написано заново.
+    NO_LABEL = "no_label"
+    #: Метки нет, а заголовки цепочки не совпали ни с одним нашим письмом.
+    FOREIGN_THREAD = "foreign_thread"
+    #: Метка в адресе есть, но подпись не сошлась.
+    BAD_SIGNATURE = "bad_signature"
+    #: Метка верная, а письма с таким номером нет (пробное письмо — №0).
+    NO_SUCH_LETTER = "no_such_letter"
+
+
 @dataclass(frozen=True, slots=True)
 class Binding:
-    """К какому письму относится ответ и как это выяснили."""
+    """К какому письму относится ответ, как это выяснили — или почему нет."""
 
     message_id: int | None
     way: BindingWay
+    #: Почему не привязали. Пусто у привязанного.
+    unbound: Unbound | None = None
 
     @property
     def bound(self) -> bool:
         return self.message_id is not None
+
+
+def no_such_letter() -> Binding:
+    """Метка верная, но письма с её номером нет — ответ не привязан.
+
+    Так бывает у пробного письма (номер 0 зарезервирован, `letters/probe.py`),
+    после чистки базы и у письма, ушедшего с другой установки с тем же
+    секретом приёма. Заголовки цепочки тут не спасают: они ссылаются на то же
+    письмо, которого нет.
+    """
+    return Binding(message_id=None, way=BindingWay.NONE, unbound=Unbound.NO_SUCH_LETTER)
 
 
 def by_label(incoming: Incoming, *, secret: str | None = None) -> int | None:
@@ -107,8 +147,23 @@ def bind(
         return Binding(message_id=labelled, way=BindingWay.LABEL)
 
     known = dict(by_message_id)
-    for reference in thread_ids(incoming):
+    references = thread_ids(incoming)
+    for reference in references:
         if reference in known:
             return Binding(message_id=known[reference], way=BindingWay.HEADERS)
 
-    return Binding(message_id=None, way=BindingWay.NONE)
+    return Binding(message_id=None, way=BindingWay.NONE, unbound=_why_not(incoming, references))
+
+
+def _why_not(incoming: Incoming, references: Sequence[str]) -> Unbound:
+    """Почему не привязали ни меткой, ни заголовками.
+
+    Метка, которая не прошла подпись, — первой: это самый громкий случай.
+    Сменили секрет — и так встанет каждый следующий ответ, а выглядеть это
+    будет как «метки нет», если не назвать отдельно.
+    """
+    if any(reply_to.labelled_number(address) is not None for address in incoming.to):
+        return Unbound.BAD_SIGNATURE
+    if references:
+        return Unbound.FOREIGN_THREAD
+    return Unbound.NO_LABEL

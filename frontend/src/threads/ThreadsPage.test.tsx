@@ -80,6 +80,9 @@ const CALIBRATION = {
   ],
 };
 
+/** Непривязанных ответов нет: экран спрашивает их число и на вкладке диалогов. */
+const NO_UNBOUND = { rows: [], total: 0, page: 1, limit: 20 };
+
 /** Где сейчас экран: адрес целиком, с фильтром. */
 function Where() {
   const location = useLocation();
@@ -92,6 +95,7 @@ async function openThreads(path = '/threads', ready = 'digest-weekly.example.tes
     'GET /api/auth/me': { body: ADMIN },
     'GET /api/threads': { body: THREADS },
     'GET /api/replies/calibration': { body: CALIBRATION },
+    'GET /api/replies/unbound?page=1': { body: NO_UNBOUND },
   });
   renderWith(
     <>
@@ -204,6 +208,7 @@ describe('диалоги', () => {
       'GET /api/auth/me': { body: ADMIN },
       'GET /api/threads': { body: THREADS },
       'GET /api/replies/calibration': { body: CALIBRATION },
+      'GET /api/replies/unbound?page=1': { body: NO_UNBOUND },
       'GET /api/threads/2': {
         body: {
           card: THREADS[1],

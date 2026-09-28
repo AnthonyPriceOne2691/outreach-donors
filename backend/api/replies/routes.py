@@ -21,13 +21,17 @@
 **Вложение ответа скачивается здесь же, под правом смотреть:** прайс
 файлом — то же содержимое переписки, что и текст письма. Отдаётся оно
 только на скачивание (`download.py`), никогда — на показ.
+
+**Ответы без письма — тоже здесь и под тем же правом** (28.09.2026). Приём
+сохранял их с первого дня, а видеть их было негде: сохранённый и невидимый
+ответ — тот же «донор не ответил», только без шанса заметить.
 """
 
 from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
@@ -37,11 +41,14 @@ from backend.api.replies.schemas import (
     LeadTaken,
     ReviewBody,
     Reviewed,
+    UnboundCard,
+    UnboundView,
     VersionCalibration,
 )
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
+from backend.features.replies import unbound
 from backend.features.replies.attachments import ReplyFiles
 from backend.features.replies.calibration import calibrate
 from backend.features.replies.extract import PLACEMENT_DECLINES, PLACEMENT_SELLS
@@ -78,6 +85,32 @@ async def calibration(
             )
             for score in await calibrate(session)
         ]
+    )
+
+
+@router.get("/unbound", response_model=UnboundView, summary="Ответы без письма, по странице")
+async def unbound_replies(
+    _: UserModel = _viewer,
+    session: AsyncSession = Depends(db_session),
+    page: int = Query(default=1, ge=1, le=1_000_000, description="страница, с единицы"),
+    limit: int = Query(
+        default=unbound.PAGE_SIZE, ge=1, le=unbound.MAX_PAGE_SIZE, description="ответов на странице"
+    ),
+) -> UnboundView:
+    """Ответы, которые не привязались ни к одному нашему письму, — новые первыми.
+
+    У каждого — почему не привязан, словами, и вложения сведениями: сам
+    файл скачивается тем же маршрутом, что у ответа в переписке. Страница —
+    номером, размер называет сервер, как у очереди форм.
+    """
+    rows = await unbound.page(session, page=page, size=limit)
+    # Вложения — одним запросом на страницу и без самих файлов.
+    files = await ReplyFiles(session).listed(reply.id for reply in rows)
+    return UnboundView(
+        rows=[UnboundCard.of(reply, files.get(reply.id, ())) for reply in rows],
+        total=await unbound.total(session),
+        page=page,
+        limit=limit,
     )
 
 

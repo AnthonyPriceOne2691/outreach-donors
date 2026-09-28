@@ -34,10 +34,22 @@ from backend.features.core.models.outreach import (
     ThreadModel,
 )
 from backend.features.replies import robots
+from backend.features.replies.binding import Unbound
 from backend.features.replies.extract import Extracted
 from backend.features.replies.inbound import Incoming, masked_for_log
 
 logger = logging.getLogger(__name__)
+
+#: Сколько адресов письма хранить. Наш — первым (конверт идёт раньше «кому»
+#: и копии, `mime.from_form`); рассылка на сотню адресов в копии — не ответ
+#: донора, и её копия ответу ни к чему.
+MAX_TO_ADDRESSES = 10
+
+
+def _kept_addresses(incoming: Incoming) -> list[str]:
+    """Адреса письма в том виде, в каком их хранит ответ: наш первым,
+    не больше `MAX_TO_ADDRESSES`, каждый — в длину колонки адреса."""
+    return [address[:255] for address in incoming.to[:MAX_TO_ADDRESSES]]
 
 
 class UnknownReplyError(ValueError):
@@ -350,12 +362,17 @@ class ReplyRepository:
         thread_id: int | None,
         message_id: int | None,
         found: Extracted | None,
+        unbound: Unbound | None = None,
     ) -> ReplyModel:
         """Записать ответ вместе с исходным текстом.
 
         Разобранное приходит одним значением, а не восемью полями: восемь
         полей рядом означают, что одно из них однажды забудут передать,
         и письмо ляжет в базу без цены, которую из него достали.
+
+        Адреса, на которые письмо пришло, пишутся у каждого ответа, а не только
+        у непривязанного: по ним видно, на какой домен ответов и с какой меткой
+        он пришёл, — это и есть ответ на вопрос «почему не привязался».
         """
         reply = ReplyModel(
             thread_id=thread_id,
@@ -365,6 +382,8 @@ class ReplyRepository:
             inbound_message_id=incoming.message_id or None,
             from_email=incoming.from_email[:255],
             subject=incoming.subject[:512],
+            to_addresses=_kept_addresses(incoming),
+            unbound_reason=unbound,
             price_white=found.price_white if found else None,
             price_grey=found.price_grey if found else None,
             currency=found.currency if found else None,
@@ -441,13 +460,3 @@ class ReplyRepository:
         reply.reviewed_by = by[:128]
         reply.reviewed_at = moment
         return moment
-
-    async def unbound(self, *, limit: int = 100) -> Sequence[ReplyModel]:
-        """Ответы, которые не удалось соотнести ни с одним нашим письмом."""
-        rows = await self._session.execute(
-            select(ReplyModel)
-            .where(ReplyModel.thread_id.is_(None))
-            .order_by(ReplyModel.id.desc())
-            .limit(limit)
-        )
-        return rows.scalars().all()

@@ -200,8 +200,9 @@ def _report(probe: Probe, provider_id: str, *, stage: Stage, transport: Transpor
     for number, line in enumerate(_checklist(probe), start=1):
         print(f"  {number}. {line}")
     print(
-        f"\nИ ответить на него: ответ придёт на {_replies_domain(probe)} и появится на экране "
-        "диалогов непривязанным — так проверяются MX поддомена ответов и Inbound Parse."
+        f"\nИ ответить на него: ответ придёт на {_replies_domain(probe)} и встанет на экране "
+        "«Диалоги», вкладка «Не привязаны», с причиной «Ответ на пробное письмо» — так "
+        "проверяются MX поддомена ответов и Inbound Parse."
     )
 
 

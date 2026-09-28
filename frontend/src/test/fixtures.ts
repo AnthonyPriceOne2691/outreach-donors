@@ -79,6 +79,7 @@ export const OVERVIEW: OverviewView = {
   ahrefs_cap: 100000,
   serp_usd: '0.7194',
   transport: { name: 'null', real: false, problem: null },
+  unbound_replies: 0,
 };
 
 /** Главная сама ходит за сторожем тишины и сводкой. Тест, который попадает

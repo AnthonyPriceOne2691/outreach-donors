@@ -239,6 +239,7 @@ class ReplyModel(TimestampedMixin, Base):
     # Диалога может не быть: ответ, который не удалось соотнести с нашим
     # письмом, всё равно сохраняется. Выброшенный ответ выглядит как
     # «донор не ответил», и причину будут искать в лестнице контактов.
+    # Такие ответы видны на вкладке «Не привязаны» (`replies/unbound.py`).
     thread_id: Mapped[int | None] = mapped_column(
         ForeignKey("threads.id", ondelete="CASCADE"), nullable=True
     )
@@ -256,6 +257,15 @@ class ReplyModel(TimestampedMixin, Base):
     inbound_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     from_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     subject: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    #: На какие адреса письмо пришло: конверт, «кому», копия — как их собрал
+    #: приём, наш адрес первым. В них видно, была ли в адресе метка и какая.
+    #: Пусто у ответов, принятых до 28.09.2026: тогда адрес не хранился.
+    to_addresses: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    #: Почему ответ не привязан ни к одному письму (`replies/binding.Unbound`).
+    #: Решение приёма в ту минуту, а не пересчёт: к минуте, когда смотрит
+    #: человек, секрет могли сменить, а письмо — удалить, и пересчёт объяснял бы
+    #: не то, что случилось. Пусто у привязанного и у принятого до поля.
+    unbound_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     # Что пришло файлами — в `reply_attachments` (`models/attachment.py`),
     # вместе с самими файлами. Прайс приходит вложением чаще, чем текстом,

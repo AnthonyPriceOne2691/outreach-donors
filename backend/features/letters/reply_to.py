@@ -107,26 +107,30 @@ def address_for(
     return f"{local}+{label_for(message_id, secret=secret)}@{prefix}.{domain}"
 
 
-def message_id_from(address: str, *, secret: str | None = None) -> int | None:
-    """Номер письма из адреса, на который пришёл ответ.
-
-    `None` — метки нет или подпись не сходится. Оба случая означают одно:
-    привязывать по метке нечего, остаётся запасной путь через заголовки
-    цепочки. Разными их делать незачем — действие одинаковое.
+def _label(address: str) -> re.Match[str] | None:
+    """Метка в адресе, если она там есть, — без проверки подписи.
 
     Метка — после последнего плюса: у ящика отправителя плюс может быть
     своим (`anna+sales@`), и первый плюс отрезал бы метку вместе с ним.
+    """
+    local = address.split("@", 1)[0]
+    _, plus, label = local.rpartition("+")
+    return _LABEL_RE.match(label) if plus else None
+
+
+def message_id_from(address: str, *, secret: str | None = None) -> int | None:
+    """Номер письма из адреса, на который пришёл ответ.
+
+    `None` — метки нет или подпись не сходится. Для привязки оба случая
+    означают одно: привязывать по метке нечего, остаётся запасной путь через
+    заголовки цепочки. Человеку, который разбирает непривязанный ответ, они
+    говорят разное — для него есть `labelled_number`.
     """
     key = secret if secret is not None else cfg.INBOUND_SECRET
     if not key:
         return None
 
-    local = address.split("@", 1)[0]
-    _, plus, label = local.rpartition("+")
-    if not plus:
-        return None
-
-    found = _LABEL_RE.match(label)
+    found = _label(address)
     if found is None:
         return None
 
@@ -134,3 +138,15 @@ def message_id_from(address: str, *, secret: str | None = None) -> int | None:
     if not hmac.compare_digest(found.group(2), _sign(message_id, key)):
         return None
     return message_id
+
+
+def labelled_number(address: str) -> int | None:
+    """Номер письма из метки — **без проверки подписи**. `None` — метки нет.
+
+    Только для объяснения, почему ответ не привязан, и никогда — для
+    привязки: метка с чужой подписью — не «метки нет», а другая история
+    (письмо ушло с другим секретом, секрет сменили, метку подделали),
+    и человеку, который разбирает такой ответ, нужно видеть разницу.
+    """
+    found = _label(address)
+    return int(found.group(1)) if found else None

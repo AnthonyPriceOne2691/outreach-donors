@@ -96,6 +96,8 @@ class OverviewView(BaseModel):
     serp_usd: Decimal
     #: Почта: «не подключена» — не поломка, а состояние до рабочего сервера.
     transport: Transport
+    #: Ответов без письма — вход на вкладку «Не привязаны».
+    unbound_replies: int
 
     @classmethod
     def of(cls, overview: Overview, *, transport: Transport) -> OverviewView:
@@ -108,4 +110,5 @@ class OverviewView(BaseModel):
             ahrefs_cap=overview.ahrefs_cap,
             serp_usd=overview.serp_usd,
             transport=transport,
+            unbound_replies=overview.unbound_replies,
         )

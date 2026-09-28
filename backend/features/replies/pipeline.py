@@ -30,9 +30,12 @@
 на домене донора он сразу ложится в контакты, на чужом — ждёт человека
 (`redirect`).
 
-**Непривязанное сохраняется.** Ответ, который не удалось соотнести, —
-это не мусор, а потерянный донор. Молча отброшенный, он выглядит как
-«донор не ответил», и причину будут искать в лестнице контактов.
+**Непривязанное сохраняется — вместе с причиной.** Ответ, который не удалось
+соотнести, — это не мусор, а потерянный донор. Молча отброшенный, он выглядит
+как «донор не ответил», и причину будут искать в лестнице контактов. Почему
+не привязан, решает `binding` в минуту приёма, и это ложится к ответу рядом
+с адресами, на которые он пришёл: вкладка «Не привязаны» (`unbound`)
+показывает и то и другое.
 """
 
 from __future__ import annotations
@@ -53,6 +56,7 @@ from backend.features.replies.attachments import ReplyFiles
 from backend.features.replies.extract import ExtractClient, Extracted
 from backend.features.replies.inbound import Incoming
 from backend.features.replies.repository import Addressee, ReplyRepository
+from backend.features.replies.unbound import explain
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +68,8 @@ class Accepted:
     reply_id: int | None
     kind: ReplyKind | None
     way: binding.BindingWay
+    #: Почему не привязан — то же, что легло к ответу. Пусто у привязанного.
+    unbound: binding.Unbound | None = None
     #: Название сработавшего правила. Пусто — не сработало ни одно.
     rule: str | None = None
     duplicate: bool = False
@@ -92,6 +98,7 @@ class Accepted:
             "ответ": self.reply_id,
             "вид": self.kind.value if self.kind else None,
             "привязка": self.way.value,
+            **({"почему не привязан": self.unbound.value} if self.unbound else {}),
             "правило": self.rule,
             "повтор": self.duplicate,
             "ждёт человека": self.needs_review,
@@ -142,6 +149,7 @@ class Inbox:
             thread_id=addressee.message.thread_id if addressee else None,
             message_id=addressee.message.id if addressee else None,
             found=None,
+            unbound=bound.unbound,
         )
         await self._session.flush()
         # Файлы — сразу за ответом и в той же транзакции: другой копии письма
@@ -150,17 +158,19 @@ class Inbox:
 
         if addressee is None:
             logger.warning(
-                "приём: ответ №%s не привязан ни к одному письму (тема «%s»)",
+                "приём: ответ №%s не привязан ни к одному письму — %s (тема «%s»)",
                 reply.id,
+                bound.unbound,
                 incoming.subject[:80],
             )
             return Accepted(
                 reply_id=reply.id,
                 kind=verdict.kind,
                 way=bound.way,
+                unbound=bound.unbound,
                 rule=verdict.rule,
                 needs_review=True,
-                review_reason="ответ не привязан к письму",
+                review_reason=f"ответ не привязан к письму: {explain(bound.unbound, incoming.to)}",
             )
 
         return await self._settle(reply, verdict, bound, incoming, addressee)
@@ -250,7 +260,7 @@ class Inbox:
         addressee = await self._repo.addressee(bound.message_id)
         if addressee is None:
             logger.warning("приём: письмо №%s из метки не найдено", bound.message_id)
-            return binding.Binding(message_id=None, way=binding.BindingWay.NONE), None
+            return binding.no_such_letter(), None
         return bound, addressee
 
     async def _apply(

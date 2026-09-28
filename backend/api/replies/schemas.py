@@ -1,11 +1,18 @@
-"""Что принимает и отдаёт подтверждение разбора."""
+"""Что принимает и отдаёт подтверждение разбора — и список ответов без письма."""
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, model_validator
+
+from backend.api.threads.schemas import AttachmentCard
+from backend.features.core.domain import ReplyKind
+from backend.features.core.models.attachment import ReplyAttachmentModel
+from backend.features.core.models.outreach import ReplyModel
+from backend.features.replies import unbound
 
 
 class ReviewBody(BaseModel):
@@ -72,3 +79,60 @@ class Calibration(BaseModel):
     """Что предложила модель против того, что решил человек, по версиям."""
 
     versions: list[VersionCalibration]
+
+
+class UnboundCard(BaseModel):
+    """Ответ, который не привязался ни к одному нашему письму.
+
+    Всё, по чему человек ищет донора сам: от кого, на какой адрес, тема,
+    текст и файлы — и почему приём не нашёл письма. Адрес отправителя —
+    целиком: это внутренний экран, и по домену отправителя донора и ищут.
+    """
+
+    id: int
+    received_at: datetime
+    from_email: str | None
+    #: На какие адреса пришло: конверт, «кому», копия — наш первым. Пусто
+    #: у ответов, принятых до того, как адреса стали хранить.
+    to: list[str]
+    subject: str | None
+    kind: ReplyKind
+    #: Начало того, что написал человек, — одной строкой, без цитаты.
+    preview: str
+    #: Текст целиком — строка списка раскрывается в него.
+    text: str
+    attachments: list[AttachmentCard]
+    #: Почему не привязан — код (`replies/binding.Unbound`). Пусто — причина
+    #: не записана: ответ принят раньше, чем её стали сохранять.
+    reason: str | None
+    #: То же словами — и что с таким ответом делать.
+    reason_text: str
+
+    @classmethod
+    def of(cls, reply: ReplyModel, files: Sequence[ReplyAttachmentModel] = ()) -> UnboundCard:
+        return cls(
+            id=reply.id,
+            received_at=reply.created_at,
+            from_email=reply.from_email,
+            to=list(reply.to_addresses or []),
+            subject=reply.subject,
+            kind=reply.kind,
+            preview=unbound.preview(reply.raw_body),
+            text=reply.raw_body,
+            attachments=list(map(AttachmentCard.of, files)),
+            reason=reply.unbound_reason,
+            reason_text=unbound.explain(reply.unbound_reason, reply.to_addresses),
+        )
+
+
+class UnboundView(BaseModel):
+    """Страница ответов без письма."""
+
+    rows: list[UnboundCard]
+    #: Сколько их всего, а не на этой странице: по нему экран считает
+    #: страницы и отличает «ответов нет» от «на этой странице пусто».
+    total: int
+    #: Какая это страница (с единицы) и сколько на ней ответов: размер
+    #: страницы задаёт сервер.
+    page: int
+    limit: int

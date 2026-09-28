@@ -39,6 +39,8 @@ PATHS = [
     "/advertisers",
     "/letters",
     "/threads",
+    # Вкладка экрана диалогов со своими кнопками (28.09.2026).
+    "/threads?tab=unbound",
     "/suppressions",
     "/settings",
     "/usage",

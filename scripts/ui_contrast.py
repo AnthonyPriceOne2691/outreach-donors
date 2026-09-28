@@ -263,7 +263,10 @@ def main(argv: list[str]) -> int:
 
     with sync_playwright() as p:
         b = p.chromium.launch()
-        page = b.new_page(viewport={"width": 1440, "height": 900}, device_scale_factor=SCALE)
+        # Окно — экрана: телефонная раскладка ставит текст над другими местами
+        # полотна, и замер на широком окне о ней ничего не говорит.
+        viewport = target.get("viewport", {"width": 1440, "height": 900})
+        page = b.new_page(viewport=viewport, device_scale_factor=SCALE)
         page.goto(f"{base}/login")
         page.get_by_label("Почта").fill(email)
         page.get_by_label("Пароль").fill(password)
