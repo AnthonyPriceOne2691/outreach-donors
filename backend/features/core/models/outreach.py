@@ -193,7 +193,14 @@ class MessageModel(TimestampedMixin, Base):
     # его будет человек, решающий судьбу домена.
     failure_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
     next_action_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Номер письма у платформы (`X-Message-Id`) — для её журнала Activity
+    # и сторожа тишины. Получатель его не видит, и якорем цепочки он не годится.
     provider_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Наш `Message-ID`, `<…@домен отправителя>` (`letters/identity.py`): его
+    # видит получатель, на него ссылаются добивки, по нему находится письмо,
+    # если ответ пришёл без метки. Пишется до вызова почты — вместе с
+    # «отправляется». Пусто у писем, ушедших до него, и у неотправленных.
+    internet_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Домен + этап + шаг. Защита от повторной отправки при ретрае задачи:
     # второе письмо тому же донору — это жалоба на спам.
@@ -206,6 +213,9 @@ class MessageModel(TimestampedMixin, Base):
         # «Сколько этот ящик отправил сегодня» — запрос на каждое письмо.
         Index("idx_messages_sender_sent_at", "sender_id", "sent_at"),
         Index("idx_messages_thread_id", "thread_id"),
+        # Запасная привязка ответа ищет письмо по идентификатору из его
+        # заголовков; уникальность — чтобы ответ не нашёл двух писем сразу.
+        Index("uq_messages_internet_message_id", "internet_message_id", unique=True),
     )
 
     campaign: Mapped[CampaignModel] = relationship("CampaignModel", back_populates="messages")

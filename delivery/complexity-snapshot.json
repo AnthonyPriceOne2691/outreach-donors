@@ -462,7 +462,7 @@
       "worst": "—"
     },
     "backend/config/outreach.py": {
-      "lines": 103,
+      "lines": 105,
       "complexity": 0,
       "worst": "—"
     },
@@ -667,7 +667,7 @@
       "worst": "_enum:18"
     },
     "backend/features/core/models/outreach.py": {
-      "lines": 284,
+      "lines": 294,
       "complexity": 2,
       "worst": "_enum:37"
     },
@@ -922,14 +922,19 @@
       "worst": "apply_events:90"
     },
     "backend/features/letters/followups.py": {
-      "lines": 375,
+      "lines": 388,
       "complexity": 5,
-      "worst": "_deliver:336"
+      "worst": "_deliver:349"
     },
     "backend/features/letters/guards.py": {
       "lines": 59,
       "complexity": 3,
       "worst": "metrics_leak:37"
+    },
+    "backend/features/letters/identity.py": {
+      "lines": 80,
+      "complexity": 4,
+      "worst": "sender_domain:50"
     },
     "backend/features/letters/masking.py": {
       "lines": 91,
@@ -947,9 +952,9 @@
       "worst": "_why_not:271"
     },
     "backend/features/letters/reply_to.py": {
-      "lines": 100,
+      "lines": 137,
       "complexity": 6,
-      "worst": "message_id_from:76"
+      "worst": "message_id_from:110"
     },
     "backend/features/letters/repository.py": {
       "lines": 226,
@@ -967,14 +972,14 @@
       "worst": "parse_zones:155"
     },
     "backend/features/letters/sendgrid.py": {
-      "lines": 228,
+      "lines": 249,
       "complexity": 8,
-      "worst": "_post:121"
+      "worst": "_post:133"
     },
     "backend/features/letters/sending.py": {
-      "lines": 417,
+      "lines": 455,
       "complexity": 5,
-      "worst": "_check_ready:256"
+      "worst": "_pinned_sender:327"
     },
     "backend/features/letters/stoplist.py": {
       "lines": 310,
@@ -987,9 +992,9 @@
       "worst": "_check_zones:235"
     },
     "backend/features/letters/transport.py": {
-      "lines": 114,
+      "lines": 125,
       "complexity": 2,
-      "worst": "send:98"
+      "worst": "send:108"
     },
     "backend/features/letters/transport_factory.py": {
       "lines": 30,
@@ -1052,9 +1057,9 @@
       "worst": "—"
     },
     "backend/features/replies/binding.py": {
-      "lines": 112,
+      "lines": 115,
       "complexity": 5,
-      "worst": "thread_ids:69"
+      "worst": "thread_ids:71"
     },
     "backend/features/replies/calibration.py": {
       "lines": 122,
@@ -1102,9 +1107,9 @@
       "worst": "quote_starts_at:47"
     },
     "backend/features/replies/repository.py": {
-      "lines": 407,
+      "lines": 414,
       "complexity": 9,
-      "worst": "add:297"
+      "worst": "add:304"
     },
     "backend/features/review/__init__.py": {
       "lines": 2,

@@ -155,8 +155,8 @@ class Inbox:
         Метка может указывать на письмо, которого нет: так бывает после
         чистки базы. Ответ тогда не теряем, но привязку не выдумываем.
         """
-        known = await self._repo.ours_by_provider_id(binding.thread_ids(incoming))
-        bound = binding.bind(incoming, by_provider_id=known)
+        known = await self._repo.ours_by_internet_message_id(binding.thread_ids(incoming))
+        bound = binding.bind(incoming, by_message_id=known)
         if bound.message_id is None:
             return bound, None
 

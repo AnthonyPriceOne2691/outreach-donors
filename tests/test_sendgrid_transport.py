@@ -13,7 +13,7 @@ from typing import Any
 
 import httpx
 import pytest
-from backend.features.letters.sendgrid import MESSAGE_ID_HEADER, SendGridTransport
+from backend.features.letters.sendgrid import PROVIDER_ID_HEADER, SendGridTransport
 from backend.features.letters.transport import Outgoing, TransportError
 
 SENT = Outgoing(
@@ -24,6 +24,7 @@ SENT = Outgoing(
     reply_to="anna+m417.abc@replies.mail-a.example",
     subject="Placement enquiry",
     body="Hello,\n\nWhat is your price?",
+    internet_message_id="<5f0c2a9e.m417@mail-a.example>",
     unsubscribe_url="https://ours.test/api/unsubscribe/u5.abcdef0123",
 )
 
@@ -52,7 +53,7 @@ def _transport(
 
 
 def _accepted(_: httpx.Request) -> httpx.Response:
-    return httpx.Response(202, headers={MESSAGE_ID_HEADER: "sg-42"})
+    return httpx.Response(202, headers={PROVIDER_ID_HEADER: "sg-42"})
 
 
 class TestWhatGoesOut:
@@ -188,7 +189,7 @@ class TestOnlyClearRefusalsAreRetried:
 
     async def test_platform_hiccup_is_retried_and_letter_goes(self, pauses: list[float]) -> None:
         answers = iter(
-            [httpx.Response(503), httpx.Response(202, headers={MESSAGE_ID_HEADER: "sg-7"})]
+            [httpx.Response(503), httpx.Response(202, headers={PROVIDER_ID_HEADER: "sg-7"})]
         )
         transport, seen = _transport(lambda _r: next(answers))
 
@@ -200,7 +201,7 @@ class TestOnlyClearRefusalsAreRetried:
         answers = iter(
             [
                 httpx.Response(429, headers={"Retry-After": "600"}),
-                httpx.Response(202, headers={MESSAGE_ID_HEADER: "sg-8"}),
+                httpx.Response(202, headers={PROVIDER_ID_HEADER: "sg-8"}),
             ]
         )
         transport, _ = _transport(lambda _r: next(answers))
@@ -250,7 +251,7 @@ async def test_unreachable_platform_is_retried_safely(monkeypatch: pytest.Monkey
         calls["n"] += 1
         if calls["n"] == 1:
             raise httpx.ConnectError("сеть")
-        return httpx.Response(202, headers={MESSAGE_ID_HEADER: "sg-9"})
+        return httpx.Response(202, headers={PROVIDER_ID_HEADER: "sg-9"})
 
     transport, _ = _transport(flaky)
     assert await transport.send(SENT) == "sg-9"

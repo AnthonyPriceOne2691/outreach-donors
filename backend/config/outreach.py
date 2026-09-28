@@ -21,9 +21,11 @@ class _Outreach(DomainSettings):
     # Транспорт отправки: `null` ничего не шлёт и работает только
     # на выдуманных доменах, `sendgrid` шлёт по-настоящему.
     transport: str = Field(default="null", validation_alias="OUTREACH_TRANSPORT")
-    # Поддомен, принимающий ответы: адрес «куда отвечать» собирается
-    # на нём с подписанной меткой (docs/OUTREACH_THREADS.md).
-    reply_domain: str = Field(default="", validation_alias="OUTREACH_REPLY_DOMAIN")
+    # Приставка поддомена ответов у каждого домена отправки: письмо
+    # с anna@mail-a.example просит отвечать на anna+метка@replies.mail-a.example
+    # (docs/OUTREACH_THREADS.md). Приставка, а не домен: один общий домен
+    # ответов связывал бы все домены рассылки между собой.
+    reply_subdomain: str = Field(default="replies", validation_alias="OUTREACH_REPLY_SUBDOMAIN")
     # Юридический блок письма. Пусто — боевая отправка не разрешается:
     # без них рассылка нарушает законы почти во всех целевых странах.
     # Чьим именем подписаны письма. Имя человека, а не ящика: ящики
@@ -83,7 +85,7 @@ ALLOWED_RECIPIENTS: tuple[str, ...] = tuple(
     item.strip().lower() for item in _s.allowed_recipients.split(",") if item.strip()
 )
 TRANSPORT: str = _s.transport
-REPLY_DOMAIN: str = _s.reply_domain
+REPLY_SUBDOMAIN: str = _s.reply_subdomain
 SENDER_NAME: str = _s.sender_name
 POSTAL_ADDRESS: str = _s.postal_address
 UNSUBSCRIBE_URL: str = _s.unsubscribe_url

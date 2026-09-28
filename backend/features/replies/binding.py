@@ -10,7 +10,9 @@
 
 **Заголовки цепочки — запасной путь.** Большинство клиентов возвращает
 идентификатор исходного письма, но большинство — не все: пересылка,
-веб-интерфейсы и корпоративные шлюзы теряют их регулярно.
+веб-интерфейсы и корпоративные шлюзы теряют их регулярно. Идентификатор
+этот — наш собственный `Message-ID` (`letters/identity.py`): номер письма
+у платформы получатель не видит, и вернуть его в ответе ему нечем.
 
 **Привязка по отправителю не делается вовсе.** Это самый очевидный
 способ, и он ломается на первом же пересланном письме: адреса, с которого
@@ -90,20 +92,21 @@ def thread_ids(incoming: Incoming) -> tuple[str, ...]:
 def bind(
     incoming: Incoming,
     *,
-    by_provider_id: Sequence[tuple[str, int]] = (),
+    by_message_id: Sequence[tuple[str, int]] = (),
     secret: str | None = None,
 ) -> Binding:
     """Привязать ответ к нашему письму.
 
-    `by_provider_id` — то, что нашлось в базе по идентификаторам из
-    заголовков: пары «идентификатор у почты → номер нашего письма».
-    Ищет их вызывающий, потому что это запрос к базе, а правило — здесь.
+    `by_message_id` — то, что нашлось в базе по идентификаторам из
+    заголовков: пары «наш `Message-ID` → номер нашего письма». Совпадение
+    точное, токен в токен. Ищет их вызывающий, потому что это запрос
+    к базе, а правило — здесь.
     """
     labelled = by_label(incoming, secret=secret)
     if labelled is not None:
         return Binding(message_id=labelled, way=BindingWay.LABEL)
 
-    known = dict(by_provider_id)
+    known = dict(by_message_id)
     for reference in thread_ids(incoming):
         if reference in known:
             return Binding(message_id=known[reference], way=BindingWay.HEADERS)

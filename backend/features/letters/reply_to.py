@@ -1,11 +1,21 @@
-"""Адрес «куда отвечать» с подписанной меткой.
+"""Адрес «куда отвечать» с подписанной меткой — на домене отправителя.
 
 Решение целиком описано в `docs/OUTREACH_THREADS.md`, здесь — исполнение.
 Коротко: привязка ответа по адресу отправителя ломается на первом же
 пересланном письме, привязка по заголовкам цепочки работает наполовину.
 Поэтому поле «куда отвечать» указывает на служебный адрес с меткой:
 
-    anna+m417.7d3a91c2e5@replies.наш-домен
+    anna+m417.7d3a91c2e5@replies.mail-a.example
+
+**Поддомен ответов — у домена отправителя, а не один на всех.** Раньше
+все двадцать доменов просили отвечать на один общий домен, и это
+связывало их между собой: упала репутация общего домена — упали все,
+а у фильтров был один общий след на всю рассылку. Вдобавок домен From
+и домен Reply-To расходились в каждом письме. Требование ставит приём
+ответов на поддомен `replies.*` каждого домена отправки, и соседняя
+система на той же платформе устроена так же. Настраивается только
+приставка (`OUTREACH_REPLY_SUBDOMAIN`, по умолчанию `replies`) — сам
+домен берётся из адреса отправителя (`identity.sender_domain`).
 
 **Метка кодирует номер письма, а не получателя.** Документ говорит
 «номер получателя»; письмо строже и даёт то же самое — по нему известны
@@ -15,6 +25,11 @@
 **Подпись обязательна.** Без неё метку можно угадать перебором и
 подсунуть ответ в чужой диалог. Секрет тот же, что у приёма почты
 (`OUTREACH_INBOUND_SECRET`), нового хранилища не появляется.
+
+**Метка читается без домена.** Ответ находит письмо по локальной части,
+на каком бы домене она ни пришла: подпись и так не даёт подделать метку,
+а сверка домена со списком наших теряла бы ответы после каждой смены
+приставки или ящика.
 
 **Локальная часть берётся от отправителя** — чтобы человек, глядя
 на «куда отвечать», видел понятное имя, а не служебную строку.
@@ -27,6 +42,7 @@ import re
 from hashlib import sha256
 
 from backend.config import outreach as cfg
+from backend.features.letters import identity
 
 #: Длина подписи в шестнадцатеричных знаках. Сорок бит: перебрать нельзя,
 #: а адрес остаётся читаемым.
@@ -34,9 +50,15 @@ SIGNATURE_LEN = 10
 
 _LABEL_RE = re.compile(rf"^m(\d+)\.([0-9a-f]{{{SIGNATURE_LEN}}})$")
 
+#: Приставка поддомена: имена DNS через точку. Проверяется до отправки —
+#: адрес ответа на `replies .mail-a.example` платформа отвергла бы,
+#: а объяснила бы это хуже, чем сообщение ниже.
+_SUBDOMAIN_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$")
+
 
 class ReplyAddressError(ValueError):
-    """Собрать адрес для ответа нельзя: не настроен поддомен или секрет."""
+    """Собрать адрес для ответа нельзя: пуста приставка поддомена, нет секрета
+    или у ящика отправителя нет домена."""
 
 
 def _sign(message_id: int, secret: str) -> str:
@@ -55,22 +77,34 @@ def label_for(message_id: int, *, secret: str | None = None) -> str:
     return f"m{message_id}.{_sign(message_id, key)}"
 
 
+def _subdomain(value: str | None) -> str:
+    prefix = (value if value is not None else cfg.REPLY_SUBDOMAIN).strip().strip(".").lower()
+    if not _SUBDOMAIN_RE.match(prefix):
+        what = f"«{prefix}» — не имя поддомена" if prefix else "пуст"
+        raise ReplyAddressError(
+            f"OUTREACH_REPLY_SUBDOMAIN {what}, и ответы принимать некуда. Это приставка "
+            "к домену отправителя, по умолчанию replies: на письмо с anna@mail-a.example "
+            "отвечают на anna+метка@replies.mail-a.example"
+        )
+    return prefix
+
+
 def address_for(
     message_id: int,
     *,
     sender_email: str,
-    reply_domain: str | None = None,
+    subdomain: str | None = None,
     secret: str | None = None,
 ) -> str:
-    """Адрес «куда отвечать» для конкретного письма."""
-    domain = reply_domain if reply_domain is not None else cfg.REPLY_DOMAIN
-    if not domain:
-        raise ReplyAddressError(
-            "OUTREACH_REPLY_DOMAIN не задан — ответы принимать некуда. "
-            "Нужен поддомен, принимающий всю почту без разбора"
-        )
-    local = sender_email.split("@", 1)[0]
-    return f"{local}+{label_for(message_id, secret=secret)}@{domain}"
+    """Адрес «куда отвечать» для конкретного письма — на поддомене ответов
+    домена его отправителя."""
+    prefix = _subdomain(subdomain)
+    try:
+        domain = identity.sender_domain(sender_email)
+    except identity.SenderAddressError as exc:
+        raise ReplyAddressError(str(exc)) from exc
+    local = sender_email.strip().rpartition("@")[0]
+    return f"{local}+{label_for(message_id, secret=secret)}@{prefix}.{domain}"
 
 
 def message_id_from(address: str, *, secret: str | None = None) -> int | None:
@@ -79,13 +113,16 @@ def message_id_from(address: str, *, secret: str | None = None) -> int | None:
     `None` — метки нет или подпись не сходится. Оба случая означают одно:
     привязывать по метке нечего, остаётся запасной путь через заголовки
     цепочки. Разными их делать незачем — действие одинаковое.
+
+    Метка — после последнего плюса: у ящика отправителя плюс может быть
+    своим (`anna+sales@`), и первый плюс отрезал бы метку вместе с ним.
     """
     key = secret if secret is not None else cfg.INBOUND_SECRET
     if not key:
         return None
 
     local = address.split("@", 1)[0]
-    _, plus, label = local.partition("+")
+    _, plus, label = local.rpartition("+")
     if not plus:
         return None
 

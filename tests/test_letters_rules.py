@@ -306,13 +306,11 @@ class TestReplyAddress:
 
     def test_address_carries_the_message(self) -> None:
         address = reply_to.address_for(
-            417,
-            sender_email="anna@mail.example.test",
-            reply_domain="replies.ours.test",
-            secret=self.SECRET,
+            417, sender_email="anna@mail.example.test", secret=self.SECRET
         )
 
         assert address.startswith("anna+m417.")
+        assert address.endswith("@replies.mail.example.test")
         assert reply_to.message_id_from(address, secret=self.SECRET) == 417
 
     def test_forged_label_does_not_pass(self) -> None:
@@ -326,9 +324,9 @@ class TestReplyAddress:
         через заголовки цепочки."""
         assert reply_to.message_id_from("info@ours.test", secret=self.SECRET) is None
 
-    def test_missing_reply_domain_is_named(self) -> None:
-        with pytest.raises(reply_to.ReplyAddressError, match="OUTREACH_REPLY_DOMAIN"):
-            reply_to.address_for(1, sender_email="a@b.test", reply_domain="", secret=self.SECRET)
+    def test_empty_reply_subdomain_is_named(self) -> None:
+        with pytest.raises(reply_to.ReplyAddressError, match="OUTREACH_REPLY_SUBDOMAIN"):
+            reply_to.address_for(1, sender_email="a@b.test", subdomain="", secret=self.SECRET)
 
 
 class TestTransport:
@@ -341,6 +339,7 @@ class TestTransport:
             reply_to=None,
             subject="Rates",
             body="Hello",
+            internet_message_id="<5f0c2a9e.m1@mail.example.test>",
         )
 
     async def test_null_transport_refuses_real_addresses(self) -> None:

@@ -12,6 +12,14 @@
 на спам. Поэтому письмо сначала переводится в «отправляется» и
 фиксируется, и только потом уходит наружу.
 
+**Свой `Message-ID` пишется той же фиксацией** (`identity.py`). Обрыв
+связи после того, как платформа приняла письмо, иначе оставил бы ушедшее
+письмо без якоря: добивки не легли бы в его ветку, а ответ без метки
+не нашёл бы его. Идентификатор и адрес ответа собираются ещё раньше —
+до «отправляется»: отказ здесь означает настройку, а не почту, и письмо
+должно остаться в очереди, а не повиснуть в «отправляется», не отправив
+наружу ни байта.
+
 **Отказ почты и обрыв связи — разные исходы.** Платформа сказала «нет» —
 письмо точно не ушло, его можно вернуть в очередь. Связь оборвалась —
 неизвестно, ушло или нет, и письмо остаётся в «отправляется»: человек
@@ -39,7 +47,7 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, SenderModel
-from backend.features.letters import chain, compose, reply_to, unsubscribe
+from backend.features.letters import chain, compose, identity, reply_to, unsubscribe
 from backend.features.letters.transport import Outgoing, Transport, TransportError
 from backend.features.outreach import senders as sender_rules
 from backend.features.outreach.repository import OutreachRepository
@@ -94,6 +102,62 @@ class SendOutcome:
 
 
 @dataclass(frozen=True, slots=True)
+class OwnHeaders:
+    """Что письмо получает от нас, а не от шаблона. Оба — на домене отправителя."""
+
+    #: Наш `Message-ID`: якорь цепочки и запасной путь привязки ответа.
+    message_id: str
+    #: Адрес «куда отвечать» с меткой. Пусто — только у нулевого транспорта.
+    reply_to: str | None
+
+
+def own_headers(message_id: int, *, sender_email: str, real: bool) -> OwnHeaders:
+    """Свой `Message-ID` и адрес ответа для письма `message_id` с ящика `sender_email`.
+
+    Адрес ответа настоящей отправке обязателен: без метки ответ с чужого
+    адреса не привязывается ни к чему и выглядит как «донор не ответил».
+    Нулевому транспорту — нет: он никуда не пишет, и требовать ради него
+    настроенный секрет значило бы не дать посмотреть экран.
+
+    Путь один у письма донору, добивки и пробного письма себе (`probe.py`):
+    иначе пробное письмо проверяло бы не то, что уйдёт донору.
+    """
+    try:
+        own_id = identity.new_message_id(message_id, sender_email=sender_email)
+    except identity.SenderAddressError as exc:
+        raise SendError(str(exc)) from exc
+    try:
+        address: str | None = reply_to.address_for(message_id, sender_email=sender_email)
+    except reply_to.ReplyAddressError as exc:
+        if real:
+            raise SendError(str(exc)) from exc
+        logger.warning("письма: письмо №%s уходит без адреса ответа (%s)", message_id, exc)
+        address = None
+    return OwnHeaders(message_id=own_id, reply_to=address)
+
+
+def check_ready(body: str, *, what: str) -> None:
+    """Громкая метка в тексте — отказ, а не предупреждение.
+
+    Проверяется текст, а не нынешние настройки: письмо уходит таким,
+    каким его утвердил человек. Отказ — словами для экрана; `what` —
+    о каком письме речь, остальное объяснение одно на все письма.
+    """
+    unset = compose.unset_in(body)
+    if not unset:
+        return
+    names = ", ".join(title.split(" НЕ ЗАДАН")[0].lower() for title in unset)
+    # Пустую ссылку подключение почты не лечит: у рекламодателя
+    # не нашлось, под что писать, и письмо собирается заново.
+    cure = (
+        "письмо стоит убрать и собрать очередь заново"
+        if compose.LINK_TITLES & set(unset)
+        else "настраивается при подключении почты, после него очередь собирается заново"
+    )
+    raise NotReadyError(f"{what} пока не отправить: не задано {names} — {cure}")
+
+
+@dataclass(frozen=True, slots=True)
 class _Target:
     """Письмо вместе с тем, что нужно для отправки."""
 
@@ -133,22 +197,24 @@ class Sending:
         target = await self._target(message_id)
         await self._check_suppression(target)
         await self._check_review(target)
-        self._check_ready(target)
+        check_ready(target.message.body or "", what=f"Письмо №{target.message.id}")
 
         sender = (
             await self._pinned_sender(from_sender_id)
             if from_sender_id is not None
             else (await self._pick_sender(target.stage)).sender
         )
+        own = own_headers(target.message.id, sender_email=sender.email, real=self._transport.real)
 
         # Факт отправки — в базе до вызова почты. Отдельная фиксация,
         # а не общая с вызывающим: между ней и почтой ничего не должно
-        # остаться незаписанным.
+        # остаться незаписанным — и свой Message-ID в первую очередь.
         target.message.status = MessageStatus.SENDING
         target.message.sender_id = sender.id
+        target.message.internet_message_id = own.message_id
         await self._session.commit()
 
-        provider_id = await self._hand_over(target, sender, in_reply_to=in_reply_to)
+        provider_id = await self._hand_over(target, sender, own, in_reply_to=in_reply_to)
         await self._settle(target, sender, provider_id=provider_id, author_id=author_id)
         return SendOutcome(
             message_id=target.message.id,
@@ -253,26 +319,6 @@ class Sending:
                 "Письмо стоит убрать из очереди"
             )
 
-    def _check_ready(self, target: _Target) -> None:
-        """Громкая метка в тексте — отказ, а не предупреждение.
-
-        Проверяется сохранённый текст, а не нынешние настройки: письмо
-        уходит таким, каким его утвердил человек. Отказ — словами для экрана.
-        """
-        unset = compose.unset_in(target.message.body or "")
-        if unset:
-            names = ", ".join(title.split(" НЕ ЗАДАН")[0].lower() for title in unset)
-            # Пустую ссылку подключение почты не лечит: у рекламодателя
-            # не нашлось, под что писать, и письмо собирается заново.
-            cure = (
-                "письмо стоит убрать и собрать очередь заново"
-                if compose.LINK_TITLES & set(unset)
-                else "настраивается при подключении почты, после него очередь собирается заново"
-            )
-            raise NotReadyError(
-                f"Письмо №{target.message.id} пока не отправить: не задано {names} — {cure}"
-            )
-
     async def _cadence(self, campaign_id: int) -> list[int] | None:
         """Сроки добивок этой рассылки. Их задал человек при её создании."""
         campaign = await self._session.get(CampaignModel, campaign_id)
@@ -319,7 +365,12 @@ class Sending:
         return await OutreachRepository(self._session).sent_today(now=moment, first_only=True)
 
     async def _hand_over(
-        self, target: _Target, sender: SenderModel, *, in_reply_to: str | None = None
+        self,
+        target: _Target,
+        sender: SenderModel,
+        own: OwnHeaders,
+        *,
+        in_reply_to: str | None = None,
     ) -> str:
         """Отдать письмо почте. Отказ возвращает письмо в очередь."""
         outgoing = Outgoing(
@@ -327,9 +378,10 @@ class Sending:
             to=target.email,
             from_email=sender.email,
             from_name=compose.values_for(host=target.host)["sender_name"],
-            reply_to=self._reply_to(target.message.id, sender.email),
+            reply_to=own.reply_to,
             subject=target.message.subject or "",
             body=target.message.body or "",
+            internet_message_id=own.message_id,
             in_reply_to=in_reply_to,
             # Та же ссылка, что стоит в тексте письма: разойдись они —
             # кнопка почты отписывала бы не того, кому написали.
@@ -339,9 +391,11 @@ class Sending:
             return await self._transport.send(outgoing)
         except TransportError as exc:
             # Почта сказала «нет» — письмо точно не ушло, и его можно
-            # вернуть в очередь без риска отправить второе.
+            # вернуть в очередь без риска отправить второе. Идентификатор
+            # уходит вместе с ящиком: повтор может пойти с другого домена.
             target.message.status = MessageStatus.QUEUED
             target.message.sender_id = None
+            target.message.internet_message_id = None
             await self._session.commit()
             raise SendError(str(exc)) from exc
         except Exception:
@@ -355,22 +409,6 @@ class Sending:
             )
             await self._session.commit()
             raise
-
-    def _reply_to(self, message_id: int, sender_email: str) -> str | None:
-        """Адрес «куда отвечать» с подписанной меткой.
-
-        Настоящей отправке он обязателен: без метки ответ с чужого адреса
-        не привязывается ни к чему и выглядит как «донор не ответил».
-        Нулевому транспорту — нет: он никуда не пишет, и требовать ради
-        него настроенный поддомен значило бы не дать посмотреть экран.
-        """
-        try:
-            return reply_to.address_for(message_id, sender_email=sender_email)
-        except reply_to.ReplyAddressError as exc:
-            if self._transport.real:
-                raise SendError(str(exc)) from exc
-            logger.warning("письма: письмо №%s уходит без адреса ответа (%s)", message_id, exc)
-            return None
 
     async def _settle(
         self,
