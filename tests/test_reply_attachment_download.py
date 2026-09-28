@@ -176,9 +176,7 @@ async def test_old_attachment_list_moves_into_the_table_and_back(session: AsyncS
     session.add(reply)
     await session.flush()
     await session.execute(
-        text(
-            "UPDATE replies SET attachments = CAST(:listed AS JSONB) WHERE id = :id"
-        ).bindparams(
+        text("UPDATE replies SET attachments = CAST(:listed AS JSONB) WHERE id = :id").bindparams(
             listed=(
                 '[{"имя": "price.pdf", "байт": 0, "тип": "application/pdf", "принято": true},'
                 ' {"имя": "run.exe", "байт": 12, "тип": null, "принято": false}, "мусор"]'

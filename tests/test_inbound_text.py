@@ -131,7 +131,7 @@ class TestHtml:
 
     def test_apple_cite_blockquote_is_a_quote(self) -> None:
         html = (
-            "<div>Price:&nbsp;300&nbsp;€</div><div><br><blockquote type=\"cite\">"
+            '<div>Price:&nbsp;300&nbsp;€</div><div><br><blockquote type="cite">'
             "<div>On Sep 28, 2026, at 10:04, Anna wrote:</div><div>price?</div>"
             "</blockquote></div>"
         )
@@ -274,7 +274,8 @@ class TestForm:
 
     def test_filename_in_rfc2231_is_decoded(self) -> None:
         body, headers = multipart(
-            [], [("attachment1", "filename*=UTF-8''%D0%BF%D1%80%D0%B0%D0%B9%D1%81.pdf", "a/b", b"x")]
+            [],
+            [("attachment1", "filename*=UTF-8''%D0%BF%D1%80%D0%B0%D0%B9%D1%81.pdf", "a/b", b"x")],
         )
 
         assert read_form(body, headers["Content-Type"]).files[0].filename == "прайс.pdf"
@@ -372,7 +373,7 @@ def test_download_headers_never_let_the_file_render() -> None:
     headers = download_headers("прайс.pdf", 7)
 
     assert headers["Content-Disposition"] == (
-        "attachment; filename=\"attachment-7.pdf\"; "
+        'attachment; filename="attachment-7.pdf"; '
         "filename*=UTF-8''%D0%BF%D1%80%D0%B0%D0%B9%D1%81.pdf"
     )
     assert headers["X-Content-Type-Options"] == "nosniff"

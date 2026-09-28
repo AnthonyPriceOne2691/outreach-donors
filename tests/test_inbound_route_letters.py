@@ -23,8 +23,8 @@ from tests.inbound_forms import (
     AUTH,
     BOUNDARY,
     HOST,
-    UTF8,
     URL,
+    UTF8,
     NoQueue,
     label_for,
     letter,
@@ -101,11 +101,11 @@ class TestHtmlOnly:
         self, client: AsyncClient, sent: MessageModel, session: AsyncSession
     ) -> None:
         html = (
-            '<div dir="ltr">Hi Anna,<br>Our price is <b>$200</b> per post.</div>'
-            '<div class="gmail_quote"><div class="gmail_attr">On Mon, Sep 28, 2026, Anna Ro '
-            "wrote:</div><blockquote class=\"gmail_quote\">What&#39;s the price?<br>"
-            "To stop hearing from us, unsubscribe here</blockquote></div>"
-        ).encode()
+            b'<div dir="ltr">Hi Anna,<br>Our price is <b>$200</b> per post.</div>'
+            b'<div class="gmail_quote"><div class="gmail_attr">On Mon, Sep 28, 2026, Anna Ro '
+            b'wrote:</div><blockquote class="gmail_quote">What&#39;s the price?<br>'
+            b"To stop hearing from us, unsubscribe here</blockquote></div>"
+        )
 
         answer = await _post(client, letter(sent, text=None, html=html))
 
@@ -141,8 +141,8 @@ class TestWhereTheLabelIs:
             letter(
                 sent,
                 to=b"Editor <editor@donor.example.test>",
-                cc=f"Anna Ro <{label_for(sent)}>".encode(),
                 envelope_to="editor@donor.example.test",
+                extra=[("cc", f"Anna Ro <{label_for(sent)}>".encode())],
             ),
         )
 

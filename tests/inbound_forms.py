@@ -142,12 +142,12 @@ def letter(
     charsets: dict[str, str] | None = None,
     html: bytes | None = None,
     to: bytes | None = None,
-    cc: bytes | None = None,
     envelope_to: str | None = None,
     message_id: str = "in-1",
     extra: Sequence[tuple[str, bytes]] = (),
 ) -> list[tuple[str, bytes]]:
-    """Поля разобранного письма так, как их шлёт платформа."""
+    """Поля разобранного письма так, как их шлёт платформа. Копия (`cc`)
+    и прочее необязательное — полями в `extra`."""
     label = label_for(message)
     fields = [
         ("headers", headers_blob(message_id)),
@@ -160,8 +160,6 @@ def letter(
         ("charsets", json.dumps(charsets or UTF8).encode()),
         ("SPF", b"pass"),
     ]
-    if cc is not None:
-        fields.append(("cc", cc))
     if text is not None:
         fields.append(("text", text))
     if html is not None:
