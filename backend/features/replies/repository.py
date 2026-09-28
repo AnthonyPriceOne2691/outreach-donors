@@ -68,17 +68,14 @@ class ReplyRepository:
 
     # --- приём ---
 
-    async def already_taken(self, inbound_message_id: str) -> bool:
-        """Принимали ли уже это письмо.
+    async def taken(self, inbound_message_id: str) -> ReplyModel | None:
+        """Ответ, которым это письмо уже принято. `None` — письмо новое.
 
         Провайдер доставляет вебхуки «хотя бы один раз» и повторяет их
         при сбое; без этой проверки повтор дал бы второй ответ, второй
-        разбор и второй платный вызов модели.
+        разбор и второй платный вызов модели. Сам ответ, а не «да»: повтору
+        нужно знать, шёл ли у него разбор цены (`parse_never_ran`).
         """
-        return await self.taken(inbound_message_id) is not None
-
-    async def taken(self, inbound_message_id: str) -> ReplyModel | None:
-        """Ответ, которым это письмо уже принято. `None` — письмо новое."""
         if not inbound_message_id:
             return None
         found: ReplyModel | None = await self._session.scalar(

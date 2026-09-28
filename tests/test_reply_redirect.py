@@ -117,6 +117,18 @@ def test_known_address_is_not_added_twice() -> None:
     assert "уже есть" in got.dropped[0][1]
 
 
+def test_directory_in_an_auto_reply_is_not_copied_whole() -> None:
+    """Автоответ со справочником редакции записал бы донору десятки адресов
+    выше найденного лестницей: берём первые, остальные — в лог."""
+    named = [f"editor{number}@{HOST}" for number in range(1, 8)]
+
+    got = _sort(*named)
+
+    assert got.added == tuple(named[: redirect.MAX_NAMED])
+    assert len(got.dropped) == len(named) - redirect.MAX_NAMED
+    assert all("больше" in why for _, why in got.dropped)
+
+
 def test_addresses_come_from_the_hand_written_part_and_reply_to() -> None:
     """Цитата — наше письмо и наш адрес; Reply-To — законное «пишите сюда»."""
     incoming = Incoming(

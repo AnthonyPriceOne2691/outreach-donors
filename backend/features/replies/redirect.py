@@ -65,6 +65,11 @@ FROM_AUTOREPLY = "from_autoreply"
 #: Наша метка в адресе ответа: `anna+m417.7d3a91c2e5@replies.…`.
 _OUR_LABEL = re.compile(r"\+m\d+\.", re.I)
 
+#: Сколько адресов одного автоответа берём. «Пишите на X» называет одного-
+#: двух; автоответ со справочником редакции записал бы донору десятки
+#: адресов выше найденного лестницей — остальные остаются в логе.
+MAX_NAMED = 3
+
 
 @dataclass(frozen=True, slots=True)
 class Redirect:
@@ -88,11 +93,15 @@ class Redirect:
         )
 
     @property
-    def as_report(self) -> dict[str, int]:
+    def as_report(self) -> dict[str, str]:
+        """Строка для отчёта приёма; пусто — автоответ адресов не называл."""
+        if not (self.added or self.elsewhere or self.dropped):
+            return {}
         return {
-            "записаны": len(self.added),
-            "человеку": len(self.elsewhere),
-            "отброшены": len(self.dropped),
+            "адреса из автоответа": (
+                f"записаны {len(self.added)}, человеку {len(self.elsewhere)}, "
+                f"отброшены {len(self.dropped)}"
+            )
         }
 
 
@@ -159,6 +168,8 @@ def sort_out(
     dropped: list[tuple[str, str]] = []
     for address in addresses:
         why = sieve.why_not(address)
+        if why is None and len(added) + len(elsewhere) >= MAX_NAMED:
+            why = f"больше {MAX_NAMED} адресов в одном автоответе"
         if why is not None:
             dropped.append((address, why))
         else:

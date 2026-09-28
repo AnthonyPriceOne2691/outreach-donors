@@ -96,7 +96,7 @@ class Accepted:
             "повтор": self.duplicate,
             "ждёт человека": self.needs_review,
             "разбор снова": self.unparsed,
-            "адреса из автоответа": self.forwarding.as_report,
+            **self.forwarding.as_report,
         }
 
 
