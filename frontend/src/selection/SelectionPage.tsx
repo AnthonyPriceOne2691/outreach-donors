@@ -33,11 +33,8 @@
 
 import {
   Alert,
-  Box,
   Card,
-  Group,
   Loader,
-  Pagination,
   SegmentedControl,
   SimpleGrid,
   Stack,
@@ -56,6 +53,7 @@ import { decideSite, listSelection } from '../api/selection';
 import type { HumanIntent, JudgeDecider, SelectionCard, SelectionView } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { Metric } from '../components/Metric';
+import { PageSwitch } from '../components/PageSwitch';
 import { useTyped } from '../donors/useTyped';
 import { formatNumber } from '../format';
 import {
@@ -75,14 +73,6 @@ const DECIDERS = Object.keys(JUDGE_DECIDERS) as JudgeDecider[];
 /** Набранный поиск совпадает с адресом без пробелов по краям: пробел в конце —
  *  это ещё набор, а не новый фильтр. */
 const sameSearch = (draft: string, committed: string) => draft.trim() === committed;
-
-/** Стрелки переключателя страниц словами — те же, что у доноров и истории. */
-const CONTROL_NAMES: Record<string, string> = {
-  previous: 'Предыдущая страница',
-  next: 'Следующая страница',
-  first: 'Первая страница',
-  last: 'Последняя страница',
-};
 
 type Score = Partial<Record<JudgeDecider, { checked: number; agreed: number }>>;
 
@@ -155,9 +145,6 @@ export function SelectionPage() {
   const filters = useMemo(() => readSelectionFilters(params), [params]);
   // На узком окне три вкладки в ряд резали «Отклонены — 727» до «О».
   const narrow = useMediaQuery('(max-width: 36em)');
-  // На телефоне переключатель страниц без соседей текущей: с ними кнопки
-  // не влезали в строку (урок доноров).
-  const phone = useMediaQuery('(max-width: 30em)') === true;
 
   // Смена вкладки или фильтра — замена записи в истории и первая страница:
   // «назад» ведёт туда, откуда пришли, а не по буквам поиска, а двадцатая
@@ -305,26 +292,13 @@ export function SelectionPage() {
             }}
           />
 
-          {pages > 1 && (
-            // Тот же вид, что у доноров: навигация с именем, номер — в своём
-            // элементе (по нему меряют контраст, а не по кругу кнопки).
-            <Box component="nav" aria-label="Страницы отбора" pt="xs">
-              <Group justify="center">
-                <Pagination
-                  value={Math.min(filters.page, pages)}
-                  onChange={turn}
-                  total={pages}
-                  siblings={phone ? 0 : 1}
-                  radius="xl"
-                  getItemProps={(number) => ({
-                    'aria-label': `Страница ${number}`,
-                    children: <span data-page-number>{number}</span>,
-                  })}
-                  getControlProps={(control) => ({ 'aria-label': CONTROL_NAMES[control] })}
-                />
-              </Group>
-            </Box>
-          )}
+          <PageSwitch
+            label="Страницы отбора"
+            page={filters.page}
+            pages={pages}
+            onChange={turn}
+            pt="xs"
+          />
         </Stack>
       </Card>
     </Stack>

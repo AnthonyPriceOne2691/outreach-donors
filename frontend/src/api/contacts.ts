@@ -42,8 +42,9 @@ export function removeDonorAddress(donorId: number, contactId: number): Promise<
   });
 }
 
-export function fetchForms(): Promise<FormsView> {
-  return request<FormsView>('/contacts/forms');
+/** Страница ручной очереди, номер с единицы: размер страницы называет сервер. */
+export function fetchForms(page: number): Promise<FormsView> {
+  return request<FormsView>(`/contacts/forms?page=${page}`);
 }
 
 /** Форму заполнили, донор дал адрес — дальше он обычный донор. */

@@ -46,9 +46,10 @@ import { useEffect, useState } from 'react';
 import { refusalOf } from '../api/client';
 import { countryTitle, languageTitle, presetTitle } from '../api/labels';
 import { Metric } from '../components/Metric';
+import { usePageParam } from '../components/PageSwitch';
 import { buildPool, fetchMarketLanguages, fetchPresets } from '../api/keywords';
 import { ProvenKeywords } from './ProvenKeywords';
-import { ACTIVE, pagesOf, RunHistory, useHistoryPage } from './RunHistory';
+import { ACTIVE, pagesOf, RunHistory } from './RunHistory';
 import { estimateRun, fetchCountries, listRuns, startRun } from '../api/runs';
 import type { Forecast, RunRequest } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
@@ -178,7 +179,7 @@ export function RunPage() {
     enabled: source === 'model',
   });
   const queryClient = useQueryClient();
-  const [page, goToPage] = useHistoryPage();
+  const [page, goToPage] = usePageParam();
   const runs = useQuery({
     // Ключ со словом `history`: выбор прогонов на экране писем — свой запрос
     // (`['runs', 'with-accepted']`), и страница истории его не затирает.

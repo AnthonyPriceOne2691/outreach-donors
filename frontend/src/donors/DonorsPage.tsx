@@ -28,8 +28,7 @@
  * всех, найденных или отмеченных (`exporting.ts`).
  */
 
-import { Box, Button, Card, Group, Loader, Pagination, Stack, Text, Title } from '@mantine/core';
-import { useMediaQuery } from '@mantine/hooks';
+import { Button, Card, Group, Loader, Stack, Text, Title } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo } from 'react';
@@ -39,6 +38,7 @@ import { refusalOf } from '../api/client';
 import { exportCounts, exportDonors, exportPicked, saveFile } from '../api/donors';
 import { listDonors } from '../api/runs';
 import type { DonorRowCard } from '../api/types';
+import { PageSwitch } from '../components/PageSwitch';
 import { formatNumber } from '../format';
 import { DonorsTable } from './DonorsTable';
 import {
@@ -62,14 +62,6 @@ import { useTyped } from './useTyped';
 const sameSearch = (draft: string, committed: string) => draft.trim() === committed;
 const sameNumber = (draft: number | null, committed: number | null) => draft === committed;
 
-/** Стрелки переключателя страниц словами — те же, что у истории прогонов. */
-const CONTROL_NAMES: Record<string, string> = {
-  previous: 'Предыдущая страница',
-  next: 'Следующая страница',
-  first: 'Первая страница',
-  last: 'Последняя страница',
-};
-
 export function DonorsPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -77,9 +69,6 @@ export function DonorsPage() {
   const filters = useMemo(() => readFilters(params), [params]);
   const contacts = usePendingContacts();
   const picks = usePicks();
-  // На телефоне переключатель страниц без соседей текущей: с ними девять
-  // кнопок не влезали в строку, и «54 ›» уезжали на вторую.
-  const phone = useMediaQuery('(max-width: 30em)') === true;
 
   // Смена фильтра — замена записи в истории, а не новая: «назад» ведёт
   // туда, откуда пришли, а не по буквам поиска. Страница — новая запись.
@@ -248,26 +237,7 @@ export function DonorsPage() {
           onReset={() => setParams(writeFilters(NO_FILTERS), { replace: true })}
         />
 
-        {pages > 1 && (
-          // Тот же вид, что у истории прогонов: навигация с именем, номер —
-          // в своём элементе (по нему и меряют контраст, а не по кругу кнопки).
-          <Box component="nav" aria-label="Страницы доноров">
-            <Group justify="center">
-              <Pagination
-                value={Math.min(filters.page, pages)}
-                onChange={turn}
-                total={pages}
-                siblings={phone ? 0 : 1}
-                radius="xl"
-                getItemProps={(number) => ({
-                  'aria-label': `Страница ${number}`,
-                  children: <span data-page-number>{number}</span>,
-                })}
-                getControlProps={(control) => ({ 'aria-label': CONTROL_NAMES[control] })}
-              />
-            </Group>
-          </Box>
-        )}
+        <PageSwitch label="Страницы доноров" page={filters.page} pages={pages} onChange={turn} />
       </Stack>
     </Card>
   );

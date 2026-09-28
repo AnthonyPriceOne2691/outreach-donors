@@ -56,7 +56,11 @@ const glassField = {
     background: 'var(--field-fill)',
     // Своя кромка, а не кромка стекла: на плотном стекле светлой темы
     // (окна) белая кромка не видна, и поле читалось строкой текста.
-    borderColor: 'var(--field-edge)',
+    // Стиль темы ложится на элемент атрибутом `style`, и правило состояния
+    // из таблицы стилей его не перебивает, — поэтому кромка через
+    // переменную: поле с отказом ставит её себе само (`glass.css`,
+    // `[data-error]`). До 28.09.2026 поле с отказом выглядело как годное.
+    borderColor: 'var(--field-edge-state, var(--field-edge))',
     backdropFilter: 'blur(14px)',
     WebkitBackdropFilter: 'blur(14px)',
     color: 'var(--ink)',

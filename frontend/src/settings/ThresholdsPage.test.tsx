@@ -5,7 +5,8 @@
  * до нажатия, а сохранение не переписывает прошлые вердикты.
  */
 
-import { screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
+import { Profiler } from 'react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -29,10 +30,18 @@ const CURRENT = {
   min_keywords: 300,
 };
 
+const LIMITS = {
+  min_dr: { min: 0, max: 90 },
+  min_org_traffic: { min: 0, max: 10_000_000 },
+  min_refdomains: { min: 0, max: 1_000_000 },
+  min_keywords: { min: 0, max: 1_000_000 },
+};
+
 const VIEW = {
   current: CURRENT,
   defaults: { min_dr: 20, min_org_traffic: 500, min_refdomains: 100, min_keywords: 300 },
   history: [CURRENT],
+  limits: LIMITS,
 };
 
 const CONSEQUENCES = {
@@ -45,11 +54,11 @@ const CONSEQUENCES = {
   unchecked: 6,
 };
 
-async function openThresholds(routes: Record<string, unknown> = {}) {
+async function openThresholds(routes: Record<string, unknown> = {}, view: unknown = VIEW) {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   const recorded = serve({
     'GET /api/auth/me': { body: ADMIN },
-    'GET /api/settings/thresholds': { body: VIEW },
+    'GET /api/settings/thresholds': { body: view },
     'POST /api/settings/preview': { body: CONSEQUENCES },
     ...(routes as Record<string, never>),
   });
@@ -119,6 +128,21 @@ describe('пороги', () => {
     expect((saved?.body as { min_dr: number }).min_dr).toBe(25);
   });
 
+  it('отказ сервера на чтении — причина словами, а не вечная загрузка', async () => {
+    // До 28.09.2026 проверка отказа стояла после ожидания черновика, а
+    // черновик ждал ответа, которого не будет: значок крутился вечно.
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    serve({
+      'GET /api/auth/me': { body: ADMIN },
+      'GET /api/settings/thresholds': { status: 503, body: { detail: 'База недоступна' } },
+    });
+    renderWith(<AppRoutes />, '/settings');
+
+    expect(await screen.findByText('Пороги не загрузились')).toBeInTheDocument();
+    expect(screen.getByText('База недоступна')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Загружаем пороги')).not.toBeInTheDocument();
+  });
+
   it('без права на пороги правка закрыта, а история видна', async () => {
     localStorage.setItem(TOKEN_KEY, 'пропуск');
     serve({
@@ -155,7 +179,9 @@ describe('пересчёт последствий', () => {
       return answered(input, init);
     });
     const user = userEvent.setup();
-    await user.type(screen.getByLabelText('DR не ниже'), '0');
+    // 25 → 26: порог в границах. До 28.09.2026 тест дописывал «0» и получал
+    // DR 250 — экран отправлял его на сервер, хотя граница DR — 90.
+    await user.type(screen.getByLabelText('DR не ниже'), '{backspace}6');
 
     await waitFor(() => expect(screen.getByText('13').closest('[data-stale]')).not.toBeNull());
     expect(screen.queryByLabelText('Считаем последствия')).not.toBeInTheDocument();
@@ -163,5 +189,132 @@ describe('пересчёт последствий', () => {
     release();
     await waitFor(() => expect(document.querySelector('[data-stale]')).toBeNull());
     expect(answers).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('границы порогов', () => {
+  // Замечание 28.09.2026: «поставь валидацию на поля на допустимые значения
+  // и добавь значки подсказок, какие значения допустимы».
+
+  /** Переждать паузу набора (400 мс), после которой черновик уходит на
+   *  предпросмотр: «не ушёл» проверяется после неё, а не до. */
+  const pastDebounce = () =>
+    act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    });
+
+  /** Запросы предпросмотра, ушедшие на сервер, — телами. */
+  const previews = (recorded: { calls: { path: string; body: unknown }[] }) =>
+    recorded.calls
+      .filter((call) => call.path === '/api/settings/preview')
+      .map((call) => call.body as Record<string, number>);
+
+  it('порог за границей — отказ под полем, сохранять нечего, на сервер не уходит', async () => {
+    const recorded = await openThresholds();
+    const user = userEvent.setup();
+
+    const dr = screen.getByLabelText('DR не ниже');
+    await user.clear(dr);
+    await user.type(dr, '95');
+
+    expect(await screen.findByText('Допустимо от 0 до 90')).toBeInTheDocument();
+    expect(dr).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByRole('button', { name: /Сохранить новой версией/ })).toBeDisabled();
+    // Блок последствий не показывает прежний ответ как ответ на новый порог.
+    expect(screen.getByText(/Порог вне допустимых границ/)).toBeInTheDocument();
+    await pastDebounce();
+    expect(previews(recorded).some((body) => body.min_dr === 95)).toBe(false);
+  });
+
+  it('стёртое поле — не ноль: просит число и не сохраняется', async () => {
+    const recorded = await openThresholds();
+    const user = userEvent.setup();
+
+    await user.clear(screen.getByLabelText('Органический трафик'));
+
+    expect(await screen.findByText('Впишите число')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Сохранить новой версией/ })).toBeDisabled();
+    await pastDebounce();
+    expect(previews(recorded).some((body) => body.min_org_traffic === 0)).toBe(false);
+  });
+
+  it('поправили — отказ ушёл, последствия посчитаны, сохранение открыто', async () => {
+    const recorded = await openThresholds();
+    const user = userEvent.setup();
+
+    const dr = screen.getByLabelText('DR не ниже');
+    await user.clear(dr);
+    await user.type(dr, '95');
+    await screen.findByText('Допустимо от 0 до 90');
+    await user.type(dr, '{backspace}{backspace}45');
+
+    await waitFor(() => expect(screen.queryByText('Допустимо от 0 до 90')).toBeNull());
+    expect(await screen.findByText('13')).toBeInTheDocument();
+    expect(previews(recorded).at(-1)?.min_dr).toBe(45);
+    expect(screen.getByRole('button', { name: /Сохранить новой версией/ })).toBeEnabled();
+  });
+
+  it('границы — у значка подсказки, числами по-русски', async () => {
+    await openThresholds();
+    const user = userEvent.setup();
+
+    await user.hover(
+      screen.getByRole('button', { name: 'Допустимые значения: Органический трафик' }),
+    );
+
+    expect(
+      await screen.findByText(/Допустимо: целое число от 0 до 10\s000\s000/),
+    ).toBeInTheDocument();
+  });
+
+  it('границы берутся из ответа сервера, а не живут в экране', async () => {
+    await openThresholds({}, { ...VIEW, limits: { ...LIMITS, min_dr: { min: 10, max: 50 } } });
+    const user = userEvent.setup();
+
+    const dr = screen.getByLabelText('DR не ниже');
+    await user.clear(dr);
+    await user.type(dr, '60');
+
+    expect(await screen.findByText('Допустимо от 10 до 50')).toBeInTheDocument();
+  });
+
+  it('имя поля — его подпись, без слов значка подсказки', async () => {
+    await openThresholds();
+
+    // Кнопка подсказки стоит в подписи; подпись поэтому не `<label>`, и имя
+    // полю дано словами подписи — иначе программа чтения с экрана читала бы
+    // «DR не ниже Допустимые значения: DR не ниже».
+    expect(screen.getByRole('textbox', { name: 'DR не ниже' })).toBeInTheDocument();
+  });
+});
+
+describe('экран в покое', () => {
+  it('сам себя не перерисовывает', async () => {
+    // Черновик собирался заново на каждой отрисовке, а пауза набора
+    // перезапускает таймер на каждый новый объект: экран перерисовывал
+    // сам себя каждые 400 мс, пока открыт (найдено чтением кода 28.09.2026).
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    serve({
+      'GET /api/auth/me': { body: ADMIN },
+      'GET /api/settings/thresholds': { body: VIEW },
+    });
+    let renders = 0;
+    renderWith(
+      <Profiler id="пороги" onRender={() => (renders += 1)}>
+        <AppRoutes />
+      </Profiler>,
+      '/settings',
+    );
+    await screen.findByRole('heading', { name: 'Пороги отбора' });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    });
+
+    const settled = renders;
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1300));
+    });
+
+    expect(renders).toBe(settled);
   });
 });

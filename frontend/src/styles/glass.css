@@ -154,6 +154,10 @@ html:root[data-mantine-color-scheme='light'] {
   --mantine-color-red-light: rgb(250 82 82 / 0.18);
   --mantine-color-red-light-hover: rgb(250 82 82 / 0.24);
   --mantine-color-red-light-color: var(--status-rose-ink);
+  /* Отказ под полем и само поле с отказом — роза отказа, а не красный
+     умолчания Mantine: тот давал 2,91 : 1 на свету и 1,82 : 1 в темноте
+     при норме 4,5 (замер 28.09.2026, пороги за границей). */
+  --mantine-color-error: var(--status-rose-ink);
 
   --mantine-color-orange-text: var(--status-amber-ink);
   --mantine-color-orange-light: rgb(253 126 20 / 0.18);
@@ -253,6 +257,12 @@ html:root[data-mantine-color-scheme='dark'] {
 
   --mantine-color-red-text: var(--status-rose-ink);
   --mantine-color-red-light-color: var(--status-rose-ink);
+  /* Отказ под полем мелкий (12 px) и стоит на панели над бирюзовым углом
+     полотна: статусная роза дала там 4,20 : 1 при норме 4,5 (замер
+     28.09.2026). Ступень светлее — как у остальных статусных чернил
+     тёмной темы (84–87%); сама статусная роза не трогается: значки
+     отказа меряны на своей подложке. */
+  --mantine-color-error: oklch(86% 0.1 20);
   --mantine-color-yellow-text: var(--status-amber-ink);
   --mantine-color-yellow-light-color: var(--status-amber-ink);
   --mantine-color-green-text: var(--status-mint-ink);
@@ -317,6 +327,17 @@ html,
 body,
 #root {
   height: 100%;
+}
+
+/* Страница не оттягивается у края (замечание 28.09.2026: «страницу можно
+   оттянуть вниз, и хедер тоже едет вниз»). Упругая прокрутка macOS и iOS
+   у верхнего края тянет документ целиком — шапку, колонку меню, панели —
+   и открывает над шапкой пустую полосу полотна; на телефоне тот же жест —
+   «потянуть, чтобы обновить». Корню — `none` по вертикали: ни отскока,
+   ни обновления жестом. По горизонтали не трогается — там жест «назад». */
+html,
+body {
+  overscroll-behavior-y: none;
 }
 
 body {
@@ -815,10 +836,27 @@ html:root[data-mantine-color-scheme='dark'] .orb4 {
 /* Всё, кроме первой колонки, выровнено по центру — и заголовок, и
    содержимое. Первая остаётся слева: в ней имя (почта, домен), а имена
    читают по началу строки, и центрированный столбец имён рвёт этот
-   порядок. Правило общее для всех таблиц сервиса. */
+   порядок. Правило общее для всех таблиц сервиса — кроме `allCentered`. */
 .dataTable th:not(:first-child),
 .dataTable td:not(:first-child) {
   text-align: center;
+}
+
+/* Отбор и формы — по центру все колонки, и первая тоже (замечание
+   28.09.2026: «центрируй все колонки в таблице»). Первая колонка там узкая,
+   ширина задана, а не «весь остаток»: домену доставалось до 700 px, и
+   колонки справа жались к краю панели. В узкой колонке столбец имён
+   по центру не рвёт чтение по началу строки — разбег начал в пределах
+   сотни пикселей, а не половины экрана. */
+.dataTable.allCentered th,
+.dataTable.allCentered td {
+  text-align: center;
+}
+
+/* Строка во всю ширину — пусто или отказ — читается абзацем, с левого края,
+   как и была: абзац по центру рвёт строки лесенкой. */
+.dataTable.allCentered tr.wholeRow td {
+  text-align: start;
 }
 
 /* Рабочая область — одна ширина на все экраны. */
@@ -1078,6 +1116,15 @@ html:root .mantine-Pill-root {
 .mantine-Input-input:focus-within {
   border-color: color-mix(in oklab, var(--accent) 55%, var(--glass-edge));
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent);
+}
+
+/* Поле с отказом — кромкой розы, а не только строкой под ним (28.09.2026:
+   порог за границей). Кромку поля тема кладёт атрибутом `style`, и прямое
+   `border-color` отсюда его не перебивает, — поэтому переменная, которую
+   читает тема. Умолчание Mantine для `[data-error]` не доходило до поля
+   по той же причине: поле с отказом выглядело как годное. */
+.mantine-Input-input[data-error] {
+  --field-edge-state: var(--mantine-color-error);
 }
 
 /* Переключатель: дорожка красится акцентом, бегунок едет по той же
@@ -1447,15 +1494,6 @@ html:root .mantine-Pill-root {
 .reviewTable td a,
 .selectionTable td:first-child a {
   overflow-wrap: anywhere;
-}
-
-/* Отбор — поля ячеек по 10 px (26.09.2026): колонкам судьи и человека нужно
-   место под цитату и три кнопки, а поле поиска под доменом не должно
-   резаться. Первая колонка держит 16 px слева: с полем панели это те же
-   32 px от края стекла, что у заголовка сводки над ней. */
-.selectionTable td:first-child,
-.selectionTable th:first-child {
-  padding-inline-start: var(--mantine-spacing-md);
 }
 
 /* Таблица внутри раздела карточки выступает на поле своей ячейки: текст

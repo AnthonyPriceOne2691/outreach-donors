@@ -399,11 +399,19 @@ export interface ThresholdsVersion extends ThresholdsBody {
   created_at: string;
 }
 
+/** Допустимые значения порога: целые от `min` до `max` включительно. */
+export interface ThresholdRange {
+  min: number;
+  max: number;
+}
+
 export interface ThresholdsView {
   /** Пусто, пока порогов не заводили: тогда действуют умолчания. */
   current: ThresholdsVersion | null;
   defaults: ThresholdsBody;
   history: ThresholdsVersion[];
+  /** Границы каждого порога — те же, по которым отказывает сервер. */
+  limits: Record<keyof ThresholdsBody, ThresholdRange>;
 }
 
 export interface ConsequencesView {
@@ -708,7 +716,11 @@ export interface FormCard {
 
 export interface FormsView {
   rows: FormCard[];
+  /** Сколько ждёт рук всего, а не на этой странице. */
   total: number;
+  /** Какая это страница и сколько на ней доноров — размер называет сервер. */
+  page: number;
+  limit: number;
   monthly_left: number;
   monthly_cap: number;
 }

@@ -18,6 +18,13 @@
  *
  * **Текст трёх карточек начинается с одной кромки** — 32 px от края стекла
  * (аудит 25.09.2026: было 32, 20 и 26).
+ *
+ * **Поле — по своему числу, границы — у значка «i», отказ — до нажатия**
+ * (замечание 28.09.2026: «поля порогов уже, они огромные; валидация на
+ * допустимые значения; значки подсказок, в каких диапазонах»). Поле шириной
+ * в четверть панели держало восьмизначное число; границы приходят с сервера
+ * и проверяют поле тем же правилом, что схема сервера (`thresholdDraft.ts`),
+ * — пока порог за границей, последствия не считаются и сохранять нечего.
  */
 
 import {
@@ -38,16 +45,34 @@ import { useDebouncedValue } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { IconDeviceFloppy } from '@tabler/icons-react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { refusalOf } from '../api/client';
 import { fetchThresholds, previewThresholds, saveThresholds } from '../api/settings';
 import type { ThresholdsBody } from '../api/types';
+import { InfoHint } from '../components/InfoHint';
 import { Metric } from '../components/Metric';
 import { useSession } from '../auth/AuthProvider';
 import { formatDateTime, formatNumber } from '../format';
+import { bodyOf, fieldRefusal, rangeText, THRESHOLD_KEYS, typed } from './thresholdDraft';
+import type { ThresholdDraft, ThresholdKey } from './thresholdDraft';
 
 const THRESHOLDS_KEY = ['thresholds'] as const;
+
+/** Поля порогов: подпись и что порог делает с базой. */
+const FIELDS: Record<ThresholdKey, { label: string; description: string }> = {
+  min_dr: { label: 'DR не ниже', description: 'первая ступень отбора, 2 юнита на домен' },
+  min_org_traffic: { label: 'Органический трафик', description: 'убирает 19% доменов' },
+  min_refdomains: { label: 'Реф. доменов', description: 'поверх двух других почти не отсекает' },
+  min_keywords: { label: 'Ключей в органике', description: 'убирает ещё 25%' },
+};
+
+/** Ширина поля — по самой длинной подписи: «Органический трафик» со значком —
+ *  180 px шрифтом экрана (замер 28.09.2026). Самому длинному числу,
+ *  «10 000 000» со стрелками и полями, хватает 115 px — ширину держит
+ *  подпись: уже — она переносилась бы, и поле вставало бы ниже соседей.
+ *  Пояснение — в две строки, их место держит `fieldRow`. */
+const FIELD_WIDTH = '12.5rem';
 
 /** Колонки истории. Первая — номер со значком «действует» (124 px шрифтом
  *  экрана, замер 25.09.2026), последняя — остаток: в ней адрес автора и
@@ -63,13 +88,8 @@ const COLUMNS: { title: string; width?: string }[] = [
 ];
 const TABLE_MIN_WIDTH = 880;
 
-function same(a: ThresholdsBody, b: ThresholdsBody): boolean {
-  return (
-    a.min_dr === b.min_dr &&
-    a.min_org_traffic === b.min_org_traffic &&
-    a.min_refdomains === b.min_refdomains &&
-    a.min_keywords === b.min_keywords
-  );
+function same(draft: ThresholdDraft, inUse: ThresholdsBody): boolean {
+  return THRESHOLD_KEYS.every((key) => draft[key] === inUse[key]);
 }
 
 export function ThresholdsPage() {
@@ -77,13 +97,22 @@ export function ThresholdsPage() {
   const { can } = useSession();
   const canEdit = can('settings');
 
-  const { data, isLoading, error } = useQuery({
+  const { data, error } = useQuery({
     queryKey: THRESHOLDS_KEY,
     queryFn: fetchThresholds,
   });
 
-  const [draft, setDraft] = useState<ThresholdsBody | null>(null);
-  const [debounced] = useDebouncedValue(draft, 400);
+  const [draft, setDraft] = useState<ThresholdDraft | null>(null);
+  // На сервер — только черновик в границах: за границей предпросмотр отказал
+  // бы, а экран показывал бы прежние числа как ответ на новый порог.
+  // Один и тот же объект, пока черновик не менялся: пауза набора перезапускает
+  // свой таймер на каждый новый объект, и собранный заново на каждой
+  // отрисовке черновик перерисовывал бы экран каждые 400 мс без конца.
+  const body = useMemo(
+    () => (draft !== null && data !== undefined ? bodyOf(draft, data.limits) : null),
+    [draft, data],
+  );
+  const [debounced] = useDebouncedValue(body, 400);
 
   // Черновик заводится от того, что действует сейчас: пороги правят
   // от текущих, а не с чистого листа.
@@ -93,15 +122,21 @@ export function ThresholdsPage() {
     }
   }, [data, draft]);
 
+  // Пороги, которые действуют сейчас, — от них правят и с ними сравнивают.
+  const inUse = data === undefined ? undefined : (data.current ?? data.defaults);
+  // Последствия считаются по всей базе и нужны только изменённым порогам:
+  // у совпадающих с действующими экран их и не показывает. До 28.09.2026
+  // каждое открытие экрана пересчитывало базу впустую.
+  const debouncedChanged = debounced !== null && inUse !== undefined && !same(debounced, inUse);
   const preview = useQuery({
     queryKey: ['thresholds-preview', debounced],
     queryFn: () => previewThresholds(debounced as ThresholdsBody),
-    enabled: debounced !== null && canEdit,
+    enabled: debouncedChanged && canEdit,
     placeholderData: keepPreviousData,
   });
 
   const save = useMutation({
-    mutationFn: () => saveThresholds(draft as ThresholdsBody),
+    mutationFn: (sent: ThresholdsBody) => saveThresholds(sent),
     onSuccess: async (version) => {
       await queryClient.invalidateQueries({ queryKey: THRESHOLDS_KEY });
       notifications.show({
@@ -113,7 +148,8 @@ export function ThresholdsPage() {
       notifications.show({ title: 'Не сохранили', message: refusalOf(failure), color: 'red' }),
   });
 
-  if (isLoading || draft === null) return <Loader aria-label="Загружаем пороги" m="md" />;
+  // Отказ — раньше ожидания: черновик заводится от ответа, и без ответа
+  // экран так и крутил бы значок загрузки вместо причины.
   if (error) {
     return (
       <Alert color="red" title="Пороги не загрузились" m="md">
@@ -121,12 +157,11 @@ export function ThresholdsPage() {
       </Alert>
     );
   }
+  if (data === undefined || draft === null) {
+    return <Loader aria-label="Загружаем пороги" m="md" />;
+  }
 
-  const inUse = data?.current ?? data?.defaults;
   const changed = inUse !== undefined && !same(draft, inUse);
-  const set = (key: keyof ThresholdsBody) => (value: string | number) => {
-    setDraft({ ...draft, [key]: typeof value === 'number' ? value : Number(value) || 0 });
-  };
 
   return (
     <Stack gap="lg">
@@ -140,41 +175,47 @@ export function ThresholdsPage() {
             </Text>
           </Stack>
 
-          <SimpleGrid cols={{ base: 2, md: 4 }} spacing="md" className="fieldRow">
-            <NumberInput
-              label="DR не ниже"
-              description="первая ступень отбора, 2 юнита на домен"
-              min={0}
-              max={90}
-              disabled={!canEdit}
-              value={draft.min_dr}
-              onChange={set('min_dr')}
-            />
-            <NumberInput
-              label="Органический трафик"
-              description="убирает 19% доменов"
-              min={0}
-              disabled={!canEdit}
-              value={draft.min_org_traffic}
-              onChange={set('min_org_traffic')}
-            />
-            <NumberInput
-              label="Реф. доменов"
-              description="поверх двух других почти не отсекает"
-              min={0}
-              disabled={!canEdit}
-              value={draft.min_refdomains}
-              onChange={set('min_refdomains')}
-            />
-            <NumberInput
-              label="Ключей в органике"
-              description="убирает ещё 25%"
-              min={0}
-              disabled={!canEdit}
-              value={draft.min_keywords}
-              onChange={set('min_keywords')}
-            />
-          </SimpleGrid>
+          {/* Подпись — не `<label>`: в ней кнопка подсказки, а кнопка внутри
+              подписи поля — вложенный элемент формы, и её имя вошло бы в имя
+              поля. Имя полю — `aria-label`, словами подписи. */}
+          <Group gap="md" align="flex-start" className="fieldRow">
+            {THRESHOLD_KEYS.map((key) => {
+              const range = data.limits[key];
+              const field = FIELDS[key];
+              return (
+                <NumberInput
+                  key={key}
+                  w={FIELD_WIDTH}
+                  labelProps={{ labelElement: 'div' }}
+                  label={
+                    <Group component="span" gap={4} wrap="nowrap">
+                      {field.label}
+                      <InfoHint name={`Допустимые значения: ${field.label}`}>
+                        Допустимо: целое число {rangeText(range)}
+                      </InfoHint>
+                    </Group>
+                  }
+                  aria-label={field.label}
+                  description={field.description}
+                  min={range.min}
+                  max={range.max}
+                  // Число за границей не подменяется молча краем диапазона:
+                  // поле остаётся как набрано, под ним — почему так нельзя.
+                  clampBehavior="none"
+                  allowDecimal={false}
+                  allowNegative={false}
+                  // На телефоне — клавиатура из одних цифр: запятой и минуса
+                  // в пороге не бывает, а по умолчанию поле просит «дробную».
+                  inputMode="numeric"
+                  thousandSeparator=" "
+                  disabled={!canEdit}
+                  value={draft[key]}
+                  error={canEdit ? fieldRefusal(draft[key], range) : null}
+                  onChange={(value) => setDraft({ ...draft, [key]: typed(value) })}
+                />
+              );
+            })}
+          </Group>
 
           {!canEdit && (
             <Alert color="yellow" title="Править пороги не разрешено">
@@ -188,13 +229,13 @@ export function ThresholdsPage() {
               variant="gradient"
               leftSection={<IconDeviceFloppy size={18} />}
               loading={save.isPending}
-              disabled={!canEdit || !changed}
-              onClick={() => save.mutate()}
+              disabled={!canEdit || !changed || body === null}
+              onClick={() => body !== null && save.mutate(body)}
             >
               Сохранить новой версией
             </Button>
             {changed && (
-              <Button variant="subtle" className="press" onClick={() => setDraft(inUse ?? draft)}>
+              <Button variant="subtle" className="press" onClick={() => setDraft(inUse)}>
                 Вернуть действующие
               </Button>
             )}
@@ -214,6 +255,11 @@ export function ThresholdsPage() {
             <Text size="sm" c="dimmed">
               Пороги совпадают с действующими — база не изменится. Измените порог, и здесь появится,
               кто выпадет и кто вернётся.
+            </Text>
+          ) : body === null ? (
+            <Text size="sm" c="dimmed">
+              Порог вне допустимых границ — поправьте поле с пометкой, и здесь появится, кто выпадет
+              и кто вернётся.
             </Text>
           ) : preview.data === undefined ? (
             preview.isFetching ? (
@@ -286,12 +332,12 @@ export function ThresholdsPage() {
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {(data?.history ?? []).map((version) => (
+              {data.history.map((version) => (
                 <Table.Tr key={version.version}>
                   <Table.Td>
                     <Group gap="xs" wrap="nowrap">
                       <Text fw={500}>№{version.version}</Text>
-                      {version.version === data?.current?.version && (
+                      {version.version === data.current?.version && (
                         <Badge variant="light" color="green">
                           действует
                         </Badge>
@@ -316,7 +362,7 @@ export function ThresholdsPage() {
             </Table.Tbody>
           </Table>
         </Table.ScrollContainer>
-        {(data?.history ?? []).length === 0 && (
+        {data.history.length === 0 && (
           <Text size="sm" c="dimmed" p="md">
             Версий ещё нет — действуют умолчания. Первая появится здесь после сохранения, вместе с
             автором и датой.

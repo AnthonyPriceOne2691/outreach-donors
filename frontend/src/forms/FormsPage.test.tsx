@@ -6,7 +6,7 @@
  * и больше нигде.
  */
 
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
@@ -28,20 +28,44 @@ const QUEUE = {
     },
   ],
   total: 1,
+  page: 1,
+  limit: 20,
   monthly_left: 98,
   monthly_cap: 100,
 };
 
-async function openForms(routes: Record<string, unknown> = {}, who: unknown = ADMIN) {
+async function openForms(
+  routes: Record<string, unknown> = {},
+  who: unknown = ADMIN,
+  route = '/forms',
+  first = 'form.example.test',
+) {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   const recorded = serve({
     'GET /api/auth/me': { body: who },
-    'GET /api/contacts/forms': { body: QUEUE },
+    'GET /api/contacts/forms?page=1': { body: QUEUE },
     ...(routes as Record<string, never>),
   });
-  renderWith(<AppRoutes />, '/forms');
-  await screen.findByText('form.example.test');
+  renderWith(<AppRoutes />, route);
+  await screen.findByText(first);
   return recorded;
+}
+
+/** Страница очереди из `count` доноров, номера — с `from`. */
+function page(count: number, { from = 1, total = count, number = 1 } = {}) {
+  return {
+    body: {
+      ...QUEUE,
+      rows: Array.from({ length: count }, (_, at) => ({
+        ...QUEUE.rows[0],
+        donor_id: from + at,
+        domain_id: 100 + from + at,
+        host: `form-${from + at}.example.test`,
+      })),
+      total,
+      page: number,
+    },
+  };
 }
 
 describe('ручная очередь форм', () => {
@@ -94,5 +118,86 @@ describe('ручная очередь форм', () => {
 
     expect(screen.getByText('form.example.test')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Вписать адрес' })).not.toBeInTheDocument();
+  });
+});
+
+describe('очередь форм: колонки и страницы', () => {
+  // Замечание 28.09.2026: «добавить в последнюю колонку шапку „Действия“,
+  // пагинация, 20 записей на странице».
+  const PAGER = 'Страницы очереди форм';
+
+  it('колонка кнопок подписана «Действия»', async () => {
+    await openForms();
+
+    expect(screen.getByRole('columnheader', { name: 'Действия' })).toBeInTheDocument();
+  });
+
+  it('без права работать с очередью нет ни кнопок, ни их колонки', async () => {
+    await openForms({}, { ...(OPERATOR as object), permissions: ['view'] });
+
+    expect(screen.queryByRole('columnheader', { name: 'Действия' })).not.toBeInTheDocument();
+  });
+
+  it('одна страница — переключателя нет вовсе', async () => {
+    await openForms();
+
+    expect(screen.queryByRole('navigation', { name: PAGER, hidden: true })).not.toBeInTheDocument();
+  });
+
+  it('больше двадцати — переключатель, и вторая страница спрашивается у сервера', async () => {
+    const recorded = await openForms(
+      {
+        'GET /api/contacts/forms?page=1': page(20, { total: 45 }),
+        'GET /api/contacts/forms?page=2': page(20, { from: 21, total: 45, number: 2 }),
+      },
+      ADMIN,
+      '/forms',
+      'form-1.example.test',
+    );
+    const user = userEvent.setup();
+
+    const pager = screen.getByRole('navigation', { name: PAGER });
+    // Страниц три — по размеру, который назвал сервер, а не по своему числу.
+    expect(within(pager).getByRole('button', { name: 'Страница 3' })).toBeInTheDocument();
+    await user.click(within(pager).getByRole('button', { name: 'Страница 2' }));
+
+    expect(await screen.findByText('form-21.example.test')).toBeInTheDocument();
+    expect(screen.queryByText('form-1.example.test')).not.toBeInTheDocument();
+    expect(recorded.calls.some((call) => call.path === '/api/contacts/forms?page=2')).toBe(true);
+    // Экран не режет список сам: на странице ровно то, что прислал сервер.
+    expect(screen.getAllByRole('row')).toHaveLength(1 + 20);
+  });
+
+  it('номер страницы — в адресе: вторая по ссылке открывается второй', async () => {
+    const recorded = await openForms(
+      { 'GET /api/contacts/forms?page=2': page(5, { from: 21, total: 25, number: 2 }) },
+      ADMIN,
+      '/forms?page=2',
+      'form-21.example.test',
+    );
+
+    expect(recorded.calls.some((call) => call.path === '/api/contacts/forms?page=1')).toBe(false);
+    const pager = screen.getByRole('navigation', { name: PAGER });
+    expect(within(pager).getByRole('button', { name: 'Страница 2' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+  });
+
+  it('страница за концом уводит на последнюю, а не показывает «очередь пуста»', async () => {
+    // Последнего донора последней страницы закрыли — или ссылку открыли после
+    // разбора очереди.
+    const recorded = await openForms(
+      {
+        'GET /api/contacts/forms?page=4': page(0, { total: 45, number: 4 }),
+        'GET /api/contacts/forms?page=3': page(5, { from: 41, total: 45, number: 3 }),
+      },
+      ADMIN,
+      '/forms?page=4',
+      'form-41.example.test',
+    );
+
+    expect(recorded.calls.map((call) => call.path)).toContain('/api/contacts/forms?page=3');
+    expect(screen.queryByText(/Очередь пуста/)).not.toBeInTheDocument();
   });
 });
