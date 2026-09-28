@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -301,3 +302,39 @@ class TestHealthwatch:
         assert blind == [], f"у {blind} нет healthcheck — сторож не увидит, что они встали"
         assert oneshot == {"migrate"}
         assert "HEALTHWATCH_ONESHOT:-migrate}" in watch
+
+
+class TestCronFiles:
+    """Кроны хоста — два файла, которые ставят руками и потом не открывают."""
+
+    CRONS = ("backup.cron", "healthwatch.cron")
+
+    def _jobs(self, name: str) -> list[str]:
+        text = (ROOT / "deploy" / name).read_text(encoding="utf-8")
+        return [line for line in text.splitlines() if line[:1].isdigit() or line[:1] == "*"]
+
+    def test_both_watch_the_same_backup_folder(self) -> None:
+        """Сторож смотрит возраст копий там, куда их кладёт бэкап. Разошлись
+        пути — «свежей копии нет» каждые пять минут при живом бэкапе или,
+        хуже, молчание при мёртвом."""
+        folders = {
+            name: re.search(r"BACKUP_DIR=(\S+)", " ".join(self._jobs(name))) for name in self.CRONS
+        }
+
+        assert all(folders.values()), folders
+        assert len({found.group(1) for found in folders.values() if found}) == 1
+
+    @pytest.mark.parametrize("name", CRONS)
+    def test_installed_name_has_no_dot_and_script_exists(self, name: str) -> None:
+        """cron в Debian и Ubuntu молча пропускает файлы /etc/cron.d с точкой
+        в имени: `outreach.backup` не выполнился бы никогда и ничего бы
+        об этом не сказал."""
+        text = (ROOT / "deploy" / name).read_text(encoding="utf-8")
+        installed = re.findall(r"/etc/cron\.d/(\S+)", text)
+        [job] = self._jobs(name)
+        script = re.search(r"(scripts/\S+\.sh)", job)
+
+        assert installed, "в файле написано, куда его ставить"
+        assert all("." not in target for target in installed), installed
+        assert script is not None
+        assert os.access(ROOT / script.group(1), os.X_OK), f"{script.group(1)} не исполняемый"

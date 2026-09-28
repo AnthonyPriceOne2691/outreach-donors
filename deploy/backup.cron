@@ -1,6 +1,6 @@
-# Еженедельный бэкап базы. Ставится человеком на сервере:
-#   sudo cp deploy/backup.cron /etc/cron.d/outreach-backup
-#   sudo chown root:root /etc/cron.d/outreach-backup
+# Еженедельный бэкап базы с копией вне машины. Ставится человеком на сервере:
+#   sudo cp deploy/backup.cron /etc/cron.d/outreach-donors-backup
+#   sudo chown root:root /etc/cron.d/outreach-donors-backup
 #
 # От root: копию снимает `docker compose exec`, а отдельного пользователя
 # с правом на докер на машине нет.
@@ -8,10 +8,13 @@
 # Ночь воскресенья: прогонов в это время не бывает, а дамп берёт
 # блокировку чтения на минуты.
 #
-# BACKUP_UPLOAD задаётся здесь же, когда выбрано внешнее хранилище.
-# Без него копия остаётся на той же машине — скрипт скажет об этом
-# в вывод, а вывод крона уходит на почту root.
+# Куда уезжает копия и куда идут тревоги, здесь не написано намеренно:
+# скрипт читает это сам — хранилище из .env.ops, бота из .env рядом
+# с компоузом (scripts/ops_env.sh). Так же их читает и ручной запуск перед
+# выкаткой, и копия, снятая руками, уезжает туда же, куда ночная.
+# Хранилища нет — копия остаётся на машине, и бэкап говорит об этом вслух
+# и тревогой; любой отказ — тревога в Telegram.
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-0 3 * * 0 root cd /srv/outreach-donors && BACKUP_DIR=/srv/backups/outreach KEEP=3 scripts/backup.sh >> /var/log/outreach-backup.log 2>&1
+0 3 * * 0 root cd /srv/outreach-donors && BACKUP_DIR=/srv/backups/outreach-donors KEEP=3 scripts/backup.sh >> /var/log/outreach-backup.log 2>&1

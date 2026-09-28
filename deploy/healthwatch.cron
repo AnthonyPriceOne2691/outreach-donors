@@ -1,0 +1,20 @@
+# Сторож здоровья раз в пять минут: контейнеры и свежесть бэкапа
+# (scripts/healthwatch.sh). Ставится человеком на сервере:
+#   sudo cp deploy/healthwatch.cron /etc/cron.d/outreach-donors-healthwatch
+#   sudo chown root:root /etc/cron.d/outreach-donors-healthwatch
+#
+# Докер `unhealthy` только помечает — не перезапускает и никому не говорит.
+# Сторож шлёт тревогу в Telegram, когда сервис сломался и когда восстановился,
+# — по переходу, а не каждые пять минут: что сломано сейчас, лежит в
+# /srv/outreach-donors/.healthwatch.state. Когда он смотрел последний раз —
+# время этого файла.
+#
+# BACKUP_DIR — тот же, что у крона бэкапа: копия старше восьми дней значит,
+# что бэкап не запускается вовсе, а о себе он в этом случае не скажет.
+#
+# В журнал пишется только то, что сломано или изменилось: тихая машина
+# журнала не растит.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+*/5 * * * * root cd /srv/outreach-donors && BACKUP_DIR=/srv/backups/outreach-donors scripts/healthwatch.sh >> /var/log/outreach-healthwatch.log 2>&1
