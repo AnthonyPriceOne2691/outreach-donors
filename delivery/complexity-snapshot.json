@@ -1117,9 +1117,9 @@
       "worst": "parse:230"
     },
     "backend/features/replies/quoting.py": {
-      "lines": 80,
+      "lines": 187,
       "complexity": 5,
-      "worst": "quote_starts_at:47"
+      "worst": "quote_starts_at:154"
     },
     "backend/features/replies/repository.py": {
       "lines": 414,
