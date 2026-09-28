@@ -267,9 +267,18 @@ function UnboundLine({ count }: { count: number }) {
   return (
     <Text size="sm">
       Не привязаны ни к одному нашему письму:{' '}
-      {/* Средний вес, как у ссылок разделов: тонкие бирюзовые штрихи на ярком
-          месте стекла читались бледнее своего цвета. */}
-      <Anchor component={Link} to="/threads?tab=unbound" size="sm" fw={500}>
+      {/* Чернилами и жирным, как числа в соседних строках сводки, — ссылку
+          выдаёт подчёркивание. Бирюзовая на светлом месте стекла намерилась
+          на 4,04 : 1 средним весом и 4,42 жирным при норме 4,5 (28.09.2026). */}
+      <Anchor
+        component={Link}
+        to="/threads?tab=unbound"
+        size="sm"
+        fw={700}
+        c="var(--ink)"
+        underline="always"
+        className="inkLink"
+      >
         {formatNumber(count)} {plural(count, 'ответ', 'ответа', 'ответов')}
       </Anchor>
     </Text>

@@ -1680,8 +1680,24 @@ html:root .mantine-Pill-root {
   padding-inline: var(--mantine-spacing-md);
 }
 
+/* Ссылка чернилами посреди строки текста (главная, «не привязаны»). Бирюзовая
+   ссылка на светлом месте стекла мерилась 4,04 : 1 средним весом и 4,42 жирным
+   при норме 4,5 (28.09.2026); чернила держат норму на любом месте полотна.
+   Что это ссылка, говорит подчёркивание, а отклик на курсор — его цвет, а не
+   цвет букв: буквы под курсором не бледнеют. */
+.inkLink {
+  text-decoration-color: var(--ink-soft);
+  text-underline-offset: 3px;
+  transition: text-decoration-color 160ms ease;
+}
+
+.inkLink:hover {
+  text-decoration-color: var(--status-accent-ink);
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .unboundChevron {
+  .unboundChevron,
+  .inkLink {
     transition: none;
   }
 }

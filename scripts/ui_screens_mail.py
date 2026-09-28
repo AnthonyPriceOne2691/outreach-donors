@@ -12,12 +12,51 @@
 
 Нормы передаются параметрами, а не импортируются из `ui_screens`: тот
 подключает этот модуль, и обратный импорт замкнул бы круг.
+
+28.09.2026 — вкладка «Не привязаны» на экране диалогов, дважды: на широком
+окне и на телефоне (`viewport`). На телефоне строка ответа складывается
+в ярусы, и её тексты встают над другими местами полотна.
 """
 
 from collections.abc import Callable
 from typing import Any
 
 from playwright.sync_api import expect
+
+#: Вкладки и страницы непривязанных ответов — по своим подписям.
+UNBOUND_TABS = "[aria-label='Вкладки диалогов']"
+UNBOUND_PAGER = "nav[aria-label='Страницы непривязанных ответов']"
+PHONE = {"width": 390, "height": 844}
+
+
+def unbound_probes(norm: float, big: float, *, menu: bool) -> list[tuple[Any, ...]]:
+    """Точки вкладки «Не привязаны». Мерится то, по чему ищут донора:
+    от кого, куда, о чём, почему не привязан, — и раскрытое письмо с файлами
+    (подготовка раскрывает строку, `open_unbound_reply`). Меню на телефоне
+    спрятано за кнопкой, и мерить его там нечего."""
+    label = ".mantine-SegmentedControl-label"
+    inner = ".mantine-SegmentedControl-innerLabel"
+    probes: list[tuple[Any, ...]] = [
+        ("выбранная вкладка", f"{UNBOUND_TABS} {label}[data-active] {inner}", norm),
+        ("невыбранная вкладка", f"{UNBOUND_TABS} {label}:not([data-active]) {inner}", norm),
+        ("пояснение над списком", ".unboundNote", norm),
+        ("отправитель", ".unboundFrom", norm),
+        ("когда пришёл", ".unboundWhen", norm),
+        ("на какой адрес", ".unboundTo", norm),
+        ("вид ответа значком", ".unboundRow .mantine-Badge-label", norm),
+        ("тема", ".unboundSubject", norm),
+        ("начало текста", ".unboundPreview", norm),
+        ("причина", ".unboundReason", norm),
+        ("письмо целиком", ".unboundBody [style*='pre-wrap']", norm),
+        ("имя вложения", ".unboundBody .replyFileTitle", norm),
+        ("кнопка «Скачать»", ".unboundBody .replyFiles button", big),
+        (
+            "номер другой страницы",
+            f"{UNBOUND_PAGER} button:not([aria-current]) [data-page-number]",
+            norm,
+        ),
+    ]
+    return [*probes, ("пункт меню", "nav a", norm)] if menu else probes
 
 
 def mail_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
@@ -159,6 +198,18 @@ def mail_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("пункт меню", "nav a", norm),
             ],
         },
+        # Ответы без письма (28.09.2026): вторая вкладка экрана диалогов.
+        "unbound": {
+            "path": "/threads?tab=unbound",
+            "ready": ("heading", "Диалоги"),
+            "probes": unbound_probes(norm, big, menu=True),
+        },
+        "unbound-phone": {
+            "path": "/threads?tab=unbound",
+            "ready": ("heading", "Диалоги"),
+            "viewport": PHONE,
+            "probes": unbound_probes(norm, big, menu=False),
+        },
         # Пробы — внутри карточки домена: шапка тоже `.glass`, и проба
         # `.glass p` первой брала почту в шапке (25.09.2026).
         "senders": {
@@ -228,6 +279,20 @@ def usage_loaded(page: Any) -> None:
     page.wait_for_timeout(900)
 
 
+def open_unbound_reply(page: Any) -> None:
+    """Раскрыть ответ с вложениями: без раскрытия на экране нет ни письма
+    целиком, ни «Скачать» — того, ради чего строку раскрывают. Ответа с файлами
+    на странице нет — раскрыть первый: точки файлов тогда честно «не найден»."""
+    rows = page.locator("li.unboundRow")
+    expect(rows.first).to_be_visible()
+    with_files = page.locator("li.unboundRow", has_text="вложения ·")
+    row = with_files.first if with_files.count() else rows.first
+    row.get_by_role("button", name="Показать ответ целиком").click()
+    expect(row.locator(".unboundBody")).to_be_visible()
+    # Раскрытие — два такта, и снимок посреди них мерил бы бледный текст.
+    page.wait_for_timeout(900)
+
+
 def mail_prepare() -> dict[str, Callable[[Any], None]]:
     """Что сделать на экране до замера — там, где без этого мерить нечего."""
     return {
@@ -235,4 +300,6 @@ def mail_prepare() -> dict[str, Callable[[Any], None]]:
         "advertisers": show_decided,
         "usage": usage_loaded,
         "thresholds-refused": refuse_thresholds,
+        "unbound": open_unbound_reply,
+        "unbound-phone": open_unbound_reply,
     }

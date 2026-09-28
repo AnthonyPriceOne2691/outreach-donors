@@ -85,14 +85,14 @@ function UnboundRow({ reply }: { reply: UnboundReply }) {
             gap={4}
             style={{ columnGap: 'var(--mantine-spacing-md)' }}
           >
-            <Text fw={500} c="var(--ink)" className="cellName">
+            <Text fw={500} c="var(--ink)" className="cellName unboundFrom">
               {reply.from_email ?? 'отправитель не назван'}
             </Text>
             <Text size="xs" c="dimmed" className="unboundWhen">
               {formatDateTime(reply.received_at)}
             </Text>
           </Group>
-          <Text size="xs" c="dimmed" className="cellName">
+          <Text size="xs" c="dimmed" className="cellName unboundTo">
             {reply.to.length > 0
               ? `на ${reply.to.join(', ')}`
               : 'адрес, на который пришло, не записан'}
@@ -101,7 +101,7 @@ function UnboundRow({ reply }: { reply: UnboundReply }) {
             <Badge variant="light" color={kind.color}>
               {kind.title}
             </Badge>
-            <Text size="sm" fw={500} className="cellName">
+            <Text size="sm" fw={500} className="cellName unboundSubject">
               {reply.subject || 'без темы'}
             </Text>
             {reply.attachments.length > 0 && (
@@ -110,10 +110,10 @@ function UnboundRow({ reply }: { reply: UnboundReply }) {
               </Text>
             )}
           </Group>
-          <Text size="sm" c="dimmed" lineClamp={2} className="cellName">
+          <Text size="sm" c="dimmed" lineClamp={2} className="cellName unboundPreview">
             {reply.preview || 'Текста в письме нет.'}
           </Text>
-          <Text size="sm">
+          <Text size="sm" className="unboundReason">
             <Text span fw={500} inherit>
               Почему не привязан:
             </Text>{' '}
