@@ -12,6 +12,11 @@
 на спам. Поэтому письмо сначала переводится в «отправляется» и
 фиксируется, и только потом уходит наружу.
 
+**Перевод в «отправляется» — захват, а не запись** (ревью 28.09.2026).
+Проверка «письмо в очереди» и перевод — один условный `UPDATE … RETURNING`:
+чтением и записью два одновременных нажатия оба видели «в очереди» и оба
+отдавали письмо почте. Тот же приём, что у захвата добивки (`followups.py`).
+
 **Свой `Message-ID` пишется той же фиксацией** (`identity.py`). Обрыв
 связи после того, как платформа приняла письмо, иначе оставил бы ушедшее
 письмо без якоря: добивки не легли бы в его ветку, а ответ без метки
@@ -36,7 +41,7 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.access.repository import AccessRepository
@@ -206,13 +211,9 @@ class Sending:
         )
         own = own_headers(target.message.id, sender_email=sender.email, real=self._transport.real)
 
-        # Факт отправки — в базе до вызова почты. Отдельная фиксация,
-        # а не общая с вызывающим: между ней и почтой ничего не должно
-        # остаться незаписанным — и свой Message-ID в первую очередь.
-        target.message.status = MessageStatus.SENDING
-        target.message.sender_id = sender.id
-        target.message.internet_message_id = own.message_id
-        await self._session.commit()
+        # Факт отправки — в базе до вызова почты, и захватом: второй
+        # одновременный запрос получает отказ здесь, а не письмо донору.
+        await self._claim(target, sender, own)
 
         provider_id = await self._hand_over(target, sender, own, in_reply_to=in_reply_to)
         await self._settle(target, sender, provider_id=provider_id, author_id=author_id)
@@ -249,6 +250,42 @@ class Sending:
                 "очереди. Письмо стоит убрать и собрать очередь заново"
             )
         return _Target(message=message, host=host, email=email, stage=stage)
+
+    async def _claim(self, target: _Target, sender: SenderModel, own: OwnHeaders) -> None:
+        """Перевести письмо в «отправляется» — только если оно всё ещё в очереди.
+
+        Статус из `_target` мог устареть: между чтением и записью успевает
+        второй запрос — двойной щелчок, экран и консоль, проход добивок.
+        Условие проверяет база, в том же `UPDATE`: второй ждёт блокировку
+        строки, после фиксации первого видит «отправляется» и строку не берёт.
+        Фиксация своя: между ней и почтой ничего не должно остаться
+        незаписанным — и свой Message-ID в первую очередь.
+        """
+        claimed = await self._session.execute(
+            update(MessageModel)
+            .where(
+                MessageModel.id == target.message.id,
+                MessageModel.status == MessageStatus.QUEUED,
+            )
+            .values(
+                status=MessageStatus.SENDING,
+                sender_id=sender.id,
+                internet_message_id=own.message_id,
+            )
+            .returning(MessageModel.id)
+            # Прочитанное письмо получает новые значения, только если строка
+            # захвачена. Сессия не сбрасывает прочитанное при фиксации, и без
+            # этого возврат в очередь при отказе почты не записался бы — для
+            # базы «не изменилось», и письмо застряло бы в «отправляется».
+            .execution_options(synchronize_session="fetch")
+        )
+        if claimed.first() is None:
+            raise NotQueuedError(
+                f"Письмо №{target.message.id} уже не в очереди: его секундой раньше "
+                "взяла другая отправка. Второе письмо тому же донору не уходит — "
+                "чем кончилась первая, видно в очереди писем"
+            )
+        await self._session.commit()
 
     async def _check_review(self, target: _Target) -> None:
         """Решение человека проверяется при отправке, а не только при сборке.
