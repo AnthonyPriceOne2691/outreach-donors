@@ -27,7 +27,8 @@ from backend.features.core.models.outreach import (
 )
 from backend.features.core.models.run import RunCandidateModel, RunModel
 from backend.features.letters.compose import FoundLink
-from backend.features.letters.recipients import AdvertiserFunnel, Candidate, Funnel, Recipients
+from backend.features.letters.funnel import AdvertiserFunnel, Funnel
+from backend.features.letters.recipients import Candidate, Recipients
 
 
 @dataclass(frozen=True, slots=True)

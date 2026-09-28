@@ -16,7 +16,8 @@
 
 **Ступени стоп-листа и «уже писали» общие для обоих этапов.** Стоп-лист
 один на оба этапа, «уже писали» — тоже: один адресат не получает письмо
-и как донор, и как рекламодатель.
+и как донор, и как рекламодатель. Письмо, не дошедшее ни до кого,
+«писали» не считается: следующее уходит на следующий адрес (`attempts.py`).
 """
 
 from __future__ import annotations
@@ -26,9 +27,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, TypeVar
 
-from sqlalchemy import ColumnElement, Select, func, or_, select
+from sqlalchemy import ColumnElement, Select, and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
+from sqlalchemy.orm.util import AliasedClass
 
 from backend.config import filters as filters_cfg
 from backend.features.contacts.preference import preferred_first
@@ -40,7 +42,10 @@ from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import MessageModel
 from backend.features.core.models.run import RunCandidateModel
+from backend.features.letters import attempts
+from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.compose import FoundLink
+from backend.features.letters.funnel import AdvertiserFunnel, Funnel
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +59,9 @@ class Candidate:
     dr: int | None
     #: Найденная ссылка — только у рекламодателя: под неё пишется письмо.
     link: FoundLink | None = None
+    #: Номер попытки: больше единицы — прежние письма не дошли, и это
+    #: письмо уходит на следующий адрес (`attempts.py`). Едет в ключ письма.
+    attempt: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,54 +72,9 @@ class LetterAddress:
     #: Почему письмо не соберётся ни на один адрес. Пусто вместе с адресом —
     #: у донора нет адресов вовсе, и сказать тут нечего.
     blocked: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class Funnel:
-    """Сколько доноров отсеялось на каждой ступени отбора."""
-
-    suitable: int
-    accepted: int
-    with_contact: int
-    not_suppressed: int
-    not_written: int
-
-    def as_report(self) -> dict[str, int]:
-        return {
-            "подходящих": self.suitable,
-            "принятых": self.accepted,
-            "с адресом": self.with_contact,
-            "вне стоп-листа": self.not_suppressed,
-            "ещё не писали": self.not_written,
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class AdvertiserFunnel:
-    """Воронка Этапа 2: где кончились рекламодатели.
-
-    Ступени свои, потому что и вопросы свои. «Нет ссылки» значит, что
-    письмо не под что писать; «цена донора протухла» — что оффер «мы
-    дешевле» держится на числе, которому больше 150 дней, и сначала
-    нужен перезапрос цены, а не письмо.
-    """
-
-    advertisers: int
-    with_link: int
-    fresh_price: int
-    with_contact: int
-    not_suppressed: int
-    not_written: int
-
-    def as_report(self) -> dict[str, int]:
-        return {
-            "рекламодателей": self.advertisers,
-            "со ссылкой": self.with_link,
-            "цена донора свежая": self.fresh_price,
-            "с адресом": self.with_contact,
-            "вне стоп-листа": self.not_suppressed,
-            "ещё не писали": self.not_written,
-        }
+    #: Что сказать рядом с адресом: прежние письма не дошли, и письмо уйдёт
+    #: не туда, куда уходило первое.
+    note: str | None = None
 
 
 def _filled(column: Any) -> ColumnElement[bool]:
@@ -164,27 +127,56 @@ class Recipients:
             select(ContactModel.id).where(ContactModel.domain_id == DomainModel.id).exists()
         )
 
-    def _not_suppressed(self, statement: _Query, stage: Stage) -> _Query:
-        """Стоп-лист работает на двух уровнях: адрес блокирует себя, донор —
-        все свои адреса. Пустой этап в записи значит «на обоих этапах»."""
+    @staticmethod
+    def _suppressed_domain(stage: Stage) -> ColumnElement[bool]:
+        """Донор в стоп-листе целиком. Пустой этап в записи — «на обоих этапах»."""
         stage_matches = or_(SuppressionModel.stage.is_(None), SuppressionModel.stage == stage)
-        in_force = SuppressionModel.in_force(datetime.now(UTC))
-        by_domain = (
+        return (
             select(SuppressionModel.id)
             .where(SuppressionModel.domain_id == DomainModel.id)
             .where(stage_matches)
-            .where(in_force)
+            .where(SuppressionModel.in_force(datetime.now(UTC)))
             .exists()
         )
-        by_email = (
+
+    @staticmethod
+    def _suppressed_email(
+        contact: type[ContactModel] | AliasedClass[ContactModel], stage: Stage
+    ) -> ColumnElement[bool]:
+        """Этот адрес в стоп-листе."""
+        stage_matches = or_(SuppressionModel.stage.is_(None), SuppressionModel.stage == stage)
+        return (
             select(SuppressionModel.id)
-            .where(SuppressionModel.email == ContactModel.email)
-            .where(ContactModel.domain_id == DomainModel.id)
+            .where(SuppressionModel.email == contact.email)
             .where(stage_matches)
-            .where(in_force)
+            .where(SuppressionModel.in_force(datetime.now(UTC)))
             .exists()
         )
-        return statement.where(~by_domain).where(~by_email)
+
+    def _not_suppressed(self, statement: _Query, stage: Stage) -> _Query:
+        """Стоп-лист работает на двух уровнях: адрес блокирует себя, донор —
+        все свои адреса. Здесь — про адрес, выбранный запросом отбора."""
+        return statement.where(~self._suppressed_domain(stage)).where(
+            ~self._suppressed_email(ContactModel, stage)
+        )
+
+    def _address_left(self, stage: Stage, *, fresh: bool = False) -> ColumnElement[bool]:
+        """У донора есть адрес вне стоп-листа — для воронки, где адрес ещё
+        не выбран. `fresh` — и живой, на который писем ещё не уходило.
+
+        Адрес в стоп-листе блокирует себя, а не донора: воронка спрашивает
+        «есть ли куда писать», а не «чист ли каждый адрес». Иначе донор
+        с одним отписавшимся ящиком из трёх выпадал бы из воронки, оставаясь
+        в сборке, и числа экрана расходились бы с очередью.
+        """
+        contact = aliased(ContactModel)
+        conditions = [contact.domain_id == DomainModel.id, ~self._suppressed_email(contact, stage)]
+        if fresh:
+            conditions.append(attempts.fresh(contact))
+        return and_(~self._suppressed_domain(stage), select(contact.id).where(*conditions).exists())
+
+    def _reachable(self, statement: _Query, stage: Stage, *, fresh: bool = False) -> _Query:
+        return statement.where(self._address_left(stage, fresh=fresh))
 
     def _not_written(self, statement: _Query) -> _Query:
         """Одно письмо на адресата за раз (docs/OUTREACH_THREADS.md) — на оба этапа.
@@ -195,9 +187,29 @@ class Recipients:
         и как рекламодатель — тот же довод, что у общего стоп-листа. Сайт,
         которому мы предложили покупать размещения дешевле, не должен через
         неделю получить вопрос о цене своего, и наоборот.
+
+        «Писали» — письмо дошло, в пути, остановлено человеком или на него
+        ответили. Не дошедшее ни до кого письмо не в счёт: донор его
+        не видел, и следующее уходит на следующий адрес — до потолка
+        попыток (`attempts.py`).
         """
-        written = select(MessageModel.id).where(MessageModel.domain_id == DomainModel.id).exists()
-        return statement.where(~written)
+        return statement.where(attempts.open_for_letter(DomainModel.id))
+
+    async def _last_steps(self, statement: _Query, stage: Stage) -> dict[str, int]:
+        """«Ещё не писали» и разбор её: кому на следующий адрес, у кого адреса кончились."""
+        domain = DomainModel.id
+        can_write = self._reachable(self._not_written(statement), stage, fresh=True)
+        dead_only = statement.where(
+            attempts.written_before(domain),
+            ~attempts.live_letter(domain),
+            ~attempts.answered(domain),
+        )
+        no_way = ~and_(attempts.under_cap(domain), self._address_left(stage, fresh=True))
+        return {
+            "not_written": await self._count(can_write),
+            "next_address": await self._count(can_write.where(attempts.written_before(domain))),
+            "exhausted": await self._count(dead_only.where(no_way)),
+        }
 
     async def funnel(
         self, stage: Stage, *, run_ids: Sequence[int] = ()
@@ -208,20 +220,20 @@ class Recipients:
         base = self._suitable()
         accepted = self._accepted(base, run_ids)
         with_contact = self._has_contact(accepted)
-        not_suppressed = self._not_suppressed(with_contact, stage)
-        not_written = self._not_written(not_suppressed)
+        not_suppressed = self._reachable(with_contact, stage)
 
         return Funnel(
             suitable=await self._count(base),
             accepted=await self._count(accepted),
             with_contact=await self._count(with_contact),
             not_suppressed=await self._count(not_suppressed),
-            not_written=await self._count(not_written),
+            **await self._last_steps(not_suppressed, stage),
         )
 
     def _donor_picks(self, run_ids: Sequence[int] = ()) -> Select[Any]:
         """Один адрес на донора, которому можно писать, — лучший по порядку
-        `preferred_first`, среди адресов вне стоп-листа.
+        `preferred_first` среди живых адресов вне стоп-листа, на которые
+        писем ещё не уходило.
 
         Им пользуются и сборка очереди (`candidates`), и карточка донора
         (`letter_address`): «на какой адрес уйдёт письмо» — один запрос,
@@ -234,10 +246,12 @@ class Recipients:
                 ContactModel.id.label("contact_id"),
                 ContactModel.email.label("email"),
                 DonorModel.dr.label("dr"),
+                attempts.attempt_number(DomainModel.id, Stage.DONORS).label("attempt"),
             )
             .join(DonorModel, DonorModel.domain_id == DomainModel.id)
             .join(ContactModel, ContactModel.domain_id == DomainModel.id)
             .where(DonorModel.status == DonorStatus.SUITABLE)
+            .where(attempts.fresh(ContactModel))
             .distinct(DomainModel.id)
             .order_by(DomainModel.id, *preferred_first())
         )
@@ -259,27 +273,50 @@ class Recipients:
         picked = (
             await self._session.execute(self._donor_picks().where(DomainModel.id == domain_id))
         ).first()
-        if picked is not None:
-            bad = rejection_reason(picked.email)
-            if bad is None:
-                return LetterAddress(contact_id=picked.contact_id)
+        if picked is None:
+            return LetterAddress(blocked=await self._why_not(domain_id))
+        bad = rejection_reason(picked.email)
+        if bad is not None:
             return LetterAddress(
                 blocked=f"письмо не соберётся: адрес для него не проходит проверку ({bad})"
             )
-        return LetterAddress(blocked=await self._why_not(domain_id))
+        earlier = await self._session.scalar(
+            select(func.count(MessageModel.id)).where(
+                MessageModel.domain_id == domain_id, MessageModel.step == FIRST_STEP
+            )
+        )
+        return LetterAddress(
+            contact_id=picked.contact_id,
+            note=attempts.next_address_note(int(earlier)) if earlier else None,
+        )
 
     async def _why_not(self, domain_id: int) -> str | None:
-        """Первое условие сборки, которое донор не прошёл. `None` — адресов нет."""
+        """Первое условие сборки, которое донор не прошёл. `None` — адресов нет.
+
+        Условия — списком в порядке сборки: первое невыполненное и есть
+        ответ. Письма и ответы идут раньше адресов: «донор ответил» важнее,
+        чем то, что его адреса к тому же кончились.
+        """
         one = select(DomainModel.id).where(DomainModel.id == domain_id)
-        donor = one.join(DonorModel, DonorModel.domain_id == DomainModel.id)
         if not await self._exists(self._has_contact(one)):
             return None
-        if not await self._exists(donor.where(DonorModel.status == DonorStatus.SUITABLE)):
-            return "письма не собираются: донор не прошёл пороги"
-        if not await self._exists(self._accepted(donor)):
-            return "письма уходят только донорам, принятым человеком"
-        if not await self._exists(self._not_written(one)):
-            return "донору уже писали — следующие письма идут в тот же диалог"
+        donor = one.join(DonorModel, DonorModel.domain_id == DomainModel.id)
+        domain = DomainModel.id
+        checks: tuple[tuple[Select[Any], str], ...] = (
+            (
+                donor.where(DonorModel.status == DonorStatus.SUITABLE),
+                "письма не собираются: донор не прошёл пороги",
+            ),
+            (self._accepted(donor), "письма уходят только донорам, принятым человеком"),
+            (one.where(~attempts.answered(domain)), attempts.ANSWERED),
+            (one.where(~attempts.pending_letter(domain)), attempts.PENDING_LETTER),
+            (one.where(~attempts.live_letter(domain)), attempts.WRITTEN),
+            (one.where(attempts.under_cap(domain)), attempts.CAPPED),
+            (one.where(attempts.fresh_address(domain)), attempts.EXHAUSTED),
+        )
+        for passed, refusal in checks:
+            if not await self._exists(passed):
+                return refusal
         return "все адреса донора в стоп-листе"
 
     async def _exists(self, statement: Select[Any]) -> bool:
@@ -296,7 +333,8 @@ class Recipients:
 
         Лучший адрес — тот, с которого уже отвечали: дальше пишем тому,
         кто отвечает, а не в ящик, где письмо пролежало неделю. Дальше
-        по оценке проверки адреса, дальше по возрасту записи.
+        по оценке проверки адреса, дальше по возрасту записи. Мёртвые
+        адреса и адреса, куда письмо уже уходило, не берутся вовсе.
 
         Этап выбирает, из кого: доноры Этапа 1 или рекламодатели Этапа 2.
         Вход один нарочно — отдельная функция для второго этапа оставила
@@ -316,6 +354,7 @@ class Recipients:
                 contact_id=row.contact_id,
                 email=row.email,
                 dr=row.dr,
+                attempt=row.attempt,
             )
             for row in rows
         ]
@@ -366,8 +405,7 @@ class Recipients:
         with_link = self._with_link(base)
         fresh_price = self._fresh_price(with_link, moment)
         with_contact = self._has_contact(fresh_price)
-        not_suppressed = self._not_suppressed(with_contact, Stage.ADVERTISERS)
-        not_written = self._not_written(not_suppressed)
+        not_suppressed = self._reachable(with_contact, Stage.ADVERTISERS)
 
         return AdvertiserFunnel(
             advertisers=await self._count(base),
@@ -375,7 +413,7 @@ class Recipients:
             fresh_price=await self._count(fresh_price),
             with_contact=await self._count(with_contact),
             not_suppressed=await self._count(not_suppressed),
-            not_written=await self._count(not_written),
+            **await self._last_steps(not_suppressed, Stage.ADVERTISERS),
         )
 
     async def _advertiser_candidates(
@@ -398,9 +436,11 @@ class Recipients:
                 AdvertiserModel.best_donor_host.label("donor_host"),
                 AdvertiserModel.best_page_url.label("page_url"),
                 AdvertiserModel.best_anchor.label("anchor"),
+                attempts.attempt_number(DomainModel.id, Stage.ADVERTISERS).label("attempt"),
             )
             .join(AdvertiserModel, AdvertiserModel.domain_id == DomainModel.id)
             .join(ContactModel, ContactModel.domain_id == DomainModel.id)
+            .where(attempts.fresh(ContactModel))
             .distinct(DomainModel.id)
             .order_by(DomainModel.id, *preferred_first())
         )
@@ -427,6 +467,7 @@ class Recipients:
                     page_url=row.page_url.strip(),
                     anchor=row.anchor.strip(),
                 ),
+                attempt=row.attempt,
             )
             for row in rows
         ]

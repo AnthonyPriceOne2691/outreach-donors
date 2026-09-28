@@ -597,9 +597,9 @@
       "worst": "get:195"
     },
     "backend/features/contacts/preference.py": {
-      "lines": 32,
+      "lines": 52,
       "complexity": 1,
-      "worst": "preferred_first:25"
+      "worst": "preferred_first:39"
     },
     "backend/features/contacts/provider.py": {
       "lines": 221,
@@ -916,10 +916,15 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/letters/attempts.py": {
+      "lines": 224,
+      "complexity": 2,
+      "worst": "next_address_note:100"
+    },
     "backend/features/letters/building.py": {
-      "lines": 363,
+      "lines": 387,
       "complexity": 6,
-      "worst": "_found_by:160"
+      "worst": "_found_by:181"
     },
     "backend/features/letters/chain.py": {
       "lines": 55,
@@ -937,14 +942,19 @@
       "worst": "to_text:83"
     },
     "backend/features/letters/events.py": {
-      "lines": 225,
+      "lines": 228,
       "complexity": 8,
-      "worst": "apply_events:90"
+      "worst": "apply_events:93"
     },
     "backend/features/letters/followups.py": {
-      "lines": 388,
+      "lines": 399,
       "complexity": 5,
-      "worst": "_deliver:349"
+      "worst": "_deliver:360"
+    },
+    "backend/features/letters/funnel.py": {
+      "lines": 92,
+      "complexity": 3,
+      "worst": "with_earlier:18"
     },
     "backend/features/letters/guards.py": {
       "lines": 59,
@@ -972,9 +982,9 @@
       "worst": "letter_for:69"
     },
     "backend/features/letters/recipients.py": {
-      "lines": 433,
-      "complexity": 5,
-      "worst": "_why_not:271"
+      "lines": 474,
+      "complexity": 4,
+      "worst": "letter_address:262"
     },
     "backend/features/letters/reply_to.py": {
       "lines": 137,
@@ -982,9 +992,9 @@
       "worst": "message_id_from:110"
     },
     "backend/features/letters/repository.py": {
-      "lines": 226,
+      "lines": 227,
       "complexity": 4,
-      "worst": "_queued_letter:102"
+      "worst": "_queued_letter:103"
     },
     "backend/features/letters/review.py": {
       "lines": 95,

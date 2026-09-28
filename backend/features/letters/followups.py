@@ -46,7 +46,7 @@ from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.letters import compose, guards, template
-from backend.features.letters.building import idempotency_key
+from backend.features.letters.building import attempt_of, idempotency_key
 from backend.features.letters.chain import CHAINABLE, FIRST_STEP, MAX_STEPS
 from backend.features.letters.sending import (
     NoSenderError,
@@ -80,6 +80,10 @@ class Claimed:
     anchor: str | None
     """Наш `Message-ID` первого письма — по нему добивка ложится в его ветку.
     Пусто — у первого письма своего идентификатора нет (ушло до него)."""
+    attempt: int = 1
+    """Номер попытки цепочки — из ключа письма, после которого пришёл срок
+    (`building.attempt_of`). У того он свой от первого письма потока: каждая
+    добивка получает номер предыдущего письма, а первая — первого."""
 
 
 class Chain:
@@ -126,6 +130,7 @@ class Chain:
                     MessageModel.sender_id,
                     MessageModel.step,
                     MessageModel.internet_message_id,
+                    MessageModel.idempotency_key,
                 )
             )
         ).first()
@@ -152,6 +157,7 @@ class Chain:
             step=row[6] + 1,
             host=host,
             anchor=anchor,
+            attempt=attempt_of(row[8]),
         )
 
     async def restore(self, claimed: Claimed, *, delay: timedelta) -> None:
@@ -199,6 +205,10 @@ class Chain:
         Очередь писем — это место, где человек согласует первое письмо;
         добивка согласована вместе с ним, и её место в переписке,
         а не в очереди.
+
+        Ключ — с номером попытки цепочки: добивка второй попытки (письма
+        на следующий адрес после отказа) иначе получила бы ключ добивки
+        первой и не вставилась бы в базу.
         """
         existing = await self._session.scalar(
             select(MessageModel).where(
@@ -226,6 +236,7 @@ class Chain:
                 stage=await self._stage(claimed.campaign_id),
                 host=claimed.host,
                 step=claimed.step,
+                attempt=claimed.attempt,
             ),
         )
         self._session.add(message)
