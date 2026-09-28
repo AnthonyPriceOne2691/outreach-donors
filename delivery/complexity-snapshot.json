@@ -441,6 +441,11 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/config/alerts.py": {
+      "lines": 45,
+      "complexity": 0,
+      "worst": "—"
+    },
     "backend/config/contacts.py": {
       "lines": 91,
       "complexity": 0,
@@ -1222,14 +1227,14 @@
       "worst": "is_permanent:28"
     },
     "backend/features/runs/lifecycle.py": {
-      "lines": 272,
+      "lines": 281,
       "complexity": 9,
-      "worst": "recover:167"
+      "worst": "recover:168"
     },
     "backend/features/runs/pipeline.py": {
-      "lines": 378,
+      "lines": 395,
       "complexity": 9,
-      "worst": "execute_run:264"
+      "worst": "execute_run:265"
     },
     "backend/features/runs/planning.py": {
       "lines": 352,
@@ -1247,7 +1252,7 @@
       "worst": "run_stats:116"
     },
     "backend/features/runs/repository.py": {
-      "lines": 437,
+      "lines": 444,
       "complexity": 8,
       "worst": "unique_share_from:122"
     },
@@ -1255,6 +1260,11 @@
       "lines": 143,
       "complexity": 4,
       "worst": "since_month_start:68"
+    },
+    "backend/features/runs/stopped.py": {
+      "lines": 37,
+      "complexity": 1,
+      "worst": "tell_stopped:30"
     },
     "backend/features/runs/thresholds.py": {
       "lines": 162,
@@ -1295,6 +1305,11 @@
       "lines": 1,
       "complexity": 0,
       "worst": "—"
+    },
+    "backend/shared/alerts.py": {
+      "lines": 180,
+      "complexity": 7,
+      "worst": "filter:75"
     },
     "backend/shared/database/__init__.py": {
       "lines": 1,
@@ -1377,9 +1392,9 @@
       "worst": "worker_problems:73"
     },
     "backend/workers/jobs.py": {
-      "lines": 363,
-      "complexity": 4,
-      "worst": "_mark:176"
+      "lines": 373,
+      "complexity": 5,
+      "worst": "_mark:177"
     },
     "backend/workers/main.py": {
       "lines": 29,
