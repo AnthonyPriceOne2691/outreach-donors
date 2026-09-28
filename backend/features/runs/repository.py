@@ -269,12 +269,19 @@ class RunRepository:
         run.stats = stats
         await self._session.flush()
 
-    async def stop_run(self, run: RunModel, *, stats: dict[str, Any]) -> None:
+    async def stop_run(self, run: RunModel, *, stats: dict[str, Any]) -> bool:
         """Закрыть прогон как остановленный. Расход не трогаем: то, что
-        он успел потратить, уже записано в журнале построчно."""
+        он успел потратить, уже записано в журнале построчно.
+
+        `True` — прогон закрыла именно эта запись: до неё он был открыт.
+        По этому ответу уходит тревога (`runs/stopped.py`) — одна на прогон,
+        а не на каждого, кто его закрывал: задача очереди закрывает и то,
+        что уже закрыл сам прогон."""
+        was_open = run.status is not RunStatus.STOPPED
         run.status = RunStatus.STOPPED
         run.stats = stats
         await self._session.flush()
+        return was_open
 
     async def country_call_share(self, country: str) -> float:
         """Доля запросов по странам для сметы — из истории своих прогонов.

@@ -59,7 +59,8 @@ from backend.features.runs.planning import (
     plan_run,
 )
 from backend.features.runs.report import RunReport, run_stats
-from backend.features.runs.repository import RunRepository
+from backend.features.runs.repository import REASON_KEY, RunRepository
+from backend.features.runs.stopped import tell_stopped
 from backend.features.serp.protocol import SerpProvider
 from backend.shared.logs import run_context
 from backend.shared.net.url_guard import guarded_client
@@ -350,17 +351,33 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
             # на середине, уже потратил, и журнал не должен об этом умолчать.
             await flush_usage()
             deps.client.on_usage = previous_sink
-            await deps.runs.session_flush()
-            report.spent_units = await deps.runs.spent_units(run.id)
-            await deps.runs.finish_run(
-                run,
-                status=status,
-                actual_units=report.spent_units,
-                stats=run_stats(report, failed, retry=status is RunStatus.RUNNING),
-            )
-            await deps.runs.session_commit()
+            await _close(deps, run, report, status=status, failed=failed)
 
         return report
+
+
+async def _close(
+    deps: RunDeps,
+    run: RunModel,
+    report: RunReport,
+    *,
+    status: RunStatus,
+    failed: BaseException | None,
+) -> None:
+    """Записать итог прогона — любой: успех, остановку или сбой, который продолжат.
+
+    Остановка, которую записала именно эта попытка, — тревога человеку
+    (`runs/stopped.py`), и только после фиксации: сообщить об остановке,
+    которая откатится вместе с транзакцией, значит соврать.
+    """
+    await deps.runs.session_flush()
+    report.spent_units = await deps.runs.spent_units(run.id)
+    stats = run_stats(report, failed, retry=status is RunStatus.RUNNING)
+    closing = status is RunStatus.STOPPED and run.status is not RunStatus.STOPPED
+    await deps.runs.finish_run(run, status=status, actual_units=report.spent_units, stats=stats)
+    await deps.runs.session_commit()
+    if closing:
+        await tell_stopped(run.id, str(stats.get(REASON_KEY) or "остановлен"))
 
 
 def _status_after(exc: BaseException, run_id: int) -> RunStatus:
