@@ -157,9 +157,7 @@ class TestBinding:
     def test_label_binds_a_reply_from_another_address(self) -> None:
         """Ответ приходит не с того адреса, которому писали: на общий ящик
         смотрит секретарь. Метка едет в поле «кому» и доезжает всегда."""
-        address = reply_to.address_for(
-            417, sender_email="anna@mail.test", reply_domain="replies.ours.test", secret=SECRET
-        )
+        address = reply_to.address_for(417, sender_email="anna@mail.test", secret=SECRET)
 
         bound = binding.bind(incoming("250 EUR", to=(address,)), secret=SECRET)
 
@@ -169,7 +167,7 @@ class TestBinding:
     def test_headers_are_the_fallback(self) -> None:
         bound = binding.bind(
             incoming("250 EUR", to=("info@ours.test",), in_reply_to="<ours-9@mail.test>"),
-            by_provider_id=[("<ours-9@mail.test>", 9)],
+            by_message_id=[("<ours-9@mail.test>", 9)],
             secret=SECRET,
         )
 
@@ -178,13 +176,11 @@ class TestBinding:
 
     def test_label_wins_over_headers(self) -> None:
         """Метка надёжнее: заголовки теряются пересылками регулярно."""
-        address = reply_to.address_for(
-            417, sender_email="anna@mail.test", reply_domain="replies.ours.test", secret=SECRET
-        )
+        address = reply_to.address_for(417, sender_email="anna@mail.test", secret=SECRET)
 
         bound = binding.bind(
             incoming("250 EUR", to=(address,), in_reply_to="<ours-9@mail.test>"),
-            by_provider_id=[("<ours-9@mail.test>", 9)],
+            by_message_id=[("<ours-9@mail.test>", 9)],
             secret=SECRET,
         )
 

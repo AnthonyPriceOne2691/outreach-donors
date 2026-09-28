@@ -421,20 +421,12 @@ class FakeExtractor:
 @pytest.fixture
 def inbound_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(outreach_cfg, "INBOUND_SECRET", SECRET)
-    monkeypatch.setattr(outreach_cfg, "REPLY_DOMAIN", "replies.ours.test")
 
 
 def answer_to(letter: MessageModel, text: str) -> Incoming:
     return Incoming(
         message_id="<in-1@brand.test>",
-        to=(
-            reply_to.address_for(
-                letter.id,
-                sender_email="max@offers.test",
-                reply_domain="replies.ours.test",
-                secret=SECRET,
-            ),
-        ),
+        to=(reply_to.address_for(letter.id, sender_email="max@offers.test", secret=SECRET),),
         from_email="marketing@brand.example.test",
         subject=f"Re: {letter.subject}",
         text=text,

@@ -61,7 +61,6 @@ class NoQueue:
 @pytest.fixture(autouse=True)
 def inbound_setup(monkeypatch: pytest.MonkeyPatch) -> NoQueue:
     monkeypatch.setattr(outreach_cfg, "INBOUND_SECRET", SECRET)
-    monkeypatch.setattr(outreach_cfg, "REPLY_DOMAIN", "replies.ours.test")
     queue = NoQueue()
     monkeypatch.setattr(inbound_routes, "runs_queue", lambda: queue)
     # Счётчик частоты живёт в памяти процесса и общий на все тесты:
@@ -99,7 +98,8 @@ async def sent(session: AsyncSession) -> MessageModel:
         subject="Advertising rates",
         body="Good afternoon,",
         sent_at=NOW,
-        provider_message_id="<ours-1@mail.test>",
+        provider_message_id="sg-ours-1",
+        internet_message_id="<ours-1@mail.test>",
         idempotency_key=f"donors:{HOST}:0",
     )
     session.add(message)
@@ -108,12 +108,7 @@ async def sent(session: AsyncSession) -> MessageModel:
 
 
 def form_for(message: MessageModel, text: str, **extra: str) -> dict[str, str]:
-    label = reply_to.address_for(
-        message.id,
-        sender_email="anna@mail.test",
-        reply_domain="replies.ours.test",
-        secret=SECRET,
-    )
+    label = reply_to.address_for(message.id, sender_email="anna@mail.test", secret=SECRET)
     payload = {
         "from": f"Elena <editor@{HOST}>",
         "to": label,

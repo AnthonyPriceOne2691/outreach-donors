@@ -78,16 +78,23 @@ class ReplyRepository:
         )
         return rows.first() is not None
 
-    async def ours_by_provider_id(self, provider_ids: Sequence[str]) -> list[tuple[str, int]]:
-        """Наши письма по идентификаторам у почты — запасной путь привязки."""
-        if not provider_ids:
+    async def ours_by_internet_message_id(
+        self, message_ids: Sequence[str]
+    ) -> list[tuple[str, int]]:
+        """Наши письма по их `Message-ID` — запасной путь привязки.
+
+        Ищется наш собственный идентификатор, а не номер письма у платформы:
+        в заголовках ответа донор возвращает то, что видел у себя в ящике, —
+        токен `<…@…>`, — и сравнение точное, как у метки.
+        """
+        if not message_ids:
             return []
         rows = await self._session.execute(
-            select(MessageModel.provider_message_id, MessageModel.id).where(
-                MessageModel.provider_message_id.in_(list(provider_ids))
+            select(MessageModel.internet_message_id, MessageModel.id).where(
+                MessageModel.internet_message_id.in_(list(message_ids))
             )
         )
-        return [(str(provider_id), message_id) for provider_id, message_id in rows.all()]
+        return [(str(found), message_id) for found, message_id in rows.all()]
 
     async def addressee(self, message_id: int) -> Addressee | None:
         """Кому мы писали этим письмом."""

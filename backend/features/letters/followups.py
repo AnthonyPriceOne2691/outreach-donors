@@ -78,7 +78,8 @@ class Claimed:
     """Шаг, который предстоит отправить: у предыдущего письма плюс один."""
     host: str
     anchor: str | None
-    """Идентификатор первого письма у почты — по нему ответ ложится в тред."""
+    """Наш `Message-ID` первого письма — по нему добивка ложится в его ветку.
+    Пусто — у первого письма своего идентификатора нет (ушло до него)."""
 
 
 class Chain:
@@ -124,7 +125,7 @@ class Chain:
                     MessageModel.contact_id,
                     MessageModel.sender_id,
                     MessageModel.step,
-                    MessageModel.provider_message_id,
+                    MessageModel.internet_message_id,
                 )
             )
         ).first()
@@ -132,6 +133,15 @@ class Chain:
             return None
 
         host = await self._host(row[3])
+        anchor = await self._anchor(row[1]) or row[7]
+        if anchor is None:
+            # Не отказ: напоминание без ветки лучше потерянного. Но и не
+            # молча — у донора оно ляжет отдельным письмом.
+            logger.warning(
+                "добивки: %s — у первого письма нет своего Message-ID, "
+                "добивка уйдёт без заголовков цепочки",
+                host,
+            )
         return Claimed(
             previous_id=row[0],
             thread_id=row[1],
@@ -141,7 +151,7 @@ class Chain:
             sender_id=row[5],
             step=row[6] + 1,
             host=host,
-            anchor=await self._anchor(row[1]) or row[7],
+            anchor=anchor,
         )
 
     async def restore(self, claimed: Claimed, *, delay: timedelta) -> None:
@@ -263,20 +273,23 @@ class Chain:
         return subject.strip() if subject and subject.strip() else None
 
     async def _anchor(self, thread_id: int | None) -> str | None:
-        """Идентификатор первого письма переписки у почты.
+        """Наш `Message-ID` первого письма переписки.
 
         Берётся именно первое, а не предыдущее: у почтового клиента
         донора вся цепочка должна лежать одной веткой, и якорь у неё
         один. Предыдущее письмо дало бы лесенку из вложенных ответов.
+
+        Именно наш идентификатор, а не номер письма у платформы: номер
+        получатель не видит, и `In-Reply-To` с ним не кладёт добивку никуда.
         """
         if thread_id is None:
             return None
         return await self._session.scalar(
-            select(MessageModel.provider_message_id)
+            select(MessageModel.internet_message_id)
             .where(
                 MessageModel.thread_id == thread_id,
                 MessageModel.step == FIRST_STEP,
-                MessageModel.provider_message_id.is_not(None),
+                MessageModel.internet_message_id.is_not(None),
             )
             .order_by(MessageModel.id)
             .limit(1)

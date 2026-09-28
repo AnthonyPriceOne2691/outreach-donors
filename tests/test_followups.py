@@ -157,14 +157,14 @@ class TestClaiming:
     async def test_anchor_is_the_first_letter(
         self, session: AsyncSession, filled_legal: None
     ) -> None:
-        """Якорь треда — идентификатор первого письма: у донора цепочка
+        """Якорь треда — наш `Message-ID` первого письма: у донора цепочка
         должна лежать одной веткой, а не лесенкой вложенных ответов."""
         message, _ = await _chain_start(session, followup_days=[1, 2])
 
         claimed = await Chain(session, now=NOW + timedelta(days=2)).claim()
 
         assert claimed is not None
-        assert claimed.anchor == message.provider_message_id
+        assert claimed.anchor == message.internet_message_id
 
 
 class TestWhatStopsTheChain:
@@ -303,7 +303,7 @@ class TestThePass:
 
         await send_due(session, transport=transport, limit=1, now=NOW + timedelta(days=2))
 
-        assert [out.in_reply_to for out in transport.seen] == [first.provider_message_id]
+        assert [out.in_reply_to for out in transport.seen] == [first.internet_message_id]
 
     async def test_chain_ends_after_the_last_step(
         self, session: AsyncSession, filled_legal: None

@@ -300,7 +300,6 @@ class TestTheLeadInDialogs:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.setattr(outreach_cfg, "INBOUND_SECRET", SECRET)
-        monkeypatch.setattr(outreach_cfg, "REPLY_DOMAIN", "replies.ours.test")
         letter = await sent_offer(session)
         got = await Inbox(session, now=NOW).accept(answer_to(letter, "We might be interested."))
         await session.commit()
@@ -334,7 +333,6 @@ class TestTheLeadInDialogs:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.setattr(outreach_cfg, "INBOUND_SECRET", SECRET)
-        monkeypatch.setattr(outreach_cfg, "REPLY_DOMAIN", "replies.ours.test")
         letter = await sent_offer(session)
         got = await Inbox(session, now=NOW).accept(answer_to(letter, "We pay $300 per article."))
         await session.commit()

@@ -14,10 +14,14 @@
 мы опознаём по адресу получателя, — а у донора адресов бывает
 несколько, и один из них уже мог смениться.
 
-**Заголовки не украшение.** `In-Reply-To` и `References` кладут добивку
-в ту же ветку у донора; `List-Unsubscribe` и `List-Unsubscribe-Post`
-дают кнопку отписки в интерфейсе почты — её нажимают вместо «спам»,
-и крупные почты учитывают её наличие в репутации отправителя.
+**Заголовки не украшение.** `Message-ID` ставим свой (`identity.py`):
+иначе платформа поставит письму собственный, которого мы не знаем, и
+ни добивке, ни ответу без метки не на что будет сослаться. Письмо без
+него не уходит — отказ до вызова платформы. `In-Reply-To` и `References`
+кладут добивку в ту же ветку у донора; `List-Unsubscribe`
+и `List-Unsubscribe-Post` дают кнопку отписки в интерфейсе почты — её
+нажимают вместо «спам», и крупные почты учитывают её наличие
+в репутации отправителя.
 
 **Отказ платформы — это отказ, а не молчание.** Любой не-2xx поднимает
 `TransportError`, и письмо возвращается в очередь: отправка, которая
@@ -32,15 +36,16 @@ import logging
 import httpx
 
 from backend.config import outreach as cfg
+from backend.features.letters import identity
 from backend.features.letters.transport import Outgoing, TransportError
 
 logger = logging.getLogger(__name__)
 
 API_URL = "https://api.sendgrid.com/v3/mail/send"
 
-#: Заголовок ответа с номером письма у платформы. По нему событие
-#: доставки находит наше письмо.
-MESSAGE_ID_HEADER = "X-Message-Id"
+#: Заголовок ответа платформы с её номером письма. Это номер в её журнале
+#: (Activity), а не `Message-ID`, который увидит получатель: тот ставим мы.
+PROVIDER_ID_HEADER = "X-Message-Id"
 
 TIMEOUT_S = 30.0
 
@@ -92,6 +97,12 @@ class SendGridTransport:
                 f"(OUTREACH_ALLOWED_RECIPIENTS). Пока список не пуст, боевая отправка "
                 "идёт только на свои адреса — это предохранитель первых дней"
             )
+        if not identity.is_message_id(outgoing.internet_message_id):
+            raise TransportError(
+                f"У письма №{outgoing.message_id} нет своего Message-ID "
+                f"({outgoing.internet_message_id!r}): платформа поставила бы свой, и ни "
+                "добивка, ни ответ без метки не нашли бы этого письма. Письмо не ушло"
+            )
         if not self._allowlist:
             # Отдельной строкой и на каждое письмо: переход из проверки
             # на себе в боевую рассылку не должен случиться молча.
@@ -102,19 +113,20 @@ class SendGridTransport:
             )
 
         response = await self._post(_payload(outgoing))
-        provider_id: str | None = response.headers.get(MESSAGE_ID_HEADER)
+        provider_id: str | None = response.headers.get(PROVIDER_ID_HEADER)
         if not provider_id:
             # Без номера письма события доставки не к чему привязать:
             # отправка формально прошла, а недоставку мы не увидим.
             raise TransportError(
                 "Платформа приняла письмо, но не вернула его номер "
-                f"({MESSAGE_ID_HEADER}) — привязывать события доставки будет не к чему"
+                f"({PROVIDER_ID_HEADER}) — привязывать события доставки будет не к чему"
             )
         logger.info(
-            "письма: письмо №%s ушло через sendgrid (кому %s, номер платформы %s)",
+            "письма: письмо №%s ушло через sendgrid (кому %s, номер платформы %s, %s)",
             outgoing.message_id,
             outgoing.to,
             provider_id,
+            outgoing.internet_message_id,
         )
         return provider_id
 
@@ -196,10 +208,20 @@ def _pause(response: httpx.Response | None, attempt: int) -> float:
 
 def _payload(outgoing: Outgoing) -> dict[str, object]:
     """Письмо в том виде, в каком его принимает платформа."""
-    headers: dict[str, str] = {}
-    if outgoing.in_reply_to:
+    headers: dict[str, str] = {"Message-ID": outgoing.internet_message_id}
+    if identity.is_message_id(outgoing.in_reply_to):
         headers["In-Reply-To"] = outgoing.in_reply_to
         headers["References"] = outgoing.in_reply_to
+    elif outgoing.in_reply_to:
+        # Якорем когда-то служил номер письма у платформы — без скобок
+        # и без `@`. Такой заголовок ни одна почта в ветку не кладёт,
+        # и слать его — значит делать вид, что цепочка есть.
+        logger.warning(
+            "письма: у письма №%s якорь цепочки не идентификатор письма (%r) — "
+            "уходит без заголовков цепочки",
+            outgoing.message_id,
+            outgoing.in_reply_to,
+        )
     if outgoing.unsubscribe_url:
         headers["List-Unsubscribe"] = f"<{outgoing.unsubscribe_url}>"
         headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
@@ -222,6 +244,5 @@ def _payload(outgoing: Outgoing) -> dict[str, object]:
     }
     if outgoing.reply_to:
         payload["reply_to"] = {"email": outgoing.reply_to}
-    if headers:
-        payload["headers"] = headers
+    payload["headers"] = headers
     return payload

@@ -39,6 +39,8 @@ from backend.cli.keywords_pool import add_parser as add_keywords_parser
 from backend.cli.keywords_pool import cmd_keywords
 from backend.cli.letters_queue import add_parser as add_letters_parser
 from backend.cli.letters_queue import cmd_letters, cmd_letters_build, cmd_letters_send
+from backend.cli.mail_test import add_parser as add_mail_test_parser
+from backend.cli.mail_test import cmd_mail_test
 from backend.cli.review_queue import add_parser as add_review_queue_parser
 from backend.cli.review_queue import cmd_review_queue
 from backend.cli.senders_admin import add_parser as add_senders_parser
@@ -374,6 +376,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_advertisers_parser(sub)
     add_letters_parser(sub)
     add_senders_parser(sub)
+    add_mail_test_parser(sub)
     return parser
 
 
@@ -412,6 +415,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] =
     "letters-send": cmd_letters_send,
     "sender-add": cmd_sender_add,
     "senders": cmd_senders,
+    "mail-test": cmd_mail_test,
 }
 
 

@@ -508,7 +508,7 @@ export function homeSignalsText(marks: string[]): string {
 const MAIL_SETTING_WORDS: Record<string, string> = {
   OUTREACH_SENDGRID_API_KEY: 'ключ почтовой платформы',
   OUTREACH_ALLOWED_RECIPIENTS: 'список разрешённых получателей',
-  OUTREACH_REPLY_DOMAIN: 'домен для ответов',
+  OUTREACH_REPLY_SUBDOMAIN: 'поддомен для ответов',
   OUTREACH_TRANSPORT: 'способ отправки',
 };
 

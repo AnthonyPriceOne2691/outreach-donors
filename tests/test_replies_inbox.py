@@ -58,7 +58,6 @@ class FakeExtractor:
 @pytest.fixture(autouse=True)
 def inbound_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(outreach_cfg, "INBOUND_SECRET", SECRET)
-    monkeypatch.setattr(outreach_cfg, "REPLY_DOMAIN", "replies.ours.test")
 
 
 @pytest.fixture
@@ -88,7 +87,8 @@ async def sent(session: AsyncSession) -> MessageModel:
         subject="Advertising rates",
         body="Good afternoon,",
         sent_at=NOW,
-        provider_message_id="<ours-1@mail.test>",
+        provider_message_id="sg-ours-1",
+        internet_message_id="<ours-1@mail.test>",
         idempotency_key=f"donors:{HOST}:0",
     )
     session.add(message)
@@ -106,12 +106,7 @@ def reply_from(
     **extra: object,
 ) -> Incoming:
     to = (
-        reply_to.address_for(
-            message.id,
-            sender_email="anna@mail.test",
-            reply_domain="replies.ours.test",
-            secret=SECRET,
-        )
+        reply_to.address_for(message.id, sender_email="anna@mail.test", secret=SECRET)
         if labelled
         else "info@ours.test"
     )
