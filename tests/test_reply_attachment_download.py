@@ -156,7 +156,8 @@ class TestWhatIsNotGiven:
 
 
 def _migration() -> Any:
-    path = next(Path("backend/migrations/versions").glob("*_reply_attachments_keep_files.py"))
+    versions = Path(__file__).resolve().parent.parent / "backend" / "migrations" / "versions"
+    path = next(versions.glob("*_reply_attachments_keep_files.py"))
     spec = importlib.util.spec_from_file_location("reply_attachments_migration", path)
     assert spec is not None
     assert spec.loader is not None
