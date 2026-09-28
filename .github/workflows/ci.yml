@@ -34,10 +34,30 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
 
+      # uv той же версии, что ставит зависимости в образ (`Dockerfile`,
+      # `FROM ghcr.io/astral-sh/uv:… AS uv`): lock-файл сверяется и ставится
+      # одним инструментом. Совпадение держит tests/test_python_lock.py.
+      # Действие закреплено коммитом: метку можно передвинуть, коммит — нет.
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.11.26"
+
+      # Отдельным шагом, чтобы красное называлось причиной. Правка
+      # pyproject.toml без `uv lock` иначе разошлась бы с lock-файлом молча:
+      # тесты шли бы на старых версиях, а новый диапазон не проверял никто.
+      - name: Lock-файл совпадает с pyproject
+        run: uv lock --check
+
+      # Ровно версии из uv.lock — те же, что уедут в образ. Раньше здесь
+      # стоял `pip install` по диапазонам, и 25.09.2026 CI покраснел не от
+      # правки, а от чужого релиза: сам поставил только что вышедшую
+      # SQLAlchemy 2.1.0. `.venv/bin` в PATH — чтобы шаги ниже звали ruff,
+      # mypy и pytest оттуда.
       - name: Установить зависимости
-        run: pip install -e ".[dev]"
+        run: |
+          uv sync --frozen --extra dev --python 3.12
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Линтер
         run: ruff check backend/ tests/ scripts/
