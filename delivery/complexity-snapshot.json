@@ -396,10 +396,15 @@
       "complexity": 6,
       "worst": "_print_build:97"
     },
+    "backend/cli/mail_test.py": {
+      "lines": 234,
+      "complexity": 6,
+      "worst": "_report:180"
+    },
     "backend/cli/main.py": {
-      "lines": 440,
+      "lines": 444,
       "complexity": 9,
-      "worst": "_print_report:236"
+      "worst": "_print_report:238"
     },
     "backend/cli/review_queue.py": {
       "lines": 56,
@@ -945,6 +950,11 @@
       "lines": 88,
       "complexity": 3,
       "worst": "unsubscribe_domain:43"
+    },
+    "backend/features/letters/probe.py": {
+      "lines": 109,
+      "complexity": 2,
+      "worst": "letter_for:69"
     },
     "backend/features/letters/recipients.py": {
       "lines": 433,
