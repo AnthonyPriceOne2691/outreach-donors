@@ -47,6 +47,7 @@ from backend.features.crawl import review as advertiser_review
 from backend.features.donors import standing
 from backend.features.outreach.repository import OutreachRepository, ThreadRow
 from backend.features.outreach.threads import ThreadState
+from backend.features.replies import unbound
 from backend.features.review.candidates import Decision
 from backend.features.runs.browse import RunBrowser, RunRow
 from backend.features.runs.spending import SpendingRepository
@@ -134,6 +135,11 @@ class Overview:
     ahrefs_units: int
     ahrefs_cap: int
     serp_usd: Decimal
+    #: Ответов, не привязанных ни к одному нашему письму, — тем же условием,
+    #: что у вкладки «Не привязаны» (`replies/unbound.py`). Не в «Ждут
+    #: человека»: убрать такой ответ оттуда пока нечем, и плитка стояла бы
+    #: янтарной вечно — с первого же ответа на пробное письмо.
+    unbound_replies: int
 
 
 async def overview(session: AsyncSession, *, now: datetime | None = None) -> Overview:
@@ -161,6 +167,7 @@ async def overview(session: AsyncSession, *, now: datetime | None = None) -> Ove
         ahrefs_units=spending.units_by_provider.get(UsageProvider.AHREFS, 0),
         ahrefs_cap=ahrefs_cfg.UNITS_CAP,
         serp_usd=spending.amount_by_provider.get(UsageProvider.SERP, Decimal(0)),
+        unbound_replies=await unbound.total(session),
     )
 
 
