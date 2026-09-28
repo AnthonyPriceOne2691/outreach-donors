@@ -92,15 +92,29 @@ def mail_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("когда искали", "table tbody td:nth-child(4)", norm),
                 ("кнопка «Вписать адрес»", "table tbody button:has-text('Вписать адрес')", big),
                 ("кнопка «Не вышло»", "table tbody button:has-text('Не вышло')", big),
+                # 28.09.2026: у колонки кнопок появился заголовок, у очереди —
+                # страницы по двадцать.
+                ("подпись колонки «Действия»", "table thead th:text-is('Действия')", norm),
+                (
+                    "номер другой страницы",
+                    "nav[aria-label='Страницы очереди форм'] "
+                    "button:not([aria-current]) [data-page-number]:text-is('2')",
+                    norm,
+                ),
                 ("пункт меню", "nav a", norm),
             ],
         },
+        # Подпись поля порога — не `<label>`, а `div` (28.09.2026): в ней
+        # кнопка подсказки. Проба по имени класса, а не по тегу, — по тегу
+        # она перестала бы находиться молча.
         "thresholds": {
             "path": "/settings",
             "ready": ("heading", "Пороги отбора"),
             "probes": [
                 ("заголовок раздела", "h3", big),
-                ("подпись поля", "label:has-text('DR не ниже')", norm),
+                ("подпись поля", ".mantine-InputWrapper-label:has-text('DR не ниже')", norm),
+                # Значок — не текст: норма 3 : 1, как у элементов управления.
+                ("значок подсказки", "button[aria-label^='Допустимые значения'] svg", big),
                 ("пояснение поля", ".mantine-InputWrapper-description", norm),
                 ("значение в поле", ".mantine-NumberInput-input", norm),
                 ("заголовок «Что станет с базой»", "h5", norm),
@@ -108,6 +122,25 @@ def mail_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("значок «действует»", "table tbody .mantine-Badge-label", norm),
                 ("кто и когда", "table tbody td:nth-child(6) p", norm),
                 ("пункт меню", "nav a", norm),
+            ],
+        },
+        # Порог вне границ: под полем — почему так нельзя, розой отказа.
+        # Отдельным экраном: подготовка набирает в поля отказные значения,
+        # и остальные точки порогов мерились бы не на том экране.
+        "thresholds-refused": {
+            "path": "/settings",
+            "ready": ("heading", "Пороги отбора"),
+            # Значение в поле с отказом — те же чернила, что в годном (его
+            # меряет «значение в поле» у порогов): поле целиком с розовой
+            # кромкой замер делит по кромке, а не по цифрам, — 1,36 : 1 цифрам,
+            # которые читаются чисто (28.09.2026).
+            "probes": [
+                ("отказ под полем", ".mantine-InputWrapper-error", norm),
+                ("почему нет последствий", "h5 + p", norm),
+                # Подсказка открыта фокусом, а не наведением: замер прокручивает
+                # к точке, мышь уходит со значка, и подсказка по наведению
+                # закрывалась до снимка — точка печаталась «не найден».
+                ("подсказка у значка", ".mantine-Tooltip-tooltip", norm, show_range),
             ],
         },
         "usage": {
@@ -172,6 +205,21 @@ def show_decided(page: Any) -> None:
         page.wait_for_timeout(500)
 
 
+def refuse_thresholds(page: Any) -> None:
+    """Набрать порог за границей: без этого на экране нет отказа под полем —
+    того, что добавлено 28.09.2026 и что человек читает, когда ошибся."""
+    page.get_by_label("DR не ниже", exact=True).fill("95")
+    expect(page.locator(".mantine-InputWrapper-error").first).to_be_visible()
+    page.wait_for_timeout(300)
+
+
+def show_range(page: Any) -> None:
+    """Открыть подсказку с границами — фокусом: она держится и при прокрутке."""
+    page.get_by_role("button", name="Допустимые значения: DR не ниже").focus()
+    expect(page.locator(".mantine-Tooltip-tooltip")).to_be_visible()
+    page.wait_for_timeout(400)
+
+
 def usage_loaded(page: Any) -> None:
     """Дождаться расхода: остаток экран спрашивает у провайдеров, и ответ
     идёт секунду-две. Девятисот миллисекунд после перезагрузки не хватало —
@@ -186,4 +234,5 @@ def mail_prepare() -> dict[str, Callable[[Any], None]]:
         "suppressions": fill_target,
         "advertisers": show_decided,
         "usage": usage_loaded,
+        "thresholds-refused": refuse_thresholds,
     }

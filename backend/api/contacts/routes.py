@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from redis.exceptions import RedisError
 from rq.exceptions import NoSuchJobError
 from rq.job import Job
@@ -205,16 +205,28 @@ async def remove_address(
     return DonorFullCard.of(await DonorBrowser(session).card(donor_id))
 
 
-@router.get("/forms", response_model=FormsView, summary="Ручная очередь форм")
+@router.get("/forms", response_model=FormsView, summary="Ручная очередь форм, по странице")
 async def form_queue(
     _: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
+    page: int = Query(default=1, ge=1, le=1_000_000, description="страница очереди, с единицы"),
+    limit: int = Query(
+        default=forms.PAGE_SIZE, ge=1, le=forms.MAX_PAGE_SIZE, description="доноров на странице"
+    ),
 ) -> FormsView:
-    """Доноры, у которых форма вместо адреса."""
-    rows = await forms.queue(session)
+    """Доноры, у которых форма вместо адреса, — по странице.
+
+    Страница — номером, а не сдвигом: экран держит в адресе номер
+    (`?page=2`), а размер страницы знает только сервер и называет его
+    в ответе. До 28.09.2026 очередь приходила одним списком до двухсот
+    строк, и сто первый донор был недостижим.
+    """
+    rows = await forms.queue(session, page=page, size=limit)
     return FormsView(
         rows=[FormCard.of(row) for row in rows],
         total=await forms.total(session),
+        page=page,
+        limit=limit,
         monthly_left=await forms.monthly_left(session),
         monthly_cap=contacts_cfg.MANUAL_QUEUE_MONTHLY_CAP,
     )

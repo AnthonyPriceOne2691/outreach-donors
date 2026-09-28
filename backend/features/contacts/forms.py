@@ -33,6 +33,14 @@ from backend.features.core.models.donor import ContactModel, DonorModel
 
 logger = logging.getLogger(__name__)
 
+#: Доноров на странице — замечание 28.09.2026: «пагинация, 20 записей на
+#: странице». Размер называет сервер, экран узнаёт его из ответа: второй
+#: экземпляр числа на фронте разошёлся бы с этим при первой правке.
+PAGE_SIZE = 20
+
+#: Больше за раз не отдаём: страница очереди — работа руками, а не выгрузка.
+MAX_PAGE_SIZE = 100
+
 
 class UnknownFormError(ValueError):
     """Такого донора в ручной очереди нет."""
@@ -50,9 +58,16 @@ class FormRow:
     attempted_at: datetime | None
 
 
-async def queue(session: AsyncSession, *, limit: int = 200) -> list[FormRow]:
-    """Кого заполнять руками. Сильные доноры сверху: их форма стоит
-    потраченного времени, слабые подождут."""
+async def queue(session: AsyncSession, *, page: int = 1, size: int = PAGE_SIZE) -> list[FormRow]:
+    """Кого заполнять руками — страница очереди, номер с единицы. Сильные
+    доноры сверху: их форма стоит потраченного времени, слабые подождут.
+
+    Порядок полный — DR, за ним трафик, за ним номер донора: при равных
+    DR (их в очереди много — 91, 92, 93) база вольна отдавать строки
+    в любом порядке, и донор со стыка страниц показывался бы на обеих
+    или ни на одной. Страница за концом — пустая, а не отказ: число
+    страниц экран узнаёт по `total`.
+    """
     rows = await session.execute(
         select(
             DonorModel.id,
@@ -64,8 +79,13 @@ async def queue(session: AsyncSession, *, limit: int = 200) -> list[FormRow]:
         )
         .join(DomainModel, DomainModel.id == DonorModel.domain_id)
         .where(DonorModel.contact_status == ContactStatus.FORM_ONLY)
-        .order_by(DonorModel.dr.desc().nullslast())
-        .limit(limit)
+        .order_by(
+            DonorModel.dr.desc().nullslast(),
+            DonorModel.org_traffic.desc().nullslast(),
+            DonorModel.id,
+        )
+        .limit(size)
+        .offset((page - 1) * size)
     )
     return [
         FormRow(

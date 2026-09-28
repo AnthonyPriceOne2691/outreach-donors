@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -13,18 +14,36 @@ from backend.features.donors.verdict import Thresholds
 from backend.features.runs.spending import Article, Spending
 from backend.features.runs.thresholds import Consequences
 
+#: Допустимые пороги — целые от и до, включительно. Одно место на схему и
+#: экран: схема ниже отказывает по этим числам, а экран узнаёт их из ответа
+#: (`ThresholdsView.limits`) и отказывает до нажатия тем же правилом
+#: (замечание 28.09.2026: «валидация на допустимые значения и значки
+#: подсказок, в каких диапазонах»). До этого экран знал только верх DR,
+#: а трафик в сто миллионов уходил на сервер и возвращался отказом
+#: по-английски.
+#:
+#: Границы стоят не для красоты: DR выше 90 отсекает всё, кроме десятка
+#: сайтов мира, и такой прогон стоит юнитов, а даёт ноль.
+LIMITS: dict[str, tuple[int, int]] = {
+    "min_dr": (0, 90),
+    "min_org_traffic": (0, 10_000_000),
+    "min_refdomains": (0, 1_000_000),
+    "min_keywords": (0, 1_000_000),
+}
+
+
+def _within(name: str) -> Any:
+    low, high = LIMITS[name]
+    return Field(ge=low, le=high)
+
 
 class ThresholdsBody(BaseModel):
-    """Пороги отбора.
+    """Пороги отбора — в границах `LIMITS`."""
 
-    Границы стоят не для красоты: DR выше 90 отсекает всё, кроме
-    десятка сайтов мира, и такой прогон стоит юнитов, а даёт ноль.
-    """
-
-    min_dr: int = Field(ge=0, le=90)
-    min_org_traffic: int = Field(ge=0, le=10_000_000)
-    min_refdomains: int = Field(ge=0, le=1_000_000)
-    min_keywords: int = Field(ge=0, le=1_000_000)
+    min_dr: int = _within("min_dr")
+    min_org_traffic: int = _within("min_org_traffic")
+    min_refdomains: int = _within("min_refdomains")
+    min_keywords: int = _within("min_keywords")
 
     def to_thresholds(self) -> Thresholds:
         return Thresholds(
@@ -59,17 +78,30 @@ class ThresholdsVersion(BaseModel):
         )
 
 
+class Range(BaseModel):
+    """Допустимые значения порога: целые от `min` до `max` включительно."""
+
+    min: int
+    max: int
+
+
+def _limits() -> dict[str, Range]:
+    return {name: Range(min=low, max=high) for name, (low, high) in LIMITS.items()}
+
+
 class ThresholdsView(BaseModel):
     """Текущие пороги и история версий.
 
     `current` пусто, если порогов ещё не заводили: тогда действуют
     умолчания, и они же приходят в `defaults` — чтобы экран не выдумывал
-    их на своей стороне.
+    их на своей стороне. Так же и границы (`limits`): экран проверяет
+    поле ими, а не своей копией чисел.
     """
 
     current: ThresholdsVersion | None
     defaults: ThresholdsBody
     history: list[ThresholdsVersion]
+    limits: dict[str, Range] = Field(default_factory=_limits)
 
 
 class ConsequencesView(BaseModel):

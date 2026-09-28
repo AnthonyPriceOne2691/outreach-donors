@@ -29,7 +29,6 @@
  */
 
 import {
-  ActionIcon,
   Alert,
   Anchor,
   Badge,
@@ -42,9 +41,7 @@ import {
   Table,
   Text,
   TextInput,
-  Tooltip,
 } from '@mantine/core';
-import { IconInfoCircle } from '@tabler/icons-react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -56,6 +53,7 @@ import {
   NOT_SEARCHED,
 } from '../api/labels';
 import type { DonorFreshness, DonorRowCard, DonorStatus } from '../api/types';
+import { InfoHint } from '../components/InfoHint';
 import { formatCompact, formatNumber, formatShare } from '../format';
 import { FRESHNESS, totalOf, TRAFFIC_DIGITS } from './donorFilters';
 import type { DonorFilters, Emptiness } from './donorFilters';
@@ -302,23 +300,10 @@ function FilterRow({
  *  где оно стояло: оно у заголовка колонки, прямо над фильтром вердикта. */
 function VerdictHint() {
   return (
-    <Tooltip
-      multiline
-      w={280}
-      withArrow
-      events={{ hover: true, focus: true, touch: true }}
-      label="«Не проверен» — не «не подходит»: у домена не было данных, и его надо добрать позже, а не закрыть. Причина отсева — под доменом."
-    >
-      <ActionIcon
-        variant="subtle"
-        size="sm"
-        radius="xl"
-        color="gray"
-        aria-label="Что значит «не проверен»"
-      >
-        <IconInfoCircle size={15} />
-      </ActionIcon>
-    </Tooltip>
+    <InfoHint name="Что значит «не проверен»" width={280}>
+      «Не проверен» — не «не подходит»: у домена не было данных, и его надо добрать позже, а не
+      закрыть. Причина отсева — под доменом.
+    </InfoHint>
   );
 }
 

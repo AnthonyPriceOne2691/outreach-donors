@@ -18,12 +18,12 @@
  * раздувал колонку состояния, и строки вставали разной высоты.
  */
 
-import { Badge, Box, Button, Card, Group, Pagination, Stack, Table, Text } from '@mantine/core';
-import { useCallback } from 'react';
-import { Link, useLocation, useSearchParams } from 'react-router-dom';
+import { Badge, Box, Button, Card, Group, Stack, Table, Text } from '@mantine/core';
+import { Link, useLocation } from 'react-router-dom';
 
 import { countryTitle, RUN_STATUSES } from '../api/labels';
 import type { RunCard, RunsView, RunStatus } from '../api/types';
+import { PageSwitch } from '../components/PageSwitch';
 import { formatDateTime, formatNumber } from '../format';
 import { RunReason } from './RunReason';
 
@@ -59,41 +59,6 @@ const MIN_WIDTH = 1060;
  *  состояния в строках с причиной сдвигались бы влево на ширину «!»
  *  и стояли бы лесенкой. Ширина — как у кнопки `ActionIcon` размера md. */
 const HINT_SLOT = 28;
-
-/** Стрелки переключателя — значки без текста; имя им даёт подпись. */
-const CONTROL_NAMES: Record<string, string> = {
-  previous: 'Предыдущая страница',
-  next: 'Следующая страница',
-  first: 'Первая страница',
-  last: 'Последняя страница',
-};
-
-/** Номер страницы истории — из адреса. Негодный или пустой — первая:
- *  ссылка с опечаткой в номере не должна ронять экран. */
-export function useHistoryPage(): [number, (next: number, replace?: boolean) => void] {
-  const [params, setParams] = useSearchParams();
-  const asked = Number(params.get('page'));
-  const page = Number.isInteger(asked) && asked >= 1 ? asked : 1;
-  const goTo = useCallback(
-    (next: number, replace = false) => {
-      // Переход на ту же страницу — не переход: лишняя запись в истории
-      // заставила бы нажимать «назад» дважды.
-      if (next === page) return;
-      setParams(
-        (was) => {
-          const moved = new URLSearchParams(was);
-          // Первая страница — без номера: адрес экрана тот же, что в меню.
-          if (next <= 1) moved.delete('page');
-          else moved.set('page', String(next));
-          return moved;
-        },
-        { replace },
-      );
-    },
-    [page, setParams],
-  );
-  return [page, goTo];
-}
 
 /** Сколько страниц — по ответу сервера. Пока ответа нет — одна. */
 export function pagesOf(view: RunsView | null): number {
@@ -323,28 +288,14 @@ export function RunHistory({ view, page, onPage }: Props) {
           которой его потом сравнят.
         </Text>
       )}
-      {/* Одна страница — переключателю нечего переключать, и его нет вовсе:
-          он не отрисовывается, а не прячется атрибутом. */}
-      {pages > 1 && (
-        <Box component="nav" aria-label="Страницы истории прогонов" pt="xs" pb="sm">
-          <Group justify="center">
-            <Pagination
-              value={Math.min(page, pages)}
-              onChange={onPage}
-              total={pages}
-              radius="xl"
-              // Номер — в своём элементе: по кругу кнопки замер делит заливку
-              // и фон вокруг круга, а не цифру и заливку (1,28 : 1 цифре,
-              // которая читается чисто), — мерить надо саму цифру.
-              getItemProps={(number) => ({
-                'aria-label': `Страница ${number}`,
-                children: <span data-page-number>{number}</span>,
-              })}
-              getControlProps={(control) => ({ 'aria-label': CONTROL_NAMES[control] })}
-            />
-          </Group>
-        </Box>
-      )}
+      <PageSwitch
+        label="Страницы истории прогонов"
+        page={page}
+        pages={pages}
+        onChange={onPage}
+        pt="xs"
+        pb="sm"
+      />
     </Card>
   );
 }
