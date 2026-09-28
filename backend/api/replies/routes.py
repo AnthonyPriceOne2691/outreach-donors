@@ -17,16 +17,21 @@
 подтверждать — действие `prices`. Названо отдельно не чтобы отобрать,
 а чтобы на вопрос «кто подтверждает цены» отвечал список действий,
 а не чтение обработчиков.
+
+**Вложение ответа скачивается здесь же, под правом смотреть:** прайс
+файлом — то же содержимое переписки, что и текст письма. Отдаётся оно
+только на скачивание (`download.py`), никогда — на показ.
 """
 
 from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
+from backend.api.replies.download import download_headers
 from backend.api.replies.schemas import (
     Calibration,
     LeadTaken,
@@ -37,6 +42,7 @@ from backend.api.replies.schemas import (
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
+from backend.features.replies.attachments import ReplyFiles
 from backend.features.replies.calibration import calibrate
 from backend.features.replies.extract import PLACEMENT_DECLINES, PLACEMENT_SELLS
 from backend.features.replies.repository import ReplyRepository
@@ -72,6 +78,32 @@ async def calibration(
             )
             for score in await calibrate(session)
         ]
+    )
+
+
+@router.get(
+    "/{reply_id}/attachments/{attachment_id}",
+    summary="Вложение ответа — файлом на скачивание",
+    response_class=Response,
+    responses={200: {"content": {"application/octet-stream": {}}, "description": "Файл"}},
+)
+async def attachment(
+    reply_id: int,
+    attachment_id: int,
+    _: UserModel = _viewer,
+    session: AsyncSession = Depends(db_session),
+) -> Response:
+    """Файл, присланный донором, — только на скачивание.
+
+    Тип, который назвал отправитель, в ответ не идёт: присланный HTML,
+    открытый с нашего адреса, выполнился бы на странице с пропуском
+    сотрудника.
+    """
+    found, data = await ReplyFiles(session).file(reply_id, attachment_id)
+    return Response(
+        content=data,
+        media_type="application/octet-stream",
+        headers=download_headers(found.name, found.id),
     )
 
 

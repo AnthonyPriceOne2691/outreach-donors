@@ -139,9 +139,23 @@ export interface Downloaded {
   headers: Headers;
 }
 
+/**
+ * Имя файла из `Content-Disposition`. Сначала `filename*=UTF-8''…` — там имя
+ * целиком: «Прайс 2026.pdf» латиницей не пишется, и в простом `filename`
+ * сервер кладёт только запасное имя. Прежний разбор брал первое совпадение
+ * `filename` и из `filename*=…` сделал бы имя «*=UTF-8''%D0%9F…».
+ */
 function filenameOf(response: Response): string | null {
   const header = response.headers.get('Content-Disposition') ?? '';
-  const found = /filename="?([^";]+)"?/i.exec(header);
+  const extended = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(header);
+  if (extended?.[1] !== undefined) {
+    try {
+      return decodeURIComponent(extended[1].trim());
+    } catch {
+      // Испорченная кодировка имени — берём запасное имя ниже.
+    }
+  }
+  const found = /filename\s*=\s*"?([^";]+)"?/i.exec(header);
   return found?.[1] ?? null;
 }
 

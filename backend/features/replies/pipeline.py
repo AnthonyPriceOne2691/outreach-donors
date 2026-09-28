@@ -39,6 +39,7 @@ from backend.features.core.domain import ReplyKind, Stage
 from backend.features.core.models.outreach import ReplyModel
 from backend.features.replies import binding, classify, outcome
 from backend.features.replies import extract as extract_mod
+from backend.features.replies.attachments import ReplyFiles
 from backend.features.replies.extract import ExtractClient, Extracted
 from backend.features.replies.inbound import Incoming
 from backend.features.replies.repository import Addressee, ReplyRepository
@@ -115,6 +116,9 @@ class Inbox:
             found=None,
         )
         await self._session.flush()
+        # Файлы — сразу за ответом и в той же транзакции: другой копии письма
+        # нет, и ответ, записанный без своих вложений, терял бы прайс молча.
+        ReplyFiles(self._session).keep(reply.id, incoming.attachments)
 
         if addressee is None:
             logger.warning(

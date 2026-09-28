@@ -42,6 +42,7 @@ import { BackLink, backTo } from '../components/BackLink';
 import { formatDateTime, formatMoney } from '../format';
 import { corridorText, readable, uniquenessText } from '../letters/letterText';
 import { PriceReview } from './PriceReview';
+import { ReplyFiles } from './ReplyFiles';
 
 const when = formatDateTime;
 
@@ -153,7 +154,6 @@ function Incoming({ incoming, canReview, busy, onConfirm, onDecline, onTakeLead 
   // Разбирают только ответы людей: у автоответчика и отказа доставки
   // разбирать нечего.
   const reviewable = incoming.kind === 'human';
-  const files = incoming.attachments ?? [];
 
   return (
     <Card className="glass" p="md">
@@ -189,17 +189,9 @@ function Incoming({ incoming, canReview, busy, onConfirm, onDecline, onTakeLead 
       </Text>
 
       {/* Прайс приходит файлом чаще, чем текстом: ответ с вложением
-          не должен выглядеть пустым. Сам файл не показываем — он пришёл
-          снаружи и считается недоверенным (docs/SECURITY.md). */}
-      {files.length > 0 && (
-        <Group gap="xs" mt="xs">
-          {files.map((file) => (
-            <Badge key={file.имя} variant="light" color={file.принято ? 'gray' : 'red'}>
-              {file.принято ? file.имя : `${file.имя} — не принят`}
-            </Badge>
-          ))}
-        </Group>
-      )}
+          не должен выглядеть пустым. Файл скачивается, но не показывается
+          внутри страницы — он пришёл снаружи (docs/SECURITY.md). */}
+      <ReplyFiles replyId={incoming.id} files={incoming.attachments} />
 
       {hasPrice && (
         <>

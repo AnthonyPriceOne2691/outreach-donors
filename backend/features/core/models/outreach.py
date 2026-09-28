@@ -257,10 +257,9 @@ class ReplyModel(TimestampedMixin, Base):
     from_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     subject: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
-    # Что пришло файлами: имя, размер, тип. Сами файлы здесь не лежат.
-    # Прайс приходит вложением чаще, чем текстом, и ответ, выглядящий
-    # пустым, — это ответ, из которого не видно главного.
-    attachments: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
+    # Что пришло файлами — в `reply_attachments` (`models/attachment.py`),
+    # вместе с самими файлами. Прайс приходит вложением чаще, чем текстом,
+    # и ответ, выглядящий пустым, — это ответ, из которого не видно главного.
 
     price_white: Mapped[Decimal | None] = mapped_column(DECIMAL(10, 2), nullable=True)
     price_grey: Mapped[Decimal | None] = mapped_column(DECIMAL(10, 2), nullable=True)

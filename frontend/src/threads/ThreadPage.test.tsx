@@ -34,7 +34,7 @@ const UNSURE = {
   received_at: '2026-09-19T10:00:00+00:00',
   from_email: 'elena@donor.example.test',
   subject: 'Re: Advertising rates',
-  attachments: null,
+  attachments: [],
   price_white: '250',
   price_grey: null,
   currency: 'EUR',
@@ -193,17 +193,34 @@ describe('карточка переписки', () => {
           ...UNSURE,
           raw_body: 'Our rates are attached.',
           attachments: [
-            { имя: 'price.pdf', байт: 9000, тип: 'application/pdf', принято: true },
-            { имя: 'macro.exe', байт: 100, тип: null, принято: false },
+            {
+              id: 11,
+              name: 'price.pdf',
+              size: 9000,
+              content_type: 'application/pdf',
+              accepted: true,
+              reason: null,
+            },
+            {
+              id: 12,
+              name: 'macro.exe',
+              size: 100,
+              content_type: null,
+              accepted: false,
+              reason: '«.exe» — исполняемый файл или скрипт, такие не принимаются',
+            },
           ],
         },
       ],
     });
 
     // Прайс приходит файлом чаще, чем текстом: ответ с вложением
-    // не должен выглядеть пустым.
+    // не должен выглядеть пустым. Скачать можно только сохранённый.
     expect(screen.getByText('price.pdf')).toBeInTheDocument();
-    expect(screen.getByText('macro.exe — не принят')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Скачать price.pdf' })).toBeInTheDocument();
+    expect(screen.getByText('macro.exe')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Скачать macro.exe' })).not.toBeInTheDocument();
+    expect(screen.getByText('не сохранён')).toBeInTheDocument();
   });
 
   it('подтверждённый разбор называет, кто его подтвердил', async () => {

@@ -82,9 +82,9 @@
       "worst": "of:158"
     },
     "backend/api/errors.py": {
-      "lines": 138,
+      "lines": 144,
       "complexity": 3,
-      "worst": "handle:124"
+      "worst": "handle:130"
     },
     "backend/api/events/__init__.py": {
       "lines": 1,
@@ -112,9 +112,9 @@
       "worst": "—"
     },
     "backend/api/inbound/routes.py": {
-      "lines": 181,
-      "complexity": 11,
-      "worst": "take_reply:121"
+      "lines": 227,
+      "complexity": 8,
+      "worst": "take_reply:172"
     },
     "backend/api/inbound/schemas.py": {
       "lines": 29,
@@ -186,10 +186,15 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/api/replies/download.py": {
+      "lines": 53,
+      "complexity": 5,
+      "worst": "_ascii_name:28"
+    },
     "backend/api/replies/routes.py": {
-      "lines": 157,
+      "lines": 189,
       "complexity": 10,
-      "worst": "review:104"
+      "worst": "review:136"
     },
     "backend/api/replies/schemas.py": {
       "lines": 75,
@@ -292,14 +297,14 @@
       "worst": "—"
     },
     "backend/api/threads/routes.py": {
-      "lines": 40,
+      "lines": 45,
       "complexity": 2,
-      "worst": "all_threads:25"
+      "worst": "all_threads:26"
     },
     "backend/api/threads/schemas.py": {
-      "lines": 168,
+      "lines": 204,
       "complexity": 3,
-      "worst": "of:123"
+      "worst": "of:150"
     },
     "backend/api/unsubscribe/__init__.py": {
       "lines": 1,
@@ -627,7 +632,7 @@
       "worst": "—"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 41,
+      "lines": 43,
       "complexity": 0,
       "worst": "—"
     },
@@ -651,6 +656,11 @@
       "complexity": 2,
       "worst": "_enum:35"
     },
+    "backend/features/core/models/attachment.py": {
+      "lines": 52,
+      "complexity": 0,
+      "worst": "—"
+    },
     "backend/features/core/models/crawl.py": {
       "lines": 109,
       "complexity": 2,
@@ -672,7 +682,7 @@
       "worst": "_enum:18"
     },
     "backend/features/core/models/outreach.py": {
-      "lines": 294,
+      "lines": 293,
       "complexity": 2,
       "worst": "_enum:37"
     },
@@ -1066,6 +1076,11 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/replies/attachments.py": {
+      "lines": 185,
+      "complexity": 7,
+      "worst": "keep:122"
+    },
     "backend/features/replies/binding.py": {
       "lines": 115,
       "complexity": 5,
@@ -1075,6 +1090,11 @@
       "lines": 122,
       "complexity": 10,
       "worst": "differences:73"
+    },
+    "backend/features/replies/charsets.py": {
+      "lines": 154,
+      "complexity": 9,
+      "worst": "decode:92"
     },
     "backend/features/replies/classify.py": {
       "lines": 303,
@@ -1086,15 +1106,25 @@
       "complexity": 9,
       "worst": "parse_form:276"
     },
+    "backend/features/replies/form_data.py": {
+      "lines": 194,
+      "complexity": 5,
+      "worst": "_multipart:142"
+    },
+    "backend/features/replies/html_text.py": {
+      "lines": 199,
+      "complexity": 9,
+      "worst": "text_from_html:175"
+    },
     "backend/features/replies/inbound.py": {
-      "lines": 130,
+      "lines": 171,
       "complexity": 3,
-      "worst": "addresses_in:110"
+      "worst": "addresses_in:151"
     },
     "backend/features/replies/mime.py": {
-      "lines": 193,
-      "complexity": 12,
-      "worst": "attachments_from:105"
+      "lines": 340,
+      "complexity": 11,
+      "worst": "from_form:274"
     },
     "backend/features/replies/money.py": {
       "lines": 164,
@@ -1112,18 +1142,23 @@
       "worst": "compiled:456"
     },
     "backend/features/replies/pipeline.py": {
-      "lines": 332,
+      "lines": 336,
       "complexity": 9,
-      "worst": "parse:230"
+      "worst": "parse:234"
     },
     "backend/features/replies/quoting.py": {
       "lines": 187,
       "complexity": 5,
       "worst": "quote_starts_at:154"
     },
+    "backend/features/replies/raw_mime.py": {
+      "lines": 177,
+      "complexity": 6,
+      "worst": "_leaves:73"
+    },
     "backend/features/replies/repository.py": {
-      "lines": 414,
-      "complexity": 9,
+      "lines": 413,
+      "complexity": 7,
       "worst": "add:304"
     },
     "backend/features/review/__init__.py": {
@@ -1402,7 +1437,7 @@
       "worst": "main:121"
     },
     "scripts/ui_screens.py": {
-      "lines": 412,
+      "lines": 418,
       "complexity": 2,
       "worst": "open_reason:21"
     },

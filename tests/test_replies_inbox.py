@@ -21,6 +21,7 @@ from backend.features.core.domain import (
     ReplyKind,
     Stage,
 )
+from backend.features.core.models.attachment import ReplyAttachmentModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.ops import SuppressionModel
@@ -192,14 +193,26 @@ class TestAccepting:
                 sent,
                 "See attached.",
                 attachments=(
-                    Attachment(name="price.pdf", size=900, content_type="application/pdf"),
+                    Attachment(
+                        name="price.pdf",
+                        size=9,
+                        content_type="application/pdf",
+                        data=b"%PDF-1.4\n",
+                    ),
                 ),
             )
         )
 
         reply = (await session.execute(select(ReplyModel))).scalars().one()
-        assert reply.attachments is not None
-        assert reply.attachments[0]["имя"] == "price.pdf"
+        stored = (
+            await session.execute(
+                select(ReplyAttachmentModel.name, ReplyAttachmentModel.data).where(
+                    ReplyAttachmentModel.reply_id == reply.id
+                )
+            )
+        ).one()
+        assert stored.name == "price.pdf"
+        assert stored.data == b"%PDF-1.4\n"
 
 
 class TestConsequencesOnTheBase:

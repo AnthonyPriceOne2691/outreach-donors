@@ -13,11 +13,13 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any
 
 from backend.config import outreach as cfg
+
+logger = logging.getLogger(__name__)
 
 #: Сколько текста письма разбираем. Всё, что длиннее, — цитата переписки
 #: и подпись: цена называется в первых строках, а не на двадцатой странице.
@@ -26,7 +28,7 @@ MAX_TEXT_CHARS = 20_000
 #: Потолок на письмо целиком, включая цитату и служебное.
 MAX_BODY_CHARS = 200_000
 
-#: Сколько вложений считаем. Больше — не прайс, а выгрузка.
+#: Сколько вложений храним у одного ответа. Больше — не прайс, а выгрузка.
 MAX_ATTACHMENTS = 20
 
 #: Расширения, которые не принимаются вовсе: исполняемые файлы и скрипты
@@ -39,26 +41,63 @@ DANGEROUS_EXTENSIONS = (
 
 _ADDRESS_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 
+#: Суррогаты, которые не записывают байт: байты 0x80–0xFF при чтении
+#: с `surrogateescape` становятся U+DC80–U+DCFF, всё остальное — одиночки.
+_LONE_SURROGATE = re.compile("[\ud800-\udc7f\udd00-\udfff]")
+
 
 @dataclass(frozen=True, slots=True)
 class Attachment:
-    """Что известно о вложении. Самого файла здесь нет."""
+    """Вложение: имя, тип, размер и сам файл, если он дошёл.
+
+    Файл едет вместе с письмом, а не отдельно: платформа приёма — единственный
+    получатель письма, другой его копии нет нигде. Выброшенный здесь прайс
+    потерян навсегда, и человеку открыть его будет нечем.
+    """
 
     name: str
-    size: int
+    #: Байт. `None` — размер неизвестен: платформа назвала файл, а самого
+    #: файла не прислала. Ноль здесь значил бы «пустой файл» — это другое.
+    size: int | None
     content_type: str | None = None
+    #: Сам файл. В `repr` не попадает: мегабайты в строке лога и в трассировке
+    #: прячут то, ради чего их читают.
+    data: bytes | None = field(default=None, repr=False)
+
+    @property
+    def extension(self) -> str:
+        """Расширение так, как его поймёт система, которая файл откроет.
+
+        Точки и пробелы в конце Windows отбрасывает: «прайс.exe.» у неё
+        запускается как «.exe», и проверка по буквальному имени его пропустила бы.
+        """
+        tail = self.name.strip().rstrip(". ").lower()
+        _, dot, extension = tail.rpartition(".")
+        return f".{extension}" if dot else ""
 
     @property
     def dangerous(self) -> bool:
-        return self.name.strip().lower().endswith(DANGEROUS_EXTENSIONS)
+        return self.extension in DANGEROUS_EXTENSIONS
 
-    def as_record(self) -> dict[str, Any]:
-        return {
-            "имя": self.name[:255],
-            "байт": self.size,
-            "тип": self.content_type,
-            "принято": not self.dangerous,
-        }
+
+def storable(value: str) -> str:
+    """Строка, которую база примет.
+
+    Postgres не хранит в тексте нулевой байт, а драйвер не кодирует
+    одиночные суррогаты — они остаются от байтов, которые разбор почты
+    не смог прочитать. Любой из двух в тексте письма — это отказ записи,
+    пятисотка вебхуку и бесконечные повторы платформы на одном письме.
+    Суррогаты из байтов возвращаются байтами и читаются как UTF-8:
+    заголовок, написанный сырым UTF-8, так становится читаемым.
+    """
+    try:
+        raw = value.encode("utf-8", "surrogateescape")
+    except UnicodeEncodeError as exc:
+        # Суррогат не из байтов — например, `\ud800` из JSON. Прочитать его
+        # нечем, остаётся заменить; байты рядом с ним при этом не теряются.
+        logger.warning("приём: одиночный суррогат в строке заменён (%s) — %r", exc, value[:80])
+        raw = _LONE_SURROGATE.sub("\ufffd", value).encode("utf-8", "surrogateescape")
+    return raw.decode("utf-8", "replace").replace("\x00", "")
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,7 +107,9 @@ class Incoming:
     #: Идентификатор письма у почты. По нему отличается повтор вебхука
     #: от второго ответа.
     message_id: str
-    #: Адреса, на которые письмо пришло: там ищется наша метка.
+    #: Адреса, на которые письмо пришло: конверт, «кому» и копия, без
+    #: повторов, в нижнем регистре. Там ищется наша метка — и не только
+    #: в «кому»: в скрытой копии и при пересылке она есть лишь в конверте.
     to: tuple[str, ...]
     from_email: str
     subject: str

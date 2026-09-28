@@ -355,7 +355,7 @@ Library.
     POST   /api/threads/{id}/reply      ответ руками      (точечное право)
     POST   /api/threads/{id}/status     состояние сделки, ставит человек
     POST   /api/threads/{id}/stop       остановить цепочку
-    GET    /api/attachments/{id}        отдать вложение через приложение
+    GET    /api/replies/{id}/attachments/{id}   вложение ответа, только на скачивание
 
     GET    /api/senders                 домены и ящики рассылки     (админ)
     POST   /api/senders/{id}/enable     включить, с начала разгона  (админ)
