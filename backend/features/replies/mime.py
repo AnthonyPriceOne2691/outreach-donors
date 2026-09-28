@@ -156,11 +156,28 @@ def _type_said(meta: Mapping[str, Any], fallback: str | None = None) -> str | No
     return str(meta.get("type") or fallback or "") or None
 
 
+#: Больше размер в колонку не ляжет (целое в базе), а названный больше
+#: тела запроса — заведомо не размер пришедшего файла.
+_SIZE_CEILING = 2**31 - 1
+
+
 def _size_said(meta: Mapping[str, Any]) -> int | None:
     """Размер, если его назвали. Платформа приёма его не называет, и тогда
-    размер неизвестен, а не ноль."""
-    said = meta.get("size")
-    return int(said) if isinstance(said, int | str) and str(said).isdigit() else None
+    размер неизвестен, а не ноль. Несуразное число — тоже «неизвестен»:
+    упавшая запись ответа стоила бы письма целиком."""
+    said = str(meta.get("size", ""))
+    return int(said) if said.isdigit() and int(said) <= _SIZE_CEILING else None
+
+
+def _count_checked(declared: str | None, found: int) -> None:
+    """Сколько файлов платформа назвала полем `attachments` и сколько пришло.
+
+    Названный, но не пришедший файл обычно виден по списку вложений, но
+    списка может не быть вовсе, — и тогда о потере говорит только этот лог.
+    """
+    said = (declared or "").strip()
+    if said.isdigit() and int(said) > found:
+        logger.warning("приём: платформа назвала вложений %s, дошло сведений о %s", said, found)
 
 
 def attachments_from(
@@ -276,6 +293,7 @@ def from_form(
         *attachments_from(form.get("attachment-info"), files),
         *(letter.attachments if letter else ()),
     )
+    _count_checked(form.get("attachments"), len(attachments))
 
     return Incoming(
         # Идентификатор письма — то, чем отличается повтор от второго

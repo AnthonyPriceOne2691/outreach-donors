@@ -348,6 +348,21 @@ class TestNamesAndPolicy:
         assert not decision.keep
         assert "самого файла в письме не было" in (decision.reason or "")
 
+    def test_absurd_size_in_the_list_is_unknown_not_a_failed_write(self) -> None:
+        """Число больше колонки уронило бы запись ответа целиком."""
+        info = json.dumps({"attachment1": {"filename": "a.pdf", "size": "99999999999999"}})
+
+        got = from_form({"from": "a@b.test", "attachment-info": info})
+
+        assert got.attachments[0].size is None
+
+    def test_file_named_but_not_arrived_is_counted_in_the_log(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from_form({"from": "a@b.test", "attachments": "2"})
+
+        assert "назвала вложений 2, дошло сведений о 0" in caplog.text
+
     def test_storable_drops_nul_and_mends_surrogates(self) -> None:
         raw = "Цена".encode().decode("ascii", "surrogateescape")
 
