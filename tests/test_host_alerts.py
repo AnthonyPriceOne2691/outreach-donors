@@ -228,6 +228,23 @@ class TestHealthwatch:
         assert "worker" not in docker_broke, "про сервисы без компоуза не известно ничего нового"
         assert both_healed.endswith("Восстановилось: docker, worker")
 
+    def test_compose_warnings_are_not_services(self, host: Host) -> None:
+        """Предупреждение компоуза в stderr не становится «сервисом без
+        контейнера»: список сервисов — только из ответа."""
+        host.scenario["compose config"] = {
+            "out": SERVICES,
+            "err": 'WARN[0000] the attribute "version" is obsolete\n',
+        }
+        host.scenario["compose ps"] = {
+            "out": "".join(f"{name}|{row}\n" for name, row in HEALTHY.items()),
+            "err": "WARN[0000] Found orphan containers\n",
+        }
+
+        done = host.run("healthwatch.sh")
+
+        assert done.returncode == 0, done.stderr
+        assert host.alerts() == []
+
     def test_undelivered_alert_is_repeated(self, host: Host) -> None:
         """Тревога не ушла — состояние не записано, следующий проход скажет
         о той же разнице ещё раз, а не промолчит навсегда."""

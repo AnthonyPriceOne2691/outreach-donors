@@ -94,13 +94,18 @@ keep() {
 "
 }
 
-SERVICES="$($COMPOSE config --no-interpolate --services 2>&1)"
+# stderr компоуза — отдельно от ответа: предупреждение в списке сервисов
+# стало бы «сервисом без контейнера» и тревогой на пустом месте.
+ERRS="$(mktemp "${TMPDIR:-/tmp}/outreach-healthwatch.XXXXXX")"
+trap 'rm -f "$ERRS" "$ERRS.ps"' EXIT
+SERVICES="$($COMPOSE config --no-interpolate --services 2>"$ERRS" | grep -E '^[A-Za-z0-9._-]+$')"
+# pipefail: код — компоуза, а не grep; пустой список — тоже отказ.
 SERVICES_CODE=$?
-PS="$($COMPOSE ps --all --format '{{.Service}}|{{.State}}|{{.Health}}|{{.ExitCode}}' 2>&1)"
+PS="$($COMPOSE ps --all --format '{{.Service}}|{{.State}}|{{.Health}}|{{.ExitCode}}' 2>"$ERRS.ps")"
 PS_CODE=$?
 
 if [ "$SERVICES_CODE" -ne 0 ] || [ "$PS_CODE" -ne 0 ]; then
-  if [ "$SERVICES_CODE" -ne 0 ]; then WHY="$SERVICES"; else WHY="$PS"; fi
+  if [ "$SERVICES_CODE" -ne 0 ]; then WHY="$(cat "$ERRS")"; else WHY="$(cat "$ERRS.ps")"; fi
   add docker "docker compose не отвечает: $(printf '%s' "$WHY" | head -n 1)"
   for service in $(printf '%s\n' "$PREVIOUS" | cut -f1 | grep -vx docker | grep -vx backup); do
     keep "$service"
