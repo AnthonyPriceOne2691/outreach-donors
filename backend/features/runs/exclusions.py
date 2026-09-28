@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.config import outreach as cfg
 from backend.features.core.domain import (
     MessageStatus,
+    ReplyKind,
     Stage,
     SuppressionReason,
     ThreadStatus,
@@ -38,7 +39,12 @@ from backend.features.core.models.advertisers import SupplierDonorModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.ops import SuppressionModel
-from backend.features.core.models.outreach import CampaignModel, MessageModel, ThreadModel
+from backend.features.core.models.outreach import (
+    CampaignModel,
+    MessageModel,
+    ReplyModel,
+    ThreadModel,
+)
 from backend.features.donors.publisher_judge import is_platform, is_public_zone
 
 #: Письмо ушло от нас и не было отвергнуто. Отказ доставки сюда
@@ -232,10 +238,20 @@ class Exclusions:
         так же не должен уходить в новый прогон.
         """
         border = moment - timedelta(days=self._silence_days)
+        # Ответ — и статус диалога, и сам ответ человека на нём. Статус
+        # ставит приём (`replies.repository.mark_replied`), но до 28.09.2026
+        # его не ставил никто, и одного статуса мало: диалог, отвеченный
+        # до этого, остался бы «молчащим» на год.
+        human_reply = (
+            select(ReplyModel.id)
+            .where(ReplyModel.thread_id == ThreadModel.id)
+            .where(ReplyModel.kind == ReplyKind.HUMAN)
+            .exists()
+        )
         replied = (
             select(ThreadModel.domain_id)
             .join(CampaignModel, CampaignModel.id == ThreadModel.campaign_id)
-            .where(ThreadModel.status == ThreadStatus.REPLIED)
+            .where(or_(ThreadModel.status == ThreadStatus.REPLIED, human_reply))
             .where(CampaignModel.stage == stage)
         )
         rows = await self._session.execute(
