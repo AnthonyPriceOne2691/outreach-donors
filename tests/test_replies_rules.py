@@ -121,7 +121,10 @@ class TestClassifying:
         assert verdict.kind is ReplyKind.BOUNCE
 
     def test_bounce_by_smtp_code(self) -> None:
-        verdict = classify.classify(incoming("550 5.1.1 mailbox unavailable"))
+        """Код смотрится только у письма почты: «550» в живом ответе — цена."""
+        verdict = classify.classify(
+            incoming("550 5.1.1 mailbox unavailable", from_email="mailer-daemon@site.test")
+        )
 
         assert verdict.kind is ReplyKind.BOUNCE
 
