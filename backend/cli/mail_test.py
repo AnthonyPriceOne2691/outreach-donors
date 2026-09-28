@@ -39,7 +39,7 @@ from backend.features.letters import identity
 from backend.features.letters.probe import Probe, compose_probe
 from backend.features.letters.sending import SendError
 from backend.features.letters.transport import Transport, TransportError
-from backend.features.letters.transport_factory import build_transport
+from backend.features.letters.transport_factory import build_transport, in_use
 
 EXIT_OK = 0
 #: Тот же код, что у `letters-send`: письмо не ушло.
@@ -77,14 +77,14 @@ async def cmd_mail_test(args: argparse.Namespace) -> int:
 
     engine = create_async_engine(storage.DSN)
     try:
-        async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+        async with (
+            async_sessionmaker(engine, expire_on_commit=False)() as session,
+            in_use(transport),
+        ):
             return await run_mail_test(
                 session, transport, to=args.to, sender=args.sender, stage=Stage(args.stage)
             )
     finally:
-        aclose = getattr(transport, "aclose", None)
-        if aclose is not None:
-            await aclose()
         await engine.dispose()
 
 
