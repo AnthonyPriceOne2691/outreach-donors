@@ -583,3 +583,36 @@ class TestTheFunnel:
         assert report.funnel["ещё не писали"] == 1
         (letter,) = await _new_letters(session, domain)
         assert letter.contact_id == editor.id
+
+    async def test_donor_whose_only_address_is_unsubscribed_is_out(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        """Писать некуда — донора нет ни в «вне стоп-листа», ни в сборке."""
+        domain, (info,) = await _donor(session, f"info@{HOST}")
+        session.add(SuppressionModel(email=info.email, reason=SuppressionReason.UNSUBSCRIBED))
+        await session.flush()
+
+        report = await _build(session)
+
+        assert (report.funnel["вне стоп-листа"], report.funnel["ещё не писали"]) == (0, 0)
+        assert await _new_letters(session, domain) == []
+
+    async def test_next_address_in_the_stop_list_ends_the_attempts(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        """Первый адрес не дошёл, второй отписан: воронка говорит «адреса
+        кончились», карточка — чем именно: не «все в стоп-листе», первый-то
+        просто мёртвый."""
+        domain, (info, editor) = await _donor(session, f"info@{HOST}", f"editor@{HOST}")
+        await _letter(session, domain, info, status=MessageStatus.BOUNCED)
+        _bury(info)
+        session.add(SuppressionModel(email=editor.email, reason=SuppressionReason.UNSUBSCRIBED))
+        await session.flush()
+
+        report = await _build(session)
+        address = await Recipients(session).letter_address(domain.id)
+
+        assert report.prepared == 0
+        assert report.funnel["ещё не писали"] == 0
+        assert report.funnel["адреса кончились"] == 1
+        assert address.blocked == "остальные адреса донора в стоп-листе"

@@ -317,6 +317,9 @@ class Recipients:
         for passed, refusal in checks:
             if not await self._exists(passed):
                 return refusal
+        if await self._exists(one.where(attempts.written_before(domain))):
+            # Прежние адреса не дошли, а не в стоп-листе: «все» было бы неправдой.
+            return "остальные адреса донора в стоп-листе"
         return "все адреса донора в стоп-листе"
 
     async def _exists(self, statement: Select[Any]) -> bool:
