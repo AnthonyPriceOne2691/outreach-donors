@@ -49,9 +49,8 @@ class NoQueue:
 
 
 def setup_inbound(monkeypatch: pytest.MonkeyPatch) -> NoQueue:
-    """Секрет, домен ответов, очередь-заглушка и чистое окно частоты."""
+    """Секрет, очередь-заглушка и чистое окно частоты."""
     monkeypatch.setattr(outreach_cfg, "INBOUND_SECRET", SECRET)
-    monkeypatch.setattr(outreach_cfg, "REPLY_DOMAIN", REPLY_DOMAIN)
     queue = NoQueue()
     monkeypatch.setattr(inbound_routes, "runs_queue", lambda: queue)
     monkeypatch.setattr(inbound_routes, "_throttle", SlidingWindow())
@@ -93,10 +92,13 @@ async def make_sent(session: AsyncSession) -> MessageModel:
 
 
 def label_for(message: MessageModel) -> str:
-    """Адрес для ответа с подписанной меткой нашего письма."""
-    return reply_to.address_for(
-        message.id, sender_email="anna@mail.test", reply_domain=REPLY_DOMAIN, secret=SECRET
-    )
+    """Адрес для ответа с подписанной меткой нашего письма.
+
+    Собирается из самой метки, а не через `address_for`: привязке важна
+    только метка после «+», а правила домена ответов меняются отдельно
+    от приёма — тест приёма не должен падать от их правки.
+    """
+    return f"anna+{reply_to.label_for(message.id, secret=SECRET)}@{REPLY_DOMAIN}"
 
 
 def multipart(
