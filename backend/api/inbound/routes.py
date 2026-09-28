@@ -174,7 +174,10 @@ def _queue_parse(reply_id: int | None, message_id: str, response: Response) -> s
             **with_retries(),
         )
     except DuplicateJobError:
-        logger.info("приём: разбор ответа №%s уже в очереди — второй не ставлю", reply_id)
+        # Задача с этим номером есть: стоит, идёт, ждёт повтора или хранит
+        # итог (неделю, упавшая — дольше). Упавшую видно в её исходе, а сам
+        # ответ без разбора остаётся «ждёт разбора» у человека.
+        logger.info("приём: задача разбора ответа №%s уже есть — второй не ставлю", reply_id)
     except RedisError as exc:
         logger.warning(
             "приём: разбор ответа №%s не поставлен — очередь недоступна (%s). "
