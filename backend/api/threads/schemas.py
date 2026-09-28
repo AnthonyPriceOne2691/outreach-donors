@@ -13,8 +13,7 @@ from backend.features.core.domain import MessageStatus, ReplyKind, Stage
 from backend.features.core.models.attachment import ReplyAttachmentModel
 from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.outreach.repository import ThreadDetail, ThreadRow
-from backend.features.outreach.threads import ThreadState
-from backend.features.replies.outcome import waiting_for_review
+from backend.features.outreach.threads import ThreadState, review_of
 
 
 class ThreadCard(BaseModel):
@@ -140,6 +139,10 @@ class IncomingCard(BaseModel):
     #: Ждёт ли разбор человека. Считается, а не хранится: второе поле
     #: разошлось бы с уверенностью при первой правке порога.
     needs_review: bool
+    #: Почему ответ не человека всё равно разбирает человек — словами.
+    #: Сейчас это автоответ с суммой в валюте: модель автоответы не разбирает,
+    #: и цену из него вписывают руками. Пусто — обычный ответ.
+    review_reason: str | None = None
     #: Ответ рекламодателя: не цена, а лид. Его не разбирают, а берут
     #: в работу — `reviewed_by`/`reviewed_at` тогда говорят, кто и когда.
     lead: bool
@@ -154,6 +157,8 @@ class IncomingCard(BaseModel):
         files: Sequence[ReplyAttachmentModel] = (),
     ) -> IncomingCard:
         lead = stage is Stage.ADVERTISERS and reply.kind is ReplyKind.HUMAN
+        # У лида нечего разбирать: форма цены для него — отказ (`review_of`).
+        review = review_of(reply, stage)
         return cls(
             id=reply.id,
             kind=reply.kind,
@@ -168,11 +173,8 @@ class IncomingCard(BaseModel):
             payment_methods=reply.payment_methods,
             confidence=reply.confidence,
             placement=reply.placement,
-            # У лида нечего разбирать: форма цены для него — отказ.
-            needs_review=not lead
-            and waiting_for_review(
-                reply.kind, reply.confidence, reviewed=reply.reviewed_at is not None
-            ),
+            needs_review=review.waiting,
+            review_reason=review.reason,
             lead=lead,
             reviewed_by=reply.reviewed_by,
             reviewed_at=reply.reviewed_at,

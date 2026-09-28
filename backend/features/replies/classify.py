@@ -49,7 +49,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from backend.features.core.domain import ReplyKind
-from backend.features.replies import phrases
+from backend.features.replies import phrases, robots
 from backend.features.replies.inbound import Incoming
 from backend.features.replies.money import amounts_in
 from backend.features.replies.quoting import written_by_hand
@@ -76,6 +76,10 @@ class Verdict:
 
 _Check = Callable[[Incoming, str], bool]
 
+#: Имя правила «мёртвый ящик»: по нему приём ищет в автоответе новый
+#: адрес донора (`redirect`) — строка в двух местах разошлась бы молча.
+DEAD_MAILBOX = "мёртвый ящик"
+
 #: Чем автомат подписывает своё письмо: заголовок и значения, из которых
 #: хватит любого. Пустая строка — хватит самого заголовка.
 _MACHINE_SIGNS: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -84,14 +88,6 @@ _MACHINE_SIGNS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("X-Autoreply", ("",)),
     ("X-Autorespond", ("",)),
 )
-
-#: Обратный адрес почтового сервера — так подписывают отказы доставки.
-_MAIL_SYSTEM = re.compile(
-    r"^(?:mailer[-_.]?daemon|mail[-_.]?daemon|postmaster)(?:[-_.+].*)?$", re.I
-)
-
-#: Обратный адрес робота, на который не отвечают.
-_NOREPLY = re.compile(r"^(?:no[-_.]?reply|do[-_.]?not[-_.]?reply)(?:[-_.+].*)?$", re.I)
 
 #: Адрес сайта в теме: «vacationguide.com». Последняя часть — буквы,
 #: чтобы «5.1.1» и «e.g.» адресом не считались.
@@ -105,10 +101,6 @@ def _header_says(incoming: Incoming, name: str, *values: str) -> bool:
 
 def _has_header(incoming: Incoming, name: str) -> bool:
     return bool(incoming.header(name).strip())
-
-
-def _local_part(incoming: Incoming) -> str:
-    return incoming.from_email.partition("@")[0]
 
 
 def _content_type(incoming: Incoming) -> str:
@@ -140,7 +132,7 @@ def _from_mail_system(incoming: Incoming) -> bool:
     отпуск, принятый за отказ, хоронил бы живой адрес.
     """
     return (
-        bool(_MAIL_SYSTEM.match(_local_part(incoming)))
+        robots.mail_system(incoming.from_email)
         or _content_type(incoming).startswith("multipart/report")
         or incoming.header("Return-Path").strip() == "<>"
     )
@@ -161,9 +153,7 @@ def _robot_sender(incoming: Incoming) -> bool:
     """Отправитель сам говорит, что он робот: обратный адрес noreply или
     просьба Exchange не отвечать ему автоматически — её ставит автоответ,
     чтобы два автоответчика не переписывались до бесконечности."""
-    return bool(_NOREPLY.match(_local_part(incoming))) or _has_header(
-        incoming, "X-Auto-Response-Suppress"
-    )
+    return robots.no_reply(incoming.from_email) or _has_header(incoming, "X-Auto-Response-Suppress")
 
 
 def _looks_automatic(incoming: Incoming) -> bool:
@@ -175,7 +165,7 @@ def _looks_automatic(incoming: Incoming) -> bool:
 def _unread_here(incoming: Incoming, body: str) -> bool:
     """«Ящик не читается» — но не от робота noreply: он говорит о себе,
     а адрес, которому мы писали, жив — по нему уже завели заявку."""
-    return not _NOREPLY.match(_local_part(incoming)) and bool(phrases.NOT_READ_RE.search(body))
+    return not robots.no_reply(incoming.from_email) and bool(phrases.NOT_READ_RE.search(body))
 
 
 def _dead_mailbox(incoming: Incoming, body: str) -> bool:
@@ -266,7 +256,7 @@ RULES: tuple[tuple[str, ReplyKind, _Check], ...] = (
         lambda inc, _: bool(phrases.BOUNCE_SUBJECT_RE.search(_subject(inc))),
     ),
     ("отказ доставки по тексту письма почты", ReplyKind.BOUNCE, _bounce_by_text),
-    ("мёртвый ящик", ReplyKind.BOUNCE, _dead_mailbox),
+    (DEAD_MAILBOX, ReplyKind.BOUNCE, _dead_mailbox),
     ("сумма в тексте важнее фразы", ReplyKind.HUMAN, _sum_outweighs_phrase),
     ("отписка в тексте", ReplyKind.UNSUBSCRIBE, _asks_to_unsubscribe),
     ("автоответчик по заголовкам", ReplyKind.AUTO_REPLY, _signed_by_machine),

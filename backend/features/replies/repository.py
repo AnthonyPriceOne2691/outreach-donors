@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -31,8 +32,11 @@ from backend.features.core.models.outreach import (
     ReplyModel,
     ThreadModel,
 )
+from backend.features.replies import robots
 from backend.features.replies.extract import Extracted
-from backend.features.replies.inbound import Incoming
+from backend.features.replies.inbound import Incoming, masked_for_log
+
+logger = logging.getLogger(__name__)
 
 
 class UnknownReplyError(ValueError):
@@ -64,19 +68,35 @@ class ReplyRepository:
 
     # --- приём ---
 
-    async def already_taken(self, inbound_message_id: str) -> bool:
-        """Принимали ли уже это письмо.
+    async def taken(self, inbound_message_id: str) -> ReplyModel | None:
+        """Ответ, которым это письмо уже принято. `None` — письмо новое.
 
         Провайдер доставляет вебхуки «хотя бы один раз» и повторяет их
         при сбое; без этой проверки повтор дал бы второй ответ, второй
-        разбор и второй платный вызов модели.
+        разбор и второй платный вызов модели. Сам ответ, а не «да»: повтору
+        нужно знать, шёл ли у него разбор цены (`parse_never_ran`).
         """
         if not inbound_message_id:
-            return False
-        rows = await self._session.execute(
-            select(ReplyModel.id).where(ReplyModel.inbound_message_id == inbound_message_id)
+            return None
+        found: ReplyModel | None = await self._session.scalar(
+            select(ReplyModel).where(ReplyModel.inbound_message_id == inbound_message_id)
         )
-        return rows.first() is not None
+        return found
+
+    async def parse_never_ran(self, reply: ReplyModel) -> bool:
+        """Ждёт ли ответ разбора цены, который так и не шёл.
+
+        Разбор оставляет у ответа снимок модели (`model_parse`) всегда —
+        и когда цена нашлась, и когда модель отказала: без снимка ответ
+        не разбирался ни разу. Решение человека разбор заменяет: взятый
+        им ответ модели не отдаётся. Так выглядит ответ, чей разбор
+        не встал в очередь — очередь лежала в минуту вебхука.
+        """
+        if reply.kind is not ReplyKind.HUMAN or reply.model_parse is not None:
+            return False
+        if reply.reviewed_at is not None:
+            return False
+        return await self.stage_of(reply) is Stage.DONORS
 
     async def ours_by_internet_message_id(
         self, message_ids: Sequence[str]
@@ -202,9 +222,23 @@ class ReplyRepository:
 
     async def remember_answering_address(
         self, *, domain_id: int, email: str, now: datetime | None = None
-    ) -> ContactModel:
+    ) -> ContactModel | None:
         """Адрес, с которого ответили, — к контактам донора и как
-        предпочтительный: дальше пишем тому, кто отвечает."""
+        предпочтительный: дальше пишем тому, кто отвечает.
+
+        **Адрес робота не запоминается** (`robots`): письмо от noreply без
+        служебных фраз считается ответом человека — его увидит человек, —
+        но предпочтительным адресом стал бы робот, и следующее письмо
+        донору ушло бы в ящик, который письма выбрасывает. `None` —
+        адрес не запомнен.
+        """
+        if robots.robot(email):
+            logger.info(
+                "приём: ответили с робота %s — адресом домена №%s он не становится",
+                masked_for_log(email),
+                domain_id,
+            )
+            return None
         moment = now or datetime.now(UTC)
         rows = await self._session.execute(
             select(ContactModel)

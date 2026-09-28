@@ -343,6 +343,7 @@ async def _parse_reply(reply_id: int) -> dict[str, Any]:
                 "stored_price": parsed.stored_price,
                 "needs_review": parsed.needs_review,
                 "tokens": parsed.tokens_spent,
+                "skipped": parsed.skipped,
             }
     finally:
         await extractor.aclose()

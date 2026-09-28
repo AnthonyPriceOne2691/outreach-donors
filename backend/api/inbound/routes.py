@@ -22,13 +22,21 @@
 **Отвечаем 200 всему, что приняли,** — включая непонятое. Платформа
 повторяет доставку на любой не-2xx, и отказ на письме, которое мы всё
 равно не сможем разобрать, превращается в бесконечный поток повторов.
-Не-2xx остаётся ровно для одного случая: у нас не получилось сохранить,
-и повтор действительно нужен.
+Не-2xx остаётся для двух случаев, и в обоих повтор действительно нужен:
+у нас не получилось сохранить — или не встал в очередь разбор цены (ниже).
 
 **Разбор цены здесь не делается.** Он идёт задачей очереди: вызов модели
 занимает секунды, платформа повторяет вебхук по таймауту, и платный
 разбор внутри запроса означал бы повторные списания там, где сеть
 подтормозила.
+
+**Разбор, не вставший в очередь, — это 503, а не молчание.** Ответ к тому
+времени уже сохранён, и повтор вебхука его не задвоит, — зато повтор
+поставит разбор снова (`Accepted.to_parse`). Раньше недоступная очередь
+роняла ручку пятисоткой, а повтор видел «уже принято» и не ставил ничего:
+ответ навсегда оставался «ждёт разбора». Постановка идемпотентна — номер
+задачи от номера ответа (`queue.parse_job_id`), и два повтора подряд
+не дают двух платных разборов.
 """
 
 from __future__ import annotations
@@ -39,6 +47,8 @@ import hmac
 import logging
 
 from fastapi import APIRouter, Depends, Header, Request, Response, status
+from redis.exceptions import RedisError
+from rq.exceptions import DuplicateJobError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session
@@ -48,7 +58,7 @@ from backend.features.replies.form_data import FormError, read_form
 from backend.features.replies.inbound import MAX_BODY_CHARS, Incoming, masked_for_log
 from backend.features.replies.mime import incoming_from
 from backend.features.replies.pipeline import Inbox
-from backend.shared.queue import PARSE_JOB, runs_queue, with_retries
+from backend.shared.queue import PARSE_JOB, parse_job_id, runs_queue, with_retries
 from backend.shared.sliding_window import SlidingWindow
 
 logger = logging.getLogger(__name__)
@@ -143,6 +153,46 @@ def _too_large(response: Response, size: str) -> Taken:
     return Taken(accepted=False, reason="Письмо больше допустимого размера")
 
 
+def _queue_parse(reply_id: int | None, message_id: str, response: Response) -> str | None:
+    """Поставить разбор цены — одну задачу на ответ. Причина — если не вышло.
+
+    Разбор цены — задача очереди: платный вызов модели внутри вебхука
+    означал бы повторные списания при таймауте платформы. Уже стоящая задача
+    с тем же номером — не ошибка: это повтор вебхука застал разбор в очереди,
+    и второй платный вызов модели не нужен. Не вставшая — ответ не 2xx,
+    чтобы платформа повторила письмо: сохранённый ответ повтор не задвоит,
+    а разбор поставит.
+    """
+    if reply_id is None:
+        return None
+    try:
+        runs_queue().enqueue(
+            PARSE_JOB,
+            reply_id,
+            job_id=parse_job_id(reply_id, message_id),
+            unique=True,
+            **with_retries(),
+        )
+    except DuplicateJobError:
+        # Задача с этим номером есть: стоит, идёт, ждёт повтора или хранит
+        # итог (неделю, упавшая — дольше). Упавшую видно в её исходе, а сам
+        # ответ без разбора остаётся «ждёт разбора» у человека.
+        logger.info("приём: задача разбора ответа №%s уже есть — второй не ставлю", reply_id)
+    except RedisError as exc:
+        logger.warning(
+            "приём: разбор ответа №%s не поставлен — очередь недоступна (%s). "
+            "Ответ сохранён; платформа повторит письмо, и повтор поставит разбор",
+            reply_id,
+            exc,
+        )
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return (
+            f"Ответ №{reply_id} сохранён, но разбор цены не поставлен: очередь недоступна. "
+            "Повторите доставку — разбор встанет при повторе"
+        )
+    return None
+
+
 async def _letter_from(request: Request, response: Response) -> Incoming | Taken:
     """Письмо из тела запроса — или отказ, если читать нечего.
 
@@ -200,10 +250,7 @@ async def take_reply(
     outcome = await Inbox(session).accept(incoming)
     await session.commit()
 
-    if outcome.parse_pending and outcome.reply_id is not None:
-        # Разбор цены — задача очереди: платный вызов модели внутри
-        # вебхука означал бы повторные списания при таймауте платформы.
-        runs_queue().enqueue(PARSE_JOB, outcome.reply_id, **with_retries())
+    refused = _queue_parse(outcome.to_parse, incoming.message_id, response)
 
     logger.info(
         "приём: письмо от %s — %s",
@@ -217,7 +264,7 @@ async def take_reply(
         bound=outcome.bound,
         duplicate=outcome.duplicate,
         needs_review=outcome.needs_review,
-        reason=outcome.review_reason,
+        reason=refused or outcome.review_reason,
     )
 
 
