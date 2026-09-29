@@ -80,6 +80,18 @@ build-backend = "setuptools.build_meta"
 where = ["."]
 include = ["backend*"]
 
+# Не-питоновые файлы пакета. Образ ставит проект колесом (`uv sync
+# --no-editable`, Dockerfile), а колесо без этого списка уходит с одними `.py`:
+# 29.09.2026 в установленном пакете на проде не нашлось ни одного шаблона
+# письма и ни одного промпта ключей. Сервер и воркеры берут код из /app и этого
+# не видели, а консоль берёт его из site-packages: она не собрала бы ни одного
+# письма, и пробное письмо (`outreach mail-test`) не ушло. Новый такой файл обязан попасть
+# сюда: иначе упадёт `tests/test_package_data.py`, а образ проверит шаг CI
+# «Шаблоны писем и промпты — внутри образа».
+[tool.setuptools.package-data]
+"backend.features.letters" = ["templates/*.txt"]
+"backend.features.keywords" = ["prompts/*.md"]
+
 [tool.ruff]
 target-version = "py312"
 line-length = 100
