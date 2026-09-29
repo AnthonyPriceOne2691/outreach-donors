@@ -169,6 +169,30 @@ jobs:
         # `outreach user-add` внутри контейнера падал на импорте.
         run: docker run --rm outreach-backend:ci outreach --help
 
+      - name: Шаблоны писем и промпты — внутри образа
+        # 29.09.2026 колесо проекта ушло в образ без не-питоновых файлов,
+        # и консольная команда (`outreach mail-test`, `letters-build`) не
+        # находила шаблона письма. Сервер и воркеры этого не видели: они
+        # запускаются из /app и берут код оттуда, а консоль — из
+        # site-packages. Поэтому проверка идёт из чужого каталога и сначала
+        # убеждается, что читает установленную копию: из /app она прошла бы
+        # и на сломанном образе.
+        run: |
+          docker run --rm -i -w /tmp outreach-backend:ci python - <<'EOF'
+          import backend
+          assert "site-packages" in backend.__file__, backend.__file__
+          from backend.features.core.domain import Stage
+          from backend.features.keywords import angles
+          from backend.features.letters import template
+          for stage in Stage:
+              template.for_stage(stage)
+              for step in (1, 2):
+                  template.followup(step, stage)
+          for name in ("guides", "news", "reviews", "topics"):
+              angles.load_prompt(name)
+          print("шаблоны писем и промпты читаются из", backend.__file__)
+          EOF
+
       - name: Миграции на чистой базе — тем же образом, что и на сервере
         # Набор тестов гоняет alembic из рабочей копии; на сервере его
         # гоняет контейнер `migrate` из образа. Разница между ними —
