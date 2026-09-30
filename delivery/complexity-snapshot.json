@@ -412,9 +412,9 @@
       "worst": "_report:180"
     },
     "backend/cli/main.py": {
-      "lines": 444,
+      "lines": 448,
       "complexity": 9,
-      "worst": "_print_report:238"
+      "worst": "_print_report:240"
     },
     "backend/cli/review_queue.py": {
       "lines": 56,
@@ -577,7 +577,7 @@
       "worst": "find_contact_links:193"
     },
     "backend/features/contacts/file_sweep.py": {
-      "lines": 305,
+      "lines": 313,
       "complexity": 8,
       "worst": "_handle_columns:152"
     },

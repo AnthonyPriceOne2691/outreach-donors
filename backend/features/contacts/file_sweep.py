@@ -218,14 +218,22 @@ def rows_from_checkpoint(checkpoint: Path) -> list[dict[str, str]]:
         return []
     rows: list[dict[str, str]] = []
     with checkpoint.open(encoding="utf-8") as handle:
-        for raw in handle:
+        for number, raw in enumerate(handle, start=1):
             line = raw.strip()
             if not line:
                 continue
             try:
                 rows.append(dict(json.loads(line)["row"]))
-            except (ValueError, KeyError, TypeError):
-                continue
+            except (ValueError, KeyError, TypeError) as exc:
+                # Обрыв посреди записи оставляет последнюю строку недописанной:
+                # пропустить её законно, а молча — нет, иначе итог, который
+                # короче прохода на домен, нечем объяснить.
+                logger.warning(
+                    "контакты: строка %s чекпойнта %s не разобрана (%r) — пропущена",
+                    number,
+                    checkpoint,
+                    exc,
+                )
     return rows
 
 
