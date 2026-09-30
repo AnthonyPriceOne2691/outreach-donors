@@ -148,6 +148,9 @@ class TestArticleIsNotASection:
             ("https://site.com/guest-blogging/", PageKind.MONEY),
             ("https://site.com/guest-author/", PageKind.MONEY),
             ("https://site.com/rate-card/", PageKind.MONEY),
+            # Живой прогон 30.09.2026: немецкое `presse` подстрока узнавала через
+            # `press`, сравнение по словам — нет; теперь оно в словаре.
+            ("https://site.de/presse/", PageKind.CONTACT),
         ],
     )
     def test_section_is_still_recognised(self, url: str, kind: PageKind) -> None:

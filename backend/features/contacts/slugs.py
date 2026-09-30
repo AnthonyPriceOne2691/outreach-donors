@@ -107,7 +107,7 @@ LOCALIZED_SLUGS: dict[str, dict[PageKind, tuple[str, ...]]] = {
     },
     "de": {
         PageKind.MONEY: ("werbung", "mediadaten"),
-        PageKind.CONTACT: ("kontakt", "kontakt-impressum"),
+        PageKind.CONTACT: ("kontakt", "kontakt-impressum", "presse"),
         PageKind.ABOUT: ("impressum", "ueber-uns", "team"),
         PageKind.LEGAL: ("datenschutz", "datenschutzerklaerung", "agb"),
     },
