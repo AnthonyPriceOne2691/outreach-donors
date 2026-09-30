@@ -1,0 +1,8 @@
+# unbounded_list_baseline.txt — снимок AST-гейта. Генерируется --generate, НЕ руками.
+# Правило: unbounded-list: эндпоинт отдаёт список без границы
+# Формат: <count>:<path> (path от repo-root). Ратчет вниз: файл проходит при count <= снимок;
+# файл ВНЕ снимка (новый) — hard 0.
+3:backend/api/keywords/routes.py
+2:backend/api/runs/routes.py
+1:backend/api/threads/routes.py
+1:backend/api/users/routes.py

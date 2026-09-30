@@ -1,0 +1,4 @@
+# cpu_in_async_baseline.txt — снимок AST-гейта. Генерируется --generate, НЕ руками.
+# Правило: cpu-in-async: разбор/регулярка в цикле внутри async def
+# Формат: <count>:<path> (path от repo-root). Ратчет вниз: файл проходит при count <= снимок;
+# файл ВНЕ снимка (новый) — hard 0.

@@ -1,0 +1,4 @@
+# silent_except_baseline.txt — снимок AST-гейта. Генерируется --generate, НЕ руками.
+# Правило: silent-except: broad-except без raise/лога
+# Формат: <count>:<path> (path от repo-root). Ратчет вниз: файл проходит при count <= снимок;
+# файл ВНЕ снимка (новый) — hard 0.
