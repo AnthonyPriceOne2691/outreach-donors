@@ -79,8 +79,15 @@ case "$RULE" in
     HINT='Новый код: явные зависимости через параметры/Protocol, конкретные типы вместо Any.'
     ;;
   service-no-web)
-    PATTERN='^[[:space:]]*(from fastapi|import fastapi)'
-    FILTER='/services/|service\.py$'
+    # Адаптация под раскладку проекта (объявлена в adapted.json): сервис-слоя
+    # с именем `services/` здесь нет — доменная логика живёт в
+    # `backend/features/<тема>/`, веб — в `backend/api/`. Канонные ветви FILTER
+    # оставлены: появится `services/` — судиться будет и он. Образец дополнен
+    # `starlette`: FastAPI стоит на нём, и его импорт — та же утечка веба в
+    # домен. Очередь (`rq`) сюда не входит: `features/ops/job_outcome.py`
+    # читает исходы задач по политике сбоев — это его работа, а не утечка.
+    PATTERN='^[[:space:]]*(from fastapi|import fastapi|from starlette|import starlette)'
+    FILTER='/services/|service\.py$|/features/'
     BASELINE="$SCRIPT_DIR/service_no_web_baseline.txt"
     LABEL='service-no-web: сервис-слой не импортирует web-фреймворк'
     HINT='HTTP-примитивы (Request/Depends/HTTPException) — в роутере. Сервис принимает id-параметры и бросает доменные исключения, не HTTP.'
