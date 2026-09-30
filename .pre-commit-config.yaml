@@ -103,7 +103,7 @@ repos:
         # («command not found») отправляют чинить не туда. Держит
         # `TestMypyHookHonoursBothVenvSpellings`, включая обратный прогон.
         entry: |-
-          bash -c 'R="$(git rev-parse --show-toplevel)" || exit 1; B="${LINT_BE_DIR:-backend}"; V="${LINT_VENV:-.venv}"; M=""; for c in "$R/$B/$V/bin/mypy" "$R/$V/bin/mypy" "$R/$B/.venv/bin/mypy"; do [ -x "$c" ] && { M="$c"; break; }; done; [ -n "$M" ] || { printf "\033[31mmypy не найден — искал %s и %s. LINT_VENV принимается и относительно %s, и от repo-root (§6); правится LINT_VENV / LINT_BE_DIR или установкой mypy в venv проекта\033[0m\n" "$B/$V/bin/mypy" "$V/bin/mypy" "$B"; exit 1; }; cd "$R/$B" || exit 1; "$M" --config-file pyproject.toml "${LINT_COV_PKG:-features}"'
+          bash -c 'R="$(git rev-parse --show-toplevel)" || exit 1; B="${LINT_BE_DIR:-.}"; V="${LINT_VENV:-.venv}"; M=""; for c in "$R/$B/$V/bin/mypy" "$R/$V/bin/mypy" "$R/$B/.venv/bin/mypy"; do [ -x "$c" ] && { M="$c"; break; }; done; [ -n "$M" ] || { printf "\033[31mmypy не найден — искал %s и %s. LINT_VENV принимается и относительно %s, и от repo-root (§6); правится LINT_VENV / LINT_BE_DIR или установкой mypy в venv проекта\033[0m\n" "$B/$V/bin/mypy" "$V/bin/mypy" "$B"; exit 1; }; cd "$R/$B" || exit 1; "$M" --config-file pyproject.toml "${LINT_COV_PKG:-backend}"'
         pass_filenames: false
 
   # -------------------------------------------------------------------------

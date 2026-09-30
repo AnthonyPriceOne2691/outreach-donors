@@ -10,8 +10,23 @@
     "kind": "adaptation"
   },
   ".pre-commit-config.yaml": {
-    "reason": "три правки под проект: (1) собственный pre-push проекта сохранён локальным хуком — он жил через core.hooksPath, что запрещает pre-commit install; (2) default_install_hook_types дополнен pre-push, иначе в новой копии защита перед пушем молча не появлялась; (3) check-yaml с --unsafe: docker-compose.prod.yml несёт тег !override, и стандартный хук падает на нём ложным красным",
-    "changed": "локальный хук project-pre-push; default_install_hook_types: [pre-commit, pre-push]; args: [--unsafe] у check-yaml; env-префиксы области под раскладку проекта",
+    "reason": "три правки под проект: (1) собственный pre-push проекта сохранён локальным хуком — он жил через core.hooksPath, что запрещает pre-commit install; (2) default_install_hook_types дополнен pre-push, иначе в новой копии защита перед пушем молча не появлялась; (3) check-yaml с --unsafe: docker-compose.prod.yml несёт тег !override, и стандартный хук падает на нём ложным красным; (4) хук mypy брал область только из окружения, а умолчания стояли канонные (backend и пакет features): в CI их задаёт quality.yml, а обычный git commit без LINT_* падал «Cannot find config file pyproject.toml» — на любом коммите с правкой питона",
+    "changed": "локальный хук project-pre-push; default_install_hook_types: [pre-commit, pre-push]; args: [--unsafe] у check-yaml; env-префиксы области под раскладку проекта; умолчания хука mypy — корень (LINT_BE_DIR=.) и пакет backend, как у раскладки проекта",
+    "kind": "adaptation"
+  },
+  "scripts/lint/check_grep_gate.sh": {
+    "reason": "раскладка проекта: сервис-слой не называется services/ — доменная логика в backend/features/<тема>/, веб — в backend/api/. С канонным FILTER правило service-no-web просматривало 0 файлов, то есть было зелёным, не просудив ничего",
+    "changed": "правило service-no-web: FILTER дополнен ветвью /features/, PATTERN — starlette (FastAPI стоит на нём). rq в PATTERN не добавлен: features/ops/job_outcome.py читает исходы задач по политике сбоев. Канонные ветви сохранены. Проверено порчей: from fastapi в модуле фичи роняет гейт",
+    "kind": "adaptation"
+  },
+  ".importlinter": {
+    "reason": "контракты лежали в backend/.importlinter, а шапка файла сама говорит «запуск из корня репозитория — root_packages = backend»; гейт слоёв запускает lint-imports из каталога конфига. После LINT_BE_DIR=. (нужно mypy) гейт искал ./.importlinter, не находил и в CI печатал «гейт слоёв пропущен — ни одного конфига контрактов» при зелёном хуке: контракты не проверял никто",
+    "changed": "backend/.importlinter перенесён в корень (.importlinter) — гейт находит его при любом LINT_BE_DIR и запускает из корня; files: хука layers-gate уже был написан под корневой файл. Проверено порчей: импорт backend.api из features роняет контракт",
+    "kind": "adaptation"
+  },
+  "tsconfig.depcruise.json": {
+    "reason": "фронт лежит в frontend/, а depcruise запускается из корня: include [\"src\"] фронтового tsconfig разрешался от корня — TS18003 «No inputs were found», и гейт честно отказывался судить",
+    "changed": "корневой tsconfig.depcruise.json наследует frontend/tsconfig.json и перебазирует include на frontend/src — вариант, который конфиг канона сам называет законным",
     "kind": "adaptation"
   }
 }
