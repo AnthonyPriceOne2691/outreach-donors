@@ -15,7 +15,7 @@
 # `language: system` делит entry по shlex и делает exec, поэтому `VAR=x` уходит в
 # argv[0] и падает FileNotFoundError. Нашло приёмочное развёртывание.
 
-default_install_hook_types: [pre-commit]
+default_install_hook_types: [pre-commit, pre-push]
 fail_fast: false
 
 repos:
