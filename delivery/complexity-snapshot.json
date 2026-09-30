@@ -642,9 +642,9 @@
       "worst": "search_contacts:136"
     },
     "backend/features/contacts/slugs.py": {
-      "lines": 255,
+      "lines": 303,
       "complexity": 5,
-      "worst": "_stem_at_edge:237"
+      "worst": "_markers_by_length:223"
     },
     "backend/features/contacts/step_counters.py": {
       "lines": 85,

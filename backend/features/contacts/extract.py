@@ -25,7 +25,7 @@ import re
 
 from selectolax.parser import HTMLParser
 
-from backend.features.contacts.slugs import names_section, url_names_section
+from backend.features.contacts.slugs import link_text_names_section, url_names_section
 
 logger = logging.getLogger(__name__)
 
@@ -211,6 +211,6 @@ def find_contact_links(html: str, *, slugs: frozenset[str]) -> set[str]:
         href = (node.attributes.get("href") or "").strip()
         if not href or href.startswith(("mailto:", "tel:", "javascript:", "#")):
             continue
-        if url_names_section(href, slugs) or names_section(node.text() or "", slugs):
+        if url_names_section(href, slugs) or link_text_names_section(node.text() or "", slugs):
             links.add(href)
     return links

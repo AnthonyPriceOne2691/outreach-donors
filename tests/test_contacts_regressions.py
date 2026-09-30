@@ -100,6 +100,8 @@ class TestArticleIsNotASection:
             # Живой прогон 30.09.2026: `press` внутри «чеснокодавки» делал
             # обзор кухонной утвари страницей контактов сайта газеты.
             "https://zeitung.de/kaufkompass/test/die-beste-knoblauchpresse/",
+            # Формы слова не делают заголовок разделом: шесть слов — статья.
+            "https://site.com/news/guest-post-drama-at-the-oscars/",
         ],
     )
     def test_article_is_home_weight(self, url: str) -> None:
@@ -125,6 +127,27 @@ class TestArticleIsNotASection:
             ("https://shop.com/SupportCenter/", PageKind.CONTACT),
             # А `press` внутри `impressum` — нет: это раздел «о нас» по словарю.
             ("https://zeitung.de/service/impressum/", PageKind.ABOUT),
+            # Ревью #120: множественное число в многословном слаге. Для
+            # гест-постинга это самые ценные страницы, и первая версия правки
+            # их теряла: `posts` не равно `post`.
+            ("https://site.com/guest-posts/", PageKind.MONEY),
+            ("https://site.com/sponsored-posts/", PageKind.MONEY),
+            ("https://site.com/submit-guest-posts/", PageKind.MONEY),
+            ("https://site.com/submit-articles/", PageKind.MONEY),
+            ("https://site.com/mediakit/", PageKind.MONEY),
+            ("https://site.com/mediakits/", PageKind.MONEY),
+            ("https://site.com/guestposts.html", PageKind.MONEY),
+            ("https://site.com/writeforus/", PageKind.MONEY),
+            # Ревью #120: разделы продажи размещения, которых в словаре не было.
+            ("https://site.com/sponsorship/", PageKind.MONEY),
+            ("https://site.com/sponsored-content/", PageKind.MONEY),
+            ("https://site.com/work-with-me/", PageKind.MONEY),
+            ("https://site.com/partner-with-us/", PageKind.MONEY),
+            ("https://site.com/contribute/", PageKind.MONEY),
+            ("https://site.com/become-a-contributor/", PageKind.MONEY),
+            ("https://site.com/guest-blogging/", PageKind.MONEY),
+            ("https://site.com/guest-author/", PageKind.MONEY),
+            ("https://site.com/rate-card/", PageKind.MONEY),
         ],
     )
     def test_section_is_still_recognised(self, url: str, kind: PageKind) -> None:
@@ -175,6 +198,11 @@ class TestHeadlinesDoNotEatTheBudget:
             ("/p/3", "О нас"),
             ("/p/4", "Advertise with us"),
             ("/p/5", "Redaksi"),
+            ("/guest-posts/", "Guest Posts"),
+            # WordPress без ЧПУ живёт только текстом ссылки, а в тексте бывает
+            # имя издания: длинное слово раздела в начале фразы — раздел.
+            ("/?page_id=12", "Advertise with The Verge"),
+            ("/?page_id=13", "Contact the editorial team"),
         ],
     )
     def test_short_section_names_are_links(self, href: str, text: str) -> None:

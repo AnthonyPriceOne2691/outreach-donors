@@ -23,6 +23,10 @@ SLUGS: dict[PageKind, tuple[str, ...]] = {
         "write-for-us", "write-for-me", "guest-post", "guest-posting", "submit-article",
         "advertise", "advertising", "advertise-with-us", "sponsored-post", "media-kit",
         "partnership", "work-with-us",
+        # Ниже — для опознания ссылки и вида страницы: круговой обход до них
+        # не доходит, так что бюджет угадывания они не трогают (ревью #120).
+        "sponsorship", "sponsored-content", "work-with-me", "partner-with-us", "contribute",
+        "become-a-contributor", "guest-blogging", "guest-author", "rate-card",
     ),
     PageKind.CONTACT: (
         "contact", "contacts", "contact-us", "contactus", "get-in-touch",
@@ -192,6 +196,20 @@ _EXTRA_WORDS = 2
 # `wordpress`, `knoblauchpresse`.
 _STEM_MIN_LETTERS = 7
 
+# Последнее слово многословного маркера узнаётся и в форме: `guest-posts`,
+# `submit-articles`, `privacy-policies`. Ревью #120: точное сравнение теряло
+# страницы продажи размещения во множественном числе — для гест-постинга самые
+# ценные. Окончание → чем заменить; основа короче трёх букв не берётся, иначе
+# `about-uses` становится `about-us`.
+_ENDINGS = (("ies", "y"), ("es", ""), ("s", ""), ("ing", ""), ("ing", "e"), ("ed", ""), ("ed", "e"))
+
+# Текст ссылки бывает длиннее названия раздела: «Advertise with The Verge»,
+# «Contact the editorial team» — имя издания после слова раздела, а у WordPress
+# без ЧПУ (`?page_id=12`) текст — единственный признак. Длинное слово раздела
+# В НАЧАЛЕ текста узнаётся во фразе до пяти слов; короткие слова (`sobre`,
+# `iklan`) так не сравниваются — ими начинаются заголовки.
+_LEAD_MAX_WORDS = 5
+
 
 def _words(text: str) -> tuple[str, ...]:
     return tuple(
@@ -209,6 +227,9 @@ def _markers_by_length(markers: frozenset[str]) -> dict[int, frozenset[tuple[str
         words = _words(marker.rsplit("/", 1)[-1])
         if words:
             grouped.setdefault(len(words), set()).add(words)
+        if len(words) > 1:
+            # Слитная форма — тоже маркер: `mediakit`, `writeforus`, `guestpost`.
+            grouped.setdefault(1, set()).add(("".join(words),))
     return {length: frozenset(group) for length, group in grouped.items()}
 
 
@@ -229,8 +250,27 @@ def _marker_at_edge(words: tuple[str, ...], markers: frozenset[str]) -> bool:
     total = len(words)
     return any(
         length <= total <= length + _EXTRA_WORDS
-        and (words[:length] in known or words[total - length :] in known)
+        and (_known(words[:length], known) or _known(words[total - length :], known))
         for length, known in _markers_by_length(markers).items()
+    )
+
+
+def _known(part: tuple[str, ...], known: frozenset[tuple[str, ...]]) -> bool:
+    """Маркер целиком — или многословный с последним словом в форме."""
+    if part in known:
+        return True
+    if len(part) < 2:
+        return False
+    head, last = part[:-1], part[-1]
+    return any((*head, base) in known for base in _bases(last))
+
+
+def _bases(word: str) -> tuple[str, ...]:
+    """Начальные формы слова: `posts` → `post`, `policies` → `policy`."""
+    return tuple(
+        word[: len(word) - len(ending)] + replacement
+        for ending, replacement in _ENDINGS
+        if word.endswith(ending) and len(word) - len(ending) + len(replacement) >= 3
     )
 
 
@@ -241,6 +281,14 @@ def _stem_at_edge(words: tuple[str, ...], markers: frozenset[str]) -> bool:
     return any(
         word.startswith(stem) or word.endswith(stem) for word in edges for stem in _stems(markers)
     )
+
+
+def link_text_names_section(text: str, markers: frozenset[str]) -> bool:
+    """Текст ссылки: как `names_section`, плюс длинное слово раздела в начале фразы."""
+    if names_section(text, markers):
+        return True
+    words = _words(text)
+    return 0 < len(words) <= _LEAD_MAX_WORDS and words[0].startswith(_stems(markers))
 
 
 def url_names_section(url: str, markers: frozenset[str]) -> bool:
