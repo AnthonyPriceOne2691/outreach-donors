@@ -122,10 +122,33 @@ def measure_file(path: Path) -> FileMetrics:
     )
 
 
+#: Механика контура: наш репозиторий, ЧУЖОЕ авторство (CQG §6, третий принцип).
+#: Она приезжает перевендориванием и чинится в репозитории канона — снимок её
+#: сложности здесь был бы долгом, который проект не может ни снять, ни объяснить.
+#: Замер 30.09: ратчет объявил 32 расхождения, ВСЕ в payload. То же исключение
+#: стоит у ruff (pyproject.toml) и у scripts/gates.py.
+CONTOUR_PREFIXES = (
+    "scripts/lint/",
+    "scripts/delivery_",
+    "scripts/okf_",
+    "scripts/merge_guard",
+    "docs/canon/",
+    "extract_payload.py",
+)
+
+
+def _is_contour(path: Path) -> bool:
+    if not path.is_relative_to(ROOT):
+        return False
+    return path.relative_to(ROOT).as_posix().startswith(CONTOUR_PREFIXES)
+
+
 def _python_files(targets: Iterable[str]) -> Iterator[Path]:
     for target in targets:
         for path in sorted((ROOT / target).rglob("*.py")):
             if {"migrations", "__pycache__", ".venv"} & set(path.parts):
+                continue
+            if _is_contour(path):
                 continue
             yield path
 

@@ -96,7 +96,16 @@ include = ["backend*"]
 target-version = "py312"
 line-length = 100
 src = ["backend", "tests"]
-extend-exclude = ["migrations", ".venv", "venv", "__pycache__"]
+extend-exclude = [
+    "migrations", ".venv", "venv", "__pycache__",
+    # Механика контура — НАШ репозиторий, ЧУЖОЕ авторство (CQG §6, третий
+    # принцип). Она приезжает перевендориванием и чинится не здесь: правка,
+    # сделанная линтером проекта, разойдётся со снимком канона, и доктор
+    # объявит адаптацию, которой не делали. Замер 30.09: ruff проекта дал 100
+    # ошибок в 26 файлах payload при нуле в легаси проекта.
+    "scripts/lint", "scripts/delivery_*.py", "scripts/okf_*.py",
+    "scripts/merge_guard.sh", "extract_payload.py", "docs/canon",
+]
 
 [tool.ruff.lint]
 select = ["E","W","F","I","N","UP","B","C4","C90","SIM","RUF","ASYNC","S","PT","RET","PIE","PL","TRY400","BLE001","ARG","DTZ"]

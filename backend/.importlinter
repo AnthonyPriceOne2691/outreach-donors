@@ -1,0 +1,57 @@
+# Static dependency direction enforcement (import-linter).
+# Запуск: lint-imports (из корня репозитория — root_packages = backend).
+# Стратегия канона: enforce то, что уже соблюдается; расширять по мере слоёв.
+# Легаси-нарушения выносить в ignore_imports с пометкой "TODO: SEOLB-000" (свой тикет).
+#
+# Заполнено при развёртывании контура 2026-09-30. Контракты выбраны по ПРИНЦИПУ
+# «запрещаем то, что уже не нарушается»: гейт, красный с первого дня, снимают
+# первым (§4.3b), поэтому здесь только направления, подтверждённые прогоном.
+
+[importlinter]
+root_packages =
+    backend
+
+# --------------------------------------------------------------------
+# Контракт 1: домен не знает про транспорт. features/** — предметная область,
+# api/** и cli/** — обвязка; обратный импорт означает, что логика уехала в ручку.
+# --------------------------------------------------------------------
+[importlinter:contract:features-do-not-know-transport]
+name = features не импортирует api / cli
+type = forbidden
+source_modules =
+    backend.features
+forbidden_modules =
+    backend.api
+    backend.cli
+allow_indirect_imports = True
+
+# --------------------------------------------------------------------
+# Контракт 2: shared — лист. Общая инфраструктура (база, утилиты) не имеет
+# права знать ни про домены, ни про транспорт: иначе «общее» становится
+# вторым местом, где живёт предметная логика.
+# --------------------------------------------------------------------
+[importlinter:contract:shared-is-a-leaf]
+name = shared не импортирует features / api / cli
+type = forbidden
+source_modules =
+    backend.shared
+forbidden_modules =
+    backend.features
+    backend.api
+    backend.cli
+allow_indirect_imports = True
+
+# --------------------------------------------------------------------
+# Контракт 3: config — лист по той же причине: настройка читается всеми,
+# сама не читает никого.
+# --------------------------------------------------------------------
+[importlinter:contract:config-is-a-leaf]
+name = config не импортирует features / api / cli
+type = forbidden
+source_modules =
+    backend.config
+forbidden_modules =
+    backend.features
+    backend.api
+    backend.cli
+allow_indirect_imports = True

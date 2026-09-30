@@ -1,0 +1,354 @@
+# pre-commit hooks. Установка: pip install pre-commit && pre-commit install.
+# Прогон по всему дереву: pre-commit run --all-files.
+#
+# Пути ниже — под backend/-и-frontend/-layout (git-root = корень проекта).
+# Поправь files:/exclude:/entry: и путь к venv (.venv) под свою структуру.
+# Скрипт-хуки читают структуру из env LINT_PY_SRC/LINT_FE_DIR/... (см. §6 документа) —
+# задай их здесь ПРЕФИКСОМ или через export, если дефолты не подходят:
+#   entry: bash -c 'cd "$(git rev-parse --show-toplevel)" && LINT_PY_SRC=backend/app bash scripts/lint/check_grep_gate.sh --rule config-access'
+#   entry: bash -c 'export LINT_PY_SRC=backend/app; cd "$(git rev-parse --show-toplevel)" && bash ...'
+# ⚠ Форма `LINT_PY_SRC=... && bash ...` (стояла здесь до cqg@1.28) НЕ работает:
+# присваивание без export и с `&&` создаёт переменную ТЕКУЩЕГО шелла, а гейт —
+# дочерний процесс, он её не видит. Гейт молча брал дефолт `backend/features`,
+# каталога не было, и он печатал мягкий пропуск с exit 0 — зелёный гейт,
+# просмотревший ноль файлов. Форма без `bash -c` невозможна в принципе:
+# `language: system` делит entry по shlex и делает exec, поэтому `VAR=x` уходит в
+# argv[0] и падает FileNotFoundError. Нашло приёмочное развёртывание.
+
+default_install_hook_types: [pre-commit, pre-push]
+fail_fast: false
+
+repos:
+  # -------------------------------------------------------------------------
+  # 0. Базовая гигиена: конфиги ОБЯЗАНЫ парситься. Без этого сломанный YAML в
+  # .github/workflows/ живёт незамеченным: хостинг не кричит, а показывает
+  # workflow путём вместо имени и валит прогон (реальный случай 2026-07-28).
+  # Косметические хуки (trailing-whitespace, end-of-file-fixer) сознательно НЕ
+  # включены: они трогают все существующие файлы не по теме поставки.
+  # -------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+        # АДАПТАЦИЯ (adapted.json): `--unsafe` — разбор синтаксиса без
+        # конструкторов. docker-compose.prod.yml несёт тег `!override`
+        # (расширение compose), и стандартный check-yaml падает на нём
+        # «could not determine a constructor for the tag». Файл валиден
+        # для своего потребителя; красное здесь — ложное.
+        args: [--unsafe]
+      - id: check-json
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=512]
+
+  # -------------------------------------------------------------------------
+  # Python: ruff (lint + format) — под backend.
+  # -------------------------------------------------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.13
+    hooks:
+      # ⚠ `exclude:` держится ОТДЕЛЬНО от `files:`, и это не дубль. `files:`
+      # проект правит под свою раскладку — это прямо разрешено шапкой выше, и
+      # на стеке без `backend/` его снимают целиком. Тогда линтер добирается до
+      # payload'а КОНТУРА: этот код проект не писал, чинить его не может (он
+      # приезжает перевендориванием), а `ruff-format` ещё и перепишет тело —
+      # снимок разойдётся с каноном, и доктор объявит адаптацию, которой не
+      # делали. Замер: `lash-try-on` снял `files:` (python у него не под
+      # backend) и получил четыре ошибки ruff на `scripts/delivery_status.py`
+      # плюс переписанные косметическими хуками файлы снимка.
+      # Судит payload его владелец — сьют канона (`test_payload_passes_own_gates`).
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+        files: ^backend/
+        exclude: ^(docs/canon/|scripts/(lint/|merge_guard\.sh|delivery_|okf_))
+      - id: ruff-format
+        files: ^backend/
+        exclude: ^(docs/canon/|scripts/(lint/|merge_guard\.sh|delivery_|okf_))
+
+  # -------------------------------------------------------------------------
+  # Python: mypy strict через проектный venv (local hook, НЕ mirrors-mypy: у того
+  # изолированное venv без проектных плагинов/модулей).
+  #
+  # ⚠ ОДИН вызов на пакет, `pass_filenames: false`. Раньше здесь стоял per-file
+  # прогон, и pre-commit разбивал файлы на пачки: на большом дереве (84 файла)
+  # mypy падал INTERNAL ERROR на второй пачке, тогда как первая печатала
+  # «Success». Причины две, обе неприятные: mypy на пачках теряет часть графа
+  # импортов, а краш ОБРЫВАЕТ джобу — шаги ниже не выполняются вовсе.
+  # Один прогон по пакету медленнее на коммите, но воспроизводим и кэшируется.
+  # -------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy strict (весь пакет, один вызов)
+        language: system
+        files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
+        exclude: /tests/
+        # Имя пакета — из env, как все остальные пути (§6). До cqg@1.37 здесь
+        # стояло вшитое `features`, и на проекте с пакетом `app` хук падал
+        # `Cannot read file 'features'`. Само по себе это диагностируется по §6,
+        # но контраст «пути настраиваются через env» против «этот путь inline»
+        # стоил неверного диагноза: сводка «mypy strict … Failed» читалась как
+        # ошибки типов (развёртывание 2026-07-31, дефект прочтения, не механики).
+        #
+        # ⚠ `LINT_VENV` разрешается ПО КАНДИДАТАМ, как в четырёх скриптах гейтов, —
+        # находка 5 первого развёртывания. §6 обещает, что значение принимается и
+        # относительно backend, и от repo-root («скрипты разрешают оба написания»),
+        # но этот entry делал `cd backend` и брал значение уже ОТТУДА: разрешённое
+        # `backend/.venv` давало `backend/backend/.venv/bin/mypy` и **exit 127
+        # сырой ошибкой шелла**. Читается как поломка окружения, а не как
+        # расхождение канона с самим собой. Третий кандидат — venv в корне репо
+        # (тот же layout, что разрешают гейты). Инструмента нет — причина
+        # НАЗЫВАЕТСЯ, включая переменную, которой это правится: чужие слова
+        # («command not found») отправляют чинить не туда. Держит
+        # `TestMypyHookHonoursBothVenvSpellings`, включая обратный прогон.
+        entry: |-
+          bash -c 'R="$(git rev-parse --show-toplevel)" || exit 1; B="${LINT_BE_DIR:-backend}"; V="${LINT_VENV:-.venv}"; M=""; for c in "$R/$B/$V/bin/mypy" "$R/$V/bin/mypy" "$R/$B/.venv/bin/mypy"; do [ -x "$c" ] && { M="$c"; break; }; done; [ -n "$M" ] || { printf "\033[31mmypy не найден — искал %s и %s. LINT_VENV принимается и относительно %s, и от repo-root (§6); правится LINT_VENV / LINT_BE_DIR или установкой mypy в venv проекта\033[0m\n" "$B/$V/bin/mypy" "$V/bin/mypy" "$B"; exit 1; }; cd "$R/$B" || exit 1; "$M" --config-file pyproject.toml "${LINT_COV_PKG:-features}"'
+        pass_filenames: false
+
+  # -------------------------------------------------------------------------
+  # TypeScript / React: ESLint (per-file errors) + warning-ратчет + Prettier.
+  # -------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: eslint
+        name: ESLint (TypeScript) — вне снимка ошибок
+        language: system
+        types_or: [ts, tsx]
+        files: ^frontend/src/
+        # Файлы, стоящие в снимке ошибок, здесь ПРОПУСКАЮТСЯ: их судит ратчет
+        # (`eslint-error-ratchet`, только вниз). Иначе два хука противоречили бы
+        # друг другу — ратчет разрешает легаси-долг, а этот валил бы на нём всегда,
+        # и для brownfield-фронта не оставалось пути войти (cqg@1.38).
+        # Здесь остаётся то, что ратчет и требует: файл ВНЕ снимка обязан быть чист.
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)"; b=scripts/lint/eslint_warnings_baseline.txt; files=(); for f in "$@"; do rel="${f#frontend/}"; grep -qE "^[0-9]+:${rel}\$" "$b" 2>/dev/null || files+=("$rel"); done; [ ${#files[@]} -eq 0 ] && exit 0; cd frontend && npx --no-install eslint "${files[@]}"' --
+        pass_filenames: true
+
+      - id: eslint-warning-ratchet
+        name: ESLint warnings — рост запрещён (count-ratchet)
+        language: system
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)"; export LINT_PY_SRC=backend LINT_BE_DIR=. LINT_COV_PKG=backend LINT_VENV=.venv; bash scripts/lint/check_eslint_warnings.sh'
+        files: ^frontend/src/.*\.(ts|tsx)$
+        pass_filenames: false
+
+      - id: prettier
+        name: Prettier (TypeScript / JSON / CSS)
+        language: system
+        types_or: [ts, tsx, javascript, json, css]
+        files: ^frontend/src/
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)/frontend" && files=(); for f in "$@"; do files+=("${f#frontend/}"); done; npx --no-install prettier --check "${files[@]}"' --
+        pass_filenames: true
+
+  # -------------------------------------------------------------------------
+  # Файлы кода: prod <= 500 / tests <= 1000 строк (baseline-ratchet).
+  # -------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: file-length
+        name: Файлы кода <= 500/1000 строк (baseline-ratchet)
+        language: system
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)"; export LINT_PY_SRC=backend LINT_BE_DIR=. LINT_COV_PKG=backend LINT_VENV=.venv; bash scripts/lint/check_file_length.sh'
+        types_or: [python, ts, tsx]
+        pass_filenames: false
+
+  # -------------------------------------------------------------------------
+  # Греп-гейты конвенций (per-file baseline-ratchet).
+  # -------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      # -----------------------------------------------------------------------
+      # ⚠ files: у гейтов ниже включает и КОНФИГИ, не только код. Причина: с маской
+      # `^backend/.*\.py$` коммит, меняющий `pyproject.toml`, `.pre-commit-config.yaml`
+      # или снимок в `scripts/lint/`, не запускал ни одного гейта — то есть правка
+      # САМИХ ПОРОГОВ порогами не проверялась. Нашли два развёртывания независимо.
+      # Бюджет §8.6 не страдает: такие коммиты редки, у гейтов `pass_filenames: false`,
+      # и на обычной правке кода маска работает как раньше.
+      # -----------------------------------------------------------------------
+      - id: config-access-gate
+        name: config-access — типизированный config.X, не getattr/os.getenv
+        language: system
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)"; export LINT_PY_SRC=backend LINT_BE_DIR=. LINT_COV_PKG=backend LINT_VENV=.venv; bash scripts/lint/check_grep_gate.sh --rule config-access'
+        files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
+        pass_filenames: false
+      - id: di-indirection-gate
+        name: di-indirection — без pkg/session/ctx Any и importlib reach-back
+        language: system
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)"; export LINT_PY_SRC=backend LINT_BE_DIR=. LINT_COV_PKG=backend LINT_VENV=.venv; bash scripts/lint/check_grep_gate.sh --rule di-indirection'
+        files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
+        pass_filenames: false
+      - id: service-no-web-gate
+        name: service-no-web — сервис-слой не импортирует web-фреймворк
+        language: system
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)"; export LINT_PY_SRC=backend LINT_BE_DIR=. LINT_COV_PKG=backend LINT_VENV=.venv; bash scripts/lint/check_grep_gate.sh --rule service-no-web'
+        files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
+        pass_filenames: false
+      - id: no-grab-bag-module-gate
+        name: no-grab-bag — utils/misc/common/helpers.py без темы запрещены
+        language: system
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)"; export LINT_PY_SRC=backend LINT_BE_DIR=. LINT_COV_PKG=backend LINT_VENV=.venv; bash scripts/lint/check_grep_gate.sh --rule no-grab-bag-module'
+        files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
+        pass_filenames: false
+      - id: silent-except-gate
+        name: silent-except — broad-except без raise/лога (AST)
+        language: system
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)" || exit 1; P=""; for c in "${LINT_BE_DIR:-backend}/${LINT_VENV:-.venv}/bin/python" "${LINT_VENV:-.venv}/bin/python" "backend/.venv/bin/python"; do [ -x "$c" ] && { P="$c"; break; }; done; [ -n "$P" ] || P="$(command -v python3)"; "$P" scripts/lint/check_ast_gate.py --rule silent-except'
+        files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
+        pass_filenames: false
+      - id: inline-prompt-gate
+        name: inline-prompt — LLM-промпт инлайном в .py (AST)
+        language: system
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)" || exit 1; P=""; for c in "${LINT_BE_DIR:-backend}/${LINT_VENV:-.venv}/bin/python" "${LINT_VENV:-.venv}/bin/python" "backend/.venv/bin/python"; do [ -x "$c" ] && { P="$c"; break; }; done; [ -n "$P" ] || P="$(command -v python3)"; "$P" scripts/lint/check_ast_gate.py --rule inline-prompt'
+        files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
+        pass_filenames: false
+      - id: cpu-in-async-gate
+        name: cpu-in-async — разбор/регулярка в цикле внутри async def (AST)
+        language: system
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)" || exit 1; P=""; for c in "${LINT_BE_DIR:-backend}/${LINT_VENV:-.venv}/bin/python" "${LINT_VENV:-.venv}/bin/python" "backend/.venv/bin/python"; do [ -x "$c" ] && { P="$c"; break; }; done; [ -n "$P" ] || P="$(command -v python3)"; "$P" scripts/lint/check_ast_gate.py --rule cpu-in-async'
+        files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
+        pass_filenames: false
+
+  # -------------------------------------------------------------------------
+  # DRY / copy-paste гейт (jscpd clone-count ratchet).
+  # -------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: unbounded-list-gate
+        name: unbounded-list — эндпоинт отдаёт список без границы (AST)
+        language: system
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)" || exit 1; P=""; for c in "${LINT_BE_DIR:-backend}/${LINT_VENV:-.venv}/bin/python" "${LINT_VENV:-.venv}/bin/python" "backend/.venv/bin/python"; do [ -x "$c" ] && { P="$c"; break; }; done; [ -n "$P" ] || P="$(command -v python3)"; "$P" scripts/lint/check_ast_gate.py --rule unbounded-list'
+        files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
+        pass_filenames: false
+
+  # -------------------------------------------------------------------------
+  # DRY / copy-paste гейт (jscpd clone-count ratchet).
+  # -------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: jscpd-dry-gate
+        name: DRY — рост копипаста (jscpd clone-count ratchet)
+        language: system
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)"; export LINT_PY_SRC=backend LINT_BE_DIR=. LINT_COV_PKG=backend LINT_VENV=.venv; bash scripts/lint/check_jscpd_gate.sh'
+        files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
+        pass_filenames: false
+
+  # -------------------------------------------------------------------------
+  # import-linter — направление зависимостей между слоями.
+  # -------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: layers-gate
+        name: layers — направление зависимостей (import-linter / dependency-cruiser)
+        language: system
+        entry: bash scripts/lint/check_layers_gate.sh
+        files: ^(backend/.*\.py|frontend/src/.*|\.importlinter|\.dependency-cruiser\..*|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
+        pass_filenames: false
+
+  # -------------------------------------------------------------------------
+  # Функции и диагностируемость: сложность на уровне функции (плохой код живёт
+  # там, а не в файле) и сообщения ошибок с контекстом (§2.4a).
+  # -------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: complexity-gate
+        name: function complexity ratchet (C901/PLR09xx)
+        entry: bash scripts/lint/check_complexity_gate.sh
+        language: system
+        files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
+        pass_filenames: false
+
+      - id: blind-error
+        name: error messages carry context
+        entry: bash scripts/lint/check_grep_gate.sh --rule blind-error
+        language: system
+        files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
+        pass_filenames: false
+      - id: unstructured-log
+        name: logs are structured (searchable by field)
+        entry: bash scripts/lint/check_grep_gate.sh --rule unstructured-log
+        language: system
+        files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
+        pass_filenames: false
+
+  # deps-audit и mutation — НЕ на commit (§8.6: бюджет 5 с). deps-audit ходит в
+  # сеть, mutation считает минуты. Их место — CI и pre-push.
+  - repo: local
+    hooks:
+      # -----------------------------------------------------------------------
+      # Secrets. §2.7 посылала за этим блоком «в конец Приложения B», а блока здесь
+      # НЕ БЫЛО — он жил только в прозе §2.7. Кто копировал конфиг дословно (а канон
+      # требует именно дословно), получал контур без secrets-хука, при том что
+      # строка приёмки §6 «Нет секретов в git» помечена `auto`. Три независимых
+      # развёртывания нашли это по отдельности. Альтернатива — gitleaks, см. §2.7.
+      # -----------------------------------------------------------------------
+      - id: detect-secrets-guard
+        name: secrets — ничего секретного в коммит (§2.7)
+        language: system
+        # entry блочным скаляром `|-`, а НЕ plain: в тексте есть «Установка: pip …»,
+        # а последовательность `": "` внутри plain-скаляра YAML запрещена и роняет
+        # разбор ВСЕГО файла — pre-commit не стартует ни одним хуком. Именно так и
+        # вышло при добавлении этого хука; поймал приёмочный прогон, а не
+        # самопроверка, потому что PyYAML на машине правившего не стоял.
+        #
+        # lab-11 F10: хук печатал `Passed`, не просканировав НИ ОДНОГО файла —
+        # голый `command -v` не видел инструмента в venv проекта, а «инструмента
+        # нет» выходил нулём. Единственный хук с голым PATH был ровно тот, для
+        # которого §6 запрещает soft-режим. Теперь: ① инструмент ищется СНАЧАЛА
+        # в venv (как у mypy-соседа), потом в PATH; ② инструмента нет + weak НЕ
+        # объявлен в STATUS = exit 1 — наказывается ложь, а не бедность (тот же
+        # принцип, что check_ci_status.sh); ③ успех печатает число просмотренных
+        # (§6: «чисто» обязано отличаться от «ноль файлов»); ④ нет baseline при
+        # живом инструменте = exit 1 с командой снятия.
+        #
+        # ⚠ Сообщения ниже пишут «secrets — …», а НЕ «secrets: …», и это не стиль.
+        # Замер (первое развёртывание, находка 2): detect-secrets на yaml-файле
+        # относит находку к строке `entry: |-`, а его KeywordDetector считает
+        # секретом всё, что стоит после `secret…:` — то есть текст СВОЕГО ЖЕ
+        # сообщения. Конфиг канона краснил у собственного хука. Двоеточие после
+        # слова из denylist'а (`secret`, `password`, `token`, `api_key`) внутри
+        # этого entry запрещено; регрессия — `tests/test_payload_clean_for_scanners.py`.
+        entry: |-
+          bash -c 'cd "$(git rev-parse --show-toplevel)" || exit 1; t=""; for c in "${LINT_VENV:-backend/.venv}/bin/detect-secrets-hook" "${LINT_BE_DIR:-backend}/.venv/bin/detect-secrets-hook" ".venv/bin/detect-secrets-hook"; do [ -x "$c" ] && { t="$c"; break; }; done; [ -n "$t" ] || t="$(command -v detect-secrets-hook || true)"; if [ -n "$t" ]; then [ -f .secrets.baseline ] || { printf "\033[31msecrets — baseline отсутствует. Сними его (порядок §5 шага 11: сначала git add): detect-secrets scan \$(git ls-files -c -o --exclude-standard) > .secrets.baseline\033[0m\n"; exit 1; }; "$t" --baseline .secrets.baseline "$@" || exit 1; printf "secrets — просканировано %d файл(ов)\n" "$#"; else if grep -qsiE "security-oracles:.*weak" delivery/active/STATUS.md; then printf "\033[33m⚠ detect-secrets не установлен; security-oracles: weak объявлен в STATUS — бедность названа, не спрятана (§2.7)\033[0m\n"; else printf "\033[31msecrets — инструмента НЕТ, а weak НЕ объявлен — гейт не смеет молча выйти нулём (lab-11 F10). Выходы: pip install detect-secrets (он в requirements-dev.txt шага 4) ИЛИ объяви security-oracles: weak в delivery/active/STATUS.md\033[0m\n"; exit 1; fi; fi' --
+        pass_filenames: true
+
+      # ⚠ ЗАМЕР, а не мнение: `deps-audit` один даёт ~24 с (ходит в сеть за базой
+      # уязвимостей), при бюджете pre-push ≤10 с (§8.6). Восьмое развёртывание
+      # намерило 24.5 с против 0.04 с без него — то есть весь перебор бюджета давал
+      # он. Хук, вылезший за бюджет, начинают обходить (`--no-verify`), и тогда не
+      # работает ни он, ни соседи. Поэтому по умолчанию гейт **CI-only**: в
+      # `quality.yml` он обязателен, а на pre-push включается строкой ниже — только
+      # если проект замерил и уложился (кэш индекса, офлайн-база).
+      #   stages: [pre-push]
+      - id: deps-audit
+        name: no new vulnerable dependencies (CI-only по бюджету §8.6)
+        entry: bash scripts/lint/check_deps_audit.sh
+        language: system
+        stages: [manual]
+        pass_filenames: false
+        always_run: true
+
+  # Мета-гейт — ПОСЛЕДНИМ. Проверяет, что все гейты выше вообще подключены:
+  # забытый в этом файле скрипт молча не работает (§3, gate-coverage).
+  - repo: local
+    hooks:
+      - id: gate-coverage
+        name: every gate script is wired into pre-commit/CI
+        entry: bash scripts/lint/check_gate_coverage.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
+  # --- Собственный pre-push проекта, сохранённый при развёртывании контура ----
+  # Он был единственным хуком проекта и жил через `core.hooksPath`, что физически
+  # запрещает `pre-commit install` (framework ставит хуки в .git/hooks). Выбор
+  # был не «чей хук важнее», а «оба или ни одного»: контур требует своих хуков,
+  # а этот несёт то, чего в контуре нет — прогон тестов и фронта перед пушем.
+  # Поэтому `core.hooksPath` снят, а скрипт подключён здесь и продолжает работать.
+  - repo: local
+    hooks:
+      - id: project-pre-push
+        name: Проектный pre-push (линт, типы, тесты, фронт)
+        entry: bash scripts/hooks/pre-push
+        language: system
+        stages: [pre-push]
+        pass_filenames: false
+        always_run: true

@@ -1,0 +1,467 @@
+name: quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Отмена устаревших прогонов той же ветки. Без этого пуш серии коммитов держит
+# столько параллельных прогонов, сколько было пушей, и квота уходит на проверку
+# кода, который уже неактуален. §8.7 требует считать цену прогона — это первый
+# способ её снизить, не убирая ни одной проверки.
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  STRICT: "1"                 # soft-режим в CI запрещён (Delivery §10.4)
+  # ⚠ Область — ВЕСЬ backend, а не канонный backend/features: домены лежат в
+  # backend/features/*, но рядом живут api/, cli/, shared/, config/ — 158 файлов,
+  # которых при канонном значении не видел НИ ОДИН гейт. Поймал доктор локально,
+  # а в CI то же значение стояло вторым местом: хуки pre-commit экспортируют
+  # backend, а шаги, зовущие скрипты напрямую, читали узкую область отсюда.
+  # Одно понятие — одно место (§2.9): значения здесь и в хуках обязаны совпадать.
+  LINT_PY_SRC: backend
+  LINT_FE_DIR: frontend
+  LINT_BE_DIR: "."
+  LINT_COV_PKG: backend
+  LINT_VENV: .venv
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    # §8.7: предохранитель, а не оптимизация — гейты — секунды-минуты; 20 значит «что-то повисло».
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0      # нужен для BASE-диффа: diff-coverage и baseline-ratchet
+      # §8.3a: база диффа определяется ОДИН раз на джобу и называет отказ вслух.
+      #
+      # ⚠ Прежняя форма стояла в каждом шаге:
+      # `BASE: origin/${{ github.base_ref || github.event.repository.default_branch }}`.
+      # На событии **push** `base_ref` пуст, фолбэк даёт `origin/main`, а на push
+      # в main это САМ HEAD — дифф пуст. Четыре проверки судили пустоту: с
+      # `okf@1.16` гейт канона краснел (и main краснел после КАЖДОГО слияния), а
+      # breakers, ratchet и diff-coverage проходили ТРИВИАЛЬНО и молча, что хуже:
+      # их зелёное уезжало в отчёт как «проверено». Замерено на `local-web-agent`
+      # 2026-09-26, прогоны 36260966608 и 36260992795.
+      #
+      # Лестница без молчаливой ступени: PR — ветка назначения; push — состояние
+      # ДО толчка (`github.event.before`); ни то ни другое недостижимо — отказ с
+      # названной причиной, а не тихий фолбэк на HEAD.
+      - name: Diff base (одна на джобу, отказ — вслух)
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="origin/${{ github.base_ref }}"
+          else
+            before="${{ github.event.before }}"
+            zero="0000000000000000000000000000000000000000"
+            if [ -n "$before" ] && [ "$before" != "$zero" ] \
+               && git cat-file -e "${before}^{commit}" 2>/dev/null; then
+              base="$before"
+            else
+              # Новая ветка (before = нули) или переписанная история: прошлого
+              # состояния в дереве нет. Берём общую базу с веткой по умолчанию —
+              # и только если она НЕ равна HEAD, иначе это снова «судить ничего».
+              default="${{ github.event.repository.default_branch }}"
+              base="$(git merge-base "origin/$default" HEAD 2>/dev/null || true)"
+              if [ -z "$base" ] || [ "$base" = "$(git rev-parse HEAD)" ]; then
+                echo "::error::база диффа не определима (before=$before, default=$default):"\
+                     "первый push репозитория или переписанная история." \
+                     "Открой PR или сделай второй коммит — гейт не имеет права судить пустоту."
+                exit 1
+              fi
+            fi
+          fi
+          echo "BASE=$base" >> "$GITHUB_ENV"
+          echo "база диффа: $base"
+
+      # ⚠ Версия ОБЯЗАНА совпадать с локальной. Иначе гейты проверяют один
+      # интерпретатор, а разработка идёт на другом, и часть падений видна только
+      # в CI (реальный случай: mypy крашился на 3.12 и работал на 3.14). Держи
+      # одно значение здесь и в `requires-python` / `.python-version` проекта.
+      # ⚠ `cache:` вычисляется, а не пишется константой, и это не аккуратность.
+      # `cache: pip` требует python-манифеста: на проекте без него (Astro/TS)
+      # `setup-python` падает с `No file matched to [**/requirements.txt or
+      # **/pyproject.toml]` — то есть шаблон канона нёс питоновское допущение и
+      # ронял ВСЮ джобу гейтов до первого гейта. Замерено на восьмом развёртывании;
+      # тот же класс, что маска гейта, не знающая про `.astro` (cqg@1.69).
+      # Пустая строка = кэш выключен, и это штатное значение действия.
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"   # ← выровнять с локальной версией проекта
+          cache: ${{ hashFiles('**/requirements*.txt', '**/pyproject.toml') != '' && 'pip' || '' }}
+      # То же для npm: путь к lock-файлу задан ПАТТЕРНОМ, потому что фронт живёт
+      # либо в подкаталоге, либо в корне репозитория. Жёсткий
+      # `frontend/package-lock.json` роняет действие на «Some specified paths were
+      # not resolved» ровно там, где фронт и есть весь проект.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: ${{ hashFiles('**/package-lock.json') != '' && 'npm' || '' }}
+          cache-dependency-path: '**/package-lock.json' 
+
+      - name: Install backend deps
+        run: |
+          # АДАПТАЦИЯ: venv создаётся ТАМ, где его ищут гейты. Шаблон канона
+          # зашивает backend/.venv, а гейты читают $LINT_BE_DIR/$LINT_VENV — на
+          # раскладке с pyproject в корне эти два места расходятся, и mypy
+          # честно отвечал «не найден» при установленном инструменте.
+          VENV_DIR="${LINT_BE_DIR:-backend}/${LINT_VENV:-.venv}"
+          python -m venv "$VENV_DIR"
+          # if-блок, а не `test -f X && cmd`: под `bash -e` ложный test уронил бы шаг.
+          # requirements-dev.txt может отсутствовать (uv/pyproject-проект) — до
+          # lab-11 F9 безусловный `pip install -r` обрывал ЗДЕСЬ всю джобу гейтов,
+          # при том что охрана стояла на соседней строке. Нет манифеста — ставится
+          # тот же список инструментов, что в манифесте (сверяется тестом), и выбор
+          # печатается: молча разные окружения = «у меня локально проходило».
+          if [ -f backend/requirements-dev.txt ]; then
+            echo "deps: backend/requirements-dev.txt"
+            "$VENV_DIR"/bin/pip install -r backend/requirements-dev.txt
+          else
+            echo "deps: манифеста нет — dev-инструменты гейтов по списку Приложения B"
+            "$VENV_DIR"/bin/pip install 'ruff>=0.6.9' 'mypy>=1.11.2' 'types-PyYAML>=6.0' 'pre-commit>=3.8.0' 'detect-secrets>=1.5.0' 'pip-audit>=2.7' 'mutmut>=3.6' 'pytest-cov>=5.0' 'pytest-env>=1.1' 'hypothesis>=6.100' 'import-linter>=2.0'
+          fi
+          if [ -f backend/requirements.txt ]; then
+            "$VENV_DIR"/bin/pip install -r backend/requirements.txt
+          fi
+          # Рантайм-зависимости pyproject-проекта: без них mypy падает «Error
+          # importing plugin pydantic.mypy», и диагноз читается как дефект
+          # проекта (lab-11 F6). Неудача editable не роняет шаг: гейты ниже
+          # скажут о своей беде сами, а предупреждение называет причину.
+          if [ -f backend/pyproject.toml ]; then
+            "$VENV_DIR"/bin/pip install -e backend || echo "::warning::editable-установка backend не удалась — mypy может не видеть рантайм-зависимости проекта"
+          fi
+          # АДАПТАЦИЯ ПРОЕКТА (adapted.json): pyproject и uv.lock лежат в КОРНЕ,
+          # а не в backend/. Шаблон канона ищет их только под backend/, поэтому
+          # зависимости продукта в venv гейтов не попадали вовсе: pip-audit
+          # проверял окружение инструментов (py_total 12 при чистом продукте), а
+          # mypy strict шёл без единой зависимости проекта и краснел не о том.
+          # Нашла сессия проекта разбором прогона 22468bb.
+          if [ -f pyproject.toml ] && [ ! -f backend/pyproject.toml ]; then
+            echo "deps: pyproject в корне — ставлю проект и его зависимости"
+            "$VENV_DIR"/bin/pip install -e . || echo "::warning::editable-установка корня не удалась"
+          fi
+          # cqg@2.39: продукт ставится ИЗ LOCK. `pip install -e .` решает версии
+          # по диапазонам pyproject и тянет с PyPI свежее прод-образа — lock
+          # обходили ровно этой строкой, и mypy strict судил не те версии, что
+          # поедут, а аудит считал не то дерево (замер 30.09: py_total 12 в CI
+          # против 0 по uv export --frozen).
+          # cqg@2.40: uv ставится в venv оснастки, если его нет на раннере —
+          # иначе ветвь ниже молча не срабатывает и гейты мерят окружение.
+          if [ -f uv.lock ] && ! command -v uv >/dev/null 2>&1; then
+            "$VENV_DIR"/bin/pip install uv >/dev/null 2>&1 || echo "::warning::uv не поставился"
+          fi
+          UV_BIN=$(command -v uv 2>/dev/null || echo "$VENV_DIR/bin/uv")
+          if [ -f uv.lock ] && [ -x "$UV_BIN" ]; then
+            echo "deps: продукт из uv.lock (версии как в проде)"
+            "$UV_BIN" export --frozen --no-hashes --no-emit-project --all-extras \
+              | "$VENV_DIR"/bin/pip install -r /dev/stdin \
+              || echo "::warning::установка из uv.lock не удалась — гейты увидят версии, отличные от прод-образа"
+          fi
+
+      - name: Install frontend deps
+        run: |
+          # Фронт бывает в подкаталоге И в корне. `npm ci --prefix frontend` на
+          # проекте, где фронт и есть корень, обрывал джобу до первого гейта.
+          FE=${LINT_FE_DIR:-frontend}
+          if [ -f "$FE/package-lock.json" ]; then
+            npm ci --prefix "$FE"
+          elif [ -f package-lock.json ]; then
+            npm ci
+          else
+            echo "::notice::npm-манифеста нет — фронтовые гейты уйдут в честный пропуск"
+          fi
+
+      # ⚠ ГЛАВНЫЙ УРОК восьмого развёртывания, и он не про кэш. Когда шаг установки
+      # упал, соседние гейты с `if: always()` отработали и отчитались ЗЕЛЁНЫМ —
+      # каждый честно сказал «инструмента нет → пропуск», а в сумме это читается
+      # как «гейты прошли». Локально такой пропуск честен (стенд беден), в CI —
+      # нет: инструменты ставятся шагом выше, и их отсутствие означает, что шаг
+      # упал. Поэтому здесь пропуск переводится в КРАСНОЕ, и делается это до
+      # гейтов, чтобы причина стояла в логе раньше их зелёных галок.
+      # ⚠ Список НЕ зашит: он выводится из того, что объявил САМ ПРОЕКТ.
+      # Первая редакция (cqg@1.85) ждала `backend/.venv/bin/{ruff,mypy,
+      # detect-secrets}` — и на npm-проекте роняла джобу, хотя ruff и mypy там
+      # объявлены `n/a`, а venv не заводится вовсе. Это девятый рецидив класса
+      # «шаблон канона несёт питоновское допущение», и заведён он был шагом,
+      # который этот самый класс и чинит. Нашло поле (portfolio-site, 2026-08-07).
+      #
+      # Правило: инструмент ожидается, если ЕСТЬ манифест его половины и роль не
+      # объявлена неприменимой в `scripts/lint/not-applicable.json`. Ищем и в
+      # venv, и в `node_modules/.bin`, и в PATH — где лежит, решает менеджер
+      # пакетов, а не канон.
+      - name: Инструменты гейтов на месте (иначе пропуск читается как успех)
+        run: |
+          na="scripts/lint/not-applicable.json"
+          skip() { [ -f "$na" ] && grep -q "\"$1\"" "$na"; }
+          have() {
+            for p in "backend/.venv/bin/$1" ".venv/bin/$1" "node_modules/.bin/$1" \
+                     "$LINT_FE_DIR/node_modules/.bin/$1"; do
+              [ -x "$p" ] && return 0
+            done
+            command -v "$1" >/dev/null 2>&1
+          }
+          missing=""; checked=""
+          expect() { skip "$1" || { checked="$checked $1"; have "$1" || missing="$missing $1"; }; }
+          expect detect-secrets
+          # ⚠ Условие идёт через `grep -q .`, а не через код возврата `ls`: `ls A B`
+          # при существующем A и отсутствующем B выходит ЕДИНИЦЕЙ (замер: rc=1),
+          # поэтому прежняя форма `ls **/pyproject.toml **/requirements*.txt`
+          # на pyproject-проекте БЕЗ requirements.txt (uv/poetry — тот же случай,
+          # что lab-11 F9) не ожидала ни ruff, ни mypy. Шаг, заведённый против
+          # тихого пропуска, сам уходил в тихий пропуск.
+          if ls pyproject.toml */pyproject.toml requirements*.txt */requirements*.txt 2>/dev/null | grep -q .; then
+            expect ruff; expect mypy
+          fi
+          if [ -f package.json ] || [ -f "$LINT_FE_DIR/package.json" ]; then
+            expect eslint; expect jscpd
+          fi
+          if [ -n "$missing" ]; then
+            echo "::error::инструменты гейтов не поставились:$missing"
+            echo "Гейты ниже уйдут в честный пропуск, и джоба будет ВЫГЛЯДЕТЬ проверенной."
+            echo "Смотри шаг установки: он упал или поставил не туда (§8.3)."
+            echo "Инструмент не нужен на этом стеке — объяви роль в $na (§5.5)."
+            exit 1
+          fi
+          echo "toolchain: проверено ->$checked (пусто = все роли объявлены n/a)"
+
+      # ⚠ `if: always()` на КАЖДОМ независимом гейте — не косметика.
+      # Шаг, который не просто падает, а КРАШИТСЯ (mypy INTERNAL ERROR), обрывает
+      # джобу, и все шаги ниже не выполняются НИ РАЗУ. Реальный случай
+      # (2026-07-28): четыре гейта — gate-coverage, secrets, baseline-ratchet,
+      # diff-coverage — не запускались за всё развёртывание, и об этом никто не
+      # сообщил: в логе их просто нет. Подключённый гейт за упавшим шагом
+      # неотличим от отсутствующего (Delivery §3.1a).
+      # ⚠ `--verbose` обязателен, и это не отладка. Без него pre-commit ГЛОТАЕТ
+      # stdout прошедших хуков, и числа «просмотрено N файл(ов)» в лог не
+      # попадают. Строка приёмки §6 («каждый гейт показал непустое число») тогда
+      # проверяема локально и НЕПРОВЕРЯЕМА в CI — то есть ровно там, где по
+      # §10.4 живёт истина, которую агент не может обойти. Найдено приёмкой
+      # восьмого развёртывания.
+      - name: pre-commit (all files, STRICT=1)
+        id: precommit
+        run: |
+          pip install pre-commit
+          pre-commit run --all-files --show-diff-on-failure --verbose
+
+      - name: Gate coverage (все гейты подключены)
+        if: always()
+        run: bash scripts/lint/check_gate_coverage.sh
+
+      # ⚠ Третий из трёх РАЗНЫХ вопросов §5 шаг 5: вписаны ли гейты · зелены ли
+      # вписанные · СУДЯТ ли вписанные. Третий тут не стоял, и это была не
+      # мелочь: в GitLab-адаптере (§8.3a) доктор был, в этом workflow — нет,
+      # то есть у инструмента был постоянный исполнитель на одном хостинге и не
+      # было на другом. А канон сам требует (карта §7.1): `auto` — это про
+      # постоянного исполнителя, а не про существование команды. Значит все
+      # вердикты доктора — расхождение конфига со снимком, слепые гейты,
+      # разъехавшиеся записи о версии — на GitHub-проекте читал только тот, кто
+      # вспомнит запустить руками. Асимметрию внёс `cqg@2.01` и не заметил.
+      #
+      # `DEAD` роняет шаг, `WEAK`/`ABSENT`/`SKIP` — нет: доктор красен ровно
+      # тогда, когда объявленная проверка молчит на своём же нарушении.
+      # Замер цены: 4.7–5.5 с против двадцатиминутного бюджета джобы.
+      - name: Contour doctor (гейты не только вписаны, но и судят)
+        if: always()
+        run: python3 scripts/lint/contour_doctor.py
+
+      - name: Baseline ratchet (снимки только вниз)
+        if: always()
+        run: bash scripts/lint/check_baseline_ratchet.sh
+
+      # Новая прямая зависимость обязана быть объявлена решением в STATUS.
+      # Здесь, а не на коммите: нужен remote-ref для сравнения манифестов.
+      - name: New dependency declared
+        if: always()
+        run: python scripts/lint/check_new_dependency.py
+
+      - name: Diff coverage
+        if: always()
+        env:
+          MIN_PCT: "70"
+        run: bash scripts/lint/check_diff_coverage.sh
+
+      - name: Vulnerable dependencies
+        if: always()
+        run: bash scripts/lint/check_deps_audit.sh
+
+      # Мутационный гейт — самый дорогой, поэтому только на PR и с бюджетом.
+      # Он отвечает на вопрос, который diff-coverage не задаёт: тесты вообще
+      # что-нибудь утверждают?
+      - name: Mutation testing (changed files, budgeted)
+        if: always() && github.event_name == 'pull_request'
+        env:
+          MIN_KILLED: "60"
+          BUDGET_SEC: "300"
+        run: bash scripts/lint/check_mutation_gate.sh
+
+  delivery:
+    runs-on: ubuntu-latest
+    # §8.7: предохранитель, а не оптимизация — фазовый гейт читает файлы; 10 с запасом.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0      # breakers и метрики считаются по merge-base..HEAD
+      # §8.3a: база диффа определяется ОДИН раз на джобу и называет отказ вслух.
+      #
+      # ⚠ Прежняя форма стояла в каждом шаге:
+      # `BASE: origin/${{ github.base_ref || github.event.repository.default_branch }}`.
+      # На событии **push** `base_ref` пуст, фолбэк даёт `origin/main`, а на push
+      # в main это САМ HEAD — дифф пуст. Четыре проверки судили пустоту: с
+      # `okf@1.16` гейт канона краснел (и main краснел после КАЖДОГО слияния), а
+      # breakers, ratchet и diff-coverage проходили ТРИВИАЛЬНО и молча, что хуже:
+      # их зелёное уезжало в отчёт как «проверено». Замерено на `local-web-agent`
+      # 2026-09-26, прогоны 36260966608 и 36260992795.
+      #
+      # Лестница без молчаливой ступени: PR — ветка назначения; push — состояние
+      # ДО толчка (`github.event.before`); ни то ни другое недостижимо — отказ с
+      # названной причиной, а не тихий фолбэк на HEAD.
+      - name: Diff base (одна на джобу, отказ — вслух)
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="origin/${{ github.base_ref }}"
+          else
+            before="${{ github.event.before }}"
+            zero="0000000000000000000000000000000000000000"
+            if [ -n "$before" ] && [ "$before" != "$zero" ] \
+               && git cat-file -e "${before}^{commit}" 2>/dev/null; then
+              base="$before"
+            else
+              # Новая ветка (before = нули) или переписанная история: прошлого
+              # состояния в дереве нет. Берём общую базу с веткой по умолчанию —
+              # и только если она НЕ равна HEAD, иначе это снова «судить ничего».
+              default="${{ github.event.repository.default_branch }}"
+              base="$(git merge-base "origin/$default" HEAD 2>/dev/null || true)"
+              if [ -z "$base" ] || [ "$base" = "$(git rev-parse HEAD)" ]; then
+                echo "::error::база диффа не определима (before=$before, default=$default):"\
+                     "первый push репозитория или переписанная история." \
+                     "Открой PR или сделай второй коммит — гейт не имеет права судить пустоту."
+                exit 1
+              fi
+            fi
+          fi
+          echo "BASE=$base" >> "$GITHUB_ENV"
+          echo "база диффа: $base"
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Delivery phase gate + circuit breakers
+        run: |
+          if [ -f delivery/active/STATUS.md ]; then
+            python scripts/delivery_check.py --require-ci --diff-base "$BASE"
+          else
+            echo "no active delivery — skip"
+          fi
+
+      # if: always() — как у джобы gates. Без него падение фазового гейта уносило
+      # ЧЕТЫРЕ проверки ниже: они не запускались, и в логе их просто не было — тот же
+      # механизм и то же число, что в разобранном случае 2026-07-28 (§6.0: «смотреть
+      # ЛОГ прогона, а не факт наличия шага»). Нашло приёмочное развёртывание:
+      # `gates 12/6`, `delivery 8/0`.
+      - name: Canon sync gate (code <-> knowledge)
+        if: always()
+        run: |
+          if [ -f scripts/okf_sync_gate.py ]; then
+            python scripts/okf_sync_gate.py --base "$BASE"
+          else
+            echo "no OKF sync gate — skip"
+          fi
+
+      - name: Harness metrics (report only, never fails)
+        if: always()
+        run: |
+          if [ -f scripts/delivery_metrics.py ]; then
+            python scripts/delivery_metrics.py --base "$BASE" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Smoke evals (product oracles)
+        if: always()
+        run: |
+          if [ -f delivery/evals/smoke/run.sh ]; then
+            bash delivery/evals/smoke/run.sh
+          else
+            echo "no smoke suite — Delivery §6 backlog"
+          fi
+
+      - name: OKF bundle validator
+        if: always()
+        run: |
+          if [ -f scripts/okf_validate.py ] && [ -d knowledge ]; then
+            python scripts/okf_validate.py knowledge/
+          else
+            echo "no OKF bundle — skip"
+          fi
+
+      # Строка приёмки §6 «Payload самих канонов не сломан» помечена `auto`, а
+      # `auto` по легенде §6 — «прибито скриптом», НЕ «есть команда, которую надо
+      # не забыть набрать». До версии cqg@1.31 самопроверка вызывалась только из
+      # чеклиста самой приёмки, то есть исполнителем был человек, читающий §6, —
+      # и строка закрывалась заявлением (F7 восьмого развёртывания). §7.1 объявляет
+      # вариант C дефолтом, но шага, который его исполняет, не было ни здесь, ни
+      # в десяти шагах §5.
+      # PyYAML ставится ЯВНО и до прогона: без парсера yaml-блоки проверяются
+      # только на табы, самопроверка печатает «0 failures», и битый конфиг
+      # проходит молча — реальный случай `stack-map@1.32` (`.pre-commit-config.yaml`
+      # не парсился целиком, pre-commit не стартовал ни одним хуком).
+      - name: Canon payload selftest (§7.1)
+        if: always()
+        run: |
+          pip install PyYAML
+          # Сверка записи со снимком. Сам selftest этого не ловит: он сверяет шапки
+          # снимка с таблицей §1 ТОГО ЖЕ снимка, то есть сам с собой, — поэтому
+          # «снимок отстал от upstream» изнутри проекта невидимо (lab-9 №3).
+          # Здесь проверяется то, что изнутри видно: `stack:` в STATUS обязан
+          # называть версии, которые в снимке реально лежат.
+          if [ -d docs/canon ] && [ -f delivery/active/STATUS.md ]; then
+            python - <<'CHECK'
+          import re, pathlib, sys
+          status = pathlib.Path("delivery/active/STATUS.md").read_text(encoding="utf-8")
+          m = re.search(r"(?m)^\s*[-*]?\s*\**stack\**\s*:\s*(.+)$", status)
+          if not m:
+              print("нет строки stack: в STATUS — сверять не с чем"); sys.exit(0)
+          claimed = dict(re.findall(r"([a-z]+)@([\d.]+)", m.group(1)))
+          bad = []
+          for layer, f in (("delivery", "AGENT_DELIVERY_HARNESS.md"),
+                           ("cqg", "CODE_QUALITY_GATES.md"),
+                           ("okf", "OKF_KNOWLEDGE_BUNDLE.md")):
+              p = pathlib.Path("docs/canon") / f
+              if layer not in claimed or not p.is_file():
+                  continue
+              h = re.search(r"\*\*Canon version:\*\*\s*`[a-z]+@([\d.]+)`",
+                            p.read_text(encoding="utf-8"))
+              if h and h.group(1) != claimed[layer]:
+                  bad.append(f"{layer}: STATUS says {claimed[layer]}, snapshot has {h.group(1)}")
+          if bad:
+              print("::error::snapshot drifted from STATUS (AGENT_STACK §7.1):")
+              for b in bad:
+                  print("::error::" + b)
+              sys.exit(1)
+          print("stack: в STATUS совпадает со снимком docs/canon/")
+          CHECK
+          fi
+          if [ -f docs/canon/stack_selftest.py ]; then
+            python docs/canon/stack_selftest.py docs/canon     # вариант C (дефолт)
+          elif [ -f stack_selftest.py ]; then
+            python stack_selftest.py .                         # вариант A
+          elif [ -d docs/canon ]; then
+            echo "::error::docs/canon/ есть, а stack_selftest.py в снимке нет:"
+            echo "::error::снимок неполон, проверять payload нечем (§7.1 вариант C, §5 шаг 11)"
+            exit 1
+          elif grep -q 'stack-selftest:' delivery/active/STATUS.md 2>/dev/null; then
+            # Вариант B законен: каноны лежат вне репо, в CI их физически нет.
+            # Но §7.1 требует записать это в STATUS — иначе инвариант выглядит
+            # покрытым, хотя не покрыт ничем. Здесь эта запись и проверяется:
+            # до cqg@1.31 правило держалось на честности исполнителя.
+            echo "каноны вне репо — вариант B; значение объявлено в STATUS, инвариант назван"
+          else
+            echo "::error::снимка канонов в репо нет и строки stack-selftest: в STATUS тоже нет."
+            echo "::error::Разверни вариант C (§5 шаг 11) или объяви B: stack-selftest: external (<путь>)"
+            exit 1
+          fi

@@ -1,0 +1,4 @@
+# no_grab_bag_baseline.txt — снимок grep-гейта. Генерируется --generate, НЕ руками.
+# Правило: no-grab-bag-module: файлы-помойки utils/misc/common/helpers.py без темы запрещены
+# Формат: <count>:<path> (path от repo-root).
+# Ратчет вниз: файл проходит при count <= снимок; файл ВНЕ снимка (новый) — hard 0.

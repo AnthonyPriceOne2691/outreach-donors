@@ -1,0 +1,4 @@
+# service_no_web_baseline.txt — снимок grep-гейта. Генерируется --generate, НЕ руками.
+# Правило: service-no-web: сервис-слой не импортирует web-фреймворк
+# Формат: <count>:<path> (path от repo-root).
+# Ратчет вниз: файл проходит при count <= снимок; файл ВНЕ снимка (новый) — hard 0.

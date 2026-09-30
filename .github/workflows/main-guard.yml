@@ -1,0 +1,43 @@
+# .github/workflows/main-guard.yml
+name: main-guard
+
+on:
+  workflow_run:
+    workflows: [quality]      # ← имя из `name:` в quality.yml
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  alert:
+    # Только на красный результат quality: зелёный прогон даёт честный skipped,
+    # а не «успешно ничего не сделали».
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    # §8.7: предохранитель на КАЖДОЙ джобе — дефолт GitHub 6 часов. Приёмочное
+    # развёртывание нашло, что таймауты стояли только в quality.yml.
+    timeout-minutes: 5
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Один открытый issue на проблему, а не по одному на каждый push.
+          existing=$(gh issue list --repo "$REPO" --state open \
+            --search "RED on main in:title" --json number --jq '.[0].number // ""')
+          body="Прогон quality на main завершился красным.
+          Commit: \`$SHA\`
+          Прогон: $RUN_URL
+
+          Скорее всего слито мимо \`merge_guard.sh\` (CQG §8.5). Починить или откатить."
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$REPO" --body "$body"
+          else
+            gh issue create --repo "$REPO" --title "RED on main: $SHA" --body "$body"
+          fi
+      - run: exit 1

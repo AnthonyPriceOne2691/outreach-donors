@@ -1,0 +1,8 @@
+# blind_error_baseline.txt — снимок grep-гейта. Генерируется --generate, НЕ руками.
+# Правило: blind-error: сообщение об ошибке без контекста не локализует проблему
+# Формат: <count>:<path> (path от repo-root).
+# Ратчет вниз: файл проходит при count <= снимок; файл ВНЕ снимка (новый) — hard 0.
+1:backend/api/inbound/routes.py
+1:backend/features/access/administration.py
+1:backend/features/access/passwords.py
+1:backend/features/contacts/manual.py

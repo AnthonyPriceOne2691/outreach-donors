@@ -1,0 +1,4 @@
+# config_access_baseline.txt — снимок grep-гейта. Генерируется --generate, НЕ руками.
+# Правило: config-access: getattr(config,...) / os.getenv вне config/
+# Формат: <count>:<path> (path от repo-root).
+# Ратчет вниз: файл проходит при count <= снимок; файл ВНЕ снимка (новый) — hard 0.

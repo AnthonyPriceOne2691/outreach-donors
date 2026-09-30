@@ -1,0 +1,4 @@
+# deps_audit_baseline.txt — снимок известных уязвимостей в зависимостях.
+# Снимок только ТАЕТ: обновил либу — пере-сними вниз.
+# НОВЫЕ critical/high не легализуются снимком (HARD_FAIL_SEVERITY=1).
+py_total=0 js_critical=0 js_high=0 js_total=4
