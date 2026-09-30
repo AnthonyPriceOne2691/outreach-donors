@@ -31,14 +31,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import contacts as cfg
 from backend.features.contacts.browser import PlaywrightRenderer
-from backend.features.contacts.ladder import ContactLadder, LadderResult
+from backend.features.contacts.ladder import ContactLadder, LadderResult, StepCounters
 from backend.features.contacts.provider import (
     ContactProvider,
     HunterProvider,
     ProviderError,
 )
 from backend.features.contacts.repository import ContactQueue, ContactRepository
-from backend.features.contacts.step_counters import StepCounters
 from backend.shared.net.url_guard import guarded_client
 
 logger = logging.getLogger(__name__)
