@@ -191,19 +191,19 @@ repos:
       - id: silent-except-gate
         name: silent-except — broad-except без raise/лога (AST)
         language: system
-        entry: bash -c 'cd "$(git rev-parse --show-toplevel)" && backend/.venv/bin/python scripts/lint/check_ast_gate.py --rule silent-except'
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)" || exit 1; P=""; for c in "${LINT_BE_DIR:-backend}/${LINT_VENV:-.venv}/bin/python" "${LINT_VENV:-.venv}/bin/python" "backend/.venv/bin/python"; do [ -x "$c" ] && { P="$c"; break; }; done; [ -n "$P" ] || P="$(command -v python3)"; "$P" scripts/lint/check_ast_gate.py --rule silent-except'
         files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
         pass_filenames: false
       - id: inline-prompt-gate
         name: inline-prompt — LLM-промпт инлайном в .py (AST)
         language: system
-        entry: bash -c 'cd "$(git rev-parse --show-toplevel)" && backend/.venv/bin/python scripts/lint/check_ast_gate.py --rule inline-prompt'
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)" || exit 1; P=""; for c in "${LINT_BE_DIR:-backend}/${LINT_VENV:-.venv}/bin/python" "${LINT_VENV:-.venv}/bin/python" "backend/.venv/bin/python"; do [ -x "$c" ] && { P="$c"; break; }; done; [ -n "$P" ] || P="$(command -v python3)"; "$P" scripts/lint/check_ast_gate.py --rule inline-prompt'
         files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
         pass_filenames: false
       - id: cpu-in-async-gate
         name: cpu-in-async — разбор/регулярка в цикле внутри async def (AST)
         language: system
-        entry: bash -c 'cd "$(git rev-parse --show-toplevel)" && backend/.venv/bin/python scripts/lint/check_ast_gate.py --rule cpu-in-async'
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)" || exit 1; P=""; for c in "${LINT_BE_DIR:-backend}/${LINT_VENV:-.venv}/bin/python" "${LINT_VENV:-.venv}/bin/python" "backend/.venv/bin/python"; do [ -x "$c" ] && { P="$c"; break; }; done; [ -n "$P" ] || P="$(command -v python3)"; "$P" scripts/lint/check_ast_gate.py --rule cpu-in-async'
         files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
         pass_filenames: false
 
@@ -215,7 +215,7 @@ repos:
       - id: unbounded-list-gate
         name: unbounded-list — эндпоинт отдаёт список без границы (AST)
         language: system
-        entry: bash -c 'cd "$(git rev-parse --show-toplevel)" && backend/.venv/bin/python scripts/lint/check_ast_gate.py --rule unbounded-list'
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)" || exit 1; P=""; for c in "${LINT_BE_DIR:-backend}/${LINT_VENV:-.venv}/bin/python" "${LINT_VENV:-.venv}/bin/python" "backend/.venv/bin/python"; do [ -x "$c" ] && { P="$c"; break; }; done; [ -n "$P" ] || P="$(command -v python3)"; "$P" scripts/lint/check_ast_gate.py --rule unbounded-list'
         files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
         pass_filenames: false
 
