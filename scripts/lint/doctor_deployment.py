@@ -221,10 +221,21 @@ class DeploymentScreen:
         наличие, а не тело. Между двумя проверками была щель ровно в один файл,
         и он в неё провалился на 23 дня.
         """
+        # ⚠ Сверка идёт по ИМЕНИ файла, и это НЕ мелочь: снимок несёт свой
+        # `README.md` («Снимок канонов, вариант C»), а `git ls-files` находит
+        # `README.md` в каждом втором каталоге проекта. Замер `portfolio-site`
+        # 30.09: доктор объявил DEAD на `delivery/README.md` и
+        # `delivery/evals/smoke/README.md` — файлах, к канону не относящихся
+        # вовсе. Ложное красное на верной раскладке; исполнитель идёт «доложить
+        # из docs/canon/» и портит рабочие документы канонными.
+        #
+        # Население сужено до имён, которые едут КОРНЕМ: канон и его селфтест
+        # кладутся в корень проекта, оттуда их и зовут. Файл с тем же именем
+        # глубже в дереве — чужой, и сверять его со снимком не о чем.
         code, listing = run(["git", "ls-files"], self.root)
         out = []
         for rel in (listing.splitlines() if code == 0 else []):
-            if rel.startswith(f"{self.CANON_DIR}/") or rel.rsplit("/", 1)[-1] != name:
+            if rel.startswith(f"{self.CANON_DIR}/") or rel != name:
                 continue
             if rel in adapted or name in adapted:
                 continue
