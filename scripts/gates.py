@@ -55,8 +55,14 @@ class Violation:
 #: делали. Замер 30.09, первое развёртывание: этот гейт дал 36 нарушений, ВСЕ в
 #: payload (scripts/okf_*.py, scripts/delivery_*.py) при нуле в коде проекта.
 #: Тот же принцип уже стоит у ruff в pyproject.toml (CQG §6, третий принцип).
-CONTOUR_PREFIXES = ("scripts/lint/", "scripts/delivery_", "scripts/okf_",
-                    "scripts/merge_guard", "docs/canon/", "extract_payload.py")
+CONTOUR_PREFIXES = (
+    "scripts/lint/",
+    "scripts/delivery_",
+    "scripts/okf_",
+    "scripts/merge_guard",
+    "docs/canon/",
+    "extract_payload.py",
+)
 
 
 def _is_contour(path: Path) -> bool:
