@@ -1,0 +1,12 @@
+# file_length_baseline.txt — снимок file-length гейта. Генерируется --generate, НЕ руками.
+# Формат: <lines>:<path> (path в нотации git ls-files от repo-root).
+# [baseline] тает по мере сплитов (--tighten опускает снимки); файл проходит при size <= снимок+30.
+# [exemption] не тает (швов нет); лимит = снимок+50, рост сверх — пере-ревью в PR.
+# Вне обоих списков (в т.ч. любой новый файл) — hard 500/1000.
+[baseline]
+524:frontend/src/api/labels.ts
+921:frontend/src/api/types.ts
+557:frontend/src/donors/DonorsTable.tsx
+731:frontend/src/letters/LettersPage.tsx
+509:frontend/src/runs/RunPage.tsx
+[exemption]

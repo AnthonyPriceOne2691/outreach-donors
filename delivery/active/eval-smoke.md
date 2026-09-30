@@ -1,0 +1,6 @@
+# Eval smoke — this shipment
+
+Derived from spec acceptance. Run during verify.
+
+- [ ] …
+- [ ] …
