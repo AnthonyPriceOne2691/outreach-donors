@@ -30,6 +30,12 @@ repos:
     rev: v5.0.0
     hooks:
       - id: check-yaml
+        # АДАПТАЦИЯ (adapted.json): `--unsafe` — разбор синтаксиса без
+        # конструкторов. docker-compose.prod.yml несёт тег `!override`
+        # (расширение compose), и стандартный check-yaml падает на нём
+        # «could not determine a constructor for the tag». Файл валиден
+        # для своего потребителя; красное здесь — ложное.
+        args: [--unsafe]
       - id: check-json
       - id: check-toml
       - id: check-merge-conflict

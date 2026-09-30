@@ -8,5 +8,10 @@
     "reason": "ruff проекта судил механику контура: 100 ошибок в 26 файлах payload при нуле в легаси проекта. Payload — наш репозиторий, чужое авторство (CQG §6, третий принцип): правка линтером разойдётся со снимком канона, и доктор объявит адаптацию, которой не делали",
     "changed": "extend-exclude дополнен scripts/lint, scripts/delivery_*.py, scripts/okf_*.py, scripts/merge_guard.sh, extract_payload.py, docs/canon",
     "kind": "adaptation"
+  },
+  ".pre-commit-config.yaml": {
+    "reason": "три правки под проект: (1) собственный pre-push проекта сохранён локальным хуком — он жил через core.hooksPath, что запрещает pre-commit install; (2) default_install_hook_types дополнен pre-push, иначе в новой копии защита перед пушем молча не появлялась; (3) check-yaml с --unsafe: docker-compose.prod.yml несёт тег !override, и стандартный хук падает на нём ложным красным",
+    "changed": "локальный хук project-pre-push; default_install_hook_types: [pre-commit, pre-push]; args: [--unsafe] у check-yaml; env-префиксы области под раскладку проекта",
+    "kind": "adaptation"
   }
 }
