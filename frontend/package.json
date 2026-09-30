@@ -38,6 +38,7 @@
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-react-hooks": "^5.0.0",
     "globals": "^15.11.0",
+    "jscpd": "^4.0.5",
     "jsdom": "^25.0.1",
     "prettier": "3.8.3",
     "typescript": "^5.9.3",

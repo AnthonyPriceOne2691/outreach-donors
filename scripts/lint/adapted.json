@@ -1,0 +1,12 @@
+{
+  ".github/workflows/quality.yml": {
+    "reason": "раскладка проекта отличается от канонной в трёх местах, и каждое молча обессмысливало проверку: (1) продуктовый python — весь backend/, а не backend/features (158 файлов api, cli, shared, config не видел ни один гейт); (2) pyproject и uv.lock лежат в КОРНЕ, шаблон ищет их под backend/, поэтому зависимости продукта не попадали в venv гейтов — pip-audit проверял окружение инструментов, а mypy strict шёл без зависимостей проекта; (3) значения области в CI и в хуках разошлись между собой",
+    "changed": "env: LINT_PY_SRC=backend, LINT_COV_PKG=backend, LINT_VENV=.venv; ветвь установки корневого pyproject в шаге «Install backend deps»; шаг «Diff base» из cqg@2.34 портирован при развёртывании",
+    "kind": "adaptation"
+  },
+  "pyproject.toml": {
+    "reason": "ruff проекта судил механику контура: 100 ошибок в 26 файлах payload при нуле в легаси проекта. Payload — наш репозиторий, чужое авторство (CQG §6, третий принцип): правка линтером разойдётся со снимком канона, и доктор объявит адаптацию, которой не делали",
+    "changed": "extend-exclude дополнен scripts/lint, scripts/delivery_*.py, scripts/okf_*.py, scripts/merge_guard.sh, extract_payload.py, docs/canon",
+    "kind": "adaptation"
+  }
+}

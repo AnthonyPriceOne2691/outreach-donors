@@ -15,10 +15,17 @@ concurrency:
 
 env:
   STRICT: "1"                 # soft-режим в CI запрещён (Delivery §10.4)
-  LINT_PY_SRC: backend/features
+  # ⚠ Область — ВЕСЬ backend, а не канонный backend/features: домены лежат в
+  # backend/features/*, но рядом живут api/, cli/, shared/, config/ — 158 файлов,
+  # которых при канонном значении не видел НИ ОДИН гейт. Поймал доктор локально,
+  # а в CI то же значение стояло вторым местом: хуки pre-commit экспортируют
+  # backend, а шаги, зовущие скрипты напрямую, читали узкую область отсюда.
+  # Одно понятие — одно место (§2.9): значения здесь и в хуках обязаны совпадать.
+  LINT_PY_SRC: backend
   LINT_FE_DIR: frontend
   LINT_BE_DIR: backend
-  LINT_COV_PKG: features
+  LINT_COV_PKG: backend
+  LINT_VENV: .venv
 
 jobs:
   gates:
@@ -121,6 +128,16 @@ jobs:
           # скажут о своей беде сами, а предупреждение называет причину.
           if [ -f backend/pyproject.toml ]; then
             backend/.venv/bin/pip install -e backend || echo "::warning::editable-установка backend не удалась — mypy может не видеть рантайм-зависимости проекта"
+          fi
+          # АДАПТАЦИЯ ПРОЕКТА (adapted.json): pyproject и uv.lock лежат в КОРНЕ,
+          # а не в backend/. Шаблон канона ищет их только под backend/, поэтому
+          # зависимости продукта в venv гейтов не попадали вовсе: pip-audit
+          # проверял окружение инструментов (py_total 12 при чистом продукте), а
+          # mypy strict шёл без единой зависимости проекта и краснел не о том.
+          # Нашла сессия проекта разбором прогона 22468bb.
+          if [ -f pyproject.toml ] && [ ! -f backend/pyproject.toml ]; then
+            echo "deps: pyproject в корне — ставлю проект и его зависимости"
+            backend/.venv/bin/pip install -e . || echo "::warning::editable-установка корня не удалась"
           fi
 
       - name: Install frontend deps
