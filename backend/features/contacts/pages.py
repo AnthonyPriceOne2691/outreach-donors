@@ -29,11 +29,19 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterator
 from dataclasses import dataclass
-from urllib.parse import urljoin, urlparse
+from urllib.parse import unquote, urljoin, urlparse
 
 import httpx
+from selectolax.parser import HTMLParser
 
 from backend.config import contacts as cfg
+from backend.features.contacts.slugs import (
+    ALL_SLUGS,
+    LANGUAGE_BY_TLD,
+    LOCALIZED_SLUGS,
+    SLUGS,
+    WALK_ORDER,
+)
 from backend.features.core.domain import PageKind
 from backend.shared.net.url_guard import UnsafeUrlError
 
@@ -61,45 +69,8 @@ HEADERS = {
     "Upgrade-Insecure-Requests": "1",
 }
 
-# Слаги по видам страниц. Списки не исчерпывающие и не должны быть:
-# остальное добирается по ссылкам с главной, где раздел назван словами.
-SLUGS: dict[PageKind, tuple[str, ...]] = {
-    PageKind.MONEY: (
-        "write-for-us", "write-for-me", "guest-post", "guest-posting", "submit-article",
-        "advertise", "advertising", "advertise-with-us", "sponsored-post", "media-kit",
-        "partnership", "work-with-us",
-    ),
-    PageKind.CONTACT: (
-        "contact", "contacts", "contact-us", "contactus", "get-in-touch",
-        "kontakt", "kontak", "contacto", "contatti", "hubungi-kami",
-        # Пресса и поддержка отвечают людьми, а не формой: с этих страниц
-        # в боевом прогоне снялись press@ и support@.
-        "press", "press-room", "media", "support", "help",
-    ),
-    PageKind.ABOUT: (
-        "about", "about-us", "aboutus", "team", "our-team", "imprint", "impressum",
-        "masthead", "staff", "authors", "editorial-guidelines",
-    ),
-    # Правовые: оператора сайта указывают там, где обязаны, а не там,
-    # где удобно. Вес у таких адресов низкий, но это лучше, чем платный
-    # запрос ради того же самого.
-    PageKind.LEGAL: (
-        "terms", "terms-of-service", "terms-and-conditions", "terms-of-use",
-        "privacy", "privacy-policy", "disclaimer", "legal", "user-agreement",
-    ),
-}  # fmt: skip
-
-# Те же слова для поиска по ссылкам главной: там раздел может лежать
-# по адресу вида /p/12345, и угадать его по слагу нельзя.
-LINK_MARKERS: frozenset[str] = frozenset(
-    slug for slugs in SLUGS.values() for slug in slugs
-) | frozenset({"write for us", "advertise", "contact", "about us", "guest post", "terms"})
-
 # Признаки контактной формы: адреса нет, но написать можно руками.
 FORM_MARKERS = ("<form", "wpcf7", "gravity_form", "contact-form", "formcraft", "hs-form")
-
-#: Порядок видов страниц при обходе — по убыванию ценности адреса.
-WALK_ORDER = (PageKind.MONEY, PageKind.CONTACT, PageKind.ABOUT, PageKind.LEGAL)
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,12 +83,38 @@ class FetchedPage:
 
 
 def _kind_of(url: str) -> PageKind:
-    """Вид страницы по её адресу. Неузнанное — главная, то есть слабый вес."""
-    path = urlparse(url).path.lower()
+    """Вид страницы по её адресу. Неузнанное — главная, то есть слабый вес.
+
+    Адрес сначала раскодируется: не-латинский слаг уезжает в запрос
+    процентными последовательностями (`%D8%A7%D8%AA%D8%B5%D9%84`), и без
+    раскодирования арабская страница контактов считалась бы главной,
+    то есть её адрес получил бы вес в четыре раза меньше заслуженного.
+    """
+    path = unquote(urlparse(url).path).lower()
     for kind in WALK_ORDER:
-        if any(slug in path for slug in SLUGS[kind]):
+        if any(slug in path for slug in ALL_SLUGS[kind]):
             return kind
     return PageKind.HOME
+
+
+def language_hint(html: str, site_host: str) -> str | None:
+    """На каком языке сайт — чтобы пробовать его слаги первыми.
+
+    Спрашиваем главную, а не догадываемся: у `<html lang>` нет причин
+    врать, и он есть у большинства площадок. Зона домена — запасной
+    признак, слабее: `.com` не говорит ни о чём, а многоязычные зоны
+    (`.be`, `.ch`, `.ca`) угадывать вредно, их в таблице и нет.
+
+    `None` — нормальный ответ: тогда обход идёт основным списком.
+    """
+    node = HTMLParser(html).css_first("html") if html else None
+    declared = (node.attributes.get("lang") or "").strip().lower() if node else ""
+    language = declared.replace("_", "-").split("-")[0]
+    if language in LOCALIZED_SLUGS:
+        return language
+
+    labels = site_host.lower().rstrip(".").split(".")
+    return LANGUAGE_BY_TLD.get(labels[-1]) if labels else None
 
 
 def home_variants(site_host: str) -> Iterator[str]:
@@ -132,7 +129,7 @@ def home_variants(site_host: str) -> Iterator[str]:
             yield f"{scheme}://{host}/"
 
 
-def slug_urls(base: str) -> Iterator[tuple[str, PageKind]]:
+def slug_urls(base: str, *, language: str | None = None) -> Iterator[tuple[str, PageKind]]:
     """Угадываемые адреса страниц от рабочей главной.
 
     Виды перебираются кругами, а не подряд: сначала первый слаг каждого
@@ -144,12 +141,20 @@ def slug_urls(base: str) -> Iterator[tuple[str, PageKind]]:
 
     Приоритет вида при этом сохраняется: внутри круга порядок прежний,
     а окончательный выбор делает вес адреса (okf/contact-ladder.md).
+
+    Слаги языка сайта идут ПЕРЕД основными, и это не вежливость к
+    локальным площадкам, а единственный способ вообще их попробовать:
+    потолок попыток на домен меньше числа слагов, круг доходит примерно
+    до шестого в каждом виде, и `hubungi-kami` из основного списка не
+    пробуется ни разу. Язык подсказывает `language_hint` по главной.
     """
     root = base.rstrip("/")
-    longest = max(len(SLUGS[kind]) for kind in WALK_ORDER)
+    localized = LOCALIZED_SLUGS.get(language or "", {})
+    order = {kind: (*localized.get(kind, ()), *SLUGS[kind]) for kind in WALK_ORDER}
+    longest = max(len(slugs) for slugs in order.values())
     for position in range(longest):
         for kind in WALK_ORDER:
-            slugs = SLUGS[kind]
+            slugs = order[kind]
             if position < len(slugs):
                 yield f"{root}/{slugs[position]}/", kind
 
