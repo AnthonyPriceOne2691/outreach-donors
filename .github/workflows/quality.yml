@@ -105,7 +105,12 @@ jobs:
 
       - name: Install backend deps
         run: |
-          python -m venv backend/.venv
+          # АДАПТАЦИЯ: venv создаётся ТАМ, где его ищут гейты. Шаблон канона
+          # зашивает backend/.venv, а гейты читают $LINT_BE_DIR/$LINT_VENV — на
+          # раскладке с pyproject в корне эти два места расходятся, и mypy
+          # честно отвечал «не найден» при установленном инструменте.
+          VENV_DIR="${LINT_BE_DIR:-backend}/${LINT_VENV:-.venv}"
+          python -m venv "$VENV_DIR"
           # if-блок, а не `test -f X && cmd`: под `bash -e` ложный test уронил бы шаг.
           # requirements-dev.txt может отсутствовать (uv/pyproject-проект) — до
           # lab-11 F9 безусловный `pip install -r` обрывал ЗДЕСЬ всю джобу гейтов,
@@ -114,20 +119,20 @@ jobs:
           # печатается: молча разные окружения = «у меня локально проходило».
           if [ -f backend/requirements-dev.txt ]; then
             echo "deps: backend/requirements-dev.txt"
-            backend/.venv/bin/pip install -r backend/requirements-dev.txt
+            "$VENV_DIR"/bin/pip install -r backend/requirements-dev.txt
           else
             echo "deps: манифеста нет — dev-инструменты гейтов по списку Приложения B"
-            backend/.venv/bin/pip install 'ruff>=0.6.9' 'mypy>=1.11.2' 'types-PyYAML>=6.0' 'pre-commit>=3.8.0' 'detect-secrets>=1.5.0' 'pip-audit>=2.7' 'mutmut>=3.6' 'pytest-cov>=5.0' 'pytest-env>=1.1' 'hypothesis>=6.100' 'import-linter>=2.0'
+            "$VENV_DIR"/bin/pip install 'ruff>=0.6.9' 'mypy>=1.11.2' 'types-PyYAML>=6.0' 'pre-commit>=3.8.0' 'detect-secrets>=1.5.0' 'pip-audit>=2.7' 'mutmut>=3.6' 'pytest-cov>=5.0' 'pytest-env>=1.1' 'hypothesis>=6.100' 'import-linter>=2.0'
           fi
           if [ -f backend/requirements.txt ]; then
-            backend/.venv/bin/pip install -r backend/requirements.txt
+            "$VENV_DIR"/bin/pip install -r backend/requirements.txt
           fi
           # Рантайм-зависимости pyproject-проекта: без них mypy падает «Error
           # importing plugin pydantic.mypy», и диагноз читается как дефект
           # проекта (lab-11 F6). Неудача editable не роняет шаг: гейты ниже
           # скажут о своей беде сами, а предупреждение называет причину.
           if [ -f backend/pyproject.toml ]; then
-            backend/.venv/bin/pip install -e backend || echo "::warning::editable-установка backend не удалась — mypy может не видеть рантайм-зависимости проекта"
+            "$VENV_DIR"/bin/pip install -e backend || echo "::warning::editable-установка backend не удалась — mypy может не видеть рантайм-зависимости проекта"
           fi
           # АДАПТАЦИЯ ПРОЕКТА (adapted.json): pyproject и uv.lock лежат в КОРНЕ,
           # а не в backend/. Шаблон канона ищет их только под backend/, поэтому
@@ -137,7 +142,7 @@ jobs:
           # Нашла сессия проекта разбором прогона 22468bb.
           if [ -f pyproject.toml ] && [ ! -f backend/pyproject.toml ]; then
             echo "deps: pyproject в корне — ставлю проект и его зависимости"
-            backend/.venv/bin/pip install -e . || echo "::warning::editable-установка корня не удалась"
+            "$VENV_DIR"/bin/pip install -e . || echo "::warning::editable-установка корня не удалась"
           fi
 
       - name: Install frontend deps
