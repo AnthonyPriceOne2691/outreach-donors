@@ -99,11 +99,21 @@ if [[ -n "$PIP_AUDIT" && -n "$py_manifest" ]]; then
   # свежей версии с PyPI — ровно тот обход lock, который и дал 12).
   pa_src="окружение"
   pa_req=""
-  if command -v uv >/dev/null 2>&1; then
+  # ⚠ `uv` ищется И В VENV ОСНАСТКИ, не только в PATH. Раннер CI не обязан его
+  # иметь: замер 30.09 — ветвь с lock молча не сработала, гейт напечатал «мерено
+  # по ОКРУЖЕНИЮ» и предъявил 12. Само сообщение спасло разбор (без него
+  # молчаливый фолбэк неотличим от измерения продукта), но правка без
+  # инструмента на раннере остаётся объявлением.
+  UV_BIN=$(command -v uv 2>/dev/null || true)
+  for c in "$VENV/bin/uv" "$BE_DIR/.venv/bin/uv" ".venv/bin/uv"; do
+    [[ -n "$UV_BIN" ]] && break
+    [[ -x "$c" ]] && UV_BIN="$c"
+  done
+  if [[ -n "$UV_BIN" ]]; then
     for lock in uv.lock "$BE_DIR/uv.lock"; do
       [[ -f "$lock" ]] || continue
       pa_req=$(mktemp)
-      if (cd "$(dirname "$lock")" && uv export --frozen --no-hashes \
+      if (cd "$(dirname "$lock")" && "$UV_BIN" export --frozen --no-hashes \
             --no-emit-project --all-extras) > "$pa_req" 2>/dev/null; then
         pa_src="uv.lock"
       else

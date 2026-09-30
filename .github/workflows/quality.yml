@@ -149,9 +149,15 @@ jobs:
           # обходили ровно этой строкой, и mypy strict судил не те версии, что
           # поедут, а аудит считал не то дерево (замер 30.09: py_total 12 в CI
           # против 0 по uv export --frozen).
-          if [ -f uv.lock ] && command -v uv >/dev/null 2>&1; then
+          # cqg@2.40: uv ставится в venv оснастки, если его нет на раннере —
+          # иначе ветвь ниже молча не срабатывает и гейты мерят окружение.
+          if [ -f uv.lock ] && ! command -v uv >/dev/null 2>&1; then
+            "$VENV_DIR"/bin/pip install uv >/dev/null 2>&1 || echo "::warning::uv не поставился"
+          fi
+          UV_BIN=$(command -v uv 2>/dev/null || echo "$VENV_DIR/bin/uv")
+          if [ -f uv.lock ] && [ -x "$UV_BIN" ]; then
             echo "deps: продукт из uv.lock (версии как в проде)"
-            uv export --frozen --no-hashes --no-emit-project --all-extras \
+            "$UV_BIN" export --frozen --no-hashes --no-emit-project --all-extras \
               | "$VENV_DIR"/bin/pip install -r /dev/stdin \
               || echo "::warning::установка из uv.lock не удалась — гейты увидят версии, отличные от прод-образа"
           fi
