@@ -59,3 +59,13 @@ def normalize_host(raw: str | None) -> str:
     if not parts.domain or not parts.suffix:
         return ""
     return f"{parts.domain}.{parts.suffix}"
+
+
+def split_host(host: str) -> tuple[str, str, str]:
+    """`a.b.example.co.uk` → (`a.b`, `example`, `co.uk`): поддомен, имя, суффикс.
+
+    Граница — по тому же вшитому списку, что и у `normalize_host`: `sentry.co.uk`
+    — это сайт, а не поддомен, и `.ovh` — зона, а не имя хостера.
+    """
+    parts = _extract(host)
+    return parts.subdomain, parts.domain, parts.suffix

@@ -12,7 +12,9 @@
 от них, мы потеряли бы ровно ту часть выборки, ради которой всё делается.
 
 Модуль ничего не фильтрует: «похоже на адрес» и «этим адресом можно
-пользоваться» — разные вопросы, второй решает `quality.py`.
+пользоваться» — разные вопросы, второй решает `quality.py`. Единственное,
+что он правит, — слипшийся с адресом хвост соседнего слова: это не вопрос
+годности, а неверно разобранный токен (`repair_glued_domain`).
 """
 
 from __future__ import annotations
@@ -23,11 +25,17 @@ import re
 
 from selectolax.parser import HTMLParser
 
+from backend.features.contacts.slugs import link_text_names_section, url_names_section
+
 logger = logging.getLogger(__name__)
 
-# Адрес строгим выражением. Проверяется целиком на очищенном токене:
-# иначе к домену прилипает хвост соседнего слова («gmail.comЯнварь»).
+# Адрес строгим выражением. Проверяется целиком на очищенном токене.
 EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
+
+# Хвост соседнего слова, слипшийся с зоной: `comJanuary`, `com2024`.
+# Границей служит смена регистра или цифра — никакой другой признак тут
+# не работает, см. `repair_glued_domain`.
+_GLUED_TAIL_RE = re.compile(r"([a-z]{2,})(?=[A-Z0-9])")
 
 _AT_RE = re.compile(r"\s*(?:\[at\]|\(at\)|\{at\}|\bat\b|&#64;)\s*", re.IGNORECASE)
 _DOT_RE = re.compile(
@@ -92,8 +100,61 @@ def _from_cloudflare(tree: HTMLParser) -> set[str]:
     return found
 
 
+def repair_glued_domain(domain: str) -> str:
+    """Отрезать от зоны хвост слипшегося слова: `gmail.comJanuary` → `gmail.com`.
+
+    Текст страницы не всегда отделяет адрес от следующего слова, и разбор
+    склеивает их в один токен. Строка при этом остаётся правдоподобным
+    адресом: `ads@gmail.comjanuary` проходит любую проверку формы и уезжает
+    в базу мёртвым.
+
+    **Границей служит смена регистра или цифра, а не список известных зон.**
+    Список — первое, что приходит в голову, и он ошибается в обе стороны:
+    зону, которой в нём нет, он не починит, а живую долгую зону обрежет до
+    короткой, потому что `company` начинается на `com`, `network` — на `net`,
+    а `institute` — на `in`. Проверено на рабочей реализации: `site.company`
+    превращалось в `site.com`, `site.international` — в `site.int`. Это хуже
+    отказа доставки: у обрезанного домена бывает живой владелец, и письмо
+    уходит не тому, кому писали.
+
+    У регистра и цифры ложных срабатываний нет по устройству: в доменных
+    зонах не бывает заглавных букв, а единственная зона с цифрами —
+    punycode (`xn--p1ai`), и до цифры в ней дело не доходит: совпадение
+    привязано к началу метки, а сразу за `xn` стоит дефис. Отдельной
+    проверки на `xn--` здесь поэтому нет — она никогда не срабатывала бы,
+    а мёртвая защита обманчивее отсутствующей. Зону держит тест на
+    punycode: он покраснеет, если привязку к началу когда-нибудь снимут.
+
+    Чего правило НЕ чинит, осознанно: хвост, целиком набранный строчными
+    (`gmail.comand`). Отличить его от настоящей долгой зоны без списка всех
+    зон IANA нельзя, а ошибка в эту сторону дороже: адрес с обрезанной зоной
+    уедет живому чужому человеку молча. Не починенный, такой адрес и не
+    проходит: `quality.GLUED_LOWERCASE_ZONE` отсеивает узкий случай, где зоны
+    заведомо нет (`com/net/org` + 1–3 буквы), — отбивка при отправке била бы
+    по репутации почтового домена.
+    """
+    head, _, last_label = domain.rpartition(".")
+    if not head:
+        return domain
+    glued = _GLUED_TAIL_RE.match(last_label)
+    return f"{head}.{glued.group(1)}" if glued else domain
+
+
 def _clean(items: set[str]) -> set[str]:
-    return {item.strip().strip(".,;:()<>\"'").lower() for item in items if item.strip()}
+    """Привести токены к адресам: обрезать пунктуацию, починить зону, снизить регистр.
+
+    Порядок важен: зона чинится ДО снижения регистра, потому что регистр —
+    это и есть признак склейки. Снизить его первым значит потерять его.
+    """
+    cleaned: set[str] = set()
+    for item in items:
+        token = item.strip().strip(".,;:()<>\"'")
+        if not token:
+            continue
+        local, at, domain = token.partition("@")
+        token = f"{local}{at}{repair_glued_domain(domain)}" if at else token
+        cleaned.add(token.lower())
+    return cleaned
 
 
 def extract_emails(html: str) -> set[str]:
@@ -137,6 +198,10 @@ def find_contact_links(html: str, *, slugs: frozenset[str]) -> set[str]:
     Берём и по адресу ссылки, и по её тексту: на половине сайтов раздел
     называется `/p/hubungi-kami`, и по слагу его не угадать, зато анкор
     говорит прямо. Отдаём как есть, нормализацией занимается `pages.py`.
+
+    И адрес, и текст сверяются по словам (`slugs.names_section`): заголовок
+    «Tudo sobre o caso» — статья, а не раздел «sobre», и десяток таких
+    ссылок с главной съедал бюджет обхода раньше угаданных слагов.
     """
     if not html:
         return set()
@@ -146,7 +211,6 @@ def find_contact_links(html: str, *, slugs: frozenset[str]) -> set[str]:
         href = (node.attributes.get("href") or "").strip()
         if not href or href.startswith(("mailto:", "tel:", "javascript:", "#")):
             continue
-        haystack = f"{href.lower()} {(node.text() or '').lower()}"
-        if any(slug in haystack for slug in slugs):
+        if url_names_section(href, slugs) or link_text_names_section(node.text() or "", slugs):
             links.add(href)
     return links

@@ -12,6 +12,7 @@ import re
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from backend.config import outreach as outreach_cfg
 from backend.features.core.domain import SenderStatus, Stage
 from backend.features.core.models.outreach import SenderModel
 from backend.features.letters import compose, guards, masking, reply_to, uniqueness
@@ -354,11 +355,16 @@ class TestTransport:
 
         assert result.startswith("null-")
 
-    def test_live_transport_without_a_key_is_refused(self) -> None:
+    def test_live_transport_without_a_key_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Раньше здесь был отказ «транспорт ещё не написан». Теперь он
         написан, и единственное, чего ему не хватает, — ключ платформы:
         промолчать и собрать транспорт без ключа значит показать
-        отправленными письма, которых платформа не приняла."""
+        отправленными письма, которых платформа не приняла.
+
+        Ключ убирается явно: настройки читают `.env`, и с ключом в нём
+        тест проверял бы машину разработчика, а не правило (так он упал
+        30.09.2026, когда ключ появился в локальном `.env`)."""
+        monkeypatch.setattr(outreach_cfg, "SENDGRID_API_KEY", "")
         with pytest.raises(TransportError, match="OUTREACH_SENDGRID_API_KEY"):
             build_transport("sendgrid")
 
