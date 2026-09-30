@@ -63,11 +63,26 @@ WALK_ORDER = (PageKind.MONEY, PageKind.CONTACT, PageKind.ABOUT, PageKind.LEGAL)
 # ни в одном из двух прежних скрейперов, хотя это 46 % площадок.
 LOCALIZED_SLUGS: dict[str, dict[PageKind, tuple[str, ...]]] = {
     "ru": {
-        # `reklama` — это и есть страница, где называют цену.
-        PageKind.MONEY: ("reklama", "razmeshchenie-reklamy", "sotrudnichestvo", "uslugi"),
-        PageKind.CONTACT: ("kontakty", "kontakt", "obratnaya-svyaz", "svyazatsya-s-nami"),
-        PageKind.ABOUT: ("o-nas", "o-proekte", "o-sayte", "redakciya", "redakciya-sayta"),
-        PageKind.LEGAL: ("politika-konfidencialnosti", "usloviya-ispolzovaniya", "pravila"),
+        # `reklama` — это и есть страница, где называют цену. Кириллица — в конце
+        # каждого вида: угадывать её круговой обход почти не доходит, но раздел,
+        # найденный по ссылке с главной (`/реклама/`, `/контакты/`), без неё
+        # получал вид главной, то есть вес вчетверо меньше заслуженного.
+        PageKind.MONEY: (
+            "reklama", "razmeshchenie-reklamy", "sotrudnichestvo", "uslugi",
+            "реклама", "размещение-рекламы", "сотрудничество",
+        ),
+        PageKind.CONTACT: (
+            "kontakty", "kontakt", "obratnaya-svyaz", "svyazatsya-s-nami",
+            "контакты", "обратная-связь", "связаться-с-нами",
+        ),
+        PageKind.ABOUT: (
+            "o-nas", "o-proekte", "o-sayte", "redakciya", "redakciya-sayta",
+            "о-нас", "о-проекте", "редакция",
+        ),
+        PageKind.LEGAL: (
+            "politika-konfidencialnosti", "usloviya-ispolzovaniya", "pravila",
+            "политика-конфиденциальности", "пользовательское-соглашение",
+        ),
     },
     "id": {
         PageKind.MONEY: ("iklan", "pasang-iklan", "jasa-iklan"),

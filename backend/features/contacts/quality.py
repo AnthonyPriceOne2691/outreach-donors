@@ -86,6 +86,11 @@ LEGAL_CONTACT_LOCAL = re.compile(r"^(?:eu|uk)representative(?:$|[._-])|(?:^|[._-
 # бьёт по репутации почтового домена.
 GLUED_LOWERCASE_ZONE = re.compile(r"\.(?:com|net|org)[a-z]{1,3}$")
 
+# Обрывок экранирования JSON в начале адреса: `u003eprivacy@…`, `u002f…@…`.
+# Извлечение теперь раскодирует `\uXXXX` до поиска (`extract._unescape_js`),
+# а правило держит то, что попало в базу раньше, — при сборке письма.
+JSON_ESCAPE_LOCAL = re.compile(r"^u00[0-9a-f]{2}")
+
 # Подстроки домена: регистраторы и службы скрытия владельца. Такой адрес
 # приходит из RDAP и ведёт не к сайту, а к его регистратору.
 REGISTRAR_SUBSTRINGS = (
@@ -139,6 +144,11 @@ TELEMETRY_KEY_LOCAL = re.compile(r"^[0-9a-f]{32}$")
 # мы отняли бы у тестов единственный безопасный домен. На страницах адрес в
 # зоне `.test` не встречается — в отличие от `.example`, который пишут в примерах.
 RESERVED_TLDS = (".example", ".invalid")
+
+# Те самые `.test` и `.localhost` из оговорки выше: фикстуры и песочница. Их нет
+# в списке публичных суффиксов, и правило «зоны нет в списке» без этой оговорки
+# отняло бы у тестов безопасный домен — замер на базе разработки 30.09.2026.
+SANDBOX_TLDS = (".test", ".localhost")
 
 # Адреса чужих отделов. Формально живые, но цену за размещение там не
 # называют, а письмо в отписку или в жалобы — это заявка на жалобу.
@@ -236,6 +246,10 @@ _RULES: tuple[tuple[Callable[[str, str, str], bool], str], ...] = (
         lambda _v, _l, domain: bool(GLUED_LOWERCASE_ZONE.search(domain)),
         "зона со слипшимся хвостом слова — такой зоны нет",
     ),
+    (
+        lambda _v, local, _d: bool(JSON_ESCAPE_LOCAL.match(local)),
+        "обрывок экранирования JSON (\\u00XX), а не адрес",
+    ),
     (lambda _v, _l, domain: domain.endswith(RESERVED_TLDS), "зона под примеры, а не живая"),
     (
         lambda _v, _l, domain: bool(PLACEHOLDER_MAIL_DOMAIN.match(domain)),
@@ -247,6 +261,15 @@ _RULES: tuple[tuple[Callable[[str, str, str], bool], str], ...] = (
     ),
     (lambda _v, _l, domain: domain.endswith(FILE_EXTENSIONS), "хвост имени файла"),
     (lambda _v, _l, domain: domain.startswith(".") or ".." in domain, "домен разобран неверно"),
+    (
+        # Последним, как самое общее: частные правила выше называют причину
+        # точнее (`logo@site.com.png` — «хвост имени файла», а не «нет зоны»).
+        # Ловит слово, склеенное с зоной не только у com/net/org (`…@site.ruand`,
+        # `…@kompas.co.idyang`). Граница — вшитый список публичных суффиксов,
+        # тот же, что у ключа донора (`donors.host`).
+        lambda _v, _l, domain: not split_host(domain)[2] and not domain.endswith(SANDBOX_TLDS),
+        "зоны нет в списке публичных суффиксов — адрес склеен с текстом",
+    ),
 )
 
 
