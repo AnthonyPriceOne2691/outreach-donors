@@ -34,13 +34,12 @@ from backend.features.contacts.extract import (
     extract_obfuscated,
     find_contact_links,
 )
-from backend.features.contacts.messengers import FoundHandle, harvest_handles
 from backend.features.contacts.mx import DELIVERABLE, MailRoute, mail_route
 from backend.features.contacts.pages import (
+    LINK_MARKERS,
     FetchedPage,
     PageFetcher,
     has_contact_form,
-    language_hint,
     slug_urls,
 )
 from backend.features.contacts.provider import (
@@ -51,11 +50,79 @@ from backend.features.contacts.provider import (
     ProviderRateLimitError,
 )
 from backend.features.contacts.quality import Candidate, best, rejection_reason, trusted_guess
-from backend.features.contacts.slugs import LINK_MARKERS
-from backend.features.contacts.step_counters import StepCounters
 from backend.features.core.domain import ContactSource, ContactStatus, PageKind
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class StepCounters:
+    """Счётчики по ступеням — строки отчёта прогона.
+
+    `entered` и `found` считаются раздельно по каждой ступени: их отношение
+    и есть отдача ступени, ради которой выбран порядок.
+    """
+
+    mx_checked: int = 0
+    mx_stopped: int = 0  # домен не принимает почту — спуск прекращён
+    # DNS не ответил. Отдельное число, потому что ступень, не отвечающая
+    # ни по одному домену, выглядит как работающая: она ничего не отсеяла.
+    mx_unknown: int = 0
+    pages_entered: int = 0
+    pages_found: int = 0
+    pages_fetched: int = 0  # всего запросов к сайтам: цена ступени
+    pages_blocked: int = 0  # сайтов, закрывшихся от нас (401/403/429)
+    browser_entered: int = 0
+    browser_found: int = 0
+    rdap_entered: int = 0
+    rdap_found: int = 0
+    rdap_failed: int = 0
+    provider_entered: int = 0  # столько раз платили
+    provider_found: int = 0
+    #: Столько раз ступень отказала — отдельно от «не нашли». Живой прогон
+    #: 22.09.2026 показал, зачем: учётка была закрыта, ступень отказывала
+    #: на каждом домене, а отчёт печатал «вошло 2, нашли 0» — то есть
+    #: неотличимо от «провайдер этих доменов не знает».
+    provider_refused: int = 0
+    provider_refusal: str = ""  # чем именно отказала, дословно
+    form_only: int = 0
+    manual_queued: int = 0
+    not_found: int = 0
+    rejected_emails: int = 0  # адреса, отсеянные фильтром качества
+
+    def mark_found(self, step: str) -> None:
+        """Записать, что адрес дала именно эта ступень."""
+        if step == "pages":
+            self.pages_found += 1
+        elif step == "rdap":
+            self.rdap_found += 1
+        elif step == "provider":
+            self.provider_found += 1
+        elif step == "browser":
+            self.browser_found += 1
+
+    def as_report(self) -> dict[str, int]:
+        return {
+            "mx_checked": self.mx_checked,
+            "mx_stopped": self.mx_stopped,
+            "mx_unknown": self.mx_unknown,
+            "pages_entered": self.pages_entered,
+            "pages_found": self.pages_found,
+            "pages_fetched": self.pages_fetched,
+            "pages_blocked": self.pages_blocked,
+            "browser_entered": self.browser_entered,
+            "browser_found": self.browser_found,
+            "rdap_entered": self.rdap_entered,
+            "rdap_found": self.rdap_found,
+            "rdap_failed": self.rdap_failed,
+            "provider_entered": self.provider_entered,
+            "provider_found": self.provider_found,
+            "provider_refused": self.provider_refused,
+            "form_only": self.form_only,
+            "manual_queued": self.manual_queued,
+            "not_found": self.not_found,
+            "rejected_emails": self.rejected_emails,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,10 +138,6 @@ class LadderResult:
     #: Ступень, давшая адрес. Пусто, если не дала ни одна.
     source: ContactSource | None = None
     has_form: bool = False
-    #: Телеграм, скайп, WhatsApp и телефон со страниц домена. Не влияют
-    #: на `status`: он про адрес, и менять его смысл значит менять
-    #: поведение всего, что читает исход. Читающий решает сам.
-    handles: tuple[FoundHandle, ...] = ()
 
     @property
     def found(self) -> bool:
@@ -97,10 +160,6 @@ class _Collected:
 
     site_host: str
     good: list[Candidate] = field(default_factory=list)
-    #: Каналы связи, кроме почты. Отдельно от `good`, потому что отбор
-    #: адресов их не касается: у ника нет ни домена, ни ролевой части,
-    #: по которым адрес взвешивают, и отсеивать его нечем.
-    handles: set[FoundHandle] = field(default_factory=set)
     rejected: list[tuple[str, str]] = field(default_factory=list)
     seen: set[str] = field(default_factory=set)
     has_form: bool = False
@@ -138,7 +197,6 @@ class ContactLadder:
         manual_queue_left: int | None = None,
         paid_first: bool = False,
         renderer: browser_step.PageRenderer | None = None,
-        stop_without_mail: bool = True,
     ) -> None:
         self._http = http
         self._provider = provider
@@ -147,7 +205,6 @@ class ContactLadder:
             manual_queue_left if manual_queue_left is not None else cfg.MANUAL_QUEUE_MONTHLY_CAP
         )
         self._paid_first = paid_first
-        self._stop_without_mail = stop_without_mail
         self.counters = StepCounters()
 
     def _sequence(self) -> list[_Step]:
@@ -176,11 +233,7 @@ class ContactLadder:
         collected = _Collected(site_host=site_host)
 
         route = await self._step_mx(site_host)
-        if route is MailRoute.NONE and self._stop_without_mail:
-            # Домен не принимает почту — писать некуда, и дорогие ступени
-            # ради него не работают. Но канал связи у него бывает: в СНГ
-            # и Юго-Восточной Азии вебмастер оставляет телеграм, а почту
-            # не держит вовсе. Тому, кто ищет и каналы, флаг это отключает.
+        if route is MailRoute.NONE:
             return LadderResult(host=site_host, status=ContactStatus.NOT_FOUND)
 
         # Отказ ступени запоминается, но спуск не прерывает: бесплатные
@@ -206,7 +259,6 @@ class ContactLadder:
                 status=unfinished,
                 rejected=tuple(collected.rejected),
                 has_form=collected.has_form,
-                handles=tuple(collected.handles),
             )
 
         return self._without_contact(collected, has_form=collected.has_form)
@@ -220,16 +272,7 @@ class ContactLadder:
             self.counters.mx_unknown += 1
         elif route not in DELIVERABLE:
             self.counters.mx_stopped += 1
-            # Сообщение называет, что СЕЙЧАС произойдёт: при выключенном
-            # `stop_without_mail` ступени как раз не пропускаются, и
-            # прежний текст врал бы прогону по файлу.
-            logger.info(
-                "контакты: %s не принимает почту — %s",
-                host,
-                "ступени 1–3 пропущены"
-                if self._stop_without_mail
-                else "адреса не ждём, идём за каналами связи",
-            )
+            logger.info("контакты: %s не принимает почту — ступени 1–3 пропущены", host)
         return route
 
     async def _step_pages(self, host: str, collected: _Collected) -> ContactStatus | None:
@@ -257,11 +300,7 @@ class ContactLadder:
         # Ссылки с главной идут впереди угадываемых слагов: там раздел
         # назван словами и лежит по любому адресу, хоть /p/12345.
         links = find_contact_links(home.html, slugs=LINK_MARKERS)
-        # Язык берём с главной: она уже скачана, а слаги угадываются после.
-        # Без этого локальная площадка не пробуется на своём языке вовсе —
-        # потолок попыток кончается на английских слагах.
-        language = language_hint(home.html, host)
-        queue = fetcher.follow(home, links) + list(slug_urls(home.url, language=language))
+        queue = fetcher.follow(home, links) + list(slug_urls(home.url))
         visited = {home.url}
 
         for url, kind in queue:
@@ -288,7 +327,6 @@ class ContactLadder:
     def _harvest(self, page: FetchedPage, collected: _Collected, site_host: str) -> None:
         """Снять со страницы всё, что похоже на адрес, и заметить форму."""
         collected.has_form = collected.has_form or has_contact_form(page.html)
-        collected.handles |= harvest_handles(page.html, page_kind=page.kind, page_url=page.url)
 
         for email in extract_emails(page.html):
             collected.add(Candidate(email, ContactSource.PAGE, page.kind, page_url=page.url))
@@ -392,7 +430,6 @@ class ContactLadder:
             rejected=tuple(collected.rejected),
             source=winner.source if winner.source else source,
             has_form=has_form,
-            handles=tuple(collected.handles),
         )
 
     def _without_contact(self, collected: _Collected, *, has_form: bool) -> LadderResult:
@@ -405,7 +442,6 @@ class ContactLadder:
                 host=collected.site_host,
                 status=ContactStatus.NOT_FOUND,
                 rejected=tuple(collected.rejected),
-                handles=tuple(collected.handles),
             )
 
         self.counters.form_only += 1
@@ -422,7 +458,6 @@ class ContactLadder:
             status=ContactStatus.FORM_ONLY,
             rejected=tuple(collected.rejected),
             has_form=True,
-            handles=tuple(collected.handles),
         )
 
     @property

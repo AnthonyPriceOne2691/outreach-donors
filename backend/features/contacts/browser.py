@@ -26,8 +26,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from backend.config import contacts as cfg
 from backend.features.contacts.extract import extract_emails, find_contact_links
-from backend.features.contacts.pages import HEADERS
-from backend.features.contacts.slugs import LINK_MARKERS, SLUGS, WALK_ORDER
+from backend.features.contacts.pages import HEADERS, LINK_MARKERS, SLUGS, WALK_ORDER
 
 logger = logging.getLogger(__name__)
 

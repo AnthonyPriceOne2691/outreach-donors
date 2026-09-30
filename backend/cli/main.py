@@ -28,8 +28,6 @@ from backend.cli.advertisers import (
     cmd_suppliers_import,
 )
 from backend.cli.contact_search import cmd_contacts
-from backend.cli.contact_sweep import add_parser as add_contact_sweep_parser
-from backend.cli.contact_sweep import cmd_contacts_file
 from backend.cli.crawl_probe import add_parser as add_crawl_parser
 from backend.cli.crawl_probe import cmd_crawl
 from backend.cli.demo_data import cmd_demo_seed
@@ -374,7 +372,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="сначала платный сервис, добор скрейпером: быстрее, но платных запросов больше",
     )
 
-    add_contact_sweep_parser(sub)
     add_crawl_parser(sub)
     add_advertisers_parser(sub)
     add_letters_parser(sub)
@@ -401,7 +398,6 @@ _FAILURES: tuple[tuple[type[Exception], int, str], ...] = (
 _COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] = {
     "quota": lambda _: cmd_quota(),
     "contacts": cmd_contacts,
-    "contacts-file": cmd_contacts_file,
     "crawl": cmd_crawl,
     "advertisers": cmd_advertisers,
     "advertiser-decide": cmd_advertiser_decide,
