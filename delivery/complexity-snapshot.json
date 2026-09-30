@@ -1457,9 +1457,9 @@
       "worst": "_unpack:34"
     },
     "scripts/complexity.py": {
-      "lines": 235,
+      "lines": 258,
       "complexity": 8,
-      "worst": "compare:162"
+      "worst": "compare:185"
     },
     "scripts/eval_judge.py": {
       "lines": 170,
@@ -1472,9 +1472,9 @@
       "worst": "report:116"
     },
     "scripts/gates.py": {
-      "lines": 336,
-      "complexity": 8,
-      "worst": "_python_files:52"
+      "lines": 369,
+      "complexity": 10,
+      "worst": "_python_files:76"
     },
     "scripts/measure_outlinks.py": {
       "lines": 331,
