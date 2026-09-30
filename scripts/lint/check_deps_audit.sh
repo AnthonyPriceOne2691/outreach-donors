@@ -86,7 +86,39 @@ if [[ -n "$PIP_AUDIT" && -n "$py_manifest" ]]; then
   #
   # Различать «упал» и «нашёл ноль» по коду возврата НЕЛЬЗЯ: pip-audit выходит
   # ненулём и когда честно нашёл уязвимости. Признак — разобрался ли JSON.
-  pa_json=$("$PIP_AUDIT" --format=json --progress-spinner=off 2>/dev/null || true)
+  # ⚠ НАСЕЛЕНИЕ аудита — дерево ПРОДУКТА, а не окружение, из которого зовут.
+  # `pip-audit` без аргументов проверяет текущий venv, и это два разных населения
+  # сразу: в CI джоба ставит в него инструменты гейтов, а локально venv отстаёт от
+  # lock-файла. Замер `outreach-donors` 30.09: CI дал `py_total: 12`, локальный
+  # venv — 1 (pyjwt 2.14.0), а по `uv export --frozen` — **ноль**, потому что в
+  # lock давно 2.15.0 и прод ставится `uv sync --locked`. Три числа об одном
+  # проекте, и ни одно не про то, что поедет в прод.
+  #
+  # Поэтому при наличии lock-файла спрашиваем ЕГО: `--no-deps --disable-pip`,
+  # чтобы pip-audit не разрешал зависимости заново по сети (иначе `>=` уедет к
+  # свежей версии с PyPI — ровно тот обход lock, который и дал 12).
+  pa_src="окружение"
+  pa_req=""
+  if command -v uv >/dev/null 2>&1; then
+    for lock in uv.lock "$BE_DIR/uv.lock"; do
+      [[ -f "$lock" ]] || continue
+      pa_req=$(mktemp)
+      if (cd "$(dirname "$lock")" && uv export --frozen --no-hashes \
+            --no-emit-project --all-extras) > "$pa_req" 2>/dev/null; then
+        pa_src="uv.lock"
+      else
+        rm -f "$pa_req"; pa_req=""
+      fi
+      break
+    done
+  fi
+  if [[ -n "$pa_req" ]]; then
+    pa_json=$("$PIP_AUDIT" -r "$pa_req" --no-deps --disable-pip \
+              --format=json --progress-spinner=off 2>/dev/null || true)
+    rm -f "$pa_req"
+  else
+    pa_json=$("$PIP_AUDIT" --format=json --progress-spinner=off 2>/dev/null || true)
+  fi
   py_total=$(printf '%s' "$pa_json" | python3 -c 'import json,sys
 try: d=json.load(sys.stdin)
 except Exception: raise SystemExit(1)
@@ -132,6 +164,16 @@ py_total=$(num "$py_total"); js_crit=$(num "$js_crit")
 js_high=$(num "$js_high");  js_total=$(num "$js_total")
 
 current="py_total=$py_total js_critical=$js_crit js_high=$js_high js_total=$js_total"
+# ⚠ НАСЕЛЕНИЕ печатается рядом с числом, а не подразумевается. «12 уязвимостей»
+# без ответа на вопрос «в чём именно» отправляет чинить продукт, когда дело в
+# окружении гейтов (замер 30.09, три разных числа об одном проекте).
+# if, а не `test && cmd`: под `set -e` ложный тест уронил бы шаг — грабля,
+# которую канон уже разбирал у установки зависимостей (lab-11 F9).
+if [[ "${pa_src:-}" == "окружение" && "$py_unchecked" -eq 0 ]]; then
+  printf 'deps-audit: python-половина мерена по ОКРУЖЕНИЮ (lock не найден) — числа включают оснастку гейтов\n' >&2
+elif [[ "${pa_src:-}" == "uv.lock" ]]; then
+  printf 'deps-audit: python-половина мерена по uv.lock — дерево продукта, как в проде\n'
+fi
 # Сколько манифестов реально проверено — нужно ОБЕИМ веткам вывода.
 checked=$(( (1 - py_unchecked) + (1 - js_unchecked) ))
 

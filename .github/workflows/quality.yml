@@ -144,6 +144,17 @@ jobs:
             echo "deps: pyproject в корне — ставлю проект и его зависимости"
             "$VENV_DIR"/bin/pip install -e . || echo "::warning::editable-установка корня не удалась"
           fi
+          # cqg@2.39: продукт ставится ИЗ LOCK. `pip install -e .` решает версии
+          # по диапазонам pyproject и тянет с PyPI свежее прод-образа — lock
+          # обходили ровно этой строкой, и mypy strict судил не те версии, что
+          # поедут, а аудит считал не то дерево (замер 30.09: py_total 12 в CI
+          # против 0 по uv export --frozen).
+          if [ -f uv.lock ] && command -v uv >/dev/null 2>&1; then
+            echo "deps: продукт из uv.lock (версии как в проде)"
+            uv export --frozen --no-hashes --no-emit-project --all-extras \
+              | "$VENV_DIR"/bin/pip install -r /dev/stdin \
+              || echo "::warning::установка из uv.lock не удалась — гейты увидят версии, отличные от прод-образа"
+          fi
 
       - name: Install frontend deps
         run: |
