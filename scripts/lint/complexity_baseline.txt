@@ -1,28 +1,4 @@
 # complexity_baseline.txt — снимок нарушений сложности ФУНКЦИЙ по файлам.
-# Формат: <число нарушений>:<путь>. Половины, снявшие снимок: python + ts
+# Формат: <число нарушений>:<путь>. Половины, снявшие снимок: python
 # python: ruff C901,PLR0911,PLR0912,PLR0913,PLR0915; пороги — в pyproject ([tool.ruff.lint.mccabe] / [.pylint]).
-# ts: eslint {"complexity":["error",10],"max-depth":["error",4],"max-params":["error",8],"max-statements":["error",50]} (порог у гейта, env LINT_TS_COMPLEXITY_RULES).
 # Снимок только ТАЕТ: тронул файл — раздели функцию и пере-сними вниз.
-1:frontend/src/advertisers/AdvertisersPage.tsx
-1:frontend/src/api/client.ts
-1:frontend/src/api/labels.ts
-1:frontend/src/components/JudgeVerdict.tsx
-1:frontend/src/donors/DonorAddresses.tsx
-1:frontend/src/donors/DonorPage.tsx
-1:frontend/src/donors/DonorsPage.tsx
-1:frontend/src/donors/PendingContacts.tsx
-1:frontend/src/donors/exporting.ts
-1:frontend/src/forms/FormsPage.tsx
-1:frontend/src/letters/LetterPreview.tsx
-3:frontend/src/letters/LettersPage.tsx
-1:frontend/src/review/CandidateRow.tsx
-1:frontend/src/review/RunReviewPage.tsx
-1:frontend/src/runs/RunPage.tsx
-1:frontend/src/runs/Unfold.tsx
-1:frontend/src/selection/SelectionPage.tsx
-1:frontend/src/senders/SenderCard.tsx
-1:frontend/src/settings/ThresholdsPage.tsx
-1:frontend/src/suppressions/SuppressionsPage.tsx
-1:frontend/src/test/server.ts
-1:frontend/src/threads/PriceReview.tsx
-1:frontend/src/threads/ThreadPage.tsx

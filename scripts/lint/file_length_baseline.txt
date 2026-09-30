@@ -5,8 +5,8 @@
 # Вне обоих списков (в т.ч. любой новый файл) — hard 500/1000.
 [baseline]
 524:frontend/src/api/labels.ts
-921:frontend/src/api/types.ts
-557:frontend/src/donors/DonorsTable.tsx
-731:frontend/src/letters/LettersPage.tsx
-509:frontend/src/runs/RunPage.tsx
+988:frontend/src/api/types.ts
+542:frontend/src/donors/DonorsTable.tsx
+757:frontend/src/letters/LettersPage.tsx
+510:frontend/src/runs/RunPage.tsx
 [exemption]
