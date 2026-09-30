@@ -127,7 +127,7 @@ repos:
       - id: eslint-warning-ratchet
         name: ESLint warnings — рост запрещён (count-ratchet)
         language: system
-        entry: bash -c 'cd "$(git rev-parse --show-toplevel)"; export LINT_PY_SRC=backend LINT_BE_DIR=backend LINT_COV_PKG=backend LINT_VENV=.venv; bash scripts/lint/check_eslint_warnings.sh'
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)"; export LINT_PY_SRC=backend LINT_BE_DIR=. LINT_COV_PKG=backend LINT_VENV=.venv; bash scripts/lint/check_eslint_warnings.sh'
         files: ^frontend/src/.*\.(ts|tsx)$
         pass_filenames: false
 
@@ -147,7 +147,7 @@ repos:
       - id: file-length
         name: Файлы кода <= 500/1000 строк (baseline-ratchet)
         language: system
-        entry: bash -c 'cd "$(git rev-parse --show-toplevel)"; export LINT_PY_SRC=backend LINT_BE_DIR=backend LINT_COV_PKG=backend LINT_VENV=.venv; bash scripts/lint/check_file_length.sh'
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)"; export LINT_PY_SRC=backend LINT_BE_DIR=. LINT_COV_PKG=backend LINT_VENV=.venv; bash scripts/lint/check_file_length.sh'
         types_or: [python, ts, tsx]
         pass_filenames: false
 
@@ -167,25 +167,25 @@ repos:
       - id: config-access-gate
         name: config-access — типизированный config.X, не getattr/os.getenv
         language: system
-        entry: bash -c 'cd "$(git rev-parse --show-toplevel)"; export LINT_PY_SRC=backend LINT_BE_DIR=backend LINT_COV_PKG=backend LINT_VENV=.venv; bash scripts/lint/check_grep_gate.sh --rule config-access'
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)"; export LINT_PY_SRC=backend LINT_BE_DIR=. LINT_COV_PKG=backend LINT_VENV=.venv; bash scripts/lint/check_grep_gate.sh --rule config-access'
         files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
         pass_filenames: false
       - id: di-indirection-gate
         name: di-indirection — без pkg/session/ctx Any и importlib reach-back
         language: system
-        entry: bash -c 'cd "$(git rev-parse --show-toplevel)"; export LINT_PY_SRC=backend LINT_BE_DIR=backend LINT_COV_PKG=backend LINT_VENV=.venv; bash scripts/lint/check_grep_gate.sh --rule di-indirection'
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)"; export LINT_PY_SRC=backend LINT_BE_DIR=. LINT_COV_PKG=backend LINT_VENV=.venv; bash scripts/lint/check_grep_gate.sh --rule di-indirection'
         files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
         pass_filenames: false
       - id: service-no-web-gate
         name: service-no-web — сервис-слой не импортирует web-фреймворк
         language: system
-        entry: bash -c 'cd "$(git rev-parse --show-toplevel)"; export LINT_PY_SRC=backend LINT_BE_DIR=backend LINT_COV_PKG=backend LINT_VENV=.venv; bash scripts/lint/check_grep_gate.sh --rule service-no-web'
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)"; export LINT_PY_SRC=backend LINT_BE_DIR=. LINT_COV_PKG=backend LINT_VENV=.venv; bash scripts/lint/check_grep_gate.sh --rule service-no-web'
         files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
         pass_filenames: false
       - id: no-grab-bag-module-gate
         name: no-grab-bag — utils/misc/common/helpers.py без темы запрещены
         language: system
-        entry: bash -c 'cd "$(git rev-parse --show-toplevel)"; export LINT_PY_SRC=backend LINT_BE_DIR=backend LINT_COV_PKG=backend LINT_VENV=.venv; bash scripts/lint/check_grep_gate.sh --rule no-grab-bag-module'
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)"; export LINT_PY_SRC=backend LINT_BE_DIR=. LINT_COV_PKG=backend LINT_VENV=.venv; bash scripts/lint/check_grep_gate.sh --rule no-grab-bag-module'
         files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
         pass_filenames: false
       - id: silent-except-gate
@@ -227,7 +227,7 @@ repos:
       - id: jscpd-dry-gate
         name: DRY — рост копипаста (jscpd clone-count ratchet)
         language: system
-        entry: bash -c 'cd "$(git rev-parse --show-toplevel)"; export LINT_PY_SRC=backend LINT_BE_DIR=backend LINT_COV_PKG=backend LINT_VENV=.venv; bash scripts/lint/check_jscpd_gate.sh'
+        entry: bash -c 'cd "$(git rev-parse --show-toplevel)"; export LINT_PY_SRC=backend LINT_BE_DIR=. LINT_COV_PKG=backend LINT_VENV=.venv; bash scripts/lint/check_jscpd_gate.sh'
         files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
         pass_filenames: false
 

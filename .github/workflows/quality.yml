@@ -23,7 +23,7 @@ env:
   # Одно понятие — одно место (§2.9): значения здесь и в хуках обязаны совпадать.
   LINT_PY_SRC: backend
   LINT_FE_DIR: frontend
-  LINT_BE_DIR: backend
+  LINT_BE_DIR: "."
   LINT_COV_PKG: backend
   LINT_VENV: .venv
 
