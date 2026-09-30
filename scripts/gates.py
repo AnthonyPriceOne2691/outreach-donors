@@ -49,13 +49,34 @@ class Violation:
         return f"{where}:{self.line} [{self.rule}] {self.message}"
 
 
+#: Механика контура: НАШ репозиторий, ЧУЖОЕ авторство. Она приезжает
+#: перевендориванием из репозитория канона и чинится там же — правка, сделанная
+#: здесь, разойдётся со снимком, и доктор контура объявит адаптацию, которой не
+#: делали. Замер 30.09, первое развёртывание: этот гейт дал 36 нарушений, ВСЕ в
+#: payload (scripts/okf_*.py, scripts/delivery_*.py) при нуле в коде проекта.
+#: Тот же принцип уже стоит у ruff в pyproject.toml (CQG §6, третий принцип).
+CONTOUR_PREFIXES = ("scripts/lint/", "scripts/delivery_", "scripts/okf_",
+                    "scripts/merge_guard", "docs/canon/", "extract_payload.py")
+
+
+def _is_contour(path: Path) -> bool:
+    # Без try/except: голый `except` здесь ловил бы собственный гейт
+    # silent-except — прибор обязан жить по правилу, которое требует от других.
+    if not path.is_relative_to(ROOT):
+        return False
+    return path.relative_to(ROOT).as_posix().startswith(CONTOUR_PREFIXES)
+
+
 def _python_files(targets: Iterable[Path]) -> Iterator[Path]:
     for target in targets:
         if target.is_file() and target.suffix == ".py":
-            yield target
+            if not _is_contour(target):
+                yield target
         elif target.is_dir():
             for path in sorted(target.rglob("*.py")):
                 if "migrations" in path.parts or "__pycache__" in path.parts:
+                    continue
+                if _is_contour(path):
                     continue
                 yield path
 
@@ -280,6 +301,12 @@ def check_public_repo(root: Path) -> Iterator[Violation]:
     агент, не исполняется — исполняется то, что роняет пуш.
     """
     for path in _tracked_text_files(root):
+        # Payload контура исключён по той же причине, что и в _python_files:
+        # слово «заказчик» в docstring чужого по авторству файла — не наш текст
+        # и правится не здесь. Замер: единственное срабатывание правила на
+        # свежем развёртывании было в scripts/delivery_history.py.
+        if _is_contour(path):
+            continue
         text = path.read_text(encoding="utf-8", errors="replace")
         for number, line in enumerate(text.splitlines(), start=1):
             for pattern, what in PRIVATE_MARKERS:
