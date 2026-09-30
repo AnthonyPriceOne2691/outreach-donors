@@ -14,6 +14,7 @@ from backend.features.contacts.extract import (
     extract_emails,
     extract_obfuscated,
     find_contact_links,
+    repair_glued_domain,
 )
 from backend.features.contacts.quality import (
     Candidate,
@@ -80,6 +81,66 @@ class TestExtract:
         assert not trusted_guess("meet@the.com", site_host="site.com")
         assert trusted_guess("info@site.com", site_host="site.com")
         assert trusted_guess("editor@gmail.com", site_host="site.com")
+
+
+class TestGluedTail:
+    """Хвост соседнего слова, слипшийся с зоной адреса.
+
+    Проверяется в обе стороны, и вторая важнее первой: не починить адрес
+    значит потерять донора, а обрезать живую зону значит написать не тому,
+    кому писали, и не узнать об этом никогда.
+    """
+
+    @pytest.mark.parametrize(
+        ("html", "expected"),
+        [
+            ("<p>Пишите на ads@gmail.comJanuary 5, 2024</p>", "ads@gmail.com"),
+            ("<p>ads@site.com2024 год</p>", "ads@site.com"),
+            ("<p>ads@gmail.comЯнварь</p>", "ads@gmail.com"),
+        ],
+    )
+    def test_tail_is_cut_off(self, html: str, expected: str) -> None:
+        assert extract_emails(html) == {expected}
+
+    @pytest.mark.parametrize(
+        "domain",
+        ["example.company", "site.network", "x.institute", "y.international", "z.phone"],
+    )
+    def test_long_zone_survives(self, domain: str) -> None:
+        """Список известных зон обрезал бы `company` до `com`, а `institute` до `in`.
+
+        Именно так вела себя рабочая реализация, у которой список был.
+        """
+        assert repair_glued_domain(domain) == domain
+
+    @pytest.mark.parametrize(
+        "domain",
+        [
+            "site.xn--p1ai",
+            "сайт.рф",
+            # `xn--d1acj3b` (.дети) — та самая опасная форма: две строчные
+            # буквы, сразу за ними цифра. Держит её только привязка поиска
+            # к началу метки; снимут привязку — зона обрежется до `.acj`.
+            "site.xn--d1acj3b",
+        ],
+    )
+    def test_punycode_zone_survives(self, domain: str) -> None:
+        """Единственная зона с цифрами — punycode; по цифре её резать нельзя."""
+        assert repair_glued_domain(domain) == domain
+
+    @pytest.mark.parametrize("domain", ["SITE.COM", "Site.Com", "site.com", "site.co.uk"])
+    def test_ordinary_domain_is_untouched(self, domain: str) -> None:
+        assert repair_glued_domain(domain) == domain
+
+    def test_lowercase_tail_is_left_as_is(self) -> None:
+        """Осознанный предел: строчный хвост от долгой зоны не отличить.
+
+        Обрезанный адрес молча уехал бы чужому живому человеку. Не
+        починенный, он и не проходит — узкий случай, где зоны заведомо
+        нет, отсеивает фильтр годности.
+        """
+        assert repair_glued_domain("gmail.comand") == "gmail.comand"
+        assert rejection_reason("ads@gmail.comand") is not None
 
 
 class TestContactLinks:
@@ -155,6 +216,78 @@ class TestRejection:
         assert marker in reason
 
 
+class TestVendorSubdomains:
+    """Домен сервиса на третьем уровне. Найдено боевым прогоном 27.09.2026.
+
+    Ключ телеметрии выглядит как адрес и проходит любую проверку формы:
+    списка доменов сервисов недостаточно, если сверять только точное
+    совпадение — адрес сидит на поддомене.
+    """
+
+    @pytest.mark.parametrize(
+        "email",
+        [
+            "f421b49239504a9a9acbf7335cb6e058@o317978.ingest.sentry.io",
+            "79baaa8e09c746d2b7401643b99792e0@sentry.wixpress.com",
+            "abc@www.google.com",
+        ],
+    )
+    def test_service_subdomain_is_rejected(self, email: str) -> None:
+        assert rejection_reason(email) is not None
+
+    @pytest.mark.parametrize(
+        "email",
+        [
+            # Sentry на СВОЁМ домене площадки: списком доменов не ловится.
+            "e7d54b729aaf49ea8b2f80dae22860aa@sentry.zipify.com",
+            "73410f1915d84abc8b2dd1f1aabd1c82@sentry.hackmd.dev",
+            # И на чужом домене без слова sentry вовсе — остаётся форма ключа.
+            "f421b49239504a9a9acbf7335cb6e058@o317978.example-analytics.net",
+        ],
+    )
+    def test_telemetry_key_is_not_a_mailbox(self, email: str) -> None:
+        """32 шестнадцатеричных символа в локальной части — это DSN, не ящик.
+
+        Признак по форме, а не по домену: боевой прогон 27.09.2026 отдал три
+        варианта подряд, и последний был Sentry на домене самой площадки.
+        Сколько доменов в список ни добавь, следующий будет новый.
+        """
+        assert rejection_reason(email) is not None
+
+    def test_mangled_telemetry_key_is_still_not_a_mailbox(self) -> None:
+        """Сломанное JSON-экранирование приклеивает `u003e` к ключу.
+
+        Такой адрес форму ключа уже не проходит — 32 hex перестают быть
+        всей локальной частью, — и его ловит только то, что домен начинается
+        на `sentry.`. В данных прогона этот мусор встретился живьём
+        (`u003epress@hackmd.io` рядом с DSN того же сайта).
+        """
+        assert (
+            rejection_reason("u003ee7d54b729aaf49ea8b2f80dae22860aa@sentry.zipify.com") is not None
+        )
+
+    def test_hex_looking_but_short_local_part_survives(self) -> None:
+        """Граница: `abc123@site.com` — обычный адрес, а не ключ."""
+        assert rejection_reason("abc123@site.com") is None
+
+    def test_own_domain_that_merely_ends_with_a_word_survives(self) -> None:
+        """`mysentry.io` — не `sentry.io`: границей служит точка, а не подстрока."""
+        assert rejection_reason("ads@mysentry.io") is None
+
+    @pytest.mark.parametrize("email", ["contact@imaginarylane.example", "info@site.invalid"])
+    def test_reserved_zone_is_rejected(self, email: str) -> None:
+        """RFC 2606 держит эти зоны под примеры — со страниц они и приезжают."""
+        assert rejection_reason(email) is not None
+
+    def test_fixture_zone_stays_usable(self) -> None:
+        """`.test` тем же RFC зарезервирована, но на ней стоят фикстуры репо.
+
+        Запретив её, мы отняли бы у тестов единственный домен, по которому
+        нельзя случайно уйти в живую сеть.
+        """
+        assert rejection_reason("ads@site.example.test") is None
+
+
 class TestPlaceholderDomains:
     """Прогон 23.09.2026, 100 ключей US: со страниц снялись адреса из
     примеров — `support@yourcompany.com`, `you@yourbusiness.com`,
@@ -190,6 +323,57 @@ class TestPlaceholderDomains:
         ],
     )
     def test_real_sites_with_similar_names_pass(self, email: str) -> None:
+        assert rejection_reason(email) is None
+
+
+class TestNotTheSitesMailbox:
+    """Прогон 27.09.2026 по 14 тыс. площадок: адреса, правдоподобные на вид и
+    даже подтверждённые проверкой ящика, но принадлежащие не сайту — хостеру
+    на странице-заглушке, платформе блогов в подвале публикации, юрфирме,
+    которая представляет платформу в ЕС. Писать туда о размещении бессмысленно."""
+
+    @pytest.mark.parametrize(
+        ("email", "marker"),
+        [
+            ("support@beget.com", "хостера"),
+            ("bills@beget.com", "хостера"),
+            ("info@hostinger.com", "хостера"),
+            ("support@ovh.com", "хостера"),
+            ("data-protection@hetzner.com", "хостера"),
+            ("support@substack.com", "платформы, а не автора"),
+            ("dsa@substackinc.com", "домен сервиса"),
+            ("eurepresentative.substack@twobirds.com", "представитель"),
+            ("ukrepresentative.substack@twobirds.com", "представитель"),
+            ("substack-dsa@lionheartsquared.eu", "представитель"),
+            ("mailaddress@client.com", "домен-заглушка"),
+            ("info@thenationnetwork.comif", "слипшимся хвостом"),
+            ("info@longlead.comor", "слипшимся хвостом"),
+        ],
+    )
+    def test_refused_with_its_reason(self, email: str, marker: str) -> None:
+        reason = rejection_reason(email)
+        assert reason is not None
+        assert marker in reason
+
+    @pytest.mark.parametrize(
+        "email",
+        [
+            # Автор на платформе — законный адрес: ящик платформы отличается формой.
+            "wethefifth@substack.com",
+            # `ovh` подстрокой в чужом имени — не хостер.
+            "info@lovhouse.com",
+            # Представитель по продажам — тот, кто нам и нужен.
+            "salesrepresentative@site.com",
+            # Долгие живые зоны, которые начинаются на com/net/org.
+            "hello@site.company",
+            "news@site.community",
+            "contact@north-star.network",
+            "info@thenationnetwork.com",
+            "editor@site.com.au",
+            "info@clientearth.org",
+        ],
+    )
+    def test_similar_real_addresses_pass(self, email: str) -> None:
         assert rejection_reason(email) is None
 
 

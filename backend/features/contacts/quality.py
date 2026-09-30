@@ -53,8 +53,35 @@ VENDOR_DOMAINS = frozenset(
         "schema.org", "w3.org", "google.com", "googleapis.com", "gstatic.com",
         "facebook.com", "twitter.com", "youtube.com", "instagram.com",
         "jsdelivr.net", "gravatar.com", "cloudflare.com", "wordpress.com", "wordpress.org",
+        # Компания-владелец Substack: авторы на этом домене не пишут никогда.
+        "substackinc.com",
     }
 )  # fmt: skip
+
+# Хостер вместо сайта: страница-заглушка «сайт размещён у нас» отдаёт адреса
+# хостера — прогон 27.09.2026 снял `support@beget.com` с трёх площадок.
+# Сверяются МЕТКИ домена целиком: `ovh` подстрокой сидит в чужих именах
+# (`lovhouse.com`), и подстрочная проверка отрезала бы живые сайты.
+HOSTER_LABELS = frozenset({"beget", "timeweb", "hostinger", "ovh", "hetzner"})
+
+# Платформы, где пишут авторы. Адрес автора на домене платформы законен
+# (`wethefifth@substack.com`), а ролевой ящик там — самой платформы: прогон
+# 27.09.2026 снял `support@substack.com` из подвала 37 публикаций.
+PUBLISHING_PLATFORM_DOMAINS = frozenset({"substack.com"})
+
+# Юридические адреса платформы: представитель в ЕС и UK и контактная точка по
+# DSA. В подвале каждой публикации Substack они лежат у юрфирм
+# (`eurepresentative.substack@twobirds.com`, `substack-dsa@lionheartsquared.eu`),
+# и проверка ящика ставила им `valid` (25 доноров в CRM) — ящик есть, но читает юрист.
+# Правило по форме, а не по доменам: юрфирм много, форма одна.
+LEGAL_CONTACT_LOCAL = re.compile(r"^(?:eu|uk)representative(?:$|[._-])|(?:^|[._-])dsa(?:$|[._-])")
+
+# Хвост слова, слипшийся с зоной строчными: `info@site.comif` из «.com if you…».
+# Чинить такое нельзя (`extract.repair_glued_domain` объясняет почему), но и
+# зоны вида «com/net/org + 1–3 буквы» не бывает: ближайшие живые — `.comcast`,
+# `.network`, `.organic` — длиннее на четыре. Отказ спасает от отбивки, которая
+# бьёт по репутации почтового домена.
+GLUED_LOWERCASE_ZONE = re.compile(r"\.(?:com|net|org)[a-z]{1,3}$")
 
 # Подстроки домена: регистраторы и службы скрытия владельца. Такой адрес
 # приходит из RDAP и ведёт не к сайту, а к его регистратору.
@@ -85,11 +112,30 @@ _PLACEHOLDER_WORDS = (
     "|organization|store|shop|agency|blog|startup|team"
 )
 PLACEHOLDER_MAIL_DOMAIN = re.compile(
-    rf"^(?:(?:your|my)-?(?:{_PLACEHOLDER_WORDS})|company|website|acme|mycompany)"
+    rf"^(?:(?:your|my)-?(?:{_PLACEHOLDER_WORDS})|company|website|acme|mycompany|client)"
     r"\.[a-z]{2,6}(?:\.[a-z]{2})?$"
 )
 
 NO_REPLY_MARKERS = ("noreply@", "no-reply@", "no_reply@", "donotreply@", "do-not-reply@")
+
+# Ключ телеметрии, а не ящик: у DSN Sentry локальная часть — 32 шестнадцатеричных
+# символа. Признак по ФОРМЕ, а не по домену, и это принципиально: список доменов
+# сервисов такое не ловит. Боевой прогон 27.09.2026 отдал три варианта подряд —
+# `@o317978.ingest.sentry.io`, `@sentry.wixpress.com`, `@sentry.zipify.com`, —
+# и последний это Sentry, поднятый на собственном домене площадки: сколько
+# доменов в список ни добавь, следующий будет новый. Форма же одна на всех.
+TELEMETRY_KEY_LOCAL = re.compile(r"^[0-9a-f]{32}$")
+
+# Зоны, которых не бывает в природе: RFC 2606 держит их под примеры.
+# Со страниц они приезжают из образцов в разметке — боевой прогон 27.09.2026
+# снял `contact@imaginarylane.example`.
+#
+# ⚠️ `.test` и `.localhost` сюда НЕ входят намеренно, хотя тем же RFC они тоже
+# зарезервированы: на них стоят фикстуры этого репозитория (`site.example.test`),
+# и зона выбрана именно потому, что в живую сеть по ней не попасть. Запретив её,
+# мы отняли бы у тестов единственный безопасный домен. На страницах адрес в
+# зоне `.test` не встречается — в отличие от `.example`, который пишут в примерах.
+RESERVED_TLDS = (".example", ".invalid")
 
 # Адреса чужих отделов. Формально живые, но цену за размещение там не
 # называют, а письмо в отписку или в жалобы — это заявка на жалобу.
@@ -166,7 +212,28 @@ _RULES: tuple[tuple[Callable[[str, str, str], bool], str], ...] = (
         lambda _v, _l, domain: bool(set(domain.split(".")[:-2]) & WRONG_DEPARTMENT_LABELS),
         "чужой отдел, выделенный поддоменом",
     ),
-    (lambda _v, _l, domain: domain in VENDOR_DOMAINS, "домен сервиса, а не сайта"),
+    (lambda _v, local, _d: bool(TELEMETRY_KEY_LOCAL.match(local)), "ключ телеметрии, а не ящик"),
+    (lambda _v, _l, domain: domain.split(".")[0] == "sentry", "поддомен Sentry, а не почта"),
+    (lambda _v, _l, domain: _is_vendor(domain), "домен сервиса, а не сайта"),
+    (
+        lambda _v, _l, domain: bool(set(domain.split(".")) & HOSTER_LABELS),
+        "адрес хостера, а не сайта",
+    ),
+    (
+        lambda _v, local, domain: (
+            domain in PUBLISHING_PLATFORM_DOMAINS and local in ROLE_LOCAL_PARTS
+        ),
+        "служебный ящик платформы, а не автора",
+    ),
+    (
+        lambda _v, local, _d: bool(LEGAL_CONTACT_LOCAL.search(local)),
+        "юридический представитель платформы, а не редакция",
+    ),
+    (
+        lambda _v, _l, domain: bool(GLUED_LOWERCASE_ZONE.search(domain)),
+        "зона со слипшимся хвостом слова — такой зоны нет",
+    ),
+    (lambda _v, _l, domain: domain.endswith(RESERVED_TLDS), "зона под примеры, а не живая"),
     (
         lambda _v, _l, domain: bool(PLACEHOLDER_MAIL_DOMAIN.match(domain)),
         "домен-заглушка из примера на странице",
@@ -178,6 +245,22 @@ _RULES: tuple[tuple[Callable[[str, str, str], bool], str], ...] = (
     (lambda _v, _l, domain: domain.endswith(FILE_EXTENSIONS), "хвост имени файла"),
     (lambda _v, _l, domain: domain.startswith(".") or ".." in domain, "домен разобран неверно"),
 )
+
+
+def _is_vendor(domain: str) -> bool:
+    """Домен сервиса — он сам или любой его поддомен.
+
+    Точного совпадения не хватает, и это выяснилось на боевом прогоне:
+    со страниц приезжают ключи Sentry вида
+    `f421b49239504a9a9acbf7335cb6e058@o317978.ingest.sentry.io` и
+    `…@sentry.wixpress.com`. Домен в списке есть, но адрес был на ТРЕТЬЕМ
+    уровне, проверка `domain in VENDOR_DOMAINS` его не видела, и ключ
+    телеметрии уезжал в базу как контакт редакции — правдоподобный на вид
+    и мёртвый по существу.
+    """
+    if domain in VENDOR_DOMAINS:
+        return True
+    return any(domain.endswith(f".{vendor}") for vendor in VENDOR_DOMAINS)
 
 
 #: Отказ, когда строка вовсе не адрес: у него нет адреса в хвосте.
