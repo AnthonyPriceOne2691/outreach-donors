@@ -286,6 +286,7 @@ async def sweep(
             provider=None,  # платных ступеней здесь нет вовсе
             renderer=renderer if use_browser else None,
             stop_without_mail=False,
+            collect_handles=True,  # каналы связи — ради них прогон по файлу и нужен
         )
 
         async def one(host: str) -> None:

@@ -572,12 +572,12 @@
       "worst": "find_emails:140"
     },
     "backend/features/contacts/extract.py": {
-      "lines": 212,
+      "lines": 217,
       "complexity": 9,
-      "worst": "find_contact_links:193"
+      "worst": "find_contact_links:195"
     },
     "backend/features/contacts/file_sweep.py": {
-      "lines": 313,
+      "lines": 314,
       "complexity": 8,
       "worst": "_handle_columns:152"
     },
@@ -587,9 +587,9 @@
       "worst": "monthly_left:115"
     },
     "backend/features/contacts/ladder.py": {
-      "lines": 432,
+      "lines": 437,
       "complexity": 10,
-      "worst": "_step_pages:235"
+      "worst": "_step_pages:239"
     },
     "backend/features/contacts/manual.py": {
       "lines": 184,
@@ -597,9 +597,9 @@
       "worst": "remove:156"
     },
     "backend/features/contacts/messengers.py": {
-      "lines": 332,
+      "lines": 336,
       "complexity": 5,
-      "worst": "_collect:232"
+      "worst": "_collect:236"
     },
     "backend/features/contacts/mx.py": {
       "lines": 207,
@@ -607,9 +607,9 @@
       "worst": "_query:135"
     },
     "backend/features/contacts/pages.py": {
-      "lines": 266,
+      "lines": 286,
       "complexity": 7,
-      "worst": "slug_urls:132"
+      "worst": "language_hint:104"
     },
     "backend/features/contacts/preference.py": {
       "lines": 52,
@@ -622,9 +622,9 @@
       "worst": "find_emails:185"
     },
     "backend/features/contacts/quality.py": {
-      "lines": 322,
+      "lines": 341,
       "complexity": 6,
-      "worst": "weight:298"
+      "worst": "weight:317"
     },
     "backend/features/contacts/rdap.py": {
       "lines": 111,
@@ -642,9 +642,9 @@
       "worst": "search_contacts:136"
     },
     "backend/features/contacts/slugs.py": {
-      "lines": 159,
-      "complexity": 0,
-      "worst": "—"
+      "lines": 255,
+      "complexity": 5,
+      "worst": "_stem_at_edge:237"
     },
     "backend/features/contacts/step_counters.py": {
       "lines": 85,
@@ -857,7 +857,7 @@
       "worst": "_shop_marks:220"
     },
     "backend/features/donors/host.py": {
-      "lines": 62,
+      "lines": 72,
       "complexity": 9,
       "worst": "normalize_host:37"
     },

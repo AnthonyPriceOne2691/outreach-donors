@@ -25,6 +25,8 @@ import re
 
 from selectolax.parser import HTMLParser
 
+from backend.features.contacts.slugs import names_section, url_names_section
+
 logger = logging.getLogger(__name__)
 
 # Адрес строгим выражением. Проверяется целиком на очищенном токене.
@@ -196,6 +198,10 @@ def find_contact_links(html: str, *, slugs: frozenset[str]) -> set[str]:
     Берём и по адресу ссылки, и по её тексту: на половине сайтов раздел
     называется `/p/hubungi-kami`, и по слагу его не угадать, зато анкор
     говорит прямо. Отдаём как есть, нормализацией занимается `pages.py`.
+
+    И адрес, и текст сверяются по словам (`slugs.names_section`): заголовок
+    «Tudo sobre o caso» — статья, а не раздел «sobre», и десяток таких
+    ссылок с главной съедал бюджет обхода раньше угаданных слагов.
     """
     if not html:
         return set()
@@ -205,7 +211,6 @@ def find_contact_links(html: str, *, slugs: frozenset[str]) -> set[str]:
         href = (node.attributes.get("href") or "").strip()
         if not href or href.startswith(("mailto:", "tel:", "javascript:", "#")):
             continue
-        haystack = f"{href.lower()} {(node.text() or '').lower()}"
-        if any(slug in haystack for slug in slugs):
+        if url_names_section(href, slugs) or names_section(node.text() or "", slugs):
             links.add(href)
     return links

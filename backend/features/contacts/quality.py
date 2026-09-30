@@ -19,6 +19,7 @@ from dataclasses import dataclass
 
 from backend.features.contacts.extract import EMAIL_RE
 from backend.features.core.domain import ContactSource, PageKind
+from backend.features.donors.host import split_host
 
 # Ролевые адреса. Берём даже на чужом домене: это контакт редакции,
 # а не личная почта случайного человека.
@@ -61,7 +62,9 @@ VENDOR_DOMAINS = frozenset(
 # Хостер вместо сайта: страница-заглушка «сайт размещён у нас» отдаёт адреса
 # хостера — прогон 27.09.2026 снял `support@beget.com` с трёх площадок.
 # Сверяются МЕТКИ домена целиком: `ovh` подстрокой сидит в чужих именах
-# (`lovhouse.com`), и подстрочная проверка отрезала бы живые сайты.
+# (`lovhouse.com`), и подстрочная проверка отрезала бы живые сайты. Публичный
+# суффикс в сверку не входит: `.ovh` — зона, в ней живут чужие сайты, и
+# `contact@monsite.ovh` — ящик сайта, а не хостера (`_labels_above_suffix`).
 HOSTER_LABELS = frozenset({"beget", "timeweb", "hostinger", "ovh", "hetzner"})
 
 # Платформы, где пишут авторы. Адрес автора на домене платформы законен
@@ -213,10 +216,10 @@ _RULES: tuple[tuple[Callable[[str, str, str], bool], str], ...] = (
         "чужой отдел, выделенный поддоменом",
     ),
     (lambda _v, local, _d: bool(TELEMETRY_KEY_LOCAL.match(local)), "ключ телеметрии, а не ящик"),
-    (lambda _v, _l, domain: domain.split(".")[0] == "sentry", "поддомен Sentry, а не почта"),
+    (lambda _v, _l, domain: _is_sentry_subdomain(domain), "поддомен Sentry, а не почта"),
     (lambda _v, _l, domain: _is_vendor(domain), "домен сервиса, а не сайта"),
     (
-        lambda _v, _l, domain: bool(set(domain.split(".")) & HOSTER_LABELS),
+        lambda _v, _l, domain: bool(set(_labels_above_suffix(domain)) & HOSTER_LABELS),
         "адрес хостера, а не сайта",
     ),
     (
@@ -261,6 +264,22 @@ def _is_vendor(domain: str) -> bool:
     if domain in VENDOR_DOMAINS:
         return True
     return any(domain.endswith(f".{vendor}") for vendor in VENDOR_DOMAINS)
+
+
+def _labels_above_suffix(domain: str) -> list[str]:
+    """Метки домена без публичного суффикса: у `monsite.ovh` это только `monsite`."""
+    subdomain, name, _suffix = split_host(domain)
+    return [*subdomain.split("."), name] if subdomain else [name]
+
+
+def _is_sentry_subdomain(domain: str) -> bool:
+    """Ключ телеметрии живёт на поддомене: `…@sentry.wixpress.com`.
+
+    `sentry.com` и `sentry.co.uk` — сайты, а не поддомены: пока правило
+    смотрело на первую метку домена, их ящики отсеивались вместе с ключами.
+    """
+    subdomain, _name, _suffix = split_host(domain)
+    return subdomain.split(".")[0] == "sentry"
 
 
 #: Отказ, когда строка вовсе не адрес: у него нет адреса в хвосте.

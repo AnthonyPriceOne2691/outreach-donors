@@ -10,6 +10,10 @@
 
 from __future__ import annotations
 
+import re
+from functools import lru_cache
+from urllib.parse import parse_qsl, unquote, urlparse
+
 from backend.features.core.domain import PageKind
 
 # Слаги по видам страниц. Списки не исчерпывающие и не должны быть:
@@ -132,7 +136,10 @@ _LINK_WORDS: frozenset[str] = frozenset(
     {
         "write for us", "advertise", "contact", "about us", "guest post", "terms",
         "контакты", "реклама", "о нас", "о проекте", "редакция", "сотрудничество",
-        "redak", "iklan", "hubungi", "tentang", "syarat", "kebijakan", "ketentuan",
+        # Слова целиком, а не основа `redak`: раздел узнаётся по словам
+        # (`names_section`), и основа не совпала бы ни с одним из них.
+        "redaksi", "redakcja", "redakce", "redakcia", "redakciya", "redaktion",
+        "iklan", "hubungi", "tentang", "syarat", "kebijakan", "ketentuan",
         "اتصل", "أعلن", "ติดต่อ", "publicidad", "publicidade", "contato",
         "werbung", "impressum", "publicite", "contactez",
     }
@@ -156,3 +163,92 @@ ALL_SLUGS: dict[PageKind, frozenset[str]] = {
     | frozenset(slug for by_kind in LOCALIZED_SLUGS.values() for slug in by_kind.get(kind, ()))
     for kind in WALK_ORDER
 }
+
+# Раздел узнаётся по СЛОВАМ, а не по подстроке. Подстрока работала, пока
+# слаги были английскими, и то с огрехами (`press` внутри `wordpress`);
+# с локальными словами она стала ловить заголовки статей: `uslugi` внутри
+# `gosuslugi`, `o-nas` внутри `contract-to-nasa`, `sobre` и `pravila`
+# в каждой второй новости. Статья, принятая за раздел, отдавала чужой
+# адрес из текста как контакт донора и съедала бюджет обхода.
+#
+# Разделители — явным списком, а не `\W`: знаки огласовки тайского
+# и арабского для `\w` не буквы, и `\W+` резал бы слово пополам.
+_SEPARATORS = re.compile(r"[\s\-_.,;:!?/\\|&+~'\"()\[\]{}«»“”„…–—·•،]+")
+
+# Не слова раздела: расширения страниц и номера (`contact-us-2`, `/2024/05/`).
+_NOISE_WORDS = frozenset({"html", "htm", "php", "asp", "aspx", "jsp", "shtml"})
+
+# Сколько лишних слов терпит название раздела. `reklama-na-sayte` и
+# `contact-us-today` — раздел; `tudo-sobre-o-caso-1` и заголовок в пять
+# слов — статья. Слова раздела при этом стоят с края: в `novye-pravila-
+# parkovki` правила посередине, и это новость, а не правила сайта.
+_EXTRA_WORDS = 2
+
+# Длинное слово раздела узнаётся и как начало или конец слова: `contacta`,
+# `kontaktformular`, `pressekontakt`, `supportcenter`. Живой прогон 30.09.2026
+# на донорах из базы нашёл, что точное сравнение теряло `/contacta/`, который
+# подстрока находила. Короткие слова (`sobre`, `uslugi`, `iklan`, `press`)
+# так не сравниваются: внутри чужих слов они сидят случайно — `gosuslugi`,
+# `wordpress`, `knoblauchpresse`.
+_STEM_MIN_LETTERS = 7
+
+
+def _words(text: str) -> tuple[str, ...]:
+    return tuple(
+        word
+        for word in _SEPARATORS.split(text.lower())
+        if word and not word.isdigit() and word not in _NOISE_WORDS
+    )
+
+
+@lru_cache(maxsize=32)
+def _markers_by_length(markers: frozenset[str]) -> dict[int, frozenset[tuple[str, ...]]]:
+    """Маркеры словами, по числу слов. Слаг `page/kontak` — по последней части."""
+    grouped: dict[int, set[tuple[str, ...]]] = {}
+    for marker in markers:
+        words = _words(marker.rsplit("/", 1)[-1])
+        if words:
+            grouped.setdefault(len(words), set()).add(words)
+    return {length: frozenset(group) for length, group in grouped.items()}
+
+
+@lru_cache(maxsize=32)
+def _stems(markers: frozenset[str]) -> tuple[str, ...]:
+    """Однословные маркеры, достаточно длинные, чтобы узнаваться внутри слова."""
+    single = _markers_by_length(markers).get(1, frozenset())
+    return tuple(sorted(words[0] for words in single if len(words[0]) >= _STEM_MIN_LETTERS))
+
+
+def names_section(text: str, markers: frozenset[str]) -> bool:
+    """Называет ли короткий текст раздел: маркер в начале или в конце."""
+    words = _words(text)
+    return _marker_at_edge(words, markers) or _stem_at_edge(words, markers)
+
+
+def _marker_at_edge(words: tuple[str, ...], markers: frozenset[str]) -> bool:
+    total = len(words)
+    return any(
+        length <= total <= length + _EXTRA_WORDS
+        and (words[:length] in known or words[total - length :] in known)
+        for length, known in _markers_by_length(markers).items()
+    )
+
+
+def _stem_at_edge(words: tuple[str, ...], markers: frozenset[str]) -> bool:
+    if not 0 < len(words) <= 1 + _EXTRA_WORDS:
+        return False
+    edges = {words[0], words[-1]}
+    return any(
+        word.startswith(stem) or word.endswith(stem) for word in edges for stem in _stems(markers)
+    )
+
+
+def url_names_section(url: str, markers: frozenset[str]) -> bool:
+    """Ведёт ли адрес в раздел: любой сегмент пути или значение параметра.
+
+    Параметры — ради старых движков: `index.php?page=contact` подстрока
+    находила, и терять такие сайты при переходе на слова незачем.
+    """
+    parsed = urlparse(url)
+    parts = [*unquote(parsed.path).split("/"), *(value for _, value in parse_qsl(parsed.query))]
+    return any(names_section(part, markers) for part in parts)

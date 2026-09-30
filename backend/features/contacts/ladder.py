@@ -139,6 +139,7 @@ class ContactLadder:
         paid_first: bool = False,
         renderer: browser_step.PageRenderer | None = None,
         stop_without_mail: bool = True,
+        collect_handles: bool = False,
     ) -> None:
         self._http = http
         self._provider = provider
@@ -148,6 +149,9 @@ class ContactLadder:
         )
         self._paid_first = paid_first
         self._stop_without_mail = stop_without_mail
+        # Каналы связи читает только прогон по файлу: в базе им места нет,
+        # и путь базы платил за них вторым проходом по каждой странице.
+        self._collect_handles = collect_handles
         self.counters = StepCounters()
 
     def _sequence(self) -> list[_Step]:
@@ -288,7 +292,8 @@ class ContactLadder:
     def _harvest(self, page: FetchedPage, collected: _Collected, site_host: str) -> None:
         """Снять со страницы всё, что похоже на адрес, и заметить форму."""
         collected.has_form = collected.has_form or has_contact_form(page.html)
-        collected.handles |= harvest_handles(page.html, page_kind=page.kind, page_url=page.url)
+        if self._collect_handles:
+            collected.handles |= harvest_handles(page.html, page_kind=page.kind, page_url=page.url)
 
         for email in extract_emails(page.html):
             collected.add(Candidate(email, ContactSource.PAGE, page.kind, page_url=page.url))

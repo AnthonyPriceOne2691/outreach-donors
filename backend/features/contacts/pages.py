@@ -29,7 +29,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterator
 from dataclasses import dataclass
-from urllib.parse import unquote, urljoin, urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
 from selectolax.parser import HTMLParser
@@ -41,6 +41,7 @@ from backend.features.contacts.slugs import (
     LOCALIZED_SLUGS,
     SLUGS,
     WALK_ORDER,
+    url_names_section,
 )
 from backend.features.core.domain import PageKind
 from backend.shared.net.url_guard import UnsafeUrlError
@@ -85,14 +86,17 @@ class FetchedPage:
 def _kind_of(url: str) -> PageKind:
     """Вид страницы по её адресу. Неузнанное — главная, то есть слабый вес.
 
-    Адрес сначала раскодируется: не-латинский слаг уезжает в запрос
-    процентными последовательностями (`%D8%A7%D8%AA%D8%B5%D9%84`), и без
-    раскодирования арабская страница контактов считалась бы главной,
+    Адрес раскодируется (`url_names_section`): не-латинский слаг уезжает
+    в запрос процентными последовательностями (`%D8%A7%D8%AA%D8%B5%D9%84`),
+    и без раскодирования арабская страница контактов считалась бы главной,
     то есть её адрес получил бы вес в четыре раза меньше заслуженного.
+
+    Сравнение — по словам, а не подстрокой: статья, принятая за раздел
+    рекламы, отдаёт процитированный в ней чужой адрес с весом раздела
+    и останавливает обход (`slugs.names_section`).
     """
-    path = unquote(urlparse(url).path).lower()
     for kind in WALK_ORDER:
-        if any(slug in path for slug in ALL_SLUGS[kind]):
+        if url_names_section(url, ALL_SLUGS[kind]):
             return kind
     return PageKind.HOME
 
@@ -106,15 +110,31 @@ def language_hint(html: str, site_host: str) -> str | None:
     (`.be`, `.ch`, `.ca`) угадывать вредно, их в таблице и нет.
 
     `None` — нормальный ответ: тогда обход идёт основным списком.
+
+    Объявленный язык — ответ, даже если своих слагов у него нет: сайт
+    на `.md` или `.de` с `lang="en"` английский, и русские или немецкие
+    слаги первыми вытеснили бы его английские разделы из бюджета попыток.
+    Зона спрашивается только тогда, когда `lang` не объявлен вовсе.
     """
     node = HTMLParser(html).css_first("html") if html else None
     declared = (node.attributes.get("lang") or "").strip().lower() if node else ""
-    language = declared.replace("_", "-").split("-")[0]
-    if language in LOCALIZED_SLUGS:
-        return language
+    if declared:
+        language = declared.replace("_", "-").split("-")[0]
+        return language if language in LOCALIZED_SLUGS else None
 
     labels = site_host.lower().rstrip(".").split(".")
-    return LANGUAGE_BY_TLD.get(labels[-1]) if labels else None
+    return LANGUAGE_BY_TLD.get(_ascii_zone(labels[-1])) if labels else None
+
+
+def _ascii_zone(label: str) -> str:
+    """Зона в том виде, в каком она записана в таблице: `рф` → `xn--p1ai`."""
+    try:
+        return label.encode("idna").decode("ascii")
+    except UnicodeError as exc:
+        # Метка, которую IDNA не принимает, в таблице зон не найдётся ни
+        # в каком виде: язык тогда не угадывается, обход идёт основным списком.
+        logger.debug("зона %r не переводится в IDNA: %s", label, exc)
+        return label
 
 
 def home_variants(site_host: str) -> Iterator[str]:

@@ -150,8 +150,12 @@ _GUESS_RULES: tuple[tuple[re.Pattern[str], MessengerKind], ...] = (
         ),
         MessengerKind.TELEGRAM,
     ),
+    # Пробелы после разделителя — только ВМЕСТЕ с ним: `\s*[:]?\s*` делит
+    # пробельный прогон между двумя `\s*` всеми способами, и на странице, где
+    # за «Skype» идут тысячи пробелов без ника, откат квадратичный — 32 тыс.
+    # пробелов держали цикл событий ~11 с. Смысл тот же, перебор линейный.
     (
-        re.compile(r"(?:skype|скайп)\s*[:：\-—–]?\s*([A-Za-z0-9._\-:]{3,64})", re.I),
+        re.compile(r"(?:skype|скайп)\s*(?:[:：\-—–]\s*)?([A-Za-z0-9._\-:]{3,64})", re.I),
         MessengerKind.SKYPE,
     ),
     # `live:.cid.xxx` — форма нового идентификатора Skype. Встречается и
@@ -159,7 +163,7 @@ _GUESS_RULES: tuple[tuple[re.Pattern[str], MessengerKind], ...] = (
     (re.compile(r"\b(live:[A-Za-z0-9._\-]{3,64})", re.I), MessengerKind.SKYPE),
     (
         re.compile(
-            r"(?:whatsapp|whats app|watsapp|вотсап|ватсап|ватсапп)\s*[:：\-—–]?\s*"
+            r"(?:whatsapp|whats app|watsapp|вотсап|ватсап|ватсапп)\s*(?:[:：\-—–]\s*)?"
             rf"{_NUMBER}",
             re.I,
         ),
