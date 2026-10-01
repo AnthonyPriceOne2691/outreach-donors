@@ -76,6 +76,12 @@ def add_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-ar
         action="store_true",
         help="начать заново: чекпойнт прежнего прогона не читается, а перезаписывается",
     )
+    parser.add_argument(
+        "--retry-unreachable",
+        action="store_true",
+        help="ещё одна попытка доменам, на которых прогон сдался (статус unreachable); "
+        "остальное пройденное не трогается",
+    )
 
 
 def _print_report(report: file_sweep.SweepReport, out: Path, rows: int) -> None:
@@ -91,8 +97,8 @@ def _print_report(report: file_sweep.SweepReport, out: Path, rows: int) -> None:
         print(f"Повторить:             {report.retry} — следующий запуск пройдёт их снова")
     if report.unreachable:
         print(
-            f"Недоступны:            {report.unreachable} — {file_sweep.MAX_ATTEMPTS} попытки "
-            "без ответа, причина в retry_reason; больше не повторяются"
+            f"Недоступны:            {report.unreachable} — попытки кончились, причина "
+            "в retry_reason; ещё одна попытка — --retry-unreachable"
         )
     if report.failed:
         print(
@@ -130,6 +136,8 @@ class _Plan:
     listed: file_sweep.DomainList
     #: Сколько из `pending` прошлый запуск оставил «повторить».
     retrying: int = 0
+    #: Сколько из `pending` возвращено `--retry-unreachable`.
+    reviving: int = 0
 
 
 def _plan(args: argparse.Namespace) -> _Plan:
@@ -158,7 +166,8 @@ def _plan(args: argparse.Namespace) -> _Plan:
         checkpoint.unlink()
 
     already = file_sweep.done_hosts(checkpoint)
-    pending = [host for host in hosts if host not in already]
+    given_up = file_sweep.unreachable_hosts(checkpoint) if args.retry_unreachable else set()
+    pending = [host for host in hosts if host not in already or host in given_up]
     # Сколько пропущено — не то же, что «сколько уже в чекпойнте»: тот мог
     # собраться по другому файлу, и число из него врало бы про этот.
     return _Plan(
@@ -168,6 +177,7 @@ def _plan(args: argparse.Namespace) -> _Plan:
         skipped=len(hosts) - len(pending),
         listed=listed,
         retrying=len(file_sweep.retry_hosts(checkpoint).intersection(pending)),
+        reviving=len(given_up.intersection(pending)),
     )
 
 
@@ -234,6 +244,8 @@ async def cmd_contacts_file(args: argparse.Namespace) -> int:
         print(f"Чекпойнт: {plan.skipped} домен(ов) уже пройдены, продолжаем с остальных.")
     if plan.retrying:
         print(f"Повторяем {plan.retrying} домен(ов), которые в прошлый раз не ответили.")
+    if plan.reviving:
+        print(f"Ещё одна попытка {plan.reviving} домен(ам), на которых прогон сдался.")
 
     try:
         report = await file_sweep.sweep(

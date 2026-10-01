@@ -317,6 +317,63 @@ def _rows(out: Path) -> dict[str, dict[str, str]]:
         return {row["host"]: row for row in csv.DictReader(handle, delimiter=";")}
 
 
+class TestRetryUnreachable:
+    """Ревью #128: «сдались» обратимо без `--restart`, обнуляющего весь список.
+
+    Сайт, умерший при живой сети, после трёх попыток — «недоступен». Ожил —
+    `--retry-unreachable` даёт ему ещё одну попытку. Одну, а не новые три:
+    не ответил снова — снова «недоступен», и обычный запуск его не трогает.
+    Остальное пройденное не трогается вовсе.
+    """
+
+    async def _give_up(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> tuple[Web, Path, Path]:
+        web = Web({"ok.com": {"/": page('<a href="mailto:ads@ok.com">почта</a>')}})
+        install(monkeypatch, web)
+        source = write(tmp_path / "list.csv", "host\nsite.com\nok.com\n")
+        out = tmp_path / "out.csv"
+        for _ in range(file_sweep.MAX_ATTEMPTS):
+            assert await cmd_contacts_file(cli_args(source, "--out", str(out))) == EXIT_OK
+        assert _rows(out)["site.com"]["status"] == file_sweep.UNREACHABLE
+        web.requested.clear()
+        return web, source, out
+
+    async def test_revived_site_is_walked_and_the_rest_is_not(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        web, source, out = await self._give_up(tmp_path, monkeypatch)
+        web.sites["site.com"] = {"/": WITH_EMAIL}
+
+        assert await cmd_contacts_file(cli_args(source, "--out", str(out))) == EXIT_OK
+        assert not web.requested, "без флага сдавшийся домен пошёл снова"
+
+        args = cli_args(source, "--out", str(out), "--retry-unreachable")
+        assert await cmd_contacts_file(args) == EXIT_OK
+        assert {httpx.URL(url).host for url in web.requested} == {"site.com"}
+        rows = _rows(out)
+        assert (rows["site.com"]["status"], rows["site.com"]["email"]) == ("found", "ads@site.com")
+        assert rows["ok.com"]["status"] == "found"
+
+    async def test_still_dead_site_gets_one_attempt_not_three(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        web, source, out = await self._give_up(tmp_path, monkeypatch)
+
+        args = cli_args(source, "--out", str(out), "--retry-unreachable")
+        assert await cmd_contacts_file(args) == EXIT_OK
+        assert web.requested, "флаг не вернул сдавшийся домен"
+        row = _rows(out)["site.com"]
+        assert row["status"] == file_sweep.UNREACHABLE
+        assert row["retry_reason"].startswith(
+            f"сдались после {file_sweep.MAX_ATTEMPTS + 1} попыток"
+        )
+
+        web.requested.clear()
+        assert await cmd_contacts_file(cli_args(source, "--out", str(out))) == EXIT_OK
+        assert not web.requested, "после лишней попытки домен снова пошёл по кругу"
+
+
 class TestProbesFromSettings:
     """Ревью #128: за фильтром, закрывшим все три контрольных адреса, прогон
     объявлял «сети нет» и выходил с кодом 8. Адреса задаются настройкой,

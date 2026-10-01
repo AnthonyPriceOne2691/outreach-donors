@@ -43,6 +43,7 @@ from backend.features.contacts.sweep_checkpoint import (
     retry_hosts,
     rows_for,
     rows_from_checkpoint,
+    unreachable_hosts,
 )
 from backend.features.contacts.sweep_input import DomainList, host_from_cell, read_hosts, read_list
 from backend.features.contacts.sweep_trace import TracedRenderer, traced, watch
@@ -71,6 +72,7 @@ __all__ = [
     "rows_for",
     "rows_from_checkpoint",
     "sweep",
+    "unreachable_hosts",
     "write_csv",
 ]
 
