@@ -248,7 +248,10 @@ async def cmd_contacts_file(args: argparse.Namespace) -> int:
     except file_sweep.NetworkDownError as exc:
         print(
             f"Сеть недоступна: {exc}. Проверьте подключение (VPN, выход в интернет) и "
-            "запустите ту же команду снова — пройденное сохранено, попытки доменов не сгорели."
+            "запустите ту же команду снова — пройденное сохранено, попытки доменов не сгорели.\n"
+            f"Проверялись: {', '.join(file_sweep.NETWORK_PROBES)}. Если сеть есть, а их "
+            "закрывает фильтр, — свои адреса через запятую в CONTACTS_NETWORK_PROBES "
+            "или пустое значение, чтобы не проверять."
         )
         if exc.report is not None:
             exc.report.skipped = plan.skipped

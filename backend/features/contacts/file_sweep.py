@@ -99,11 +99,8 @@ OUTPUT_COLUMNS = (
 
 #: Заведомо живые адреса. По ним прогон проверяет сеть — до первого домена
 #: и тогда, когда домен не ответил ничем. Любой HTTP-ответ — сеть есть.
-NETWORK_PROBES = (
-    "https://www.google.com/generate_204",
-    "https://www.cloudflare.com/cdn-cgi/trace",
-    "https://github.com/",
-)
+#: Задаются `CONTACTS_NETWORK_PROBES`; пусто — проверка выключена.
+NETWORK_PROBES: tuple[str, ...] = cfg.NETWORK_PROBES
 
 
 class NetworkDownError(RuntimeError):
@@ -120,7 +117,12 @@ class NetworkDownError(RuntimeError):
 
 
 async def network_alive(http: httpx.AsyncClient) -> bool:
-    """Отвечает ли хоть один контрольный адрес. Ответ любой — сеть жива."""
+    """Отвечает ли хоть один контрольный адрес. Ответ любой — сеть жива.
+
+    Адресов нет — проверка выключена настройкой, и сеть считается живой.
+    """
+    if not NETWORK_PROBES:
+        return True
     for url in NETWORK_PROBES:
         try:
             await http.get(url)
@@ -285,7 +287,12 @@ async def sweep(
     async with AsyncExitStack() as stack:
         http = await stack.enter_async_context(guarded_client(timeout=timeout))
         # Сеть — до браузера: без неё Chromium поднимать незачем.
-        if not await network_alive(http):
+        if not NETWORK_PROBES:
+            report.notes.append(
+                "Проверка сети выключена (CONTACTS_NETWORK_PROBES пуст): "
+                "без сети домены уйдут «повторить» и потратят попытки."
+            )
+        elif not await network_alive(http):
             raise NetworkDownError("ни один контрольный адрес не ответил — прогон не начат")
         # Браузер — только по просьбе: Chromium стоит секунд запуска и сотен
         # мегабайт, а без просьбы его ступень всё равно не работает.

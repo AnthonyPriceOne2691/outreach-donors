@@ -14,11 +14,13 @@
 from __future__ import annotations
 
 import csv
+import importlib
 from pathlib import Path
 
 import httpx
 import pytest
 from backend.cli.contact_sweep import EXIT_NO_NETWORK, EXIT_OK, cmd_contacts_file
+from backend.config import contacts as contacts_config
 from backend.features.contacts import file_sweep, mx
 from tests.contacts_sweep_fakes import (
     SLOW,
@@ -308,3 +310,62 @@ class TestNameThatDoesNotExist:
         checkpoint = tmp_path / "c.jsonl"
         await file_sweep.sweep(["site.com"], checkpoint=checkpoint)
         assert file_sweep.done_hosts(checkpoint) == set()
+
+
+def _rows(out: Path) -> dict[str, dict[str, str]]:
+    with out.open(encoding="utf-8-sig", newline="") as handle:
+        return {row["host"]: row for row in csv.DictReader(handle, delimiter=";")}
+
+
+class TestProbesFromSettings:
+    """Ревью #128: за фильтром, закрывшим все три контрольных адреса, прогон
+    объявлял «сети нет» и выходил с кодом 8. Адреса задаются настройкой,
+    пустое значение выключает проверку."""
+
+    async def test_own_probes_behind_a_filter(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        closed = set(file_sweep.NETWORK_PROBES)
+
+        class Filtered(Web):
+            def __call__(self, request: httpx.Request) -> httpx.Response:
+                if str(request.url) in closed:
+                    raise httpx.ConnectError("закрыто фильтром", request=request)
+                return super().__call__(request)
+
+        web = Filtered({"site.com": {"/": WITH_EMAIL}})
+        install(monkeypatch, web)
+        source = write(tmp_path / "list.csv", "host\nsite.com\n")
+        args = cli_args(source, "--out", str(tmp_path / "out.csv"))
+        assert await cmd_contacts_file(args) == EXIT_NO_NETWORK
+
+        monkeypatch.setattr(file_sweep, "NETWORK_PROBES", ("https://intranet.test/health",))
+        assert await cmd_contacts_file(args) == EXIT_OK
+        assert web.probes == ["https://intranet.test/health"]
+        assert _rows(tmp_path / "out.csv")["site.com"]["status"] == "found"
+
+    async def test_empty_probes_switch_the_check_off(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Выключенная проверка — сказано в отчёте: попытки без сети сгорают."""
+        web = Web({})
+        web.network = False
+        install(monkeypatch, web)
+        monkeypatch.setattr(file_sweep, "NETWORK_PROBES", ())
+        checkpoint = tmp_path / "c.jsonl"
+        report = await file_sweep.sweep(["site.com"], checkpoint=checkpoint)
+        assert report.retry == 1
+        assert any("CONTACTS_NETWORK_PROBES" in note for note in report.notes)
+
+    def test_probes_come_from_the_environment(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("CONTACTS_NETWORK_PROBES", " https://a.test/ ,, https://b.test/ ")
+        try:
+            assert importlib.reload(contacts_config).NETWORK_PROBES == (
+                "https://a.test/",
+                "https://b.test/",
+            )
+            monkeypatch.setenv("CONTACTS_NETWORK_PROBES", "")
+            assert importlib.reload(contacts_config).NETWORK_PROBES == ()
+        finally:
+            monkeypatch.delenv("CONTACTS_NETWORK_PROBES")
+            importlib.reload(contacts_config)
