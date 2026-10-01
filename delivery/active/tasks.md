@@ -34,8 +34,10 @@
       остальные `pending`.
 - [x] T3. Ядро и CLI проверки `scripts/contour_waves.py`.
 - [x] T4. Тесты A1–A13 и обратный прогон файлом.
-- [x] T5. Подключение: `scripts/hooks/pre-push` с `--warn`, шаг в
-      `quality.yml` с `--base "$BASE"`, адаптация в `scripts/lint/adapted.json`.
+- [x] T5. Подключение: `scripts/hooks/pre-push` с `--warn`, шаг в CI.
+- [x] T5b. По ревью: шаг CI перенесён из `quality.yml` в обязательную джобу
+      `check` файла `ci.yml` (после «Подпись необратимого», своя лестница базы
+      диффа, checkout с полной историей); запись (6) в `adapted.json` снята.
 - [x] T6. Строка «волны модуля» в карте ролей STACK-ACCEPTANCE; мета-гейт видит
       новый гейт.
 - [x] T8. Verify: доктор DEAD 0, gate-coverage OK, `delivery_check` 0 errors;

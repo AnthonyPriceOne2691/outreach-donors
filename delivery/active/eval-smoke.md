@@ -10,6 +10,6 @@ Derived from spec acceptance. Run during verify.
       `backend/features/sales/__init__.py` (файл удалён, не закоммичен) — числа
       в `verify-report.md`.
 - [x] A13 на настоящем дереве: без строки `shared_changes:` в STATUS этого среза
-      проверка красная и называет пять файлов общего кода.
+      проверка красная и называет четыре файла общего кода.
 - [x] Мета-гейт видит новый гейт: без `scripts/contour_waves.py`
       `check_gate_coverage.sh` красный («упомянут в конфиге, но файла нет»).

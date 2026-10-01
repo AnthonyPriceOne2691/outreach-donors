@@ -75,7 +75,7 @@ MSG = {
     "shared": "общий код тронут без объявления: {files} — объяви shared_changes и с кем согласовано",
     "agreed": "shared_changes без «согласовано: …» — назови, с кем согласована правка общего кода",
     "no-base": "нет базы PR (--base): предел «следующий PR продаж» и общий код не судимы — "
-    "CI передаёт $BASE шага «Diff base», pre-push — origin/main",
+    "CI передаёт базу из шага проверки волн в джобе check, pre-push — origin/main",
     "canon": "канон впереди: {layers} — догон отдельным срезом (волна В-обн), не в фиче",
     "git": "contour-waves: git {cmd} не ответил ({why}) — база PR не прочитана",
     "no-sales": "○ продаж в дереве нет — судить нечего",
@@ -402,7 +402,7 @@ def read_canon(folder: Path) -> dict[str, str] | None:
 def _args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Проверка волн контура модуля «Продажи».")
     canon = Path.home() / "Documents" / "Prepare"
-    parser.add_argument("--base", help="база PR: CI — $BASE из «Diff base», pre-push — origin/main")
+    parser.add_argument("--base", help="база PR: CI — цель PR или before, pre-push — origin/main")
     parser.add_argument("--warn", action="store_true", help="pre-push: нарушение — предупреждение")
     parser.add_argument("--root", type=Path, default=ROOT, help="корень дерева")
     parser.add_argument("--canon", type=Path, default=canon, help="канон рядом, только для --warn")

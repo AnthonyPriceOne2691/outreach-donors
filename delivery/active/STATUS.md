@@ -9,7 +9,7 @@
 - **verifier:** process:ci — джобы `check`, `gates` и `delivery` на PR; ревью — координатор модуля, мерж — по решению владельца
 - **human_ok_spec:** deferred reason=спека и примеры A1–A13 перенесены из плана фазы модуля; дату его утверждения владельцем вписывает координатор (yes at=… by=human:…) до handoff
 - **new_dependency:** no
-- **shared_changes:** `scripts/contour_waves.py` и `tests/test_contour_waves.py` — проверка волн, проектный гейт рядом с `scripts/gates.py`; `.github/workflows/quality.yml` — её шаг в джобе `delivery`; `scripts/lint/adapted.json` — объявление этой правки workflow; `scripts/hooks/pre-push` — её запуск с `--warn`. Согласовано: владелец репозитория (место проверки и шаг CI — решения по срезу), сессия outreach-donors (архив `front-polish`) — через координатора модуля
+- **shared_changes:** `scripts/contour_waves.py` и `tests/test_contour_waves.py` — проверка волн, проектный гейт рядом с `scripts/gates.py`; `.github/workflows/ci.yml` — её шаг в обязательной джобе `check` и полная история checkout для базы диффа; `scripts/hooks/pre-push` — её запуск с `--warn`. Согласовано: владелец репозитория (место проверки и шаг CI — решения по срезу), сессия outreach-donors (архив `front-polish`) — через координатора модуля
 
 Прежний активный срез `front-polish` закрыт: его статус — в
 `delivery/archive/front-polish.md`, эскалация — в
@@ -34,7 +34,7 @@
 
 - **shape-oracles:** cqg-deployed — ruff и формат, `scripts/gates.py`, ратчет сложности, хуки pre-commit
 - **behavior-oracles:** tests-present — `tests/test_contour_waves.py`: по тесту на каждый пример A1–A13; обратный прогон файлом — маска кода продаж не совпадает ни с чем, и сценарии A2 и A5 зеленеют
-- **ci-oracles:** deployed — `check`, `web`, `docker`; quality — `gates` и `delivery`, новый шаг проверки волн в `delivery`
+- **ci-oracles:** deployed — обязательные `check`, `web`, `docker`, новый шаг проверки волн — в `check`; quality — `gates` и `delivery`
 - **artifact_oracle:** n/a reason=срез не меняет собираемых артефактов: ни образа, ни сборки фронта
 - **runtime_paths:** none reason=путей исполнения продукта срез не трогает: проверка волн — инструмент репозитория, её судят тесты и CI
 - **rule_enforcers:** n/a reason=срез не добавляет и не меняет правил промптов; поверхность модели продукта прежняя, строка ниже — слово в слово
