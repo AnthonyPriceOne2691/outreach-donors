@@ -7,7 +7,7 @@
 - **phase:** verify
 - **builder:** agent:claude
 - **verifier:** process:ci — джобы `check`, `gates` и `delivery` на PR; ревью — координатор модуля, мерж — по решению владельца
-- **human_ok_spec:** deferred reason=спека и примеры A1–A13 перенесены из плана фазы модуля; дату его утверждения владельцем вписывает координатор (yes at=… by=human:…) до handoff
+- **human_ok_spec:** yes at=2026-10-01 by=human:anthony («даю да» — спека и примеры A1–A13 среза В0, утверждены вместе с планом фазы модуля)
 - **new_dependency:** no
 - **shared_changes:** `scripts/contour_waves.py` и `tests/test_contour_waves.py` — проверка волн, проектный гейт рядом с `scripts/gates.py`; `.github/workflows/ci.yml` — её шаг в обязательной джобе `check` и полная история checkout для базы диффа; `scripts/hooks/pre-push` — её запуск с `--warn`. Согласовано: владелец репозитория (место проверки и шаг CI — решения по срезу), сессия outreach-donors (архив `front-polish`) — через координатора модуля
 
