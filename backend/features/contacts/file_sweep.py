@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import asyncio
 import csv
-import json
 import logging
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
@@ -33,11 +32,17 @@ from backend.config import contacts as cfg
 from backend.features.contacts.browser import PlaywrightRenderer
 from backend.features.contacts.ladder import ContactLadder, LadderResult
 from backend.features.contacts.messengers import MessengerKind, Trust
+from backend.features.contacts.sweep_checkpoint import (
+    Checkpoint,
+    done_hosts,
+    rows_from_checkpoint,
+)
 from backend.features.contacts.sweep_input import DomainList, host_from_cell, read_hosts, read_list
 from backend.shared.net.url_guard import guarded_client
 
-# Чтение списка живёт в `sweep_input.py`, но входная точка прогона — здесь:
-# команда и тесты берут всё из одного модуля.
+# Чтение списка и чекпойнт живут в своих модулях (`sweep_input.py`,
+# `sweep_checkpoint.py`), но входная точка прогона — здесь: команда и тесты
+# берут всё из одного модуля.
 __all__ = [
     "CONCURRENCY",
     "OUTPUT_COLUMNS",
@@ -85,27 +90,6 @@ class SweepReport:
     @property
     def with_any_contact(self) -> int:
         return self.with_email + self.with_handle
-
-
-def done_hosts(checkpoint: Path) -> set[str]:
-    """Домены, уже записанные в чекпойнт.
-
-    Битая строка (прогон убили на середине записи) пропускается молча,
-    но именно она и только она: домен просто пройдут заново.
-    """
-    if not checkpoint.exists():
-        return set()
-    hosts: set[str] = set()
-    with checkpoint.open(encoding="utf-8") as handle:
-        for raw in handle:
-            line = raw.strip()
-            if not line:
-                continue
-            try:
-                hosts.add(str(json.loads(line)["host"]))
-            except (ValueError, KeyError, TypeError):
-                logger.info("чекпойнт: строка не разобралась, домен пройдём заново")
-    return hosts
 
 
 def _handle_columns(result: LadderResult) -> dict[str, str]:
@@ -171,50 +155,6 @@ def write_csv(rows: Iterable[dict[str, str]], path: Path) -> int:
     return written
 
 
-def rows_from_checkpoint(checkpoint: Path) -> list[dict[str, str]]:
-    """Строки итога из чекпойнта, в порядке прохода."""
-    if not checkpoint.exists():
-        return []
-    rows: list[dict[str, str]] = []
-    with checkpoint.open(encoding="utf-8") as handle:
-        for number, raw in enumerate(handle, start=1):
-            line = raw.strip()
-            if not line:
-                continue
-            try:
-                rows.append(dict(json.loads(line)["row"]))
-            except (ValueError, KeyError, TypeError) as exc:
-                # Обрыв посреди записи оставляет последнюю строку недописанной:
-                # пропустить её законно, а молча — нет, иначе итог, который
-                # короче прохода на домен, нечем объяснить.
-                logger.warning(
-                    "контакты: строка %s чекпойнта %s не разобрана (%r) — пропущена",
-                    number,
-                    checkpoint,
-                    exc,
-                )
-    return rows
-
-
-class _Checkpoint:
-    """Дописывает по строке на домен и сбрасывает на диск сразу.
-
-    Без сброса строки живут в буфере, и обрыв съедает последние сотни
-    доменов — то есть именно то, от чего чекпойнт защищает.
-    """
-
-    def __init__(self, path: Path) -> None:
-        self._path = path
-        self._lock = asyncio.Lock()
-
-    async def add(self, host: str, row: dict[str, str]) -> None:
-        line = json.dumps({"host": host, "row": row}, ensure_ascii=False)
-        async with self._lock:
-            with self._path.open("a", encoding="utf-8") as handle:
-                handle.write(line + "\n")
-                handle.flush()
-
-
 async def sweep(
     hosts: Sequence[str],
     *,
@@ -235,7 +175,7 @@ async def sweep(
     if not hosts:
         return report
 
-    keeper = _Checkpoint(checkpoint)
+    keeper = Checkpoint(checkpoint)
     limiter = asyncio.Semaphore(max(1, concurrency))
     timeout = httpx.Timeout(cfg.PAGE_TIMEOUT_SEC, connect=cfg.PAGE_TIMEOUT_SEC)
 
