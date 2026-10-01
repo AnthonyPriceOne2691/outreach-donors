@@ -2,14 +2,16 @@
 
 Derived from spec acceptance. Run during verify.
 
-- [x] A1–A13 — `pytest tests/test_contour_waves.py`: каждый пример спеки — свой
-      тест (id в строке `def`), с положительными контролями рядом с красными.
-- [x] A1 на настоящем дереве ветки: `python scripts/contour_waves.py --base origin/main`
-      — exit 0, «продаж в дереве нет — судить нечего».
-- [x] A4, A2, A3 и A5 на настоящем дереве с подложенным
-      `backend/features/sales/__init__.py` (файл удалён, не закоммичен) — числа
-      в `verify-report.md`.
-- [x] A13 на настоящем дереве: без строки `shared_changes:` в STATUS этого среза
-      проверка красная и называет четыре файла общего кода.
-- [x] Мета-гейт видит новый гейт: без `scripts/contour_waves.py`
-      `check_gate_coverage.sh` красный («упомянут в конфиге, но файла нет»).
+- [ ] A1, A4–A7 — `pytest tests/test_sales_model.py` на своей базе: каждый
+      пример — свой тест (id в строке `def`), положительные контроли рядом
+      с красными.
+- [ ] A1 — `pytest tests/test_migrations_match_models.py`: модели и цепочка
+      сходятся.
+- [ ] A6, обратный прогон — тот же сценарий при `CASCADE` и `RESTRICT`
+      краснеет: лид пропадает, удаление у доноров падает.
+- [ ] A8 — `pytest tests/test_sales_cli.py`: заведение гипотезы, повтор
+      и пустое имя — отказ словами со своим кодом выхода.
+- [ ] Новые тесты на старом коде (`origin/main`) — красные, числа
+      в verify-report.
+- [ ] Проверка волн на дереве ветки (`--base origin/main`): exit 0,
+      «В1: триггер сработал, предел — следующий PR продаж».
