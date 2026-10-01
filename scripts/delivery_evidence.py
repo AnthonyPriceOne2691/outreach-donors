@@ -12,7 +12,7 @@ import re
 
 from delivery_base import (ACTIVE, ActiveCtx, field, is_placeholder,
                            read)
-from delivery_base import SKIP_DIR_PARTS, TEST_TEXT_SUFFIXES
+from delivery_base import SKIP_DIR_PARTS, TEST_TEXT_SUFFIXES, example_ref_pattern
 from delivery_decisions import signature_verdict
 from delivery_history import debt_is_not_frozen, expectation_predates_tests
 
@@ -282,11 +282,18 @@ def check_examples_and_ids(spec_text: str, ex_ids: list[str], refs_text: str,
     else:
         # id должны встречаться в тестах или eval-smoke: связь примера с
         # проверкой — то, что отличает обещание от отчёта о реализации.
-        missing = [i for i in dict.fromkeys(ex_ids) if i not in refs_text]
+        # ⚠ Здесь стояла ПОДСТРОКА (`i not in refs_text`), хотя соседняя
+        # проверка истории ещё с lab-12 искала токен: `A6` внутри `%D0%A6`
+        # засчитывался ссылкой, и пример числился покрытым без единого теста.
+        # Понятие теперь одно на обе проверки — `example_ref_pattern`.
+        missing = [i for i in dict.fromkeys(ex_ids)
+                   if not re.search(example_ref_pattern(i), refs_text, re.M)]
         if missing:
             warnings.append(
                 "acceptance-примеры без ссылки в тестах/eval-smoke: "
-                f"{', '.join(missing)} (§3.1d) — пометь тест id примера"
+                f"{', '.join(missing)} (§3.1d) — пометь тест id примера в "
+                "комментарии или в начале докстринга; строка, целиком равная "
+                "id, и %-код ссылкой не считаются"
             )
 
         # Порядок «пример раньше теста» — на verify и дальше: раньше

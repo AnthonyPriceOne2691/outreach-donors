@@ -11,7 +11,7 @@ import functools
 import os
 import re
 
-from delivery_base import ARCHIVE, ROOT, git
+from delivery_base import ARCHIVE, ROOT, example_ref_pattern, git
 
 # --- Происхождение ожидания (§3.1d) -----------------------------------------
 # §3.1d говорит: «примеры пишутся на фазе specify, ДО plan и до кода. Порядок
@@ -28,7 +28,13 @@ from delivery_base import ARCHIVE, ROOT, git
 # установить НЕЛЬЗЯ — честный ответ «не проверить», а не «нарушение». Считается и
 # печатается числом: это подсказывает коммитить спеку отдельно, ничего не ломая.
 def _first_commit_with(text: str, *paths: str) -> str:
-    """Самый старый коммит, где появился ТОКЕН `text` в указанных путях.
+    """Самый старый коммит, где появилась ССЫЛКА на пример `text` в указанных путях.
+
+    Что такое ссылка, решает `delivery_base.example_ref_pattern` — то же место,
+    что у проверки покрытия. Здесь стоял свой токен, и его граница пускала байт
+    URL-кодировки (`%D0%A6`) и голое значение `"A1"`: поле `outreach-donors`
+    01.10 получило «A1, A6, A7, A8 появились ПОЗЖЕ тестов» по чужим строкам
+    старых тестов.
 
     Токен, а не подстрока, и это не педантизм. lab-12: id примеров короткие
     (`A2`), а `-S` считает вхождения подстроки — `A2` совпадал внутри
@@ -47,7 +53,7 @@ def _first_commit_with(text: str, *paths: str) -> str:
     """
     if not paths:
         return ""
-    token = rf"(^|[^A-Za-z0-9_]){re.escape(text)}([^A-Za-z0-9_]|$)"
+    token = example_ref_pattern(text)
     out = git("-C", str(ROOT), "log", "--format=%H", f"-S{token}",
               "--pickaxe-regex", "--", *paths)
     revs = [l.strip() for l in out.split("\n") if l.strip()]
