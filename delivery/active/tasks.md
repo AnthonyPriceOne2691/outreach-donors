@@ -38,6 +38,6 @@
       `quality.yml` с `--base "$BASE"`, адаптация в `scripts/lint/adapted.json`.
 - [x] T6. Строка «волны модуля» в карте ролей STACK-ACCEPTANCE; мета-гейт видит
       новый гейт.
-- [ ] T8. Verify: доктор DEAD 0, gate-coverage OK, `delivery_check` 0 errors;
+- [x] T8. Verify: доктор DEAD 0, gate-coverage OK, `delivery_check` 0 errors;
       проверка на дереве ветки зелёная, с подложенным `sales/__init__.py` —
       по примерам.

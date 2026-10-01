@@ -4,7 +4,7 @@
 - **stack:** delivery@1.95 · cqg@2.43 · okf@1.19 · stack-map@1.52
 - **class:** M
 - **kind:** feature
-- **phase:** implement
+- **phase:** verify
 - **builder:** agent:claude
 - **verifier:** process:ci — джобы `check`, `gates` и `delivery` на PR; ревью — координатор модуля, мерж — по решению владельца
 - **human_ok_spec:** deferred reason=спека и примеры A1–A13 перенесены из плана фазы модуля; дату его утверждения владельцем вписывает координатор (yes at=… by=human:…) до handoff
