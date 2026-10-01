@@ -154,13 +154,25 @@ def read_list(path: Path, *, column: str | None = None, delimiter: str | None = 
     Бросает `ValueError`, только если не прочитать ничего: нет колонки
     с доменом или разделитель невозможен. Кривая строка — не повод.
     """
-    with path.open(encoding="utf-8-sig", newline="") as handle:
-        first = handle.readline()
-        handle.seek(0)
-        reader = csv.reader(handle, delimiter=_delimiter(first, delimiter))
-        # Номер строки — из самого разборщика: ячейка в кавычках бывает
-        # многострочной, и счёт записей разошёлся бы со строками файла.
-        records = [(reader.line_num, row) for row in reader if any(cell.strip() for cell in row)]
+    try:
+        with path.open(encoding="utf-8-sig", newline="") as handle:
+            first = handle.readline()
+            handle.seek(0)
+            reader = csv.reader(handle, delimiter=_delimiter(first, delimiter))
+            # Номер строки — из самого разборщика: ячейка в кавычках бывает
+            # многострочной, и счёт записей разошёлся бы со строками файла.
+            records = [
+                (reader.line_num, row) for row in reader if any(cell.strip() for cell in row)
+            ]
+    except UnicodeDecodeError as exc:
+        # Excel на русской Windows пишет «CSV» в cp1251, и голое «'utf-8' codec
+        # can't decode byte» не говорило, что делать. Смещение из ошибки не
+        # называем: файл читается кусками по 8 КБ, и оно считается от начала
+        # куска — в большом файле «байт 5200» стоял бы в двухсотой тысяче.
+        raise ValueError(
+            f"файл {path.name} не в UTF-8. Сохраните его как "
+            "«CSV UTF-8»: в Excel — «Сохранить как» → «CSV UTF-8 (разделитель — запятая)»"
+        ) from exc
     if not records:
         return DomainList(hosts=[])
 

@@ -12,8 +12,9 @@
 **Итог собирается из чекпойнта, а не из памяти.** Прогон по нескольким
 тысячам доменов идёт часами и обрывается: связь, потолок файлов, Ctrl-C.
 Каждый домен дописывается строкой в JSONL сразу, повторный запуск
-пропускает уже пройденные, а CSV печатается из файла — поэтому он полный
-и после обрыва, и после продолжения. Собери его из памяти процесса, и
+пропускает пройденные окончательно (сайт, который не ответил, идёт снова —
+`sweep_trace.py`), а CSV печатается из файла — поэтому он полный и после
+обрыва, и после продолжения. Собери его из памяти процесса, и
 продолженный прогон отдал бы только вторую половину.
 """
 
@@ -23,6 +24,7 @@ import asyncio
 import csv
 import logging
 from collections.abc import Callable, Iterable, Sequence
+from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -39,6 +41,7 @@ from backend.features.contacts.sweep_checkpoint import (
     Checkpoint,
     done_hosts,
     retry_hosts,
+    rows_for,
     rows_from_checkpoint,
 )
 from backend.features.contacts.sweep_input import DomainList, host_from_cell, read_hosts, read_list
@@ -65,6 +68,7 @@ __all__ = [
     "read_list",
     "retry_hosts",
     "row_of",
+    "rows_for",
     "rows_from_checkpoint",
     "sweep",
     "write_csv",
@@ -82,9 +86,12 @@ PROGRESS_EVERY = 25
 
 #: Колонки итога. Каналы — по одному столбцу на вид, значения через `; `.
 #: `retry_reason` заполнен только у строк «повторить»: почему исход не окончательный.
+#: `mail_route` — вердикт MX по домену сайта: `mx` и `implicit` — почту
+#: принимает, `none` — нет (адреса на нём отсеяны, см. `rejected`),
+#: `unknown` — DNS не ответил, доставка не проверена.
 OUTPUT_COLUMNS = (
     "host", "status", "retry_reason",
-    "email", "emails", "email_source", "email_page", "has_form",
+    "mail_route", "email", "emails", "email_source", "email_page", "has_form",
     "telegram", "skype", "whatsapp", "viber", "vk", "phone",
     "guessed", "handles_page", "rejected",
 )  # fmt: skip
@@ -142,6 +149,8 @@ class SweepReport:
     with_email: int = 0
     with_handle: int = 0
     counters: dict[str, int] = field(default_factory=dict)
+    #: Что пошло не так, как просили: «браузер не поднялся».
+    notes: list[str] = field(default_factory=list)
 
     @property
     def with_any_contact(self) -> int:
@@ -196,17 +205,25 @@ def _handle_columns(result: LadderResult) -> dict[str, str]:
     return columns
 
 
-def row_of(result: LadderResult, *, retry: str | None = None) -> dict[str, str]:
-    """Строка итога по одному домену. Пустые поля — законный исход.
+def _verdict_columns(result: LadderResult, retry: str | None) -> dict[str, str]:
+    """Чем кончился проход: статус, почему «повторить» и вердикт MX.
 
     `retry` — почему исход не окончательный: тогда статус «повторить»,
     а найденное по дороге (каналы, форма) в строке остаётся.
     """
+    return {
+        "status": RETRY if retry else result.status.value,
+        "retry_reason": retry or "",
+        "mail_route": result.mail_route.value if result.mail_route else "",
+    }
+
+
+def row_of(result: LadderResult, *, retry: str | None = None) -> dict[str, str]:
+    """Строка итога по одному домену. Пустые поля — законный исход."""
     emails = sorted({candidate.email for candidate in result.candidates})
     row = {
         "host": result.host,
-        "status": RETRY if retry else result.status.value,
-        "retry_reason": retry or "",
+        **_verdict_columns(result, retry),
         "email": result.contact.email if result.contact else "",
         "emails": "; ".join(emails),
         "email_source": result.source.value if result.source else "",
@@ -218,6 +235,17 @@ def row_of(result: LadderResult, *, retry: str | None = None) -> dict[str, str]:
     return row
 
 
+def _as_text(value: str) -> str:
+    """Ячейка из одних цифр — формулой-строкой, чтобы Excel не счёл её числом.
+
+    Иначе номер `0612345678` теряет ведущий ноль, а `79161234567890`
+    становится 7,92E+13. `="…"` остаётся текстом в Excel и в Google
+    Таблицах; файл и так собран под Excel, а читающему его программой
+    обёртку снять проще, чем вернуть потерянные цифры.
+    """
+    return f'="{value}"' if value.isascii() and value.isdigit() else value
+
+
 def write_csv(rows: Iterable[dict[str, str]], path: Path) -> int:
     """Собрать итоговый CSV. UTF-8 с BOM — чтобы Excel открыл его щелчком."""
     written = 0
@@ -225,7 +253,7 @@ def write_csv(rows: Iterable[dict[str, str]], path: Path) -> int:
         writer = csv.DictWriter(handle, fieldnames=list(OUTPUT_COLUMNS), delimiter=";")
         writer.writeheader()
         for row in rows:
-            writer.writerow({name: row.get(name, "") for name in OUTPUT_COLUMNS})
+            writer.writerow({name: _as_text(row.get(name, "")) for name in OUTPUT_COLUMNS})
             written += 1
     return written
 
@@ -254,9 +282,16 @@ async def sweep(
     limiter = asyncio.Semaphore(max(1, concurrency))
     timeout = httpx.Timeout(cfg.PAGE_TIMEOUT_SEC, connect=cfg.PAGE_TIMEOUT_SEC)
 
-    async with guarded_client(timeout=timeout) as http, PlaywrightRenderer() as renderer:
+    async with AsyncExitStack() as stack:
+        http = await stack.enter_async_context(guarded_client(timeout=timeout))
+        # Сеть — до браузера: без неё Chromium поднимать незачем.
         if not await network_alive(http):
             raise NetworkDownError("ни один контрольный адрес не ответил — прогон не начат")
+        # Браузер — только по просьбе: Chromium стоит секунд запуска и сотен
+        # мегабайт, а без просьбы его ступень всё равно не работает.
+        renderer = await stack.enter_async_context(PlaywrightRenderer()) if use_browser else None
+        if use_browser and renderer is None:
+            report.notes.append("Браузер не поднялся — прогон идёт без этой ступени.")
         # Обмен с каждым сайтом учитывается: по нему решается, пройден ли
         # домен окончательно или его надо повторить (`sweep_trace.py`).
         watch(http)
@@ -264,7 +299,11 @@ async def sweep(
         ladder = ContactLadder(
             http,
             provider=None,  # платных ступеней здесь нет вовсе
-            renderer=TracedRenderer(renderer) if use_browser and renderer else None,
+            # Ручной очереди у прогона по файлу нет: форма — колонка has_form,
+            # а не заявка. Потолок на весь список не исчерпается, и лог не
+            # скажет «ждёт следующего месяца» про домены, которые ничего не ждут.
+            manual_queue_left=len(hosts),
+            renderer=TracedRenderer(renderer) if renderer is not None else None,
             stop_without_mail=False,
             collect_handles=True,  # каналы связи — ради них прогон по файлу и нужен
         )
@@ -309,7 +348,7 @@ async def _walk_one(
             return
     # Вердикт — после выхода из следа: запрос, так и не получивший ответа,
     # засчитывается отказом только при закрытии.
-    row = row_of(result, retry=trace.retry_reason(result.status))
+    row = row_of(result, retry=trace.retry_reason(result))
     if row["status"] == RETRY and not trace.heard and not await network_alive(http):
         # Сайт не ответил ничем, и контрольные адреса молчат — легла сеть, а не
         # сайт. Строку не пишем: попытка не сгорает, домен пойдёт заново.
