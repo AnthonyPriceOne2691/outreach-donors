@@ -135,6 +135,21 @@ async def network_alive(http: httpx.AsyncClient) -> bool:
     return False
 
 
+async def _check_network(http: httpx.AsyncClient, report: SweepReport) -> None:
+    """Сеть до первого домена: нет — прогон не начинается.
+
+    Проверка, выключенная настройкой, — строкой в отчёте: без неё прогон
+    без сети снова тратит попытки доменов, и это надо знать.
+    """
+    if not NETWORK_PROBES:
+        report.notes.append(
+            "Проверка сети выключена (CONTACTS_NETWORK_PROBES пуст): "
+            "без сети домены уйдут «повторить» и потратят попытки."
+        )
+    elif not await network_alive(http):
+        raise NetworkDownError("ни один контрольный адрес не ответил — прогон не начат")
+
+
 @dataclass(slots=True)
 class SweepReport:
     """Чем кончился прогон."""
@@ -289,13 +304,7 @@ async def sweep(
     async with AsyncExitStack() as stack:
         http = await stack.enter_async_context(guarded_client(timeout=timeout))
         # Сеть — до браузера: без неё Chromium поднимать незачем.
-        if not NETWORK_PROBES:
-            report.notes.append(
-                "Проверка сети выключена (CONTACTS_NETWORK_PROBES пуст): "
-                "без сети домены уйдут «повторить» и потратят попытки."
-            )
-        elif not await network_alive(http):
-            raise NetworkDownError("ни один контрольный адрес не ответил — прогон не начат")
+        await _check_network(http, report)
         # Браузер — только по просьбе: Chromium стоит секунд запуска и сотен
         # мегабайт, а без просьбы его ступень всё равно не работает.
         renderer = await stack.enter_async_context(PlaywrightRenderer()) if use_browser else None

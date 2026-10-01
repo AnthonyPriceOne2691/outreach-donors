@@ -148,17 +148,7 @@ def _plan(args: argparse.Namespace) -> _Plan:
     if not source.exists():
         raise _BadInputError(f"Файла нет: {source}")
 
-    # Имя файла целиком, а не основа: `list.csv` и `list.txt` — разные
-    # списки, и с `with_suffix` они делили бы один чекпойнт и один итог.
-    out: Path = args.out or source.with_name(f"{source.name}.contacts.csv")
-    checkpoint: Path = args.checkpoint or source.with_name(f"{source.name}.checkpoint.jsonl")
-    # Прогон, начатый до смены имён (01.10.2026), иначе пошёл бы с нуля
-    # молча: прежний файл по новому имени не находится.
-    legacy = source.with_suffix(".checkpoint.jsonl")
-    inherited = not (args.checkpoint or args.restart or checkpoint.exists()) and legacy.exists()
-    if inherited:
-        checkpoint = legacy
-
+    out, checkpoint, inherited = _paths(args)
     listed = file_sweep.read_list(source, column=args.column, delimiter=args.delimiter)
     hosts = listed.hosts
     if not hosts:
@@ -188,6 +178,25 @@ def _plan(args: argparse.Namespace) -> _Plan:
         reviving=len(given_up.intersection(pending)),
         inherited=inherited,
     )
+
+
+def _paths(args: argparse.Namespace) -> tuple[Path, Path, bool]:
+    """Итог и чекпойнт; третье — взят ли чекпойнт под прежним именем.
+
+    Имя по умолчанию — от имени файла целиком, а не от основы: `list.csv`
+    и `list.txt` — разные списки, и с `with_suffix` они делили бы один
+    чекпойнт и один итог. Прогон, начатый до этой смены имён (01.10.2026),
+    иначе пошёл бы с нуля молча: прежний файл по новому имени не находится.
+    """
+    source: Path = args.source
+    out: Path = args.out or source.with_name(f"{source.name}.contacts.csv")
+    if args.checkpoint:
+        return out, args.checkpoint, False
+    checkpoint = source.with_name(f"{source.name}.checkpoint.jsonl")
+    legacy = source.with_suffix(".checkpoint.jsonl")
+    if args.restart or checkpoint.exists() or not legacy.exists():
+        return out, checkpoint, False
+    return out, legacy, True
 
 
 def _check_paths(source: Path, out: Path, checkpoint: Path) -> None:
@@ -229,6 +238,19 @@ def _print_unreadable(listed: file_sweep.DomainList) -> None:
         print(f"Строк с пустой ячейкой домена: {listed.empty}")
 
 
+def _print_plan(plan: _Plan) -> None:
+    """Что прочитано и что из прежнего прогона берётся — до первого запроса."""
+    _print_unreadable(plan.listed)
+    if plan.inherited:
+        print(f"Чекпойнт прежнего имени: {plan.checkpoint} — продолжаем по нему.")
+    if plan.skipped:
+        print(f"Чекпойнт: {plan.skipped} домен(ов) уже пройдены, продолжаем с остальных.")
+    if plan.retrying:
+        print(f"Повторяем {plan.retrying} домен(ов), которые в прошлый раз не ответили.")
+    if plan.reviving:
+        print(f"Ещё одна попытка {plan.reviving} домен(ам), на которых прогон сдался.")
+
+
 def _write_result(plan: _Plan) -> int:
     """Собрать CSV из чекпойнта. Синхронно — работа с диском не идёт в корутине.
 
@@ -248,16 +270,7 @@ async def cmd_contacts_file(args: argparse.Namespace) -> int:
         print(str(exc))
         return EXIT_BAD_INPUT
 
-    _print_unreadable(plan.listed)
-    if plan.inherited:
-        print(f"Чекпойнт прежнего имени: {plan.checkpoint} — продолжаем по нему.")
-    if plan.skipped:
-        print(f"Чекпойнт: {plan.skipped} домен(ов) уже пройдены, продолжаем с остальных.")
-    if plan.retrying:
-        print(f"Повторяем {plan.retrying} домен(ов), которые в прошлый раз не ответили.")
-    if plan.reviving:
-        print(f"Ещё одна попытка {plan.reviving} домен(ам), на которых прогон сдался.")
-
+    _print_plan(plan)
     try:
         report = await file_sweep.sweep(
             plan.pending,
