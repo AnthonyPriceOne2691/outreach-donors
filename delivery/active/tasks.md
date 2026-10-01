@@ -32,7 +32,7 @@
 - [x] T1. Раздел «Продажи» в `delivery/CONSTITUTION.md` — восемь правил.
 - [x] T2. `delivery/contour-waves.md` — восемь волн: В0 и В-обн `deployed`,
       остальные `pending`.
-- [ ] T3. Ядро и CLI проверки `scripts/contour_waves.py`.
+- [x] T3. Ядро и CLI проверки `scripts/contour_waves.py`.
 - [ ] T4. Тесты A1–A13 и обратный прогон файлом.
 - [ ] T5. Подключение: `scripts/hooks/pre-push` с `--warn`, шаг в
       `quality.yml` с `--base "$BASE"`, адаптация в `scripts/lint/adapted.json`.
