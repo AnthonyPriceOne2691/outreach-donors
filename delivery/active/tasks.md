@@ -45,6 +45,6 @@
 - [x] T5. Команда `outreach sales-hypothesis-add`; тест A8.
 - [x] T5a. Запись в `delivery/BACKLOG.md`: шаг «Contour waves» при
       `workflow_dispatch` или `merge_group` упадёт на пустом `before`.
-- [ ] T6. Новые тесты на старом коде — красные; числа в verify-report.
-- [ ] T8. Verify: pre-commit на всём дереве, проверка волн в режиме CI,
+- [x] T6. Новые тесты на старом коде — красные; числа в verify-report.
+- [x] T8. Verify: pre-commit на всём дереве, проверка волн в режиме CI,
       `delivery_check`, подпись необратимого, полный сьют на своей базе.
