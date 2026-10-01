@@ -17,6 +17,7 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
+from backend.config import contacts as cfg
 from backend.features.contacts import file_sweep
 
 logger = logging.getLogger(__name__)
@@ -76,6 +77,8 @@ def add_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-ar
 
 
 def _print_report(report: file_sweep.SweepReport, out: Path, rows: int) -> None:
+    for note in report.notes:
+        print(note)
     print(f"\nДоменов в файле:       {report.total + report.skipped}")
     if report.skipped:
         print(f"Пропущено (пройдены):  {report.skipped}")
@@ -229,7 +232,9 @@ async def cmd_contacts_file(args: argparse.Namespace) -> int:
         report = await file_sweep.sweep(
             plan.pending,
             checkpoint=plan.checkpoint,
-            use_browser=args.browser,
+            # Настройка включает браузер и здесь, как у поиска по базе:
+            # одна переменная окружения не должна значить разное для двух команд.
+            use_browser=args.browser or cfg.BROWSER_ENABLED,
             concurrency=args.concurrency,
             on_progress=lambda done, total: print(f"  пройдено {done} из {total}"),
         )

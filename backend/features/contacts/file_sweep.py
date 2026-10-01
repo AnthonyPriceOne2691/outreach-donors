@@ -23,6 +23,7 @@ import asyncio
 import csv
 import logging
 from collections.abc import Callable, Iterable, Sequence
+from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -103,6 +104,8 @@ class SweepReport:
     with_email: int = 0
     with_handle: int = 0
     counters: dict[str, int] = field(default_factory=dict)
+    #: Что пошло не так, как просили: «браузер не поднялся».
+    notes: list[str] = field(default_factory=list)
 
     @property
     def with_any_contact(self) -> int:
@@ -215,14 +218,20 @@ async def sweep(
     limiter = asyncio.Semaphore(max(1, concurrency))
     timeout = httpx.Timeout(cfg.PAGE_TIMEOUT_SEC, connect=cfg.PAGE_TIMEOUT_SEC)
 
-    async with guarded_client(timeout=timeout) as http, PlaywrightRenderer() as renderer:
+    async with AsyncExitStack() as stack:
+        http = await stack.enter_async_context(guarded_client(timeout=timeout))
+        # Браузер — только по просьбе: Chromium стоит секунд запуска и сотен
+        # мегабайт, а без просьбы его ступень всё равно не работает.
+        renderer = await stack.enter_async_context(PlaywrightRenderer()) if use_browser else None
+        if use_browser and renderer is None:
+            report.notes.append("Браузер не поднялся — прогон идёт без этой ступени.")
         # Обмен с каждым сайтом учитывается: по нему решается, пройден ли
         # домен окончательно или его надо повторить (`sweep_trace.py`).
         watch(http)
         ladder = ContactLadder(
             http,
             provider=None,  # платных ступеней здесь нет вовсе
-            renderer=TracedRenderer(renderer) if use_browser and renderer else None,
+            renderer=TracedRenderer(renderer) if renderer is not None else None,
             stop_without_mail=False,
             collect_handles=True,  # каналы связи — ради них прогон по файлу и нужен
         )

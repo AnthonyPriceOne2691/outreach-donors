@@ -19,7 +19,7 @@ import pytest
 from backend.cli.contact_sweep import EXIT_BAD_INPUT, EXIT_OK, cmd_contacts_file
 from backend.cli.main import EXIT_CANCELLED, main
 from backend.features.contacts.ladder import ContactLadder, LadderResult
-from tests.contacts_sweep_fakes import Web, cli_args, install, page, write
+from tests.contacts_sweep_fakes import FakeRenderer, Web, cli_args, install, page, write
 
 SITES = {
     "site.com": {"/": page('<a href="mailto:ads@site.com">почта</a>')},
@@ -181,3 +181,41 @@ class TestInterrupt:
         assert code == EXIT_CANCELLED
         assert _hosts(out) == ["site.com"]
         assert "в базе" not in printed.out + printed.err
+
+
+class TestBrowserOnlyWhenAsked:
+    async def test_no_browser_is_started_without_the_flag(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Chromium — секунды запуска и сотни мегабайт: без просьбы он не поднимается."""
+        browser = install(monkeypatch, Web(SITES), renderer=FakeRenderer())
+        source = write(tmp_path / "list.csv", "host\nsite.com\n")
+
+        assert await cmd_contacts_file(cli_args(source)) == EXIT_OK
+
+        assert browser.started == []
+
+    async def test_setting_turns_it_on_like_for_the_database_search(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        renderer = FakeRenderer({"https://site.com/": page("закрыто для запросов")})
+        install(monkeypatch, Web({"site.com": 403}), renderer=renderer)
+        monkeypatch.setattr("backend.config.contacts.BROWSER_ENABLED", True)
+        source = write(tmp_path / "list.csv", "host\nsite.com\n")
+
+        assert await cmd_contacts_file(cli_args(source)) == EXIT_OK
+
+        assert renderer.opened
+
+    async def test_browser_that_did_not_start_is_said(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        install(monkeypatch, Web(SITES), renderer=None)
+        source = write(tmp_path / "list.csv", "host\nsite.com\n")
+
+        assert await cmd_contacts_file(cli_args(source, "--browser")) == EXIT_OK
+
+        assert "Браузер не поднялся" in capsys.readouterr().out
