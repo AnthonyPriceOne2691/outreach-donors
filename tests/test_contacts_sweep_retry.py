@@ -82,6 +82,70 @@ class TestNotFinal:
         assert file_sweep.done_hosts(checkpoint) == set()
 
 
+class TestNothingOpenedAndSomethingFailed:
+    """Ревью #126: ответ без страницы засчитывается, только если не отказал ни
+    один вид главной. «Апекс 404, `www` молчит» — ещё не ответ: `www` мог
+    открыться при повторе. Цена — предел попыток (`TestGiveUp`)."""
+
+    async def test_apex_404_and_www_timeout(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        row = await _walk(Web({"site.com": {}, "www.site.com": SLOW}), monkeypatch, tmp_path)
+        assert (row["status"], row["done"]) == ("retry", "no")
+        assert "нет ответа" in row["retry_reason"]
+
+    async def test_home_that_is_not_a_page_and_www_down(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """2xx без HTML лестница не читает и пробует `www.` — а тот не ответил."""
+        row = await _walk(Web({"site.com": {"/": 200}}), monkeypatch, tmp_path)
+        assert (row["status"], row["done"]) == ("retry", "no")
+
+
+class TestGiveUp:
+    """Повтор ограничен: на третий раз «повторить» записывается «недоступен».
+
+    Предела не было, и сайт, который не отвечает никогда, шёл заново на каждом
+    возобновлении вечно. Пройденным он становится с причиной — это не «адреса
+    нет», а «проверить не удалось».
+    """
+
+    async def test_third_retry_becomes_unreachable_and_stops(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        web = Web({})
+        install(monkeypatch, web)
+        checkpoint = tmp_path / "c.jsonl"
+        for _ in range(file_sweep.MAX_ATTEMPTS):
+            assert "site.com" not in file_sweep.done_hosts(checkpoint)
+            await file_sweep.sweep(["site.com"], checkpoint=checkpoint)
+
+        (row,) = file_sweep.rows_from_checkpoint(checkpoint)
+        assert row["status"] == file_sweep.UNREACHABLE
+        assert row["retry_reason"].startswith(f"сдались после {file_sweep.MAX_ATTEMPTS} попыток")
+        assert "site.com" in file_sweep.done_hosts(checkpoint)
+        assert "site.com" not in file_sweep.retry_hosts(checkpoint)
+
+    async def test_attempts_survive_a_new_run(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Счёт попыток — по чекпойнту, а не по памяти процесса: каждый запуск
+        CLI — новый процесс, и без этого предел не наступил бы никогда."""
+        web = Web({})
+        install(monkeypatch, web)
+        source = write(tmp_path / "list.csv", "host\nsite.com\n")
+        out = tmp_path / "out.csv"
+        for _ in range(file_sweep.MAX_ATTEMPTS):
+            assert await cmd_contacts_file(cli_args(source, "--out", str(out))) == EXIT_OK
+
+        web.requested.clear()
+        assert await cmd_contacts_file(cli_args(source, "--out", str(out))) == EXIT_OK
+        assert not web.requested, "сдавшийся домен пошёл снова"
+        with out.open(encoding="utf-8-sig", newline="") as handle:
+            rows = list(csv.DictReader(handle, delimiter=";"))
+        assert [row["status"] for row in rows] == [file_sweep.UNREACHABLE]
+
+
 class TestFinal:
     """Обратная сторона: что пройдено, то пройдено — иначе повтор вечный."""
 
@@ -104,14 +168,6 @@ class TestFinal:
     ) -> None:
         """Сервер ответил по существу — повтор ответа не изменит."""
         row = await _walk(Web({"site.com": {}, "www.site.com": {}}), monkeypatch, tmp_path)
-        assert row["done"] == "yes"
-
-    async def test_home_that_is_not_a_page_then_dead_www(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """2xx без HTML лестница не читает и пробует `www.` — его отказ не обрыв обхода."""
-        web = Web({"site.com": {"/": 200}})
-        row = await _walk(web, monkeypatch, tmp_path)
         assert row["done"] == "yes"
 
     async def test_found_address_even_if_a_page_failed(

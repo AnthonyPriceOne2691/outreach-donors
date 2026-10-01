@@ -77,6 +77,11 @@ def _print_report(report: file_sweep.SweepReport, out: Path, rows: int) -> None:
         # Не «не нашли»: сайт не ответил, закрылся или обход оборван. Причина —
         # в колонке retry_reason, повтор — следующим запуском той же команды.
         print(f"Повторить:             {report.retry} — следующий запуск пройдёт их снова")
+    if report.unreachable:
+        print(
+            f"Недоступны:            {report.unreachable} — {file_sweep.MAX_ATTEMPTS} попытки "
+            "без ответа, причина в retry_reason; больше не повторяются"
+        )
     if report.failed:
         print(
             f"Упало с ошибкой:       {report.failed} — трассировка в логе, следующий запуск повторит"

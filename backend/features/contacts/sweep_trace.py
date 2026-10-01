@@ -117,8 +117,19 @@ class SiteTrace:
 
     @property
     def reached(self) -> bool:
-        """Сайт ответил по существу и обход не оборвался — или его открыл браузер."""
-        return self.rendered > 0 or ((self.opened or self.answered) and not self.trouble)
+        """Сайт ответил по существу и обход не оборвался — или его открыл браузер.
+
+        Открытая страница — ответ по существу, даже если до неё не ответил
+        другой вид главной. Ответ без страницы (404, не HTML) — только если
+        не отказал ни один вид: «апекс 404, `www` молчит» ещё не ответ, `www`
+        мог открыться при повторе (ревью #126). Цена — мёртвый сайт с таким
+        апексом пойдёт снова, но не больше `sweep_checkpoint.MAX_ATTEMPTS` раз.
+        """
+        if self.rendered > 0:
+            return True
+        if self.trouble:
+            return False
+        return self.opened or (self.answered and not self.failure)
 
     def retry_reason(self, status: ContactStatus) -> str | None:
         """Почему исход не окончательный. `None` — домен пройден.

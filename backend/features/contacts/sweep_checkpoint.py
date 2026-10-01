@@ -33,6 +33,16 @@ logger = logging.getLogger(__name__)
 #: Статус строки итога, по которой домен ещё не пройден.
 RETRY = "retry"
 
+#: Сколько раз домен проходят с исходом «повторить», прежде чем сдаться.
+#: Предела не было, и сайт, который не отвечает никогда, шёл заново на каждом
+#: возобновлении — вечно (ревью #126). Три — та же граница, что у поиска
+#: контактов донорам.
+MAX_ATTEMPTS = 3
+
+#: Попытки кончились: домен пройден, но не проверен — это не «адреса нет».
+#: Причина последнего отказа остаётся в `retry_reason`.
+UNREACHABLE = "unreachable"
+
 
 def records(checkpoint: Path) -> Iterator[tuple[str, dict[str, str]]]:
     """Записи чекпойнта по порядку: домен и строка итога.
@@ -82,6 +92,15 @@ def retry_hosts(checkpoint: Path) -> set[str]:
     return {host for host, row in latest(checkpoint).items() if row.get("status") == RETRY}
 
 
+def retry_counts(checkpoint: Path) -> dict[str, int]:
+    """Сколько раз каждый домен уже записан «повторить»."""
+    counts: dict[str, int] = {}
+    for host, row in records(checkpoint):
+        if row.get("status") == RETRY:
+            counts[host] = counts.get(host, 0) + 1
+    return counts
+
+
 def rows_from_checkpoint(checkpoint: Path) -> list[dict[str, str]]:
     """Строки итога из чекпойнта: по домену одна, последняя, в порядке прохода."""
     return list(latest(checkpoint).values())
@@ -111,6 +130,7 @@ class Checkpoint:
     def __init__(self, path: Path) -> None:
         self._path = path
         self._lock = asyncio.Lock()
+        self._retries = retry_counts(path)
         if _torn(path):
             # Обрывок прошлого запуска остаётся битой строкой, но только он:
             # без перевода строки первая же запись этого запуска приклеилась бы
@@ -121,10 +141,32 @@ class Checkpoint:
             with path.open("ab") as handle:
                 handle.write(b"\n")
 
-    async def add(self, host: str, row: dict[str, str]) -> None:
+    async def add(self, host: str, row: dict[str, str]) -> dict[str, str]:
+        """Дописать строку домена; вернуть то, что записано.
+
+        «Повторить» в последний разрешённый раз записывается уже как
+        `UNREACHABLE`: решение — в момент записи, чтобы чекпойнт, итог CSV
+        и отчёт прохода говорили одно и то же.
+        """
+        row = self._settled(host, row)
         line = json.dumps({"host": host, "row": row}, ensure_ascii=False) + "\n"
         async with self._lock:
             with self._path.open("ab") as handle:
                 handle.write(line.encode("utf-8"))
                 handle.flush()
                 os.fsync(handle.fileno())
+        return row
+
+    def _settled(self, host: str, row: dict[str, str]) -> dict[str, str]:
+        if row.get("status") != RETRY:
+            return row
+        tries = self._retries.get(host, 0) + 1
+        self._retries[host] = tries
+        if tries < MAX_ATTEMPTS:
+            return row
+        reason = row.get("retry_reason", "")
+        return {
+            **row,
+            "status": UNREACHABLE,
+            "retry_reason": f"сдались после {tries} попыток: {reason}",
+        }

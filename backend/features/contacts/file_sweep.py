@@ -33,7 +33,9 @@ from backend.features.contacts.browser import PlaywrightRenderer
 from backend.features.contacts.ladder import ContactLadder, LadderResult
 from backend.features.contacts.messengers import MessengerKind, Trust
 from backend.features.contacts.sweep_checkpoint import (
+    MAX_ATTEMPTS,
     RETRY,
+    UNREACHABLE,
     Checkpoint,
     done_hosts,
     retry_hosts,
@@ -48,8 +50,10 @@ from backend.shared.net.url_guard import guarded_client
 # точка прогона — здесь: команда и тесты берут всё из одного модуля.
 __all__ = [
     "CONCURRENCY",
+    "MAX_ATTEMPTS",
     "OUTPUT_COLUMNS",
     "RETRY",
+    "UNREACHABLE",
     "DomainList",
     "SweepReport",
     "done_hosts",
@@ -92,6 +96,9 @@ class SweepReport:
     walked: int = 0
     #: Записаны «повторить»: сайт не ответил, закрылся или обход оборван.
     retry: int = 0
+    #: Пройдены, но не проверены: «повторить» кончился пределом попыток.
+    #: Входят и в `walked` — повторять их больше не будут.
+    unreachable: int = 0
     #: Упали с ошибкой. Строки в чекпойнте нет — следующий запуск пройдёт их снова.
     failed: int = 0
     skipped: int = 0
@@ -113,6 +120,7 @@ class SweepReport:
             self.retry += 1
         else:
             self.walked += 1
+            self.unreachable += row["status"] == UNREACHABLE
         self.with_email += bool(row["email"])
         self.with_handle += bool(not row["email"] and has_handles)
 
@@ -249,6 +257,5 @@ async def _walk_one(
             return
     # Вердикт — после выхода из следа: запрос, так и не получивший ответа,
     # засчитывается отказом только при закрытии.
-    row = row_of(result, retry=trace.retry_reason(result.status))
-    await keeper.add(host, row)
+    row = await keeper.add(host, row_of(result, retry=trace.retry_reason(result.status)))
     report.count(row, has_handles=bool(result.handles))
