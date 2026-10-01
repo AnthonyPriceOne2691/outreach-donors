@@ -18,7 +18,9 @@
 
 from __future__ import annotations
 
+import codecs
 import csv
+import io
 import logging
 import re
 from collections.abc import Sequence
@@ -148,31 +150,51 @@ def _locate(head: Sequence[str], wanted: str | None) -> tuple[int, bool]:
     )
 
 
+def read_records(path: Path, *, delimiter: str | None = None) -> list[tuple[int, list[str]]]:
+    """Непустые записи таблицы с номерами строк файла — начало любого чтения.
+
+    Одно на всех читателей таблиц, пришедших из рук человека: кодировка,
+    разделитель и номера строк проверяются в одном месте, а не в копиях.
+
+    - Не UTF-8 — `ValueError` со словами, что делать: Excel на русской
+      Windows пишет «CSV» в cp1251, и голое «'utf-8' codec can't decode
+      byte» этого не говорило. Место — строкой файла: смещение из ошибки
+      чтения по кускам считалось от начала куска, и в файле больше 8 КБ
+      «байт 5200» стоял на деле в двухсотой тысяче.
+    - BOM Excel снимается; разделитель угадывается по первой строке.
+    - Номер — строки файла, где запись начинается, по счёту самого
+      разборщика: ячейка в кавычках бывает многострочной, и счёт записей
+      разошёлся бы со строками файла.
+    """
+    raw = path.read_bytes().removeprefix(codecs.BOM_UTF8)
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        line = raw.count(b"\n", 0, exc.start) + 1
+        raise ValueError(
+            f"файл {path.name} не в UTF-8 (строка {line}). Сохраните его как "
+            "«CSV UTF-8»: в Excel — «Сохранить как» → «CSV UTF-8 (разделитель — запятая)»"
+        ) from exc
+    handle = io.StringIO(text, newline="")
+    first = handle.readline()
+    handle.seek(0)
+    reader = csv.reader(handle, delimiter=_delimiter(first, delimiter))
+    records: list[tuple[int, list[str]]] = []
+    ended = 0  # строка, на которой кончилась предыдущая запись
+    for row in reader:
+        if any(cell.strip() for cell in row):
+            records.append((ended + 1, row))
+        ended = reader.line_num
+    return records
+
+
 def read_list(path: Path, *, column: str | None = None, delimiter: str | None = None) -> DomainList:
     """Домены из файла без повторов, в порядке файла, и всё, что доменом не стало.
 
-    Бросает `ValueError`, только если не прочитать ничего: нет колонки
-    с доменом или разделитель невозможен. Кривая строка — не повод.
+    Бросает `ValueError`, только если не прочитать ничего: файл не в UTF-8,
+    нет колонки с доменом или разделитель невозможен. Кривая строка — не повод.
     """
-    try:
-        with path.open(encoding="utf-8-sig", newline="") as handle:
-            first = handle.readline()
-            handle.seek(0)
-            reader = csv.reader(handle, delimiter=_delimiter(first, delimiter))
-            # Номер строки — из самого разборщика: ячейка в кавычках бывает
-            # многострочной, и счёт записей разошёлся бы со строками файла.
-            records = [
-                (reader.line_num, row) for row in reader if any(cell.strip() for cell in row)
-            ]
-    except UnicodeDecodeError as exc:
-        # Excel на русской Windows пишет «CSV» в cp1251, и голое «'utf-8' codec
-        # can't decode byte» не говорило, что делать. Смещение из ошибки не
-        # называем: файл читается кусками по 8 КБ, и оно считается от начала
-        # куска — в большом файле «байт 5200» стоял бы в двухсотой тысяче.
-        raise ValueError(
-            f"файл {path.name} не в UTF-8. Сохраните его как "
-            "«CSV UTF-8»: в Excel — «Сохранить как» → «CSV UTF-8 (разделитель — запятая)»"
-        ) from exc
+    records = read_records(path, delimiter=delimiter)
     if not records:
         return DomainList(hosts=[])
 
