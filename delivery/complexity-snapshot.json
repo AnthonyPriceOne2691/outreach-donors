@@ -597,9 +597,9 @@
       "worst": "remove:156"
     },
     "backend/features/contacts/messengers.py": {
-      "lines": 441,
+      "lines": 457,
       "complexity": 5,
-      "worst": "_collect:299"
+      "worst": "_collect:315"
     },
     "backend/features/contacts/mx.py": {
       "lines": 207,

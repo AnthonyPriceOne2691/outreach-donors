@@ -230,3 +230,64 @@ class TestNumberIsOneNumber:
         started = time.perf_counter()
         harvest_handles(html, page_kind=PageKind.HOME)
         assert time.perf_counter() - started < 1.0
+
+
+class TestGuessIsANick:
+    """Находка 13: догадка из текста — ник, а не слово рядом с названием мессенджера.
+
+    Разделитель у Skype был необязательным, у короткого `tg` не было границы
+    слова, а конец ника не отличал схему адреса от конца фразы. Отсюда ники
+    `https`, `for`, `and`, `com`, `friday`, `telegram` — и обратное: ник
+    с точкой в конце предложения не находился вовсе.
+    """
+
+    @pytest.mark.parametrize(
+        ("html", "kind"),
+        [
+            ("<p>Telegram: https://t.me/adsdesk</p>", MessengerKind.TELEGRAM),
+            ("<p>Skype for Business</p>", MessengerKind.SKYPE),
+            ("<p>Contact us via Skype and email</p>", MessengerKind.SKYPE),
+            ("<p>Download it from skype.com</p>", MessengerKind.SKYPE),
+            ("<p>Next mtg: Friday</p>", MessengerKind.TELEGRAM),
+            ("<footer><a>Skype</a> <a>Telegram</a></footer>", MessengerKind.SKYPE),
+            ("<p>Skype: chat</p>", MessengerKind.SKYPE),
+            # Дефис без пробела — составное слово, а не подпись канала.
+            ("<p>Telegram-chat adsdesk</p>", MessengerKind.TELEGRAM),
+            # Логин не обрезается на собаке: это адрес, а не имя в Skype.
+            ("<p>Skype: adsdesk@site.com</p>", MessengerKind.SKYPE),
+        ],
+    )
+    def test_word_next_to_a_messenger_is_not_a_nick(self, html: str, kind: MessengerKind) -> None:
+        assert _guessed(html, kind) == set()
+
+    @pytest.mark.parametrize(
+        "html", ["<p>Пишите в телеграм @adsdesk.</p>", "<p>Telegram: @adsdesk.</p>"]
+    )
+    def test_sentence_dot_does_not_hide_a_nick(self, html: str) -> None:
+        assert _guessed(html, MessengerKind.TELEGRAM) == {"adsdesk"}
+
+    def test_compound_word_does_not_add_a_nick(self) -> None:
+        """«Telegram-channel: @adsdesk» — ник один, `channel` не ник."""
+        html = "<p>Telegram-channel: @adsdesk</p>"
+        assert _guessed(html, MessengerKind.TELEGRAM) == {"adsdesk"}
+
+    @pytest.mark.parametrize(
+        ("html", "kind", "value"),
+        [
+            ("<p>Telegram: adsdesk</p>", MessengerKind.TELEGRAM, "adsdesk"),
+            ("<p>Телеграм — @ads_desk</p>", MessengerKind.TELEGRAM, "ads_desk"),
+            ("<p>tg: adsdesk, почта ниже</p>", MessengerKind.TELEGRAM, "adsdesk"),
+            ("<dl><dt>Telegram</dt><dd>@adsdesk</dd></dl>", MessengerKind.TELEGRAM, "adsdesk"),
+            ("<p>Skype: ads.desk_2024</p>", MessengerKind.SKYPE, "ads.desk_2024"),
+            ("<p>Skype - adsdesk</p>", MessengerKind.SKYPE, "adsdesk"),
+            ("<p>Скайп: adsdesk.</p>", MessengerKind.SKYPE, "adsdesk"),
+            (
+                "<table><tr><td>Skype:</td><td>adsdesk</td></tr></table>",
+                MessengerKind.SKYPE,
+                "adsdesk",
+            ),
+            ("<p>Skype: live:.cid.123abc</p>", MessengerKind.SKYPE, "live:.cid.123abc"),
+        ],
+    )
+    def test_labelled_nick_is_still_found(self, html: str, kind: MessengerKind, value: str) -> None:
+        assert _guessed(html, kind) == {value}
