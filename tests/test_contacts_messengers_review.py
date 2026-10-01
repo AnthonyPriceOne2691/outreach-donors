@@ -53,7 +53,7 @@ class TestExplicitMeansDeclared:
         assert extract_handles(html) == set()
 
     def test_vk_pixel_is_not_a_community(self) -> None:
-        """Стандартный пиксель ретаргетинга ВКонтакте стоит на половине рунета."""
+        """Стандартный код пикселя ретаргетинга ВКонтакте: картинка в `<noscript>`."""
         html = (
             '<noscript><img src="https://vk.com/rtrg?p=VK-RTRG-123456-aBcDe"'
             ' style="position:fixed;left:-999px;" alt=""/></noscript>'

@@ -92,7 +92,7 @@ _TELEGRAM_RESERVED = frozenset(
 
 # Служебные пути vk.com: кнопки «поделиться» и виджеты стоят на каждой
 # второй странице, и без этого списка ими заполнилась бы вся выборка.
-# `rtrg` — пиксель ретаргетинга, картинка в `<noscript>` у половины рунета.
+# `rtrg` — пиксель ретаргетинга: картинка в `<noscript>` из стандартного кода.
 _VK_RESERVED = frozenset(
     {
         "share", "share.php", "widget", "widget_comments.php", "widget_community.php",
