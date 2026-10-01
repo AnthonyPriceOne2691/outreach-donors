@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 
 import pytest
-from backend.cli.contact_sweep import EXIT_OK, cmd_contacts_file
+from backend.cli.contact_sweep import EXIT_BAD_INPUT, EXIT_OK, cmd_contacts_file
 from tests.contacts_sweep_fakes import Web, cli_args, install, page, write
 
 SITES = {
@@ -90,3 +90,20 @@ class TestWhoseResult:
         assert await cmd_contacts_file(args) == EXIT_OK
 
         assert _hosts(out) == ["site.com", "shop.de", "news.org"]
+
+
+class TestRestart:
+    async def test_bad_input_does_not_cost_the_progress(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`--restart` с файлом, который не читается, — отказ, а не стёртый чекпойнт."""
+        install(monkeypatch, Web(SITES))
+        source = write(tmp_path / "list.csv", "площадка;dr\nsite.com;5\n")
+        checkpoint = tmp_path / "c.jsonl"
+        progress = '{"host": "site.com", "row": {"host": "site.com", "status": "found"}}\n'
+        checkpoint.write_text(progress)
+
+        args = cli_args(source, "--checkpoint", str(checkpoint), "--restart")
+        assert await cmd_contacts_file(args) == EXIT_BAD_INPUT
+
+        assert checkpoint.read_text() == progress

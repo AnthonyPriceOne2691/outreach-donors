@@ -136,8 +136,6 @@ def _plan(args: argparse.Namespace) -> _Plan:
     # списки, и с `with_suffix` они делили бы один чекпойнт и один итог.
     out: Path = args.out or source.with_name(f"{source.name}.contacts.csv")
     checkpoint: Path = args.checkpoint or source.with_name(f"{source.name}.checkpoint.jsonl")
-    if args.restart and checkpoint.exists():
-        checkpoint.unlink()
 
     listed = file_sweep.read_list(source, column=args.column, delimiter=args.delimiter)
     hosts = listed.hosts
@@ -146,6 +144,11 @@ def _plan(args: argparse.Namespace) -> _Plan:
         raise _BadInputError("В файле нет ни одного домена.")
     if args.limit is not None:
         hosts = hosts[: max(0, args.limit)]
+
+    # Стирается чекпойнт, только когда вход уже прочитан: опечатка в имени
+    # колонки не должна стоить прогресса прежнего прогона.
+    if args.restart and checkpoint.exists():
+        checkpoint.unlink()
 
     already = file_sweep.done_hosts(checkpoint)
     pending = [host for host in hosts if host not in already]
