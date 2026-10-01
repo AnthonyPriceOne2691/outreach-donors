@@ -572,9 +572,9 @@
       "worst": "find_emails:140"
     },
     "backend/features/contacts/extract.py": {
-      "lines": 217,
+      "lines": 237,
       "complexity": 9,
-      "worst": "find_contact_links:195"
+      "worst": "find_contact_links:215"
     },
     "backend/features/contacts/file_sweep.py": {
       "lines": 314,
@@ -587,9 +587,9 @@
       "worst": "monthly_left:115"
     },
     "backend/features/contacts/ladder.py": {
-      "lines": 437,
+      "lines": 459,
       "complexity": 10,
-      "worst": "_step_pages:239"
+      "worst": "_step_pages:261"
     },
     "backend/features/contacts/manual.py": {
       "lines": 184,
@@ -622,9 +622,9 @@
       "worst": "find_emails:185"
     },
     "backend/features/contacts/quality.py": {
-      "lines": 341,
+      "lines": 367,
       "complexity": 6,
-      "worst": "weight:317"
+      "worst": "weight:343"
     },
     "backend/features/contacts/rdap.py": {
       "lines": 111,
@@ -642,9 +642,9 @@
       "worst": "search_contacts:136"
     },
     "backend/features/contacts/slugs.py": {
-      "lines": 303,
+      "lines": 318,
       "complexity": 5,
-      "worst": "_markers_by_length:223"
+      "worst": "_markers_by_length:238"
     },
     "backend/features/contacts/step_counters.py": {
       "lines": 85,

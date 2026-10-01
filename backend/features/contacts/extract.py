@@ -30,7 +30,21 @@ from backend.features.contacts.slugs import link_text_names_section, url_names_s
 logger = logging.getLogger(__name__)
 
 # Адрес строгим выражением. Проверяется целиком на очищенном токене.
-EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
+# Зона — в punycode (`xn--p1ai` — это `.рф`) или буквами, и порядок ветвей
+# несущий: буквенная ветвь удовлетворяется уже на «xn», и `findall` на странице
+# отдавал обрубок `info@site.xn` (ревью #122). Проверка годности этого не
+# видела — `fullmatch` откатывается во вторую ветвь, — поэтому тест идёт через
+# извлечение со страницы.
+EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.(?:xn--[a-zA-Z0-9\-]{2,}|[a-zA-Z]{2,})")
+
+# Экранирование JS и JSON: `\u003e` — это `>`, `\x40` — `@`. Встречается в
+# скриптах ТЕЛА страницы: их текст selectolax отдаёт вместе с видимым, и со
+# страницы уезжал `u003eprivacy@…` (живой прогон 30.09.2026) — обратная косая
+# черта в адрес не входит, а `u003e` входит. Раскодированное экранирование
+# ещё и открывает адреса, где спрятана сама собака. Скрипты из `<head>` (и
+# JSON-LD там же) selectolax в текст не отдаёт вовсе — адреса в них не
+# читаются ни до этой правки, ни после.
+_JS_ESCAPE_RE = re.compile(r"\\u([0-9a-fA-F]{4})|\\x([0-9a-fA-F]{2})")
 
 # Хвост соседнего слова, слипшийся с зоной: `comJanuary`, `com2024`.
 # Границей служит смена регистра или цифра — никакой другой признак тут
@@ -140,6 +154,11 @@ def repair_glued_domain(domain: str) -> str:
     return f"{head}.{glued.group(1)}" if glued else domain
 
 
+def _unescape_js(text: str) -> str:
+    """`\\u003e` → `>`, `\\x40` → `@` — экранирование из скриптов страницы."""
+    return _JS_ESCAPE_RE.sub(lambda m: chr(int(m.group(1) or m.group(2), 16)), text)
+
+
 def _clean(items: set[str]) -> set[str]:
     """Привести токены к адресам: обрезать пунктуацию, починить зону, снизить регистр.
 
@@ -168,7 +187,8 @@ def extract_emails(html: str) -> set[str]:
 
     tree = HTMLParser(html)
     found = _from_mailto(tree) | _from_cloudflare(tree)
-    found.update(EMAIL_RE.findall(html_entities.unescape(tree.text(separator=" "))))
+    text = _unescape_js(html_entities.unescape(tree.text(separator=" ")))
+    found.update(EMAIL_RE.findall(text))
     return _clean(found)
 
 
@@ -187,7 +207,7 @@ def extract_obfuscated(html: str) -> set[str]:
     if not html:
         return set()
 
-    text = html_entities.unescape(HTMLParser(html).text(separator=" "))
+    text = _unescape_js(html_entities.unescape(HTMLParser(html).text(separator=" ")))
     direct = set(EMAIL_RE.findall(text))
     return _clean(set(EMAIL_RE.findall(deobfuscate(text))) - direct)
 
