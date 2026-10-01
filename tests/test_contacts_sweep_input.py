@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 from backend.cli.contact_sweep import EXIT_OK, cmd_contacts_file
 from backend.features.contacts import file_sweep
+from backend.features.contacts.sweep_input import read_records
 from backend.features.donors.export import COLUMNS
 from tests.contacts_sweep_fakes import Web, cli_args, install, page, write
 
@@ -115,3 +116,24 @@ class TestEncoding:
         source.write_bytes("домен;заметка\nsite.com;старый\n".encode("cp1251"))
         with pytest.raises(ValueError, match="CSV UTF-8"):
             file_sweep.read_hosts(source)
+
+    def test_error_names_the_line_even_deep_in_a_big_file(self, tmp_path: Path) -> None:
+        """Файл читался кусками по 8 КБ, и смещение из ошибки считалось от
+        начала куска: битый байт в двухсотой тысяче назывался «байт 5200»."""
+        lines = [f"site{n:05d}.com\n" for n in range(20_000)]
+        lines[15_000] = "сайт.рф\n"
+        source = tmp_path / "list.csv"
+        source.write_bytes(b"".join(line.encode("cp1251") for line in lines))
+        with pytest.raises(ValueError, match="строка 15001"):
+            file_sweep.read_hosts(source)
+
+    def test_records_keep_file_line_numbers(self, tmp_path: Path) -> None:
+        """Общее начало чтения таблиц: BOM снят, пустые строки пропущены, номер —
+        строки файла, где запись начинается, и многострочная ячейка его не сбивает."""
+        source = tmp_path / "base.csv"
+        source.write_bytes(b"\xef\xbb\xbf" + b'email;name\n\n"a@x.com";"Ann\nLee"\nb@y.com;Bob\n')
+        assert read_records(source) == [
+            (1, ["email", "name"]),
+            (3, ["a@x.com", "Ann\nLee"]),
+            (5, ["b@y.com", "Bob"]),
+        ]

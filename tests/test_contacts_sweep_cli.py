@@ -99,6 +99,45 @@ class TestWhoseResult:
         assert _hosts(out) == ["site.com", "shop.de", "news.org"]
 
 
+class TestCheckpointOfTheOldName:
+    """Ревью #130: имена по умолчанию сменились (`list.checkpoint.jsonl` →
+    `list.csv.checkpoint.jsonl`), и прогон, начатый прежней версией, после
+    выкатки пошёл бы с нуля молча. Прежний чекпойнт подхватывается — строкой."""
+
+    LEGACY = '{"host": "site.com", "row": {"host": "site.com", "status": "found"}}\n'
+
+    async def test_run_started_before_the_rename_goes_on(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        web = Web(SITES)
+        install(monkeypatch, web)
+        source = write(tmp_path / "list.csv", "host\nsite.com\nshop.de\n")
+        legacy = tmp_path / "list.checkpoint.jsonl"
+        legacy.write_text(self.LEGACY)
+
+        assert await cmd_contacts_file(cli_args(source)) == EXIT_OK
+
+        assert web.requested, "прогон не пошёл вовсе"
+        assert not [url for url in web.requested if "site.com" in url], "пройденное пошло снова"
+        assert f"Чекпойнт прежнего имени: {legacy}" in capsys.readouterr().out
+        assert file_sweep.done_hosts(legacy) == {"site.com", "shop.de"}
+
+    async def test_restart_starts_under_the_new_name(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        web = Web(SITES)
+        install(monkeypatch, web)
+        source = write(tmp_path / "list.csv", "host\nsite.com\n")
+        legacy = tmp_path / "list.checkpoint.jsonl"
+        legacy.write_text(self.LEGACY)
+
+        assert await cmd_contacts_file(cli_args(source, "--restart")) == EXIT_OK
+
+        assert [url for url in web.requested if "site.com" in url]
+        assert legacy.read_text() == self.LEGACY
+        assert file_sweep.done_hosts(tmp_path / "list.csv.checkpoint.jsonl") == {"site.com"}
+
+
 class TestRestart:
     async def test_bad_input_does_not_cost_the_progress(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

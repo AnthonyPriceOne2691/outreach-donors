@@ -43,6 +43,7 @@ from backend.features.contacts.sweep_checkpoint import (
     retry_hosts,
     rows_for,
     rows_from_checkpoint,
+    unreachable_hosts,
 )
 from backend.features.contacts.sweep_input import DomainList, host_from_cell, read_hosts, read_list
 from backend.features.contacts.sweep_trace import TracedRenderer, traced, watch
@@ -71,6 +72,7 @@ __all__ = [
     "rows_for",
     "rows_from_checkpoint",
     "sweep",
+    "unreachable_hosts",
     "write_csv",
 ]
 
@@ -99,11 +101,8 @@ OUTPUT_COLUMNS = (
 
 #: Заведомо живые адреса. По ним прогон проверяет сеть — до первого домена
 #: и тогда, когда домен не ответил ничем. Любой HTTP-ответ — сеть есть.
-NETWORK_PROBES = (
-    "https://www.google.com/generate_204",
-    "https://www.cloudflare.com/cdn-cgi/trace",
-    "https://github.com/",
-)
+#: Задаются `CONTACTS_NETWORK_PROBES`; пусто — проверка выключена.
+NETWORK_PROBES: tuple[str, ...] = cfg.NETWORK_PROBES
 
 
 class NetworkDownError(RuntimeError):
@@ -120,7 +119,12 @@ class NetworkDownError(RuntimeError):
 
 
 async def network_alive(http: httpx.AsyncClient) -> bool:
-    """Отвечает ли хоть один контрольный адрес. Ответ любой — сеть жива."""
+    """Отвечает ли хоть один контрольный адрес. Ответ любой — сеть жива.
+
+    Адресов нет — проверка выключена настройкой, и сеть считается живой.
+    """
+    if not NETWORK_PROBES:
+        return True
     for url in NETWORK_PROBES:
         try:
             await http.get(url)
@@ -129,6 +133,21 @@ async def network_alive(http: httpx.AsyncClient) -> bool:
             continue
         return True
     return False
+
+
+async def _check_network(http: httpx.AsyncClient, report: SweepReport) -> None:
+    """Сеть до первого домена: нет — прогон не начинается.
+
+    Проверка, выключенная настройкой, — строкой в отчёте: без неё прогон
+    без сети снова тратит попытки доменов, и это надо знать.
+    """
+    if not NETWORK_PROBES:
+        report.notes.append(
+            "Проверка сети выключена (CONTACTS_NETWORK_PROBES пуст): "
+            "без сети домены уйдут «повторить» и потратят попытки."
+        )
+    elif not await network_alive(http):
+        raise NetworkDownError("ни один контрольный адрес не ответил — прогон не начат")
 
 
 @dataclass(slots=True)
@@ -285,8 +304,7 @@ async def sweep(
     async with AsyncExitStack() as stack:
         http = await stack.enter_async_context(guarded_client(timeout=timeout))
         # Сеть — до браузера: без неё Chromium поднимать незачем.
-        if not await network_alive(http):
-            raise NetworkDownError("ни один контрольный адрес не ответил — прогон не начат")
+        await _check_network(http, report)
         # Браузер — только по просьбе: Chromium стоит секунд запуска и сотен
         # мегабайт, а без просьбы его ступень всё равно не работает.
         renderer = await stack.enter_async_context(PlaywrightRenderer()) if use_browser else None

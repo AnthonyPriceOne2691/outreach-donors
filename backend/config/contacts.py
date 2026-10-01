@@ -69,6 +69,20 @@ class _Contacts(DomainSettings):
     # Срок годности исхода поиска: раньше по домену не ходим заново.
     contact_ttl_days: int = Field(default=180, validation_alias="CONTACTS_TTL_DAYS")
 
+    # --- Прогон по файлу: проверка сети ---
+    # Заведомо живые адреса через запятую. По ним прогон по файлу отличает
+    # «сайт молчит» от «сети нет», чтобы попытки доменов не сгорали без сети.
+    # За фильтром, который закрывает все три, — свои адреса; пустое значение
+    # выключает проверку, и прогон без сети снова тратит попытки (ревью #128).
+    network_probes: str = Field(
+        default=(
+            "https://www.google.com/generate_204,"
+            "https://www.cloudflare.com/cdn-cgi/trace,"
+            "https://github.com/"
+        ),
+        validation_alias="CONTACTS_NETWORK_PROBES",
+    )
+
 
 _s = _Contacts()
 
@@ -88,3 +102,6 @@ HUNTER_TIMEOUT_SEC: float = _s.hunter_timeout_sec
 HUNTER_MIN_CONFIDENCE: int = _s.hunter_min_confidence
 MANUAL_QUEUE_MONTHLY_CAP: int = _s.manual_queue_monthly_cap
 CONTACT_TTL_DAYS: int = _s.contact_ttl_days
+NETWORK_PROBES: tuple[str, ...] = tuple(
+    url.strip() for url in _s.network_probes.split(",") if url.strip()
+)

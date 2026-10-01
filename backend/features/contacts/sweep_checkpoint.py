@@ -104,11 +104,20 @@ def retry_hosts(checkpoint: Path) -> set[str]:
     return {host for host, row in latest(checkpoint).items() if row.get("status") == RETRY}
 
 
+def unreachable_hosts(checkpoint: Path) -> set[str]:
+    """Домены, на которых прогон сдался: последняя запись — «недоступен»."""
+    return {host for host, row in latest(checkpoint).items() if row.get("status") == UNREACHABLE}
+
+
 def retry_counts(checkpoint: Path) -> dict[str, int]:
-    """Сколько раз каждый домен уже записан «повторить»."""
+    """Сколько попыток каждого домена кончились без ответа.
+
+    «Недоступен» — тоже такая попытка: домен, возвращённый
+    `--retry-unreachable`, получает одну попытку, а не новые три.
+    """
     counts: dict[str, int] = {}
     for host, row in records(checkpoint):
-        if row.get("status") == RETRY:
+        if row.get("status") in (RETRY, UNREACHABLE):
             counts[host] = counts.get(host, 0) + 1
     return counts
 
