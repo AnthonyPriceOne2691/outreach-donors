@@ -114,3 +114,26 @@ class TestWrittenToDisk:
 
         assert len(synced) == 1
         assert json.loads(synced[0])["host"] == "site.com"
+
+
+class TestBrokenLineIsNamedOnce:
+    """Ревью #127: чекпойнт читают несколько раз за запуск, и одна битая строка
+    звучала предупреждением на каждое чтение. Теперь — одно предупреждение
+    на строку, остальное ниже уровнем."""
+
+    async def test_three_readers_one_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        path = tmp_path / "list.checkpoint.jsonl"
+        path.write_text(
+            '{"host": "a.com", "row": {"status": "found"}}\n{"host": "b.c\n',
+            encoding="utf-8",
+        )
+        caplog.set_level("DEBUG", logger="backend.features.contacts.sweep_checkpoint")
+
+        file_sweep.done_hosts(path)
+        file_sweep.rows_from_checkpoint(path)
+        file_sweep_checkpoint.retry_counts(path)
+
+        named = [r for r in caplog.records if "не разобрана" in r.getMessage()]
+        assert [r.levelname for r in named] == ["WARNING", "DEBUG", "DEBUG"]

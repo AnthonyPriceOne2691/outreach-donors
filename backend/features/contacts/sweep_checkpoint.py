@@ -44,6 +44,15 @@ MAX_ATTEMPTS = 3
 UNREACHABLE = "unreachable"
 
 
+#: Битые строки, уже названные предупреждением в этом процессе: (файл, номер).
+_NAMED: set[tuple[str, int]] = set()
+
+_BROKEN_LINE = (
+    "чекпойнт %s: строка %s не разобрана (%r) — пропущена, "
+    "её домен, если он там был, пройдём заново"
+)
+
+
 def records(checkpoint: Path) -> Iterator[tuple[str, dict[str, str]]]:
     """Записи чекпойнта по порядку: домен и строка итога.
 
@@ -63,13 +72,16 @@ def records(checkpoint: Path) -> Iterator[tuple[str, dict[str, str]]]:
                 record = json.loads(raw)
                 host, row = str(record["host"]), dict(record["row"])
             except (ValueError, KeyError, TypeError) as exc:
-                logger.warning(
-                    "чекпойнт %s: строка %s не разобрана (%r) — пропущена, "
-                    "её домен, если он там был, пройдём заново",
-                    checkpoint,
-                    number,
-                    exc,
-                )
+                # Чекпойнт читают несколько раз за запуск (пройденные, повторы,
+                # итог), и одна битая строка звучала бы предупреждением на
+                # каждое чтение (ревью #127). Предупреждение — один раз на
+                # строку, повторы — уровнем ниже: молчать гейт не даёт и не надо.
+                key = (str(checkpoint), number)
+                if key in _NAMED:
+                    logger.debug(_BROKEN_LINE, checkpoint, number, exc)
+                else:
+                    _NAMED.add(key)
+                    logger.warning(_BROKEN_LINE, checkpoint, number, exc)
                 continue
             yield host, row
 
