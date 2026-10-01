@@ -16,8 +16,9 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
+import httpx
 import pytest
-from backend.cli.contact_sweep import EXIT_OK, cmd_contacts_file
+from backend.cli.contact_sweep import EXIT_NO_NETWORK, EXIT_OK, cmd_contacts_file
 from backend.features.contacts import file_sweep
 from tests.contacts_sweep_fakes import (
     SLOW,
@@ -107,7 +108,8 @@ class TestGiveUp:
 
     Предела не было, и сайт, который не отвечает никогда, шёл заново на каждом
     возобновлении вечно. Пройденным он становится с причиной — это не «адреса
-    нет», а «проверить не удалось».
+    нет», а «проверить не удалось». Считаются только попытки при живой сети:
+    сайт мёртв, а контрольные адреса отвечают (`TestNoNetwork` — обратное).
     """
 
     async def test_third_retry_becomes_unreachable_and_stops(
@@ -141,9 +143,63 @@ class TestGiveUp:
         web.requested.clear()
         assert await cmd_contacts_file(cli_args(source, "--out", str(out))) == EXIT_OK
         assert not web.requested, "сдавшийся домен пошёл снова"
+        assert web.probes, "сеть перед прогоном не проверялась"
         with out.open(encoding="utf-8-sig", newline="") as handle:
             rows = list(csv.DictReader(handle, delimiter=";"))
         assert [row["status"] for row in rows] == [file_sweep.UNREACHABLE]
+
+
+class TestNoNetwork:
+    """Ревью #128: попытка без сети — не попытка.
+
+    Ноутбук без VPN или закрытый выход сервера — и предел попыток за три
+    запуска похоронил бы весь список. Сети нет на старте — прогон не
+    начинается; пропала посреди — останавливается, а домен, не ответивший
+    ничем, в чекпойнт не пишется.
+    """
+
+    async def test_three_runs_without_network_burn_nothing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        web = Web({})
+        web.network = False
+        install(monkeypatch, web)
+        source = write(tmp_path / "list.csv", "host\nsite.com\n")
+        out = tmp_path / "out.csv"
+        checkpoint = tmp_path / "progress.jsonl"
+        args = ("--out", str(out), "--checkpoint", str(checkpoint))
+        for _ in range(file_sweep.MAX_ATTEMPTS):
+            assert await cmd_contacts_file(cli_args(source, *args)) == EXIT_NO_NETWORK
+        assert not web.requested, "без сети прогон всё же пошёл по сайтам"
+        assert file_sweep.rows_from_checkpoint(checkpoint) == []
+
+        web.network = True
+        web.sites["site.com"] = {"/": WITH_EMAIL}
+        assert await cmd_contacts_file(cli_args(source, *args)) == EXIT_OK
+        (row,) = file_sweep.rows_from_checkpoint(checkpoint)
+        assert (row["status"], row["email"]) == ("found", "ads@site.com")
+
+    async def test_network_lost_mid_run_writes_nothing_for_the_silent_domain(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class DropsAfterFirstSite(Web):
+            def __call__(self, request: httpx.Request) -> httpx.Response:
+                response = super().__call__(request)
+                if request.url.host == "a.com":
+                    self.network = False
+                return response
+
+        web = DropsAfterFirstSite({"a.com": {"/": WITH_EMAIL}, "b.com": {"/": WITH_EMAIL}})
+        install(monkeypatch, web)
+        checkpoint = tmp_path / "c.jsonl"
+
+        with pytest.raises(file_sweep.NetworkDownError) as lost:
+            await file_sweep.sweep(["a.com", "b.com"], checkpoint=checkpoint, concurrency=1)
+
+        assert file_sweep.done_hosts(checkpoint) == {"a.com"}
+        assert [r["host"] for r in file_sweep.rows_from_checkpoint(checkpoint)] == ["a.com"]
+        assert lost.value.report is not None
+        assert lost.value.report.walked == 1
 
 
 class TestFinal:

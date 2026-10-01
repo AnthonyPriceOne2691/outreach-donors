@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 
 EXIT_OK = 0
 EXIT_BAD_INPUT = 2
+#: Сети нет: прогон остановлен, чекпойнт цел, попытки доменов не сгорели.
+EXIT_NO_NETWORK = 8
 
 #: Сколько неразобранных строк назвать поимённо. Остальные — числом и в лог:
 #: файл, где мусора тысячи, не должен вытеснять с экрана сам отчёт.
@@ -188,13 +190,23 @@ async def cmd_contacts_file(args: argparse.Namespace) -> int:
     if plan.retrying:
         print(f"Повторяем {plan.retrying} домен(ов), которые в прошлый раз не ответили.")
 
-    report = await file_sweep.sweep(
-        plan.pending,
-        checkpoint=plan.checkpoint,
-        use_browser=args.browser,
-        concurrency=args.concurrency,
-        on_progress=lambda done, total: print(f"  пройдено {done} из {total}"),
-    )
+    try:
+        report = await file_sweep.sweep(
+            plan.pending,
+            checkpoint=plan.checkpoint,
+            use_browser=args.browser,
+            concurrency=args.concurrency,
+            on_progress=lambda done, total: print(f"  пройдено {done} из {total}"),
+        )
+    except file_sweep.NetworkDownError as exc:
+        print(
+            f"Сеть недоступна: {exc}. Проверьте подключение (VPN, выход в интернет) и "
+            "запустите ту же команду снова — пройденное сохранено, попытки доменов не сгорели."
+        )
+        if exc.report is not None:
+            exc.report.skipped = plan.skipped
+            _finish(plan, exc.report)
+        return EXIT_NO_NETWORK
     report.skipped = plan.skipped
     _finish(plan, report)
     return EXIT_OK

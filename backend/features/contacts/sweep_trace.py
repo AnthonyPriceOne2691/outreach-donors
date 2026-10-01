@@ -66,6 +66,10 @@ class SiteTrace:
     failure: str = ""
     #: Страниц, открытых браузером.
     rendered: int = 0
+    #: Сайт ответил хоть чем-то: страницей, отказом, ошибкой, редиректом.
+    #: Не ответил ничем — прогон спрашивает контрольные адреса: легла сеть
+    #: или сайт (`file_sweep.network_alive`).
+    heard: bool = False
     #: Запрос, ответа на который ещё нет. Лестница ходит по домену
     #: последовательно, и следующий запрос значит, что этот кончился отказом.
     _waiting: str = field(default="", repr=False)
@@ -84,6 +88,7 @@ class SiteTrace:
 
     def received(self, response: httpx.Response) -> None:
         self._waiting = ""
+        self.heard = True
         url = str(response.request.url)
         status = response.status_code
         if response.has_redirect_location:

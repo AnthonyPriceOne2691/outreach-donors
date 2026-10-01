@@ -43,9 +43,19 @@ class Web:
 
     def __init__(self, sites: Mapping[str, Mapping[str, Reply] | str | int]) -> None:
         self.sites = dict(sites)
+        #: Запросы к сайтам. Пробы сети сюда не попадают: «сайт не тронут»
+        #: проверяется по этому списку, и пробы сделали бы его непустым всегда.
         self.requested: list[str] = []
+        #: Сеть целиком: выключенная, она не отвечает ни сайтам, ни пробам.
+        self.network = True
+        self.probes: list[str] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
+        if not self.network:
+            raise httpx.ConnectError("сети нет", request=request)
+        if str(request.url) in file_sweep.NETWORK_PROBES:
+            self.probes.append(str(request.url))
+            return httpx.Response(204, request=request)
         self.requested.append(str(request.url))
         site = self.sites.get(request.url.host or "", DOWN)
         reply = site if isinstance(site, str | int) else site.get(request.url.path, 404)

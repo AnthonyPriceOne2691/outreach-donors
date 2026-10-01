@@ -51,13 +51,16 @@ from backend.shared.net.url_guard import guarded_client
 __all__ = [
     "CONCURRENCY",
     "MAX_ATTEMPTS",
+    "NETWORK_PROBES",
     "OUTPUT_COLUMNS",
     "RETRY",
     "UNREACHABLE",
     "DomainList",
+    "NetworkDownError",
     "SweepReport",
     "done_hosts",
     "host_from_cell",
+    "network_alive",
     "read_hosts",
     "read_list",
     "retry_hosts",
@@ -85,6 +88,40 @@ OUTPUT_COLUMNS = (
     "telegram", "skype", "whatsapp", "viber", "vk", "phone",
     "guessed", "handles_page", "rejected",
 )  # fmt: skip
+
+
+#: Заведомо живые адреса. По ним прогон проверяет сеть — до первого домена
+#: и тогда, когда домен не ответил ничем. Любой HTTP-ответ — сеть есть.
+NETWORK_PROBES = (
+    "https://www.google.com/generate_204",
+    "https://www.cloudflare.com/cdn-cgi/trace",
+    "https://github.com/",
+)
+
+
+class NetworkDownError(RuntimeError):
+    """Сеть недоступна: ни один контрольный адрес не ответил.
+
+    Прогон останавливается, а не пишет домены «повторить»: попытка без сети
+    — не попытка, и предел (`MAX_ATTEMPTS`) за три запуска без сети похоронил
+    бы весь список (ревью #128). `report` — что успели до обрыва, если успели.
+    """
+
+    def __init__(self, message: str, *, report: SweepReport | None = None) -> None:
+        super().__init__(message)
+        self.report = report
+
+
+async def network_alive(http: httpx.AsyncClient) -> bool:
+    """Отвечает ли хоть один контрольный адрес. Ответ любой — сеть жива."""
+    for url in NETWORK_PROBES:
+        try:
+            await http.get(url)
+        except httpx.HTTPError as exc:
+            logger.info("сеть: %s не ответил (%r)", url, exc)
+            continue
+        return True
+    return False
 
 
 @dataclass(slots=True)
@@ -218,9 +255,12 @@ async def sweep(
     timeout = httpx.Timeout(cfg.PAGE_TIMEOUT_SEC, connect=cfg.PAGE_TIMEOUT_SEC)
 
     async with guarded_client(timeout=timeout) as http, PlaywrightRenderer() as renderer:
+        if not await network_alive(http):
+            raise NetworkDownError("ни один контрольный адрес не ответил — прогон не начат")
         # Обмен с каждым сайтом учитывается: по нему решается, пройден ли
         # домен окончательно или его надо повторить (`sweep_trace.py`).
         watch(http)
+        lost = asyncio.Event()
         ladder = ContactLadder(
             http,
             provider=None,  # платных ступеней здесь нет вовсе
@@ -231,18 +271,30 @@ async def sweep(
 
         async def one(host: str) -> None:
             async with limiter:
-                await _walk_one(ladder, keeper, report, host)
+                if lost.is_set():
+                    return
+                await _walk_one(ladder, keeper, report, host, http=http, lost=lost)
                 if on_progress is not None and report.processed % PROGRESS_EVERY == 0:
                     on_progress(report.processed, report.total)
 
         await asyncio.gather(*(one(host) for host in hosts))
         report.counters = ladder.counters.as_report()
 
+    if lost.is_set():
+        raise NetworkDownError(
+            "сеть пропала посреди прогона — недоделанные домены ждут повтора", report=report
+        )
     return report
 
 
 async def _walk_one(
-    ladder: ContactLadder, keeper: Checkpoint, report: SweepReport, host: str
+    ladder: ContactLadder,
+    keeper: Checkpoint,
+    report: SweepReport,
+    host: str,
+    *,
+    http: httpx.AsyncClient,
+    lost: asyncio.Event,
 ) -> None:
     """Один домен: лестница, вердикт «пройден или повторить», строка в чекпойнт."""
     with traced(host) as trace:
@@ -257,5 +309,12 @@ async def _walk_one(
             return
     # Вердикт — после выхода из следа: запрос, так и не получивший ответа,
     # засчитывается отказом только при закрытии.
-    row = await keeper.add(host, row_of(result, retry=trace.retry_reason(result.status)))
+    row = row_of(result, retry=trace.retry_reason(result.status))
+    if row["status"] == RETRY and not trace.heard and not await network_alive(http):
+        # Сайт не ответил ничем, и контрольные адреса молчат — легла сеть, а не
+        # сайт. Строку не пишем: попытка не сгорает, домен пойдёт заново.
+        logger.warning("прогон: сеть пропала на домене %s — останавливаемся", host)
+        lost.set()
+        return
+    row = await keeper.add(host, row)
     report.count(row, has_handles=bool(result.handles))
