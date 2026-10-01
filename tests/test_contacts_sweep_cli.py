@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import json
+import logging
 import os
 import signal
 from pathlib import Path
@@ -18,6 +19,7 @@ from pathlib import Path
 import pytest
 from backend.cli.contact_sweep import EXIT_BAD_INPUT, EXIT_OK, cmd_contacts_file
 from backend.cli.main import EXIT_CANCELLED, main
+from backend.features.contacts import file_sweep
 from backend.features.contacts.ladder import ContactLadder, LadderResult
 from tests.contacts_sweep_fakes import FakeRenderer, Web, cli_args, install, page, write
 
@@ -219,3 +221,29 @@ class TestBrowserOnlyWhenAsked:
         assert await cmd_contacts_file(cli_args(source, "--browser")) == EXIT_OK
 
         assert "Браузер не поднялся" in capsys.readouterr().out
+
+
+class TestNoManualQueueInAFileRun:
+    async def test_form_only_domains_do_not_wait_for_next_month(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Ручной очереди у прогона по файлу нет: форма — колонка, а не заявка.
+
+        Потолок месяца исчерпан (здесь — нулевой), и до правки каждый домен
+        с формой давал в лог «ждёт следующего месяца» — про домены, которые
+        ничего не ждут.
+        """
+        monkeypatch.setattr("backend.config.contacts.MANUAL_QUEUE_MONTHLY_CAP", 0)
+        caplog.set_level(logging.INFO, logger="backend.features.contacts")
+        form = page('<form class="wpcf7"><input name="email"></form>')
+        install(monkeypatch, Web({"site.com": {"/": form}}))
+        checkpoint = tmp_path / "c.jsonl"
+
+        await file_sweep.sweep(["site.com"], checkpoint=checkpoint)
+
+        (row,) = file_sweep.rows_from_checkpoint(checkpoint)
+        assert (row["status"], row["has_form"]) == ("form_only", "true")
+        assert not [record for record in caplog.records if "ручной очереди" in record.getMessage()]
