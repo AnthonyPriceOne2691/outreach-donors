@@ -106,3 +106,12 @@ class TestHeader:
     def test_headerless_file_with_several_columns(self, tmp_path: Path) -> None:
         source = write(tmp_path / "list.csv", "Магазин;shop.de;12\nСайт;site.com;40\n")
         assert file_sweep.read_hosts(source) == ["shop.de", "site.com"]
+
+
+class TestEncoding:
+    def test_file_not_in_utf8_says_what_to_do(self, tmp_path: Path) -> None:
+        """Excel на русской Windows сохраняет «CSV» в cp1251 — ошибка говорит, что делать."""
+        source = tmp_path / "list.csv"
+        source.write_bytes("домен;заметка\nsite.com;старый\n".encode("cp1251"))
+        with pytest.raises(ValueError, match="CSV UTF-8"):
+            file_sweep.read_hosts(source)

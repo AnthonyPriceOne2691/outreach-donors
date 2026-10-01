@@ -367,9 +367,9 @@
       "worst": "_print_report:24"
     },
     "backend/cli/contact_sweep.py": {
-      "lines": 213,
+      "lines": 272,
       "complexity": 9,
-      "worst": "_plan:125"
+      "worst": "_plan:135"
     },
     "backend/cli/crawl_probe.py": {
       "lines": 309,
@@ -577,9 +577,9 @@
       "worst": "—"
     },
     "backend/features/contacts/browser.py": {
-      "lines": 172,
-      "complexity": 11,
-      "worst": "find_emails:140"
+      "lines": 193,
+      "complexity": 7,
+      "worst": "render:111"
     },
     "backend/features/contacts/extract.py": {
       "lines": 237,
@@ -587,9 +587,9 @@
       "worst": "find_contact_links:215"
     },
     "backend/features/contacts/file_sweep.py": {
-      "lines": 321,
-      "complexity": 10,
-      "worst": "row_of:199"
+      "lines": 360,
+      "complexity": 9,
+      "worst": "sweep:261"
     },
     "backend/features/contacts/forms.py": {
       "lines": 193,
@@ -597,9 +597,9 @@
       "worst": "monthly_left:115"
     },
     "backend/features/contacts/ladder.py": {
-      "lines": 459,
+      "lines": 491,
       "complexity": 10,
-      "worst": "_step_pages:261"
+      "worst": "_step_pages:283"
     },
     "backend/features/contacts/manual.py": {
       "lines": 184,
@@ -662,19 +662,19 @@
       "worst": "mark_found:52"
     },
     "backend/features/contacts/sweep_checkpoint.py": {
-      "lines": 185,
+      "lines": 196,
       "complexity": 6,
       "worst": "records:56"
     },
     "backend/features/contacts/sweep_input.py": {
-      "lines": 190,
-      "complexity": 9,
-      "worst": "_is_domain:91"
+      "lines": 202,
+      "complexity": 10,
+      "worst": "read_list:151"
     },
     "backend/features/contacts/sweep_trace.py": {
-      "lines": 197,
-      "complexity": 7,
-      "worst": "received:89"
+      "lines": 207,
+      "complexity": 9,
+      "worst": "retry_reason:147"
     },
     "backend/features/core/__init__.py": {
       "lines": 1,
