@@ -189,10 +189,10 @@ class TestNumberIsOneNumber:
     @pytest.mark.parametrize(
         "number",
         [
-            "+٧٩١٦١٢٣٤٥٦٧",
-            "٧٩١٦١٢٣٤٥٦٧",
-            "７９１６１２３４５６７",
-            "＋７９１６１２３４５６７",
+            "+\u0667\u0669\u0661\u0666\u0661\u0662\u0663\u0664\u0665\u0666\u0667",
+            "\u0667\u0669\u0661\u0666\u0661\u0662\u0663\u0664\u0665\u0666\u0667",
+            "\uff17\uff19\uff11\uff16\uff11\uff12\uff13\uff14\uff15\uff16\uff17",
+            "\uff0b\uff17\uff19\uff11\uff16\uff11\uff12\uff13\uff14\uff15\uff16\uff17",
         ],
     )
     def test_digits_of_any_script_reach_the_table_as_ascii(self, number: str) -> None:
@@ -205,7 +205,7 @@ class TestNumberIsOneNumber:
 
     def test_non_breaking_hyphen_is_a_separator(self) -> None:
         """Неразрывный дефис ставит типографика, чтобы номер не переносился."""
-        html = "<p>WhatsApp: +7 916 123‑45‑67</p>"
+        html = "<p>WhatsApp: +7 916 123\u201145\u201167</p>"
         assert _guessed(html, MessengerKind.WHATSAPP) == {"79161234567"}
 
     @pytest.mark.parametrize(
