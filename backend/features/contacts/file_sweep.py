@@ -26,7 +26,6 @@ import logging
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.parse import urlsplit
 
 import httpx
 
@@ -34,7 +33,25 @@ from backend.config import contacts as cfg
 from backend.features.contacts.browser import PlaywrightRenderer
 from backend.features.contacts.ladder import ContactLadder, LadderResult
 from backend.features.contacts.messengers import MessengerKind, Trust
+from backend.features.contacts.sweep_input import DomainList, host_from_cell, read_hosts, read_list
 from backend.shared.net.url_guard import guarded_client
+
+# Чтение списка живёт в `sweep_input.py`, но входная точка прогона — здесь:
+# команда и тесты берут всё из одного модуля.
+__all__ = [
+    "CONCURRENCY",
+    "OUTPUT_COLUMNS",
+    "DomainList",
+    "SweepReport",
+    "done_hosts",
+    "host_from_cell",
+    "read_hosts",
+    "read_list",
+    "row_of",
+    "rows_from_checkpoint",
+    "sweep",
+    "write_csv",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -45,9 +62,6 @@ CONCURRENCY = 8
 #: Как часто сообщать о ходе дела. Прогон на часы без вывода читается
 #: как зависший.
 PROGRESS_EVERY = 25
-
-#: Имена колонок, в которых может лежать домен. Порядок — порядок доверия.
-HOST_COLUMNS = ("host_key", "host", "domain", "site", "site_url", "url", "website")
 
 #: Колонки итога. Каналы — по одному столбцу на вид, значения через `; `.
 OUTPUT_COLUMNS = (
@@ -71,61 +85,6 @@ class SweepReport:
     @property
     def with_any_contact(self) -> int:
         return self.with_email + self.with_handle
-
-
-def host_from_cell(raw: str) -> str:
-    """`https://WWW.News.example.com/path` → `news.example.com`.
-
-    Поддомен НЕ срезается, в отличие от `donors.host.normalize_host`:
-    тот сводит домен к ключу дедупликации, а нам нужен адрес, по которому
-    идти. `news.example.com` и `example.com` — разные сайты, и обойти надо
-    тот, что дали на входе.
-    """
-    candidate = (raw or "").strip().lower()
-    if not candidate:
-        return ""
-    if "//" not in candidate:
-        candidate = f"//{candidate}"
-    host = urlsplit(candidate).hostname or ""
-    return host.removeprefix("www.").rstrip(".")
-
-
-def _pick_column(fieldnames: Sequence[str], wanted: str | None) -> str:
-    known = {name.strip().lower(): name for name in fieldnames if name}
-    if wanted:
-        if wanted.strip().lower() not in known:
-            raise ValueError(f"в файле нет колонки {wanted!r}; есть: {', '.join(known.values())}")
-        return known[wanted.strip().lower()]
-    for name in HOST_COLUMNS:
-        if name in known:
-            return known[name]
-    raise ValueError(
-        "не нашлось колонки с доменом. Ожидаются "
-        f"{', '.join(HOST_COLUMNS)} — или назовите её сами. В файле: {', '.join(known.values())}"
-    )
-
-
-def read_hosts(path: Path, *, column: str | None = None, delimiter: str | None = None) -> list[str]:
-    """Домены из CSV, по одному на строку, без повторов и в порядке файла.
-
-    Разделитель угадывается по первой строке: наш экспорт пишет `;`, чужой
-    обычно `,`. Угадывание ошибается на файле из одной колонки без
-    разделителей вовсе — тогда его называют явно.
-    """
-    with path.open(encoding="utf-8-sig", newline="") as handle:
-        first = handle.readline()
-        handle.seek(0)
-        sep = delimiter or (";" if first.count(";") > first.count(",") else ",")
-        reader = csv.DictReader(handle, delimiter=sep)
-        if not reader.fieldnames:
-            return []
-        key = _pick_column(reader.fieldnames, column)
-        seen: dict[str, None] = {}
-        for row in reader:
-            host = host_from_cell(row.get(key) or "")
-            if host:
-                seen.setdefault(host, None)
-    return list(seen)
 
 
 def done_hosts(checkpoint: Path) -> set[str]:
