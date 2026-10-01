@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 from backend.cli.contact_sweep import EXIT_OK, cmd_contacts_file
-from backend.features.contacts import file_sweep
+from backend.features.contacts import file_sweep, mx
 from tests.contacts_sweep_fakes import (
     SLOW,
     FakeRenderer,
@@ -160,3 +160,39 @@ class TestResume:
         assert [(row["host"], row["status"], row["email"]) for row in rows] == [
             ("site.com", "found", "ads@site.com")
         ]
+
+
+class TestNameThatDoesNotExist:
+    """Найдено живым прогоном: домена нет — повтор ответа не изменит.
+
+    «Имени нет» (MX — `none`) — ответ работающего DNS; при обрыве связи
+    ступень MX говорит «неизвестно». Поэтому мёртвое имя, не ответившее
+    по HTTP ни разу, пройдено, а не повторяется на каждом запуске вечно.
+    """
+
+    async def test_dead_name_is_done(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        install(monkeypatch, Web({}), routes={"site.com": mx.MailRoute.NONE})
+        checkpoint = tmp_path / "c.jsonl"
+        await file_sweep.sweep(["site.com"], checkpoint=checkpoint)
+        (row,) = file_sweep.rows_from_checkpoint(checkpoint)
+        assert (row["status"], row["mail_route"]) == ("not_found", "none")
+        assert file_sweep.done_hosts(checkpoint) == {"site.com"}
+
+    async def test_unknown_dns_with_silent_site_is_retried(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """DNS молчит и сайт молчит — это похоже на нашу связь, а не на их домен."""
+        install(monkeypatch, Web({}), routes={"site.com": mx.MailRoute.UNKNOWN})
+        checkpoint = tmp_path / "c.jsonl"
+        await file_sweep.sweep(["site.com"], checkpoint=checkpoint)
+        assert file_sweep.done_hosts(checkpoint) == set()
+
+    async def test_name_without_mail_whose_www_refuses_is_retried(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Апекс без записей, а `www.` отвечает 403: сайт есть, он закрылся."""
+        web = Web({"www.site.com": 403})
+        install(monkeypatch, web, routes={"site.com": mx.MailRoute.NONE})
+        checkpoint = tmp_path / "c.jsonl"
+        await file_sweep.sweep(["site.com"], checkpoint=checkpoint)
+        assert file_sweep.done_hosts(checkpoint) == set()

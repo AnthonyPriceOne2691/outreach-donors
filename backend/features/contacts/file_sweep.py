@@ -279,6 +279,6 @@ async def _walk_one(
             return
     # Вердикт — после выхода из следа: запрос, так и не получивший ответа,
     # засчитывается отказом только при закрытии.
-    row = row_of(result, retry=trace.retry_reason(result.status))
+    row = row_of(result, retry=trace.retry_reason(result))
     await keeper.add(host, row)
     report.count(row, has_handles=bool(result.handles))
