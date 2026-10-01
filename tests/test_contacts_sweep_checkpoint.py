@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 from backend.cli.contact_sweep import EXIT_OK, cmd_contacts_file
 from backend.features.contacts import file_sweep
+from backend.features.contacts import sweep_checkpoint as file_sweep_checkpoint
 from tests.contacts_sweep_fakes import Web, cli_args, install, page, write
 
 SITES = {
@@ -86,3 +87,30 @@ class TestNextLineAfterATear:
 
         assert b"\n\n" not in checkpoint.read_bytes()
         assert file_sweep.done_hosts(checkpoint) == {"site.com", "shop.de"}
+
+
+class TestWrittenToDisk:
+    """Обещание «на диск» — правда: после строки чекпойнта вызывается fsync.
+
+    `flush` отдаёт строку системе и спасает от убитого процесса; от потери
+    питания спасает только `fsync`. Ревью #126 нашло, что докстринг обещал
+    диск, а код останавливался на системе.
+    """
+
+    async def test_line_is_synced_after_it_is_written(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        path = tmp_path / "list.checkpoint.jsonl"
+        synced: list[str] = []
+        real_fsync = file_sweep_checkpoint.os.fsync
+
+        def spy(fd: int) -> None:
+            synced.append(path.read_text(encoding="utf-8"))
+            real_fsync(fd)
+
+        monkeypatch.setattr(file_sweep_checkpoint.os, "fsync", spy)
+
+        await file_sweep_checkpoint.Checkpoint(path).add("site.com", {"status": "found"})
+
+        assert len(synced) == 1
+        assert json.loads(synced[0])["host"] == "site.com"

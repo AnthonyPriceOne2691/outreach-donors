@@ -652,7 +652,7 @@
       "worst": "mark_found:52"
     },
     "backend/features/contacts/sweep_checkpoint.py": {
-      "lines": 106,
+      "lines": 110,
       "complexity": 5,
       "worst": "records:29"
     },
