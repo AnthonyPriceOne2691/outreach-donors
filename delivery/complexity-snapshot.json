@@ -412,7 +412,7 @@
       "worst": "_report:180"
     },
     "backend/cli/main.py": {
-      "lines": 448,
+      "lines": 458,
       "complexity": 9,
       "worst": "_print_report:240"
     },
@@ -602,14 +602,14 @@
       "worst": "_collect:315"
     },
     "backend/features/contacts/mx.py": {
-      "lines": 207,
+      "lines": 223,
       "complexity": 10,
-      "worst": "_query:135"
+      "worst": "_query:139"
     },
     "backend/features/contacts/pages.py": {
-      "lines": 286,
+      "lines": 301,
       "complexity": 7,
-      "worst": "language_hint:104"
+      "worst": "language_hint:115"
     },
     "backend/features/contacts/preference.py": {
       "lines": 52,
@@ -637,9 +637,9 @@
       "worst": "refusal_of:119"
     },
     "backend/features/contacts/search.py": {
-      "lines": 200,
+      "lines": 198,
       "complexity": 9,
-      "worst": "search_contacts:136"
+      "worst": "search_contacts:137"
     },
     "backend/features/contacts/slugs.py": {
       "lines": 318,
