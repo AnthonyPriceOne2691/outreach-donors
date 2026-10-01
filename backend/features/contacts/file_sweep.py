@@ -21,12 +21,10 @@ from __future__ import annotations
 
 import asyncio
 import csv
-import json
 import logging
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.parse import urlsplit
 
 import httpx
 
@@ -34,7 +32,43 @@ from backend.config import contacts as cfg
 from backend.features.contacts.browser import PlaywrightRenderer
 from backend.features.contacts.ladder import ContactLadder, LadderResult
 from backend.features.contacts.messengers import MessengerKind, Trust
+from backend.features.contacts.sweep_checkpoint import (
+    MAX_ATTEMPTS,
+    RETRY,
+    UNREACHABLE,
+    Checkpoint,
+    done_hosts,
+    retry_hosts,
+    rows_from_checkpoint,
+)
+from backend.features.contacts.sweep_input import DomainList, host_from_cell, read_hosts, read_list
+from backend.features.contacts.sweep_trace import TracedRenderer, traced, watch
 from backend.shared.net.url_guard import guarded_client
+
+# Чтение списка, чекпойнт и след обмена с сайтом живут в своих модулях
+# (`sweep_input.py`, `sweep_checkpoint.py`, `sweep_trace.py`), но входная
+# точка прогона — здесь: команда и тесты берут всё из одного модуля.
+__all__ = [
+    "CONCURRENCY",
+    "MAX_ATTEMPTS",
+    "NETWORK_PROBES",
+    "OUTPUT_COLUMNS",
+    "RETRY",
+    "UNREACHABLE",
+    "DomainList",
+    "NetworkDownError",
+    "SweepReport",
+    "done_hosts",
+    "host_from_cell",
+    "network_alive",
+    "read_hosts",
+    "read_list",
+    "retry_hosts",
+    "row_of",
+    "rows_from_checkpoint",
+    "sweep",
+    "write_csv",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -46,15 +80,48 @@ CONCURRENCY = 8
 #: как зависший.
 PROGRESS_EVERY = 25
 
-#: Имена колонок, в которых может лежать домен. Порядок — порядок доверия.
-HOST_COLUMNS = ("host_key", "host", "domain", "site", "site_url", "url", "website")
-
 #: Колонки итога. Каналы — по одному столбцу на вид, значения через `; `.
+#: `retry_reason` заполнен только у строк «повторить»: почему исход не окончательный.
 OUTPUT_COLUMNS = (
-    "host", "status", "email", "emails", "email_source", "email_page", "has_form",
+    "host", "status", "retry_reason",
+    "email", "emails", "email_source", "email_page", "has_form",
     "telegram", "skype", "whatsapp", "viber", "vk", "phone",
     "guessed", "handles_page", "rejected",
 )  # fmt: skip
+
+
+#: Заведомо живые адреса. По ним прогон проверяет сеть — до первого домена
+#: и тогда, когда домен не ответил ничем. Любой HTTP-ответ — сеть есть.
+NETWORK_PROBES = (
+    "https://www.google.com/generate_204",
+    "https://www.cloudflare.com/cdn-cgi/trace",
+    "https://github.com/",
+)
+
+
+class NetworkDownError(RuntimeError):
+    """Сеть недоступна: ни один контрольный адрес не ответил.
+
+    Прогон останавливается, а не пишет домены «повторить»: попытка без сети
+    — не попытка, и предел (`MAX_ATTEMPTS`) за три запуска без сети похоронил
+    бы весь список (ревью #128). `report` — что успели до обрыва, если успели.
+    """
+
+    def __init__(self, message: str, *, report: SweepReport | None = None) -> None:
+        super().__init__(message)
+        self.report = report
+
+
+async def network_alive(http: httpx.AsyncClient) -> bool:
+    """Отвечает ли хоть один контрольный адрес. Ответ любой — сеть жива."""
+    for url in NETWORK_PROBES:
+        try:
+            await http.get(url)
+        except httpx.HTTPError as exc:
+            logger.info("сеть: %s не ответил (%r)", url, exc)
+            continue
+        return True
+    return False
 
 
 @dataclass(slots=True)
@@ -62,7 +129,15 @@ class SweepReport:
     """Чем кончился прогон."""
 
     total: int = 0
+    #: Пройдены окончательно.
     walked: int = 0
+    #: Записаны «повторить»: сайт не ответил, закрылся или обход оборван.
+    retry: int = 0
+    #: Пройдены, но не проверены: «повторить» кончился пределом попыток.
+    #: Входят и в `walked` — повторять их больше не будут.
+    unreachable: int = 0
+    #: Упали с ошибкой. Строки в чекпойнте нет — следующий запуск пройдёт их снова.
+    failed: int = 0
     skipped: int = 0
     with_email: int = 0
     with_handle: int = 0
@@ -72,81 +147,19 @@ class SweepReport:
     def with_any_contact(self) -> int:
         return self.with_email + self.with_handle
 
+    @property
+    def processed(self) -> int:
+        return self.walked + self.retry + self.failed
 
-def host_from_cell(raw: str) -> str:
-    """`https://WWW.News.example.com/path` → `news.example.com`.
-
-    Поддомен НЕ срезается, в отличие от `donors.host.normalize_host`:
-    тот сводит домен к ключу дедупликации, а нам нужен адрес, по которому
-    идти. `news.example.com` и `example.com` — разные сайты, и обойти надо
-    тот, что дали на входе.
-    """
-    candidate = (raw or "").strip().lower()
-    if not candidate:
-        return ""
-    if "//" not in candidate:
-        candidate = f"//{candidate}"
-    host = urlsplit(candidate).hostname or ""
-    return host.removeprefix("www.").rstrip(".")
-
-
-def _pick_column(fieldnames: Sequence[str], wanted: str | None) -> str:
-    known = {name.strip().lower(): name for name in fieldnames if name}
-    if wanted:
-        if wanted.strip().lower() not in known:
-            raise ValueError(f"в файле нет колонки {wanted!r}; есть: {', '.join(known.values())}")
-        return known[wanted.strip().lower()]
-    for name in HOST_COLUMNS:
-        if name in known:
-            return known[name]
-    raise ValueError(
-        "не нашлось колонки с доменом. Ожидаются "
-        f"{', '.join(HOST_COLUMNS)} — или назовите её сами. В файле: {', '.join(known.values())}"
-    )
-
-
-def read_hosts(path: Path, *, column: str | None = None, delimiter: str | None = None) -> list[str]:
-    """Домены из CSV, по одному на строку, без повторов и в порядке файла.
-
-    Разделитель угадывается по первой строке: наш экспорт пишет `;`, чужой
-    обычно `,`. Угадывание ошибается на файле из одной колонки без
-    разделителей вовсе — тогда его называют явно.
-    """
-    with path.open(encoding="utf-8-sig", newline="") as handle:
-        first = handle.readline()
-        handle.seek(0)
-        sep = delimiter or (";" if first.count(";") > first.count(",") else ",")
-        reader = csv.DictReader(handle, delimiter=sep)
-        if not reader.fieldnames:
-            return []
-        key = _pick_column(reader.fieldnames, column)
-        seen: dict[str, None] = {}
-        for row in reader:
-            host = host_from_cell(row.get(key) or "")
-            if host:
-                seen.setdefault(host, None)
-    return list(seen)
-
-
-def done_hosts(checkpoint: Path) -> set[str]:
-    """Домены, уже записанные в чекпойнт.
-
-    Битая строка (прогон убили на середине записи) пропускается молча,
-    но именно она и только она: домен просто пройдут заново.
-    """
-    if not checkpoint.exists():
-        return set()
-    hosts: set[str] = set()
-    with checkpoint.open(encoding="utf-8") as handle:
-        for raw in handle:
-            line = raw.strip()
-            if not line:
-                continue
-            try:
-                hosts.add(str(json.loads(line)["host"]))
-            except (ValueError, KeyError, TypeError):
-                logger.info("чекпойнт: строка не разобралась, домен пройдём заново")
-    return hosts
+    def count(self, row: dict[str, str], *, has_handles: bool) -> None:
+        """Учесть строку, записанную в чекпойнт."""
+        if row["status"] == RETRY:
+            self.retry += 1
+        else:
+            self.walked += 1
+            self.unreachable += row["status"] == UNREACHABLE
+        self.with_email += bool(row["email"])
+        self.with_handle += bool(not row["email"] and has_handles)
 
 
 def _handle_columns(result: LadderResult) -> dict[str, str]:
@@ -183,12 +196,17 @@ def _handle_columns(result: LadderResult) -> dict[str, str]:
     return columns
 
 
-def row_of(result: LadderResult) -> dict[str, str]:
-    """Строка итога по одному домену. Пустые поля — законный исход."""
+def row_of(result: LadderResult, *, retry: str | None = None) -> dict[str, str]:
+    """Строка итога по одному домену. Пустые поля — законный исход.
+
+    `retry` — почему исход не окончательный: тогда статус «повторить»,
+    а найденное по дороге (каналы, форма) в строке остаётся.
+    """
     emails = sorted({candidate.email for candidate in result.candidates})
     row = {
         "host": result.host,
-        "status": result.status.value,
+        "status": RETRY if retry else result.status.value,
+        "retry_reason": retry or "",
         "email": result.contact.email if result.contact else "",
         "emails": "; ".join(emails),
         "email_source": result.source.value if result.source else "",
@@ -212,50 +230,6 @@ def write_csv(rows: Iterable[dict[str, str]], path: Path) -> int:
     return written
 
 
-def rows_from_checkpoint(checkpoint: Path) -> list[dict[str, str]]:
-    """Строки итога из чекпойнта, в порядке прохода."""
-    if not checkpoint.exists():
-        return []
-    rows: list[dict[str, str]] = []
-    with checkpoint.open(encoding="utf-8") as handle:
-        for number, raw in enumerate(handle, start=1):
-            line = raw.strip()
-            if not line:
-                continue
-            try:
-                rows.append(dict(json.loads(line)["row"]))
-            except (ValueError, KeyError, TypeError) as exc:
-                # Обрыв посреди записи оставляет последнюю строку недописанной:
-                # пропустить её законно, а молча — нет, иначе итог, который
-                # короче прохода на домен, нечем объяснить.
-                logger.warning(
-                    "контакты: строка %s чекпойнта %s не разобрана (%r) — пропущена",
-                    number,
-                    checkpoint,
-                    exc,
-                )
-    return rows
-
-
-class _Checkpoint:
-    """Дописывает по строке на домен и сбрасывает на диск сразу.
-
-    Без сброса строки живут в буфере, и обрыв съедает последние сотни
-    доменов — то есть именно то, от чего чекпойнт защищает.
-    """
-
-    def __init__(self, path: Path) -> None:
-        self._path = path
-        self._lock = asyncio.Lock()
-
-    async def add(self, host: str, row: dict[str, str]) -> None:
-        line = json.dumps({"host": host, "row": row}, ensure_ascii=False)
-        async with self._lock:
-            with self._path.open("a", encoding="utf-8") as handle:
-                handle.write(line + "\n")
-                handle.flush()
-
-
 async def sweep(
     hosts: Sequence[str],
     *,
@@ -276,38 +250,71 @@ async def sweep(
     if not hosts:
         return report
 
-    keeper = _Checkpoint(checkpoint)
+    keeper = Checkpoint(checkpoint)
     limiter = asyncio.Semaphore(max(1, concurrency))
     timeout = httpx.Timeout(cfg.PAGE_TIMEOUT_SEC, connect=cfg.PAGE_TIMEOUT_SEC)
 
     async with guarded_client(timeout=timeout) as http, PlaywrightRenderer() as renderer:
+        if not await network_alive(http):
+            raise NetworkDownError("ни один контрольный адрес не ответил — прогон не начат")
+        # Обмен с каждым сайтом учитывается: по нему решается, пройден ли
+        # домен окончательно или его надо повторить (`sweep_trace.py`).
+        watch(http)
+        lost = asyncio.Event()
         ladder = ContactLadder(
             http,
             provider=None,  # платных ступеней здесь нет вовсе
-            renderer=renderer if use_browser else None,
+            renderer=TracedRenderer(renderer) if use_browser and renderer else None,
             stop_without_mail=False,
             collect_handles=True,  # каналы связи — ради них прогон по файлу и нужен
         )
 
         async def one(host: str) -> None:
             async with limiter:
-                try:
-                    result = await ladder.find(host)
-                except Exception:
-                    # Падение на одном домене не должно стоить прогона, но
-                    # и молчать о нём нельзя: без строки в чекпойнте домен
-                    # вернётся в следующий запуск, и это правильный исход.
-                    logger.exception("прогон: домен %s не обошёлся", host)
+                if lost.is_set():
                     return
-                row = row_of(result)
-                await keeper.add(host, row)
-                report.walked += 1
-                report.with_email += bool(row["email"])
-                report.with_handle += bool(not row["email"] and result.handles)
-                if on_progress is not None and report.walked % PROGRESS_EVERY == 0:
-                    on_progress(report.walked, report.total)
+                await _walk_one(ladder, keeper, report, host, http=http, lost=lost)
+                if on_progress is not None and report.processed % PROGRESS_EVERY == 0:
+                    on_progress(report.processed, report.total)
 
         await asyncio.gather(*(one(host) for host in hosts))
         report.counters = ladder.counters.as_report()
 
+    if lost.is_set():
+        raise NetworkDownError(
+            "сеть пропала посреди прогона — недоделанные домены ждут повтора", report=report
+        )
     return report
+
+
+async def _walk_one(
+    ladder: ContactLadder,
+    keeper: Checkpoint,
+    report: SweepReport,
+    host: str,
+    *,
+    http: httpx.AsyncClient,
+    lost: asyncio.Event,
+) -> None:
+    """Один домен: лестница, вердикт «пройден или повторить», строка в чекпойнт."""
+    with traced(host) as trace:
+        try:
+            result = await ladder.find(host)
+        except Exception:
+            # Падение на одном домене не должно стоить прогона, но и молчать
+            # о нём нельзя: без строки в чекпойнте домен вернётся в следующий
+            # запуск, и это правильный исход.
+            logger.exception("прогон: домен %s не обошёлся", host)
+            report.failed += 1
+            return
+    # Вердикт — после выхода из следа: запрос, так и не получивший ответа,
+    # засчитывается отказом только при закрытии.
+    row = row_of(result, retry=trace.retry_reason(result.status))
+    if row["status"] == RETRY and not trace.heard and not await network_alive(http):
+        # Сайт не ответил ничем, и контрольные адреса молчат — легла сеть, а не
+        # сайт. Строку не пишем: попытка не сгорает, домен пойдёт заново.
+        logger.warning("прогон: сеть пропала на домене %s — останавливаемся", host)
+        lost.set()
+        return
+    row = await keeper.add(host, row)
+    report.count(row, has_handles=bool(result.handles))
