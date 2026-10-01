@@ -390,8 +390,14 @@ jobs:
       - name: Canon sync gate (code <-> knowledge)
         if: always()
         run: |
+          # АДАПТАЦИЯ (adapted.json): канон домена проекта лежит в `okf/`, а не в
+          # канонном `knowledge/`. Без OKF_BUNDLE гейт не находил bundle, печатал
+          # «skip» и выходил НУЛЁМ — ось ③ числилась развёрнутой и не работала.
+          # Доктор этого не видел: он спрашивает, отвечает ли гейт, а не есть ли
+          # у него что судить. С okf@1.19 такой случай стал красным, но каталог
+          # всё равно надо назвать — вот он.
           if [ -f scripts/okf_sync_gate.py ]; then
-            python scripts/okf_sync_gate.py --base "$BASE"
+            OKF_BUNDLE=okf python scripts/okf_sync_gate.py --base "$BASE"
           else
             echo "no OKF sync gate — skip"
           fi
