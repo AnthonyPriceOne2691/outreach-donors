@@ -412,6 +412,24 @@ def judge_sync(args, concepts: dict, stale: list, errors: list[str],
     check_concept_sync(files, concepts, errors, warnings)
 
 
+def declared_okf_version(root: Path) -> str:
+    """Объявлена ли ось ③ в записях о стеке. "" — не объявлена.
+
+    Читаются те же файлы, что у доктора версий: `Canon stack:` в конституции
+    поставки и в приёмке контура. `absent` — законный ответ: «решили не
+    разворачивать», а не «забыли».
+    """
+    for rel in ("delivery/CONSTITUTION.md", "delivery/STACK-ACCEPTANCE.md"):
+        try:
+            text = (root / rel).read_text(encoding="utf-8")
+        except OSError:
+            continue
+        m = re.search(r"okf@([\w.]+)", text)
+        if m and m.group(1) != "absent":
+            return m.group(1)
+    return ""
+
+
 def main() -> int:
     args = parse_cli()
 
@@ -425,7 +443,29 @@ def main() -> int:
     refusals: list[str] = []
 
     if not bundle.is_dir():
-        print(f"okf_sync_gate: no bundle at {BUNDLE}/ — skip (deploy OKF first)")
+        # ⚠ Пропуск законен ТОЛЬКО пока проект не объявил ось ③ своей. Если в
+        # записях о стеке стоит `okf@<версия>`, а каталога нет — это не «OKF ещё
+        # не развёрнут», а РАСХОЖДЕНИЕ между заявленным и работающим, то есть тот
+        # же класс, ради которого во флоте завели маячок (`delivery@1.94`).
+        #
+        # **Поле, `outreach-donors` 01.10:** канон домена лежит в `okf/`, гейт
+        # искал дефолтный `knowledge/`, печатал `skip` и выходил нулём. Доктор
+        # при этом показывал `DEAD 0` — он проверяет, что гейт ОТВЕЧАЕТ, а не
+        # что ему есть что судить. Ось ③ числилась развёрнутой и не работала.
+        # Нашла соседняя сессия чтением логов CI, а не прогон.
+        declared = declared_okf_version(root)
+        if declared:
+            print(
+                f"okf_sync_gate: ERROR — проект объявил okf@{declared}, а bundle "
+                f"'{BUNDLE}/' не найден. Это не «ещё не развёрнут», а заявленная и "
+                f"не работающая ось: гейт не судит ничего, а запись говорит, что "
+                f"судит.\nВыходы: назвать каталог через OKF_BUNDLE=<путь> (у "
+                f"проекта он может быть `okf/`), развернуть bundle, либо записать "
+                f"okf@absent в delivery/CONSTITUTION.md — молчать нельзя.",
+                file=sys.stderr,
+            )
+            return 1
+        print(f"okf_sync_gate: no bundle at {BUNDLE}/ — skip (ось ③ не объявлена)")
         return 0
 
     concepts, stale = collect_concepts(root, bundle)
