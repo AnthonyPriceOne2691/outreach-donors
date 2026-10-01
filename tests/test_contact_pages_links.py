@@ -15,6 +15,7 @@ from backend.features.contacts.pages import (
     FetchedPage,
     PageFetcher,
     _kind_of,
+    has_contact_form,
     language_hint,
     slug_urls,
 )
@@ -120,3 +121,33 @@ class TestLanguageOfTheSite:
         """Ссылку с главной ищем по тексту — это дешевле любого слага."""
         for word in ("контакты", "реклама", "hubungi", "iklan", "اتصل", "ติดต่อ"):
             assert word in LINK_MARKERS
+
+
+class TestWhatCountsAsAContactForm:
+    """Форма, через которую можно написать владельцу, — а не любая `<form>`."""
+
+    @pytest.mark.parametrize(
+        "html",
+        [
+            '<form role="search" action="/search"><input name="q"></form>',
+            '<form action="/subscribe"><input type="email" name="email"></form>',
+            '<form action="/login"><input name="user"><input type="password"></form>',
+            '<form action="/wp-comments-post.php" id="commentform" class="comment-form">'
+            '<textarea name="comment"></textarea></form>',
+        ],
+        ids=["search", "subscribe", "login", "comment"],
+    )
+    def test_not_a_contact_form(self, html: str) -> None:
+        assert not has_contact_form(f"<html><body>{html}</body></html>")
+
+    @pytest.mark.parametrize(
+        "html",
+        [
+            '<form action="/send"><input name="email"><textarea name="message"></textarea></form>',
+            '<form action="/send"><TEXTAREA name="message">',  # без закрывающего тега
+            '<div class="wpcf7"><form action="/#wpcf7-f1"><input name="your-email"></form></div>',
+        ],
+        ids=["own", "unclosed", "builder"],
+    )
+    def test_contact_form(self, html: str) -> None:
+        assert has_contact_form(f"<html><body>{html}</body></html>")

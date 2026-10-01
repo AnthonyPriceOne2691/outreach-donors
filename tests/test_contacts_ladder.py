@@ -31,7 +31,14 @@ HOME = """
 """
 MONEY_PAGE = '<html><body><a href="mailto:ads@site.com">напишите</a></body></html>'
 CONTACT_PAGE = '<html><body><a href="mailto:info@site.com">напишите</a></body></html>'
-FORM_PAGE = '<html><body><form action="/send"><input name="email"></form></body></html>'
+FORM_PAGE = (
+    '<html><body><form action="/send"><input name="email">'
+    '<textarea name="message"></textarea></form></body></html>'
+)
+SEARCH_PAGE = (
+    '<html><body><form role="search" action="/search"><input name="q"></form>'
+    "<p>адреса нет</p></body></html>"
+)
 EMPTY_PAGE = "<html><body>адреса нет</body></html>"
 
 
@@ -443,6 +450,18 @@ class TestOutcomes:
         assert result.status is ContactStatus.FORM_ONLY
         assert ladder.counters.manual_queued == 0
         assert ladder.counters.form_only == 1
+
+    async def test_search_form_is_not_a_way_to_write(self) -> None:
+        """Голый `<form` делал «формой без адреса» любой сайт со строкой поиска,
+        и домен уходил в ручную очередь, где писать некуда."""
+        site = Site({"/": SEARCH_PAGE})
+
+        async with _client(site) as http:
+            ladder = ContactLadder(http, manual_queue_left=2)
+            result = await ladder.find("site.com")
+
+        assert result.status is ContactStatus.NOT_FOUND
+        assert ladder.manual_queue_left == 2
 
     async def test_nothing_anywhere_is_not_found(self) -> None:
         site = Site({"/": EMPTY_PAGE})

@@ -27,6 +27,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 from urllib.parse import urljoin, urlparse
@@ -71,7 +72,17 @@ HEADERS = {
 }
 
 # Признаки контактной формы: адреса нет, но написать можно руками.
-FORM_MARKERS = ("<form", "wpcf7", "gravity_form", "contact-form", "formcraft", "hs-form")
+# Конструкторы форм узнаются по имени. Голого `<form` здесь больше нет:
+# поиск, подписка или вход есть почти на каждом сайте, и с ним «формой
+# без адреса» становился любой домен — энциклопедия со строкой поиска
+# получала form_only и уходила в ручную очередь.
+FORM_MARKERS = ("wpcf7", "gravity_form", "contact-form", "formcraft", "hs-form")
+
+# Своя форма без конструктора: `<form>` с полем для текста письма. Поиск,
+# подписка и вход такого поля не имеют. Форма комментария к записи имеет,
+# но это не письмо владельцу — её выдаёт сам тег (`commentform`,
+# `wp-comments-post`).
+_OWN_FORM = re.compile(r"<form\b([^>]*)>(.*?)(?:</form>|\Z)", re.S)
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,7 +193,11 @@ def slug_urls(base: str, *, language: str | None = None) -> Iterator[tuple[str, 
 def has_contact_form(html: str) -> bool:
     """Есть ли на странице форма. Ветка «форма без адреса» — ступень 4."""
     lowered = html.lower()
-    return any(marker in lowered for marker in FORM_MARKERS)
+    if any(marker in lowered for marker in FORM_MARKERS):
+        return True
+    return any(
+        "<textarea" in body and "comment" not in tag for tag, body in _OWN_FORM.findall(lowered)
+    )
 
 
 class PageFetcher:
