@@ -37,13 +37,17 @@ def add_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-ar
     )
     parser.add_argument("source", type=Path, help="CSV со списком доменов")
     parser.add_argument(
-        "--out", type=Path, default=None, help="куда писать итог (по умолчанию <файл>.contacts.csv)"
+        "--out",
+        type=Path,
+        default=None,
+        help="куда писать итог (по умолчанию <файл>.contacts.csv рядом со списком)",
     )
     parser.add_argument(
         "--checkpoint",
         type=Path,
         default=None,
-        help="JSONL с пройденными доменами; повторный запуск продолжает с места обрыва",
+        help="JSONL с пройденными доменами (по умолчанию <файл>.checkpoint.jsonl); "
+        "повторный запуск продолжает с места обрыва",
     )
     parser.add_argument(
         "--column", default=None, help="колонка с доменом, если её имя нестандартное"
@@ -128,8 +132,10 @@ def _plan(args: argparse.Namespace) -> _Plan:
     if not source.exists():
         raise _BadInputError(f"Файла нет: {source}")
 
-    out: Path = args.out or source.with_suffix(".contacts.csv")
-    checkpoint: Path = args.checkpoint or source.with_suffix(".checkpoint.jsonl")
+    # Имя файла целиком, а не основа: `list.csv` и `list.txt` — разные
+    # списки, и с `with_suffix` они делили бы один чекпойнт и один итог.
+    out: Path = args.out or source.with_name(f"{source.name}.contacts.csv")
+    checkpoint: Path = args.checkpoint or source.with_name(f"{source.name}.checkpoint.jsonl")
     if args.restart and checkpoint.exists():
         checkpoint.unlink()
 
@@ -171,8 +177,14 @@ def _print_unreadable(listed: file_sweep.DomainList) -> None:
 
 
 def _finish(plan: _Plan, report: file_sweep.SweepReport) -> None:
-    """Собрать CSV из чекпойнта и напечатать отчёт. Тоже синхронно."""
-    rows = file_sweep.write_csv(file_sweep.rows_from_checkpoint(plan.checkpoint), plan.out)
+    """Собрать CSV из чекпойнта и напечатать отчёт. Тоже синхронно.
+
+    Строки — только доменов этого списка: чекпойнт бывает общим у разных
+    списков, и итог одного не должен молча включать другой. Список берётся
+    целиком, а не после `--limit`: проба на десяти доменах не должна
+    затирать итог по уже пройденным тысячам.
+    """
+    rows = file_sweep.write_csv(file_sweep.rows_for(plan.listed.hosts, plan.checkpoint), plan.out)
     _print_report(report, plan.out, rows)
 
 

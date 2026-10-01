@@ -39,6 +39,7 @@ from backend.features.contacts.sweep_checkpoint import (
     Checkpoint,
     done_hosts,
     retry_hosts,
+    rows_for,
     rows_from_checkpoint,
 )
 from backend.features.contacts.sweep_input import DomainList, host_from_cell, read_hosts, read_list
@@ -65,6 +66,7 @@ __all__ = [
     "read_list",
     "retry_hosts",
     "row_of",
+    "rows_for",
     "rows_from_checkpoint",
     "sweep",
     "write_csv",
