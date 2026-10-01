@@ -75,6 +75,9 @@ class LadderResult:
     #: на `status`: он про адрес, и менять его смысл значит менять
     #: поведение всего, что читает исход. Читающий решает сам.
     handles: tuple[FoundHandle, ...] = ()
+    #: Как домен сайта принимает почту, по ступени MX. Едет в исход, чтобы
+    #: читающий итог решал по нему, слать ли письмо, а не угадывал.
+    mail_route: MailRoute | None = None
 
     @property
     def found(self) -> bool:
@@ -107,6 +110,19 @@ class _Collected:
     #: Сайт закрылся от обычного запроса: 401, 403, 429. Только такие
     #: и имеет смысл открывать браузером — он стоит секунд на страницу.
     blocked: bool = False
+    #: Вердикт ступени MX по домену сайта.
+    route: MailRoute | None = None
+
+    def _undeliverable(self, email: str) -> str | None:
+        """Адрес на домене сайта, который почту не принимает, отбился бы.
+
+        Сверяется имя целиком: вердикт MX — про этот домен, и поддомен без
+        почты ничего не говорит о почте родительского. Личный ящик на чужом
+        домене (`owner@gmail.com`) остаётся: он доставляем.
+        """
+        if self.route is MailRoute.NONE and email.lower().rsplit("@", 1)[-1] == self.site_host:
+            return f"домен сайта не принимает почту (ни MX, ни A): {email}"
+        return None
 
     def add(self, candidate: Candidate) -> bool:
         """Взять адрес, если он годный и ещё не встречался."""
@@ -114,7 +130,7 @@ class _Collected:
             return False
         self.seen.add(candidate.email)
 
-        reason = rejection_reason(candidate.email)
+        reason = rejection_reason(candidate.email) or self._undeliverable(candidate.email)
         if reason:
             self.rejected.append((candidate.email, reason))
             return False
@@ -202,12 +218,17 @@ class ContactLadder:
         collected = _Collected(site_host=site_host)
 
         route = await self._step_mx(site_host)
+        # Вердикт едет в исход при любом конце спуска. Домен без почты к тому
+        # же отсеивает адреса на себе (`_Collected.add`): без этого при
+        # `stop_without_mail=False` такой адрес уходил в итог найденным,
+        # выигрывал у доставляемых и отбился бы при отправке.
+        collected.route = route
         if route is MailRoute.NONE and self._stop_without_mail:
             # Домен не принимает почту — писать некуда, и дорогие ступени
             # ради него не работают. Но канал связи у него бывает: в СНГ
             # и Юго-Восточной Азии вебмастер оставляет телеграм, а почту
             # не держит вовсе. Тому, кто ищет и каналы, флаг это отключает.
-            return LadderResult(host=site_host, status=ContactStatus.NOT_FOUND)
+            return LadderResult(host=site_host, status=ContactStatus.NOT_FOUND, mail_route=route)
 
         # Отказ ступени запоминается, но спуск не прерывает: бесплатные
         # ступени ничего не стоят, и не дать им отработать из-за кончившейся
@@ -233,6 +254,7 @@ class ContactLadder:
                 rejected=tuple(collected.rejected),
                 has_form=collected.has_form,
                 handles=tuple(collected.handles),
+                mail_route=route,
             )
 
         return self._without_contact(collected, has_form=collected.has_form)
@@ -254,7 +276,7 @@ class ContactLadder:
                 host,
                 "ступени 1–3 пропущены"
                 if self._stop_without_mail
-                else "адреса не ждём, идём за каналами связи",
+                else "адреса на нём отсеются, идём за каналами связи",
             )
         return route
 
@@ -420,6 +442,7 @@ class ContactLadder:
             source=winner.source if winner.source else source,
             has_form=has_form,
             handles=tuple(collected.handles),
+            mail_route=collected.route,
         )
 
     def _without_contact(self, collected: _Collected, *, has_form: bool) -> LadderResult:
@@ -433,6 +456,7 @@ class ContactLadder:
                 status=ContactStatus.NOT_FOUND,
                 rejected=tuple(collected.rejected),
                 handles=tuple(collected.handles),
+                mail_route=collected.route,
             )
 
         self.counters.form_only += 1
@@ -450,6 +474,7 @@ class ContactLadder:
             rejected=tuple(collected.rejected),
             has_form=True,
             handles=tuple(collected.handles),
+            mail_route=collected.route,
         )
 
     @property

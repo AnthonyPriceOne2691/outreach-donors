@@ -75,9 +75,12 @@ PROGRESS_EVERY = 25
 
 #: Колонки итога. Каналы — по одному столбцу на вид, значения через `; `.
 #: `retry_reason` заполнен только у строк «повторить»: почему исход не окончательный.
+#: `mail_route` — вердикт MX по домену сайта: `mx` и `implicit` — почту
+#: принимает, `none` — нет (адреса на нём отсеяны, см. `rejected`),
+#: `unknown` — DNS не ответил, доставка не проверена.
 OUTPUT_COLUMNS = (
     "host", "status", "retry_reason",
-    "email", "emails", "email_source", "email_page", "has_form",
+    "mail_route", "email", "emails", "email_source", "email_page", "has_form",
     "telegram", "skype", "whatsapp", "viber", "vk", "phone",
     "guessed", "handles_page", "rejected",
 )  # fmt: skip
@@ -162,6 +165,7 @@ def row_of(result: LadderResult, *, retry: str | None = None) -> dict[str, str]:
         "host": result.host,
         "status": RETRY if retry else result.status.value,
         "retry_reason": retry or "",
+        "mail_route": result.mail_route.value if result.mail_route else "",
         "email": result.contact.email if result.contact else "",
         "emails": "; ".join(emails),
         "email_source": result.source.value if result.source else "",
