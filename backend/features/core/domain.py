@@ -146,6 +146,7 @@ class Permission(StrEnum):
     SEND = "send"  # отправлять письма — отдельное право, см. permissions.py
     SENDERS = "senders"  # домены и ящики рассылки: включать и выключать
     USERS = "users"  # заводить учётки и выдавать права
+    SALES = "sales"  # раздел «Продажи»: гипотезы, лиды, загрузка базы
 
 
 class AuditAction(StrEnum):

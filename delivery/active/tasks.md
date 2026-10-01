@@ -40,7 +40,7 @@
       в слово.
 - [x] T3. Модели и миграция `sales_hypotheses`, `sales_leads`; импорт
       в `core/models/__init__.py`; тесты A1, A4–A7 и обратный прогон.
-- [ ] T4. `config/sales.py` и секция `.env.example`; `Permission.SALES`,
+- [x] T4. `config/sales.py` и секция `.env.example`; `Permission.SALES`,
       матрица ролей, TS-тип и подпись.
 - [x] T5. Команда `outreach sales-hypothesis-add`; тест A8.
 - [ ] T5a. Запись в `delivery/BACKLOG.md`: шаг «Contour waves» при

@@ -491,6 +491,11 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/config/sales.py": {
+      "lines": 24,
+      "complexity": 0,
+      "worst": "—"
+    },
     "backend/config/serp.py": {
       "lines": 55,
       "complexity": 0,
@@ -537,9 +542,9 @@
       "worst": "verify_password:43"
     },
     "backend/features/access/permissions.py": {
-      "lines": 87,
+      "lines": 88,
       "complexity": 4,
-      "worst": "has_permission:63"
+      "worst": "has_permission:64"
     },
     "backend/features/access/repository.py": {
       "lines": 219,
@@ -677,7 +682,7 @@
       "worst": "—"
     },
     "backend/features/core/domain.py": {
-      "lines": 230,
+      "lines": 231,
       "complexity": 0,
       "worst": "—"
     },

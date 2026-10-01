@@ -20,8 +20,9 @@
   TS-тип `Permission` и его подпись (тип требует подпись у каждого права);
   `backend/cli/sales.py` и `backend/cli/main.py` — команда `outreach sales-hypothesis-add`
   (обвязка команд по контракту слоёв живёт в `backend/cli/`, не в `features/`);
-  `tests/test_schema.py` — две таблицы в перечне сущностей; `delivery/BACKLOG.md` — запись
-  о шаге «Contour waves». Потоков доноров срез не меняет: удаление адреса с карточки донора
+  `tests/test_schema.py` — две таблицы в перечне сущностей; `.secrets.baseline` — хук
+  секретов сам сдвинул номер строки известной находки в `core/domain.py` (право встало
+  выше неё); `delivery/BACKLOG.md` — запись о шаге «Contour waves». Потоков доноров срез не меняет: удаление адреса с карточки донора
   проходит, как раньше (пример A6). Согласовано с сессией outreach-donors — координатор
 
 Прежний активный срез `sales-v0-contour` закрыт: его статус —

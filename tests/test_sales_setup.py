@@ -10,6 +10,9 @@ from __future__ import annotations
 import pytest
 from backend.cli.main import build_parser
 from backend.cli.sales import EXIT_BAD_NAME, EXIT_OK, EXIT_TAKEN, run_hypothesis_add
+from backend.config import sales as sales_cfg
+from backend.features.access.permissions import Actor, has_permission
+from backend.features.core.domain import Permission, UserRole
 from backend.features.sales.models import SalesHypothesisModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -67,3 +70,23 @@ async def test_unusable_name_is_refused_in_words(
     assert code == EXIT_BAD_NAME
     assert await _hypotheses(session) == []
     assert words in capsys.readouterr().out
+
+
+def test_sales_is_off_by_default_and_read_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Урок L4 соседнего проекта: поле настроек читается только по алиасу,
+    и тест, не меняющий значения, зелёный всегда. Поэтому — оба значения."""
+    monkeypatch.delenv("SALES_ENABLED", raising=False)
+    assert sales_cfg._Sales(_env_file=None).enabled is False
+    monkeypatch.setenv("SALES_ENABLED", "true")
+    assert sales_cfg._Sales(_env_file=None).enabled is True
+
+
+def test_operator_gets_sales_only_by_name() -> None:
+    """Админу право приходит с ролью, оператору — только поимённо, как отправка."""
+    operator = Actor(user_id=1, role=UserRole.OPERATOR)
+    granted = Actor(user_id=2, role=UserRole.OPERATOR, overrides={"sales": True})
+    admin = Actor(user_id=3, role=UserRole.ADMIN)
+    allowed = [has_permission(who, Permission.SALES) for who in (operator, granted, admin)]
+    assert allowed == [False, True, True]
