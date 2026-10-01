@@ -12,16 +12,20 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import logging
 from dataclasses import dataclass
 from pathlib import Path
 
+from backend.config import contacts as cfg
 from backend.features.contacts import file_sweep
 
 logger = logging.getLogger(__name__)
 
 EXIT_OK = 0
 EXIT_BAD_INPUT = 2
+#: Прервано — тот же код, что у точки входа (`cli/main.py`).
+EXIT_CANCELLED = 6
 #: Сети нет: прогон остановлен, чекпойнт цел, попытки доменов не сгорели.
 EXIT_NO_NETWORK = 8
 
@@ -37,13 +41,17 @@ def add_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-ar
     )
     parser.add_argument("source", type=Path, help="CSV со списком доменов")
     parser.add_argument(
-        "--out", type=Path, default=None, help="куда писать итог (по умолчанию <файл>.contacts.csv)"
+        "--out",
+        type=Path,
+        default=None,
+        help="куда писать итог (по умолчанию <файл>.contacts.csv рядом со списком)",
     )
     parser.add_argument(
         "--checkpoint",
         type=Path,
         default=None,
-        help="JSONL с пройденными доменами; повторный запуск продолжает с места обрыва",
+        help="JSONL с пройденными доменами (по умолчанию <файл>.checkpoint.jsonl); "
+        "повторный запуск продолжает с места обрыва",
     )
     parser.add_argument(
         "--column", default=None, help="колонка с доменом, если её имя нестандартное"
@@ -71,6 +79,8 @@ def add_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-ar
 
 
 def _print_report(report: file_sweep.SweepReport, out: Path, rows: int) -> None:
+    for note in report.notes:
+        print(note)
     print(f"\nДоменов в файле:       {report.total + report.skipped}")
     if report.skipped:
         print(f"Пропущено (пройдены):  {report.skipped}")
@@ -128,10 +138,10 @@ def _plan(args: argparse.Namespace) -> _Plan:
     if not source.exists():
         raise _BadInputError(f"Файла нет: {source}")
 
-    out: Path = args.out or source.with_suffix(".contacts.csv")
-    checkpoint: Path = args.checkpoint or source.with_suffix(".checkpoint.jsonl")
-    if args.restart and checkpoint.exists():
-        checkpoint.unlink()
+    # Имя файла целиком, а не основа: `list.csv` и `list.txt` — разные
+    # списки, и с `with_suffix` они делили бы один чекпойнт и один итог.
+    out: Path = args.out or source.with_name(f"{source.name}.contacts.csv")
+    checkpoint: Path = args.checkpoint or source.with_name(f"{source.name}.checkpoint.jsonl")
 
     listed = file_sweep.read_list(source, column=args.column, delimiter=args.delimiter)
     hosts = listed.hosts
@@ -140,6 +150,12 @@ def _plan(args: argparse.Namespace) -> _Plan:
         raise _BadInputError("В файле нет ни одного домена.")
     if args.limit is not None:
         hosts = hosts[: max(0, args.limit)]
+
+    _check_paths(source, out, checkpoint)
+    # Стирается чекпойнт, только когда вход уже прочитан: опечатка в имени
+    # колонки не должна стоить прогресса прежнего прогона.
+    if args.restart and checkpoint.exists():
+        checkpoint.unlink()
 
     already = file_sweep.done_hosts(checkpoint)
     pending = [host for host in hosts if host not in already]
@@ -153,6 +169,30 @@ def _plan(args: argparse.Namespace) -> _Plan:
         listed=listed,
         retrying=len(file_sweep.retry_hosts(checkpoint).intersection(pending)),
     )
+
+
+def _check_paths(source: Path, out: Path, checkpoint: Path) -> None:
+    """Пути итога и чекпойнта — до обхода, а не через часы на первой записи.
+
+    Пишется в них пробой, а не проверкой прав: права бывают в порядке,
+    а запись — нет (файловая система только на чтение, это папка).
+    """
+    if len({source.resolve(), out.resolve(), checkpoint.resolve()}) < 3:
+        raise _BadInputError(
+            "Список, итог и чекпойнт должны быть разными файлами: "
+            f"{source}, {out}, {checkpoint}. Иначе один затрёт другой."
+        )
+    for what, path in (("Итог (--out)", out), ("Чекпойнт (--checkpoint)", checkpoint)):
+        if not path.parent.is_dir():
+            raise _BadInputError(f"{what}: папки {path.parent} нет.")
+        existed = path.exists()
+        try:
+            with path.open("ab"):
+                pass
+        except OSError as exc:
+            raise _BadInputError(f"{what}: в {path} не записать — {exc.strerror or exc}.") from exc
+        if not existed:
+            path.unlink()
 
 
 def _print_unreadable(listed: file_sweep.DomainList) -> None:
@@ -170,10 +210,15 @@ def _print_unreadable(listed: file_sweep.DomainList) -> None:
         print(f"Строк с пустой ячейкой домена: {listed.empty}")
 
 
-def _finish(plan: _Plan, report: file_sweep.SweepReport) -> None:
-    """Собрать CSV из чекпойнта и напечатать отчёт. Тоже синхронно."""
-    rows = file_sweep.write_csv(file_sweep.rows_from_checkpoint(plan.checkpoint), plan.out)
-    _print_report(report, plan.out, rows)
+def _write_result(plan: _Plan) -> int:
+    """Собрать CSV из чекпойнта. Синхронно — работа с диском не идёт в корутине.
+
+    Строки — только доменов этого списка: чекпойнт бывает общим у разных
+    списков, и итог одного не должен молча включать другой. Список берётся
+    целиком, а не после `--limit`: проба на десяти доменах не должна
+    затирать итог по уже пройденным тысячам.
+    """
+    return file_sweep.write_csv(file_sweep.rows_for(plan.listed.hosts, plan.checkpoint), plan.out)
 
 
 async def cmd_contacts_file(args: argparse.Namespace) -> int:
@@ -194,7 +239,9 @@ async def cmd_contacts_file(args: argparse.Namespace) -> int:
         report = await file_sweep.sweep(
             plan.pending,
             checkpoint=plan.checkpoint,
-            use_browser=args.browser,
+            # Настройка включает браузер и здесь, как у поиска по базе:
+            # одна переменная окружения не должна значить разное для двух команд.
+            use_browser=args.browser or cfg.BROWSER_ENABLED,
             concurrency=args.concurrency,
             on_progress=lambda done, total: print(f"  пройдено {done} из {total}"),
         )
@@ -205,8 +252,20 @@ async def cmd_contacts_file(args: argparse.Namespace) -> int:
         )
         if exc.report is not None:
             exc.report.skipped = plan.skipped
-            _finish(plan, exc.report)
+            _print_report(exc.report, plan.out, _write_result(plan))
         return EXIT_NO_NETWORK
+    except asyncio.CancelledError:
+        # Ctrl-C: `asyncio.run` отменяет задачу команды. Пройденное уже
+        # в чекпойнте, и итог по нему пишется и сейчас — прерванный прогон
+        # на часы без файла стоил бы этих часов. Дальше отмена не идёт:
+        # точка входа сказала бы «домены остались в базе», а базы эта
+        # команда не касается.
+        rows = _write_result(plan)
+        print(
+            f"\nПрервано. Пройденное — в чекпойнте {plan.checkpoint}, итог по нему "
+            f"({rows} строк) — в {plan.out}. Повторный запуск продолжит с места обрыва."
+        )
+        return EXIT_CANCELLED
     report.skipped = plan.skipped
-    _finish(plan, report)
+    _print_report(report, plan.out, _write_result(plan))
     return EXIT_OK

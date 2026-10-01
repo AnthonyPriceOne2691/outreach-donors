@@ -17,6 +17,12 @@
   (апекс без записи, `https` без сервера), а не обрыв;
 - **открыл ли его браузер**, если обычному запросу сайт отказал.
 
+Исключение одно, и его нашёл живой прогон: имени нет. Ступень MX говорит
+«почту принимать некому» (`MailRoute.NONE`) — это ответ работающего DNS,
+при обрыве связи она говорит «неизвестно». Если при этом сайт не ответил
+ни разу, ничем, повтор ответа не изменит: без исключения мёртвые имена
+старого списка шли бы заново на каждом запуске, вечно.
+
 Хосты сайта — его имя с `www.` и без, а также всё, куда ведут его
 редиректы: домен, переехавший на новое имя, отвечает уже оттуда. Чужие
 хосты (RDAP, например) в счёт не идут.
@@ -36,6 +42,8 @@ from urllib.parse import urljoin, urlsplit
 import httpx
 
 from backend.features.contacts.browser import PageRenderer
+from backend.features.contacts.ladder import LadderResult
+from backend.features.contacts.mx import MailRoute
 from backend.features.core.domain import ContactStatus
 
 #: Исходы лестницы, после которых домен можно считать пройденным. Прочие
@@ -136,16 +144,18 @@ class SiteTrace:
             return False
         return self.opened or (self.answered and not self.failure)
 
-    def retry_reason(self, status: ContactStatus) -> str | None:
+    def retry_reason(self, result: LadderResult) -> str | None:
         """Почему исход не окончательный. `None` — домен пройден.
 
         Найденный адрес окончателен, даже если часть страниц не открылась:
         лучше он или хуже возможного, писать по нему уже можно.
         """
-        if status not in CONCLUSIVE:
-            return f"лестница не закончила: {status.value}"
-        if status is ContactStatus.FOUND or self.reached:
+        if result.status not in CONCLUSIVE:
+            return f"лестница не закончила: {result.status.value}"
+        if result.found or self.reached:
             return None
+        if result.mail_route is MailRoute.NONE and not self.heard and not self.rendered:
+            return None  # имени нет — см. модуль
         return self.trouble or self.failure or "сайт не ответил"
 
 
