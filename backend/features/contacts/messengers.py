@@ -80,55 +80,96 @@ _TELEGRAM_NICK_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]{3,31}")
 # Служебные пути t.me. Это не ники: `joinchat` и `+хэш` — приглашения в
 # закрытую группу, остальное — настройки клиента. Приглашение намеренно
 # не берём: написать по нему нельзя, а в таблице оно выглядело бы контактом.
+# Разделы с подпутём (`addlist/…`, `contact/…`) отсекает `_TG_TAIL`; здесь —
+# те, что приходят и без него: `t.me/boost?c=…`.
 _TELEGRAM_RESERVED = frozenset(
     {
         "joinchat", "share", "socks", "proxy", "addstickers", "addtheme",
         "addemoji", "setlanguage", "confirmphone", "login", "iv", "bg",
-        "telegram", "telegramtips", "durov",
+        "telegram", "telegramtips", "durov", "addlist", "boost", "contact",
     }
 )  # fmt: skip
 
 # Служебные пути vk.com: кнопки «поделиться» и виджеты стоят на каждой
 # второй странице, и без этого списка ими заполнилась бы вся выборка.
+# `rtrg` — пиксель ретаргетинга, картинка в `<noscript>` у половины рунета.
 _VK_RESERVED = frozenset(
     {
         "share", "share.php", "widget", "widget_comments.php", "widget_community.php",
         "js", "away.php", "feed", "wall", "video", "video_ext.php", "im", "login",
-        "dev", "about", "blog", "press", "images", "doc",
+        "dev", "about", "blog", "press", "images", "doc", "rtrg",
     }
 )  # fmt: skip
+
+# Объект ВКонтакте с положительным владельцем: `photo1_2`, `wall12_34`. С
+# отрицательным (`photo-1_2`) его отсекает `_VK_TAIL` по дефису, а этот по
+# форме неотличим от имени — только по названию типа объекта в начале.
+_VK_OBJECT_RE = re.compile(
+    r"(?:wall|photo|video|audio|doc|note|poll|album|topic|board|market|product"
+    r"|story|clip|app|podcast|write)s?\d+(?:_\d+)?"
+)
 
 # Номер в ссылке. `%2B` и `%20` — это закодированные плюс и пробел: в href
 # они встречаются чаще незакодированных, и без них половина ссылок WhatsApp
 # прошла бы мимо. Разбирает их `_number`, здесь важно лишь не оборвать совпадение.
 _NUMBER = r"((?:\+|%2B)?\d(?:[\d\s\-()]|%20){6,19})"
 
-# Ссылки и схемы. `(?<![\w.-])` перед доменом обязателен: без него `t\.me`
-# находится внутри `client.metrics`, и страница с аналитикой отдаёт
-# «телеграм-ник» trics. Плюс `+хэш`-приглашения не проходят по классу
-# символов — это тоже намеренно.
+# Начало хоста. Без этой границы `t\.me` находится внутри `client.metrics`,
+# и страница с аналитикой отдаёт «телеграм-ник» trics.
+_HOST = r"(?<![\w.-])"
+
+# Начало схемы. `skype:` и `tel:` законно стоят в начале значения атрибута,
+# строки скрипта или слова в тексте — после кавычки, `=`, скобки, пробела или
+# `>`. После буквы, точки, дефиса, `{`, `,` или `?` это уже код, а не адрес:
+# `.fa-skype:before`, `{skype:t.skype}`, `n?skype:t.skype`, `/hotel:123`.
+_SCHEME = r"(?<![^\s\"'`=(>])"
+
+# Ник телеграма — последний сегмент пути. Дальше законны конец адреса, номер
+# поста (`/123`) и история (`/s/5`); раздел с подпутём (`addlist/…`,
+# `contact/…`, `invoice/…`) держит на месте ника имя раздела. Первая проверка
+# не даёт обрезать путь длиннее ника до 32 знаков и выдать обрезок за ник.
+_TG_TAIL = r"(?![\w-])(?!/(?!\d+(?![\w-])|s/\d)[\w@-])"
+
+# Имя ВКонтакте — тоже последний сегмент. Дефис за ним — номер объекта
+# (`photo-1_2`, `topic-1_2`, `market-1`), подпуть — раздел (`music/…`).
+_VK_TAIL = r"(?![\w.-])(?!/[\w@-])"
+
+# Ссылки и схемы. `+хэш`-приглашения телеграма не проходят по классу
+# символов — это намеренно.
 _EXPLICIT_RULES: tuple[tuple[re.Pattern[str], MessengerKind], ...] = (
-    (re.compile(r"(?<![\w.-])t\.me/(?:s/)?(@?[A-Za-z0-9_]{4,32})", re.I), MessengerKind.TELEGRAM),
-    (re.compile(r"(?<![\w.-])telegram\.me/(@?[A-Za-z0-9_]{4,32})", re.I), MessengerKind.TELEGRAM),
-    (re.compile(r"(?<![\w.-])tlgrm\.ru/(@?[A-Za-z0-9_]{4,32})", re.I), MessengerKind.TELEGRAM),
-    (re.compile(r"tg://resolve\?domain=([A-Za-z0-9_]{4,32})", re.I), MessengerKind.TELEGRAM),
-    (re.compile(r"skype:([A-Za-z0-9._\-:]{3,64})", re.I), MessengerKind.SKYPE),
     (
-        re.compile(r"(?<![\w.-])join\.skype\.com/(?:invite/)?([A-Za-z0-9]{4,64})", re.I),
+        re.compile(rf"{_HOST}(?:t|telegram)\.me/(?:s/)?(@?[A-Za-z0-9_]{{4,32}}){_TG_TAIL}", re.I),
+        MessengerKind.TELEGRAM,
+    ),
+    (
+        re.compile(rf"{_HOST}tlgrm\.ru/(@?[A-Za-z0-9_]{{4,32}}){_TG_TAIL}", re.I),
+        MessengerKind.TELEGRAM,
+    ),
+    (
+        re.compile(rf"{_SCHEME}tg://resolve\?domain=([A-Za-z0-9_]{{4,32}})(?![\w-])", re.I),
+        MessengerKind.TELEGRAM,
+    ),
+    # Логин не обрезается: `skype:adsdesk@site.com` — не логин `adsdesk`.
+    (
+        re.compile(rf"{_SCHEME}skype:([A-Za-z0-9._\-:]{{3,64}})(?![\w.:@-])", re.I),
         MessengerKind.SKYPE,
     ),
-    (re.compile(rf"(?<![\w.-])wa\.me/{_NUMBER}", re.I), MessengerKind.WHATSAPP),
     (
-        re.compile(rf"(?:api|web|chat)\.whatsapp\.com/send/?\?phone={_NUMBER}", re.I),
+        re.compile(rf"{_HOST}join\.skype\.com/(?:invite/)?([A-Za-z0-9]{{4,64}})", re.I),
+        MessengerKind.SKYPE,
+    ),
+    (re.compile(rf"{_HOST}wa\.me/{_NUMBER}", re.I), MessengerKind.WHATSAPP),
+    (
+        re.compile(rf"{_HOST}(?:api|web|chat)\.whatsapp\.com/send/?\?phone={_NUMBER}", re.I),
         MessengerKind.WHATSAPP,
     ),
-    (re.compile(rf"whatsapp://send\?phone={_NUMBER}", re.I), MessengerKind.WHATSAPP),
+    (re.compile(rf"{_SCHEME}whatsapp://send\?phone={_NUMBER}", re.I), MessengerKind.WHATSAPP),
     (
-        re.compile(rf"viber://(?:chat|add|contact)\?number={_NUMBER}", re.I),
+        re.compile(rf"{_SCHEME}viber://(?:chat|add|contact)\?number={_NUMBER}", re.I),
         MessengerKind.VIBER,
     ),
-    (re.compile(r"(?<![\w.-])vk\.com/([A-Za-z0-9_.]{2,64})", re.I), MessengerKind.VK),
-    (re.compile(rf"tel:{_NUMBER}", re.I), MessengerKind.PHONE),
+    (re.compile(rf"{_HOST}vk\.com/([A-Za-z0-9_.]{{2,64}}){_VK_TAIL}", re.I), MessengerKind.VK),
+    (re.compile(rf"{_SCHEME}tel:{_NUMBER}", re.I), MessengerKind.PHONE),
 )
 
 # Канал, названный словами. `(?<![\w.@/\-])` перед `@` отсекает главный
@@ -191,12 +232,17 @@ def _skype_id(value: str) -> str:
     return value.split("?", maxsplit=1)[0].strip(" .,;:").lower()
 
 
+def _vk_name(value: str) -> str:
+    """Имя ВКонтакте без точки в конце: `vk.com/mygroup.` — конец предложения."""
+    return _nick(value).strip(".")
+
+
 _NORMALIZE: dict[MessengerKind, Callable[[str], str]] = {
     MessengerKind.TELEGRAM: _nick,
     MessengerKind.SKYPE: _skype_id,
     MessengerKind.WHATSAPP: _number,
     MessengerKind.VIBER: _number,
-    MessengerKind.VK: _nick,
+    MessengerKind.VK: _vk_name,
     MessengerKind.PHONE: _number,
 }
 
@@ -220,7 +266,12 @@ def _valid_number(value: str) -> bool:
 
 
 def _valid_vk(value: str) -> bool:
-    return value not in _VK_RESERVED and not value.endswith(".php")
+    return (
+        len(value) >= 2
+        and value not in _VK_RESERVED
+        and not value.endswith(".php")
+        and not _VK_OBJECT_RE.fullmatch(value)
+    )
 
 
 _VALID: dict[MessengerKind, Callable[[str], bool]] = {
@@ -261,6 +312,19 @@ def _visible_text(html: str) -> str:
     return html_entities.unescape(tree.text(separator=" "))
 
 
+def _markup(html: str) -> str:
+    """Разметка без стилей — то, где сайт может объявить канал.
+
+    Стили убираются целиком: канала в CSS не бывает, а псевдокласс за именем
+    класса (`.fa-skype:before`) по форме — схема `skype:`. Скрипты остаются:
+    JSON-LD и настройки виджетов чата — законное место ссылки на канал, а код
+    вокруг схем отсекают границы в правилах.
+    """
+    tree = HTMLParser(html)
+    tree.strip_tags(["style"])
+    return html_entities.unescape(tree.html or "")
+
+
 def extract_handles(html: str) -> set[Handle]:
     """Каналы, названные ссылкой или URI-схемой.
 
@@ -272,7 +336,7 @@ def extract_handles(html: str) -> set[Handle]:
     """
     if not html:
         return set()
-    return _collect(html_entities.unescape(html), _EXPLICIT_RULES, Trust.EXPLICIT)
+    return _collect(_markup(html), _EXPLICIT_RULES, Trust.EXPLICIT)
 
 
 def extract_handle_guesses(html: str) -> set[Handle]:
@@ -287,10 +351,15 @@ def extract_handle_guesses(html: str) -> set[Handle]:
     """
     if not html:
         return set()
+    return _guesses_beyond(html, extract_handles(html))
 
-    explicit = {(handle.kind, handle.value) for handle in extract_handles(html)}
+
+def _guesses_beyond(html: str, explicit: set[Handle]) -> set[Handle]:
+    """Догадки без того, что уже нашлось явно. Явные — доводом: разбор
+    разметки не бесплатен, и `harvest_handles` не должен делать его дважды."""
+    taken = {(handle.kind, handle.value) for handle in explicit}
     guesses = _collect(_visible_text(html), _GUESS_RULES, Trust.GUESSED)
-    return {handle for handle in guesses if (handle.kind, handle.value) not in explicit}
+    return {handle for handle in guesses if (handle.kind, handle.value) not in taken}
 
 
 @dataclass(frozen=True, slots=True)
@@ -322,7 +391,8 @@ def harvest_handles(
     по которым адрес отсеивают в `quality.py`, а проверить ник можно
     только попыткой написать.
     """
-    found = extract_handles(html) | extract_handle_guesses(html)
+    explicit = extract_handles(html)
+    found = explicit | (_guesses_beyond(html, explicit) if html else set())
     return {
         FoundHandle(
             kind=handle.kind,
