@@ -8,12 +8,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import json
+import os
+import signal
 from pathlib import Path
 
 import pytest
 from backend.cli.contact_sweep import EXIT_BAD_INPUT, EXIT_OK, cmd_contacts_file
+from backend.cli.main import EXIT_CANCELLED, main
+from backend.features.contacts.ladder import ContactLadder, LadderResult
 from tests.contacts_sweep_fakes import Web, cli_args, install, page, write
 
 SITES = {
@@ -142,3 +147,37 @@ class TestPathsAreCheckedBeforeTheWalk:
 
         assert web.requested == []
         assert source.read_text() == "host\nsite.com\n"
+
+
+class TestInterrupt:
+    def test_ctrl_c_leaves_the_result_of_what_was_walked(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Ctrl-C посреди прогона: итог по пройденному на диске и ни слова о базе.
+
+        Через настоящую точку входа и настоящий сигнал: отмену задачи
+        доставляет сам `asyncio.run`, и проверяется ровно его путь.
+        """
+        install(monkeypatch, Web(SITES))
+        monkeypatch.setattr("backend.cli.main.setup_logging", lambda: None)
+        real_find = ContactLadder.find
+
+        async def interrupted(ladder: ContactLadder, host: str) -> LadderResult:
+            if host == "shop.de":
+                os.kill(os.getpid(), signal.SIGINT)
+                await asyncio.sleep(5)  # отмена приходит на этом ожидании
+            return await real_find(ladder, host)
+
+        monkeypatch.setattr(ContactLadder, "find", interrupted)
+        source = write(tmp_path / "list.csv", "host\nsite.com\nshop.de\nnews.org\n")
+        out = tmp_path / "out.csv"
+
+        code = main(["contacts-file", str(source), "--out", str(out), "--concurrency", "1"])
+
+        printed = capsys.readouterr()
+        assert code == EXIT_CANCELLED
+        assert _hosts(out) == ["site.com"]
+        assert "в базе" not in printed.out + printed.err
