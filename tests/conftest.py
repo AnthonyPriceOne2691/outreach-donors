@@ -4,9 +4,9 @@
 тестов идёт за две десятых секунды. Репозиторий исключение по существу:
 проверять запрос к базе на подделке значит проверять подделку.
 
-База настоящая, но отдельная — `outreach_test`. Каждый тест работает во внешней
-транзакции, которая откатывается: тесты не видят следов друг друга и не зависят
-от порядка.
+База настоящая, но отдельная — `outreach_test_<хэш корня дерева>`, своя
+у каждого дерева (`git worktree`). Каждый тест работает во внешней транзакции,
+которая откатывается: тесты не видят следов друг друга и не зависят от порядка.
 
 Про циклы событий. Схема поднимается один раз собственным `asyncio.run`, а не
 асинхронной фикстурой уровня сессии: соединение asyncpg привязано к тому циклу,
@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 import subprocess
@@ -51,7 +52,7 @@ from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.outreach import SenderModel
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text, update
+from sqlalchemy import make_url, text, update
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -122,10 +123,37 @@ def drop_git_binding(environ: dict[str, str] | os._Environ[str]) -> list[str]:
 # До любого теста и любой фикстуры: оснастка ниже сама зовёт подпроцессы.
 drop_git_binding(os.environ)
 
-TEST_DSN = os.getenv(
-    "TEST_STORAGE_DSN",
-    "postgresql+asyncpg://outreach:outreach@localhost:5442/outreach_test",
-)
+
+def own_test_dsn(root: Path) -> str:
+    """Тестовая база этого дерева: `outreach_test_<хэш его корня>`.
+
+    Прогон начинается со сноса схемы (`_empty_the_database`), а деревьев
+    у репозитория несколько — задача на дерево, сессии рядом. С одной базой
+    на всех прогон в одном дереве сносил схему под прогоном в другом:
+    01.10.2026 pre-push дал «20 failed, 1 error», а в тишине тот же набор
+    был зелёным. `TEST_STORAGE_DSN` по-прежнему перекрывает (так в CI).
+    Базы удалённых деревьев остаются на сервере — сносятся `DROP DATABASE`.
+    """
+    digest = hashlib.sha256(str(root).encode("utf-8")).hexdigest()[:10]
+    return f"postgresql+asyncpg://outreach:outreach@localhost:5442/outreach_test_{digest}"
+
+
+TEST_DSN = os.getenv("TEST_STORAGE_DSN") or own_test_dsn(_ROOT)
+
+
+async def _ensure_the_database() -> None:
+    """Базы ещё нет — создать: у нового дерева её не бывает."""
+    url = make_url(TEST_DSN)
+    engine = create_async_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
+    try:
+        async with engine.connect() as conn:
+            found = await conn.scalar(
+                text("SELECT 1 FROM pg_database WHERE datname = :name"), {"name": url.database}
+            )
+            if not found:
+                await conn.execute(text(f'CREATE DATABASE "{url.database}"'))
+    finally:
+        await engine.dispose()
 
 
 async def _empty_the_database() -> None:
@@ -166,6 +194,7 @@ def _migrate_to_head() -> None:
 @pytest.fixture(scope="session", autouse=True)
 def _schema() -> None:
     """Схема создаётся один раз на прогон, в своём цикле событий."""
+    asyncio.run(_ensure_the_database())
     asyncio.run(_empty_the_database())
     _migrate_to_head()
 
