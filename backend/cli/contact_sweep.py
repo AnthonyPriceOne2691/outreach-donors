@@ -138,6 +138,8 @@ class _Plan:
     retrying: int = 0
     #: Сколько из `pending` возвращено `--retry-unreachable`.
     reviving: int = 0
+    #: Чекпойнт взят под прежним именем — сказать об этом.
+    inherited: bool = False
 
 
 def _plan(args: argparse.Namespace) -> _Plan:
@@ -150,6 +152,12 @@ def _plan(args: argparse.Namespace) -> _Plan:
     # списки, и с `with_suffix` они делили бы один чекпойнт и один итог.
     out: Path = args.out or source.with_name(f"{source.name}.contacts.csv")
     checkpoint: Path = args.checkpoint or source.with_name(f"{source.name}.checkpoint.jsonl")
+    # Прогон, начатый до смены имён (01.10.2026), иначе пошёл бы с нуля
+    # молча: прежний файл по новому имени не находится.
+    legacy = source.with_suffix(".checkpoint.jsonl")
+    inherited = not (args.checkpoint or args.restart or checkpoint.exists()) and legacy.exists()
+    if inherited:
+        checkpoint = legacy
 
     listed = file_sweep.read_list(source, column=args.column, delimiter=args.delimiter)
     hosts = listed.hosts
@@ -178,6 +186,7 @@ def _plan(args: argparse.Namespace) -> _Plan:
         listed=listed,
         retrying=len(file_sweep.retry_hosts(checkpoint).intersection(pending)),
         reviving=len(given_up.intersection(pending)),
+        inherited=inherited,
     )
 
 
@@ -240,6 +249,8 @@ async def cmd_contacts_file(args: argparse.Namespace) -> int:
         return EXIT_BAD_INPUT
 
     _print_unreadable(plan.listed)
+    if plan.inherited:
+        print(f"Чекпойнт прежнего имени: {plan.checkpoint} — продолжаем по нему.")
     if plan.skipped:
         print(f"Чекпойнт: {plan.skipped} домен(ов) уже пройдены, продолжаем с остальных.")
     if plan.retrying:
