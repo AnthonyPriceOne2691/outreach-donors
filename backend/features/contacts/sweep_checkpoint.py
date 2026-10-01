@@ -25,7 +25,7 @@ import asyncio
 import json
 import logging
 import os
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -85,6 +85,17 @@ def retry_hosts(checkpoint: Path) -> set[str]:
 def rows_from_checkpoint(checkpoint: Path) -> list[dict[str, str]]:
     """Строки итога из чекпойнта: по домену одна, последняя, в порядке прохода."""
     return list(latest(checkpoint).values())
+
+
+def rows_for(hosts: Sequence[str], checkpoint: Path) -> list[dict[str, str]]:
+    """Строки итога по этим доменам и в их порядке.
+
+    Чекпойнт бывает общим у нескольких списков (`--checkpoint` один на всех),
+    и итог списка не должен брать чужие строки. Порядок — порядок списка:
+    итог читают рядом с ним, а чекпойнт пишется в порядке окончания доменов.
+    """
+    rows = latest(checkpoint)
+    return [rows[host] for host in hosts if host in rows]
 
 
 def _torn(path: Path) -> bool:
