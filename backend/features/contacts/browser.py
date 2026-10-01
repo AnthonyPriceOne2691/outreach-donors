@@ -17,23 +17,35 @@
 упал на середине — всё это даёт пустой результат и запись в лог,
 а лестница идёт дальше на платную ступень. Иначе отсутствие
 необязательной зависимости роняло бы прогон целиком.
+
+**Страница отказа — не страница сайта.** Ответ 4xx/5xx браузер тоже
+рисует, но рисует он проверку «вы не робот» со своей формой или
+заглушку хостера с его адресом. Принять такое за сайт значило бы
+записать в контакты чужое.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any, Protocol, runtime_checkable
 
 from backend.config import contacts as cfg
-from backend.features.contacts.extract import extract_emails, find_contact_links
-from backend.features.contacts.pages import HEADERS
+from backend.features.contacts.extract import find_contact_links
+from backend.features.contacts.pages import HEADERS, FetchedPage
 from backend.features.contacts.slugs import LINK_MARKERS, SLUGS, WALK_ORDER
+from backend.features.core.domain import PageKind
 
 logger = logging.getLogger(__name__)
 
 #: Сколько страниц открывает браузер. Меньше, чем у обычного обхода:
 #: каждая стоит секунд, а не долей секунды.
 MAX_BROWSER_PAGES = 3
+
+#: Ссылки страницы → адреса своего домена с видом раздела. Это
+#: `PageFetcher.follow`: правило «только свой домен, только http(s)»
+#: одно на обычный обход и на браузер.
+Follow = Callable[[FetchedPage, set[str]], list[tuple[str, PageKind]]]
 
 
 @runtime_checkable
@@ -108,9 +120,14 @@ class PlaywrightRenderer:
                 ignore_https_errors=True,
             )
             page = await context.new_page()
-            await page.goto(
+            answer = await page.goto(
                 url, timeout=int(cfg.BROWSER_TIMEOUT_SEC * 1000), wait_until="domcontentloaded"
             )
+            if answer is not None and answer.status >= 400:
+                logger.debug(
+                    "контакты: браузер получил %s на %s — не страница сайта", answer.status, url
+                )
+                return None
             # Футер с адресом часто дорисовывается после загрузки.
             await page.wait_for_timeout(int(cfg.BROWSER_SETTLE_SEC * 1000))
             return str(await page.content())
@@ -125,47 +142,51 @@ class PlaywrightRenderer:
                     logger.debug("контакты: вкладка не закрылась: %r", exc)
 
 
+def _likely_sections(site_host: str) -> list[tuple[str, PageKind]]:
+    """Два самых вероятных раздела — деньги и контакты, первым слагом вида."""
+    return [(f"https://{site_host}/{SLUGS[kind][0]}/", kind) for kind in WALK_ORDER[:2]]
+
+
 def browser_urls(site_host: str) -> list[str]:
-    """Что открывать браузером: главная и две самые вероятные страницы.
+    """Что открывать браузером, если ссылок на главной нет: она и два раздела.
 
     Список короткий намеренно — каждая страница стоит секунд. Угадывать
     здесь почти нечего: если сайт закрыт, то закрыт целиком, а если дело
     в JavaScript, адрес обычно в футере главной.
     """
-    root = f"https://{site_host}"
-    first = [SLUGS[kind][0] for kind in WALK_ORDER[:2]]  # деньги и контакты
-    return [f"{root}/", *(f"{root}/{slug}/" for slug in first)]
+    return [f"https://{site_host}/", *(url for url, _ in _likely_sections(site_host))]
 
 
-async def find_emails(renderer: PageRenderer, site_host: str) -> dict[str, str]:
-    """Адреса, которые видно только браузеру. Ключ — адрес, значение — где нашли.
+async def render_pages(
+    renderer: PageRenderer, site_host: str, *, follow: Follow
+) -> list[FetchedPage]:
+    """Страницы сайта глазами браузера: главная, разделы по её ссылкам, затем догадки.
 
-    Пустой словарь законен: сайт мог не открыться и в браузере.
+    Отдаются страницы целиком, а не адреса с них: разбирает их тот же
+    `_harvest`, что и скачанные, — с каналами связи и отметкой о форме.
+    Пустой список законен: сайт мог не открыться и в браузере.
+
+    Ссылки главной идут раньше догадок: раздел там назван словами и лежит
+    по любому адресу, хоть `/p/42`. До 30.09.2026 они не открывались вовсе —
+    цикл шёл по срезу очереди, снятому до того, как ссылки в неё дописывались.
     """
-    found: dict[str, str] = {}
-    queue = browser_urls(site_host)
-    seen: set[str] = set()
+    home_url = f"https://{site_host}/"
+    pages: list[FetchedPage] = []
+    queue: list[tuple[str, PageKind]] = []
 
-    for url in queue[:MAX_BROWSER_PAGES]:
-        if url in seen:
+    html = await renderer.render(home_url)
+    if html:
+        home = FetchedPage(url=home_url, kind=PageKind.HOME, html=html)
+        pages.append(home)
+        queue = follow(home, find_contact_links(html, slugs=LINK_MARKERS))
+
+    opened = {home_url}
+    for url, kind in [*queue, *_likely_sections(site_host)]:
+        if len(opened) >= MAX_BROWSER_PAGES:
+            break
+        if url in opened:
             continue
-        seen.add(url)
-
-        html = await renderer.render(url)
-        if not html:
-            continue
-
-        for email in extract_emails(html):
-            found.setdefault(email, url)
-
-        if not found and url.endswith("/"):
-            # Со страницы, которая открылась, берём ссылки на контактные
-            # разделы: угадывание слагов здесь слишком дорого.
-            for href in list(find_contact_links(html, slugs=LINK_MARKERS))[:2]:
-                absolute = (
-                    href if href.startswith("http") else f"https://{site_host}/{href.lstrip('/')}"
-                )
-                if absolute not in seen and len(seen) < MAX_BROWSER_PAGES:
-                    queue.append(absolute)
-
-    return found
+        opened.add(url)
+        if html := await renderer.render(url):
+            pages.append(FetchedPage(url=url, kind=kind, html=html))
+    return pages

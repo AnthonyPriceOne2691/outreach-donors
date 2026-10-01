@@ -353,6 +353,11 @@ class ContactLadder:
         Ступень дорогая: секунды на страницу. Поэтому она смотрит домен,
         только если обычный обход остался ни с чем. Домен, с которого адрес
         уже снят, браузер не видит вовсе.
+
+        Отрисованная страница разбирается тем же `_harvest`, что и скачанная.
+        До 30.09.2026 у браузера спрашивали одни адреса, и сайт, который
+        открывает только он, оставался без каналов связи и без отметки
+        о форме — ровно там, ради чего браузер включают.
         """
         if self._renderer is None or collected.good or not collected.blocked:
             # Браузер смотрит только тех, кто закрыл дверь. Сайт, который
@@ -361,9 +366,11 @@ class ContactLadder:
             return None
 
         self.counters.browser_entered += 1
-        found = await browser_step.find_emails(self._renderer, host)
-        for email, page_url in found.items():
-            collected.add(Candidate(email, ContactSource.PAGE, PageKind.HOME, page_url=page_url))
+        # `follow` обычного обхода — ради одного правила ссылок на оба пути;
+        # запросов он не делает, клиент ему не нужен.
+        follow = PageFetcher(self._http).follow
+        for page in await browser_step.render_pages(self._renderer, host, follow=follow):
+            self._harvest(page, collected, host)
         return None
 
     async def _step_rdap(self, host: str, collected: _Collected) -> ContactStatus | None:
