@@ -29,10 +29,10 @@ ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
     UserRole.ADMIN: frozenset(Permission),
     # Домены рассылки оператору не положены: включённый заново домен
     # начинает разгон заново, и ошибка здесь стоит репутации домена,
-    # а она не восстанавливается. Продажи тоже: в разделе имена и должности
-    # живых людей и письма им от имени компании — выдаются поимённо.
+    # а она не восстанавливается. Продажи — в роли: решение владельца 01.10,
+    # раздел видят все; скрыть — убрать отсюда, поимённо снимается и сейчас.
     UserRole.OPERATOR: frozenset(
-        {Permission.VIEW, Permission.RUN, Permission.SETTINGS, Permission.PRICES}
+        {Permission.VIEW, Permission.RUN, Permission.SETTINGS, Permission.PRICES, Permission.SALES}
     ),
 }
 

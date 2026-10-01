@@ -83,10 +83,12 @@ def test_sales_is_off_by_default_and_read_from_the_environment(
     assert sales_cfg._Sales(_env_file=None).enabled is True
 
 
-def test_operator_gets_sales_only_by_name() -> None:
-    """Админу право приходит с ролью, оператору — только поимённо, как отправка."""
+def test_operator_gets_sales_by_default_and_loses_it_by_name() -> None:
+    """Решение владельца 01.10: раздел продаж видят все — право в роли оператора.
+    Снять у одного человека можно поимённо, как у любого права роли; скрыть
+    у всех операторов — убрать право из роли."""
     operator = Actor(user_id=1, role=UserRole.OPERATOR)
-    granted = Actor(user_id=2, role=UserRole.OPERATOR, overrides={"sales": True})
+    taken = Actor(user_id=2, role=UserRole.OPERATOR, overrides={"sales": False})
     admin = Actor(user_id=3, role=UserRole.ADMIN)
-    allowed = [has_permission(who, Permission.SALES) for who in (operator, granted, admin)]
-    assert allowed == [False, True, True]
+    allowed = [has_permission(who, Permission.SALES) for who in (operator, taken, admin)]
+    assert allowed == [True, False, True]
