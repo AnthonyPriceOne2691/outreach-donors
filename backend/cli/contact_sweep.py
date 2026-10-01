@@ -73,6 +73,14 @@ def _print_report(report: file_sweep.SweepReport, out: Path, rows: int) -> None:
     if report.skipped:
         print(f"Пропущено (пройдены):  {report.skipped}")
     print(f"Обойдено сейчас:       {report.walked}")
+    if report.retry:
+        # Не «не нашли»: сайт не ответил, закрылся или обход оборван. Причина —
+        # в колонке retry_reason, повтор — следующим запуском той же команды.
+        print(f"Повторить:             {report.retry} — следующий запуск пройдёт их снова")
+    if report.failed:
+        print(
+            f"Упало с ошибкой:       {report.failed} — трассировка в логе, следующий запуск повторит"
+        )
     print(f"С адресом:             {report.with_email}")
     print(f"Только с мессенджером: {report.with_handle}")
     counters = report.counters
@@ -103,6 +111,8 @@ class _Plan:
     pending: list[str]
     skipped: int
     listed: file_sweep.DomainList
+    #: Сколько из `pending` прошлый запуск оставил «повторить».
+    retrying: int = 0
 
 
 def _plan(args: argparse.Namespace) -> _Plan:
@@ -134,6 +144,7 @@ def _plan(args: argparse.Namespace) -> _Plan:
         pending=pending,
         skipped=len(hosts) - len(pending),
         listed=listed,
+        retrying=len(file_sweep.retry_hosts(checkpoint).intersection(pending)),
     )
 
 
@@ -169,6 +180,8 @@ async def cmd_contacts_file(args: argparse.Namespace) -> int:
     _print_unreadable(plan.listed)
     if plan.skipped:
         print(f"Чекпойнт: {plan.skipped} домен(ов) уже пройдены, продолжаем с остальных.")
+    if plan.retrying:
+        print(f"Повторяем {plan.retrying} домен(ов), которые в прошлый раз не ответили.")
 
     report = await file_sweep.sweep(
         plan.pending,

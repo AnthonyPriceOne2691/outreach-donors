@@ -38,16 +38,17 @@ Reply = str | int | Moved
 
 
 class Web:
-    """Сайты-заглушки. Значение по хосту — словарь «путь → ответ» или `DOWN`/`SLOW` целиком."""
+    """Сайты-заглушки. Значение по хосту — словарь «путь → ответ» или один ответ
+    на все пути сразу: `DOWN`, `SLOW` или код (403 — сайт закрылся целиком)."""
 
-    def __init__(self, sites: Mapping[str, Mapping[str, Reply] | str]) -> None:
+    def __init__(self, sites: Mapping[str, Mapping[str, Reply] | str | int]) -> None:
         self.sites = dict(sites)
         self.requested: list[str] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requested.append(str(request.url))
         site = self.sites.get(request.url.host or "", DOWN)
-        reply = site if isinstance(site, str) else site.get(request.url.path, 404)
+        reply = site if isinstance(site, str | int) else site.get(request.url.path, 404)
         if reply == DOWN:
             raise httpx.ConnectError("соединение не установилось", request=request)
         if reply == SLOW:
