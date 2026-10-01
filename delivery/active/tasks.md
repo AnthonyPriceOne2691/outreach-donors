@@ -42,7 +42,7 @@
       в `core/models/__init__.py`; тесты A1, A4–A7 и обратный прогон.
 - [ ] T4. `config/sales.py` и секция `.env.example`; `Permission.SALES`,
       матрица ролей, TS-тип и подпись.
-- [ ] T5. Команда `outreach sales-hypothesis-add`; тест A8.
+- [x] T5. Команда `outreach sales-hypothesis-add`; тест A8.
 - [ ] T5a. Запись в `delivery/BACKLOG.md`: шаг «Contour waves» при
       `workflow_dispatch` или `merge_group` упадёт на пустом `before`.
 - [ ] T6. Новые тесты на старом коде — красные; числа в verify-report.

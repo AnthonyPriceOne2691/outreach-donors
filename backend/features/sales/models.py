@@ -40,6 +40,10 @@ class LeadSource(StrEnum):
     REFERRAL = "referral"  # коллега, которого назвали в ответе
 
 
+#: Длина имени гипотезы: имя короткое, по нему гипотезу выбирают.
+NAME_LENGTH = 128
+
+
 def _enum(e: type[StrEnum], name: str) -> SQLEnum:
     # Имя типа с приставкой модуля: в базе видно, чьё перечисление.
     return SQLEnum(e, name=name, values_callable=lambda x: [i.value for i in x])
@@ -52,7 +56,7 @@ class SalesHypothesisModel(TimestampedMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     #: Короткое имя: по нему гипотезу выбирают при загрузке базы и в отчётах.
-    name: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(NAME_LENGTH), nullable=False, unique=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 

@@ -45,6 +45,8 @@ from backend.cli.mail_test import add_parser as add_mail_test_parser
 from backend.cli.mail_test import cmd_mail_test
 from backend.cli.review_queue import add_parser as add_review_queue_parser
 from backend.cli.review_queue import cmd_review_queue
+from backend.cli.sales import add_parser as add_sales_parser
+from backend.cli.sales import cmd_sales_hypothesis_add
 from backend.cli.senders_admin import add_parser as add_senders_parser
 from backend.cli.senders_admin import cmd_sender_add, cmd_senders
 from backend.config import ahrefs as ahrefs_cfg
@@ -380,6 +382,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_letters_parser(sub)
     add_senders_parser(sub)
     add_mail_test_parser(sub)
+    add_sales_parser(sub)
     return parser
 
 
@@ -420,6 +423,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] =
     "sender-add": cmd_sender_add,
     "senders": cmd_senders,
     "mail-test": cmd_mail_test,
+    "sales-hypothesis-add": cmd_sales_hypothesis_add,
 }
 
 
