@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 
 EXIT_OK = 0
 EXIT_BAD_INPUT = 2
+#: Сети нет: прогон остановлен, чекпойнт цел, попытки доменов не сгорели.
+EXIT_NO_NETWORK = 8
 
 #: Сколько неразобранных строк назвать поимённо. Остальные — числом и в лог:
 #: файл, где мусора тысячи, не должен вытеснять с экрана сам отчёт.
@@ -73,6 +75,19 @@ def _print_report(report: file_sweep.SweepReport, out: Path, rows: int) -> None:
     if report.skipped:
         print(f"Пропущено (пройдены):  {report.skipped}")
     print(f"Обойдено сейчас:       {report.walked}")
+    if report.retry:
+        # Не «не нашли»: сайт не ответил, закрылся или обход оборван. Причина —
+        # в колонке retry_reason, повтор — следующим запуском той же команды.
+        print(f"Повторить:             {report.retry} — следующий запуск пройдёт их снова")
+    if report.unreachable:
+        print(
+            f"Недоступны:            {report.unreachable} — {file_sweep.MAX_ATTEMPTS} попытки "
+            "без ответа, причина в retry_reason; больше не повторяются"
+        )
+    if report.failed:
+        print(
+            f"Упало с ошибкой:       {report.failed} — трассировка в логе, следующий запуск повторит"
+        )
     print(f"С адресом:             {report.with_email}")
     print(f"Только с мессенджером: {report.with_handle}")
     counters = report.counters
@@ -103,6 +118,8 @@ class _Plan:
     pending: list[str]
     skipped: int
     listed: file_sweep.DomainList
+    #: Сколько из `pending` прошлый запуск оставил «повторить».
+    retrying: int = 0
 
 
 def _plan(args: argparse.Namespace) -> _Plan:
@@ -134,6 +151,7 @@ def _plan(args: argparse.Namespace) -> _Plan:
         pending=pending,
         skipped=len(hosts) - len(pending),
         listed=listed,
+        retrying=len(file_sweep.retry_hosts(checkpoint).intersection(pending)),
     )
 
 
@@ -169,14 +187,26 @@ async def cmd_contacts_file(args: argparse.Namespace) -> int:
     _print_unreadable(plan.listed)
     if plan.skipped:
         print(f"Чекпойнт: {plan.skipped} домен(ов) уже пройдены, продолжаем с остальных.")
+    if plan.retrying:
+        print(f"Повторяем {plan.retrying} домен(ов), которые в прошлый раз не ответили.")
 
-    report = await file_sweep.sweep(
-        plan.pending,
-        checkpoint=plan.checkpoint,
-        use_browser=args.browser,
-        concurrency=args.concurrency,
-        on_progress=lambda done, total: print(f"  пройдено {done} из {total}"),
-    )
+    try:
+        report = await file_sweep.sweep(
+            plan.pending,
+            checkpoint=plan.checkpoint,
+            use_browser=args.browser,
+            concurrency=args.concurrency,
+            on_progress=lambda done, total: print(f"  пройдено {done} из {total}"),
+        )
+    except file_sweep.NetworkDownError as exc:
+        print(
+            f"Сеть недоступна: {exc}. Проверьте подключение (VPN, выход в интернет) и "
+            "запустите ту же команду снова — пройденное сохранено, попытки доменов не сгорели."
+        )
+        if exc.report is not None:
+            exc.report.skipped = plan.skipped
+            _finish(plan, exc.report)
+        return EXIT_NO_NETWORK
     report.skipped = plan.skipped
     _finish(plan, report)
     return EXIT_OK
