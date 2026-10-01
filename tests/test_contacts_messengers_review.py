@@ -9,9 +9,12 @@ CSS, скрипт, пиксель, раздел соцсети и часы ра�
 
 from __future__ import annotations
 
+import time
+
 import pytest
 from backend.features.contacts.messengers import (
     MessengerKind,
+    extract_handle_guesses,
     extract_handles,
     harvest_handles,
 )
@@ -20,6 +23,10 @@ from backend.features.core.domain import PageKind
 
 def _values(html: str, kind: MessengerKind) -> set[str]:
     return {handle.value for handle in extract_handles(html) if handle.kind is kind}
+
+
+def _guessed(html: str, kind: MessengerKind) -> set[str]:
+    return {handle.value for handle in extract_handle_guesses(html) if handle.kind is kind}
 
 
 class TestExplicitMeansDeclared:
@@ -144,3 +151,82 @@ class TestExplicitMeansDeclared:
     ) -> None:
         """Ссылка, схема в атрибуте, JSON-LD и конфиг виджета — законные места канала."""
         assert _values(html, kind) == {value}
+
+
+class TestNumberIsOneNumber:
+    """Находка 10: номер — это группы цифр одного номера, без соседей и без потерь.
+
+    Захват шёл сквозь пробелы, дефисы и скобки до 19 знаков, а проверка
+    считала только цифры 7–15. Видимый текст склеивал абзацы через пробел,
+    и номер добирал часы работы, год из подвала или соседний номер; а там,
+    где разделителей много, наоборот, терял последнюю цифру.
+    """
+
+    @pytest.mark.parametrize(
+        "html",
+        [
+            "<p>WhatsApp: +7 916 123-45-67</p><p>9:00 - 18:00</p>",
+            "<p>WhatsApp: +7 916 123-45-67</p><footer>2024</footer>",
+            "<p>WhatsApp: +7 916 123 45 67</p><p>8 800 123 45 67</p>",
+            "<p>WhatsApp: +7 916 123-45-67<br>2024</p>",
+            "<table><tr><td>WhatsApp: +7 916 123-45-67</td><td>2024</td></tr></table>",
+            # Часы в той же строке: скобка — разделитель номера, `9:00` — нет.
+            "<p>WhatsApp: +7 916 123-45-67 (9:00–18:00)</p>",
+        ],
+    )
+    def test_neighbouring_digits_stay_out(self, html: str) -> None:
+        assert _guessed(html, MessengerKind.WHATSAPP) == {"79161234567"}
+
+    def test_two_numbers_in_one_line_are_not_glued(self) -> None:
+        """Где кончается первый номер, не скажет никто: лучше ничего, чем склейка."""
+        html = "<p>WhatsApp: +7 916 123 45 67 8 800 123 45 67</p>"
+        assert _guessed(html, MessengerKind.WHATSAPP) == set()
+
+    def test_spaced_dashes_do_not_cost_the_last_digit(self) -> None:
+        html = '<a href="tel:+7 (916) 123 - 45 - 67">позвонить</a>'
+        assert _values(html, MessengerKind.PHONE) == {"79161234567"}
+
+    @pytest.mark.parametrize(
+        "number",
+        [
+            "+٧٩١٦١٢٣٤٥٦٧",
+            "٧٩١٦١٢٣٤٥٦٧",
+            "７９１６１２３４５６７",
+            "＋７９１６１２３４５６７",
+        ],
+    )
+    def test_digits_of_any_script_reach_the_table_as_ascii(self, number: str) -> None:
+        """Арабско-индийские и полноширинные цифры: в таблицу и в набор — латиницей."""
+        assert _values(f'<a href="tel:{number}">t</a>', MessengerKind.PHONE) == {"79161234567"}
+
+    def test_unparsed_dotted_tail_gives_nothing_rather_than_a_stub(self) -> None:
+        """Точки номер не разбирает, и обрезок `7916123` хуже, чем ничего."""
+        assert _guessed("<p>WhatsApp: +7 916 123.45.67</p>", MessengerKind.WHATSAPP) == set()
+
+    def test_non_breaking_hyphen_is_a_separator(self) -> None:
+        """Неразрывный дефис ставит типографика, чтобы номер не переносился."""
+        html = "<p>WhatsApp: +7 916 123‑45‑67</p>"
+        assert _guessed(html, MessengerKind.WHATSAPP) == {"79161234567"}
+
+    @pytest.mark.parametrize(
+        "html",
+        [
+            "<p>WhatsApp: <b>+7 916</b> 123-45-67</p>",
+            "<dl><dt>WhatsApp</dt><dd>+7 916 123-45-67</dd></dl>",
+            "<p>WhatsApp:\n      +7 916\n      123-45-67</p>",
+        ],
+    )
+    def test_number_split_by_markup_is_still_one_number(self, html: str) -> None:
+        """Строчный тег и перенос в исходнике — не граница абзаца, подпись в соседнем блоке — законна."""
+        assert _guessed(html, MessengerKind.WHATSAPP) == {"79161234567"}
+
+    def test_long_digit_runs_stay_linear(self) -> None:
+        """Номер теперь берётся прогоном без потолка в знаках — и прогон обязан быть линейным."""
+        html = (
+            "<p>WhatsApp: " + "1 " * 50_000 + "</p>"
+            '<a href="tel:' + "1-" * 50_000 + '">t</a>'
+            "<p>WhatsApp: " + "1 (" * 30_000 + "</p>"
+        )
+        started = time.perf_counter()
+        harvest_handles(html, page_kind=PageKind.HOME)
+        assert time.perf_counter() - started < 1.0
