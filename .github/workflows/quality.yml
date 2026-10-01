@@ -32,6 +32,28 @@ jobs:
     runs-on: ubuntu-latest
     # §8.7: предохранитель, а не оптимизация — гейты — секунды-минуты; 20 значит «что-то повисло».
     timeout-minutes: 20
+    # АДАПТАЦИЯ ПРОЕКТА (adapted.json): шаг «Diff coverage» гоняет весь набор
+    # тестов, а тесты проекта идут на настоящей базе (ci.yml, джоба check).
+    # Без сервиса каждый тест ждал подключения, и шаг висел до таймаута джобы —
+    # на любом PR с правкой python продукта (#122, 01.10.2026). Пока правки
+    # были только в scripts/ и конфигах, шаг проходил пустым и молчал об этом.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: outreach
+          # Пароль одноразовой базы внутри прогона, тот же, что у джобы check
+          # (там он в .secrets.baseline); наружу эта база не видна.
+          POSTGRES_PASSWORD: outreach  # pragma: allowlist secret
+          POSTGRES_DB: outreach_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U outreach"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_STORAGE_DSN: postgresql+asyncpg://outreach:outreach@localhost:5432/outreach_test  # pragma: allowlist secret
     steps:
       - uses: actions/checkout@v7
         with:
