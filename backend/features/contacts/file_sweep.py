@@ -160,18 +160,25 @@ def _handle_columns(result: LadderResult) -> dict[str, str]:
     return columns
 
 
-def row_of(result: LadderResult, *, retry: str | None = None) -> dict[str, str]:
-    """Строка итога по одному домену. Пустые поля — законный исход.
+def _verdict_columns(result: LadderResult, retry: str | None) -> dict[str, str]:
+    """Чем кончился проход: статус, почему «повторить» и вердикт MX.
 
     `retry` — почему исход не окончательный: тогда статус «повторить»,
     а найденное по дороге (каналы, форма) в строке остаётся.
     """
-    emails = sorted({candidate.email for candidate in result.candidates})
-    row = {
-        "host": result.host,
+    return {
         "status": RETRY if retry else result.status.value,
         "retry_reason": retry or "",
         "mail_route": result.mail_route.value if result.mail_route else "",
+    }
+
+
+def row_of(result: LadderResult, *, retry: str | None = None) -> dict[str, str]:
+    """Строка итога по одному домену. Пустые поля — законный исход."""
+    emails = sorted({candidate.email for candidate in result.candidates})
+    row = {
+        "host": result.host,
+        **_verdict_columns(result, retry),
         "email": result.contact.email if result.contact else "",
         "emails": "; ".join(emails),
         "email_source": result.source.value if result.source else "",
