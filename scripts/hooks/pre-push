@@ -31,6 +31,13 @@ else
   echo "── Lock-файл ── нет uv, проверит CI (поставить: brew install uv)"
 fi
 
+# Волны контура модуля «Продажи»: здесь только предупреждение, пуш проходит;
+# красной та же проверка бывает в CI (quality.yml, джоба delivery). Ей хватает
+# python3 без .venv, поэтому она стоит до проверки окружения.
+echo "── Волны контура ──"
+python3 scripts/contour_waves.py --warn --base origin/main \
+  || echo "⚠ проверка волн не отработала — её повторит CI"
+
 PY=".venv/bin"
 [ -x "$PY/ruff" ] || { echo "Нет .venv — проверки пропущены, CI их сделает."; exit 0; }
 

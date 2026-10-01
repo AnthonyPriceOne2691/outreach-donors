@@ -34,7 +34,7 @@
       остальные `pending`.
 - [x] T3. Ядро и CLI проверки `scripts/contour_waves.py`.
 - [x] T4. Тесты A1–A13 и обратный прогон файлом.
-- [ ] T5. Подключение: `scripts/hooks/pre-push` с `--warn`, шаг в
+- [x] T5. Подключение: `scripts/hooks/pre-push` с `--warn`, шаг в
       `quality.yml` с `--base "$BASE"`, адаптация в `scripts/lint/adapted.json`.
 - [ ] T6. Строка «волны модуля» в карте ролей STACK-ACCEPTANCE; мета-гейт видит
       новый гейт.
