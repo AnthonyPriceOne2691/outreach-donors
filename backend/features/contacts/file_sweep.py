@@ -347,7 +347,7 @@ async def _walk_one(
             return
     # Вердикт — после выхода из следа: запрос, так и не получивший ответа,
     # засчитывается отказом только при закрытии.
-    row = row_of(result, retry=trace.retry_reason(result.status))
+    row = row_of(result, retry=trace.retry_reason(result))
     if row["status"] == RETRY and not trace.heard and not await network_alive(http):
         # Сайт не ответил ничем, и контрольные адреса молчат — легла сеть, а не
         # сайт. Строку не пишем: попытка не сгорает, домен пойдёт заново.
