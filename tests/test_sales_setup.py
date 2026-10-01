@@ -27,7 +27,7 @@ async def _hypotheses(session: AsyncSession) -> list[tuple[str, str | None]]:
     return [(name, description) for name, description in rows]
 
 
-def test_console_knows_the_command() -> None:
+def test_console_knows_the_command() -> None:  # A8
     args = build_parser().parse_args(
         ["sales-hypothesis-add", "--name", "сайты EN", "--description", "кому и зачем"]
     )

@@ -71,7 +71,7 @@ async def _leads(session: AsyncSession) -> list[tuple[int | None, str]]:
     return [(contact_id, email) for contact_id, email in rows]
 
 
-async def _shared_address(session: AsyncSession) -> tuple[DonorModel, ContactModel]:
+async def _shared_address(session: AsyncSession) -> tuple[DonorModel, ContactModel]:  # A6
     """Адрес, который у доноров на карточке донора и у продаж — у лида."""
     domain = await make_donor(session, "shared.example", email=SHARED)
     donor = await session.scalar(select(DonorModel).where(DonorModel.domain_id == domain.id))
@@ -96,7 +96,7 @@ async def _contact_key_on_delete(session: AsyncSession, rule: str) -> None:
     )
 
 
-def _migration() -> ModuleType:
+def _migration() -> ModuleType:  # A1
     spec = importlib.util.spec_from_file_location("sales_tables_migration", MIGRATION)
     assert spec is not None, MIGRATION
     assert spec.loader is not None, MIGRATION
