@@ -107,3 +107,38 @@ class TestRestart:
         assert await cmd_contacts_file(args) == EXIT_BAD_INPUT
 
         assert checkpoint.read_text() == progress
+
+
+class TestPathsAreCheckedBeforeTheWalk:
+    """Неверный путь всплывал через часы — на записи итога или первой строки."""
+
+    @pytest.mark.parametrize("flag", ["--out", "--checkpoint"])
+    async def test_missing_folder(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        flag: str,
+    ) -> None:
+        web = Web(SITES)
+        install(monkeypatch, web)
+        source = write(tmp_path / "list.csv", "host\nsite.com\n")
+        missing = tmp_path / "нет-такой-папки" / "file"
+
+        assert await cmd_contacts_file(cli_args(source, flag, str(missing))) == EXIT_BAD_INPUT
+
+        assert web.requested == []
+        assert "нет-такой-папки" in capsys.readouterr().out
+
+    async def test_result_over_the_list_itself(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`--out` на сам список затёр бы его итогом."""
+        web = Web(SITES)
+        install(monkeypatch, web)
+        source = write(tmp_path / "list.csv", "host\nsite.com\n")
+
+        assert await cmd_contacts_file(cli_args(source, "--out", str(source))) == EXIT_BAD_INPUT
+
+        assert web.requested == []
+        assert source.read_text() == "host\nsite.com\n"

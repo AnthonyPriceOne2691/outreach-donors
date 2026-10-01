@@ -145,6 +145,7 @@ def _plan(args: argparse.Namespace) -> _Plan:
     if args.limit is not None:
         hosts = hosts[: max(0, args.limit)]
 
+    _check_paths(source, out, checkpoint)
     # Стирается чекпойнт, только когда вход уже прочитан: опечатка в имени
     # колонки не должна стоить прогресса прежнего прогона.
     if args.restart and checkpoint.exists():
@@ -162,6 +163,30 @@ def _plan(args: argparse.Namespace) -> _Plan:
         listed=listed,
         retrying=len(file_sweep.retry_hosts(checkpoint).intersection(pending)),
     )
+
+
+def _check_paths(source: Path, out: Path, checkpoint: Path) -> None:
+    """Пути итога и чекпойнта — до обхода, а не через часы на первой записи.
+
+    Пишется в них пробой, а не проверкой прав: права бывают в порядке,
+    а запись — нет (файловая система только на чтение, это папка).
+    """
+    if len({source.resolve(), out.resolve(), checkpoint.resolve()}) < 3:
+        raise _BadInputError(
+            "Список, итог и чекпойнт должны быть разными файлами: "
+            f"{source}, {out}, {checkpoint}. Иначе один затрёт другой."
+        )
+    for what, path in (("Итог (--out)", out), ("Чекпойнт (--checkpoint)", checkpoint)):
+        if not path.parent.is_dir():
+            raise _BadInputError(f"{what}: папки {path.parent} нет.")
+        existed = path.exists()
+        try:
+            with path.open("ab"):
+                pass
+        except OSError as exc:
+            raise _BadInputError(f"{what}: в {path} не записать — {exc.strerror or exc}.") from exc
+        if not existed:
+            path.unlink()
 
 
 def _print_unreadable(listed: file_sweep.DomainList) -> None:
