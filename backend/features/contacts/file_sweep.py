@@ -231,6 +231,10 @@ async def sweep(
         ladder = ContactLadder(
             http,
             provider=None,  # платных ступеней здесь нет вовсе
+            # Ручной очереди у прогона по файлу нет: форма — колонка has_form,
+            # а не заявка. Потолок на весь список не исчерпается, и лог не
+            # скажет «ждёт следующего месяца» про домены, которые ничего не ждут.
+            manual_queue_left=len(hosts),
             renderer=TracedRenderer(renderer) if renderer is not None else None,
             stop_without_mail=False,
             collect_handles=True,  # каналы связи — ради них прогон по файлу и нужен
