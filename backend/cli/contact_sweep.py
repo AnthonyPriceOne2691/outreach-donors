@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +23,8 @@ logger = logging.getLogger(__name__)
 
 EXIT_OK = 0
 EXIT_BAD_INPUT = 2
+#: Прервано — тот же код, что у точки входа (`cli/main.py`).
+EXIT_CANCELLED = 6
 
 #: Сколько неразобранных строк назвать поимённо. Остальные — числом и в лог:
 #: файл, где мусора тысячи, не должен вытеснять с экрана сам отчёт.
@@ -197,16 +200,15 @@ def _print_unreadable(listed: file_sweep.DomainList) -> None:
         print(f"Строк с пустой ячейкой домена: {listed.empty}")
 
 
-def _finish(plan: _Plan, report: file_sweep.SweepReport) -> None:
-    """Собрать CSV из чекпойнта и напечатать отчёт. Тоже синхронно.
+def _write_result(plan: _Plan) -> int:
+    """Собрать CSV из чекпойнта. Синхронно — работа с диском не идёт в корутине.
 
     Строки — только доменов этого списка: чекпойнт бывает общим у разных
     списков, и итог одного не должен молча включать другой. Список берётся
     целиком, а не после `--limit`: проба на десяти доменах не должна
     затирать итог по уже пройденным тысячам.
     """
-    rows = file_sweep.write_csv(file_sweep.rows_for(plan.listed.hosts, plan.checkpoint), plan.out)
-    _print_report(report, plan.out, rows)
+    return file_sweep.write_csv(file_sweep.rows_for(plan.listed.hosts, plan.checkpoint), plan.out)
 
 
 async def cmd_contacts_file(args: argparse.Namespace) -> int:
@@ -223,13 +225,26 @@ async def cmd_contacts_file(args: argparse.Namespace) -> int:
     if plan.retrying:
         print(f"Повторяем {plan.retrying} домен(ов), которые в прошлый раз не ответили.")
 
-    report = await file_sweep.sweep(
-        plan.pending,
-        checkpoint=plan.checkpoint,
-        use_browser=args.browser,
-        concurrency=args.concurrency,
-        on_progress=lambda done, total: print(f"  пройдено {done} из {total}"),
-    )
+    try:
+        report = await file_sweep.sweep(
+            plan.pending,
+            checkpoint=plan.checkpoint,
+            use_browser=args.browser,
+            concurrency=args.concurrency,
+            on_progress=lambda done, total: print(f"  пройдено {done} из {total}"),
+        )
+    except asyncio.CancelledError:
+        # Ctrl-C: `asyncio.run` отменяет задачу команды. Пройденное уже
+        # в чекпойнте, и итог по нему пишется и сейчас — прерванный прогон
+        # на часы без файла стоил бы этих часов. Дальше отмена не идёт:
+        # точка входа сказала бы «домены остались в базе», а базы эта
+        # команда не касается.
+        rows = _write_result(plan)
+        print(
+            f"\nПрервано. Пройденное — в чекпойнте {plan.checkpoint}, итог по нему "
+            f"({rows} строк) — в {plan.out}. Повторный запуск продолжит с места обрыва."
+        )
+        return EXIT_CANCELLED
     report.skipped = plan.skipped
-    _finish(plan, report)
+    _print_report(report, plan.out, _write_result(plan))
     return EXIT_OK
