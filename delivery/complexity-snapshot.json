@@ -677,7 +677,7 @@
       "worst": "—"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 43,
+      "lines": 46,
       "complexity": 0,
       "worst": "—"
     },
@@ -1325,6 +1325,16 @@
       "lines": 162,
       "complexity": 8,
       "worst": "consequences:61"
+    },
+    "backend/features/sales/__init__.py": {
+      "lines": 15,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/features/sales/models.py": {
+      "lines": 104,
+      "complexity": 2,
+      "worst": "_enum:43"
     },
     "backend/features/serp/__init__.py": {
       "lines": 1,

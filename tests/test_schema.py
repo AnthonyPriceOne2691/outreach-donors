@@ -32,6 +32,9 @@ EXPECTED_TABLES = {
     "run_candidates",
     # Вложения ответов вместе с файлами: другой копии письма нет.
     "reply_attachments",
+    # Модуль «Продажи»: свои таблицы, у лида — ссылки на общие домен и адрес.
+    "sales_hypotheses",
+    "sales_leads",
 }
 
 

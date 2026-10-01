@@ -38,7 +38,7 @@
 - [x] T0. Активный срез: `sales-v0-contour` в архив; `spec.md`, `plan.md`,
       `tasks.md`, STATUS `sales-model`; три строки прежнего STATUS — слово
       в слово.
-- [ ] T3. Модели и миграция `sales_hypotheses`, `sales_leads`; импорт
+- [x] T3. Модели и миграция `sales_hypotheses`, `sales_leads`; импорт
       в `core/models/__init__.py`; тесты A1, A4–A7 и обратный прогон.
 - [ ] T4. `config/sales.py` и секция `.env.example`; `Permission.SALES`,
       матрица ролей, TS-тип и подпись.
