@@ -10,6 +10,10 @@
 домены письма принимают, и выбрасывать их нельзя — это стоило бы нам
 части базы на ровном месте.
 
+Обратная тонкость: запись MX бывает отказом. «Нулевой MX» (RFC 7505,
+`0 .`) — это домен, объявивший, что почту не принимает вовсе. Считать его
+обычным MX значило писать по адресу, который отобьётся наверняка.
+
 Отдельно: неудачный запрос к DNS — это не «почты нет». Отсутствие данных
 не равно отказу, такой домен идёт дальше по лестнице.
 
@@ -189,7 +193,19 @@ async def mail_route(host: str, *, dns_timeout_sec: float | None = None) -> Mail
         )
         return MailRoute.UNKNOWN
 
-    return MailRoute.MX if len(answer) else await _implicit_route(host, timeout)
+    if not len(answer):
+        return await _implicit_route(host, timeout)
+    if all(_is_null_mx(record) for record in answer):
+        logger.debug("MX: %s объявил нулевой MX (RFC 7505) — почту не принимает", host)
+        return MailRoute.NONE
+    # Нулевой MX рядом с настоящим — ошибка настройки домена, но почту
+    # примет настоящий: это всё ещё MX.
+    return MailRoute.MX
+
+
+def _is_null_mx(record: object) -> bool:
+    """Запись «0 .»: имя почтового сервера — корень, то есть сервера нет."""
+    return not str(getattr(record, "exchange", record)).rstrip(".")
 
 
 async def _implicit_route(host: str, timeout_sec: float) -> MailRoute:

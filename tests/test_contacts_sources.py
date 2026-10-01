@@ -10,6 +10,9 @@ from __future__ import annotations
 from typing import Any
 
 import dns.exception
+import dns.rdata
+import dns.rdataclass
+import dns.rdatatype
 import dns.resolver
 import httpx
 import pytest
@@ -233,6 +236,11 @@ class _FakeResolver:
         return result
 
 
+def _mx(text: str) -> Any:
+    """Запись MX так, как её отдаёт dnspython."""
+    return dns.rdata.from_text(dns.rdataclass.IN, dns.rdatatype.MX, text)
+
+
 @pytest.fixture(autouse=True)
 def _forget_resolver_health() -> Any:
     """Память о мёртвом системном резолвере живёт на процесс — между
@@ -279,6 +287,22 @@ class TestMailRoute:
         """Отсутствие данных — не отказ: домен идёт дальше по лестнице."""
         dns_answers({"MX": dns.exception.Timeout()})
         assert await mail_route("site.com") is MailRoute.UNKNOWN
+
+    async def test_null_mx_takes_no_mail(self, dns_answers: Any) -> None:
+        """RFC 7505: «0 .» — домен объявил, что почту не принимает. Считался
+        обычным MX, и адрес на таком домене уходил в рассылку на отказ."""
+        dns_answers({"MX": [_mx("0 .")]})
+        assert await mail_route("site.com") is MailRoute.NONE
+
+    async def test_real_mx_record_is_mx(self, dns_answers: Any) -> None:
+        """Страж разбора настоящей записи: имя сервера берётся из `exchange`."""
+        dns_answers({"MX": [_mx("10 mx1.site.com.")]})
+        assert await mail_route("site.com") is MailRoute.MX
+
+    async def test_null_mx_next_to_a_real_one_is_still_mx(self, dns_answers: Any) -> None:
+        """Ошибка настройки домена, но почту примет настоящий сервер."""
+        dns_answers({"MX": [_mx("0 ."), _mx("10 mx1.site.com.")]})
+        assert await mail_route("site.com") is MailRoute.MX
 
 
 class TestResolverFallback:
