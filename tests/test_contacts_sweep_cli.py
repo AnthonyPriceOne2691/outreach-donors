@@ -247,3 +247,29 @@ class TestNoManualQueueInAFileRun:
         (row,) = file_sweep.rows_from_checkpoint(checkpoint)
         assert (row["status"], row["has_form"]) == ("form_only", "true")
         assert not [record for record in caplog.records if "ручной очереди" in record.getMessage()]
+
+
+class TestNumbersSurviveExcel:
+    def test_digits_only_cell_is_written_as_text(self, tmp_path: Path) -> None:
+        """Excel читает `0612345678` как 612345678, а `79161234567890` — как 7,92E+13.
+
+        Ячейка из одних цифр уходит формулой-строкой `="…"`: текст и в Excel,
+        и в Google Таблицах. Ячейка с несколькими номерами и так текст.
+        """
+        out = tmp_path / "out.csv"
+        row = {
+            "host": "site.com",
+            "phone": "0612345678",
+            "whatsapp": "79161234567890",
+            "viber": "79161234567; 79031234567",
+            "telegram": "sitedesk",
+        }
+
+        file_sweep.write_csv([row], out)
+
+        with out.open(encoding="utf-8-sig", newline="") as handle:
+            (cells,) = list(csv.DictReader(handle, delimiter=";"))
+        assert cells["phone"] == '="0612345678"'
+        assert cells["whatsapp"] == '="79161234567890"'
+        assert cells["viber"] == "79161234567; 79031234567"
+        assert (cells["host"], cells["telegram"]) == ("site.com", "sitedesk")

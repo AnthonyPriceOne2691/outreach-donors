@@ -182,6 +182,17 @@ def row_of(result: LadderResult, *, retry: str | None = None) -> dict[str, str]:
     return row
 
 
+def _as_text(value: str) -> str:
+    """Ячейка из одних цифр — формулой-строкой, чтобы Excel не счёл её числом.
+
+    Иначе номер `0612345678` теряет ведущий ноль, а `79161234567890`
+    становится 7,92E+13. `="…"` остаётся текстом в Excel и в Google
+    Таблицах; файл и так собран под Excel, а читающему его программой
+    обёртку снять проще, чем вернуть потерянные цифры.
+    """
+    return f'="{value}"' if value.isascii() and value.isdigit() else value
+
+
 def write_csv(rows: Iterable[dict[str, str]], path: Path) -> int:
     """Собрать итоговый CSV. UTF-8 с BOM — чтобы Excel открыл его щелчком."""
     written = 0
@@ -189,7 +200,7 @@ def write_csv(rows: Iterable[dict[str, str]], path: Path) -> int:
         writer = csv.DictWriter(handle, fieldnames=list(OUTPUT_COLUMNS), delimiter=";")
         writer.writeheader()
         for row in rows:
-            writer.writerow({name: row.get(name, "") for name in OUTPUT_COLUMNS})
+            writer.writerow({name: _as_text(row.get(name, "")) for name in OUTPUT_COLUMNS})
             written += 1
     return written
 
