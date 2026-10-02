@@ -290,9 +290,10 @@ class TestMailRoute:
 
     async def test_null_mx_takes_no_mail(self, dns_answers: Any) -> None:
         """RFC 7505: «0 .» — домен объявил, что почту не принимает. Считался
-        обычным MX, и адрес на таком домене уходил в рассылку на отказ."""
+        обычным MX, и адрес на таком домене уходил в рассылку на отказ.
+        Но это не «домена нет» (`NONE`): сайт у такого домена есть."""
         dns_answers({"MX": [_mx("0 .")]})
-        assert await mail_route("site.com") is MailRoute.NONE
+        assert await mail_route("site.com") is MailRoute.NULL_MX
 
     async def test_real_mx_record_is_mx(self, dns_answers: Any) -> None:
         """Страж разбора настоящей записи: имя сервера берётся из `exchange`."""

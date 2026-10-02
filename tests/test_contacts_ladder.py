@@ -183,6 +183,55 @@ class TestRoute:
         assert provider.calls == []
         assert ladder.counters.mx_stopped == 1
 
+    async def test_null_mx_walks_the_site_for_an_outside_address(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Нулевой MX ставят те, кто почту на домене не держит, — блогер
+        с Gmail на странице контактов. Ранний стоп, как у домена без почты,
+        потерял бы такого донора без единого запроса (ревью #133)."""
+
+        async def null_mx(_host: str, **_kwargs: object) -> mx.MailRoute:
+            return mx.MailRoute.NULL_MX
+
+        monkeypatch.setattr("backend.features.contacts.ladder.mail_route", null_mx)
+        contact = (
+            '<html><body><a href="mailto:info@site.com">почта</a>'
+            '<a href="mailto:siteblogger@gmail.com">автор</a></body></html>'
+        )
+        site = Site({"/": HOME, "/contact/": contact})
+        provider = FakeProvider(["paid@site.com"])
+
+        async with _client(site) as http:
+            ladder = ContactLadder(http, provider=provider)
+            result = await ladder.find("site.com")
+
+        assert result.status is ContactStatus.FOUND
+        assert result.contact is not None
+        assert result.contact.email == "siteblogger@gmail.com"
+        assert [email for email, _ in result.rejected] == ["info@site.com"]
+        assert "нулевой MX" in result.rejected[0][1]
+        assert result.mail_route is mx.MailRoute.NULL_MX
+
+    async def test_null_mx_does_not_pay_for_addresses_on_the_domain(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Платный сервис ищет адреса на самом домене — с нулевым MX все
+        они отбились бы, и платить за них незачем."""
+
+        async def null_mx(_host: str, **_kwargs: object) -> mx.MailRoute:
+            return mx.MailRoute.NULL_MX
+
+        monkeypatch.setattr("backend.features.contacts.ladder.mail_route", null_mx)
+        site = Site({"/": EMPTY_PAGE})
+        provider = FakeProvider(["paid@site.com"])
+
+        async with _client(site) as http:
+            result = await ContactLadder(http, provider=provider).find("site.com")
+
+        assert result.status is ContactStatus.NOT_FOUND
+        assert site.pages_requested, "сайт не обойдён"
+        assert provider.calls == []
+
     async def test_dns_silence_is_not_a_refusal(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Отсутствие данных — не отказ: домен идёт дальше по лестнице."""
 

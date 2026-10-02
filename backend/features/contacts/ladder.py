@@ -121,8 +121,12 @@ class _Collected:
         почты ничего не говорит о почте родительского. Личный ящик на чужом
         домене (`owner@gmail.com`) остаётся: он доставляем.
         """
-        if self.route is MailRoute.NONE and email.lower().rsplit("@", 1)[-1] == self.site_host:
+        if email.lower().rsplit("@", 1)[-1] != self.site_host:
+            return None
+        if self.route is MailRoute.NONE:
             return f"домен сайта не принимает почту (ни MX, ни A): {email}"
+        if self.route is MailRoute.NULL_MX:
+            return f"домен сайта объявил, что почту не принимает (нулевой MX): {email}"
         return None
 
     def add(self, candidate: Candidate) -> bool:
@@ -248,15 +252,13 @@ class ContactLadder:
         elif route not in DELIVERABLE:
             self.counters.mx_stopped += 1
             # Сообщение называет, что СЕЙЧАС произойдёт: при выключенном
-            # `stop_without_mail` ступени как раз не пропускаются, и
-            # прежний текст врал бы прогону по файлу.
-            logger.info(
-                "контакты: %s не принимает почту — %s",
-                host,
-                "ступени 1–3 пропущены"
-                if self._stop_without_mail
-                else "адреса на нём отсеются, идём за каналами связи",
-            )
+            # `stop_without_mail` ступени как раз не пропускаются, а нулевой
+            # MX не останавливает спуск никогда — прежний текст врал бы.
+            if route is MailRoute.NONE and self._stop_without_mail:
+                then = "ступени 1–3 пропущены"
+            else:
+                then = "адреса на нём отсеются, ищем сторонние и каналы связи"
+            logger.info("контакты: %s не принимает почту — %s", host, then)
         return route
 
     async def _step_pages(self, host: str, collected: _Collected) -> ContactStatus | None:
@@ -379,8 +381,11 @@ class ContactLadder:
 
     async def _step_provider(self, host: str, collected: _Collected) -> ContactStatus | None:
         """Платная ступень. Возвращает исход, если платить не вышло."""
-        if self._provider is None:
-            logger.debug("контакты: платный сервис не подключён, %s остаётся без него", host)
+        if self._provider is None or collected.route is MailRoute.NULL_MX:
+            # Платный сервис ищет адреса на самом домене, а домен с нулевым MX
+            # объявил, что почту не принимает: всё, что он отдаст, отобьётся.
+            why = "не подключена" if self._provider is None else "нулевой MX"
+            logger.debug("контакты: платная ступень по %s не зовётся — %s", host, why)
             return None
 
         self.counters.provider_entered += 1
