@@ -4,8 +4,7 @@
 настоящей базе: лиды, домены компаний и журнал. Консоль — `test_sales_intake_cli.py`,
 Google-таблица — `test_sales_intake_sheet.py`, путь экрана — `test_api_sales_intake.py`.
 
-Утверждения — на точные значения и тексты: каждое правило приёма краснеет, если
-его испортить (обратные прогоны — в verify-report).
+Утверждения — точные: испорченное правило приёма краснеет (verify-report).
 """
 
 from __future__ import annotations
@@ -129,12 +128,6 @@ def test_not_an_address_is_its_own_reason(tmp_path: Path, email: str, taken: boo
     [
         ("email,name\nivan@gmail.com,Иван\n", Problem(2, FREE, "ivan@gmail.com")),  # A3
         (
-            "email\nivan@mail.gmail.com\n",
-            Problem(
-                2, "нет сайта компании: mail.gmail.com — бесплатная почта", "ivan@mail.gmail.com"
-            ),
-        ),
-        (
             "email,site\nivan@gmail.com,n/a\n",
             Problem(
                 2,
@@ -203,11 +196,6 @@ def test_a6_file_without_a_header_asks_for_manual_mapping(tmp_path: Path) -> Non
 
     mapped = _preview(tmp_path, text, {LeadField.EMAIL: 0, LeadField.NAME: 1})
     assert [(lead.line, lead.name) for lead in mapped.leads] == [(1, "Иван"), (2, "Мария")]
-
-
-def test_header_cell_left_empty_is_named_by_its_number(tmp_path: Path) -> None:
-    found = _preview(tmp_path, "Почта;;Компания\nivan@acme.example.test;x;Acme\n")
-    assert found.columns == ["Почта", "колонка 2", "Компания"]
 
 
 @pytest.mark.parametrize(

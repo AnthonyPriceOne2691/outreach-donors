@@ -29,6 +29,7 @@ from tests.conftest import make_donor
 
 ROOT = Path(__file__).resolve().parent.parent
 MIGRATION = ROOT / "backend/migrations/versions/715bbf374195_sales_hypotheses_and_leads.py"
+JOURNAL = ROOT / "backend/migrations/versions/1f7b0ee634c2_sales_leads_imported_audit_action.py"
 TABLES = ("sales_hypotheses", "sales_leads")
 TYPES = ("sales_lead_source", "sales_lead_status")
 SHARED = "sales@shared.example"
@@ -96,10 +97,10 @@ async def _contact_key_on_delete(session: AsyncSession, rule: str) -> None:
     )
 
 
-def _migration() -> ModuleType:  # A1
-    spec = importlib.util.spec_from_file_location("sales_tables_migration", MIGRATION)
-    assert spec is not None, MIGRATION
-    assert spec.loader is not None, MIGRATION
+def _migration(path: Path = MIGRATION) -> ModuleType:  # A1
+    spec = importlib.util.spec_from_file_location(f"sales_migration_{path.stem}", path)
+    assert spec is not None, path
+    assert spec.loader is not None, path
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -125,6 +126,24 @@ def _down_and_up(connection: Connection) -> tuple[set[str], set[str]]:
         after_downgrade = _present(connection)
         migration.upgrade()
     return after_downgrade, _present(connection)
+
+
+def _journal_values(connection: Connection) -> list[str]:
+    """Миграция журнала среза 1.3 ещё раз, в процессе: подъём сьюта идёт подпроцессом,
+    и покрытие его не видит. `ADD VALUE IF NOT EXISTS` делает повтор безвредным."""
+    migration = _migration(JOURNAL)
+    with Operations.context(MigrationContext.configure(connection)):
+        migration.upgrade()
+        migration.downgrade()
+    values = connection.execute(text("SELECT unnest(enum_range(NULL::auditaction))::text"))
+    return list(values.scalars())
+
+
+async def test_sales_import_journal_value_is_there_and_survives_a_rerun(
+    session: AsyncSession,
+) -> None:
+    connection = await session.connection()
+    assert (await connection.run_sync(_journal_values))[-1] == "sales_leads_imported"
 
 
 async def test_upgrade_head_creates_both_sales_tables(session: AsyncSession) -> None:  # A1
