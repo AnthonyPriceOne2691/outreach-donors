@@ -4,7 +4,7 @@
 - **stack:** delivery@1.99 · cqg@2.45 · okf@1.19 · stack-map@1.52
 - **class:** M
 - **kind:** feature
-- **phase:** implement
+- **phase:** verify
 - **builder:** agent:claude
 - **verifier:** process:ci — обязательные джобы `check`, `web` и `docker`, на PR ещё `gates` и `delivery`; ревью — координатор модуля, мерж — по решению владельца
 - **human_ok_spec:** yes at=2026-10-03 by=human:anthony («даю да» — план фаз; примеры A8 и A9 и нарезка на три PR — решение владельца)
@@ -46,6 +46,10 @@
 | **1.3a — эта поставка** | синонимы, чтение файла, нормализация, отчёт, запись, журнал, миграция; тесты A1–A4, A6, A8 | 7 | 801 |
 | 1.3b | Google-таблица, байты с экрана, `outreach sales-import`; тесты A2, A5, A6, A9 | 7 | 571 |
 | 1.3c | API предпросмотра и загрузки; тесты A5–A8 через API | 6 | 367 |
+
+Часть 1.3a — 801 строка при пределе 800: код и тесты ядра — 792, запись номера
+ревизии в `.secrets.baseline` — ещё 9. Строк сверх переноса в коде нет; решение по
+лишней строке — за владельцем и координатором (verify-report, «Предохранитель»).
 
 `shared_changes:` следующих частей: 1.3b — `backend/cli/sales.py`,
 `backend/cli/main.py`; 1.3c — `backend/api/app.py`, `backend/api/errors.py`,
