@@ -55,10 +55,10 @@ RUN = ["run", "--keywords", "keys.txt", "--country", "us"]
 #: Ответ Ahrefs об остатке. Упирается ключ: у него остаток меньше,
 #: чем у рабочего пространства.
 QUOTA: dict[str, object] = {
-    "units_limit_workspace": 2_000_000,
-    "units_usage_workspace": 750_000,
-    "units_limit_api_key": 1_500_000,
-    "units_usage_api_key": 1_234_567,
+    "units_limit_workspace": 3_210_000,
+    "units_usage_workspace": 543_210,
+    "units_limit_api_key": 1_234_567,
+    "units_usage_api_key": 987_654,
     "usage_reset_date": "2026-09-21T00:00:00Z",
 }
 
@@ -226,9 +226,9 @@ class TestQuota:
         assert await cmd_quota() == 0
 
         assert _lines(capsys.readouterr().out) == [
-            "Доступно юнитов: 265 433",
-            "ключ: 1 234 567 из 1 500 000",
-            "пространство: 750 000 из 2 000 000",
+            "Доступно юнитов: 246 913",
+            "ключ: 987 654 из 1 234 567",
+            "пространство: 543 210 из 3 210 000",
             "обнуление: 2026-09-21T00:00:00Z",
             "Лимита два и действуют одновременно — доступен меньший остаток.",
         ]
@@ -244,7 +244,7 @@ class TestQuota:
         assert await cmd_quota() == 0
 
         lines = _lines(capsys.readouterr().out)
-        assert lines[0] == "Доступно юнитов: 265 433"
+        assert lines[0] == "Доступно юнитов: 246 913"
         assert [line for line in lines if line.startswith("обнуление")] == []
 
     def test_provider_failure_is_exit_5_and_the_client_is_closed(
@@ -612,7 +612,7 @@ class TestEntryPoint:
 
         assert main(["quota"]) == 0
 
-        assert _lines(capsys.readouterr().out)[0] == "Доступно юнитов: 265 433"
+        assert _lines(capsys.readouterr().out)[0] == "Доступно юнитов: 246 913"
         assert logging_setups == [True]
 
     def test_run_gets_its_arguments_and_its_code_reaches_the_caller(
