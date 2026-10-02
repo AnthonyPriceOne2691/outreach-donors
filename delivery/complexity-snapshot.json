@@ -571,6 +571,11 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/contacts/attempts.py": {
+      "lines": 192,
+      "complexity": 5,
+      "worst": "waits:92"
+    },
     "backend/features/contacts/browser.py": {
       "lines": 193,
       "complexity": 7,
@@ -597,9 +602,9 @@
       "worst": "—"
     },
     "backend/features/contacts/ladder.py": {
-      "lines": 486,
+      "lines": 488,
       "complexity": 10,
-      "worst": "_step_pages:272"
+      "worst": "_step_pages:274"
     },
     "backend/features/contacts/manual.py": {
       "lines": 184,
@@ -642,14 +647,14 @@
       "worst": "_vcard_emails:40"
     },
     "backend/features/contacts/refind.py": {
-      "lines": 215,
+      "lines": 221,
       "complexity": 9,
-      "worst": "_clear:189"
+      "worst": "_clear:195"
     },
     "backend/features/contacts/repository.py": {
-      "lines": 330,
-      "complexity": 6,
-      "worst": "refusal_of:119"
+      "lines": 327,
+      "complexity": 5,
+      "worst": "_not_entitled:89"
     },
     "backend/features/contacts/search.py": {
       "lines": 198,
@@ -687,7 +692,7 @@
       "worst": "—"
     },
     "backend/features/core/domain.py": {
-      "lines": 230,
+      "lines": 233,
       "complexity": 0,
       "worst": "—"
     },
@@ -697,7 +702,7 @@
       "worst": "—"
     },
     "backend/features/core/models/_mixins.py": {
-      "lines": 25,
+      "lines": 57,
       "complexity": 0,
       "worst": "—"
     },
@@ -712,9 +717,9 @@
       "worst": "_enum:34"
     },
     "backend/features/core/models/advertisers.py": {
-      "lines": 118,
-      "complexity": 2,
-      "worst": "_enum:35"
+      "lines": 107,
+      "complexity": 1,
+      "worst": "in_force:104"
     },
     "backend/features/core/models/attachment.py": {
       "lines": 52,
@@ -732,7 +737,7 @@
       "worst": "—"
     },
     "backend/features/core/models/donor.py": {
-      "lines": 153,
+      "lines": 147,
       "complexity": 2,
       "worst": "_enum:34"
     },
@@ -767,9 +772,9 @@
       "worst": "_by_density:214"
     },
     "backend/features/crawl/contacts.py": {
-      "lines": 110,
-      "complexity": 6,
-      "worst": "save:88"
+      "lines": 117,
+      "complexity": 5,
+      "worst": "save:85"
     },
     "backend/features/crawl/denylist.py": {
       "lines": 159,
@@ -927,9 +932,9 @@
       "worst": "check_metrics:67"
     },
     "backend/features/donors/wording.py": {
-      "lines": 102,
+      "lines": 103,
       "complexity": 4,
-      "worst": "reject_reason_text:80"
+      "worst": "reject_reason_text:81"
     },
     "backend/features/keywords/__init__.py": {
       "lines": 2,
