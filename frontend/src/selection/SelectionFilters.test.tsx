@@ -69,9 +69,10 @@ function at(query: string): string {
 }
 
 /**
- * Сколько ждать экран отбора. Умолчание testing-library — 1 с, а тесты этого
- * файла в тишине идут 0,8–0,9 с: под нагрузкой машины (соседние деревья гоняют
- * свои наборы) экран не успевал отрисоваться, и тест падал не по делу.
+ * Сколько ждать экран отбора и его запросы (findBy*, waitFor). Умолчание
+ * testing-library — 1 с, а тесты этого файла в тишине идут 0,8–0,9 с: под
+ * нагрузкой машины (соседние деревья гоняют свои наборы) экран не успевал
+ * отрисоваться, и тест падал не по делу.
  */
 const SCREEN_WAIT = { timeout: 5000 };
 
@@ -181,7 +182,10 @@ describe('отбор: фильтры под колонками', () => {
 
     await choose('Кто вынес вердикт', /^модель/);
 
-    await waitFor(() => expect(asked(recorded).at(-1)).toBe('tab=rejected&judge=model'));
+    await waitFor(
+      () => expect(asked(recorded).at(-1)).toBe('tab=rejected&judge=model'),
+      SCREEN_WAIT,
+    );
   });
 
   it('фильтр судьи называет слой словом значка и объясняет его в самом списке', async () => {
@@ -205,10 +209,16 @@ describe('отбор: фильтры под колонками', () => {
     });
 
     await choose('Решение человека', 'не смотрел');
-    await waitFor(() => expect(asked(recorded).at(-1)).toBe('tab=accepted&human=unreviewed'));
+    await waitFor(
+      () => expect(asked(recorded).at(-1)).toBe('tab=accepted&human=unreviewed'),
+      SCREEN_WAIT,
+    );
     await choose('Решение человека', 'разошёлся с судьёй');
 
-    await waitFor(() => expect(asked(recorded).at(-1)).toBe('tab=accepted&human=disagrees'));
+    await waitFor(
+      () => expect(asked(recorded).at(-1)).toBe('tab=accepted&human=disagrees'),
+      SCREEN_WAIT,
+    );
   });
 
   it('поиск уходит в адрес и на сервер после паузы в наборе', async () => {
@@ -217,7 +227,10 @@ describe('отбор: фильтры под колонками', () => {
 
     await user.type(screen.getByRole('textbox', { name: 'Поиск по домену или причине' }), 'brand');
 
-    await waitFor(() => expect(asked(recorded).at(-1)).toBe('tab=accepted&search=brand'));
+    await waitFor(
+      () => expect(asked(recorded).at(-1)).toBe('tab=accepted&search=brand'),
+      SCREEN_WAIT,
+    );
     expect(asked(recorded).filter((query) => query.includes('search='))).toEqual([
       'tab=accepted&search=brand',
     ]);
@@ -275,7 +288,7 @@ describe('отбор: страницы', () => {
       { path: '/selection?page=9' },
     );
 
-    await waitFor(() => expect(asked(recorded).at(-1)).toBe('tab=accepted&page=3'));
+    await waitFor(() => expect(asked(recorded).at(-1)).toBe('tab=accepted&page=3'), SCREEN_WAIT);
     expect(screen.queryByText('Под фильтр ничего не попало.')).toBeNull();
   });
 });
