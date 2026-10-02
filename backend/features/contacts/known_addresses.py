@@ -30,5 +30,18 @@ FREE_MAILBOX_DOMAINS = frozenset(
         "icloud.com", "me.com", "proton.me", "protonmail.com", "gmx.com", "gmx.net",
         "mail.ru", "yandex.ru", "yandex.com", "zoho.com", "mail.com",
         "qq.com", "163.com", "126.com", "naver.com",
+        # Местная бесплатная почта. Без неё ящик владельца на bk.ru или web.de
+        # весил как адрес чужого домена, а не как личный (находка «Продаж»,
+        # 02.10.2026): рунет, Украина, немецкий, французский, итальянский,
+        # польский, чешский рынки и местные зеркала больших почт.
+        "bk.ru", "list.ru", "inbox.ru", "internet.ru", "ya.ru", "rambler.ru", "ro.ru",
+        "yandex.by", "yandex.kz", "yandex.ua", "ukr.net", "i.ua", "meta.ua",
+        "web.de", "gmx.de", "gmx.at", "gmx.ch", "t-online.de", "freenet.de", "arcor.de",
+        "posteo.de", "mailbox.org", "orange.fr", "wanadoo.fr", "free.fr", "laposte.net",
+        "sfr.fr", "libero.it", "virgilio.it", "tiscali.it", "alice.it", "wp.pl", "o2.pl",
+        "onet.pl", "interia.pl", "seznam.cz", "yahoo.de", "yahoo.fr", "yahoo.es",
+        "yahoo.it", "hotmail.fr", "hotmail.de", "hotmail.it", "hotmail.es", "outlook.de",
+        "outlook.fr", "live.de", "live.fr", "msn.com", "pm.me", "protonmail.ch",
+        "tutanota.com", "tuta.io",
     }
 )  # fmt: skip

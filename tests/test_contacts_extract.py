@@ -500,6 +500,14 @@ class TestWeight:
     def test_nothing_found_is_legal(self) -> None:
         assert best([], site_host="site.com") is None
 
+    @pytest.mark.parametrize("domain", ["bk.ru", "web.de", "t-online.de", "ukr.net", "wp.pl"])
+    def test_local_free_mail_weighs_as_free_mail(self, domain: str) -> None:
+        """Ящик владельца на местной бесплатной почте весил как адрес чужого
+        домена, а не как личный (находка «Продаж», 02.10.2026)."""
+        local = Candidate(f"owner@{domain}", ContactSource.PAGE, PageKind.CONTACT)
+        gmail = Candidate("owner@gmail.com", ContactSource.PAGE, PageKind.CONTACT)
+        assert weight(local, site_host="site.com") == weight(gmail, site_host="site.com")
+
     def test_a_direct_address_beats_any_guess(self) -> None:
         """Догадка из обфускации — только когда прямого адреса нет: с весом
         за домен сайта ролевая догадка обгоняла настоящий ящик со страницы."""
