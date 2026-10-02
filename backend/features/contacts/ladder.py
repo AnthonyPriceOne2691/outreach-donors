@@ -21,7 +21,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 import httpx
@@ -41,6 +41,7 @@ from backend.features.contacts.pages import (
     PageFetcher,
     has_contact_form,
     language_hint,
+    page_queue,
     slug_urls,
 )
 from backend.features.contacts.provider import (
@@ -136,28 +137,6 @@ class _Collected:
             return False
         self.good.append(candidate)
         return True
-
-
-# Ссылка, узнанная только по тексту, — вид по адресу у неё «главная»: раздел
-# лежит по `/p/12345`, и ради таких текст ссылки и смотрится. Но заголовки
-# статей тоже начинаются словом раздела («Support for Ukraine grows»), и восемь
-# таких ссылок съедали бюджет открытых страниц раньше угаданных слагов — до
-# `/contact/` обход не доходил. Поэтому до догадок идут не больше двух, остальные
-# — после; короткий адрес первым: у раздела он короче, чем у статьи.
-_TEXT_ONLY_BEFORE_GUESSES = 2
-
-
-def _page_queue(
-    followed: list[tuple[str, PageKind]], guesses: Iterable[tuple[str, PageKind]]
-) -> list[tuple[str, PageKind]]:
-    typed = [link for link in followed if link[1] is not PageKind.HOME]
-    text_only = sorted(
-        (link for link in followed if link[1] is PageKind.HOME),
-        key=lambda link: (len(link[0]), link[0]),
-    )
-    early = text_only[:_TEXT_ONLY_BEFORE_GUESSES]
-    late = text_only[_TEXT_ONLY_BEFORE_GUESSES:]
-    return [*typed, *early, *guesses, *late]
 
 
 class ContactLadder:
@@ -309,7 +288,7 @@ class ContactLadder:
         # Без этого локальная площадка не пробуется на своём языке вовсе —
         # потолок попыток кончается на английских слагах.
         language = language_hint(home.html, host)
-        queue = _page_queue(fetcher.follow(home, links), slug_urls(home.url, language=language))
+        queue = page_queue(fetcher.follow(home, links), slug_urls(home.url, language=language))
         visited = {home.url}
 
         for url, kind in queue:
