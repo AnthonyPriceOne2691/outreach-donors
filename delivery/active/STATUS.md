@@ -4,7 +4,7 @@
 - **stack:** delivery@1.98 · cqg@2.43 · okf@1.19 · stack-map@1.52
 - **class:** S
 - **kind:** feature
-- **phase:** implement
+- **phase:** verify
 - **builder:** agent:claude
 - **verifier:** process:ci — обязательные джобы `check`, `web` и `docker`, на PR ещё `gates` и `delivery`; ревью — координатор модуля, мерж — по решению владельца
 - **human_ok_spec:** yes at=2026-10-01 by=human:anthony («даю да» — план фаз)

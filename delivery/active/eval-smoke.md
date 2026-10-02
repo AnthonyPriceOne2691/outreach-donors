@@ -2,14 +2,14 @@
 
 Derived from spec acceptance. Run during verify.
 
-- [ ] A1 — `pytest tests/test_sales_boundary.py`: импорт продаж, подложенный
+- [x] A1 — `pytest tests/test_sales_boundary.py`: импорт продаж, подложенный
       в каждый из четырёх пакетов почты на копии дерева, краснит гейт слоёв;
       без импорта и без контракта тот же гейт зелёный.
-- [ ] A1 живьём — тот же импорт в самом `backend/features/letters/` →
+- [x] A1 живьём — тот же импорт в самом `backend/features/letters/` →
       `bash scripts/lint/check_layers_gate.sh` красный, после возврата зелёный.
       Правило depcruise — так же: импорт экрана продаж в экран почты.
-- [ ] A2 — числа файлов `sales/` у ruff, mypy, `scripts/gates.py`,
+- [x] A2 — числа файлов `sales/` у ruff, mypy, `scripts/gates.py`,
       `lint-imports`, ратчета сложности, DRY и diff-coverage — все больше нуля,
       в verify-report.
-- [ ] A3 — `python scripts/contour_waves.py --base <база PR>`: exit 0,
+- [x] A3 — `python scripts/contour_waves.py --base <база PR>`: exit 0,
       «В1 deployed», нарушений нет.
