@@ -642,9 +642,9 @@
       "worst": "_vcard_emails:40"
     },
     "backend/features/contacts/refind.py": {
-      "lines": 172,
-      "complexity": 8,
-      "worst": "save:135"
+      "lines": 215,
+      "complexity": 9,
+      "worst": "_clear:189"
     },
     "backend/features/contacts/repository.py": {
       "lines": 330,

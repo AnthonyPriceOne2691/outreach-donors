@@ -20,9 +20,10 @@ from backend.features.contacts.provider import ProviderQuotaError, Quota
 from backend.features.contacts.quality import Candidate
 from backend.features.contacts.refind import NamedDomains, Refound
 from backend.features.contacts.search import SearchReport, search_contacts
-from backend.features.core.domain import ContactSource, ContactStatus
+from backend.features.core.domain import ContactSource, ContactStatus, MessageStatus, Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
+from backend.features.core.models.outreach import CampaignModel, MessageModel
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import make_donor
@@ -169,6 +170,40 @@ class TestWhatStays:
 
         assert queue.domains["site.com"].kept[0][0] == "here@site.com"
         assert await _addresses(session, domain) == ["here@site.com", "info@site.com"]
+
+    async def test_letters_to_a_kept_address_are_named(
+        self, session: AsyncSession, web: dict[str, str]
+    ) -> None:
+        """Письмо, уже собранное на ложный адрес, уйдёт, когда снимут
+        предохранитель: команда называет его и говорит, где остановить."""
+        web["/contact/"] = CONTACT_PAGE
+        domain = await _false_address(session)
+        (contact_id,) = (
+            await session.execute(
+                select(ContactModel.id).where(ContactModel.domain_id == domain.id)
+            )
+        ).scalars()
+        campaign = CampaignModel(stage=Stage.DONORS, name="Проверка", status="running")
+        session.add(campaign)
+        await session.flush()
+        for number, status in enumerate((MessageStatus.QUEUED, MessageStatus.SENT)):
+            session.add(
+                MessageModel(
+                    campaign_id=campaign.id,
+                    domain_id=domain.id,
+                    contact_id=contact_id,
+                    status=status,
+                    idempotency_key=f"test:refind:{number}",
+                )
+            )
+        await session.flush()
+
+        queue = await _refind(session, "site.com", write=False)
+
+        (kept,) = queue.domains["site.com"].kept
+        assert kept[0] == "here@site.com"
+        assert "В очереди писем: 1, ушло: 1." in kept[1]
+        assert "остановить на экране «Письма»" in kept[1]
 
     async def test_manual_address_skips_the_domain(
         self, session: AsyncSession, web: dict[str, str]

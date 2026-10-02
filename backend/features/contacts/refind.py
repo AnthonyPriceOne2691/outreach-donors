@@ -31,16 +31,17 @@ import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.contacts.ladder import LadderResult
 from backend.features.contacts.manual import removal_refusals
 from backend.features.contacts.repository import ContactRepository
-from backend.features.core.domain import ContactSource, ContactStatus
+from backend.features.core.domain import ContactSource, ContactStatus, MessageStatus
 from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
+from backend.features.core.models.outreach import MessageModel
 from backend.features.crawl.contacts import AdvertiserContactRepository
 from backend.features.donors.host import normalize_host
 
@@ -49,6 +50,24 @@ logger = logging.getLogger(__name__)
 #: Исходы, после которых прежние адреса лестницы снимаются: сайт ответил,
 #: и новый исход — его ответ. Квота, частота, поломка — «не спросили».
 CONCLUSIVE = frozenset({ContactStatus.FOUND, ContactStatus.NOT_FOUND, ContactStatus.FORM_ONLY})
+
+
+#: Письмо ещё уйдёт — его можно остановить.
+_WAITING = frozenset({MessageStatus.QUEUED, MessageStatus.SENDING})
+#: Письмо ушло.
+_GONE = frozenset({MessageStatus.SENT, MessageStatus.DELIVERED, MessageStatus.BOUNCED})
+
+
+def _why_kept(refusal: str, letters: dict[int, tuple[int, int]], contact: ContactModel) -> str:
+    """Почему адрес остаётся — и что с письмами на него (ревью #142).
+
+    Новых писем такой адрес не получит (сборка не берёт адрес с письмом),
+    но собранное и ждущее в очереди уйдёт, когда снимут предохранитель:
+    его надо остановить руками.
+    """
+    queued, gone = letters.get(contact.id, (0, 0))
+    said = f"{refusal} В очереди писем: {queued}, ушло: {gone}."
+    return f"{said} Письма в очереди — остановить на экране «Письма»." if queued else said
 
 
 @dataclass(slots=True)
@@ -124,6 +143,27 @@ class NamedDomains:
             return
         found.before = [contact.email for contact in contacts]
 
+    async def _letters(self, contact_ids: list[int]) -> dict[int, tuple[int, int]]:
+        """Писем на адрес: (в очереди, ушло)."""
+        if not contact_ids:
+            return {}
+        rows = await self._session.execute(
+            select(MessageModel.contact_id, MessageModel.status, func.count())
+            .where(MessageModel.contact_id.in_(contact_ids))
+            .group_by(MessageModel.contact_id, MessageModel.status)
+        )
+        counts: dict[int, tuple[int, int]] = {}
+        for contact_id, status, count in rows.tuples():
+            if contact_id is None:
+                continue
+            queued, gone = counts.get(contact_id, (0, 0))
+            if status in _WAITING:
+                queued += count
+            elif status in _GONE:
+                gone += count
+            counts[contact_id] = (queued, gone)
+        return counts
+
     async def _contacts(self, host: str) -> list[ContactModel]:
         rows = await self._session.execute(
             select(ContactModel)
@@ -154,9 +194,12 @@ class NamedDomains:
         keep = result.contact.email if result.contact else None
         old = [c for c in await self._contacts(result.host) if c.email != keep]
         refusals = await removal_refusals(self._session, old)
+        letters = await self._letters([contact.id for contact in old if contact.id in refusals])
         for contact in old:
             if contact.id in refusals:
-                found.kept.append((contact.email, refusals[contact.id]))
+                found.kept.append(
+                    (contact.email, _why_kept(refusals[contact.id], letters, contact))
+                )
                 continue
             found.removed.append(contact.email)
             if self._write:
