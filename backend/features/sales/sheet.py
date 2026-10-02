@@ -70,7 +70,7 @@ async def fetch(link: str, http: httpx.AsyncClient, *, limit: int) -> bytes:
                 body += chunk
                 if len(body) > limit:
                     raise SheetError(
-                        f"таблица больше {limit // 1024} КБ — выгрузите её в CSV частями"
+                        f"таблица больше {limit / 2**20:g} МБ — выгрузите её в CSV частями"
                     )
     except httpx.HTTPError as exc:
         raise SheetUnavailableError(
