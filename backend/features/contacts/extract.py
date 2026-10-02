@@ -88,9 +88,11 @@ _DETERMINERS = frozenset(
 )
 #: — или после него бесплатная почта: «mike.blogger at gmail.com» — так пишут
 #: мелкие блоги. Кроме оборотов вроде «Log in at gmail.com»: слово перед «at»
-#: из `_NOT_LOCAL` — не локальная часть.
+#: из `_NOT_LOCAL` — не локальная часть. Начало — только в начале прогона
+#: знаков локальной части, как у `EMAIL_RE`: `\b` срабатывал на каждой точке
+#: внутри «a.a.a…», и поиск шёл квадратично (50 тысяч знаков — 25 с, e6).
 _AT_FREE_RE = re.compile(
-    r"\b([\w.+-]+)\s+at\s+(?=(?:"
+    r"(?<![\w.+-])([\w.+-]+)\s+at\s+(?=(?:"
     + "|".join(re.escape(domain) for domain in sorted(FREE_MAILBOX_DOMAINS))
     + r")\b)",
     re.IGNORECASE,

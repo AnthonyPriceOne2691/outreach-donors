@@ -572,9 +572,9 @@
       "worst": "render:111"
     },
     "backend/features/contacts/extract.py": {
-      "lines": 300,
+      "lines": 302,
       "complexity": 9,
-      "worst": "find_contact_links:278"
+      "worst": "find_contact_links:280"
     },
     "backend/features/contacts/file_sweep.py": {
       "lines": 379,

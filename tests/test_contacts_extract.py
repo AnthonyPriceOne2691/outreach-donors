@@ -163,6 +163,14 @@ class TestLinearTime:
         assert extract_obfuscated(html) == {"info@site.com"}
         assert time.perf_counter() - started < 1.0
 
+    @pytest.mark.parametrize("token", ["a." * 50_000, "a+" * 50_000, "a-" * 50_000])
+    def test_long_dotted_token(self, token: str) -> None:
+        """Правило бесплатной почты начиналось на каждой точке внутри токена
+        и, не найдя за ним бесплатной почты, пробовало следующую."""
+        started = time.perf_counter()
+        assert extract_obfuscated(f"<p>{token}</p>") == set()
+        assert time.perf_counter() - started < 1.0
+
     def test_long_token_without_an_address(self) -> None:
         html = f"<body><script>var data = '{'a' * 100_000}';</script><p>ads@site.com</p></body>"
         started = time.perf_counter()
