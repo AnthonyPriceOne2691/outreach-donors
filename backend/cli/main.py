@@ -27,6 +27,8 @@ from backend.cli.advertisers import (
     cmd_advertisers_promote,
     cmd_suppliers_import,
 )
+from backend.cli.contact_refind import add_parser as add_contact_refind_parser
+from backend.cli.contact_refind import cmd_contacts_refind
 from backend.cli.contact_search import cmd_contacts
 from backend.cli.contact_sweep import add_parser as add_contact_sweep_parser
 from backend.cli.contact_sweep import cmd_contacts_file
@@ -375,6 +377,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     add_contact_sweep_parser(sub)
+    add_contact_refind_parser(sub)
     add_crawl_parser(sub)
     add_advertisers_parser(sub)
     add_letters_parser(sub)
@@ -402,6 +405,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] =
     "quota": lambda _: cmd_quota(),
     "contacts": cmd_contacts,
     "contacts-file": cmd_contacts_file,
+    "contacts-refind": cmd_contacts_refind,
     "crawl": cmd_crawl,
     "advertisers": cmd_advertisers,
     "advertiser-decide": cmd_advertiser_decide,

@@ -81,6 +81,20 @@ class VersionChecks:
                 silent.append(rel)
         return found, silent
 
+    def _repo_versions(self, prefix: str) -> list[str]:
+        """Версии слоя по записям РЕПОЗИТОРИЯ — без `absent` и без STATUS поставки.
+
+        Строка `stack:` в STATUS — запись ПОСТАВКИ о версии, на которой она
+        начиналась, и законно отстаёт от репозитория: у `outreach-donors` 01.10
+        там стояло `delivery@1.93, cqg@deployed` при `delivery@1.98` в
+        конституции. Две версии в ответе — записи репозитория расходятся, и
+        выбирать одну из них за проект нельзя. Одно место на доктора и на обход
+        флота (`field/fleet/preflight.record_pins`), иначе они разъедутся.
+        """
+        found, _ = self._records(prefix)
+        return sorted({v.split("@", 1)[1] for rel, v in found
+                       if not rel.endswith("STATUS.md")} - {"absent"})
+
     @staticmethod
     def _prose_lines(p: Path) -> list[str]:
         """Строки файла ВНЕ fenced-блоков.
