@@ -300,3 +300,21 @@ class TestTheCommand:
         assert await contact_refind.cmd_contacts_refind(args) == 0
 
         assert "Записано: доменов 1, с адресом 1." in capsys.readouterr().out
+
+
+class TestLastTry:
+    async def test_the_queue_knows_the_last_try(self, session: AsyncSession) -> None:
+        """Очередь команды — очередь общего поиска: последний шанс сайту
+        ответить она называет так же (`attempts.last_tries`)."""
+        domain = await make_donor(session, "site.com")
+        await session.execute(
+            update(DonorModel)
+            .where(DonorModel.domain_id == domain.id)
+            .values(
+                contact_status=ContactStatus.NO_ANSWER,
+                contact_tries=3,
+                contact_attempted_at=datetime.now(UTC),
+            )
+        )
+        queue = NamedDomains(session, ["site.com"], write=False)
+        assert await queue.last_tries(["site.com"]) == {"site.com"}

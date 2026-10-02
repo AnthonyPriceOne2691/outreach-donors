@@ -23,20 +23,14 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, or_
-from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql.elements import ColumnElement
 
-from backend.features.core.domain import ContactStatus
-from backend.features.core.models._mixins import TimestampedMixin
+from backend.features.core.models._mixins import ContactAttemptMixin, TimestampedMixin
 from backend.shared.database.base import Base
 
 
-def _enum(e: type) -> SQLEnum:
-    return SQLEnum(e, values_callable=lambda x: [i.value for i in x])
-
-
-class AdvertiserModel(TimestampedMixin, Base):
+class AdvertiserModel(TimestampedMixin, ContactAttemptMixin, Base):
     """Домен, которому мы собираемся написать оффер.
 
     Поля контакта повторяют донорские намеренно: лестница поиска адреса
@@ -70,12 +64,7 @@ class AdvertiserModel(TimestampedMixin, Base):
     #: по расхождению этих двух и считается, как часто ошибается скоринг.
     confirmed_by_human: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
-    contact_status: Mapped[ContactStatus | None] = mapped_column(
-        _enum(ContactStatus), nullable=True
-    )
-    contact_attempted_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    # Исход поиска адреса — колонки `ContactAttemptMixin`.
 
     __table_args__ = (
         Index("idx_advertisers_points", "points"),

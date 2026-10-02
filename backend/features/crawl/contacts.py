@@ -17,14 +17,15 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
-from sqlalchemy import ColumnElement, func, select, update
+from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import contacts as cfg
+from backend.features.contacts import attempts
 from backend.features.contacts.ladder import LadderResult
-from backend.features.contacts.repository import RETRIABLE, domain_ids, save_addresses
+from backend.features.contacts.repository import domain_ids, save_addresses
 from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel
@@ -42,15 +43,11 @@ class AdvertiserContactRepository:
         """Условие «нужен контакт». Одно на счёт и на выборку: два разных
         правила разошлись бы на первой правке, и экран показывал бы одно
         число, а поиск брал другое."""
-        border = moment - timedelta(days=ttl_days)
         has_contact = select(ContactModel.id).where(
             ContactModel.domain_id == AdvertiserModel.domain_id
         )
-        return (
-            AdvertiserModel.contact_attempted_at.is_(None)
-            | (AdvertiserModel.contact_attempted_at < border)
-            | AdvertiserModel.contact_status.in_(tuple(RETRIABLE))
-        ) & ~has_contact.exists()
+        waiting = attempts.waiting(AdvertiserModel, now=moment, ttl_days=ttl_days)
+        return waiting & ~has_contact.exists()
 
     async def pending_hosts(
         self,
@@ -93,17 +90,27 @@ class AdvertiserContactRepository:
         moment = now or datetime.now(UTC)
         ids = await domain_ids(self._session, [r.host for r in results])
 
-        for result in results:
-            domain_id = ids.get(result.host)
-            if domain_id is None:
-                logger.warning(
-                    "контакты рекламодателей: домена %s нет в базе — исход не записан", result.host
-                )
-                continue
-            await self._session.execute(
-                update(AdvertiserModel)
-                .where(AdvertiserModel.domain_id == domain_id)
-                .values(contact_status=result.status, contact_attempted_at=moment)
-            )
-
+        _warn_unknown(results, ids)
+        # Правило попыток одно на все очереди (`attempts.py`): счёт проходов
+        # без ответа и повтор по сроку — как у доноров.
+        await attempts.record(
+            self._session,
+            AdvertiserModel,
+            [attempts.Outcome(r.host, r.status, r.reason) for r in results],
+            ids,
+            moment=moment,
+        )
         return await save_addresses(self._session, results, ids)
+
+    async def last_tries(self, hosts: Sequence[str]) -> set[str]:
+        """Рекламодатели, для которых проход — последний шанс сайту ответить."""
+        return await attempts.last_tries(self._session, AdvertiserModel, hosts)
+
+
+def _warn_unknown(results: Sequence[LadderResult], ids: dict[str, int]) -> None:
+    """Исход домена, которого нет в базе, не записать — сказать об этом."""
+    for result in results:
+        if result.host not in ids:
+            logger.warning(
+                "контакты рекламодателей: домена %s нет в базе — исход не записан", result.host
+            )
