@@ -1,7 +1,7 @@
 # Active delivery status
 
 - **slug:** sales-v1-boundary (модуль «Продажи», срез 1.2: граница модуля — волна В1)
-- **stack:** delivery@1.98 · cqg@2.43 · okf@1.19 · stack-map@1.52
+- **stack:** delivery@1.99 · cqg@2.45 · okf@1.19 · stack-map@1.52
 - **class:** S
 - **kind:** feature
 - **phase:** verify
