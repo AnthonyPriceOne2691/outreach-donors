@@ -544,6 +544,47 @@ class TestTheJobBody:
         assert ladder.calls == []
 
 
+class TestBrowserOnlyWhenAsked:
+    """Поиск по базе входил в браузер всегда: Chromium поднимался на каждый
+    проход и без `--browser` — секунды запуска и сотни мегабайт ради
+    выключенной ступени. Тот же дефект, что был у прогона по файлу."""
+
+    @staticmethod
+    def _count_starts(monkeypatch: pytest.MonkeyPatch) -> list[bool]:
+        started: list[bool] = []
+
+        class Counting(_NoBrowser):
+            async def __aenter__(self) -> None:
+                started.append(True)
+
+        monkeypatch.setattr("backend.features.contacts.search.PlaywrightRenderer", Counting)
+        return started
+
+    async def test_search_without_the_browser_does_not_start_it(
+        self, session: AsyncSession, ladder: FakeProvider, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        started = self._count_starts(monkeypatch)
+        donor = await _donor(session, "plain.example.test")
+        await session.commit()
+
+        report = await jobs._search_contacts(1, False, False, donor.id)
+
+        assert report["walked"] == 1
+        assert started == []
+
+    async def test_asked_browser_that_did_not_start_is_said(
+        self, session: AsyncSession, ladder: FakeProvider, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        started = self._count_starts(monkeypatch)
+        donor = await _donor(session, "plain.example.test")
+        await session.commit()
+
+        report = await jobs._search_contacts(1, True, False, donor.id)
+
+        assert started == [True]
+        assert "Браузер не поднялся — проход идёт без этой ступени." in report["notes"]
+
+
 class TestAddressFilter:
     async def test_no_address_includes_the_never_searched(
         self, client: AsyncClient, operator_token: str, session: AsyncSession

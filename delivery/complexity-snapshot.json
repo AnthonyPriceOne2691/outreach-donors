@@ -587,9 +587,9 @@
       "worst": "find_contact_links:215"
     },
     "backend/features/contacts/file_sweep.py": {
-      "lines": 378,
+      "lines": 379,
       "complexity": 8,
-      "worst": "_handle_columns:193"
+      "worst": "_handle_columns:194"
     },
     "backend/features/contacts/forms.py": {
       "lines": 193,
@@ -597,9 +597,9 @@
       "worst": "monthly_left:115"
     },
     "backend/features/contacts/ladder.py": {
-      "lines": 491,
+      "lines": 475,
       "complexity": 10,
-      "worst": "_step_pages:283"
+      "worst": "_step_pages:264"
     },
     "backend/features/contacts/manual.py": {
       "lines": 184,
@@ -612,14 +612,14 @@
       "worst": "_collect:315"
     },
     "backend/features/contacts/mx.py": {
-      "lines": 207,
+      "lines": 229,
       "complexity": 10,
-      "worst": "_query:135"
+      "worst": "_query:145"
     },
     "backend/features/contacts/pages.py": {
-      "lines": 286,
+      "lines": 324,
       "complexity": 7,
-      "worst": "language_hint:104"
+      "worst": "language_hint:115"
     },
     "backend/features/contacts/preference.py": {
       "lines": 52,
@@ -647,9 +647,9 @@
       "worst": "refusal_of:119"
     },
     "backend/features/contacts/search.py": {
-      "lines": 200,
+      "lines": 198,
       "complexity": 9,
-      "worst": "search_contacts:136"
+      "worst": "search_contacts:137"
     },
     "backend/features/contacts/slugs.py": {
       "lines": 318,

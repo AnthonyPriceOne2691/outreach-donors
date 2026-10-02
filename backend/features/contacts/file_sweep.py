@@ -89,8 +89,9 @@ PROGRESS_EVERY = 25
 #: Колонки итога. Каналы — по одному столбцу на вид, значения через `; `.
 #: `retry_reason` заполнен только у строк «повторить»: почему исход не окончательный.
 #: `mail_route` — вердикт MX по домену сайта: `mx` и `implicit` — почту
-#: принимает, `none` — нет (адреса на нём отсеяны, см. `rejected`),
-#: `unknown` — DNS не ответил, доставка не проверена.
+#: принимает, `none` — нет, `null_mx` — объявил нулевой MX (в обоих случаях
+#: адреса на нём отсеяны, см. `rejected`), `unknown` — DNS не ответил,
+#: доставка не проверена.
 OUTPUT_COLUMNS = (
     "host", "status", "retry_reason",
     "mail_route", "email", "emails", "email_source", "email_page", "has_form",

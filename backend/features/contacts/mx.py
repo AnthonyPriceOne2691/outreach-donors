@@ -10,6 +10,14 @@
 домены письма принимают, и выбрасывать их нельзя — это стоило бы нам
 части базы на ровном месте.
 
+Обратная тонкость: запись MX бывает отказом. «Нулевой MX» (RFC 7505,
+`0 .`) — это домен, объявивший, что почту не принимает вовсе. Считать его
+обычным MX значило писать по адресу на нём, который отобьётся наверняка.
+Но и с доменом без почты (`NONE`) его не смешать: нулевой MX ставят те, кто
+почту на домене не держит, — блогер с Gmail на странице контактов, у
+Cloudflare это одна галка. Сайт у такого домена есть, и сторонний адрес
+на нём доставляем: лестница идёт по страницам, отсеивая адреса на домене.
+
 Отдельно: неудачный запрос к DNS — это не «почты нет». Отсутствие данных
 не равно отказу, такой домен идёт дальше по лестнице.
 
@@ -43,10 +51,12 @@ class MailRoute(StrEnum):
     MX = "mx"  # есть запись MX — обычный случай
     IMPLICIT = "implicit"  # MX нет, но есть A: по RFC почта идёт туда
     NONE = "none"  # домена нет или он ничем не принимает — стоп
+    NULL_MX = "null_mx"  # «0 .»: почты на домене нет, а сайт и сторонний адрес — бывают
     UNKNOWN = "unknown"  # DNS не ответил; это не отказ, идём дальше
 
 
-#: Исходы, при которых лестница продолжается.
+#: Исходы, при которых адрес на домене сайта доходит (или DNS не ответил —
+#: не знаем, и это не отказ).
 DELIVERABLE = frozenset({MailRoute.MX, MailRoute.IMPLICIT, MailRoute.UNKNOWN})
 
 
@@ -189,7 +199,19 @@ async def mail_route(host: str, *, dns_timeout_sec: float | None = None) -> Mail
         )
         return MailRoute.UNKNOWN
 
-    return MailRoute.MX if len(answer) else await _implicit_route(host, timeout)
+    if not len(answer):
+        return await _implicit_route(host, timeout)
+    if all(_is_null_mx(record) for record in answer):
+        logger.debug("MX: %s объявил нулевой MX (RFC 7505) — почту не принимает", host)
+        return MailRoute.NULL_MX
+    # Нулевой MX рядом с настоящим — ошибка настройки домена, но почту
+    # примет настоящий: это всё ещё MX.
+    return MailRoute.MX
+
+
+def _is_null_mx(record: object) -> bool:
+    """Запись «0 .»: имя почтового сервера — корень, то есть сервера нет."""
+    return not str(getattr(record, "exchange", record)).rstrip(".")
 
 
 async def _implicit_route(host: str, timeout_sec: float) -> MailRoute:

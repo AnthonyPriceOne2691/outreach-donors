@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
+from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 
 import httpx
@@ -164,36 +165,33 @@ async def search_contacts(
         return report
 
     timeout = httpx.Timeout(cfg.PAGE_TIMEOUT_SEC, connect=cfg.PAGE_TIMEOUT_SEC)
-    # Клиент с защитой исходящих: адреса приходят снаружи — из выдачи
-    # и из ссылок на чужих страницах. Проверка идёт на каждом шаге
-    # редиректа, иначе публичный сайт уводит нас внутрь сети одним 302.
-    async with guarded_client(timeout=timeout) as http:
+    async with AsyncExitStack() as stack:
+        # Клиент с защитой исходящих: адреса приходят снаружи — из выдачи
+        # и из ссылок на чужих страницах. Проверка идёт на каждом шаге
+        # редиректа, иначе публичный сайт уводит нас внутрь сети одним 302.
+        http = await stack.enter_async_context(guarded_client(timeout=timeout))
         provider = None if no_paid else await _paid_step(http, report)
 
-        # Браузер поднимается один раз на проход, а не на домен: запуск
-        # стоит около секунды. Не поднялся — работаем без него.
-        async with PlaywrightRenderer() as renderer:
-            if use_browser and renderer is None:
-                report.notes.append("Браузер не поднялся — проход идёт без этой ступени.")
-            ladder = ContactLadder(
-                http,
-                provider=provider,
-                paid_first=paid_first,
-                renderer=renderer if use_browser else None,
-            )
+        # Браузер — только по просьбе и один раз на проход, а не на домен:
+        # запуск стоит около секунды и сотен мегабайт, а без просьбы его
+        # ступень всё равно не работает. Не поднялся — работаем без него.
+        renderer = await stack.enter_async_context(PlaywrightRenderer()) if use_browser else None
+        if use_browser and renderer is None:
+            report.notes.append("Браузер не поднялся — проход идёт без этой ступени.")
+        ladder = ContactLadder(http, provider=provider, paid_first=paid_first, renderer=renderer)
 
-            for start in range(0, len(hosts), BATCH):
-                batch = hosts[start : start + BATCH]
-                results = await _walk(ladder, batch)
-                report.saved += await repository.save(results)
-                await session.commit()
-                report.walked = start + len(batch)
-                if on_batch is not None:
-                    on_batch(report.walked, len(hosts))
+        for start in range(0, len(hosts), BATCH):
+            batch = hosts[start : start + BATCH]
+            results = await _walk(ladder, batch)
+            report.saved += await repository.save(results)
+            await session.commit()
+            report.walked = start + len(batch)
+            if on_batch is not None:
+                on_batch(report.walked, len(hosts))
 
-            report.counters = ladder.counters.as_report()
-            report.manual_queue_left = ladder.manual_queue_left
-            _note_provider_refusal(report, ladder.counters)
+        report.counters = ladder.counters.as_report()
+        report.manual_queue_left = ladder.manual_queue_left
+        _note_provider_refusal(report, ladder.counters)
 
     logger.info("контакты: %s", report.as_report)
     return report
