@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from delivery_base import git
+from delivery_base import git, merge_base_of
 
 # --- Маячки на рисковый дифф (§12.5) ----------------------------------------
 # Есть класс дефектов, у которых НЕТ оракула: архитектура выбрана неудачно, функция
@@ -78,21 +78,55 @@ RISK_CLASSES = {
 }
 
 
+def _changed_tokens(body: str, pat: str) -> set[str]:
+    """Токены класса, которые правка ИЗМЕНИЛА, а не просто задела.
+
+    Два источника. Заголовок ханка — МЕСТО правки: строка, поменянная внутри
+    `def refund_order`, касается денег, даже если слов о деньгах в ней нет.
+    Строки содержимого — по чистой разности: токен поднимает класс, только
+    если в ФАЙЛЕ его стало больше или меньше.
+
+    ⚠ Поле `outreach-donors` 01.10, срез продаж 1.1a: перенос TS-союза
+    `Permission` на строки поднял «деньги» словом `'prices'` и «безопасность»
+    словом `Permission` — оба стояли и в «-», и в «+». Маячок читал ТРОНУТЫЙ
+    текст, а его вопрос — что правка МЕНЯЕТ. Счёт по файлу, не по всему диффу:
+    денежная строка, переехавшая в другой модуль, — риск, и он остаётся.
+    """
+    found: set[str] = set()
+    for chunk in re.split(r"(?m)^diff --git ", body):
+        net: dict[str, int] = {}
+        in_hunk = False
+        for line in chunk.splitlines():
+            if line.startswith("@@"):
+                in_hunk = True
+                found |= {m.group(0).lower() for m in re.finditer(pat, line)}
+            elif in_hunk and line[:1] in ("+", "-"):
+                step = 1 if line[0] == "+" else -1
+                for m in re.finditer(pat, line[1:]):
+                    tok = m.group(0).lower()
+                    net[tok] = net.get(tok, 0) + step
+        found |= {tok for tok, n in net.items() if n}
+    return found
+
+
 def risky_classes(paths: list[str], base: str) -> dict[str, set[str]]:
-    """Классы риска, которых коснулся дифф → чем именно они подняты.
+    """Классы риска, которые дифф ИЗМЕНИЛ → чем именно они подняты.
 
     Возвращается не список имён, а КЛАСС → ТОКЕНЫ, которые его подняли
     (`производительность` → `{list_all, json.loads}`). Токены нужны проверке
     ниже: назвать класс можно и его именем, и тем, что его вызвало, — второе
     честнее, потому что показывает, что читатель видел конкретное место.
+    Окно — от точки ветвления (`merge_base_of`), как у путей из `diff_stats`.
     """
     if not paths:
         return {}
-    body = git("diff", "--unified=0", f"{base}..HEAD", "--", *paths)
-    haystack = "\n".join(paths) + "\n" + body
+    body = git("diff", "--unified=0", f"{merge_base_of(base) or base}..HEAD",
+               "--", *paths)
+    where = "\n".join(paths)
     hits: dict[str, set[str]] = {}
     for name, pat in RISK_CLASSES.items():
-        found = {m.group(0).lower() for m in re.finditer(pat, haystack)}
+        found = {m.group(0).lower() for m in re.finditer(pat, where)}
+        found |= _changed_tokens(body, pat)
         if found:
             hits[name] = found
     # Новый модуль — отдельный класс: у него ещё нет ни одного читателя.

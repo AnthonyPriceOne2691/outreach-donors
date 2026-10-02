@@ -202,6 +202,23 @@ def git(*args: str) -> str:
     return out.stdout if out.returncode == 0 else ""
 
 
+def merge_base_of(base: str | None) -> str:
+    """Точка ветвления HEAD от `base` либо "" — базы нет или она не разрешается.
+
+    Окно поставки — `merge_base..HEAD`, а не `base..HEAD`: двухточечный
+    `git diff` сравнивает ДЕРЕВЬЯ, и стоит `main` уйти вперёд, как в дифф ветки
+    въезжает чужая работа задом наперёд. Замер `outreach-donors` 01.10: на ветке
+    продаж `origin/main..HEAD` задевал 36 файлов, `merge-base..HEAD` — 28.
+    Одно место на всех потребителей базы — `diff_stats`, порядок §3.1d, маячок
+    §12.5 и его цитаты: иначе половины одной проверки меряют разные окна, и это
+    уже случилось (пути брались от точки ветвления, тело диффа — от базы).
+    """
+    if not base or not git("-C", str(ROOT), "rev-parse", "--verify",
+                           "--quiet", base).strip():
+        return ""
+    return git("-C", str(ROOT), "merge-base", base, "HEAD").strip()
+
+
 
 # Незаполненный шаблон не должен проходить проверку — тот же урок, что с STATUS
 # в v1.5 («class: <S|M|L>» читался как class=S). Плейсхолдер здесь — угловые

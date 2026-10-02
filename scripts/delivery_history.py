@@ -11,7 +11,7 @@ import functools
 import os
 import re
 
-from delivery_base import ARCHIVE, ROOT, example_ref_pattern, git
+from delivery_base import ARCHIVE, ROOT, example_ref_pattern, git, merge_base_of
 
 # --- Происхождение ожидания (§3.1d) -----------------------------------------
 # §3.1d говорит: «примеры пишутся на фазе specify, ДО plan и до кода. Порядок
@@ -27,8 +27,11 @@ from delivery_base import ARCHIVE, ROOT, example_ref_pattern, git
 # проверку сняли бы (класс F4/F6/F13). Когда всё в одном коммите, порядок
 # установить НЕЛЬЗЯ — честный ответ «не проверить», а не «нарушение». Считается и
 # печатается числом: это подсказывает коммитить спеку отдельно, ничего не ломая.
-def _first_commit_with(text: str, *paths: str) -> str:
+def _first_commit_with(text: str, *paths: str, window: str = "") -> str:
     """Самый старый коммит, где появилась ССЫЛКА на пример `text` в указанных путях.
+
+    `window` — окно ветки `merge_base..HEAD` (см. `_branch_window`); пустое —
+    вся история, и тогда переиспользованный id отвечает за чужую поставку.
 
     Что такое ссылка, решает `delivery_base.example_ref_pattern` — то же место,
     что у проверки покрытия. Здесь стоял свой токен, и его граница пускала байт
@@ -54,22 +57,44 @@ def _first_commit_with(text: str, *paths: str) -> str:
     if not paths:
         return ""
     token = example_ref_pattern(text)
+    rng = [window] if window else []
     out = git("-C", str(ROOT), "log", "--format=%H", f"-S{token}",
-              "--pickaxe-regex", "--", *paths)
+              "--pickaxe-regex", *rng, "--", *paths)
     revs = [l.strip() for l in out.split("\n") if l.strip()]
     return revs[-1] if revs else ""
 
 
+def _branch_window(base: str | None) -> str:
+    """`merge_base..HEAD` по базе гейта либо "" — тогда вся история.
+
+    ⚠ Поле `outreach-donors` 01.10, срез продаж 1.1a: номера примеров срезы
+    берут заново (`A4` нового среза — не `A4` прежнего), а `spec.md` у всех
+    поставок по одному пути. «Первый коммит во всей истории» отвечал про ЧУЖУЮ
+    поставку: A4 и A5 датировались сквошем прошлого среза — «одним коммитом»,
+    хотя в ветке спека и тесты легли разными коммитами в верном порядке.
+    Класс `diff-base-is-a-parameter`: гейт получает `--diff-base`, breakers по
+    нему меряют `merge-base..HEAD`, а эта проверка брала базу сама — начало
+    репозитория. Тот же класс, что «переиспользуемый путь + вся история»
+    у `STATUS.md` в lab-12.
+
+    Без базы окно — вся история, как прежде, и предел назван, а не спрятан:
+    гейт в CI и в pre-push зовут с базой. Битая база тоже даёт всю историю —
+    о ней и так говорит проверка breakers.
+    """
+    merge_base = merge_base_of(base)
+    return f"{merge_base}..HEAD" if merge_base else ""
+
+
 def _expectation_verdict(ex: str, test_paths: list[str],
-                         order: dict[str, int]) -> str:
+                         order: dict[str, int], window: str = "") -> str:
     """`after` | `unknown` | `""` — что история говорит про ОДИН id.
 
     Шов по данным: наружу блок отдавал только корзину, в которую лёг id, —
     `s_rev`/`t_rev` ниже не читает никто. Вердикт возвращается словом, а `continue`
     остаётся у вызывающего: выход через границу шва сменил бы смысл (было 41/12).
     """
-    s_rev = _first_commit_with(ex, "delivery/active/spec.md")
-    t_rev = _first_commit_with(ex, *test_paths)
+    s_rev = _first_commit_with(ex, "delivery/active/spec.md", window=window)
+    t_rev = _first_commit_with(ex, *test_paths, window=window)
     if not s_rev or not t_rev:
         return ""  # id ещё не в истории — поставка не закоммичена, не наше дело
     if s_rev == t_rev:
@@ -103,12 +128,13 @@ def _expectation_warnings(after: list[str], unknown: list[str],
     return msgs
 
 
-def expectation_predates_tests(ex_ids: list[str], test_paths: list[str]) -> list[str]:
-    """[(предупреждения)] — порядок «пример раньше теста» по истории.
+def expectation_predates_tests(ex_ids: list[str], test_paths: list[str],
+                               base: str | None = None) -> list[str]:
+    """[(предупреждения)] — порядок «пример раньше теста» по истории ВЕТКИ.
 
     Возвращает предупреждения, а не ошибки: до первого живого проекта у нас нет
     данных, как часто «не проверить» встречается в норме. Ужесточать — после
-    замера, а не из симметрии.
+    замера, а не из симметрии. `base` — та же база, что у breakers (`--diff-base`).
     """
     if not ex_ids or not test_paths:
         return []
@@ -116,10 +142,11 @@ def expectation_predates_tests(ex_ids: list[str], test_paths: list[str]) -> list
         git("-C", str(ROOT), "rev-list", "--topo-order", "HEAD").split())}
     if not order:
         return []
+    window = _branch_window(base)
     ids = list(dict.fromkeys(ex_ids))
     after, unknown = [], []
     for ex in ids:
-        verdict = _expectation_verdict(ex, test_paths, order)
+        verdict = _expectation_verdict(ex, test_paths, order, window)
         if verdict == "after":
             after.append(ex)
         elif verdict == "unknown":

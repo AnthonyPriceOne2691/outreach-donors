@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 
-from delivery_base import out_of_blast_radius, git
+from delivery_base import git, merge_base_of, out_of_blast_radius
 from delivery_decisions import DECISION_STOPWORDS
 
 def diff_stats(base: str) -> tuple[int, int, int, int, list[str]] | None:
@@ -24,7 +24,7 @@ def diff_stats(base: str) -> tuple[int, int, int, int, list[str]] | None:
     """
     if not git("rev-parse", "--verify", "--quiet", base).strip():
         return None
-    merge_base = git("merge-base", base, "HEAD").strip() or base
+    merge_base = merge_base_of(base) or base
     files = added = deleted = excluded = 0
     paths: list[str] = []
     for line in git("diff", "--numstat", f"{merge_base}..HEAD").splitlines():
@@ -94,7 +94,8 @@ def diff_identifiers(paths: list[str], base: str) -> set[str]:
         for part in re.split(r"[/\\.]", path):
             if len(part) >= 4 and part.lower() not in DECISION_STOPWORDS:
                 ids.add(part.lower())
-    body = git("diff", "--unified=0", f"{base}..HEAD", "--", *paths) if paths else ""
+    rng = f"{merge_base_of(base) or base}..HEAD"
+    body = git("diff", "--unified=0", rng, "--", *paths) if paths else ""
     for tok in re.findall(r"[A-Za-z_][A-Za-z0-9_]{3,}", body):
         low = tok.lower()
         if low not in DECISION_STOPWORDS:
