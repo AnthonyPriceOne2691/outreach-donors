@@ -11,7 +11,9 @@
 - **new_dependency:** no
 - **shared_changes:** общий код тронут ровно там, без чего раздел продаж не собрать.
   `core/domain.py` — право `Permission.SALES`; `access/permissions.py` — матрица ролей:
-  строка о том, почему оператору раздел продаж не положен по умолчанию;
+  `Permission.SALES` в роли оператора по решению владельца 01.10 — раздел видят все,
+  снять у одного — `{"sales": false}` в `users.permissions`; `tests/test_api_auth.py` —
+  список прав оператора при входе теперь с `sales`;
   `core/models/__init__.py` — импорт моделей продаж, иначе Alembic их не видит;
   `backend/migrations/versions/715bbf374195_sales_hypotheses_and_leads.py` — таблицы
   `sales_hypotheses` и `sales_leads` с внешними ключами на `domains` и `contacts`
