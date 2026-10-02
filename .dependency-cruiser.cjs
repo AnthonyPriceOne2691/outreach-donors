@@ -30,6 +30,21 @@ module.exports = {
       from: {},
       to: { circular: true },
     },
+    // Пара контракту `.importlinter` того же имени (модуль «Продажи», волна В1).
+    // Пути — от корня репозитория: гейт слоёв зовёт depcruise оттуда, и модули
+    // называются `frontend/src/…`. Экраны продаж — `frontend/src/sales/`, как
+    // `SALES_PATHS` в scripts/contour_waves.py; пока каталога нет, правилу судить
+    // нечего. Каталог меняется в обоих местах вместе — иначе правило зелёное
+    // на пустоте.
+    {
+      name: 'mail-does-not-know-sales',
+      comment:
+        'экраны почты («Письма», «Диалоги», «Стоп-лист», «Домены рассылки») не ' +
+        'импортируют экраны продаж: продажи читают почту, а не наоборот',
+      severity: 'error',
+      from: { path: '^frontend/src/(letters|threads|suppressions|senders)/' },
+      to: { path: '^frontend/src/sales/' },
+    },
   ],
   options: {
     doNotFollow: { path: 'node_modules' },
