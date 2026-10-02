@@ -32,6 +32,8 @@ class Collected:
     blocked: bool = False
     #: Вердикт ступени MX по домену сайта.
     route: MailRoute | None = None
+    #: Последний шанс сайту ответить: в таком проходе платят и при молчании.
+    last_try: bool = False
 
     def _undeliverable(self, email: str) -> str | None:
         """Адрес на домене сайта, который почту не принимает, отбился бы.

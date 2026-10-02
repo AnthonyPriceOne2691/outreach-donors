@@ -40,6 +40,7 @@ from backend.features.contacts.provider import (
 )
 from backend.features.contacts.repository import ContactQueue, ContactRepository
 from backend.features.contacts.step_counters import StepCounters
+from backend.features.contacts.sweep_trace import TracedRenderer, current_silence, traced, watch
 from backend.shared.net.url_guard import guarded_client
 
 logger = logging.getLogger(__name__)
@@ -109,15 +110,37 @@ async def _paid_step(http: httpx.AsyncClient, report: SearchReport) -> ContactPr
     return provider
 
 
-async def _walk(ladder: ContactLadder, hosts: list[str]) -> list[LadderResult]:
-    """Пройти пачку доменов одновременно, но не все сразу."""
+async def _walk(ladder: ContactLadder, hosts: list[str], last: set[str]) -> list[LadderResult]:
+    """Пройти пачку доменов одновременно, но не все сразу.
+
+    Обмен с каждым сайтом идёт в своём следе (`sweep_trace.traced`): по нему
+    лестница знает, ответил ли сайт, — молчащему не платят, а исход
+    `no_answer` повторится по сроку (`attempts.py`). `last` — домены, для
+    которых этот проход — последний шанс.
+    """
     limiter = asyncio.Semaphore(CONCURRENCY)
 
     async def one(host: str) -> LadderResult:
         async with limiter:
-            return await ladder.find(host)
+            with traced(host):
+                return await ladder.find(host, last_try=host in last)
 
     return list(await asyncio.gather(*(one(host) for host in hosts)))
+
+
+async def _browser(stack: AsyncExitStack, report: SearchReport) -> TracedRenderer | None:
+    """Браузер на весь проход, если его просили.
+
+    Один раз на проход, а не на домен: запуск стоит около секунды и сотен
+    мегабайт, а без просьбы его ступень всё равно не работает. Страница,
+    которую он отдал, — тоже ответ сайта (`TracedRenderer`). Не поднялся —
+    работаем без него и говорим об этом.
+    """
+    renderer = await stack.enter_async_context(PlaywrightRenderer())
+    if renderer is None:
+        report.notes.append("Браузер не поднялся — проход идёт без этой ступени.")
+        return None
+    return TracedRenderer(renderer)
 
 
 def _note_provider_refusal(report: SearchReport, counters: StepCounters) -> None:
@@ -171,18 +194,20 @@ async def search_contacts(
         # редиректа, иначе публичный сайт уводит нас внутрь сети одним 302.
         http = await stack.enter_async_context(guarded_client(timeout=timeout))
         provider = None if no_paid else await _paid_step(http, report)
+        # Обмен с сайтами учитывается: по нему решается, ответил ли сайт.
+        watch(http)
 
-        # Браузер — только по просьбе и один раз на проход, а не на домен:
-        # запуск стоит около секунды и сотен мегабайт, а без просьбы его
-        # ступень всё равно не работает. Не поднялся — работаем без него.
-        renderer = await stack.enter_async_context(PlaywrightRenderer()) if use_browser else None
-        if use_browser and renderer is None:
-            report.notes.append("Браузер не поднялся — проход идёт без этой ступени.")
-        ladder = ContactLadder(http, provider=provider, paid_first=paid_first, renderer=renderer)
+        ladder = ContactLadder(
+            http,
+            provider=provider,
+            paid_first=paid_first,
+            renderer=await _browser(stack, report) if use_browser else None,
+            silence=current_silence,
+        )
 
         for start in range(0, len(hosts), BATCH):
             batch = hosts[start : start + BATCH]
-            results = await _walk(ladder, batch)
+            results = await _walk(ladder, batch, await repository.last_tries(batch))
             report.saved += await repository.save(results)
             await session.commit()
             report.walked = start + len(batch)

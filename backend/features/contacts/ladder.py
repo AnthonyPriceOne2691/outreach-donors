@@ -116,6 +116,7 @@ class ContactLadder:
         renderer: browser_step.PageRenderer | None = None,
         stop_without_mail: bool = True,
         collect_handles: bool = False,
+        silence: Callable[[], str | None] | None = None,
     ) -> None:
         self._http = http
         self._provider = provider
@@ -128,6 +129,10 @@ class ContactLadder:
         # Каналы связи читает только прогон по файлу: в базе им места нет,
         # и путь базы платил за них вторым проходом по каждой странице.
         self._collect_handles = collect_handles
+        # Крючок прохода: почему сайт не ответил (`sweep_trace.current_silence`).
+        # Молчащему сайту платная ступень не зовётся, а исход — `no_answer`
+        # с повтором по сроку (`attempts.py`). Без крючка лестница как прежде.
+        self._silence = silence
         self.counters = StepCounters()
 
     def _sequence(self) -> list[_Step]:
@@ -150,10 +155,14 @@ class ContactLadder:
         paid = _Step("provider", self._step_provider, ContactSource.PROVIDER)
         return [paid, *free] if self._paid_first else [*free, paid]
 
-    async def find(self, host: str) -> LadderResult:
-        """Пройти лестницу по домену до первого адреса."""
+    async def find(self, host: str, *, last_try: bool = False) -> LadderResult:
+        """Пройти лестницу по домену до первого адреса.
+
+        `last_try` — сайт не отвечал проходами подряд, и этот последний:
+        платная ступень зовётся и при молчании (`attempts.py`).
+        """
         site_host = host.lower().removeprefix("www.")
-        collected = Collected(site_host=site_host)
+        collected = Collected(site_host=site_host, last_try=last_try)
 
         route = await self._step_mx(site_host)
         # Вердикт едет в исход при любом конце спуска. Домен без почты к тому
@@ -183,19 +192,9 @@ class ContactLadder:
                 self.counters.mark_found(step.name)
                 return result
 
-        if unfinished is not None:
-            # Квота, частота или поломка: домен не «без контакта», а
-            # «недоспрошен». Смешав их, мы похоронили бы его навсегда.
-            return LadderResult(
-                host=site_host,
-                status=unfinished,
-                rejected=tuple(collected.rejected),
-                has_form=collected.has_form,
-                handles=tuple(collected.handles),
-                mail_route=route,
-            )
-
-        return self._without_contact(collected, has_form=collected.has_form)
+        return self._unfinished(collected, unfinished) or self._without_contact(
+            collected, has_form=collected.has_form
+        )
 
     # --- ступени ---
 
@@ -337,12 +336,26 @@ class ContactLadder:
         if not self.counters.provider_refusal:
             self.counters.provider_refusal = reason
 
+    def _needless_to_pay(self, collected: Collected) -> str:
+        """Почему платить за домен незачем; пусто — платим.
+
+        Нулевой MX: сервис ищет адреса на самом домене, а домен объявил, что
+        почту не принимает, — всё, что он отдаст, отобьётся. Сайт молчит:
+        повторим по сроку, и платить за худший адрес, пока страницы с
+        лучшим просто не ответили, рано — кроме последнего прохода.
+        """
+        if self._provider is None:
+            return "не подключена"
+        if collected.route is MailRoute.NULL_MX:
+            return "нулевой MX"
+        if self._silence is not None and not collected.last_try:
+            return self._silence() or ""
+        return ""
+
     async def _step_provider(self, host: str, collected: Collected) -> ContactStatus | None:
         """Платная ступень. Возвращает исход, если платить не вышло."""
-        if self._provider is None or collected.route is MailRoute.NULL_MX:
-            # Платный сервис ищет адреса на самом домене, а домен с нулевым MX
-            # объявил, что почту не принимает: всё, что он отдаст, отобьётся.
-            why = "не подключена" if self._provider is None else "нулевой MX"
+        why = self._needless_to_pay(collected)
+        if self._provider is None or why:
             logger.debug("контакты: платная ступень по %s не зовётся — %s", host, why)
             return None
 
@@ -392,6 +405,26 @@ class ContactLadder:
             has_form=has_form,
             handles=tuple(collected.handles),
             mail_route=collected.route,
+        )
+
+    def _unfinished(
+        self, collected: Collected, unfinished: ContactStatus | None
+    ) -> LadderResult | None:
+        """Домен «недоспрошен», а не «без контакта»: квота, частота, поломка
+        платной ступени — или сайт не ответил. Смешав это с «адреса нет», мы
+        похоронили бы домен на полгода из-за минутного сбоя."""
+        reason = "" if unfinished is not None or self._silence is None else self._silence() or ""
+        if unfinished is None and not reason:
+            return None
+        self.counters.no_answer += bool(reason)
+        return LadderResult(
+            host=collected.site_host,
+            status=unfinished or ContactStatus.NO_ANSWER,
+            rejected=tuple(collected.rejected),
+            has_form=collected.has_form,
+            handles=tuple(collected.handles),
+            mail_route=collected.route,
+            reason=reason,
         )
 
     def _without_contact(self, collected: Collected, *, has_form: bool) -> LadderResult:
