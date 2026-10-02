@@ -53,7 +53,9 @@ from backend.features.core.models.outreach import SenderModel
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import make_url, text, update
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import (
+    AsyncConnection,
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
@@ -132,7 +134,8 @@ def own_test_dsn(root: Path) -> str:
     на всех прогон в одном дереве сносил схему под прогоном в другом:
     01.10.2026 pre-push дал «20 failed, 1 error», а в тишине тот же набор
     был зелёным. `TEST_STORAGE_DSN` по-прежнему перекрывает (так в CI).
-    Базы удалённых деревьев остаются на сервере — сносятся `DROP DATABASE`.
+    Базы удалённых деревьев остаются на сервере: найти — `\\l outreach_test_*`
+    в psql, снести — `DROP DATABASE`.
     """
     digest = hashlib.sha256(str(root).encode("utf-8")).hexdigest()[:10]
     return f"postgresql+asyncpg://outreach:outreach@localhost:5442/outreach_test_{digest}"
@@ -141,17 +144,33 @@ def own_test_dsn(root: Path) -> str:
 TEST_DSN = os.getenv("TEST_STORAGE_DSN") or own_test_dsn(_ROOT)
 
 
+async def _database_exists(conn: AsyncConnection, name: str | None) -> bool:
+    found = await conn.scalar(
+        text("SELECT 1 FROM pg_database WHERE datname = :name"), {"name": name}
+    )
+    return bool(found)
+
+
 async def _ensure_the_database() -> None:
     """Базы ещё нет — создать: у нового дерева её не бывает."""
     url = make_url(TEST_DSN)
     engine = create_async_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
     try:
         async with engine.connect() as conn:
-            found = await conn.scalar(
-                text("SELECT 1 FROM pg_database WHERE datname = :name"), {"name": url.database}
-            )
-            if not found:
+            if await _database_exists(conn, url.database):
+                return
+            try:
                 await conn.execute(text(f'CREATE DATABASE "{url.database}"'))
+            except DBAPIError:
+                # Её завёл соседний прогон между проверкой и созданием. Код ошибки
+                # не сверяем: проигравший точно в ту же секунду получает 23505
+                # (уникальный индекс pg_database), чуть позже — 42P04. Решает
+                # сама база: есть — идём дальше, нет — отказ настоящий.
+                if not await _database_exists(conn, url.database):
+                    raise
+                logging.getLogger(__name__).info(
+                    "тестовая база %s уже заведена соседним прогоном", url.database
+                )
     finally:
         await engine.dispose()
 
