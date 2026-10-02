@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from backend.config.startup_checks import ConfigError
 from backend.features.donors.geo import (
     assert_settings_allow_limited_fetch,
     build_breakdown,
@@ -74,7 +75,7 @@ def test_limit_five_is_enough_at_default_settings() -> None:
 def test_lowering_share_threshold_breaks_limited_fetch() -> None:
     """А вот при пороге 10% страна с достаточной долей может оказаться шестой —
     и мы её не увидим. Настройка должна падать, а не отсеивать молча."""
-    with pytest.raises(ValueError, match="1650 юнитов"):
+    with pytest.raises(ConfigError, match="1650 юнитов"):
         assert_settings_allow_limited_fetch(top_n=5, min_share=0.10)
 
 

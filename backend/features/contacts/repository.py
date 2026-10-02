@@ -25,14 +25,15 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Protocol
 
-from sqlalchemy import ColumnElement, and_, func, or_, select, update
+from sqlalchemy import ColumnElement, and_, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import contacts as cfg
+from backend.features.contacts import attempts
 from backend.features.contacts.ladder import LadderResult
 from backend.features.core.domain import ContactSource, ContactStatus, DonorStatus
 from backend.features.core.models.domain import DomainModel
@@ -40,10 +41,6 @@ from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.donors.standing import donor_now, is_donor
 
 logger = logging.getLogger(__name__)
-
-#: Исходы, которые повторяются при следующем прогоне: мы не спросили, а не
-#: узнали, что контакта нет.
-RETRIABLE = frozenset({ContactStatus.NO_QUOTA, ContactStatus.RATE_LIMITED, ContactStatus.ERROR})
 
 
 def manual_address() -> ColumnElement[bool]:
@@ -60,7 +57,7 @@ def manual_address() -> ColumnElement[bool]:
     )
 
 
-def _needs_contact(border: datetime) -> ColumnElement[bool]:
+def _needs_contact(now: datetime, ttl_days: int) -> ColumnElement[bool]:
     """Кому пора искать контакт: принятым человеком донорам без свежей попытки.
 
     Только принятым: контакт ищется после решения человека, а не до. Прогон
@@ -75,11 +72,7 @@ def _needs_contact(border: datetime) -> ColumnElement[bool]:
         DonorModel.status == DonorStatus.SUITABLE,
         is_donor(),
         ~manual_address(),
-        or_(
-            DonorModel.contact_attempted_at.is_(None),
-            DonorModel.contact_attempted_at < border,
-            DonorModel.contact_status.in_(tuple(RETRIABLE)),
-        ),
+        attempts.waiting(DonorModel, now=now, ttl_days=ttl_days),
     )
 
 
@@ -140,14 +133,21 @@ def refusal_of(
         return never
     if manual:
         return MANUAL_REFUSAL
-    attempted = donor.contact_attempted_at
-    if attempted is None or donor.contact_status in RETRIABLE:
+    # Решает то же правило попыток, что и запрос (`attempts.waits`): на самой
+    # границе срока экран не обещает поиск, который сервер отказал бы.
+    again = attempts.again_at(donor, ttl_days=ttl_days)
+    if again is None or attempts.waits(donor, now=now, ttl_days=ttl_days):
         return None
-    # Строго «раньше»: запрос берёт попытку старше границы (`<`), и на самой
-    # границе донор ещё не ждёт — иначе экран обещал бы поиск, а сервер отказал.
-    again = attempted + timedelta(days=ttl_days)
-    if again < now:
-        return None
+    return _not_yet(donor, again)
+
+
+def _not_yet(donor: DonorModel, again: datetime) -> str:
+    """Когда поиск станет можно — словами, по исходу прошлого."""
+    if donor.contact_status is ContactStatus.NO_ANSWER:
+        return (
+            f"Сайт не ответил ({donor.contact_reason or 'причина не записана'}) — поиск "
+            f"повторится сам, не раньше {again:%d.%m.%Y %H:%M}."
+        )
     return (
         f"Повторный поиск — не раньше {again:%d.%m.%Y}: до тех пор исход прошлого "
         "считается свежим, а повтор прошёл бы ту же лестницу вплоть до платной ступени."
@@ -168,6 +168,11 @@ class ContactQueue(Protocol):
 
     async def save(self, results: Sequence[LadderResult]) -> int:
         """Сохранить исходы. Возвращает число доменов с адресом."""
+        ...
+
+    async def last_tries(self, hosts: Sequence[str]) -> set[str]:
+        """Для каких из них проход — последний шанс сайту ответить
+        (`attempts.on_last_try`): в нём платная ступень зовётся и при молчании."""
         ...
 
 
@@ -217,8 +222,8 @@ class ContactRepository:
         self._session = session
         self._donor_id = donor_id
 
-    def _waiting(self, border: datetime) -> ColumnElement[bool]:
-        rule = _needs_contact(border)
+    def _waiting(self, now: datetime, ttl_days: int) -> ColumnElement[bool]:
+        rule = _needs_contact(now, ttl_days)
         return rule if self._donor_id is None else and_(rule, DonorModel.id == self._donor_id)
 
     async def pending_hosts(
@@ -235,12 +240,10 @@ class ContactRepository:
         отказом не трогаем — за них уже заплачено.
         """
         moment = now or datetime.now(UTC)
-        border = moment - timedelta(days=ttl_days)
-
         rows = await self._session.execute(
             select(DomainModel.host)
             .join(DonorModel, DonorModel.domain_id == DomainModel.id)
-            .where(self._waiting(border))
+            .where(self._waiting(moment, ttl_days))
             .order_by(DonorModel.dr.desc().nullslast())
             .limit(limit)
         )
@@ -253,15 +256,18 @@ class ContactRepository:
         два разных правила «кому нужен контакт» разошлись бы на первой правке,
         и экран показывал бы одно число, а поиск брал другое."""
         moment = now or datetime.now(UTC)
-        border = moment - timedelta(days=ttl_days)
         return int(
             await self._session.scalar(
                 select(func.count(DomainModel.host))
                 .join(DonorModel, DonorModel.domain_id == DomainModel.id)
-                .where(self._waiting(border))
+                .where(self._waiting(moment, ttl_days))
             )
             or 0
         )
+
+    async def last_tries(self, hosts: Sequence[str]) -> set[str]:
+        """Доноры, для которых проход — последний шанс сайту ответить."""
+        return await attempts.last_tries(self._session, DonorModel, hosts)
 
     async def save(self, results: Sequence[LadderResult], *, now: datetime | None = None) -> int:
         """Сохранить пачку исходов. Возвращает число доноров с адресом.
@@ -275,29 +281,20 @@ class ContactRepository:
         moment = now or datetime.now(UTC)
         ids = await domain_ids(self._session, [r.host for r in results])
 
-        await self._save_statuses(results, ids, moment)
+        # Исход и отметка времени по каждому донору — их пара и есть
+        # идемпотентность; счёт проходов без ответа — правило попыток.
+        # Донора, которому человек вписал адрес, пока шёл проход, исход
+        # прохода не перезаписывает: «адреса нет» рядом с вписанным адресом —
+        # неправда, и фильтр «с адресом» его бы потерял.
+        await attempts.record(
+            self._session,
+            DonorModel,
+            [attempts.Outcome(r.host, r.status, r.reason) for r in results],
+            ids,
+            moment=moment,
+            keep=manual_address(),
+        )
         return await save_addresses(self._session, results, ids)
-
-    async def _save_statuses(
-        self, results: Sequence[LadderResult], ids: dict[str, int], moment: datetime
-    ) -> None:
-        """Исход и отметка времени по каждому донору — их пара и есть
-        идемпотентность.
-
-        Донора, которому человек вписал адрес, пока шёл проход, исход прохода
-        не перезаписывает: «адреса нет» рядом с вписанным адресом — неправда,
-        и фильтр «с адресом» его бы потерял.
-        """
-        for result in results:
-            domain_id = ids.get(result.host)
-            if domain_id is None:
-                continue
-            await self._session.execute(
-                update(DonorModel)
-                .where(DonorModel.domain_id == domain_id)
-                .where(~manual_address())
-                .values(contact_status=result.status, contact_attempted_at=moment)
-            )
 
 
 async def search_refusal(

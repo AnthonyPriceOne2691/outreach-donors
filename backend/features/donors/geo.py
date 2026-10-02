@@ -29,6 +29,7 @@ import logging
 from dataclasses import dataclass
 
 from backend.config import filters
+from backend.config.startup_checks import ConfigError
 
 logger = logging.getLogger(__name__)
 
@@ -104,9 +105,12 @@ def assert_settings_allow_limited_fetch(
     Вызывается перед прогоном. Если порог доли опустили, а лимит оставили,
     фильтр начнёт молча отсеивать подходящие домены: страна с долей 10% может
     быть шестой, и мы её просто не увидим.
+
+    Несогласованность — ошибка настроек (`ConfigError`): точка входа скажет
+    «Не хватает настроек» с кодом 2, а не упадёт трассировкой.
     """
     if top_n * min_share < 1.0:
-        raise ValueError(
+        raise ConfigError(
             f"При топ-{top_n} и пороге доли {min_share:.0%} страна с достаточной долей "
             f"может не попасть в ответ. Нужно либо поднять порог до "
             f"{1 / top_n:.0%}, либо запрашивать страны без лимита — но это "

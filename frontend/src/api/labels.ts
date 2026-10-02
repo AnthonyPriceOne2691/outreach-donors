@@ -113,6 +113,8 @@ export const CONTACT_STATUSES: Record<ContactStatus, { title: string; color: str
   // пока учётку не откроют, платная ступень мертва по всем доменам.
   blocked: { title: 'учётка закрыта', color: 'red' },
   error: { title: 'ошибка поиска', color: 'red' },
+  // Жёлтый: сайт не ответил, повтор идёт сам по сроку — человеку ждать.
+  no_answer: { title: 'сайт не ответил', color: 'yellow' },
 };
 
 /** Ступень лестницы, которая дала адрес. Порядок в подписях тот же,

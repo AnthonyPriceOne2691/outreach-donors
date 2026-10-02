@@ -280,7 +280,12 @@ class LayoutChecks:
         if isinstance(spec, dict) and str(spec.get("reason", "")).strip():
             self.add(WEAK, point, "адаптирован намеренно: " + str(spec["reason"])[:90])
             return
-        self.add(WEAK, point,
+        # Скрипт у проекта, ЗАЯВИВШЕГО версию, — `DEAD` (`cqg@2.44`): то же правило,
+        # что у состава и у замка. Конфиги остаются `WEAK` — их адаптируют штатно,
+        # и перепись флота 01.10 нашла восемь необъявленных конфигов при НУЛЕ скриптов.
+        claimed = rel.startswith("scripts/") and any(
+            self._repo_versions(c) for c in ("delivery", "cqg", "okf", "stack-map"))
+        self.add(DEAD if claimed else WEAK, point,
                  "тело отличается от снимка канона, а объявления нет. "
                  "Либо устарел (обнови из payload'а), либо адаптирован "
                  f"под стек (объяви в {self.ADAPTED} с причиной) — "
@@ -392,7 +397,13 @@ class LayoutChecks:
         canon_dir = self.root / "docs" / "canon"
         snap = canon_dir / "CODE_QUALITY_GATES.md"
         if not snap.is_file():
-            return                       # снимка канона нет — сверять не с чем
+            # ⚠ Здесь стоял молчаливый `return` — «снимка нет, сверять не с
+            # чем». Перепись флота 01.10: у трёх проектов из семи сверка
+            # сравнивала 0 файлов и не печатала НИ строки, а у одного под этим
+            # молчанием запись `cqg@2.43` стояла при скриптах 2.35. Теперь
+            # сверка идёт по замку payload'а, а без него — `SKIP` с причиной.
+            self.judge_lock_bodies(self._declared_adaptations())
+            return
         declared = self._declared_adaptations()
         self._judge_payload_bodies(canon_dir, snap, declared)
         text = snap.read_text(encoding="utf-8", errors="replace")

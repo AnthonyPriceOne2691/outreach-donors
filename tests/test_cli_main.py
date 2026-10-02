@@ -3,10 +3,11 @@
 
 Наружу тесты не ходят. Ahrefs — настоящий клиент на заглушке транспорта
 (`httpx.MockTransport`): так проверяется и разбор ответа, и то, что клиент
-закрыт после команды. Ответ терминала — подменённый `input`. Сам прогон
-(`cmd_run`) здесь не исполняется: точке входа от него нужны только код
-возврата или исключение, и их отдаёт подделка команды. Прогон целиком —
-`tests/test_execute_run.py`.
+закрыт после команды. Ответ терминала — подменённый `input`. Точке входа от
+прогона (`cmd_run`) нужны только код возврата или исключение, и их отдаёт
+подделка команды. Сам прогон исполняется только до решения о бюджете
+(`TestRunBudget`): выдача — подделка, база — тестовая и только на чтение,
+на «Запускать?» — «нет». Прогон целиком — `tests/test_execute_run.py`.
 
 Вывод сверяется построчно, но без выравнивания: колонки — оформление,
 а подписи, числа и порядок строк — то, что читает оператор.
@@ -20,6 +21,8 @@ import os
 import runpy
 import signal
 import sys
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import httpx
@@ -41,6 +44,7 @@ from backend.config.startup_checks import ConfigError
 from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.ahrefs.units import RunEstimate, estimate_run
 from backend.features.core.domain import DonorStatus
+from backend.features.donors.geo import assert_settings_allow_limited_fetch
 from backend.features.donors.judging import JudgeSummary
 from backend.features.review.candidates import QueueReport
 from backend.features.runs.budget import CapExceededError, QuotaUnavailableError
@@ -48,6 +52,8 @@ from backend.features.runs.exclusions import ExclusionReason
 from backend.features.runs.planning import Candidates, RunPlan
 from backend.features.runs.report import RunReport
 from backend.features.serp.factory import UnknownProviderError
+from backend.features.serp.protocol import SerpResult
+from tests.conftest import TEST_DSN
 
 #: Доводы прогона, без которых разбор не пропустит команду.
 RUN = ["run", "--keywords", "keys.txt", "--country", "us"]
@@ -65,6 +71,9 @@ QUOTA: dict[str, object] = {
 #: Смета ровно на тысячу юнитов: расхождение с фактом читается в процентах сразу.
 THOUSAND = RunEstimate(domains=10, screen=100, metrics=600, by_country=300)
 
+#: Остаток месячного капа, который видит прогон: своя трата за месяц уже вычтена.
+MONTH_LEFT = 7_315
+
 
 def _lines(out: str) -> list[str]:
     """Непустые строки вывода без выравнивания."""
@@ -74,13 +83,6 @@ def _lines(out: str) -> list[str]:
 def _units(number: int) -> str:
     """Число так, как его читает оператор: тысячи через пробел."""
     return f"{number:_}".replace("_", " ")
-
-
-def _without_commas(line: str) -> str:
-    """Строка «судил …» судьи без запятых. Разделитель тысяч в ней ставится
-    заменой запятых на пробел, и замена задевает запятые текста; сверяются
-    числа и подписи."""
-    return " ".join(line.replace(",", " ").split())
 
 
 class Ahrefs:
@@ -135,6 +137,63 @@ def logging_setups(monkeypatch: pytest.MonkeyPatch) -> list[bool]:
     calls: list[bool] = []
     monkeypatch.setattr("backend.cli.main.setup_logging", lambda: calls.append(True))
     return calls
+
+
+class Serp:
+    """Выдача-подделка: три домена на любой ключ — без сети и без денег."""
+
+    name = "fake"
+
+    async def search(
+        self, keywords: Sequence[str], country: str, *, depth_pages: int = 1
+    ) -> dict[str, list[SerpResult]]:
+        urls = ["https://budget-one.com/", "https://budget-two.com/", "https://budget-three.com/"]
+        return {key: [SerpResult(i + 1, url) for i, url in enumerate(urls)] for key in keywords}
+
+
+@dataclass(slots=True)
+class BudgetRun:
+    """Прогон до решения о бюджете: доводы, Ahrefs и вопросы человеку."""
+
+    argv: list[str]
+    ahrefs: Ahrefs
+    month_left: int = MONTH_LEFT
+    prompts: list[str] = field(default_factory=list)
+
+
+@pytest.fixture
+def budget_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, logging_setups: list[bool]
+) -> BudgetRun:
+    """Настоящий `cmd_run` через `main` — без сети и без трат.
+
+    Настройки — те, без которых прогон не стартует. База — тестовая, и прогон
+    её только читает: на «Запускать?» он слышит «нет». Месячный остаток
+    задаёт тест: это вход проверяемого правила, а не его часть.
+    """
+    keywords = tmp_path / "keys.txt"
+    keywords.write_text("best seo tools\n", encoding="utf-8")
+    run = BudgetRun(
+        argv=["run", "--keywords", str(keywords), "--country", "us"], ahrefs=Ahrefs(QUOTA)
+    )
+    monkeypatch.setattr("backend.config.storage.DSN", TEST_DSN)
+    monkeypatch.setattr("backend.config.storage.REDIS_URL", "redis://localhost:6379/0")
+    monkeypatch.setattr("backend.config.ahrefs.API_KEY", "k")
+    monkeypatch.setattr("backend.config.serp.PROVIDER", "fake")
+    monkeypatch.setattr("backend.config.serp.SANDBOX", False)
+    monkeypatch.setattr("backend.cli.main.AhrefsClient", run.ahrefs)
+    monkeypatch.setattr("backend.cli.main.build_provider", lambda _client: Serp())
+
+    async def month_left(_session: object, *, cap: int) -> int:
+        return run.month_left
+
+    def answer(prompt: str) -> str:
+        run.prompts.append(prompt)
+        return "n"
+
+    monkeypatch.setattr("backend.cli.main.cap_left", month_left)
+    monkeypatch.setattr("builtins.input", answer)
+    return run
 
 
 def _plan(
@@ -314,6 +373,15 @@ class TestPlan:
             f"Сэкономлено гейтом: {_units(plan.savings_from_gate)} юнитов",
         ]
 
+    def test_long_reason_keeps_its_count_apart(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Подпись причины бывает длиннее колонки — число всё равно отделено.
+        Берётся самая длинная из семи."""
+        longest = max(ExclusionReason, key=lambda reason: len(reason.caption))
+
+        _print_plan(_plan(new=3, excluded={"declined.test": longest}), 500)
+
+        assert f"{longest.caption}: 1" in _lines(capsys.readouterr().out)
+
     def test_nothing_to_say_means_no_line(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Нет отсечённых, неразобранных, пустых ключей и экономии — нет и строк о них."""
         plan = _plan(new=3)
@@ -439,10 +507,10 @@ class TestJudge:
 
         _print_judge(RunReport(plan=_plan(new=0), judge=judge))
 
-        lines = _lines(capsys.readouterr().out)
-        assert _without_commas(lines.pop(1)) == "судил 40 из кэша 5 токенов 12 345"
-        assert lines == [
+        assert _lines(capsys.readouterr().out) == [
             "Судья площадки (наблюдение, не режет):",
+            # Запятые текста целы, тысячи в числе — через пробел.
+            "судил 40, из кэша 5, токенов 12 345",
             "отрезал бы 7, к человеку 3",
             # Кто решил — словами оператора и по убыванию; незнакомый код — как есть.
             "решено моделью по выдаче 9",
@@ -465,6 +533,29 @@ class TestJudge:
         assert lines[0] == "Судья площадки (режет):"
         assert lines[2] == "отрезал 7, к человеку 3"
 
+    @pytest.mark.parametrize(
+        ("mode", "saved"),
+        [(JudgeMode.SHADOW, "сэкономил бы"), (JudgeMode.ENFORCE, "сэкономил")],
+        ids=["shadow", "enforce"],
+    )
+    def test_savings_are_worded_by_mode(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        mode: JudgeMode,
+        saved: str,
+    ) -> None:
+        """В наблюдении судья не режет — «сэкономил бы»; во включённом режиме
+        отрезанные до Ahrefs не дошли — «сэкономил». Так же их называет
+        запись прогона (`backend/features/runs/report.py`)."""
+        monkeypatch.setattr("backend.config.judge.MODE", mode)
+        judge = _judge()
+
+        _print_judge(RunReport(plan=_plan(new=0), judge=judge))
+
+        expected = f"юнитов {saved}: {_units(judge.units_saved)} (нижняя граница)"
+        assert _lines(capsys.readouterr().out)[-1] == expected
+
     def test_zero_counters_add_no_lines(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
@@ -472,9 +563,11 @@ class TestJudge:
 
         _print_judge(RunReport(plan=_plan(new=0), judge=JudgeSummary(judged=3)))
 
-        lines = _lines(capsys.readouterr().out)
-        assert _without_commas(lines.pop(1)) == "судил 3 из кэша 0 токенов 0"
-        assert lines == ["Судья площадки (наблюдение, не режет):", "отрезал бы 0, к человеку 0"]
+        assert _lines(capsys.readouterr().out) == [
+            "Судья площадки (наблюдение, не режет):",
+            "судил 3, из кэша 0, токенов 0",
+            "отрезал бы 0, к человеку 0",
+        ]
 
     def test_switched_off_judge_is_silence_not_zeros(
         self, capsys: pytest.CaptureFixture[str]
@@ -719,3 +812,78 @@ class TestEntryPoint:
 
         assert exited.value.code == 5
         assert capsys.readouterr().err.startswith("Провайдер не ответил")
+
+
+class TestRunBudget:
+    """`--cap` — свой потолок прогона: он только уменьшает месячный остаток,
+    и ноль значит ноль."""
+
+    @pytest.mark.parametrize(
+        ("cap", "budget"),
+        [([], MONTH_LEFT), (["--cap", "5321"], 5_321), (["--cap", "9876"], MONTH_LEFT)],
+        ids=["no-cap", "cap-below-month", "cap-above-month"],
+    )
+    def test_budget_is_the_smaller_of_cap_and_month(
+        self,
+        budget_run: BudgetRun,
+        capsys: pytest.CaptureFixture[str],
+        cap: list[str],
+        budget: int,
+    ) -> None:
+        # Смету показали и спросили; «нет» — код «отменено».
+        assert main([*budget_run.argv, *cap]) == 6
+
+        assert f"Доступно: {_units(budget)} юнитов" in _lines(capsys.readouterr().out)
+        assert len(budget_run.prompts) == 1
+
+    @pytest.mark.parametrize(
+        ("cap", "month_left", "available"),
+        [(["--cap", "0"], MONTH_LEFT, 0), (["--cap", "1"], MONTH_LEFT, 1), ([], 0, 0)],
+        ids=["cap-zero", "cap-one", "month-used-up"],
+    )
+    def test_budget_below_the_estimate_refuses_before_asking(
+        self,
+        budget_run: BudgetRun,
+        capsys: pytest.CaptureFixture[str],
+        cap: list[str],
+        month_left: int,
+        available: int,
+    ) -> None:
+        """`--cap 0` — ноль, а не «без потолка»: прогон не запускается, как при
+        `--cap 1` и как при кончившемся месячном остатке. Ни вопроса человеку,
+        ни платного запроса — только бесплатный остаток квоты."""
+        budget_run.month_left = month_left
+
+        assert main([*budget_run.argv, *cap]) == 3
+
+        printed = capsys.readouterr()
+        assert printed.err.startswith("Прогон не запущен: ")
+        assert f"доступно {available}." in printed.err
+        assert budget_run.prompts == []
+        assert budget_run.ahrefs.paths == ["/v3/subscription-info/limits-and-usage"]
+
+
+class TestRunSettings:
+    def test_inconsistent_geo_settings_are_a_settings_error(
+        self,
+        budget_run: BudgetRun,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Топ-5 при пороге доли 10%: страна с достаточной долей может не попасть
+        в ответ с limit=5. Это ошибка настроек — «Не хватает настроек» и код 2
+        до первого запроса, а не трассировка."""
+
+        # Умолчания проверки связаны с настройками при импорте, поэтому
+        # несогласованные значения передаются ей явно.
+        def inconsistent() -> None:
+            assert_settings_allow_limited_fetch(top_n=5, min_share=0.10)
+
+        monkeypatch.setattr("backend.cli.main.assert_settings_allow_limited_fetch", inconsistent)
+
+        assert main(budget_run.argv) == 2
+
+        printed = capsys.readouterr()
+        assert printed.err.startswith("Не хватает настроек: При топ-5 и пороге доли 10%")
+        assert printed.out == ""
+        assert budget_run.ahrefs.opened == []

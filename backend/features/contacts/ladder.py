@@ -79,6 +79,8 @@ class LadderResult:
     #: Как домен сайта принимает почту, по ступени MX. Едет в исход, чтобы
     #: читающий итог решал по нему, слать ли письмо, а не угадывал.
     mail_route: MailRoute | None = None
+    #: Почему сайт не ответил — только у `no_answer`.
+    reason: str = ""
 
     @property
     def found(self) -> bool:
@@ -132,6 +134,14 @@ class _Collected:
     def add(self, candidate: Candidate) -> bool:
         """Взять адрес, если он годный и ещё не встречался."""
         if candidate.email in self.seen:
+            # Догадка пришла раньше (обфускация в подвале главной), а теперь
+            # тот же адрес записан прямо: он больше не догадка и не должен
+            # проигрывать прямым адресам (ревью #137).
+            if not candidate.guessed:
+                self.good = [
+                    candidate if known.email == candidate.email and known.guessed else known
+                    for known in self.good
+                ]
             return False
         self.seen.add(candidate.email)
 
@@ -326,7 +336,10 @@ class ContactLadder:
             # Угаданному адресу верим только на домене сайта: иначе обычная
             # фраза «meet at the dot com» станет контактом.
             if trusted_guess(email, site_host=site_host):
-                collected.add(Candidate(email, ContactSource.PAGE, page.kind, page_url=page.url))
+                guess = Candidate(
+                    email, ContactSource.PAGE, page.kind, page_url=page.url, guessed=True
+                )
+                collected.add(guess)
 
     async def _step_browser(self, host: str, collected: _Collected) -> ContactStatus | None:
         """Рендер настоящим браузером — только для того, что не открылось.

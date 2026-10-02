@@ -68,6 +68,14 @@ function at(query: string): string {
   return `GET /api/selection?${query}`;
 }
 
+/**
+ * Сколько ждать экран отбора и его запросы (findBy*, waitFor). Умолчание
+ * testing-library — 1 с, а тесты этого файла в тишине идут 0,8–0,9 с: под
+ * нагрузкой машины (соседние деревья гоняют свои наборы) экран не успевал
+ * отрисоваться, и тест падал не по делу.
+ */
+const SCREEN_WAIT = { timeout: 5000 };
+
 async function openScreen(
   routes: Record<string, Answer> = {},
   { path = '/selection', ready = 'brand.test' }: { path?: string; ready?: string } = {},
@@ -79,7 +87,7 @@ async function openScreen(
     ...routes,
   });
   renderWith(<AppRoutes />, path);
-  await screen.findByText(ready);
+  await screen.findByText(ready, {}, SCREEN_WAIT);
   return recorded;
 }
 
@@ -94,7 +102,7 @@ async function choose(field: string, option: RegExp | string) {
   // Выпадающий список Mantine в jsdom остаётся `display: none` — раскладки
   // здесь нет, и без `hidden` его пункты не видны запросу. Клик настоящий.
   await user.click(screen.getByRole('textbox', { name: field }));
-  await user.click(await screen.findByRole('option', { name: option, hidden: true }));
+  await user.click(await screen.findByRole('option', { name: option, hidden: true }, SCREEN_WAIT));
 }
 
 describe('отбор: фильтры под колонками', () => {
@@ -174,7 +182,10 @@ describe('отбор: фильтры под колонками', () => {
 
     await choose('Кто вынес вердикт', /^модель/);
 
-    await waitFor(() => expect(asked(recorded).at(-1)).toBe('tab=rejected&judge=model'));
+    await waitFor(
+      () => expect(asked(recorded).at(-1)).toBe('tab=rejected&judge=model'),
+      SCREEN_WAIT,
+    );
   });
 
   it('фильтр судьи называет слой словом значка и объясняет его в самом списке', async () => {
@@ -183,7 +194,7 @@ describe('отбор: фильтры под колонками', () => {
 
     await user.click(screen.getByRole('textbox', { name: 'Кто вынес вердикт' }));
 
-    const rule = await screen.findByRole('option', { name: /^правило/, hidden: true });
+    const rule = await screen.findByRole('option', { name: /^правило/, hidden: true }, SCREEN_WAIT);
     expect(rule).toHaveTextContent('правиловыдача и главная сказали одно');
     expect(screen.getByRole('option', { name: /^арбитр/, hidden: true })).toHaveTextContent(
       'выдача и главная спорили',
@@ -198,10 +209,16 @@ describe('отбор: фильтры под колонками', () => {
     });
 
     await choose('Решение человека', 'не смотрел');
-    await waitFor(() => expect(asked(recorded).at(-1)).toBe('tab=accepted&human=unreviewed'));
+    await waitFor(
+      () => expect(asked(recorded).at(-1)).toBe('tab=accepted&human=unreviewed'),
+      SCREEN_WAIT,
+    );
     await choose('Решение человека', 'разошёлся с судьёй');
 
-    await waitFor(() => expect(asked(recorded).at(-1)).toBe('tab=accepted&human=disagrees'));
+    await waitFor(
+      () => expect(asked(recorded).at(-1)).toBe('tab=accepted&human=disagrees'),
+      SCREEN_WAIT,
+    );
   });
 
   it('поиск уходит в адрес и на сервер после паузы в наборе', async () => {
@@ -210,7 +227,10 @@ describe('отбор: фильтры под колонками', () => {
 
     await user.type(screen.getByRole('textbox', { name: 'Поиск по домену или причине' }), 'brand');
 
-    await waitFor(() => expect(asked(recorded).at(-1)).toBe('tab=accepted&search=brand'));
+    await waitFor(
+      () => expect(asked(recorded).at(-1)).toBe('tab=accepted&search=brand'),
+      SCREEN_WAIT,
+    );
     expect(asked(recorded).filter((query) => query.includes('search='))).toEqual([
       'tab=accepted&search=brand',
     ]);
@@ -233,7 +253,7 @@ describe('отбор: страницы', () => {
     expect(pages.querySelector('[data-page-number]')).not.toBeNull();
     await user.click(within(pages).getByRole('button', { name: 'Страница 2' }));
 
-    await screen.findByText('second.test');
+    await screen.findByText('second.test', {}, SCREEN_WAIT);
     expect(asked(recorded)).toEqual(['tab=accepted', 'tab=accepted&page=2']);
   });
 
@@ -255,7 +275,7 @@ describe('отбор: страницы', () => {
 
     await user.click(screen.getByText('Отклонены — 45'));
 
-    await screen.findByText('rejected.test');
+    await screen.findByText('rejected.test', {}, SCREEN_WAIT);
     expect(asked(recorded).at(-1)).toBe('tab=rejected');
   });
 
@@ -268,7 +288,7 @@ describe('отбор: страницы', () => {
       { path: '/selection?page=9' },
     );
 
-    await waitFor(() => expect(asked(recorded).at(-1)).toBe('tab=accepted&page=3'));
+    await waitFor(() => expect(asked(recorded).at(-1)).toBe('tab=accepted&page=3'), SCREEN_WAIT);
     expect(screen.queryByText('Под фильтр ничего не попало.')).toBeNull();
   });
 });
@@ -297,7 +317,7 @@ describe('отбор: пусто и отказ', () => {
 
     await user.click(screen.getByRole('button', { name: 'Сбросить фильтры' }));
 
-    await screen.findByText('brand.test');
+    await screen.findByText('brand.test', {}, SCREEN_WAIT);
     expect(asked(recorded).at(-1)).toBe('tab=rejected');
   });
 
@@ -312,7 +332,7 @@ describe('отбор: пусто и отказ', () => {
     await choose('Ответ донора', 'ответил');
 
     expect(
-      await screen.findByText('База отбора не ответила — повторите через минуту'),
+      await screen.findByText('База отбора не ответила — повторите через минуту', {}, SCREEN_WAIT),
     ).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Отбор' })).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Ответ донора' })).toHaveValue('ответил');

@@ -244,7 +244,8 @@ export type ContactStatus =
   | 'no_quota'
   | 'rate_limited'
   | 'blocked'
-  | 'error';
+  | 'error'
+  | 'no_answer';
 /** Ступень лестницы, давшая адрес, — значения сервера (`ContactSource`).
  *  До 25.09.2026 здесь стояли `mx`, `rdap`, `paid`, `form`, которых сервер
  *  не отдаёт, а `whois` и `provider` не было: колонка «Откуда» в карточке

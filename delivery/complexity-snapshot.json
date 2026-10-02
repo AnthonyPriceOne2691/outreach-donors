@@ -361,6 +361,11 @@
       "complexity": 7,
       "worst": "_print_summary:147"
     },
+    "backend/cli/contact_refind.py": {
+      "lines": 95,
+      "complexity": 9,
+      "worst": "_print_domain:42"
+    },
     "backend/cli/contact_search.py": {
       "lines": 99,
       "complexity": 5,
@@ -412,9 +417,9 @@
       "worst": "_report:180"
     },
     "backend/cli/main.py": {
-      "lines": 452,
+      "lines": 456,
       "complexity": 9,
-      "worst": "_print_report:242"
+      "worst": "_print_report:244"
     },
     "backend/cli/review_queue.py": {
       "lines": 56,
@@ -576,15 +581,20 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/contacts/attempts.py": {
+      "lines": 192,
+      "complexity": 5,
+      "worst": "waits:92"
+    },
     "backend/features/contacts/browser.py": {
       "lines": 193,
       "complexity": 7,
       "worst": "render:111"
     },
     "backend/features/contacts/extract.py": {
-      "lines": 237,
+      "lines": 302,
       "complexity": 9,
-      "worst": "find_contact_links:215"
+      "worst": "find_contact_links:280"
     },
     "backend/features/contacts/file_sweep.py": {
       "lines": 379,
@@ -596,10 +606,15 @@
       "complexity": 3,
       "worst": "monthly_left:115"
     },
+    "backend/features/contacts/known_addresses.py": {
+      "lines": 35,
+      "complexity": 0,
+      "worst": "—"
+    },
     "backend/features/contacts/ladder.py": {
-      "lines": 475,
+      "lines": 488,
       "complexity": 10,
-      "worst": "_step_pages:264"
+      "worst": "_step_pages:274"
     },
     "backend/features/contacts/manual.py": {
       "lines": 184,
@@ -632,19 +647,24 @@
       "worst": "find_emails:185"
     },
     "backend/features/contacts/quality.py": {
-      "lines": 367,
+      "lines": 354,
       "complexity": 6,
-      "worst": "weight:343"
+      "worst": "weight:323"
     },
     "backend/features/contacts/rdap.py": {
       "lines": 111,
       "complexity": 10,
       "worst": "_vcard_emails:40"
     },
+    "backend/features/contacts/refind.py": {
+      "lines": 221,
+      "complexity": 9,
+      "worst": "_clear:195"
+    },
     "backend/features/contacts/repository.py": {
-      "lines": 330,
-      "complexity": 6,
-      "worst": "refusal_of:119"
+      "lines": 327,
+      "complexity": 5,
+      "worst": "_not_entitled:89"
     },
     "backend/features/contacts/search.py": {
       "lines": 198,
@@ -682,7 +702,7 @@
       "worst": "—"
     },
     "backend/features/core/domain.py": {
-      "lines": 231,
+      "lines": 234,
       "complexity": 0,
       "worst": "—"
     },
@@ -692,7 +712,7 @@
       "worst": "—"
     },
     "backend/features/core/models/_mixins.py": {
-      "lines": 25,
+      "lines": 57,
       "complexity": 0,
       "worst": "—"
     },
@@ -707,9 +727,9 @@
       "worst": "_enum:34"
     },
     "backend/features/core/models/advertisers.py": {
-      "lines": 118,
-      "complexity": 2,
-      "worst": "_enum:35"
+      "lines": 107,
+      "complexity": 1,
+      "worst": "in_force:104"
     },
     "backend/features/core/models/attachment.py": {
       "lines": 52,
@@ -727,7 +747,7 @@
       "worst": "—"
     },
     "backend/features/core/models/donor.py": {
-      "lines": 153,
+      "lines": 147,
       "complexity": 2,
       "worst": "_enum:34"
     },
@@ -762,9 +782,9 @@
       "worst": "_by_density:214"
     },
     "backend/features/crawl/contacts.py": {
-      "lines": 110,
-      "complexity": 6,
-      "worst": "save:88"
+      "lines": 117,
+      "complexity": 5,
+      "worst": "save:85"
     },
     "backend/features/crawl/denylist.py": {
       "lines": 159,
@@ -872,9 +892,9 @@
       "worst": "to_csv:102"
     },
     "backend/features/donors/geo.py": {
-      "lines": 159,
+      "lines": 163,
       "complexity": 9,
-      "worst": "build_breakdown:60"
+      "worst": "build_breakdown:61"
     },
     "backend/features/donors/home_signals.py": {
       "lines": 310,
@@ -922,9 +942,9 @@
       "worst": "check_metrics:67"
     },
     "backend/features/donors/wording.py": {
-      "lines": 102,
+      "lines": 103,
       "complexity": 4,
-      "worst": "reject_reason_text:80"
+      "worst": "reject_reason_text:81"
     },
     "backend/features/keywords/__init__.py": {
       "lines": 2,
