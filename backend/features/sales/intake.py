@@ -1,4 +1,4 @@
-"""Приём базы лидов: файл → предпросмотр с отчётом по строкам.
+"""Приём базы лидов: файл → предпросмотр с отчётом → лиды.
 
 **Читает общий `contacts.sweep_input.read_records`** — второго читателя CSV нет:
 кодировка (cp1251 из Excel — отказ словами), BOM, разделитель и номера строк файла
@@ -9,26 +9,48 @@
 словами и ячейка как есть. Поле, которое разрешено не знать (сайт при рабочей почте,
 страна, язык), непонятым строки не стоит — лид загружается с замечанием (урок L67
 соседнего проекта).
+
+**Адрес лида — только в `sales_leads.email`** (решение (а) от 01.10): строк `contacts`
+приём не заводит. **Предпросмотр базы не касается** — пишет только `load`.
 """
 
 from __future__ import annotations
 
 import csv
+import dataclasses
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
+from sqlalchemy import insert
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from backend.features.access.repository import AccessRepository
 from backend.features.contacts.extract import EMAIL_RE
 from backend.features.contacts.known_addresses import FREE_MAILBOX_DOMAINS
 from backend.features.contacts.sweep_input import host_from_cell, read_records
+from backend.features.core.domain import AuditAction
 from backend.features.donors.host import normalize_host
+from backend.features.donors.repository import DonorRepository
 from backend.features.sales.columns import LeadField, Mapping, guess
+from backend.features.sales.models import (
+    LeadSource,
+    LeadStatus,
+    SalesHypothesisModel,
+    SalesLeadModel,
+)
+
+logger = logging.getLogger(__name__)
 
 NO_ADDRESS = "нет адреса"
 EMAIL_LENGTH = 254  # длиннее адресов не бывает, RFC 5321
 HOST_LENGTH = 253  # и имён сайтов, RFC 1035
 TEXT_LENGTH = 255  # ширина колонок имени, должности и компании
 SAMPLE_ROWS = 5  # строк данных, по которым сопоставляют колонки руками
+#: Доменов на запрос: хосты уходят параметрами, а их у Postgres не больше 32 767.
+CHUNK = 1000
 
 #: Коды страны и языка: не код — поле пусто, замечание в отчёте.
 _CODES = {
@@ -42,6 +64,10 @@ _CODES = {
 
 class IntakeError(ValueError):
     """Источник не читается целиком или сопоставление не годится. Текст — что делать."""
+
+
+class UnknownHypothesisError(LookupError):
+    """Гипотезы, в которую грузят, нет."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,3 +271,45 @@ def _value(line: int, field: LeadField, text: str, notes: list[Problem]) -> str 
     if len(text) > TEXT_LENGTH:
         notes.append(Problem(line, f"длиннее {TEXT_LENGTH} знаков — обрезано", text, loaded=True))
     return text[:TEXT_LENGTH] or None
+
+
+async def load(
+    session: AsyncSession, found: Preview, hypothesis_id: int, *, author_id: int | None
+) -> int:
+    """Записать лидов предпросмотра в гипотезу. Коммит — за вызывающим.
+
+    Журнал пишется здесь, а не в обвязке: загрузку зовут и экран, и консоль,
+    и запись не должна зависеть от того, кто позвал (урок L63 соседнего проекта).
+    """
+    if found.needs_mapping:
+        raise IntakeError("сопоставьте колонки: не найдена колонка почты — без неё лидов нет")
+    if await session.get(SalesHypothesisModel, hypothesis_id) is None:
+        raise UnknownHypothesisError(
+            f"гипотезы №{hypothesis_id} нет — заведите её: outreach sales-hypothesis-add"
+        )
+    if not found.leads:
+        return 0
+    hosts = list(dict.fromkeys(lead.domain for lead in found.leads))
+    ids: dict[str, int] = {}
+    domains = DonorRepository(session)
+    for start in range(0, len(hosts), CHUNK):
+        ids |= await domains.ensure_domains(hosts[start : start + CHUNK])
+    rows = [_values(lead, ids[lead.domain], hypothesis_id) for lead in found.leads]
+    await session.execute(insert(SalesLeadModel), rows)
+    loaded, rejected = len(rows), found.rejected
+    await AccessRepository(session).record(
+        AuditAction.SALES_LEADS_IMPORTED,
+        author_id=author_id,
+        target=f"sales_hypothesis:{hypothesis_id}",
+        details={"источник": found.source, "загружено": loaded, "отклонено": rejected},
+    )
+    logger.info("продажи: база загружена", extra={"hypothesis_id": hypothesis_id, "loaded": loaded})
+    return loaded
+
+
+def _values(lead: Lead, domain_id: int, hypothesis_id: int) -> dict[str, Any]:
+    """Строка `sales_leads`: `contact_id` пуст — адрес лида живёт только у лида."""
+    values = dataclasses.asdict(lead)
+    del values["line"], values["domain"]
+    status = {"source": LeadSource.IMPORT, "status": LeadStatus.NEW}
+    return {**values, **status, "hypothesis_id": hypothesis_id, "domain_id": domain_id}
