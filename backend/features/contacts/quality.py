@@ -18,21 +18,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from backend.features.contacts.extract import EMAIL_RE
+from backend.features.contacts.roles import ROLE_LOCAL_PARTS
 from backend.features.core.domain import ContactSource, PageKind
 from backend.features.donors.host import split_host
-
-# Ролевые адреса. Берём даже на чужом домене: это контакт редакции,
-# а не личная почта случайного человека.
-ROLE_LOCAL_PARTS = frozenset(
-    {
-        "info", "contact", "contacts", "hello", "hi", "mail", "email", "office",
-        "admin", "administrator", "webmaster", "support", "help",
-        "editor", "editorial", "redaktion", "redazione", "redaksi",
-        "press", "media", "marketing", "sales", "partnership", "partnerships",
-        "ads", "advertise", "advertising", "advertisement", "iklan",
-        "enquiries", "enquiry", "inquiries", "team", "kontakt", "kontak", "contacto",
-    }
-)  # fmt: skip
 
 # Бесплатная почта. Личный ящик вебмастера — валидный контакт, но весит
 # меньше адреса на домене сайта: на домене сидит тот, кто им распоряжается.
@@ -200,6 +188,10 @@ class Candidate:
     page_url: str | None = None
     # Уверенность платного сервиса, 0–100. У своих ступеней её нет.
     confidence: int | None = None
+    #: Восстановлен из обфускации («info [at] site [dot] com»), а не записан
+    #: прямо. Такой адрес бывает обычной фразой, сложившейся в правдоподобный
+    #: адрес, и прямой адрес побеждает его всегда (`best`).
+    guessed: bool = False
 
     @property
     def local_part(self) -> str:
@@ -360,7 +352,14 @@ def weight(candidate: Candidate, *, site_host: str) -> int:
 
 
 def best(candidates: list[Candidate], *, site_host: str) -> Candidate | None:
-    """Лучший адрес из найденных. Пустой список — законный исход."""
+    """Лучший адрес из найденных. Пустой список — законный исход.
+
+    Догадка из обфускации идёт только тогда, когда прямого адреса нет вовсе:
+    с весом за домен сайта «here at site.com» выигрывал у настоящего ящика
+    со страницы контактов (ревью e6, 02.10.2026).
+    """
     if not candidates:
         return None
-    return max(candidates, key=lambda c: (weight(c, site_host=site_host), -len(c.email)))
+    return max(
+        candidates, key=lambda c: (not c.guessed, weight(c, site_host=site_host), -len(c.email))
+    )

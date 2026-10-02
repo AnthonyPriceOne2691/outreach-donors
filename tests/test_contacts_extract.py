@@ -83,6 +83,41 @@ class TestExtract:
         assert trusted_guess("editor@gmail.com", site_host="site.com")
 
 
+class TestBareAt:
+    """Голое «at» — обычное английское слово (ревью e6, 02.10.2026).
+
+    Живьём кодом прода: «hosted here at AdventureAlan.com» на странице
+    «о нас» давал here@adventurealan.com, «March 05, 2024 At business.com» —
+    2024@business.com. Оба на домене сайта, правилу доверия придраться не
+    к чему, и оба выигрывали выбор адреса.
+    """
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "All of our content will still be hosted here at AdventureAlan.com",
+            "Last Updated: March 05, 2024 At business.com, it's our goal",
+            "Our team at business.com is dedicated to small owners",
+            "The marketing at site.com grew last year",
+        ],
+    )
+    def test_prose_is_not_an_address(self, text: str) -> None:
+        assert extract_obfuscated(f"<p>{text}</p>") == set()
+
+    @pytest.mark.parametrize(
+        ("text", "email"),
+        [
+            ("Email: info at site dot com", "info@site.com"),
+            ("Editor AT Site DOT com", "editor@site.com"),
+            ("Write to ads at site.com for pricing", "ads@site.com"),
+            ("info(at)site.com", "info@site.com"),
+        ],
+    )
+    def test_obfuscation_is_still_read(self, text: str, email: str) -> None:
+        """Обратная сторона: так прячут адрес те, кто продаёт размещение."""
+        assert extract_obfuscated(f"<p>{text}</p>") == {email}
+
+
 class TestGluedTail:
     """Хвост соседнего слова, слипшийся с зоной адреса.
 
@@ -402,3 +437,11 @@ class TestWeight:
 
     def test_nothing_found_is_legal(self) -> None:
         assert best([], site_host="site.com") is None
+
+    def test_a_direct_address_beats_any_guess(self) -> None:
+        """Догадка из обфускации — только когда прямого адреса нет: с весом
+        за домен сайта ролевая догадка обгоняла настоящий ящик со страницы."""
+        guess = Candidate("info@site.com", ContactSource.PAGE, PageKind.MONEY, guessed=True)
+        direct = Candidate("owner@gmail.com", ContactSource.PAGE, PageKind.HOME)
+        assert best([guess, direct], site_host="site.com") is direct
+        assert best([guess], site_host="site.com") is guess

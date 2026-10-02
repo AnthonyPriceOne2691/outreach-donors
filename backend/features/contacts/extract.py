@@ -25,6 +25,7 @@ import re
 
 from selectolax.parser import HTMLParser
 
+from backend.features.contacts.roles import ROLE_LOCAL_PARTS
 from backend.features.contacts.slugs import link_text_names_section, url_names_section
 
 logger = logging.getLogger(__name__)
@@ -51,10 +52,23 @@ _JS_ESCAPE_RE = re.compile(r"\\u([0-9a-fA-F]{4})|\\x([0-9a-fA-F]{2})")
 # не работает, см. `repair_glued_domain`.
 _GLUED_TAIL_RE = re.compile(r"([a-z]{2,})(?=[A-Z0-9])")
 
-_AT_RE = re.compile(r"\s*(?:\[at\]|\(at\)|\{at\}|\bat\b|&#64;)\s*", re.IGNORECASE)
-_DOT_RE = re.compile(
-    r"\s*(?:\[dot\]|\(dot\)|\{dot\}|\bdot\b|\bpunkt\b|\bточка\b)\s*", re.IGNORECASE
+#: «at» в скобках или сущностью — маркер адреса всегда.
+_AT_RE = re.compile(r"\s*(?:\[at\]|\(at\)|\{at\}|&#64;)\s*", re.IGNORECASE)
+_DOT_WORDS = r"(?:\[dot\]|\(dot\)|\{dot\}|\bdot\b|\bpunkt\b|\bточка\b)"
+_DOT_RE = re.compile(rf"\s*{_DOT_WORDS}\s*", re.IGNORECASE)
+
+#: Голое «at» — обычное английское слово: «here at AdventureAlan.com»,
+#: «2024 At business.com» давали адреса на домене сайта, и те выигрывали
+#: выбор (ревью e6, 02.10.2026). Адресом оно становится, только если и точка
+#: записана словом — «info at site dot com», —
+_AT_SPELLED_RE = re.compile(rf"\s+at\s+(?=[\w-]+\s*{_DOT_WORDS})", re.IGNORECASE)
+#: — или перед ним ролевая часть: «ads at site.com». Но не в обороте
+#: «our team at site.com»: перед ним слово-определитель (`_DETERMINERS`).
+_AT_ROLE_RE = re.compile(
+    rf"(?:\b(\w+)\s+)?\b({'|'.join(sorted(ROLE_LOCAL_PARTS))})\s+at\s+(?=[\w-]+\.[\w-])",
+    re.IGNORECASE,
 )
+_DETERMINERS = frozenset({"the", "our", "your", "my", "their", "his", "her", "its", "a", "an"})
 
 
 def decode_cloudflare(hexstr: str) -> str:
@@ -75,14 +89,23 @@ def decode_cloudflare(hexstr: str) -> str:
     return "".join(chr(byte ^ key) for byte in raw[1:])
 
 
+def _role_at(match: re.Match[str]) -> str:
+    before, role = match.group(1), match.group(2)
+    if before and before.lower() in _DETERMINERS:
+        return match.group(0)
+    return f"{before} {role}@" if before else f"{role}@"
+
+
 def deobfuscate(text: str) -> str:
     """`info [at] domain [dot] com` → `info@domain.com`.
 
     Замена съедает пробелы вокруг маркера. Применяется к копии текста
-    и только ради поиска адресов: ложные срабатывания на обычных словах
-    «at» и «dot» отсеет фильтр качества.
+    и только ради поиска адресов. Голое «at» без скобок — по правилам выше:
+    обычное слово в прозе давало правдоподобный адрес на домене сайта,
+    к которому ни фильтр качества, ни правило доверия не придерутся.
     """
-    return _DOT_RE.sub(".", _AT_RE.sub("@", text))
+    text = _AT_ROLE_RE.sub(_role_at, _AT_SPELLED_RE.sub("@", _AT_RE.sub("@", text)))
+    return _DOT_RE.sub(".", text)
 
 
 def _from_mailto(tree: HTMLParser) -> set[str]:

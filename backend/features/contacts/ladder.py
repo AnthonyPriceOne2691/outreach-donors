@@ -326,7 +326,10 @@ class ContactLadder:
             # Угаданному адресу верим только на домене сайта: иначе обычная
             # фраза «meet at the dot com» станет контактом.
             if trusted_guess(email, site_host=site_host):
-                collected.add(Candidate(email, ContactSource.PAGE, page.kind, page_url=page.url))
+                guess = Candidate(
+                    email, ContactSource.PAGE, page.kind, page_url=page.url, guessed=True
+                )
+                collected.add(guess)
 
     async def _step_browser(self, host: str, collected: _Collected) -> ContactStatus | None:
         """Рендер настоящим браузером — только для того, что не открылось.
