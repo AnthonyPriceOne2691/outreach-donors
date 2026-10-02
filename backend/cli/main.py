@@ -306,7 +306,8 @@ def _print_judge(report: RunReport) -> None:
     if judge.home_unreached:
         print(f"  главная не открылась и в индексе нет: {judge.home_unreached} — решала выдача")
     if judge.units_saved:
-        print(f"  юнитов сэкономил бы: {judge.units_saved:,} (нижняя граница)".replace(",", " "))
+        saved = "сэкономил бы" if judge_cfg.MODE is judge_cfg.JudgeMode.SHADOW else "сэкономил"
+        print(f"  юнитов {saved}: {judge.units_saved:,} (нижняя граница)".replace(",", " "))
 
 
 def build_parser() -> argparse.ArgumentParser:

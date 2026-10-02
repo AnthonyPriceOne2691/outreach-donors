@@ -532,6 +532,29 @@ class TestJudge:
         assert lines[0] == "Судья площадки (режет):"
         assert lines[2] == "отрезал 7, к человеку 3"
 
+    @pytest.mark.parametrize(
+        ("mode", "saved"),
+        [(JudgeMode.SHADOW, "сэкономил бы"), (JudgeMode.ENFORCE, "сэкономил")],
+        ids=["shadow", "enforce"],
+    )
+    def test_savings_are_worded_by_mode(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        mode: JudgeMode,
+        saved: str,
+    ) -> None:
+        """В наблюдении судья не режет — «сэкономил бы»; во включённом режиме
+        отрезанные до Ahrefs не дошли — «сэкономил». Так же их называет
+        запись прогона (`backend/features/runs/report.py`)."""
+        monkeypatch.setattr("backend.config.judge.MODE", mode)
+        judge = _judge()
+
+        _print_judge(RunReport(plan=_plan(new=0), judge=judge))
+
+        expected = f"юнитов {saved}: {_units(judge.units_saved)} (нижняя граница)"
+        assert _lines(capsys.readouterr().out)[-1] == expected
+
     def test_zero_counters_add_no_lines(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
