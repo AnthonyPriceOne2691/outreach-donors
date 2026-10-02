@@ -2,9 +2,9 @@
 
 **Date:** 2026-10-02
 **Verifier:** process:ci — обязательные `check`, `web`, `docker`, на PR ещё `gates` и `delivery`; до пуша — локальные прогоны ниже
-**asserts_reviewed_by:** deferred reason=6 утверждений без примера спеки ждут подписи человека — тест-зеркало реестра (`test_repository_registry_mirrors_these_fixtures`, 1), два предусловия помощников (`_section`, `_v1`), путь «почта → реестр моделей → продажи» при обоих значениях `allow_indirect_imports` (`test_mail_may_read_the_model_registry_that_lists_sales_models`, 3); человека в цепочке агента нет — подписывает владелец при ревью, дайджест в конце отчёта
+**asserts_reviewed_by:** deferred reason=4 утверждения без примера спеки ждут подписи человека — путь «почта → реестр моделей → продажи» при обоих значениях `allow_indirect_imports` (`test_mail_may_read_the_model_registry_that_lists_sales_models`, 3) и предусловие помощника `_v1` (1); человека в цепочке агента нет — подписывает владелец при ревью, дайджест в конце отчёта
 **CI run:** нет — ветка не запушена. Она стоит стеком на ветке #135: пуш, PR и прогон CI — после слияния #135 и перебазирования на main, делает координатор
-**Commit:** T4 — прогоны сняты на дереве T3 (`1b7fbba`); T4 меняет только документы среза
+**Commit:** T4 — прогоны сняты на дереве T3 (`1b7fbba`), T4 меняет только документы среза; T5 — правка проверки волн, её прогоны точечные, раздел «T5» ниже
 
 ## Shape oracles
 
@@ -27,8 +27,9 @@
       backend/features/sales/, волна не развёрнута».
 - [x] PASS — `delivery_check.py --require-ci --diff-base sales/1.1a-model`:
       0 errors, 2 warnings, exit 0; предупреждения разобраны ниже.
-      Breakers: файлов 4, net_loc 179 (+180/−1) при пределах 25 и 800;
-      класс S — до 5 файлов и 200 строк.
+      Breakers на T4: файлов 4, net_loc 179 (+180/−1) при пределах 25 и 800;
+      класс S — до 5 файлов и 200 строк. С T5 — 5 файлов и 223 строки,
+      разбор — в разделе «T5».
 - [x] PASS — `scripts/check_irreversible_signature.sh`: подпись сходится,
       exit 0.
 
@@ -83,7 +84,7 @@ T3. Считал сам гейт своим способом выбора фай
       моделей из почты — зелёный при `allow_indirect_imports = True`,
       красный при `False` (2). A3 — реестр называет В1 развёрнутой, улика
       держится (1), без контракта проверка волн красная (1).
-- [x] PASS — `tests/test_contour_waves.py`: 25 тестов; зеркало реестра —
+- [x] PASS — `tests/test_contour_waves.py`: 25 тестов, с T5 — 28; зеркало реестра —
       с В1 среди развёрнутых.
 - [x] PASS — полный набор на своей базе `outreach_test_998450dfa8`
       (`TEST_STORAGE_DSN` не задан): 3181 passed за 441 с, exit 0.
@@ -160,6 +161,39 @@ T3. Считал сам гейт своим способом выбора фай
 - diff-coverage в диффе самого среза судит ноль файлов `sales/`: кода продаж
   срез не меняет. Число больше нуля — на базе с кодом продаж.
 
+## T5 — улика В1 читает парсер ini
+
+Находка №2 ниже — наш собственный скрипт волны В0, его починили в этом же
+срезе по решению координатора. `scripts/contour_waves.py`: улику В1 проверяет
+`forbids_sales` — `.importlinter` разбирает `configparser`, и засчитывается
+только секция `importlinter:contract:…`, где `backend.features.sales` стоит
+в `forbidden_modules`. Комментарий со словами модуля уликой больше не
+считается. Битый конфиг тоже не улика, и проверка говорит об этом вслух.
+
+- [x] Красный до правки — `test_v1_evidence_is_a_contract_not_a_comment`
+      в `tests/test_contour_waves.py`, три случая, на старом скрипте:
+      2 failed, 1 passed. Красные — «контракт удалён, комментарий со словами
+      модуля остался» и «продажи — источник контракта, а не запрет»; зелёный —
+      настоящий контракт, он контрольный.
+- [x] PASS — после правки `pytest tests/test_contour_waves.py
+      tests/test_sales_boundary.py`: 38 passed; оба теста A3 — зелёные.
+- [x] PASS — ратчет сложности: длина скрипта 460 → 479 строк, снимок
+      `delivery/complexity-snapshot.json` поднят ровно в этой строке; худшая
+      функция прежняя — `collect`, сложность 14.
+- [x] PASS — `pre-commit run --files` по семи файлам T5: 6 прошли,
+      21 без файлов для проверки, exit 0; `ruff check` и `ruff format --check`
+      по `scripts/`, `tests/`, `backend/` — exit 0; `scripts/gates.py` —
+      464 файла, нарушений нет.
+- [x] PASS — на коммите T5: `contour_waves --base sales/1.1a-model` — exit 0,
+      «нарушений нет»; `delivery_check --require-ci --diff-base
+      sales/1.1a-model` — 0 errors, 3 warnings, exit 0; подпись необратимого —
+      exit 0. Полный сьют не гоняли по просьбе координатора: его сделает
+      pre-push при перебазировании.
+- Breakers: 5 файлов, net 223 (+229/−6). `delivery_check` предупреждает
+  «class S, а тронуто 5 файлов / 223 строк — класс занижен?». Класс оставлен
+  S: работа та же — граница модуля, а 44 строки сверх неё — правка улики
+  этой же волны по решению координатора.
+
 ## Находки в общем коде — не чинились
 
 - `.dependency-cruiser.cjs:16–17` и `:23–24`: канонные правила
@@ -169,11 +203,9 @@ T3. Считал сам гейт своим способом выбора фай
   нет. Живой прогон: `frontend/src/models/probe.ts` с импортом
   `../api/client` — гейт зелёный, exit 0. Из старых правил судит только
   `no-circular`.
-- `scripts/contour_waves.py:124` и `:273–275`: улика В1 — регулярное
-  выражение по всему тексту `.importlinter`, включая комментарии. Контракт, удалённый при
-  оставленном комментарии со словами `backend.features.sales`, проверку волн
-  прошёл бы. Комментарий нового контракта этих слов нарочно не содержит,
-  и тест A3 держит это на нынешнем тексте.
+- ~~`scripts/contour_waves.py:124` и `:273–275`: улика В1 — регулярное
+  выражение по всему тексту `.importlinter`, включая комментарии~~ —
+  исправлено в T5, раздел выше.
 - `.pre-commit-config.yaml:242`: хук `layers-gate` зовёт гейт без
   `LINT_VENV`. Локально половину python судит первый `lint-imports` в PATH:
   на машине разработки это глобальный 2.13, а не 2.15 из `.venv`; без него —
@@ -192,13 +224,15 @@ T3. Считал сам гейт своим способом выбора фай
 
 База: `sales/1.1a-model` · сгенерировано `assert_digest.sh`
 
-Новых/изменённых утверждений: **18**, из них без ссылки на пример спеки:
-**6**. Вопрос к каждому непривязанному один: **откуда взято ожидаемое
+Новых/изменённых утверждений: **20**, из них без ссылки на пример спеки:
+**4**. Вопрос к каждому непривязанному один: **откуда взято ожидаемое
 значение — из спеки или придумано под реализацию?**
 
 ```
--	assert {w.name for w in waves if w.state == "deployed"} == {"В0", "В1", "В-обн"}
--	assert found is not None, "в .importlinter нет контракта mail-does-not-know-sales"
+A3	assert got == code
+A3	assert ("✗ В1: в .importlinter нет контракта с backend.features.sales" in out) is (code == 1)
+A3	assert {w.name for w in waves if w.state == "deployed"} == {"В0", "В1", "В-обн"}
+A3	assert found is not None, "в .importlinter нет контракта mail-does-not-know-sales"
 A1	assert code == 1, out
 A1	assert f"{CONTRACT} BROKEN" in out
 A1	assert f"backend.features.{package}.planted -> backend.features.sales" in out
@@ -217,9 +251,9 @@ A3	assert cw.judge([wave], tree) == []
 A3	assert found == [
 ```
 
-Привязаны к примерам: **A1 A3**. Остальные 6 — нет.
+Привязаны к примерам: **A1 A3**. Остальные 4 — нет.
 
 Читать нужно **только строки с `-` в первой колонке**: их ожидание
 ничем не подписано. Подпись: `asserts_reviewed_by: human:… at=…`.
 
-asserts_without_example: 6
+asserts_without_example: 4
