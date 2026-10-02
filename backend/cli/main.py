@@ -293,8 +293,9 @@ def _print_judge(report: RunReport) -> None:
     judge = report.judge
     if judge is None:
         return
-    mode = "наблюдение, не режет" if judge_cfg.MODE is judge_cfg.JudgeMode.SHADOW else "режет"
-    cut = "отрезал бы" if judge_cfg.MODE is judge_cfg.JudgeMode.SHADOW else "отрезал"
+    shadow = judge_cfg.MODE is judge_cfg.JudgeMode.SHADOW
+    mode = "наблюдение, не режет" if shadow else "режет"
+    cut = "отрезал бы" if shadow else "отрезал"
     print(f"\nСудья площадки ({mode}):")
     tokens = f"{judge.tokens:,}".replace(",", " ")
     print(f"  судил {judge.judged}, из кэша {judge.from_cache}, токенов {tokens}")
@@ -306,8 +307,9 @@ def _print_judge(report: RunReport) -> None:
     if judge.home_unreached:
         print(f"  главная не открылась и в индексе нет: {judge.home_unreached} — решала выдача")
     if judge.units_saved:
-        saved = "сэкономил бы" if judge_cfg.MODE is judge_cfg.JudgeMode.SHADOW else "сэкономил"
-        print(f"  юнитов {saved}: {judge.units_saved:,} (нижняя граница)".replace(",", " "))
+        saved = "сэкономил бы" if shadow else "сэкономил"
+        units = f"{judge.units_saved:,}".replace(",", " ")
+        print(f"  юнитов {saved}: {units} (нижняя граница)")
 
 
 def build_parser() -> argparse.ArgumentParser:
