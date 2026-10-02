@@ -94,7 +94,7 @@ class FetchedPage:
     html: str
 
 
-def _kind_of(url: str) -> PageKind:
+def kind_of(url: str) -> PageKind:
     """Вид страницы по её адресу. Неузнанное — главная, то есть слабый вес.
 
     Адрес раскодируется (`url_names_section`): не-латинский слаг уезжает
@@ -317,7 +317,7 @@ class PageFetcher:
             # проверку своего домена и уходила в запрос.
             if parsed.scheme not in ("http", "https") or parsed.netloc.lower() != host:
                 continue
-            out.append((absolute, _kind_of(absolute)))
+            out.append((absolute, kind_of(absolute)))
 
         order = {kind: number for number, kind in enumerate(WALK_ORDER)}
         return sorted(out, key=lambda item: order.get(item[1], len(order)))

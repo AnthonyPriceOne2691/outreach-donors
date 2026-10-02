@@ -31,7 +31,7 @@ from backend.features.contacts import mx
 from backend.features.contacts.extract import find_contact_links
 from backend.features.contacts.ladder import ContactLadder
 from backend.features.contacts.messengers import harvest_handles
-from backend.features.contacts.pages import _kind_of, language_hint
+from backend.features.contacts.pages import kind_of, language_hint
 from backend.features.contacts.provider import Candidate, Quota
 from backend.features.contacts.quality import rejection_reason
 from backend.features.contacts.slugs import LINK_MARKERS
@@ -105,7 +105,7 @@ class TestArticleIsNotASection:
         ],
     )
     def test_article_is_home_weight(self, url: str) -> None:
-        assert _kind_of(url) is PageKind.HOME
+        assert kind_of(url) is PageKind.HOME
 
     @pytest.mark.parametrize(
         ("url", "kind"),
@@ -155,7 +155,7 @@ class TestArticleIsNotASection:
     )
     def test_section_is_still_recognised(self, url: str, kind: PageKind) -> None:
         """Обратная сторона: по словам не теряются настоящие разделы."""
-        assert _kind_of(url) is kind
+        assert kind_of(url) is kind
 
     async def test_address_from_an_article_is_not_the_donor_contact(self) -> None:
         """До правки статья шла впереди как «реклама» и обрывала обход своим адресом."""
