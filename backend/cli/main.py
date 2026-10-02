@@ -125,7 +125,7 @@ def _print_plan(plan: RunPlan, budget: int) -> None:
     if p.excluded:
         print(f"\nИсключены:           {len(p.excluded)}  (в прогон не идут)")
         for reason, count in sorted(p.excluded_by_reason.items()):
-            print(f"  {reason + ':':<21}{count}")
+            print(f"  {reason + ':':<20} {count}")
     print(f"\nУже проверены:       {len(p.fresh)}  (платить не нужно)")
     print(f"Проверить сейчас:    {len(p.new)}")
     estimate = p.estimate

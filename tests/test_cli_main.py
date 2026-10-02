@@ -372,6 +372,15 @@ class TestPlan:
             f"Сэкономлено гейтом: {_units(plan.savings_from_gate)} юнитов",
         ]
 
+    def test_long_reason_keeps_its_count_apart(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Подпись причины бывает длиннее колонки — число всё равно отделено.
+        Берётся самая длинная из семи."""
+        longest = max(ExclusionReason, key=lambda reason: len(reason.caption))
+
+        _print_plan(_plan(new=3, excluded={"declined.test": longest}), 500)
+
+        assert f"{longest.caption}: 1" in _lines(capsys.readouterr().out)
+
     def test_nothing_to_say_means_no_line(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Нет отсечённых, неразобранных, пустых ключей и экономии — нет и строк о них."""
         plan = _plan(new=3)
