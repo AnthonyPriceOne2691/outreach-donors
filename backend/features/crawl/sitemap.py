@@ -29,12 +29,13 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
 import httpx
 
 from backend.config import crawl as cfg
 from backend.features.crawl.limiter import DomainLimiter
+from backend.shared.net.url_parts import parse_url
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +90,10 @@ def _decode(response: httpx.Response, url: str) -> str | None:
 def _same_site(url: str, host: str) -> bool:
     """Карта чужого сайта — либо ошибка, либо подстава: страницы чужого
     домена нам не нужны, а ходить по ним по просьбе донора тем более."""
-    netloc = urlparse(url).netloc.lower().split(":")[0]
+    parts = parse_url(url)
+    if parts is None:
+        return False
+    netloc = parts.netloc.lower().split(":")[0]
     # Сравнение через `endswith(host)` было бы дырой: `notexample.com`
     # кончается на `example.com`, и карта чужого сайта прошла бы проверку.
     return netloc == host or netloc.endswith(f".{host}")

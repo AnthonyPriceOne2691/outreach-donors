@@ -637,9 +637,9 @@
       "worst": "_query:145"
     },
     "backend/features/contacts/pages.py": {
-      "lines": 324,
+      "lines": 329,
       "complexity": 7,
-      "worst": "language_hint:115"
+      "worst": "language_hint:116"
     },
     "backend/features/contacts/preference.py": {
       "lines": 52,
@@ -677,9 +677,9 @@
       "worst": "search_contacts:160"
     },
     "backend/features/contacts/slugs.py": {
-      "lines": 327,
+      "lines": 330,
       "complexity": 5,
-      "worst": "_markers_by_length:247"
+      "worst": "_markers_by_length:248"
     },
     "backend/features/contacts/step_counters.py": {
       "lines": 91,
@@ -697,9 +697,9 @@
       "worst": "_is_domain:93"
     },
     "backend/features/contacts/sweep_trace.py": {
-      "lines": 277,
+      "lines": 279,
       "complexity": 9,
-      "worst": "retry_reason:203"
+      "worst": "received:119"
     },
     "backend/features/core/__init__.py": {
       "lines": 1,
@@ -817,9 +817,9 @@
       "worst": "__init__:55"
     },
     "backend/features/crawl/links.py": {
-      "lines": 227,
+      "lines": 244,
       "complexity": 11,
-      "worst": "collect_links:139"
+      "worst": "collect_links:156"
     },
     "backend/features/crawl/promote.py": {
       "lines": 276,
@@ -847,9 +847,9 @@
       "worst": "score_link:135"
     },
     "backend/features/crawl/sitemap.py": {
-      "lines": 202,
+      "lines": 206,
       "complexity": 15,
-      "worst": "scan:119"
+      "worst": "scan:123"
     },
     "backend/features/crawl/targets.py": {
       "lines": 132,
@@ -857,9 +857,9 @@
       "worst": "choose:60"
     },
     "backend/features/crawl/walk.py": {
-      "lines": 453,
+      "lines": 457,
       "complexity": 8,
-      "worst": "_walk:302"
+      "worst": "same_site_links:126"
     },
     "backend/features/donors/__init__.py": {
       "lines": 1,
@@ -867,9 +867,9 @@
       "worst": "—"
     },
     "backend/features/donors/author_door.py": {
-      "lines": 177,
+      "lines": 183,
       "complexity": 5,
-      "worst": "_door_in_url:101"
+      "worst": "_door_in_url:107"
     },
     "backend/features/donors/backfill.py": {
       "lines": 277,
@@ -907,7 +907,7 @@
       "worst": "_shop_marks:220"
     },
     "backend/features/donors/host.py": {
-      "lines": 72,
+      "lines": 73,
       "complexity": 9,
       "worst": "normalize_host:37"
     },
@@ -932,9 +932,9 @@
       "worst": "tally_reviews:422"
     },
     "backend/features/donors/site_index.py": {
-      "lines": 63,
+      "lines": 69,
       "complexity": 13,
-      "worst": "index_homes:35"
+      "worst": "index_homes:41"
     },
     "backend/features/donors/standing.py": {
       "lines": 100,
@@ -1475,6 +1475,11 @@
       "lines": 168,
       "complexity": 10,
       "worst": "assert_safe_url:88"
+    },
+    "backend/shared/net/url_parts.py": {
+      "lines": 50,
+      "complexity": 2,
+      "worst": "split_url:25"
     },
     "backend/shared/queue.py": {
       "lines": 258,

@@ -30,7 +30,7 @@ import logging
 import re
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 
 import httpx
 from selectolax.parser import HTMLParser
@@ -46,6 +46,7 @@ from backend.features.contacts.slugs import (
 )
 from backend.features.core.domain import PageKind
 from backend.shared.net.url_guard import UnsafeUrlError
+from backend.shared.net.url_parts import join_url, parse_url
 
 logger = logging.getLogger(__name__)
 
@@ -311,11 +312,15 @@ class PageFetcher:
         host = urlparse(page.url).netloc.lower()
         out: list[tuple[str, PageKind]] = []
         for href in links:
-            absolute = urljoin(page.url, href)
-            parsed = urlparse(absolute)
+            absolute = join_url(page.url, href) or ""
+            parsed = parse_url(absolute)
             # Схема — до хоста: опечатка `hhttps://свой-домен/...` проходила
-            # проверку своего домена и уходила в запрос.
-            if parsed.scheme not in ("http", "https") or parsed.netloc.lower() != host:
+            # проверку своего домена и уходила в запрос. У битой ссылки схемы нет.
+            if (
+                parsed is None
+                or parsed.scheme not in ("http", "https")
+                or parsed.netloc.lower() != host
+            ):
                 continue
             out.append((absolute, kind_of(absolute)))
 

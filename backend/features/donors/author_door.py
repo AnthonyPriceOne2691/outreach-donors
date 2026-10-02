@@ -25,9 +25,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import replace
-from urllib.parse import urlsplit
 
 from backend.features.donors.publisher_judge import Intent, Judgement, Recommendation
+from backend.shared.net.url_parts import split_url
 
 #: Сегмент пути, который где угодно в себе значит «пишите для нас».
 AUTHOR_SLUG_ANYWHERE = re.compile(r"write-?for-?(us|me)|writeforus")
@@ -93,8 +93,14 @@ AD_MENU: frozenset[str] = frozenset({
 })  # fmt: skip
 
 
+def _path(url: str | None) -> str:
+    """Путь адреса строчными. Без адреса и у битого адреса — пустой."""
+    split = split_url(url) if url else None
+    return split.path.lower() if split else ""
+
+
 def _last_segment(url: str) -> str:
-    segment = urlsplit(url).path.lower().rstrip("/").rsplit("/", 1)[-1]
+    segment = _path(url).rstrip("/").rsplit("/", 1)[-1]
     return segment.rsplit(".", 1)[0] if "." in segment else segment
 
 
@@ -106,7 +112,7 @@ def _door_in_url(url: str | None) -> str | None:
 
 
 def _door_in_archive(url: str | None) -> str | None:
-    parts = urlsplit(url).path.lower().strip("/").split("/") if url else []
+    parts = _path(url).strip("/").split("/")
     if len(parts) >= 2 and parts[-2] in ARCHIVE_PARENTS and GUEST_ARCHIVE.search(parts[-1]):
         return f"страница «{parts[-2]}/{parts[-1]}»"
     return None

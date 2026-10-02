@@ -13,9 +13,9 @@
 
 from __future__ import annotations
 
-from urllib.parse import urlsplit
-
 import tldextract
+
+from backend.shared.net.url_parts import split_url
 
 # Список суффиксов берётся из снимка, вшитого в пакет: ходить за ним в сеть
 # на каждом запуске значит поставить прогон в зависимость от чужой доступности
@@ -51,7 +51,8 @@ def normalize_host(raw: str | None) -> str:
     # уезжает в path, поэтому схему подставляем.
     if "//" not in candidate:
         candidate = f"//{candidate}"
-    host = urlsplit(candidate).hostname or ""
+    split = split_url(candidate)
+    host = split.hostname if split else None
     if not host:
         return ""
 

@@ -12,9 +12,10 @@ from __future__ import annotations
 
 import re
 from functools import lru_cache
-from urllib.parse import parse_qsl, unquote, urlparse
+from urllib.parse import parse_qsl, unquote
 
 from backend.features.core.domain import PageKind
+from backend.shared.net.url_parts import parse_url
 
 # Слаги по видам страниц. Списки не исчерпывающие и не должны быть:
 # остальное добирается по ссылкам с главной, где раздел назван словами.
@@ -321,6 +322,8 @@ def url_names_section(url: str, markers: frozenset[str]) -> bool:
     Параметры — ради старых движков: `index.php?page=contact` подстрока
     находила, и терять такие сайты при переходе на слова незачем.
     """
-    parsed = urlparse(url)
+    parsed = parse_url(url)
+    if parsed is None:
+        return False
     parts = [*unquote(parsed.path).split("/"), *(value for _, value in parse_qsl(parsed.query))]
     return any(names_section(part, markers) for part in parts)
