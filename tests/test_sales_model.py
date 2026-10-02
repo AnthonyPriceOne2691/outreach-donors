@@ -143,7 +143,10 @@ async def test_sales_import_journal_value_is_there_and_survives_a_rerun(
     session: AsyncSession,
 ) -> None:
     connection = await session.connection()
-    assert (await connection.run_sync(_journal_values))[-1] == "sales_leads_imported"
+    values = await connection.run_sync(_journal_values)
+    # По наличию и без повтора, а не «последнее в перечислении»: следующее
+    # ADD VALUE в auditaction из любого модуля не должно ронять этот тест.
+    assert values.count("sales_leads_imported") == 1
 
 
 async def test_upgrade_head_creates_both_sales_tables(session: AsyncSession) -> None:  # A1
