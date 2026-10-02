@@ -288,8 +288,33 @@ def test_reverse_run_empty_sales_mask_turns_a2_and_a5_green(
     assert run(tmp_path / "a5", capsys, "--base", a5)[0] == 0
 
 
+LINTER = "[importlinter]\nroot_packages =\n    backend\n"
+FORBIDS = "[importlinter:contract:x]\ntype = forbidden\nsource_modules =\n    backend.features.{}\nforbidden_modules =\n    backend.features.{}\n"  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("contract", "code"),
+    [
+        (FORBIDS.format("letters", "sales"), 0),
+        ("# контракт про backend.features.sales убран, комментарий остался\n", 1),
+        (FORBIDS.format("sales", "letters"), 1),
+    ],
+    ids=["contract", "comment", "sales-as-source"],
+)
+def test_v1_evidence_is_a_contract_not_a_comment(
+    tmp_path: Path, capsys: Capture, contract: str, code: int
+) -> None:  # A3
+    """Улика В1 — контракт, запрещающий продажи. Комментарий со словами модуля
+    и контракт, где продажи — источник, а не запрет, уликой не считаются."""
+    files = docs(reg=registry({"В0": "deployed", "В1": "deployed"}))
+    write(tmp_path, {**files, ".importlinter": LINTER + contract})
+    got, out = run(tmp_path, capsys)
+    assert got == code
+    assert ("✗ В1: в .importlinter нет контракта с backend.features.sales" in out) is (code == 1)
+
+
 def test_repository_registry_mirrors_these_fixtures() -> None:  # A12
     waves, errors = cw.parse_registry((cw.ROOT / cw.REGISTRY).read_text(encoding="utf-8"))
     assert errors == []
     assert {w.name: (w.triggers, w.limit) for w in waves} == ROWS
-    assert {w.name for w in waves if w.state == "deployed"} == {"В0", "В-обн"}
+    assert {w.name for w in waves if w.state == "deployed"} == {"В0", "В1", "В-обн"}

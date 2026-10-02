@@ -2,167 +2,214 @@
 
 **Date:** 2026-10-02
 **Verifier:** process:ci — обязательные `check`, `web`, `docker`, на PR ещё `gates` и `delivery`; до пуша — локальные прогоны ниже
-**asserts_reviewed_by:** deferred reason=6 утверждений без примера спеки ждут подписи человека — заведение со склейкой пробелов и описанием (`test_hypothesis_is_stored_with_its_description`, 3), право в роли оператора и снятие поимённо (`test_operator_gets_sales_by_default_and_loses_it_by_name`, 1), список прав оператора при входе (`TestLogin::test_login_gives_token_and_card`, 1), первый импорт `sales.models` в чистом процессе (`test_sales_models_import_first_in_a_clean_process`, 1); человека в цепочке агента нет — подписывает владелец при ревью, дайджест в конце отчёта
-**CI run:** нет — ветка не запушена: пуш, PR и прогон CI делает координатор после ревью
-**Commit:** T9 — локальные прогоны сняты на дереве T9 (`76719e1`) с правками этого отчёта
+**asserts_reviewed_by:** deferred reason=4 утверждения без примера спеки ждут подписи человека — путь «почта → реестр моделей → продажи» при обоих значениях `allow_indirect_imports` (`test_mail_may_read_the_model_registry_that_lists_sales_models`, 3) и предусловие помощника `_v1` (1); человека в цепочке агента нет — подписывает владелец при ревью, дайджест в конце отчёта
+**CI run:** нет — ветка не запушена. Она стоит стеком на ветке #135: пуш, PR и прогон CI — после слияния #135 и перебазирования на main, делает координатор
+**Commit:** T4 — прогоны сняты на дереве T3 (`1b7fbba`), T4 меняет только документы среза; T5 — правка проверки волн, её прогоны точечные, раздел «T5» ниже
 
 ## Shape oracles
 
 - [x] PASS — `pre-commit run --all-files`: 27 хуков, 27 прошли, 0 упавших,
       exit 0.
-- [x] PASS — `ruff check backend/ tests/ scripts/` (как в CI) — exit 0;
-      `ruff format --check` — 465 файлов, exit 0; `mypy backend/` — 298 файлов,
-      exit 0; `scripts/gates.py` — 461 файл, нарушений нет, в том числе
-      `public-repo`, exit 0; `lint-imports` — 3 контракта целы, 0 сломано,
-      exit 0; `scripts/complexity.py` — 312 файлов, расхождений со снимком нет,
-      exit 0 (худшая функция среди файлов продаж — `add` в
-      `sales/hypotheses.py`, сложность 6).
+- [x] PASS — гейт слоёв `scripts/lint/check_layers_gate.sh`: python —
+      просмотрено 298 файлов, TS — 109 модулей, exit 0. `lint-imports` —
+      4 контракта целы, 0 сломано, «Analyzed 298 files», exit 0.
+- [x] PASS — `ruff check backend/ tests/ scripts/` (как CI) — exit 0;
+      `ruff format --check` — 468 файлов, exit 0; `mypy backend/` — 298 файлов,
+      exit 0; `scripts/gates.py` — 464 файла, нарушений нет, в том числе
+      `public-repo`, exit 0; `scripts/complexity.py` — 312 файлов,
+      расхождений со снимком нет, exit 0.
 - [x] PASS — DRY-гейт `check_jscpd_gate.sh`: 45 пар клонов при снимке 45
-      (387 файлов), exit 0. Первая редакция миграции в T3 давала 46 (пара
-      колонок `created_at`/`updated_at` против `b7e2c4a81f95`) — помощник
-      `_stamps` переписан одной колонкой в цикле.
-- [x] PASS — `delivery_check.py --require-ci --diff-base origin/main`:
-      0 errors, 5 warnings, exit 0. Breakers: файлов 18, net_loc 724
-      (+730/−6) при пределах 25 и 800; файл прибавил `tests/test_api_auth.py`.
-- [x] PASS — `scripts/check_irreversible_signature.sh`: подпись сходится, exit 0.
-- [x] PASS — `python scripts/contour_waves.py --base origin/main` (режим CI):
-      exit 0, «нарушений нет», «В1: триггер сработал, предел — следующий PR
-      продаж»; `shared_changes` покрывает все общие файлы диффа. Без строки
-      о `tests/test_api_auth.py` в `shared_changes:` тот же прогон давал exit 1:
-      «общий код тронут без объявления: tests/test_api_auth.py».
-- [x] PASS — `check_gate_coverage.sh`: OK — 15 скриптов, подключено 11,
-      осознанно нет 4, правил сверено 10, exit 0. `contour_doctor.py`: exit 0,
-      DEAD 0 (AUTO 34 · WEAK 12 · ABSENT 6 · TOOL 3 · SKIP 2). WEAK — пропуски
-      среды пробы (в ней нет `ruff`, `jscpd`, `eslint`, `gh`, `pip-audit`,
-      `mutmut`, `pytest-cov`, `lint-imports`) и маски гейтов по языкам; путей
-      продаж среди них нет.
+      (387 файлов), exit 0. Гейт сложности функций — 317 файлов
+      в области pre-commit и 478 в области CI, exit 0.
+- [x] PASS — `python scripts/contour_waves.py --base sales/1.1a-model` (режим
+      CI, база PR стеком): exit 0, «В1 deployed», «нарушений нет».
+      До T3 тот же прогон давал exit 1: «В1: в базе PR уже есть
+      backend/features/sales/, волна не развёрнута».
+- [x] PASS — `delivery_check.py --require-ci --diff-base sales/1.1a-model`:
+      0 errors, 2 warnings, exit 0; предупреждения разобраны ниже.
+      Breakers на T4: файлов 4, net_loc 179 (+180/−1) при пределах 25 и 800;
+      класс S — до 5 файлов и 200 строк. С T5 — 5 файлов и 223 строки,
+      разбор — в разделе «T5».
+- [x] PASS — `scripts/check_irreversible_signature.sh`: подпись сходится,
+      exit 0.
 
-Проверки по диффу (`delivery_check`, `contour_waves`, дайджест) берут общий
-предок с `origin/main` — `def8d3e`. Сам `origin/main` с тех пор ушёл на
-`038f85c` (#132); слияние ветки с ним без конфликтов (`git merge-tree`):
-общие файлы — `.env.example` и `delivery/complexity-snapshot.json`, правки
-в разных местах.
+`contour_waves --base origin/main` с этой ветки даёт exit 1, и это свойство
+стека, а не среза. Дифф с main несёт ещё и #135, и тринадцать общих файлов
+#135 (`backend/cli/main.py`, `core/domain.py` и другие) этот STATUS не
+объявляет: их объявлял STATUS 1.1a, он в архиве. Волны в том же прогоне
+зелёные: «В1 deployed». После слияния #135 и перебазирования дифф с main —
+только этот срез.
+
+## A2 — что видит каждый гейт
+
+Число файлов `backend/features/sales/`, просмотренных каждым гейтом на дереве
+T3. Считал сам гейт своим способом выбора файлов: ноль означал бы, что гейт
+смотрит мимо продаж. В `sales/` три файла: `__init__.py`, `hypotheses.py`,
+`models.py`.
+
+| Гейт | Как считал | Всего | `sales/` |
+|---|---|---|---|
+| ruff check (как CI) | `--show-files` | 464 | 3 |
+| ruff format --check (как CI) | `-v`, строки `format_path` | 468 | 3 |
+| mypy `backend/` | `--linecount-report` | 298 | 3 |
+| `scripts/gates.py` | его обход `_python_files` | 464 | 3 |
+| `scripts/gates.py`, `public-repo` | `_tracked_text_files` | 827 | 3 |
+| `lint-imports` | граф `grimp.build_graph("backend")` — тот же, что строит гейт | 298 | 3 |
+| ратчет сложности `scripts/complexity.py` | `measure()` | 312 | 3, все в снимке |
+| гейт сложности функций | `git ls-files` области и ruff с его правилами | 174 / 335 | 3 / 3 |
+| DRY, jscpd | JSON-отчёт с флагами гейта (`-k 50`, без тестов) | 293 | 3, клонов 0 |
+| diff-coverage, база `origin/main` (дифф несёт #135) | таблица гейта | 10 | 3: 100 %, 100 %, 100 % |
+| diff-coverage, база `sales/1.1a-model` (дифф среза) | таблица гейта | 0 | 0 |
+| гейт слоёв, TS | правило `mail-does-not-know-sales` | 109 | 0 — экранов продаж нет |
+
+- Гейт сложности функций: 174 — область pre-commit (`backend/features`),
+  335 — область CI (`backend`).
+- diff-coverage: проценты — от прогона тестов продаж, а не всего сьюта:
+  второй полный прогон на перегруженной машине не делали. В том же отчёте
+  `backend/cli/main.py` — 42,1 %, это артефакт узкого прогона: на всём сьюте
+  его держат тесты #139.
+- На базе среза гейт сказал: «Python-файлов в диффе нет, изменено 2
+  prod-файла — `.dependency-cruiser.cjs`, `.importlinter` — этот гейт их не
+  мерит». Покрытие их и не меряет: оба конфига судит сам гейт слоёв, их
+  проверка — обратные прогоны ниже.
+- Половине TS гейта слоёв судить пока нечего: каталога `frontend/src/sales/`
+  нет. Правило ловит подложенный импорт — строка в таблице обратных прогонов.
 
 ## Behavior oracles
 
-- [x] PASS — `tests/test_sales_model.py`: 11 тестов на настоящей базе —
-      A1 (2), A4 (2, с положительным контролем), A5, A6 (3, два — обратные
-      прогоны), A7 (2), первый импорт `sales.models` в чистом процессе.
-- [x] PASS — `tests/test_sales_setup.py`: 7 тестов — команда в разборе консоли,
-      заведение с описанием, A8 (3), выключатель, право: в роли оператора
-      и снимается поимённо.
-- [x] PASS — `tests/test_api_auth.py`: 24 теста; вход оператора отдаёт список
-      прав с `sales`.
-- [x] PASS — `tests/test_schema.py`, `tests/test_migrations_match_models.py`:
-      две таблицы в реестре, модели и цепочка сходятся (A1).
-- [x] PASS — полный набор на своей базе `outreach_test_sales_a`: 3066 passed
-      за 322,5 с, exit 0.
-- [x] PASS — фронт: `tsc`, `eslint`, `prettier` — exit 0; vitest 442 из 442
-      (49 файлов), exit 0.
+- [x] PASS — `tests/test_sales_boundary.py`: 10 тестов. A1 — импорт продаж,
+      подложенный в каждый из четырёх пакетов почты на копии дерева, краснит
+      гейт слоёв (4); копия без импорта — зелёная, просмотрено больше нуля
+      файлов (1); без контракта тот же импорт проходит (1). Импорт реестра
+      моделей из почты — зелёный при `allow_indirect_imports = True`,
+      красный при `False` (2). A3 — реестр называет В1 развёрнутой, улика
+      держится (1), без контракта проверка волн красная (1).
+- [x] PASS — `tests/test_contour_waves.py`: 25 тестов, с T5 — 28; зеркало реестра —
+      с В1 среди развёрнутых.
+- [x] PASS — полный набор на своей базе `outreach_test_998450dfa8`
+      (`TEST_STORAGE_DSN` не задан): 3181 passed за 441 с, exit 0.
+- [x] PASS — фронт не тронут: дифф по `frontend/` с базой ветки пуст.
+      eslint, prettier, `tsc` — exit 0.
+- [ ] Весь vitest — красный под нагрузкой машины (load average 16–32):
+      2 failed из 442, повтор — 1 failed. Упал
+      `src/donors/DonorPage.test.tsx`: заголовок не появился за 1,5 с. Тот же
+      файл отдельно с `--maxWorkers=2` — 11 из 11. Полный vitest повторно не
+      гоняли по просьбе координатора: фронт срезом не тронут.
 
 ### Обратные прогоны
 
 | Что сломано | Ожидание | Факт |
 |---|---|---|
-| новые тесты на старом коде (до T3) | красные | 2 из 2 модулей не собрались: `ModuleNotFoundError` (`backend.features.sales`, `backend.cli.sales`) |
-| откат миграции без `DROP TYPE` | цикл A1 красный | 1 failed — `test_downgrade_drops_tables_and_types_and_upgrade_runs_again` |
-| ключ к адресу `CASCADE` в модели и миграции | A6 красный | 1 failed — `test_donor_removes_shared_address_and_the_lead_stays` |
-| ключ к адресу `CASCADE` только в модели | сверка моделей красная | `remove_fk` / `add_fk` в `test_migrations_produce_exactly_the_schema_models_expect` |
-| `domain_id` необязателен в миграции | A4 и сверка красные | 2 failed |
-| без строки порядка импорта в `sales/__init__.py` | тест первого импорта красный | 1 failed; сам импорт — `ImportError: cannot import name 'SalesHypothesisModel' from partially initialized module` |
-| алиас выключателя `SALES_ENABLE` | тест окружения красный (урок L4) | 1 failed |
-| T9: без `Permission.SALES` в роли оператора — прежний выбор | тест права и список прав при входе красные | весь сьют: 2 failed, 3064 passed — `test_operator_gets_sales_by_default_and_loses_it_by_name` (`[False, False, True] == [True, False, True]`) и `TestLogin::test_login_gives_token_and_card` (список прав без `sales`); больше не краснеет ничего |
-| T9: `has_permission` слушает только `true` в `users.permissions` — снять право поимённо нельзя | тест права красный | файлы прав, 82 теста: 3 failed — тест права продаж (`[True, True, True] == [True, False, True]`), `TestPermissions::test_permission_can_be_taken_away_from_admin`, `TestChangeAccess::test_right_can_be_taken_below_the_role`; `test_api_auth.py` эту порчу не ловит — снятие он не проверяет |
-| файлом: ключ к адресу `CASCADE` / `RESTRICT` в транзакции теста | лид пропадает / удаление у доноров падает | `test_reverse_run_cascade_…` и `test_reverse_run_restrict_…` зелёные и в полном прогоне T9: тесты различают три выбора |
+| новые тесты на конфиге до T1 (`cb1aa7e`) | красные | 7 failed, 1 passed — зелёным остался только положительный контроль |
+| реестр до T3: В1 `pending` | A3 и зеркало красные | 3 failed |
+| `backend.features.contacts` убран из `source_modules` | A1 для `contacts` красный | 1 failed, 9 passed — ровно `[contacts]` |
+| файлом: контракт убран, импорт продаж подложен | гейт зелёный — красное даёт этот контракт | тест зелёный, гейт exit 0 |
+| файлом: `allow_indirect_imports = False`, почта импортирует реестр моделей | гейт красный цепочкой `core.models → sales.models` | тест зелёный, гейт exit 1 |
+| файлом: `.importlinter` без контракта, комментарий о нём оставлен | проверка волн: В1 без улики | тест зелёный: «В1: в .importlinter нет контракта с backend.features.sales» |
+| живьём: `from backend.features.sales import models` в `backend/features/letters/planted_sales.py` | гейт слоёв красный | exit 1: контракт BROKEN, `backend.features.letters.planted_sales -> backend.features.sales.models`; после возврата exit 0 |
+| живьём: `frontend/src/letters/probeSales.ts` импортирует `frontend/src/sales/probe.ts` | половина TS красная | exit 1: `error mail-does-not-know-sales: frontend/src/letters/probeSales.ts → frontend/src/sales/probe.ts`, 111 модулей |
+| живьём: экран продаж читает почту — `sales/readsMail.ts` → `letters/letterText.ts` | зелёный — направление разрешено | exit 0, 111 модулей; после возврата — 109 |
 
-Каждую порчу вносили по одной и возвращали из копии; дерево после прогонов —
-как в коммитах. Строки T9 сняты на дереве `76719e1`, после возврата файлы прав
-снова зелёные (82 passed). Остальные строки — с T3–T8: код и тесты, к которым
-они относятся (`backend/features/sales/`, миграция, `config/sales.py`,
-`cli/sales.py`, `core/models/`, `tests/test_sales_model.py`, сверка моделей),
-с T8 не менялись — `git diff ff9d37d HEAD` по ним пуст.
-
-### Живой прогон команды
-
-`outreach sales-hypothesis-add` на своей базе, вне сьюта, at=2026-10-01:
-- `--name "проверка консоли" --description …` → rc=0, «Заведена гипотеза №3»;
-- тот же текст с лишними пробелами → rc=3, «имя «проверка консоли» уже у
-  гипотезы №3»;
-- `--name "   "` → rc=4, «нет имени (передано '   ') …».
-Строка в базе одна; после прогона удалена.
+Каждую порчу вносили по одной и возвращали. Дерево после прогонов — как
+в коммитах: `git status` пуст.
 
 ## Product oracles
 
-- [x] PASS — `active/eval-smoke.md`: шесть пунктов, все отмечены.
+- [x] PASS — `active/eval-smoke.md`: четыре пункта, все отмечены.
 
 ## Ревью рисковых мест
 
-- **безопасность** — право `Permission.SALES` стоит в роли оператора: решение
-  владельца 01.10, раздел продаж видят все. Риск — раздел с именами
-  и должностями живых людей виден шире, чем при выдаче поимённо, — владелец
-  принял осознанно. Сейчас под правом нет ни маршрута, ни экрана: открытым
-  раздел станет со срезом экрана 1.5 — сразу всем операторам, включая
-  заведённых раньше. Управление доступом держат: снять у одного —
-  `{"sales": false}` в `users.permissions` через админку
-  (`PATCH /api/users/{id}`; `sales` — известное действие для
-  `_check_overrides`); `has_permission` читает точечное исключение раньше
-  роли и в срезе не менялся; скрыть у всех — убрать право из
-  `ROLE_PERMISSIONS`. Ловят: право в роли — тест права
-  `test_operator_gets_sales_by_default_and_loses_it_by_name`
-  и `TestLogin::test_login_gives_token_and_card`, оба краснеют без права
-  в роли; снятие поимённо — тот же тест права и общие тесты исключений
-  в `test_access_core.py` и `test_api_users.py` (обратные прогоны T9 выше).
-  `.secrets.baseline` — только сдвиг `line_number` известной находки
-  в `core/domain.py` (157 → 158), новых находок нет.
-- **деньги** — риска нет, потому что `prices` в диффе — только перенос строки
-  TS-типа `Permission`: союз разбит по строкам, право подтверждать цены
-  не менялось ни на сервере, ни во фронте.
-- **транзакция БД** — `session.commit` в `run_hypothesis_add` после
-  `hypotheses.add`: отказ (`BadNameError`, `NameTakenError`) приходит до
-  записи, коммит — один, после успеха. Два одновременных заведения одного
-  имени: проверка `add` пропустит оба, второй упадёт на уникальности
-  `sales_hypotheses.name` — громко, трассировкой команды, а не второй строкой.
-  В тестах `session.begin_nested` и DDL (`ALTER TABLE sales_leads`, откат
-  и подъём миграции) идут в транзакции теста и откатываются с ней.
-- **новый модуль** `models`, `hypotheses`, `sales`: состояния нет. Риск
-  для доноров — ключи `sales_leads`: `contact_id` с `ON DELETE SET NULL`
-  и индекс `idx_sales_leads_contact` — удаление адреса у доноров проходит
-  и не читает всю таблицу лидов; `domain_id` с `RESTRICT` — боевые потоки
-  доменов не удаляют.
-- Что может сломаться: первый импорт `sales.models` в чистом процессе —
-  круг держит строка в `sales/__init__.py` и тест; миграция `stage` среза
-  1.1b обязана встать после `715bbf374195`.
+Срез меняет только `.importlinter`, `.dependency-cruiser.cjs`, реестр волн
+и тесты — путей исполнения продукта в нём нет. По классам, которые поднял
+детектор:
+
+- **цепочка гейтов** — `scripts/lint/check_layers_gate.sh` тест зовёт как
+  есть, скрипт не меняется; меняются конфиги, которые он читает. Риск —
+  красное у соседей: контракт `mail-does-not-know-sales` краснит любой прямой
+  импорт продаж из `letters`, `outreach`, `replies`, `contacts`. Это и есть
+  цель, а сегодня таких импортов ноль. Контракт цел на дереве, где слиты
+  #133, #134 и #139, а в почте свежего main (`9937261`, с #137 и #143)
+  `git grep` не находит ни одного упоминания `features.sales`. Импорт
+  реестра моделей `core.models` из почты контракт пропускает — держит тест.
+- **транзакция БД** — риска нет, потому что `commit` в диффе — это слово
+  `pre-commit` в докстринге `tests/test_sales_boundary.py`. Базы срез не
+  трогает: тесты гейта в неё не ходят.
+- **производительность** — риска нет, потому что `re.search` стоит только
+  в тесте: он разбирает текст `.importlinter` и вывод гейта, по разу на тест.
+  Десять тестов файла идут 2,5 с, копия `backend/` — во временной папке pytest.
+- **новый модуль** — `test_sales_boundary`: тестовый модуль без состояния;
+  копии дерева живут во временных папках pytest и в дерево не пишут.
 
 ## Предупреждения delivery_check, разобранные
 
-Прогон T9: 0 errors, 5 warnings. После слияния main с #136 (`delivery@1.98`,
-запись `stack:` поднята): 0 errors, 4 warnings — первое ниже ушло, канон
-теперь ищет порядок в окне ветки (merge-base..HEAD).
-
-- «у 5 из 6 примеров порядок не проверить — пример и тест приехали одним
-  коммитом (A4, A5, A6, A7, A8)» — до `delivery@1.98`. Проверка брала самый старый коммит с id
-  во всей истории `delivery/active/spec.md` и `tests/`, а id A1–A13 были
-  у среза В0: его спека и тесты слиты одним сквош-коммитом `39c4e82` (#129),
-  и первым находится он. У этого среза порядок виден: спека с A4–A8 — T0
-  `1b46430`, тесты A4–A7 — T3 `626cfa9`, A8 — T5 `03e3d82`. Прежнее
-  «A1, A6, A7, A8 появились позже тестов» ушло: канон `delivery@1.96`
-  (пришёл с #131) больше не читает `%D0%A6` ссылкой на пример. A1 теперь
-  без предупреждения: id в спеке впервые в `5af9f3d` (#117), раньше тестов.
-- «asserts_reviewed_by deferred» — шесть утверждений ждут подписи человека
-  (перечень — в шапке, строки — в дайджесте ниже); на handoff это ошибка.
-- «`irreversible_surfaces:` не называет отправка наружу» — было и у В0 и
-  `front-polish`: строка подписана и перенесена дословно. На handoff это
+- «`irreversible_surfaces:` не называет отправка наружу» — было у В0, 1.1a
+  и `front-polish`: строка подписана и перенесена дословно. На handoff это
   ошибка; дополненную строку владелец переподпишет позже.
-- «Ни одного реляционного оракула» — hypothesis не стоит в зависимостях,
-  новая зависимость — вне среза.
 - «Нет блока `agent-permissions`» в CONSTITUTION — было до среза.
+- «Рисковый дифф: не разобраны транзакция БД, производительность, цепочка
+  гейтов» — было до блока ревью выше; после него ушло. Итог: 0 errors,
+  2 warnings — два пункта выше.
+- `asserts_reviewed_by: deferred` у класса S проверка не судит, но подпись
+  всё равно нужна: шесть утверждений ждут человека — перечень в шапке,
+  строки в дайджесте ниже.
 
 ## Spec coverage gaps
 
-- Строка `contacts` общая на домен и адрес: что делать, когда адрес лида
-  совпал с адресом донора, решает срез загрузки (открытый вопрос спеки).
-- Выключатель `SALES_ENABLED` только заложен: читать его нечему, пока срезы
-  не принесут работу продаж.
+- Правило dependency-cruiser пока не судит ничего: экранов продаж нет. Его
+  обратный прогон — живьём, без файла: тест с пропуском без `node_modules`
+  был бы зелёным на непроверенном в джобе `check` (урок К L73).
+- diff-coverage в диффе самого среза судит ноль файлов `sales/`: кода продаж
+  срез не меняет. Число больше нуля — на базе с кодом продаж.
+
+## T5 — улика В1 читает парсер ini
+
+Находка №2 ниже — наш собственный скрипт волны В0, его починили в этом же
+срезе по решению координатора. `scripts/contour_waves.py`: улику В1 проверяет
+`forbids_sales` — `.importlinter` разбирает `configparser`, и засчитывается
+только секция `importlinter:contract:…`, где `backend.features.sales` стоит
+в `forbidden_modules`. Комментарий со словами модуля уликой больше не
+считается. Битый конфиг тоже не улика, и проверка говорит об этом вслух.
+
+- [x] Красный до правки — `test_v1_evidence_is_a_contract_not_a_comment`
+      в `tests/test_contour_waves.py`, три случая, на старом скрипте:
+      2 failed, 1 passed. Красные — «контракт удалён, комментарий со словами
+      модуля остался» и «продажи — источник контракта, а не запрет»; зелёный —
+      настоящий контракт, он контрольный.
+- [x] PASS — после правки `pytest tests/test_contour_waves.py
+      tests/test_sales_boundary.py`: 38 passed; оба теста A3 — зелёные.
+- [x] PASS — ратчет сложности: длина скрипта 460 → 479 строк, снимок
+      `delivery/complexity-snapshot.json` поднят ровно в этой строке; худшая
+      функция прежняя — `collect`, сложность 14.
+- [x] PASS — `pre-commit run --files` по семи файлам T5: 6 прошли,
+      21 без файлов для проверки, exit 0; `ruff check` и `ruff format --check`
+      по `scripts/`, `tests/`, `backend/` — exit 0; `scripts/gates.py` —
+      464 файла, нарушений нет.
+- [x] PASS — на коммите T5: `contour_waves --base sales/1.1a-model` — exit 0,
+      «нарушений нет»; `delivery_check --require-ci --diff-base
+      sales/1.1a-model` — 0 errors, 3 warnings, exit 0; подпись необратимого —
+      exit 0. Полный сьют не гоняли по просьбе координатора: его сделает
+      pre-push при перебазировании.
+- Breakers: 5 файлов, net 223 (+229/−6). `delivery_check` предупреждает
+  «class S, а тронуто 5 файлов / 223 строк — класс занижен?». Класс оставлен
+  S: работа та же — граница модуля, а 44 строки сверх неё — правка улики
+  этой же волны по решению координатора.
+
+## Находки в общем коде — не чинились
+
+- `.dependency-cruiser.cjs:16–17` и `:23–24`: канонные правила
+  `models-is-leaf` (`^src/models`) и `services-no-web` (`^src/services`) не
+  совпадают ни с одним модулем. Гейт зовёт depcruise из корня, модули
+  называются `frontend/src/…`, а каталогов `models/` и `services/` во фронте
+  нет. Живой прогон: `frontend/src/models/probe.ts` с импортом
+  `../api/client` — гейт зелёный, exit 0. Из старых правил судит только
+  `no-circular`.
+- ~~`scripts/contour_waves.py:124` и `:273–275`: улика В1 — регулярное
+  выражение по всему тексту `.importlinter`, включая комментарии~~ —
+  исправлено в T5, раздел выше.
+- `.pre-commit-config.yaml:242`: хук `layers-gate` зовёт гейт без
+  `LINT_VENV`. Локально половину python судит первый `lint-imports` в PATH:
+  на машине разработки это глобальный 2.13, а не 2.15 из `.venv`; без него —
+  пропуск с предупреждением. В CI `LINT_VENV` задан на уровне джобы.
 
 ## Verdict
 
@@ -170,54 +217,43 @@
 - [ ] NEED CONVERGE (new tasks)
 - [ ] BLOCKED
 
-Мерж — в фазе verify, решение координатора и владельца.
+Мерж — в фазе verify, решение координатора и владельца; PR — после слияния
+#135 и перебазирования на main.
 
 ## Assertion digest (ревью ожиданий, не кода)
 
-База: `origin/main` · сгенерировано `assert_digest.sh`
+База: `sales/1.1a-model` · сгенерировано `assert_digest.sh`
 
-Новых/изменённых утверждений: **32**, из них без ссылки на пример спеки:
-**6**. Вопрос к каждому непривязанному один: **откуда взято ожидаемое
+Новых/изменённых утверждений: **20**, из них без ссылки на пример спеки:
+**4**. Вопрос к каждому непривязанному один: **откуда взято ожидаемое
 значение — из спеки или придумано под реализацию?**
 
 ```
--	assert body["user"]["permissions"] == ["prices", "run", "sales", "settings", "view"]
-A6	assert donor is not None
-A6	assert contact is not None
-A1	assert spec is not None, MIGRATION
-A1	assert spec.loader is not None, MIGRATION
-A1	assert await connection.run_sync(_present) == {*TABLES, *TYPES}
-L5	assert after_downgrade == set()
-L5	assert after_upgrade == {*TABLES, *TYPES}
-A4	assert await _leads(session) == []
-A4	assert await _leads(session) == [(None, "ivan@acme.example")]
-A5	assert list(domains) == [domain.id, domain.id]
-A6	assert removed.email == SHARED
-A6	assert await session.get(ContactModel, contact.id) is None
-A6	assert await _leads(session) == [(None, SHARED)]
-A6	assert await _leads(session) == []
-A6	assert await _leads(session) == [(contact.id, SHARED)]
-A7	assert await session.scalar(select(func.count()).select_from(SalesLeadModel)) == 1
--	assert done.returncode == 0, done.stderr
-A8	assert (args.command, args.name, args.description) == (
--	assert code == EXIT_OK
--	assert await _hypotheses(session) == [("сайты EN", "кому и зачем")]
--	assert "«сайты EN»" in capsys.readouterr().out
-A8	assert await run_hypothesis_add(session, "сайты EN", None) == EXIT_OK
-A8	assert code == EXIT_TAKEN
-A8	assert await _hypotheses(session) == [("сайты EN", None)]
-A8	assert "имя «сайты EN» уже у гипотезы №" in capsys.readouterr().out
-A8	assert code == EXIT_BAD_NAME
-A8	assert await _hypotheses(session) == []
-A8	assert words in capsys.readouterr().out
-L4	assert sales_cfg._Sales(_env_file=None).enabled is False
-L4	assert sales_cfg._Sales(_env_file=None).enabled is True
--	assert allowed == [True, False, True]
+A3	assert got == code
+A3	assert ("✗ В1: в .importlinter нет контракта с backend.features.sales" in out) is (code == 1)
+A3	assert {w.name for w in waves if w.state == "deployed"} == {"В0", "В1", "В-обн"}
+A3	assert found is not None, "в .importlinter нет контракта mail-does-not-know-sales"
+A1	assert code == 1, out
+A1	assert f"{CONTRACT} BROKEN" in out
+A1	assert f"backend.features.{package}.planted -> backend.features.sales" in out
+A1	assert code == 0, out
+A1	assert seen is not None, out
+A1	assert int(seen.group(1)) > 0
+A1	assert code == 0, out
+A1	assert "слои (python): OK" in out
+-	assert "allow_indirect_imports = True" in section
+-	assert got == code, out
+-	assert ("backend.features.core.models -> backend.features.sales.models" in out) is (code == 1)
+-	assert errors == []
+A3	assert wave.state == "deployed"
+A3	assert "tests/test_sales_boundary.py" in cw.evidence_paths(wave.evidence)
+A3	assert cw.judge([wave], tree) == []
+A3	assert found == [
 ```
 
-Привязаны к примерам: **A1 A4 A5 A6 A7 A8 L4 L5**. Остальные 6 — нет.
+Привязаны к примерам: **A1 A3**. Остальные 4 — нет.
 
 Читать нужно **только строки с `-` в первой колонке**: их ожидание
 ничем не подписано. Подпись: `asserts_reviewed_by: human:… at=…`.
 
-asserts_without_example: 6
+asserts_without_example: 4

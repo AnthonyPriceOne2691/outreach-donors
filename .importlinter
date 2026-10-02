@@ -55,3 +55,27 @@ forbidden_modules =
     backend.api
     backend.cli
 allow_indirect_imports = True
+
+# --------------------------------------------------------------------
+# Контракт 4: почта не знает продажи (модуль «Продажи», волна В1).
+# Продажи стоят на общей почте и читают её — это направление разрешено и
+# не ограничивается. Обратный импорт значил бы, что почта доноров зависит
+# от модуля продаж. Обратный прогон — tests/test_sales_boundary.py.
+# allow_indirect_imports = True — как у контрактов выше. Реестр моделей
+# core/models/__init__.py импортирует модели продаж (их должен видеть
+# Alembic), и законный `from backend.features.core.models import …` в почте
+# даёт косвенный путь «почта → core.models → продажи». Сегодня почта берёт
+# модели подмодулями и такого пути нет, но False покраснел бы на первом
+# импорте реестра.
+# --------------------------------------------------------------------
+[importlinter:contract:mail-does-not-know-sales]
+name = letters / outreach / replies / contacts не импортируют sales
+type = forbidden
+source_modules =
+    backend.features.letters
+    backend.features.outreach
+    backend.features.replies
+    backend.features.contacts
+forbidden_modules =
+    backend.features.sales
+allow_indirect_imports = True

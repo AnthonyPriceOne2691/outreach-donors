@@ -20,6 +20,7 @@ git: это делает одна функция `collect`.
 from __future__ import annotations
 
 import argparse
+import configparser
 import re
 import shutil
 import subprocess
@@ -78,6 +79,7 @@ MSG = {
     "CI передаёт базу из шага проверки волн в джобе check, pre-push — origin/main",
     "canon": "канон впереди: {layers} — догон отдельным срезом (волна В-обн), не в фиче",
     "git": "contour-waves: git {cmd} не ответил ({why}) — база PR не прочитана",
+    "ini": "contour-waves: .importlinter не разобран парсером ini ({why}) — контракт не засчитан",
     "no-sales": "○ продаж в дереве нет — судить нечего",
     "clean": "contour-waves: нарушений нет",
     "warned": "contour-waves: предупреждений {count} — не блокирует; в CI на PR продаж это красное",
@@ -119,10 +121,27 @@ DETECTORS: dict[str, Detector] = {
     "this-pr": Detector("limit", "", "мерж этого PR"),
 }  # fmt: skip
 
-#: Что ещё обязано лежать в дереве у развёрнутой волны: (где, что найти, о чём сказать).
+
+def forbids_sales(config: str) -> bool:
+    """Улика В1: секция `importlinter:contract:…`, где `backend.features.sales`
+    стоит в `forbidden_modules`. Конфиг читает парсер ini, а не поиск подстроки:
+    комментарий со словами модуля — не контракт (находка среза 1.2)."""
+    parser = configparser.ConfigParser(interpolation=None)
+    try:
+        parser.read_string(config)
+    except configparser.Error as exc:
+        print(MSG["ini"].format(why=exc), file=sys.stderr)
+        return False
+    contracts = [name for name in parser.sections() if name.startswith("importlinter:contract:")]
+    return any("backend.features.sales" in parser.get(name, "forbidden_modules", fallback="").split()
+               for name in contracts)  # fmt: skip
+
+
+#: Что ещё обязано лежать в дереве у развёрнутой волны: (где, чем узнать, о чём сказать).
 EVIDENCE = {
-    "В1": (".importlinter", r"backend\.features\.sales", "в .importlinter нет контракта с backend.features.sales"),
-    "В2": ("okf/", r"implementation:.*backend/features/sales", "у понятий okf/ нет implementation: в продажах"),
+    "В1": (".importlinter", forbids_sales, "в .importlinter нет контракта с backend.features.sales"),
+    "В2": ("okf/", re.compile(r"implementation:.*backend/features/sales").search,
+           "у понятий okf/ нет implementation: в продажах"),
 }  # fmt: skip
 
 
@@ -269,9 +288,9 @@ def _evidence(wave: Wave, tree: Tree) -> list[Finding]:
     """Развёрнутая волна предъявляет улику, а не только слово deployed."""
     paths = evidence_paths(wave.evidence)
     found = [bad("proof", name=wave.name, path=p) for p in paths if p not in tree.exists]
-    where, pattern, what = EVIDENCE.get(wave.name, ("", "", ""))
+    where, holds, what = EVIDENCE.get(wave.name, ("", None, ""))
     texts = [t for p, t in tree.texts.items() if p.startswith(where)]
-    if pattern and not any(re.search(pattern, t) for t in texts):
+    if holds and not any(holds(t) for t in texts):
         found.append(bad("rule", name=wave.name, what=what))
     if "sales-prompt" in wave.triggers:
         surface = field(tree.texts.get(STATUS, ""), "model_surface")

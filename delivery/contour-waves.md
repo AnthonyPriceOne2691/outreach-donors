@@ -21,7 +21,7 @@
 | Волна | Ось | Триггер | Предел | Состояние | Доказательство |
 |---|---|---|---|---|---|
 | В0 | ① delivery модуля: непреложное и проверка волн | `sales-code` | `this-pr` | deployed | `delivery/CONSTITUTION.md` (раздел «Продажи»), `scripts/contour_waves.py`, `tests/test_contour_waves.py` |
-| В1 | ② граница модуля + ④ гейт мержа | `sales-code` | `sales-in-base` | pending | — |
+| В1 | ② граница модуля + ④ гейт мержа | `sales-code` | `sales-in-base` | deployed | контракт `mail-does-not-know-sales` в `.importlinter` и правило того же имени в `.dependency-cruiser.cjs`; обратный прогон — `tests/test_sales_boundary.py`; числа гейтов — ниже, «В1: что видит каждый гейт» |
 | В3а | ⑤ разбор ответов | `sales-prompt`, `sales-llm` | `this-pr` | pending | — |
 | В3б | ⑤ агент и судья | `sales-agent-prompt` | `this-pr` | pending | — |
 | В3в | ⑤ судья сегмента | `sales-segment-prompt` | `this-pr` | pending | — |
@@ -53,3 +53,26 @@
 - В2 — у понятий `okf/` есть `implementation:` в `backend/features/sales`.
 - Волна с триггером `sales-prompt` — каждый промпт продаж назван
   в `model_surface` STATUS.
+
+## В1: что видит каждый гейт
+
+Граница модуля развёрнута срезом `sales-v1-boundary`. Зелёный гейт, не
+просмотревший ни одного файла продаж, не настроен, а не чист. Поэтому у каждого
+гейта записано число файлов `backend/features/sales/`, просмотренных им на
+дереве среза. Считал сам гейт своим способом выбора файлов; команды — в
+verify-report среза, он остаётся в истории ветки.
+
+| Гейт | Файлов `sales/` |
+|---|---|
+| ruff, линтер и формат | 3 из 3 |
+| mypy | 3 |
+| `scripts/gates.py`, вместе с `public-repo` | 3 |
+| `lint-imports` | 3 модуля графа; контракт `mail-does-not-know-sales` держит их запретной целью для почты |
+| ратчет сложности `scripts/complexity.py` и гейт сложности функций | 3 |
+| DRY, jscpd | 3 |
+| diff-coverage | 3 — на базе, где дифф несёт код продаж (#135). В диффе самого среза кода `sales/` нет, и там гейт судит ноль его файлов |
+
+Половина TS гейта слоёв судит экраны почты, а экранов продаж
+(`frontend/src/sales/`) во фронте ещё нет. Правилу пока судить нечего:
+подложенный импорт экрана продаж в `letters/` оно ловит, но число его файлов
+продаж — ноль.
