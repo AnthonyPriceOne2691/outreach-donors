@@ -702,7 +702,7 @@
       "worst": "—"
     },
     "backend/features/core/domain.py": {
-      "lines": 234,
+      "lines": 237,
       "complexity": 0,
       "worst": "—"
     },
@@ -1361,10 +1361,20 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/sales/columns.py": {
+      "lines": 78,
+      "complexity": 3,
+      "worst": "guess:70"
+    },
     "backend/features/sales/hypotheses.py": {
       "lines": 56,
       "complexity": 6,
       "worst": "add:37"
+    },
+    "backend/features/sales/intake.py": {
+      "lines": 320,
+      "complexity": 8,
+      "worst": "preview:145"
     },
     "backend/features/sales/models.py": {
       "lines": 108,
