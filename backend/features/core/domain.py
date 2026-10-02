@@ -56,6 +56,9 @@ class ContactStatus(StrEnum):
     RATE_LIMITED = "rate_limited"
     BLOCKED = "blocked"  # учётку у провайдера закрыли: повтор не поможет
     ERROR = "error"
+    #: Сайт не ответил: обрыв, таймаут, 5xx или 429 — и ни одной открытой
+    #: страницы. Не «адреса нет»: повторим по сроку (`contacts/attempts.py`).
+    NO_ANSWER = "no_answer"
 
 
 class SenderStatus(StrEnum):

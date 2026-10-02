@@ -79,6 +79,8 @@ class LadderResult:
     #: Как домен сайта принимает почту, по ступени MX. Едет в исход, чтобы
     #: читающий итог решал по нему, слать ли письмо, а не угадывал.
     mail_route: MailRoute | None = None
+    #: Почему сайт не ответил — только у `no_answer`.
+    reason: str = ""
 
     @property
     def found(self) -> bool:

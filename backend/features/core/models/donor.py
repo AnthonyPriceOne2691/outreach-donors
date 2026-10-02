@@ -23,8 +23,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import DateTime
 
-from backend.features.core.domain import ContactSource, ContactStatus, DonorStatus
-from backend.features.core.models._mixins import TimestampedMixin
+from backend.features.core.domain import ContactSource, DonorStatus
+from backend.features.core.models._mixins import ContactAttemptMixin, TimestampedMixin
 from backend.shared.database.base import Base
 
 if TYPE_CHECKING:
@@ -35,7 +35,7 @@ def _enum(e: type) -> SQLEnum:
     return SQLEnum(e, values_callable=lambda x: [i.value for i in x])
 
 
-class DonorModel(TimestampedMixin, Base):
+class DonorModel(TimestampedMixin, ContactAttemptMixin, Base):
     """Роль домена в нашем процессе: проверен, отобран, опрошен по цене."""
 
     __tablename__ = "donors"
@@ -89,13 +89,7 @@ class DonorModel(TimestampedMixin, Base):
     last_price_currency: Mapped[str | None] = mapped_column(String(8), nullable=True)
     last_price_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    # --- Контакт ---
-    contact_status: Mapped[ContactStatus | None] = mapped_column(
-        _enum(ContactStatus), nullable=True
-    )
-    contact_attempted_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    # --- Контакт: исход поиска — колонки `ContactAttemptMixin` ---
 
     # --- Решение человека ---
     # Пороги отвечают «годен ли по цифрам», человек — «берём ли». Цифры
