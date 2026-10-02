@@ -127,7 +127,7 @@ def _print_plan(plan: RunPlan, budget: int) -> None:
     if p.excluded:
         print(f"\nИсключены:           {len(p.excluded)}  (в прогон не идут)")
         for reason, count in sorted(p.excluded_by_reason.items()):
-            print(f"  {reason + ':':<21}{count}")
+            print(f"  {reason + ':':<20} {count}")
     print(f"\nУже проверены:       {len(p.fresh)}  (платить не нужно)")
     print(f"Проверить сейчас:    {len(p.new)}")
     estimate = p.estimate
@@ -168,7 +168,7 @@ async def cmd_run(args: argparse.Namespace) -> int:
             # иначе он ограничивает один прогон, а не месяц. Свой
             # потолок (`--cap`) может быть только меньше.
             month_left = await cap_left(session, cap=ahrefs_cfg.UNITS_CAP)
-            allowed = min(args.cap, month_left) if args.cap else month_left
+            allowed = min(args.cap, month_left) if args.cap is not None else month_left
             budget = await units_left(client, cap=allowed)
             plan = await plan_run(
                 candidates,
@@ -295,14 +295,12 @@ def _print_judge(report: RunReport) -> None:
     judge = report.judge
     if judge is None:
         return
-    mode = "наблюдение, не режет" if judge_cfg.MODE is judge_cfg.JudgeMode.SHADOW else "режет"
-    cut = "отрезал бы" if judge_cfg.MODE is judge_cfg.JudgeMode.SHADOW else "отрезал"
+    shadow = judge_cfg.MODE is judge_cfg.JudgeMode.SHADOW
+    mode = "наблюдение, не режет" if shadow else "режет"
+    cut = "отрезал бы" if shadow else "отрезал"
     print(f"\nСудья площадки ({mode}):")
-    print(
-        f"  судил {judge.judged}, из кэша {judge.from_cache}, токенов {judge.tokens:,}".replace(
-            ",", " "
-        )
-    )
+    tokens = f"{judge.tokens:,}".replace(",", " ")
+    print(f"  судил {judge.judged}, из кэша {judge.from_cache}, токенов {tokens}")
     print(f"  {cut} {judge.would_cut}, к человеку {judge.to_review}")
     for who, count in sorted(judge.by_decider.items(), key=lambda kv: -kv[1]):
         print(f"    решено {DECIDERS.get(who, who):<18} {count}")
@@ -311,7 +309,9 @@ def _print_judge(report: RunReport) -> None:
     if judge.home_unreached:
         print(f"  главная не открылась и в индексе нет: {judge.home_unreached} — решала выдача")
     if judge.units_saved:
-        print(f"  юнитов сэкономил бы: {judge.units_saved:,} (нижняя граница)".replace(",", " "))
+        saved = "сэкономил бы" if shadow else "сэкономил"
+        units = f"{judge.units_saved:,}".replace(",", " ")
+        print(f"  юнитов {saved}: {units} (нижняя граница)")
 
 
 def build_parser() -> argparse.ArgumentParser:
