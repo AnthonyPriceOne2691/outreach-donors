@@ -367,9 +367,9 @@
       "worst": "_print_report:24"
     },
     "backend/cli/contact_sweep.py": {
-      "lines": 272,
+      "lines": 311,
       "complexity": 9,
-      "worst": "_plan:135"
+      "worst": "_plan:145"
     },
     "backend/cli/crawl_probe.py": {
       "lines": 309,
@@ -457,7 +457,7 @@
       "worst": "—"
     },
     "backend/config/contacts.py": {
-      "lines": 91,
+      "lines": 108,
       "complexity": 0,
       "worst": "—"
     },
@@ -587,9 +587,9 @@
       "worst": "find_contact_links:215"
     },
     "backend/features/contacts/file_sweep.py": {
-      "lines": 360,
-      "complexity": 9,
-      "worst": "sweep:261"
+      "lines": 378,
+      "complexity": 8,
+      "worst": "_handle_columns:193"
     },
     "backend/features/contacts/forms.py": {
       "lines": 193,
@@ -662,14 +662,14 @@
       "worst": "mark_found:52"
     },
     "backend/features/contacts/sweep_checkpoint.py": {
-      "lines": 196,
+      "lines": 205,
       "complexity": 6,
       "worst": "records:56"
     },
     "backend/features/contacts/sweep_input.py": {
-      "lines": 202,
-      "complexity": 10,
-      "worst": "read_list:151"
+      "lines": 224,
+      "complexity": 9,
+      "worst": "_is_domain:93"
     },
     "backend/features/contacts/sweep_trace.py": {
       "lines": 207,

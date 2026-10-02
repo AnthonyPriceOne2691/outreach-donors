@@ -14,11 +14,13 @@
 from __future__ import annotations
 
 import csv
+import importlib
 from pathlib import Path
 
 import httpx
 import pytest
 from backend.cli.contact_sweep import EXIT_NO_NETWORK, EXIT_OK, cmd_contacts_file
+from backend.config import contacts as contacts_config
 from backend.features.contacts import file_sweep, mx
 from tests.contacts_sweep_fakes import (
     SLOW,
@@ -308,3 +310,119 @@ class TestNameThatDoesNotExist:
         checkpoint = tmp_path / "c.jsonl"
         await file_sweep.sweep(["site.com"], checkpoint=checkpoint)
         assert file_sweep.done_hosts(checkpoint) == set()
+
+
+def _rows(out: Path) -> dict[str, dict[str, str]]:
+    with out.open(encoding="utf-8-sig", newline="") as handle:
+        return {row["host"]: row for row in csv.DictReader(handle, delimiter=";")}
+
+
+class TestRetryUnreachable:
+    """Ревью #128: «сдались» обратимо без `--restart`, обнуляющего весь список.
+
+    Сайт, умерший при живой сети, после трёх попыток — «недоступен». Ожил —
+    `--retry-unreachable` даёт ему ещё одну попытку. Одну, а не новые три:
+    не ответил снова — снова «недоступен», и обычный запуск его не трогает.
+    Остальное пройденное не трогается вовсе.
+    """
+
+    async def _give_up(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> tuple[Web, Path, Path]:
+        web = Web({"ok.com": {"/": page('<a href="mailto:ads@ok.com">почта</a>')}})
+        install(monkeypatch, web)
+        source = write(tmp_path / "list.csv", "host\nsite.com\nok.com\n")
+        out = tmp_path / "out.csv"
+        for _ in range(file_sweep.MAX_ATTEMPTS):
+            assert await cmd_contacts_file(cli_args(source, "--out", str(out))) == EXIT_OK
+        assert _rows(out)["site.com"]["status"] == file_sweep.UNREACHABLE
+        web.requested.clear()
+        return web, source, out
+
+    async def test_revived_site_is_walked_and_the_rest_is_not(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        web, source, out = await self._give_up(tmp_path, monkeypatch)
+        web.sites["site.com"] = {"/": WITH_EMAIL}
+
+        assert await cmd_contacts_file(cli_args(source, "--out", str(out))) == EXIT_OK
+        assert not web.requested, "без флага сдавшийся домен пошёл снова"
+
+        args = cli_args(source, "--out", str(out), "--retry-unreachable")
+        assert await cmd_contacts_file(args) == EXIT_OK
+        assert {httpx.URL(url).host for url in web.requested} == {"site.com"}
+        rows = _rows(out)
+        assert (rows["site.com"]["status"], rows["site.com"]["email"]) == ("found", "ads@site.com")
+        assert rows["ok.com"]["status"] == "found"
+
+    async def test_still_dead_site_gets_one_attempt_not_three(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        web, source, out = await self._give_up(tmp_path, monkeypatch)
+
+        args = cli_args(source, "--out", str(out), "--retry-unreachable")
+        assert await cmd_contacts_file(args) == EXIT_OK
+        assert web.requested, "флаг не вернул сдавшийся домен"
+        row = _rows(out)["site.com"]
+        assert row["status"] == file_sweep.UNREACHABLE
+        assert row["retry_reason"].startswith(
+            f"сдались после {file_sweep.MAX_ATTEMPTS + 1} попыток"
+        )
+
+        web.requested.clear()
+        assert await cmd_contacts_file(cli_args(source, "--out", str(out))) == EXIT_OK
+        assert not web.requested, "после лишней попытки домен снова пошёл по кругу"
+
+
+class TestProbesFromSettings:
+    """Ревью #128: за фильтром, закрывшим все три контрольных адреса, прогон
+    объявлял «сети нет» и выходил с кодом 8. Адреса задаются настройкой,
+    пустое значение выключает проверку."""
+
+    async def test_own_probes_behind_a_filter(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        closed = set(file_sweep.NETWORK_PROBES)
+
+        class Filtered(Web):
+            def __call__(self, request: httpx.Request) -> httpx.Response:
+                if str(request.url) in closed:
+                    raise httpx.ConnectError("закрыто фильтром", request=request)
+                return super().__call__(request)
+
+        web = Filtered({"site.com": {"/": WITH_EMAIL}})
+        install(monkeypatch, web)
+        source = write(tmp_path / "list.csv", "host\nsite.com\n")
+        args = cli_args(source, "--out", str(tmp_path / "out.csv"))
+        assert await cmd_contacts_file(args) == EXIT_NO_NETWORK
+
+        monkeypatch.setattr(file_sweep, "NETWORK_PROBES", ("https://intranet.test/health",))
+        assert await cmd_contacts_file(args) == EXIT_OK
+        assert web.probes == ["https://intranet.test/health"]
+        assert _rows(tmp_path / "out.csv")["site.com"]["status"] == "found"
+
+    async def test_empty_probes_switch_the_check_off(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Выключенная проверка — сказано в отчёте: попытки без сети сгорают."""
+        web = Web({})
+        web.network = False
+        install(monkeypatch, web)
+        monkeypatch.setattr(file_sweep, "NETWORK_PROBES", ())
+        checkpoint = tmp_path / "c.jsonl"
+        report = await file_sweep.sweep(["site.com"], checkpoint=checkpoint)
+        assert report.retry == 1
+        assert any("CONTACTS_NETWORK_PROBES" in note for note in report.notes)
+
+    def test_probes_come_from_the_environment(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("CONTACTS_NETWORK_PROBES", " https://a.test/ ,, https://b.test/ ")
+        try:
+            assert importlib.reload(contacts_config).NETWORK_PROBES == (
+                "https://a.test/",
+                "https://b.test/",
+            )
+            monkeypatch.setenv("CONTACTS_NETWORK_PROBES", "")
+            assert importlib.reload(contacts_config).NETWORK_PROBES == ()
+        finally:
+            monkeypatch.delenv("CONTACTS_NETWORK_PROBES")
+            importlib.reload(contacts_config)
