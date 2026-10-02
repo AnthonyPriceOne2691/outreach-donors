@@ -8,6 +8,7 @@
 - **builder:** agent:claude
 - **verifier:** process:ci — обязательные джобы `check`, `web` и `docker`, на PR ещё `gates` и `delivery`; ревью — координатор модуля, мерж — по решению владельца
 - **human_ok_spec:** yes at=2026-10-03 by=human:anthony («даю да» — план фаз; примеры A8 и A9 и нарезка на три PR — решение владельца)
+- **waivers:** max_loc_diff=801 reason=9 строк сверх 792 строк ядра — созданная запись `.secrets.baseline` (номер ревизии миграции `1f7b0ee634c2` похож на ключ и отмечен ложным, как у прочих миграций); часть 1 из 3 by=human:anthony at=2026-10-03
 - **new_dependency:** no
 - **shared_changes:** общий код части 1.3a — ровно то, без чего загрузку не записать.
   `core/domain.py` — значение журнала `AuditAction.SALES_LEADS_IMPORTED`
