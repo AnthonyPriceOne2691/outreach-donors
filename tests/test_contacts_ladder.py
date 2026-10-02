@@ -247,6 +247,25 @@ class TestRoute:
         assert result.status is ContactStatus.FOUND
 
 
+class TestGuessesAndDirectAddresses:
+    async def test_a_direct_address_promotes_the_same_guess(self) -> None:
+        """Обфускация в подвале главной даёт догадку раньше, чем страница
+        контактов — тот же адрес прямо. Без замены он оставался догадкой
+        и проигрывал любому прямому адресу (ревью #137)."""
+        home = (
+            '<html><body><a href="/contact/">Contact</a><a href="mailto:owner@gmail.com">я</a>'
+            "<footer>info [at] site [dot] com</footer></body></html>"
+        )
+        site = Site({"/": home, "/contact/": CONTACT_PAGE})
+
+        async with _client(site) as http:
+            result = await ContactLadder(http).find("site.com")
+
+        assert result.contact is not None
+        assert result.contact.email == "info@site.com"
+        assert not result.contact.guessed
+
+
 class TestPageOrder:
     async def test_money_page_wins_over_contact_page(self) -> None:
         """Со страницы «write for us» адрес ведёт к тому, кто называет цену."""
