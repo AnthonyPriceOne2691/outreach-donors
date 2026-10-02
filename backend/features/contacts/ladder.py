@@ -22,13 +22,14 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import httpx
 
 from backend.config import contacts as cfg
 from backend.features.contacts import browser as browser_step
 from backend.features.contacts import rdap
+from backend.features.contacts.collected import Collected
 from backend.features.contacts.extract import (
     extract_emails,
     extract_obfuscated,
@@ -51,7 +52,7 @@ from backend.features.contacts.provider import (
     ProviderQuotaError,
     ProviderRateLimitError,
 )
-from backend.features.contacts.quality import Candidate, best, rejection_reason, trusted_guess
+from backend.features.contacts.quality import Candidate, best, trusted_guess
 from backend.features.contacts.slugs import LINK_MARKERS
 from backend.features.contacts.step_counters import StepCounters
 from backend.features.core.domain import ContactSource, ContactStatus, PageKind
@@ -93,64 +94,8 @@ class _Step:
     найденный адрес."""
 
     name: str
-    run: Callable[[str, _Collected], Awaitable[ContactStatus | None]]
+    run: Callable[[str, Collected], Awaitable[ContactStatus | None]]
     source: ContactSource
-
-
-@dataclass(slots=True)
-class _Collected:
-    """Накопитель годных и отсеянных адресов по одному домену."""
-
-    site_host: str
-    good: list[Candidate] = field(default_factory=list)
-    #: Каналы связи, кроме почты. Отдельно от `good`, потому что отбор
-    #: адресов их не касается: у ника нет ни домена, ни ролевой части,
-    #: по которым адрес взвешивают, и отсеивать его нечем.
-    handles: set[FoundHandle] = field(default_factory=set)
-    rejected: list[tuple[str, str]] = field(default_factory=list)
-    seen: set[str] = field(default_factory=set)
-    has_form: bool = False
-    #: Сайт закрылся от обычного запроса: 401, 403, 429. Только такие
-    #: и имеет смысл открывать браузером — он стоит секунд на страницу.
-    blocked: bool = False
-    #: Вердикт ступени MX по домену сайта.
-    route: MailRoute | None = None
-
-    def _undeliverable(self, email: str) -> str | None:
-        """Адрес на домене сайта, который почту не принимает, отбился бы.
-
-        Сверяется имя целиком: вердикт MX — про этот домен, и поддомен без
-        почты ничего не говорит о почте родительского. Личный ящик на чужом
-        домене (`owner@gmail.com`) остаётся: он доставляем.
-        """
-        if email.lower().rsplit("@", 1)[-1] != self.site_host:
-            return None
-        if self.route is MailRoute.NONE:
-            return f"домен сайта не принимает почту (ни MX, ни A): {email}"
-        if self.route is MailRoute.NULL_MX:
-            return f"домен сайта объявил, что почту не принимает (нулевой MX): {email}"
-        return None
-
-    def add(self, candidate: Candidate) -> bool:
-        """Взять адрес, если он годный и ещё не встречался."""
-        if candidate.email in self.seen:
-            # Догадка пришла раньше (обфускация в подвале главной), а теперь
-            # тот же адрес записан прямо: он больше не догадка и не должен
-            # проигрывать прямым адресам (ревью #137).
-            if not candidate.guessed:
-                self.good = [
-                    candidate if known.email == candidate.email and known.guessed else known
-                    for known in self.good
-                ]
-            return False
-        self.seen.add(candidate.email)
-
-        reason = rejection_reason(candidate.email) or self._undeliverable(candidate.email)
-        if reason:
-            self.rejected.append((candidate.email, reason))
-            return False
-        self.good.append(candidate)
-        return True
 
 
 class ContactLadder:
@@ -171,6 +116,7 @@ class ContactLadder:
         renderer: browser_step.PageRenderer | None = None,
         stop_without_mail: bool = True,
         collect_handles: bool = False,
+        silence: Callable[[], str | None] | None = None,
     ) -> None:
         self._http = http
         self._provider = provider
@@ -183,6 +129,10 @@ class ContactLadder:
         # Каналы связи читает только прогон по файлу: в базе им места нет,
         # и путь базы платил за них вторым проходом по каждой странице.
         self._collect_handles = collect_handles
+        # Крючок прохода: почему сайт не ответил (`sweep_trace.current_silence`).
+        # Молчащему сайту платная ступень не зовётся, а исход — `no_answer`
+        # с повтором по сроку (`attempts.py`). Без крючка лестница как прежде.
+        self._silence = silence
         self.counters = StepCounters()
 
     def _sequence(self) -> list[_Step]:
@@ -205,14 +155,18 @@ class ContactLadder:
         paid = _Step("provider", self._step_provider, ContactSource.PROVIDER)
         return [paid, *free] if self._paid_first else [*free, paid]
 
-    async def find(self, host: str) -> LadderResult:
-        """Пройти лестницу по домену до первого адреса."""
+    async def find(self, host: str, *, last_try: bool = False) -> LadderResult:
+        """Пройти лестницу по домену до первого адреса.
+
+        `last_try` — сайт не отвечал проходами подряд, и этот последний:
+        платная ступень зовётся и при молчании (`attempts.py`).
+        """
         site_host = host.lower().removeprefix("www.")
-        collected = _Collected(site_host=site_host)
+        collected = Collected(site_host=site_host, last_try=last_try)
 
         route = await self._step_mx(site_host)
         # Вердикт едет в исход при любом конце спуска. Домен без почты к тому
-        # же отсеивает адреса на себе (`_Collected.add`): без этого при
+        # же отсеивает адреса на себе (`Collected.add`): без этого при
         # `stop_without_mail=False` такой адрес уходил в итог найденным,
         # выигрывал у доставляемых и отбился бы при отправке.
         collected.route = route
@@ -238,19 +192,9 @@ class ContactLadder:
                 self.counters.mark_found(step.name)
                 return result
 
-        if unfinished is not None:
-            # Квота, частота или поломка: домен не «без контакта», а
-            # «недоспрошен». Смешав их, мы похоронили бы его навсегда.
-            return LadderResult(
-                host=site_host,
-                status=unfinished,
-                rejected=tuple(collected.rejected),
-                has_form=collected.has_form,
-                handles=tuple(collected.handles),
-                mail_route=route,
-            )
-
-        return self._without_contact(collected, has_form=collected.has_form)
+        return self._unfinished(collected, unfinished) or self._without_contact(
+            collected, has_form=collected.has_form
+        )
 
     # --- ступени ---
 
@@ -271,7 +215,7 @@ class ContactLadder:
             logger.info("контакты: %s не принимает почту — %s", host, then)
         return route
 
-    async def _step_pages(self, host: str, collected: _Collected) -> ContactStatus | None:
+    async def _step_pages(self, host: str, collected: Collected) -> ContactStatus | None:
         """Страницы сайта. Форму, если увидели, записывает в накопитель.
 
         Обход останавливается, как только адрес найден на странице дорогого
@@ -324,7 +268,7 @@ class ContactLadder:
             self.counters.pages_blocked += 1
         return None
 
-    def _harvest(self, page: FetchedPage, collected: _Collected, site_host: str) -> None:
+    def _harvest(self, page: FetchedPage, collected: Collected, site_host: str) -> None:
         """Снять со страницы всё, что похоже на адрес, и заметить форму."""
         collected.has_form = collected.has_form or has_contact_form(page.html)
         if self._collect_handles:
@@ -341,7 +285,7 @@ class ContactLadder:
                 )
                 collected.add(guess)
 
-    async def _step_browser(self, host: str, collected: _Collected) -> ContactStatus | None:
+    async def _step_browser(self, host: str, collected: Collected) -> ContactStatus | None:
         """Рендер настоящим браузером — только для того, что не открылось.
 
         Ступень дорогая: секунды на страницу. Поэтому она смотрит домен,
@@ -367,7 +311,7 @@ class ContactLadder:
             self._harvest(page, collected, host)
         return None
 
-    async def _step_rdap(self, host: str, collected: _Collected) -> ContactStatus | None:
+    async def _step_rdap(self, host: str, collected: Collected) -> ContactStatus | None:
         if not cfg.RDAP_ENABLED:
             return None
 
@@ -392,12 +336,26 @@ class ContactLadder:
         if not self.counters.provider_refusal:
             self.counters.provider_refusal = reason
 
-    async def _step_provider(self, host: str, collected: _Collected) -> ContactStatus | None:
+    def _needless_to_pay(self, collected: Collected) -> str:
+        """Почему платить за домен незачем; пусто — платим.
+
+        Нулевой MX: сервис ищет адреса на самом домене, а домен объявил, что
+        почту не принимает, — всё, что он отдаст, отобьётся. Сайт молчит:
+        повторим по сроку, и платить за худший адрес, пока страницы с
+        лучшим просто не ответили, рано — кроме последнего прохода.
+        """
+        if self._provider is None:
+            return "не подключена"
+        if collected.route is MailRoute.NULL_MX:
+            return "нулевой MX"
+        if self._silence is not None and not collected.last_try:
+            return self._silence() or ""
+        return ""
+
+    async def _step_provider(self, host: str, collected: Collected) -> ContactStatus | None:
         """Платная ступень. Возвращает исход, если платить не вышло."""
-        if self._provider is None or collected.route is MailRoute.NULL_MX:
-            # Платный сервис ищет адреса на самом домене, а домен с нулевым MX
-            # объявил, что почту не принимает: всё, что он отдаст, отобьётся.
-            why = "не подключена" if self._provider is None else "нулевой MX"
+        why = self._needless_to_pay(collected)
+        if self._provider is None or why:
             logger.debug("контакты: платная ступень по %s не зовётся — %s", host, why)
             return None
 
@@ -431,7 +389,7 @@ class ContactLadder:
     # --- исходы ---
 
     def _settle(
-        self, collected: _Collected, source: ContactSource, *, has_form: bool
+        self, collected: Collected, source: ContactSource, *, has_form: bool
     ) -> LadderResult | None:
         """Собрать результат, если на этой ступени адрес уже есть."""
         winner = best(collected.good, site_host=collected.site_host)
@@ -449,7 +407,27 @@ class ContactLadder:
             mail_route=collected.route,
         )
 
-    def _without_contact(self, collected: _Collected, *, has_form: bool) -> LadderResult:
+    def _unfinished(
+        self, collected: Collected, unfinished: ContactStatus | None
+    ) -> LadderResult | None:
+        """Домен «недоспрошен», а не «без контакта»: квота, частота, поломка
+        платной ступени — или сайт не ответил. Смешав это с «адреса нет», мы
+        похоронили бы домен на полгода из-за минутного сбоя."""
+        reason = "" if unfinished is not None or self._silence is None else self._silence() or ""
+        if unfinished is None and not reason:
+            return None
+        self.counters.no_answer += bool(reason)
+        return LadderResult(
+            host=collected.site_host,
+            status=unfinished or ContactStatus.NO_ANSWER,
+            rejected=tuple(collected.rejected),
+            has_form=collected.has_form,
+            handles=tuple(collected.handles),
+            mail_route=collected.route,
+            reason=reason,
+        )
+
+    def _without_contact(self, collected: Collected, *, has_form: bool) -> LadderResult:
         """Адреса нет. Осталось решить, идёт ли домен в ручную очередь."""
         self.counters.rejected_emails += len(collected.rejected)
 

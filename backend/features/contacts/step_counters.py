@@ -23,7 +23,9 @@ class StepCounters:
     """
 
     mx_checked: int = 0
-    mx_stopped: int = 0  # домен не принимает почту (спуск прекращён, если так велено)
+    # Домен не принимает почту: ни MX, ни A (спуск прекращён, если так велено)
+    # или нулевой MX (спуск идёт за сторонними адресами — не прекращается).
+    mx_stopped: int = 0
     # DNS не ответил. Отдельное число, потому что ступень, не отвечающая
     # ни по одному домену, выглядит как работающая: она ничего не отсеяла.
     mx_unknown: int = 0
@@ -47,6 +49,9 @@ class StepCounters:
     form_only: int = 0
     manual_queued: int = 0
     not_found: int = 0
+    #: Сайт не ответил — повтор по сроку. Отдельно от «не нашли»: ступень,
+    #: которая молча не достучалась, иначе выглядела бы работающей.
+    no_answer: int = 0
     rejected_emails: int = 0  # адреса, отсеянные фильтром качества
 
     def mark_found(self, step: str) -> None:
@@ -80,5 +85,6 @@ class StepCounters:
             "form_only": self.form_only,
             "manual_queued": self.manual_queued,
             "not_found": self.not_found,
+            "no_answer": self.no_answer,
             "rejected_emails": self.rejected_emails,
         }

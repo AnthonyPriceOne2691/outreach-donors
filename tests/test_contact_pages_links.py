@@ -14,8 +14,8 @@ from backend.config import contacts as cfg
 from backend.features.contacts.pages import (
     FetchedPage,
     PageFetcher,
-    _kind_of,
     has_contact_form,
+    kind_of,
     language_hint,
     slug_urls,
 )
@@ -115,7 +115,7 @@ class TestLanguageOfTheSite:
         адрес получил бы вес в четыре раза меньше заслуженного.
         """
         encoded = "https://x.ae/%D8%A7%D8%AA%D8%B5%D9%84-%D8%A8%D9%86%D8%A7/"
-        assert _kind_of(encoded) is PageKind.CONTACT
+        assert kind_of(encoded) is PageKind.CONTACT
 
     def test_link_markers_know_local_words(self) -> None:
         """Ссылку с главной ищем по тексту — это дешевле любого слага."""

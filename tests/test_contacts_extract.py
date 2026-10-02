@@ -18,6 +18,7 @@ from backend.features.contacts.extract import (
     find_contact_links,
     repair_glued_domain,
 )
+from backend.features.contacts.known_addresses import FREE_MAILBOX_DOMAINS, MAIL_ONLY_DOMAINS
 from backend.features.contacts.quality import (
     Candidate,
     best,
@@ -82,7 +83,7 @@ class TestExtract:
         assert rejection_reason("meet@the.com") is None
         assert not trusted_guess("meet@the.com", site_host="site.com")
         assert trusted_guess("info@site.com", site_host="site.com")
-        assert trusted_guess("editor@gmail.com", site_host="site.com")
+        assert trusted_guess("mike.blogger@gmail.com", site_host="site.com")
 
 
 class TestBareAt:
@@ -143,12 +144,60 @@ class TestBareAt:
             ("jane at gmail.com", {"jane@gmail.com"}),
             ("Log in at gmail.com", set()),
             ("Find us at gmail.com", set()),
+            ("Your photos are available at iCloud.com", set()),
+            ("Check your mail at Outlook.com", set()),
+            ("Open your inbox at Gmail.com", set()),
+            ("Create an account at gmail.com", set()),
         ],
     )
     def test_free_mailbox_after_bare_at(self, text: str, found: set[str]) -> None:
         """Так пишут мелкие блоги: «mike at gmail.com». Кроме оборотов вроде
-        «Log in at gmail.com», где перед «at» не локальная часть."""
+        «Log in at gmail.com» и прозы инструкций, где перед «at» не локальная
+        часть (ревью e6 #144)."""
         assert extract_obfuscated(f"<p>{text}</p>") == found
+
+    @pytest.mark.parametrize(
+        "text", ["Check mail at Outlook.com", "Get info at Yahoo.com", "Contact at gmail.com"]
+    )
+    def test_role_word_on_free_mail_is_not_trusted(self, text: str) -> None:
+        """Ролевое слово перед «at» читается адресом на любом домене, но на
+        бесплатной почте такой ящик владельцу сайта не принадлежит: догадке
+        не верим (ревью e6 #144)."""
+        (email,) = extract_obfuscated(f"<p>{text}</p>")
+        assert not trusted_guess(email, site_host="site.com")
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Read the full story at MSN.com",
+            "Read more at msn.com",
+            "More news at MSN.com today",
+            "Shop at Orange.fr now",
+            "The app is available at Seznam.cz",
+            "Listen live at web.de",
+            "Read more at Yahoo.com",
+        ],
+    )
+    def test_prose_about_a_mail_portal_is_not_an_address(self, text: str) -> None:
+        """У почты-портала есть новости и магазин, о них пишут прозой: слово
+        перед «at» становилось адресом на портале (ревью e6 #144)."""
+        assert extract_obfuscated(f"<p>{text}</p>") == set()
+
+    @pytest.mark.parametrize(
+        ("text", "email"),
+        [("ivan.petrov at bk.ru", "ivan.petrov@bk.ru"), ("anna at proton.me", "anna@proton.me")],
+    )
+    def test_mail_without_a_portal_is_read(self, text: str, email: str) -> None:
+        assert extract_obfuscated(f"<p>{text}</p>") == {email}
+
+    def test_mailbox_on_a_portal_is_the_price(self) -> None:
+        """Цена решения: «hans at web.de» не читается. Такая запись редка,
+        а проза о портале — нет."""
+        assert extract_obfuscated("<p>hans at web.de</p>") == set()
+
+    def test_mail_without_a_portal_is_free_mail(self) -> None:
+        """Узкий список — часть общего: по общему адрес весит как личный."""
+        assert MAIL_ONLY_DOMAINS <= FREE_MAILBOX_DOMAINS
 
 
 class TestLinearTime:
@@ -434,7 +483,9 @@ class TestNotTheSitesMailbox:
             ("bills@beget.com", "хостера"),
             ("info@hostinger.com", "хостера"),
             ("support@ovh.com", "хостера"),
-            ("data-protection@hetzner.com", "хостера"),
+            # С 02.10.2026 его раньше хостера ловит отдел защиты данных: ящик
+            # сверяется без разделителей (`data-protection` = `dataprotection`).
+            ("data-protection@hetzner.com", "чужой отдел"),
             ("support@substack.com", "платформы, а не автора"),
             ("dsa@substackinc.com", "домен сервиса"),
             ("eurepresentative.substack@twobirds.com", "представитель"),
@@ -497,6 +548,14 @@ class TestWeight:
 
     def test_nothing_found_is_legal(self) -> None:
         assert best([], site_host="site.com") is None
+
+    @pytest.mark.parametrize("domain", ["bk.ru", "web.de", "t-online.de", "ukr.net", "wp.pl"])
+    def test_local_free_mail_weighs_as_free_mail(self, domain: str) -> None:
+        """Ящик владельца на местной бесплатной почте весил как адрес чужого
+        домена, а не как личный (находка «Продаж», 02.10.2026)."""
+        local = Candidate(f"owner@{domain}", ContactSource.PAGE, PageKind.CONTACT)
+        gmail = Candidate("owner@gmail.com", ContactSource.PAGE, PageKind.CONTACT)
+        assert weight(local, site_host="site.com") == weight(gmail, site_host="site.com")
 
     def test_a_direct_address_beats_any_guess(self) -> None:
         """Догадка из обфускации — только когда прямого адреса нет: с весом

@@ -27,6 +27,13 @@
 редиректы: домен, переехавший на новое имя, отвечает уже оттуда. Чужие
 хосты (RDAP, например) в счёт не идут.
 
+Тот же след читает и поиск по базе (`silence`), но спрашивает уже: **не
+ответил ли сайт вовсе** — тогда исход `no_answer` повторяется по сроку
+(`attempts.py`). Вопрос уже, чем у прогона по файлу: путь базы платит,
+и частично открытый сайт лестница уже прошла по-честному. Закрытый сайт
+(401/403) — тоже ответ: повтор его не откроет, у него есть браузер
+и платная ступень.
+
 Граница метода: тело ответа, оборванное после заголовков, засчитывается
 как ответ — крючок видит заголовки, а не чтение тела.
 """
@@ -44,7 +51,8 @@ import httpx
 from backend.features.contacts.browser import PageRenderer
 from backend.features.contacts.ladder import LadderResult
 from backend.features.contacts.mx import MailRoute
-from backend.features.core.domain import ContactStatus
+from backend.features.contacts.pages import kind_of
+from backend.features.core.domain import ContactStatus, PageKind
 
 #: Исходы лестницы, после которых домен можно считать пройденным. Прочие
 #: (квота, частота, поломка платной ступени) — «недоспрошен» по определению.
@@ -53,6 +61,15 @@ CONCLUSIVE = frozenset({ContactStatus.FOUND, ContactStatus.NOT_FOUND, ContactSta
 #: Отказ сайта: он есть, но нас не пускает. Повтор бывает успешным — 429
 #: проходит, 403 открывает браузер.
 REFUSALS = frozenset({401, 403, 429})
+
+#: Отказы, которые для поиска по базе — «закрылся», а не «не ответил».
+CLOSED = frozenset({401, 403})
+
+#: Разделы, обрыв на которых — тоже «сайт не ответил»: адрес лежит там.
+_ADDRESS_PAGES = frozenset({PageKind.MONEY, PageKind.CONTACT})
+
+#: Запрос, ответа на который так и не было.
+_NO_REPLY = "нет ответа: обрыв или таймаут"
 
 #: След текущего домена. Задача прогона ставит свой, и запросы, сделанные
 #: в ней, пишутся в него — параллельные домены друг другу не мешают.
@@ -78,6 +95,10 @@ class SiteTrace:
     #: Не ответил ничем — прогон спрашивает контрольные адреса: легла сеть
     #: или сайт (`file_sweep.network_alive`).
     heard: bool = False
+    #: До открытой страницы сайт закрылся: 401 или 403.
+    closed: bool = False
+    #: Обрывы ПОСЛЕ открытой страницы, кроме 401/403: адрес и что случилось.
+    cut: list[tuple[str, str]] = field(default_factory=list)
     #: Запрос, ответа на который ещё нет. Лестница ходит по домену
     #: последовательно, и следующий запрос значит, что этот кончился отказом.
     _waiting: str = field(default="", repr=False)
@@ -91,7 +112,7 @@ class SiteTrace:
 
     def sent(self, url: httpx.URL) -> None:
         if self._waiting:
-            self._went_wrong(self._waiting, "нет ответа: обрыв или таймаут")
+            self._went_wrong(self._waiting, _NO_REPLY, silent=True)
         self._waiting = str(url)
 
     def received(self, response: httpx.Response) -> None:
@@ -106,9 +127,9 @@ class SiteTrace:
             if target:
                 self.hosts.add(target.lower())
         elif status in REFUSALS:
-            self._went_wrong(url, f"сайт закрылся: {status}")
+            self._went_wrong(url, f"сайт закрылся: {status}", silent=status not in CLOSED)
         elif status >= 500:
-            self._went_wrong(url, f"ошибка сервера: {status}")
+            self._went_wrong(url, f"ошибка сервера: {status}", silent=True)
         elif status < 300 and "html" in response.headers.get("content-type", "").lower():
             # То же условие, что у `PageFetcher`: 2xx без HTML лестница не читает
             # и пробует следующий вид главной — это ещё поиск, а не обход.
@@ -119,14 +140,18 @@ class SiteTrace:
     def close(self) -> None:
         """Проход кончился: запрос, так и не получивший ответа, — отказ."""
         if self._waiting:
-            self._went_wrong(self._waiting, "нет ответа: обрыв или таймаут")
+            self._went_wrong(self._waiting, _NO_REPLY, silent=True)
             self._waiting = ""
 
-    def _went_wrong(self, url: str, what: str) -> None:
+    def _went_wrong(self, url: str, what: str, *, silent: bool) -> None:
+        """`silent` — сайт не ответил (обрыв, таймаут, 5xx, 429), а не закрылся."""
         if self.opened:
-            self.trouble = self.trouble or f"обход оборван на {urlsplit(url).path or '/'} — {what}"
+            self.trouble = self.trouble or _cut_at(url, what)
+            if silent:
+                self.cut.append((url, what))
         else:
             self.failure = what
+            self.closed = self.closed or not silent
 
     @property
     def reached(self) -> bool:
@@ -144,6 +169,37 @@ class SiteTrace:
             return False
         return self.opened or (self.answered and not self.failure)
 
+    def silence(self) -> str | None:
+        """Почему сайт не ответил — для поиска по базе. `None` — ответил.
+
+        Не ответил: ни одной страницы — ни обычным запросом, ни браузером, —
+        ни окончательного ответа вроде 404, и не закрылся 401/403; только
+        обрыв, таймаут, 5xx или 429. Или главная открылась, но обход
+        оборвался тем же на разделе рекламы или контактов: адрес лежит там,
+        и заплатить за худший, пока лучший просто не ответил, — худшее из
+        двух (ревью e6).
+        """
+        if self.rendered:
+            return None
+        # Спрашивают посреди прохода (лестница — перед платной ступенью и в
+        # конце спуска), а запрос без ответа засчитывается отказом только
+        # следующим запросом или при закрытии: последний ещё «ждёт».
+        pending = [(self._waiting, _NO_REPLY)] if self._waiting else []
+        return self._cut_on_address_page(pending) if self.opened else self._silent(pending)
+
+    def _silent(self, pending: list[tuple[str, str]]) -> str | None:
+        """Страница не открылась: молчал ли сайт или ответил (404, 401/403)."""
+        if self.answered or self.closed:
+            return None
+        return self.failure or next((what for _, what in pending), None)
+
+    def _cut_on_address_page(self, pending: list[tuple[str, str]]) -> str | None:
+        """Главная открылась: оборвался ли обход на разделе рекламы или контактов."""
+        for url, what in [*self.cut, *pending]:
+            if kind_of(url) in _ADDRESS_PAGES:
+                return _cut_at(url, what)
+        return None
+
     def retry_reason(self, result: LadderResult) -> str | None:
         """Почему исход не окончательный. `None` — домен пройден.
 
@@ -157,6 +213,20 @@ class SiteTrace:
         if result.mail_route is MailRoute.NONE and not self.heard and not self.rendered:
             return None  # имени нет — см. модуль
         return self.trouble or self.failure or "сайт не ответил"
+
+
+def _cut_at(url: str, what: str) -> str:
+    return f"обход оборван на {urlsplit(url).path or '/'} — {what}"
+
+
+def current_silence() -> str | None:
+    """`SiteTrace.silence` следа текущего домена. Вне `traced` — `None`.
+
+    Отдаётся лестнице крючком: она спрашивает его перед платной ступенью
+    и в конце спуска, а про след ничего не знает.
+    """
+    trace = _CURRENT.get()
+    return trace.silence() if trace is not None else None
 
 
 @contextmanager

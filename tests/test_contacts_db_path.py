@@ -26,7 +26,7 @@ import pytest
 from backend.features.contacts import mx
 from backend.features.contacts.extract import extract_emails
 from backend.features.contacts.ladder import ContactLadder
-from backend.features.contacts.pages import _kind_of
+from backend.features.contacts.pages import kind_of
 from backend.features.contacts.quality import rejection_reason
 from backend.features.core.domain import ContactStatus, PageKind
 
@@ -221,9 +221,9 @@ class TestCyrillicSections:
         ],
     )
     def test_cyrillic_section_is_typed(self, url: str, kind: PageKind) -> None:
-        assert _kind_of(url) is kind
+        assert kind_of(url) is kind
 
     def test_cyrillic_headline_is_still_home(self) -> None:
-        assert _kind_of("https://site.ru/news/реклама-на-тв-запрещена-с-понедельника/") is (
+        assert kind_of("https://site.ru/news/реклама-на-тв-запрещена-с-понедельника/") is (
             PageKind.HOME
         )
