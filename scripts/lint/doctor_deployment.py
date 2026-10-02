@@ -31,11 +31,49 @@ from doctor_core import AUTO, DEAD, SKIP, WEAK, run
 class DeploymentScreen:
     CANON_DIR = "docs/canon"
     NA_FILE = "scripts/lint/not-applicable.json"
+    #: Замок payload'а: версии канонов и хеш тела каждого скрипта на них.
+    #: Пишет обновление контура (§5.5), читает доктор там, где снимка нет.
+    LOCK_FILE = "scripts/lint/payload.lock.json"
+
+    @staticmethod
+    def body_digest(text: str) -> str:
+        """Дайджест ТЕЛА скрипта — одна нормализация на писателя замка и доктора.
+
+        Без хвостовых пробелов, как у сверки снимка: побайтное сравнение
+        однажды объявило адаптированными 36 файлов вместо пяти.
+
+        ⚠ Форма `sha256:<hex>`, а не голый hex, — замер раскатки 02.10: голый hex
+        в кавычках гейт секретов проекта (`detect-secrets`, §2.7) метит «Hex High
+        Entropy String», и замок нельзя было закоммитить. Двоеточие выводит
+        значение из набора символов обеих эвристик энтропии — это свойство
+        формы, а не удача; держит `tests/test_payload_clean_for_scanners.py`.
+        """
+        return "sha256:" + hashlib.sha256(text.strip().encode("utf-8")).hexdigest()
+
+    def _lock(self) -> tuple[dict | None, str]:
+        """Замок payload'а либо причина, почему его нет."""
+        f = self.root / self.LOCK_FILE
+        if not f.is_file():
+            return None, f"нет {self.LOCK_FILE}"
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            return None, f"{self.LOCK_FILE} не разобран ({exc})"
+        if not (isinstance(data, dict) and isinstance(data.get("versions"), dict)
+                and isinstance(data.get("scripts"), dict)):
+            return None, f"{self.LOCK_FILE} без разделов versions и scripts"
+        return data, ""
 
     def _payload_by_canon(self) -> tuple[dict[str, str], str]:
         """`{путь: канон}` от извлекателя проекта либо причина, почему не вышло."""
         ex = self.root / self.CANON_DIR / "extract_payload.py"
         if not ex.is_file():
+            lock, _ = self._lock()
+            if lock is not None:
+                # Варианты B/D: снимка нет, состав знает замок. Без этой ветки
+                # недостачу у проекта без снимка не судил никто (`cqg@2.44`).
+                return {rel: str(e.get("canon", ""))
+                        for rel, e in lock["scripts"].items()}, ""
             return {}, (f"нет {self.CANON_DIR}/extract_payload.py — состав "
                         "сверить нечем; извлекатель едет вместе с канонами (§5.0)")
         code, out = run(["python3", str(ex), "--canon-dir",
@@ -301,6 +339,66 @@ class DeploymentScreen:
             self.add(WEAK, "белые пятна",
                      "стек есть, роль не закрыта и не объявлена: " + " · ".join(gaps)
                      + f" — закрой по §5 либо объяви в {self.NA_FILE} с причиной")
+
+    def check_payload_lock(self) -> None:
+        """Записи репозитория о версии против замка: развёрнуто ли заявленное.
+
+        ⚠ Поле `outreach-donors` 01.10: конституция и приёмка называли `cqg@2.43`,
+        а скрипты стояли на `cqg@2.35` — и доктор говорил «Лжи нет». Снимка
+        канонов в репо не было, сверке тел сравнивать было не с чем, и запись о
+        версии держалась на честности. Замок — то, что развёртывание записало о
+        себе; запись, разошедшаяся с ним, опередила (или отстала от) работу.
+        """
+        lock, why = self._lock()
+        point = "замок payload'а"
+        if lock is None:
+            if not (self.root / self.CANON_DIR).is_dir():
+                self.add(SKIP, point, f"{why}, и снимка {self.CANON_DIR}/ нет — версию "
+                                      "и тела сверять не с чем, запись держится на "
+                                      "честности; замок пишет обновление контура (§5.5)")
+            return
+        bad = []
+        for canon, ver in sorted(lock["versions"].items()):
+            said = self._repo_versions(canon)
+            if said and said != [str(ver)]:
+                bad.append(f"{canon}: запись {' / '.join(said)}, замок {ver}")
+        if bad:
+            self.add(DEAD, point, "запись о версии расходится с развёрнутым: "
+                                  + "; ".join(bad) + " — обнови контур до записанной "
+                                  "версии (§5.5) либо верни запись к развёрнутой")
+        else:
+            self.add(AUTO, point, "записи сходятся с замком: " + ", ".join(
+                f"{c}@{v}" for c, v in sorted(lock["versions"].items())))
+
+    def judge_lock_bodies(self, declared: dict) -> None:
+        """Тела скриптов против замка — сверка тел там, где снимка канонов нет.
+
+        Расхождение у проекта, ЗАЯВИВШЕГО версию, без объявления — `DEAD`: то же
+        правило, что у состава. Недостачу судит состав, здесь — только тела.
+        Конфиги в замок не входят: их адаптируют штатно, и судят их признаки стека.
+        """
+        lock, why = self._lock()
+        if lock is None:
+            self.add(SKIP, "расхождение с каноном",
+                     f"снимка {self.CANON_DIR}/ нет и {why} — тела скриптов сверять "
+                     "не с чем: необъявленный дрейф здесь не виден никому")
+            return
+        claimed = any(self._repo_versions(c) for c in lock["versions"])
+        for rel, entry in sorted(lock["scripts"].items()):
+            live = self.root / rel
+            if not live.is_file() or self.body_digest(
+                    live.read_text(encoding="utf-8", errors="replace")) == entry.get("digest"):
+                continue
+            name = rel.rsplit("/", 1)[-1]
+            spec = declared.get(rel) or declared.get(name)
+            if isinstance(spec, dict) and str(spec.get("reason", "")).strip():
+                self.add(WEAK, f"расхождение с каноном {name}",
+                         "адаптирован намеренно: " + str(spec["reason"])[:90])
+                continue
+            self.add(DEAD if claimed else WEAK, f"расхождение с каноном {name}",
+                     "тело отличается от замка payload'а, а объявления нет: либо "
+                     "отстал от записанной версии (обнови из payload'а), либо "
+                     f"адаптирован (объяви в {self.LOCK_FILE.rsplit('/', 1)[0]}/adapted.json)")
 
     def check_deployment_completeness(self) -> None:
         """Скрининг состава: развёрнуто N из M, и чего нет молча.
