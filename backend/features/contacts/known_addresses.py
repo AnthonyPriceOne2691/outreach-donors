@@ -2,8 +2,9 @@
 
 Общее для извлечения и оценки. Оценка (`quality.py`) ставит ролевой адрес
 выше личного, а адрес на домене сайта — выше бесплатной почты. Извлечение
-(`extract.py`) по тем же спискам решает, считать ли адресом запись, где
-«at» стоит словом без скобок: «ads at site.com», «mike at gmail.com».
+(`extract.py`) по ролевым частям и почте без портала решает, считать ли
+адресом запись, где «at» стоит словом без скобок: «ads at site.com»,
+«mike at gmail.com».
 """
 
 from __future__ import annotations
@@ -43,5 +44,23 @@ FREE_MAILBOX_DOMAINS = frozenset(
         "yahoo.it", "hotmail.fr", "hotmail.de", "hotmail.it", "hotmail.es", "outlook.de",
         "outlook.fr", "live.de", "live.fr", "msn.com", "pm.me", "protonmail.ch",
         "tutanota.com", "tuta.io",
+    }
+)  # fmt: skip
+
+# Бесплатная почта без портала: сайт домена — вход в ящик, и только. Голое
+# «at» читается адресом лишь перед такой почтой: «mike at gmail.com». О почте-
+# портале — новости, поиск, магазин — пишут прозой: «Read more at msn.com»,
+# «Shop at Orange.fr», и слово перед «at» становилось адресом (ревью e6 #144).
+# Цена — «hans at web.de» не читается: такая запись редка, а проза о портале
+# — нет. Список разрешающий: новая почта попадает сюда, только если портала
+# у неё нет.
+MAIL_ONLY_DOMAINS = frozenset(
+    {
+        "gmail.com", "googlemail.com", "hotmail.com", "hotmail.co.uk", "hotmail.fr",
+        "hotmail.de", "hotmail.it", "hotmail.es", "outlook.com", "outlook.de",
+        "outlook.fr", "live.com", "live.de", "live.fr", "icloud.com", "me.com",
+        "proton.me", "protonmail.com", "protonmail.ch", "pm.me", "tutanota.com",
+        "tuta.io", "gmx.com", "posteo.de", "mailbox.org", "bk.ru", "list.ru",
+        "inbox.ru", "internet.ru", "ro.ru", "laposte.net", "126.com",
     }
 )  # fmt: skip

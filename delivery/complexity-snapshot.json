@@ -612,7 +612,7 @@
       "worst": "monthly_left:115"
     },
     "backend/features/contacts/known_addresses.py": {
-      "lines": 48,
+      "lines": 67,
       "complexity": 0,
       "worst": "—"
     },
