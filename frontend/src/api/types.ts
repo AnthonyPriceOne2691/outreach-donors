@@ -4,7 +4,15 @@
 export type Role = 'admin' | 'operator';
 
 /** Именованные действия. Ровно те же, что в матрице прав на сервере. */
-export type Permission = 'view' | 'run' | 'settings' | 'prices' | 'send' | 'senders' | 'users';
+export type Permission =
+  | 'view'
+  | 'run'
+  | 'settings'
+  | 'prices'
+  | 'send'
+  | 'senders'
+  | 'users'
+  | 'sales';
 
 export interface Me {
   id: number;

@@ -1,172 +1,223 @@
 # Verify report
 
-**Date:** 2026-10-01
-**Verifier:** process:ci — джобы `check`, `gates` и `delivery` на PR; до пуша — локальные прогоны ниже
-**asserts_reviewed_by:** n/a (все утверждения ведут к примерам A1–A13 спеки; подпись под самими примерами — `human_ok_spec`, сейчас deferred, закрывается до handoff)
+**Date:** 2026-10-02
+**Verifier:** process:ci — обязательные `check`, `web`, `docker`, на PR ещё `gates` и `delivery`; до пуша — локальные прогоны ниже
+**asserts_reviewed_by:** deferred reason=6 утверждений без примера спеки ждут подписи человека — заведение со склейкой пробелов и описанием (`test_hypothesis_is_stored_with_its_description`, 3), право в роли оператора и снятие поимённо (`test_operator_gets_sales_by_default_and_loses_it_by_name`, 1), список прав оператора при входе (`TestLogin::test_login_gives_token_and_card`, 1), первый импорт `sales.models` в чистом процессе (`test_sales_models_import_first_in_a_clean_process`, 1); человека в цепочке агента нет — подписывает владелец при ревью, дайджест в конце отчёта
 **CI run:** нет — ветка не запушена: пуш, PR и прогон CI делает координатор после ревью
-**Commit:** T5b — локальные прогоны сняты на нём (шаг CI перенесён в джобу `check` по ревью)
+**Commit:** T9 — локальные прогоны сняты на дереве T9 (`76719e1`) с правками этого отчёта
 
 ## Shape oracles
 
-- [x] PASS — `pre-commit run --all-files`: 27 хуков, 0 упавших.
-- [x] PASS — `ruff check` и `ruff format --check` по `backend/ tests/ scripts/`
-      (448 файлов), `mypy backend/` (290 файлов), `scripts/gates.py` (444 файла,
-      нарушений нет, в том числе `public-repo`), `scripts/complexity.py`
-      (304 файла, снимок совпадает; `scripts/contour_waves.py` — 460 строк,
-      худшая функция `collect` — 14 по мере ратчета, ruff C901 чист).
-- [x] PASS — `contour_doctor.py`: AUTO 36 · WEAK 10 · ABSENT 6 · TOOL 3 · SKIP 2 ·
-      **DEAD 0**. До среза в этом же дереве: AUTO 33 · WEAK 13 — три WEAK
-      «записи о версии» стали AUTO: `stack:` STATUS теперь совпадает с
-      CONSTITUTION и STACK-ACCEPTANCE. ABSENT 6 — четыре файла канонов: вариант D,
-      в worktree их нет, они лежат только в основной копии.
+- [x] PASS — `pre-commit run --all-files`: 27 хуков, 27 прошли, 0 упавших,
+      exit 0.
+- [x] PASS — `ruff check backend/ tests/ scripts/` (как в CI) — exit 0;
+      `ruff format --check` — 465 файлов, exit 0; `mypy backend/` — 298 файлов,
+      exit 0; `scripts/gates.py` — 461 файл, нарушений нет, в том числе
+      `public-repo`, exit 0; `lint-imports` — 3 контракта целы, 0 сломано,
+      exit 0; `scripts/complexity.py` — 312 файлов, расхождений со снимком нет,
+      exit 0 (худшая функция среди файлов продаж — `add` в
+      `sales/hypotheses.py`, сложность 6).
+- [x] PASS — DRY-гейт `check_jscpd_gate.sh`: 45 пар клонов при снимке 45
+      (387 файлов), exit 0. Первая редакция миграции в T3 давала 46 (пара
+      колонок `created_at`/`updated_at` против `b7e2c4a81f95`) — помощник
+      `_stamps` переписан одной колонкой в цикле.
+- [x] PASS — `delivery_check.py --require-ci --diff-base origin/main`:
+      0 errors, 5 warnings, exit 0. Breakers: файлов 18, net_loc 724
+      (+730/−6) при пределах 25 и 800; файл прибавил `tests/test_api_auth.py`.
+- [x] PASS — `scripts/check_irreversible_signature.sh`: подпись сходится, exit 0.
+- [x] PASS — `python scripts/contour_waves.py --base origin/main` (режим CI):
+      exit 0, «нарушений нет», «В1: триггер сработал, предел — следующий PR
+      продаж»; `shared_changes` покрывает все общие файлы диффа. Без строки
+      о `tests/test_api_auth.py` в `shared_changes:` тот же прогон давал exit 1:
+      «общий код тронут без объявления: tests/test_api_auth.py».
 - [x] PASS — `check_gate_coverage.sh`: OK — 15 скриптов, подключено 11,
-      осознанно нет 4; правил сверено 10 (5 конфигов).
-- [x] PASS — `delivery_check.py --require-ci --diff-base origin/main`: 0 errors.
-      Breakers: файлов кода 3, net_loc 761 (+761/−0) при пределе 800; всего
-      в диффе 17 файлов, `quality.yml` и `adapted.json` снова как в main.
-- [x] PASS — `scripts/check_irreversible_signature.sh`: подпись сходится с
-      объявлением, exit 0.
+      осознанно нет 4, правил сверено 10, exit 0. `contour_doctor.py`: exit 0,
+      DEAD 0 (AUTO 34 · WEAK 12 · ABSENT 6 · TOOL 3 · SKIP 2). WEAK — пропуски
+      среды пробы (в ней нет `ruff`, `jscpd`, `eslint`, `gh`, `pip-audit`,
+      `mutmut`, `pytest-cov`, `lint-imports`) и маски гейтов по языкам; путей
+      продаж среди них нет.
+
+Проверки по диффу (`delivery_check`, `contour_waves`, дайджест) берут общий
+предок с `origin/main` — `def8d3e`. Сам `origin/main` с тех пор ушёл на
+`038f85c` (#132); слияние ветки с ним без конфликтов (`git merge-tree`):
+общие файлы — `.env.example` и `delivery/complexity-snapshot.json`, правки
+в разных местах.
 
 ## Behavior oracles
 
-- [x] PASS — `tests/test_contour_waves.py`: 25 тестов, по тесту на пример A1–A13.
-- [x] PASS — полный набор на своей базе `outreach_test_sales_a`: 2977 passed за 264 с.
+- [x] PASS — `tests/test_sales_model.py`: 11 тестов на настоящей базе —
+      A1 (2), A4 (2, с положительным контролем), A5, A6 (3, два — обратные
+      прогоны), A7 (2), первый импорт `sales.models` в чистом процессе.
+- [x] PASS — `tests/test_sales_setup.py`: 7 тестов — команда в разборе консоли,
+      заведение с описанием, A8 (3), выключатель, право: в роли оператора
+      и снимается поимённо.
+- [x] PASS — `tests/test_api_auth.py`: 24 теста; вход оператора отдаёт список
+      прав с `sales`.
+- [x] PASS — `tests/test_schema.py`, `tests/test_migrations_match_models.py`:
+      две таблицы в реестре, модели и цепочка сходятся (A1).
+- [x] PASS — полный набор на своей базе `outreach_test_sales_a`: 3066 passed
+      за 322,5 с, exit 0.
+- [x] PASS — фронт: `tsc`, `eslint`, `prettier` — exit 0; vitest 442 из 442
+      (49 файлов), exit 0.
 
 ### Обратные прогоны
 
 | Что сломано | Ожидание | Факт |
 |---|---|---|
-| проверка заменена заглушкой: `main` молчит и выходит 0 | новые тесты падают | 20 из 25 упали; прошли 4 положительных контроля и тест обратного прогона — они и ждут зелёного |
-| маска кода продаж не совпадает ни с чем (`sales-code`, `sales-in-base`) | тесты A2 и A5 падают | упали 4 из 4: A2, A3, A4, A5; та же порча — тест `test_reverse_run_empty_sales_mask_…`, файлом |
-| в STATUS среза нет строки `shared_changes:` (настоящее дерево) | A13 красный | exit 1, названы 4 файла: `ci.yml`, `contour_waves.py`, `pre-push`, `test_contour_waves.py`; с `--warn` — exit 0 |
-| нет файла `scripts/contour_waves.py` | мета-гейт красный | `check_gate_coverage.sh` exit 1: «упомянут в конфиге, но файла нет» — ссылка теперь из `ci.yml` |
-| шаг CI в `check`, лестница базы (скрипт шага вне Actions, `git fetch` заменён на `true`) | PR и push судятся, пустая база — отказ | PR → база `origin/main`, exit 0; push с `before` = точка ветвления — exit 0; нулевой, пустой и недостижимый `before` — `::error::`, exit 1 |
+| новые тесты на старом коде (до T3) | красные | 2 из 2 модулей не собрались: `ModuleNotFoundError` (`backend.features.sales`, `backend.cli.sales`) |
+| откат миграции без `DROP TYPE` | цикл A1 красный | 1 failed — `test_downgrade_drops_tables_and_types_and_upgrade_runs_again` |
+| ключ к адресу `CASCADE` в модели и миграции | A6 красный | 1 failed — `test_donor_removes_shared_address_and_the_lead_stays` |
+| ключ к адресу `CASCADE` только в модели | сверка моделей красная | `remove_fk` / `add_fk` в `test_migrations_produce_exactly_the_schema_models_expect` |
+| `domain_id` необязателен в миграции | A4 и сверка красные | 2 failed |
+| без строки порядка импорта в `sales/__init__.py` | тест первого импорта красный | 1 failed; сам импорт — `ImportError: cannot import name 'SalesHypothesisModel' from partially initialized module` |
+| алиас выключателя `SALES_ENABLE` | тест окружения красный (урок L4) | 1 failed |
+| T9: без `Permission.SALES` в роли оператора — прежний выбор | тест права и список прав при входе красные | весь сьют: 2 failed, 3064 passed — `test_operator_gets_sales_by_default_and_loses_it_by_name` (`[False, False, True] == [True, False, True]`) и `TestLogin::test_login_gives_token_and_card` (список прав без `sales`); больше не краснеет ничего |
+| T9: `has_permission` слушает только `true` в `users.permissions` — снять право поимённо нельзя | тест права красный | файлы прав, 82 теста: 3 failed — тест права продаж (`[True, True, True] == [True, False, True]`), `TestPermissions::test_permission_can_be_taken_away_from_admin`, `TestChangeAccess::test_right_can_be_taken_below_the_role`; `test_api_auth.py` эту порчу не ловит — снятие он не проверяет |
+| файлом: ключ к адресу `CASCADE` / `RESTRICT` в транзакции теста | лид пропадает / удаление у доноров падает | `test_reverse_run_cascade_…` и `test_reverse_run_restrict_…` зелёные и в полном прогоне T9: тесты различают три выбора |
 
-### Настоящее дерево ветки
+Каждую порчу вносили по одной и возвращали из копии; дерево после прогонов —
+как в коммитах. Строки T9 сняты на дереве `76719e1`, после возврата файлы прав
+снова зелёные (82 passed). Остальные строки — с T3–T8: код и тесты, к которым
+они относятся (`backend/features/sales/`, миграция, `config/sales.py`,
+`cli/sales.py`, `core/models/`, `tests/test_sales_model.py`, сверка моделей),
+с T8 не менялись — `git diff ff9d37d HEAD` по ним пуст.
 
-`python scripts/contour_waves.py` на дереве этой ветки. Подложенный файл удалён
-и не закоммичен, реестр после прогона B возвращён.
+### Живой прогон команды
 
-| Пример | Вход | Выход |
-|---|---|---|
-| A1 | дерево ветки без `sales/`, `--base origin/main` | exit 0, «продаж в дереве нет — судить нечего» |
-| A4 | подложен `backend/features/sales/__init__.py`; реестр как в ветке — В0 `deployed` этим PR | exit 0, «В1: триггер сработал, предел — следующий PR продаж» и четыре строки «пока волну судит человек» (В3б, В3в, В4, В2) |
-| A2 | то же, В0 в рабочей копии реестра — `pending` | exit 1, «В0: в дереве есть backend/features/sales/, волна не развёрнута — разверни или запиши weak/absent/n/a reason=…» |
-| A3 | то же, `--warn` | exit 0, та же строка с пометкой «предупреждение» |
-| A5 | подложен `__init__.py`; база PR — коммит-объект поверх точки ветвления с `sales/__init__.py`, без ссылки | exit 1, «В1: в базе PR уже есть backend/features/sales/, волна не развёрнута — …» |
-
-Один подложенный `__init__.py` на этой ветке красным не бывает, и это по
-спеке: В0 разворачивает сам этот PR, а первый PR продаж при В1 `pending`
-законен (A4). Красное — у пропущенной В0 (A2) и у второго PR продаж (A5).
+`outreach sales-hypothesis-add` на своей базе, вне сьюта, at=2026-10-01:
+- `--name "проверка консоли" --description …` → rc=0, «Заведена гипотеза №3»;
+- тот же текст с лишними пробелами → rc=3, «имя «проверка консоли» уже у
+  гипотезы №3»;
+- `--name "   "` → rc=4, «нет имени (передано '   ') …».
+Строка в базе одна; после прогона удалена.
 
 ## Product oracles
 
-- [x] PASS — `delivery/evals/smoke`: продуктового кода срез не трогает.
-- [x] PASS — `active/eval-smoke.md`: пять пунктов, все отмечены.
+- [x] PASS — `active/eval-smoke.md`: шесть пунктов, все отмечены.
 
 ## Ревью рисковых мест
 
-- **транзакция БД** — риска нет: `commit` в диффе — это `git commit` в помощнике
-  `repo` из `tests/test_contour_waves.py`, во временном каталоге теста; базы
-  данных ни проверка, ни её тесты не касаются.
-- **производительность** — риска нет: `re.search` и `re.compile` в `fires`, `_row`
-  и `field` идут по десятку строк реестра и STATUS и по путям под
-  `backend/features/sales/`; `collect` читает несколько файлов `delivery/`,
-  `okf/*.md`, `.importlinter` и `.py` продаж и зовёт git дважды (`ls-tree`
-  базы и `diff`), с таймаутом 60 с.
-- **новый модуль** `contour_waves` — состояния нет: ядро без ввода-вывода, ввод
-  только в `collect`. Ошибка git не глотается: `_git` печатает причину в stderr
-  и возвращает None, а судья превращает пропавшую базу в нарушение `no-base`
-  на PR продаж — громко, а не тихо.
-- Что может сломаться: шаг в `check` сам определяет базу — PR: `git fetch`
-  ветки назначения; push: `before`. Нулевой или недостижимый `before` —
-  `::error::` и красный шаг, а не пустой дифф; база, не прочитанная git, на
-  PR продаж — красное `no-base`, на PR доноров — предупреждение.
+- **безопасность** — право `Permission.SALES` стоит в роли оператора: решение
+  владельца 01.10, раздел продаж видят все. Риск — раздел с именами
+  и должностями живых людей виден шире, чем при выдаче поимённо, — владелец
+  принял осознанно. Сейчас под правом нет ни маршрута, ни экрана: открытым
+  раздел станет со срезом экрана 1.5 — сразу всем операторам, включая
+  заведённых раньше. Управление доступом держат: снять у одного —
+  `{"sales": false}` в `users.permissions` через админку
+  (`PATCH /api/users/{id}`; `sales` — известное действие для
+  `_check_overrides`); `has_permission` читает точечное исключение раньше
+  роли и в срезе не менялся; скрыть у всех — убрать право из
+  `ROLE_PERMISSIONS`. Ловят: право в роли — тест права
+  `test_operator_gets_sales_by_default_and_loses_it_by_name`
+  и `TestLogin::test_login_gives_token_and_card`, оба краснеют без права
+  в роли; снятие поимённо — тот же тест права и общие тесты исключений
+  в `test_access_core.py` и `test_api_users.py` (обратные прогоны T9 выше).
+  `.secrets.baseline` — только сдвиг `line_number` известной находки
+  в `core/domain.py` (157 → 158), новых находок нет.
+- **деньги** — риска нет, потому что `prices` в диффе — только перенос строки
+  TS-типа `Permission`: союз разбит по строкам, право подтверждать цены
+  не менялось ни на сервере, ни во фронте.
+- **транзакция БД** — `session.commit` в `run_hypothesis_add` после
+  `hypotheses.add`: отказ (`BadNameError`, `NameTakenError`) приходит до
+  записи, коммит — один, после успеха. Два одновременных заведения одного
+  имени: проверка `add` пропустит оба, второй упадёт на уникальности
+  `sales_hypotheses.name` — громко, трассировкой команды, а не второй строкой.
+  В тестах `session.begin_nested` и DDL (`ALTER TABLE sales_leads`, откат
+  и подъём миграции) идут в транзакции теста и откатываются с ней.
+- **новый модуль** `models`, `hypotheses`, `sales`: состояния нет. Риск
+  для доноров — ключи `sales_leads`: `contact_id` с `ON DELETE SET NULL`
+  и индекс `idx_sales_leads_contact` — удаление адреса у доноров проходит
+  и не читает всю таблицу лидов; `domain_id` с `RESTRICT` — боевые потоки
+  доменов не удаляют.
+- Что может сломаться: первый импорт `sales.models` в чистом процессе —
+  круг держит строка в `sales/__init__.py` и тест; миграция `stage` среза
+  1.1b обязана встать после `715bbf374195`.
 
 ## Предупреждения delivery_check, разобранные
 
-- «Примеры появились в истории позже тестов: A1, A6, A7, A8» — дефект канона,
-  хозяин канона подтвердил: гейт ищет id подстрокой; чинят в каноне, до починки
-  предупреждение игнорируется, id не переименованы. У каждого примера A1–A13
-  есть тест с комментарием-ссылкой (`# A1` … `# A13`) в строке сигнатуры.
-  Спека с примерами закоммичена раньше тестов (T7 первым), а совпадения
-  найдены в чужих строках: `"sku": "A1"` —
-  `tests/test_home_signals.py:34`; `%D0%A6` — `tests/test_inbound_text.py:293`;
-  `%D8%A7`, `%D8%A8` — `tests/test_contact_pages_links.py:116`. Граница токена
-  в `_first_commit_with` (`scripts/delivery_history.py`) считает `%` и кавычку
-  границей, и URL-кодированный байт читается id примера. Канон не правится
-  из проекта — находка передана координатору.
-- «`irreversible_surfaces:` не называет отправка наружу» — было и у
+Прогон T9: 0 errors, 5 warnings. После слияния main с #136 (`delivery@1.98`,
+запись `stack:` поднята): 0 errors, 4 warnings — первое ниже ушло, канон
+теперь ищет порядок в окне ветки (merge-base..HEAD).
+
+- «у 5 из 6 примеров порядок не проверить — пример и тест приехали одним
+  коммитом (A4, A5, A6, A7, A8)» — до `delivery@1.98`. Проверка брала самый старый коммит с id
+  во всей истории `delivery/active/spec.md` и `tests/`, а id A1–A13 были
+  у среза В0: его спека и тесты слиты одним сквош-коммитом `39c4e82` (#129),
+  и первым находится он. У этого среза порядок виден: спека с A4–A8 — T0
+  `1b46430`, тесты A4–A7 — T3 `626cfa9`, A8 — T5 `03e3d82`. Прежнее
+  «A1, A6, A7, A8 появились позже тестов» ушло: канон `delivery@1.96`
+  (пришёл с #131) больше не читает `%D0%A6` ссылкой на пример. A1 теперь
+  без предупреждения: id в спеке впервые в `5af9f3d` (#117), раньше тестов.
+- «asserts_reviewed_by deferred» — шесть утверждений ждут подписи человека
+  (перечень — в шапке, строки — в дайджесте ниже); на handoff это ошибка.
+- «`irreversible_surfaces:` не называет отправка наружу» — было и у В0 и
   `front-polish`: строка подписана и перенесена дословно. На handoff это
-  ошибка, поэтому срез сливается в фазе verify; дополненную строку владелец
-  переподпишет позже.
+  ошибка; дополненную строку владелец переподпишет позже.
+- «Ни одного реляционного оракула» — hypothesis не стоит в зависимостях,
+  новая зависимость — вне среза.
+- «Нет блока `agent-permissions`» в CONSTITUTION — было до среза.
 
 ## Spec coverage gaps
 
-- Детекторы `later` (`sales-agent-prompt`, `sales-segment-prompt`,
-  `sales-autosend`, `sales-thresholds`) не судят ничего, пока их не назовут
-  срезы-хозяева. Проверка печатает это при каждом прогоне с кодом продаж.
-- Реляционного оракула (`@given`) нет: hypothesis не стоит в зависимостях
-  проекта, а новая зависимость — вне этого среза. `delivery_check` предупреждает.
+- Строка `contacts` общая на домен и адрес: что делать, когда адрес лида
+  совпал с адресом донора, решает срез загрузки (открытый вопрос спеки).
+- Выключатель `SALES_ENABLED` только заложен: читать его нечему, пока срезы
+  не принесут работу продаж.
 
 ## Verdict
-
-Мерж — в фазе verify (решение координатора). Handoff — после подписи спеки
-(`human_ok_spec`) и переподписи строки необратимого.
 
 - [ ] READY FOR HANDOFF
 - [ ] NEED CONVERGE (new tasks)
 - [ ] BLOCKED
 
+Мерж — в фазе verify, решение координатора и владельца.
+
 ## Assertion digest (ревью ожиданий, не кода)
 
 База: `origin/main` · сгенерировано `assert_digest.sh`
 
-Новых/изменённых утверждений: **35**, из них без ссылки на пример спеки:
-**0**. Вопрос к каждому непривязанному один: **откуда взято ожидаемое
+Новых/изменённых утверждений: **32**, из них без ссылки на пример спеки:
+**6**. Вопрос к каждому непривязанному один: **откуда взято ожидаемое
 значение — из спеки или придумано под реализацию?**
 
 ```
-A1	assert code == 0
-A1	assert "○ продаж в дереве нет — судить нечего" in out
-A1	assert all(f"{wave} pending" in out for wave in ROWS)
-A2	assert got == code
-A2	assert mark + expected in out
-A4	assert got == code
-A4	assert line in out
-A6	assert got == code
-A6	assert ("✗ промпт reply_kind.md не назван в model_surface" in out) is (code == 1)
-A7	assert got == code
-A7	assert ("✗ реестр: строка 10 — В4: absent без reason=" in out) is (code == 1)
-A8	assert got == 1
-A8	assert "✗ реестр волн не найден" in out
-A9	assert got == code
-A9	assert ("✗ stack-selftest: нет ни в delivery/STACK-ACCEPTANCE.md, ни в STATUS" in out) is (
-A10	assert got == code
-A10	assert ("✗ срез sales-x: в delivery/active/tasks.md нет раздела «Уроки»" in out) is (code == 1)
-A11	assert warned[0] == 0
-A11	assert "⚠ предупреждение: канон впереди: delivery 1.95 → 1.96" in warned[1]
-A11	assert judged[0] == 0
-A11	assert "канон впереди" not in judged[1]
-A12	assert got == 1
-A12	assert "✗ реестр не разобран: строка 5 — " in out
-A12	assert "нарушений нет" not in out
-A13	assert got == code
-A13	assert line in out
-A13	assert got == 0
-A13	assert "общий код тронут" not in out
-A13	assert "⚠ предупреждение: В1: в базе PR уже есть backend/features/sales/" in out
-A13	assert "○ PR не несёт работы продаж" in out
-A2	assert run(tmp_path / "a2", capsys, "--base", a2)[0] == 0
-A2	assert run(tmp_path / "a5", capsys, "--base", a5)[0] == 0
-A12	assert errors == []
-A12	assert {w.name: (w.triggers, w.limit) for w in waves} == ROWS
-A12	assert {w.name for w in waves if w.state == "deployed"} == {"В0", "В-обн"}
+-	assert body["user"]["permissions"] == ["prices", "run", "sales", "settings", "view"]
+A6	assert donor is not None
+A6	assert contact is not None
+A1	assert spec is not None, MIGRATION
+A1	assert spec.loader is not None, MIGRATION
+A1	assert await connection.run_sync(_present) == {*TABLES, *TYPES}
+L5	assert after_downgrade == set()
+L5	assert after_upgrade == {*TABLES, *TYPES}
+A4	assert await _leads(session) == []
+A4	assert await _leads(session) == [(None, "ivan@acme.example")]
+A5	assert list(domains) == [domain.id, domain.id]
+A6	assert removed.email == SHARED
+A6	assert await session.get(ContactModel, contact.id) is None
+A6	assert await _leads(session) == [(None, SHARED)]
+A6	assert await _leads(session) == []
+A6	assert await _leads(session) == [(contact.id, SHARED)]
+A7	assert await session.scalar(select(func.count()).select_from(SalesLeadModel)) == 1
+-	assert done.returncode == 0, done.stderr
+A8	assert (args.command, args.name, args.description) == (
+-	assert code == EXIT_OK
+-	assert await _hypotheses(session) == [("сайты EN", "кому и зачем")]
+-	assert "«сайты EN»" in capsys.readouterr().out
+A8	assert await run_hypothesis_add(session, "сайты EN", None) == EXIT_OK
+A8	assert code == EXIT_TAKEN
+A8	assert await _hypotheses(session) == [("сайты EN", None)]
+A8	assert "имя «сайты EN» уже у гипотезы №" in capsys.readouterr().out
+A8	assert code == EXIT_BAD_NAME
+A8	assert await _hypotheses(session) == []
+A8	assert words in capsys.readouterr().out
+L4	assert sales_cfg._Sales(_env_file=None).enabled is False
+L4	assert sales_cfg._Sales(_env_file=None).enabled is True
+-	assert allowed == [True, False, True]
 ```
 
-✅ **Каждое утверждение ведёт к примеру спеки** (A1 A10 A11 A12 A13 A2 A4 A6 A7 A8 A9), а примеры человек
-подписал до кода (`human_ok_spec`). Подпись под дайджестом здесь
-**не требуется**: она уже стоит, заранее и на числах. Пиши в verify-report
-`asserts_reviewed_by: n/a (все утверждения ведут к одобренным примерам)`.
+Привязаны к примерам: **A1 A4 A5 A6 A7 A8 L4 L5**. Остальные 6 — нет.
 
-asserts_without_example: 0
+Читать нужно **только строки с `-` в первой колонке**: их ожидание
+ничем не подписано. Подпись: `asserts_reviewed_by: human:… at=…`.
+
+asserts_without_example: 6
