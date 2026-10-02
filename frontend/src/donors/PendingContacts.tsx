@@ -37,7 +37,10 @@ function passLine(last: Record<string, unknown> | null): string | null {
   const saved = formatNumber(Number(last.saved ?? 0));
   const paid = formatNumber(Number(counters.provider_entered ?? 0));
   const forms = formatNumber(Number(counters.form_only ?? 0));
-  return `Прошлый проход: доменов ${walked}, адресов ${saved}, платных запросов ${paid}, форм ${forms}.`;
+  // Сайт не ответил — повтор по сроку, а не «адреса нет»: число отдельно.
+  const silent = Number(counters.no_answer ?? 0);
+  const tail = silent > 0 ? `, не ответили ${formatNumber(silent)} (повторим)` : '';
+  return `Прошлый проход: доменов ${walked}, адресов ${saved}, платных запросов ${paid}, форм ${forms}${tail}.`;
 }
 
 interface PendingContacts {

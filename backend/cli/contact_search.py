@@ -54,6 +54,12 @@ def _print_report(report: SearchReport) -> None:
         f"поставлено {counters.get('manual_queued', 0)}"
     )
     print(f"\nБез контакта:          {counters.get('not_found', 0)}")
+    # Отдельно от «без контакта»: сайт не ответил, повтор по сроку
+    # (`contacts/attempts.py`), а не полгода ожидания.
+    print(
+        f"Сайт не ответил:       {counters.get('no_answer', 0)} — повторим: "
+        "следующий проход, через день, через неделю"
+    )
     print(f"Адресов отсеяно:       {counters.get('rejected_emails', 0)}")
 
     paid = counters.get("provider_entered", 0)
