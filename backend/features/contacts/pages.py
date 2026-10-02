@@ -27,7 +27,8 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
+import re
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from urllib.parse import urljoin, urlparse
 
@@ -71,7 +72,17 @@ HEADERS = {
 }
 
 # Признаки контактной формы: адреса нет, но написать можно руками.
-FORM_MARKERS = ("<form", "wpcf7", "gravity_form", "contact-form", "formcraft", "hs-form")
+# Конструкторы форм узнаются по имени. Голого `<form` здесь больше нет:
+# поиск, подписка или вход есть почти на каждом сайте, и с ним «формой
+# без адреса» становился любой домен — энциклопедия со строкой поиска
+# получала form_only и уходила в ручную очередь.
+FORM_MARKERS = ("wpcf7", "gravity_form", "contact-form", "formcraft", "hs-form")
+
+# Своя форма без конструктора: `<form>` с полем для текста письма. Поиск,
+# подписка и вход такого поля не имеют. Форма комментария к записи имеет,
+# но это не письмо владельцу — её выдаёт сам тег (`commentform`,
+# `wp-comments-post`).
+_OWN_FORM = re.compile(r"<form\b([^>]*)>(.*?)(?:</form>|\Z)", re.S)
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,6 +160,29 @@ def home_variants(site_host: str) -> Iterator[str]:
             yield f"{scheme}://{host}/"
 
 
+# Ссылка, узнанная только по тексту, — вид по адресу у неё «главная»: раздел
+# лежит по `/p/12345`, и ради таких текст ссылки и смотрится. Но заголовки
+# статей тоже начинаются словом раздела («Support for Ukraine grows»), и восемь
+# таких ссылок съедали бюджет открытых страниц раньше угаданных слагов — до
+# `/contact/` обход не доходил. Поэтому до догадок идут не больше двух, остальные
+# — после; короткий адрес первым: у раздела он короче, чем у статьи.
+_TEXT_ONLY_BEFORE_GUESSES = 2
+
+
+def page_queue(
+    followed: list[tuple[str, PageKind]], guesses: Iterable[tuple[str, PageKind]]
+) -> list[tuple[str, PageKind]]:
+    """Порядок обхода: разделы по ссылкам главной, догадки, остальные ссылки."""
+    typed = [link for link in followed if link[1] is not PageKind.HOME]
+    text_only = sorted(
+        (link for link in followed if link[1] is PageKind.HOME),
+        key=lambda link: (len(link[0]), link[0]),
+    )
+    early = text_only[:_TEXT_ONLY_BEFORE_GUESSES]
+    late = text_only[_TEXT_ONLY_BEFORE_GUESSES:]
+    return [*typed, *early, *guesses, *late]
+
+
 def slug_urls(base: str, *, language: str | None = None) -> Iterator[tuple[str, PageKind]]:
     """Угадываемые адреса страниц от рабочей главной.
 
@@ -182,7 +216,11 @@ def slug_urls(base: str, *, language: str | None = None) -> Iterator[tuple[str, 
 def has_contact_form(html: str) -> bool:
     """Есть ли на странице форма. Ветка «форма без адреса» — ступень 4."""
     lowered = html.lower()
-    return any(marker in lowered for marker in FORM_MARKERS)
+    if any(marker in lowered for marker in FORM_MARKERS):
+        return True
+    return any(
+        "<textarea" in body and "comment" not in tag for tag, body in _OWN_FORM.findall(lowered)
+    )
 
 
 class PageFetcher:
