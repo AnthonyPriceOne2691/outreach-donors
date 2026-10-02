@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import time
+
 import pytest
 from backend.features.contacts.extract import (
     decode_cloudflare,
@@ -81,6 +83,99 @@ class TestExtract:
         assert not trusted_guess("meet@the.com", site_host="site.com")
         assert trusted_guess("info@site.com", site_host="site.com")
         assert trusted_guess("editor@gmail.com", site_host="site.com")
+
+
+class TestBareAt:
+    """Голое «at» — обычное английское слово (ревью e6, 02.10.2026).
+
+    Живьём кодом прода: «hosted here at AdventureAlan.com» на странице
+    «о нас» давал here@adventurealan.com, «March 05, 2024 At business.com» —
+    2024@business.com. Оба на домене сайта, правилу доверия придраться не
+    к чему, и оба выигрывали выбор адреса.
+    """
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "All of our content will still be hosted here at AdventureAlan.com",
+            "Last Updated: March 05, 2024 At business.com, it's our goal",
+            "Our team at business.com is dedicated to small owners",
+            "The marketing at site.com grew last year",
+        ],
+    )
+    def test_prose_is_not_an_address(self, text: str) -> None:
+        assert extract_obfuscated(f"<p>{text}</p>") == set()
+
+    @pytest.mark.parametrize(
+        ("text", "email"),
+        [
+            ("Email: info at site dot com", "info@site.com"),
+            ("Editor AT Site DOT com", "editor@site.com"),
+            ("Write to ads at site.com for pricing", "ads@site.com"),
+            ("info(at)site.com", "info@site.com"),
+        ],
+    )
+    def test_obfuscation_is_still_read(self, text: str, email: str) -> None:
+        """Обратная сторона: так прячут адрес те, кто продаёт размещение."""
+        assert extract_obfuscated(f"<p>{text}</p>") == {email}
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Get help at site.com",
+            "Say hi at site.com",
+            "Head of Sales at site.com",
+            "Digital marketing at site.com",
+            "Social media at site.com",
+            "Find more info at site.com",
+            "Talk to our customer support team at site.com",
+        ],
+    )
+    def test_roles_that_are_prose_before_at(self, text: str) -> None:
+        """Перед голым «at» — только «почтовые» роли: помощь, продажи и соцсети
+        в прозе стоят перед «at» постоянно (ревью #137)."""
+        assert extract_obfuscated(f"<p>{text}</p>") == set()
+
+    @pytest.mark.parametrize(
+        ("text", "found"),
+        [
+            ("Write to mike.blogger at gmail.com", {"mike.blogger@gmail.com"}),
+            ("jane at gmail.com", {"jane@gmail.com"}),
+            ("Log in at gmail.com", set()),
+            ("Find us at gmail.com", set()),
+        ],
+    )
+    def test_free_mailbox_after_bare_at(self, text: str, found: set[str]) -> None:
+        """Так пишут мелкие блоги: «mike at gmail.com». Кроме оборотов вроде
+        «Log in at gmail.com», где перед «at» не локальная часть."""
+        assert extract_obfuscated(f"<p>{text}</p>") == found
+
+
+class TestLinearTime:
+    """Разбор идёт в цикле событий: одна страница, разбираемая секундами,
+    стоит всех параллельных доменов прохода (ревью #137, e6). Потолок щедрый —
+    в сотни раз выше нормы, — чтобы тест не падал от нагрузки машины, но
+    ловил возврат квадратичного времени (было 33–38 с и 8,5 с)."""
+
+    def test_long_whitespace_run(self) -> None:
+        html = "<div>" + "\n" * 40_000 + "info at site dot com</div>"
+        started = time.perf_counter()
+        assert extract_obfuscated(html) == {"info@site.com"}
+        assert time.perf_counter() - started < 1.0
+
+    @pytest.mark.parametrize("token", ["a." * 50_000, "a+" * 50_000, "a-" * 50_000])
+    def test_long_dotted_token(self, token: str) -> None:
+        """Правило бесплатной почты начиналось на каждой точке внутри токена
+        и, не найдя за ним бесплатной почты, пробовало следующую."""
+        started = time.perf_counter()
+        assert extract_obfuscated(f"<p>{token}</p>") == set()
+        assert time.perf_counter() - started < 1.0
+
+    def test_long_token_without_an_address(self) -> None:
+        html = f"<body><script>var data = '{'a' * 100_000}';</script><p>ads@site.com</p></body>"
+        started = time.perf_counter()
+        assert extract_emails(html) == {"ads@site.com"}
+        assert time.perf_counter() - started < 1.0
 
 
 class TestGluedTail:
@@ -402,3 +497,11 @@ class TestWeight:
 
     def test_nothing_found_is_legal(self) -> None:
         assert best([], site_host="site.com") is None
+
+    def test_a_direct_address_beats_any_guess(self) -> None:
+        """Догадка из обфускации — только когда прямого адреса нет: с весом
+        за домен сайта ролевая догадка обгоняла настоящий ящик со страницы."""
+        guess = Candidate("info@site.com", ContactSource.PAGE, PageKind.MONEY, guessed=True)
+        direct = Candidate("owner@gmail.com", ContactSource.PAGE, PageKind.HOME)
+        assert best([guess, direct], site_host="site.com") is direct
+        assert best([guess], site_host="site.com") is guess
