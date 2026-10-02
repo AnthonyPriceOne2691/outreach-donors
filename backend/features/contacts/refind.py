@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.features.contacts import attempts
 from backend.features.contacts.ladder import LadderResult
 from backend.features.contacts.manual import removal_refusals
 from backend.features.contacts.repository import ContactRepository
@@ -171,6 +172,11 @@ class NamedDomains:
             .order_by(ContactModel.id)
         )
         return list(rows.scalars().all())
+
+    async def last_tries(self, hosts: Sequence[str]) -> set[str]:
+        """Для каких из них проход — последний шанс сайту ответить (`attempts`)."""
+        donors = await attempts.last_tries(self._session, DonorModel, hosts)
+        return donors | await attempts.last_tries(self._session, AdvertiserModel, hosts)
 
     async def save(self, results: Sequence[LadderResult]) -> int:
         """Собрать исходы; при записи — снять прежние адреса и записать, как общий поиск."""
