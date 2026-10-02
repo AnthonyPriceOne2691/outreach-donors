@@ -162,6 +162,7 @@ def main() -> int:
 
     doc = Doctor(root.resolve())
     doc.check_deployment_completeness()
+    doc.check_payload_lock()
     doc.check_snapshot_integrity()
     doc.check_white_spots()
     doc.check_canons()
