@@ -166,7 +166,7 @@ async def cmd_run(args: argparse.Namespace) -> int:
             # иначе он ограничивает один прогон, а не месяц. Свой
             # потолок (`--cap`) может быть только меньше.
             month_left = await cap_left(session, cap=ahrefs_cfg.UNITS_CAP)
-            allowed = min(args.cap, month_left) if args.cap else month_left
+            allowed = min(args.cap, month_left) if args.cap is not None else month_left
             budget = await units_left(client, cap=allowed)
             plan = await plan_run(
                 candidates,

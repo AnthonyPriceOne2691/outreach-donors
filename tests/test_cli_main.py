@@ -3,10 +3,11 @@
 
 Наружу тесты не ходят. Ahrefs — настоящий клиент на заглушке транспорта
 (`httpx.MockTransport`): так проверяется и разбор ответа, и то, что клиент
-закрыт после команды. Ответ терминала — подменённый `input`. Сам прогон
-(`cmd_run`) здесь не исполняется: точке входа от него нужны только код
-возврата или исключение, и их отдаёт подделка команды. Прогон целиком —
-`tests/test_execute_run.py`.
+закрыт после команды. Ответ терминала — подменённый `input`. Точке входа от
+прогона (`cmd_run`) нужны только код возврата или исключение, и их отдаёт
+подделка команды. Сам прогон исполняется только до решения о бюджете
+(`TestRunBudget`): выдача — подделка, база — тестовая и только на чтение,
+на «Запускать?» — «нет». Прогон целиком — `tests/test_execute_run.py`.
 
 Вывод сверяется построчно, но без выравнивания: колонки — оформление,
 а подписи, числа и порядок строк — то, что читает оператор.
@@ -20,6 +21,8 @@ import os
 import runpy
 import signal
 import sys
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import httpx
@@ -48,6 +51,8 @@ from backend.features.runs.exclusions import ExclusionReason
 from backend.features.runs.planning import Candidates, RunPlan
 from backend.features.runs.report import RunReport
 from backend.features.serp.factory import UnknownProviderError
+from backend.features.serp.protocol import SerpResult
+from tests.conftest import TEST_DSN
 
 #: Доводы прогона, без которых разбор не пропустит команду.
 RUN = ["run", "--keywords", "keys.txt", "--country", "us"]
@@ -64,6 +69,9 @@ QUOTA: dict[str, object] = {
 
 #: Смета ровно на тысячу юнитов: расхождение с фактом читается в процентах сразу.
 THOUSAND = RunEstimate(domains=10, screen=100, metrics=600, by_country=300)
+
+#: Остаток месячного капа, который видит прогон: своя трата за месяц уже вычтена.
+MONTH_LEFT = 7_315
 
 
 def _lines(out: str) -> list[str]:
@@ -135,6 +143,63 @@ def logging_setups(monkeypatch: pytest.MonkeyPatch) -> list[bool]:
     calls: list[bool] = []
     monkeypatch.setattr("backend.cli.main.setup_logging", lambda: calls.append(True))
     return calls
+
+
+class Serp:
+    """Выдача-подделка: три домена на любой ключ — без сети и без денег."""
+
+    name = "fake"
+
+    async def search(
+        self, keywords: Sequence[str], country: str, *, depth_pages: int = 1
+    ) -> dict[str, list[SerpResult]]:
+        urls = ["https://budget-one.com/", "https://budget-two.com/", "https://budget-three.com/"]
+        return {key: [SerpResult(i + 1, url) for i, url in enumerate(urls)] for key in keywords}
+
+
+@dataclass(slots=True)
+class BudgetRun:
+    """Прогон до решения о бюджете: доводы, Ahrefs и вопросы человеку."""
+
+    argv: list[str]
+    ahrefs: Ahrefs
+    month_left: int = MONTH_LEFT
+    prompts: list[str] = field(default_factory=list)
+
+
+@pytest.fixture
+def budget_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, logging_setups: list[bool]
+) -> BudgetRun:
+    """Настоящий `cmd_run` через `main` — без сети и без трат.
+
+    Настройки — те, без которых прогон не стартует. База — тестовая, и прогон
+    её только читает: на «Запускать?» он слышит «нет». Месячный остаток
+    задаёт тест: это вход проверяемого правила, а не его часть.
+    """
+    keywords = tmp_path / "keys.txt"
+    keywords.write_text("best seo tools\n", encoding="utf-8")
+    run = BudgetRun(
+        argv=["run", "--keywords", str(keywords), "--country", "us"], ahrefs=Ahrefs(QUOTA)
+    )
+    monkeypatch.setattr("backend.config.storage.DSN", TEST_DSN)
+    monkeypatch.setattr("backend.config.storage.REDIS_URL", "redis://localhost:6379/0")
+    monkeypatch.setattr("backend.config.ahrefs.API_KEY", "k")
+    monkeypatch.setattr("backend.config.serp.PROVIDER", "fake")
+    monkeypatch.setattr("backend.config.serp.SANDBOX", False)
+    monkeypatch.setattr("backend.cli.main.AhrefsClient", run.ahrefs)
+    monkeypatch.setattr("backend.cli.main.build_provider", lambda _client: Serp())
+
+    async def month_left(_session: object, *, cap: int) -> int:
+        return run.month_left
+
+    def answer(prompt: str) -> str:
+        run.prompts.append(prompt)
+        return "n"
+
+    monkeypatch.setattr("backend.cli.main.cap_left", month_left)
+    monkeypatch.setattr("builtins.input", answer)
+    return run
 
 
 def _plan(
@@ -719,3 +784,52 @@ class TestEntryPoint:
 
         assert exited.value.code == 5
         assert capsys.readouterr().err.startswith("Провайдер не ответил")
+
+
+class TestRunBudget:
+    """`--cap` — свой потолок прогона: он только уменьшает месячный остаток,
+    и ноль значит ноль."""
+
+    @pytest.mark.parametrize(
+        ("cap", "budget"),
+        [([], MONTH_LEFT), (["--cap", "5321"], 5_321), (["--cap", "9876"], MONTH_LEFT)],
+        ids=["no-cap", "cap-below-month", "cap-above-month"],
+    )
+    def test_budget_is_the_smaller_of_cap_and_month(
+        self,
+        budget_run: BudgetRun,
+        capsys: pytest.CaptureFixture[str],
+        cap: list[str],
+        budget: int,
+    ) -> None:
+        # Смету показали и спросили; «нет» — код «отменено».
+        assert main([*budget_run.argv, *cap]) == 6
+
+        assert f"Доступно: {_units(budget)} юнитов" in _lines(capsys.readouterr().out)
+        assert len(budget_run.prompts) == 1
+
+    @pytest.mark.parametrize(
+        ("cap", "month_left", "available"),
+        [(["--cap", "0"], MONTH_LEFT, 0), (["--cap", "1"], MONTH_LEFT, 1), ([], 0, 0)],
+        ids=["cap-zero", "cap-one", "month-used-up"],
+    )
+    def test_budget_below_the_estimate_refuses_before_asking(
+        self,
+        budget_run: BudgetRun,
+        capsys: pytest.CaptureFixture[str],
+        cap: list[str],
+        month_left: int,
+        available: int,
+    ) -> None:
+        """`--cap 0` — ноль, а не «без потолка»: прогон не запускается, как при
+        `--cap 1` и как при кончившемся месячном остатке. Ни вопроса человеку,
+        ни платного запроса — только бесплатный остаток квоты."""
+        budget_run.month_left = month_left
+
+        assert main([*budget_run.argv, *cap]) == 3
+
+        printed = capsys.readouterr()
+        assert printed.err.startswith("Прогон не запущен: ")
+        assert f"доступно {available}." in printed.err
+        assert budget_run.prompts == []
+        assert budget_run.ahrefs.paths == ["/v3/subscription-info/limits-and-usage"]
