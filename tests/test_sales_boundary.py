@@ -4,11 +4,13 @@
 `scripts/lint/check_layers_gate.sh` — тот, что зовут pre-commit и CI. Обратный
 прогон файлом (правило Prepare `reverse-run-must-be-a-file`): импорт продаж
 подкладывается в копию `backend/` во временной папке, а не в само дерево —
-прерванный тест не оставит нарушения в почте.
+прерванный тест не оставит нарушения в почте. Реестр волн судит проверка
+`scripts/contour_waves.py`: В1 развёрнута, только пока контракт на месте.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import re
 import shutil
@@ -17,6 +19,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from scripts import contour_waves as cw
 
 ROOT = Path(__file__).resolve().parent.parent
 GATE = ROOT / "scripts/lint/check_layers_gate.sh"
@@ -106,3 +109,32 @@ def test_mail_may_read_the_model_registry_that_lists_sales_models(
     got, out = _gate(_tree(tmp_path, config, letters=REGISTRY_IMPORT))
     assert got == code, out
     assert ("backend.features.core.models -> backend.features.sales.models" in out) is (code == 1)
+
+
+def _v1() -> tuple[cw.Wave, cw.Tree]:
+    """Строка В1 реестра и дерево репозитория, как их читает проверка волн."""
+    waves, errors = cw.parse_registry((ROOT / cw.REGISTRY).read_text(encoding="utf-8"))
+    assert errors == []
+    return next(wave for wave in waves if wave.name == "В1"), cw.collect(ROOT, None, waves)
+
+
+def test_registry_names_v1_deployed_and_its_evidence_holds() -> None:  # A3
+    wave, tree = _v1()
+    assert wave.state == "deployed"
+    assert "tests/test_sales_boundary.py" in cw.evidence_paths(wave.evidence)
+    assert cw.judge([wave], tree) == []
+
+
+def test_reverse_run_v1_without_the_contract_is_red() -> None:  # A3
+    """Обратный прогон: контракт убран, комментарий о нём остался — проверка
+    волн краснеет. Слово «deployed» в реестре без улики не проходит."""
+    wave, tree = _v1()
+    texts = {**tree.texts, ".importlinter": CONFIG.replace(_section(), "")}
+    found = cw.judge([wave], dataclasses.replace(tree, texts=texts))
+    assert found == [
+        (
+            True,
+            "В1: в .importlinter нет контракта с backend.features.sales"
+            " — без этой улики волна не развёрнута",
+        )
+    ]
