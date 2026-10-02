@@ -1,7 +1,7 @@
 """продажи: гипотезы и лиды
 
 Revision ID: 715bbf374195
-Revises: 7baf5c71fce2
+Revises: b3e8d1f04a62
 Create Date: 2026-10-01 20:00:00.000000
 
 Первые таблицы модуля «Продажи». `sales_hypotheses` — кому и зачем пишем;
@@ -24,7 +24,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "715bbf374195"
-down_revision: Union[str, Sequence[str], None] = "7baf5c71fce2"
+down_revision: Union[str, Sequence[str], None] = "b3e8d1f04a62"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
