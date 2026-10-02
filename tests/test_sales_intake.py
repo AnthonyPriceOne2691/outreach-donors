@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 # A1: разделитель «;», русские заголовки; пробелы и регистр в ячейках.
 A1 = (
-    "Почта;Имя;Компания;Сайт\n"
+    "Почта; Имя ;Компания;Сайт\n"
     " Ivan.Petrov @ACME.example.test ;  Иван Петров ;Acme;https://www.acme.example.test/about\n"
     "maria@mail.example.test;Мария Сидорова;Beta;beta.example.test\n"
 )

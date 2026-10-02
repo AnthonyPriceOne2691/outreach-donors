@@ -149,18 +149,18 @@ def preview(table: Table, mapping: Mapping | None = None, *, header: bool | None
     решает вместо угадывания. Сопоставление руками заменяет угаданное целиком.
     """
     first = table.records[0][1]
-    guessed = guess(first)
-    titled = bool(guessed) if header is None else header
+    titled = bool(guess(first)) if header is None else header
+    titles = first if titled else []
     records = table.records[1:] if titled else table.records
     if not records:
         raise IntakeError(f"{table.source}: только заголовок — строк с лидами нет")
     width = max(len(cells) for _, cells in table.records)
-    chosen = (guessed if titled else {}) if mapping is None else _within(mapping, width)
+    chosen = _chosen(mapping, guess(titles), width)
     leads, problems = _rows(records, chosen) if LeadField.EMAIL in chosen else ([], [])
     return Preview(
         source=table.source,
         header=titled,
-        columns=[_title(first, i) if titled else f"колонка {i + 1}" for i in range(width)],
+        columns=_columns(titles, width),
         sample=[cells for _, cells in records[:SAMPLE_ROWS]],
         mapping=chosen,
         rows=len(records),
@@ -169,12 +169,16 @@ def preview(table: Table, mapping: Mapping | None = None, *, header: bool | None
     )
 
 
-def _title(first: list[str], index: int) -> str:
-    title = first[index].strip() if index < len(first) else ""
-    return title or f"колонка {index + 1}"
+def _columns(titles: list[str], width: int) -> list[str]:
+    """Имена колонок; нет заголовка или ячейка пуста — «колонка N»."""
+    named = [title.strip() for title in titles] + [""] * (width - len(titles))
+    return [title or f"колонка {i}" for i, title in enumerate(named, start=1)]
 
 
-def _within(mapping: Mapping, width: int) -> Mapping:
+def _chosen(mapping: Mapping | None, guessed: Mapping, width: int) -> Mapping:
+    """Сопоставление руками заменяет угаданное целиком — если колонки есть в файле."""
+    if mapping is None:
+        return guessed
     for field, index in mapping.items():
         if not 0 <= index < width:
             raise IntakeError(
