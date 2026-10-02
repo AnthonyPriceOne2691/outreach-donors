@@ -367,7 +367,7 @@
       "worst": "_print_domain:42"
     },
     "backend/cli/contact_search.py": {
-      "lines": 99,
+      "lines": 105,
       "complexity": 5,
       "worst": "_print_report:24"
     },
@@ -591,6 +591,11 @@
       "complexity": 7,
       "worst": "render:111"
     },
+    "backend/features/contacts/collected.py": {
+      "lines": 73,
+      "complexity": 8,
+      "worst": "add:53"
+    },
     "backend/features/contacts/extract.py": {
       "lines": 302,
       "complexity": 9,
@@ -612,9 +617,9 @@
       "worst": "—"
     },
     "backend/features/contacts/ladder.py": {
-      "lines": 488,
+      "lines": 466,
       "complexity": 10,
-      "worst": "_step_pages:274"
+      "worst": "_step_pages:218"
     },
     "backend/features/contacts/manual.py": {
       "lines": 184,
@@ -667,9 +672,9 @@
       "worst": "_not_entitled:89"
     },
     "backend/features/contacts/search.py": {
-      "lines": 198,
-      "complexity": 9,
-      "worst": "search_contacts:137"
+      "lines": 223,
+      "complexity": 7,
+      "worst": "search_contacts:160"
     },
     "backend/features/contacts/slugs.py": {
       "lines": 318,
@@ -677,9 +682,9 @@
       "worst": "_markers_by_length:238"
     },
     "backend/features/contacts/step_counters.py": {
-      "lines": 85,
+      "lines": 91,
       "complexity": 5,
-      "worst": "mark_found:52"
+      "worst": "mark_found:57"
     },
     "backend/features/contacts/sweep_checkpoint.py": {
       "lines": 205,
@@ -692,9 +697,9 @@
       "worst": "_is_domain:93"
     },
     "backend/features/contacts/sweep_trace.py": {
-      "lines": 207,
+      "lines": 277,
       "complexity": 9,
-      "worst": "retry_reason:147"
+      "worst": "retry_reason:203"
     },
     "backend/features/core/__init__.py": {
       "lines": 1,
