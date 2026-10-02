@@ -1,7 +1,7 @@
 # Active delivery status
 
 - **slug:** sales-model (модуль «Продажи», срез 1.1a: лид, гипотеза, раздел кода, конфиг и право — без `Stage.SALES`)
-- **stack:** delivery@1.96 · cqg@2.43 · okf@1.19 · stack-map@1.52
+- **stack:** delivery@1.98 · cqg@2.43 · okf@1.19 · stack-map@1.52
 - **class:** M
 - **kind:** feature
 - **phase:** verify
