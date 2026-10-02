@@ -87,10 +87,12 @@ _DETERMINERS = frozenset(
     {"the", "our", "your", "my", "their", "his", "her", "its", "a", "an", "more", "for"}
 )
 #: — или после него почта без портала: «mike.blogger at gmail.com» — так пишут
-#: мелкие блоги. Кроме оборотов вроде «Log in at gmail.com»: слово перед «at»
-#: из `_NOT_LOCAL` — не локальная часть. Начало — только в начале прогона
-#: знаков локальной части, как у `EMAIL_RE`: `\b` срабатывал на каждой точке
-#: внутри «a.a.a…», и поиск шёл квадратично (50 тысяч знаков — 25 с, e6).
+#: мелкие блоги. Кроме оборотов вроде «Log in at gmail.com» и прозы инструкций
+#: вроде «Open your inbox at Gmail.com»: слово перед «at» из `_NOT_LOCAL` —
+#: не локальная часть, личным ящиком оно не бывает (ревью e6 #144). Начало —
+#: только в начале прогона знаков локальной части, как у `EMAIL_RE`: `\b`
+#: срабатывал на каждой точке внутри «a.a.a…», и поиск шёл квадратично
+#: (50 тысяч знаков — 25 с, e6).
 _AT_FREE_RE = re.compile(
     r"(?<![\w.+-])([\w.+-]+)\s+at\s+(?=(?:"
     + "|".join(re.escape(domain) for domain in sorted(MAIL_ONLY_DOMAINS))
@@ -98,8 +100,14 @@ _AT_FREE_RE = re.compile(
     re.IGNORECASE,
 )
 _NOT_LOCAL = frozenset(
-    {"in", "up", "us", "me", "we", "it", "on", "out", "him", "her", "them", "you", "now", "here"}
-)
+    {
+        "in", "up", "us", "me", "we", "it", "on", "out", "him", "her", "them", "you", "now",
+        "here", "there", "this", "that", "your", "our", "the", "more",
+        "mail", "email", "inbox", "account", "login", "signin", "signup", "access",
+        "available", "online", "free", "help", "support", "settings", "photos", "files",
+        "storage", "backup", "calendar", "app", "apps", "web",
+    }
+)  # fmt: skip
 
 
 def decode_cloudflare(hexstr: str) -> str:

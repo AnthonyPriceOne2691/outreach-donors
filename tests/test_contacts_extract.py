@@ -83,7 +83,7 @@ class TestExtract:
         assert rejection_reason("meet@the.com") is None
         assert not trusted_guess("meet@the.com", site_host="site.com")
         assert trusted_guess("info@site.com", site_host="site.com")
-        assert trusted_guess("editor@gmail.com", site_host="site.com")
+        assert trusted_guess("mike.blogger@gmail.com", site_host="site.com")
 
 
 class TestBareAt:
@@ -144,12 +144,27 @@ class TestBareAt:
             ("jane at gmail.com", {"jane@gmail.com"}),
             ("Log in at gmail.com", set()),
             ("Find us at gmail.com", set()),
+            ("Your photos are available at iCloud.com", set()),
+            ("Check your mail at Outlook.com", set()),
+            ("Open your inbox at Gmail.com", set()),
+            ("Create an account at gmail.com", set()),
         ],
     )
     def test_free_mailbox_after_bare_at(self, text: str, found: set[str]) -> None:
         """Так пишут мелкие блоги: «mike at gmail.com». Кроме оборотов вроде
-        «Log in at gmail.com», где перед «at» не локальная часть."""
+        «Log in at gmail.com» и прозы инструкций, где перед «at» не локальная
+        часть (ревью e6 #144)."""
         assert extract_obfuscated(f"<p>{text}</p>") == found
+
+    @pytest.mark.parametrize(
+        "text", ["Check mail at Outlook.com", "Get info at Yahoo.com", "Contact at gmail.com"]
+    )
+    def test_role_word_on_free_mail_is_not_trusted(self, text: str) -> None:
+        """Ролевое слово перед «at» читается адресом на любом домене, но на
+        бесплатной почте такой ящик владельцу сайта не принадлежит: догадке
+        не верим (ревью e6 #144)."""
+        (email,) = extract_obfuscated(f"<p>{text}</p>")
+        assert not trusted_guess(email, site_host="site.com")
 
     @pytest.mark.parametrize(
         "text",

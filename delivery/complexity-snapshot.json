@@ -597,9 +597,9 @@
       "worst": "add:69"
     },
     "backend/features/contacts/extract.py": {
-      "lines": 302,
+      "lines": 310,
       "complexity": 9,
-      "worst": "find_contact_links:280"
+      "worst": "find_contact_links:288"
     },
     "backend/features/contacts/file_sweep.py": {
       "lines": 379,
@@ -652,7 +652,7 @@
       "worst": "find_emails:185"
     },
     "backend/features/contacts/quality.py": {
-      "lines": 399,
+      "lines": 404,
       "complexity": 6,
       "worst": "foreign_on_legal_page:286"
     },

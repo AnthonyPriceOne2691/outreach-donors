@@ -360,9 +360,14 @@ def trusted_guess(email: str, *, site_host: str) -> bool:
     Верим только своему домену сайта и известной бесплатной почте. Всё
     остальное после замены «at» и «dot» — обычные слова, случайно
     сложившиеся в правдоподобный адрес (`extract.extract_obfuscated`).
+    На бесплатной почте ролевое слово — чужой ящик: `info@gmail.com`
+    владельцу сайта не принадлежит, а из прозы «Get info at Yahoo.com»
+    складывается легко (ревью e6 #144).
     """
-    domain = email.split("@", 1)[-1]
-    return domain == site_host or domain.endswith(f".{site_host}") or domain in FREE_MAILBOX_DOMAINS
+    local, _, domain = email.partition("@")
+    if domain == site_host or domain.endswith(f".{site_host}"):
+        return True
+    return domain in FREE_MAILBOX_DOMAINS and local not in ROLE_LOCAL_PARTS
 
 
 def weight(candidate: Candidate, *, site_host: str) -> int:
