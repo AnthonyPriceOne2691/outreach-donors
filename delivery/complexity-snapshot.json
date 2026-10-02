@@ -361,6 +361,11 @@
       "complexity": 7,
       "worst": "_print_summary:147"
     },
+    "backend/cli/contact_refind.py": {
+      "lines": 95,
+      "complexity": 9,
+      "worst": "_print_domain:42"
+    },
     "backend/cli/contact_search.py": {
       "lines": 99,
       "complexity": 5,
@@ -412,9 +417,9 @@
       "worst": "_report:180"
     },
     "backend/cli/main.py": {
-      "lines": 448,
+      "lines": 452,
       "complexity": 9,
-      "worst": "_print_report:240"
+      "worst": "_print_report:242"
     },
     "backend/cli/review_queue.py": {
       "lines": 56,
@@ -635,6 +640,11 @@
       "lines": 111,
       "complexity": 10,
       "worst": "_vcard_emails:40"
+    },
+    "backend/features/contacts/refind.py": {
+      "lines": 172,
+      "complexity": 8,
+      "worst": "save:135"
     },
     "backend/features/contacts/repository.py": {
       "lines": 330,
