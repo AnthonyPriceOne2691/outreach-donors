@@ -86,6 +86,11 @@ PLACEHOLDER_LOCAL_PARTS = frozenset(
         "email", "domain", "example", "sample", "test",
         # С боевого прогона: со страницы bankofamerica.com снялось `xxx@xxx.xxx`.
         "xxx", "yyy", "zzz", "abc", "asdf", "qwerty", "foo", "bar",
+        # Образцы на других языках и «имя-пример»: `unknown@email.com`,
+        # `beispiel@email.com` (ревью e6, 02.10.2026), `max.mustermann@…`. Не John
+        # Doe: правило общее со сбором ответов, а там это бывает живой адрес.
+        "unknown", "beispiel", "ejemplo", "exemple", "esempio", "voorbeeld", "przyklad",
+        "mustermann", "maxmustermann", "vorname", "nachname", "vornamenachname",
     }
 )  # fmt: skip
 
@@ -138,6 +143,10 @@ WRONG_DEPARTMENT_LOCAL_PARTS = frozenset(
         "legal", "compliance", "privacy", "gdpr", "dpo", "postmaster", "security",
         "careers", "career", "jobs", "job", "hr", "recruiting", "recruitment", "resume",
         "investors", "ir", "returns", "refund", "refunds",
+        # Защита данных и права на нескольких языках: `protecciondedatos@axa-…`
+        # прошёл бы мимо одного английского «privacy» (ревью e6, 02.10.2026).
+        "copyright", "dataprotection", "dataprivacy", "datenschutz", "datenschutzbeauftragter",
+        "protecciondedatos", "protezionedati", "privacidad", "privacidade", "rgpd", "dsgvo",
     }
 )  # fmt: skip
 
@@ -195,13 +204,13 @@ class Candidate:
 #: в отчёт, и настраивать фильтр можно по именам, а не по догадкам.
 _RULES: tuple[tuple[Callable[[str, str, str], bool], str], ...] = (
     (lambda value, _l, _d: any(m in value for m in NO_REPLY_MARKERS), "ящик не принимает ответов"),
-    (lambda _v, local, _d: local in PLACEHOLDER_LOCAL_PARTS, "заглушка вместо адреса"),
+    (lambda _v, local, _d: _bare(local) in PLACEHOLDER_LOCAL_PARTS, "заглушка вместо адреса"),
     (
         lambda _v, local, _d: len(local) > 1 and len(set(local)) == 1,
         "заглушка из повторённого символа",
     ),
     (
-        lambda _v, local, _d: local in WRONG_DEPARTMENT_LOCAL_PARTS,
+        lambda _v, local, _d: _bare(local) in WRONG_DEPARTMENT_LOCAL_PARTS,
         "чужой отдел: цену за размещение там не называют",
     ),
     (
@@ -254,6 +263,30 @@ _RULES: tuple[tuple[Callable[[str, str, str], bool], str], ...] = (
         "зоны нет в списке публичных суффиксов — адрес склеен с текстом",
     ),
 )
+
+
+def _bare(local: str) -> str:
+    """Локальная часть без разделителей: `data-protection`, `data.protection`
+    и `data_protection` — один и тот же ящик, `max.mustermann` — одна заглушка."""
+    return local.replace(".", "").replace("-", "").replace("_", "")
+
+
+def foreign_on_legal_page(candidate: Candidate, *, site_host: str) -> str | None:
+    """Сторонний адрес со страницы правил или конфиденциальности — не адрес редакции.
+
+    На такой странице чужой домен почти всегда регулятор (живой прогон:
+    у сайта о продажах со страницы политики снялся адрес хорватского
+    ведомства по защите данных), обработчик данных или юрист родителя
+    (ревью e6, 02.10.2026). Остаются адреса на домене сайта и бесплатная
+    почта: у маленьких сайтов в политике стоит ящик владельца. Страница
+    «о нас» и Impressum — не такие: там сторонний адрес — обычно оператор.
+    """
+    if candidate.page_kind is not PageKind.LEGAL or candidate.source is not ContactSource.PAGE:
+        return None
+    domain = candidate.mail_domain
+    if domain == site_host or domain.endswith(f".{site_host}") or domain in FREE_MAILBOX_DOMAINS:
+        return None
+    return f"сторонний адрес со страницы правил — регулятор или юрист, а не редакция: {candidate.email}"
 
 
 def _is_vendor(domain: str) -> bool:

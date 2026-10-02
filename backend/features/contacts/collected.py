@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 
 from backend.features.contacts.messengers import FoundHandle
 from backend.features.contacts.mx import MailRoute
-from backend.features.contacts.quality import Candidate, rejection_reason
+from backend.features.contacts.quality import Candidate, foreign_on_legal_page, rejection_reason
 
 
 @dataclass(slots=True)
@@ -64,7 +64,11 @@ class Collected:
             return False
         self.seen.add(candidate.email)
 
-        reason = rejection_reason(candidate.email) or self._undeliverable(candidate.email)
+        reason = (
+            rejection_reason(candidate.email)
+            or self._undeliverable(candidate.email)
+            or foreign_on_legal_page(candidate, site_host=self.site_host)
+        )
         if reason:
             self.rejected.append((candidate.email, reason))
             return False

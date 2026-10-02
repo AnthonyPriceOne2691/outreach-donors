@@ -434,7 +434,9 @@ class TestNotTheSitesMailbox:
             ("bills@beget.com", "хостера"),
             ("info@hostinger.com", "хостера"),
             ("support@ovh.com", "хостера"),
-            ("data-protection@hetzner.com", "хостера"),
+            # С 02.10.2026 его раньше хостера ловит отдел защиты данных: ящик
+            # сверяется без разделителей (`data-protection` = `dataprotection`).
+            ("data-protection@hetzner.com", "чужой отдел"),
             ("support@substack.com", "платформы, а не автора"),
             ("dsa@substackinc.com", "домен сервиса"),
             ("eurepresentative.substack@twobirds.com", "представитель"),
