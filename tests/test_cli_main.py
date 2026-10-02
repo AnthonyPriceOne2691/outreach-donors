@@ -84,13 +84,6 @@ def _units(number: int) -> str:
     return f"{number:_}".replace("_", " ")
 
 
-def _without_commas(line: str) -> str:
-    """Строка «судил …» судьи без запятых. Разделитель тысяч в ней ставится
-    заменой запятых на пробел, и замена задевает запятые текста; сверяются
-    числа и подписи."""
-    return " ".join(line.replace(",", " ").split())
-
-
 class Ahrefs:
     """Ahrefs на заглушке: настоящий клиент, подставленный ответ.
 
@@ -504,10 +497,10 @@ class TestJudge:
 
         _print_judge(RunReport(plan=_plan(new=0), judge=judge))
 
-        lines = _lines(capsys.readouterr().out)
-        assert _without_commas(lines.pop(1)) == "судил 40 из кэша 5 токенов 12 345"
-        assert lines == [
+        assert _lines(capsys.readouterr().out) == [
             "Судья площадки (наблюдение, не режет):",
+            # Запятые текста целы, тысячи в числе — через пробел.
+            "судил 40, из кэша 5, токенов 12 345",
             "отрезал бы 7, к человеку 3",
             # Кто решил — словами оператора и по убыванию; незнакомый код — как есть.
             "решено моделью по выдаче 9",
@@ -537,9 +530,11 @@ class TestJudge:
 
         _print_judge(RunReport(plan=_plan(new=0), judge=JudgeSummary(judged=3)))
 
-        lines = _lines(capsys.readouterr().out)
-        assert _without_commas(lines.pop(1)) == "судил 3 из кэша 0 токенов 0"
-        assert lines == ["Судья площадки (наблюдение, не режет):", "отрезал бы 0, к человеку 0"]
+        assert _lines(capsys.readouterr().out) == [
+            "Судья площадки (наблюдение, не режет):",
+            "судил 3, из кэша 0, токенов 0",
+            "отрезал бы 0, к человеку 0",
+        ]
 
     def test_switched_off_judge_is_silence_not_zeros(
         self, capsys: pytest.CaptureFixture[str]

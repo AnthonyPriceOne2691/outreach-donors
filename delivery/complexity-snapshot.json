@@ -412,7 +412,7 @@
       "worst": "_report:180"
     },
     "backend/cli/main.py": {
-      "lines": 448,
+      "lines": 445,
       "complexity": 9,
       "worst": "_print_report:240"
     },

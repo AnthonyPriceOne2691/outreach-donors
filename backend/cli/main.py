@@ -296,11 +296,8 @@ def _print_judge(report: RunReport) -> None:
     mode = "наблюдение, не режет" if judge_cfg.MODE is judge_cfg.JudgeMode.SHADOW else "режет"
     cut = "отрезал бы" if judge_cfg.MODE is judge_cfg.JudgeMode.SHADOW else "отрезал"
     print(f"\nСудья площадки ({mode}):")
-    print(
-        f"  судил {judge.judged}, из кэша {judge.from_cache}, токенов {judge.tokens:,}".replace(
-            ",", " "
-        )
-    )
+    tokens = f"{judge.tokens:,}".replace(",", " ")
+    print(f"  судил {judge.judged}, из кэша {judge.from_cache}, токенов {tokens}")
     print(f"  {cut} {judge.would_cut}, к человеку {judge.to_review}")
     for who, count in sorted(judge.by_decider.items(), key=lambda kv: -kv[1]):
         print(f"    решено {DECIDERS.get(who, who):<18} {count}")
