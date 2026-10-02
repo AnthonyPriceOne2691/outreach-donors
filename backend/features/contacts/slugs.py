@@ -174,12 +174,21 @@ LINK_MARKERS: frozenset[str] = (
     | _LINK_WORDS
 )
 
+#: Узнаются, но не угадываются. Страница о cookie адресов редакции не даёт,
+#: ходить за ней незачем, но встреченная по ссылке она правовая: адрес
+#: с неё — оператор данных, а не редакция (ревью #144: `/cookie-policy`
+#: без «legal» в пути считалась главной).
+RECOGNIZED_ONLY: dict[PageKind, tuple[str, ...]] = {
+    PageKind.LEGAL: ("cookie-policy", "cookies", "cookie-notice", "cookie-statement"),
+}
+
 #: Все слаги вида на всех языках. Нужны при опознании УЖЕ скачанной
 #: страницы: её могли найти по ссылке с главной, а не угадать, и язык
 #: ссылки тогда неизвестен.
 ALL_SLUGS: dict[PageKind, frozenset[str]] = {
     kind: frozenset(SLUGS[kind])
     | frozenset(slug for by_kind in LOCALIZED_SLUGS.values() for slug in by_kind.get(kind, ()))
+    | frozenset(RECOGNIZED_ONLY.get(kind, ()))
     for kind in WALK_ORDER
 }
 

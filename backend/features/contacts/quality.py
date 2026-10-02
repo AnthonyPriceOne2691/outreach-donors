@@ -204,7 +204,7 @@ class Candidate:
 #: в отчёт, и настраивать фильтр можно по именам, а не по догадкам.
 _RULES: tuple[tuple[Callable[[str, str, str], bool], str], ...] = (
     (lambda value, _l, _d: any(m in value for m in NO_REPLY_MARKERS), "ящик не принимает ответов"),
-    (lambda _v, local, _d: _bare(local) in PLACEHOLDER_LOCAL_PARTS, "заглушка вместо адреса"),
+    (lambda _v, local, _d: _placeholder(local), "заглушка вместо адреса"),
     (
         lambda _v, local, _d: len(local) > 1 and len(set(local)) == 1,
         "заглушка из повторённого символа",
@@ -269,6 +269,18 @@ def _bare(local: str) -> str:
     """Локальная часть без разделителей: `data-protection`, `data.protection`
     и `data_protection` — один и тот же ящик, `max.mustermann` — одна заглушка."""
     return local.replace(".", "").replace("-", "").replace("_", "")
+
+
+#: Заглушки, которые сверяются только целиком: `e-mail@firma.de` и
+#: `e.mail@…` у немецких фирм бывают живым ящиком, а `email@` — образец.
+_WHOLE_ONLY = frozenset({"email"})
+
+
+def _placeholder(local: str) -> bool:
+    bare = _bare(local)
+    return local in PLACEHOLDER_LOCAL_PARTS or (
+        bare in PLACEHOLDER_LOCAL_PARTS and bare not in _WHOLE_ONLY
+    )
 
 
 def foreign_on_legal_page(candidate: Candidate, *, site_host: str) -> str | None:

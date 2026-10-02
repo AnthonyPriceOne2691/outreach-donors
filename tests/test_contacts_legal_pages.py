@@ -14,6 +14,7 @@ import httpx
 import pytest
 from backend.features.contacts import mx
 from backend.features.contacts.ladder import ContactLadder
+from backend.features.contacts.pages import kind_of, slug_urls
 from backend.features.contacts.quality import Candidate, foreign_on_legal_page, rejection_reason
 from backend.features.core.domain import ContactSource, ContactStatus, PageKind
 
@@ -56,12 +57,23 @@ class TestNotForLetters:
     def test_samples_from_the_page(self, email: str) -> None:
         assert rejection_reason(email) is not None
 
+    def test_bare_email_is_still_a_sample(self) -> None:
+        assert rejection_reason("email@site.com") is not None
+
     @pytest.mark.parametrize(
-        "email", ["editor@site.com", "anna.mueller@zeitung.de", "dpo-team-lead@site.com"]
+        "email",
+        [
+            "editor@site.com",
+            "anna.mueller@zeitung.de",
+            "dpo-team-lead@site.com",
+            "e-mail@firma.de",
+            "e.mail@firma.de",
+        ],
     )
     def test_ordinary_addresses_stay(self, email: str) -> None:
         """Обратная сторона: разделители снимаются для сверки, а не для подстроки —
-        слово отдела внутри другого имени адрес не хоронит."""
+        слово отдела внутри другого имени адрес не хоронит. `e-mail@` у немецких
+        фирм бывает живым ящиком: «email» сверяется только целиком (ревью #144)."""
         assert rejection_reason(email) is None
 
 
@@ -88,6 +100,17 @@ class TestLegalPages:
     def test_paid_step_addresses_are_not_judged_by_page(self) -> None:
         paid = Candidate("info@other.example.org", ContactSource.PROVIDER, PageKind.LEGAL)
         assert foreign_on_legal_page(paid, site_host="site.com") is None
+
+
+class TestCookiePages:
+    @pytest.mark.parametrize("path", ["/cookie-policy/", "/cookies/", "/cookie-notice"])
+    def test_cookie_page_is_a_legal_page(self, path: str) -> None:
+        """Без «legal» в пути страница о cookie считалась главной (ревью #144)."""
+        assert kind_of(f"https://site.com{path}") is PageKind.LEGAL
+
+    def test_cookie_page_is_not_guessed(self) -> None:
+        """Узнаётся, но обход за ней не ходит: адресов редакции там нет."""
+        assert not [url for url, _ in slug_urls("https://site.com") if "cookie" in url]
 
 
 class Site:
@@ -125,3 +148,19 @@ class TestTheLadder:
             result = await ContactLadder(http).find("site.com")
         assert result.contact is not None
         assert result.contact.email == "owner@gmail.com"
+
+    async def test_address_refused_on_a_legal_page_is_taken_from_contacts(self) -> None:
+        """Отсев по странице — не по адресу: тот же адрес на странице контактов
+        годен, хотя страница правил встретилась раньше (ревью #144)."""
+        site = Site(
+            {
+                "/": HOME,
+                "/privacy-policy/": _page("hello@studio-partners.net"),
+                "/contact/": _page("hello@studio-partners.net"),
+            }
+        )
+        async with httpx.AsyncClient(transport=httpx.MockTransport(site)) as http:
+            result = await ContactLadder(http).find("site.com")
+        assert result.contact is not None
+        assert result.contact.email == "hello@studio-partners.net"
+        assert result.rejected == ()

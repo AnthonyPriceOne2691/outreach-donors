@@ -1,8 +1,9 @@
 """Что собрано по одному домену за проход лестницы: адреса, отсев, каналы, форма.
 
 Ступени лестницы пишут сюда, а не друг другу: накопитель один на домен,
-и правило «брать ли адрес» в нём одно — фильтр качества и вердикт MX
-по домену сайта (`add`). Лестница и её ступени живут в `ladder.py`.
+и правило «брать ли адрес» в нём одно — фильтр качества, вердикт MX
+по домену сайта и страница, где адрес встретился (`add`). Лестница и её
+ступени живут в `ladder.py`.
 """
 
 from __future__ import annotations
@@ -50,6 +51,21 @@ class Collected:
             return f"домен сайта объявил, что почту не принимает (нулевой MX): {email}"
         return None
 
+    def _refused_by_page(self, candidate: Candidate) -> bool:
+        """Сторонний адрес со страницы правил — не адрес редакции.
+
+        Отсев — по странице, а не по адресу, поэтому адрес не помечается
+        увиденным: тот же адрес со страницы контактов годен, даже если
+        страница правил встретилась раньше (ревью #144). Отказ пишется
+        один раз, сколько бы страниц правил его ни повторили.
+        """
+        on_page = foreign_on_legal_page(candidate, site_host=self.site_host)
+        if on_page is None:
+            return False
+        if (candidate.email, on_page) not in self.rejected:
+            self.rejected.append((candidate.email, on_page))
+        return True
+
     def add(self, candidate: Candidate) -> bool:
         """Взять адрес, если он годный и ещё не встречался."""
         if candidate.email in self.seen:
@@ -62,15 +78,15 @@ class Collected:
                     for known in self.good
                 ]
             return False
-        self.seen.add(candidate.email)
-
-        reason = (
-            rejection_reason(candidate.email)
-            or self._undeliverable(candidate.email)
-            or foreign_on_legal_page(candidate, site_host=self.site_host)
-        )
+        reason = rejection_reason(candidate.email) or self._undeliverable(candidate.email)
         if reason:
+            self.seen.add(candidate.email)
             self.rejected.append((candidate.email, reason))
             return False
+        if self._refused_by_page(candidate):
+            return False
+        self.seen.add(candidate.email)
+        # Адрес нашёлся там, где он годен: прежний отказ по странице снят.
+        self.rejected = [entry for entry in self.rejected if entry[0] != candidate.email]
         self.good.append(candidate)
         return True
