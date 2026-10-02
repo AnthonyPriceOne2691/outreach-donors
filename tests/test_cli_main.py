@@ -44,6 +44,7 @@ from backend.config.startup_checks import ConfigError
 from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.ahrefs.units import RunEstimate, estimate_run
 from backend.features.core.domain import DonorStatus
+from backend.features.donors.geo import assert_settings_allow_limited_fetch
 from backend.features.donors.judging import JudgeSummary
 from backend.features.review.candidates import QueueReport
 from backend.features.runs.budget import CapExceededError, QuotaUnavailableError
@@ -860,3 +861,29 @@ class TestRunBudget:
         assert f"доступно {available}." in printed.err
         assert budget_run.prompts == []
         assert budget_run.ahrefs.paths == ["/v3/subscription-info/limits-and-usage"]
+
+
+class TestRunSettings:
+    def test_inconsistent_geo_settings_are_a_settings_error(
+        self,
+        budget_run: BudgetRun,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Топ-5 при пороге доли 10%: страна с достаточной долей может не попасть
+        в ответ с limit=5. Это ошибка настроек — «Не хватает настроек» и код 2
+        до первого запроса, а не трассировка."""
+
+        # Умолчания проверки связаны с настройками при импорте, поэтому
+        # несогласованные значения передаются ей явно.
+        def inconsistent() -> None:
+            assert_settings_allow_limited_fetch(top_n=5, min_share=0.10)
+
+        monkeypatch.setattr("backend.cli.main.assert_settings_allow_limited_fetch", inconsistent)
+
+        assert main(budget_run.argv) == 2
+
+        printed = capsys.readouterr()
+        assert printed.err.startswith("Не хватает настроек: При топ-5 и пороге доли 10%")
+        assert printed.out == ""
+        assert budget_run.ahrefs.opened == []
