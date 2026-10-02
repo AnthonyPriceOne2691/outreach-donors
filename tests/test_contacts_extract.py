@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import time
+
 import pytest
 from backend.features.contacts.extract import (
     decode_cloudflare,
@@ -116,6 +118,56 @@ class TestBareAt:
     def test_obfuscation_is_still_read(self, text: str, email: str) -> None:
         """Обратная сторона: так прячут адрес те, кто продаёт размещение."""
         assert extract_obfuscated(f"<p>{text}</p>") == {email}
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Get help at site.com",
+            "Say hi at site.com",
+            "Head of Sales at site.com",
+            "Digital marketing at site.com",
+            "Social media at site.com",
+            "Find more info at site.com",
+            "Talk to our customer support team at site.com",
+        ],
+    )
+    def test_roles_that_are_prose_before_at(self, text: str) -> None:
+        """Перед голым «at» — только «почтовые» роли: помощь, продажи и соцсети
+        в прозе стоят перед «at» постоянно (ревью #137)."""
+        assert extract_obfuscated(f"<p>{text}</p>") == set()
+
+    @pytest.mark.parametrize(
+        ("text", "found"),
+        [
+            ("Write to mike.blogger at gmail.com", {"mike.blogger@gmail.com"}),
+            ("jane at gmail.com", {"jane@gmail.com"}),
+            ("Log in at gmail.com", set()),
+            ("Find us at gmail.com", set()),
+        ],
+    )
+    def test_free_mailbox_after_bare_at(self, text: str, found: set[str]) -> None:
+        """Так пишут мелкие блоги: «mike at gmail.com». Кроме оборотов вроде
+        «Log in at gmail.com», где перед «at» не локальная часть."""
+        assert extract_obfuscated(f"<p>{text}</p>") == found
+
+
+class TestLinearTime:
+    """Разбор идёт в цикле событий: одна страница, разбираемая секундами,
+    стоит всех параллельных доменов прохода (ревью #137, e6). Потолок щедрый —
+    в сотни раз выше нормы, — чтобы тест не падал от нагрузки машины, но
+    ловил возврат квадратичного времени (было 33–38 с и 8,5 с)."""
+
+    def test_long_whitespace_run(self) -> None:
+        html = "<div>" + "\n" * 40_000 + "info at site dot com</div>"
+        started = time.perf_counter()
+        assert extract_obfuscated(html) == {"info@site.com"}
+        assert time.perf_counter() - started < 1.0
+
+    def test_long_token_without_an_address(self) -> None:
+        html = f"<body><script>var data = '{'a' * 100_000}';</script><p>ads@site.com</p></body>"
+        started = time.perf_counter()
+        assert extract_emails(html) == {"ads@site.com"}
+        assert time.perf_counter() - started < 1.0
 
 
 class TestGluedTail:

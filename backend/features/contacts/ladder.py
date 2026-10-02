@@ -132,6 +132,14 @@ class _Collected:
     def add(self, candidate: Candidate) -> bool:
         """Взять адрес, если он годный и ещё не встречался."""
         if candidate.email in self.seen:
+            # Догадка пришла раньше (обфускация в подвале главной), а теперь
+            # тот же адрес записан прямо: он больше не догадка и не должен
+            # проигрывать прямым адресам (ревью #137).
+            if not candidate.guessed:
+                self.good = [
+                    candidate if known.email == candidate.email and known.guessed else known
+                    for known in self.good
+                ]
             return False
         self.seen.add(candidate.email)
 

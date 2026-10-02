@@ -25,7 +25,7 @@ import re
 
 from selectolax.parser import HTMLParser
 
-from backend.features.contacts.roles import ROLE_LOCAL_PARTS
+from backend.features.contacts.known_addresses import FREE_MAILBOX_DOMAINS
 from backend.features.contacts.slugs import link_text_names_section, url_names_section
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,16 @@ logger = logging.getLogger(__name__)
 # отдавал обрубок `info@site.xn` (ревью #122). Проверка годности этого не
 # видела — `fullmatch` откатывается во вторую ветвь, — поэтому тест идёт через
 # извлечение со страницы.
-EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.(?:xn--[a-zA-Z0-9\-]{2,}|[a-zA-Z]{2,})")
+#
+# Совпадение начинается только в начале прогона знаков локальной части
+# (просмотр назад): на длинном токене без «@» — JSON в скриптах тела — поиск
+# иначе пробовал каждую позицию и шёл квадратично. На главной с токеном
+# в 49 тысяч знаков это стоило 4,5 с на вызов, в цикле событий, где стоят
+# все параллельные домены (ревью #137, e6). Находки те же: начать с середины
+# прогона лучше, чем с его начала, выражение не может.
+EMAIL_RE = re.compile(
+    r"(?<![a-zA-Z0-9._%+\-])[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.(?:xn--[a-zA-Z0-9\-]{2,}|[a-zA-Z]{2,})"
+)
 
 # Экранирование JS и JSON: `\u003e` — это `>`, `\x40` — `@`. Встречается в
 # скриптах ТЕЛА страницы: их текст selectolax отдаёт вместе с видимым, и со
@@ -62,13 +71,33 @@ _DOT_RE = re.compile(rf"\s*{_DOT_WORDS}\s*", re.IGNORECASE)
 #: выбор (ревью e6, 02.10.2026). Адресом оно становится, только если и точка
 #: записана словом — «info at site dot com», —
 _AT_SPELLED_RE = re.compile(rf"\s+at\s+(?=[\w-]+\s*{_DOT_WORDS})", re.IGNORECASE)
-#: — или перед ним ролевая часть: «ads at site.com». Но не в обороте
-#: «our team at site.com»: перед ним слово-определитель (`_DETERMINERS`).
+#: — или перед ним «почтовая» роль: «ads at site.com». Не любая ролевая
+#: часть: «Get help at», «Head of Sales at», «Social media at» — проза.
+#: И не в обороте «our editor at site.com», «more info at …»: перед ролью
+#: слово из `_DETERMINERS`.
+_MAIL_ROLES = (
+    "info|contact|contacts|editor|editorial|ads|advertise|advertising|advertisement"
+    "|partnership|partnerships|enquiries|enquiry|inquiries|webmaster|admin|administrator"
+    "|office|mail|email|redaktion|redazione|redaksi|kontakt|kontak|contacto|iklan"
+)
 _AT_ROLE_RE = re.compile(
-    rf"(?:\b(\w+)\s+)?\b({'|'.join(sorted(ROLE_LOCAL_PARTS))})\s+at\s+(?=[\w-]+\.[\w-])",
+    rf"(?:\b(\w+)\s+)?\b({_MAIL_ROLES})\s+at\s+(?=[\w-]+\.[\w-])", re.IGNORECASE
+)
+_DETERMINERS = frozenset(
+    {"the", "our", "your", "my", "their", "his", "her", "its", "a", "an", "more", "for"}
+)
+#: — или после него бесплатная почта: «mike.blogger at gmail.com» — так пишут
+#: мелкие блоги. Кроме оборотов вроде «Log in at gmail.com»: слово перед «at»
+#: из `_NOT_LOCAL` — не локальная часть.
+_AT_FREE_RE = re.compile(
+    r"\b([\w.+-]+)\s+at\s+(?=(?:"
+    + "|".join(re.escape(domain) for domain in sorted(FREE_MAILBOX_DOMAINS))
+    + r")\b)",
     re.IGNORECASE,
 )
-_DETERMINERS = frozenset({"the", "our", "your", "my", "their", "his", "her", "its", "a", "an"})
+_NOT_LOCAL = frozenset(
+    {"in", "up", "us", "me", "we", "it", "on", "out", "him", "her", "them", "you", "now", "here"}
+)
 
 
 def decode_cloudflare(hexstr: str) -> str:
@@ -96,15 +125,26 @@ def _role_at(match: re.Match[str]) -> str:
     return f"{before} {role}@" if before else f"{role}@"
 
 
+def _free_at(match: re.Match[str]) -> str:
+    local = match.group(1)
+    return match.group(0) if local.lower() in _NOT_LOCAL else f"{local}@"
+
+
 def deobfuscate(text: str) -> str:
-    """`info [at] domain [dot] com` → `info@domain.com`.
+    r"""`info [at] domain [dot] com` → `info@domain.com`.
 
     Замена съедает пробелы вокруг маркера. Применяется к копии текста
     и только ради поиска адресов. Голое «at» без скобок — по правилам выше:
     обычное слово в прозе давало правдоподобный адрес на домене сайта,
     к которому ни фильтр качества, ни правило доверия не придерутся.
+
+    Пробелы сначала схлопываются: `\s*` вокруг маркеров на длинном прогоне
+    пробелов откатывался с каждой позиции, и замена шла квадратично —
+    40 тысяч переводов строк стоили 38 с в цикле событий (ревью #137, e6).
     """
-    text = _AT_ROLE_RE.sub(_role_at, _AT_SPELLED_RE.sub("@", _AT_RE.sub("@", text)))
+    text = " ".join(text.split())
+    text = _AT_SPELLED_RE.sub("@", _AT_RE.sub("@", text))
+    text = _AT_FREE_RE.sub(_free_at, _AT_ROLE_RE.sub(_role_at, text))
     return _DOT_RE.sub(".", text)
 
 

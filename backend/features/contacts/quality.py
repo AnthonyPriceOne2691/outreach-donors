@@ -18,21 +18,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from backend.features.contacts.extract import EMAIL_RE
-from backend.features.contacts.roles import ROLE_LOCAL_PARTS
+from backend.features.contacts.known_addresses import FREE_MAILBOX_DOMAINS, ROLE_LOCAL_PARTS
 from backend.features.core.domain import ContactSource, PageKind
 from backend.features.donors.host import split_host
-
-# Бесплатная почта. Личный ящик вебмастера — валидный контакт, но весит
-# меньше адреса на домене сайта: на домене сидит тот, кто им распоряжается.
-FREE_MAILBOX_DOMAINS = frozenset(
-    {
-        "gmail.com", "googlemail.com", "yahoo.com", "yahoo.co.uk", "yahoo.co.id",
-        "hotmail.com", "hotmail.co.uk", "outlook.com", "live.com", "aol.com",
-        "icloud.com", "me.com", "proton.me", "protonmail.com", "gmx.com", "gmx.net",
-        "mail.ru", "yandex.ru", "yandex.com", "zoho.com", "mail.com",
-        "qq.com", "163.com", "126.com", "naver.com",
-    }
-)  # fmt: skip
 
 # Точные домены сервисов: аналитика, CDN, конструкторы сайтов, соцсети.
 VENDOR_DOMAINS = frozenset(
