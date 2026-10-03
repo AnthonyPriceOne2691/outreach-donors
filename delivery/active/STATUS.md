@@ -13,8 +13,9 @@
 - **shared_changes:** общий код части 1.3c — транспорт, по контракту слоёв живущий в `api/`.
   `backend/api/app.py` — регистрация роутера продаж (`include_router`, как у остальных
   разделов); `backend/api/errors.py` — отказы загрузки → коды: 400 (файл, ссылка,
-  сопоставление), 404 (гипотеза), 502 («Google не ответил»); новый пакет `backend/api/sales/`
-  (`__init__`, `routes`, `schemas`) — маршруты предпросмотра и загрузки под `Permission.SALES`;
+  сопоставление), 404 (гипотеза), 502 («Google не ответил»); новый пакет `backend/api/sales/` —
+  `backend/api/sales/__init__.py`, `backend/api/sales/routes.py`, `backend/api/sales/schemas.py`:
+  маршруты предпросмотра и загрузки под `Permission.SALES`;
   `tests/test_api_sales_intake.py`; `delivery/complexity-snapshot.json` — снимок ратчета.
   Общий код почты и `contacts/` часть не трогает. Согласовано с сессией outreach-donors —
   координатор. #151 (вне продаж, под активным срезом): `frontend/package.json`, `frontend/package-lock.json`, `scripts/lint/jscpd_baseline.txt` — jscpd 4→5.4.0 ради 5 high и снимок дублей 45→55 (смена линейки), согласовано: e6 (ревью), prepare-04 (контур) уведомлён, waiver by=human:anthony.
