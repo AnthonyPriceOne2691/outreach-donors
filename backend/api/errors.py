@@ -52,6 +52,8 @@ from backend.features.replies.repository import LeadError, NotAPriceError, Unkno
 from backend.features.review.candidates import NotInRunError
 from backend.features.review.candidates import UnknownRunError as ReviewUnknownRunError
 from backend.features.runs.browse import UnknownRunError
+from backend.features.sales.intake import IntakeError, UnknownHypothesisError
+from backend.features.sales.sheet import SheetError, SheetUnavailableError
 
 #: Отказ → код ответа. Порядок в словаре значения не имеет: FastAPI
 #: выбирает обработчик по точному типу и его предкам.
@@ -113,6 +115,13 @@ STATUSES: dict[type[Exception], int] = {
     # Стоп-лист: уже там, такого нет, снятие отписки без причины.
     # Всё это про состояние списка и про то, что человек чинит сам.
     StopListError: status.HTTP_409_CONFLICT,
+    # Загрузка базы продаж: источник не читается, ссылка закрыта, сопоставление
+    # не годится — это запрос; гипотезы нет — 404; Google не ответил — 502:
+    # тут поможет повтор, а не правка запроса.
+    IntakeError: status.HTTP_400_BAD_REQUEST,
+    SheetError: status.HTTP_400_BAD_REQUEST,
+    UnknownHypothesisError: status.HTTP_404_NOT_FOUND,
+    SheetUnavailableError: status.HTTP_502_BAD_GATEWAY,
     EmailTakenError: status.HTTP_409_CONFLICT,
     LastAdminError: status.HTTP_409_CONFLICT,
     SelfLockoutError: status.HTTP_409_CONFLICT,

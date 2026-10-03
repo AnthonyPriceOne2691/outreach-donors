@@ -1,6 +1,6 @@
 # Active delivery status
 
-- **slug:** sales-import (модуль «Продажи», срез 1.3, часть 2 из 3 — 1.3b: Google-таблица по ссылке, байты с экрана и команда `outreach sales-import`; часть 1, ядро, — в main, #147)
+- **slug:** sales-import (модуль «Продажи», срез 1.3, часть 3 из 3 — 1.3c: API предпросмотра и загрузки под правом `sales`; части 1 и 2 — ядро (#147) и ссылка с консолью — в main)
 - **stack:** delivery@1.99 · cqg@2.45 · okf@1.19 · stack-map@1.52
 - **class:** M
 - **kind:** feature
@@ -10,53 +10,47 @@
 - **human_ok_spec:** yes at=2026-10-03 by=human:anthony («даю да» — план фаз; примеры A8 и A9 и нарезка на три PR — решение владельца)
 - **baseline_growth_waiver:** reason=jscpd 4→5.4.0 ради 5 high npm audit (braces, непропатченных версий нет): новая линейка гейта дублей даёт 55 clone-пар против 45 на том же коде — сверено двумя сессиями по JSON-отчётам v4/v5, группы файлов те же (#151) by=human:anthony at=2026-10-03
 - **new_dependency:** no
-- **shared_changes:** общий код части 1.3b — обвязка команды, по контракту слоёв живущая
-  вне `features/`. `backend/cli/sales.py` — команда `outreach sales-import`: разбор доводов,
-  `--map`, `--dry-run`, коды выхода; `backend/cli/main.py` — импорт и регистрация парсера,
-  строка таблицы `"sales-import": cmd_sales_import` (структурные тесты `tests/test_cli_main.py`
-  требуют `cmd_<имя>`); `delivery/complexity-snapshot.json` — снимок ратчета: новый
-  `sales/sheet.py`, рост `intake.py`, `cli/sales.py`, `cli/main.py`. Общий код почты,
-  `contacts/` и `api/` часть не трогает; сеть — только `httpx` к `docs.google.com` экспортом
-  CSV, без ключей. Согласовано с сессией outreach-donors — координатор (03.10: пересечение
-  в `cli/main.py` с их PR второго Ctrl-C — строки разные, кто второй — переносится). #151 (вне продаж, под активным срезом): `frontend/package.json`, `frontend/package-lock.json`, `scripts/lint/jscpd_baseline.txt` — jscpd 4→5.4.0 ради 5 high и снимок дублей 45→55 (смена линейки), согласовано: e6 (ревью), prepare-04 (контур) уведомлён, waiver by=human:anthony.
+- **shared_changes:** общий код части 1.3c — транспорт, по контракту слоёв живущий в `api/`.
+  `backend/api/app.py` — регистрация роутера продаж (`include_router`, как у остальных
+  разделов); `backend/api/errors.py` — отказы загрузки → коды: 400 (файл, ссылка,
+  сопоставление), 404 (гипотеза), 502 («Google не ответил»); новый пакет `backend/api/sales/` —
+  `backend/api/sales/__init__.py`, `backend/api/sales/routes.py`, `backend/api/sales/schemas.py`:
+  маршруты предпросмотра и загрузки под `Permission.SALES`;
+  `tests/test_api_sales_intake.py`; `delivery/complexity-snapshot.json` — снимок ратчета.
+  Общий код почты и `contacts/` часть не трогает. Согласовано с сессией outreach-donors —
+  координатор. #151 (вне продаж, под активным срезом): `frontend/package.json`, `frontend/package-lock.json`, `scripts/lint/jscpd_baseline.txt` — jscpd 4→5.4.0 ради 5 high и снимок дублей 45→55 (смена линейки), согласовано: e6 (ревью), prepare-04 (контур) уведомлён, waiver by=human:anthony.
 
 Прежний активный срез `sales-v1-boundary` закрыт: его статус —
 в `delivery/archive/sales-v1-boundary.md`.
 
 ## Что в срезе
 
-Срез 1.3 сливается тремя PR — решение владельца: 1.3a ядро → 1.3b ссылка
-и консоль → 1.3c API. Часть 1 слита (#147). Эта поставка — часть 2 из 3:
+Срез 1.3 сливается тремя PR — решение владельца: 1.3a ядро (#147) → 1.3b ссылка
+и консоль → 1.3c API. Эта поставка — часть 3 из 3, срез ею завершается:
 
-- `backend/features/sales/sheet.py` — Google-таблица по ссылке: адрес экспорта CSV
-  (`…/export?format=csv&gid=…`), `httpx` без ключей. Закрытая таблица (страница входа при
-  любом коде, 401, 403) — «таблица не открыта по ссылке — откройте доступ или загрузите
-  CSV»; нет таблицы или листа — свои слова; сеть, 429 и 5xx — «Google не ответил —
-  повторите позже или загрузите CSV» (A9); предел размера в мегабайтах, как у файла.
-- `backend/features/sales/intake.py` — байты с экрана и ссылка идут тем же путём, что файл.
-- `backend/cli/sales.py`, `backend/cli/main.py` — команда `outreach sales-import`
-  (`--file` | `--link`, `--hypothesis`, `--map`, `--header`/`--no-header`, `--delimiter`,
-  `--dry-run`): предпросмотр с отчётом по строкам и загрузка; отказы словами, свои коды
-  выхода.
+- `backend/api/sales/routes.py`, `schemas.py` — предпросмотр (файл байтами или ссылка,
+  сопоставление колонок, заголовок, разделитель) и загрузка в гипотезу — под
+  `Permission.SALES`; ответ — отчёт по строкам и итог; отказы словами с кодами 400/404/502.
+- Регистрация роутера в `api/app.py`; отказы загрузки в `api/errors.py`.
+- Тесты A5–A8 через API: закрытая таблица и «Google не ответил» через сервер; ручное
+  сопоставление; 5 000 строк — предпросмотр за секунды, в базе ничего (A7); загрузка — лиды
+  без строк `contacts`, журнал (A8); без права — 403.
 
 ## Размер и разрез
 
 | Часть | Что | Файлов | Строк |
 |---|---|---|---|
 | 1.3a — слита, #147 | синонимы, чтение файла, нормализация, отчёт, запись, журнал, миграция; тесты A1–A4, A6, A8 | 7 | 801 |
-| **1.3b — эта поставка** | Google-таблица, байты с экрана, `outreach sales-import`; тесты A2, A5, A6, A9 | 7 | 571 |
-| 1.3c | API предпросмотра и загрузки; тесты A5–A8 через API | 6 | 367 |
-
-`shared_changes:` части 1.3c — `backend/api/app.py`, `backend/api/errors.py`,
-`backend/api/sales/`, `tests/test_api_sales_intake.py`.
+| 1.3b — слита | Google-таблица, байты с экрана, `outreach sales-import`; тесты A2, A5, A6, A9 | 7 | 571 |
+| **1.3c — эта поставка** | API предпросмотра и загрузки; тесты A5–A8 через API | 6 | 367 |
 
 ## Оракулы
 
 - **shape-oracles:** cqg-deployed — ruff и формат, mypy, `scripts/gates.py`, ратчет сложности, гейт слоёв, хуки pre-commit, покрытие изменённых файлов ≥ 70%
-- **behavior-oracles:** tests-present — `tests/test_sales_intake_sheet.py` (A5, A6, A9: закрытая таблица при 200, 401 и 403, нет таблицы и листа, Google не ответил, предел размера; Google — только `httpx.MockTransport`), `tests/test_sales_intake_cli.py` (A2, A6 через консоль на настоящей базе: вывод сверяется целиком, коды выхода), `tests/test_cli_main.py` (команда — в парсере и таблице)
+- **behavior-oracles:** tests-present — `tests/test_api_sales_intake.py` (A5–A8 через API на настоящей базе: предпросмотр 5 000 строк без записи, загрузка с журналом и без строк `contacts`, отказы 400/404/502 словами, 403 без права; Google — только `httpx.MockTransport`)
 - **ci-oracles:** deployed — обязательные `check`, `web`, `docker`; quality — `gates` и `delivery`; шаг волн контура — в `check`
 - **artifact_oracle:** n/a reason=сборка не меняется: новые только `.py` в пакетах `backend`, их берёт поиск пакетов; миграцию сервис `migrate` исполняет той же `alembic upgrade head`, что и сьют
-- **runtime_paths:** none reason=ответ настоящего Google в сьюте подменён транспортом, а живьём снят через код среза 03.10 — четыре ссылки: открытая читается, закрытая, несуществующая таблица и несуществующий лист — каждая со своими словами (verify-report, «Живой прогон»); консоль и чтение файла исполняет сьют на настоящей базе
+- **runtime_paths:** none reason=маршруты исполняет сьют настоящим приложением на базе дерева; Google подменён транспортом, живой замер снят в части 2 (03.10); путей, проверяемых только исполнением, часть не приносит
 - **rule_enforcers:** n/a reason=срез не трогает модель: в `sales/` нет ни промптов, ни вызовов модели; поверхность модели продукта прежняя, строка ниже — слово в слово
 - **stack-selftest:** external (`~/Documents/Prepare`) — вариант D: каноны лежат в корне
   ЛОКАЛЬНО и в коммит не идут (`.git/info/exclude`), поэтому в CI их физически нет и
@@ -75,7 +69,6 @@ Google-таблицы GET без ключей, ничего не меняет и
 
 ## Чего в срезе нет
 
-- API предпросмотра и загрузки — часть 1.3c.
 - Очистки (дубли, стоп-лист, проверка адресов), страны словом и часового пояса
   лида — срез 1.4.
 - Экрана и мастера загрузки — срез 1.5.
