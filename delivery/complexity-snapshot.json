@@ -427,9 +427,9 @@
       "worst": "cmd_review_queue:31"
     },
     "backend/cli/sales.py": {
-      "lines": 171,
+      "lines": 170,
       "complexity": 7,
-      "worst": "_mapping:112"
+      "worst": "_mapping:111"
     },
     "backend/cli/senders_admin.py": {
       "lines": 134,
@@ -1387,9 +1387,9 @@
       "worst": "_enum:47"
     },
     "backend/features/sales/sheet.py": {
-      "lines": 101,
+      "lines": 109,
       "complexity": 7,
-      "worst": "export_url:42"
+      "worst": "export_url:44"
     },
     "backend/features/serp/__init__.py": {
       "lines": 1,
