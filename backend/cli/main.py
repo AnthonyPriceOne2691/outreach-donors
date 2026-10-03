@@ -401,6 +401,15 @@ _FAILURES: tuple[tuple[type[Exception], int, str], ...] = (
 )
 
 
+#: Что осталось после прерывания, если команда не сказала сама. Прогон по
+#: файлу базы не касается: его пройденное — в чекпойнте. Первый Ctrl-C он
+#: разбирает сам (`contact_sweep`), сюда доходит второй — пока пишется итог.
+_KEPT_ON_INTERRUPT: dict[str, str] = {
+    "contacts-file": "Пройденное — в чекпойнте: повторный запуск продолжит с места обрыва "
+    "и запишет итог.",
+}
+
+
 #: Команда → что выполнить. Таблицей, а не цепочкой `if`: цепочка росла
 #: с каждой новой командой и упёрлась в потолок сложности — а «добавить
 #: команду» не то действие, ради которого стоит переписывать разбор.
@@ -439,7 +448,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return asyncio.run(command)
     except KeyboardInterrupt:
-        print("\nПрервано. Уже сохранённые домены остались в базе.", file=sys.stderr)
+        kept = _KEPT_ON_INTERRUPT.get(args.command, "Уже сохранённые домены остались в базе.")
+        print(f"\nПрервано. {kept}", file=sys.stderr)
         return EXIT_CANCELLED
     except Exception as exc:
         for kind, code, prefix in _FAILURES:
