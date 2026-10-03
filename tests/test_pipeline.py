@@ -212,18 +212,20 @@ class TestQuota:
     """Остаток берётся у провайдера: ключ общий, и своя таблица знает только
     про наши траты."""
 
+    # Числа выдуманы: лимиты и расход настоящего аккаунта в публичный
+    # репозиторий не идут. Соотношение то же — упирается ключ.
     PAYLOAD: ClassVar[dict] = {
-        "units_limit_workspace": 8_000_000,
-        "units_usage_workspace": 4_479_085,
-        "units_limit_api_key": 2_000_000,
-        "units_usage_api_key": 542_276,
+        "units_limit_workspace": 6_400_000,
+        "units_usage_workspace": 3_300_000,
+        "units_limit_api_key": 1_600_000,
+        "units_usage_api_key": 432_100,
         "usage_reset_date": "2026-09-21T00:00:00Z",
     }
 
     def test_binding_limit_is_the_smaller_remainder(self) -> None:
         """Лимита два и действуют одновременно: упереться можно в любой."""
         quota = Quota.from_payload(self.PAYLOAD)
-        assert quota.available == 1_457_724  # ключ, а не пространство
+        assert quota.available == 1_167_900  # ключ, а не пространство
 
     def test_exhausted_quota_is_zero_not_negative(self) -> None:
         quota = Quota.from_payload({**self.PAYLOAD, "units_usage_api_key": 3_000_000})
@@ -236,7 +238,7 @@ class TestQuota:
         """Кап  ограничивает нас добровольно, остаток провайдера — жёстко."""
         client = _quota_client(self.PAYLOAD)
         assert await units_left(client, cap=100_000) == 100_000
-        assert await units_left(client, cap=9_000_000) == 1_457_724
+        assert await units_left(client, cap=9_000_000) == 1_167_900
 
     async def test_unreadable_quota_stops_the_run(self) -> None:
         """«Не смогли узнать остаток — не тратим»: иначе можно выжечь лимит
