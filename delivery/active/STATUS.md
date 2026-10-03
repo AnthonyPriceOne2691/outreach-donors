@@ -1,6 +1,6 @@
 # Active delivery status
 
-- **slug:** sales-import (модуль «Продажи», срез 1.3, часть 1 из 3 — 1.3a, ядро загрузки: чтение базы, сопоставление колонок, нормализация, отчёт по строкам, запись лидов и журнал)
+- **slug:** sales-import (модуль «Продажи», срез 1.3, часть 2 из 3 — 1.3b: Google-таблица по ссылке, байты с экрана и команда `outreach sales-import`; часть 1, ядро, — в main, #147)
 - **stack:** delivery@1.99 · cqg@2.45 · okf@1.19 · stack-map@1.52
 - **class:** M
 - **kind:** feature
@@ -8,20 +8,16 @@
 - **builder:** agent:claude
 - **verifier:** process:ci — обязательные джобы `check`, `web` и `docker`, на PR ещё `gates` и `delivery`; ревью — координатор модуля, мерж — по решению владельца
 - **human_ok_spec:** yes at=2026-10-03 by=human:anthony («даю да» — план фаз; примеры A8 и A9 и нарезка на три PR — решение владельца)
-- **waivers:** max_loc_diff=801 reason=9 строк сверх 792 строк ядра — созданная запись `.secrets.baseline` (номер ревизии миграции `1f7b0ee634c2` похож на ключ и отмечен ложным, как у прочих миграций); часть 1 из 3 by=human:anthony at=2026-10-03
 - **new_dependency:** no
-- **shared_changes:** общий код части 1.3a — ровно то, без чего загрузку не записать.
-  `core/domain.py` — значение журнала `AuditAction.SALES_LEADS_IMPORTED`
-  (перечисление общее); `backend/migrations/versions/1f7b0ee634c2_sales_leads_imported_audit_action.py` —
-  `ALTER TYPE auditaction ADD VALUE IF NOT EXISTS 'sales_leads_imported'` по образцу
-  `e1c4b7d92f08`, после `715bbf374195` (одна голова Alembic); `.secrets.baseline` —
-  запись о номере ревизии этой миграции: хук секретов принимает его за ключ, так же
-  записаны соседние миграции; `delivery/complexity-snapshot.json` — снимок ратчета:
-  новые `sales/columns.py`, `sales/intake.py` и длина `core/domain.py`. Общий читатель
-  CSV (`contacts/sweep_input.py`), список бесплатной почты, `donors/host.py`
-  и `DonorRepository.ensure_domains` только вызываются; строк `contacts` загрузка
-  не заводит (решение (а) от 01.10). Потоков доноров срез не меняет. Согласовано
-  с сессией outreach-donors — координатор
+- **shared_changes:** общий код части 1.3b — обвязка команды, по контракту слоёв живущая
+  вне `features/`. `backend/cli/sales.py` — команда `outreach sales-import`: разбор доводов,
+  `--map`, `--dry-run`, коды выхода; `backend/cli/main.py` — импорт и регистрация парсера,
+  строка таблицы `"sales-import": cmd_sales_import` (структурные тесты `tests/test_cli_main.py`
+  требуют `cmd_<имя>`); `delivery/complexity-snapshot.json` — снимок ратчета: новый
+  `sales/sheet.py`, рост `intake.py`, `cli/sales.py`, `cli/main.py`. Общий код почты,
+  `contacts/` и `api/` часть не трогает; сеть — только `httpx` к `docs.google.com` экспортом
+  CSV, без ключей. Согласовано с сессией outreach-donors — координатор (03.10: пересечение
+  в `cli/main.py` с их PR второго Ctrl-C — строки разные, кто второй — переносится)
 
 Прежний активный срез `sales-v1-boundary` закрыт: его статус —
 в `delivery/archive/sales-v1-boundary.md`.
@@ -29,40 +25,37 @@
 ## Что в срезе
 
 Срез 1.3 сливается тремя PR — решение владельца: 1.3a ядро → 1.3b ссылка
-и консоль → 1.3c API. Эта поставка — часть 1 из 3:
+и консоль → 1.3c API. Часть 1 слита (#147). Эта поставка — часть 2 из 3:
 
-- `backend/features/sales/columns.py` — поля лида и таблица синонимов RU/EN
-  данными.
-- `backend/features/sales/intake.py`:
-  - чтение файла через общий `read_records`;
-  - предпросмотр без базы: заголовок, сопоставление колонок, нормализация,
-    отчёт по каждой строке;
-  - запись лидов, доменов компаний и журнала.
-- Журнал `sales_leads_imported` и миграция `auditaction`.
+- `backend/features/sales/sheet.py` — Google-таблица по ссылке: адрес экспорта CSV
+  (`…/export?format=csv&gid=…`), `httpx` без ключей. Закрытая таблица (страница входа при
+  любом коде, 401, 403) — «таблица не открыта по ссылке — откройте доступ или загрузите
+  CSV»; нет таблицы или листа — свои слова; сеть, 429 и 5xx — «Google не ответил —
+  повторите позже или загрузите CSV» (A9); предел размера в мегабайтах, как у файла.
+- `backend/features/sales/intake.py` — байты с экрана и ссылка идут тем же путём, что файл.
+- `backend/cli/sales.py`, `backend/cli/main.py` — команда `outreach sales-import`
+  (`--file` | `--link`, `--hypothesis`, `--map`, `--header`/`--no-header`, `--delimiter`,
+  `--dry-run`): предпросмотр с отчётом по строкам и загрузка; отказы словами, свои коды
+  выхода.
 
 ## Размер и разрез
 
 | Часть | Что | Файлов | Строк |
 |---|---|---|---|
-| **1.3a — эта поставка** | синонимы, чтение файла, нормализация, отчёт, запись, журнал, миграция; тесты A1–A4, A6, A8 | 7 | 801 |
-| 1.3b | Google-таблица, байты с экрана, `outreach sales-import`; тесты A2, A5, A6, A9 | 7 | 571 |
+| 1.3a — слита, #147 | синонимы, чтение файла, нормализация, отчёт, запись, журнал, миграция; тесты A1–A4, A6, A8 | 7 | 801 |
+| **1.3b — эта поставка** | Google-таблица, байты с экрана, `outreach sales-import`; тесты A2, A5, A6, A9 | 7 | 571 |
 | 1.3c | API предпросмотра и загрузки; тесты A5–A8 через API | 6 | 367 |
 
-Часть 1.3a — 801 строка при пределе 800: код и тесты ядра — 792, запись номера
-ревизии в `.secrets.baseline` — ещё 9. Строк сверх переноса в коде нет; решение по
-лишней строке — за владельцем и координатором (verify-report, «Предохранитель»).
-
-`shared_changes:` следующих частей: 1.3b — `backend/cli/sales.py`,
-`backend/cli/main.py`; 1.3c — `backend/api/app.py`, `backend/api/errors.py`,
+`shared_changes:` части 1.3c — `backend/api/app.py`, `backend/api/errors.py`,
 `backend/api/sales/`, `tests/test_api_sales_intake.py`.
 
 ## Оракулы
 
 - **shape-oracles:** cqg-deployed — ruff и формат, mypy, `scripts/gates.py`, ратчет сложности, гейт слоёв, хуки pre-commit, покрытие изменённых файлов ≥ 70%
-- **behavior-oracles:** tests-present — `tests/test_sales_intake.py` (A1–A4, A6, A8 на настоящей базе), `tests/test_sales_model.py` (миграция журнала исполняется в процессе)
+- **behavior-oracles:** tests-present — `tests/test_sales_intake_sheet.py` (A5, A6, A9: закрытая таблица при 200, 401 и 403, нет таблицы и листа, Google не ответил, предел размера; Google — только `httpx.MockTransport`), `tests/test_sales_intake_cli.py` (A2, A6 через консоль на настоящей базе: вывод сверяется целиком, коды выхода), `tests/test_cli_main.py` (команда — в парсере и таблице)
 - **ci-oracles:** deployed — обязательные `check`, `web`, `docker`; quality — `gates` и `delivery`; шаг волн контура — в `check`
 - **artifact_oracle:** n/a reason=сборка не меняется: новые только `.py` в пакетах `backend`, их берёт поиск пакетов; миграцию сервис `migrate` исполняет той же `alembic upgrade head`, что и сьют
-- **runtime_paths:** none reason=путей, проверяемых только исполнением, в части 1.3a нет: чтение файла, предпросмотр и запись исполняет сьют на настоящей базе, миграцию — `alembic upgrade head` и тест в процессе; ответ Google — путь части 1.3b
+- **runtime_paths:** none reason=ответ настоящего Google в сьюте подменён транспортом, а живьём снят через код среза 03.10 — четыре ссылки: открытая читается, закрытая, несуществующая таблица и несуществующий лист — каждая со своими словами (verify-report, «Живой прогон»); консоль и чтение файла исполняет сьют на настоящей базе
 - **rule_enforcers:** n/a reason=срез не трогает модель: в `sales/` нет ни промптов, ни вызовов модели; поверхность модели продукта прежняя, строка ниже — слово в слово
 - **stack-selftest:** external (`~/Documents/Prepare`) — вариант D: каноны лежат в корне
   ЛОКАЛЬНО и в коммит не идут (`.git/info/exclude`), поэтому в CI их физически нет и
@@ -75,13 +68,12 @@
 Четыре строки — `stack:`, `stack-selftest:`, `model_surface:` и `irreversible_surfaces:` —
 перенесены из STATUS `sales-v1-boundary` слово в слово. Последняя подписана ключом
 владельца и сверяется в CI с `delivery/active/irreversible.sig`. Новых поверхностей
-необратимого часть не открывает — ни писем, ни трат, ни внешних вызовов: запись —
-свои строки `sales_leads`, общие `domains` (`ON CONFLICT DO NOTHING`) и журнал.
-Переподпись не нужна.
+необратимого часть не открывает — ни писем, ни трат; внешний вызов один — чтение
+Google-таблицы GET без ключей, ничего не меняет и не тратит; запись — свои строки
+`sales_leads`, общие `domains` (`ON CONFLICT DO NOTHING`) и журнал. Переподпись не нужна.
 
 ## Чего в срезе нет
 
-- Google-таблицы, байтов с экрана и команды `outreach sales-import` — часть 1.3b.
 - API предпросмотра и загрузки — часть 1.3c.
 - Очистки (дубли, стоп-лист, проверка адресов), страны словом и часового пояса
   лида — срез 1.4.
