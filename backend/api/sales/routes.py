@@ -39,7 +39,7 @@ _MAPPING = TypeAdapter(dict[LeadField, NonNegativeInt])
 
 async def sheet_http() -> AsyncIterator[httpx.AsyncClient]:
     """Клиент для Google-таблицы. Зависимостью — тест подменяет транспорт."""
-    async with httpx.AsyncClient(timeout=sheet.TIMEOUT_S) as http:
+    async with sheet.client() as http:
         yield http
 
 
