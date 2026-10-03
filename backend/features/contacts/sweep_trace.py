@@ -44,7 +44,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -53,6 +53,7 @@ from backend.features.contacts.ladder import LadderResult
 from backend.features.contacts.mx import MailRoute
 from backend.features.contacts.pages import kind_of
 from backend.features.core.domain import ContactStatus, PageKind
+from backend.shared.net.url_parts import join_url, split_url
 
 #: Исходы лестницы, после которых домен можно считать пройденным. Прочие
 #: (квота, частота, поломка платной ступени) — «недоспрошен» по определению.
@@ -123,7 +124,8 @@ class SiteTrace:
         if response.has_redirect_location:
             # Редирект — шаг, а не ответ: ответит тот адрес, куда он ведёт,
             # и этот адрес теперь тоже сайт.
-            target = urlsplit(urljoin(url, response.headers["location"])).hostname
+            parts = split_url(join_url(url, response.headers["location"]) or "")
+            target = parts.hostname if parts else None
             if target:
                 self.hosts.add(target.lower())
         elif status in REFUSALS:

@@ -199,6 +199,30 @@ class TestSources:
             f"https://{HOST}/b",
         ]
 
+    async def test_map_entries_off_the_site_or_broken_do_not_stop_the_crawl(self) -> None:
+        """Одна битая или чужая `<loc>` — не повод терять донора: обход идёт
+        по остальным, а чужой адрес не запрашивается вовсе (ревью e6 #148)."""
+        site = FakeSite(
+            {"/": _page(), "/a": _page(), "/b": _page(), "/x": _page()},
+            robots=f"User-agent: *\nDisallow:\nSitemap: https://{HOST}/sitemap.xml\n",
+            sitemap=_urlset(
+                f"https://{HOST}/a",
+                "http://[broken/page",
+                "https://other.test/x",
+                f"https://{HOST}/b",
+            ),
+        )
+
+        report = await _crawl(site)
+
+        assert report.source == "sitemap"
+        assert sorted(report.pages) == [
+            f"https://{HOST}/",
+            f"https://{HOST}/a",
+            f"https://{HOST}/b",
+        ]
+        assert "/x" not in site.opened
+
     async def test_links_are_the_fallback_when_there_is_no_map(self) -> None:
         """Карта есть не у всех, и без запасного пути каждый пятый донор
         остался бы необойдённым."""

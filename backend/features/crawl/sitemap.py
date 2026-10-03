@@ -29,12 +29,13 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
 import httpx
 
 from backend.config import crawl as cfg
 from backend.features.crawl.limiter import DomainLimiter
+from backend.shared.net.url_parts import parse_url
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +90,10 @@ def _decode(response: httpx.Response, url: str) -> str | None:
 def _same_site(url: str, host: str) -> bool:
     """Карта чужого сайта — либо ошибка, либо подстава: страницы чужого
     домена нам не нужны, а ходить по ним по просьбе донора тем более."""
-    netloc = urlparse(url).netloc.lower().split(":")[0]
+    parts = parse_url(url)
+    if parts is None:
+        return False
+    netloc = parts.netloc.lower().split(":")[0]
     # Сравнение через `endswith(host)` было бы дырой: `notexample.com`
     # кончается на `example.com`, и карта чужого сайта прошла бы проверку.
     return netloc == host or netloc.endswith(f".{host}")
@@ -156,7 +160,7 @@ class SitemapReader:
             scan.files_read += 1
             if stop_on_first:
                 queue.clear()
-            self._absorb(text, scan, queue)
+            self._absorb(text, scan, queue, host)
 
         # Прочитанный файл без адресов — это всё-таки прочитанная карта:
         # у сайта просто нет страниц в ней, и это знание, а не пустота.
@@ -184,8 +188,8 @@ class SitemapReader:
             return None
         return _decode(response, url)
 
-    def _absorb(self, text: str, scan: SitemapScan, queue: list[str]) -> None:
-        """Разложить файл: индекс — в очередь файлов, карта — в адреса."""
+    def _absorb(self, text: str, scan: SitemapScan, queue: list[str], host: str) -> None:
+        """Разложить файл: индекс — в очередь файлов, карта — в адреса сайта."""
         locations = [match.group(1).strip() for match in _LOC.finditer(text)]
         if not locations:
             logger.info("sitemap: файл без единого <loc> — разметка не та, что ожидали")
@@ -195,7 +199,18 @@ class SitemapReader:
             queue.extend(locations)
             return
 
+        # Чужой или битый адрес страницы в очередь не идёт: по чужому сайту
+        # обход ходил бы под слотом донора, а битый («[» без пары) ронял
+        # разбор разрешений robots и с ним весь обход (ревью e6 #148).
+        # Дочерние карты ту же проверку проходят в `scan`, выходя из очереди.
+        pages = [url for url in locations if _same_site(url, host)]
+        if len(pages) < len(locations):
+            logger.info(
+                "sitemap: %s адресов не с сайта или не разбираются — пропущены",
+                len(locations) - len(pages),
+            )
+
         room = self._max_urls - len(scan.urls)
-        if len(locations) > room:
+        if len(pages) > room:
             scan.truncated = True
-        scan.urls.extend(locations[:room])
+        scan.urls.extend(pages[:room])

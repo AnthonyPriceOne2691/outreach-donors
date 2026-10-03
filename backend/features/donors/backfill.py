@@ -31,7 +31,6 @@ import asyncio
 import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
-from urllib.parse import urlparse
 
 import httpx
 from sqlalchemy import not_, or_, select
@@ -48,6 +47,7 @@ from backend.features.donors.repository import DonorRepository, JudgeRecord, jud
 from backend.features.runs.pipeline import JUDGE_OPERATION, SERP_OPERATION
 from backend.features.runs.planning import SerpText, gather_candidates, saved_texts
 from backend.features.serp.protocol import SerpProvider
+from backend.shared.net.url_parts import parse_url
 
 logger = logging.getLogger(__name__)
 
@@ -159,8 +159,8 @@ async def _site_search(
     found: dict[str, SerpText] = {}
     for host in hosts:
         for result in answers.get(f"site:{host}", []):
-            parsed = urlparse(result.url)
-            if parsed.path.strip("/") and (result.title or result.description):
+            parsed = parse_url(result.url)
+            if parsed and parsed.path.strip("/") and (result.title or result.description):
                 found[host] = SerpText(
                     url=result.url, title=result.title, description=result.description
                 )
