@@ -11,7 +11,7 @@
 - **waivers:** max_loc_diff=801 reason=9 строк сверх 792 строк ядра — созданная запись `.secrets.baseline` (номер ревизии миграции `1f7b0ee634c2` похож на ключ и отмечен ложным, как у прочих миграций); часть 1 из 3 by=human:anthony at=2026-10-03
 - **baseline_growth_waiver:** reason=jscpd 4→5.4.0 ради 5 high npm audit (braces, непропатченных версий нет): новая линейка гейта дублей даёт 55 clone-пар против 45 на том же коде — сверено двумя сессиями по JSON-отчётам v4/v5, группы файлов те же (#151) by=human:anthony at=2026-10-03
 - **new_dependency:** no
-- **shared_changes:** общий код части 1.3a — ровно то, без чего загрузку не записать.
+- **shared_changes:** общий код части 1.3a — ровно то, без чего загрузку не записать. #151 (вне продаж, под активным срезом): `frontend/package.json`, `frontend/package-lock.json`, `scripts/lint/jscpd_baseline.txt` — jscpd 4→5.4.0 ради 5 high и снимок дублей 45→55 (смена линейки), согласовано: e6 (ревью), prepare-04 (контур) уведомлён, waiver by=human:anthony.
   `core/domain.py` — значение журнала `AuditAction.SALES_LEADS_IMPORTED`
   (перечисление общее); `backend/migrations/versions/1f7b0ee634c2_sales_leads_imported_audit_action.py` —
   `ALTER TYPE auditaction ADD VALUE IF NOT EXISTS 'sales_leads_imported'` по образцу
