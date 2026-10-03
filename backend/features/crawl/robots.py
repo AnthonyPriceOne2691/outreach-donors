@@ -31,7 +31,9 @@ import logging
 import re
 from dataclasses import dataclass, field
 from enum import StrEnum
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote
+
+from backend.shared.net.url_parts import parse_url
 
 logger = logging.getLogger(__name__)
 
@@ -83,12 +85,12 @@ class RobotsRules:
         обход доходить не должен, но если дойдёт, пусть откажет, а не
         разрешит.
         """
+        path = _path_of(url)
+        if path is None or self.status is RobotsStatus.UNREADABLE:
+            return False
         if self.status is RobotsStatus.ABSENT:
             return True
-        if self.status is RobotsStatus.UNREADABLE:
-            return False
 
-        path = _path_of(url)
         best: Rule | None = None
         for rule in self.rules:
             if not rule.pattern.match(path):
@@ -105,9 +107,15 @@ def _wins(candidate: Rule, current: Rule) -> bool:
     return candidate.allow and not current.allow
 
 
-def _path_of(url: str) -> str:
-    """Путь с запросом, приведённый к виду, в котором сравнивают образцы."""
-    parts = urlparse(url)
+def _path_of(url: str) -> str | None:
+    """Путь с запросом, приведённый к виду, в котором сравнивают образцы.
+
+    Битый адрес — `None`: образцы к нему не примерить, и открывать его
+    незачем (`shared.net.url_parts`).
+    """
+    parts = parse_url(url)
+    if parts is None:
+        return None
     path = unquote(parts.path) or "/"
     return f"{path}?{parts.query}" if parts.query else path
 

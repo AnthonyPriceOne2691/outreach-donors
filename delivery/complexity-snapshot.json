@@ -837,9 +837,9 @@
       "worst": "decide:93"
     },
     "backend/features/crawl/robots.py": {
-      "lines": 271,
+      "lines": 279,
       "complexity": 10,
-      "worst": "_collect_groups:191"
+      "worst": "_collect_groups:199"
     },
     "backend/features/crawl/scoring.py": {
       "lines": 255,
@@ -847,7 +847,7 @@
       "worst": "score_link:135"
     },
     "backend/features/crawl/sitemap.py": {
-      "lines": 206,
+      "lines": 217,
       "complexity": 15,
       "worst": "scan:123"
     },

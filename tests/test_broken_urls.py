@@ -16,9 +16,11 @@ import pytest
 from backend.features.contacts import mx
 from backend.features.contacts.ladder import ContactLadder
 from backend.features.contacts.sweep_trace import SiteTrace
+from backend.features.crawl.limiter import DomainLimiter
 from backend.features.crawl.links import harvest
-from backend.features.crawl.sitemap import _same_site
-from backend.features.crawl.walk import same_site_links
+from backend.features.crawl.robots import absent, parse_robots
+from backend.features.crawl.sitemap import SitemapReader, _same_site
+from backend.features.crawl.walk import _crawlable, same_site_links
 from backend.features.donors.author_door import author_door
 from backend.features.donors.backfill import _site_search
 from backend.features.donors.site_index import index_homes
@@ -72,6 +74,35 @@ class TestOnePageOneBrokenLink:
     @pytest.mark.parametrize("url", BROKEN)
     def test_sitemap_entry_is_not_our_site(self, url: str) -> None:
         assert not _same_site(url, "site.com")
+
+    async def test_map_pages_off_the_site_or_broken_are_skipped(self) -> None:
+        """Адреса страниц из карты шли в очередь без проверки: чужой повёл бы
+        обход по чужому сайту под слотом донора, битый ронял разбор разрешений
+        robots и с ним весь обход (ревью e6 #148)."""
+        urls = [BROKEN[0], "https://other.test/x", BROKEN[3], "https://site.com/post/"]
+        body = "".join(f"<url><loc>{url}</loc></url>" for url in urls)
+
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, text=f"<?xml version='1.0'?><urlset>{body}</urlset>")
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        reader = SitemapReader(client, DomainLimiter(delay_sec=0.0, max_delay_sec=0.0))
+        async with client:
+            scan = await reader.scan("site.com", "https://site.com/", [])
+
+        assert scan.urls == ["https://site.com/post/"]
+        assert scan.complete is True
+
+    @pytest.mark.parametrize("url", BROKEN)
+    def test_robots_do_not_allow_a_broken_address(self, url: str) -> None:
+        """Образцы robots к битому адресу не примерить: он не открывается —
+        и когда robots.txt у сайта нет."""
+        assert not parse_robots("User-agent: *\nDisallow:\n", "ParsingPricesBot").allows(url)
+        assert not absent().allows(url)
+
+    @pytest.mark.parametrize("url", BROKEN)
+    def test_broken_address_is_not_a_page_of_ours(self, url: str) -> None:
+        assert not _crawlable(url, "site.com")
 
     def test_redirect_to_a_broken_address_is_not_a_new_host(self) -> None:
         trace = SiteTrace(hosts={"site.com"})

@@ -160,7 +160,7 @@ class SitemapReader:
             scan.files_read += 1
             if stop_on_first:
                 queue.clear()
-            self._absorb(text, scan, queue)
+            self._absorb(text, scan, queue, host)
 
         # Прочитанный файл без адресов — это всё-таки прочитанная карта:
         # у сайта просто нет страниц в ней, и это знание, а не пустота.
@@ -188,8 +188,8 @@ class SitemapReader:
             return None
         return _decode(response, url)
 
-    def _absorb(self, text: str, scan: SitemapScan, queue: list[str]) -> None:
-        """Разложить файл: индекс — в очередь файлов, карта — в адреса."""
+    def _absorb(self, text: str, scan: SitemapScan, queue: list[str], host: str) -> None:
+        """Разложить файл: индекс — в очередь файлов, карта — в адреса сайта."""
         locations = [match.group(1).strip() for match in _LOC.finditer(text)]
         if not locations:
             logger.info("sitemap: файл без единого <loc> — разметка не та, что ожидали")
@@ -199,7 +199,18 @@ class SitemapReader:
             queue.extend(locations)
             return
 
+        # Чужой или битый адрес страницы в очередь не идёт: по чужому сайту
+        # обход ходил бы под слотом донора, а битый («[» без пары) ронял
+        # разбор разрешений robots и с ним весь обход (ревью e6 #148).
+        # Дочерние карты ту же проверку проходят в `scan`, выходя из очереди.
+        pages = [url for url in locations if _same_site(url, host)]
+        if len(pages) < len(locations):
+            logger.info(
+                "sitemap: %s адресов не с сайта или не разбираются — пропущены",
+                len(locations) - len(pages),
+            )
+
         room = self._max_urls - len(scan.urls)
-        if len(locations) > room:
+        if len(pages) > room:
             scan.truncated = True
-        scan.urls.extend(locations[:room])
+        scan.urls.extend(pages[:room])
