@@ -8,6 +8,7 @@
 - **builder:** agent:claude
 - **verifier:** process:ci — обязательные джобы `check`, `web` и `docker`, на PR ещё `gates` и `delivery`; ревью — координатор модуля, мерж — по решению владельца
 - **human_ok_spec:** yes at=2026-10-03 by=human:anthony («даю да» — план фаз; примеры A8 и A9 и нарезка на три PR — решение владельца)
+- **baseline_growth_waiver:** reason=jscpd 4→5.4.0 ради 5 high npm audit (braces, непропатченных версий нет): новая линейка гейта дублей даёт 55 clone-пар против 45 на том же коде — сверено двумя сессиями по JSON-отчётам v4/v5, группы файлов те же (#151) by=human:anthony at=2026-10-03
 - **new_dependency:** no
 - **shared_changes:** общий код части 1.3b — обвязка команды, по контракту слоёв живущая
   вне `features/`. `backend/cli/sales.py` — команда `outreach sales-import`: разбор доводов,
@@ -17,7 +18,7 @@
   `sales/sheet.py`, рост `intake.py`, `cli/sales.py`, `cli/main.py`. Общий код почты,
   `contacts/` и `api/` часть не трогает; сеть — только `httpx` к `docs.google.com` экспортом
   CSV, без ключей. Согласовано с сессией outreach-donors — координатор (03.10: пересечение
-  в `cli/main.py` с их PR второго Ctrl-C — строки разные, кто второй — переносится)
+  в `cli/main.py` с их PR второго Ctrl-C — строки разные, кто второй — переносится). #151 (вне продаж, под активным срезом): `frontend/package.json`, `frontend/package-lock.json`, `scripts/lint/jscpd_baseline.txt` — jscpd 4→5.4.0 ради 5 high и снимок дублей 45→55 (смена линейки), согласовано: e6 (ревью), prepare-04 (контур) уведомлён, waiver by=human:anthony.
 
 Прежний активный срез `sales-v1-boundary` закрыт: его статус —
 в `delivery/archive/sales-v1-boundary.md`.
