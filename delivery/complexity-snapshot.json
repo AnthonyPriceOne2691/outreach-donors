@@ -417,7 +417,7 @@
       "worst": "_report:180"
     },
     "backend/cli/main.py": {
-      "lines": 456,
+      "lines": 457,
       "complexity": 9,
       "worst": "_print_report:244"
     },
@@ -427,9 +427,9 @@
       "worst": "cmd_review_queue:31"
     },
     "backend/cli/sales.py": {
-      "lines": 57,
-      "complexity": 3,
-      "worst": "run_hypothesis_add:36"
+      "lines": 171,
+      "complexity": 7,
+      "worst": "_mapping:112"
     },
     "backend/cli/senders_admin.py": {
       "lines": 134,
@@ -1372,19 +1372,24 @@
       "worst": "guess:70"
     },
     "backend/features/sales/hypotheses.py": {
-      "lines": 56,
+      "lines": 68,
       "complexity": 6,
-      "worst": "add:37"
+      "worst": "add:49"
     },
     "backend/features/sales/intake.py": {
-      "lines": 320,
+      "lines": 347,
       "complexity": 8,
-      "worst": "preview:145"
+      "worst": "preview:172"
     },
     "backend/features/sales/models.py": {
       "lines": 108,
       "complexity": 2,
       "worst": "_enum:47"
+    },
+    "backend/features/sales/sheet.py": {
+      "lines": 101,
+      "complexity": 7,
+      "worst": "export_url:42"
     },
     "backend/features/serp/__init__.py": {
       "lines": 1,
