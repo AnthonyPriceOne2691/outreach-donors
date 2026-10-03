@@ -19,6 +19,8 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from backend.shared.net.url_guard import guarded_client
+
 TIMEOUT_S = 30.0
 
 CLOSED = "таблица не открыта по ссылке — откройте доступ или загрузите CSV"
@@ -98,3 +100,9 @@ def _judge(status: int, body: bytes, url: str) -> None:
         raise SheetUnavailableError(
             f"Google ответил кодом {status} — повторите позже или загрузите CSV"
         )
+
+
+def client() -> httpx.AsyncClient:
+    """Клиент для похода по ссылке, которую дал человек: страж проекта — приватные
+    адреса, адреса редиректов и потолок тела (`shared.net.url_guard`), таймаут таблицы."""
+    return guarded_client(timeout=TIMEOUT_S)

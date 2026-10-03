@@ -178,3 +178,19 @@ async def test_sheet_bigger_than_the_ceiling_is_refused(
 )
 def test_file_name_from_the_screen_is_only_a_name(name: str, source: str) -> None:
     assert intake.read_bytes(b"email\n", name).source == source
+
+
+def test_client_is_the_project_guard_with_the_sheet_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ссылку даёт человек: клиент — страж проекта (приватные адреса, адреса
+    редиректов, потолок тела) с таймаутом таблицы. Замечание ревью общего кода."""
+    seen: dict[str, object] = {}
+
+    def fake(*, timeout: object, **_: object) -> httpx.AsyncClient:
+        seen["timeout"] = timeout
+        return httpx.AsyncClient(transport=httpx.MockTransport(lambda _r: httpx.Response(204)))
+
+    monkeypatch.setattr(sheet, "guarded_client", fake)
+    assert isinstance(sheet.client(), httpx.AsyncClient)
+    assert seen == {"timeout": sheet.TIMEOUT_S}

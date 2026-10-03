@@ -121,6 +121,18 @@ async def test_file_without_a_header_loads_after_mapping_by_hand(
             2,
             "База не прочитана: колонки «Mail» нет; есть: Почта, Имя\n",
         ),
+        (
+            ["--map", "email=0"],
+            "сайты EN",
+            2,
+            "База не прочитана: колонки 0 нет, их в файле 2: email не сопоставить",
+        ),
+        (
+            ["--map", "email=99"],
+            "сайты EN",
+            2,
+            "База не прочитана: колонки 99 нет, их в файле 2: email не сопоставить",
+        ),
     ],
 )
 async def test_each_outcome_has_its_words_and_its_code(

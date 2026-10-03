@@ -16,7 +16,6 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
-import httpx
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.config import storage
@@ -98,7 +97,7 @@ async def run_import(session: AsyncSession, args: argparse.Namespace) -> int:
 
 async def _read(args: argparse.Namespace) -> intake.Preview:
     if args.link:
-        async with httpx.AsyncClient(timeout=sheet.TIMEOUT_S) as http:
+        async with sheet.client() as http:
             table = await intake.read_link(args.link, http, delimiter=args.delimiter)
     else:
         table = await asyncio.to_thread(intake.read_file, args.file, delimiter=args.delimiter)
