@@ -34,9 +34,21 @@ class NameTakenError(HypothesisError):
     """Гипотеза с таким именем уже есть."""
 
 
+def _clean(name: str) -> str:
+    return " ".join(name.split())
+
+
+async def find(session: AsyncSession, name: str) -> SalesHypothesisModel | None:
+    """Гипотеза по имени — так её выбирают при загрузке базы."""
+    rows = await session.scalars(
+        select(SalesHypothesisModel).where(SalesHypothesisModel.name == _clean(name))
+    )
+    return rows.first()
+
+
 async def add(session: AsyncSession, name: str, description: str | None) -> SalesHypothesisModel:
     """Завести гипотезу. Запись — в транзакции вызывающего, коммит — за ним."""
-    clean = " ".join(name.split())
+    clean = _clean(name)
     if not clean:
         raise BadNameError(
             f"нет имени (передано {name!r}) — по нему гипотезу выбирают при загрузке базы"

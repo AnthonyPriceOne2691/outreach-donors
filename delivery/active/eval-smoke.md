@@ -1,6 +1,6 @@
 # Eval smoke — this shipment
 
-Derived from spec acceptance. Run during verify. Поставка — часть 1.3a (1 из 3).
+Derived from spec acceptance. Run during verify. Поставка — часть 1.3b (2 из 3); пункты части 1 — из #147.
 
 - [x] A1–A4, A6, A8 — `pytest tests/test_sales_intake.py` на базе дерева:
       каждое правило приёма — тест с точными значениями и текстами; A8 — лиды,
@@ -9,5 +9,8 @@ Derived from spec acceptance. Run during verify. Поставка — часть
       в процессе, значение `sales_leads_imported` — последнее в `auditaction`.
 - [x] Новые тесты на старом коде — красные (verify-report).
 - [x] Обратные прогоны и ручные мутанты ядра — красные (verify-report).
-- [ ] A2 и A6 через консоль, A5 и A9 — ссылка на Google-таблицу: часть 1.3b.
+- [x] A2 и A6 через консоль, A5 и A9 — ссылка на Google-таблицу —
+      `pytest tests/test_sales_intake_cli.py tests/test_sales_intake_sheet.py` (32):
+      закрытая таблица при 200, 401 и 403, нет таблицы и листа, сеть/429/5xx, предел
+      размера, байты с экрана; Google — только `MockTransport`.
 - [ ] A7, а также A5, A6 и A8 через API: часть 1.3c.
