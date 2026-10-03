@@ -1382,9 +1382,14 @@
       "worst": "—"
     },
     "backend/features/sales/columns.py": {
-      "lines": 78,
+      "lines": 80,
       "complexity": 3,
-      "worst": "guess:70"
+      "worst": "guess:72"
+    },
+    "backend/features/sales/geo.py": {
+      "lines": 396,
+      "complexity": 4,
+      "worst": "_by_name:351"
     },
     "backend/features/sales/hypotheses.py": {
       "lines": 68,
@@ -1392,9 +1397,9 @@
       "worst": "add:49"
     },
     "backend/features/sales/intake.py": {
-      "lines": 347,
+      "lines": 392,
       "complexity": 8,
-      "worst": "preview:172"
+      "worst": "preview:176"
     },
     "backend/features/sales/models.py": {
       "lines": 108,
