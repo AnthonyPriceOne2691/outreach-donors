@@ -31,10 +31,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 T = Thresholds(min_dr=20, min_org_traffic=500, min_refdomains=100, min_keywords=300)
+# Числа выдуманы: лимиты настоящего аккаунта в публичный репозиторий не идут.
 QUOTA = {
-    "units_limit_workspace": 8_000_000,
+    "units_limit_workspace": 6_400_000,
     "units_usage_workspace": 0,
-    "units_limit_api_key": 2_000_000,
+    "units_limit_api_key": 1_600_000,
     "units_usage_api_key": 0,
 }
 GOOD = {"domain_rating": 40, "org_traffic": 9000, "refdomains": 500, "org_keywords": 2000}
