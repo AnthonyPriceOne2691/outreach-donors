@@ -28,7 +28,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import urldefrag, urljoin, urlparse
+from urllib.parse import urldefrag
 
 import httpx
 from selectolax.parser import HTMLParser
@@ -45,6 +45,7 @@ from backend.features.crawl.limiter import DomainLimiter
 from backend.features.crawl.links import OutLink, harvest
 from backend.features.crawl.robots import RobotsRules, RobotsStatus
 from backend.features.crawl.sitemap import SitemapReader, SitemapScan
+from backend.shared.net.url_parts import join_url, parse_url
 
 logger = logging.getLogger(__name__)
 
@@ -112,9 +113,9 @@ class CrawlReport:
 
 
 def _crawlable(url: str, host: str) -> bool:
-    """Наш ли это адрес и страница ли это вообще."""
-    parts = urlparse(url)
-    if parts.scheme not in ("http", "https"):
+    """Наш ли это адрес и страница ли это вообще. Битый адрес — не наш."""
+    parts = parse_url(url)
+    if parts is None or parts.scheme not in ("http", "https"):
         return False
     netloc = parts.netloc.lower().split(":")[0]
     if not (netloc == host or netloc.endswith(f".{host}")):
@@ -135,7 +136,10 @@ def same_site_links(html: str, page_url: str, host: str) -> list[str]:
         href = (node.attributes.get("href") or "").strip()
         if not href or href.startswith(("mailto:", "tel:", "javascript:", "#")):
             continue
-        absolute, _ = urldefrag(urljoin(page_url, href))
+        joined = join_url(page_url, href)
+        if joined is None:
+            continue
+        absolute, _ = urldefrag(joined)
         if absolute in seen or not _crawlable(absolute, host):
             continue
         seen.add(absolute)

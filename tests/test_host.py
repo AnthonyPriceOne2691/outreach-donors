@@ -51,7 +51,15 @@ def test_known_gap_platforms_outside_psl(raw: str) -> None:
     assert normalize_host(raw) == root
 
 
-@pytest.mark.parametrize("raw", ["", "   ", None, "не-адрес", "http://", "localhost", 42])
+@pytest.mark.parametrize(
+    "raw",
+    [
+        *("", "   ", None, "не-адрес", "http://", "localhost", 42),
+        # `urlsplit` бросал ValueError: «[» без пары — начало IPv6, полноширинная
+        # косая черта меняет хост после NFKC (находка «Продаж», 03.10.2026).
+        *("[", "http://[::1", "https://exa[mple.com/", "https://example.com／x"),
+    ],
+)
 def test_garbage_gives_empty_string(raw: object) -> None:
     """Пустая строка, а не исключение: вызывающий выходит до платного вызова."""
     assert normalize_host(raw) == ""  # type: ignore[arg-type]

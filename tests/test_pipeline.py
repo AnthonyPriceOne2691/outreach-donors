@@ -88,11 +88,11 @@ class TestCandidates:
     async def test_unparsable_urls_are_counted_not_swallowed(self) -> None:
         """Если бы мусор молча пропадал, из отчёта нельзя было бы понять,
         почему из тысячи результатов получилось двести доменов."""
-        serp = FakeSerp({"a": ["https://good.com", "не-адрес", ""]})
+        serp = FakeSerp({"a": ["https://good.com", "не-адрес", "", "https://exa[mple.com/"]})
         candidates = await gather_candidates(serp, ["a"], "us")
 
         assert candidates.hosts == ["good.com"]
-        assert candidates.dropped == 2
+        assert candidates.dropped == 3
 
     async def test_each_host_remembers_its_keywords(self) -> None:
         """Какие ключи дают доноров, а какие вендоров, видно только по этой

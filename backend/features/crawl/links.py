@@ -35,12 +35,13 @@ import logging
 import re
 import unicodedata
 from dataclasses import dataclass
-from urllib.parse import urldefrag, urljoin, urlparse
+from urllib.parse import ParseResult, urldefrag
 
 from selectolax.parser import HTMLParser, Node
 
 from backend.features.crawl.article import extract_article, strip_structural_noise
 from backend.features.donors.host import normalize_host
+from backend.shared.net.url_parts import join_url, parse_url
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +137,22 @@ def _is_external(target_root: str, target_host: str, site_root: str) -> bool:
     return not (target_host == site_root or target_host.endswith(f".{site_root}"))
 
 
+def _resolve(page_url: str, href: str) -> tuple[str, ParseResult] | None:
+    """Ссылка со страницы → абсолютный адрес http(s) без якоря и его разбор.
+
+    Чужая схема и битая ссылка — `None`: «[» без пары или полноширинная «／»
+    в адресе роняли разбор всей страницы (`shared.net.url_parts`).
+    """
+    joined = join_url(page_url, href)
+    if joined is None:
+        return None
+    absolute, _ = urldefrag(joined)
+    parts = parse_url(absolute)
+    if parts is None or parts.scheme not in ("http", "https"):
+        return None
+    return absolute, parts
+
+
 def collect_links(
     body: Node, page_url: str, site_host: str, *, in_body: bool = True
 ) -> list[OutLink]:
@@ -154,11 +171,11 @@ def collect_links(
         if not href or href.startswith("#") or href.lower().startswith(_SKIP_SCHEMES):
             continue
 
-        absolute, _ = urldefrag(urljoin(page_url, href))
-        parts = urlparse(absolute)
-        if parts.scheme not in ("http", "https"):
+        resolved = _resolve(page_url, href)
+        if resolved is None:
             continue
 
+        absolute, parts = resolved
         target_host = parts.netloc.lower().split(":")[0]
         known_root = normalize_host(target_host)
         # Суффикс неизвестен снимку — берём хост как есть и помечаем.

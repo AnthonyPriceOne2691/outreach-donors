@@ -20,16 +20,22 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from urllib.parse import urlparse
 
 from backend.features.donors.home_signals import HomeSignals
 from backend.features.serp.protocol import SerpProvider
+from backend.shared.net.url_parts import parse_url
 
 #: Сколько заголовков других страниц сайта уходит арбитру вместо меню.
 MAX_PAGES = 8
 
 #: Страна запроса `site:` роли почти не играет: спрашиваем про один домен.
 INDEX_COUNTRY = "us"
+
+
+def _is_home(url: str) -> bool:
+    """Корень сайта — адрес без пути. Битый адрес из выдачи корнем не считается."""
+    parsed = parse_url(url)
+    return parsed is not None and not parsed.path.strip("/")
 
 
 async def index_homes(
@@ -45,7 +51,7 @@ async def index_homes(
         rows = answers.get(f"site:{host}", [])
         if not rows:
             continue
-        root = next((row for row in rows if not urlparse(row.url).path.strip("/")), None)
+        root = next((row for row in rows if _is_home(row.url)), None)
         first = root or rows[0]
         pages = tuple(
             (row.title or "").strip()
