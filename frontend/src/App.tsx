@@ -34,6 +34,7 @@ import { ThreadPage } from './threads/ThreadPage';
 import { ThreadsPage } from './threads/ThreadsPage';
 import { UsersPage } from './users/UsersPage';
 import { RunReviewPage } from './review/RunReviewPage';
+import { SalesPage } from './sales/SalesPage';
 import { SelectionPage } from './selection/SelectionPage';
 
 export function createQueryClient(): QueryClient {
@@ -120,6 +121,14 @@ export function AppRoutes() {
           element={
             <RequireAccess permission="view">
               <AdvertisersPage />
+            </RequireAccess>
+          }
+        />
+        <Route
+          path="/sales"
+          element={
+            <RequireAccess permission="sales">
+              <SalesPage />
             </RequireAccess>
           }
         />
