@@ -27,9 +27,9 @@
       "worst": "of:37"
     },
     "backend/api/app.py": {
-      "lines": 86,
+      "lines": 88,
       "complexity": 1,
-      "worst": "create_app:42"
+      "worst": "create_app:43"
     },
     "backend/api/auth/__init__.py": {
       "lines": 1,
@@ -82,9 +82,9 @@
       "worst": "of:159"
     },
     "backend/api/errors.py": {
-      "lines": 144,
+      "lines": 153,
       "complexity": 3,
-      "worst": "handle:130"
+      "worst": "handle:139"
     },
     "backend/api/events/__init__.py": {
       "lines": 1,
@@ -230,6 +230,21 @@
       "lines": 227,
       "complexity": 4,
       "worst": "of:167"
+    },
+    "backend/api/sales/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/api/sales/routes.py": {
+      "lines": 93,
+      "complexity": 6,
+      "worst": "_found:46"
+    },
+    "backend/api/sales/schemas.py": {
+      "lines": 48,
+      "complexity": 1,
+      "worst": "of:33"
     },
     "backend/api/selection/__init__.py": {
       "lines": 1,
