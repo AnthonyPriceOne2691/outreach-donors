@@ -1,15 +1,13 @@
 # Eval smoke — this shipment
 
-Derived from spec acceptance. Run during verify.
+Derived from spec acceptance. Run during verify. Поставка — часть 1.3a (1 из 3).
 
-- [x] A1 — `pytest tests/test_sales_boundary.py`: импорт продаж, подложенный
-      в каждый из четырёх пакетов почты на копии дерева, краснит гейт слоёв;
-      без импорта и без контракта тот же гейт зелёный.
-- [x] A1 живьём — тот же импорт в самом `backend/features/letters/` →
-      `bash scripts/lint/check_layers_gate.sh` красный, после возврата зелёный.
-      Правило depcruise — так же: импорт экрана продаж в экран почты.
-- [x] A2 — числа файлов `sales/` у ruff, mypy, `scripts/gates.py`,
-      `lint-imports`, ратчета сложности, DRY и diff-coverage — все больше нуля,
-      в verify-report.
-- [x] A3 — `python scripts/contour_waves.py --base <база PR>`: exit 0,
-      «В1 deployed», нарушений нет.
+- [x] A1–A4, A6, A8 — `pytest tests/test_sales_intake.py` на базе дерева:
+      каждое правило приёма — тест с точными значениями и текстами; A8 — лиды,
+      домены пачками по одному, журнал; строк `contacts` нет.
+- [x] Миграция журнала — `pytest tests/test_sales_model.py`: исполняется
+      в процессе, значение `sales_leads_imported` — последнее в `auditaction`.
+- [x] Новые тесты на старом коде — красные (verify-report).
+- [x] Обратные прогоны и ручные мутанты ядра — красные (verify-report).
+- [ ] A2 и A6 через консоль, A5 и A9 — ссылка на Google-таблицу: часть 1.3b.
+- [ ] A7, а также A5, A6 и A8 через API: часть 1.3c.
