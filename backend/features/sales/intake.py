@@ -1,4 +1,4 @@
-"""Приём базы лидов: файл → предпросмотр с отчётом → лиды.
+"""Приём базы лидов: файл или Google-таблица → предпросмотр с отчётом → лиды.
 
 **Читает общий `contacts.sweep_input.read_records`** — второго читателя CSV нет:
 кодировка (cp1251 из Excel — отказ словами), BOM, разделитель и номера строк файла
@@ -16,14 +16,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import dataclasses
 import logging
 import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import httpx
 from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,6 +37,7 @@ from backend.features.contacts.sweep_input import host_from_cell, read_records
 from backend.features.core.domain import AuditAction
 from backend.features.donors.host import normalize_host
 from backend.features.donors.repository import DonorRepository
+from backend.features.sales import sheet
 from backend.features.sales.columns import LeadField, Mapping, guess
 from backend.features.sales.models import (
     LeadSource,
@@ -44,6 +48,9 @@ from backend.features.sales.models import (
 
 logger = logging.getLogger(__name__)
 
+#: Предел файла и таблицы по ссылке; 5000 лидов — около половины мегабайта.
+MAX_BYTES = 10 * 1024 * 1024
+SHEET_NAME = "Google-таблица"
 NO_ADDRESS = "нет адреса"
 EMAIL_LENGTH = 254  # длиннее адресов не бывает, RFC 5321
 HOST_LENGTH = 253  # и имён сайтов, RFC 1035
@@ -60,6 +67,7 @@ _CODES = {
         "язык не записан: ждём код — en, ru",
     ),
 }
+_UNSAFE_NAME = re.compile(r"[^\w.\- ]")
 
 
 class IntakeError(ValueError):
@@ -140,6 +148,25 @@ def read_file(path: Path, *, delimiter: str | None = None) -> Table:
     if not records:
         raise IntakeError(f"в файле {path.name} нет ни одной строки")
     return Table(path.name, records)
+
+
+def read_bytes(data: bytes, name: str, *, delimiter: str | None = None) -> Table:
+    """Присланное с экрана или скачанное по ссылке — через временный файл: общий
+    читатель берёт путь. Имя файла сохраняется — его называют отказы."""
+    if len(data) > MAX_BYTES:
+        raise IntakeError(f"файл {name} больше {MAX_BYTES / 2**20:g} МБ — разделите базу")
+    clean = _UNSAFE_NAME.sub("_", Path(name).name).lstrip(".")[:100] or "база.csv"
+    with tempfile.TemporaryDirectory(prefix="sales-intake-") as folder:
+        path = Path(folder) / clean
+        path.write_bytes(data)
+        return read_file(path, delimiter=delimiter)
+
+
+async def read_link(link: str, http: httpx.AsyncClient, *, delimiter: str | None = None) -> Table:
+    """Лист Google-таблицы — тем же путём, что файл."""
+    data = await sheet.fetch(link, http, limit=MAX_BYTES)
+    table = await asyncio.to_thread(read_bytes, data, f"{SHEET_NAME}.csv", delimiter=delimiter)
+    return dataclasses.replace(table, source=SHEET_NAME)
 
 
 def preview(table: Table, mapping: Mapping | None = None, *, header: bool | None = None) -> Preview:
