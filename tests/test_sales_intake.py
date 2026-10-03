@@ -88,7 +88,7 @@ def test_a1_semicolon_and_russian_titles_are_mapped_by_themselves(tmp_path: Path
 
 def test_titles_match_without_case_and_separators_and_the_left_column_wins() -> None:
     one_per_field = ["E_MAIL", "Full Name", "first-name", "Фамилия", "Job.Title"]
-    one_per_field += ["ORGANISATION", "Web Site", "Страна:", "  LANG  "]
+    one_per_field += ["ORGANISATION", "Web Site", "Страна:", "Time-Zone", "  LANG  "]
     assert guess(one_per_field) == {field: index for index, field in enumerate(LeadField)}
     assert guess(["Почта", "Email", "Заметка"]) == {LeadField.EMAIL: 0}
     assert key("  First_Name: ") == "first name"
@@ -223,12 +223,12 @@ def test_country_and_language_are_codes_or_a_note(tmp_path: Path) -> None:
     )
     found = _preview(tmp_path, text)
 
-    assert [(lead.country, lead.language) for lead in found.leads] == [
-        ("de", "en-us"),
-        (None, None),
+    # Страна — кодом и словом (срез 1.4), пояс — по стране; язык — только кодом.
+    assert [(lead.country, lead.timezone, lead.language) for lead in found.leads] == [
+        ("de", "Europe/Berlin", "en-us"),
+        ("de", "Europe/Berlin", None),
     ]
     assert found.problems == [
-        Problem(3, "страна не записана: ждём код — de, us", "Germany", loaded=True),
         Problem(3, "язык не записан: ждём код — en, ru", "английский", loaded=True),
     ]
 
