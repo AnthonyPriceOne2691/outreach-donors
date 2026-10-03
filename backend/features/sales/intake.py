@@ -7,8 +7,13 @@
 
 **Плохая строка стоит строки, а не загрузки**: в отчёте номер строки файла, причина
 словами и ячейка как есть. Поле, которое разрешено не знать (сайт при рабочей почте,
-страна, язык), непонятым строки не стоит — лид загружается с замечанием (урок L67
+страна, пояс, язык), непонятым строки не стоит — лид загружается с замечанием (урок L67
 соседнего проекта).
+
+**Страна — кодом по таблице названий (`geo.py`), пояс — из колонки файла, иначе по
+стране.** Пояс нужен отправке: письмо уходит в рабочие часы получателя. У страны
+с несколькими поясами пояс по стране — столичный, и это замечание: точнее скажет
+колонка файла.
 
 **Адрес лида — только в `sales_leads.email`** (решение (а) от 01.10): строк `contacts`
 приём не заводит. **Предпросмотр базы не касается** — пишет только `load`.
@@ -37,7 +42,7 @@ from backend.features.contacts.sweep_input import host_from_cell, read_records
 from backend.features.core.domain import AuditAction
 from backend.features.donors.host import normalize_host
 from backend.features.donors.repository import DonorRepository
-from backend.features.sales import sheet
+from backend.features.sales import geo, sheet
 from backend.features.sales.columns import LeadField, Mapping, guess
 from backend.features.sales.models import (
     LeadSource,
@@ -59,14 +64,11 @@ SAMPLE_ROWS = 5  # строк данных, по которым сопостав
 #: Доменов на запрос: хосты уходят параметрами, а их у Postgres не больше 32 767.
 CHUNK = 1000
 
-#: Коды страны и языка: не код — поле пусто, замечание в отчёте.
-_CODES = {
-    LeadField.COUNTRY: (re.compile(r"[a-z]{2}"), "страна не записана: ждём код — de, us"),
-    LeadField.LANGUAGE: (
-        re.compile(r"[a-z]{2,3}(-[a-z0-9]{2,8})?"),
-        "язык не записан: ждём код — en, ru",
-    ),
-}
+#: Код языка: не код — поле пусто, замечание в отчёте.
+_LANGUAGE = re.compile(r"[a-z]{2,3}(-[a-z0-9]{2,8})?")
+NO_LANGUAGE = "язык не записан: ждём код — en, ru"
+NO_COUNTRY = "страна не распознана: ждём код или название — de, Germany, Германия"
+NO_ZONE = "часовой пояс не распознан: ждём имя из базы поясов — Europe/Berlin"
 _UNSAFE_NAME = re.compile(r"[^\w.\- ]")
 
 
@@ -107,7 +109,9 @@ class Lead:
     name: str | None = None
     position: str | None = None
     company: str | None = None
+    #: ISO-2 нижним регистром; пояс — имя из базы поясов (`Europe/Berlin`).
     country: str | None = None
+    timezone: str | None = None
     language: str | None = None
 
 
@@ -233,7 +237,7 @@ def _lead(line: int, row: dict[LeadField, str]) -> tuple[Lead | None, list[Probl
     raw = row.get(LeadField.EMAIL, "")
     email = "".join(raw.split()).lower()
     mailbox = email.rpartition("@")[2]
-    if len(email) > EMAIL_LENGTH or not EMAIL_RE.fullmatch(email) or not _host(mailbox):
+    if len(email) > EMAIL_LENGTH or not EMAIL_RE.fullmatch(email) or not host_key(mailbox):
         return None, [Problem(line, "не адрес почты" if email else NO_ADDRESS, raw)]
     domain, note = _company(line, mailbox, raw, row.get(LeadField.WEBSITE, ""))
     notes = [note] if note else []
@@ -243,6 +247,8 @@ def _lead(line: int, row: dict[LeadField, str]) -> tuple[Lead | None, list[Probl
     def value(field: LeadField, text: str | None = None) -> str | None:
         return _value(line, field, row.get(field, "") if text is None else text, notes)
 
+    where = row.get(LeadField.COUNTRY, "")
+    country = _country(line, where, notes)
     lead = Lead(
         line,
         email,
@@ -250,18 +256,58 @@ def _lead(line: int, row: dict[LeadField, str]) -> tuple[Lead | None, list[Probl
         name=value(LeadField.NAME, _person(row)),
         position=value(LeadField.POSITION),
         company=value(LeadField.COMPANY),
-        country=value(LeadField.COUNTRY),
+        country=country,
+        timezone=_timezone(line, row.get(LeadField.TIMEZONE, ""), (where, country), notes),
         language=value(LeadField.LANGUAGE),
     )
     return lead, notes
 
 
+def _country(line: int, text: str, notes: list[Problem]) -> str | None:
+    """`DE`, `Germany`, `Германия` → `de` по таблице `geo`. Непонятое — пусто и замечание."""
+    if not text:
+        return None
+    code = geo.country_code(text)
+    if code is None:
+        notes.append(Problem(line, NO_COUNTRY, text, loaded=True))
+    return code
+
+
+def _timezone(
+    line: int, text: str, country: tuple[str, str | None], notes: list[Problem]
+) -> str | None:
+    """Пояс из колонки файла, иначе по стране (ячейка как в файле и её код).
+
+    Колонка побеждает: она точнее страны (у США четыре пояса), а непонятая —
+    замечание и пояс по стране. У страны с несколькими поясами пояс столичный
+    (решение владельца 04.10) — с замечанием: окно отправки есть, а точнее
+    скажет только колонка.
+    """
+    if text:
+        if zone := geo.zone_name(text):
+            return zone
+        notes.append(Problem(line, NO_ZONE, text, loaded=True))
+    cell, code = country
+    if code is None:
+        return None
+    zone = geo.timezone_for(code)
+    if zone is None:
+        none = f"часовой пояс не определён: у страны {code} нет единого пояса — нужна колонка пояса"
+        notes.append(Problem(line, none, cell, loaded=True))
+    elif geo.by_capital(code):
+        capital = (
+            f"часовой пояс по столице — {zone}: у страны {code} их несколько, в файле не задан"
+        )
+        notes.append(Problem(line, capital, cell, loaded=True))
+    return zone
+
+
 def _company(line: int, mailbox: str, raw: str, site: str) -> tuple[str | None, Problem | None]:
     """Домен компании — из сайта, иначе из рабочей почты. Бесплатная почта его не даёт."""
-    host = _host(site)
+    host = host_key(site)
     if host:
         return host, None
-    root = _host(mailbox)
+    root = host_key(mailbox)
     if not {mailbox, root} & FREE_MAILBOX_DOMAINS:
         unread = f"сайт не разобран — домен компании {root} взят из почты"
         return root, Problem(line, unread, site, loaded=True) if site else None
@@ -271,7 +317,7 @@ def _company(line: int, mailbox: str, raw: str, site: str) -> tuple[str | None, 
     return None, Problem(line, f"нет сайта компании: {mailbox} — бесплатная почта", raw)
 
 
-def _host(value: str) -> str:
+def host_key(value: str) -> str:
     """Хост → корневой домен, как у доноров: `domains.host` — ключ дедупликации.
 
     Сначала `host_from_cell`: он не бросает на мусоре вроде `site.com[old]`.
@@ -291,13 +337,12 @@ def _person(row: dict[LeadField, str]) -> str:
 
 
 def _value(line: int, field: LeadField, text: str, notes: list[Problem]) -> str | None:
-    """Код страны и языка — нижним регистром, текст — по ширине колонки. Непонятое
+    """Код языка — нижним регистром, текст — по ширине колонки. Непонятое
     строки не стоит: поле пусто или обрезано, замечание — в отчёте."""
-    if field in _CODES:
-        pattern, reason = _CODES[field]
-        if not text or pattern.fullmatch(text.lower()):
+    if field is LeadField.LANGUAGE:
+        if not text or _LANGUAGE.fullmatch(text.lower()):
             return text.lower() or None
-        notes.append(Problem(line, reason, text, loaded=True))
+        notes.append(Problem(line, NO_LANGUAGE, text, loaded=True))
         return None
     if len(text) > TEXT_LENGTH:
         notes.append(Problem(line, f"длиннее {TEXT_LENGTH} знаков — обрезано", text, loaded=True))

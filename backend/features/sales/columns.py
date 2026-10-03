@@ -27,6 +27,7 @@ class LeadField(StrEnum):
     COMPANY = "company"
     WEBSITE = "website"
     COUNTRY = "country"
+    TIMEZONE = "timezone"
     LANGUAGE = "language"
 
 
@@ -50,6 +51,7 @@ SYNONYMS: dict[LeadField, tuple[str, ...]] = {
         "сайт", "домен", "веб-сайт", "сайт компании",
     ),
     LeadField.COUNTRY: ("country", "страна"),
+    LeadField.TIMEZONE: ("timezone", "time zone", "tz", "часовой пояс", "пояс", "таймзона"),
     LeadField.LANGUAGE: ("language", "lang", "язык"),
 }  # fmt: skip
 
