@@ -1,4 +1,5 @@
-/** Ответы сервера, снятые с живого прогона 19.09.2026. */
+/** Ответы сервера, снятые с живого прогона 19.09.2026. Право `sales` — с 1.5:
+ *  у админа всё, у оператора — в роли (решение владельца 01.10). */
 
 import type { Me, OverviewView, SignedIn, UserCard } from '../api/types';
 import type { Answer } from './server';
@@ -7,7 +8,7 @@ export const ADMIN: Me = {
   id: 1,
   email: 'админ@site.com',
   role: 'admin',
-  permissions: ['prices', 'run', 'send', 'senders', 'settings', 'users', 'view'],
+  permissions: ['prices', 'run', 'sales', 'send', 'senders', 'settings', 'users', 'view'],
   must_change_password: false,
   last_login_at: '2026-09-19T10:24:00+00:00',
 };
@@ -16,7 +17,7 @@ export const OPERATOR: Me = {
   id: 2,
   email: 'оператор@site.com',
   role: 'operator',
-  permissions: ['prices', 'run', 'settings', 'view'],
+  permissions: ['prices', 'run', 'sales', 'settings', 'view'],
   must_change_password: false,
   last_login_at: null,
 };
