@@ -211,6 +211,9 @@ async def _judge_candidates(
         return None
 
     fresh = await deps.donors.fresh_judged(hosts)
+    # Потолок модели — до вызова: прогон останавливается причиной, как при
+    # нехватке юнитов Ahrefs, а не тратит сверх (`runs/failures.REFUSALS`).
+    await deps.runs.ensure_llm_within_cap(run_id=run.id)
     async with (
         httpx.AsyncClient(timeout=llm_cfg.TIMEOUT_S) as http,
         guarded_client(timeout=judge_cfg.HOME_TIMEOUT_SEC) as home,

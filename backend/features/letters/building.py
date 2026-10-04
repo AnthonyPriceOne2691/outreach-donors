@@ -206,6 +206,9 @@ class BuildReport:
     #: Доноры, чей сохранённый адрес не прошёл нынешний фильтр качества:
     #: причина → сколько. Письма им не готовятся.
     bad_addresses: dict[str, int] = field(default_factory=dict)
+    #: Сборка остановлена потолком расхода на модель: причина словами.
+    #: Подготовленные до остановки письма в очереди, остальные — следующей сборкой.
+    stopped: str | None = None
 
 
 class QueueBuilder:
@@ -266,6 +269,8 @@ class QueueBuilder:
         for candidate in candidates:
             if self._bad_address(candidate, report):
                 continue
+            if not await self._within_cap(request, report):
+                break
             await self._prepare(
                 candidate,
                 letter_template,
@@ -295,6 +300,17 @@ class QueueBuilder:
         if campaign.letter_template:
             return of_campaign(campaign.stage, campaign.letter_template)
         return self._template or for_stage(campaign.stage)
+
+    async def _within_cap(self, request: BuildRequest, report: BuildReport) -> bool:
+        """Потолок расхода на модель — до каждого письма. Достигнут — сборка
+        останавливается с причиной в отчёте; подготовленное остаётся в очереди."""
+        try:
+            await usage.ensure_llm_within_cap(self._session, run_id=request.run_id)
+        except usage.LlmCapExceededError as exc:
+            report.stopped = str(exc)
+            logger.warning("письма: сборка остановлена — %s", exc)
+            return False
+        return True
 
     @staticmethod
     def _bad_address(candidate: Candidate, report: BuildReport) -> bool:

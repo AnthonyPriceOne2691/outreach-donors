@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable, Sequence
+from datetime import UTC, datetime, time, timedelta
 from typing import Any
 
 from rq import get_current_job
@@ -26,6 +27,7 @@ from backend.config.startup_checks import check_collect, check_storage
 from backend.features.ahrefs.client import AhrefsClient
 from backend.features.contacts.search import search_contacts
 from backend.features.core.domain import Stage
+from backend.features.core.usage import LlmCapExceededError
 from backend.features.donors.doors import door_check
 from backend.features.donors.repository import DonorRepository
 from backend.features.letters.building import BuildRequest, QueueBuilder
@@ -43,7 +45,13 @@ from backend.features.runs.stopped import tell_stopped
 from backend.features.runs.thresholds import defaults
 from backend.features.serp.factory import build_provider
 from backend.shared.logs import setup_logging
-from backend.shared.queue import remember_job_error
+from backend.shared.queue import (
+    PARSE_JOB,
+    parse_job_id,
+    remember_job_error,
+    runs_queue,
+    with_retries,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -369,4 +377,28 @@ def parse_reply(reply_id: int) -> dict[str, Any]:
     """
     setup_logging()
     check_storage()
-    return _settled(lambda: asyncio.run(_parse_reply(reply_id)), what=f"разбор ответа №{reply_id}")
+    return _settled(lambda: _parse_or_postpone(reply_id), what=f"разбор ответа №{reply_id}")
+
+
+def _parse_or_postpone(reply_id: int) -> dict[str, Any]:
+    """Потолок расхода на модель — не отказ разбора, а «не сегодня».
+
+    Для прогона потолок — постоянный отказ (`runs/failures.REFUSALS`), и
+    `_settled` закрыл бы им и разбор: ответ с ценой остался бы неразобранным,
+    а повторы очереди (минуты) дневной потолок не переживают. Поэтому здесь
+    разбор ставится заново на начало следующих суток UTC — когда дневной
+    счёт обнулится (ревью «Продаж» #158).
+    """
+    try:
+        return asyncio.run(_parse_reply(reply_id))
+    except LlmCapExceededError as exc:
+        when = next_utc_day(datetime.now(UTC))
+        job_id = f"{parse_job_id(reply_id)}-after-cap-{when:%Y%m%d}"
+        runs_queue().enqueue_at(when, PARSE_JOB, reply_id, job_id=job_id, **with_retries())
+        logger.warning("разбор ответа №%s отложен до %s: %s", reply_id, when.isoformat(), exc)
+        return {"reply": reply_id, "postponed_until": when.isoformat(), "reason": str(exc)}
+
+
+def next_utc_day(moment: datetime) -> datetime:
+    """Начало следующих суток UTC — когда дневной потолок модели обнуляется."""
+    return datetime.combine(moment.date() + timedelta(days=1), time.min, tzinfo=UTC)
