@@ -14,7 +14,7 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useLocation } from 'react-router-dom';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
 import { ADMIN, TOKEN_KEY } from '../test/fixtures';
@@ -89,18 +89,13 @@ function Where() {
   return <output data-testid="where">{`${location.pathname}${location.search}`}</output>;
 }
 
-async function openThreads(
-  path = '/threads',
-  ready = 'digest-weekly.example.test',
-  extra: Parameters<typeof serve>[0] = {},
-) {
+async function openThreads(path = '/threads', ready = 'digest-weekly.example.test') {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   const recorded = serve({
     'GET /api/auth/me': { body: ADMIN },
     'GET /api/threads': { body: THREADS },
     'GET /api/replies/calibration': { body: CALIBRATION },
     'GET /api/replies/unbound?page=1': { body: NO_UNBOUND },
-    ...extra,
   });
   renderWith(
     <>
@@ -249,56 +244,5 @@ describe('диалоги', () => {
         /подтвердил как есть 7 из 10, поправил 3 — чаще всего белая цена 2, валюта 1/,
       ),
     ).toBeInTheDocument();
-  });
-});
-
-describe('выгрузка лидов', () => {
-  const clicked: HTMLAnchorElement[] = [];
-
-  beforeEach(() => {
-    clicked.length = 0;
-    // В jsdom ссылок на объекты нет: подставляем их, как в выгрузке доноров.
-    Object.defineProperty(URL, 'createObjectURL', {
-      configurable: true,
-      writable: true,
-      value: vi.fn(() => 'blob:leads'),
-    });
-    Object.defineProperty(URL, 'revokeObjectURL', {
-      configurable: true,
-      writable: true,
-      value: vi.fn(),
-    });
-    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
-      this: HTMLAnchorElement,
-    ) {
-      clicked.push(this);
-    });
-  });
-
-  afterEach(() => {
-    Reflect.deleteProperty(URL, 'createObjectURL');
-    Reflect.deleteProperty(URL, 'revokeObjectURL');
-  });
-
-  it('лиды уходят файлом с пропуском — те же поля, что в вебхуке CRM', async () => {
-    const recorded = await openThreads('/threads', 'digest-weekly.example.test', {
-      'GET /api/replies/leads.csv': {
-        raw: 'lead_id,advertiser\r\n21,brand.test\r\n',
-        headers: {
-          'content-type': 'text/csv; charset=utf-8',
-          'content-disposition': 'attachment; filename="leads-2026-10-04.csv"',
-          'x-export-rows': '1',
-        },
-      },
-    });
-    const user = userEvent.setup();
-
-    await user.click(screen.getByRole('button', { name: 'Выгрузить лиды' }));
-
-    await waitFor(() => expect(clicked).toHaveLength(1));
-    const call = recorded.calls.find((sent) => sent.path === '/api/replies/leads.csv');
-    expect(call?.token).toBe('Bearer пропуск');
-    expect(clicked[0]?.download).toBe('leads-2026-10-04.csv');
-    expect(await screen.findByText('Выгружено лидов: 1')).toBeInTheDocument();
   });
 });

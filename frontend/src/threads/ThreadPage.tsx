@@ -35,7 +35,7 @@ import { useLocation, useParams } from 'react-router-dom';
 import { ApiError, refusalOf } from '../api/client';
 import { rowIdOf } from '../api/ids';
 import { MESSAGE_STATUSES, REPLY_KINDS, THREAD_STATES } from '../api/labels';
-import { fetchThread, reviewReply, sendLead, takeLead } from '../api/outreach';
+import { fetchThread, reviewReply, takeLead } from '../api/outreach';
 import type { Corridor, IncomingCard, LetterCard, MessageStatus } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { BackLink, backTo } from '../components/BackLink';
@@ -104,7 +104,6 @@ interface LeadProps {
   canTake: boolean;
   busy: boolean;
   onTake: () => void;
-  onSend: () => void;
 }
 
 /**
@@ -112,21 +111,12 @@ interface LeadProps {
  * а не цена площадки, и формы разбора здесь быть не должно (сервер её
  * отвергнет). Решение одно — кто его ведёт.
  */
-function LeadAction({ incoming, canTake, busy, onTake, onSend }: LeadProps) {
+function LeadAction({ incoming, canTake, busy, onTake }: LeadProps) {
   if (incoming.reviewed_at !== null) {
     return (
-      <Group gap="sm" mt="sm" justify="space-between">
-        <Text size="sm" c="dimmed">
-          В работе: {incoming.reviewed_by}, {when(incoming.reviewed_at)}
-        </Text>
-        {/* Передача в CRM уходит сама при «взять»; кнопка — на случай, когда
-            вебхук настроили позже или получатель лежал дольше повторов. */}
-        {canTake ? (
-          <Button variant="subtle" size="xs" loading={busy} onClick={onSend}>
-            Передать в CRM ещё раз
-          </Button>
-        ) : null}
-      </Group>
+      <Text size="sm" c="dimmed" mt="sm">
+        В работе: {incoming.reviewed_by}, {when(incoming.reviewed_at)}
+      </Text>
     );
   }
   return (
@@ -156,18 +146,9 @@ interface IncomingProps {
   }) => void;
   onDecline: () => void;
   onTakeLead: () => void;
-  onSendLead: () => void;
 }
 
-function Incoming({
-  incoming,
-  canReview,
-  busy,
-  onConfirm,
-  onDecline,
-  onTakeLead,
-  onSendLead,
-}: IncomingProps) {
+function Incoming({ incoming, canReview, busy, onConfirm, onDecline, onTakeLead }: IncomingProps) {
   const kind = REPLY_KINDS[incoming.kind];
   const hasPrice = incoming.price_white !== null || incoming.price_grey !== null;
   // Разбирают ответы людей: у автоответчика и отказа доставки разбирать
@@ -239,13 +220,7 @@ function Incoming({
       )}
 
       {incoming.lead ? (
-        <LeadAction
-          incoming={incoming}
-          canTake={canReview}
-          busy={busy}
-          onTake={onTakeLead}
-          onSend={onSendLead}
-        />
+        <LeadAction incoming={incoming} canTake={canReview} busy={busy} onTake={onTakeLead} />
       ) : reviewable ? (
         <PriceReview
           incoming={incoming}
@@ -324,27 +299,14 @@ export function ThreadPage() {
 
   const lead = useMutation({
     mutationFn: (replyId: number) => takeLead(replyId),
-    onSuccess: async (taken) => {
+    onSuccess: async () => {
       // Список тоже меняется: лид перестаёт ждать человека.
       await queryClient.invalidateQueries({ queryKey: ['thread', String(id)] });
       await queryClient.invalidateQueries({ queryKey: ['threads'] });
-      notifications.show({
-        message:
-          taken.handoff === 'queued'
-            ? 'Лид взят в работу и передаётся в CRM'
-            : 'Лид взят в работу. Передача в CRM не настроена — лид в выгрузке CSV',
-        color: 'green',
-      });
+      notifications.show({ message: 'Лид взят в работу', color: 'green' });
     },
     onError: (failure) =>
       notifications.show({ title: 'Не взяли', message: refusalOf(failure), color: 'red' }),
-  });
-
-  const handoff = useMutation({
-    mutationFn: (replyId: number) => sendLead(replyId),
-    onSuccess: () => notifications.show({ message: 'Передача в CRM поставлена', color: 'green' }),
-    onError: (failure) =>
-      notifications.show({ title: 'Не передали', message: refusalOf(failure), color: 'red' }),
   });
 
   if (id === null) {
@@ -382,8 +344,7 @@ export function ThreadPage() {
           canReview={can('prices')}
           busy={
             (confirm.isPending && confirm.variables?.replyId === incoming.id) ||
-            (lead.isPending && lead.variables === incoming.id) ||
-            (handoff.isPending && handoff.variables === incoming.id)
+            (lead.isPending && lead.variables === incoming.id)
           }
           onConfirm={(values) => confirm.mutate({ replyId: incoming.id, values })}
           onDecline={() =>
@@ -394,7 +355,6 @@ export function ThreadPage() {
             })
           }
           onTakeLead={() => lead.mutate(incoming.id)}
-          onSendLead={() => handoff.mutate(incoming.id)}
         />
       ),
     })),

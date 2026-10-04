@@ -210,13 +210,6 @@ export interface LeadTaken {
   id: number;
   reviewed_by: string;
   reviewed_at: string;
-  /** «queued» — передача в CRM стоит в очереди; «off» — вебхук не настроен. */
-  handoff: 'queued' | 'off';
-}
-
-export interface LeadSent {
-  id: number;
-  job_id: string;
 }
 
 export interface ReviewPrice {

@@ -6,7 +6,7 @@
  * в 5% ошибок не держится: ровно поэтому она и есть в требованиях.
  */
 
-import { screen, waitFor, within } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
@@ -292,12 +292,7 @@ describe('ответ рекламодателя', () => {
   it('«взять в работу» уходит на сервер', async () => {
     const recorded = await openThread(LEAD_VIEW, {
       'POST /api/replies/21/lead': {
-        body: {
-          id: 21,
-          reviewed_by: 'админ@site.com',
-          reviewed_at: '2026-09-24T16:00:00Z',
-          handoff: 'queued',
-        },
+        body: { id: 21, reviewed_by: 'админ@site.com', reviewed_at: '2026-09-24T16:00:00Z' },
       },
     });
     const user = userEvent.setup();
@@ -305,7 +300,6 @@ describe('ответ рекламодателя', () => {
     await user.click(screen.getByRole('button', { name: 'Взять в работу' }));
 
     expect(recorded.calls.some((call: Call) => call.path === '/api/replies/21/lead')).toBe(true);
-    expect(await screen.findByText('Лид взят в работу и передаётся в CRM')).toBeInTheDocument();
   });
 
   it('взятый лид говорит, кто его ведёт, и кнопки больше нет', async () => {
@@ -319,29 +313,6 @@ describe('ответ рекламодателя', () => {
 
     expect(screen.getByText(/В работе: anna@parsingprices\.com/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Взять в работу' })).not.toBeInTheDocument();
-  });
-
-  it('взятый лид можно передать в CRM ещё раз', async () => {
-    const recorded = await openThread(
-      {
-        ...LEAD_VIEW,
-        card: { ...LEAD_VIEW.card, state: 'lead_taken' },
-        incoming: [
-          { ...LEAD, reviewed_by: 'anna@parsingprices.com', reviewed_at: '2026-09-24T16:00:00Z' },
-        ],
-      },
-      { 'POST /api/replies/21/lead/send': { body: { id: 21, job_id: 'lead-21-20261004' } } },
-    );
-    const user = userEvent.setup();
-
-    await user.click(screen.getByRole('button', { name: 'Передать в CRM ещё раз' }));
-
-    await waitFor(() =>
-      expect(recorded.calls.some((call: Call) => call.path === '/api/replies/21/lead/send')).toBe(
-        true,
-      ),
-    );
-    expect(await screen.findByText('Передача в CRM поставлена')).toBeInTheDocument();
   });
 
   it('без права разбирать ответы лид виден, а кнопки нет', async () => {
