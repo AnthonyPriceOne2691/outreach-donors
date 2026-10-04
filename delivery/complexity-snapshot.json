@@ -1627,12 +1627,12 @@
       "worst": "main:246"
     },
     "scripts/ui_hover.py": {
-      "lines": 174,
+      "lines": 178,
       "complexity": 8,
-      "worst": "main:123"
+      "worst": "main:127"
     },
     "scripts/ui_screens.py": {
-      "lines": 421,
+      "lines": 424,
       "complexity": 2,
       "worst": "open_reason:21"
     },
@@ -1645,6 +1645,11 @@
       "lines": 306,
       "complexity": 2,
       "worst": "unbound_probes:32"
+    },
+    "scripts/ui_screens_sales.py": {
+      "lines": 237,
+      "complexity": 1,
+      "worst": "pick_hypothesis:45"
     }
   }
 }

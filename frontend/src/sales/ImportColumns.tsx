@@ -73,7 +73,8 @@ export function ImportColumns({
   return (
     <Stack gap="md">
       <Group justify="space-between" align="flex-start" wrap="wrap" gap="md">
-        <Stack gap={4} style={{ flex: 1, minWidth: 0 }}>
+        {/* Основа в 20rem: на телефоне переключатель уходит под текст, а не сжимает его. */}
+        <Stack gap={4} style={{ flex: '1 1 20rem', minWidth: 0 }}>
           <Title order={5}>Колонки файла и поля лида</Title>
           <Text size="sm" c="dimmed" maw={720}>
             {found.source}: {formatNumber(rows)} {plural(rows, 'строка', 'строки', 'строк')} с

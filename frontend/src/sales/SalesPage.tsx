@@ -81,7 +81,9 @@ function Summary({ totals, hypotheses }: { totals: Totals; hypotheses: number })
     <Card className="glassPanel" p="xl">
       <Stack gap="md">
         <Group justify="space-between" align="flex-start" wrap="wrap" gap="md">
-          <Stack gap={6} style={{ flex: 1, minWidth: 0 }}>
+          {/* Основа в 20rem: на телефоне кнопка уходит под текст, а не сжимает его
+              в узкую колонку (снимок 390 px, 04.10.2026). */}
+          <Stack gap={6} style={{ flex: '1 1 20rem', minWidth: 0 }}>
             <Title order={3}>Продажи</Title>
             <Text size="sm" c="dimmed" maw={720}>
               Лиды попадают сюда из файла или Google-таблицы, проходят очистку — дубли, стоп-листы,
