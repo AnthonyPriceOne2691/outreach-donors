@@ -1,6 +1,6 @@
 # Active delivery status
 
-- **slug:** sales-leads-screen (модуль «Продажи», срез 1.5, часть 2 из 2 — 1.5b: раздел «Продажи» на экране — меню под правом `sales`, вкладки «Лиды» и «Гипотезы» с фильтрами в адресе, мастер загрузки базы, замеры; часть 1 — списки на сервере — слита отдельным PR)
+- **slug:** sales-leads-screen (модуль «Продажи», срез 1.5, часть 3 из 3 — 1.5c: сверка кодов сервера с типами и подписями экрана; части 1 и 2 — списки на сервере и экран раздела — слиты)
 - **stack:** delivery@1.99 · cqg@2.45 · okf@1.19 · stack-map@1.52
 - **class:** M
 - **kind:** feature
@@ -8,9 +8,10 @@
 - **builder:** agent:claude
 - **verifier:** process:ci — обязательные джобы `check`, `web` и `docker`, на PR ещё `gates` и `delivery`; ревью общих точек фронта — соседняя сессия outreach-donors, мерж — по решению владельца
 - **human_ok_spec:** yes at=2026-10-04 by=human:anthony («даю да» — план фаз с примерами среза 1.5 A1–A4 (01.10); разрез 1.5 на два PR и вейвер строк части 2 — решение владельца 04.10)
-- **waivers:** max_loc_diff=3458 reason=часть 2 среза 1.5 одним PR по решению владельца 04.10 — экран, мастер загрузки и замеры; гейты кода зелёные только на головах после части 1 и в конце, промежуточные PR требовали бы роста снимков; код перенесён из ветки среза без правки, экран сверен по DOM 30 из 30 by=human:anthony
 - **new_dependency:** no (Playwright — extra `browser` из `pyproject.toml`; Pillow для `ui_contrast.py` — `uv run --with pillow`, в зависимости не внесён)
-- **shared_changes:** объявленные заданием точки и свои файлы раздела вне масок `SALES_PATHS`:
+- **shared_changes:** часть 3 трогает один файл вне масок `SALES_PATHS`:
+  `tests/test_api_sales_screen.py` — сверка кодов сервера с типами и подписями экрана (два теста, пять случаев).
+  Части 1 и 2 (слиты) объявляли объявленные заданием точки и свои файлы раздела вне масок `SALES_PATHS`:
   `frontend/src/layout/Shell.tsx` — пункт меню «Продажи» в `SECTIONS` под правом `sales`;
   `frontend/src/App.tsx` — маршруты `/sales` и `/sales/import` под `RequireAccess permission="sales"`;
   `frontend/src/test/fixtures.ts` — снимок прав: `sales` у ADMIN и OPERATOR;
@@ -45,7 +46,7 @@
 ## Оракулы
 
 - **shape-oracles:** cqg-deployed — ruff и формат, mypy, `scripts/gates.py`, ратчет сложности, гейт слоёв (import-linter и depcruise), ESLint, Prettier, `tsc`, гейты дублей и сложности TS, хуки pre-commit
-- **behavior-oracles:** tests-present — `frontend/src/sales/SalesPage.test.tsx` (A2, A4, фильтры, страницы, «страница за концом», пусто и отказ), `frontend/src/sales/ImportWizard.test.tsx` (A1, A4 адреса мастера, сопоставление, заголовок, отказ загрузки, отказ формы ×3); vitest через `serve()` — незаписанный запрос роняет тест
+- **behavior-oracles:** tests-present — `frontend/src/sales/SalesPage.test.tsx` (A2, A4, фильтры, страницы, «страница за концом», пусто и отказ), `frontend/src/sales/ImportWizard.test.tsx` (A1, A4 адреса мастера, сопоставление, заголовок, отказ загрузки, отказ формы ×3); vitest через `serve()` — незаписанный запрос роняет тест; `tests/test_api_sales_screen.py` — сверка кодов сервера с типами и подписями экрана (часть 3)
 - **ci-oracles:** deployed — обязательные `check`, `web`, `docker`; quality — `gates` и `delivery`; шаг волн контура — в `check`
 - **artifact_oracle:** n/a reason=сборка фронта — та же `npm run build` в джобе `web` и образе; новых точек входа нет
 - **runtime_paths:** none reason=экран судится vitest с заглушкой сети `serve()`; живой прогон против своего сервера — в verify-report (A1, A2, контраст, наведение)
@@ -65,9 +66,6 @@
 
 ## Чего в срезе нет
 
-- Сверки кодов сервера с типами и подписями экрана (`tests/test_api_sales_screen.py`) —
-  отдельным маленьким PR после этой части (решение владельца 04.10: часть укладывается
-  в одобренный вейвер).
 - Заведения гипотезы и очистки с экрана — команды консоли.
 - Разделителя CSV руками на экране (есть в API и консоли), XLSX.
 - Общего правила для контурных значков в `glass.css`, общего помощника формы в `client.ts` —
