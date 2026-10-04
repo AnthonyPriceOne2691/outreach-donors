@@ -15,10 +15,11 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import StrEnum
 
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy import ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.features.core.models._mixins import TimestampedMixin
@@ -31,6 +32,20 @@ class LeadStatus(StrEnum):
     NEW = "new"  # загружен, ещё не очищен
     READY = "ready"  # прошёл очистку: можно в очередь писем
     REJECTED = "rejected"  # отсеян очисткой
+
+
+class RejectionReason(StrEnum):
+    """Почему лид отсеян — перечисление данными, а не тип базы: по коду фильтрует
+    экран (`?state=rejected&reason=duplicate`), новая причина — строка здесь, а не
+    миграция. Словами причину называет `cleaning_note`."""
+
+    DUPLICATE = "duplicate"  # адрес уже у лида продаж — в этом же файле или раньше
+    STOPLIST = "stoplist"  # ручной стоп-лист продаж: клиенты и партнёры
+    UNSUBSCRIBED = "unsubscribed"  # отписался или пожаловался где угодно — общий стоп-лист
+    OTHER_DIRECTION = "other_direction"  # домен в работе у доноров или рекламодателей
+    UNUSABLE = "unusable"  # адрес негодный по форме или назначению: чужой отдел, заглушка
+    NO_MAIL = "no_mail"  # домен адреса не принимает почту: нет MX и A или нулевой MX
+    UNDELIVERABLE = "undeliverable"  # проверяльщик: адреса не существует
 
 
 class LeadSource(StrEnum):
@@ -98,10 +113,52 @@ class SalesLeadModel(TimestampedMixin, Base):
         _enum(LeadStatus, "sales_lead_status"), nullable=False, default=LeadStatus.NEW
     )
 
+    #: Код причины отказа — значение `RejectionReason`. Пусто у `new` и `ready`.
+    rejection_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    #: Что очистка сказала о лиде словами: причина отказа или почему лид остался
+    #: `new` («проверка не выполнена: …»). У `ready` пусто.
+    cleaning_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Вердикт проверяльщика с именем источника: `hunter:valid`, `fixture:valid`.
+    #: Выдуманный вердикт не должен быть неотличим от живого — по умолчанию
+    #: проверяльщик `fixture`, и отправка обязана это видеть.
+    verification_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    verification_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     __table_args__ = (
         Index("idx_sales_leads_hypothesis", "hypothesis_id"),
         Index("idx_sales_leads_domain", "domain_id"),
         # Без индекса обнуление ссылки читало бы всю таблицу лидов на каждом
         # удалении адреса у доноров — их поток не должен платить за наш.
         Index("idx_sales_leads_contact", "contact_id"),
+        # Экран фильтрует лидов по состоянию и причине отказа.
+        Index("idx_sales_leads_status_reason", "status", "rejection_reason"),
+    )
+
+
+class SalesStoplistModel(TimestampedMixin, Base):
+    """Ручной стоп-лист продаж: домены и адреса клиентов и партнёров, которым не пишем.
+
+    Своя таблица, а не общие `suppressions`: запись продаж там требует
+    `stage=sales`, а значения `sales` в `Stage` ещё нет — срез 1.1b отложен
+    владельцем до первого письма Этапа 2. Появится — строки переезжают в
+    `suppressions` с причиной `manual`. Отписки общие: их очистка читает из
+    `suppressions` со `stage NULL`.
+
+    Строка — либо домен, либо адрес; причина у всех одна — решение человека,
+    поэтому колонки причины нет: есть кто и когда внёс.
+    """
+
+    __tablename__ = "sales_stoplist"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    #: Корневой домен, как `domains.host`: закрывает и адреса на нём, и компании с ним.
+    host: Mapped[str | None] = mapped_column(String(253), nullable=True, unique=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
+    #: Откуда строка: имя файла или слова человека.
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("(host IS NULL) <> (email IS NULL)", name="ck_sales_stoplist_one_key"),
     )

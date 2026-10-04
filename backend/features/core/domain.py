@@ -196,6 +196,7 @@ class UsageProvider(StrEnum):
     SERP = "serp"
     LLM = "llm"
     EMAIL = "email"
+    HUNTER = "hunter"  # поиск и проверка адресов; ключ общий с соседней системой
 
 
 class CrawlOutcome(StrEnum):

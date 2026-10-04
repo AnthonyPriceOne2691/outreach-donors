@@ -16,7 +16,11 @@ from backend.features.core.models.outreach import (
     ThreadModel,
 )
 from backend.features.core.models.run import RunCandidateModel, RunModel, RunSettingsModel
-from backend.features.sales.models import SalesHypothesisModel, SalesLeadModel
+from backend.features.sales.models import (
+    SalesHypothesisModel,
+    SalesLeadModel,
+    SalesStoplistModel,
+)
 
 __all__ = [
     "AdvertiserModel",
@@ -36,6 +40,7 @@ __all__ = [
     "RunSettingsModel",
     "SalesHypothesisModel",
     "SalesLeadModel",
+    "SalesStoplistModel",
     "SenderModel",
     "SupplierDonorModel",
     "SuppressionModel",
