@@ -237,14 +237,14 @@
       "worst": "—"
     },
     "backend/api/sales/routes.py": {
-      "lines": 93,
+      "lines": 156,
       "complexity": 6,
-      "worst": "_found:46"
+      "worst": "_found:53"
     },
     "backend/api/sales/schemas.py": {
-      "lines": 48,
-      "complexity": 1,
-      "worst": "of:33"
+      "lines": 152,
+      "complexity": 2,
+      "worst": "of:143"
     },
     "backend/api/selection/__init__.py": {
       "lines": 1,
@@ -1380,6 +1380,11 @@
       "lines": 15,
       "complexity": 0,
       "worst": "—"
+    },
+    "backend/features/sales/browse.py": {
+      "lines": 184,
+      "complexity": 6,
+      "worst": "_conditions:98"
     },
     "backend/features/sales/cleaning.py": {
       "lines": 469,
