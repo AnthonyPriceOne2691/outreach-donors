@@ -163,6 +163,26 @@ def mail_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("пункт меню", "nav a", norm),
             ],
         },
+        # Агент переписки (04.10.2026): форма настроек этапа и история версий.
+        # Переключатель этапа меряется по `-innerLabel`, а не по обёртке: вырезка
+        # обёртки захватывает подвижную подложку (урок 24.09.2026).
+        "agent": {
+            "path": "/agent",
+            "ready": ("heading", "Агент переписки"),
+            "probes": [
+                ("заголовок раздела", "h3", big),
+                ("пояснение под ним", "p.mantine-Text-root", norm),
+                ("этап", ".mantine-SegmentedControl-innerLabel", norm),
+                ("действует ли агент", ".agentStanding", norm),
+                ("подпись поля", ".mantine-InputWrapper-label:has-text('Цель разговора')", norm),
+                ("пояснение поля", ".mantine-InputWrapper-description", norm),
+                ("текст в поле", ".mantine-Textarea-input", norm),
+                ("подпись переключателя", ".mantine-Switch-label", norm),
+                ("версия", ".agentVersion p", norm),
+                ("кто и когда", ".agentVersionWho", norm),
+                ("пункт меню", "nav a", norm),
+            ],
+        },
         # Порог вне границ: под полем — почему так нельзя, розой отказа.
         # Отдельным экраном: подготовка набирает в поля отказные значения,
         # и остальные точки порогов мерились бы не на том экране.

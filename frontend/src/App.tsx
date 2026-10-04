@@ -21,6 +21,7 @@ import { OverviewPage } from './layout/OverviewPage';
 import { Shell } from './layout/Shell';
 import { theme } from './theme';
 import { AdvertisersPage } from './advertisers/AdvertisersPage';
+import { AgentPage } from './agent/AgentPage';
 import { DonorPage } from './donors/DonorPage';
 import { LettersPage } from './letters/LettersPage';
 import { DonorsPage } from './donors/DonorsPage';
@@ -178,6 +179,14 @@ export function AppRoutes() {
           element={
             <RequireAccess permission="view">
               <ThresholdsPage />
+            </RequireAccess>
+          }
+        />
+        <Route
+          path="/agent"
+          element={
+            <RequireAccess permission="view">
+              <AgentPage />
             </RequireAccess>
           }
         />
