@@ -223,7 +223,7 @@ def test_country_and_language_are_codes_or_a_note(tmp_path: Path) -> None:
     )
     found = _preview(tmp_path, text)
 
-    # Страна — кодом и словом (срез 1.4), пояс — по стране; язык — только кодом.
+    # 1.4a A1: страна — кодом и словом, пояс — по стране; язык — только кодом.
     assert [(lead.country, lead.timezone, lead.language) for lead in found.leads] == [
         ("de", "Europe/Berlin", "en-us"),
         ("de", "Europe/Berlin", None),

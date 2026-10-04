@@ -82,7 +82,7 @@ def _preview(tmp_path: Path, text: str) -> intake.Preview:
     return intake.preview(intake.read_file(path))
 
 
-def test_table_codes_are_unique_lowercase_and_every_zone_is_real() -> None:
+def test_table_codes_are_unique_lowercase_and_every_zone_is_real() -> None:  # A4
     codes = [code for code, *_ in geo.COUNTRIES]
     zones = available_timezones()
 
@@ -98,10 +98,13 @@ def test_table_codes_are_unique_lowercase_and_every_zone_is_real() -> None:
 
 
 def test_single_zone_countries_get_it_and_several_zone_ones_the_capital_with_a_mark() -> None:
-    assert [(code, geo.timezone_for(code)) for code, _ in SEVERAL_ZONES] == list(SEVERAL_ZONES)
+    # A1: у страны с одним поясом — он, без замечания.
     assert [(code, geo.timezone_for(code)) for code, _ in ONE_ZONE] == list(ONE_ZONE)
-    assert [geo.by_capital(code) for code, _ in SEVERAL_ZONES] == [True] * len(SEVERAL_ZONES)
     assert [geo.by_capital(code) for code, _ in ONE_ZONE] == [False] * len(ONE_ZONE)
+    # A2: у страны с несколькими — столичный, и лиду положено замечание.
+    assert [(code, geo.timezone_for(code)) for code, _ in SEVERAL_ZONES] == list(SEVERAL_ZONES)
+    assert [geo.by_capital(code) for code, _ in SEVERAL_ZONES] == [True] * len(SEVERAL_ZONES)
+    # A4: неизвестный код и территории без столицы — пояса нет.
     assert [geo.timezone_for(code) for code in ("xx", *sorted(NO_ZONE_AT_ALL))] == [None] * 5
 
 
@@ -129,7 +132,7 @@ def test_single_zone_countries_get_it_and_several_zone_ones_the_capital_with_a_m
 )
 def test_country_code_reads_codes_names_and_aliases_in_both_languages(
     text: str, code: str | None
-) -> None:
+) -> None:  # A1 (непонятое название — пусто: A4)
     assert geo.country_code(text) == code
 
 
@@ -146,10 +149,11 @@ def test_country_code_reads_codes_names_and_aliases_in_both_languages(
     ],
 )
 def test_zone_name_is_canonical_or_none(text: str, zone: str | None) -> None:
+    # A3: колонка пояса читается в каноническом написании; непонятое — пусто (A4).
     assert geo.zone_name(text) == zone
 
 
-def test_timezone_column_is_recognised_by_its_titles() -> None:
+def test_timezone_column_is_recognised_by_its_titles() -> None:  # A3
     titles = ["Email", "Часовой пояс", "Страна"]
     assert guess(titles) == {
         LeadField.EMAIL: 0,
@@ -164,15 +168,17 @@ def test_country_is_a_code_and_the_zone_comes_from_the_column_else_the_country(
 ) -> None:
     found = _preview(tmp_path, FILE)
 
+    # A3: колонка пояса найдена и побеждает страну; без неё пояс по стране (A1).
     assert found.mapping[LeadField.TIMEZONE] == 2
     assert [(lead.country, lead.timezone) for lead in found.leads] == FILE_LEADS
+    # A2 и A4: замечания — столичный пояс у США, непонятые «Нарния» и «Berlin» строку не роняют.
     assert found.problems == FILE_NOTES
     assert found.rejected == 0
 
 
 async def test_country_and_zone_are_written_to_the_lead(
     session: AsyncSession, tmp_path: Path
-) -> None:
+) -> None:  # A4: лид загружен, пустое поле записано пустым; A1–A3 — в базе как в предпросмотре
     hypothesis = SalesHypothesisModel(name="сайты EN")
     session.add(hypothesis)
     await session.flush()
