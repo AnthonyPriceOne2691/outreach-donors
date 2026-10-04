@@ -46,12 +46,15 @@ import {
   Title,
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
-import { useQuery } from '@tanstack/react-query';
+import { notifications } from '@mantine/notifications';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useCallback, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { refusalOf } from '../api/client';
+import { exportCounts, saveFile } from '../api/donors';
+import { exportLeads } from '../api/outreach';
 import { THREAD_STATES } from '../api/labels';
 import { listThreads } from '../api/outreach';
 import type { ThreadCard, ThreadState } from '../api/types';
@@ -242,6 +245,7 @@ export function ThreadsPage() {
           </Stack>
 
           <ParseCalibration />
+          <LeadsExport />
         </Stack>
       </Card>
 
@@ -394,5 +398,35 @@ export function ThreadsPage() {
         </Stack>
       </Card>
     </Stack>
+  );
+}
+
+/**
+ * Лиды файлом — ответы людей на оффер рекламодателю, те же поля, что уходят
+ * вебхуком в CRM. Без настроенного вебхука это и есть путь передачи лида.
+ */
+function LeadsExport() {
+  const leads = useMutation({
+    mutationFn: exportLeads,
+    onSuccess: (file) => {
+      saveFile(file, 'leads.csv');
+      const rows = exportCounts(file).rows;
+      notifications.show({
+        message: rows === 0 ? 'Лидов пока нет — файл пустой' : `Выгружено лидов: ${rows ?? '—'}`,
+      });
+    },
+    onError: (failure) =>
+      notifications.show({
+        title: 'Выгрузка не удалась',
+        message: refusalOf(failure),
+        color: 'red',
+      }),
+  });
+  return (
+    <Group>
+      <Button variant="light" size="xs" loading={leads.isPending} onClick={() => leads.mutate()}>
+        Выгрузить лиды
+      </Button>
+    </Group>
   );
 }

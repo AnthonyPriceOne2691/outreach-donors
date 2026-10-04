@@ -1,5 +1,6 @@
 import type {
   CalibrationView,
+  LeadSent,
   LeadTaken,
   Reviewed,
   ReviewPrice,
@@ -63,6 +64,16 @@ export function downloadAttachment(replyId: number, attachmentId: number): Promi
 /** Ответ рекламодателя — в работу. Повторно — отказ: лид уже кто-то ведёт. */
 export function takeLead(id: number): Promise<LeadTaken> {
   return request<LeadTaken>(`/replies/${id}/lead`, { method: 'POST' });
+}
+
+/** Взятый лид — в CRM ещё раз: вебхук настроили позже или получатель лежал. */
+export function sendLead(id: number): Promise<LeadSent> {
+  return request<LeadSent>(`/replies/${id}/lead/send`, { method: 'POST' });
+}
+
+/** Лиды файлом CSV — те же поля, что уходят вебхуком в CRM. */
+export function exportLeads(): Promise<Downloaded> {
+  return download('/replies/leads.csv');
 }
 
 export function listSuppressions(): Promise<StopListView> {
