@@ -26,6 +26,7 @@ from typing import Any
 
 import httpx
 
+from backend.config import llm as llm_cfg
 from backend.shared.net.retry import reason_of, unsent, with_retries
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,40 @@ class Refusal:
     def __str__(self) -> str:
         what = "чинить" if self.permanent else "можно повторить"
         return f"модель, {self.kind} ({what}): {self.detail}"
+
+
+class ModelClient:
+    """Каркас клиента одного вида вызовов модели: модель, ключ и HTTP-клиент.
+
+    Общий у уникализации письма, разбора ответа и агента переписки: три
+    копии одного конструктора разъехались бы на первой правке — откуда ключ,
+    чей HTTP-клиент закрывать. Свой клиент закрывается, данный снаружи — нет:
+    его закрывает тот, кто дал.
+    """
+
+    def __init__(
+        self,
+        client: httpx.AsyncClient | None = None,
+        *,
+        model: str | None = None,
+        api_key: str | None = None,
+    ) -> None:
+        self._model = model or self._default_model()
+        self._api_key = api_key if api_key is not None else llm_cfg.API_KEY
+        self._own_client = client is None
+        self._http = client or httpx.AsyncClient(timeout=llm_cfg.TIMEOUT_S)
+
+    def _default_model(self) -> str:
+        """Модель вида вызовов, если её не назвали явно (`config/llm.py`)."""
+        return llm_cfg.LETTERS_MODEL
+
+    @property
+    def model(self) -> str:
+        return self._model
+
+    async def aclose(self) -> None:
+        if self._own_client:
+            await self._http.aclose()
 
 
 def _message_of(response: httpx.Response) -> str:
