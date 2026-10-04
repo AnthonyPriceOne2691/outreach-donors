@@ -687,9 +687,9 @@
       "worst": "_not_entitled:89"
     },
     "backend/features/contacts/search.py": {
-      "lines": 223,
+      "lines": 246,
       "complexity": 7,
-      "worst": "search_contacts:160"
+      "worst": "search_contacts:181"
     },
     "backend/features/contacts/slugs.py": {
       "lines": 330,
@@ -787,9 +787,9 @@
       "worst": "_enum:27"
     },
     "backend/features/core/usage.py": {
-      "lines": 151,
+      "lines": 154,
       "complexity": 7,
-      "worst": "ensure_llm_within_cap:122"
+      "worst": "ensure_llm_within_cap:125"
     },
     "backend/features/crawl/__init__.py": {
       "lines": 5,
