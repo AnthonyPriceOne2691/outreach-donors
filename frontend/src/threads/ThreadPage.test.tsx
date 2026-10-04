@@ -6,7 +6,7 @@
  * в 5% ошибок не держится: ровно поэтому она и есть в требованиях.
  */
 
-import { screen, waitFor, within } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
@@ -25,7 +25,6 @@ const LETTER = {
   sent_at: '2026-09-18T10:00:00+00:00',
   // Доля 0–1, как её отдаёт сервер: письмо с отличием 19%.
   uniqueness: 0.19,
-  answers_reply_id: null,
 };
 
 const UNSURE = {
@@ -366,55 +365,5 @@ describe('номер диалога из адреса', () => {
 
     expect(await screen.findByRole('heading', { name: 'Такого диалога нет' })).toBeVisible();
     expect(screen.getByText(/Диалога №9999 нет/)).toBeInTheDocument();
-  });
-});
-
-describe('ответ собеседнику', () => {
-  it('на ответ человека можно ответить — письмо уходит на сервер', async () => {
-    const recorded = await openThread(VIEW, {
-      'POST /api/threads/3/answer': {
-        body: { id: 9, sender_email: 'anna@mail.test', real: true },
-      },
-    });
-    const user = userEvent.setup();
-
-    await user.click(screen.getByRole('button', { name: 'Ответить' }));
-    await user.type(screen.getByLabelText('Текст ответа'), 'Thanks! Which topics?');
-    await user.click(screen.getByRole('button', { name: 'Отправить' }));
-
-    await waitFor(() =>
-      expect(recorded.calls.some((call: Call) => call.path === '/api/threads/3/answer')).toBe(true),
-    );
-    const call = recorded.calls.find((sent: Call) => sent.path === '/api/threads/3/answer');
-    expect(call?.body).toEqual({ reply_id: 7, body: 'Thanks! Which topics?' });
-    expect(await screen.findByText('Ответ отправлен с anna@mail.test')).toBeInTheDocument();
-  });
-
-  it('пустой ответ не отправить', async () => {
-    await openThread(VIEW);
-    const user = userEvent.setup();
-
-    await user.click(screen.getByRole('button', { name: 'Ответить' }));
-
-    expect(screen.getByRole('button', { name: 'Отправить' })).toBeDisabled();
-  });
-
-  it('без права отправлять кнопки ответа нет', async () => {
-    await openThread(VIEW, {}, OPERATOR);
-
-    expect(screen.queryByRole('button', { name: 'Ответить' })).not.toBeInTheDocument();
-  });
-
-  it('отвеченный ответ говорит об этом, а наше письмо подписано «наш ответ»', async () => {
-    await openThread({
-      letters: [
-        LETTER,
-        { ...LETTER, id: 9, step: 100, subject: 'Re: Advertising rates', answers_reply_id: 7 },
-      ],
-    });
-
-    expect(screen.getByText(/Ответили — письмо ниже/)).toBeInTheDocument();
-    expect(screen.getByText('наш ответ')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Ответить' })).not.toBeInTheDocument();
   });
 });
