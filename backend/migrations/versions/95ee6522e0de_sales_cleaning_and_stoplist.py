@@ -27,6 +27,9 @@ down_revision: Union[str, Sequence[str], None] = "1f7b0ee634c2"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
+#: Умолчание сервера для колонок времени примеси `TimestampedMixin`.
+_NOW = sa.text("now()")
+
 _LEAD_COLUMNS = (
     sa.Column("rejection_reason", sa.String(length=32), nullable=True),
     sa.Column("cleaning_note", sa.Text(), nullable=True),
@@ -53,12 +56,8 @@ def upgrade() -> None:
         sa.Column("email", sa.String(length=255), nullable=True),
         sa.Column("note", sa.String(length=255), nullable=True),
         sa.Column("created_by", sa.String(length=128), nullable=True),
-        sa.Column(
-            "created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
-        ),
-        sa.Column(
-            "updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
-        ),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=_NOW, nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=_NOW, nullable=False),
         sa.CheckConstraint("(host IS NULL) <> (email IS NULL)", name="ck_sales_stoplist_one_key"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("email"),
