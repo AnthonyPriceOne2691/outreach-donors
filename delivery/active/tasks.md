@@ -22,12 +22,13 @@
 ## Задачи
 
 - [x] T0. Документы части 2 из 2: spec, plan, tasks, decisions, STATUS (вейвер владельца,
-      `shared_changes:` полными путями), eval-smoke; четыре строки STATUS — слово в слово — `6d71cc5`.
+      `shared_changes:` полными путями), eval-smoke; четыре строки STATUS — слово в слово — `76e6b8f`.
 - [x] T1. Код: перенос из ветки среза без правки — `sales/{cleaning,stoplist,verifier,models}.py`,
       `cli/{main,sales}.py`, `config/sales.py`, `.env.example`, `core/{domain,usage}.py`,
       `core/models/__init__.py`, две миграции; плюс две строки `_KEPT_ON_INTERRUPT` для команд
-      продаж (договорённость с соседями по #152) — `c620d9b`.
+      продаж (договорённость с соседями по #152) — `c8bd4ef`; T1б — колонки времени миграции
+      `95ee6522e0de` константой умолчания, без клона jscpd — `20bc93e`.
 - [x] T2. Тесты: `tests/test_sales_{cleaning,stoplist,verifier,clean_cli}.py`, `tests/test_schema.py`;
-      пометки примеров спеки в блоках тестов; красный прогон на коде до переноса — `0d8fd64`.
-- [x] T3. Снимок сложности — `cb77215`.
+      пометки примеров спеки в блоках тестов; красный прогон на коде до переноса — `77edd17`; T2в — тест A3 под соседний #154 — `35ee0e9`.
+- [x] T3. Снимок сложности — `9d00994`.
 - [x] T4. Verify части: проверки против вершины части 1, полный сьют, verify-report — этот коммит.

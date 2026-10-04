@@ -21,7 +21,6 @@
   `backend/config/sales.py`, `.env.example` — `SALES_VERIFIER_PROVIDER` (конфиг модуля, как `SALES_ENABLED`);
   `tests/test_schema.py` — `sales_stoplist` в `EXPECTED_TABLES`;
   `delivery/complexity-snapshot.json` — снимок ратчета (новые файлы и рост соседних).
-  `scripts/lint/jscpd_baseline.txt` — базовая линия DRY-гейта 55 → 56: шаблон колонок таблицы в миграции `95ee6522e0de` совпадает с миграциями `a4d7f1c92b63` и `b7e2c4a81f95`, миграции код не делят.
   Общие `contacts/mx.mail_route`, `contacts/quality.rejection_reason`, `contacts/provider` (исключения и разбор отказов), `SuppressionModel`, `ThreadModel` только вызываются и читаются; в `contacts` не пишем.
 
 Часть 1 этого среза (страна и пояс) слита; её STATUS — в истории `delivery/active/` на момент
