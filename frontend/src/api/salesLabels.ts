@@ -54,7 +54,7 @@ export const LEAD_FIELDS: Record<LeadField, string> = {
 /** Вид записи базы знаний словами и что в такую запись пишут. Коды — `KbKind`
  *  сервера; незнакомый код виден общими словами с кодом в скобках. */
 export const KB_KINDS: Record<KbKind, { title: string; hint: string }> = {
-  brief: { title: 'о компании', hint: 'кто мы и что делаем — фон каждого письма' },
+  brief: { title: 'о компании', hint: 'кто мы и что делаем; фон каждого письма' },
   service: { title: 'услуга', hint: 'что входит и кому' },
   case: { title: 'кейс', hint: 'что сделали и что вышло' },
   objection: { title: 'возражение', hint: 'возражение и ответ на него' },

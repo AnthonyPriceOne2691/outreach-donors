@@ -42,12 +42,11 @@ interface Props {
   onSaved: (saved: KbEntryCard) => void;
 }
 
+/** Вид — коротким словом в поле: на телефоне длинная подпись резалась краем поля
+ *  («о компании — кто мы и что делаем — фо…»). Что в такую запись пишут — под
+ *  полем, для выбранного вида. */
 function kindOptions(kinds: KbKind[]) {
-  return kinds.map((kind) => ({
-    value: kind,
-    label:
-      kind in KB_KINDS ? `${KB_KINDS[kind].title} — ${KB_KINDS[kind].hint}` : kbKindTitle(kind),
-  }));
+  return kinds.map((kind) => ({ value: kind, label: kbKindTitle(kind) }));
 }
 
 /** Поля записи. Ошибки — уже посчитанные: форма их только показывает. */
@@ -68,7 +67,7 @@ function KbFields({
     <>
       <Select
         label="Вид"
-        description="по виду агент берёт факт под ход: цены — на вопрос о цене"
+        description={KB_KINDS[draft.kind].hint}
         allowDeselect={false}
         data={kindOptions(kinds)}
         value={draft.kind}

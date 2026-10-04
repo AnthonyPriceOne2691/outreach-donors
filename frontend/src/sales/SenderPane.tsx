@@ -22,6 +22,7 @@ import {
   Textarea,
   TextInput,
 } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import { useState } from 'react';
 
 import { refusalOf } from '../api/client';
@@ -52,16 +53,21 @@ function tooLong(draft: Draft, limits: SenderView['limits']): Partial<Record<Sen
   return Object.fromEntries(found) as Partial<Record<SenderField, string>>;
 }
 
+/** Заголовок плашки — чернилами, смысл несёт подложка (мята — готово, янтарь —
+ *  нужно внимание): янтарный заголовок на янтарной подложке намерился 4,30 : 1
+ *  при норме 4,5 (замер 05.10.2026) — то же правило, что у значков `light`. */
+const INK_TITLE = { title: { color: 'var(--ink)' } };
+
 function Readiness({ missing }: { missing: string[] }) {
   if (missing.length === 0) {
     return (
-      <Alert color="green" title="Отправка продаж готова">
+      <Alert color="green" title="Отправка продаж готова" styles={INK_TITLE}>
         Физический адрес и подпись заданы: без них письмо продаж не уходит.
       </Alert>
     );
   }
   return (
-    <Alert color="yellow" title="Отправка продаж не готова">
+    <Alert color="yellow" title="Отправка продаж не готова" styles={INK_TITLE}>
       {missing.join('; ')} — без этого письмо продаж не уходит.
     </Alert>
   );
@@ -96,6 +102,8 @@ function SenderInput({
 function SenderForm({ view }: { view: SenderView }) {
   const [draft, setDraft] = useState<Draft>(() => draftOf(view));
   const save = useSaveSender();
+  // Граница `md` у Mantine — 62em: шире поля стоят парой.
+  const paired = useMediaQuery('(min-width: 62em)');
   const refusals = tooLong(draft, view.limits);
   const dirty = JSON.stringify(bodyOf(draft)) !== JSON.stringify(bodyOf(draftOf(view)));
   const ready = dirty && Object.keys(refusals).length === 0;
@@ -114,7 +122,15 @@ function SenderForm({ view }: { view: SenderView }) {
             {refusalOf(save.error)}
           </Alert>
         )}
-        <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md" className="fieldRow">
+        {/* Две строки под пояснение (`fieldRow`) — только когда поля стоят парой:
+            в один столбец ряда нет, и пустая строка под каждым пояснением
+            растягивала форму на телефоне (снимок 390 px). */}
+        <SimpleGrid
+          cols={{ base: 1, md: 2 }}
+          spacing="md"
+          px="md"
+          className={paired ? 'fieldRow' : ''}
+        >
           {FIELD_KEYS.map((field) => (
             <SenderInput
               key={field}
@@ -125,7 +141,7 @@ function SenderForm({ view }: { view: SenderView }) {
             />
           ))}
         </SimpleGrid>
-        <Group justify="space-between" align="center" wrap="wrap" gap="sm">
+        <Group justify="space-between" align="center" wrap="wrap" gap="sm" px="md">
           <Text size="xs" c="dimmed">
             {view.updated_by === null || view.updated_at === null
               ? 'Ещё не заполнялся.'

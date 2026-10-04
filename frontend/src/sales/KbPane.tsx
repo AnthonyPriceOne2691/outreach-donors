@@ -47,7 +47,9 @@ function KbHead({
   onPreview: () => void;
 }) {
   return (
-    <Group justify="space-between" align="flex-start" wrap="wrap" gap="md">
+    // Поле `md` — текст на той же кромке, что текст ячеек таблицы и сводки
+    // раздела: 32 px от края стекла (правило соседних карточек).
+    <Group justify="space-between" align="flex-start" wrap="wrap" gap="md" px="md">
       {/* Основа в 20rem — как у сводки раздела: на телефоне кнопки уходят под текст. */}
       <Stack gap={4} style={{ flex: '1 1 20rem', minWidth: 0 }}>
         <Text size="sm">
@@ -130,7 +132,7 @@ function KbRow({ row, busy, onEdit, onToggle }: RowProps) {
 
 function KbEmpty() {
   return (
-    <Stack gap={6} py="sm">
+    <Stack gap={6} py="sm" px="md">
       <Text size="sm" fw={500}>
         Записей пока нет — агенту не из чего писать.
       </Text>
