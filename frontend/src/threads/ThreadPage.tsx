@@ -35,12 +35,13 @@ import { useLocation, useParams } from 'react-router-dom';
 import { ApiError, refusalOf } from '../api/client';
 import { rowIdOf } from '../api/ids';
 import { MESSAGE_STATUSES, REPLY_KINDS, THREAD_STATES } from '../api/labels';
-import { fetchThread, reviewReply, takeLead } from '../api/outreach';
+import { answerReply, fetchThread, reviewReply, takeLead } from '../api/outreach';
 import type { Corridor, IncomingCard, LetterCard, MessageStatus } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { BackLink, backTo } from '../components/BackLink';
 import { formatDateTime, formatMoney } from '../format';
 import { corridorText, readable, uniquenessText } from '../letters/letterText';
+import { AnswerBox } from './AnswerBox';
 import { PriceReview } from './PriceReview';
 import { ReplyFiles } from './ReplyFiles';
 
@@ -57,6 +58,12 @@ function DeliveryMark({ status }: { status: MessageStatus }) {
   return null;
 }
 
+/** Чьё и какое письмо: первое, добивка или наш ответ на ответ собеседника. */
+function letterTitle(letter: LetterCard): string {
+  if (letter.answers_reply_id !== null) return 'наш ответ';
+  return letter.step === 0 ? 'первое письмо' : `добивка ${letter.step}`;
+}
+
 function Letter({ letter, corridor }: { letter: LetterCard; corridor: Corridor }) {
   return (
     // Та же ширина и то же стекло, что у шапки и ответов: письмо уже
@@ -66,7 +73,7 @@ function Letter({ letter, corridor }: { letter: LetterCard; corridor: Corridor }
       <Group justify="space-between" gap="xs" mb="xs">
         <Group gap="xs">
           <Badge variant="light" color="lagoon">
-            {letter.step === 0 ? 'первое письмо' : `добивка ${letter.step}`}
+            {letterTitle(letter)}
           </Badge>
           <Text size="xs" c="dimmed">
             {MESSAGE_STATUSES[letter.status]}
@@ -146,9 +153,22 @@ interface IncomingProps {
   }) => void;
   onDecline: () => void;
   onTakeLead: () => void;
+  canAnswer: boolean;
+  answered: boolean;
+  onAnswer: (text: string) => void;
 }
 
-function Incoming({ incoming, canReview, busy, onConfirm, onDecline, onTakeLead }: IncomingProps) {
+function Incoming({
+  incoming,
+  canReview,
+  busy,
+  onConfirm,
+  onDecline,
+  onTakeLead,
+  canAnswer,
+  answered,
+  onAnswer,
+}: IncomingProps) {
   const kind = REPLY_KINDS[incoming.kind];
   const hasPrice = incoming.price_white !== null || incoming.price_grey !== null;
   // Разбирают ответы людей: у автоответчика и отказа доставки разбирать
@@ -230,6 +250,11 @@ function Incoming({ incoming, canReview, busy, onConfirm, onDecline, onTakeLead 
           onDecline={onDecline}
         />
       ) : null}
+
+      {/* Отвечают человеку: автоответчику, отказу доставки и отписке — нет. */}
+      {canAnswer && incoming.kind === 'human' ? (
+        <AnswerBox answered={answered} busy={busy} onSend={onAnswer} />
+      ) : null}
     </Card>
   );
 }
@@ -309,6 +334,23 @@ export function ThreadPage() {
       notifications.show({ title: 'Не взяли', message: refusalOf(failure), color: 'red' }),
   });
 
+  const answer = useMutation({
+    mutationFn: ({ replyId, text }: { replyId: number; text: string }) =>
+      answerReply(id ?? 0, replyId, text),
+    onSuccess: async (sent) => {
+      await queryClient.invalidateQueries({ queryKey: ['thread', String(id)] });
+      await queryClient.invalidateQueries({ queryKey: ['threads'] });
+      notifications.show({
+        message: sent.real
+          ? `Ответ отправлен с ${sent.sender_email}`
+          : 'Ответ записан, но не ушёл: почта выключена (транспорт null)',
+        color: sent.real ? 'green' : 'yellow',
+      });
+    },
+    onError: (failure) =>
+      notifications.show({ title: 'Не отправили', message: refusalOf(failure), color: 'red' }),
+  });
+
   if (id === null) {
     return <NoSuchThread back={back} said={`«${raw ?? ''}» в адресе — не номер диалога.`} />;
   }
@@ -344,7 +386,8 @@ export function ThreadPage() {
           canReview={can('prices')}
           busy={
             (confirm.isPending && confirm.variables?.replyId === incoming.id) ||
-            (lead.isPending && lead.variables === incoming.id)
+            (lead.isPending && lead.variables === incoming.id) ||
+            (answer.isPending && answer.variables?.replyId === incoming.id)
           }
           onConfirm={(values) => confirm.mutate({ replyId: incoming.id, values })}
           onDecline={() =>
@@ -355,6 +398,9 @@ export function ThreadPage() {
             })
           }
           onTakeLead={() => lead.mutate(incoming.id)}
+          canAnswer={can('send')}
+          answered={data.letters.some((letter) => letter.answers_reply_id === incoming.id)}
+          onAnswer={(text) => answer.mutate({ replyId: incoming.id, text })}
         />
       ),
     })),
