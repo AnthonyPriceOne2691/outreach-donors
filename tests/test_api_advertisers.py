@@ -146,7 +146,9 @@ class TestWhoIsLetIn:
         in_app = {
             (method.upper(), path)
             for path, methods in api_app.openapi()["paths"].items()
-            if path.startswith("/api/advertisers")
+            # Бизнесам ниши нужен свой рекламодатель и прогон — их таблица
+            # маршрутов в tests/test_niche_advertisers.py.
+            if path.startswith("/api/advertisers") and not path.startswith("/api/advertisers/niche")
             for method in methods
         }
         in_table = {

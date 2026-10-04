@@ -35,6 +35,10 @@ from backend.api.advertisers.schemas import (
     CandidateCard,
     CandidatesView,
     DecisionBody,
+    NicheCard,
+    NicheCollected,
+    NicheDecision,
+    NicheView,
     PromoteResult,
     PromotionView,
 )
@@ -44,7 +48,7 @@ from backend.api.deps import db_session, needs
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission, Stage, Verdict
 from backend.features.core.models.access import UserModel
-from backend.features.crawl import promote, review
+from backend.features.crawl import niche, promote, review
 from backend.features.crawl.contacts import AdvertiserContactRepository
 from backend.shared.queue import (
     ADVERTISER_CONTACTS_JOB_KEY,
@@ -237,3 +241,60 @@ def _search(limit: int) -> str:
     job_id = str(job.id)
     remember_contacts_job(job_id, key=ADVERTISER_CONTACTS_JOB_KEY)
     return job_id
+
+
+# --- бизнесы ниши из выдачи прогона (`crawl/niche.py`) ---
+
+
+@router.get("/niche", response_model=NicheView, summary="Бизнесы ниши из выдачи")
+async def niche_queue(
+    include_decided: bool = Query(
+        default=False, description="показывать и те, по которым решение уже принято"
+    ),
+    limit: int = Query(default=niche.PAGE_SIZE, ge=1, le=200),
+    _: UserModel = _viewer,
+    session: AsyncSession = Depends(db_session),
+) -> NicheView:
+    """Сайты, которые сами продают в нише прогона: кандидаты в рекламодатели."""
+    rows = await niche.listed(session, include_decided=include_decided, limit=limit)
+    return NicheView(rows=[NicheCard.of(row) for row in rows], waiting=await niche.waiting(session))
+
+
+@router.post(
+    "/niche/{advertiser_id}/decide", response_model=NicheCard, summary="Решение по бизнесу ниши"
+)
+async def niche_decide(
+    advertiser_id: int,
+    body: NicheDecision,
+    author: UserModel = _reviewer,
+    session: AsyncSession = Depends(db_session),
+) -> NicheCard:
+    """«Пишем» открывает поиск адреса и письмо; «не пишем» запоминается."""
+    await niche.decide(session, advertiser_id, write=body.write, by=author.email)
+    row = await niche.row_of(session, advertiser_id)
+    await AccessRepository(session).record(
+        AuditAction.ADVERTISER_REVIEWED,
+        author_id=author.id,
+        target=f"advertiser:{advertiser_id}",
+        details={
+            "рекламодатель": row.host,
+            "источник": f"выдача прогона №{row.run_id}",
+            "решение": "пишем" if body.write else "не пишем",
+        },
+    )
+    await session.commit()
+    return NicheCard.of(row)
+
+
+@router.post(
+    "/niche/collect", response_model=NicheCollected, summary="Собрать бизнесы ниши из прогона"
+)
+async def niche_collect(
+    run_id: int = Query(ge=1, description="номер прогона"),
+    _: UserModel = _reviewer,
+    session: AsyncSession = Depends(db_session),
+) -> NicheCollected:
+    """Для прогонов, прошедших до сбора: вердикты судьи уже оплачены."""
+    report = await niche.collect(session, run_id)
+    await session.commit()
+    return NicheCollected(run_id=report.run_id, found=report.found, added=report.added)

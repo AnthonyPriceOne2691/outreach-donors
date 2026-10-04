@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from backend.features.core.domain import Verdict
 from backend.features.core.models.advertiser import CandidateModel
+from backend.features.crawl.niche import NicheRow
 
 
 class CandidateCard(BaseModel):
@@ -98,3 +99,60 @@ class PromoteResult(BaseModel):
     pending: int
     #: Поиск адресов, поставленный самим переводом; `null` — искать некому.
     contacts_job_id: str | None = None
+
+
+class NicheCard(BaseModel):
+    """Бизнес ниши из выдачи прогона: по чему человек решает «пишем / нет».
+
+    `intent_by` — кто сказал «продаёт своё»: `human` или `judge`. `confirmed`
+    пусто — ещё не решали.
+    """
+
+    id: int
+    host: str
+    run_id: int | None
+    keywords: list[str]
+    country: str | None
+    quote: str | None
+    intent_by: str
+    confirmed: bool | None
+    decided_by: str | None
+    decided_at: datetime | None
+
+    @classmethod
+    def of(cls, row: NicheRow) -> NicheCard:
+        advertiser = row.advertiser
+        decided = advertiser.decided_at is not None
+        return cls(
+            id=advertiser.id,
+            host=row.host,
+            run_id=row.run_id,
+            keywords=list(row.keywords),
+            country=row.country,
+            quote=row.quote,
+            intent_by=row.decided_by_intent,
+            confirmed=advertiser.confirmed_by_human if decided else None,
+            decided_by=advertiser.decided_by,
+            decided_at=advertiser.decided_at,
+        )
+
+
+class NicheView(BaseModel):
+    """Бизнесы ниши и сколько из них ждут решения."""
+
+    rows: list[NicheCard]
+    waiting: int
+
+
+class NicheDecision(BaseModel):
+    """«Пишем» (`write: true`) или «не пишем»."""
+
+    write: bool
+
+
+class NicheCollected(BaseModel):
+    """Итог сбора бизнесов ниши из выдачи прогона."""
+
+    run_id: int
+    found: int
+    added: int

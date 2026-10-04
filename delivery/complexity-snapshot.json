@@ -17,14 +17,14 @@
       "worst": "—"
     },
     "backend/api/advertisers/routes.py": {
-      "lines": 240,
+      "lines": 301,
       "complexity": 4,
-      "worst": "decide:104"
+      "worst": "decide:108"
     },
     "backend/api/advertisers/schemas.py": {
-      "lines": 101,
+      "lines": 159,
       "complexity": 3,
-      "worst": "of:39"
+      "worst": "of:40"
     },
     "backend/api/agent/__init__.py": {
       "lines": 1,
@@ -117,9 +117,9 @@
       "worst": "of:161"
     },
     "backend/api/errors.py": {
-      "lines": 240,
+      "lines": 244,
       "complexity": 3,
-      "worst": "handle:208"
+      "worst": "handle:212"
     },
     "backend/api/events/__init__.py": {
       "lines": 1,
@@ -1052,9 +1052,9 @@
       "worst": "marker_reason:71"
     },
     "backend/features/crawl/niche.py": {
-      "lines": 134,
+      "lines": 215,
       "complexity": 7,
-      "worst": "collect:62"
+      "worst": "collect:63"
     },
     "backend/features/crawl/page_facts.py": {
       "lines": 221,

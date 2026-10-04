@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import importlib.util
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from pathlib import Path
 from types import ModuleType
@@ -18,7 +19,8 @@ from types import ModuleType
 import pytest
 from alembic.operations import Operations
 from alembic.runtime.migration import MigrationContext
-from backend.features.core.domain import RunStatus, Stage
+from backend.features.core.domain import AuditAction, RunStatus, Stage, UserRole
+from backend.features.core.models.access import AuditLogModel, UserModel
 from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
@@ -28,10 +30,16 @@ from backend.features.crawl.contacts import AdvertiserContactRepository
 from backend.features.donors.verdict import Thresholds
 from backend.features.runs.pipeline import RunRequest, execute_run
 from backend.features.runs.repository import RunRepository
-from sqlalchemy import select, text
+from fastapi import FastAPI
+from httpx import AsyncClient
+from sqlalchemy import select, text, update
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.conftest import bearer
 from tests.test_execute_run import GOOD, FakeSerp, T, _ahrefs, _deps, _settings_id
+
+MakeUser = Callable[..., Awaitable[UserModel]]
+SignIn = Callable[..., Awaitable[str]]
 
 
 async def _run(session: AsyncSession, hosts: list[str]) -> int:
@@ -224,3 +232,99 @@ def _source_column(connection: Connection) -> tuple[bool, bool]:
 async def test_migration_goes_down_and_up(session: AsyncSession) -> None:
     connection = await session.connection()
     assert await connection.run_sync(_source_column) == (False, True)
+
+
+class TestScreen:
+    async def test_queue_decide_and_collect_through_the_api(
+        self,
+        client: AsyncClient,
+        make_user: MakeUser,
+        sign_in: SignIn,
+        session: AsyncSession,
+    ) -> None:
+        await _domain(session, "bookie.example.test", judge="sells_own")
+        await session.execute(
+            update(DomainModel)
+            .where(DomainModel.host == "bookie.example.test")
+            .values(judge_quote="Place your bets on football")
+        )
+        run_id = await _run(session, ["bookie.example.test"])
+        await session.commit()
+        await make_user("админ@site.com", role=UserRole.ADMIN)
+        token = await sign_in("админ@site.com")
+
+        collected = await client.post(
+            f"/api/advertisers/niche/collect?run_id={run_id}", headers=bearer(token)
+        )
+        shown = await client.get("/api/advertisers/niche", headers=bearer(token))
+        card = shown.json()["rows"][0]
+        decided = await client.post(
+            f"/api/advertisers/niche/{card['id']}/decide",
+            json={"write": True},
+            headers=bearer(token),
+        )
+        after = await client.get("/api/advertisers/niche", headers=bearer(token))
+
+        assert collected.json() == {"run_id": run_id, "found": 1, "added": 1}
+        assert shown.json()["waiting"] == 1
+        assert card["host"] == "bookie.example.test"
+        assert card["keywords"] == ["sports betting"]
+        assert (card["country"], card["intent_by"]) == ("de", "judge")
+        assert card["quote"] == "Place your bets on football"
+        assert card["confirmed"] is None
+        assert decided.status_code == 200, decided.text
+        assert decided.json()["confirmed"] is True
+        assert after.json() == {"rows": [], "waiting": 0}
+        entry = await session.scalar(
+            select(AuditLogModel).where(AuditLogModel.action == AuditAction.ADVERTISER_REVIEWED)
+        )
+        assert entry is not None
+        assert entry.details is not None
+        assert entry.details["решение"] == "пишем"
+
+    async def test_decision_needs_the_reviewer_right_and_unknown_is_404(
+        self,
+        client: AsyncClient,
+        make_user: MakeUser,
+        sign_in: SignIn,
+    ) -> None:
+        await make_user("смотрит@site.com", role=UserRole.OPERATOR, permissions={"prices": False})
+        await make_user("админ@site.com", role=UserRole.ADMIN)
+        viewer = await sign_in("смотрит@site.com")
+        admin = await sign_in("админ@site.com")
+
+        refused = await client.post(
+            "/api/advertisers/niche/1/decide", json={"write": True}, headers=bearer(viewer)
+        )
+        missing = await client.post(
+            "/api/advertisers/niche/999999/decide", json={"write": True}, headers=bearer(admin)
+        )
+        no_run = await client.post(
+            "/api/advertisers/niche/collect?run_id=999999", headers=bearer(admin)
+        )
+
+        assert refused.status_code == 403
+        assert missing.status_code == 404
+        assert no_run.status_code == 404
+
+
+NICHE_ROUTES = {
+    ("GET", "/api/advertisers/niche"): "view",
+    ("POST", "/api/advertisers/niche/{advertiser_id}/decide"): "prices",
+    ("POST", "/api/advertisers/niche/collect"): "prices",
+}
+
+
+async def test_niche_route_table_covers_the_app_and_nobody_without_pass(
+    api_app: FastAPI, client: AsyncClient
+) -> None:
+    in_app = {
+        (method.upper(), path)
+        for path, methods in api_app.openapi()["paths"].items()
+        if path.startswith("/api/advertisers/niche")
+        for method in methods
+    }
+    assert in_app == set(NICHE_ROUTES)
+    for method, path in NICHE_ROUTES:
+        response = await client.request(method, path.replace("{advertiser_id}", "1"))
+        assert response.status_code == 401, path

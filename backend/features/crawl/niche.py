@@ -21,8 +21,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import Select, and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -131,3 +132,83 @@ async def decide(
     advertiser.decided_by = by
     await session.flush()
     return advertiser
+
+
+#: Сколько бизнесов ниши отдаётся экрану за раз.
+PAGE_SIZE = 50
+
+
+@dataclass(frozen=True, slots=True)
+class NicheRow:
+    """Бизнес ниши для экрана: кто, из какого прогона и почему так решили."""
+
+    advertiser: AdvertiserModel
+    host: str
+    run_id: int | None
+    keywords: tuple[str, ...]
+    country: str | None
+    #: Цитата судьи из выдачи — по ней человек видит, что сайт продаёт своё.
+    quote: str | None
+    #: `human` — «продаёт своё» сказал человек, `judge` — судья.
+    decided_by_intent: str
+
+
+def _niche() -> ColumnElement[bool]:
+    return AdvertiserModel.source == NICHE
+
+
+def _listing() -> Select[Any]:
+    return (
+        select(AdvertiserModel, DomainModel, RunModel.keywords, RunModel.country)
+        .join(DomainModel, DomainModel.id == AdvertiserModel.domain_id)
+        .outerjoin(RunModel, RunModel.id == AdvertiserModel.found_run_id)
+        .where(_niche())
+    )
+
+
+async def _rows(session: AsyncSession, statement: Select[Any]) -> list[NicheRow]:
+    rows = await session.execute(statement)
+    return [
+        NicheRow(
+            advertiser=advertiser,
+            host=domain.host,
+            run_id=advertiser.found_run_id,
+            keywords=tuple(keywords or ()),
+            country=country,
+            quote=domain.judge_quote,
+            decided_by_intent="human" if domain.human_intent == SELLS_OWN else "judge",
+        )
+        for advertiser, domain, keywords, country in rows.all()
+    ]
+
+
+async def listed(
+    session: AsyncSession, *, include_decided: bool = False, limit: int = PAGE_SIZE
+) -> list[NicheRow]:
+    """Бизнесы ниши, ждущие решения, — новые прогоны первыми."""
+    statement = (
+        _listing()
+        .order_by(AdvertiserModel.found_run_id.desc().nullslast(), AdvertiserModel.id)
+        .limit(limit)
+    )
+    if not include_decided:
+        statement = statement.where(AdvertiserModel.decided_at.is_(None))
+    return await _rows(session, statement)
+
+
+async def row_of(session: AsyncSession, advertiser_id: int) -> NicheRow:
+    """Один бизнес ниши для экрана."""
+    found = await _rows(session, _listing().where(AdvertiserModel.id == advertiser_id))
+    if not found:
+        raise UnknownNicheAdvertiserError(f"Бизнеса ниши №{advertiser_id} нет")
+    return found[0]
+
+
+async def waiting(session: AsyncSession) -> int:
+    """Сколько бизнесов ниши ждут решения человека."""
+    count = await session.scalar(
+        select(func.count())
+        .select_from(AdvertiserModel)
+        .where(_niche(), AdvertiserModel.decided_at.is_(None))
+    )
+    return int(count or 0)

@@ -101,6 +101,29 @@ export const PROMOTE_ROUTES: Record<string, Answer> = {
   },
 };
 
+/** Панели над очередью рекламодателей и под ней: доноров для обхода нет, обходов не было,
+ *  переводить некого. Экран спрашивает их сам, и тест другой карточки записывает их пустыми. */
+export const CRAWL_ROUTES: Record<string, Answer> = {
+  ...PROMOTE_ROUTES,
+  'GET /api/crawls/targets': {
+    body: {
+      donors: [],
+      no_price: 0,
+      stale_price: 0,
+      supplier: 0,
+      notes: ['Подходящих доноров в базе нет: сначала прогон Этапа 1.'],
+      max_pages: 1000,
+      workers: 4,
+    },
+  },
+  'GET /api/crawls': { body: { rows: [], active: 0, workers: 4 } },
+};
+
+/** Карточка «Бизнесы ниши из выдачи» на «Рекламодателях»: решать некого. */
+export const NO_NICHE: Record<string, Answer> = {
+  'GET /api/advertisers/niche': { body: { rows: [], waiting: 0 } },
+};
+
 /** Блок «Исход неизвестен» на экране писем: зависших писем нет ни на одном этапе.
  *  Экран спрашивает их на каждом этапе сам, и тест, которому блок не нужен,
  *  записывает пустой список — промах мимо записанных роняет тест. */

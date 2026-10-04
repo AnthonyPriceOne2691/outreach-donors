@@ -14,7 +14,7 @@ import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
 import type { CrawlRow } from '../api/crawls';
-import { ADMIN, OPERATOR, PROMOTE_ROUTES, TOKEN_KEY } from '../test/fixtures';
+import { ADMIN, NO_NICHE, OPERATOR, PROMOTE_ROUTES, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import { crawlState } from './CrawlPanel';
@@ -79,6 +79,7 @@ function open(routes: Record<string, unknown> = {}, who: unknown = ADMIN) {
   const recorded = serve({
     'GET /api/auth/me': { body: who },
     ...PROMOTE_ROUTES,
+    ...NO_NICHE,
     'GET /api/advertisers': { body: QUEUE },
     'GET /api/crawls/targets': { body: TARGETS },
     'GET /api/crawls': { body: { rows: [crawl({})], active: 1, workers: 4 } },
