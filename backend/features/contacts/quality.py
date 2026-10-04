@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -395,9 +396,21 @@ def best(candidates: list[Candidate], *, site_host: str) -> Candidate | None:
     Догадка из обфускации идёт только тогда, когда прямого адреса нет вовсе:
     с весом за домен сайта «here at site.com» выигрывал у настоящего ящика
     со страницы контактов (ревью e6, 02.10.2026).
+
+    При равном весе — домен, на котором адресов больше: у сайта с нулевым MX
+    все кандидаты сторонние, и длина адреса выбирала ящик подписного
+    сервиса, когда четыре адреса лежали на домене самой организации
+    (ревью e6, 02.10.2026). Длина — последний довод.
     """
     if not candidates:
         return None
+    on_domain = Counter(c.mail_domain for c in candidates)
     return max(
-        candidates, key=lambda c: (not c.guessed, weight(c, site_host=site_host), -len(c.email))
+        candidates,
+        key=lambda c: (
+            not c.guessed,
+            weight(c, site_host=site_host),
+            on_domain[c.mail_domain],
+            -len(c.email),
+        ),
     )

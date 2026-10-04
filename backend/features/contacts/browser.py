@@ -81,7 +81,7 @@ class PlaywrightRenderer:
         except ImportError:
             logger.warning(
                 "контакты: playwright не установлен — ступень браузера пропускается. "
-                "Поставить: pip install -e '.[browser]' и playwright install chromium"
+                "Поставить: uv sync --extra browser и playwright install chromium"
             )
             return None
 

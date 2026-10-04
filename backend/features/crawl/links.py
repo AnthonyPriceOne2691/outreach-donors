@@ -35,7 +35,7 @@ import logging
 import re
 import unicodedata
 from dataclasses import dataclass
-from urllib.parse import ParseResult, urldefrag
+from urllib.parse import urldefrag
 
 from selectolax.parser import HTMLParser, Node
 
@@ -137,11 +137,13 @@ def _is_external(target_root: str, target_host: str, site_root: str) -> bool:
     return not (target_host == site_root or target_host.endswith(f".{site_root}"))
 
 
-def _resolve(page_url: str, href: str) -> tuple[str, ParseResult] | None:
-    """Ссылка со страницы → абсолютный адрес http(s) без якоря и его разбор.
+def _resolve(page_url: str, href: str) -> tuple[str, str] | None:
+    """Ссылка со страницы → абсолютный адрес http(s) без якоря и его хост.
 
     Чужая схема и битая ссылка — `None`: «[» без пары или полноширинная «／»
-    в адресе роняли разбор всей страницы (`shared.net.url_parts`).
+    в адресе роняли разбор всей страницы (`shared.net.url_parts`). Адрес
+    по IP (`http://[::1]/`, `http://10.0.0.1/`) — тоже `None`: домена у него
+    нет, и рекламодателя за ним не бывает (ревью #148).
     """
     joined = join_url(page_url, href)
     if joined is None:
@@ -150,7 +152,15 @@ def _resolve(page_url: str, href: str) -> tuple[str, ParseResult] | None:
     parts = parse_url(absolute)
     if parts is None or parts.scheme not in ("http", "https"):
         return None
-    return absolute, parts
+    if not parts.hostname or _is_ip_literal(parts.hostname):
+        return None
+    return absolute, parts.hostname.lower()
+
+
+def _is_ip_literal(host: str) -> bool:
+    """`::1`, `10.0.0.1` — адрес, а не имя. Хост из `urlsplit` без скобок,
+    так что двоеточие внутри — только у IPv6."""
+    return ":" in host or host.replace(".", "").isdigit()
 
 
 def collect_links(
@@ -175,8 +185,7 @@ def collect_links(
         if resolved is None:
             continue
 
-        absolute, parts = resolved
-        target_host = parts.netloc.lower().split(":")[0]
+        absolute, target_host = resolved
         known_root = normalize_host(target_host)
         # Суффикс неизвестен снимку — берём хост как есть и помечаем.
         # Тихо отбросить значит потерять рекламодателя в новой зоне
