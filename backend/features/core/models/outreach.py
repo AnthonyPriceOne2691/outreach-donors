@@ -173,6 +173,20 @@ class MessageModel(TimestampedMixin, Base):
     sender_id: Mapped[int | None] = mapped_column(
         ForeignKey("senders.id", ondelete="SET NULL"), nullable=True
     )
+    #: Входящий ответ, на который это письмо отвечает. Пусто — первое письмо
+    #: или добивка: они пишутся по цепочке, а не в ответ (`letters/answers.py`).
+    #: Связь — отдельным ALTER (`use_alter`): ответ и сам ссылается на письмо
+    #: (`replies.message_id`), и без этого таблицы не упорядочить для
+    #: создания и удаления — SQLAlchemy видит цикл.
+    answers_reply_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "replies.id",
+            ondelete="SET NULL",
+            name="fk_messages_answers_reply",
+            use_alter=True,
+        ),
+        nullable=True,
+    )
 
     # 0 — первое письмо, дальше добивки на 7-й и 14-й день.
     step: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -213,6 +227,7 @@ class MessageModel(TimestampedMixin, Base):
         # «Сколько этот ящик отправил сегодня» — запрос на каждое письмо.
         Index("idx_messages_sender_sent_at", "sender_id", "sent_at"),
         Index("idx_messages_thread_id", "thread_id"),
+        Index("idx_messages_answers_reply_id", "answers_reply_id"),
         # Запасная привязка ответа ищет письмо по идентификатору из его
         # заголовков; уникальность — чтобы ответ не нашёл двух писем сразу.
         Index("uq_messages_internet_message_id", "internet_message_id", unique=True),
