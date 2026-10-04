@@ -432,9 +432,9 @@
       "worst": "_report:180"
     },
     "backend/cli/main.py": {
-      "lines": 467,
+      "lines": 477,
       "complexity": 9,
-      "worst": "_print_report:244"
+      "worst": "_print_report:249"
     },
     "backend/cli/review_queue.py": {
       "lines": 56,
@@ -442,9 +442,9 @@
       "worst": "cmd_review_queue:31"
     },
     "backend/cli/sales.py": {
-      "lines": 170,
+      "lines": 298,
       "complexity": 7,
-      "worst": "_mapping:111"
+      "worst": "_mapping:224"
     },
     "backend/cli/senders_admin.py": {
       "lines": 134,
@@ -512,7 +512,7 @@
       "worst": "—"
     },
     "backend/config/sales.py": {
-      "lines": 24,
+      "lines": 33,
       "complexity": 0,
       "worst": "—"
     },
@@ -722,12 +722,12 @@
       "worst": "—"
     },
     "backend/features/core/domain.py": {
-      "lines": 237,
+      "lines": 238,
       "complexity": 0,
       "worst": "—"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 46,
+      "lines": 51,
       "complexity": 0,
       "worst": "—"
     },
@@ -787,9 +787,9 @@
       "worst": "_enum:27"
     },
     "backend/features/core/usage.py": {
-      "lines": 94,
+      "lines": 97,
       "complexity": 3,
-      "worst": "record:57"
+      "worst": "record:60"
     },
     "backend/features/crawl/__init__.py": {
       "lines": 5,
@@ -1381,6 +1381,11 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/sales/cleaning.py": {
+      "lines": 469,
+      "complexity": 8,
+      "worst": "_clean_batch:371"
+    },
     "backend/features/sales/columns.py": {
       "lines": 80,
       "complexity": 3,
@@ -1402,14 +1407,24 @@
       "worst": "preview:176"
     },
     "backend/features/sales/models.py": {
-      "lines": 108,
+      "lines": 165,
       "complexity": 2,
-      "worst": "_enum:47"
+      "worst": "_enum:62"
     },
     "backend/features/sales/sheet.py": {
       "lines": 109,
       "complexity": 7,
       "worst": "export_url:44"
+    },
+    "backend/features/sales/stoplist.py": {
+      "lines": 136,
+      "complexity": 10,
+      "worst": "read_entries:63"
+    },
+    "backend/features/sales/verifier.py": {
+      "lines": 227,
+      "complexity": 9,
+      "worst": "verify:138"
     },
     "backend/features/serp/__init__.py": {
       "lines": 1,
