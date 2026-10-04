@@ -13,7 +13,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
-import type { HypothesesView, LeadCard, LeadsView } from '../api/salesTypes';
+import type { HypothesesView, KbView, LeadCard, LeadsView } from '../api/salesTypes';
 import { ADMIN, HOME_ROUTES, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
@@ -102,6 +102,16 @@ function view(rows: LeadCard[], extra: Partial<LeadsView> = {}): LeadsView {
 
 const LEADS = 'GET /api/sales/leads';
 
+/** База знаний — ради числа на вкладке: страница спрашивает её вместе со списками. */
+const KB: KbView = {
+  rows: [],
+  total: 3,
+  active: 2,
+  version: 'kb-000000000000',
+  kinds: ['brief', 'service', 'case', 'objection', 'price_policy', 'forbidden', 'cta'],
+  limits: { title: 255, text: 20000, tag: 64, tags: 20 },
+};
+
 function at(query: string): string {
   return `${LEADS}?${query}`;
 }
@@ -115,6 +125,7 @@ async function openScreen(
     'GET /api/auth/me': { body: who },
     'GET /api/sales/hypotheses': { body: HYPOTHESES },
     [LEADS]: { body: view([IVAN, TWIN]) },
+    'GET /api/sales/kb': { body: KB },
     ...routes,
   });
   renderWith(<AppRoutes />, path);
@@ -199,6 +210,9 @@ describe('продажи: лиды', () => {
 
     expect(screen.getByText('Лиды — 5')).toBeInTheDocument();
     expect(screen.getByText('Гипотезы — 2')).toBeInTheDocument();
+    // Число записей базы — со вкладки лидов; у отправителя считать нечего.
+    expect(await screen.findByText('База знаний — 3', {}, SCREEN_WAIT)).toBeInTheDocument();
+    expect(screen.getByText('Отправитель')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Загрузить базу' })).toHaveAttribute(
       'href',
       '/sales/import',

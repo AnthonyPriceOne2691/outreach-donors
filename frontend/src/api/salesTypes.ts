@@ -122,3 +122,101 @@ export interface IntakeView {
   problems: ImportProblem[];
   loaded: number | null;
 }
+
+/** Вид записи базы знаний (`KbKind` сервера): по виду агент берёт факты под ход. */
+export type KbKind =
+  | 'brief'
+  | 'service'
+  | 'case'
+  | 'objection'
+  | 'price_policy'
+  | 'forbidden'
+  | 'cta';
+
+/** Запись базы знаний: что в ней, видит ли её агент, кто и когда правил. */
+export interface KbEntryCard {
+  id: number;
+  kind: KbKind;
+  /** Код языка нижним регистром, как у лида: `ru`, `en`, `pt-br`. */
+  language: string;
+  title: string;
+  text: string;
+  tags: string[];
+  active: boolean;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Границы полей записи — их называет сервер, экран проверяет ими поле. */
+export interface KbLimits {
+  title: number;
+  text: number;
+  tag: number;
+  tags: number;
+}
+
+export interface KbView {
+  rows: KbEntryCard[];
+  total: number;
+  /** Сколько включено — их видит агент. */
+  active: number;
+  /** Версия базы, которую сейчас видит агент: `kb-` и 12 знаков отпечатка. */
+  version: string;
+  /** Виды в порядке набора. */
+  kinds: KbKind[];
+  limits: KbLimits;
+}
+
+/** Запись с экрана: поля формы как есть, приводит и проверяет сервер. */
+export interface KbEntryBody {
+  kind: KbKind;
+  language: string;
+  title: string;
+  text: string;
+  tags: string[];
+  active: boolean;
+}
+
+export interface FactCard {
+  id: number;
+  title: string;
+  text: string;
+  tags: string[];
+}
+
+/** Факты одного вида на одном языке. */
+export interface FactGroup {
+  kind: KbKind;
+  language: string;
+  facts: FactCard[];
+}
+
+/** Что увидит агент: только включённые записи, группами по виду и языку. */
+export interface AgentView {
+  version: string;
+  total: number;
+  groups: FactGroup[];
+}
+
+/** Поле отправителя продаж (`sender.FIELDS` сервера). */
+export type SenderField =
+  | 'sender_name'
+  | 'sender_position'
+  | 'signature'
+  | 'website'
+  | 'telegram'
+  | 'physical_address'
+  | 'call_link';
+
+/** Отправитель целиком: пусто — «не задано». */
+export type SenderBody = Record<SenderField, string | null>;
+
+export interface SenderView extends SenderBody {
+  updated_by: string | null;
+  updated_at: string | null;
+  /** Чего не хватает для отправки продаж — словами отказа. Пусто — готово. */
+  missing: string[];
+  /** Предел длины каждого поля. */
+  limits: Record<SenderField, number>;
+}

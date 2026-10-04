@@ -7,7 +7,7 @@
  * одно слово держится: у каждого кода продаж подпись ровно здесь.
  */
 
-import type { LeadField, LeadState } from './salesTypes';
+import type { KbKind, LeadField, LeadState, SenderField } from './salesTypes';
 
 /** Состояние лида продаж словами и цветом. «Новый» — загружен и ещё не
  *  очищен: серый, ждать очистки; «готов» — прошёл очистку, можно в письма;
@@ -49,4 +49,43 @@ export const LEAD_FIELDS: Record<LeadField, string> = {
   country: 'страна',
   timezone: 'часовой пояс',
   language: 'язык письма',
+};
+
+/** Вид записи базы знаний словами и что в такую запись пишут. Коды — `KbKind`
+ *  сервера; незнакомый код виден общими словами с кодом в скобках. */
+export const KB_KINDS: Record<KbKind, { title: string; hint: string }> = {
+  brief: { title: 'о компании', hint: 'кто мы и что делаем — фон каждого письма' },
+  service: { title: 'услуга', hint: 'что входит и кому' },
+  case: { title: 'кейс', hint: 'что сделали и что вышло' },
+  objection: { title: 'возражение', hint: 'возражение и ответ на него' },
+  price_policy: { title: 'цены', hint: 'что можно говорить о цене и чего нельзя' },
+  forbidden: { title: 'нельзя', hint: 'чего не писать никогда' },
+  cta: { title: 'призыв', hint: 'чем закончить письмо: созвон, Telegram' },
+};
+
+export function kbKindTitle(kind: string): string {
+  return kind in KB_KINDS ? KB_KINDS[kind as KbKind].title : `другой вид (${kind})`;
+}
+
+/** Поля отправителя: подпись, пояснение и в несколько ли строк. Порядок — парами
+ *  формы: имя и должность, подпись и адрес (оба столбиком), сайт и Telegram. */
+export const SENDER_FIELDS: Record<
+  SenderField,
+  { label: string; hint: string; multiline?: boolean }
+> = {
+  sender_name: { label: 'Имя отправителя', hint: 'настоящее имя: им подписано письмо' },
+  sender_position: { label: 'Должность', hint: 'рядом с именем в подписи' },
+  signature: {
+    label: 'Подпись',
+    hint: 'без неё письмо продаж не уходит',
+    multiline: true,
+  },
+  physical_address: {
+    label: 'Физический адрес',
+    hint: 'обязателен по закону о рассылках: без него письмо продаж не уходит',
+    multiline: true,
+  },
+  website: { label: 'Сайт', hint: 'ссылка https://…' },
+  telegram: { label: 'Telegram для лидов', hint: '@имя или https://t.me/имя' },
+  call_link: { label: 'Ссылка на созвон', hint: 'ссылка https://… на запись в календарь' },
 };

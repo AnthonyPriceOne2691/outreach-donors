@@ -23,12 +23,15 @@ import { LEAD_STATES, leadReasonTitle } from '../api/salesLabels';
 import type { LeadState } from '../api/salesTypes';
 import { formatNumber } from '../format';
 
-export type SalesTab = 'leads' | 'hypotheses';
+export type SalesTab = 'leads' | 'hypotheses' | 'kb' | 'sender';
 
-/** Вкладки раздела. Лиды первыми: с ними работают, гипотезы — сводка. */
+/** Вкладки раздела. Лиды первыми: с ними работают, гипотезы — сводка; база
+ *  знаний и отправитель — то, из чего и от чьего имени пишет агент (срез 3.1). */
 export const SALES_TABS: Record<SalesTab, string> = {
   leads: 'Лиды',
   hypotheses: 'Гипотезы',
+  kb: 'База знаний',
+  sender: 'Отправитель',
 };
 
 export const SALES_TAB_KEYS = Object.keys(SALES_TABS) as SalesTab[];
@@ -105,7 +108,7 @@ export function queryOf(filters: LeadFilters): LeadsQuery {
 }
 
 /** Фильтры → адрес. Умолчания не пишутся: первая вкладка без `tab`, первая
- *  страница без `page`. На вкладке гипотез фильтры лидов ничего не значат
+ *  страница без `page`. На других вкладках фильтры лидов ничего не значат
  *  и в адрес не идут — как у диалогов. */
 export function writeLeadFilters(filters: LeadFilters): URLSearchParams {
   const params = new URLSearchParams();
