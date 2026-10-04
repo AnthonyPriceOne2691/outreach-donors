@@ -48,7 +48,12 @@ from backend.cli.mail_test import cmd_mail_test
 from backend.cli.review_queue import add_parser as add_review_queue_parser
 from backend.cli.review_queue import cmd_review_queue
 from backend.cli.sales import add_parser as add_sales_parser
-from backend.cli.sales import cmd_sales_hypothesis_add, cmd_sales_import
+from backend.cli.sales import (
+    cmd_sales_clean,
+    cmd_sales_hypothesis_add,
+    cmd_sales_import,
+    cmd_sales_stoplist_add,
+)
 from backend.cli.senders_admin import add_parser as add_senders_parser
 from backend.cli.senders_admin import cmd_sender_add, cmd_senders
 from backend.config import ahrefs as ahrefs_cfg
@@ -407,6 +412,9 @@ _FAILURES: tuple[tuple[type[Exception], int, str], ...] = (
 _KEPT_ON_INTERRUPT: dict[str, str] = {
     "contacts-file": "Пройденное — в чекпойнте: повторный запуск продолжит с места обрыва "
     "и запишет итог.",
+    "sales-import": "Загрузка одной транзакцией: в базе ничего не осталось.",
+    "sales-stoplist-add": "Стоп-лист пишется одной транзакцией: в базе ничего не осталось.",
+    "sales-clean": "Записанные партии остались в базе; повторный проход продолжит с лидов `new`.",
 }
 
 
@@ -438,6 +446,8 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] =
     "mail-test": cmd_mail_test,
     "sales-hypothesis-add": cmd_sales_hypothesis_add,
     "sales-import": cmd_sales_import,
+    "sales-stoplist-add": cmd_sales_stoplist_add,
+    "sales-clean": cmd_sales_clean,
 }
 
 
