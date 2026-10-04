@@ -22,6 +22,7 @@ import re
 from dataclasses import dataclass
 
 from backend.config import outreach as cfg
+from backend.features.donors.wording import country_name_en
 from backend.features.letters import unsubscribe
 from backend.features.letters.template import (
     PLACEHOLDER_RE,
@@ -76,6 +77,9 @@ class FoundLink:
     donor_host: str
     page_url: str
     anchor: str
+    #: Страна аудитории площадки (ISO-2 из гео донора). Пусто — не знаем:
+    #: тогда и фразы про аудиторию в письме нет (`values_for`).
+    donor_geo: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,10 +139,16 @@ def values_for(
         "unsubscribe_url": unsubscribe.url_for(domain_id),
     }
     if link is not None:
+        country = country_name_en(link.donor_geo)
         values |= {
             "donor_host": link.donor_host,
             "page_url": link.page_url,
             "anchor": link.anchor,
+            # Страна аудитории — из гео донора-площадки: у рекламодателя прогона
+            # нет, а оффер без страны звучал «куда-то». Фраза целиком, чтобы при
+            # неизвестном гео в письме не оставалось дыры (решение Anthony 04.10).
+            "donor_country": country,
+            "donor_audience": f"Its readers are mostly in {country}. " if country else "",
         }
     return values
 

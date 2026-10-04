@@ -174,6 +174,37 @@ class TestCompose:
         assert "Anna Ro" in letter.body
         assert "site.test" in letter.subject
 
+    def test_offer_names_the_audience_country_when_the_donor_geo_is_known(self) -> None:
+        """Страна аудитории площадки — из гео донора: у рекламодателя прогона
+        нет, и оффер без страны звучал «куда-то» (решение Anthony, 04.10.2026)."""
+        link = compose.FoundLink(
+            donor_host="donor.test", page_url="https://donor.test/p", anchor="x", donor_geo="de"
+        )
+        values = compose.values_for(host="site.test", link=link)
+        assert values["donor_country"] == "Germany"
+        assert values["donor_audience"] == "Its readers are mostly in Germany. "
+
+    @pytest.mark.parametrize("geo", [None, "", "zz"])
+    def test_offer_without_a_known_geo_has_no_audience_phrase(self, geo: str | None) -> None:
+        """Неизвестное гео — фразы нет вовсе, а не «in » с дырой."""
+        link = compose.FoundLink(
+            donor_host="donor.test", page_url="https://donor.test/p", anchor="x", donor_geo=geo
+        )
+        values = compose.values_for(host="site.test", link=link)
+        assert values["donor_country"] == ""
+        assert values["donor_audience"] == ""
+
+    def test_default_offer_renders_with_and_without_the_audience(self) -> None:
+        for geo in ("us", None):
+            link = compose.FoundLink(
+                donor_host="donor.test", page_url="https://donor.test/p", anchor="x", donor_geo=geo
+            )
+            rendered = compose.render(advertiser(), compose.values_for(host="site.test", link=link))
+            offer = next(z.text for z in rendered.zones if z.name == "offer")
+            assert "{{" not in offer
+            assert ("the United States" in offer) is (geo == "us")
+            assert "  " not in offer
+
     def test_unknown_placeholder_is_refused(self) -> None:
         text = _template_text(greeting="Hello {{nickname}},")
 

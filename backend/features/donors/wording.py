@@ -41,6 +41,24 @@ COUNTRY_TITLES: dict[str, str] = {
     "lt": "Литва", "lv": "Латвия", "ee": "Эстония",
 }  # fmt: skip
 
+#: Те же рынки по-английски — для текста письма рекламодателю: язык письма
+#: английский, а аудитория площадки называется словами, не кодом (ISO-2 → имя
+#: с артиклем, где он нужен: «in the United States»).
+COUNTRY_NAMES_EN: dict[str, str] = {
+    "us": "the United States", "gb": "the United Kingdom", "de": "Germany", "fr": "France",
+    "es": "Spain", "it": "Italy", "nl": "the Netherlands", "pl": "Poland", "ca": "Canada",
+    "au": "Australia", "in": "India", "br": "Brazil", "mx": "Mexico", "id": "Indonesia",
+    "ph": "the Philippines", "za": "South Africa", "ae": "the UAE", "sa": "Saudi Arabia",
+    "tr": "Turkey", "ua": "Ukraine", "kz": "Kazakhstan", "sg": "Singapore", "my": "Malaysia",
+    "th": "Thailand", "vn": "Vietnam", "jp": "Japan", "se": "Sweden", "no": "Norway",
+    "dk": "Denmark", "fi": "Finland", "cz": "the Czech Republic", "ro": "Romania",
+    "gr": "Greece", "pt": "Portugal", "ie": "Ireland", "nz": "New Zealand", "il": "Israel",
+    "eg": "Egypt", "ng": "Nigeria", "ke": "Kenya", "ar": "Argentina", "cl": "Chile",
+    "co": "Colombia", "pe": "Peru", "ch": "Switzerland", "at": "Austria", "be": "Belgium",
+    "hu": "Hungary", "bg": "Bulgaria", "hr": "Croatia", "sk": "Slovakia", "si": "Slovenia",
+    "lt": "Lithuania", "lv": "Latvia", "ee": "Estonia",
+}  # fmt: skip
+
 #: Вердикт по донору — те же слова, что `DONOR_STATUSES` в `labels.ts`.
 DONOR_STATUS_TITLES: dict[DonorStatus, str] = {
     DonorStatus.SUITABLE: "подходит",
@@ -100,3 +118,8 @@ def share_text(share: float | None) -> str:
     «13%» на экране.
     """
     return "" if share is None else f"{math.floor(share * 100 + 0.5)}%"
+
+
+def country_name_en(code: str | None) -> str:
+    """Английское имя рынка по ISO-2; неизвестный код — пусто, не код."""
+    return COUNTRY_NAMES_EN.get((code or "").lower(), "")

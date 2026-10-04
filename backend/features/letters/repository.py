@@ -28,7 +28,7 @@ from backend.features.core.models.outreach import (
 from backend.features.core.models.run import RunCandidateModel, RunModel
 from backend.features.letters.compose import FoundLink
 from backend.features.letters.funnel import AdvertiserFunnel, Funnel
-from backend.features.letters.recipients import Candidate, Recipients
+from backend.features.letters.recipients import Candidate, Recipients, donor_geo_of
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +86,7 @@ class LetterRepository:
                 AdvertiserModel.best_donor_host,
                 AdvertiserModel.best_page_url,
                 AdvertiserModel.best_anchor,
+                donor_geo_of(AdvertiserModel.best_donor_host),
             )
             .join(DomainModel, DomainModel.id == MessageModel.domain_id)
             .join(CampaignModel, CampaignModel.id == MessageModel.campaign_id)
@@ -101,9 +102,9 @@ class LetterRepository:
 
     @staticmethod
     def _queued_letter(row: Any) -> QueuedLetter:
-        message, host, email, campaign, days, stage, donor_host, page_url, anchor = row
+        message, host, email, campaign, days, stage, donor_host, page_url, anchor, geo = row
         link = (
-            FoundLink(donor_host=donor_host, page_url=page_url, anchor=anchor)
+            FoundLink(donor_host=donor_host, page_url=page_url, anchor=anchor, donor_geo=geo)
             if donor_host and page_url and anchor
             else None
         )

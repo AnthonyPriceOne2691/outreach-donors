@@ -87,6 +87,22 @@ def _filled(column: Any) -> ColumnElement[bool]:
 _Query = TypeVar("_Query", bound=Select[Any])
 
 
+def donor_geo_of(donor_host: Any) -> Any:
+    """Гео донора, на чьей площадке нашли ссылку, — колонкой к строке рекламодателя.
+
+    Площадка записана именем хоста, а не номером: ищем донора по домену.
+    Нет донора или гео — пусто, и письмо обходится без фразы про аудиторию.
+    """
+    donor_domain = aliased(DomainModel)
+    return (
+        select(DonorModel.geo)
+        .join(donor_domain, donor_domain.id == DonorModel.domain_id)
+        .where(donor_domain.host == func.lower(donor_host))
+        .limit(1)
+        .scalar_subquery()
+    )
+
+
 class Recipients:
     """Отбор адресатов на настоящей базе."""
 
@@ -439,6 +455,7 @@ class Recipients:
                 AdvertiserModel.best_donor_host.label("donor_host"),
                 AdvertiserModel.best_page_url.label("page_url"),
                 AdvertiserModel.best_anchor.label("anchor"),
+                donor_geo_of(AdvertiserModel.best_donor_host).label("donor_geo"),
                 attempts.attempt_number(DomainModel.id, Stage.ADVERTISERS).label("attempt"),
             )
             .join(AdvertiserModel, AdvertiserModel.domain_id == DomainModel.id)
@@ -469,6 +486,7 @@ class Recipients:
                     donor_host=row.donor_host.strip().lower(),
                     page_url=row.page_url.strip(),
                     anchor=row.anchor.strip(),
+                    donor_geo=row.donor_geo,
                 ),
                 attempt=row.attempt,
             )
