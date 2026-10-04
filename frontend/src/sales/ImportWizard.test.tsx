@@ -13,7 +13,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
 import type { HypothesesView, IntakeView } from '../api/salesTypes';
-import { ADMIN, TOKEN_KEY } from '../test/fixtures';
+import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import type { Answer } from '../test/server';
@@ -129,11 +129,24 @@ async function openWizard(routes: Record<string, Answer> = {}) {
   return userEvent.setup();
 }
 
-async function pickHypothesis(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole('textbox', { name: 'Гипотеза' }));
-  await user.click(
-    await screen.findByRole('option', { name: 'сайты EN', hidden: true }, SCREEN_WAIT),
-  );
+type User = ReturnType<typeof userEvent.setup>;
+
+/** Пункт из списка именно этого поля: списки соседних полей в jsdom тоже
+ *  смонтированы, и запрос по всему документу нашёл бы «страну» у каждой колонки. */
+async function pick(user: User, field: HTMLElement, option: string) {
+  await user.click(field);
+  const listId = field.getAttribute('aria-controls');
+  if (listId === null) throw new Error('у поля нет списка');
+  const list = await waitFor(() => {
+    const found = document.getElementById(listId);
+    if (found === null) throw new Error('список ещё не открыт');
+    return found;
+  }, SCREEN_WAIT);
+  await user.click(within(list).getByRole('option', { name: option, hidden: true }));
+}
+
+async function pickHypothesis(user: User) {
+  await pick(user, screen.getByRole('textbox', { name: 'Гипотеза' }), 'сайты EN');
 }
 
 function fileInput(): HTMLInputElement {
@@ -142,7 +155,7 @@ function fileInput(): HTMLInputElement {
   return input;
 }
 
-async function readFile(user: ReturnType<typeof userEvent.setup>) {
+async function readFile(user: User) {
   await pickHypothesis(user);
   await user.upload(fileInput(), new File(['Почта;Имя\n'], 'leads.csv', { type: 'text/csv' }));
   await user.click(screen.getByRole('button', { name: 'Прочитать' }));
@@ -193,13 +206,9 @@ describe('мастер загрузки', () => {
     const rows = screen.getAllByRole('row');
     const site = rows.find((row) => within(row).queryByText('Сайт') !== null);
     if (site === undefined) throw new Error('строки колонки «Сайт» нет');
-    expect(within(site).getByRole('textbox', { name: 'Поле для колонки Сайт' })).toHaveValue(
-      'сайт компании',
-    );
-    await user.click(within(site).getByRole('textbox', { name: 'Поле для колонки Сайт' }));
-    await user.click(
-      await screen.findByRole('option', { name: 'страна', hidden: true }, SCREEN_WAIT),
-    );
+    const field = within(site).getByRole('textbox', { name: 'Поле для колонки Сайт' });
+    expect(field).toHaveValue('сайт компании');
+    await pick(user, field, 'страна');
 
     await waitFor(
       () => expect(formsSentTo('/api/sales/import/preview')).toHaveLength(2),
@@ -251,6 +260,78 @@ describe('мастер загрузки', () => {
     expect(form?.get('file')).toBeNull();
     // Мастер остался на шаге источника: ссылку поправляют тут же.
     expect(screen.getByRole('button', { name: 'Прочитать' })).toBeInTheDocument();
+  });
+
+  it('переключатель заголовка перечитывает файл с тем же сопоставлением', async () => {
+    const user = await openWizard();
+    await readFile(user);
+
+    const toggle = screen.getByRole('switch', { name: 'Первая строка — заголовок' });
+    expect(toggle).toBeChecked();
+    await user.click(toggle);
+
+    await waitFor(
+      () => expect(formsSentTo('/api/sales/import/preview')).toHaveLength(2),
+      SCREEN_WAIT,
+    );
+    const [, again] = formsSentTo('/api/sales/import/preview');
+    expect(textOf(again, 'header')).toBe('false');
+    expect(mappingSent(again)).toEqual(PREVIEW.mapping);
+  });
+
+  it('никто не станет лидом — загружать нечего, и кнопка это говорит', async () => {
+    const user = await openWizard({
+      [PREVIEW_ROUTE]: {
+        body: { ...PREVIEW, accepted: 0, rejected: 100, leads: [] },
+      },
+    });
+    await readFile(user);
+    await user.click(screen.getByRole('button', { name: 'К отчёту' }));
+
+    expect(
+      await screen.findByRole('button', { name: 'Загрузить 0 лидов' }, SCREEN_WAIT),
+    ).toBeDisabled();
+  });
+
+  it('отказ сервера на загрузке — словами, отчёт и кнопка остаются', async () => {
+    const gone = 'гипотезы №1 нет — заведите её командой sales-hypothesis-add';
+    const user = await openWizard({ [LOAD_ROUTE]: { status: 404, body: { detail: gone } } });
+    await readFile(user);
+    await user.click(screen.getByRole('button', { name: 'К отчёту' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'Загрузить 97 лидов' }, SCREEN_WAIT),
+    );
+
+    expect(await screen.findByText(gone, {}, SCREEN_WAIT)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Загрузить 97 лидов' })).toBeInTheDocument();
+    expect(screen.queryByText(/Загружено/)).not.toBeInTheDocument();
+  });
+
+  it('«Загрузить ещё» возвращает к источнику без файла, гипотеза остаётся', async () => {
+    const user = await openWizard();
+    await readFile(user);
+    await user.click(screen.getByRole('button', { name: 'К отчёту' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'Загрузить 97 лидов' }, SCREEN_WAIT),
+    );
+    await screen.findByText('Загружено 97, отклонено 3.', {}, SCREEN_WAIT);
+
+    await user.click(screen.getByRole('button', { name: 'Загрузить ещё' }));
+
+    expect(screen.getByRole('button', { name: 'Прочитать' })).toBeDisabled();
+    expect(screen.getByText('Выберите файл.')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Гипотеза' })).toHaveValue('сайты EN');
+  });
+
+  it('A4: без права «продажи» адрес мастера — отказ словами, к продажам не ходит', async () => {
+    const stranger = { ...OPERATOR, permissions: ['prices', 'run', 'settings', 'view'] };
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    const recorded = serve({ 'GET /api/auth/me': { body: stranger } });
+    renderWith(<AppRoutes />, '/sales/import');
+
+    const refusal = await screen.findByText('Раздел недоступен', {}, SCREEN_WAIT);
+    expect(refusal.closest('[role="alert"]')).toHaveTextContent('«раздел продаж» не выдано');
+    expect(recorded.calls.map((call) => call.path)).toEqual(['/api/auth/me']);
   });
 });
 

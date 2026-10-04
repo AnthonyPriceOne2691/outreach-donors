@@ -34,6 +34,7 @@ import { ThreadPage } from './threads/ThreadPage';
 import { ThreadsPage } from './threads/ThreadsPage';
 import { UsersPage } from './users/UsersPage';
 import { RunReviewPage } from './review/RunReviewPage';
+import { ImportWizard } from './sales/ImportWizard';
 import { SalesPage } from './sales/SalesPage';
 import { SelectionPage } from './selection/SelectionPage';
 
@@ -129,6 +130,14 @@ export function AppRoutes() {
           element={
             <RequireAccess permission="sales">
               <SalesPage />
+            </RequireAccess>
+          }
+        />
+        <Route
+          path="/sales/import"
+          element={
+            <RequireAccess permission="sales">
+              <ImportWizard />
             </RequireAccess>
           }
         />
