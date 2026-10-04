@@ -197,6 +197,7 @@ async def test_a2_state_and_reason_narrow_the_list_as_the_address_says(
     query: str,
     emails: list[str],
 ) -> None:
+    # A2 — пример спеки, серверная сторона
     response = await client.get(f"{LEADS}?{query}", headers=await _headers(make_user, sign_in))
 
     assert response.status_code == 200, response.text
