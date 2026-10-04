@@ -43,7 +43,6 @@ import {
 } from '@mantine/core';
 import { useDebouncedValue } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import { IconDeviceFloppy } from '@tabler/icons-react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -52,6 +51,7 @@ import { fetchThresholds, previewThresholds, saveThresholds } from '../api/setti
 import type { ThresholdsBody } from '../api/types';
 import { InfoHint } from '../components/InfoHint';
 import { Metric } from '../components/Metric';
+import { SaveVersionButton } from '../components/SaveVersionButton';
 import { useSession } from '../auth/AuthProvider';
 import { formatDateTime, formatNumber } from '../format';
 import { bodyOf, fieldRefusal, rangeText, THRESHOLD_KEYS, typed } from './thresholdDraft';
@@ -224,16 +224,11 @@ export function ThresholdsPage() {
           )}
 
           <Group>
-            <Button
-              className="press"
-              variant="gradient"
-              leftSection={<IconDeviceFloppy size={18} />}
-              loading={save.isPending}
+            <SaveVersionButton
+              busy={save.isPending}
               disabled={!canEdit || !changed || body === null}
-              onClick={() => body !== null && save.mutate(body)}
-            >
-              Сохранить новой версией
-            </Button>
+              onSave={() => body !== null && save.mutate(body)}
+            />
             {changed && (
               <Button variant="subtle" className="press" onClick={() => setDraft(inUse)}>
                 Вернуть действующие
