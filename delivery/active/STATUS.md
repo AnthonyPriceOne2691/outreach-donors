@@ -8,6 +8,7 @@
 - **builder:** agent:claude
 - **verifier:** process:ci — обязательные джобы `check`, `web` и `docker`, на PR ещё `gates` и `delivery`; ревью общих точек фронта — соседняя сессия outreach-donors, мерж — по решению владельца
 - **human_ok_spec:** yes at=2026-10-04 by=human:anthony («даю да» — план фаз с примерами среза 1.5 A1–A4 (01.10); разрез 1.5 на два PR и вейвер строк части 2 — решение владельца 04.10)
+- **waivers:** max_loc_diff=3458 reason=часть 2 среза 1.5 одним PR по решению владельца 04.10 — экран, мастер загрузки и замеры; гейты кода зелёные только на головах после части 1 и в конце, промежуточные PR требовали бы роста снимков; код перенесён из ветки среза без правки, экран сверен по DOM 30 из 30 by=human:anthony
 - **new_dependency:** no (Playwright — extra `browser` из `pyproject.toml`; Pillow для `ui_contrast.py` — `uv run --with pillow`, в зависимости не внесён)
 - **shared_changes:** объявленные заданием точки и свои файлы раздела вне масок `SALES_PATHS`:
   `frontend/src/layout/Shell.tsx` — пункт меню «Продажи» в `SECTIONS` под правом `sales`;
