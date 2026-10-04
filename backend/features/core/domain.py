@@ -189,6 +189,9 @@ class AuditAction(StrEnum):
     # База лидов продаж загружена в гипотезу: кто, откуда и сколько строк легло.
     # По журналу потом ищут, откуда взялся лид, которому ушло письмо.
     SALES_LEADS_IMPORTED = "sales_leads_imported"
+    # Новая версия настроек агента переписки: цель, тон, предел цены и темы,
+    # на которых он отдаёт разговор человеку, — по ним он пишет собеседнику.
+    AGENT_SETTINGS_CHANGED = "agent_settings_changed"
 
 
 class UsageProvider(StrEnum):
