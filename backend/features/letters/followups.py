@@ -244,7 +244,13 @@ class Chain:
         return message
 
     async def sent_this_hour(self, sender_id: int) -> int:
-        """Сколько добивок ушло с этого ящика за последний час."""
+        """Сколько добивок ушло с этого ящика за последний час.
+
+        Только шаги цепочки: ответ в переписке (`chain.ANSWER_STEP`) — тоже
+        письмо с этого ящика, но не добивка, и считать его здесь значило бы
+        отнимать часовой запас добивок у ящика, где человек ведёт разговор
+        (ревью «Продаж» #162).
+        """
         since = self._moment() - timedelta(hours=1)
         total = await self._session.scalar(
             select(func.count())
@@ -252,6 +258,7 @@ class Chain:
             .where(
                 MessageModel.sender_id == sender_id,
                 MessageModel.step > FIRST_STEP,
+                MessageModel.step < MAX_STEPS,
                 MessageModel.sent_at >= since,
             )
         )

@@ -1042,9 +1042,9 @@
       "worst": "apply_events:93"
     },
     "backend/features/letters/followups.py": {
-      "lines": 399,
+      "lines": 406,
       "complexity": 5,
-      "worst": "_deliver:360"
+      "worst": "_deliver:367"
     },
     "backend/features/letters/funnel.py": {
       "lines": 93,

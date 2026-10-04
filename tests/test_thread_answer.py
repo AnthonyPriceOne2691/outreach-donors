@@ -25,6 +25,7 @@ from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.letters import answers
 from backend.features.letters.chain import ANSWER_STEP
+from backend.features.letters.followups import Chain
 from backend.features.letters.guards import ForbiddenContentError
 from backend.features.letters.sending import Sending, SuppressedError
 from backend.features.letters.transport import NullTransport, Outgoing
@@ -104,6 +105,26 @@ class TestAnswer:
         assert answer.subject == "Re: Advertising rates"
         assert answer.status is MessageStatus.SENT
         assert answer.next_action_at is None  # после ответа добивок нет
+
+    async def test_answer_does_not_eat_the_followup_quota_of_its_mailbox(
+        self, session: AsyncSession, conversation: tuple[MessageModel, ReplyModel]
+    ) -> None:
+        """Ответ — письмо с того же ящика, но не добивка: часовой запас добивок
+        ящика он не трогает (ревью «Продаж» #162)."""
+        first, reply = conversation
+        outcome = await answers.answer_reply(
+            session,
+            Sending(session, Recording()),
+            thread_id=first.thread_id or 0,
+            reply_id=reply.id,
+            body="Thanks! Which topics do you accept?",
+            author_id=None,
+        )
+        answer = await session.get(MessageModel, outcome.message_id)
+        assert answer is not None
+        assert answer.sender_id is not None
+
+        assert await Chain(session).sent_this_hour(answer.sender_id) == 0
 
     async def test_second_click_does_not_send_twice(
         self, session: AsyncSession, conversation: tuple[MessageModel, ReplyModel]
