@@ -42,6 +42,7 @@ RUN_JOB = "backend.workers.jobs.run_donor_search"
 BUILD_JOB = "backend.workers.jobs.build_letter_queue"
 PARSE_JOB = "backend.workers.jobs.parse_reply"
 CONTACTS_JOB = "backend.workers.jobs.find_contacts"
+LEAD_JOB = "backend.workers.jobs.send_lead"
 
 #: Прогон идёт минутами и может упереться в ожидание провайдера.
 #: Час — потолок, после которого задача считается зависшей: без него

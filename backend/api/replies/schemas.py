@@ -53,11 +53,21 @@ class Reviewed(BaseModel):
 
 
 class LeadTaken(BaseModel):
-    """Лид взят в работу: кто и когда."""
+    """Лид взят в работу: кто и когда — и ушёл ли он в CRM."""
 
     id: int
     reviewed_by: str
     reviewed_at: datetime
+    #: «queued» — передача стоит в очереди; «off» — адрес вебхука не задан,
+    #: лид остаётся в диалогах и в выгрузке CSV.
+    handoff: str = "off"
+
+
+class LeadSent(BaseModel):
+    """Передача лида поставлена в очередь заново."""
+
+    id: int
+    job_id: str
 
 
 class VersionCalibration(BaseModel):
