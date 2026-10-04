@@ -19,6 +19,7 @@ from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, time, timedelta
 from typing import Any
 
+import httpx
 from rq import get_current_job
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -32,6 +33,7 @@ from backend.features.donors.doors import door_check
 from backend.features.donors.repository import DonorRepository
 from backend.features.letters.building import BuildRequest, QueueBuilder
 from backend.features.letters.rewrite import RewriteClient
+from backend.features.replies import lead_handoff
 from backend.features.replies.extract import ExtractClient
 from backend.features.replies.pipeline import Parser
 from backend.features.review.candidates import RunReview
@@ -402,3 +404,32 @@ def _parse_or_postpone(reply_id: int) -> dict[str, Any]:
 def next_utc_day(moment: datetime) -> datetime:
     """Начало следующих суток UTC — когда дневной потолок модели обнуляется."""
     return datetime.combine(moment.date() + timedelta(days=1), time.min, tzinfo=UTC)
+
+
+async def _send_lead(reply_id: int, event_id: str) -> dict[str, Any]:
+    engine = create_async_engine(storage.DSN)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with factory() as session:
+            card = await lead_handoff.lead_card(session, reply_id)
+        if card is None:
+            raise lead_handoff.LeadNotTakenError(f"ответ №{reply_id} — не лид, передавать нечего")
+        async with httpx.AsyncClient() as http:
+            code = await lead_handoff.deliver(card, http, event_id=event_id)
+        return {"lead": reply_id, "event_id": event_id, "status": code}
+    finally:
+        await engine.dispose()
+
+
+def send_lead(reply_id: int, event_id: str) -> dict[str, Any]:
+    """Передать лид на адрес вебхука CRM.
+
+    Отдельной задачей: чужой сервер отвечает секундами или не отвечает,
+    а кнопка «Взять в работу» от этого зависеть не должна. Сеть и 5xx
+    очередь повторит; отказ 4xx и пустую настройку — нет (`_settled`).
+    """
+    setup_logging()
+    check_storage()
+    return _settled(
+        lambda: asyncio.run(_send_lead(reply_id, event_id)), what=f"передача лида №{reply_id}"
+    )

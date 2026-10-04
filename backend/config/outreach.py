@@ -33,6 +33,10 @@ class _Outreach(DomainSettings):
     sender_name: str = Field(default="", validation_alias="OUTREACH_SENDER_NAME")
     postal_address: str = Field(default="", validation_alias="OUTREACH_POSTAL_ADDRESS")
     unsubscribe_url: str = Field(default="", validation_alias="OUTREACH_UNSUBSCRIBE_URL")
+    # Передача лида дальше (`replies/lead_handoff.py`): адрес приёма у CRM и общий
+    # секрет подписи. Пусто — вебхук не уходит, лид остаётся в диалогах и в CSV.
+    lead_webhook_url: str = Field(default="", validation_alias="OUTREACH_LEAD_WEBHOOK_URL")
+    lead_webhook_secret: str = Field(default="", validation_alias="OUTREACH_LEAD_WEBHOOK_SECRET")
     # Писем на отправителя в день. Держим низким: схема на 20 доменах
     # работает именно за счёт малого объёма на ящик — так в требованиях.
     daily_cap_per_sender: int = Field(default=20, validation_alias="OUTREACH_DAILY_CAP_PER_SENDER")
@@ -89,6 +93,8 @@ REPLY_SUBDOMAIN: str = _s.reply_subdomain
 SENDER_NAME: str = _s.sender_name
 POSTAL_ADDRESS: str = _s.postal_address
 UNSUBSCRIBE_URL: str = _s.unsubscribe_url
+LEAD_WEBHOOK_URL: str = _s.lead_webhook_url.strip()
+LEAD_WEBHOOK_SECRET: str = _s.lead_webhook_secret
 INBOUND_SECRET: str = _s.inbound_secret
 DAILY_CAP_PER_SENDER: int = _s.daily_cap_per_sender
 WARMUP_DAILY_CAPS: tuple[int, ...] = tuple(int(x) for x in _s.warmup_daily_caps.split(","))
