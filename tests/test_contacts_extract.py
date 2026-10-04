@@ -40,6 +40,19 @@ class TestExtract:
         html = '<a href="mailto:Editor@Site.com?subject=hi">пишите</a>'
         assert extract_emails(html) == {"editor@site.com"}
 
+    @pytest.mark.parametrize(
+        ("href", "email"),
+        [
+            ("mailto:info%40site.com", "info@site.com"),
+            ("mailto:ads%40site.com?subject=Hi%20there", "ads@site.com"),
+            ("mailto:info&#64;site.com", "info@site.com"),
+        ],
+    )
+    def test_mailto_is_percent_decoded(self, href: str, email: str) -> None:
+        """Комментарий обещал процентную раскодировку, код делал только
+        сущности HTML (BACKLOG 28.09): теперь и то, и другое."""
+        assert extract_emails(f'<a href="{href}">mail</a>') == {email}
+
     def test_mailto_two_addresses_in_one_link(self) -> None:
         html = '<a href="mailto:a@site.com,b@site.com">оба</a>'
         assert extract_emails(html) == {"a@site.com", "b@site.com"}
@@ -556,6 +569,28 @@ class TestWeight:
         local = Candidate(f"owner@{domain}", ContactSource.PAGE, PageKind.CONTACT)
         gmail = Candidate("owner@gmail.com", ContactSource.PAGE, PageKind.CONTACT)
         assert weight(local, site_host="site.com") == weight(gmail, site_host="site.com")
+
+    def test_tie_goes_to_the_domain_with_more_addresses(self) -> None:
+        """Сайт с нулевым MX: все кандидаты сторонние, веса равны — раньше
+        побеждал самый короткий адрес (ящик подписного сервиса), хотя четыре
+        адреса лежали на домене самой организации (ревью e6, BACKLOG 02.10)."""
+        org = [
+            Candidate(f"{name}@org-of-site.example", ContactSource.PAGE, PageKind.CONTACT)
+            for name in ("press", "office", "editorial", "partnerships")
+        ]
+        service = Candidate("hi@ml.example", ContactSource.PAGE, PageKind.CONTACT)
+        chosen = best([service, *org], site_host="null-mx-site.example")
+        assert chosen is not None
+        assert chosen.mail_domain == "org-of-site.example"
+
+    def test_site_domain_still_beats_a_crowd_of_foreign_addresses(self) -> None:
+        """Частота домена — довод при ничьей, а не вместо веса за домен сайта."""
+        crowd = [
+            Candidate(f"{name}@other.example", ContactSource.PAGE, PageKind.CONTACT)
+            for name in ("a", "b", "c")
+        ]
+        own = Candidate("owner@site.com", ContactSource.PAGE, PageKind.CONTACT)
+        assert best([*crowd, own], site_host="site.com") is own
 
     def test_a_direct_address_beats_any_guess(self) -> None:
         """Догадка из обфускации — только когда прямого адреса нет: с весом

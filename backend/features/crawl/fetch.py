@@ -244,7 +244,7 @@ class PageCascade:
             self.degradation.note(
                 CascadeLevel.BROWSER,
                 "браузер включён настройкой, но не поднялся: "
-                "pip install -e '.[browser]' и playwright install chromium",
+                "uv sync --extra browser и playwright install chromium",
             )
             return None
 

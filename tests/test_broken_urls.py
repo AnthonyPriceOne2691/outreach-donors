@@ -66,6 +66,21 @@ class TestOnePageOneBrokenLink:
         found = harvest(html, "https://site.com/post/", "site.com")
         assert [link.url for link in found] == ["https://advertiser.net/offer"]
 
+    @pytest.mark.parametrize(
+        "url", ["http://[::1]/ok", "http://10.0.0.1/offer", "https://[2001:db8::1]:8080/x"]
+    )
+    def test_ip_literal_link_is_not_an_advertiser(self, url: str) -> None:
+        """Адрес по IP: домена нет, рекламодателя за ним не бывает — раньше
+        такая ссылка уезжала в исходящие с target_root «[» (ревью #148)."""
+        html = f'<html><body><article><p>x <a href="{url}">a</a></p></article></body></html>'
+        assert harvest(html, "https://site.com/post/", "site.com") == []
+
+    @pytest.mark.parametrize(
+        "url", ["ftp://site.com/sitemap.xml", "hhttps://site.com/typo", "mailto:a@site.com"]
+    )
+    def test_map_entry_with_a_foreign_scheme_is_not_our_site(self, url: str) -> None:
+        assert not _same_site(url, "site.com")
+
     def test_crawl_queue_survives(self) -> None:
         links = "".join(f'<a href="{url}">x</a>' for url in BROKEN)
         html = f'<html><body>{links}<a href="/about/">about</a></body></html>'
@@ -181,3 +196,25 @@ def test_index_home_past_a_broken_url() -> None:
 
     homes, _ = asyncio.run(index_homes(Provider(), ["shop.test"]))  # type: ignore[arg-type]
     assert homes["shop.test"].title == "Shop Test"
+
+
+def test_index_home_without_a_root_row_skips_the_broken_first_row() -> None:
+    """Корневой строки нет — первой берётся первая РАЗБИРАЕМАЯ, а не битая."""
+
+    class Provider:
+        spent = 0.0
+
+        async def search(
+            self, keywords: list[str], country: str, **_: object
+        ) -> dict[str, list[SerpResult]]:
+            return {
+                "site:shop.test": [
+                    SerpResult(1, "https://shop.test]/x", "Broken"),
+                    SerpResult(2, "https://shop.test/catalog", "Catalog"),
+                    SerpResult(3, "https://shop.test/about", "About"),
+                ]
+            }
+
+    homes, _ = asyncio.run(index_homes(Provider(), ["shop.test"]))  # type: ignore[arg-type]
+    assert homes["shop.test"].title == "Catalog"
+    assert homes["shop.test"].nav == ("About",)

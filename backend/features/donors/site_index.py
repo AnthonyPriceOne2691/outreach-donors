@@ -22,7 +22,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from backend.features.donors.home_signals import HomeSignals
-from backend.features.serp.protocol import SerpProvider
+from backend.features.serp.protocol import SerpProvider, SerpResult
 from backend.shared.net.url_parts import parse_url
 
 #: Сколько заголовков других страниц сайта уходит арбитру вместо меню.
@@ -30,6 +30,12 @@ MAX_PAGES = 8
 
 #: Страна запроса `site:` роли почти не играет: спрашиваем про один домен.
 INDEX_COUNTRY = "us"
+
+
+def _readable(rows: Sequence[SerpResult]) -> list[SerpResult]:
+    """Строки выдачи с разбираемым адресом. Битый адрес — не страница сайта:
+    ни корнем, ни заголовком для арбитра он не годится (ревью #148)."""
+    return [row for row in rows if parse_url(row.url) is not None]
 
 
 def _is_home(url: str) -> bool:
@@ -48,7 +54,7 @@ async def index_homes(
     answers = await provider.search([f"site:{host}" for host in hosts], INDEX_COUNTRY)
     found: dict[str, HomeSignals] = {}
     for host in hosts:
-        rows = answers.get(f"site:{host}", [])
+        rows = _readable(answers.get(f"site:{host}", []))
         if not rows:
             continue
         root = next((row for row in rows if _is_home(row.url)), None)
