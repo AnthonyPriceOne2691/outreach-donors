@@ -14,9 +14,11 @@ import { Link } from 'react-router-dom';
 
 import type { HypothesisCard, LeadState } from '../api/salesTypes';
 import { formatDate, formatNumber } from '../format';
+import { FixedTable } from './FixedTable';
+import type { Column } from './FixedTable';
 import { LEAD_STATE_KEYS, NO_LEAD_FILTERS, writeLeadFilters } from './leadFilters';
 
-const COLUMNS: { title: string; width: string }[] = [
+const COLUMNS: Column[] = [
   { title: 'Гипотеза', width: '20rem' },
   { title: 'Новые', width: '7rem' },
   { title: 'Готовы', width: '7rem' },
@@ -47,6 +49,34 @@ function Count({ value, to }: { value: number; to: string }) {
   );
 }
 
+function HypothesisRow({ row }: { row: HypothesisCard }) {
+  return (
+    <Table.Tr>
+      <Table.Td className="cellName wrapCell">
+        <Text size="sm" fw={500}>
+          {row.name}
+        </Text>
+        {row.description !== null && (
+          <Text size="xs" c="dimmed">
+            {row.description}
+          </Text>
+        )}
+      </Table.Td>
+      {LEAD_STATE_KEYS.map((state) => (
+        <Table.Td key={state}>
+          <Count value={row.leads[state]} to={leadsAt(row.id, state)} />
+        </Table.Td>
+      ))}
+      <Table.Td>
+        <Count value={row.total} to={leadsAt(row.id, null)} />
+      </Table.Td>
+      <Table.Td>
+        <Text size="sm">{formatDate(row.created_at)}</Text>
+      </Table.Td>
+    </Table.Tr>
+  );
+}
+
 export function HypothesesTable({ rows }: { rows: HypothesisCard[] }) {
   if (rows.length === 0) {
     return (
@@ -62,54 +92,15 @@ export function HypothesesTable({ rows }: { rows: HypothesisCard[] }) {
     );
   }
   return (
-    <Table.ScrollContainer minWidth={HYPOTHESES_MIN_WIDTH} type="native" className="scrollSlim">
-      <Table
-        className="dataTable fixedTable hypothesesTable"
-        layout="fixed"
-        tabularNums
-        verticalSpacing="sm"
-        horizontalSpacing="md"
-      >
-        <colgroup>
-          {COLUMNS.map((column) => (
-            <col key={column.title} style={{ width: column.width }} />
-          ))}
-        </colgroup>
-        <Table.Thead>
-          <Table.Tr>
-            {COLUMNS.map((column) => (
-              <Table.Th key={column.title}>{column.title}</Table.Th>
-            ))}
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
-          {rows.map((row) => (
-            <Table.Tr key={row.id}>
-              <Table.Td className="cellName wrapCell">
-                <Text size="sm" fw={500}>
-                  {row.name}
-                </Text>
-                {row.description !== null && (
-                  <Text size="xs" c="dimmed">
-                    {row.description}
-                  </Text>
-                )}
-              </Table.Td>
-              {LEAD_STATE_KEYS.map((state) => (
-                <Table.Td key={state}>
-                  <Count value={row.leads[state]} to={leadsAt(row.id, state)} />
-                </Table.Td>
-              ))}
-              <Table.Td>
-                <Count value={row.total} to={leadsAt(row.id, null)} />
-              </Table.Td>
-              <Table.Td>
-                <Text size="sm">{formatDate(row.created_at)}</Text>
-              </Table.Td>
-            </Table.Tr>
-          ))}
-        </Table.Tbody>
-      </Table>
-    </Table.ScrollContainer>
+    <FixedTable
+      columns={COLUMNS}
+      minWidth={HYPOTHESES_MIN_WIDTH}
+      className="hypothesesTable"
+      horizontalSpacing="md"
+      tabularNums
+      rows={rows.map((row) => (
+        <HypothesisRow key={row.id} row={row} />
+      ))}
+    />
   );
 }

@@ -14,7 +14,8 @@
  * «проверка не выполнена: …» — иначе он неотличим от ещё не очищенного.
  *
  * **Ширины колонок — по самому длинному, что в них бывает**; строка не
- * переносится, узкому окну — прокрутка. Первая колонка слева — в ней имя.
+ * переносится, узкому окну — прокрутка (`FixedTable`). Первая колонка слева —
+ * в ней имя.
  */
 
 import {
@@ -29,13 +30,14 @@ import {
   Text,
   TextInput,
 } from '@mantine/core';
-import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
 import { countryTitle } from '../api/labels';
 import { LEAD_STATES, leadReasonTitle } from '../api/salesLabels';
 import type { HypothesisCard, LeadCard, LeadState } from '../api/salesTypes';
 import { dropdownBelow } from '../theme';
+import { FixedTable } from './FixedTable';
+import type { Column } from './FixedTable';
 import { LEAD_STATE_KEYS, reasonOn } from './leadFilters';
 import type { Emptiness, LeadFilters } from './leadFilters';
 
@@ -49,7 +51,7 @@ const FIELD = {
   reason: '15rem',
 } as const;
 
-const COLUMNS: { title: string; width: string }[] = [
+const COLUMNS: Column[] = [
   { title: 'Лид', width: '17rem' },
   { title: 'Компания', width: '13rem' },
   { title: 'Гипотеза', width: '10rem' },
@@ -67,17 +69,25 @@ const ALL = 'all';
  *  на три строки. Левый край — по полю, как у остальных списков. */
 const WIDE_LIST = { ...dropdownBelow, width: 'max-content' } as const;
 
+interface Choice {
+  value: string;
+  label: string;
+}
+
 interface FilterProps {
   label: string;
   width: string;
   value: string | null;
-  choices: { value: string; label: string }[];
+  choices: Choice[];
   onChange: (value: string | null) => void;
   wide?: boolean;
 }
 
 /** Выбор под колонкой: «все» и значения колонки, поле — по центру ячейки. */
 function ColumnFilter({ label, width, value, choices, onChange, wide = false }: FilterProps) {
+  const data: Choice[] = [{ value: ALL, label: 'все' }, ...choices];
+  const pick = (picked: string | null) =>
+    onChange(choices.find((choice) => choice.value === picked)?.value ?? null);
   return (
     <Group justify="center">
       <Select
@@ -86,9 +96,9 @@ function ColumnFilter({ label, width, value, choices, onChange, wide = false }: 
         aria-label={label}
         allowDeselect={false}
         value={value ?? ALL}
-        onChange={(picked) => onChange(choices.find((c) => c.value === picked)?.value ?? null)}
-        data={[{ value: ALL, label: 'все' }, ...choices]}
-        {...(wide ? { comboboxProps: WIDE_LIST } : {})}
+        data={data}
+        onChange={pick}
+        comboboxProps={wide ? WIDE_LIST : dropdownBelow}
       />
     </Group>
   );
@@ -156,15 +166,6 @@ function FilterRow({ filters, search, onSearch, onFilter, hypotheses, reasons }:
           />
         )}
       </Table.Th>
-    </Table.Tr>
-  );
-}
-
-/** Одна строка на всю ширину: пусто или отказ. Фильтры над ней остаются. */
-function WholeRow({ children }: { children: ReactNode }) {
-  return (
-    <Table.Tr className="wholeRow">
-      <Table.Td colSpan={COLUMNS.length}>{children}</Table.Td>
     </Table.Tr>
   );
 }
@@ -257,6 +258,36 @@ function LeadRow({ row }: { row: LeadCard }) {
   );
 }
 
+/** Строка во всю ширину: почему пусто и что сделать. */
+function Empty({ empty, onReset }: { empty: Emptiness; onReset: () => void }) {
+  return (
+    <Stack gap={6} align="flex-start" py="sm">
+      <Text size="sm" fw={500}>
+        {empty.title}
+      </Text>
+      <Text size="sm" c="dimmed">
+        {empty.detail}
+      </Text>
+      {empty.action === 'reset' && (
+        <Button variant="subtle" size="compact-sm" className="press" onClick={onReset}>
+          Сбросить фильтры
+        </Button>
+      )}
+      {empty.action === 'import' && (
+        <Button
+          component={Link}
+          to="/sales/import"
+          variant="light"
+          size="compact-sm"
+          className="press"
+        >
+          Загрузить базу
+        </Button>
+      )}
+    </Stack>
+  );
+}
+
 interface Props extends FilterRowProps {
   rows: LeadCard[];
   /** Строки прежнего фильтра — ждут замены. */
@@ -266,71 +297,30 @@ interface Props extends FilterRowProps {
   onReset: () => void;
 }
 
+/** Что встаёт вместо строк: отказ сервера — или объяснение пустоты. */
+function fillerOf(refusal: string | null, empty: Emptiness | null, onReset: () => void) {
+  if (refusal !== null) {
+    return (
+      <Alert color="red" title="Лиды не загрузились">
+        {refusal}
+      </Alert>
+    );
+  }
+  return empty === null ? undefined : <Empty empty={empty} onReset={onReset} />;
+}
+
 export function LeadsTable({ rows, stale, empty, refusal, onReset, ...filters }: Props) {
   return (
-    <Table.ScrollContainer minWidth={TABLE_MIN_WIDTH} type="native" className="scrollSlim">
-      <Table
-        className="dataTable fixedTable filteredTable leadsTable"
-        layout="fixed"
-        verticalSpacing="sm"
-        horizontalSpacing="xs"
-      >
-        <colgroup>
-          {COLUMNS.map((column) => (
-            <col key={column.title} style={{ width: column.width }} />
-          ))}
-        </colgroup>
-        <Table.Thead>
-          <Table.Tr>
-            {COLUMNS.map((column) => (
-              <Table.Th key={column.title}>{column.title}</Table.Th>
-            ))}
-          </Table.Tr>
-          <FilterRow {...filters} />
-        </Table.Thead>
-        <Table.Tbody
-          className="staleRows"
-          data-stale={stale || undefined}
-          aria-busy={stale || undefined}
-        >
-          {refusal !== null && (
-            <WholeRow>
-              <Alert color="red" title="Лиды не загрузились">
-                {refusal}
-              </Alert>
-            </WholeRow>
-          )}
-          {refusal === null && empty !== null && (
-            <WholeRow>
-              <Stack gap={6} align="flex-start" py="sm">
-                <Text size="sm" fw={500}>
-                  {empty.title}
-                </Text>
-                <Text size="sm" c="dimmed">
-                  {empty.detail}
-                </Text>
-                {empty.action === 'reset' && (
-                  <Button variant="subtle" size="compact-sm" className="press" onClick={onReset}>
-                    Сбросить фильтры
-                  </Button>
-                )}
-                {empty.action === 'import' && (
-                  <Button
-                    component={Link}
-                    to="/sales/import"
-                    variant="light"
-                    size="compact-sm"
-                    className="press"
-                  >
-                    Загрузить базу
-                  </Button>
-                )}
-              </Stack>
-            </WholeRow>
-          )}
-          {refusal === null && rows.map((row) => <LeadRow key={row.id} row={row} />)}
-        </Table.Tbody>
-      </Table>
-    </Table.ScrollContainer>
+    <FixedTable
+      columns={COLUMNS}
+      minWidth={TABLE_MIN_WIDTH}
+      className="filteredTable leadsTable"
+      head={<FilterRow {...filters} />}
+      stale={stale}
+      filler={fillerOf(refusal, empty, onReset)}
+      rows={rows.map((row) => (
+        <LeadRow key={row.id} row={row} />
+      ))}
+    />
   );
 }
