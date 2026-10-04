@@ -29,3 +29,5 @@ Derived from spec acceptance. Run during verify. Поставка — срез 1
       тестов раздела — 30 из 30 побайтно (verify-report, «Сверка экрана»).
 - [x] Страховки переноса: «страница из старой ссылки за концом» (`SalesPage.test.tsx`), отказ
       формы ×3 (`ImportWizard.test.tsx`) — зелёные и на старом коде, 4 мутанта — красные.
+- [x] Коды сервера = типы и подписи экрана (часть 1.5c) — `test_front_types_know_exactly_the_server_values`,
+      `test_front_labels_name_every_server_code`; на дереве без файлов экрана — красные (5 из 5).
