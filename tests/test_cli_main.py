@@ -796,6 +796,37 @@ class TestEntryPoint:
         assert code == 6
         assert steps == ["убрала за собой"]
 
+    def test_second_ctrl_c_of_the_file_sweep_points_to_the_checkpoint(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        logging_setups: list[bool],
+    ) -> None:
+        """Прогон по файлу базы не касается. Первый Ctrl-C он разбирает сам,
+        второй приходит, пока пишется итог, — и точка входа говорила
+        «домены остались в базе» (BACKLOG, снято с #133)."""
+
+        async def interrupted_twice(_args: argparse.Namespace) -> int:
+            try:
+                os.kill(os.getpid(), signal.SIGINT)
+                await asyncio.sleep(5)  # первая отмена приходит здесь
+            except asyncio.CancelledError:
+                # Второй — посреди записи итога. Сигнал себе доставляется
+                # сразу: до `raise` дело не доходит, а если бы дошло —
+                # отмена шла бы дальше, как и положено.
+                os.kill(os.getpid(), signal.SIGINT)
+                raise
+            return 0
+
+        monkeypatch.setitem(_COMMANDS, "contacts-file", interrupted_twice)
+
+        code = main(["contacts-file", "domains.csv"])
+
+        assert code == 6
+        err = capsys.readouterr().err
+        assert "чекпойнт" in err
+        assert "в базе" not in err
+
     def test_module_run_as_a_script_hands_the_code_to_the_shell(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
