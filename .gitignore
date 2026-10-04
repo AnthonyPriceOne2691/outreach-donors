@@ -16,6 +16,8 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .coverage
+# check_diff_coverage.sh пишет отчёт в корень (и в backend/ при канонной раскладке)
+coverage.json
 htmlcov/
 .DS_Store
 .claude/
