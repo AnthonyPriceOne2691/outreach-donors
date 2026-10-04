@@ -20,6 +20,7 @@ from backend.features.core.domain import (
     MessageStatus,
     ReplyKind,
     Stage,
+    SuppressionReason,
 )
 from backend.features.core.models.attachment import ReplyAttachmentModel
 from backend.features.core.models.domain import DomainModel
@@ -35,7 +36,7 @@ from backend.features.letters import reply_to
 from backend.features.replies.extract import Extracted
 from backend.features.replies.inbound import Attachment, Incoming
 from backend.features.replies.pipeline import Inbox, Parser
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 NOW = datetime(2026, 9, 21, 12, 0, tzinfo=UTC)
@@ -219,12 +220,30 @@ class TestConsequencesOnTheBase:
     async def test_unsubscribe_puts_the_address_in_the_stop_list(
         self, session: AsyncSession, sent: MessageModel
     ) -> None:
+        """Отписка через ответ — без этапа, как со страницы отписки и по жалобе.
+
+        До 04.10.2026 сюда писался этап кампании, и отписавшийся на этапе
+        доноров оставался открыт для писем рекламодателям: все читатели
+        стоп-листа берут «пусто или свой этап» (находка сессии «Продаж»).
+        """
         await Inbox(session, now=NOW).accept(
             reply_from(sent, "Please unsubscribe me from your list.")
         )
 
         row = (await session.execute(select(SuppressionModel))).scalars().one()
         assert row.email == WROTE_TO
+        assert row.reason is SuppressionReason.UNSUBSCRIBED
+        assert row.stage is None
+
+        # Тот же предикат, что у читателей (recipients, sending, exclusions,
+        # stoplist): письмо рекламодателю на этот адрес тоже не уйдёт.
+        other_stage = or_(
+            SuppressionModel.stage.is_(None), SuppressionModel.stage == Stage.ADVERTISERS
+        )
+        held = await session.scalar(
+            select(func.count()).select_from(SuppressionModel).where(other_stage)
+        )
+        assert held == 1
 
     async def test_bounce_marks_the_contact_and_the_letter(
         self, session: AsyncSession, sent: MessageModel
