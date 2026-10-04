@@ -30,14 +30,16 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
 from backend.api.replies.download import download_headers
 from backend.api.replies.schemas import (
     Calibration,
+    LeadSent,
     LeadTaken,
     ReviewBody,
     Reviewed,
@@ -45,14 +47,16 @@ from backend.api.replies.schemas import (
     UnboundView,
     VersionCalibration,
 )
+from backend.config import outreach as outreach_cfg
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
-from backend.features.replies import unbound
+from backend.features.replies import lead_handoff, unbound
 from backend.features.replies.attachments import ReplyFiles
 from backend.features.replies.calibration import calibrate
 from backend.features.replies.extract import PLACEMENT_DECLINES, PLACEMENT_SELLS
 from backend.features.replies.repository import ReplyRepository
+from backend.shared.queue import LEAD_JOB, runs_queue, with_retries
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +64,30 @@ router = APIRouter(prefix="/replies", tags=["ответы"])
 
 _reviewer = Depends(needs(Permission.PRICES))
 _viewer = Depends(needs(Permission.VIEW))
+
+
+@router.get("/leads.csv", summary="Лиды файлом")
+async def export_leads(
+    taken: bool | None = Query(None, description="только взятые (true) или ждущие (false)"),
+    since: datetime | None = Query(None, description="получены не раньше"),
+    until: datetime | None = Query(None, description="получены раньше"),
+    _: UserModel = _viewer,
+    session: AsyncSession = Depends(db_session),
+) -> Response:
+    """Лиды — ответы людей на оффер рекламодателю — файлом CSV, новые первыми.
+
+    Поля те же, что в теле вебхука: одно описание лида на оба пути передачи.
+    """
+    cards = await lead_handoff.leads(session, taken=taken, since=since, until=until)
+    stamp = datetime.now(UTC).strftime("%Y-%m-%d")
+    return Response(
+        content=lead_handoff.to_csv(cards),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="leads-{stamp}.csv"',
+            "X-Export-Rows": str(len(cards)),
+        },
+    )
 
 
 @router.get("/calibration", response_model=Calibration, summary="Калибровка разбора")
@@ -162,7 +190,45 @@ async def take_lead(
     )
     await session.commit()
     logger.info("лиды: ответ №%s взят в работу", reply_id)
-    return LeadTaken(id=reply_id, reviewed_by=author.email, reviewed_at=taken_at)
+    # Передача в CRM — после записи: задача читает лид из базы, и взятым он
+    # должен быть уже там. Номер события — номер лида: повтор «взять» отказан
+    # выше, второй передачи по кнопке «взять» не бывает.
+    handoff = "off"
+    if outreach_cfg.LEAD_WEBHOOK_URL:
+        _enqueue_lead(reply_id, event_id=f"lead-{reply_id}")
+        handoff = "queued"
+    return LeadTaken(id=reply_id, reviewed_by=author.email, reviewed_at=taken_at, handoff=handoff)
+
+
+@router.post("/{reply_id}/lead/send", response_model=LeadSent, summary="Передать лид в CRM ещё раз")
+async def send_lead(
+    reply_id: int,
+    _: UserModel = _reviewer,
+    session: AsyncSession = Depends(db_session),
+) -> LeadSent:
+    """Повторная передача: вебхук настроили позже, или получатель лежал дольше
+    повторов очереди. Номер события новый — получатель отличит ручной повтор
+    от повтора очереди."""
+    if not outreach_cfg.LEAD_WEBHOOK_URL:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Адрес вебхука лидов не задан — заполнить OUTREACH_LEAD_WEBHOOK_URL",
+        )
+    card = await lead_handoff.lead_card(session, reply_id)
+    if card is None or not card.taken_at:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Ответ №{reply_id} не взятый лид — передают лид, который кто-то ведёт",
+        )
+    stamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+    job_id = _enqueue_lead(reply_id, event_id=f"lead-{reply_id}-{stamp}")
+    return LeadSent(id=reply_id, job_id=job_id)
+
+
+def _enqueue_lead(reply_id: int, *, event_id: str) -> str:
+    job = runs_queue().enqueue(LEAD_JOB, reply_id, event_id, job_id=event_id, **with_retries())
+    logger.info("лиды: передача лида №%s поставлена (%s)", reply_id, event_id)
+    return str(job.id)
 
 
 @router.patch("/{reply_id}", response_model=Reviewed, summary="Подтвердить разбор цены")

@@ -192,12 +192,12 @@
       "worst": "_ascii_name:28"
     },
     "backend/api/replies/routes.py": {
-      "lines": 222,
+      "lines": 288,
       "complexity": 10,
-      "worst": "review:169"
+      "worst": "review:235"
     },
     "backend/api/replies/schemas.py": {
-      "lines": 139,
+      "lines": 149,
       "complexity": 4,
       "worst": "_declines_without_price:36"
     },
@@ -507,7 +507,7 @@
       "worst": "—"
     },
     "backend/config/outreach.py": {
-      "lines": 105,
+      "lines": 111,
       "complexity": 0,
       "worst": "—"
     },
@@ -1231,6 +1231,11 @@
       "complexity": 3,
       "worst": "addresses_in:151"
     },
+    "backend/features/replies/lead_handoff.py": {
+      "lines": 216,
+      "complexity": 8,
+      "worst": "_card:113"
+    },
     "backend/features/replies/mime.py": {
       "lines": 340,
       "complexity": 11,
@@ -1532,9 +1537,9 @@
       "worst": "split_url:25"
     },
     "backend/shared/queue.py": {
-      "lines": 258,
+      "lines": 259,
       "complexity": 7,
-      "worst": "job_alive:178"
+      "worst": "job_alive:179"
     },
     "backend/shared/sliding_window.py": {
       "lines": 75,
@@ -1562,9 +1567,9 @@
       "worst": "worker_problems:73"
     },
     "backend/workers/jobs.py": {
-      "lines": 405,
+      "lines": 436,
       "complexity": 5,
-      "worst": "_mark:185"
+      "worst": "_mark:187"
     },
     "backend/workers/main.py": {
       "lines": 29,

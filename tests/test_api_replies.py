@@ -44,6 +44,10 @@ REVIEW_ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("GET", "/api/replies/calibration", None, "view"),
     # Ответы, ждущие человека, разбирает один человек, какого бы этапа они ни были.
     ("POST", "/api/replies/{reply}/lead", None, "prices"),
+    # Передать лид в CRM ещё раз — тот же человек, что ведёт лиды.
+    ("POST", "/api/replies/{reply}/lead/send", None, "prices"),
+    # Лиды файлом — то же содержимое переписки, что видно в диалогах.
+    ("GET", "/api/replies/leads.csv", None, "view"),
     # Прайс файлом — то же содержимое переписки, что и текст письма.
     ("GET", "/api/replies/{reply}/attachments/{file}", None, "view"),
     # Ответы без письма — та же переписка, только донор не найден.
