@@ -787,7 +787,7 @@
       "worst": "_enum:27"
     },
     "backend/features/core/usage.py": {
-      "lines": 149,
+      "lines": 151,
       "complexity": 7,
       "worst": "ensure_llm_within_cap:122"
     },
@@ -1247,7 +1247,7 @@
       "worst": "compiled:456"
     },
     "backend/features/replies/pipeline.py": {
-      "lines": 466,
+      "lines": 467,
       "complexity": 8,
       "worst": "_settle:202"
     },
@@ -1552,9 +1552,9 @@
       "worst": "worker_problems:73"
     },
     "backend/workers/jobs.py": {
-      "lines": 373,
+      "lines": 405,
       "complexity": 5,
-      "worst": "_mark:177"
+      "worst": "_mark:185"
     },
     "backend/workers/main.py": {
       "lines": 29,

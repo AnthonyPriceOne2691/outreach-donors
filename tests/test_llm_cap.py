@@ -23,6 +23,7 @@ from backend.features.replies.pipeline import Inbox, Parser
 from backend.features.runs import failures
 from backend.features.runs.pipeline import JUDGE_OPERATION
 from backend.features.runs.repository import RunRepository
+from backend.workers import jobs
 from fastapi import status
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.test_letters_advertisers import FakeExtractor
@@ -169,3 +170,39 @@ class TestWhereItStops:
 
         with pytest.raises(LlmCapExceededError):
             await Parser(session, extractor, now=NOW).parse(got.reply_id)  # type: ignore[arg-type]
+
+
+class TestParseJobAfterCap:
+    def test_next_day_starts_at_utc_midnight(self) -> None:
+        late = datetime(2026, 10, 4, 23, 59, tzinfo=UTC)
+        assert jobs.next_utc_day(late) == datetime(2026, 10, 5, 0, 0, tzinfo=UTC)
+
+    def test_parse_job_postpones_itself_instead_of_giving_up(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Ревью «Продаж» #158: в задаче потолок был постоянным отказом, и ответ
+        с ценой оставался неразобранным. Теперь задача ставит себя на завтра."""
+
+        async def capped(_reply_id: int) -> dict[str, object]:
+            raise LlmCapExceededError("потолок расхода на модель за день достигнут")
+
+        scheduled: list[tuple[datetime, str, tuple[object, ...], dict[str, object]]] = []
+
+        class Queue:
+            def enqueue_at(self, when: datetime, job: str, *args: object, **kwargs: object) -> None:
+                scheduled.append((when, job, args, kwargs))
+
+        monkeypatch.setattr(jobs, "_parse_reply", capped)
+        monkeypatch.setattr(jobs, "runs_queue", Queue)
+        monkeypatch.setattr(jobs, "check_storage", lambda: None)
+        monkeypatch.setattr(jobs, "setup_logging", lambda: None)
+
+        result = jobs.parse_reply(42)
+
+        assert "permanent" not in result
+        assert result["reply"] == 42
+        [(when, job, args, kwargs)] = scheduled
+        assert job == jobs.PARSE_JOB
+        assert args == (42,)
+        assert when == jobs.next_utc_day(datetime.now(UTC))
+        assert str(kwargs["job_id"]).startswith("parse-reply-42-")
