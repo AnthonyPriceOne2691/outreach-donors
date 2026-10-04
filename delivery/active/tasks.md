@@ -16,11 +16,13 @@
 
 - [x] T0. Документы: `sales-import` в архив (три PR слиты); spec, plan, tasks, decisions,
       STATUS, eval-smoke части 1.4a; четыре строки STATUS — слово в слово.
-- [ ] T1. Код: `sales/geo.py`, `columns.py` (`LeadField.TIMEZONE`), `intake.py` — перенос из
-      ветки среза без правки.
-- [ ] T2. Тесты: `tests/test_sales_geo.py` (A1–A4), ожидания `test_sales_intake*.py`; красный
-      прогон на коде до переноса.
-- [ ] T3. Снимок сложности.
-- [ ] T4. Verify части 1.4a: проверки против `origin/main`, полный сьют, verify-report.
+- [x] T1. Код: `sales/geo.py`, `columns.py` (`LeadField.TIMEZONE`), `intake.py` — перенос из
+      ветки среза без правки — `00878a1`.
+- [x] T2. Тесты: `tests/test_sales_geo.py` (A1–A4), ожидания `test_sales_intake*.py`; красный
+      прогон на коде до переноса — `0accb72`; T2б пометки примеров спеки в блоках тестов —
+      `ffcb824` (дайджест утверждений считал все 23 непривязанными).
+- [x] T3. Снимок сложности — `792323e`; T0б decisions и plan по форме §12.2 — `6946394`.
+- [x] T4. Verify части 1.4a: проверки против `origin/main`, полный сьют, verify-report — этот
+      коммит.
 
 Часть 1.4b+c — следующим PR: правила очистки, стоп-лист, проверка адресов, расход, консоль.
