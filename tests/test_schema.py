@@ -39,6 +39,9 @@ EXPECTED_TABLES = {
     "sales_stoplist",
     # Агент переписки: версии настроек по этапам.
     "agent_settings",
+    # База знаний агента продаж и отправитель — тексты только в базе: репозиторий публичный.
+    "sales_kb_entries",
+    "sales_settings",
 }
 
 

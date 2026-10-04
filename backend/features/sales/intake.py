@@ -64,8 +64,9 @@ SAMPLE_ROWS = 5  # строк данных, по которым сопостав
 #: Доменов на запрос: хосты уходят параметрами, а их у Postgres не больше 32 767.
 CHUNK = 1000
 
-#: Код языка: не код — поле пусто, замечание в отчёте.
-_LANGUAGE = re.compile(r"[a-z]{2,3}(-[a-z0-9]{2,8})?")
+#: Код языка: не код — поле пусто, замечание в отчёте. Тем же кодом язык у записи
+#: базы знаний (`kb.py`): агент сводит язык лида с языком фактов.
+LANGUAGE_CODE = re.compile(r"[a-z]{2,3}(-[a-z0-9]{2,8})?")
 NO_LANGUAGE = "язык не записан: ждём код — en, ru"
 NO_COUNTRY = "страна не распознана: ждём код или название — de, Germany, Германия"
 NO_ZONE = "часовой пояс не распознан: ждём имя из базы поясов — Europe/Berlin"
@@ -340,7 +341,7 @@ def _value(line: int, field: LeadField, text: str, notes: list[Problem]) -> str 
     """Код языка — нижним регистром, текст — по ширине колонки. Непонятое
     строки не стоит: поле пусто или обрезано, замечание — в отчёте."""
     if field is LeadField.LANGUAGE:
-        if not text or _LANGUAGE.fullmatch(text.lower()):
+        if not text or LANGUAGE_CODE.fullmatch(text.lower()):
             return text.lower() or None
         notes.append(Problem(line, NO_LANGUAGE, text, loaded=True))
         return None

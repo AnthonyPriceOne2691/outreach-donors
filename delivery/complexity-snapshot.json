@@ -747,12 +747,12 @@
       "worst": "—"
     },
     "backend/features/core/domain.py": {
-      "lines": 241,
+      "lines": 245,
       "complexity": 0,
       "worst": "—"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 53,
+      "lines": 57,
       "complexity": 0,
       "worst": "—"
     },
@@ -1447,9 +1447,14 @@
       "worst": "add:49"
     },
     "backend/features/sales/intake.py": {
-      "lines": 392,
+      "lines": 393,
       "complexity": 8,
-      "worst": "preview:176"
+      "worst": "preview:177"
+    },
+    "backend/features/sales/kb.py": {
+      "lines": 352,
+      "complexity": 7,
+      "worst": "change:327"
     },
     "backend/features/sales/kommo.py": {
       "lines": 226,
@@ -1467,9 +1472,14 @@
       "worst": "wanted_email:122"
     },
     "backend/features/sales/models.py": {
-      "lines": 165,
+      "lines": 258,
       "complexity": 2,
-      "worst": "_enum:62"
+      "worst": "_enum:73"
+    },
+    "backend/features/sales/sender.py": {
+      "lines": 180,
+      "complexity": 5,
+      "worst": "_link:90"
     },
     "backend/features/sales/sheet.py": {
       "lines": 109,
