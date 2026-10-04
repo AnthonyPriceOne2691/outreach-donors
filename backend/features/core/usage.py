@@ -12,10 +12,13 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, time
 from decimal import Decimal
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.config import llm as llm_cfg
 from backend.features.core.domain import UsageProvider
 from backend.features.core.models.ops import UsageRecordModel
 
@@ -94,3 +97,52 @@ def record(
     )
     session.add(entry)
     return entry
+
+
+class LlmCapExceededError(RuntimeError):
+    """Потолок расхода на модель достигнут. Останавливает, как `CapExceededError`
+    у Ahrefs: не тратить дальше, сказать словами, сколько и из чего."""
+
+
+async def llm_tokens_spent(
+    session: AsyncSession, *, since: datetime | None = None, run_id: int | None = None
+) -> int:
+    """Токены модели по журналу: с момента `since` и/или по прогону `run_id`."""
+    statement = select(func.coalesce(func.sum(UsageRecordModel.units), 0)).where(
+        UsageRecordModel.system == SYSTEM,
+        UsageRecordModel.provider == UsageProvider.LLM,
+    )
+    if since is not None:
+        statement = statement.where(UsageRecordModel.created_at >= since)
+    if run_id is not None:
+        statement = statement.where(UsageRecordModel.run_id == run_id)
+    return int(await session.scalar(statement) or 0)
+
+
+async def ensure_llm_within_cap(
+    session: AsyncSession, *, run_id: int | None = None, now: datetime | None = None
+) -> None:
+    """Проверить потолки расхода на модель ДО вызова. Бросает `LlmCapExceededError`.
+
+    Два потолка из настроек, оба в токенах, 0 — потолка нет: за календарный
+    день UTC по всем операциям модели и за прогон (только когда прогон есть).
+    Считается по журналу расхода, то есть по уже записанным вызовам: один
+    вызов сверх потолка возможен — это цена простоты, границу он не размывает.
+    """
+    moment = now or datetime.now(UTC)
+    if llm_cfg.DAILY_TOKEN_CAP:
+        day_start = datetime.combine(moment.date(), time.min, tzinfo=UTC)
+        spent = await llm_tokens_spent(session, since=day_start)
+        if spent >= llm_cfg.DAILY_TOKEN_CAP:
+            raise LlmCapExceededError(
+                f"потолок расхода на модель за день достигнут: {spent} из "
+                f"{llm_cfg.DAILY_TOKEN_CAP} токенов (LLM_DAILY_TOKEN_CAP) — "
+                "продолжение завтра или поднять потолок"
+            )
+    if llm_cfg.RUN_TOKEN_CAP and run_id is not None:
+        spent = await llm_tokens_spent(session, run_id=run_id)
+        if spent >= llm_cfg.RUN_TOKEN_CAP:
+            raise LlmCapExceededError(
+                f"потолок расхода на модель за прогон №{run_id} достигнут: {spent} из "
+                f"{llm_cfg.RUN_TOKEN_CAP} токенов (LLM_RUN_TOKEN_CAP)"
+            )

@@ -19,10 +19,11 @@
 from __future__ import annotations
 
 from backend.config.startup_checks import ConfigError
+from backend.features.core.usage import LlmCapExceededError
 from backend.features.runs.budget import CapExceededError
 
 #: Отказы по решению человека: потолок и настройки.
-REFUSALS: tuple[type[Exception], ...] = (CapExceededError, ConfigError)
+REFUSALS: tuple[type[Exception], ...] = (CapExceededError, LlmCapExceededError, ConfigError)
 
 
 def is_permanent(exc: BaseException) -> bool:

@@ -90,6 +90,7 @@ async def build_pool(
 ) -> PoolView:
     """Собрать пул. Юниты и выдача не трогаются — только модель."""
     languages = _languages_or_refuse(body.country)
+    await usage.ensure_llm_within_cap(session)
     client = KeygenClient()
     try:
         pool = await PoolBuilder(client, topics=body.topics).build(

@@ -34,6 +34,7 @@ from backend.features.contacts.manual import (
     UnknownAddressError,
 )
 from backend.features.contacts.repository import SearchRefusedError
+from backend.features.core.usage import LlmCapExceededError
 from backend.features.donors.browse import UnknownDonorError
 from backend.features.donors.export import PickRefusedError
 from backend.features.letters.building import LetterScopeError
@@ -58,6 +59,9 @@ from backend.features.sales.sheet import SheetError, SheetUnavailableError
 #: Отказ → код ответа. Порядок в словаре значения не имеет: FastAPI
 #: выбирает обработчик по точному типу и его предкам.
 STATUSES: dict[type[Exception], int] = {
+    # Потолок расхода на модель: не ошибка запроса и не наша поломка —
+    # предел, который человек поднимает настройкой или ждёт следующего дня.
+    LlmCapExceededError: status.HTTP_429_TOO_MANY_REQUESTS,
     LoginFailedError: status.HTTP_401_UNAUTHORIZED,
     TokenError: status.HTTP_401_UNAUTHORIZED,
     AccessDeniedError: status.HTTP_403_FORBIDDEN,
