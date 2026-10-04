@@ -12,6 +12,8 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
+import { ApiError, AuthError, DeniedError } from '../api/client';
+import { previewImport } from '../api/sales';
 import type { HypothesesView, IntakeView } from '../api/salesTypes';
 import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
@@ -348,5 +350,54 @@ describe('сопоставление и отчёт — чистые правил
       { reason: 'нет адреса', lines: [7, 12] },
       { reason: 'не адрес почты', lines: [20] },
     ]);
+  });
+});
+
+describe('отказ сервера на форму — как у остальных запросов', () => {
+  const SOURCE = { file: new File(['Почта\n'], 'leads.csv', { type: 'text/csv' }), link: '' };
+
+  /** Чем кончилась отправка формы: отказ — исключением. */
+  async function refusalOn(answer: Answer): Promise<unknown> {
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    serve({ [PREVIEW_ROUTE]: answer });
+    return previewImport(SOURCE, {}).then(
+      () => null,
+      (failure: unknown) => failure,
+    );
+  }
+
+  it('отказ разбора формы списком — первой причиной, а не схемой', async () => {
+    const failure = await refusalOn({
+      status: 422,
+      body: { detail: [{ msg: 'нет ни файла, ни ссылки', loc: ['body', 'file'] }] },
+    });
+
+    expect(failure).toBeInstanceOf(ApiError);
+    expect(failure).toHaveProperty('message', 'нет ни файла, ни ссылки');
+    expect(failure).toHaveProperty('status', 422);
+  });
+
+  it('без текста отказа — код ответа, а не пустота', async () => {
+    expect(await refusalOn({ status: 422, body: { detail: [] } })).toHaveProperty(
+      'message',
+      'Сервер ответил 422',
+    );
+    expect(await refusalOn({ status: 502, raw: '<html>шлюз</html>' })).toHaveProperty(
+      'message',
+      'Сервер ответил 502',
+    );
+  });
+
+  it('401 сбрасывает пропуск, 403 называет действие', async () => {
+    const expired = await refusalOn({ status: 401, body: { detail: 'Пропуск просрочен' } });
+    expect(expired).toBeInstanceOf(AuthError);
+    expect(localStorage.getItem(TOKEN_KEY)).toBeNull();
+
+    const denied = await refusalOn({
+      status: 403,
+      body: { detail: 'Действие «sales» недоступно этой учётке' },
+    });
+    expect(denied).toBeInstanceOf(DeniedError);
+    expect(denied).toHaveProperty('message', 'Действие «sales» недоступно этой учётке');
   });
 });

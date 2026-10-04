@@ -156,10 +156,18 @@ function SourceStep(props: SourceStepProps) {
   );
 }
 
-export function ImportWizard() {
-  const queryClient = useQueryClient();
-  const hypotheses = useQuery({ queryKey: HYPOTHESES_QUERY_KEY, queryFn: listHypotheses });
+/** Имя гипотезы по номеру — для слов «лиды лягут в гипотезу …». */
+function nameOf(known: HypothesisCard[], id: number | null): string | null {
+  return known.find((row) => row.id === id)?.name ?? null;
+}
 
+/**
+ * Состояние мастера: выбор человека и последние ответы сервера. Сервер между
+ * шагами ничего не помнит, поэтому всё, что уходит на предпросмотр и загрузку,
+ * держится здесь — и здесь же правила переходов между шагами.
+ */
+function useImportWizard() {
+  const queryClient = useQueryClient();
   const [step, setStep] = useState<Step>(0);
   const [hypothesisId, setHypothesisId] = useState<number | null>(null);
   const [kind, setKind] = useState<SourceKind>('file');
@@ -204,124 +212,159 @@ export function ImportWizard() {
     setStep(0);
   };
 
-  const again = () => {
-    forget();
-    setFile(null);
-    setLink('');
-    setOutcome(null);
-    preview.reset();
-    load.reset();
-  };
+  /** Смена источника обнуляет прочитанное: иначе новый файл ушёл бы со старыми колонками. */
+  function changing<T>(set: (value: T) => void) {
+    return (value: T) => {
+      set(value);
+      forget();
+    };
+  }
 
-  const remap = (column: number, field: LeadField | null) => {
-    const next = withField(mapping, column, field);
-    setMapping(next);
-    preview.mutate({ mapping: next, header });
+  return {
+    step,
+    setStep,
+    hypothesisId,
+    setHypothesisId,
+    kind,
+    file,
+    link,
+    found,
+    mapping,
+    header,
+    outcome,
+    preview,
+    load,
+    /** Отказы сервера словами — там, где их чинят. */
+    previewRefusal: preview.error ? refusalOf(preview.error) : null,
+    loadRefusal: load.error ? refusalOf(load.error) : null,
+    changeKind: changing(setKind),
+    changeFile: changing(setFile),
+    changeLink: changing(setLink),
+    read: () => {
+      setOutcome(null);
+      preview.mutate({});
+    },
+    remap: (column: number, field: LeadField | null) => {
+      const next = withField(mapping, column, field);
+      setMapping(next);
+      preview.mutate({ mapping: next, header });
+    },
+    reheader: (checked: boolean) => {
+      setHeader(checked);
+      preview.mutate({ mapping, header: checked });
+    },
+    again: () => {
+      forget();
+      setFile(null);
+      setLink('');
+      setOutcome(null);
+      preview.reset();
+      load.reset();
+    },
   };
+}
 
-  const reheader = (checked: boolean) => {
-    setHeader(checked);
-    preview.mutate({ mapping, header: checked });
-  };
+type Wizard = ReturnType<typeof useImportWizard>;
+
+/** Шаги мастера и тело текущего: источник, колонки, отчёт. */
+function WizardSteps({ wizard, known }: { wizard: Wizard; known: HypothesisCard[] }) {
+  const { step, found, hypothesisId, preview, load } = wizard;
+  return (
+    <Stack gap="lg">
+      <Stepper
+        active={step}
+        size="sm"
+        allowNextStepsSelect={false}
+        onStepClick={(to) => wizard.setStep(to === 1 || to === 2 ? to : 0)}
+      >
+        {STEPS.map((named) => (
+          <Stepper.Step key={named.label} label={named.label} description={named.description} />
+        ))}
+      </Stepper>
+
+      {step === 0 && (
+        <SourceStep
+          hypotheses={known}
+          hypothesisId={hypothesisId}
+          kind={wizard.kind}
+          file={wizard.file}
+          link={wizard.link}
+          busy={preview.isPending}
+          refusal={wizard.previewRefusal}
+          onHypothesis={wizard.setHypothesisId}
+          onKind={wizard.changeKind}
+          onFile={wizard.changeFile}
+          onLink={wizard.changeLink}
+          onRead={wizard.read}
+        />
+      )}
+
+      {step === 1 && found !== null && (
+        <ImportColumns
+          found={found}
+          mapping={wizard.mapping}
+          header={wizard.header}
+          busy={preview.isPending}
+          refusal={wizard.previewRefusal}
+          onField={wizard.remap}
+          onHeader={wizard.reheader}
+          onBack={() => wizard.setStep(0)}
+          onNext={() => wizard.setStep(2)}
+        />
+      )}
+
+      {step === 2 && found !== null && hypothesisId !== null && (
+        <ImportReport
+          found={found}
+          hypothesisName={nameOf(known, hypothesisId)}
+          busy={load.isPending}
+          refusal={wizard.loadRefusal}
+          onBack={() => wizard.setStep(1)}
+          onLoad={() => load.mutate(hypothesisId)}
+        />
+      )}
+    </Stack>
+  );
+}
+
+/** Шапка мастера: куда вернуться и что будет до записи. */
+function WizardHead() {
+  return (
+    <Card className="glassPanel" p="xl">
+      <Stack gap={6}>
+        <BackLink to="/sales">К продажам</BackLink>
+        <Title order={3}>Загрузка базы</Title>
+        <Text size="sm" c="dimmed" maw={720}>
+          Файл CSV или Google-таблица → колонки → отчёт по каждой строке → запись в гипотезу. До
+          последнего шага в базу ничего не пишется: сначала мастер показывает, что получится.
+        </Text>
+      </Stack>
+    </Card>
+  );
+}
+
+export function ImportWizard() {
+  const hypotheses = useQuery({ queryKey: HYPOTHESES_QUERY_KEY, queryFn: listHypotheses });
+  const wizard = useImportWizard();
 
   if (hypotheses.data === undefined) return <Pending error={hypotheses.error} />;
 
   const known = hypotheses.data.rows;
-  const hypothesisName = known.find((row) => row.id === hypothesisId)?.name ?? null;
-  const refusal = preview.error ? refusalOf(preview.error) : null;
-
+  const { outcome, hypothesisId } = wizard;
   return (
     <Stack gap="lg">
-      <Card className="glassPanel" p="xl">
-        <Stack gap={6}>
-          <BackLink to="/sales">К продажам</BackLink>
-          <Title order={3}>Загрузка базы</Title>
-          <Text size="sm" c="dimmed" maw={720}>
-            Файл CSV или Google-таблица → колонки → отчёт по каждой строке → запись в гипотезу. До
-            последнего шага в базу ничего не пишется: сначала мастер показывает, что получится.
-          </Text>
-        </Stack>
-      </Card>
+      <WizardHead />
 
       <Card className="glassPanel" p="xl">
         {outcome !== null && hypothesisId !== null ? (
           <ImportOutcome
             outcome={outcome}
             hypothesisId={hypothesisId}
-            hypothesisName={hypothesisName}
-            onAgain={again}
+            hypothesisName={nameOf(known, hypothesisId)}
+            onAgain={wizard.again}
           />
         ) : (
-          <Stack gap="lg">
-            <Stepper
-              active={step}
-              size="sm"
-              allowNextStepsSelect={false}
-              onStepClick={(to) => setStep(to === 1 || to === 2 ? to : 0)}
-            >
-              {STEPS.map((named) => (
-                <Stepper.Step
-                  key={named.label}
-                  label={named.label}
-                  description={named.description}
-                />
-              ))}
-            </Stepper>
-
-            {step === 0 && (
-              <SourceStep
-                hypotheses={known}
-                hypothesisId={hypothesisId}
-                kind={kind}
-                file={file}
-                link={link}
-                busy={preview.isPending}
-                refusal={refusal}
-                onHypothesis={setHypothesisId}
-                onKind={(next) => {
-                  setKind(next);
-                  forget();
-                }}
-                onFile={(next) => {
-                  setFile(next);
-                  forget();
-                }}
-                onLink={(next) => {
-                  setLink(next);
-                  forget();
-                }}
-                onRead={() => {
-                  setOutcome(null);
-                  preview.mutate({});
-                }}
-              />
-            )}
-
-            {step === 1 && found !== null && (
-              <ImportColumns
-                found={found}
-                mapping={mapping}
-                header={header}
-                busy={preview.isPending}
-                refusal={refusal}
-                onField={remap}
-                onHeader={reheader}
-                onBack={() => setStep(0)}
-                onNext={() => setStep(2)}
-              />
-            )}
-
-            {step === 2 && found !== null && hypothesisId !== null && (
-              <ImportReport
-                found={found}
-                hypothesisName={hypothesisName}
-                busy={load.isPending}
-                refusal={load.error ? refusalOf(load.error) : null}
-                onBack={() => setStep(1)}
-                onLoad={() => load.mutate(hypothesisId)}
-              />
-            )}
-          </Stack>
+          <WizardSteps wizard={wizard} known={known} />
         )}
       </Card>
     </Stack>

@@ -66,23 +66,22 @@ function formOf(source: ImportSource, options: ImportOptions, hypothesisId?: num
   return form;
 }
 
+/** Текст отказа из тела ответа: строкой — как есть; списком (отказ разбора
+ *  формы) — первая причина: человеку нужна причина, а не схема. Нет ни того,
+ *  ни другого — `null`, и остаётся код ответа. */
+function detailFrom(body: unknown): string | null {
+  if (!body || typeof body !== 'object' || !('detail' in body)) return null;
+  const { detail } = body;
+  if (typeof detail === 'string') return detail;
+  const first: unknown = Array.isArray(detail) ? detail[0] : null;
+  return first && typeof first === 'object' && 'msg' in first ? String(first.msg) : null;
+}
+
 /** Отказ сервера на форму — тем же исключением и с тем же текстом, что у `request`. */
 async function refused(response: Response): Promise<ApiError> {
-  let detail = `Сервер ответил ${response.status}`;
-  try {
-    const body: unknown = await response.json();
-    if (body && typeof body === 'object' && 'detail' in body) {
-      const found: unknown = body.detail;
-      if (typeof found === 'string') detail = found;
-      else if (Array.isArray(found) && found.length > 0) {
-        // Отказ разбора формы приходит списком — человеку нужна причина, а не схема.
-        const first: unknown = found[0];
-        if (first && typeof first === 'object' && 'msg' in first) detail = String(first.msg);
-      }
-    }
-  } catch {
-    // Тело не разобралось — отвечал не наш обработчик ошибок.
-  }
+  // Тело не разобралось — отвечал не наш обработчик ошибок: остаётся код ответа.
+  const body: unknown = await response.json().catch(() => null);
+  const detail = detailFrom(body) ?? `Сервер ответил ${response.status}`;
   if (response.status === 401) {
     clearToken();
     return new AuthError(detail);
