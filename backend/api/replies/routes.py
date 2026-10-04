@@ -71,21 +71,27 @@ async def export_leads(
     taken: bool | None = Query(None, description="только взятые (true) или ждущие (false)"),
     since: datetime | None = Query(None, description="получены не раньше"),
     until: datetime | None = Query(None, description="получены раньше"),
-    _: UserModel = _viewer,
+    _: UserModel = _reviewer,
     session: AsyncSession = Depends(db_session),
 ) -> Response:
     """Лиды — ответы людей на оффер рекламодателю — файлом CSV, новые первыми.
 
     Поля те же, что в теле вебхука: одно описание лида на оба пути передачи.
+    Право — того, кто ведёт лиды: в файле переписка с адресами (ревью #160).
+    Строк больше потолка — файл обрезан, и заголовок это говорит.
     """
-    cards = await lead_handoff.leads(session, taken=taken, since=since, until=until)
+    limit = lead_handoff.EXPORT_LIMIT
+    cards = await lead_handoff.leads(
+        session, taken=taken, since=since, until=until, limit=limit + 1
+    )
     stamp = datetime.now(UTC).strftime("%Y-%m-%d")
     return Response(
-        content=lead_handoff.to_csv(cards),
+        content=lead_handoff.to_csv(cards[:limit]),
         media_type="text/csv; charset=utf-8",
         headers={
             "Content-Disposition": f'attachment; filename="leads-{stamp}.csv"',
-            "X-Export-Rows": str(len(cards)),
+            "X-Export-Rows": str(min(len(cards), limit)),
+            "X-Export-Truncated": "1" if len(cards) > limit else "0",
         },
     )
 

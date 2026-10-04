@@ -411,8 +411,15 @@ function LeadsExport() {
     onSuccess: (file) => {
       saveFile(file, 'leads.csv');
       const rows = exportCounts(file).rows;
+      const truncated = file.headers.get('X-Export-Truncated') === '1';
       notifications.show({
-        message: rows === 0 ? 'Лидов пока нет — файл пустой' : `Выгружено лидов: ${rows ?? '—'}`,
+        message:
+          rows === 0
+            ? 'Лидов пока нет — файл пустой'
+            : truncated
+              ? `Выгружено лидов: ${rows ?? '—'} — это потолок, часть лидов не вошла`
+              : `Выгружено лидов: ${rows ?? '—'}`,
+        ...(truncated ? { color: 'yellow' } : {}),
       });
     },
     onError: (failure) =>

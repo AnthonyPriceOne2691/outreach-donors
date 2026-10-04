@@ -65,9 +65,20 @@ class LeadWebhookOffError(ValueError):
 
 
 class LeadWebhookRefusedError(RuntimeError):
-    """Получатель отверг запрос (4xx). Повтор не поможет — исход задачи, а не сбой."""
+    """Получатель отверг запрос (4xx) или настроен неверно (3xx, не https).
+    Повтор не поможет — исход задачи, а не сбой."""
 
     permanent = True
+
+
+class LeadWebhookUnavailableError(RuntimeError):
+    """Получатель не ответил или ответил 5xx/408/429 — повтор очереди поможет.
+
+    **Адреса вебхука в тексте нет.** У многих CRM входящий вебхук несёт токен
+    в пути (Bitrix24) или в параметрах (Make, Zapier), а текст ошибки задачи
+    уходит в журнал и на экран задач (ревью «Продаж» #160). `httpx` кладёт
+    адрес в текст своих ошибок, поэтому они сюда не пробрасываются.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,13 +167,26 @@ async def leads(
     return [_card(row._tuple()) for row in (await session.execute(statement)).all()]
 
 
+#: С чего начинается формула в Excel и Google Sheets (OWASP «CSV Injection»).
+_FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _inert(value: object) -> object:
+    """Ячейка, которую таблица не исполнит: текст из чужого письма вида
+    `=HYPERLINK(...)` при открытии выгрузки вытащил бы соседние ячейки —
+    адреса других лидов (ревью «Продаж» #160). Ведущий апостроф — по OWASP."""
+    if isinstance(value, str) and value.startswith(_FORMULA_START):
+        return f"'{value}"
+    return value
+
+
 def to_csv(cards: list[LeadCard]) -> str:
     """Выгрузка файлом. Заголовок — имена полей вебхука: одно описание на оба пути."""
     out = io.StringIO()
     writer = csv.DictWriter(out, fieldnames=list(LeadCard.__dataclass_fields__))
     writer.writeheader()
     for card in cards:
-        writer.writerow(asdict(card))
+        writer.writerow({name: _inert(value) for name, value in asdict(card).items()})
     return out.getvalue()
 
 
@@ -195,21 +219,45 @@ async def deliver(
         raise LeadWebhookOffError(
             "секрет подписи вебхука лидов не задан — заполнить OUTREACH_LEAD_WEBHOOK_SECRET"
         )
+    if not cfg.LEAD_WEBHOOK_URL.lower().startswith("https://"):
+        # Уходит переписка с персональными данными — только шифрованным каналом.
+        raise LeadWebhookRefusedError(
+            "адрес вебхука лидов не https — OUTREACH_LEAD_WEBHOOK_URL должен начинаться с https://"
+        )
     body = body_of(card, event_id=event_id)
     stamp = int(now if now is not None else time.time())
-    response = await http.post(
-        cfg.LEAD_WEBHOOK_URL,
-        content=body,
-        headers={
-            "Content-Type": "application/json; charset=utf-8",
-            SIGNATURE_HEADER: signature(body, secret=cfg.LEAD_WEBHOOK_SECRET, timestamp=stamp),
-        },
-        timeout=TIMEOUT_S,
-    )
-    if 400 <= response.status_code < 500 and response.status_code not in (408, 429):
-        raise LeadWebhookRefusedError(
-            f"получатель вебхука отверг лид №{card.lead_id}: {response.status_code} "
-            f"{response.text[:200]!r}"
+    try:
+        response = await http.post(
+            cfg.LEAD_WEBHOOK_URL,
+            content=body,
+            headers={
+                "Content-Type": "application/json; charset=utf-8",
+                SIGNATURE_HEADER: signature(body, secret=cfg.LEAD_WEBHOOK_SECRET, timestamp=stamp),
+            },
+            timeout=TIMEOUT_S,
+            follow_redirects=False,
         )
-    response.raise_for_status()
-    return response.status_code
+    except httpx.HTTPError as exc:
+        # Текст ошибки httpx содержит адрес — с токеном CRM. Только тип.
+        raise LeadWebhookUnavailableError(
+            f"получатель вебхука не ответил ({type(exc).__name__}) — повтор очереди"
+        ) from None
+    return _judge(response.status_code, lead_id=card.lead_id)
+
+
+def _judge(code: int, *, lead_id: int) -> int:
+    """Код ответа получателя → исход. Адреса в словах нет (см. `LeadWebhookUnavailableError`)."""
+    if 200 <= code < 300 or code == 409:
+        # 409 — получатель уже принял это событие: наш повтор застал его принятым.
+        return code
+    if code in (408, 429) or code >= 500:
+        raise LeadWebhookUnavailableError(
+            f"получатель вебхука ответил {code} на лид №{lead_id} — повтор очереди"
+        )
+    if 300 <= code < 400:
+        # По перенаправлению не идём: подпись ушла бы на чужой хост.
+        raise LeadWebhookRefusedError(
+            f"адрес вебхука перенаправляет ({code}) — указать в OUTREACH_LEAD_WEBHOOK_URL "
+            "конечный адрес"
+        )
+    raise LeadWebhookRefusedError(f"получатель вебхука отверг лид №{lead_id}: {code}")
