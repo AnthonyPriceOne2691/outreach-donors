@@ -293,9 +293,10 @@ async def test_a3_unsubscribed_or_complained_anywhere_closes_the_address(
 
 async def test_a3_an_unsubscribe_written_by_the_reply_pipeline_counts(world: World) -> None:  # A3
     # A3 — пример спеки
-    """Приём ответов пишет отписку с этапом кампании (`replies/pipeline.py`):
-    человек отписался от нас, а не от одной рассылки — продажи ему не пишут."""
-    await ReplyRepository(world.session).suppress(IVAN, stage=Stage.DONORS)
+    """Приём ответов пишет отписку без этапа (`replies/repository.py`, с #154; до него —
+    с этапом кампании, такие строки закрывает тест выше): человек отписался от нас,
+    а не от одной рассылки — продажи ему не пишут."""
+    await ReplyRepository(world.session).suppress(IVAN)
     await world.lead(IVAN)
     await world.lead("maria@acme.example.test")
 
