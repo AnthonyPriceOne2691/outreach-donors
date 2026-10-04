@@ -258,32 +258,44 @@ function LeadRow({ row }: { row: LeadCard }) {
   );
 }
 
+/** Что предложить у пустой таблицы: сбросить фильтры — или загрузить базу,
+ *  если лидов нет вовсе. */
+function EmptyAction({ action, onReset }: { action: Emptiness['action']; onReset: () => void }) {
+  if (action === 'reset') {
+    return (
+      <Button variant="subtle" size="compact-sm" className="press" onClick={onReset}>
+        Сбросить фильтры
+      </Button>
+    );
+  }
+  if (action === 'import') {
+    return (
+      <Button
+        component={Link}
+        to="/sales/import"
+        variant="light"
+        size="compact-sm"
+        className="press"
+      >
+        Загрузить базу
+      </Button>
+    );
+  }
+  return null;
+}
+
 /** Строка во всю ширину: почему пусто и что сделать. */
 function Empty({ empty, onReset }: { empty: Emptiness; onReset: () => void }) {
+  const { title, detail, action } = empty;
   return (
     <Stack gap={6} align="flex-start" py="sm">
       <Text size="sm" fw={500}>
-        {empty.title}
+        {title}
       </Text>
       <Text size="sm" c="dimmed">
-        {empty.detail}
+        {detail}
       </Text>
-      {empty.action === 'reset' && (
-        <Button variant="subtle" size="compact-sm" className="press" onClick={onReset}>
-          Сбросить фильтры
-        </Button>
-      )}
-      {empty.action === 'import' && (
-        <Button
-          component={Link}
-          to="/sales/import"
-          variant="light"
-          size="compact-sm"
-          className="press"
-        >
-          Загрузить базу
-        </Button>
-      )}
+      <EmptyAction action={action} onReset={onReset} />
     </Stack>
   );
 }
@@ -297,15 +309,18 @@ interface Props extends FilterRowProps {
   onReset: () => void;
 }
 
+/** Отказ сервера словами — и до первого ответа, и строкой вместо строк. */
+export function LeadsRefused({ refusal }: { refusal: string }) {
+  return (
+    <Alert color="red" title="Лиды не загрузились">
+      {refusal}
+    </Alert>
+  );
+}
+
 /** Что встаёт вместо строк: отказ сервера — или объяснение пустоты. */
 function fillerOf(refusal: string | null, empty: Emptiness | null, onReset: () => void) {
-  if (refusal !== null) {
-    return (
-      <Alert color="red" title="Лиды не загрузились">
-        {refusal}
-      </Alert>
-    );
-  }
+  if (refusal !== null) return <LeadsRefused refusal={refusal} />;
   return empty === null ? undefined : <Empty empty={empty} onReset={onReset} />;
 }
 

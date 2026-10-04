@@ -62,10 +62,11 @@ function known<T extends string>(choices: readonly T[], raw: string | null): T |
   return choices.find((choice) => choice === raw) ?? null;
 }
 
-function wholeNumber(raw: string | null, min: number, max: number): number | null {
-  if (raw === null || !/^\d{1,7}$/.test(raw)) return null;
-  const value = Number(raw);
-  return value >= min && value <= max ? value : null;
+/** Номер из адреса — гипотезы или страницы: целое от единицы до `max`, иначе
+ *  «не сужать». `12abc`, `1e3`, `-1` и восемь цифр номером не считаются. */
+function numberOf(raw: string | null, max: number): number | null {
+  const value = raw !== null && /^\d{1,7}$/.test(raw) ? Number(raw) : 0;
+  return value >= 1 && value <= max ? value : null;
 }
 
 /** Бывает ли причина при этом состоянии: только у отклонённых и у «всех». */
@@ -86,8 +87,8 @@ export function readLeadFilters(params: URLSearchParams): LeadFilters {
     search: (params.get('search') ?? '').trim(),
     state: known(LEAD_STATE_KEYS, params.get('state')),
     reason: reason !== null && REASON_CODE.test(reason) ? reason : null,
-    hypothesis: wholeNumber(params.get('hypothesis'), 1, 9_999_999),
-    page: wholeNumber(params.get('page'), 1, 1_000_000) ?? 1,
+    hypothesis: numberOf(params.get('hypothesis'), 9_999_999),
+    page: numberOf(params.get('page'), 1_000_000) ?? 1,
   });
 }
 

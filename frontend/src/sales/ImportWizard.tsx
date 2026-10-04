@@ -26,7 +26,6 @@ import {
   Card,
   FileInput,
   Group,
-  Loader,
   Radio,
   Select,
   Stack,
@@ -48,6 +47,7 @@ import { ImportColumns } from './ImportColumns';
 import { withField } from './importMapping';
 import type { FieldMapping } from './importMapping';
 import { ImportOutcome, ImportReport } from './ImportReport';
+import { Pending } from './Pending';
 import { HYPOTHESES_QUERY_KEY } from './SalesPage';
 
 /** Шаги мастера по порядку. Итог загрузки — не шаг: назад с него не ходят. */
@@ -224,15 +224,7 @@ export function ImportWizard() {
     preview.mutate({ mapping, header: checked });
   };
 
-  if (hypotheses.data === undefined) {
-    return hypotheses.error ? (
-      <Alert color="red" title="Раздел продаж не загрузился" m="md">
-        {refusalOf(hypotheses.error)}
-      </Alert>
-    ) : (
-      <Loader aria-label="Загружаем раздел продаж" m="md" />
-    );
-  }
+  if (hypotheses.data === undefined) return <Pending error={hypotheses.error} />;
 
   const known = hypotheses.data.rows;
   const hypothesisName = known.find((row) => row.id === hypothesisId)?.name ?? null;

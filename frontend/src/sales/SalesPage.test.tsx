@@ -353,6 +353,20 @@ describe('продажи: лиды', () => {
     expect(asked(recorded)).toEqual(['', 'page=2']);
   });
 
+  it('страница из старой ссылки за концом — последняя настоящая, а не пустота', async () => {
+    const recorded = await openScreen(
+      {
+        [at('page=9')]: { body: view([], { total: 45, page: 9 }) },
+        [at('page=3')]: { body: view([IVAN], { total: 45, page: 3 }) },
+      },
+      { path: '/sales?page=9' },
+    );
+
+    // 45 лидов по двадцать — три страницы: девятая пуста не потому, что лидов нет.
+    expect(asked(recorded)).toEqual(['page=9', 'page=3']);
+    expect(screen.queryByText('Под фильтр ничего не попало.')).toBeNull();
+  });
+
   it('отказ сервера на новом фильтре — строкой в таблице; фильтры стоят', async () => {
     await openScreen({
       [at('state=ready')]: {

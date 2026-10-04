@@ -31,12 +31,15 @@ export function listHypotheses(): Promise<HypothesesView> {
   return request<HypothesesView>('/sales/hypotheses');
 }
 
+/** Запрос → строка адреса: незаданные условия не пишутся вовсе — `?reason=`
+ *  сервер прочёл бы как пустой код, а не как «без причины». */
+function searchOf(query: LeadsQuery): string {
+  const given = Object.entries(query).filter(([, value]) => value !== undefined && value !== '');
+  return new URLSearchParams(given.map(([key, value]) => [key, String(value)])).toString();
+}
+
 export function listLeads(query: LeadsQuery): Promise<LeadsView> {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(query)) {
-    if (value !== undefined && value !== '') params.set(key, String(value));
-  }
-  const asked = params.toString();
+  const asked = searchOf(query);
   return request<LeadsView>(asked === '' ? '/sales/leads' : `/sales/leads?${asked}`);
 }
 

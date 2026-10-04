@@ -39,6 +39,17 @@ interface Props {
   tabularNums?: boolean;
 }
 
+/** Ширины колонок: раскладка `fixed` берёт их из `colgroup`, а не из ячеек. */
+function Widths({ columns }: { columns: Column[] }) {
+  return (
+    <colgroup>
+      {columns.map(({ title, width }) => (
+        <col key={title} style={width === undefined ? {} : { width }} />
+      ))}
+    </colgroup>
+  );
+}
+
 export function FixedTable({
   columns,
   minWidth,
@@ -62,18 +73,11 @@ export function FixedTable({
         horizontalSpacing={horizontalSpacing}
         tabularNums={tabularNums}
       >
-        <colgroup>
-          {columns.map((column) => (
-            <col
-              key={column.title}
-              style={column.width === undefined ? {} : { width: column.width }}
-            />
-          ))}
-        </colgroup>
+        <Widths columns={columns} />
         <Table.Thead>
           <Table.Tr>
-            {columns.map((column) => (
-              <Table.Th key={column.title}>{column.title}</Table.Th>
+            {columns.map(({ title }) => (
+              <Table.Th key={title}>{title}</Table.Th>
             ))}
           </Table.Tr>
           {head}
