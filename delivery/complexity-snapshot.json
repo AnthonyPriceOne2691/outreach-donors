@@ -962,9 +962,9 @@
       "worst": "check_metrics:67"
     },
     "backend/features/donors/wording.py": {
-      "lines": 103,
+      "lines": 126,
       "complexity": 4,
-      "worst": "reject_reason_text:81"
+      "worst": "reject_reason_text:99"
     },
     "backend/features/keywords/__init__.py": {
       "lines": 2,
@@ -1022,9 +1022,9 @@
       "worst": "cadence:30"
     },
     "backend/features/letters/compose.py": {
-      "lines": 227,
+      "lines": 237,
       "complexity": 3,
-      "worst": "missing_settings:161"
+      "worst": "values_for:115"
     },
     "backend/features/letters/draft.py": {
       "lines": 160,
@@ -1072,9 +1072,9 @@
       "worst": "letter_for:71"
     },
     "backend/features/letters/recipients.py": {
-      "lines": 477,
+      "lines": 495,
       "complexity": 5,
-      "worst": "_why_not:293"
+      "worst": "_why_not:309"
     },
     "backend/features/letters/reply_to.py": {
       "lines": 153,
@@ -1082,9 +1082,9 @@
       "worst": "message_id_from:121"
     },
     "backend/features/letters/repository.py": {
-      "lines": 227,
+      "lines": 228,
       "complexity": 4,
-      "worst": "_queued_letter:103"
+      "worst": "_queued_letter:104"
     },
     "backend/features/letters/review.py": {
       "lines": 95,

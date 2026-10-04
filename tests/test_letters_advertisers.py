@@ -536,3 +536,29 @@ class TestTakingTheLead:
 
         with pytest.raises(LeadError, match="не лид"):
             await ReplyRepository(session).take_lead(reply, by="anna@parsingprices.com")
+
+
+class TestAudienceCountry:
+    async def test_candidate_and_queued_offer_carry_the_donor_geo(
+        self, session: AsyncSession
+    ) -> None:
+        """Страна аудитории площадки едет с письмом: из гео донора, чей хост —
+        `best_donor_host` рекламодателя (решение Anthony, 04.10.2026). У
+        рекламодателя своего прогона нет, и больше её взять негде."""
+        domain = await priced_donor(session)
+        donor = await session.scalar(select(DonorModel).where(DonorModel.domain_id == domain.id))
+        assert donor is not None
+        donor.geo = "de"
+        await make_advertiser(session, "geo.example.test")
+        await session.flush()
+
+        [candidate] = await LetterRepository(session).candidates(Stage.ADVERTISERS, limit=10)
+        assert candidate.link is not None
+        assert candidate.link.donor_geo == "de"
+
+        await build_offers(session)
+        [queued] = await LetterRepository(session).queued(stage=Stage.ADVERTISERS)
+        assert queued.link is not None
+        assert queued.link.donor_geo == "de"
+        [letter] = await offers(session)
+        assert "Its readers are mostly in Germany." in letter.body

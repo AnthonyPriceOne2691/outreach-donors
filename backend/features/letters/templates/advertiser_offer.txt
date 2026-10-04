@@ -26,6 +26,9 @@
 #   {{donor_host}}  — площадка, где нашли ссылку
 #   {{page_url}}    — конкретная страница с ссылкой
 #   {{anchor}}      — текст той самой ссылки
+#   {{donor_country}}  — страна аудитории площадки (из гео донора), по-английски
+#   {{donor_audience}} — готовая фраза про аудиторию с точкой и пробелом,
+#                        пустая, когда гео донора неизвестно: без дыры в тексте
 # Они и есть персонализация, которую просит требование: письмо пишется
 # «под конкретную найденную ссылку — страницу и анкор».
 #
@@ -52,7 +55,7 @@ Hello there,
 I arrange sponsored articles on publisher sites for a living, so a good part of my week goes into looking at who places links where. Your company came up while I was going through one of the sites I work with.
 
 [offer] fixed
-It was your link on {{donor_host}}, anchored "{{anchor}}", on this page: {{page_url}}. I buy placements on sites like that one at agency rates, below what a publisher quotes to a direct advertiser, so I can most likely get you the same spot for less.
+It was your link on {{donor_host}}, anchored "{{anchor}}", on this page: {{page_url}}. {{donor_audience}}I buy placements on sites like that one at agency rates, below what a publisher quotes to a direct advertiser, so I can most likely get you the same spot for less.
 
 [ask] rewrite
 Would it make sense to compare notes? If you let me know roughly how often you place articles and on which sites, I will come back with what the same placements would cost through us, and you can judge for yourself whether switching is worth it.
