@@ -82,9 +82,9 @@
       "worst": "of:159"
     },
     "backend/api/errors.py": {
-      "lines": 157,
+      "lines": 159,
       "complexity": 3,
-      "worst": "handle:143"
+      "worst": "handle:145"
     },
     "backend/api/events/__init__.py": {
       "lines": 1,
@@ -312,14 +312,14 @@
       "worst": "—"
     },
     "backend/api/threads/routes.py": {
-      "lines": 45,
+      "lines": 75,
       "complexity": 2,
-      "worst": "all_threads:26"
+      "worst": "all_threads:32"
     },
     "backend/api/threads/schemas.py": {
-      "lines": 206,
+      "lines": 217,
       "complexity": 3,
-      "worst": "of:196"
+      "worst": "of:207"
     },
     "backend/api/unsubscribe/__init__.py": {
       "lines": 1,
@@ -777,7 +777,7 @@
       "worst": "_enum:18"
     },
     "backend/features/core/models/outreach.py": {
-      "lines": 303,
+      "lines": 318,
       "complexity": 2,
       "worst": "_enum:37"
     },
@@ -1006,6 +1006,11 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/letters/answers.py": {
+      "lines": 197,
+      "complexity": 4,
+      "worst": "subject_for:75"
+    },
     "backend/features/letters/attempts.py": {
       "lines": 224,
       "complexity": 2,
@@ -1017,9 +1022,9 @@
       "worst": "build:230"
     },
     "backend/features/letters/chain.py": {
-      "lines": 55,
+      "lines": 59,
       "complexity": 3,
-      "worst": "cadence:30"
+      "worst": "cadence:34"
     },
     "backend/features/letters/compose.py": {
       "lines": 237,

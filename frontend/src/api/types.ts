@@ -120,6 +120,8 @@ export interface LetterCard {
   sent_at: string | null;
   /** Доля изменённых слов относительно шаблона, 0–1 — как у письма в очереди. */
   uniqueness: number | null;
+  /** Номер входящего ответа, на который это наше письмо отвечает. */
+  answers_reply_id: number | null;
 }
 
 export type ReplyKind = 'human' | 'auto_reply' | 'bounce' | 'unsubscribe';

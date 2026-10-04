@@ -37,6 +37,7 @@ from backend.features.contacts.repository import SearchRefusedError
 from backend.features.core.usage import LlmCapExceededError
 from backend.features.donors.browse import UnknownDonorError
 from backend.features.donors.export import PickRefusedError
+from backend.features.letters.answers import UnknownAnswerTargetError
 from backend.features.letters.building import LetterScopeError
 from backend.features.letters.compose import ComposeError
 from backend.features.letters.draft import LetterConflictError
@@ -62,6 +63,7 @@ STATUSES: dict[type[Exception], int] = {
     # Потолок расхода на модель: не ошибка запроса и не наша поломка —
     # предел, который человек поднимает настройкой или ждёт следующего дня.
     LlmCapExceededError: status.HTTP_429_TOO_MANY_REQUESTS,
+    UnknownAnswerTargetError: status.HTTP_404_NOT_FOUND,
     LoginFailedError: status.HTTP_401_UNAUTHORIZED,
     TokenError: status.HTTP_401_UNAUTHORIZED,
     AccessDeniedError: status.HTTP_403_FORBIDDEN,
