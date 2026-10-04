@@ -40,6 +40,8 @@ const SECTIONS: Section[] = [
   { path: '/selection', title: 'Отбор', permission: 'view' },
   { path: '/forms', title: 'Формы', permission: 'view' },
   { path: '/advertisers', title: 'Рекламодатели', permission: 'view' },
+  // Своё право, а не `view`: раздел снимается с учётки поимённо (решение владельца 01.10).
+  { path: '/sales', title: 'Продажи', permission: 'sales' },
   { path: '/letters', title: 'Письма', permission: 'view' },
   { path: '/threads', title: 'Диалоги', permission: 'view' },
   { path: '/suppressions', title: 'Стоп-лист', permission: 'view' },

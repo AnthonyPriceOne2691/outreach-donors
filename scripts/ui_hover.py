@@ -37,6 +37,10 @@ PATHS = [
     "/selection",
     "/forms",
     "/advertisers",
+    # Продажи (срез 1.5): лиды, вкладка гипотез, мастер загрузки.
+    "/sales",
+    "/sales?tab=hypotheses",
+    "/sales/import",
     "/letters",
     "/threads",
     # Вкладка экрана диалогов со своими кнопками (28.09.2026).
