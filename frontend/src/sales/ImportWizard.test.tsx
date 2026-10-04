@@ -80,13 +80,39 @@ const PREVIEW: IntakeView = {
 const PREVIEW_ROUTE = 'POST /api/sales/import/preview';
 const LOAD_ROUTE = 'POST /api/sales/import';
 
+/** Адрес вызова `fetch` строкой, какой бы формы он ни пришёл. */
+function urlOf(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input;
+  return input instanceof URL ? input.href : input.url;
+}
+
 /** Формы, ушедшие на адрес, — по порядку: заглушка сети тело формы не разбирает. */
 function formsSentTo(path: string): FormData[] {
   return vi
     .mocked(globalThis.fetch)
-    .mock.calls.filter(([input]) => String(input).endsWith(path))
+    .mock.calls.filter(([input]) => urlOf(input).endsWith(path))
     .map(([, init]) => init?.body)
     .filter((body): body is FormData => body instanceof FormData);
+}
+
+/** Строковое поле формы. Файл на его месте — ошибка теста, а не «[object File]». */
+function textOf(form: FormData | undefined, name: string): string | null {
+  const value = form?.get(name) ?? null;
+  if (value !== null && typeof value !== 'string') {
+    throw new Error(`поле «${name}» формы — не строка`);
+  }
+  return value;
+}
+
+function fileOf(form: FormData | undefined, name: string): File {
+  const value = form?.get(name);
+  if (!(value instanceof File)) throw new Error(`в форме нет файла «${name}»`);
+  return value;
+}
+
+/** Сопоставление, ушедшее на сервер, — разобранным JSON. */
+function mappingSent(form: FormData | undefined): unknown {
+  return JSON.parse(textOf(form, 'mapping') ?? 'null') as unknown;
 }
 
 async function openWizard(routes: Record<string, Answer> = {}) {
@@ -105,7 +131,9 @@ async function openWizard(routes: Record<string, Answer> = {}) {
 
 async function pickHypothesis(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('textbox', { name: 'Гипотеза' }));
-  await user.click(await screen.findByRole('option', { name: 'сайты EN', hidden: true }, SCREEN_WAIT));
+  await user.click(
+    await screen.findByRole('option', { name: 'сайты EN', hidden: true }, SCREEN_WAIT),
+  );
 }
 
 function fileInput(): HTMLInputElement {
@@ -128,8 +156,8 @@ describe('мастер загрузки', () => {
     await readFile(user);
     // Источник ушёл формой, без сопоставления: его угадывает сервер.
     const [previewForm] = formsSentTo('/api/sales/import/preview');
-    expect((previewForm?.get('file') as File).name).toBe('leads.csv');
-    expect(previewForm?.get('mapping')).toBeNull();
+    expect(fileOf(previewForm, 'file').name).toBe('leads.csv');
+    expect(textOf(previewForm, 'mapping')).toBeNull();
 
     await user.click(screen.getByRole('button', { name: 'К отчёту' }));
     expect(await screen.findByText('Станут лидами', {}, SCREEN_WAIT)).toBeInTheDocument();
@@ -149,9 +177,9 @@ describe('мастер загрузки', () => {
     expect(screen.getByText(/строки 7, 12/)).toBeInTheDocument();
     // Загрузка ушла с гипотезой и с тем сопоставлением, что показывалось человеку.
     const [loadForm] = formsSentTo('/api/sales/import');
-    expect(loadForm?.get('hypothesis_id')).toBe('1');
-    expect(JSON.parse(String(loadForm?.get('mapping')))).toEqual(PREVIEW.mapping);
-    expect((loadForm?.get('file') as File).name).toBe('leads.csv');
+    expect(textOf(loadForm, 'hypothesis_id')).toBe('1');
+    expect(mappingSent(loadForm)).toEqual(PREVIEW.mapping);
+    expect(fileOf(loadForm, 'file').name).toBe('leads.csv');
     expect(screen.getByRole('link', { name: 'К лидам' })).toHaveAttribute(
       'href',
       '/sales?hypothesis=1',
@@ -169,17 +197,17 @@ describe('мастер загрузки', () => {
       'сайт компании',
     );
     await user.click(within(site).getByRole('textbox', { name: 'Поле для колонки Сайт' }));
-    await user.click(await screen.findByRole('option', { name: 'страна', hidden: true }, SCREEN_WAIT));
+    await user.click(
+      await screen.findByRole('option', { name: 'страна', hidden: true }, SCREEN_WAIT),
+    );
 
-    await waitFor(() => expect(formsSentTo('/api/sales/import/preview')).toHaveLength(2), SCREEN_WAIT);
+    await waitFor(
+      () => expect(formsSentTo('/api/sales/import/preview')).toHaveLength(2),
+      SCREEN_WAIT,
+    );
     const [, again] = formsSentTo('/api/sales/import/preview');
-    expect(JSON.parse(String(again?.get('mapping')))).toEqual({
-      email: 0,
-      name: 1,
-      company: 2,
-      country: 3,
-    });
-    expect(again?.get('header')).toBe('true');
+    expect(mappingSent(again)).toEqual({ email: 0, name: 1, company: 2, country: 3 });
+    expect(textOf(again, 'header')).toBe('true');
   });
 
   it('без колонки почты дальше не пускает и говорит, что сделать', async () => {
@@ -219,7 +247,7 @@ describe('мастер загрузки', () => {
 
     expect(await screen.findByText(closed, {}, SCREEN_WAIT)).toBeInTheDocument();
     const [form] = formsSentTo('/api/sales/import/preview');
-    expect(form?.get('link')).toBe('https://docs.google.com/spreadsheets/d/abc/edit');
+    expect(textOf(form, 'link')).toBe('https://docs.google.com/spreadsheets/d/abc/edit');
     expect(form?.get('file')).toBeNull();
     // Мастер остался на шаге источника: ссылку поправляют тут же.
     expect(screen.getByRole('button', { name: 'Прочитать' })).toBeInTheDocument();
