@@ -283,7 +283,7 @@ class Inbox:
         moment = self._moment()
         steps: tuple[tuple[bool, Callable[[], Awaitable[None]]], ...] = (
             (consequences.stop_chain, lambda: self._stop_chain(addressee)),
-            (consequences.suppress_email, lambda: self._suppress(incoming, addressee)),
+            (consequences.suppress_email, lambda: self._suppress(incoming)),
             (consequences.mark_contact_dead, lambda: self._mark_dead(addressee)),
             (
                 consequences.remember_answering_address,
@@ -299,8 +299,8 @@ class Inbox:
         if stopped:
             logger.info("приём: отменено добивок — %s", stopped)
 
-    async def _suppress(self, incoming: Incoming, addressee: Addressee) -> None:
-        await self._repo.suppress(incoming.from_email, stage=addressee.stage)
+    async def _suppress(self, incoming: Incoming) -> None:
+        await self._repo.suppress(incoming.from_email)
 
     async def _mark_dead(self, addressee: Addressee) -> None:
         await self._repo.mark_contact_dead(addressee.message.contact_id)
