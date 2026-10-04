@@ -21,13 +21,13 @@
 
 ## Задачи
 
-- [ ] T0. Документы части 2 из 2: spec, plan, tasks, decisions, STATUS (вейвер владельца,
-      `shared_changes:` полными путями), eval-smoke; четыре строки STATUS — слово в слово.
-- [ ] T1. Код: перенос из ветки среза без правки — `sales/{cleaning,stoplist,verifier,models}.py`,
+- [x] T0. Документы части 2 из 2: spec, plan, tasks, decisions, STATUS (вейвер владельца,
+      `shared_changes:` полными путями), eval-smoke; четыре строки STATUS — слово в слово — `6d71cc5`.
+- [x] T1. Код: перенос из ветки среза без правки — `sales/{cleaning,stoplist,verifier,models}.py`,
       `cli/{main,sales}.py`, `config/sales.py`, `.env.example`, `core/{domain,usage}.py`,
       `core/models/__init__.py`, две миграции; плюс две строки `_KEPT_ON_INTERRUPT` для команд
-      продаж (договорённость с соседями по #152).
-- [ ] T2. Тесты: `tests/test_sales_{cleaning,stoplist,verifier,clean_cli}.py`, `tests/test_schema.py`;
-      пометки примеров спеки в блоках тестов; красный прогон на коде до переноса.
-- [ ] T3. Снимок сложности.
-- [ ] T4. Verify части: проверки против `origin/main`, полный сьют, verify-report.
+      продаж (договорённость с соседями по #152) — `c620d9b`.
+- [x] T2. Тесты: `tests/test_sales_{cleaning,stoplist,verifier,clean_cli}.py`, `tests/test_schema.py`;
+      пометки примеров спеки в блоках тестов; красный прогон на коде до переноса — `0d8fd64`.
+- [x] T3. Снимок сложности — `cb77215`.
+- [x] T4. Verify части: проверки против вершины части 1, полный сьют, verify-report — этот коммит.

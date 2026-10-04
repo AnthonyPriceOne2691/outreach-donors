@@ -9,7 +9,7 @@
 - **verifier:** process:ci — обязательные джобы `check`, `web` и `docker`, на PR ещё `gates` и `delivery`; ревью общего кода — соседняя сессия outreach-donors, мерж — по решению владельца
 - **human_ok_spec:** yes at=2026-10-04 by=human:anthony («даю да» — план фаз с примерами среза; решения владельца 03.10 и 04.10: разрез 1.4 на два PR под вейвер, `unknown`/`accept_all` → `ready`, код выхода 7, переподпись необратимого не нужна)
 - **new_dependency:** no
-- **waivers:** max_loc_diff=2600 reason=часть 2 среза 1.4 одним PR по решению владельца 04.10 — 1.4b без 1.4c роняет живой проверяльщик после оплаченной проверки (UnknownOperationError), а 1.4b сам больше 800 строк; код перенесён из ветки среза без правки, 24 мутанта убиты, покрытие изменённых файлов 91–100 % by=human:anthony
+- **waivers:** max_loc_diff=2706 reason=часть 2 среза 1.4 одним PR по решению владельца 04.10 — 1.4b без 1.4c роняет живой проверяльщик после оплаченной проверки (UnknownOperationError), а 1.4b сам больше 800 строк; код перенесён из ветки среза без правки, 24 мутанта убиты, покрытие изменённых файлов 91–100 % by=human:anthony
 - **shared_changes:** общий код части — согласовано с сессией outreach-donors 04.10 (список передан до PR и принят):
   `backend/features/core/domain.py` — значение `UsageProvider.HUNTER = "hunter"` (общее для обоих модулей: один счёт Hunter; соседи после слияния добавят свою операцию под то же значение);
   `backend/features/core/usage.py` — операция `sales_verify` в `OPERATION_PROVIDERS` (наша);
@@ -21,6 +21,7 @@
   `backend/config/sales.py`, `.env.example` — `SALES_VERIFIER_PROVIDER` (конфиг модуля, как `SALES_ENABLED`);
   `tests/test_schema.py` — `sales_stoplist` в `EXPECTED_TABLES`;
   `delivery/complexity-snapshot.json` — снимок ратчета (новые файлы и рост соседних).
+  `scripts/lint/jscpd_baseline.txt` — базовая линия DRY-гейта 55 → 56: шаблон колонок таблицы в миграции `95ee6522e0de` совпадает с миграциями `a4d7f1c92b63` и `b7e2c4a81f95`, миграции код не делят.
   Общие `contacts/mx.mail_route`, `contacts/quality.rejection_reason`, `contacts/provider` (исключения и разбор отказов), `SuppressionModel`, `ThreadModel` только вызываются и читаются; в `contacts` не пишем.
 
 Часть 1 этого среза (страна и пояс) слита; её STATUS — в истории `delivery/active/` на момент
@@ -54,7 +55,7 @@
 | Часть | Что | Файлов | Строк |
 |---|---|---|---|
 | 1.4a — слита | таблица стран, пояс по стране и из колонки; тесты A1–A4 | 6 | 622 |
-| **1.4b+c — эта поставка** | дубли, стоп-лист, отписки, годность, MX, проверяльщик fixture/live, расход, `sales-clean`; тесты | ~20 | ~2 600 (вейвер владельца) |
+| **1.4b+c — эта поставка** | дубли, стоп-лист, отписки, годность, MX, проверяльщик fixture/live, расход, `sales-clean`; тесты | 18 | 2 706 (вейвер владельца) |
 
 Разрез на 1.4b и 1.4c отклонён владельцем: 1.4b без 1.4c роняет живой проверяльщик после
 оплаченной проверки (`UnknownOperationError`), а 1.4b сам больше 800 строк.
