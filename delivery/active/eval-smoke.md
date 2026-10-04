@@ -1,18 +1,12 @@
 # Eval smoke — this shipment
 
-Derived from spec acceptance. Run during verify. Поставка — часть 1.3c (3 из 3); пункты частей 1 и 2 — из #147 и 1.3b.
+Derived from spec acceptance. Run during verify. Поставка — срез 1.4, часть 1.4a.
 
-- [x] A1–A4, A6, A8 — `pytest tests/test_sales_intake.py` на базе дерева:
-      каждое правило приёма — тест с точными значениями и текстами; A8 — лиды,
-      домены пачками по одному, журнал; строк `contacts` нет.
-- [x] Миграция журнала — `pytest tests/test_sales_model.py`: исполняется
-      в процессе, значение `sales_leads_imported` — последнее в `auditaction`.
-- [x] Новые тесты на старом коде — красные (verify-report).
-- [x] Обратные прогоны и ручные мутанты ядра — красные (verify-report).
-- [x] A2 и A6 через консоль, A5 и A9 — ссылка на Google-таблицу —
-      `pytest tests/test_sales_intake_cli.py tests/test_sales_intake_sheet.py` (32):
-      закрытая таблица при 200, 401 и 403, нет таблицы и листа, сеть/429/5xx, предел
-      размера, байты с экрана; Google — только `MockTransport`.
-- [x] A7, а также A5, A6 и A8 через API — `pytest tests/test_api_sales_intake.py` (13):
-      предпросмотр 5 000 строк без записи, загрузка с журналом и без строк `contacts`,
-      отказы 400/404/502 словами, 403 без права.
+- [x] A1–A4 — `pytest tests/test_sales_geo.py` на базе дерева: таблица по форме (249 кодов,
+      пояса в базе поясов), RU/EN/псевдонимы, столичный пояс с замечанием, колонка
+      побеждает, непонятое не роняет строку, запись в базу — 29 тестов зелёные (в части 73).
+- [x] Ожидания 1.3 — `pytest tests/test_sales_intake.py tests/test_sales_intake_cli.py`:
+      страна кодом вместо пустой с замечанием — зелёные; полный набор 3456 passed.
+- [x] Новые тесты на старом коде — красные: ImportError `geo` при сборе (verify-report).
+- [x] Обратные прогоны правил страны и пояса — красные: 3 мутанта `geo.py`/`intake.py`
+      убиты строителем на ветке среза (verify-report).

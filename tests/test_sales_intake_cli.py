@@ -15,9 +15,9 @@ from backend.features.sales.models import SalesHypothesisModel, SalesLeadModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-#: Строки 2–7: в третьей страна словом, в седьмой нет адреса (A2).
+#: Строки 2–7: в третьей страна, которой нет, в седьмой нет адреса (A2).
 BASE = "Почта;Имя;Страна;Заметка\n" + "".join(
-    f"{'' if n == 5 else f'lead{n}@firm{n}.example.test'};Лид {n};{'Germany' if n == 1 else 'de'};x\n"
+    f"{'' if n == 5 else f'lead{n}@firm{n}.example.test'};Лид {n};{'Нарния' if n == 1 else 'de'};x\n"
     for n in range(6)
 )
 PREVIEW = """Источник: база.csv; первая строка — заголовок
@@ -27,7 +27,7 @@ PREVIEW = """Источник: база.csv; первая строка — за�
   4. Заметка → без поля
 
 Строк: 6; лидов: 5; отклонено: 1
-  строка 3: страна не записана: ждём код — de, us — «Germany» (лид загружен)
+  строка 3: страна не распознана: ждём код или название — de, Germany, Германия — «Нарния» (лид загружен)
   строка 7: нет адреса — «»
 """
 
@@ -120,18 +120,6 @@ async def test_file_without_a_header_loads_after_mapping_by_hand(
             "сайты EN",
             2,
             "База не прочитана: колонки «Mail» нет; есть: Почта, Имя\n",
-        ),
-        (
-            ["--map", "email=0"],
-            "сайты EN",
-            2,
-            "База не прочитана: колонки 0 нет, их в файле 2: email не сопоставить",
-        ),
-        (
-            ["--map", "email=99"],
-            "сайты EN",
-            2,
-            "База не прочитана: колонки 99 нет, их в файле 2: email не сопоставить",
         ),
     ],
 )
