@@ -199,7 +199,11 @@ class TestWebhook:
             with pytest.raises(lead_handoff.LeadWebhookUnavailableError) as failed:
                 await lead_handoff.deliver(_card(), http, event_id="lead-7")
         assert HOOK not in str(failed.value)
-        assert failed.value.__cause__ is None  # текст httpx с адресом не тянется следом
+        # Текст httpx с адресом не тянется следом. `__cause__` пуст и без
+        # `from None` — неявная цепочка живёт в `__context__`; подавление
+        # доказывает только флаг (замечание «Продаж» к #160).
+        assert failed.value.__cause__ is None
+        assert failed.value.__suppress_context__ is True
 
     @pytest.mark.usefixtures("hook")
     async def test_repeat_already_accepted_is_delivered(self) -> None:
