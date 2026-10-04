@@ -22,6 +22,7 @@ from __future__ import annotations
 import html as html_entities
 import logging
 import re
+from urllib.parse import unquote
 
 from selectolax.parser import HTMLParser
 
@@ -165,9 +166,10 @@ def _from_mailto(tree: HTMLParser) -> set[str]:
         if not href.lower().startswith("mailto:"):
             continue
         value = href[7:].split("?")[0].strip()
-        # Адрес в mailto бывает процентно-закодирован, а часто и не один.
+        # Адрес в mailto бывает процентно-закодирован (`info%40site.com`)
+        # или записан сущностями (`&#64;`), а часто и не один.
         for part in value.split(","):
-            cleaned = html_entities.unescape(part).strip()
+            cleaned = html_entities.unescape(unquote(part)).strip()
             if cleaned:
                 found.add(cleaned)
     return found

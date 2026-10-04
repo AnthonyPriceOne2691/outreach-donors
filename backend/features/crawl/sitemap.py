@@ -91,9 +91,11 @@ def _same_site(url: str, host: str) -> bool:
     """Карта чужого сайта — либо ошибка, либо подстава: страницы чужого
     домена нам не нужны, а ходить по ним по просьбе донора тем более."""
     parts = parse_url(url)
-    if parts is None:
+    # Схема — тоже признак чужого: `ftp://site.com/` и опечатка `hhttps://`
+    # проходили сюда и отпадали только в очереди обхода (ревью #148).
+    if parts is None or parts.scheme not in ("http", "https"):
         return False
-    netloc = parts.netloc.lower().split(":")[0]
+    netloc = (parts.hostname or "").lower()
     # Сравнение через `endswith(host)` было бы дырой: `notexample.com`
     # кончается на `example.com`, и карта чужого сайта прошла бы проверку.
     return netloc == host or netloc.endswith(f".{host}")
