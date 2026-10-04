@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from backend.config import judge as judge_cfg
 from backend.features.ahrefs.units import UnitsCost
 from backend.features.core.domain import DonorStatus
+from backend.features.crawl.niche import NicheReport
 from backend.features.donors.doors import DoorReport
 from backend.features.donors.judging import JudgeSummary
 from backend.features.review.candidates import QueueReport
@@ -52,6 +53,10 @@ class RunReport:
 
     doors: DoorReport | None = None
     """Меню главных у очереди (`donors.doors`). `None` — не смотрели."""
+
+    niche: NicheReport | None = None
+    """Бизнесы ниши из выдачи — в кандидаты в рекламодатели (`crawl/niche.py`).
+    `None` — сбор не звали."""
 
     doors_failure: str | None = None
     """Почему меню главных не посмотрели. Прогон это не роняет: очередь
@@ -173,6 +178,8 @@ def run_stats(
         }
     if report.review is not None:
         stats["review"] = {"pending": report.review.pending, "carried": report.review.carried}
+    if report.niche is not None:
+        stats["niche"] = {"found": report.niche.found, "added": report.niche.added}
     if report.doors is not None or report.doors_failure is not None:
         stats["doors"] = (
             report.doors.as_dict()

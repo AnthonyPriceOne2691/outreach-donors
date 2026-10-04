@@ -29,7 +29,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 import httpx
@@ -42,6 +42,7 @@ from backend.features.ahrefs.units import (
 )
 from backend.features.core.domain import RunStatus, Stage
 from backend.features.core.models.run import RunModel
+from backend.features.crawl.niche import NicheReport
 from backend.features.donors.collect import collect
 from backend.features.donors.doors import DoorCheck
 from backend.features.donors.judging import JudgePass, judge_candidates
@@ -96,6 +97,9 @@ class RunDeps:
     #: Меню главных у очереди. Пусто — не смотреть: тесты ядра не ходят
     #: в сеть, а боевой вызов передаёт проверку с клиентом для чужих сайтов.
     doors: DoorCheck | None = None
+    #: Бизнесы ниши из выдачи — в кандидаты в рекламодатели (`crawl/niche.py`).
+    #: Пусто — не собирать: тесты ядра прогона рекламодателей не ждут.
+    niche: Callable[[int], Awaitable[NicheReport]] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -265,6 +269,23 @@ async def _judge_candidates(
     return outcome
 
 
+async def _hand_over(
+    deps: RunDeps, run: RunModel, plan: RunPlan, report: RunReport, candidates: Candidates
+) -> None:
+    """После сбора: очередь человеку, меню главных, бизнесы ниши."""
+    if deps.review is not None:
+        # Свежие домены тоже: прогон их нашёл, и человек должен их
+        # увидеть — просто платить за них не пришлось.
+        report.review = await deps.review.queue_run(run.id, [*plan.new, *plan.fresh])
+        await deps.runs.session_commit()
+        await _check_doors(deps, run, report, candidates.texts)
+    if deps.niche is not None:
+        # Вердикт «продаёт своё» уже оплачен выдачей: такой сайт не
+        # донор, а кандидат в рекламодатели — решит человек.
+        report.niche = await deps.niche(run.id)
+        await deps.runs.session_commit()
+
+
 async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
     """Прогон целиком: от списка ключей до сохранённых доноров и отчёта.
 
@@ -339,12 +360,7 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
                 # Пачка сохранена — это чекпоинт: повторный прогон её пропустит.
                 await deps.runs.session_commit()
 
-            if deps.review is not None:
-                # Свежие домены тоже: прогон их нашёл, и человек должен их
-                # увидеть — просто платить за них не пришлось.
-                report.review = await deps.review.queue_run(run.id, [*plan.new, *plan.fresh])
-                await deps.runs.session_commit()
-                await _check_doors(deps, run, report, candidates.texts)
+            await _hand_over(deps, run, plan, report, candidates)
         except Exception as exc:
             failed = exc
             status = _status_after(exc, run.id)

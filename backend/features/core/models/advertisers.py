@@ -64,11 +64,30 @@ class AdvertiserModel(TimestampedMixin, ContactAttemptMixin, Base):
     #: по расхождению этих двух и считается, как часто ошибается скоринг.
     confirmed_by_human: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
+    #: Откуда рекламодатель: `links` — его ссылка на нашем доноре (обход),
+    #: `niche` — бизнес из выдачи прогона: судья сказал «продаёт своё»
+    #: (`crawl/niche.py`). У бизнеса ниши ссылки нет — `best_page_url` и
+    #: `best_anchor` пусты, а `best_donor_host` — пример нашей площадки для
+    #: письма; обычный путь писем «под найденную ссылку» его не берёт.
+    source: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="links", server_default="links"
+    )
+    #: Прогон, в выдаче которого нашёлся бизнес ниши: его ниша и страна —
+    #: о чём и для какой аудитории письмо.
+    found_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("runs.id", ondelete="SET NULL"), nullable=True
+    )
+    #: Решение человека по бизнесу ниши: пусто — ждёт; есть, и
+    #: `confirmed_by_human` — пишем; есть без него — не пишем.
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    decided_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
     # Исход поиска адреса — колонки `ContactAttemptMixin`.
 
     __table_args__ = (
         Index("idx_advertisers_points", "points"),
         Index("idx_advertisers_contact_status", "contact_status"),
+        Index("idx_advertisers_source", "source"),
     )
 
     domain: Mapped[object] = relationship("DomainModel")
