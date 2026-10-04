@@ -388,6 +388,10 @@ class RunRepository:
         """Строка расхода в токенах — так платит модель."""
         return usage.record(self._session, operation=operation, units=tokens, run_id=run_id)
 
+    async def ensure_llm_within_cap(self, *, run_id: int | None) -> None:
+        """Потолок расхода на модель — до вызова. Бросает `LlmCapExceededError`."""
+        await usage.ensure_llm_within_cap(self._session, run_id=run_id)
+
     async def record_money(
         self, *, run_id: int | None, operation: str, amount_usd: float
     ) -> UsageRecordModel:

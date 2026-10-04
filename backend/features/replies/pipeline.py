@@ -335,6 +335,10 @@ class Parser:
         if skipped is not None:
             return skipped
 
+        # Потолок модели: исключение уходит задаче, и она ставит разбор заново
+        # на начало следующих суток UTC (`workers/jobs._parse_or_postpone`) —
+        # ответ не теряется и не судится без модели.
+        await usage.ensure_llm_within_cap(self._session)
         found = await self._extractor.extract(_as_incoming(reply))
         if found.tokens_spent:
             usage.record(self._session, operation="reply_parse", units=found.tokens_spent)

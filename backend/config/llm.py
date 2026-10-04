@@ -41,6 +41,13 @@ class _Llm(DomainSettings):
     angle_buffer: int = Field(default=10, validation_alias="LLM_ANGLE_BUFFER")
     # Раундов добора. Больше трёх обычно не даёт новых фраз, только счёт.
     backfill_rounds: int = Field(default=3, validation_alias="LLM_BACKFILL_ROUNDS")
+    # Потолки расхода на модель, в токенах по журналу расхода; 0 — потолка нет.
+    # У Ahrefs предел стоит давно, у модели не было: ошибка в промпте или
+    # зацикленный повтор тратили бы без границы (BACKLOG 28.09, решение
+    # Anthony 04.10.2026). За день — по всем операциям модели; за прогон —
+    # по строкам журнала с номером прогона.
+    daily_token_cap: int = Field(default=0, ge=0, validation_alias="LLM_DAILY_TOKEN_CAP")
+    run_token_cap: int = Field(default=0, ge=0, validation_alias="LLM_RUN_TOKEN_CAP")
 
 
 _s = _Llm()
@@ -53,3 +60,5 @@ TIMEOUT_S: float = _s.timeout_s
 MAX_PHRASES_PER_CALL: int = _s.max_phrases_per_call
 ANGLE_BUFFER: int = _s.angle_buffer
 BACKFILL_ROUNDS: int = _s.backfill_rounds
+DAILY_TOKEN_CAP: int = _s.daily_token_cap
+RUN_TOKEN_CAP: int = _s.run_token_cap

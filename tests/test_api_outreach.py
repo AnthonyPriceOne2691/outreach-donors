@@ -48,6 +48,7 @@ OUTREACH_ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("POST", "/api/senders/{sender}/disable", {"reason": "проверка"}, "senders"),
     ("GET", "/api/threads", None, "view"),
     ("GET", "/api/threads/{thread}", None, "view"),
+    ("POST", "/api/threads/{thread}/answer", {"reply_id": 999_999, "body": "Thanks"}, "send"),
 ]
 
 
@@ -188,16 +189,17 @@ class TestWhoIsLetIn:
         permission: str,
     ) -> None:
         """Диалоги оператору положены, домены рассылки — нет: включённый
-        заново домен начинает разгон, и ошибка стоит репутации."""
+        заново домен начинает разгон, и ошибка стоит репутации. Ответ в
+        переписке — письмо наружу, и право на него то же, что у отправки."""
         response = await client.request(
             method, _path(path, sender, thread), json=body, headers=bearer(operator_token)
         )
 
-        if permission == "senders":
+        if permission in ("senders", "send"):
             assert response.status_code == 403
             # Сервер называет действие кодом — по нему разбирают журнал.
             # Словами его переводит интерфейс, у себя.
-            assert "«senders»" in response.json()["detail"]
+            assert f"«{permission}»" in response.json()["detail"]
         else:
             assert response.status_code == 200, response.text
 

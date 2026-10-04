@@ -245,6 +245,7 @@ async def backfill(
     # токены пропали бы вместе с вердиктами, а хода работы не было видно.
     for start in range(0, len(judged), CHUNK):
         chunk = judged[start : start + CHUNK]
+        await usage.ensure_llm_within_cap(session)
         outcome = await judge_candidates(
             http,
             chunk,

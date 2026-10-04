@@ -62,6 +62,7 @@ from backend.config import judge as judge_cfg
 from backend.config.startup_checks import ConfigError, check_collect, check_storage
 from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.ahrefs.units import Quota
+from backend.features.core.usage import LlmCapExceededError
 from backend.features.donors.doors import door_check
 from backend.features.donors.geo import assert_settings_allow_limited_fetch
 from backend.features.donors.repository import DonorRepository
@@ -401,6 +402,7 @@ _FAILURES: tuple[tuple[type[Exception], int, str], ...] = (
     (ConfigError, EXIT_MISCONFIGURED, "Не хватает настроек"),
     (UnknownProviderError, EXIT_MISCONFIGURED, "Источник выдачи не выбран"),
     (CapExceededError, EXIT_CAP_EXCEEDED, "Прогон не запущен"),
+    (LlmCapExceededError, EXIT_CAP_EXCEEDED, "Остановлено"),
     (QuotaUnavailableError, EXIT_QUOTA_UNAVAILABLE, "Прогон не запущен"),
     (AhrefsError, EXIT_PROVIDER_FAILED, "Провайдер не ответил"),
 )

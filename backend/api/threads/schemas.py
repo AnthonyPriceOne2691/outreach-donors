@@ -71,6 +71,9 @@ class LetterCard(BaseModel):
     #: именем, экран поверил имени и печатал «отличие 0%» у письма
     #: с отличием 19% (25.09.2026). Имя в ответе — по смыслу, не по колонке.
     uniqueness: float | None
+    #: Номер входящего ответа, на который это письмо отвечает. Пусто —
+    #: первое письмо или добивка (`letters/answers.py`).
+    answers_reply_id: int | None = None
 
     @classmethod
     def of(cls, message: MessageModel) -> LetterCard:
@@ -82,7 +85,15 @@ class LetterCard(BaseModel):
             body=message.body,
             sent_at=message.sent_at,
             uniqueness=message.uniqueness_pct,
+            answers_reply_id=message.answers_reply_id,
         )
+
+
+class AnswerBody(BaseModel):
+    """Наш ответ на входящий ответ собеседника."""
+
+    reply_id: int
+    body: str = Field(min_length=1, max_length=20_000)
 
 
 class AttachmentCard(BaseModel):
