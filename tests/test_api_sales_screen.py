@@ -3,17 +3,24 @@
 Списки читают базу дерева: лиды заводятся строками `sales_leads` в тех состояниях
 и с теми кодами причин, которые пишет очистка (1.4). Люди и компании выдуманы,
 домены — `*.example.test`. Отказы — словами сервера: экран показывает `detail` целиком.
+
+Слова экрана — те же коды, что отдаёт сервер: подписи состояний, причин и полей
+сверяются с `frontend/src/api/salesLabels.ts` и `salesTypes.ts` здесь, а не глазами
+(урок `test_api_contacts.py::TestScreenSpeaksServerWords`).
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import pytest
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.domain import DomainModel
+from backend.features.sales.columns import LeadField
 from backend.features.sales.models import (
     LeadSource,
     LeadStatus,
@@ -32,6 +39,10 @@ SELLER = "seller@ours.example.test"
 HYPOTHESES = "/api/sales/hypotheses"
 LEADS = "/api/sales/leads"
 NO_RIGHT = "Действие «sales» недоступно этой учётке"
+
+ROOT = Path(__file__).resolve().parent.parent
+LABELS_TS = ROOT / "frontend" / "src" / "api" / "salesLabels.ts"
+TYPES_TS = ROOT / "frontend" / "src" / "api" / "salesTypes.ts"
 
 STATES = {status.value for status in LeadStatus}
 REASONS = {reason.value for reason in RejectionReason}
@@ -282,3 +293,47 @@ async def test_a4_without_the_sales_right_the_lists_refuse_in_words(
     response = await client.get(path, headers=headers)
 
     assert (response.status_code, response.json()["detail"]) == (403, NO_RIGHT)
+
+
+# --- слова экрана — коды сервера ---------------------------------------------------
+
+
+def _union(name: str) -> set[str]:
+    """Значения строкового объединения из `types.ts` фронта."""
+    source = TYPES_TS.read_text(encoding="utf-8")
+    found = re.search(rf"export type {name} =([^;]+);", source)
+    assert found is not None, f"в {TYPES_TS.name} нет типа {name}"
+    return set(re.findall(r"'([a-z_]+)'", found.group(1)))
+
+
+def _keys(constant: str) -> set[str]:
+    """Ключи объекта-словаря из `labels.ts` фронта."""
+    source = LABELS_TS.read_text(encoding="utf-8")
+    found = re.search(rf"export const {constant}\b[^=]*=\s*\{{(.*?)\n\}};", source, re.S)
+    assert found is not None, f"в {LABELS_TS.name} нет {constant}"
+    return set(re.findall(r"^\s*([a-z_]+):", found.group(1), re.M))
+
+
+@pytest.mark.parametrize(
+    ("name", "values"),
+    [
+        ("LeadState", STATES),
+        ("LeadField", {field.value for field in LeadField}),
+    ],
+)
+def test_front_types_know_exactly_the_server_values(name: str, values: set[str]) -> None:
+    assert _union(name) == values
+
+
+@pytest.mark.parametrize(
+    ("constant", "values"),
+    [
+        ("LEAD_STATES", STATES),
+        # Причины — данными сервера: подпись есть у каждой, а список фильтра
+        # экран берёт из ответа, не из своего перечня.
+        ("LEAD_REJECTION_REASONS", REASONS),
+        ("LEAD_FIELDS", {field.value for field in LeadField}),
+    ],
+)
+def test_front_labels_name_every_server_code(constant: str, values: set[str]) -> None:
+    assert _keys(constant) == values

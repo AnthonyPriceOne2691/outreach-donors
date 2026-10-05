@@ -148,3 +148,26 @@ describe('плитки расхода', () => {
     expect(within(tile).getByText(/^юнитов и 1,50 \$$/)).toBeInTheDocument();
   });
 });
+
+describe('провайдеры', () => {
+  it('поиск адресов у Hunter — своей строкой и плиткой, а незнакомый провайдер не роняет экран', async () => {
+    // До 05.10.2026 сервер уже писал расход под `hunter`, а экран о нём не знал:
+    // значок провайдера брался из таблицы подписей, и страница падала целиком.
+    await openUsage({
+      ...SPENDING,
+      articles: [
+        ...SPENDING.articles,
+        { provider: 'hunter', operation: 'contacts_search', calls: 7, units: 7, amount_usd: '0' },
+        { provider: 'courier', operation: 'parcel', calls: 1, units: 1, amount_usd: '0' },
+      ],
+      units_by_provider: { ...SPENDING.units_by_provider, hunter: 7 },
+    });
+
+    expect(screen.getByText('7 запр.')).toBeInTheDocument();
+    expect(screen.getByText('прочее (courier)')).toBeInTheDocument();
+    const tile = screen
+      .getByText('адреса Hunter', { selector: 'p' })
+      .closest('.mantine-Card-root') as HTMLElement;
+    expect(within(tile).getByText('запросов')).toBeInTheDocument();
+  });
+});
