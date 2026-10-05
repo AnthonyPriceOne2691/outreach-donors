@@ -1,5 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 
+import { notifications } from '@mantine/notifications';
 import { afterEach, vi } from 'vitest';
 
 import { misses } from './server';
@@ -10,6 +11,10 @@ import { misses } from './server';
 afterEach(() => {
   localStorage.clear();
   vi.restoreAllMocks();
+  // Уведомления Mantine живут в общем хранилище модуля: сверх пяти видимых
+  // новые ждут в очереди, и уведомление теста, идущего после болтливых
+  // соседей, не показывалось вовсе — тест падал от порядка запуска.
+  notifications.clean();
   // Промах мимо записанных ответов роняет тест, даже если экран проглотил
   // его как «не загрузилось» (см. `misses` в `server.ts`).
   const missed = misses.splice(0);

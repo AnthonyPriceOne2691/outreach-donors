@@ -9,8 +9,7 @@
 
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { notifications } from '@mantine/notifications';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
 import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
@@ -696,10 +695,6 @@ describe('выбранное письмо на виду', () => {
 });
 
 describe('отказ транспорта словами', () => {
-  // Хранилище уведомлений Mantine общее на весь файл, и сверх пяти видимых
-  // новые ждут в очереди: после тестов выше отказ не показался бы вовсе.
-  beforeEach(() => notifications.clean());
-
   it('имя переменной окружения на экран не попадает', async () => {
     await openLetters({
       transport: {
