@@ -1487,7 +1487,7 @@
       "worst": "wanted_email:122"
     },
     "backend/features/sales/models.py": {
-      "lines": 258,
+      "lines": 259,
       "complexity": 2,
       "worst": "_enum:73"
     },

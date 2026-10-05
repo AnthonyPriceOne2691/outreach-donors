@@ -238,7 +238,8 @@ class SalesSettingsModel(TimestampedMixin, Base):
     показывает экран.
 
     Ключ всегда `SETTINGS_ROW`, вторую строку не пустит проверка базы. Пусто —
-    «не задано»: без адреса и подписи отправка продаж отказывает (`sender.check_ready`).
+    «не задано»: без адреса, подписи или имени отправителя отправка продаж отказывает
+    (`sender.check_ready`).
     """
 
     __tablename__ = "sales_settings"
