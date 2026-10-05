@@ -26,7 +26,7 @@ from typing import Any
 
 import httpx
 
-from backend.shared.net.retry import with_retries
+from backend.shared.net.retry import reason_of, unsent, with_retries
 
 logger = logging.getLogger(__name__)
 
@@ -117,10 +117,11 @@ def _unusable_key(api_key: str, topic: str) -> Refusal | None:
 def _unreached(exc: httpx.HTTPError) -> Refusal:
     """До провайдера не дошли. Обрыв связи повторяем, несобранный запрос — нет:
     он не собран у нас, и повтор соберёт его так же (пробел или перевод
-    строки в ключе, битый заголовок)."""
-    if isinstance(exc, httpx.LocalProtocolError):
-        return Refusal(RefusalKind.LOCAL, f"запрос не собран: {exc}", permanent=True)
-    return Refusal(RefusalKind.NETWORK, repr(exc), permanent=False)
+    строки в ключе, битый заголовок). Текст отказа — без заголовков: в них
+    ключ модели (`net.retry.reason_of`)."""
+    if unsent(exc):
+        return Refusal(RefusalKind.LOCAL, reason_of(exc), permanent=True)
+    return Refusal(RefusalKind.NETWORK, reason_of(exc), permanent=False)
 
 
 async def post_chat(
@@ -150,7 +151,10 @@ async def post_chat(
         )
     except httpx.HTTPError as exc:
         refusal = _unreached(exc)
-        logger.exception("%s: %s", topic, refusal)
+        if unsent(exc):
+            logger.error("%s: %s", topic, refusal)  # noqa: TRY400 — в трассировке был бы ключ
+        else:
+            logger.exception("%s: %s", topic, refusal)
         return refusal
 
     if response.status_code >= 400:
