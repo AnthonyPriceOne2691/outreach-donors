@@ -30,6 +30,9 @@ from tests.conftest import make_donor
 ROOT = Path(__file__).resolve().parent.parent
 MIGRATION = ROOT / "backend/migrations/versions/715bbf374195_sales_hypotheses_and_leads.py"
 JOURNAL = ROOT / "backend/migrations/versions/1f7b0ee634c2_sales_leads_imported_audit_action.py"
+#: Поздние миграции, чьи таблицы ссылаются на таблицы этой: откат идёт с них, как у
+#: `alembic downgrade`, — иначе `DROP TABLE sales_hypotheses` упирается в чужой ключ.
+DEPENDENTS = (ROOT / "backend/migrations/versions/723e3ddab31f_sales_chain_templates.py",)
 TABLES = ("sales_hypotheses", "sales_leads")
 TYPES = ("sales_lead_source", "sales_lead_status")
 SHARED = "sales@shared.example"
@@ -119,12 +122,17 @@ def _present(connection: Connection) -> set[str]:
 
 
 def _down_and_up(connection: Connection) -> tuple[set[str], set[str]]:
-    """Откат и повторный подъём миграции на соединении теста."""
+    """Откат и повторный подъём миграции на соединении теста; зависимые — вокруг неё."""
     migration = _migration()
+    later = [_migration(path) for path in DEPENDENTS]
     with Operations.context(MigrationContext.configure(connection)):
+        for dependent in reversed(later):
+            dependent.downgrade()
         migration.downgrade()
         after_downgrade = _present(connection)
         migration.upgrade()
+        for dependent in later:
+            dependent.upgrade()
     return after_downgrade, _present(connection)
 
 
