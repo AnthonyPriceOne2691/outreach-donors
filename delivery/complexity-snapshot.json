@@ -271,6 +271,16 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/api/sales/chain.py": {
+      "lines": 70,
+      "complexity": 2,
+      "worst": "read_chain:35"
+    },
+    "backend/api/sales/chain_schemas.py": {
+      "lines": 167,
+      "complexity": 3,
+      "worst": "of:123"
+    },
     "backend/api/sales/kb.py": {
       "lines": 93,
       "complexity": 1,
@@ -282,9 +292,9 @@
       "worst": "of:93"
     },
     "backend/api/sales/routes.py": {
-      "lines": 163,
+      "lines": 166,
       "complexity": 6,
-      "worst": "_found:57"
+      "worst": "_found:59"
     },
     "backend/api/sales/schemas.py": {
       "lines": 152,
