@@ -283,6 +283,16 @@ def _no_real_alerts(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("backend.config.alerts.TELEGRAM_CHAT_ID", "")
 
 
+@pytest.fixture(autouse=True)
+def _no_real_kommo(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Тесты не пишут в настоящий Kommo, даже если в `.env` разработчика лежат
+    живой режим и ключ: сделка в чужой CRM — побочный эффект, который не
+    отзывается. Живой клиент тесты собирают сами, с подставным транспортом
+    (`tests/test_sales_kommo.py`)."""
+    monkeypatch.setattr("backend.config.sales.KOMMO_PROVIDER", "fixture")
+    monkeypatch.setattr("backend.config.sales.KOMMO_TOKEN", "")
+
+
 @pytest.fixture
 def jwt_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     """Секрет подписи. Без него приложение не собирается — и это проверяется

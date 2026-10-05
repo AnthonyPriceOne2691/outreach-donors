@@ -26,10 +26,25 @@
       "complexity": 3,
       "worst": "of:37"
     },
-    "backend/api/app.py": {
+    "backend/api/agent/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/api/agent/routes.py": {
       "lines": 88,
+      "complexity": 4,
+      "worst": "agent_settings:38"
+    },
+    "backend/api/agent/schemas.py": {
+      "lines": 98,
+      "complexity": 2,
+      "worst": "_without_blank:38"
+    },
+    "backend/api/app.py": {
+      "lines": 90,
       "complexity": 1,
-      "worst": "create_app:43"
+      "worst": "create_app:44"
     },
     "backend/api/auth/__init__.py": {
       "lines": 1,
@@ -82,9 +97,9 @@
       "worst": "of:159"
     },
     "backend/api/errors.py": {
-      "lines": 159,
+      "lines": 163,
       "complexity": 3,
-      "worst": "handle:145"
+      "worst": "handle:149"
     },
     "backend/api/events/__init__.py": {
       "lines": 1,
@@ -512,7 +527,7 @@
       "worst": "—"
     },
     "backend/config/sales.py": {
-      "lines": 33,
+      "lines": 64,
       "complexity": 0,
       "worst": "—"
     },
@@ -575,6 +590,16 @@
       "lines": 100,
       "complexity": 4,
       "worst": "read_token:81"
+    },
+    "backend/features/agent/__init__.py": {
+      "lines": 7,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/features/agent/settings.py": {
+      "lines": 171,
+      "complexity": 3,
+      "worst": "save:138"
     },
     "backend/features/ahrefs/__init__.py": {
       "lines": 1,
@@ -722,12 +747,12 @@
       "worst": "—"
     },
     "backend/features/core/domain.py": {
-      "lines": 238,
+      "lines": 241,
       "complexity": 0,
       "worst": "—"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 51,
+      "lines": 53,
       "complexity": 0,
       "worst": "—"
     },
@@ -750,6 +775,11 @@
       "lines": 107,
       "complexity": 1,
       "worst": "in_force:104"
+    },
+    "backend/features/core/models/agent.py": {
+      "lines": 54,
+      "complexity": 0,
+      "worst": "—"
     },
     "backend/features/core/models/attachment.py": {
       "lines": 52,
@@ -1420,6 +1450,21 @@
       "lines": 392,
       "complexity": 8,
       "worst": "preview:176"
+    },
+    "backend/features/sales/kommo.py": {
+      "lines": 226,
+      "complexity": 7,
+      "worst": "_live_account:182"
+    },
+    "backend/features/sales/kommo_live.py": {
+      "lines": 423,
+      "complexity": 9,
+      "worst": "_emails:360"
+    },
+    "backend/features/sales/kommo_types.py": {
+      "lines": 129,
+      "complexity": 2,
+      "worst": "wanted_email:122"
     },
     "backend/features/sales/models.py": {
       "lines": 165,
