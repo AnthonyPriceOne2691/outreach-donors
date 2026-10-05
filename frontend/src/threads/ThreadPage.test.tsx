@@ -8,19 +8,13 @@
 
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { notifications } from '@mantine/notifications';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
 import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import type { Call } from '../test/server';
 import { serve } from '../test/server';
-
-// Уведомления Mantine живут в общем хранилище и между тестами не чистятся:
-// уведомления «взяли лид» прошлых тестов занимали очередь показа, и ответ
-// собеседнику, отправленный следом, своего уведомления не показывал.
-beforeEach(() => notifications.clean());
 
 const LETTER = {
   id: 1,
