@@ -662,9 +662,9 @@
       "worst": "preferred_first:39"
     },
     "backend/features/contacts/provider.py": {
-      "lines": 221,
+      "lines": 224,
       "complexity": 8,
-      "worst": "find_emails:185"
+      "worst": "_call:139"
     },
     "backend/features/contacts/quality.py": {
       "lines": 417,
@@ -1452,7 +1452,7 @@
       "worst": "_take_organic:63"
     },
     "backend/features/serp/dataforseo.py": {
-      "lines": 388,
+      "lines": 393,
       "complexity": 11,
       "worst": "_organic:132"
     },

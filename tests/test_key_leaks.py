@@ -14,6 +14,8 @@ import logging
 import httpx
 import pytest
 from backend.features.ahrefs.client import AhrefsClient, AhrefsError
+from backend.features.contacts.provider import HunterProvider, ProviderError
+from backend.features.serp.dataforseo import DataForSeoProvider, SerpError
 from backend.shared.llm import Refusal, post_chat
 
 #: Выдуманное значение ключа: его не должно быть нигде, кроме заголовка.
@@ -80,5 +82,34 @@ async def test_ahrefs_quota_check_carries_no_key() -> None:
         await client.limits_and_usage()
     await client.aclose()
 
+    assert caught.value.__cause__ is None
+    assert VALUE not in str(caught.value)
+
+
+async def test_hunter_refusal_carries_no_key_or_cause() -> None:
+    http = httpx.AsyncClient(transport=httpx.MockTransport(_Unsendable()))
+    provider = HunterProvider(http, api_key=SENT)
+
+    with pytest.raises(ProviderError) as caught:
+        await provider.find_emails("site.example.test")
+    await http.aclose()
+
+    assert caught.value.__cause__ is None
+    assert VALUE not in str(caught.value)
+
+
+async def test_serp_refusal_carries_no_login_or_cause() -> None:
+    """У выдачи в заголовке Basic — логин и пароль в base64, то есть обратимо."""
+    http = httpx.AsyncClient(
+        base_url="https://serp.example.test", transport=httpx.MockTransport(_Unsendable())
+    )
+    provider = DataForSeoProvider(http, sandbox=True, login=SENT, password=SENT)
+
+    with pytest.raises(SerpError) as caught:
+        await provider.balance()
+    await provider.aclose()
+    await http.aclose()
+
+    assert caught.value.permanent
     assert caught.value.__cause__ is None
     assert VALUE not in str(caught.value)

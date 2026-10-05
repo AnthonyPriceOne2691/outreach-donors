@@ -30,7 +30,7 @@ import httpx
 from backend.config import serp as cfg
 from backend.features.serp import markets
 from backend.features.serp.protocol import SerpResult
-from backend.shared.net.retry import RateLimiter, with_retries
+from backend.shared.net.retry import RateLimiter, reason_of, unsent, with_retries
 
 logger = logging.getLogger(__name__)
 
@@ -360,7 +360,12 @@ class DataForSeoProvider:
                 limiter=self._limiter,
             )
         except httpx.HTTPError as exc:
-            raise SerpError(f"Провайдер выдачи недоступен: {exc!r}") from exc
+            # Несобранный запрос — постоянный отказ и без цепочки: в тексте
+            # исключения заголовок Basic, а это логин и пароль в base64.
+            error = SerpError(
+                f"Провайдер выдачи недоступен: {reason_of(exc)}", permanent=unsent(exc)
+            )
+            raise error from None if unsent(exc) else exc
 
         if response.status_code >= 400:
             # 5xx, 429 и 408 сюда доходят, уже исчерпав повторы запроса, —
