@@ -1,4 +1,4 @@
-"""Лид и гипотеза продаж — свои таблицы модуля.
+"""Лид, гипотеза, стоп-лист, база знаний и отправитель продаж — свои таблицы модуля.
 
 **Лид — своя таблица, а не колонки `contacts`.** Имя, должность и компания —
 сущность продаж; донорская таблица адресов о них не знает. Почтовые сущности
@@ -18,8 +18,19 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy import Enum as SQLEnum
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.features.core.models._mixins import TimestampedMixin
@@ -162,3 +173,86 @@ class SalesStoplistModel(TimestampedMixin, Base):
     __table_args__ = (
         CheckConstraint("(host IS NULL) <> (email IS NULL)", name="ck_sales_stoplist_one_key"),
     )
+
+
+class KbKind(StrEnum):
+    """Вид записи базы знаний. По виду агент берёт факты под ход (срез 3.2): вопрос
+    о цене — `price_policy`, возражение — `objection`. Набор задан спекой; новый вид —
+    значение здесь и `ADD VALUE` отдельной миграцией, как у `LeadSource`."""
+
+    BRIEF = "brief"  # кто мы и что делаем — фон каждого письма
+    SERVICE = "service"  # услуга: что входит и кому
+    CASE = "case"  # кейс: что сделали и что вышло
+    OBJECTION = "objection"  # возражение и ответ на него
+    PRICE_POLICY = "price_policy"  # что можно говорить о цене и чего нельзя
+    FORBIDDEN = "forbidden"  # чего не писать никогда
+    CTA = "cta"  # чем закончить письмо: созвон, Telegram
+
+
+#: Ширины колонок записи базы знаний. Язык — как у лида; тег — короткая метка выборки.
+TITLE_LENGTH = 255
+LANGUAGE_LENGTH = 16
+TAG_LENGTH = 64
+#: Кто правил: почта сотрудника или «консоль».
+AUTHOR_LENGTH = 255
+
+
+class SalesKbEntryModel(TimestampedMixin, Base):
+    """Факт компании для агента продаж. Текст — данными в базе: репозиторий публичный.
+
+    **Ключ — вид, язык и заголовок.** По нему повторная загрузка файла узнаёт
+    запись, а не заводит вторую, и экран не даёт завести две одинаковые.
+    **Запись не удаляется — выключается**: выключенную агент не видит, а её текст
+    остаётся, и по журналу видно, когда и кем она выключена.
+    """
+
+    __tablename__ = "sales_kb_entries"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[KbKind] = mapped_column(_enum(KbKind, "sales_kb_kind"), nullable=False)
+    #: Код языка нижним регистром, как у лида: `en`, `ru`, `pt-br`.
+    language: Mapped[str] = mapped_column(String(LANGUAGE_LENGTH), nullable=False)
+    title: Mapped[str] = mapped_column(String(TITLE_LENGTH), nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    #: Метки выборки: нижним регистром, без повторов, по алфавиту.
+    tags: Mapped[list[str]] = mapped_column(ARRAY(String(TAG_LENGTH)), nullable=False)
+    #: Кто правил последним; когда — `updated_at`.
+    updated_by: Mapped[str | None] = mapped_column(String(AUTHOR_LENGTH), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("kind", "language", "title", name="uq_sales_kb_entries_key"),
+    )
+
+
+#: Ключ единственной строки настроек отправителя.
+SETTINGS_ROW = 1
+
+
+class SalesSettingsModel(TimestampedMixin, Base):
+    """Отправитель продаж: от чьего имени письмо, чем подписано, куда звать. Одна строка.
+
+    **Тексты — здесь, а не в окружении**: подпись и адрес правят на экране, и правка
+    видна в журнале, а переменную окружения меняет только выкатка. **Секретов здесь
+    нет**: ключи сервисов приходят из окружения через `config/`, а эту строку целиком
+    показывает экран.
+
+    Ключ всегда `SETTINGS_ROW`, вторую строку не пустит проверка базы. Пусто —
+    «не задано»: без адреса, подписи или имени отправителя отправка продаж отказывает
+    (`sender.check_ready`).
+    """
+
+    __tablename__ = "sales_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
+    sender_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    sender_position: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    signature: Mapped[str | None] = mapped_column(Text, nullable=True)
+    website: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    #: Куда лиду писать в Telegram: `@имя` или ссылка `https://t.me/…`.
+    telegram: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    physical_address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    call_link: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    updated_by: Mapped[str | None] = mapped_column(String(AUTHOR_LENGTH), nullable=True)
+
+    __table_args__ = (CheckConstraint("id = 1", name="ck_sales_settings_one_row"),)

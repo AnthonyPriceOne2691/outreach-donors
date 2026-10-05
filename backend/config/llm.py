@@ -52,7 +52,7 @@ class _Llm(DomainSettings):
 
 _s = _Llm()
 
-API_KEY: str = _s.api_key
+API_KEY: str = _s.api_key.strip()  # хвостовой пробел из .env ломает заголовок
 KEYGEN_MODEL: str = _s.keygen_model
 JUDGE_MODEL: str = _s.judge_model
 LETTERS_MODEL: str = _s.letters_model

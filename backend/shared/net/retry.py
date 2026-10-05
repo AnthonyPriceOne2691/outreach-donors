@@ -82,11 +82,32 @@ def delay_for(attempt: int, response: httpx.Response | None = None) -> float:
     return base + random.uniform(0, 0.5)  # noqa: S311 — разброс, а не криптография
 
 
+def unsent(exc: httpx.HTTPError) -> bool:
+    """Запрос не собран у нас — до сети он не дошёл, и повтор соберёт его так же."""
+    return isinstance(exc, httpx.LocalProtocolError)
+
+
+def reason_of(exc: httpx.HTTPError) -> str:
+    """Ошибка связи словами — для отказа и журнала, без заголовков запроса.
+
+    У несобранного запроса текст исключения несёт значение заголовка целиком,
+    а в заголовке — ключ провайдера: «Illegal header value b'Bearer …'».
+    Такой текст не должен попасть ни в журнал, ни в отказ на экране, ни в
+    цепочку причин — вызывающий поднимает свою ошибку `from None`.
+    """
+    if unsent(exc):
+        return (
+            "запрос не собран: в заголовке недопустимый символ — чаще всего пробел "
+            "или перевод строки в ключе провайдера"
+        )
+    return repr(exc)
+
+
 def _last_try(exc: httpx.HTTPError, attempt: int, attempts: int) -> bool:
     """Дальше не повторяем: попытки кончились — или запрос не собран у нас.
     До сети такой запрос не дошёл, повтор соберёт его так же, и ждать между
     попытками нечего (пустой ключ даёт заголовок `Bearer `)."""
-    return attempt == attempts - 1 or isinstance(exc, httpx.LocalProtocolError)
+    return attempt == attempts - 1 or unsent(exc)
 
 
 async def with_retries(

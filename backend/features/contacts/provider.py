@@ -24,6 +24,7 @@ import httpx
 from backend.config import contacts as cfg
 from backend.features.contacts.quality import Candidate
 from backend.features.core.domain import ContactSource
+from backend.shared.net.retry import reason_of, unsent
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +153,9 @@ class HunterProvider:
                 timeout=cfg.HUNTER_TIMEOUT_SEC,
             )
         except httpx.HTTPError as exc:
-            raise ProviderError(f"сеть до провайдера не дошла: {exc!r}") from exc
+            # Без цепочки у несобранного запроса: в тексте исключения ключ.
+            error = ProviderError(f"сеть до провайдера не дошла: {reason_of(exc)}")
+            raise error from None if unsent(exc) else exc
 
         try:
             body = response.json()

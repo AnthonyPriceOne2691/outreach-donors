@@ -15,7 +15,19 @@
 
 import { clearToken, readToken } from '../auth/session';
 import { ApiError, AuthError, DeniedError, request } from './client';
-import type { HypothesesView, IntakeView, LeadField, LeadState, LeadsView } from './salesTypes';
+import type {
+  AgentView,
+  HypothesesView,
+  IntakeView,
+  KbEntryBody,
+  KbEntryCard,
+  KbView,
+  LeadField,
+  LeadState,
+  LeadsView,
+  SenderBody,
+  SenderView,
+} from './salesTypes';
 
 /** Фильтры под колонками и страница. Размера страницы здесь нет: его называет
  *  сервер и возвращает в ответе (`limit`). Имена — те же, что в адресе экрана. */
@@ -112,4 +124,33 @@ export function loadImport(
   hypothesisId: number,
 ): Promise<IntakeView> {
   return sendForm('/sales/import', formOf(source, options, hypothesisId));
+}
+
+/** База знаний: все записи — включённые и нет — и версия, которую видит агент. */
+export function listKb(): Promise<KbView> {
+  return request<KbView>('/sales/kb');
+}
+
+/** Что увидит агент: только включённые записи, той же выборкой, что у агента. */
+export function previewKb(): Promise<AgentView> {
+  return request<AgentView>('/sales/kb/preview');
+}
+
+export function addKbEntry(body: KbEntryBody): Promise<KbEntryCard> {
+  return request<KbEntryCard>('/sales/kb', { method: 'POST', body });
+}
+
+/** Правка записи: включение и выключение — тоже правка (`active`). Журнал сервер
+ *  пишет только по полям, которые действительно изменились. */
+export function changeKbEntry(id: number, body: Partial<KbEntryBody>): Promise<KbEntryCard> {
+  return request<KbEntryCard>(`/sales/kb/${id}`, { method: 'PATCH', body });
+}
+
+export function readSender(): Promise<SenderView> {
+  return request<SenderView>('/sales/sender');
+}
+
+/** Отправитель целиком: пустое поле уходит `null` — «не задано». */
+export function saveSender(body: SenderBody): Promise<SenderView> {
+  return request<SenderView>('/sales/sender', { method: 'POST', body });
 }
