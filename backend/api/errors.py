@@ -56,6 +56,8 @@ from backend.features.review.candidates import NotInRunError
 from backend.features.review.candidates import UnknownRunError as ReviewUnknownRunError
 from backend.features.runs.browse import UnknownRunError
 from backend.features.sales.intake import IntakeError, UnknownHypothesisError
+from backend.features.sales.kb import KbError, KbKeyTakenError, UnknownKbEntryError
+from backend.features.sales.sender import SenderSettingsError
 from backend.features.sales.sheet import SheetError, SheetUnavailableError
 
 #: Отказ → код ответа. Порядок в словаре значения не имеет: FastAPI
@@ -132,6 +134,12 @@ STATUSES: dict[type[Exception], int] = {
     SheetError: status.HTTP_400_BAD_REQUEST,
     UnknownHypothesisError: status.HTTP_404_NOT_FOUND,
     SheetUnavailableError: status.HTTP_502_BAD_GATEWAY,
+    # База знаний и отправитель продаж: поле не годится — запрос; такая запись
+    # уже есть — состояние; записи нет — 404.
+    KbError: status.HTTP_400_BAD_REQUEST,
+    KbKeyTakenError: status.HTTP_409_CONFLICT,
+    UnknownKbEntryError: status.HTTP_404_NOT_FOUND,
+    SenderSettingsError: status.HTTP_400_BAD_REQUEST,
     EmailTakenError: status.HTTP_409_CONFLICT,
     LastAdminError: status.HTTP_409_CONFLICT,
     SelfLockoutError: status.HTTP_409_CONFLICT,

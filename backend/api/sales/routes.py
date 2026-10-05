@@ -14,6 +14,9 @@
 с фильтрами под колонками, по двадцать на странице, как у отбора. Фильтры и
 страница — в адресе экрана (`?state=rejected&reason=duplicate&page=2`), имена
 параметров — те же, что в адресе. Логика чтения — `features/sales/browse.py`.
+
+**База знаний и отправитель** (срез 3.1) — своим модулем `kb.py`, его маршруты
+входят в этот же роутер: у раздела один префикс и одно право.
 """
 
 from __future__ import annotations
@@ -28,6 +31,7 @@ from pydantic import BaseModel, Field, NonNegativeInt, TypeAdapter, ValidationEr
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
+from backend.api.sales import kb as kb_routes
 from backend.api.sales.schemas import HypothesesView, HypothesisCard, IntakeView, LeadsView
 from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
@@ -153,3 +157,6 @@ async def list_leads(
     filters = query.filters()
     page = await browse.leads(session, filters)
     return LeadsView.of(page, page_number=filters.page, limit=filters.size)
+
+
+router.include_router(kb_routes.router)
