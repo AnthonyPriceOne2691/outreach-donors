@@ -6,15 +6,21 @@
  * в 5% ошибок не держится: ровно поэтому она и есть в требованиях.
  */
 
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { notifications } from '@mantine/notifications';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
 import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import type { Call } from '../test/server';
 import { serve } from '../test/server';
+
+// Уведомления Mantine живут в общем хранилище и между тестами не чистятся:
+// уведомления «взяли лид» прошлых тестов занимали очередь показа, и ответ
+// собеседнику, отправленный следом, своего уведомления не показывал.
+beforeEach(() => notifications.clean());
 
 const LETTER = {
   id: 1,
@@ -25,6 +31,7 @@ const LETTER = {
   sent_at: '2026-09-18T10:00:00+00:00',
   // Доля 0–1, как её отдаёт сервер: письмо с отличием 19%.
   uniqueness: 0.19,
+  answers_reply_id: null,
 };
 
 const UNSURE = {
@@ -292,7 +299,12 @@ describe('ответ рекламодателя', () => {
   it('«взять в работу» уходит на сервер', async () => {
     const recorded = await openThread(LEAD_VIEW, {
       'POST /api/replies/21/lead': {
-        body: { id: 21, reviewed_by: 'админ@site.com', reviewed_at: '2026-09-24T16:00:00Z' },
+        body: {
+          id: 21,
+          reviewed_by: 'админ@site.com',
+          reviewed_at: '2026-09-24T16:00:00Z',
+          handoff: 'queued',
+        },
       },
     });
     const user = userEvent.setup();
@@ -300,6 +312,7 @@ describe('ответ рекламодателя', () => {
     await user.click(screen.getByRole('button', { name: 'Взять в работу' }));
 
     expect(recorded.calls.some((call: Call) => call.path === '/api/replies/21/lead')).toBe(true);
+    expect(await screen.findByText('Лид взят в работу и передаётся в CRM')).toBeInTheDocument();
   });
 
   it('взятый лид говорит, кто его ведёт, и кнопки больше нет', async () => {
@@ -313,6 +326,29 @@ describe('ответ рекламодателя', () => {
 
     expect(screen.getByText(/В работе: anna@parsingprices\.com/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Взять в работу' })).not.toBeInTheDocument();
+  });
+
+  it('взятый лид можно передать в CRM ещё раз', async () => {
+    const recorded = await openThread(
+      {
+        ...LEAD_VIEW,
+        card: { ...LEAD_VIEW.card, state: 'lead_taken' },
+        incoming: [
+          { ...LEAD, reviewed_by: 'anna@parsingprices.com', reviewed_at: '2026-09-24T16:00:00Z' },
+        ],
+      },
+      { 'POST /api/replies/21/lead/send': { body: { id: 21, job_id: 'lead-21-20261004' } } },
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Передать в CRM ещё раз' }));
+
+    await waitFor(() =>
+      expect(recorded.calls.some((call: Call) => call.path === '/api/replies/21/lead/send')).toBe(
+        true,
+      ),
+    );
+    expect(await screen.findByText('Передача в CRM поставлена')).toBeInTheDocument();
   });
 
   it('без права разбирать ответы лид виден, а кнопки нет', async () => {
@@ -365,5 +401,55 @@ describe('номер диалога из адреса', () => {
 
     expect(await screen.findByRole('heading', { name: 'Такого диалога нет' })).toBeVisible();
     expect(screen.getByText(/Диалога №9999 нет/)).toBeInTheDocument();
+  });
+});
+
+describe('ответ собеседнику', () => {
+  it('на ответ человека можно ответить — письмо уходит на сервер', async () => {
+    const recorded = await openThread(VIEW, {
+      'POST /api/threads/3/answer': {
+        body: { id: 9, sender_email: 'anna@mail.test', real: true },
+      },
+    });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Ответить' }));
+    await user.type(screen.getByLabelText('Текст ответа'), 'Thanks! Which topics?');
+    await user.click(screen.getByRole('button', { name: 'Отправить' }));
+
+    await waitFor(() =>
+      expect(recorded.calls.some((call: Call) => call.path === '/api/threads/3/answer')).toBe(true),
+    );
+    const call = recorded.calls.find((sent: Call) => sent.path === '/api/threads/3/answer');
+    expect(call?.body).toEqual({ reply_id: 7, body: 'Thanks! Which topics?' });
+    expect(await screen.findByText('Ответ отправлен с anna@mail.test')).toBeInTheDocument();
+  });
+
+  it('пустой ответ не отправить', async () => {
+    await openThread(VIEW);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Ответить' }));
+
+    expect(screen.getByRole('button', { name: 'Отправить' })).toBeDisabled();
+  });
+
+  it('без права отправлять кнопки ответа нет', async () => {
+    await openThread(VIEW, {}, OPERATOR);
+
+    expect(screen.queryByRole('button', { name: 'Ответить' })).not.toBeInTheDocument();
+  });
+
+  it('отвеченный ответ говорит об этом, а наше письмо подписано «наш ответ»', async () => {
+    await openThread({
+      letters: [
+        LETTER,
+        { ...LETTER, id: 9, step: 100, subject: 'Re: Advertising rates', answers_reply_id: 7 },
+      ],
+    });
+
+    expect(screen.getByText(/Ответили — письмо ниже/)).toBeInTheDocument();
+    expect(screen.getByText('наш ответ')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Ответить' })).not.toBeInTheDocument();
   });
 });

@@ -120,6 +120,8 @@ export interface LetterCard {
   sent_at: string | null;
   /** Доля изменённых слов относительно шаблона, 0–1 — как у письма в очереди. */
   uniqueness: number | null;
+  /** Номер входящего ответа, на который это наше письмо отвечает. */
+  answers_reply_id: number | null;
 }
 
 export type ReplyKind = 'human' | 'auto_reply' | 'bounce' | 'unsubscribe';
@@ -210,6 +212,13 @@ export interface LeadTaken {
   id: number;
   reviewed_by: string;
   reviewed_at: string;
+  /** «queued» — передача в CRM стоит в очереди; «off» — вебхук не настроен. */
+  handoff: 'queued' | 'off';
+}
+
+export interface LeadSent {
+  id: number;
+  job_id: string;
 }
 
 export interface ReviewPrice {
@@ -485,7 +494,7 @@ export interface ConsequencesView {
   unchecked: number;
 }
 
-export type UsageProvider = 'ahrefs' | 'serp' | 'llm' | 'email';
+export type UsageProvider = 'ahrefs' | 'serp' | 'llm' | 'email' | 'hunter';
 
 export interface ArticleCard {
   provider: UsageProvider;
