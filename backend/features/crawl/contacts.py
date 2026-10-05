@@ -29,6 +29,7 @@ from backend.features.contacts.repository import domain_ids, save_addresses
 from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel
+from backend.features.crawl.niche import NICHE
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,10 @@ class AdvertiserContactRepository:
             ContactModel.domain_id == AdvertiserModel.domain_id
         )
         waiting = attempts.waiting(AdvertiserModel, now=moment, ttl_days=ttl_days)
-        return waiting & ~has_contact.exists()
+        # Бизнес ниши из выдачи — только после «пишем» человека: адрес
+        # платной ступени тратится на того, кому точно напишем (`niche.py`).
+        decided = (AdvertiserModel.source != NICHE) | AdvertiserModel.confirmed_by_human.is_(True)
+        return waiting & ~has_contact.exists() & decided
 
     async def pending_hosts(
         self,

@@ -787,9 +787,9 @@
       "worst": "_enum:34"
     },
     "backend/features/core/models/advertisers.py": {
-      "lines": 107,
+      "lines": 126,
       "complexity": 1,
-      "worst": "in_force:104"
+      "worst": "in_force:123"
     },
     "backend/features/core/models/agent.py": {
       "lines": 54,
@@ -847,9 +847,9 @@
       "worst": "_by_density:214"
     },
     "backend/features/crawl/contacts.py": {
-      "lines": 117,
+      "lines": 121,
       "complexity": 5,
-      "worst": "save:85"
+      "worst": "save:89"
     },
     "backend/features/crawl/denylist.py": {
       "lines": 159,
@@ -880,6 +880,11 @@
       "lines": 253,
       "complexity": 11,
       "worst": "collect_links:166"
+    },
+    "backend/features/crawl/niche.py": {
+      "lines": 134,
+      "complexity": 7,
+      "worst": "collect:62"
     },
     "backend/features/crawl/promote.py": {
       "lines": 276,
@@ -1392,9 +1397,9 @@
       "worst": "recover:168"
     },
     "backend/features/runs/pipeline.py": {
-      "lines": 398,
-      "complexity": 9,
-      "worst": "execute_run:268"
+      "lines": 427,
+      "complexity": 8,
+      "worst": "_judge_candidates:200"
     },
     "backend/features/runs/planning.py": {
       "lines": 352,
@@ -1407,9 +1412,9 @@
       "worst": "explained_line:81"
     },
     "backend/features/runs/report.py": {
-      "lines": 190,
-      "complexity": 9,
-      "worst": "run_stats:116"
+      "lines": 203,
+      "complexity": 11,
+      "worst": "run_stats:125"
     },
     "backend/features/runs/repository.py": {
       "lines": 448,
@@ -1642,9 +1647,9 @@
       "worst": "worker_problems:73"
     },
     "backend/workers/jobs.py": {
-      "lines": 436,
+      "lines": 438,
       "complexity": 5,
-      "worst": "_mark:187"
+      "worst": "_mark:189"
     },
     "backend/workers/main.py": {
       "lines": 29,
