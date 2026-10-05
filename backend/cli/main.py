@@ -55,6 +55,7 @@ from backend.cli.review_queue import add_parser as add_review_queue_parser
 from backend.cli.review_queue import cmd_review_queue
 from backend.cli.sales import add_parser as add_sales_parser
 from backend.cli.sales import (
+    cmd_sales_chain_load,
     cmd_sales_clean,
     cmd_sales_hypothesis_add,
     cmd_sales_import,
@@ -431,6 +432,7 @@ _KEPT_ON_INTERRUPT: dict[str, str] = {
     "prune": "Чистка идёт одной транзакцией: в базе ничего не изменилось.",
     "probe-donor": "Липовый донор заводится одной транзакцией: в базе ничего не изменилось.",
     "probe-advertiser": "Пробный заводится одной транзакцией: в базе ничего не изменилось.",
+    "sales-chain-load": "Цепочка писем пишется одной транзакцией: в базе ничего не осталось.",
 }
 
 
@@ -468,6 +470,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] =
     "sales-stoplist-add": cmd_sales_stoplist_add,
     "sales-clean": cmd_sales_clean,
     "sales-kb-load": cmd_sales_kb_load,
+    "sales-chain-load": cmd_sales_chain_load,
 }
 
 

@@ -5,12 +5,14 @@
     outreach sales-stoplist-add --file стоп.csv [--note "…"]
     outreach sales-clean [--hypothesis "…"]
     outreach sales-kb-load --file база.json [--update] [--dry-run]
+    outreach sales-chain-load --file цепочка.json [--hypothesis "…"] [--update] [--dry-run]
 
 Стартовые гипотезы заводятся здесь, данными в базе, а не миграцией:
 описание гипотезы — коммерческий текст, а репозиторий публичный. Логика
 заведения — `features/sales/hypotheses.py`, загрузки — `features/sales/intake.py`,
 стоп-листа — `features/sales/stoplist.py`, очистки — `features/sales/cleaning.py`,
-базы знаний — `features/sales/kb_load.py`; здесь только разбор и печать.
+базы знаний — `features/sales/kb_load.py`, цепочки писем —
+`features/sales/chain_load.py`; здесь только разбор и печать.
 
 Очистка собирает проверяльщик адресов до первого лида: `live` без ключа —
 отказ на старте (`ConfigError`, код 2 из `main`), и ни один лид не тронут.
@@ -28,7 +30,19 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from backend.config import storage
 from backend.config.startup_checks import check_storage
-from backend.features.sales import cleaning, hypotheses, intake, kb_load, sheet, stoplist
+from backend.features.sales import (
+    chain,
+    chain_load,
+    chain_text,
+    cleaning,
+    hypotheses,
+    intake,
+    kb_load,
+    sender,
+    sheet,
+    stoplist,
+)
+from backend.features.sales.chain_text import StepTemplate
 from backend.features.sales.cleaning import CleaningReport
 from backend.features.sales.columns import LeadField, Mapping
 from backend.features.sales.models import RejectionReason
@@ -83,6 +97,11 @@ async def cmd_sales_clean(args: argparse.Namespace) -> int:
 async def cmd_sales_kb_load(args: argparse.Namespace) -> int:
     """Загрузить базу знаний продаж из файла JSON вне репозитория."""
     return await _in_session(lambda session: run_kb_load(session, args))
+
+
+async def cmd_sales_chain_load(args: argparse.Namespace) -> int:
+    """Загрузить шаблоны цепочки писем продаж из файла JSON вне репозитория."""
+    return await _in_session(lambda session: run_chain_load(session, args))
 
 
 async def run_clean(
@@ -215,6 +234,74 @@ def _print_kb_plan(planned: kb_load.Plan, *, update: bool) -> None:
         print(f"    №{row.id} «{new.title}» ({new.kind.value}, {new.language})")
     if planned.absent:
         print(f"  в базе, но не в файле: {planned.absent} — не тронуты")
+
+
+async def run_chain_load(session: AsyncSession, args: argparse.Namespace) -> int:
+    """Загрузка набора на готовой сессии: всё или ничего, отчёт словами и при `--dry-run`."""
+    hypothesis_id = None  # без гипотезы — общий набор
+    if args.hypothesis:
+        owner = await hypotheses.find(session, args.hypothesis)
+        if owner is None:
+            print(f"Гипотезы «{args.hypothesis}» нет — её набору некуда лечь: заведите гипотезу")
+            return EXIT_NO_HYPOTHESIS
+        hypothesis_id = owner.id
+    templates = await _chain_templates(session, args.file)
+    if templates is None:
+        return EXIT_BAD_INPUT
+    planned = await chain_load.plan(session, templates, hypothesis_id)
+    named = chain.set_name(hypothesis_id)
+    print(f"Цепочка писем из {args.file.name}: шаблонов {len(templates)}, {named}.")
+    if args.dry_run:
+        _print_chain_plan(planned, update=args.update)
+        print("Предпросмотр: в базу ничего не записано.")
+        return EXIT_OK
+    loaded = await chain_load.apply(
+        session,
+        planned,
+        hypothesis_id=hypothesis_id,
+        update=args.update,
+        author=AUTHOR,
+        source=args.file.name,
+    )
+    await session.commit()
+    _print_chain_plan(planned, update=args.update)
+    for code, version in loaded.versions.items():
+        print(f"  цепочка {code}: версия {version['было']} → {version['стало']}")
+    return EXIT_OK
+
+
+async def _chain_templates(session: AsyncSession, path: Path) -> list[StepTemplate] | None:
+    """Шаблоны файла — или `None`, и отказ уже напечатан: целиком или по номерам шаблонов."""
+    try:
+        found = await sender.read(session)
+        templates, problems = await asyncio.to_thread(chain_load.read, path, found)
+    except chain_load.ChainFileError as exc:
+        print(f"Цепочка писем не прочитана: {exc}")
+        return None
+    if not problems:
+        return templates
+    print(
+        f"Файл не загружен: шаблонов с ошибками {len(problems)} из "
+        f"{len(templates) + len(problems)} — в базе ничего не изменилось."
+    )
+    for problem in problems:
+        where = f" ({problem.where})" if problem.where else ""
+        print(f"  №{problem.number}{where}: {problem.reason}")
+    return None
+
+
+def _print_chain_plan(planned: chain_load.Plan, *, update: bool) -> None:
+    differs = len(planned.differs)
+    told = (
+        f"обновлено {differs}"
+        if update
+        else f"отличается {differs} — не тронуто (перезаписать: --update)"
+    )
+    print(f"  добавлено {len(planned.added)}, без изменений {len(planned.same)}, {told}")
+    for new, row in planned.differs:
+        print(f"    №{row.id}: {chain_text.STEP_TITLES[new.step]}, {new.language}")
+    if planned.absent:
+        print(f"  в наборе, но не в файле: {planned.absent} — не тронуты")
 
 
 async def run_hypothesis_add(session: AsyncSession, name: str, description: str | None) -> int:
@@ -363,3 +450,23 @@ def add_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-ar
         help="перезаписать записи, которые отличаются от файла (их могли править на экране)",
     )
     kb.add_argument("--dry-run", action="store_true", help="только отчёт, без записи")
+
+    steps = sub.add_parser(
+        "sales-chain-load",
+        help="загрузить шаблоны цепочки писем продаж из файла JSON вне репозитория: всё или ничего",
+    )
+    steps.add_argument(
+        "--file",
+        type=Path,
+        required=True,
+        help='JSON: список шаблонов {"step", "language", "subject", "body", "active"}',
+    )
+    steps.add_argument(
+        "--hypothesis", help="имя гипотезы — её свой набор; без него — общий набор всех гипотез"
+    )
+    steps.add_argument(
+        "--update",
+        action="store_true",
+        help="перезаписать шаблоны, которые отличаются от файла (их могли править на экране)",
+    )
+    steps.add_argument("--dry-run", action="store_true", help="только отчёт, без записи")

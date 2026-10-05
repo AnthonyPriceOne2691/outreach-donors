@@ -487,9 +487,9 @@
       "worst": "_report:181"
     },
     "backend/cli/main.py": {
-      "lines": 497,
+      "lines": 500,
       "complexity": 9,
-      "worst": "_print_report:257"
+      "worst": "_print_report:258"
     },
     "backend/cli/probe_advertiser.py": {
       "lines": 93,
@@ -512,9 +512,9 @@
       "worst": "cmd_review_queue:31"
     },
     "backend/cli/sales.py": {
-      "lines": 366,
+      "lines": 473,
       "complexity": 7,
-      "worst": "_mapping:275"
+      "worst": "_mapping:362"
     },
     "backend/cli/senders_admin.py": {
       "lines": 134,
@@ -1580,6 +1580,11 @@
       "lines": 214,
       "complexity": 4,
       "worst": "save:169"
+    },
+    "backend/features/sales/chain_load.py": {
+      "lines": 213,
+      "complexity": 8,
+      "worst": "apply:161"
     },
     "backend/features/sales/chain_text.py": {
       "lines": 319,
