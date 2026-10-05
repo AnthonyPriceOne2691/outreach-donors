@@ -12,6 +12,11 @@
 
 Нормы передаются параметрами, а не импортируются из `ui_screens`: тот
 подключает этот модуль, и обратный импорт замкнул бы круг.
+
+База знаний и отправитель (срез 3.1) — вкладками того же раздела: таблица записей,
+окно правки, окно «что увидит агент» и форма отправителя. Кнопки «Сохранить»
+выключены, пока ничего не правлено, — подготовка дописывает знак в поле: у
+выключенной кнопки меряется серое на сером. Записи — в базе стенда.
 """
 
 from collections.abc import Callable
@@ -224,6 +229,132 @@ def sales_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("кнопка «Загрузить»", "button:has-text('Загрузить')", big),
             ],
         },
+        **kb_screens(norm, big),
+    }
+
+
+#: Текст записи для замера — на несколько строк: значение поля замер видит только тогда,
+#: когда буквы — большая часть вырезки (у короткой строки порог делит кромку поля с ними).
+ENTRY_TEXT = " ".join(
+    [
+        "Выдуманная запись для замера контраста: строка за строкой, чтобы буквы заняли поле.",
+        "Цвет текста от длины не зависит — меняется только доля букв в вырезке замера.",
+        "Ещё строка выдуманного текста для того же замера, и ещё одна, последняя,",
+        "чтобы поле выросло на все свои строки и кромка стала малой долей вырезки.",
+    ]
+)
+
+
+def open_entry(page: Any) -> None:
+    """Окно правки первой записи; «Сохранить» оживает от правки текста.
+
+    Текст — длинный (`ENTRY_TEXT`): им меряется значение поля окна, а короткое значение
+    замер не видит — вырезка берёт кромку поля (05.10.2026, разбор — у проб окна)."""
+    page.locator(".kbTable tbody tr").first.get_by_role("button", name="Править").click()
+    dialog = page.get_by_role("dialog")
+    expect(dialog).to_be_visible()
+    dialog.get_by_role("textbox", name="Текст").fill(ENTRY_TEXT)
+    expect(dialog.get_by_role("button", name="Сохранить")).to_be_enabled()
+    page.wait_for_timeout(400)
+
+
+def open_agent(page: Any) -> None:
+    """Окно «что увидит агент»: группы видов с фактами."""
+    page.get_by_role("button", name="Что увидит агент").click()
+    expect(page.get_by_role("dialog").locator(".agentGroup").first).to_be_visible()
+    page.wait_for_timeout(400)
+
+
+def touch_sender(page: Any) -> None:
+    """Форма отправителя: «Сохранить» оживает от правки, а значение поля меряется
+    по длинной ссылке — короткое слово в широком поле замер не видит (1.5, 04.10)."""
+    site = page.get_by_role("textbox", name="Сайт")
+    site.fill("https://studio-of-made-up-examples.example.test/contacts/sales-team")
+    expect(page.get_by_role("button", name="Сохранить")).to_be_enabled()
+    page.wait_for_timeout(300)
+
+
+#: Поле по его подписи: у Mantine подпись — `label` рядом с полем, а не над ним в DOM.
+def _field(label: str, tag: str = "input") -> str:
+    return f".mantine-InputWrapper-root:has(> label:text-is('{label}')) {tag}"
+
+
+def kb_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
+    """Вкладки «База знаний» и «Отправитель»: список, окна, форма — на 1440 и 390."""
+    ready = ("heading", "Продажи")
+    kb_list = [
+        ("пояснение над таблицей", ".glassPanel .mantine-SegmentedControl-root + div p", norm),
+        ("версия базы", ".kbVersion", norm),
+        ("кнопка «Что увидит агент»", "button:has-text('Что увидит агент')", big),
+        ("кнопка «Добавить запись»", "button:has-text('Добавить запись')", big),
+        ("выбранная вкладка", ".glassPanel .mantine-SegmentedControl-innerLabel", norm),
+        ("подпись колонки", ".kbTable thead th:text-is('Агент видит')", norm),
+        ("заголовок записи", ".kbTable tbody .kbTitle", norm),
+        ("текст записи", ".kbTable tbody .kbText", norm),
+        ("вид", ".kbTable tbody td:nth-child(2) p", norm),
+        ("язык", ".kbTable tbody td:nth-child(3) p", norm),
+        ("теги", ".kbTable tbody .kbTags", norm),
+        ("кто правил", ".kbTable tbody td:nth-child(5) p:nth-child(1)", norm),
+        ("когда правил", ".kbTable tbody td:nth-child(5) p:nth-child(2)", norm),
+        ("кнопка «Править»", ".kbTable tbody button:has-text('Править')", norm),
+    ]
+    dialog = ".mantine-Modal-content"
+    sender = [
+        ("заголовок готовности", ".mantine-Alert-title", norm),
+        ("слова готовности", ".mantine-Alert-message", norm),
+        ("подпись поля", "form .mantine-InputWrapper-label", norm),
+        ("пояснение поля", "form .mantine-InputWrapper-description", norm),
+        ("значение поля (ссылка)", _field("Сайт"), norm),
+        ("значение в несколько строк", "form textarea", norm),
+        ("кто и когда правил", "form p:text-matches('Правил|Ещё не')", norm),
+        ("кнопка «Сохранить»", "form button:has-text('Сохранить')", big),
+    ]
+    return {
+        "sales-kb": {"path": "/sales?tab=kb", "ready": ready, "probes": kb_list},
+        "sales-kb-phone": {
+            "path": "/sales?tab=kb",
+            "ready": ready,
+            "viewport": PHONE,
+            "probes": [kb_list[1], kb_list[3], kb_list[4], kb_list[6], kb_list[7]],
+        },
+        "sales-kb-entry": {
+            "path": "/sales?tab=kb",
+            "ready": ready,
+            "probes": [
+                ("заголовок окна", f"{dialog} .mantine-Modal-title", norm),
+                ("подпись поля", f"{dialog} .mantine-InputWrapper-label", norm),
+                ("пояснение поля", f"{dialog} .mantine-InputWrapper-description", norm),
+                # Значения вида и заголовка не меряются: вырезка берёт кромку поля, а на
+                # плотном стекле светлой темы она из чернил (`--field-edge`, 0,42), и
+                # порог делит её с буквами короткой строки — 2,74 : 1 при 5,0–6,4 по
+                # строке букв и 14,5 по цветам текста и подложки (05.10.2026). Тот же
+                # класс, что у значения поля в `ui_screens.py`. Стили поля и текста те
+                # же — у текста записи ниже: он меряется длинным текстом (`open_entry`).
+                ("текст записи", f"{dialog} textarea", norm),
+                ("подпись переключателя", f"{dialog} .mantine-Switch-label", norm),
+                ("кнопка «Отмена»", f"{dialog} button:has-text('Отмена')", big),
+                ("кнопка «Сохранить»", f"{dialog} button:has-text('Сохранить')", big),
+            ],
+        },
+        "sales-kb-agent": {
+            "path": "/sales?tab=kb",
+            "ready": ready,
+            "probes": [
+                ("заголовок окна", f"{dialog} .mantine-Modal-title", norm),
+                ("версия и число", f"{dialog} .mantine-Modal-body > div > p", norm),
+                ("вид и язык группы", f"{dialog} .agentGroup h5", big),
+                ("заголовок факта", f"{dialog} .agentFact p:nth-child(1)", norm),
+                ("текст факта", f"{dialog} .agentFact p:nth-child(2)", norm),
+                ("теги факта", f"{dialog} .agentFact p:nth-child(3)", norm),
+            ],
+        },
+        "sales-sender": {"path": "/sales?tab=sender", "ready": ready, "probes": sender},
+        "sales-sender-phone": {
+            "path": "/sales?tab=sender",
+            "ready": ready,
+            "viewport": PHONE,
+            "probes": [sender[0], sender[1], sender[2], sender[4], sender[7]],
+        },
     }
 
 
@@ -233,4 +364,8 @@ def sales_prepare() -> dict[str, Callable[[Any], None]]:
         "sales-import": give_file,
         "sales-import-columns": read_file,
         "sales-import-report": open_report,
+        "sales-kb-entry": open_entry,
+        "sales-kb-agent": open_agent,
+        "sales-sender": touch_sender,
+        "sales-sender-phone": touch_sender,
     }

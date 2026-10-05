@@ -29,6 +29,7 @@ import {
 import { useMediaQuery } from '@mantine/hooks';
 import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo } from 'react';
+import type { ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
 import { listHypotheses } from '../api/sales';
@@ -38,6 +39,8 @@ import { Metric } from '../components/Metric';
 import { useTyped } from '../donors/useTyped';
 import { formatNumber } from '../format';
 import { HypothesesTable } from './HypothesesTable';
+import { useKb } from './kbData';
+import { KbPane } from './KbPane';
 import {
   LEAD_STATE_KEYS,
   NO_LEAD_FILTERS,
@@ -49,6 +52,7 @@ import {
 import type { LeadFilters, SalesTab } from './leadFilters';
 import { LeadsPane, pageBack, useLeads } from './LeadsPane';
 import { Pending } from './Pending';
+import { SenderPane } from './SenderPane';
 
 export const HYPOTHESES_QUERY_KEY = ['sales', 'hypotheses'] as const;
 
@@ -108,12 +112,17 @@ function Summary({ totals, hypotheses }: { totals: Totals; hypotheses: number })
 
 interface TabsProps {
   tab: SalesTab;
-  /** Числа на вкладках: лидов всего и гипотез. */
-  counts: Record<SalesTab, number>;
+  /** Числа на вкладках: лидов, гипотез, записей базы. Нет числа — одно имя:
+   *  у отправителя считать нечего, а база ещё едет. */
+  counts: Partial<Record<SalesTab, number | undefined>>;
   onTab: (tab: SalesTab) => void;
 }
 
-/** Вкладки раздела с числами. На узком окне — столбиком: две вкладки с числами
+function tabLabel(key: SalesTab, count: number | undefined): string {
+  return count === undefined ? SALES_TABS[key] : `${SALES_TABS[key]} — ${formatNumber(count)}`;
+}
+
+/** Вкладки раздела с числами. На узком окне — столбиком: вкладки с числами
  *  в ряд резались до первых букв. */
 function SalesTabs({ tab, counts, onTab }: TabsProps) {
   const narrow = useMediaQuery('(max-width: 36em)');
@@ -127,10 +136,7 @@ function SalesTabs({ tab, counts, onTab }: TabsProps) {
         const next = SALES_TAB_KEYS.find((key) => key === value);
         if (next !== undefined && next !== tab) onTab(next);
       }}
-      data={SALES_TAB_KEYS.map((key) => ({
-        value: key,
-        label: `${SALES_TABS[key]} — ${formatNumber(counts[key])}`,
-      }))}
+      data={SALES_TAB_KEYS.map((key) => ({ value: key, label: tabLabel(key, counts[key]) }))}
     />
   );
 }
@@ -162,6 +168,8 @@ export function SalesPage() {
   // Списки гипотез и лидов уходят вместе, а не друг за другом.
   const hypotheses = useQuery({ queryKey: HYPOTHESES_QUERY_KEY, queryFn: listHypotheses });
   const leads = useLeads(filters);
+  // База знаний — ради числа на вкладке: пустую базу видно и со вкладки лидов.
+  const kb = useKb();
 
   // Страница из старой ссылки за концом — последняя настоящая, а не пустота.
   const back = pageBack(leads.answer, filters.page);
@@ -183,6 +191,26 @@ export function SalesPage() {
     setParams(writeLeadFilters({ ...NO_LEAD_FILTERS, tab }), { replace: true });
   };
 
+  // Вкладка → её содержимое: таблицей, а не цепочкой условий.
+  const bodies: Record<SalesTab, () => ReactNode> = {
+    leads: () => (
+      <LeadsPane
+        leads={leads}
+        total={totals.total}
+        filters={filters}
+        search={search}
+        onSearch={setSearch}
+        onFilter={apply}
+        hypotheses={known}
+        onTurn={turn}
+        onReset={() => reset('leads')}
+      />
+    ),
+    hypotheses: () => <HypothesesTable rows={known} />,
+    kb: () => <KbPane />,
+    sender: () => <SenderPane />,
+  };
+
   return (
     <Stack gap="lg">
       <Summary totals={totals} hypotheses={known.length} />
@@ -191,24 +219,10 @@ export function SalesPage() {
         <Stack gap="sm">
           <SalesTabs
             tab={filters.tab}
-            counts={{ leads: totals.total, hypotheses: known.length }}
+            counts={{ leads: totals.total, hypotheses: known.length, kb: kb.data?.total }}
             onTab={reset}
           />
-          {filters.tab === 'leads' ? (
-            <LeadsPane
-              leads={leads}
-              total={totals.total}
-              filters={filters}
-              search={search}
-              onSearch={setSearch}
-              onFilter={apply}
-              hypotheses={known}
-              onTurn={turn}
-              onReset={() => reset('leads')}
-            />
-          ) : (
-            <HypothesesTable rows={known} />
-          )}
+          {bodies[filters.tab]()}
         </Stack>
       </Card>
     </Stack>

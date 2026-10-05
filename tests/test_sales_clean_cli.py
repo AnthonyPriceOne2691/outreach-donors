@@ -233,6 +233,9 @@ def test_second_ctrl_c_says_what_each_sales_command_kept(
         raise KeyboardInterrupt
 
     monkeypatch.setitem(_COMMANDS, argv[0], interrupted)
+    # Настоящая настройка журнала снимает с корневого логгера хендлеры pytest, и
+    # соседние тесты, идущие позже (`test_cli_main.py`), перестают слышать журнал.
+    monkeypatch.setattr("backend.cli.main.setup_logging", lambda: None)
 
     code = main(argv)
 

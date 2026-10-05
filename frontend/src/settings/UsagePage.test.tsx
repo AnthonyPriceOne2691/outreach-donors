@@ -11,6 +11,7 @@ import { screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
+import { operationTitle } from '../api/labels';
 import { ADMIN, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
@@ -86,6 +87,11 @@ describe('расход', () => {
     expect(screen.queryByText('site_judge')).not.toBeInTheDocument();
     // Незнакомая операция не пропадает и не выдаёт себя за знакомую.
     expect(screen.getByText('прочее (brand_new_thing)')).toBeInTheDocument();
+  });
+
+  it('проверка адресов продаж названа словами, а не кодом', () => {
+    // Операция сервера `sales_verify` (`OPERATION_PROVIDERS`, срез продаж 1.4).
+    expect(operationTitle('sales_verify')).toBe('проверка адресов продаж');
   });
 
   it('там, где платят не деньгами, нулей в долларах нет', async () => {

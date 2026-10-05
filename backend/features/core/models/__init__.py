@@ -19,7 +19,9 @@ from backend.features.core.models.outreach import (
 from backend.features.core.models.run import RunCandidateModel, RunModel, RunSettingsModel
 from backend.features.sales.models import (
     SalesHypothesisModel,
+    SalesKbEntryModel,
     SalesLeadModel,
+    SalesSettingsModel,
     SalesStoplistModel,
 )
 
@@ -41,7 +43,9 @@ __all__ = [
     "RunModel",
     "RunSettingsModel",
     "SalesHypothesisModel",
+    "SalesKbEntryModel",
     "SalesLeadModel",
+    "SalesSettingsModel",
     "SalesStoplistModel",
     "SenderModel",
     "SupplierDonorModel",
