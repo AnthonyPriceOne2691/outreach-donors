@@ -76,12 +76,15 @@ class SendGridTransport:
         api_key: str | None = None,
         allowlist: tuple[str, ...] | None = None,
         http: httpx.AsyncClient | None = None,
+        account: cfg.MailAccount | None = None,
     ) -> None:
-        self._key = api_key if api_key is not None else cfg.SENDGRID_API_KEY
-        self._allowlist = allowlist if allowlist is not None else cfg.ALLOWED_RECIPIENTS
+        # Учётка направления (`cfg.mail_account`): без неё — общая.
+        self._account = account or cfg.mail_account()
+        self._key = api_key if api_key is not None else self._account.api_key
+        self._allowlist = allowlist if allowlist is not None else self._account.allowed_recipients
         if not self._key:
             raise TransportError(
-                "OUTREACH_SENDGRID_API_KEY не задан — боевой транспорт выбран, "
+                f"{self._account.key_setting} не задан — боевой транспорт выбран, "
                 "а ключа платформы нет. Письма никуда не уйдут"
             )
         self._http = http or httpx.AsyncClient(timeout=TIMEOUT_S)
@@ -94,7 +97,7 @@ class SendGridTransport:
         if not _allowed(outgoing.to, self._allowlist):
             raise TransportError(
                 f"Адрес {outgoing.to} не в списке разрешённых получателей "
-                f"(OUTREACH_ALLOWED_RECIPIENTS). Пока список не пуст, боевая отправка "
+                f"({self._account.allowlist_setting}). Пока список не пуст, боевая отправка "
                 "идёт только на свои адреса — это предохранитель первых дней"
             )
         if not identity.is_message_id(outgoing.internet_message_id):

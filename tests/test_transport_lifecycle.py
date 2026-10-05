@@ -18,12 +18,16 @@ from backend.config import outreach as outreach_cfg
 from backend.config import storage
 from backend.features.core.domain import UserRole
 from backend.features.core.models.access import UserModel
+from backend.features.letters import transport_factory
 from backend.features.letters.followups import PassReport
-from backend.features.letters.transport import Outgoing
-from backend.features.letters.transport_factory import in_use
+from backend.features.letters.transport import Outgoing, TransportError
+from backend.features.letters.transport_factory import Transports, in_use
 from backend.workers import followups as followups_worker
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import TEST_DSN, bearer
+from tests.test_mail_identity import _queued
+from tests.test_send_race import _one_letter, committed_sessions
 
 
 class ClosingTransport:
@@ -40,6 +44,13 @@ class ClosingTransport:
 
     async def aclose(self) -> None:
         self.closed = True
+
+
+class RefusingTransport(ClosingTransport):
+    """Транспорт, которому почта отказала."""
+
+    async def send(self, outgoing: Outgoing) -> str:
+        raise TransportError("платформа отказала")
 
 
 class BareTransport:
@@ -76,19 +87,22 @@ class TestFollowupSweep:
     async def test_each_pass_closes_its_transport(self, monkeypatch: pytest.MonkeyPatch) -> None:
         built: list[ClosingTransport] = []
 
-        def build() -> ClosingTransport:
+        def build(*_: object, **__: object) -> ClosingTransport:
             built.append(ClosingTransport())
             return built[-1]
 
         seen_open: list[bool] = []
 
-        async def fake_send_due(_session: object, *, transport: object, limit: int) -> PassReport:
-            assert transport is built[-1]
+        async def fake_send_due(
+            _session: object, *, transport: Transports, limit: int
+        ) -> PassReport:
+            # Транспорт этапа собирается при первой добивке этого этапа.
+            assert transport.for_stage("donors") is built[-1]
             seen_open.append(not built[-1].closed)
             return PassReport()
 
         monkeypatch.setattr(storage, "DSN", TEST_DSN)
-        monkeypatch.setattr(followups_worker, "build_transport", build)
+        monkeypatch.setattr(transport_factory, "build_transport", build)
         monkeypatch.setattr(followups_worker, "send_due", fake_send_due)
 
         await followups_worker.sweep()
@@ -102,11 +116,12 @@ class TestFollowupSweep:
     async def test_pass_that_fails_still_closes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         transport = ClosingTransport()
 
-        async def broken(_session: object, *, transport: object, limit: int) -> PassReport:
+        async def broken(_session: object, *, transport: Transports, limit: int) -> PassReport:
+            transport.for_stage("donors")
             raise RuntimeError("база отвалилась")
 
         monkeypatch.setattr(storage, "DSN", TEST_DSN)
-        monkeypatch.setattr(followups_worker, "build_transport", lambda: transport)
+        monkeypatch.setattr(transport_factory, "build_transport", lambda *_, **__: transport)
         monkeypatch.setattr(followups_worker, "send_due", broken)
 
         with pytest.raises(RuntimeError, match="база отвалилась"):
@@ -118,19 +133,22 @@ class TestSendButton:
     async def test_refused_send_still_closes_the_transport(
         self,
         client: AsyncClient,
+        session: AsyncSession,
         make_user: Callable[..., Awaitable[UserModel]],
         sign_in: Callable[..., Awaitable[str]],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Письма нет — отказ, но транспорт, собранный под запрос, закрыт."""
-        transport = ClosingTransport()
-        monkeypatch.setattr("backend.api.letters.routes.build_transport", lambda: transport)
+        """Транспорт письма отказал — отказ, но транспорт, собранный под запрос, закрыт."""
+        transport = RefusingTransport()
+        monkeypatch.setattr(transport_factory, "build_transport", lambda *_, **__: transport)
         await make_user("отправка@site.com", role=UserRole.ADMIN)
         token = await sign_in("отправка@site.com")
+        letter = await _queued(session)
+        await session.commit()
 
-        answer = await client.post("/api/letters/987654/send", headers=bearer(token))
+        answer = await client.post(f"/api/letters/{letter.id}/send", headers=bearer(token))
 
-        assert answer.status_code in (404, 409), answer.text
+        assert answer.status_code == 409, answer.text
         assert transport.closed
 
 
@@ -138,10 +156,13 @@ class TestLettersSendCommand:
     async def test_missing_key_is_words_not_a_traceback(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
+        monkeypatch.setattr(storage, "DSN", TEST_DSN)
         monkeypatch.setattr(outreach_cfg, "TRANSPORT", "sendgrid")
         monkeypatch.setattr(outreach_cfg, "SENDGRID_API_KEY", "")
 
-        code = await letters_queue.cmd_letters_send(argparse.Namespace(id=1))
+        async with committed_sessions() as factory:
+            letter_id = await _one_letter(factory)
+            code = await letters_queue.cmd_letters_send(argparse.Namespace(id=letter_id))
 
         assert code == letters_queue.EXIT_NOT_SENT
         out = capsys.readouterr().out

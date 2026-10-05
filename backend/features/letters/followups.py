@@ -54,7 +54,7 @@ from backend.features.letters.sending import (
     Sending,
     SuppressedError,
 )
-from backend.features.letters.transport import Transport
+from backend.features.letters.transport import ByStage, Transport
 
 logger = logging.getLogger(__name__)
 
@@ -338,7 +338,7 @@ POSTPONE = timedelta(hours=1)
 async def send_due(
     session: AsyncSession,
     *,
-    transport: Transport,
+    transport: Transport | ByStage,
     limit: int,
     now: datetime | None = None,
 ) -> PassReport:

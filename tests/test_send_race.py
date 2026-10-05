@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -73,6 +74,12 @@ class TemplateOnly:
 
 @pytest.fixture
 async def committed() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+    async with committed_sessions() as factory:
+        yield factory
+
+
+@asynccontextmanager
+async def committed_sessions() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     """Сессии на настоящих соединениях с настоящими фиксациями.
 
     После теста база вычищается целиком: остальные тесты ждут пустые
@@ -154,7 +161,10 @@ class TestTwoRequestsOneLetter:
             await session.commit()
 
         transport = CountingTransport()
-        monkeypatch.setattr("backend.api.letters.routes.build_transport", lambda: transport)
+        monkeypatch.setattr(
+            "backend.features.letters.transport_factory.build_transport",
+            lambda *_, **__: transport,
+        )
         monkeypatch.setattr(deps, "attempts", LoginAttempts(limit=5))
         _meet_after_reading(monkeypatch)
 

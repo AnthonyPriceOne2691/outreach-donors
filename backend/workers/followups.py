@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from backend.config import storage
 from backend.config.startup_checks import check_storage
 from backend.features.letters.followups import send_due
-from backend.features.letters.transport_factory import build_transport, in_use
+from backend.features.letters.transport_factory import Transports, in_use
 from backend.shared.logs import setup_logging
 from backend.workers.ticker import every
 
@@ -45,8 +45,9 @@ async def sweep() -> None:
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
-        async with factory() as session, in_use(build_transport()) as transport:
-            report = await send_due(session, transport=transport, limit=BATCH)
+        # Добивки прохода — разных этапов: каждая уходит учёткой своего этапа.
+        async with factory() as session, in_use(Transports()) as transports:
+            report = await send_due(session, transport=transports, limit=BATCH)
         if report.sent or report.postponed or report.stopped:
             logger.info("Добивки: %s", report.as_report)
     finally:
