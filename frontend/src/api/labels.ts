@@ -225,7 +225,16 @@ export const USAGE_PROVIDERS: Record<UsageProvider, { title: string; color: stri
   serp: { title: 'выдача', color: 'lagoon' },
   llm: { title: 'модель', color: 'gray' },
   email: { title: 'отправка', color: 'green' },
+  hunter: { title: 'адреса Hunter', color: 'lagoon' },
 };
+
+/** Провайдер словами. Незнакомый — сервер завёл новый, а экран о нём ещё
+ *  не знает — показывается с кодом в скобках, как незнакомая операция,
+ *  а не роняет страницу: 05.10.2026 экран расхода падал на `hunter`. */
+export function usageProvider(provider: string): { title: string; color: string } {
+  const known: Partial<Record<string, { title: string; color: string }>> = USAGE_PROVIDERS;
+  return known[provider] ?? { title: `прочее (${provider})`, color: 'gray' };
+}
 
 /** Операции внутри провайдера — все, что сервер пишет в журнал расхода
  *  (`OPERATION_PROVIDERS` в `backend/features/core/usage.py`). Незнакомая
