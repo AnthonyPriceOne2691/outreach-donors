@@ -79,6 +79,26 @@ def unmask(text: str, labels: dict[str, str]) -> str:
     return result
 
 
+def restore(text: str, labels: dict[str, str]) -> str:
+    """Вернуть адреса туда, где модель оставила метки, — не требуя всех.
+
+    `unmask` требует каждую выданную метку: зона письма по шаблону обязана
+    держать свои адреса. Ответу собеседника все адреса переписки не нужны,
+    и пропавшая метка здесь — норма. Чужая метка — по-прежнему отказ: адреса,
+    которого мы не выдавали, в письме быть не может.
+    """
+    result = text
+    for label, address in labels.items():
+        result = result.replace(label, address)
+    unknown = sorted({found.group(0) for found in _LABEL_RE.finditer(result)})
+    if unknown:
+        raise UnmaskError(
+            f"Модель вернула метки, которых мы не выдавали: {', '.join(unknown)} — "
+            "адреса на их месте нет"
+        )
+    return result
+
+
 def leaked(text: str) -> str | None:
     """Адрес, оставшийся в тексте после маскирования. `None` — чисто.
 

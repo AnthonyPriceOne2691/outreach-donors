@@ -95,6 +95,7 @@ include = ["backend*"]
 [tool.setuptools.package-data]
 "backend.features.letters" = ["templates/*.txt"]
 "backend.features.keywords" = ["prompts/*.md"]
+"backend.features.agent" = ["prompts/*.md"]
 
 [tool.ruff]
 target-version = "py312"

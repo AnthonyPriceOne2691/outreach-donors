@@ -30,9 +30,6 @@ from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from typing import Any
 
-import httpx
-
-from backend.config import llm as cfg
 from backend.features.letters import masking
 from backend.features.replies.inbound import Incoming
 from backend.features.replies.money import (
@@ -42,7 +39,14 @@ from backend.features.replies.money import (
     normalize_currency,
 )
 from backend.features.replies.quoting import written_by_hand
-from backend.shared.llm import Refusal, content_of, is_reasoning, post_chat, tokens_of
+from backend.shared.llm import (
+    ModelClient,
+    Refusal,
+    content_of,
+    is_reasoning,
+    post_chat,
+    tokens_of,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -347,28 +351,8 @@ def _as_confidence(raw: Any) -> float:
     return min(1.0, max(0.0, value))
 
 
-class ExtractClient:
+class ExtractClient(ModelClient):
     """Клиент разбора. Считает токены — это расход на ответ."""
-
-    def __init__(
-        self,
-        client: httpx.AsyncClient | None = None,
-        *,
-        model: str | None = None,
-        api_key: str | None = None,
-    ) -> None:
-        self._model = model or cfg.LETTERS_MODEL
-        self._api_key = api_key if api_key is not None else cfg.API_KEY
-        self._own_client = client is None
-        self._http = client or httpx.AsyncClient(timeout=cfg.TIMEOUT_S)
-
-    @property
-    def model(self) -> str:
-        return self._model
-
-    async def aclose(self) -> None:
-        if self._own_client:
-            await self._http.aclose()
 
     async def extract(self, incoming: Incoming) -> Extracted:
         """Разобрать ответ. Нулевая уверенность — законный исход."""
