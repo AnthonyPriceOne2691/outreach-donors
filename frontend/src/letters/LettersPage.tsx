@@ -43,7 +43,6 @@ import {
   Group,
   Loader,
   NumberInput,
-  SegmentedControl,
   SimpleGrid,
   Stack,
   Text,
@@ -62,6 +61,7 @@ import { mailSettingsList, settingsInWords } from '../api/labels';
 import type { Corridor, LetterDraft, LetterStage, LettersView, QueuedLetter } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { Metric } from '../components/Metric';
+import { StageSwitch } from '../components/StageSwitch';
 import { formatPercent, plural } from '../format';
 import { LetterDraftEditor, draftOf, sameDraft } from './LetterDraftEditor';
 import { LetterPreview, toneOf } from './LetterPreview';
@@ -152,11 +152,6 @@ function earlierLetters(funnel: Record<string, number>, stage: LetterStage): str
   }
   return said.length > 0 ? said.join(' ') : null;
 }
-
-const STAGES: { value: LetterStage; label: string }[] = [
-  { value: 'donors', label: 'Донорам' },
-  { value: 'advertisers', label: 'Рекламодателям' },
-];
 
 /** Что экран говорит об этапе — словами человека. */
 const ABOUT: Record<LetterStage, { lead: string; placeholder: string; who: string }> = {
@@ -360,16 +355,12 @@ export function LettersPage() {
               было бы не уйти. */}
           <Stack gap={6}>
             <Title order={3}>Письма</Title>
-            <SegmentedControl
-              aria-label="Кому письма"
+            <StageSwitch
+              label="Кому письма"
               value={stage}
-              onChange={(value) => switchStage(value as LetterStage)}
-              data={STAGES}
-              style={{ alignSelf: 'flex-start' }}
+              onChange={switchStage}
+              lead={ABOUT[stage].lead}
             />
-            <Text size="sm" c="dimmed" maw={680}>
-              {ABOUT[stage].lead}
-            </Text>
           </Stack>
 
           {data === undefined && error === null ? (
