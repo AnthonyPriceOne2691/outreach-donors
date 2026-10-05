@@ -123,18 +123,22 @@ function StepRow({
     <Group justify="space-between" align="flex-start" wrap="nowrap" gap="sm" className="chainStep">
       <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
         <Group gap="xs">
-          <Text size="sm" fw={500}>
+          <Text size="sm" fw={500} className="chainStepTitle">
             {step}. {chainStepTitle(step)}
           </Text>
           <StepState row={row} />
         </Group>
-        {row?.subject ? <Text size="sm">Тема: {row.subject}</Text> : null}
+        {row?.subject ? (
+          <Text size="sm" className="chainSubject">
+            Тема: {row.subject}
+          </Text>
+        ) : null}
         {row !== undefined && (
           <>
             <Text size="xs" c="dimmed" lineClamp={2} className="chainExcerpt">
               {row.zones.map((zone) => zone.text).join(' · ')}
             </Text>
-            <Text size="xs" c="dimmed">
+            <Text size="xs" c="dimmed" className="chainWho">
               {row.updated_by ?? '—'} · {formatDateTime(row.updated_at)}
             </Text>
           </>

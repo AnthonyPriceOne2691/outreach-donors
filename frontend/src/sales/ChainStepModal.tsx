@@ -126,7 +126,7 @@ export function ChainStepModal({ place, setTitle, row, view, onClose }: Props) {
       >
         <Stack gap="sm">
           <SaveRefusal error={save.error} />
-          <Text size="sm" c="dimmed">
+          <Text size="sm" c="dimmed" className="chainHint">
             {CHAIN_STEPS[place.step]?.hint}
           </Text>
           <StepFields

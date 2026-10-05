@@ -17,6 +17,11 @@
 окно правки, окно «что увидит агент» и форма отправителя. Кнопки «Сохранить»
 выключены, пока ничего не правлено, — подготовка дописывает знак в поле: у
 выключенной кнопки меряется серое на сером. Записи — в базе стенда.
+
+Цепочка писем (срез 4.6) — вкладка с карточками языков и окно шага с письмом глазами
+адресата. Шаблоны и отправитель — в базе стенда: у английской цепочки заданы все шаги
+(третий выключен), у русской — первое письмо, у отправителя нет адреса — так на экране
+есть все значки шага и плашка «отправка не готова».
 """
 
 from collections.abc import Callable
@@ -230,6 +235,7 @@ def sales_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
             ],
         },
         **kb_screens(norm, big),
+        **chain_screens(norm, big),
     }
 
 
@@ -358,6 +364,77 @@ def kb_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
     }
 
 
+def open_step(page: Any) -> None:
+    """Окно первого письма английской цепочки и письмо глазами адресата под формой.
+
+    «Сохранить» оживает от выключения шага — тело остаётся годным для показа: у
+    выключенной кнопки меряется серое на сером."""
+    english = page.get_by_role("region", name="Английский")
+    english.locator(".chainStep").first.get_by_role("button", name="Править").click()
+    dialog = page.get_by_role("dialog")
+    expect(dialog).to_be_visible()
+    dialog.get_by_text("Шаг включён — входит в цепочку").click()
+    expect(dialog.get_by_role("button", name="Сохранить")).to_be_enabled()
+    dialog.get_by_role("button", name="Показать письмо").click()
+    expect(dialog.locator(".chainLetter")).to_be_visible()
+    page.wait_for_timeout(400)
+
+
+def chain_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
+    """Вкладка «Цепочка писем»: карточки языков на 1440 и 390, окно шага с письмом."""
+    ready = ("heading", "Продажи")
+    card = "section.glassQuiet"
+    chain_list = [
+        ("пояснение над цепочками", ".glassPanel .mantine-SegmentedControl-root + div p", norm),
+        ("подпись поля набора", "label:text-is('Набор')", norm),
+        ("язык цепочки", f"{card} h5", norm),
+        ("значок цепочки", f"{card} h5 + .mantine-Badge-root .mantine-Badge-label", norm),
+        ("состояние цепочки", f"{card} .chainState", norm),
+        ("название шага", f"{card} .chainStepTitle", norm),
+        ("значок «задан»", ".chainStep .mantine-Badge-label:text-is('задан')", norm),
+        ("значок «выключен»", ".chainStep .mantine-Badge-label:text-is('выключен')", norm),
+        ("значок «не задан»", ".chainStep .mantine-Badge-label:text-is('не задан')", norm),
+        ("тема шага", ".chainSubject", norm),
+        ("начало текста", ".chainExcerpt", norm),
+        ("кто и когда правил", ".chainWho", norm),
+        ("кнопка «Править»", ".chainStep button:has-text('Править')", norm),
+        ("кнопка «Задать»", ".chainStep button:has-text('Задать')", norm),
+    ]
+    dialog = ".mantine-Modal-content"
+    return {
+        "sales-chain": {"path": "/sales?tab=chain", "ready": ready, "probes": chain_list},
+        "sales-chain-phone": {
+            "path": "/sales?tab=chain",
+            "ready": ready,
+            "viewport": PHONE,
+            "probes": [chain_list[0], *chain_list[2:7], chain_list[10], chain_list[12]],
+        },
+        "sales-chain-step": {
+            "path": "/sales?tab=chain",
+            "ready": ready,
+            "probes": [
+                ("заголовок окна", f"{dialog} .mantine-Modal-title", norm),
+                ("что за шаг", f"{dialog} .chainHint", norm),
+                ("подпись поля", f"{dialog} .mantine-InputWrapper-label", norm),
+                ("пояснение поля", f"{dialog} .mantine-InputWrapper-description", norm),
+                ("текст письма", f"{dialog} textarea", norm),
+                ("подпись переключателя", f"{dialog} .mantine-Switch-label", norm),
+                ("кнопка «Показать письмо»", f"{dialog} button:has-text('Показать письмо')", big),
+                ("кнопка «Сохранить»", f"{dialog} button:has-text('Сохранить')", big),
+                ("от кого", f"{dialog} .chainLetter > p:first-child", norm),
+                ("имя зоны", f"{dialog} .chainZone .mantine-Group-root p", norm),
+                ("что с зоной", f"{dialog} .chainZone .mantine-Badge-label", norm),
+                ("текст зоны", f"{dialog} .chainZone > p", norm),
+                ("подпись из настроек", f"{dialog} .chainSigned", norm),
+                ("адреса нет", f"{dialog} .chainLetter > p:text-matches('не задан')", norm),
+                ("заголовок «не готова»", f"{dialog} .mantine-Alert-title", norm),
+                ("слова «не готова»", f"{dialog} .mantine-Alert-message", norm),
+                ("что подставлено", f"{dialog} .chainValues", norm),
+            ],
+        },
+    }
+
+
 def sales_prepare() -> dict[str, Callable[[Any], None]]:
     """Что сделать на экране до замера: мастер показывает шаг только после действий."""
     return {
@@ -368,4 +445,5 @@ def sales_prepare() -> dict[str, Callable[[Any], None]]:
         "sales-kb-agent": open_agent,
         "sales-sender": touch_sender,
         "sales-sender-phone": touch_sender,
+        "sales-chain-step": open_step,
     }

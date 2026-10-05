@@ -75,7 +75,7 @@ export function ChainLetter({ letter }: { letter: ChainPreviewView }) {
           {letter.missing.join('; ')} — без этого письмо продаж не уходит.
         </Alert>
       )}
-      <Text size="xs" c="dimmed">
+      <Text size="xs" c="dimmed" className="chainValues">
         Для примера подставлено: {values.join('; ')}.
       </Text>
     </Stack>
