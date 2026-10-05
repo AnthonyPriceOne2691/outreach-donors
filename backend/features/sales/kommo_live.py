@@ -12,6 +12,16 @@
 **Частота — не больше `KOMMO_RATE_PER_SEC` запросов в секунду** (`Pace`): Kommo
 считает их по IP, на превышение отвечает 429, а на частые 429 закрывает доступ (403).
 
+**Повторы — своим циклом поверх общих `delay_for` и `RETRY_STATUSES`**
+(`shared/net/retry.py`), а не общим `with_retries`, по трём причинам Kommo:
+паузу 429 он кладёт в тело (`retry_after`), а общий читает только заголовок;
+повтор внутри окна запрета у Kommo кончается блокировкой IP — поэтому просьба
+ждать дольше потолка `MAX_DELAY_SEC` даёт отказ с названной величиной, а не сон
+внутри запроса; и запись не повторяется, если она могла дойти: ключа
+идемпотентности у Kommo нет. Повторяем таймаут, обрыв, 429 и 5xx; запись —
+только когда соединения не было или Kommo ответил 429/5xx; ушла и ответ
+потерян — `KommoUnconfirmedError` без повтора (урок отправки писем).
+
 **Ключа нет ни в адресе, ни в тексте ошибок, ни в журнале.** Он едет заголовком.
 Текст ошибок httpx несёт адрес запроса, а `LocalProtocolError` — значение
 заголовка целиком, то есть ключ; поэтому наружу идут свои исключения с одним
@@ -40,15 +50,28 @@ from backend.features.sales.kommo_types import (
     KommoFormatError,
     KommoRefusedError,
     KommoUnavailableError,
+    KommoUnconfirmedError,
     NewLead,
     lead_url,
     wanted_email,
 )
+from backend.shared.net.retry import MAX_DELAY_SEC, RETRY_STATUSES, delay_for
 
 logger = logging.getLogger(__name__)
 
 #: Тег канала у каждой сделки: по нему в CRM видно, что лид пришёл из рассылки.
 CHANNEL_TAG = "Email рассылка"
+
+#: Сколько раз пробуем один запрос: перегрузка и обрыв проходят сами, а лид ждёт.
+ATTEMPTS = 3
+
+#: Пауза между попытками — отдельным именем, чтобы тест гасил её здесь,
+#: а не `asyncio.sleep` всего процесса (как `shared/net/retry._sleep`).
+_sleep = asyncio.sleep
+
+#: Обрывы, при которых запрос точно не ушёл: соединения не было. Только их
+#: повторяем у записи — повтор дошедшей завёл бы в CRM вторую сделку.
+_NOT_SENT = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
 
 
 class Pace:
@@ -147,20 +170,35 @@ class KommoLive:
         }
 
     async def _send(self, method: str, path: str, **request: Any) -> httpx.Response:
-        """Один запрос. Ответ 2xx — дальше, остальное — исключение словами."""
-        await self._pace.wait()
-        try:
-            response = await self._http.request(
-                method,
-                f"{self._api}{path}",
-                headers=self._headers,
-                timeout=cfg.KOMMO_TIMEOUT_SEC,
-                **request,
+        """Запрос с повторами (шапка модуля). Ответ 2xx — дальше, остальное —
+        исключение словами; частота держится на каждой попытке."""
+        attempt = 1
+        while True:
+            await self._pace.wait()
+            try:
+                response = await self._http.request(
+                    method,
+                    f"{self._api}{path}",
+                    headers=self._headers,
+                    timeout=cfg.KOMMO_TIMEOUT_SEC,
+                    **request,
+                )
+            except httpx.HTTPError as exc:
+                if attempt == ATTEMPTS or not _resendable(exc, method):
+                    raise _unreached(exc, method) from None
+                pause, why = delay_for(attempt - 1), type(exc).__name__
+            else:
+                wait = None if attempt == ATTEMPTS else _pause(response, attempt - 1)
+                if wait is None:
+                    _judge(response)
+                    return response
+                pause, why = wait, f"HTTP {response.status_code}"
+            logger.warning(
+                "kommo: повтор запроса",
+                extra={"path": path, "why": why, "pause_sec": round(pause, 2), "attempt": attempt},
             )
-        except httpx.HTTPError as exc:
-            raise _unreached(exc) from None
-        _judge(response)
-        return response
+            await _sleep(pause)
+            attempt += 1
 
 
 def _person(lead: NewLead) -> dict[str, Any]:
@@ -178,7 +216,26 @@ def _company(lead: NewLead) -> dict[str, Any]:
     return company
 
 
-def _unreached(exc: httpx.HTTPError) -> KommoError:
+def _resendable(exc: httpx.HTTPError, method: str) -> bool:
+    """Повторять ли обрыв. Несобранный запрос — никогда: повтор соберёт его так же.
+    Чтение — всегда. Запись — только если она точно не ушла."""
+    if isinstance(exc, httpx.LocalProtocolError):
+        return False
+    return method == "GET" or isinstance(exc, _NOT_SENT)
+
+
+def _pause(response: httpx.Response, attempt: int) -> float | None:
+    """Пауза перед повтором; `None` — не повторяем: код не временный или Kommo
+    просит ждать дольше потолка (тогда отказ называет величину)."""
+    if response.status_code not in RETRY_STATUSES:
+        return None
+    asked = _asked_wait(response)
+    if asked is None:
+        return delay_for(attempt)
+    return asked if asked <= MAX_DELAY_SEC else None
+
+
+def _unreached(exc: httpx.HTTPError, method: str) -> KommoError:
     """Ответа нет. Наружу — только тип ошибки: в тексте httpx адрес запроса,
     а у `LocalProtocolError` — значение заголовка, то есть ключ."""
     kind = type(exc).__name__
@@ -186,6 +243,11 @@ def _unreached(exc: httpx.HTTPError) -> KommoError:
         return KommoRefusedError(
             f"запрос к Kommo не собран ({kind}) — проверить SALES_KOMMO_TOKEN "
             "и SALES_KOMMO_SUBDOMAIN; повтор не поможет"
+        )
+    if method != "GET" and not isinstance(exc, _NOT_SENT):
+        return KommoUnconfirmedError(
+            f"ответ Kommo потерян после отправки ({kind}) — запись могла создаться; "
+            "проверить в Kommo руками: повтор вслепую завёл бы вторую"
         )
     return KommoUnavailableError(
         f"Kommo не ответил: связь оборвалась ({kind}) — в CRM ничего не записано, повторим позже"

@@ -54,6 +54,14 @@ class KommoFormatError(KommoError):
     permanent = True
 
 
+class KommoUnconfirmedError(KommoError):
+    """Запись ушла, а ответ потерян: в CRM она могла появиться. Ключа
+    идемпотентности у Kommo нет, и повтор вслепую завёл бы вторую сделку —
+    сверить в Kommo руками; повтор по расписанию тут не помощник."""
+
+    permanent = True
+
+
 @dataclass(frozen=True, slots=True)
 class KommoAccount:
     """Учётка `live`. Ключ не печатается: `repr` уходит в журналы и трассировки."""

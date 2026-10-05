@@ -1422,19 +1422,19 @@
       "worst": "preview:176"
     },
     "backend/features/sales/kommo.py": {
-      "lines": 224,
+      "lines": 226,
       "complexity": 7,
-      "worst": "_live_account:180"
+      "worst": "_live_account:182"
     },
     "backend/features/sales/kommo_live.py": {
-      "lines": 361,
+      "lines": 423,
       "complexity": 9,
-      "worst": "_emails:298"
+      "worst": "_emails:360"
     },
     "backend/features/sales/kommo_types.py": {
-      "lines": 121,
+      "lines": 129,
       "complexity": 2,
-      "worst": "wanted_email:114"
+      "worst": "wanted_email:122"
     },
     "backend/features/sales/models.py": {
       "lines": 165,

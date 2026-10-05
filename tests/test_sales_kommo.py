@@ -97,6 +97,18 @@ async def _live[T](script: Script, act: Callable[[KommoLive], Awaitable[T]]) -> 
         return await act(KommoLive(http, ACCOUNT, pace=pace))
 
 
+@pytest.fixture(autouse=True)
+def pauses(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """Паузы между повторами проверяются числами, а не часами: сон подменён записью."""
+    seen: list[float] = []
+
+    async def record(seconds: float) -> None:
+        seen.append(seconds)
+
+    monkeypatch.setattr(kommo_live, "_sleep", record, raising=False)
+    return seen
+
+
 def _nobody() -> httpx.Response:
     return httpx.Response(204)
 
@@ -263,6 +275,192 @@ async def test_a_lead_without_an_address_is_a_caller_error_not_a_search(email: s
     with pytest.raises(ValueError, match="нет почты"):
         await KommoFixture().find_contact(email)
     assert script.requests == []
+
+
+# --- A2 и повторы: временное повторяем, записанное — нет --------------------------------------
+
+
+async def test_a2_429_with_retry_after_pauses_as_asked_and_repeats(pauses: list[float]) -> None:
+    # A2 — пример спеки
+    script = Script(
+        httpx.Response(429, headers={"Retry-After": "2"}), _contacts(_contact(77031, EMAIL))
+    )
+
+    found = await _live(script, lambda client: client.find_contact(EMAIL))
+
+    assert found == KommoContact(77031, "Ivan Petrov")
+    assert len(script.requests) == 2
+    assert pauses == [2.0]
+
+
+async def test_a2_a_lead_refused_by_429_is_not_written_and_goes_again(pauses: list[float]) -> None:
+    # A2 — пример спеки: 429 — Kommo отказал до записи, повтор не заводит вторую сделку
+    script = Script(_nobody(), httpx.Response(429, headers={"Retry-After": "2"}), _created())
+
+    created = await _live(script, lambda client: client.create_complex_lead(LEAD))
+
+    assert created.id == 9341
+    assert [request.method for request in script.requests] == ["GET", "POST", "POST"]
+    assert pauses == [2.0]
+
+
+async def test_kommo_puts_its_pause_into_the_body_of_429_and_it_is_kept(
+    pauses: list[float],
+) -> None:
+    script = Script(_problem(429, "Too Many Requests", retry_after=3), _nobody())
+
+    assert await _live(script, lambda client: client.find_contact(EMAIL)) is None
+
+    assert pauses == [3.0]
+
+
+async def test_a_pause_longer_than_the_ceiling_is_a_refusal_naming_it_not_a_sleep(
+    pauses: list[float],
+) -> None:
+    """Повтор внутри окна запрета у Kommo — путь к блокировке IP (403): ждать
+    за пределами потолка — дело расписания задачи, а не сна внутри запроса."""
+    script = Script(_problem(429, "Too Many Requests", retry_after=300))
+
+    with pytest.raises(KommoUnavailableError) as refused:
+        await _live(script, lambda client: client.find_contact(EMAIL))
+
+    assert str(refused.value) == (
+        "Kommo не принял запрос (HTTP 429, просит подождать 300 с) — повторим позже"
+    )
+    assert refused.value.retry_after == 300
+    assert (len(script.requests), pauses) == (1, [])
+    assert not is_permanent(refused.value)
+
+
+@pytest.mark.parametrize(
+    "first",
+    [
+        httpx.Response(503),
+        httpx.Response(502, text="<html>bad gateway</html>"),
+        httpx.Response(500),
+        httpx.Response(504),
+        httpx.ConnectError("connection refused"),
+        httpx.ConnectTimeout("timed out"),
+        httpx.ReadTimeout("timed out"),
+        httpx.RemoteProtocolError("Server disconnected without sending a response."),
+    ],
+)
+async def test_a_temporary_failure_of_a_read_is_repeated(
+    first: httpx.Response | Exception, pauses: list[float]
+) -> None:
+    script = Script(first, _nobody())
+
+    assert await _live(script, lambda client: client.find_contact(EMAIL)) is None
+
+    assert (len(script.requests), len(pauses)) == (2, 1)
+
+
+@pytest.mark.parametrize(
+    ("replies", "words", "asked"),
+    [
+        ([httpx.Response(503) for _ in range(3)], "Kommo не принял запрос (HTTP 503) — повторим позже", None),
+        ([httpx.Response(429, headers={"Retry-After": "1"}) for _ in range(3)], "Kommo не принял запрос (HTTP 429, просит подождать 1 с) — повторим позже", 1.0),
+    ],
+)  # fmt: skip
+async def test_temporary_failures_outlasting_three_attempts_become_unavailable(
+    replies: list[httpx.Response], words: str, asked: float | None, pauses: list[float]
+) -> None:
+    script = Script(*replies)
+
+    with pytest.raises(KommoUnavailableError) as refused:
+        await _live(script, lambda client: client.find_contact(EMAIL))
+
+    assert str(refused.value) == words
+    assert refused.value.retry_after == asked
+    assert (len(script.requests), len(pauses)) == (3, 2)
+
+
+async def test_a_network_failure_outlasting_the_attempts_names_neither_address_nor_token(
+    pauses: list[float], caplog: pytest.LogCaptureFixture
+) -> None:
+    script = Script(*[httpx.ConnectError(f"cannot connect to {API}/contacts") for _ in range(3)])
+
+    with caplog.at_level(logging.DEBUG), pytest.raises(KommoUnavailableError) as refused:
+        await _live(script, lambda client: client.find_contact(EMAIL))
+
+    assert str(refused.value) == (
+        "Kommo не ответил: связь оборвалась (ConnectError) — в CRM ничего не записано, "
+        "повторим позже"
+    )
+    # Цепочки к httpx нет ни явной (`from exc`), ни неявной (подавлена `from None`).
+    assert (refused.value.__cause__, refused.value.__suppress_context__) == (None, True)
+    assert (len(script.requests), len(pauses)) == (3, 2)
+    assert "kommo: повтор запроса" in caplog.text
+    for text in (str(refused.value), caplog.text):
+        assert API not in text
+        assert TOKEN not in text
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        httpx.ReadTimeout("timed out"),
+        httpx.ReadError("connection reset by peer"),
+        httpx.RemoteProtocolError("Server disconnected without sending a response."),
+        httpx.WriteTimeout("timed out"),
+    ],
+)
+async def test_a_lead_is_not_sent_twice_once_it_may_have_reached_kommo(
+    failure: Exception, pauses: list[float]
+) -> None:
+    """У Kommo нет ключа идемпотентности: запрос ушёл, ответ потерян — сделка могла
+    создаться, и повтор вслепую завёл бы вторую (урок отправки писем: повторяется
+    только то, что точно не ушло)."""
+    script = Script(_nobody(), failure)
+
+    with pytest.raises(kommo.KommoUnconfirmedError) as refused:
+        await _live(script, lambda client: client.create_complex_lead(LEAD))
+
+    assert str(refused.value) == (
+        f"ответ Kommo потерян после отправки ({type(failure).__name__}) — запись могла "
+        "создаться; проверить в Kommo руками: повтор вслепую завёл бы вторую"
+    )
+    assert [request.method for request in script.requests] == ["GET", "POST"]
+    assert (is_permanent(refused.value), pauses) == (True, [])
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        httpx.ConnectError("connection refused"),
+        httpx.ConnectTimeout("timed out"),
+        httpx.PoolTimeout("no free connection"),
+    ],
+)
+async def test_a_lead_that_never_left_is_sent_again(
+    failure: Exception, pauses: list[float]
+) -> None:
+    script = Script(_nobody(), failure, _created())
+
+    created = await _live(script, lambda client: client.create_complex_lead(LEAD))
+
+    assert created.id == 9341
+    assert [request.method for request in script.requests] == ["GET", "POST", "POST"]
+    assert len(pauses) == 1
+
+
+async def test_a_note_lost_after_sending_is_not_repeated_either(pauses: list[float]) -> None:
+    script = Script(httpx.ReadTimeout("timed out"))
+
+    with pytest.raises(kommo.KommoUnconfirmedError):
+        await _live(script, lambda client: client.add_note(9341, "сводка"))
+
+    assert (len(script.requests), pauses) == (1, [])
+
+
+async def test_every_attempt_keeps_the_pace(pauses: list[float]) -> None:
+    script = Script(httpx.Response(503), httpx.Response(503), _nobody())
+
+    assert await _live(script, lambda client: client.find_contact(EMAIL)) is None
+
+    first, second, third = script.times
+    assert min(second - first, third - second) >= 1 / 7 - 1e-9
+    assert len(pauses) == 2
 
 
 # --- A3 и прочие отказы без повторов --------------------------------------------------------
