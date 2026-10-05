@@ -231,7 +231,11 @@ async def test_empty_sender_names_what_sending_lacks_and_the_field_limits(
 
     body = (await client.get(SENDER, headers=headers)).json()
 
-    assert body["missing"] == ["не задан физический адрес", "не задана подпись"]
+    assert body["missing"] == [
+        "не задан физический адрес",
+        "не задана подпись",
+        "не задано имя отправителя",
+    ]
     assert (body["physical_address"], body["updated_at"]) == (None, None)
     assert body["limits"] == {
         "sender_name": 128,

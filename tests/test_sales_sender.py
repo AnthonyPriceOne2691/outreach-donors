@@ -21,8 +21,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 ADDRESS = "Выдуманная ул., 7\nТестоград, 000000"
 SIGNATURE = "Ива Тестова\nстудия примеров"
+NAME = "Ива Тестова"
 FILLED = {
-    "sender_name": "Ива Тестова",
+    "sender_name": NAME,
     "sender_position": "менеджер",
     "signature": SIGNATURE,
     "website": "https://studio.example.test",
@@ -56,7 +57,7 @@ async def test_a3_no_address_refuses_in_words_even_with_the_donor_address_in_the
     # A3 — пример спеки
     """Адрес доноров из окружения у продаж не подставляется: у них свой отправитель."""
     monkeypatch.setattr("backend.config.outreach.POSTAL_ADDRESS", "Донорская ул., 1")
-    await _save(session, {"signature": SIGNATURE})
+    await _save(session, {"signature": SIGNATURE, "sender_name": NAME})
 
     with pytest.raises(SenderNotReadyError) as refused:
         await sender.check_ready(session)
@@ -67,30 +68,45 @@ async def test_a3_no_address_refuses_in_words_even_with_the_donor_address_in_the
     )
 
 
-async def test_a3_empty_settings_name_both_missing_fields(session: AsyncSession) -> None:
+async def test_a3_empty_settings_name_every_missing_field(session: AsyncSession) -> None:
     # A3 — пример спеки
     with pytest.raises(SenderNotReadyError) as refused:
         await sender.check_ready(session)
 
-    assert "не задан физический адрес; не задана подпись" in str(refused.value)
-    assert (await sender.read(session)).missing == [
-        "не задан физический адрес",
-        "не задана подпись",
-    ]
+    every = ["не задан физический адрес", "не задана подпись", "не задано имя отправителя"]
+    assert "; ".join(every) in str(refused.value)
+    assert (await sender.read(session)).missing == every
 
 
 async def test_a3_address_of_blanks_is_not_an_address(session: AsyncSession) -> None:
     # A3 — пример спеки
-    saved = await _save(session, {"signature": SIGNATURE, "physical_address": " \n\t "})
+    saved = await _save(
+        session, {"signature": SIGNATURE, "sender_name": NAME, "physical_address": " \n\t "}
+    )
 
     assert saved.values["physical_address"] is None
     with pytest.raises(SenderNotReadyError, match="не задан физический адрес"):
         await sender.check_ready(session)
 
 
-async def test_a3_address_and_signature_are_enough_to_send(session: AsyncSession) -> None:
+@pytest.mark.parametrize("name", [None, "  \t "], ids=["none", "blanks"])
+async def test_a3_no_sender_name_refuses_in_words(session: AsyncSession, name: str | None) -> None:
+    # A3 — пример спеки (имя отправителя — решение владельца)
+    """В From — настоящее имя (конституция): адрес и подпись без имени — не готово."""
+    await _save(session, {"signature": SIGNATURE, "physical_address": ADDRESS, "sender_name": name})
+
+    with pytest.raises(SenderNotReadyError) as refused:
+        await sender.check_ready(session)
+
+    assert str(refused.value) == (
+        "отправка продаж невозможна: не задано имя отправителя — "
+        "заполните на экране «Продажи» → «Отправитель»"
+    )
+
+
+async def test_a3_address_signature_and_name_are_enough_to_send(session: AsyncSession) -> None:
     # A3 — пример спеки
-    await _save(session, {"signature": SIGNATURE, "physical_address": ADDRESS})
+    await _save(session, {"signature": SIGNATURE, "physical_address": ADDRESS, "sender_name": NAME})
 
     ready = await sender.check_ready(session)
 
@@ -181,7 +197,11 @@ async def test_each_change_is_journaled_once_with_the_old_values(session: AsyncS
 async def test_saving_nothing_over_nothing_writes_no_row(session: AsyncSession) -> None:
     saved = await _save(session, {})
 
-    assert saved.missing == ["не задан физический адрес", "не задана подпись"]
+    assert saved.missing == [
+        "не задан физический адрес",
+        "не задана подпись",
+        "не задано имя отправителя",
+    ]
     assert (await session.get(SalesSettingsModel, 1), await _journal(session)) == (None, [])
 
 
