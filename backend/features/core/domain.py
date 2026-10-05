@@ -202,6 +202,9 @@ class AuditAction(StrEnum):
     # Заведён липовый донор для проверки цепочки на живом сервисе (`outreach probe-donor`):
     # домен в зоне .invalid, свой ящик проверяющего, проверочный прогон.
     PROBE_CREATED = "probe_created"
+    # Шаблон цепочки писем продаж заведён, поправлен, выключен или набор загружен
+    # файлом: по журналу видно, кто и когда сменил текст, ушедший живым людям.
+    SALES_CHAIN_CHANGED = "sales_chain_changed"
 
 
 class UsageProvider(StrEnum):

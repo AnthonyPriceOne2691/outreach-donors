@@ -797,12 +797,12 @@
       "worst": "—"
     },
     "backend/features/core/domain.py": {
-      "lines": 262,
+      "lines": 265,
       "complexity": 0,
       "worst": "—"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 57,
+      "lines": 59,
       "complexity": 0,
       "worst": "—"
     },
@@ -1566,6 +1566,16 @@
       "complexity": 6,
       "worst": "_conditions:98"
     },
+    "backend/features/sales/chain.py": {
+      "lines": 214,
+      "complexity": 4,
+      "worst": "save:169"
+    },
+    "backend/features/sales/chain_text.py": {
+      "lines": 319,
+      "complexity": 8,
+      "worst": "zones_of:197"
+    },
     "backend/features/sales/cleaning.py": {
       "lines": 469,
       "complexity": 8,
@@ -1597,9 +1607,9 @@
       "worst": "change:327"
     },
     "backend/features/sales/kb_load.py": {
-      "lines": 221,
+      "lines": 183,
       "complexity": 7,
-      "worst": "_decoded:88"
+      "worst": "_types_problem:95"
     },
     "backend/features/sales/kommo.py": {
       "lines": 226,
@@ -1617,9 +1627,14 @@
       "worst": "wanted_email:122"
     },
     "backend/features/sales/models.py": {
-      "lines": 259,
+      "lines": 307,
       "complexity": 2,
-      "worst": "_enum:73"
+      "worst": "_enum:74"
+    },
+    "backend/features/sales/outside.py": {
+      "lines": 90,
+      "complexity": 7,
+      "worst": "read_json:35"
     },
     "backend/features/sales/sender.py": {
       "lines": 182,
