@@ -485,7 +485,7 @@ export interface ConsequencesView {
   unchecked: number;
 }
 
-export type UsageProvider = 'ahrefs' | 'serp' | 'llm' | 'email';
+export type UsageProvider = 'ahrefs' | 'serp' | 'llm' | 'email' | 'hunter';
 
 export interface ArticleCard {
   provider: UsageProvider;

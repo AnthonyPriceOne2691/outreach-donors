@@ -30,7 +30,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 
 import { refusalOf } from '../api/client';
-import { operationTitle, USAGE_PROVIDERS } from '../api/labels';
+import { operationTitle, USAGE_PROVIDERS, usageProvider } from '../api/labels';
 import { Meter } from '../components/Meter';
 import { Metric } from '../components/Metric';
 import { fetchUsage } from '../api/settings';
@@ -42,6 +42,7 @@ import { formatDate, formatNumber, formatUsd, plural } from '../format';
 const UNIT_TITLES: Record<string, string> = {
   ahrefs: 'юн.',
   llm: 'ток.',
+  hunter: 'запр.',
 };
 
 /** Та же единица словом — для плитки, где под числом есть место. */
@@ -50,6 +51,7 @@ const UNIT_WORDS: Record<string, [string, string, string]> = {
   ahrefs: UNITS,
   llm: ['токен', 'токена', 'токенов'],
   email: ['письмо', 'письма', 'писем'],
+  hunter: ['запрос', 'запроса', 'запросов'],
 };
 
 /** «1 письмо, 4 письма, 5 писем» — у сокращений склонять нечего. */
@@ -174,7 +176,7 @@ export function UsagePage() {
         </Stack>
       </Card>
 
-      <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
+      <SimpleGrid cols={{ base: 2, sm: 3, lg: 5 }} spacing="sm">
         {Object.entries(USAGE_PROVIDERS).map(([key, provider]) => {
           const tile = tileOf(
             key,
@@ -226,8 +228,8 @@ export function UsagePage() {
                       </Text>
                     </Table.Td>
                     <Table.Td>
-                      <Badge variant="light" color={USAGE_PROVIDERS[article.provider].color}>
-                        {USAGE_PROVIDERS[article.provider].title}
+                      <Badge variant="light" color={usageProvider(article.provider).color}>
+                        {usageProvider(article.provider).title}
                       </Badge>
                     </Table.Td>
                     <Table.Td>{formatNumber(article.calls)}</Table.Td>
