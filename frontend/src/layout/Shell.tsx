@@ -46,6 +46,7 @@ const SECTIONS: Section[] = [
   { path: '/threads', title: 'Диалоги', permission: 'view' },
   { path: '/suppressions', title: 'Стоп-лист', permission: 'view' },
   { path: '/settings', title: 'Пороги', permission: 'view' },
+  { path: '/agent', title: 'Агент переписки', permission: 'view' },
   { path: '/usage', title: 'Расход', permission: 'view' },
   { path: '/senders', title: 'Домены рассылки', permission: 'senders' },
   { path: '/users', title: 'Учётки', permission: 'users' },
