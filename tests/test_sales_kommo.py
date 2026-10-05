@@ -105,7 +105,7 @@ def pauses(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     async def record(seconds: float) -> None:
         seen.append(seconds)
 
-    monkeypatch.setattr(kommo_live, "_sleep", record, raising=False)
+    monkeypatch.setattr(kommo_live, "_sleep", record)
     return seen
 
 
@@ -319,15 +319,15 @@ async def test_a_pause_longer_than_the_ceiling_is_a_refusal_naming_it_not_a_slee
 ) -> None:
     """Повтор внутри окна запрета у Kommo — путь к блокировке IP (403): ждать
     за пределами потолка — дело расписания задачи, а не сна внутри запроса."""
-    script = Script(_problem(429, "Too Many Requests", retry_after=300))
+    script = Script(_problem(429, "Too Many Requests", retry_after=317))
 
     with pytest.raises(KommoUnavailableError) as refused:
         await _live(script, lambda client: client.find_contact(EMAIL))
 
     assert str(refused.value) == (
-        "Kommo не принял запрос (HTTP 429, просит подождать 300 с) — повторим позже"
+        "Kommo не принял запрос (HTTP 429, просит подождать 317 с) — повторим позже"
     )
-    assert refused.value.retry_after == 300
+    assert refused.value.retry_after == 317
     assert (len(script.requests), pauses) == (1, [])
     assert not is_permanent(refused.value)
 
