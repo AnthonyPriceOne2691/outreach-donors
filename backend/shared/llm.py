@@ -26,7 +26,8 @@ from typing import Any
 
 import httpx
 
-from backend.shared.net.retry import with_retries
+from backend.config import llm as llm_cfg
+from backend.shared.net.retry import reason_of, unsent, with_retries
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,40 @@ class Refusal:
         return f"модель, {self.kind} ({what}): {self.detail}"
 
 
+class ModelClient:
+    """Каркас клиента одного вида вызовов модели: модель, ключ и HTTP-клиент.
+
+    Общий у уникализации письма, разбора ответа и агента переписки: три
+    копии одного конструктора разъехались бы на первой правке — откуда ключ,
+    чей HTTP-клиент закрывать. Свой клиент закрывается, данный снаружи — нет:
+    его закрывает тот, кто дал.
+    """
+
+    def __init__(
+        self,
+        client: httpx.AsyncClient | None = None,
+        *,
+        model: str | None = None,
+        api_key: str | None = None,
+    ) -> None:
+        self._model = model or self._default_model()
+        self._api_key = api_key if api_key is not None else llm_cfg.API_KEY
+        self._own_client = client is None
+        self._http = client or httpx.AsyncClient(timeout=llm_cfg.TIMEOUT_S)
+
+    def _default_model(self) -> str:
+        """Модель вида вызовов, если её не назвали явно (`config/llm.py`)."""
+        return llm_cfg.LETTERS_MODEL
+
+    @property
+    def model(self) -> str:
+        return self._model
+
+    async def aclose(self) -> None:
+        if self._own_client:
+            await self._http.aclose()
+
+
 def _message_of(response: httpx.Response) -> str:
     """Внятная фраза провайдера, если она есть, иначе сырое тело."""
     try:
@@ -117,10 +152,11 @@ def _unusable_key(api_key: str, topic: str) -> Refusal | None:
 def _unreached(exc: httpx.HTTPError) -> Refusal:
     """До провайдера не дошли. Обрыв связи повторяем, несобранный запрос — нет:
     он не собран у нас, и повтор соберёт его так же (пробел или перевод
-    строки в ключе, битый заголовок)."""
-    if isinstance(exc, httpx.LocalProtocolError):
-        return Refusal(RefusalKind.LOCAL, f"запрос не собран: {exc}", permanent=True)
-    return Refusal(RefusalKind.NETWORK, repr(exc), permanent=False)
+    строки в ключе, битый заголовок). Текст отказа — без заголовков: в них
+    ключ модели (`net.retry.reason_of`)."""
+    if unsent(exc):
+        return Refusal(RefusalKind.LOCAL, reason_of(exc), permanent=True)
+    return Refusal(RefusalKind.NETWORK, reason_of(exc), permanent=False)
 
 
 async def post_chat(
@@ -150,7 +186,10 @@ async def post_chat(
         )
     except httpx.HTTPError as exc:
         refusal = _unreached(exc)
-        logger.exception("%s: %s", topic, refusal)
+        if unsent(exc):
+            logger.error("%s: %s", topic, refusal)  # noqa: TRY400 — в трассировке был бы ключ
+        else:
+            logger.exception("%s: %s", topic, refusal)
         return refusal
 
     if response.status_code >= 400:

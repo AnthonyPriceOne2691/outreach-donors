@@ -144,14 +144,14 @@ class Transport(BaseModel):
     problem: str | None = None
 
     @classmethod
-    def current(cls) -> Transport:
-        """Каким транспортом располагаем — для экрана писем и главной.
+    def current(cls, stage: str | None = None) -> Transport:
+        """Каким транспортом располагаем — для экрана писем (учётка этапа) и главной.
 
         Отказ собрать транспорт — это не поломка экрана, а его содержание:
         человек должен видеть, что отправлять нечем, и почему.
         """
         try:
-            transport = build_transport()
+            transport = build_transport(stage=stage)
         except TransportError as exc:
             # В лог тоже, а не только на экран: человек прочтёт и забудет,
             # а разбираться, почему рассылка стоит, будут по логам сервера.

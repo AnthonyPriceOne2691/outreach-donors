@@ -70,6 +70,39 @@ def verify(
         raise SignatureError("Подпись не сошлась с телом события") from exc
 
 
+def verify_any(
+    *,
+    payload: bytes,
+    timestamp: str,
+    signature: str,
+    public_keys: tuple[str, ...],
+    now: float | None = None,
+) -> None:
+    """Подпись сошлась хотя бы с одним ключом — у каждой учётки платформы свой.
+
+    Ключей нет — тот же отказ, что у пустого ключа: ручка, которая паркует
+    домены и пишет в стоп-лист, без проверки открыта любому. Не сошлось ни с
+    одним — отказ последнего ключа: у всех он один и тот же по смыслу.
+    """
+    refusal = SignatureError("подпись не проверялась")
+    for number, public_key in enumerate(public_keys or ("",), start=1):
+        try:
+            verify(
+                payload=payload,
+                timestamp=timestamp,
+                signature=signature,
+                public_key=public_key,
+                now=now,
+            )
+        except SignatureError as exc:
+            # Не сошлось с этим ключом — пробуем следующий; отказ — после всех.
+            logger.debug("события: ключ %s из %s не подошёл — %s", number, len(public_keys), exc)
+            refusal = exc
+        else:
+            return
+    raise refusal
+
+
 def _check_age(timestamp: str, now: float | None) -> None:
     try:
         sent_at = float(timestamp)

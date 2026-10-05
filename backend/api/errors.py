@@ -48,7 +48,7 @@ from backend.features.letters.review import NotEditableError
 from backend.features.letters.sending import SendError
 from backend.features.letters.stoplist import StopListError
 from backend.features.letters.template import TemplateError
-from backend.features.letters.transport import TransportError
+from backend.features.letters.transport import MaybeSentError, TransportError
 from backend.features.outreach.repository import UnknownSenderError, UnknownThreadError
 from backend.features.replies.attachments import AttachmentNotKeptError, UnknownAttachmentError
 from backend.features.replies.repository import LeadError, NotAPriceError, UnknownReplyError
@@ -56,6 +56,8 @@ from backend.features.review.candidates import NotInRunError
 from backend.features.review.candidates import UnknownRunError as ReviewUnknownRunError
 from backend.features.runs.browse import UnknownRunError
 from backend.features.sales.intake import IntakeError, UnknownHypothesisError
+from backend.features.sales.kb import KbError, KbKeyTakenError, UnknownKbEntryError
+from backend.features.sales.sender import SenderSettingsError
 from backend.features.sales.sheet import SheetError, SheetUnavailableError
 
 #: Отказ → код ответа. Порядок в словаре значения не имеет: FastAPI
@@ -92,6 +94,9 @@ STATUSES: dict[type[Exception], int] = {
     # Транспорта нет или он не тот. Это тоже состояние развёртывания,
     # и текст отказа называет, чего не хватает.
     TransportError: status.HTTP_409_CONFLICT,
+    # Почта не ответила после отправки — письмо «отправляется», повтор только
+    # после проверки в кабинете платформы: словами, а не «сервер упал».
+    MaybeSentError: status.HTTP_409_CONFLICT,
     # Метрики Ahrefs в письме: правка человека, которую нельзя принять.
     ForbiddenContentError: status.HTTP_400_BAD_REQUEST,
     # Текст письма с экрана не разобрался как шаблон: нет зоны, подписи,
@@ -132,6 +137,12 @@ STATUSES: dict[type[Exception], int] = {
     SheetError: status.HTTP_400_BAD_REQUEST,
     UnknownHypothesisError: status.HTTP_404_NOT_FOUND,
     SheetUnavailableError: status.HTTP_502_BAD_GATEWAY,
+    # База знаний и отправитель продаж: поле не годится — запрос; такая запись
+    # уже есть — состояние; записи нет — 404.
+    KbError: status.HTTP_400_BAD_REQUEST,
+    KbKeyTakenError: status.HTTP_409_CONFLICT,
+    UnknownKbEntryError: status.HTTP_404_NOT_FOUND,
+    SenderSettingsError: status.HTTP_400_BAD_REQUEST,
     EmailTakenError: status.HTTP_409_CONFLICT,
     LastAdminError: status.HTTP_409_CONFLICT,
     SelfLockoutError: status.HTTP_409_CONFLICT,

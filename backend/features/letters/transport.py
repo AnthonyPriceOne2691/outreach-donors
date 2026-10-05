@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from backend.shared.demo import SUFFIX, is_demo_address
 
@@ -36,6 +36,17 @@ logger = logging.getLogger(__name__)
 
 class TransportError(RuntimeError):
     """Письмо не ушло. Сообщение называет причину и что делать."""
+
+
+class MaybeSentError(RuntimeError):
+    """Почта не ответила, когда запрос мог уже дойти: ушло ли письмо — неизвестно.
+
+    **Не `TransportError` намеренно.** Тот значит «точно не ушло», и отправка
+    возвращает письмо в очередь — а здесь возврат означал бы второе письмо тому
+    же человеку: кнопкой сразу или проходом добивок через час (находка
+    «Продаж» 05.10.2026). Письмо остаётся «отправляется»: событие платформы
+    (`delivered`, `bounce`) переведёт его дальше, если письмо дошло до неё.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +103,26 @@ class Transport(Protocol):
     real: bool
 
     async def send(self, outgoing: Outgoing) -> str: ...
+
+
+@runtime_checkable
+class ByStage(Protocol):
+    """Транспорт по этапу письма: у направления бывает своя учётка платформы
+    (`config.outreach.mail_account`). Отправка берёт транспорт этапа своего
+    письма (`sending.Sending`) — один проход добивок пишет и донорам, и
+    рекламодателям, и продажам."""
+
+    def for_stage(self, stage: str) -> Transport: ...
+
+
+#: Чем отправлять: один транспорт на все письма или набор по этапам.
+type Mail = Transport | ByStage
+
+
+def of_stage(source: Mail, stage: str) -> Transport:
+    """Транспорт письма этапа: набор по этапам отдаёт транспорт этапа,
+    одиночный транспорт (подставной в тестах) — себя на любой этап."""
+    return source.for_stage(stage) if isinstance(source, ByStage) else source
 
 
 class NullTransport:

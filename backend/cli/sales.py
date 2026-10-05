@@ -4,12 +4,13 @@
     outreach sales-import --hypothesis "…" (--file база.csv | --link …) [--dry-run]
     outreach sales-stoplist-add --file стоп.csv [--note "…"]
     outreach sales-clean [--hypothesis "…"]
+    outreach sales-kb-load --file база.json [--update] [--dry-run]
 
 Стартовые гипотезы заводятся здесь, данными в базе, а не миграцией:
 описание гипотезы — коммерческий текст, а репозиторий публичный. Логика
 заведения — `features/sales/hypotheses.py`, загрузки — `features/sales/intake.py`,
-стоп-листа — `features/sales/stoplist.py`, очистки — `features/sales/cleaning.py`;
-здесь только разбор и печать.
+стоп-листа — `features/sales/stoplist.py`, очистки — `features/sales/cleaning.py`,
+базы знаний — `features/sales/kb_load.py`; здесь только разбор и печать.
 
 Очистка собирает проверяльщик адресов до первого лида: `live` без ключа —
 отказ на старте (`ConfigError`, код 2 из `main`), и ни один лид не тронут.
@@ -27,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from backend.config import storage
 from backend.config.startup_checks import check_storage
-from backend.features.sales import cleaning, hypotheses, intake, sheet, stoplist
+from backend.features.sales import cleaning, hypotheses, intake, kb_load, sheet, stoplist
 from backend.features.sales.cleaning import CleaningReport
 from backend.features.sales.columns import LeadField, Mapping
 from backend.features.sales.models import RejectionReason
@@ -77,6 +78,11 @@ async def cmd_sales_stoplist_add(args: argparse.Namespace) -> int:
 async def cmd_sales_clean(args: argparse.Namespace) -> int:
     """Очистить лидов `new`: дубли, стоп-листы, годность, почта домена, проверяльщик."""
     return await _in_session(lambda session: run_clean(session, args))
+
+
+async def cmd_sales_kb_load(args: argparse.Namespace) -> int:
+    """Загрузить базу знаний продаж из файла JSON вне репозитория."""
+    return await _in_session(lambda session: run_kb_load(session, args))
 
 
 async def run_clean(
@@ -164,6 +170,51 @@ async def run_stoplist_add(session: AsyncSession, args: argparse.Namespace) -> i
 def _print_unreadable(rows: list[tuple[int, str]]) -> None:
     for line, cell in rows:
         print(f"  строка {line}: {stoplist.NOT_AN_ENTRY} — «{cell}»")
+
+
+async def run_kb_load(session: AsyncSession, args: argparse.Namespace) -> int:
+    """Загрузка на готовой сессии: всё или ничего, отчёт словами и при `--dry-run`."""
+    try:
+        entries, problems = await asyncio.to_thread(kb_load.read, args.file)
+    except kb_load.KbFileError as exc:
+        print(f"База знаний не прочитана: {exc}")
+        return EXIT_BAD_INPUT
+    if problems:
+        print(
+            f"Файл не загружен: записей с ошибками {len(problems)} из "
+            f"{len(entries) + len(problems)} — в базе ничего не изменилось."
+        )
+        for problem in problems:
+            named = f" «{problem.title}»" if problem.title else ""
+            print(f"  №{problem.number}{named}: {problem.reason}")
+        return EXIT_BAD_INPUT
+    planned = await kb_load.plan(session, entries)
+    print(f"База знаний из {args.file.name}: записей {len(entries)}.")
+    if args.dry_run:
+        _print_kb_plan(planned, update=args.update)
+        print("Предпросмотр: в базу ничего не записано.")
+        return EXIT_OK
+    loaded = await kb_load.apply(
+        session, planned, update=args.update, author=AUTHOR, source=args.file.name
+    )
+    await session.commit()
+    _print_kb_plan(planned, update=args.update)
+    print(f"Версия базы: {loaded.before} → {loaded.after}.")
+    return EXIT_OK
+
+
+def _print_kb_plan(planned: kb_load.Plan, *, update: bool) -> None:
+    differs = len(planned.differs)
+    told = (
+        f"обновлено {differs}"
+        if update
+        else f"отличается {differs} — не тронуто (перезаписать: --update)"
+    )
+    print(f"  добавлено {len(planned.added)}, без изменений {len(planned.same)}, {told}")
+    for new, row in planned.differs:
+        print(f"    №{row.id} «{new.title}» ({new.kind.value}, {new.language})")
+    if planned.absent:
+        print(f"  в базе, но не в файле: {planned.absent} — не тронуты")
 
 
 async def run_hypothesis_add(session: AsyncSession, name: str, description: str | None) -> int:
@@ -295,3 +346,20 @@ def add_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-ar
         help="очистить лидов new: дубли, стоп-листы, годность, почта домена, проверяльщик адресов",
     )
     clean.add_argument("--hypothesis", help="имя гипотезы; без него — лиды всех гипотез")
+
+    kb = sub.add_parser(
+        "sales-kb-load",
+        help="загрузить базу знаний продаж из файла JSON вне репозитория: всё или ничего",
+    )
+    kb.add_argument(
+        "--file",
+        type=Path,
+        required=True,
+        help='JSON: список записей {"kind", "language", "title", "text", "tags", "active"}',
+    )
+    kb.add_argument(
+        "--update",
+        action="store_true",
+        help="перезаписать записи, которые отличаются от файла (их могли править на экране)",
+    )
+    kb.add_argument("--dry-run", action="store_true", help="только отчёт, без записи")

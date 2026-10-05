@@ -29,6 +29,7 @@ from backend.features.ahrefs.client import AhrefsClient
 from backend.features.contacts.search import search_contacts
 from backend.features.core.domain import Stage
 from backend.features.core.usage import LlmCapExceededError
+from backend.features.crawl.niche import collect as collect_niche
 from backend.features.donors.doors import door_check
 from backend.features.donors.repository import DonorRepository
 from backend.features.letters.building import BuildRequest, QueueBuilder
@@ -115,6 +116,7 @@ async def _run(run_id: int) -> dict[str, Any]:
                             exclusions=Exclusions(session),
                             review=RunReview(session),
                             doors=doors,
+                            niche=lambda run_id: collect_niche(session, run_id),
                         ),
                         RunRequest(
                             keywords=list(run.keywords),

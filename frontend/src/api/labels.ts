@@ -251,6 +251,7 @@ const OPERATION_TITLES: Record<string, string> = {
   letter_send: 'отправка писем',
   reply_parse: 'разбор ответов',
   contacts_search: 'поиск адресов',
+  sales_verify: 'проверка адресов продаж',
   // Прежние имена: в журнале они остались у старых строк.
   dr_screen: 'просев по DR',
   serp_task: 'запрос выдачи',

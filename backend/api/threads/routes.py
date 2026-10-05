@@ -18,7 +18,7 @@ from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
 from backend.features.letters.answers import answer_reply
 from backend.features.letters.sending import Sending
-from backend.features.letters.transport_factory import build_transport, in_use
+from backend.features.letters.transport_factory import Transports, in_use
 from backend.features.outreach.repository import OutreachRepository
 from backend.features.replies.attachments import ReplyFiles
 
@@ -62,10 +62,10 @@ async def answer(
 
     Право — то же, что у отправки письма из очереди: это письмо наружу.
     """
-    async with in_use(build_transport()) as transport:
+    async with in_use(Transports()) as transports:
         outcome = await answer_reply(
             session,
-            Sending(session, transport),
+            Sending(session, transports),
             thread_id=thread_id,
             reply_id=body.reply_id,
             body=body.body,

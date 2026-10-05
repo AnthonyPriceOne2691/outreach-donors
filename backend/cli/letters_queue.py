@@ -14,9 +14,11 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.config import storage
 from backend.config.startup_checks import check_storage
@@ -26,8 +28,8 @@ from backend.features.core.models.outreach import MessageModel
 from backend.features.letters.building import BuildReport, BuildRequest, QueueBuilder
 from backend.features.letters.rewrite import RewriteClient
 from backend.features.letters.sending import SendError, Sending
-from backend.features.letters.transport import TransportError
-from backend.features.letters.transport_factory import build_transport, in_use
+from backend.features.letters.transport import MaybeSentError
+from backend.features.letters.transport_factory import Transports, in_use
 from backend.features.letters.uniqueness import corridor_verdict, percent_text
 
 EXIT_OK = 0
@@ -65,18 +67,24 @@ def add_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-ar
     send.add_argument("--id", type=int, required=True, help="номер письма")
 
 
-def _sessions() -> async_sessionmaker:  # type: ignore[type-arg]
+@asynccontextmanager
+async def _sessions() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+    """Сессии команды — и движок, закрытый после неё: незакрытый оставлял
+    соединения сборщику мусора, и в тестах они всплывали в чужом тесте."""
     check_storage()
-    return async_sessionmaker(create_async_engine(storage.DSN), expire_on_commit=False)
+    engine = create_async_engine(storage.DSN)
+    try:
+        yield async_sessionmaker(engine, expire_on_commit=False)
+    finally:
+        await engine.dispose()
 
 
 async def cmd_letters_build(args: argparse.Namespace) -> int:
     """Собрать очередь. Ничего не отправляет."""
     niche = tuple(x.strip() for x in args.niche.split(",") if x.strip())
-    factory = _sessions()
     rewriter = RewriteClient()
     try:
-        async with factory() as session:
+        async with _sessions() as factory, factory() as session:
             report = await QueueBuilder(session, rewriter).build(
                 BuildRequest(
                     campaign_name=args.campaign,
@@ -118,8 +126,7 @@ def _print_build(report: BuildReport) -> None:
 
 async def cmd_letters(args: argparse.Namespace) -> int:
     """Показать очередь."""
-    factory = _sessions()
-    async with factory() as session:
+    async with _sessions() as factory, factory() as session:
         rows = await session.execute(
             select(MessageModel.id, DomainModel.host, MessageModel.uniqueness_pct)
             .join(DomainModel, DomainModel.id == MessageModel.domain_id)
@@ -142,26 +149,21 @@ async def cmd_letters(args: argparse.Namespace) -> int:
 
 
 async def cmd_letters_send(args: argparse.Namespace) -> int:
-    """Отправить одно письмо."""
-    try:
-        transport = build_transport()
-    except TransportError as exc:
-        # Словами, а не трассировкой: «транспорт sendgrid, ключа нет» — это
-        # настройка, и сообщение транспорта уже говорит, чего не хватает.
-        print(f"Письмо не отправлено: {exc}")
-        return EXIT_NOT_SENT
-    if not transport.real:
-        print(
-            f"Транспорт «{transport.name}» ничего не отправляет: письмо будет помечено "
-            f"отправленным, но наружу не уйдёт. Работает только на выдуманных доменах."
-        )
-
-    factory = _sessions()
-    async with factory() as session, in_use(transport):
+    """Отправить одно письмо — учёткой почты его этапа."""
+    async with (
+        _sessions() as factory,
+        factory() as session,
+        in_use(Transports()) as transports,
+    ):
         try:
-            outcome = await Sending(session, transport).send(args.id)
+            outcome = await Sending(session, transports).send(args.id)
         except SendError as exc:
+            # Словами, а не трассировкой: «транспорт sendgrid, ключа нет» — это
+            # настройка, и отказ уже говорит, какой переменной не хватает.
             print(f"Письмо не отправлено: {exc}")
+            return EXIT_NOT_SENT
+        except MaybeSentError as exc:
+            print(f"Исход неизвестен, письмо осталось «отправляется»: {exc}")
             return EXIT_NOT_SENT
 
     fate = "ушло" if outcome.real else "НЕ ушло (нулевой транспорт)"

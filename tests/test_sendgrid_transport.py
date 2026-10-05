@@ -14,7 +14,7 @@ from typing import Any
 import httpx
 import pytest
 from backend.features.letters.sendgrid import PROVIDER_ID_HEADER, SendGridTransport
-from backend.features.letters.transport import Outgoing, TransportError
+from backend.features.letters.transport import MaybeSentError, Outgoing, TransportError
 
 SENT = Outgoing(
     message_id=417,
@@ -217,7 +217,9 @@ class TestOnlyClearRefusalsAreRetried:
             raise httpx.ReadTimeout("не дождались ответа")
 
         transport, _ = _transport(slow)
-        with pytest.raises(TransportError, match="могло уйти"):
+        # Не TransportError: тот значит «точно не ушло», и отправка вернула бы
+        # письмо в очередь — второе такое же письмо (находка «Продаж» 05.10).
+        with pytest.raises(MaybeSentError, match="могло уйти"):
             await transport.send(SENT)
         assert calls["n"] == 1, "второе такое же письмо донору — жалоба на спам"
         assert pauses == []
