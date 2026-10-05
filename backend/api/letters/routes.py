@@ -44,7 +44,7 @@ from backend.features.letters.building import run_scope
 from backend.features.letters.repository import LetterRepository, QueuedLetter
 from backend.features.letters.sending import Sending
 from backend.features.letters.template import Template, of_campaign
-from backend.features.letters.transport_factory import build_transport, in_use
+from backend.features.letters.transport_factory import Transports, in_use
 from backend.shared.queue import BUILD_JOB, runs_queue, with_retries
 
 router = APIRouter(prefix="/letters", tags=["письма"])
@@ -69,7 +69,7 @@ async def queue(
         letters=[QueuedLetterCard.of(row) for row in await repository.queued(stage=stage)],
         letter_default=LetterDraftView.of(draft.default_draft(stage)),
         blocked_by=compose.missing_settings(),
-        transport=Transport.current(),
+        transport=Transport.current(stage.value),
         corridor=Corridor(),
         funnel=(await repository.funnel(stage)).as_report(),
     )
@@ -210,8 +210,9 @@ async def send(
     По одному, а не пачкой: смысл экрана в том, что спорное решение видит
     человек, и кнопка «отправить всё» этот смысл отменяет.
     """
-    async with in_use(build_transport()) as transport:
-        outcome = await Sending(session, transport).send(letter_id, author_id=author.id)
+    # Транспорт — этапа письма: у направления бывает своя учётка платформы.
+    async with in_use(Transports()) as transports:
+        outcome = await Sending(session, transports).send(letter_id, author_id=author.id)
     return SendResult(
         id=outcome.message_id,
         sender_email=outcome.sender_email,

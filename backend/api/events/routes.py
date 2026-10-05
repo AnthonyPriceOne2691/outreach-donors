@@ -27,8 +27,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.api.deps import db_session
 from backend.api.events.schemas import Taken
 from backend.config import outreach as cfg
+from backend.features.core.domain import Stage
 from backend.features.letters.events import DeliveryEvent, apply_events
-from backend.shared.webhook_signature import SignatureError, verify
+from backend.shared.webhook_signature import SignatureError, verify_any
 
 logger = logging.getLogger(__name__)
 
@@ -57,11 +58,13 @@ async def take_events(
         return Taken(accepted=False, reason="Пачка событий больше допустимого размера")
 
     try:
-        verify(
+        verify_any(
             payload=body,
             timestamp=timestamp or "",
             signature=signature or "",
-            public_key=cfg.EVENTS_PUBLIC_KEY,
+            # Адрес вебхука один, а учёток платформы бывает несколько — у
+            # направления своя: событие подписано ключом своей учётки.
+            public_keys=cfg.events_public_keys(stage.value for stage in Stage),
         )
     except SignatureError as exc:
         # Не «повторите позже»: это не наш корреспондент.

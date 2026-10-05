@@ -70,7 +70,8 @@ async def cmd_mail_test(args: argparse.Namespace) -> int:
     """Собрать и отправить одно пробное письмо."""
     check_storage()
     try:
-        transport = build_transport()
+        # Учётка этапа пробного письма: у направления бывает своя.
+        transport = build_transport(stage=args.stage)
     except TransportError as exc:
         print(f"Пробное письмо не отправлено: {exc}")
         return EXIT_NOT_SENT
