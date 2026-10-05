@@ -6,7 +6,6 @@
  * запустить, если цена не помещается в остаток.
  */
 
-import { notifications } from '@mantine/notifications';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
@@ -741,10 +740,6 @@ describe('глубина выдачи', () => {
   });
 
   it('отказ сервера за пределом глубины виден его словами', async () => {
-    // Уведомления живут в общем хранилище Mantine и копятся от теста к тесту:
-    // сверх пяти новые встают в очередь и не видны. Этому тесту нужно своё.
-    notifications.clean();
-    notifications.cleanQueue();
     const refusal =
       'Глубина выдачи — от 10 до 100 результатов на ключ, то есть от 1 до 10 страниц по 10; пришло 20.';
     await openRun({
