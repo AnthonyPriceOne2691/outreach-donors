@@ -42,8 +42,9 @@ class _Serp(DomainSettings):
 _s = _Serp()
 
 PROVIDER: str = _s.provider
-LOGIN: str = _s.login
-PASSWORD: str = _s.password
+# Хвостовой пробел из .env ломает заголовок Basic — как у ключей.
+LOGIN: str = _s.login.strip()
+PASSWORD: str = _s.password.strip()
 TIMEOUT_S: float = _s.timeout_s
 DEPTH_PAGES: int = _s.depth_pages
 MAX_DEPTH_PAGES: int = _s.max_depth_pages

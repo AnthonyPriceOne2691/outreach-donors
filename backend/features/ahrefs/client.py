@@ -29,6 +29,7 @@ import httpx
 
 from backend.config import ahrefs as cfg
 from backend.features.ahrefs.units import MAX_BATCH_TARGETS, UnitsCost
+from backend.shared.net.retry import reason_of, unsent
 
 logger = logging.getLogger(__name__)
 
@@ -187,8 +188,12 @@ class AhrefsClient:
             payload = response.json()
         except httpx.HTTPError as exc:
             # Наружу идёт один тип ошибки: вызывающему важно не «что сломалось»,
-            # а «остаток неизвестен, тратить нельзя».
-            raise AhrefsError(f"Остаток квоты недоступен: {exc}") from exc
+            # а «остаток неизвестен, тратить нельзя». Несобранный запрос — без
+            # цепочки причин: в тексте исключения заголовок с ключом.
+            error = AhrefsError(
+                f"Остаток квоты недоступен: {reason_of(exc)}", permanent=unsent(exc)
+            )
+            raise error from None if unsent(exc) else exc
         data = payload.get("limits_and_usage") if isinstance(payload, dict) else None
         if not isinstance(data, dict):
             raise AhrefsError("Ahrefs не вернул остаток квоты")
@@ -220,13 +225,17 @@ class AhrefsClient:
             try:
                 response = await self._http.request(method, path, **kwargs)
             except httpx.HTTPError as exc:
+                if unsent(exc):
+                    # Не собран у нас — повтор соберёт так же, а текст
+                    # исключения несёт заголовок с ключом.
+                    raise AhrefsError(f"{operation}: {reason_of(exc)}", permanent=True) from None
                 last_error = exc
                 logger.debug(
                     "Ahrefs %s: сетевая ошибка на попытке %s из %s — %s",
                     operation,
                     attempt,
                     MAX_ATTEMPTS,
-                    exc,
+                    reason_of(exc),
                 )
                 if attempt == MAX_ATTEMPTS:
                     break

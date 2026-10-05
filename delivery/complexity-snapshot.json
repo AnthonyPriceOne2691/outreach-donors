@@ -517,7 +517,7 @@
       "worst": "—"
     },
     "backend/config/serp.py": {
-      "lines": 55,
+      "lines": 56,
       "complexity": 0,
       "worst": "—"
     },
@@ -582,9 +582,9 @@
       "worst": "—"
     },
     "backend/features/ahrefs/client.py": {
-      "lines": 309,
-      "complexity": 11,
-      "worst": "_request:215"
+      "lines": 318,
+      "complexity": 12,
+      "worst": "_request:220"
     },
     "backend/features/ahrefs/units.py": {
       "lines": 233,
@@ -1502,9 +1502,9 @@
       "worst": "is_demo:19"
     },
     "backend/shared/llm.py": {
-      "lines": 196,
-      "complexity": 6,
-      "worst": "post_chat:126"
+      "lines": 200,
+      "complexity": 7,
+      "worst": "post_chat:127"
     },
     "backend/shared/logs/__init__.py": {
       "lines": 6,
@@ -1522,9 +1522,9 @@
       "worst": "—"
     },
     "backend/shared/net/retry.py": {
-      "lines": 142,
+      "lines": 163,
       "complexity": 7,
-      "worst": "with_retries:92"
+      "worst": "with_retries:113"
     },
     "backend/shared/net/url_guard.py": {
       "lines": 168,

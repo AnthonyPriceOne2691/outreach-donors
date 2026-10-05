@@ -26,7 +26,7 @@ class _Ahrefs(DomainSettings):
 
 _s = _Ahrefs()
 
-API_KEY: str = _s.api_key
+API_KEY: str = _s.api_key.strip()  # хвостовой пробел из .env ломает заголовок
 BASE_URL: str = _s.base_url
 TIMEOUT_S: float = _s.timeout_s
 MONTHLY_UNITS: int = _s.monthly_units
