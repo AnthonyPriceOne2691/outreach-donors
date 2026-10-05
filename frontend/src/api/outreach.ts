@@ -5,6 +5,7 @@ import type {
   ReviewPrice,
   SenderCard,
   SendersView,
+  SendResult,
   StopEntry,
   StopListView,
   SuppressionReason,
@@ -58,6 +59,17 @@ export function reviewReply(id: number, body: ReviewPrice): Promise<Reviewed> {
  */
 export function downloadAttachment(replyId: number, attachmentId: number): Promise<Downloaded> {
   return download(`/replies/${replyId}/attachments/${attachmentId}`);
+}
+
+/**
+ * Наш ответ на ответ собеседника — и отправка сразу: тем ящиком, что начал
+ * переписку, на адрес, с которого ответили, веткой к его письму.
+ */
+export function answerReply(threadId: number, replyId: number, body: string): Promise<SendResult> {
+  return request<SendResult>(`/threads/${threadId}/answer`, {
+    method: 'POST',
+    body: { reply_id: replyId, body },
+  });
 }
 
 /** Ответ рекламодателя — в работу. Повторно — отказ: лид уже кто-то ведёт. */
