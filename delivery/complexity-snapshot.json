@@ -1667,9 +1667,9 @@
       "worst": "read_entries:63"
     },
     "backend/features/sales/verifier.py": {
-      "lines": 227,
+      "lines": 231,
       "complexity": 9,
-      "worst": "verify:138"
+      "worst": "verify:139"
     },
     "backend/features/serp/__init__.py": {
       "lines": 1,

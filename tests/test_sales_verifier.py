@@ -64,6 +64,11 @@ def _broken(_request: httpx.Request) -> httpx.Response:
     raise httpx.ConnectError("сети нет")
 
 
+def _unsendable(_request: httpx.Request) -> httpx.Response:
+    """Ключ с переводом строки: httpx кладёт заголовок целиком в текст исключения."""
+    raise httpx.LocalProtocolError(f"Illegal header value b'Bearer {KEY}\\n'")
+
+
 async def _verify(handler: Handler, email: str = EMAIL) -> Verdict:
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
         return await HunterVerifier(http, api_key=KEY).verify(email)
@@ -288,3 +293,17 @@ async def test_usage_provider_value_is_there_once_and_survives_a_rerun(
 ) -> None:
     connection = await session.connection()
     assert (await connection.run_sync(_hunter_values)).count("hunter") == 1
+
+
+async def test_unsent_request_refusal_carries_no_key_or_cause(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Запрос не собран у нас — отказ словами, без ключа и без цепочки причин:
+    иначе ключ всплыл бы в журнале очистки трассировкой (урок #174)."""
+    with caplog.at_level(logging.DEBUG), pytest.raises(ProviderError) as refused:
+        await _verify(_unsendable)
+
+    assert "запрос не собран" in str(refused.value)
+    assert KEY not in str(refused.value)
+    assert refused.value.__cause__ is None
+    assert KEY not in caplog.text

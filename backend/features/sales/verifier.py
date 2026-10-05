@@ -41,6 +41,7 @@ from backend.features.contacts.provider import (
     ProviderError,
     _raise_refusal,
 )
+from backend.shared.net.retry import reason_of, unsent
 
 logger = logging.getLogger(__name__)
 
@@ -169,7 +170,10 @@ class HunterVerifier:
                 timeout=contacts_cfg.HUNTER_TIMEOUT_SEC,
             )
         except httpx.HTTPError as exc:
-            raise ProviderError(f"сеть до провайдера не дошла: {exc!r}") from exc
+            # Несобранный запрос — без цепочки причин: текст такого исключения
+            # несёт заголовок целиком, а в нём ключ (`net.retry.reason_of`).
+            error = ProviderError(f"сеть до провайдера не дошла: {reason_of(exc)}")
+            raise error from None if unsent(exc) else exc
 
 
 def _json(response: httpx.Response) -> dict[str, Any] | None:
