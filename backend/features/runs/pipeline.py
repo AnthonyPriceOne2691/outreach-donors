@@ -279,11 +279,24 @@ async def _hand_over(
         report.review = await deps.review.queue_run(run.id, [*plan.new, *plan.fresh])
         await deps.runs.session_commit()
         await _check_doors(deps, run, report, candidates.texts)
-    if deps.niche is not None:
-        # Вердикт «продаёт своё» уже оплачен выдачей: такой сайт не
-        # донор, а кандидат в рекламодатели — решит человек.
+    await _collect_niche(deps, run, report)
+
+
+async def _collect_niche(deps: RunDeps, run: RunModel, report: RunReport) -> None:
+    """Вердикт «продаёт своё» уже оплачен выдачей: такой сайт не донор, а
+    кандидат в рекламодатели — решит человек.
+
+    Сбой здесь прогон не роняет — как у меню главных: доноры оплачены и
+    сохранены, а сбор повторяется из прогона кнопкой. Причина — в запись.
+    """
+    if deps.niche is None:
+        return
+    try:
         report.niche = await deps.niche(run.id)
         await deps.runs.session_commit()
+    except Exception as exc:
+        logger.exception("Прогон %s: бизнесы ниши не собрали", run.id)
+        report.niche_failure = described(exc)[:300]
 
 
 async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:

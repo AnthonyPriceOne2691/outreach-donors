@@ -165,3 +165,21 @@ async def test_run_ends_by_collecting_niche_businesses(session: AsyncSession) ->
     assert asked == [run.id]
     assert report.niche == niche.NicheReport(run_id=run.id, found=3, added=2)
     assert run.stats["niche"] == {"found": 3, "added": 2}
+
+
+async def test_failed_niche_collection_does_not_fail_a_paid_run(session: AsyncSession) -> None:
+    """Доноры оплачены и сохранены — сбор ниши повторяется кнопкой, а прогон
+    не должен стать «сбоем» из-за шага, который только читает базу."""
+
+    async def broken(run_id: int) -> niche.NicheReport:
+        raise RuntimeError("база отвалилась на сборе ниши")
+
+    serp = FakeSerp(["https://good.com/a"])
+    deps = replace(await _deps(session, serp, _ahrefs({"good.com": GOOD})), niche=broken)
+
+    report = await execute_run(deps, RunRequest(["crm"], "us", T, await _settings_id(session)))
+
+    run = (await session.execute(select(RunModel))).scalar_one()
+    assert run.status is RunStatus.DONE
+    assert report.niche is None
+    assert run.stats["niche"] == {"failure": "RuntimeError: база отвалилась на сборе ниши"}

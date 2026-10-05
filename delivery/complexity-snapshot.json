@@ -1397,7 +1397,7 @@
       "worst": "recover:168"
     },
     "backend/features/runs/pipeline.py": {
-      "lines": 414,
+      "lines": 427,
       "complexity": 8,
       "worst": "_judge_candidates:200"
     },
@@ -1412,9 +1412,9 @@
       "worst": "explained_line:81"
     },
     "backend/features/runs/report.py": {
-      "lines": 197,
-      "complexity": 10,
-      "worst": "run_stats:121"
+      "lines": 203,
+      "complexity": 11,
+      "worst": "run_stats:125"
     },
     "backend/features/runs/repository.py": {
       "lines": 448,

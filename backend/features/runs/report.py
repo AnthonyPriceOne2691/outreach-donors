@@ -62,6 +62,10 @@ class RunReport:
     """Почему меню главных не посмотрели. Прогон это не роняет: очередь
     уже лежит, просто без подъёма продающих размещение."""
 
+    niche_failure: str | None = None
+    """Почему бизнесы ниши не собрали. Прогон это не роняет: доноры оплачены и
+    сохранены; сбор повторяется из старого прогона кнопкой на «Рекламодателях»."""
+
     @property
     def spent_on_estimated(self) -> int:
         """Траты по тем операциям, которые смета покрывает."""
@@ -180,6 +184,8 @@ def run_stats(
         stats["review"] = {"pending": report.review.pending, "carried": report.review.carried}
     if report.niche is not None:
         stats["niche"] = {"found": report.niche.found, "added": report.niche.added}
+    elif report.niche_failure is not None:
+        stats["niche"] = {"failure": report.niche_failure}
     if report.doors is not None or report.doors_failure is not None:
         stats["doors"] = (
             report.doors.as_dict()
