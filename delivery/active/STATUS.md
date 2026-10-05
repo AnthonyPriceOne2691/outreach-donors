@@ -1,55 +1,30 @@
 # Active delivery status
 
-- **slug:** sales-leads-screen (модуль «Продажи», срез 1.5, часть 3 из 3 — 1.5c: сверка кодов сервера с типами и подписями экрана; части 1 и 2 — списки на сервере и экран раздела — слиты)
+- **slug:** sales-kommo (модуль «Продажи», срез 5.2 — клиент Kommo `fixture`/`live`: сделка с контактом и компанией, примечание)
 - **stack:** delivery@1.99 · cqg@2.45 · okf@1.19 · stack-map@1.52
 - **class:** M
 - **kind:** feature
 - **phase:** verify
 - **builder:** agent:claude
-- **verifier:** process:ci — обязательные джобы `check`, `web` и `docker`, на PR ещё `gates` и `delivery`; ревью общих точек фронта — соседняя сессия outreach-donors, мерж — по решению владельца
-- **human_ok_spec:** yes at=2026-10-04 by=human:anthony («даю да» — план фаз с примерами среза 1.5 A1–A4 (01.10); разрез 1.5 на два PR и вейвер строк части 2 — решение владельца 04.10)
-- **new_dependency:** no (Playwright — extra `browser` из `pyproject.toml`; Pillow для `ui_contrast.py` — `uv run --with pillow`, в зависимости не внесён)
-- **shared_changes:** часть 3 трогает один файл вне масок `SALES_PATHS`:
-  `tests/test_api_sales_screen.py` — сверка кодов сервера с типами и подписями экрана (два теста, пять случаев).
-  Части 1 и 2 (слиты) объявляли объявленные заданием точки и свои файлы раздела вне масок `SALES_PATHS`:
-  `frontend/src/layout/Shell.tsx` — пункт меню «Продажи» в `SECTIONS` под правом `sales`;
-  `frontend/src/App.tsx` — маршруты `/sales` и `/sales/import` под `RequireAccess permission="sales"`;
-  `frontend/src/test/fixtures.ts` — снимок прав: `sales` у ADMIN и OPERATOR;
-  `docs/WEB_LAYER.md` — строка продаж в таблице ролей;
-  `docs/UI_RULES.md` — запись в истории замечаний (значки `light`, слепое пятно просторного поля);
-  `scripts/ui_screens.py` — подключение каталога `ui_screens_sales` (три строки);
-  `scripts/ui_hover.py` — три пути продаж в `PATHS`;
-  `frontend/src/api/sales.ts` — клиент раздела: списки, форма загрузки своим `fetch`;
-  `frontend/src/api/salesTypes.ts` — типы раздела своим файлом (`types.ts` не тронут);
-  `frontend/src/api/salesLabels.ts` — подписи раздела своим файлом (`labels.ts` не тронут);
-  `delivery/complexity-snapshot.json` — новые файлы экрана и каталога замеров.
-  Не тронуты: `backend/api/*`, `frontend/src/api/client.ts`, `types.ts`, `labels.ts`, `glass.css`, `scripts/lint/*_baseline.txt`. Согласовано: с сессией outreach-donors (04.10, до PR)
-
-Часть 1 этого среза (списки на сервере) слита; её STATUS — в истории `delivery/active/`.
-
-## Что в срезе
-
-- Пункт меню «Продажи» и маршруты под правом `sales`: без права пункта нет, прямой адрес —
-  «раздел недоступен», к серверу продаж экран не ходит (A4).
-- `frontend/src/sales/` — вкладки «Лиды» и «Гипотезы»: сводка плитками, таблица лидов
-  с фильтрами под колонками (поиск, гипотеза, состояние, причина — список причин из ответа
-  сервера), по 20, фильтры и страница в адресе — `?state=rejected&reason=duplicate`
-  переживает перезагрузку (A2); гипотезы со счётчиками-ссылками.
-- Мастер загрузки `/sales/import`: гипотеза и источник (CSV или ссылка) → колонки (угадано
-  сервером, правится руками) → отчёт по строкам → загрузка; итог «Загружено 97, отклонено 3.»
-  и причины по группам с номерами строк (A1).
-- Замеры: каталог `scripts/ui_screens_sales.py` (шесть экранов), контраст, наведение,
-  прокрутка на 390 px (A3).
-- Дубли и сложность — под гейты: jscpd 55 при снимке 55, сложность TS — 0 нарушений; экран
-  тот же — сверка DOM до/после 30 из 30.
+- **verifier:** process:ci — обязательные джобы `check`, `web` и `docker`, на PR ещё `gates` и `delivery`; ревью общих точек — соседняя сессия outreach-donors, мерж — по решению владельца
+- **human_ok_spec:** yes at=2026-10-01 by=human:anthony («даю да» — план фаз с примерами среза 5.2 A1–A5; модульный срез продаж под постоянный вейвер владельца 05.10)
+- **waivers:** max_loc_diff=1716 reason=модульный срез продаж, постоянный вейвер владельца 05.10; общая часть около 40 строк (.env.example, tests/conftest.py, .secrets.baseline); из строк среза почти половина — тесты by=human:anthony
+- **new_dependency:** no (httpx уже в зависимостях)
+- **shared_changes:** срез трогает файлы вне масок `SALES_PATHS`:
+  `backend/config/sales.py` — настройки `SALES_KOMMO_PROVIDER`, `SALES_KOMMO_SUBDOMAIN`, `SALES_KOMMO_TOKEN`, `SALES_KOMMO_PIPELINE_ID`, `SALES_KOMMO_STATUS_ID`, `SALES_KOMMO_RESPONSIBLE_USER_ID`, константы `KOMMO_RATE_PER_SEC` и `KOMMO_TIMEOUT_SEC` (модуль конфига продаж, как `SALES_VERIFIER_PROVIDER` в 1.4);
+  `.env.example` — шесть переменных `SALES_KOMMO_*`, пустые, режим `fixture`;
+  `tests/conftest.py` — автофикстура `_no_real_kommo` рядом с `_no_real_alerts`: весь набор на `fixture` без ключа (требование Spec 5.2);
+  `.secrets.baseline` — сдвиг номера строки известной записи `tests/conftest.py` (370 → 380) и метка времени, хуком detect-secrets;
+  `delivery/complexity-snapshot.json` — три новых модуля и рост `backend/config/sales.py`.
+  Общие `backend/shared/net/retry.py` (`delay_for`, `RETRY_STATUSES`, `MAX_DELAY_SEC`), `backend/config/startup_checks.py` (`ConfigError`), `backend/features/runs/failures.py` — только читаются. Согласовано: с сессией outreach-donors (список общих файлов отправлен до PR, 05.10)
 
 ## Оракулы
 
-- **shape-oracles:** cqg-deployed — ruff и формат, mypy, `scripts/gates.py`, ратчет сложности, гейт слоёв (import-linter и depcruise), ESLint, Prettier, `tsc`, гейты дублей и сложности TS, хуки pre-commit
-- **behavior-oracles:** tests-present — `frontend/src/sales/SalesPage.test.tsx` (A2, A4, фильтры, страницы, «страница за концом», пусто и отказ), `frontend/src/sales/ImportWizard.test.tsx` (A1, A4 адреса мастера, сопоставление, заголовок, отказ загрузки, отказ формы ×3); vitest через `serve()` — незаписанный запрос роняет тест; `tests/test_api_sales_screen.py` — сверка кодов сервера с типами и подписями экрана (часть 3)
+- **shape-oracles:** cqg-deployed — ruff и формат, mypy, `scripts/gates.py`, ратчет сложности, гейт слоёв (import-linter), jscpd, хуки pre-commit, detect-secrets
+- **behavior-oracles:** tests-present — `tests/test_sales_kommo.py` (89): A1–A5, повторы и пауза Kommo, запись без повтора после отправки, форма ответа, ключ не в адресе, тексте и журнале, частота, fixture, фабрика, алиасы настроек; сеть — только `httpx.MockTransport`
 - **ci-oracles:** deployed — обязательные `check`, `web`, `docker`; quality — `gates` и `delivery`; шаг волн контура — в `check`
-- **artifact_oracle:** n/a reason=сборка фронта — та же `npm run build` в джобе `web` и образе; новых точек входа нет
-- **runtime_paths:** none reason=экран судится vitest с заглушкой сети `serve()`; живой прогон против своего сервера — в verify-report (A1, A2, контраст, наведение)
+- **artifact_oracle:** n/a reason=новых точек входа и сборки нет: модуль библиотечный, зовёт его 5.3
+- **runtime_paths:** none reason=клиент никто не зовёт до 5.3 (передача лида); живой Kommo — только явной настройкой `SALES_KOMMO_PROVIDER=live`, после доступа и переподписи в 5.3, первая запись — на тестовой воронке (5.5)
 - **rule_enforcers:** n/a reason=срез не трогает модель: в `sales/` нет ни промптов, ни вызовов модели; поверхность модели продукта прежняя, строка ниже — слово в слово
 - **stack-selftest:** external (`~/Documents/Prepare`) — вариант D: каноны лежат в корне
   ЛОКАЛЬНО и в коммит не идут (`.git/info/exclude`), поэтому в CI их физически нет и
@@ -60,13 +35,19 @@
 - **irreversible_surfaces:** отправка писем донорам, и без человека в цепочке — добивки уходят по расписанию фоновым процессом; страница отписки без пропуска — нажатие постороннего пишет в стоп-лист, снимает письма с очереди и гасит сроки; публикация образов в публичный реестр при каждом слиянии в main; приём ответов вебхуком; трата юнитов Ahrefs и платных провайдеров; публичный репозиторий; автомерж по зелёному; **обход чужих живых сайтов нашим трафиком — чужие машины и наша репутация по IP, отозвать сделанные запросы нельзя**; **письма рекламодателям с доменов Этапа 2 — оффер незваным адресатам: первое уходит по нажатию человека, добивки по расписанию без человека, жалоба бьёт по репутации доменов Этапа 2 и не отзывается**; **копия базы вне машины — по расписанию и перед каждой выкаткой, без человека, дамп с перепиской и адресами уходит в стороннее хранилище (R2 или B2), тексты тревог — в Telegram; отправленное не отзывается**
 
 Четыре строки — `stack:`, `stack-selftest:`, `model_surface:` и `irreversible_surfaces:` —
-перенесены из STATUS части 1 слово в слово. Последняя подписана ключом владельца и сверяется
-в CI с `delivery/active/irreversible.sig`. Новых поверхностей необратимого часть не открывает:
-экран читает списки и зовёт загрузку 1.3c. Переподпись не нужна.
+перенесены из STATUS main (`3695a7f`) слово в слово.
+
+**Необратимое — подпись в 5.3 (план Ф5).** Запись во внешнюю CRM — Kommo (сделки, контакты, компании,
+примечания; из сервиса не отзывается) становится достижимой в 5.3 — там клиент зовёт передача лида.
+В этой части клиент никем не зовётся, а `live` включается только явной настройкой, поэтому строка
+`irreversible_surfaces:` не меняется и переподпись не нужна. Формулировка для переподписи в 5.3:
+«запись в Kommo при `SALES_KOMMO_PROVIDER=live` — сделки, контакты, компании и примечания в CRM,
+где с ними работают люди; из сервиса не отзывается; первая живая — на тестовой воронке».
+
 
 ## Чего в срезе нет
 
-- Заведения гипотезы и очистки с экрана — команды консоли.
-- Разделителя CSV руками на экране (есть в API и консоли), XLSX.
-- Общего правила для контурных значков в `glass.css`, общего помощника формы в `client.ts` —
-  находки, отдельные общие правки.
+- Передачи лида (5.3), Telegram, таблицы передач, тревог.
+- Поиска и слияния компаний: компания заводится с каждой сделкой (открытый вопрос).
+- Живого прогона: доступа к Kommo нет; первая живая запись — на тестовой воронке после
+  переподписи (5.5).
