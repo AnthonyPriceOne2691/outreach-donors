@@ -86,8 +86,8 @@ class _Outreach(DomainSettings):
 
 _s = _Outreach()
 
-SENDGRID_API_KEY: str = _s.sendgrid_api_key
-EVENTS_PUBLIC_KEY: str = _s.events_public_key
+SENDGRID_API_KEY: str = _s.sendgrid_api_key.strip()  # хвостовой пробел из .env
+EVENTS_PUBLIC_KEY: str = _s.events_public_key.strip()
 ALLOWED_RECIPIENTS: tuple[str, ...] = tuple(
     item.strip().lower() for item in _s.allowed_recipients.split(",") if item.strip()
 )
@@ -142,6 +142,9 @@ class MailAccount:
     #: «не задан OUTREACH_SALES_SENDGRID_API_KEY» отправляет в нужную строку.
     key_setting: str = "OUTREACH_SENDGRID_API_KEY"
     allowlist_setting: str = "OUTREACH_ALLOWED_RECIPIENTS"
+    #: Учётка собрана не до конца — транспорт с ней не собирается, и отказ
+    #: говорит, какую строку дописать.
+    refusal: str | None = None
 
 
 def _recipients(raw: str) -> tuple[str, ...]:
@@ -153,7 +156,8 @@ def mail_account(stage: str | None = None) -> MailAccount:
 
     Читается при каждом вызове, а не один раз при запуске: общие значения
     берутся из констант модуля, и подмена их в тестах (и правка `.env` с
-    перезапуском) видна сразу.
+    перезапуском) видна сразу. Пробелы по краям ключей срезаются: хвостовой
+    перевод строки из `.env` ломает заголовок запроса.
     """
     shared = MailAccount(
         api_key=SENDGRID_API_KEY,
@@ -164,29 +168,60 @@ def mail_account(stage: str | None = None) -> MailAccount:
         return shared
     prefix = f"OUTREACH_{stage.upper()}_"
     own = _OwnAccount(_env_prefix=prefix)
+    if own.sendgrid_api_key is None:
+        return _on_shared_key(own, shared, prefix)
+    return _own_account(own, shared, prefix)
+
+
+def _on_shared_key(own: _OwnAccount, shared: MailAccount, prefix: str) -> MailAccount:
+    """Своего ключа нет — письма этапа уходят общей учёткой и под общим списком."""
     return MailAccount(
-        api_key=shared.api_key if own.sendgrid_api_key is None else own.sendgrid_api_key,
-        events_public_key=(
-            shared.events_public_key if own.events_public_key is None else own.events_public_key
-        ),
+        api_key=shared.api_key,
+        events_public_key=_own_or(own.events_public_key, shared.events_public_key),
         allowed_recipients=(
             shared.allowed_recipients
             if own.allowed_recipients is None
             else _recipients(own.allowed_recipients)
         ),
-        # Своего ключа нет и общего нет — назвать обе строки: этапу можно
+        # Ключа нет ни своего, ни общего — назвать обе строки: этапу можно
         # дать свой ключ, а можно жить на общем.
-        key_setting=(
-            f"{prefix}SENDGRID_API_KEY"
-            if own.sendgrid_api_key is not None
-            else f"{prefix}SENDGRID_API_KEY (или общий {shared.key_setting})"
-        ),
+        key_setting=f"{prefix}SENDGRID_API_KEY (или общий {shared.key_setting})",
         allowlist_setting=(
             shared.allowlist_setting
             if own.allowed_recipients is None
             else f"{prefix}ALLOWED_RECIPIENTS"
         ),
     )
+
+
+def _own_account(own: _OwnAccount, shared: MailAccount, prefix: str) -> MailAccount:
+    """Своя учётка — и предохранитель только свой (ревью «Продаж» 05.10.2026).
+
+    Общий список снимают по своим причинам — когда доноры начнут писать по-
+    настоящему, — и направление со своим ключом молча осталось бы без
+    защиты. Не задан свой список — отказ собрать транспорт, а не общий.
+    """
+    allowlist = f"{prefix}ALLOWED_RECIPIENTS"
+    return MailAccount(
+        api_key=(own.sendgrid_api_key or "").strip(),
+        events_public_key=_own_or(own.events_public_key, shared.events_public_key),
+        allowed_recipients=_recipients(own.allowed_recipients or ""),
+        key_setting=f"{prefix}SENDGRID_API_KEY",
+        allowlist_setting=allowlist,
+        refusal=(
+            None
+            if own.allowed_recipients is not None
+            else (
+                f"{allowlist} не задан: у направления своя учётка платформы, и "
+                "предохранитель у неё свой — впишите свои адреса или оставьте "
+                "строку пустой (без предохранителя)"
+            )
+        ),
+    )
+
+
+def _own_or(own: str | None, shared: str) -> str:
+    return shared if own is None else own.strip()
 
 
 def events_public_keys(stages: Iterable[str]) -> tuple[str, ...]:

@@ -97,9 +97,9 @@
       "worst": "of:159"
     },
     "backend/api/errors.py": {
-      "lines": 171,
+      "lines": 174,
       "complexity": 3,
-      "worst": "handle:157"
+      "worst": "handle:160"
     },
     "backend/api/events/__init__.py": {
       "lines": 1,
@@ -447,9 +447,9 @@
       "worst": "cmd_keywords:83"
     },
     "backend/cli/letters_queue.py": {
-      "lines": 168,
+      "lines": 172,
       "complexity": 6,
-      "worst": "_print_build:105"
+      "worst": "_print_build:106"
     },
     "backend/cli/mail_test.py": {
       "lines": 236,
@@ -532,9 +532,9 @@
       "worst": "—"
     },
     "backend/config/outreach.py": {
-      "lines": 200,
-      "complexity": 7,
-      "worst": "mail_account:151"
+      "lines": 235,
+      "complexity": 4,
+      "worst": "_own_account:197"
     },
     "backend/config/sales.py": {
       "lines": 64,
@@ -1082,9 +1082,9 @@
       "worst": "apply_events:93"
     },
     "backend/features/letters/followups.py": {
-      "lines": 406,
-      "complexity": 5,
-      "worst": "_deliver:367"
+      "lines": 418,
+      "complexity": 6,
+      "worst": "_deliver:373"
     },
     "backend/features/letters/funnel.py": {
       "lines": 93,
@@ -1142,9 +1142,9 @@
       "worst": "parse_zones:155"
     },
     "backend/features/letters/sendgrid.py": {
-      "lines": 252,
+      "lines": 262,
       "complexity": 8,
-      "worst": "_post:136"
+      "worst": "_post:139"
     },
     "backend/features/letters/sending.py": {
       "lines": 499,
@@ -1162,9 +1162,9 @@
       "worst": "_check_zones:235"
     },
     "backend/features/letters/transport.py": {
-      "lines": 145,
+      "lines": 156,
       "complexity": 2,
-      "worst": "of_stage:111"
+      "worst": "of_stage:122"
     },
     "backend/features/letters/transport_factory.py": {
       "lines": 85,

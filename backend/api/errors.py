@@ -48,7 +48,7 @@ from backend.features.letters.review import NotEditableError
 from backend.features.letters.sending import SendError
 from backend.features.letters.stoplist import StopListError
 from backend.features.letters.template import TemplateError
-from backend.features.letters.transport import TransportError
+from backend.features.letters.transport import MaybeSentError, TransportError
 from backend.features.outreach.repository import UnknownSenderError, UnknownThreadError
 from backend.features.replies.attachments import AttachmentNotKeptError, UnknownAttachmentError
 from backend.features.replies.repository import LeadError, NotAPriceError, UnknownReplyError
@@ -94,6 +94,9 @@ STATUSES: dict[type[Exception], int] = {
     # Транспорта нет или он не тот. Это тоже состояние развёртывания,
     # и текст отказа называет, чего не хватает.
     TransportError: status.HTTP_409_CONFLICT,
+    # Почта не ответила после отправки — письмо «отправляется», повтор только
+    # после проверки в кабинете платформы: словами, а не «сервер упал».
+    MaybeSentError: status.HTTP_409_CONFLICT,
     # Метрики Ahrefs в письме: правка человека, которую нельзя принять.
     ForbiddenContentError: status.HTTP_400_BAD_REQUEST,
     # Текст письма с экрана не разобрался как шаблон: нет зоны, подписи,

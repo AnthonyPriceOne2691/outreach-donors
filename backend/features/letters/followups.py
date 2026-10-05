@@ -54,7 +54,7 @@ from backend.features.letters.sending import (
     Sending,
     SuppressedError,
 )
-from backend.features.letters.transport import ByStage, Transport
+from backend.features.letters.transport import ByStage, MaybeSentError, Transport
 
 logger = logging.getLogger(__name__)
 
@@ -323,10 +323,16 @@ class PassReport:
     """Отложено: ящик стоит или почта отказала временно. Цепочка жива."""
     stopped: int = 0
     """Остановлено: донор в стоп-листе. Больше ему не пишем."""
+    unknown: int = 0
+    """Почта не ответила после отправки: ушла ли добивка — неизвестно. Не
+    повторяется: срок погашен, письмо «отправляется» до события платформы."""
 
     @property
     def as_report(self) -> str:
-        return f"отправлено {self.sent}, отложено {self.postponed}, остановлено {self.stopped}"
+        return (
+            f"отправлено {self.sent}, отложено {self.postponed}, остановлено {self.stopped}, "
+            f"исход неизвестен {self.unknown}"
+        )
 
 
 #: На сколько откладывается добивка, если отправить её сейчас нельзя:
@@ -392,6 +398,12 @@ async def _deliver(
         await session.commit()
         report.stopped += 1
         logger.info("добивки: %s — цепочка остановлена (%s)", claimed.host, exc)
+        return
+    except MaybeSentError as exc:
+        # Могла уйти — повтор через час был бы вторым письмом тому же человеку.
+        await session.commit()
+        report.unknown += 1
+        logger.warning("добивки: %s — исход неизвестен, повтора не будет (%s)", claimed.host, exc)
         return
     except (NoSenderError, SendError) as exc:
         await chain.restore(claimed, delay=POSTPONE)
