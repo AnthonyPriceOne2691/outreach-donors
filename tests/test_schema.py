@@ -37,6 +37,8 @@ EXPECTED_TABLES = {
     "sales_hypotheses",
     "sales_leads",
     "sales_stoplist",
+    # Агент переписки: версии настроек по этапам.
+    "agent_settings",
 }
 
 
