@@ -36,7 +36,7 @@ const EMPTY: SenderView = {
   call_link: null,
   updated_by: null,
   updated_at: null,
-  missing: ['не задан физический адрес', 'не задана подпись'],
+  missing: ['не задан физический адрес', 'не задана подпись', 'не задано имя отправителя'],
   limits: LIMITS,
 };
 
@@ -76,7 +76,8 @@ describe('отправитель', () => {
 
     const warning = screen.getByText('Отправка продаж не готова').closest('[role="alert"]');
     expect(warning).toHaveTextContent(
-      'не задан физический адрес; не задана подпись — без этого письмо продаж не уходит.',
+      'не задан физический адрес; не задана подпись; не задано имя отправителя — ' +
+        'без этого письмо продаж не уходит.',
     );
     expect(field('Физический адрес')).toHaveValue('');
     expect(screen.getByText('Ещё не заполнялся.')).toBeInTheDocument();
@@ -86,6 +87,7 @@ describe('отправитель', () => {
   it('сохраняется целиком: пустое уходит null, готовность — из ответа сервера', async () => {
     const saved: SenderView = {
       ...EMPTY,
+      sender_name: 'Ива Тестова',
       signature: 'Ива Тестова',
       physical_address: 'Выдуманная ул., 7',
       updated_by: 'seller@ours.example.test',
@@ -95,13 +97,14 @@ describe('отправитель', () => {
     const recorded = await openSender({ 'POST /api/sales/sender': { body: saved } });
     const user = userEvent.setup();
 
+    await user.type(field('Имя отправителя'), 'Ива Тестова');
     await user.type(field('Подпись'), 'Ива Тестова');
     await user.type(field('Физический адрес'), 'Выдуманная ул., 7');
     await user.click(screen.getByRole('button', { name: 'Сохранить' }));
 
     await waitFor(() => expect(recorded.calls.filter((c) => c.method === 'POST')).toHaveLength(1));
     expect(recorded.calls.find((c) => c.method === 'POST')?.body).toEqual({
-      sender_name: null,
+      sender_name: 'Ива Тестова',
       sender_position: null,
       signature: 'Ива Тестова',
       physical_address: 'Выдуманная ул., 7',
@@ -109,7 +112,11 @@ describe('отправитель', () => {
       telegram: null,
       call_link: null,
     });
-    expect(await screen.findByText('Отправка продаж готова', {}, SCREEN_WAIT)).toBeInTheDocument();
+    const ready = (await screen.findByText('Отправка продаж готова', {}, SCREEN_WAIT)).closest(
+      '[role="alert"]',
+    );
+    // Поля правила называет только сервер: «готова» их не перечисляет.
+    expect(ready).toHaveTextContent('Всё, без чего письмо продаж не уходит, задано.');
     expect(screen.getByText(/Правил seller@ours\.example\.test/)).toBeInTheDocument();
     expect(field('Подпись')).toHaveValue('Ива Тестова');
   });
