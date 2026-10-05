@@ -220,3 +220,88 @@ export interface SenderView extends SenderBody {
   /** Предел длины каждого поля. */
   limits: Record<SenderField, number>;
 }
+
+/** Язык письма цепочки (`chain_text.LANGUAGES` сервера). */
+export type ChainLanguage = 'ru' | 'en';
+
+/** Что сборка сделает с зоной письма: переписывает модель под адресата или
+ *  отправляет как есть (`ZoneKind` шаблонов доноров). */
+export type ZoneKind = 'rewrite' | 'fixed';
+
+/** Подстановка шаблона цепочки (`chain_text.PLACEHOLDERS` сервера). */
+export type ChainPlaceholder = 'name' | 'company' | 'site';
+
+export interface ZoneCard {
+  name: string;
+  kind: ZoneKind;
+  text: string;
+}
+
+/** Шаблон шага: чей набор, что в нём, включён ли, кто и когда правил. */
+export interface ChainStepCard {
+  id: number;
+  /** Номер гипотезы; `null` — общий набор. */
+  hypothesis_id: number | null;
+  /** 1 — первое письмо, 2 и 3 — добивки. */
+  step: number;
+  language: string;
+  /** Тема — только у первого письма: добивки идут в той же переписке. */
+  subject: string | null;
+  /** Тело в формате зон: `[имя] rewrite` / `[имя] fixed`. */
+  body: string;
+  zones: ZoneCard[];
+  active: boolean;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Цепочка, которую получит лид набора на языке. */
+export interface ChainState {
+  language: string;
+  /** `own` — своя цепочка гипотезы, `common` — общая. */
+  source: 'own' | 'common';
+  /** Каких шагов нет — словами отказа сборки («первой добивки»). Пусто — полна. */
+  missing: string[];
+  version: string;
+}
+
+/** Набор шаблонов — включённые и нет — и цепочки по языкам. */
+export interface ChainView {
+  hypothesis_id: number | null;
+  rows: ChainStepCard[];
+  chains: ChainState[];
+  steps: number[];
+  languages: string[];
+  placeholders: string[];
+  limits: { subject: number; body: number };
+}
+
+/** Шаблон шага для предпросмотра: ничего не пишет. */
+export interface ChainPreviewBody {
+  step: number;
+  language: string;
+  subject: string | null;
+  body: string;
+}
+
+/** Шаг набора целиком: без гипотезы — общий набор. */
+export interface ChainStepBody extends ChainPreviewBody {
+  hypothesis_id: number | null;
+  active: boolean;
+}
+
+/** Письмо глазами адресата: зоны с выдуманными значениями, подпись и адрес из
+ *  настроек отправителя — в этом порядке их допишет сборка. */
+export interface ChainPreviewView {
+  /** У добивки — `null`: тему даёт первое письмо. */
+  subject: string | null;
+  zones: ZoneCard[];
+  /** Какие выдуманные значения подставлены. */
+  values: Record<string, string>;
+  sender_name: string | null;
+  signature: string | null;
+  address: string | null;
+  /** Чего не хватает для отправки продаж — словами сервера. */
+  missing: string[];
+}

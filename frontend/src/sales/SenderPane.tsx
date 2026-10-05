@@ -31,6 +31,7 @@ import { SENDER_FIELDS } from '../api/salesLabels';
 import type { SenderBody, SenderField, SenderView } from '../api/salesTypes';
 import { formatDateTime, formatNumber } from '../format';
 import { useSaveSender, useSender } from './kbData';
+import { SaveRefusal } from './SaveRefusal';
 
 const FIELD_KEYS = Object.keys(SENDER_FIELDS) as SenderField[];
 
@@ -118,11 +119,7 @@ function SenderForm({ view }: { view: SenderView }) {
     >
       <Stack gap="md">
         <Readiness missing={view.missing} />
-        {save.error !== null && (
-          <Alert color="red" title="Не сохранили">
-            {refusalOf(save.error)}
-          </Alert>
-        )}
+        <SaveRefusal error={save.error} />
         {/* Две строки под пояснение (`fieldRow`) — только когда поля стоят парой:
             в один столбец ряда нет, и пустая строка под каждым пояснением
             растягивала форму на телефоне (снимок 390 px). */}
