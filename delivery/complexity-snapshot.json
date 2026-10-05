@@ -1727,7 +1727,7 @@
       "worst": "unbound_probes:32"
     },
     "scripts/ui_screens_sales.py": {
-      "lines": 354,
+      "lines": 372,
       "complexity": 1,
       "worst": "pick_hypothesis:50"
     }

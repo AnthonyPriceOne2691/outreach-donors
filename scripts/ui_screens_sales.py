@@ -233,13 +233,27 @@ def sales_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
     }
 
 
+#: Текст записи для замера — на несколько строк: значение поля замер видит только тогда,
+#: когда буквы — большая часть вырезки (у короткой строки порог делит кромку поля с ними).
+ENTRY_TEXT = " ".join(
+    [
+        "Выдуманная запись для замера контраста: строка за строкой, чтобы буквы заняли поле.",
+        "Цвет текста от длины не зависит — меняется только доля букв в вырезке замера.",
+        "Ещё строка выдуманного текста для того же замера, и ещё одна, последняя,",
+        "чтобы поле выросло на все свои строки и кромка стала малой долей вырезки.",
+    ]
+)
+
+
 def open_entry(page: Any) -> None:
-    """Окно правки первой записи; «Сохранить» оживает от знака в тексте."""
+    """Окно правки первой записи; «Сохранить» оживает от правки текста.
+
+    Текст — длинный (`ENTRY_TEXT`): им меряется значение поля окна, а короткое значение
+    замер не видит — вырезка берёт кромку поля (05.10.2026, разбор — у проб окна)."""
     page.locator(".kbTable tbody tr").first.get_by_role("button", name="Править").click()
     dialog = page.get_by_role("dialog")
     expect(dialog).to_be_visible()
-    text = dialog.get_by_role("textbox", name="Текст")
-    text.fill(text.input_value() + " ")
+    dialog.get_by_role("textbox", name="Текст").fill(ENTRY_TEXT)
     expect(dialog.get_by_role("button", name="Сохранить")).to_be_enabled()
     page.wait_for_timeout(400)
 
@@ -310,8 +324,12 @@ def kb_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("заголовок окна", f"{dialog} .mantine-Modal-title", norm),
                 ("подпись поля", f"{dialog} .mantine-InputWrapper-label", norm),
                 ("пояснение поля", f"{dialog} .mantine-InputWrapper-description", norm),
-                ("значение вида", f"{dialog} .mantine-Select-input", norm),
-                ("значение заголовка", f"{dialog} {_field('Заголовок')}", norm),
+                # Значения вида и заголовка не меряются: вырезка берёт кромку поля, а на
+                # плотном стекле светлой темы она из чернил (`--field-edge`, 0,42), и
+                # порог делит её с буквами короткой строки — 2,74 : 1 при 5,0–6,4 по
+                # строке букв и 14,5 по цветам текста и подложки (05.10.2026). Тот же
+                # класс, что у значения поля в `ui_screens.py`. Стили поля и текста те
+                # же — у текста записи ниже: он меряется длинным текстом (`open_entry`).
                 ("текст записи", f"{dialog} textarea", norm),
                 ("подпись переключателя", f"{dialog} .mantine-Switch-label", norm),
                 ("кнопка «Отмена»", f"{dialog} button:has-text('Отмена')", big),
