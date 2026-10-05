@@ -10,9 +10,14 @@
 
 from __future__ import annotations
 
+import importlib.util
 from dataclasses import replace
+from pathlib import Path
+from types import ModuleType
 
 import pytest
+from alembic.operations import Operations
+from alembic.runtime.migration import MigrationContext
 from backend.features.core.domain import RunStatus, Stage
 from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
@@ -23,7 +28,8 @@ from backend.features.crawl.contacts import AdvertiserContactRepository
 from backend.features.donors.verdict import Thresholds
 from backend.features.runs.pipeline import RunRequest, execute_run
 from backend.features.runs.repository import RunRepository
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.test_execute_run import GOOD, FakeSerp, T, _ahrefs, _deps, _settings_id
 
@@ -183,3 +189,38 @@ async def test_failed_niche_collection_does_not_fail_a_paid_run(session: AsyncSe
     assert run.status is RunStatus.DONE
     assert report.niche is None
     assert run.stats["niche"] == {"failure": "RuntimeError: база отвалилась на сборе ниши"}
+
+
+def _migration() -> ModuleType:
+    path = Path(__file__).resolve().parents[1] / (
+        "backend/migrations/versions/27a07f0ca34b_niche_advertisers.py"
+    )
+    spec = importlib.util.spec_from_file_location("niche_advertisers_migration", path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _source_column(connection: Connection) -> tuple[bool, bool]:
+    def exists() -> bool:
+        found = connection.execute(
+            text(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_name = 'advertisers' AND column_name = 'source'"
+            )
+        ).first()
+        return found is not None
+
+    migration = _migration()
+    with Operations.context(MigrationContext.configure(connection)):
+        migration.downgrade()
+        down = exists()
+        migration.upgrade()
+    return down, exists()
+
+
+async def test_migration_goes_down_and_up(session: AsyncSession) -> None:
+    connection = await session.connection()
+    assert await connection.run_sync(_source_column) == (False, True)
