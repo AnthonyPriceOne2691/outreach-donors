@@ -364,16 +364,36 @@ def kb_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
     }
 
 
+#: Тело первого письма для замера — плотное, на все строки поля: значение поля замер видит
+#: только тогда, когда буквы — большая часть вырезки (как `ENTRY_TEXT` базы знаний).
+#: Годное для показа письма: зоны, подстановки из списка, коридор отличия достижим.
+STEP_LINES = (
+    "Made-up letter for the contrast check, {{name}}: line after line,",
+    "so that the letters fill the field. Text colour does not depend on length;",
+    "only the share of letters in the probe crop changes with it.",
+    "One more made-up line for the same check, for {{company}} and {{site}} only,",
+    "and the last made-up line, so that the field grows to all of its rows",
+    "and the edge of the field becomes a small share of the crop.",
+)
+STEP_BODY = (
+    "[greeting] rewrite\n"
+    + "\n".join(STEP_LINES[:3])
+    + "\n\n[offer] fixed\n"
+    + "\n".join(STEP_LINES[3:])
+)
+
+
 def open_step(page: Any) -> None:
     """Окно первого письма английской цепочки и письмо глазами адресата под формой.
 
-    «Сохранить» оживает от выключения шага — тело остаётся годным для показа: у
-    выключенной кнопки меряется серое на сером."""
+    Текст поля — плотный (`STEP_BODY`): им меряется значение поля, и правка оживляет
+    «Сохранить» — у выключенной кнопки меряется серое на сером. Шаблон стенда с пустыми
+    строками между зонами вырезка видит хуже: кромка поля — большая доля (разбор — у проб окна)."""
     english = page.get_by_role("region", name="Английский")
     english.locator(".chainStep").first.get_by_role("button", name="Править").click()
     dialog = page.get_by_role("dialog")
     expect(dialog).to_be_visible()
-    dialog.get_by_text("Шаг включён — входит в цепочку").click()
+    dialog.get_by_role("textbox", name="Текст письма").fill(STEP_BODY)
     expect(dialog.get_by_role("button", name="Сохранить")).to_be_enabled()
     dialog.get_by_role("button", name="Показать письмо").click()
     expect(dialog.locator(".chainLetter")).to_be_visible()
@@ -417,6 +437,10 @@ def chain_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("что за шаг", f"{dialog} .chainHint", norm),
                 ("подпись поля", f"{dialog} .mantine-InputWrapper-label", norm),
                 ("пояснение поля", f"{dialog} .mantine-InputWrapper-description", norm),
+                # Текст поля — плотный (`open_step`): шаблон стенда с пустыми строками между
+                # зонами давал на свету 4,39 — вырезка берёт кромку поля из чернил
+                # (`--field-edge`, 0,42), а по строке букв 5,86, внутри поля 6,11, по ядру
+                # 15,55 (05.10.2026); тот же класс, что у окна записи базы знаний.
                 ("текст письма", f"{dialog} textarea", norm),
                 ("подпись переключателя", f"{dialog} .mantine-Switch-label", norm),
                 ("кнопка «Показать письмо»", f"{dialog} button:has-text('Показать письмо')", big),
