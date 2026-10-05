@@ -53,7 +53,7 @@ from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, SenderModel
 from backend.features.letters import chain, compose, identity, reply_to, unsubscribe
-from backend.features.letters.transport import Outgoing, Transport, TransportError
+from backend.features.letters.transport import Mail, Outgoing, Transport, TransportError, of_stage
 from backend.features.outreach import senders as sender_rules
 from backend.features.outreach.repository import OutreachRepository
 
@@ -173,13 +173,14 @@ class _Target:
 
 
 class Sending:
-    """Отправка письма. Один экземпляр — один транспорт."""
+    """Отправка письма — транспортом, общим на все письма, или транспортом этапа
+    письма (`ByStage`): у направления бывает своя учётка почтовой платформы."""
 
     def __init__(
-        self, session: AsyncSession, transport: Transport, *, now: datetime | None = None
+        self, session: AsyncSession, transport: Mail, *, now: datetime | None = None
     ) -> None:
         self._session = session
-        self._transport = transport
+        self._transports = transport
         self._now = now
 
     def _moment(self) -> datetime:
@@ -200,6 +201,10 @@ class Sending:
         разговора значит попасть в спам и запутать собеседника.
         """
         target = await self._target(message_id)
+        try:  # не собрался транспорт этапа — отказ отправки, а не падение прохода
+            transport = of_stage(self._transports, target.stage.value)
+        except TransportError as exc:
+            raise SendError(f"Почта этапа «{target.stage.value}» не собрана: {exc}") from exc
         await self._check_suppression(target)
         await self._check_review(target)
         check_ready(target.message.body or "", what=f"Письмо №{target.message.id}")
@@ -209,19 +214,19 @@ class Sending:
             if from_sender_id is not None
             else (await self._pick_sender(target.stage)).sender
         )
-        own = own_headers(target.message.id, sender_email=sender.email, real=self._transport.real)
+        own = own_headers(target.message.id, sender_email=sender.email, real=transport.real)
 
         # Факт отправки — в базе до вызова почты, и захватом: второй
         # одновременный запрос получает отказ здесь, а не письмо донору.
         await self._claim(target, sender, own)
 
-        provider_id = await self._hand_over(target, sender, own, in_reply_to=in_reply_to)
-        await self._settle(target, sender, provider_id=provider_id, author_id=author_id)
+        provider_id = await self._hand_over(target, sender, own, transport, in_reply_to=in_reply_to)
+        await self._settle(target, sender, transport, provider_id=provider_id, author_id=author_id)
         return SendOutcome(
             message_id=target.message.id,
             sender_email=sender.email,
             provider_message_id=provider_id,
-            real=self._transport.real,
+            real=transport.real,
         )
 
     # --- шаги ---
@@ -406,6 +411,7 @@ class Sending:
         target: _Target,
         sender: SenderModel,
         own: OwnHeaders,
+        transport: Transport,
         *,
         in_reply_to: str | None = None,
     ) -> str:
@@ -425,7 +431,7 @@ class Sending:
             unsubscribe_url=unsubscribe.url_for(target.message.domain_id),
         )
         try:
-            return await self._transport.send(outgoing)
+            return await transport.send(outgoing)
         except TransportError as exc:
             # Почта сказала «нет» — письмо точно не ушло, и его можно
             # вернуть в очередь без риска отправить второе. Идентификатор
@@ -451,6 +457,7 @@ class Sending:
         self,
         target: _Target,
         sender: SenderModel,
+        transport: Transport,
         *,
         provider_id: str,
         author_id: int | None,
@@ -484,8 +491,8 @@ class Sending:
                 "донор": target.host,
                 "кому": target.email,
                 "от кого": sender.email,
-                "транспорт": self._transport.name,
-                "ушло на самом деле": self._transport.real,
+                "транспорт": transport.name,
+                "ушло на самом деле": transport.real,
             },
         )
         await self._session.commit()

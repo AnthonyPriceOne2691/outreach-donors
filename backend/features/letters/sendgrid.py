@@ -37,7 +37,8 @@ import httpx
 
 from backend.config import outreach as cfg
 from backend.features.letters import identity
-from backend.features.letters.transport import Outgoing, TransportError
+from backend.features.letters.transport import MaybeSentError, Outgoing, TransportError
+from backend.shared.net.retry import reason_of
 
 logger = logging.getLogger(__name__)
 
@@ -76,14 +77,19 @@ class SendGridTransport:
         api_key: str | None = None,
         allowlist: tuple[str, ...] | None = None,
         http: httpx.AsyncClient | None = None,
+        account: cfg.MailAccount | None = None,
     ) -> None:
-        self._key = api_key if api_key is not None else cfg.SENDGRID_API_KEY
-        self._allowlist = allowlist if allowlist is not None else cfg.ALLOWED_RECIPIENTS
+        # Учётка направления (`cfg.mail_account`): без неё — общая.
+        self._account = account or cfg.mail_account()
+        self._key = api_key if api_key is not None else self._account.api_key
+        self._allowlist = allowlist if allowlist is not None else self._account.allowed_recipients
         if not self._key:
             raise TransportError(
-                "OUTREACH_SENDGRID_API_KEY не задан — боевой транспорт выбран, "
+                f"{self._account.key_setting} не задан — боевой транспорт выбран, "
                 "а ключа платформы нет. Письма никуда не уйдут"
             )
+        if self._account.refusal is not None:
+            raise TransportError(self._account.refusal)
         self._http = http or httpx.AsyncClient(timeout=TIMEOUT_S)
 
     async def aclose(self) -> None:
@@ -94,7 +100,7 @@ class SendGridTransport:
         if not _allowed(outgoing.to, self._allowlist):
             raise TransportError(
                 f"Адрес {outgoing.to} не в списке разрешённых получателей "
-                f"(OUTREACH_ALLOWED_RECIPIENTS). Пока список не пуст, боевая отправка "
+                f"({self._account.allowlist_setting}). Пока список не пуст, боевая отправка "
                 "идёт только на свои адреса — это предохранитель первых дней"
             )
         if not identity.is_message_id(outgoing.internet_message_id):
@@ -171,16 +177,23 @@ class SendGridTransport:
                 json=payload,
                 headers={"Authorization": f"Bearer {self._key}"},
             )
-        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+        except httpx.LocalProtocolError as exc:
+            # Не собран у нас — до платформы не дошёл точно. Без цепочки:
+            # в тексте исключения заголовок с ключом.
+            raise TransportError(f"Письмо не ушло: {reason_of(exc)}") from None
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
+            # Соединения не было — письмо не ушло точно, повтор безопасен.
             if last:
                 raise TransportError(
-                    f"Почтовая платформа недоступна ({exc!r}) — письмо не ушло"
+                    f"Почтовая платформа недоступна ({reason_of(exc)}) — письмо не ушло"
                 ) from exc
-            logger.warning("письма: платформа недоступна (%r) — письмо не ушло", exc)
+            logger.warning("письма: платформа недоступна (%s) — письмо не ушло", reason_of(exc))
             return None
         except httpx.HTTPError as exc:
-            raise TransportError(
-                f"Почтовая платформа не ответила ({exc!r}) — письмо могло уйти. "
+            # Соединение было: запрос мог дойти (обрыв чтения, таймаут ответа,
+            # обрыв записи посреди тела). Это не «не ушло».
+            raise MaybeSentError(
+                f"Почтовая платформа не ответила ({reason_of(exc)}) — письмо могло уйти. "
                 "Вслепую не повторяем: ключа идемпотентности у платформы нет. "
                 "Проверить в её кабинете (Activity) и только потом отправлять снова"
             ) from exc
