@@ -222,6 +222,8 @@ jobs:
                   template.followup(step, stage)
           for name in ("guides", "news", "reviews", "topics"):
               angles.load_prompt(name)
+          from backend.features.agent import writer
+          writer.load_prompt()
           print("шаблоны писем и промпты читаются из", backend.__file__)
           EOF
 

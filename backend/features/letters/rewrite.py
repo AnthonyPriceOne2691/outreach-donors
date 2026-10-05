@@ -30,15 +30,19 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-import httpx
-
-from backend.config import llm as cfg
 from backend.config import outreach as outreach_cfg
 from backend.features.letters import masking
 from backend.features.letters.compose import Rendered
 from backend.features.letters.guards import metrics_leak
 from backend.features.letters.uniqueness import words
-from backend.shared.llm import Refusal, content_of, is_reasoning, post_chat, tokens_of
+from backend.shared.llm import (
+    ModelClient,
+    Refusal,
+    content_of,
+    is_reasoning,
+    post_chat,
+    tokens_of,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -178,28 +182,8 @@ def parse_zones(content: str, *, expected: set[str]) -> dict[str, str]:
     }
 
 
-class RewriteClient:
+class RewriteClient(ModelClient):
     """Клиент уникализации. Считает токены — это и есть расход на письмо."""
-
-    def __init__(
-        self,
-        client: httpx.AsyncClient | None = None,
-        *,
-        model: str | None = None,
-        api_key: str | None = None,
-    ) -> None:
-        self._model = model or cfg.LETTERS_MODEL
-        self._api_key = api_key if api_key is not None else cfg.API_KEY
-        self._own_client = client is None
-        self._http = client or httpx.AsyncClient(timeout=cfg.TIMEOUT_S)
-
-    @property
-    def model(self) -> str:
-        return self._model
-
-    async def aclose(self) -> None:
-        if self._own_client:
-            await self._http.aclose()
 
     async def rewrite(self, rendered: Rendered, about: Personalization) -> RewriteResult:
         """Переписать зоны письма. Незаполненный результат — законный исход."""
