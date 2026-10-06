@@ -67,6 +67,8 @@ import { LetterDraftEditor, draftOf, sameDraft } from './LetterDraftEditor';
 import { LetterPreview, toneOf } from './LetterPreview';
 import { corridorText, uniquenessText } from './letterText';
 import { RunPicker } from './RunPicker';
+import { SendQueue } from './SendQueue';
+import { remember, remembered } from '../storage';
 import { JobLine } from '../jobs/JobLine';
 
 /** Уже этого очередь и письмо стоят друг под другом (граница `md` у сетки). */
@@ -87,22 +89,6 @@ const STAGE_KEY = 'letters:stage';
 
 function jobKeyOf(stage: LetterStage): string {
   return stage === 'donors' ? BUILD_JOB_KEY : `${BUILD_JOB_KEY}:${stage}`;
-}
-
-function remembered(key: string): string | null {
-  try {
-    return window.localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function remember(key: string, value: string): void {
-  try {
-    window.localStorage.setItem(key, value);
-  } catch {
-    // Хранилище недоступно (приватное окно) — помним до перезагрузки.
-  }
 }
 
 /**
@@ -407,6 +393,15 @@ export function LettersPage() {
           ) : null}
         </Stack>
       </Card>
+
+      {data !== undefined && can('send') && !stale ? (
+        <SendQueue
+          stage={stage}
+          count={letters.length}
+          blocked={data.blocked_by.length > 0}
+          onFinished={() => void refresh()}
+        />
+      ) : null}
 
       {data !== undefined ? (
         <Queue
