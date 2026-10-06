@@ -95,6 +95,7 @@ class DenyReason(StrEnum):
     DOCUMENT = "document"  # это файл, а не сайт
     OWN_BRAND = "own_brand"  # тот же бренд донора в другой зоне
     BIG_SITE = "big_site"  # DR > 80: крупный сайт ссылки не покупает (`big_sites.py`)
+    HIDDEN = "hidden_advertiser"  # сеть партнёрок не назвала рекламодателя (`affiliate.py`)
 
 
 @dataclass(frozen=True, slots=True)

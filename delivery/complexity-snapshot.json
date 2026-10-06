@@ -537,7 +537,7 @@
       "worst": "—"
     },
     "backend/config/crawl.py": {
-      "lines": 112,
+      "lines": 119,
       "complexity": 0,
       "worst": "—"
     },
@@ -871,6 +871,16 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/crawl/affiliate.py": {
+      "lines": 170,
+      "complexity": 10,
+      "worst": "affiliation:102"
+    },
+    "backend/features/crawl/anchors.py": {
+      "lines": 128,
+      "complexity": 9,
+      "worst": "anchor_kind:93"
+    },
     "backend/features/crawl/article.py": {
       "lines": 274,
       "complexity": 8,
@@ -892,9 +902,9 @@
       "worst": "save:89"
     },
     "backend/features/crawl/denylist.py": {
-      "lines": 162,
+      "lines": 163,
       "complexity": 8,
-      "worst": "denial_for:140"
+      "worst": "denial_for:141"
     },
     "backend/features/crawl/fetch.py": {
       "lines": 307,
@@ -931,6 +941,11 @@
       "complexity": 13,
       "worst": "collect_links:222"
     },
+    "backend/features/crawl/markers.py": {
+      "lines": 91,
+      "complexity": 7,
+      "worst": "marker_reason:71"
+    },
     "backend/features/crawl/niche.py": {
       "lines": 134,
       "complexity": 7,
@@ -940,6 +955,11 @@
       "lines": 221,
       "complexity": 12,
       "worst": "_published:190"
+    },
+    "backend/features/crawl/paid_pages.py": {
+      "lines": 95,
+      "complexity": 9,
+      "worst": "_subject:69"
     },
     "backend/features/crawl/progress.py": {
       "lines": 137,
@@ -972,9 +992,9 @@
       "worst": "_collect_groups:199"
     },
     "backend/features/crawl/scoring.py": {
-      "lines": 346,
-      "complexity": 10,
-      "worst": "score_link:225"
+      "lines": 367,
+      "complexity": 17,
+      "worst": "score_link:153"
     },
     "backend/features/crawl/sitemap.py": {
       "lines": 268,
