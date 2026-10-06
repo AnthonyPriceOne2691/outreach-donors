@@ -42,6 +42,7 @@ from backend.shared.queue import (
     PARSE_JOB,
     QUEUE_NAME,
     RUN_JOB,
+    SALES_REPLY_JOB,
     SEND_QUEUE_JOB,
     connection,
     job_error,
@@ -62,6 +63,7 @@ KINDS = {
     PARSE_JOB: "разбор ответа",
     # Задача агента переписки живёт в своём модуле (`workers/agent_jobs.py`).
     "backend.workers.agent_jobs.draft_answer": "черновик ответа",
+    SALES_REPLY_JOB: "разбор ответа продаж",
 }
 
 TITLES = {

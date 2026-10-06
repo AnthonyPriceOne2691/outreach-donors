@@ -37,9 +37,9 @@ noreply предпочтительным не становится (`robots`), �
 сайта, который заодно бывает донором, и стал бы ценой, которой никто
 не называл. Такой ответ ведёт человек.
 
-**Ответ лида продаж ждёт человека и ничего не пишет.** Почта продажи
-ещё не ведёт: разбирать такой ответ нечем, а донорский разбор положил бы
-сумму из него ценой в карточку донора, адрес — в контакты домена.
+**Ответ лида продаж уходит своей очереди и ничего не пишет здесь.** Вид
+ответа разбирает модуль продаж (`to_sales_queue`), а донорский разбор положил
+бы сумму из него ценой в карточку донора, адрес — в контакты домена.
 """
 
 from __future__ import annotations
@@ -49,7 +49,6 @@ from typing import assert_never
 
 from backend.config import outreach as cfg
 from backend.features.core.domain import ReplyKind, Stage
-from backend.features.core.stages import SALES_NOT_CONNECTED
 from backend.features.replies.extract import Extracted
 from backend.features.replies.inbound import MAX_TEXT_CHARS
 from backend.features.replies.money import amounts_in
@@ -58,8 +57,8 @@ from backend.features.replies.quoting import written_by_hand
 #: Почему ответ рекламодателя ждёт человека — словами, для карточки.
 ADVERTISER_LEAD = "ответ рекламодателя — лид: цену не разбираем, его ведёт человек"
 
-#: Почему ответ лида продаж ждёт человека — словами, для карточки.
-SALES_WAITING = f"ответ продаж ждёт разбора: {SALES_NOT_CONNECTED}"
+#: Почему ответ лида продаж ждёт — словами, для карточки: вид ответа ещё не разобран.
+SALES_WAITING = "ответ продаж ждёт разбора вида: задача в очереди продаж"
 
 #: Почему автоответ ждёт человека — словами, для карточки.
 AUTO_REPLY_WITH_SUM = (
@@ -171,6 +170,14 @@ def priced_by_model(stage: Stage | None) -> bool:
             return False
         case _:
             assert_never(stage)
+
+
+def to_sales_queue(kind: ReplyKind, stage: Stage | None) -> bool:
+    """Уходит ли ответ очереди продаж (`queue.SALES_REPLY_JOB`) — одно правило
+    для приёма и повтора вебхука. Ответ человека в треде продаж: его вид
+    разбирает модуль продаж. Автоответ, отказ доставки и отписку решают правила
+    выше, как у всех этапов, — без модели."""
+    return stage is Stage.SALES and kind is ReplyKind.HUMAN
 
 
 def names_a_sum(text: str) -> bool:
