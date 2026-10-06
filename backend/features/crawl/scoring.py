@@ -24,6 +24,30 @@ sponsored/advertorial/partner/guest post +4; dofollow на внешний
    от передачи веса, — это признанная самим донором реклама. Требование
    награждает dofollow, а здесь нужен ровно обратный признак.
 
+**Признаки — общие для любой ниши** (06.10.2026, слово Anthony: «оценка не
+под конкретную нишу, мультинишевая» — агентство разбирает разные ниши).
+До этого коммерческий анкор узнавали по словам ставок («odds», «deposit»,
+«bonus») и по «review» где угодно в коротком анкоре, а от этой проверки
+зависели ещё четыре надбавки. Финансовый блог дал «куплено» 4 из 4 —
+и все ложные: сайт основателя блога («my year-end review», 431 страница),
+соседние блоги («his review»), бонус банка 2007 года.
+
+Признаки делятся по силе:
+
+- **сильные** говорят «здесь деньги» сами, в любой нише: `rel=sponsored`,
+  пометка рекламы, партнёрская метка в адресе (`affiliate.py`) и призыв
+  к действию в начале анкора («Buy now», «Sign up», «Claim bonus»);
+- **слабые** — слово сделки в коротком анкоре без «my/his/our»
+  («discount», «price», «review»). Из них одних набирается не больше
+  «спорно»: решает человек.
+
+Повторяемость и «встречается у двух доноров» умножают только сильный
+признак: ссылка со многих страниц без него — автор, блогролл, навигация.
+
+**Давнее размещение — не «существующий рекламодатель».** Если самая свежая
+статья со ссылкой на домен старше `CRAWL_STALE_YEARS` (3 года), он идёт
+«мимо» с причиной. Без даты правило молчит: незнание — не давность.
+
 **Чего в скоринге нет.** «Тематика не совпадает» (+1): тематики донора
 в базе нет — есть домен, страна и ключи прогона. Строка требования
 осталась невыполненной, и это сказано здесь, а не спрятано нулём.
@@ -32,15 +56,18 @@ sponsored/advertorial/partner/guest post +4; dofollow на внешний
 from __future__ import annotations
 
 import logging
-import re
 from collections import defaultdict
-from dataclasses import dataclass, field
-from itertools import pairwise
-from urllib.parse import urlsplit
+from dataclasses import dataclass, field, replace
+from datetime import UTC, date, datetime
 
+from backend.config import crawl as cfg
 from backend.features.core.domain import Verdict
+from backend.features.crawl.affiliate import NETWORK_ROOTS, affiliation
+from backend.features.crawl.anchors import AnchorKind, anchor_kind
 from backend.features.crawl.denylist import Denial, DenyReason, denial_for, is_own_brand
 from backend.features.crawl.links import OutLink
+from backend.features.crawl.markers import marker_reason
+from backend.features.crawl.paid_pages import paid_pages
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +76,15 @@ POINTS_REL_SPONSORED = 5
 POINTS_MARKER = 4
 POINTS_DOFOLLOW_IN_BODY = 2
 POINTS_COMMERCIAL_ANCHOR = 1
+
+#: Партнёрская метка в адресе ссылки (`affiliate.py`): платные отношения
+#: рекламодателя с донором, одинаковые в любой нише.
+POINTS_AFFILIATE = 2
+POINTS_PAID_SOURCE = 2
+#: Зона некоммерческих организаций: фонды, сообщества, ассоциации. Платную
+#: статью о себе они заказывают редко, и «куплено» им без человека не дают —
+#: ethereum.org, cardano.org, bitcoin.org стояли источниками в чужих статьях.
+NONPROFIT_SUFFIXES: tuple[str, ...] = (".org",)
 
 # --- Веса, полученные замером ---
 #: Донор ссылается на домен с нескольких страниц. Порог — три страницы:
@@ -62,66 +98,33 @@ POINTS_COMMERCIAL_ANCHOR = 1
 #: она умножает уже найденный коммерческий признак, а не заменяет его.
 POINTS_REPEATED = 3
 REPEAT_PAGES = 3
-#: Коммерческий анкор, закрытый `nofollow`: донор сам пометил ссылку
-#: как рекламу. Требование награждает обратное — dofollow.
+#: Призыв к действию или партнёрская ссылка, закрытые `nofollow`: донор сам
+#: пометил ссылку как рекламу. Требование награждает обратное — dofollow.
 POINTS_PAID_LOOKING = 2
 
 #: Порог «куплена» и нижняя граница ручной проверки — из требования.
 BOUGHT_AT = 4
 REVIEW_AT = 2
 
-#: Пометка рекламного материала — **метка, а не подстрока**. Ищется словом
-#: целиком: в названии раздела адреса («/sponsored/…»), в начале адреса
-#: статьи («/sponsored-…») и в анкоре, который не адрес. Подстрокой она
-#: на финансах (06.10) дала +4 всем ссылкам статьи о компании «Partners
-#: Group» и ссылке на регулятора с «/Advertising/» в адресе — десять
-#: «купленных» из десяти оказались ложными.
-MARKER_WORDS: frozenset[str] = frozenset(
-    {"sponsored", "advertorial", "advertisement", "promoted", "guestpost"}
-)
-#: Метки из двух слов. «partner», «paid» и «guest» поодиночке — обычные
-#: слова («Partners Group», «paid off the mortgage»), меткой их делает пара.
-MARKER_PAIRS: frozenset[tuple[str, str]] = frozenset(
-    {
-        ("guest", "post"), ("guest", "posts"), ("paid", "post"), ("paid", "posts"),
-        ("partner", "content"), ("partner", "post"), ("partner", "posts"),
-        ("sponsored", "post"), ("brand", "partner"), ("paid", "content"),
-    }
-)  # fmt: skip
-#: В анкоре метка — только то, чем подписывают рекламу. «promoted» в анкоре —
-#: чаще «promoted to manager», чем подпись.
-ANCHOR_MARKERS: frozenset[str] = frozenset({"sponsored", "advertorial", "advertisement"})
 
-#: Деньги ниши: слово коммерческое в анкоре любой длины. Список — ставок
-#: (замер 22.09); на другой нише его заводят заново — это свойство
-#: приёма, а не изъян.
-NICHE_MONEY: frozenset[str] = frozenset(
-    {"bet", "bets", "betting", "casino", "bonus", "odds", "promo", "deposit"}
-)
-NICHE_PHRASES: tuple[str, ...] = ("free spins",)
-#: Призыв к действию коммерческий **только в коротком анкоре**: «Play now»,
-#: «Claim offer», «Sign up today». В редакционной фразе те же слова —
-#: просто слова: «Crack the Code to Wealth», «How to get started with real
-#: estate investing» (финансы, 06.10). «get» и «now» сами по себе не призыв:
-#: «HBO Now», «(he's 15 now!)».
-CTA_WORDS: frozenset[str] = frozenset(
-    {"play", "join", "signup", "register", "claim", "offer", "visit", "review", "code", "welcome"}
-)
-CTA_PHRASES: tuple[str, ...] = ("sign up",)
-CTA_MAX_WORDS = 4
-
-_WORD = re.compile(r"[a-z0-9]+")
-#: Анкор — сам адрес: «http://…», «www.…», «tradingview.com». Слова внутри
-#: адреса («/Advertising/», «code.google.com») не текст ссылки.
-_ADDRESS = re.compile(r"^(?:https?://|www\.)\S+$|^[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:/\S*)?$", re.I)
+_KIND_WORDS = {
+    AnchorKind.CALL: "призыв",
+    AnchorKind.TRADE: "товар серой ниши",
+    AnchorKind.DEAL: "слово сделки",
+}
 
 
 @dataclass(frozen=True, slots=True)
 class LinkScore:
-    """Баллы одной ссылки и то, из чего они сложились."""
+    """Баллы одной ссылки и то, из чего они сложились.
+
+    `strong` — у ссылки есть признак, который сам говорит «здесь деньги»
+    в любой нише; повторяемость умножает только такие.
+    """
 
     points: int
     reasons: tuple[str, ...]
+    strong: bool = False
 
 
 @dataclass(slots=True)
@@ -139,121 +142,66 @@ class Candidate:
     #: DR домена, если его спрашивали (`big_sites`); `None` — не спрашивали
     #: или провайдер домена не знает.
     dr: int | None = None
+    #: Есть сильный признак рекламы — усилитель «у двух доноров» работает
+    #: только поверх него.
+    strong: bool = False
+    #: Все статьи со ссылкой на домен старше `CRAWL_STALE_YEARS`: усилитель
+    #: не возвращает давнего в «куплено».
+    stale: bool = False
 
 
-def _tokens(text: str) -> list[str]:
-    return _WORD.findall(text.lower())
-
-
-def is_address(anchor: str) -> bool:
-    """Анкор — это адрес, а не текст: «http://…», «www.…», «app.dealroom.co»."""
-    return bool(_ADDRESS.match(anchor.strip()))
-
-
-def _has_mark(tokens: list[str], words: frozenset[str]) -> bool:
-    return any(token in words for token in tokens) or any(
-        pair in MARKER_PAIRS for pair in pairwise(tokens)
-    )
-
-
-def _starts_with_mark(tokens: list[str]) -> bool:
-    return bool(tokens) and (tokens[0] in MARKER_WORDS or tuple(tokens[:2]) in MARKER_PAIRS)
-
-
-def _marked_address(page_url: str) -> bool:
-    """Раздел адреса — метка («/sponsored/», «/partner-content/»), или адрес
-    статьи с неё начинается («/sponsored-best-loans»). Слово в середине
-    адреса статьи — её тема, а не метка: «/partners-group-…»."""
-    segments = [s for s in urlsplit(page_url).path.split("/") if s]
-    if not segments:
-        return False
-    sections, slug = segments[:-1], segments[-1]
-    return any(_has_mark(_tokens(s), MARKER_WORDS) for s in sections) or _starts_with_mark(
-        _tokens(slug)
-    )
-
-
-def names_a_mark(text: str) -> bool:
-    """Текст называет метку рекламы словом: «Sponsored», «Partner Content», «guest-posts».
-
-    Тот же словарь, что у адреса страницы, — для рубрик и разделов, которые
-    сайт пишет в разметке (`page_facts`).
-    """
-    return _has_mark(_tokens(text), MARKER_WORDS)
-
-
-def marker_reason(link: OutLink) -> str | None:
-    """Чем материал помечен рекламным, или `None`.
-
-    Пометка статьи — раздел её адреса или то, что сайт сказал о ней сам, —
-    достаётся только ссылкам **из тела**. Рядом со статьёй лежит то, что
-    стоит на каждой странице сайта, и проданным в этой статье оно не стало.
-    Подпись в анкоре — свойство самой ссылки, где бы она ни стояла.
-    """
-    if link.in_body and _marked_address(link.page_url):
-        return "раздел адреса статьи"
-    if link.in_body and link.page_label:
-        return f"статья помечена: {link.page_label}"
-    if not is_address(link.anchor) and _has_mark(_tokens(link.anchor), ANCHOR_MARKERS):
-        return "подпись в анкоре"
-    return None
-
-
-def has_marker(link: OutLink) -> bool:
-    """Материал помечен рекламным (см. `marker_reason`)."""
-    return marker_reason(link) is not None
-
-
-def is_commercial_anchor(anchor: str) -> bool:
-    """Анкор зовёт к действию или называет товар ниши.
-
-    Проверяется по словам, а не подстрокой: подстрока `bet` живёт внутри
-    `better`, `alphabet` и десятка обычных слов. Деньги ниши коммерческие
-    в любом анкоре, призыв — только в коротком: в длинной редакционной
-    фразе «get» и «code» ничего не продают. Анкор-адрес текстом не считается.
-    """
-    if is_address(anchor):
-        return False
-    text = anchor.lower()
-    words = _tokens(text)
-    if set(words) & NICHE_MONEY or any(phrase in text for phrase in NICHE_PHRASES):
-        return True
-    short = len(words) <= CTA_MAX_WORDS
-    return short and (bool(set(words) & CTA_WORDS) or any(p in text for p in CTA_PHRASES))
-
-
-def score_link(link: OutLink) -> LinkScore:
+def score_link(link: OutLink, *, source: bool = False) -> LinkScore:
     """Баллы одной ссылки по признакам самой ссылки.
+
+    `source` — ссылка стоит в статье, помеченной платной целиком, и статья
+    не о её домене (`paid_pages`): пометка достаётся ей как источнику.
 
     Повторяемость сюда не входит: она про домен, а не про ссылку,
     и считается уровнем выше.
     """
     points = 0
     reasons: list[str] = []
+    strong = False
 
-    if link.sponsored:
-        points += POINTS_REL_SPONSORED
-        reasons.append(f"rel=sponsored +{POINTS_REL_SPONSORED}")
     marked = marker_reason(link)
-    if marked is not None:
-        points += POINTS_MARKER
-        reasons.append(f"пометка рекламного материала ({marked}) +{POINTS_MARKER}")
+    if source and (link.sponsored or marked is not None):
+        points += POINTS_PAID_SOURCE
+        reasons.append(
+            f"ссылка-источник в платной статье (пометка на всех её ссылках) +{POINTS_PAID_SOURCE}"
+        )
+    else:
+        if link.sponsored:
+            points += POINTS_REL_SPONSORED
+            reasons.append(f"rel=sponsored +{POINTS_REL_SPONSORED}")
+            strong = True
+        if marked is not None:
+            points += POINTS_MARKER
+            reasons.append(f"пометка рекламного материала ({marked}) +{POINTS_MARKER}")
+            strong = True
+    affiliate = affiliation(link.url)
+    if affiliate is not None:
+        points += POINTS_AFFILIATE
+        reasons.append(f"партнёрская ссылка ({affiliate.mark}) +{POINTS_AFFILIATE}")
+        strong = True
 
-    commercial = is_commercial_anchor(link.anchor)
-    if link.dofollow and link.in_body and commercial:
+    kind = anchor_kind(link.anchor)
+    calls = kind in (AnchorKind.CALL, AnchorKind.TRADE) or affiliate is not None
+    strong = strong or kind is AnchorKind.CALL
+    if link.dofollow and link.in_body and (kind is not AnchorKind.PLAIN or affiliate):
         points += POINTS_DOFOLLOW_IN_BODY
         reasons.append(f"dofollow из тела на коммерческий +{POINTS_DOFOLLOW_IN_BODY}")
-    if commercial:
+    if kind is not AnchorKind.PLAIN:
+        what = _KIND_WORDS[kind]
         points += POINTS_COMMERCIAL_ANCHOR
-        reasons.append(f"коммерческий анкор +{POINTS_COMMERCIAL_ANCHOR}")
-    if commercial and not link.dofollow and not link.sponsored:
-        # Признак из замера: донор закрыл коммерческую ссылку от передачи
-        # веса, но не пометил `sponsored`. Так выглядит размещение в нише,
-        # где правила требования дают ноль.
+        reasons.append(f"коммерческий анкор ({what}) +{POINTS_COMMERCIAL_ANCHOR}")
+    if calls and not link.dofollow and not link.sponsored:
+        # Признак из замера: донор закрыл призыв или партнёрскую ссылку
+        # от передачи веса, но не пометил `sponsored`. Так выглядит
+        # размещение там, где правила требования дают ноль.
         points += POINTS_PAID_LOOKING
-        reasons.append(f"коммерческий анкор под nofollow +{POINTS_PAID_LOOKING}")
+        reasons.append(f"коммерческая ссылка под nofollow +{POINTS_PAID_LOOKING}")
 
-    return LinkScore(points=points, reasons=tuple(reasons))
+    return LinkScore(points=points, reasons=tuple(reasons), strong=strong)
 
 
 def _verdict_for(points: int) -> Verdict:
@@ -264,63 +212,135 @@ def _verdict_for(points: int) -> Verdict:
     return Verdict.SKIPPED
 
 
-def score_candidates(links: list[OutLink], donor_root: str = "") -> list[Candidate]:
+def score_candidates(
+    links: list[OutLink], donor_root: str = "", *, today: date | None = None
+) -> list[Candidate]:
     """Кандидаты по домену-получателю: балл, вердикт и причины.
 
     Единица решения — домен, а не ссылка: письмо уходит владельцу
     домена один раз, сколько бы страниц он ни занимал. Балл домена —
-    лучший балл его ссылок плюс надбавка за повторяемость.
+    лучший балл его ссылок плюс надбавка за повторяемость, если у домена
+    есть сильный признак рекламы.
+
+    Ссылка через сеть партнёрок считается ссылкой на рекламодателя,
+    которого сеть назвала в адресе (`affiliate.py`).
 
     `donor_root` нужен для одного случая, найденного на живых данных:
     донор ссылается на свой же бренд в другой зоне. Корни разные,
     владелец один.
     """
+    moment = today or datetime.now(UTC).date()
+    resolved = [_advertiser_of(link) for link in links]
+    pages = paid_pages(resolved)
     by_root: defaultdict[str, list[OutLink]] = defaultdict(list)
-    for link in links:
+    for link in resolved:
         by_root[link.target_root].append(link)
 
-    out: list[Candidate] = []
-    for root, group in by_root.items():
-        denial = denial_for(root, group[0].url)
-        if denial is None and is_own_brand(root, donor_root):
-            denial = Denial(DenyReason.OWN_BRAND, donor_root)
-        pages = len({link.page_url for link in group})
-        best = max(group, key=lambda link: score_link(link).points)
-        score = score_link(best)
-
-        points = score.points
-        reasons = list(score.reasons)
-        if pages >= REPEAT_PAGES and points > 0:
-            points += POINTS_REPEATED
-            reasons.append(f"ссылки с {pages} страниц донора +{POINTS_REPEATED}")
-        elif pages >= REPEAT_PAGES:
-            # Повторяемость без единого коммерческого признака — это
-            # обязательная ссылка: регулятор, лицензия, «играй
-            # ответственно». Она есть на каждой странице и рекламой
-            # не является.
-            reasons.append(f"ссылки с {pages} страниц, но коммерческих признаков нет")
-
-        if denial is not None:
-            verdict = Verdict.BLOCKED
-            reasons.append(f"кому не пишем: {denial.reason.value} ({denial.matched})")
-        else:
-            verdict = _verdict_for(points)
-
-        out.append(
-            Candidate(
-                target_root=root,
-                points=points,
-                verdict=verdict,
-                reasons=reasons,
-                links=len(group),
-                pages=pages,
-                denial=denial,
-                best_link=best,
-            )
-        )
-
+    out = [_candidate(root, group, donor_root, moment, pages) for root, group in by_root.items()]
     out.sort(key=lambda c: (-c.points, c.target_root))
     return out
+
+
+def _advertiser_of(link: OutLink) -> OutLink:
+    """Ссылка через сеть партнёрок — к рекламодателю, которого сеть назвала."""
+    found = affiliation(link.url)
+    if found is None or found.target_root is None or found.target_host is None:
+        return link
+    return replace(link, target_host=found.target_host, target_root=found.target_root)
+
+
+def _denial(root: str, group: list[OutLink], donor_root: str) -> Denial | None:
+    denial = denial_for(root, group[0].url)
+    if denial is None and is_own_brand(root, donor_root):
+        denial = Denial(DenyReason.OWN_BRAND, donor_root)
+    if denial is None and root in NETWORK_ROOTS:
+        # Сеть не назвала рекламодателя: письмо ушло бы сети, а не тому,
+        # кто платит донору.
+        denial = Denial(DenyReason.HIDDEN, root)
+    return denial
+
+
+def _candidate(
+    root: str,
+    group: list[OutLink],
+    donor_root: str,
+    today: date,
+    paid: dict[str, frozenset[str]],
+) -> Candidate:
+    denial = _denial(root, group, donor_root)
+    pages = len({link.page_url for link in group})
+    scored = [(link, score_link(link, source=_is_source(link, paid))) for link in group]
+    best, score = max(scored, key=lambda pair: pair[1].points)
+    strong = any(link_score.strong for _, link_score in scored)
+
+    points = score.points
+    reasons = list(score.reasons)
+    if pages >= REPEAT_PAGES and strong:
+        points += POINTS_REPEATED
+        reasons.append(f"ссылки с {pages} страниц донора +{POINTS_REPEATED}")
+    elif pages >= REPEAT_PAGES:
+        # Повторяемость без сильного признака — не схема, а автор, блогролл,
+        # навигация или обязательная ссылка («играй ответственно»): сайт
+        # основателя блога стоял на 431 странице (финансы, 06.10).
+        reasons.append(
+            f"ссылки с {pages} страниц, но сильных признаков рекламы нет — "
+            "автор, блогролл или навигация"
+        )
+
+    stale = _stale(group, today)
+    if denial is not None:
+        verdict = Verdict.BLOCKED
+        reasons.append(f"кому не пишем: {denial.reason.value} ({denial.matched})")
+    elif stale is not None:
+        verdict = Verdict.SKIPPED
+        reasons.append(stale)
+    else:
+        verdict = _verdict_for(points)
+    if verdict is Verdict.BOUGHT and root.endswith(NONPROFIT_SUFFIXES):
+        verdict = Verdict.PENDING
+        reasons.append("зона .org — чаще фонд или сообщество, чем рекламодатель: решает человек")
+
+    return Candidate(
+        target_root=root,
+        points=points,
+        verdict=verdict,
+        reasons=reasons,
+        links=len(group),
+        pages=pages,
+        denial=denial,
+        best_link=best,
+        strong=strong,
+        stale=stale is not None,
+    )
+
+
+def _is_source(link: OutLink, paid: dict[str, frozenset[str]]) -> bool:
+    subjects = paid.get(link.page_url)
+    return subjects is not None and link.target_root not in subjects
+
+
+def _stale(group: list[OutLink], today: date) -> str | None:
+    """«Давнее размещение» — если все статьи со ссылкой датированы и старые.
+
+    Хоть одна статья без даты — правило молчит: незнание — не давность.
+    """
+    dates = [link.page_published for link in group]
+    known = [day for day in dates if day is not None]
+    if not known or len(known) < len(dates):
+        return None
+    freshest = max(known)
+    if freshest >= _years_before(today, cfg.STALE_YEARS):
+        return None
+    return (
+        f"давнее размещение: последняя статья {freshest:%d.%m.%Y} — "
+        f"старше {cfg.STALE_YEARS} лет, рекламодатель не нынешний"
+    )
+
+
+def _years_before(today: date, years: int) -> date:
+    # 29 февраля N лет назад бывает не всегда — тогда 28-е.
+    day = 28 if (today.month, today.day) == (2, 29) else today.day
+    return today.replace(year=today.year - years, day=day)
 
 
 def boost_across_donors(candidates: list[Candidate], seen_on: dict[str, int]) -> None:
@@ -333,10 +353,11 @@ def boost_across_donors(candidates: list[Candidate], seen_on: dict[str, int]) ->
     for candidate in candidates:
         if seen_on.get(candidate.target_root, 0) < 2 or candidate.verdict is Verdict.BLOCKED:
             continue
-        if candidate.points <= 0:
+        if not candidate.strong or candidate.stale:
             # Тот же случай, что у повторяемости: на регулятора ссылаются
-            # все доноры ниши, и «встречается у двоих» про него верно,
-            # а рекламодателем его не делает.
+            # все доноры ниши, на соседний блог — все блоги ниши, и
+            # «встречается у двоих» про них верно, а рекламодателем их не
+            # делает. Давнего усилитель в «куплено» тоже не возвращает.
             continue
         candidate.points += POINTS_REPEATED
         candidate.reasons.append(
