@@ -82,6 +82,33 @@ function addresses(): HTMLElement {
   return screen.getByRole('heading', { name: 'Адреса' }).closest('.mantine-Card-root')!;
 }
 
+describe('карточка донора: решение человека и форма', () => {
+  it('у донора видно, кто его принял, когда и в каком прогоне', async () => {
+    await openCard({ ...CARD, review_by: 'claude@site.com', review_at: '2026-10-06T10:00:00Z' });
+
+    const line = screen.getByText(/Донор: принят claude@site\.com 06\.10\.2026/);
+    expect(within(line).getByRole('link', { name: 'в очереди прогона №18' })).toHaveAttribute(
+      'href',
+      '/runs/18/review',
+    );
+  });
+
+  it('только форма — куда идти заполнять, а не один значок', async () => {
+    await openCard({ ...CARD, contact_status: 'form_only' });
+
+    const section = addresses();
+    expect(within(section).getByText(/на сайте только форма/)).toBeInTheDocument();
+    expect(within(section).getByRole('link', { name: 'открыть сайт' })).toHaveAttribute(
+      'href',
+      'https://card.example.test',
+    );
+    expect(within(section).getByRole('link', { name: '«Формы»' })).toHaveAttribute(
+      'href',
+      '/forms',
+    );
+  });
+});
+
 describe('карточка донора: адреса', () => {
   it('адрес есть — виден со ступенью, которая его дала, и кнопки поиска нет', async () => {
     await openCard({

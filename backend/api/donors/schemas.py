@@ -237,6 +237,10 @@ class DonorFullCard(BaseModel):
     #: Решение человека: `accepted` — донор, `rejected` — отклонён, пусто —
     #: кандидат, ещё не решали (`donors/standing.py`).
     review: str | None
+    #: Кто и когда решил — в карточке рядом с решением (боевой прогон 06.10:
+    #: «принят» было видно только в списке, а кем и когда — нигде).
+    review_by: str | None = None
+    review_at: datetime | None = None
     #: Прогон, в очереди которого о домене решают или решили.
     review_run: int | None
     #: На какой адрес ушло бы первое письмо, если собрать очередь сейчас, —
@@ -278,6 +282,8 @@ class DonorFullCard(BaseModel):
             ],
             contact_refusal=card.contact_refusal,
             review=donor.review,
+            review_by=donor.review_by,
+            review_at=donor.review_at,
             review_run=card.review_run,
             letter_contact_id=card.letter.contact_id,
             letter_blocked=card.letter.blocked,

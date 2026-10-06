@@ -176,15 +176,33 @@ def _answer_rules(replies: Sequence[ReplyModel]) -> _Rules:
     )
 
 
+def settled_price(replies: Sequence[ReplyModel]) -> ReplyModel | None:
+    """Ответ, чья цена — цена переписки: последний, где цена принята.
+
+    Принята — подтверждена человеком или разобрана уверенно: так же цена
+    попадает в карточку донора (`replies/repository.store_price`), и колонка
+    «Цена» в «Диалогах» с карточкой не расходится. До 06.10.2026 бралась
+    первая попавшаяся сумма в любом ответе — даже ждущем человека: в списке
+    стояло 250 $ из неподтверждённого ответа, в карточке — 150 $ из следующего.
+    """
+    settled = [
+        reply
+        for reply in replies
+        if (reply.price_white is not None or reply.price_grey is not None)
+        and not waiting_for_review(
+            reply.kind, reply.confidence, reviewed=reply.reviewed_at is not None
+        )
+    ]
+    return max(settled, key=lambda reply: (reply.created_at, reply.id or 0), default=None)
+
+
 def summarize(
     messages: Sequence[MessageModel],
     replies: Sequence[ReplyModel],
     stage: Stage = Stage.DONORS,
 ) -> ThreadSummary:
     """Свести письма и входящие в одну строку списка."""
-    priced = next(
-        (r for r in replies if r.price_white is not None or r.price_grey is not None), None
-    )
+    priced = settled_price(replies)
     human = [r for r in replies if r.kind is ReplyKind.HUMAN]
     return ThreadSummary(
         state=_state(messages, replies, stage),
