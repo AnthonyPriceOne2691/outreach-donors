@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.api.deps import db_session, needs
 from backend.api.letters.schemas import SendResult
 from backend.api.threads.schemas import AnswerBody, ThreadCard, ThreadView
+from backend.features.agent.drafts import Decider, settle_sent
 from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
 from backend.features.letters.answers import answer_reply
@@ -72,4 +73,14 @@ async def answer(
             body=body.body,
             author_id=author.id,
         )
+    # Ответ ушёл мимо кнопки черновика — черновик к нему всё равно закрыт:
+    # иначе он висел бы «ждёт человека» над уже отвеченным письмом.
+    await settle_sent(
+        session,
+        body.reply_id,
+        message_id=outcome.message_id,
+        text=body.body,
+        by=Decider(name=author.email, user_id=author.id),
+    )
+    await session.commit()
     return SendResult(id=outcome.message_id, sender_email=outcome.sender_email, real=outcome.real)

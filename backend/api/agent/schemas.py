@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, Field, StringConstraints, field_validator
 
+from backend.features.agent.drafts import ShownDraft
 from backend.features.agent.settings import AgentSettings, settings_of
-from backend.features.core.domain import Stage
+from backend.features.core.domain import DraftStatus, Stage
 from backend.features.core.models.agent import AgentSettingsModel
 
 #: Пункт списка — довод или тема. Длиннее — это уже абзац, а не пункт.
@@ -95,3 +96,79 @@ class AgentView(BaseModel):
     """Оба этапа одним ответом: экран показывает их рядом."""
 
     stages: list[AgentStageView]
+
+
+class DraftCard(BaseModel):
+    """Черновик агента под ответом собеседника.
+
+    `status`: `drafted` — готов, `escalated` — отдан человеку (как есть не
+    уходит), `skipped` — ответ не нужен, `sent` / `rejected` — решение принято.
+    `reason` — почему отдан человеку или пропущен. Пустой `body` — текста нет.
+    """
+
+    id: int
+    reply_id: int
+    thread_id: int | None
+    status: DraftStatus
+    body: str
+    reason: str | None
+    settings_version: int
+    written_at: datetime
+    decided_by: str | None
+    decided_at: datetime | None
+
+    @classmethod
+    def of(cls, shown: ShownDraft) -> DraftCard:
+        draft = shown.draft
+        return cls(
+            id=draft.id,
+            reply_id=draft.reply_id,
+            thread_id=shown.thread_id,
+            status=draft.status,
+            body=draft.body,
+            reason=draft.reason,
+            settings_version=shown.settings_version,
+            written_at=draft.updated_at,
+            decided_by=draft.decided_by,
+            decided_at=draft.decided_at,
+        )
+
+
+class DraftDetail(DraftCard):
+    """Черновик целиком: что знал этап (`meta`), что ушло и почему отклонён."""
+
+    meta: dict[str, Any]
+    model: str
+    prompt_version: str
+    tokens: int
+    final_body: str | None
+    edited: bool | None
+    reject_reason: str | None
+    sent_message_id: int | None
+
+    @classmethod
+    def of(cls, shown: ShownDraft) -> DraftDetail:
+        draft = shown.draft
+        return cls(
+            **DraftCard.of(shown).model_dump(),
+            meta=draft.meta,
+            model=draft.model,
+            prompt_version=draft.prompt_version,
+            tokens=draft.tokens,
+            final_body=draft.final_body,
+            edited=draft.edited,
+            reject_reason=draft.reject_reason,
+            sent_message_id=draft.sent_message_id,
+        )
+
+
+class SendDraftBody(BaseModel):
+    """`body` пусто — отправить как есть; иначе — текст с правкой."""
+
+    body: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)] | None = None
+
+
+class RejectDraftBody(BaseModel):
+    """Отклонить можно только с причиной: без неё — 422 словами."""
+
+    reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
