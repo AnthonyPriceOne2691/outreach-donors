@@ -23,8 +23,8 @@ from backend.features.core.domain import CrawlOutcome, StopReason, Verdict
 from backend.features.core.models.advertiser import CandidateModel
 from backend.features.core.models.ops import UsageRecordModel
 from backend.features.crawl.links import OutLink
+from backend.features.crawl.report import CrawlReport
 from backend.features.crawl.repository import save_crawl
-from backend.features.crawl.walk import CrawlReport
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tests.conftest import TEST_DSN

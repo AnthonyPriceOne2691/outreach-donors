@@ -19,8 +19,8 @@ from backend.features.core.domain import CrawlOutcome, StopReason
 from backend.features.core.models.crawl import CrawlRunModel, OutLinkModel
 from backend.features.crawl.gate import _to_link
 from backend.features.crawl.links import OutLink
+from backend.features.crawl.report import CrawlReport
 from backend.features.crawl.repository import save_crawl
-from backend.features.crawl.walk import CrawlReport
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.migration_helpers import columns_down_and_up

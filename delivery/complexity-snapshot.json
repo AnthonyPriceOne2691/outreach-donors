@@ -417,9 +417,9 @@
       "worst": "_plan:145"
     },
     "backend/cli/crawl_probe.py": {
-      "lines": 309,
+      "lines": 310,
       "complexity": 18,
-      "worst": "_print_summary:154"
+      "worst": "_print_summary:155"
     },
     "backend/cli/demo_content.py": {
       "lines": 128,
@@ -772,7 +772,7 @@
       "worst": "—"
     },
     "backend/features/core/domain.py": {
-      "lines": 251,
+      "lines": 262,
       "complexity": 0,
       "worst": "—"
     },
@@ -812,7 +812,7 @@
       "worst": "—"
     },
     "backend/features/core/models/crawl.py": {
-      "lines": 115,
+      "lines": 145,
       "complexity": 2,
       "worst": "_enum:29"
     },
@@ -906,15 +906,25 @@
       "complexity": 12,
       "worst": "_published:190"
     },
+    "backend/features/crawl/progress.py": {
+      "lines": 137,
+      "complexity": 5,
+      "worst": "of:71"
+    },
     "backend/features/crawl/promote.py": {
       "lines": 278,
       "complexity": 10,
       "worst": "promote:133"
     },
+    "backend/features/crawl/report.py": {
+      "lines": 76,
+      "complexity": 4,
+      "worst": "as_dict:48"
+    },
     "backend/features/crawl/repository.py": {
-      "lines": 72,
+      "lines": 176,
       "complexity": 3,
-      "worst": "save_crawl:26"
+      "worst": "save_crawl:59"
     },
     "backend/features/crawl/review.py": {
       "lines": 128,
@@ -942,9 +952,9 @@
       "worst": "choose:60"
     },
     "backend/features/crawl/walk.py": {
-      "lines": 482,
+      "lines": 493,
       "complexity": 8,
-      "worst": "same_site_links:135"
+      "worst": "same_site_links:75"
     },
     "backend/features/donors/__init__.py": {
       "lines": 1,
