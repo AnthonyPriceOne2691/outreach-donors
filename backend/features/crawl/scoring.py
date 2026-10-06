@@ -35,6 +35,8 @@ import logging
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
+from itertools import pairwise
+from urllib.parse import urlsplit
 
 from backend.features.core.domain import Verdict
 from backend.features.crawl.denylist import Denial, DenyReason, denial_for, is_own_brand
@@ -68,24 +70,50 @@ POINTS_PAID_LOOKING = 2
 BOUGHT_AT = 4
 REVIEW_AT = 2
 
-#: Слова, которыми размечают рекламные материалы. Ищутся в адресе
-#: страницы и в анкоре: разметка `rel` у доноров этой ниши почти
-#: не встречается, а слово в адресе раздела — встречается.
-MARKER_WORDS: tuple[str, ...] = (
-    "sponsored", "advertorial", "guest-post", "guest_post", "guestpost",
-    "partner", "paid-post", "promoted", "advertisement", "advertising",
+#: Пометка рекламного материала — **метка, а не подстрока**. Ищется словом
+#: целиком: в названии раздела адреса («/sponsored/…»), в начале адреса
+#: статьи («/sponsored-…») и в анкоре, который не адрес. Подстрокой она
+#: на финансах (06.10) дала +4 всем ссылкам статьи о компании «Partners
+#: Group» и ссылке на регулятора с «/Advertising/» в адресе — десять
+#: «купленных» из десяти оказались ложными.
+MARKER_WORDS: frozenset[str] = frozenset(
+    {"sponsored", "advertorial", "advertisement", "promoted", "guestpost"}
+)
+#: Метки из двух слов. «partner», «paid» и «guest» поодиночке — обычные
+#: слова («Partners Group», «paid off the mortgage»), меткой их делает пара.
+MARKER_PAIRS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("guest", "post"), ("guest", "posts"), ("paid", "post"), ("paid", "posts"),
+        ("partner", "content"), ("partner", "post"), ("partner", "posts"),
+        ("sponsored", "post"), ("brand", "partner"), ("paid", "content"),
+    }
 )  # fmt: skip
+#: В анкоре метка — только то, чем подписывают рекламу. «promoted» в анкоре —
+#: чаще «promoted to manager», чем подпись.
+ANCHOR_MARKERS: frozenset[str] = frozenset({"sponsored", "advertorial", "advertisement"})
 
-#: Коммерческий анкор. Список под нишу ставок и общие призывы к действию;
-#: он **не универсален** и меняется вместе с нишей — это его свойство,
-#: а не изъян.
-MONEY_WORDS: tuple[str, ...] = (
-    "bet", "bets", "betting", "casino", "bonus", "odds", "promo", "code",
-    "play", "join", "sign up", "signup", "register", "claim", "offer",
-    "deposit", "free spins", "review", "visit", "get", "now", "welcome",
-)  # fmt: skip
+#: Деньги ниши: слово коммерческое в анкоре любой длины. Список — ставок
+#: (замер 22.09); на другой нише его заводят заново — это свойство
+#: приёма, а не изъян.
+NICHE_MONEY: frozenset[str] = frozenset(
+    {"bet", "bets", "betting", "casino", "bonus", "odds", "promo", "deposit"}
+)
+NICHE_PHRASES: tuple[str, ...] = ("free spins",)
+#: Призыв к действию коммерческий **только в коротком анкоре**: «Play now»,
+#: «Claim offer», «Sign up today». В редакционной фразе те же слова —
+#: просто слова: «Crack the Code to Wealth», «How to get started with real
+#: estate investing» (финансы, 06.10). «get» и «now» сами по себе не призыв:
+#: «HBO Now», «(he's 15 now!)».
+CTA_WORDS: frozenset[str] = frozenset(
+    {"play", "join", "signup", "register", "claim", "offer", "visit", "review", "code", "welcome"}
+)
+CTA_PHRASES: tuple[str, ...] = ("sign up",)
+CTA_MAX_WORDS = 4
 
 _WORD = re.compile(r"[a-z0-9]+")
+#: Анкор — сам адрес: «http://…», «www.…», «tradingview.com». Слова внутри
+#: адреса («/Advertising/», «code.google.com») не текст ссылки.
+_ADDRESS = re.compile(r"^(?:https?://|www\.)\S+$|^[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:/\S*)?$", re.I)
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,26 +138,61 @@ class Candidate:
     best_link: OutLink | None = None
 
 
-def _words(text: str) -> set[str]:
-    return set(_WORD.findall(text.lower()))
+def _tokens(text: str) -> list[str]:
+    return _WORD.findall(text.lower())
+
+
+def is_address(anchor: str) -> bool:
+    """Анкор — это адрес, а не текст: «http://…», «www.…», «app.dealroom.co»."""
+    return bool(_ADDRESS.match(anchor.strip()))
+
+
+def _has_mark(tokens: list[str], words: frozenset[str]) -> bool:
+    return any(token in words for token in tokens) or any(
+        pair in MARKER_PAIRS for pair in pairwise(tokens)
+    )
+
+
+def _starts_with_mark(tokens: list[str]) -> bool:
+    return bool(tokens) and (tokens[0] in MARKER_WORDS or tuple(tokens[:2]) in MARKER_PAIRS)
+
+
+def _marked_address(page_url: str) -> bool:
+    """Раздел адреса — метка («/sponsored/», «/partner-content/»), или адрес
+    статьи с неё начинается («/sponsored-best-loans»). Слово в середине
+    адреса статьи — её тема, а не метка: «/partners-group-…»."""
+    segments = [s for s in urlsplit(page_url).path.split("/") if s]
+    if not segments:
+        return False
+    sections, slug = segments[:-1], segments[-1]
+    return any(_has_mark(_tokens(s), MARKER_WORDS) for s in sections) or _starts_with_mark(
+        _tokens(slug)
+    )
 
 
 def has_marker(link: OutLink) -> bool:
-    """Материал помечен рекламным — в адресе страницы или в анкоре."""
-    haystack = f"{link.page_url} {link.anchor}".lower()
-    return any(word in haystack for word in MARKER_WORDS)
+    """Материал помечен рекламным: раздел или начало адреса страницы, подпись в анкоре."""
+    if _marked_address(link.page_url):
+        return True
+    return not is_address(link.anchor) and _has_mark(_tokens(link.anchor), ANCHOR_MARKERS)
 
 
 def is_commercial_anchor(anchor: str) -> bool:
-    """Анкор зовёт к действию или называет товар.
+    """Анкор зовёт к действию или называет товар ниши.
 
     Проверяется по словам, а не подстрокой: подстрока `bet` живёт внутри
-    `better`, `alphabet` и десятка обычных слов, и без разбиения
-    коммерческим оказывался любой текст.
+    `better`, `alphabet` и десятка обычных слов. Деньги ниши коммерческие
+    в любом анкоре, призыв — только в коротком: в длинной редакционной
+    фразе «get» и «code» ничего не продают. Анкор-адрес текстом не считается.
     """
-    return bool(_words(anchor) & set(MONEY_WORDS)) or any(
-        phrase in anchor.lower() for phrase in ("sign up", "free spins")
-    )
+    if is_address(anchor):
+        return False
+    text = anchor.lower()
+    words = _tokens(text)
+    if set(words) & NICHE_MONEY or any(phrase in text for phrase in NICHE_PHRASES):
+        return True
+    short = len(words) <= CTA_MAX_WORDS
+    return short and (bool(set(words) & CTA_WORDS) or any(p in text for p in CTA_PHRASES))
 
 
 def score_link(link: OutLink) -> LinkScore:

@@ -917,9 +917,9 @@
       "worst": "_collect_groups:199"
     },
     "backend/features/crawl/scoring.py": {
-      "lines": 255,
+      "lines": 318,
       "complexity": 10,
-      "worst": "score_link:135"
+      "worst": "score_link:198"
     },
     "backend/features/crawl/sitemap.py": {
       "lines": 219,

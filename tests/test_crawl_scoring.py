@@ -17,6 +17,8 @@ from backend.features.crawl.scoring import (
     BOUGHT_AT,
     REVIEW_AT,
     boost_across_donors,
+    has_marker,
+    is_address,
     is_commercial_anchor,
     score_candidates,
     score_link,
@@ -130,6 +132,88 @@ class TestCommercialAnchor:
 
     def test_plain_text_is_not_commercial(self) -> None:
         assert is_commercial_anchor("подробнее об истории клуба") is False
+
+
+class TestOtherNicheFalsePositives:
+    """Боевой обход двух финансовых площадок 06.10: «куплена — пишем» вышло
+    10 из 10 ложных, спорных 7 из 7. Каждый класс ошибки — отдельной проверкой,
+    рядом — то, что метка и призыв по-прежнему ловятся."""
+
+    def test_a_company_name_in_the_article_address_is_not_a_label(self) -> None:
+        """Статья о компании «Partners Group»: подстрока «partner» дала +4
+        каждой ссылке страницы — Google, TradingView, Dealroom."""
+        page = f"https://{DONOR}/partners-group-managed-investment-trust-heads-liquidation/"
+
+        assert has_marker(_link(page=page)) is False
+
+    def test_a_label_is_a_section_or_the_start_of_the_address(self) -> None:
+        for page in (
+            f"https://{DONOR}/sponsored/best-loans",
+            f"https://{DONOR}/partner-content/best-loans",
+            f"https://{DONOR}/guest-posts/best-loans",
+            f"https://{DONOR}/sponsored-best-loans",
+        ):
+            assert has_marker(_link(page=page)) is True, page
+
+    def test_a_word_inside_an_address_anchor_is_not_a_label(self) -> None:
+        """Ссылка на регулятора: «/Advertising/» в анкоре-адресе дал +4."""
+        link = _link(
+            root="regulator.org", anchor="http://www.regulator.org/Industry/Advertising/p1"
+        )
+
+        assert has_marker(link) is False
+        assert is_commercial_anchor(link.anchor) is False
+
+    def test_a_signed_anchor_is_a_label(self) -> None:
+        assert has_marker(_link(anchor="Sponsored by Acme Loans")) is True
+
+    def test_an_address_anchor_is_not_text(self) -> None:
+        for anchor in ("http://code.example.com/p/budget/", "www.example.com", "app.dealroom.co"):
+            assert is_address(anchor) is True, anchor
+        assert is_address("Betway") is False
+        assert is_address("Sign up today") is False
+
+    def test_a_short_address_anchor_is_not_a_call(self) -> None:
+        """Ссылка на приложение в магазине: «play» внутри адреса — не призыв."""
+        assert is_commercial_anchor("play.google.com") is False
+        assert is_commercial_anchor("https://visit.example.com") is False
+
+    def test_call_words_inside_an_editorial_phrase_sell_nothing(self) -> None:
+        """«get», «code», «now» в редакционной фразе: книга на маркетплейсе,
+        фото со стока, старая статья о сериале — все были «куплены»."""
+        for anchor in (
+            "The Millionaire Fastlane: Crack the Code to Wealth and Live Rich",
+            "How to get started with real estate investing",
+            "HBO Now",
+            "(he's 15 now!)",
+        ):
+            assert is_commercial_anchor(anchor) is False, anchor
+
+    def test_a_short_call_still_sells(self) -> None:
+        for anchor in ("Play now", "Visit site", "Claim offer", "Use code"):
+            assert is_commercial_anchor(anchor) is True, anchor
+
+    def test_niche_money_sells_at_any_length(self) -> None:
+        assert is_commercial_anchor("the best welcome bonus of the season in one place") is True
+
+    def test_a_sitewide_button_on_every_article_is_not_bought(self) -> None:
+        """Кнопка «Add as preferred source on Google» на 199 статьях одного донора
+        и на втором доноре: подстрока «partner» в адресе одной статьи дала +4,
+        повторяемость +3, второй донор +3 — десять баллов."""
+        links = [
+            _link(
+                root="google.com",
+                anchor="Add as preferred source on Google",
+                page=f"https://{DONOR}/partners-group-story-{n}/",
+            )
+            for n in range(199)
+        ]
+
+        candidate = score_candidates(links, donor_root=DONOR)[0]
+        boost_across_donors([candidate], {"google.com": 2})
+
+        assert candidate.points == 0
+        assert candidate.verdict is Verdict.SKIPPED
 
 
 class TestDenyList:
