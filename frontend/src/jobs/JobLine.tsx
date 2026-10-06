@@ -46,8 +46,19 @@ export function JobOutcome({ job }: { job: JobCard }) {
   );
 }
 
-/** Следит за задачей по номеру и говорит, когда она кончилась. */
-export function JobLine({ jobId, onFinished }: { jobId: string; onFinished?: () => void }) {
+/** Следит за задачей по номеру и говорит, когда она кончилась.
+ *
+ *  `describe` — итог законченной задачи словами из её отчёта: «ушло 12,
+ *  стоп-лист — 1, осталось 3». Без него строка говорит только исход. */
+export function JobLine({
+  jobId,
+  onFinished,
+  describe,
+}: {
+  jobId: string;
+  onFinished?: () => void;
+  describe?: (report: Record<string, unknown>) => string | null;
+}) {
   const { data } = useQuery({
     queryKey: ['job', jobId],
     queryFn: () => fetchJob(jobId),
@@ -67,5 +78,12 @@ export function JobLine({ jobId, onFinished }: { jobId: string; onFinished?: () 
     }
   }, [finished, jobId, onFinished]);
 
-  return data ? <JobOutcome job={data} /> : null;
+  if (!data) return null;
+  const said = data.state === 'done' && data.report && describe ? describe(data.report) : null;
+  return (
+    <>
+      <JobOutcome job={data} />
+      {said ? <Text size="sm">{said}</Text> : null}
+    </>
+  );
 }

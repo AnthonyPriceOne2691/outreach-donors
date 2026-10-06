@@ -60,6 +60,7 @@ import { THREAD_STATES } from '../api/labels';
 import { listThreads } from '../api/outreach';
 import type { ThreadCard, ThreadState } from '../api/types';
 import { usePageParam } from '../components/PageSwitch';
+import { Seams } from '../components/Seams';
 import { useTyped } from '../donors/useTyped';
 import { formatDateTime, formatMoney, formatNumber } from '../format';
 import { ParseCalibration } from './ParseCalibration';
@@ -370,7 +371,7 @@ export function ThreadsPage() {
                           className="cellName"
                           onClick={(event) => event.stopPropagation()}
                         >
-                          {thread.host}
+                          <Seams text={thread.host} />
                         </Anchor>
                         <Text size="xs" c="dimmed" className="cellName">
                           {thread.contact_email ?? 'адрес не определён'}

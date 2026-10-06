@@ -187,12 +187,12 @@
       "worst": "—"
     },
     "backend/api/letters/routes.py": {
-      "lines": 221,
+      "lines": 254,
       "complexity": 5,
-      "worst": "build:79"
+      "worst": "build:85"
     },
     "backend/api/letters/schemas.py": {
-      "lines": 263,
+      "lines": 278,
       "complexity": 5,
       "worst": "followups_for:87"
     },
@@ -1166,6 +1166,11 @@
       "complexity": 2,
       "worst": "next_address_note:100"
     },
+    "backend/features/letters/batch.py": {
+      "lines": 152,
+      "complexity": 4,
+      "worst": "why:92"
+    },
     "backend/features/letters/building.py": {
       "lines": 404,
       "complexity": 7,
@@ -1297,9 +1302,9 @@
       "worst": "—"
     },
     "backend/features/ops/job_outcome.py": {
-      "lines": 175,
+      "lines": 177,
       "complexity": 10,
-      "worst": "_outcome:116"
+      "worst": "_outcome:118"
     },
     "backend/features/ops/overview.py": {
       "lines": 269,
@@ -1727,9 +1732,9 @@
       "worst": "split_url:25"
     },
     "backend/shared/queue.py": {
-      "lines": 298,
+      "lines": 299,
       "complexity": 7,
-      "worst": "job_alive:218"
+      "worst": "job_alive:219"
     },
     "backend/shared/sliding_window.py": {
       "lines": 75,
@@ -1780,6 +1785,11 @@
       "lines": 133,
       "complexity": 4,
       "worst": "_told:92"
+    },
+    "backend/workers/send_jobs.py": {
+      "lines": 42,
+      "complexity": 1,
+      "worst": "send_letter_queue:26"
     },
     "backend/workers/ticker.py": {
       "lines": 69,

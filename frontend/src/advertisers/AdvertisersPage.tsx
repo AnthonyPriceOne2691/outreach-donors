@@ -57,7 +57,9 @@ import { useSession } from '../auth/AuthProvider';
 import { formatDate, formatNumber, plural } from '../format';
 import type { Column } from '../components/ColumnsHead';
 import { ColumnsHead } from '../components/ColumnsHead';
+import { Seams } from '../components/Seams';
 import { CrawlPanel } from './CrawlPanel';
+import { LinkAnchor } from './LinkAnchor';
 import { PromotePanel } from './PromotePanel';
 
 const QUERY_KEY = ['advertisers'] as const;
@@ -280,7 +282,7 @@ export function AdvertisersPage() {
                         underline="hover"
                         className="cellName"
                       >
-                        {row.target_root}
+                        <Seams text={row.target_root} />
                       </Anchor>
                       {row.confirmed !== null ? (
                         <Text size="xs" c="dimmed" className="cellName">
@@ -288,7 +290,9 @@ export function AdvertisersPage() {
                         </Text>
                       ) : null}
                     </Table.Td>
-                    <Table.Td className="wrapCell cellName">{row.donor_host}</Table.Td>
+                    <Table.Td className="wrapCell cellName">
+                      <Seams text={row.donor_host} />
+                    </Table.Td>
                     <Table.Td>
                       <Badge variant="light" color={VERDICTS[row.verdict].color}>
                         {row.points}
@@ -320,11 +324,7 @@ export function AdvertisersPage() {
                       ) : (
                         '—'
                       )}
-                      {row.best_anchor ? (
-                        <Text size="xs" c="dimmed" className="cellName">
-                          анкор: {row.best_anchor}
-                        </Text>
-                      ) : null}
+                      {row.best_anchor ? <LinkAnchor anchor={row.best_anchor} /> : null}
                       {row.best_published ? (
                         <Text size="xs" c="dimmed">
                           статья от {formatDate(row.best_published)}
