@@ -53,6 +53,8 @@ async def save_crawl(session: AsyncSession, report: CrawlReport) -> CrawlRunMode
             ugc=link.ugc,
             in_body=link.in_body,
             root_guessed=link.root_guessed,
+            page_label=link.page_label,
+            page_published=link.page_published,
         )
         for link in report.links
     ]

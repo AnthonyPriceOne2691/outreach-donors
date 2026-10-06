@@ -67,6 +67,13 @@ class CandidateModel(TimestampedMixin, Base):
     decided_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # DR домена и когда его спросили (`crawl/big_sites.py`, «DR > 80 — не
+    # пишем»). Переносится при пересчёте, как решение человека: пересчёт
+    # весов не должен стоить юнитов. `dr_checked_at` пусто — не спрашивали;
+    # заполнено при пустом `dr` — спросили, а провайдер домена не знает.
+    dr: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    dr_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     __table_args__ = (
         Index("idx_candidates_run", "crawl_run_id"),
         Index("idx_candidates_verdict", "verdict"),

@@ -433,6 +433,96 @@ class TestSitemap:
         assert seen == []
         assert scan.urls == []
 
+    async def test_fresh_pages_come_first(self) -> None:
+        """Свежие — первыми, без даты — после, в порядке карты. Потолок
+        страниц меньше сайта: в каком порядке адреса, такие статьи и увидим."""
+        body = (
+            "<urlset>"
+            "<url><loc>https://donor.test/old</loc><lastmod>2013-05-01</lastmod></url>"
+            "<url><loc>https://donor.test/undated-1</loc></url>"
+            "<url><loc>https://donor.test/new</loc><lastmod>2026-10-01T03:40:59+00:00</lastmod></url>"
+            "<url><loc>https://donor.test/undated-2</loc></url>"
+            "<url><loc>https://donor.test/mid</loc><lastmod>2020-01-01</lastmod></url>"
+            "</urlset>"
+        )
+
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, text=body)
+
+        reader, client = self._reader(handler)
+        async with client:
+            scan = await reader.scan("donor.test", "https://donor.test/", [])
+
+        assert scan.urls == [
+            "https://donor.test/new",
+            "https://donor.test/mid",
+            "https://donor.test/old",
+            "https://donor.test/undated-1",
+            "https://donor.test/undated-2",
+        ]
+
+    async def test_cap_keeps_the_freshest(self) -> None:
+        """Карта от старых к новым и потолок адресов: срезаны должны быть
+        старые, а не как раз свежие."""
+        entries = "".join(
+            f"<url><loc>https://donor.test/{year}</loc><lastmod>{year}-01-01</lastmod></url>"
+            for year in range(2001, 2027)
+        )
+
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, text=f"<urlset>{entries}</urlset>")
+
+        reader, client = self._reader(handler, max_urls=3)
+        async with client:
+            scan = await reader.scan("donor.test", "https://donor.test/", [])
+
+        assert scan.urls == [
+            "https://donor.test/2026",
+            "https://donor.test/2025",
+            "https://donor.test/2024",
+        ]
+
+    async def test_freshest_child_map_is_read_first(self) -> None:
+        """Индекс перечисляет файлы от старых к новым: читать надо новый."""
+        asked: list[str] = []
+        index = (
+            "<sitemapindex>"
+            "<sitemap><loc>https://donor.test/post-1.xml</loc><lastmod>2012-01-01</lastmod></sitemap>"
+            "<sitemap><loc>https://donor.test/post-2.xml</loc><lastmod>2026-09-30</lastmod></sitemap>"
+            "</sitemapindex>"
+        )
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            asked.append(request.url.path)
+            if request.url.path == "/sitemap.xml":
+                return httpx.Response(200, text=index)
+            return httpx.Response(200, text=_urlset(f"https://donor.test{request.url.path}.page"))
+
+        reader, client = self._reader(handler)
+        async with client:
+            await reader.scan("donor.test", "https://donor.test/", [])
+
+        assert asked == ["/sitemap.xml", "/post-2.xml", "/post-1.xml"]
+
+    async def test_news_map_date_counts(self) -> None:
+        body = (
+            "<urlset>"
+            "<url><loc>https://donor.test/a</loc>"
+            "<news:news><news:publication_date>2026-10-05T10:00:00Z</news:publication_date></news:news></url>"
+            "<url><loc>https://donor.test/b</loc>"
+            "<news:news><news:publication_date>2026-10-06T10:00:00Z</news:publication_date></news:news></url>"
+            "</urlset>"
+        )
+
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, text=body)
+
+        reader, client = self._reader(handler)
+        async with client:
+            scan = await reader.scan("donor.test", "https://donor.test/", [])
+
+        assert scan.urls == ["https://donor.test/b", "https://donor.test/a"]
+
     async def test_packed_map_is_unpacked(self) -> None:
         packed = gzip.compress(_urlset("https://donor.test/a").encode())
 

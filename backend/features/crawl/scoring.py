@@ -136,6 +136,9 @@ class Candidate:
     pages: int = 0
     denial: Denial | None = None
     best_link: OutLink | None = None
+    #: DR домена, если его спрашивали (`big_sites`); `None` — не спрашивали
+    #: или провайдер домена не знает.
+    dr: int | None = None
 
 
 def _tokens(text: str) -> list[str]:
@@ -170,11 +173,35 @@ def _marked_address(page_url: str) -> bool:
     )
 
 
+def names_a_mark(text: str) -> bool:
+    """Текст называет метку рекламы словом: «Sponsored», «Partner Content», «guest-posts».
+
+    Тот же словарь, что у адреса страницы, — для рубрик и разделов, которые
+    сайт пишет в разметке (`page_facts`).
+    """
+    return _has_mark(_tokens(text), MARKER_WORDS)
+
+
+def marker_reason(link: OutLink) -> str | None:
+    """Чем материал помечен рекламным, или `None`.
+
+    Пометка статьи — раздел её адреса или то, что сайт сказал о ней сам, —
+    достаётся только ссылкам **из тела**. Рядом со статьёй лежит то, что
+    стоит на каждой странице сайта, и проданным в этой статье оно не стало.
+    Подпись в анкоре — свойство самой ссылки, где бы она ни стояла.
+    """
+    if link.in_body and _marked_address(link.page_url):
+        return "раздел адреса статьи"
+    if link.in_body and link.page_label:
+        return f"статья помечена: {link.page_label}"
+    if not is_address(link.anchor) and _has_mark(_tokens(link.anchor), ANCHOR_MARKERS):
+        return "подпись в анкоре"
+    return None
+
+
 def has_marker(link: OutLink) -> bool:
-    """Материал помечен рекламным: раздел или начало адреса страницы, подпись в анкоре."""
-    if _marked_address(link.page_url):
-        return True
-    return not is_address(link.anchor) and _has_mark(_tokens(link.anchor), ANCHOR_MARKERS)
+    """Материал помечен рекламным (см. `marker_reason`)."""
+    return marker_reason(link) is not None
 
 
 def is_commercial_anchor(anchor: str) -> bool:
@@ -207,9 +234,10 @@ def score_link(link: OutLink) -> LinkScore:
     if link.sponsored:
         points += POINTS_REL_SPONSORED
         reasons.append(f"rel=sponsored +{POINTS_REL_SPONSORED}")
-    if has_marker(link):
+    marked = marker_reason(link)
+    if marked is not None:
         points += POINTS_MARKER
-        reasons.append(f"пометка рекламного материала +{POINTS_MARKER}")
+        reasons.append(f"пометка рекламного материала ({marked}) +{POINTS_MARKER}")
 
     commercial = is_commercial_anchor(link.anchor)
     if link.dofollow and link.in_body and commercial:

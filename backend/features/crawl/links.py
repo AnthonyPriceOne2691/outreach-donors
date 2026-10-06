@@ -16,6 +16,11 @@
    и ключ сравнения.
 4. **Ссылка из меню — не размещение.** Решается тем, что сюда приходит
    уже выделенное тело статьи (`article.py`), а не страница целиком.
+5. **Кнопка «поделиться» — не ссылка.** Она ведёт в соцсеть и несёт
+   в параметрах адрес самой статьи. На боевом обходе двух финансовых
+   площадок такие кнопки дали ~2 000 ссылок из 4 177, и все — «в теле»:
+   кандидатов-соцсетей больше, чем всех остальных вместе. Выбрасываются
+   при сборе, число — в отчёт обхода (`is_share_button`).
 
 **Считаем внешними ссылки на чужой корневой домен.** Поддомен донора —
 это он сам; ссылка с `blog.donor.test` на `donor.test` рекламодателя
@@ -35,13 +40,14 @@ import logging
 import re
 import unicodedata
 from dataclasses import dataclass
-from urllib.parse import urldefrag
+from datetime import date
+from urllib.parse import unquote, urldefrag
 
 from selectolax.parser import HTMLParser, Node
 
 from backend.features.crawl.article import extract_article, strip_structural_noise
 from backend.features.donors.host import normalize_host
-from backend.shared.net.url_parts import join_url, parse_url
+from backend.shared.net.url_parts import join_url, parse_url, split_url
 
 logger = logging.getLogger(__name__)
 
@@ -59,10 +65,27 @@ _SKIP_SCHEMES = ("mailto:", "tel:", "javascript:", "sms:", "data:", "ftp:")
 #: абзаца, и в базе от неё пользы нет, а место она займёт.
 MAX_ANCHOR_CHARS = 300
 
+#: Разделы адреса, которыми соцсети и закладки принимают «поделиться»:
+#: `/sharer/sharer.php`, `/shareArticle`, `/sharing/share-offsite`,
+#: `/intent/tweet`, `/intent/compose`, `/submit`, `/bookmarklet/…`,
+#: `/pin/create/…`, `/send`, `/share/url`. Сравнивается раздел целиком,
+#: без расширения: `/send-money/` и `/shares/` — разделы сайта, а не кнопки.
+SHARE_SEGMENTS: frozenset[str] = frozenset(
+    {
+        "share", "sharer", "sharearticle", "share-offsite", "sharing", "intent",
+        "submit", "submitlink", "bookmarklet", "compose", "send", "pin",
+    }
+)  # fmt: skip
+
 
 @dataclass(frozen=True, slots=True)
 class OutLink:
-    """Одна исходящая ссылка из тела статьи."""
+    """Одна исходящая ссылка из тела статьи.
+
+    `page_label` и `page_published` — про статью, а не про ссылку: чем
+    статья помечена сама («рубрика sponsored», «This post is sponsored by…»)
+    и когда вышла. Снимаются со страницы, пока она в памяти (`page_facts`).
+    """
 
     page_url: str
     url: str
@@ -75,6 +98,8 @@ class OutLink:
     ugc: bool
     root_guessed: bool = False
     in_body: bool = True
+    page_label: str | None = None
+    page_published: date | None = None
 
     @property
     def dofollow(self) -> bool:
@@ -163,14 +188,53 @@ def _is_ip_literal(host: str) -> bool:
     return ":" in host or host.replace(".", "").isdigit()
 
 
+def _carries_site_address(href: str, site_root: str) -> bool:
+    """В ссылке — адрес самого донора: `?u=https://donor.com/post`.
+
+    Адрес внутри адреса кодируют один раз, а бывает и два — раскрывается
+    дважды. Ищется именно адрес со схемой: `utm_source=donor.com` у ссылки
+    рекламодателя — метка источника, а не «поделиться».
+    """
+    text = unquote(unquote(href))
+    own = re.compile(rf"https?://(?:[a-z0-9-]+\.)*{re.escape(site_root)}(?![a-z0-9.-])", re.I)
+    return own.search(text) is not None
+
+
+def is_share_button(href: str, absolute: str, site_root: str) -> bool:
+    """Кнопка «поделиться»: путь — приёмник соцсети, а в параметрах — адрес донора.
+
+    Нужны оба признака. Одного пути мало: у рекламодателя бывает раздел
+    `/submit`. Одного адреса донора мало: трекер рекламной сети тоже
+    несёт страницу-источник (`/click?ref=https://donor.com/…`) — а это
+    как раз размещение. Список соцсетей не нужен: правило одно для всех,
+    включая те, что появятся завтра.
+    """
+    parts = split_url(absolute)
+    if parts is None:
+        return False
+    segments = {s.lower().split(".")[0] for s in parts.path.split("/") if s}
+    host = (parts.hostname or "").lower()
+    if not (segments & SHARE_SEGMENTS or host.startswith("share.")):
+        return False
+    return _carries_site_address(href, site_root)
+
+
 def collect_links(
-    body: Node, page_url: str, site_host: str, *, in_body: bool = True
+    body: Node,
+    page_url: str,
+    site_host: str,
+    *,
+    in_body: bool = True,
+    shares: set[str] | None = None,
 ) -> list[OutLink]:
     """Внешние ссылки из тела статьи, по одной на адрес.
 
     Дедуп внутри страницы намеренный: статья, ссылающаяся на один домен
     трижды, — это одно размещение, а не три. Сколько раз он встречается
     на всём доноре, считается уровнем выше.
+
+    Кнопки «поделиться» не попадают в ссылки, а складываются в `shares`,
+    если его передали: выброшенное должно быть видно в отчёте числом.
     """
     site_root = normalize_host(site_host) or site_host.lower().removeprefix("www.")
     seen: set[str] = set()
@@ -194,6 +258,10 @@ def collect_links(
         if not _is_external(target_root, target_host, site_root) or absolute in seen:
             continue
         seen.add(absolute)
+        if is_share_button(href, absolute, site_root):
+            if shares is not None:
+                shares.add(absolute)
+            continue
 
         rel = parse_rel(node.attributes.get("rel"))
         anchor = anchor_text(node)
@@ -215,8 +283,13 @@ def collect_links(
     return out
 
 
-def harvest(html: str, page_url: str, site_host: str) -> list[OutLink]:
+def harvest(
+    html: str, page_url: str, site_host: str, *, shares: set[str] | None = None
+) -> list[OutLink]:
     """Все внешние ссылки страницы, с пометкой «в теле статьи или вне».
+
+    Кнопки «поделиться» выбрасываются в обоих проходах и складываются
+    в `shares` — одним множеством, чтобы кнопка не считалась дважды.
 
     **Почему не только из тела, хотя требование говорит именно так.**
     Требование объясняет себя: ссылки навигации и подвала дают ложных
@@ -237,7 +310,7 @@ def harvest(html: str, page_url: str, site_host: str) -> list[OutLink]:
     body_urls: set[str] = set()
     out: list[OutLink] = []
     if article is not None:
-        out = collect_links(article.node, page_url, site_host)
+        out = collect_links(article.node, page_url, site_host, shares=shares)
         body_urls = {link.url for link in out}
 
     tree = HTMLParser(html)
@@ -246,7 +319,7 @@ def harvest(html: str, page_url: str, site_host: str) -> list[OutLink]:
     if root is None:
         return out
 
-    for link in collect_links(root, page_url, site_host, in_body=False):
+    for link in collect_links(root, page_url, site_host, in_body=False, shares=shares):
         if link.url not in body_urls:
             out.append(link)
     return out

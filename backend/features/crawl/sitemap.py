@@ -20,6 +20,14 @@
    Нам нужны только адреса из `<loc>`, и выражение достаёт их, ничего
    не раскрывая. Заодно оно переживает сломанную разметку, которой
    у доноров хватает.
+
+**Свежие — первыми.** Размещения покупают сейчас, а потолок страниц
+меньше сайта: в каком порядке карта отдала адреса, в таком обход
+их и откроет. Поэтому и дочерние карты индекса, и адреса страниц
+идут по дате (`<lastmod>`, у новостной карты — `<news:publication_date>`),
+от новой к старой; без даты — после датированных, в порядке карты.
+Дата правки — не дата выхода: бывает, что сайт обновил её у всех
+статей разом. Настоящая дата статьи снимается со страницы (`page_facts`).
 """
 
 from __future__ import annotations
@@ -50,6 +58,13 @@ COMMON_PATHS: tuple[str, ...] = (
 
 _LOC = re.compile(r"<loc>\s*(?:<!\[CDATA\[)?\s*([^<\]\s]+)\s*(?:\]\]>)?\s*</loc>", re.IGNORECASE)
 _IS_INDEX = re.compile(r"<sitemapindex", re.IGNORECASE)
+#: Запись карты целиком — чтобы сопоставить адрес с его датой. Адреса
+#: по-прежнему берутся `_LOC`: запись с битой разметкой даты не даст,
+#: но адрес из неё не потеряется.
+_ENTRY = re.compile(r"<(?:url|sitemap)\b[^>]*>(.*?)</(?:url|sitemap)>", re.IGNORECASE | re.DOTALL)
+_DAY = re.compile(
+    r"<(?:lastmod|news:publication_date)>\s*(?:<!\[CDATA\[)?\s*(\d{4}-\d{2}-\d{2})", re.IGNORECASE
+)
 
 #: Сколько байт одного файла читаем. Карта на десятки мегабайт бывает,
 #: но потолок адресов всё равно кончится раньше.
@@ -68,6 +83,9 @@ class SitemapScan:
     found: bool | None = False
     files_read: int = 0
     truncated: bool = False
+    #: День записи карты по адресу (`YYYY-MM-DD`): по нему адреса идут
+    #: от свежих к старым.
+    days: dict[str, str] = field(default_factory=dict)
 
     @property
     def complete(self) -> bool:
@@ -85,6 +103,25 @@ def _decode(response: httpx.Response, url: str) -> str | None:
             logger.warning("sitemap: %s не распаковался (%r)", url, exc)
             return None
     return response.text
+
+
+def _days(text: str) -> dict[str, str]:
+    """Адрес записи → её день. Записи без даты в словарь не попадают."""
+    days: dict[str, str] = {}
+    for entry in _ENTRY.finditer(text):
+        loc, day = _LOC.search(entry.group(1)), _DAY.search(entry.group(1))
+        if loc is not None and day is not None:
+            days[loc.group(1).strip()] = day.group(1)
+    return days
+
+
+def freshest_first(urls: list[str], days: dict[str, str]) -> list[str]:
+    """Сначала датированные, от новой к старой; без даты — после, в порядке карты.
+
+    Сортировка устойчивая: адреса с одной датой (индекс, где у всех
+    файлов одна дата сборки) остаются в порядке, в котором их дал сайт.
+    """
+    return sorted(urls, key=lambda url: (url in days, days.get(url, "")), reverse=True)
 
 
 def _same_site(url: str, host: str) -> bool:
@@ -161,7 +198,12 @@ class SitemapReader:
                 continue
             scan.files_read += 1
             if stop_on_first:
+                # Один раз: убираются только угаданные адреса. Найдено тестом
+                # 06.10: очередь чистилась после КАЖДОГО прочитанного файла,
+                # и из индекса читался только первый дочерний — у донора
+                # с 75 картами обход видел одну новостную.
                 queue.clear()
+                stop_on_first = False
             self._absorb(text, scan, queue, host)
 
         # Прочитанный файл без адресов — это всё-таки прочитанная карта:
@@ -170,6 +212,7 @@ class SitemapReader:
             scan.found = True
         if queue:
             scan.truncated = True
+        scan.urls = freshest_first(scan.urls, scan.days)
         return scan
 
     async def _read(self, host: str, url: str, scan: SitemapScan) -> str | None:
@@ -196,9 +239,10 @@ class SitemapReader:
         if not locations:
             logger.info("sitemap: файл без единого <loc> — разметка не та, что ожидали")
             return
+        days = _days(text)
 
         if _IS_INDEX.search(text):
-            queue.extend(locations)
+            queue.extend(freshest_first(locations, days))
             return
 
         # Чужой или битый адрес страницы в очередь не идёт: по чужому сайту
@@ -212,7 +256,12 @@ class SitemapReader:
                 len(locations) - len(pages),
             )
 
+        # Свежие — до среза потолком: иначе потолок отрезал бы как раз их,
+        # если карта перечисляет статьи от старых к новым.
+        pages = freshest_first(pages, days)
         room = self._max_urls - len(scan.urls)
         if len(pages) > room:
             scan.truncated = True
-        scan.urls.extend(pages[:room])
+        kept = pages[:room]
+        scan.urls.extend(kept)
+        scan.days.update((url, days[url]) for url in kept if url in days)

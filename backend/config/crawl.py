@@ -19,17 +19,21 @@ from backend.config._base import DomainSettings
 
 class _Crawl(DomainSettings):
     # --- Границы обхода одного донора ---
-    # Потолок открытых страниц. Требование называет 1 000 на рабочем
-    # объёме; умолчание ниже — замер идёт по нескольким донорам подряд.
-    max_pages_per_donor: int = Field(default=200, validation_alias="CRAWL_MAX_PAGES")
+    # Три потолка двигаются вместе: поднятый один упирается в другой.
+    # Потолок открытых страниц — 1 000, как в требовании. До 06.10.2026
+    # умолчание было 200 «для замера», и боевой обход шёл по нему же:
+    # на проде настройки не заданы, оба донора встали ровно на 200.
+    max_pages_per_donor: int = Field(default=1_000, validation_alias="CRAWL_MAX_PAGES")
     # Потолок попыток. Считается отдельно от открытых страниц: сайт может
     # отвечать отказом на большинство адресов из sitemap, и общий счётчик
-    # заканчивался бы на них, не дойдя до живых.
-    max_attempts_per_donor: int = Field(default=400, validation_alias="CRAWL_MAX_ATTEMPTS")
+    # заканчивался бы на них, не дойдя до живых. Вдвое больше страниц.
+    max_attempts_per_donor: int = Field(default=2_000, validation_alias="CRAWL_MAX_ATTEMPTS")
     # Потолок времени на донора. Чекпоинт по времени, а не по страницам:
     # чекпоинт «каждые 10 000 страниц» при лимите 1 000 не сработает ни
     # разу: чекпоинт в требовании больше, чем весь краул одного донора.
-    max_seconds_per_donor: float = Field(default=600.0, validation_alias="CRAWL_MAX_SECONDS")
+    # Час: боевой обход шёл ~1,4 с на страницу (200 за 259–297 с), то есть
+    # 1 000 страниц — около 25 минут; прежние 10 минут обрывали бы на ~400.
+    max_seconds_per_donor: float = Field(default=3_600.0, validation_alias="CRAWL_MAX_SECONDS")
     # Страницы больше этого размера не разбираем.
     max_page_bytes: int = Field(default=3_000_000, validation_alias="CRAWL_MAX_PAGE_BYTES")
     page_timeout_sec: float = Field(default=15.0, validation_alias="CRAWL_PAGE_TIMEOUT_SEC")

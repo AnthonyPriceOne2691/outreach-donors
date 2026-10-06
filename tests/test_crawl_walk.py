@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 import httpx
@@ -513,6 +514,29 @@ class TestHarvest:
         assert len(report.pages) == 1
         assert report.articles == 0
         assert report.links == []
+
+    async def test_article_facts_travel_with_its_links(self) -> None:
+        """Пометка и дата — со страницы, к каждой её ссылке; кнопки
+        «поделиться» не становятся ссылками, но видны в отчёте числом."""
+        page = self._article(
+            "https://advertiser-one.com/",
+            f"https://www.facebook.com/sharer/sharer.php?u=https%3A%2F%2F{HOST}%2F",
+        ).replace(
+            "<html>",
+            '<html><head><meta property="article:published_time" content="2026-10-01">'
+            '<meta property="article:section" content="Sponsored"></head>',
+            1,
+        )
+        site = FakeSite({"/": page})
+
+        report = await _crawl(site)
+        record = report.as_dict()
+
+        assert [link.target_root for link in report.links] == ["advertiser-one.com"]
+        link = report.links[0]
+        assert link.page_label == "раздел «Sponsored»"
+        assert link.page_published == date(2026, 10, 1)
+        assert (record["share_links"], record["pages_labeled"], record["pages_dated"]) == (1, 1, 1)
 
     async def test_report_counts_advertisers_not_links(self) -> None:
         site = FakeSite(

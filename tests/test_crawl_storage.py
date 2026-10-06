@@ -12,14 +12,18 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 from backend.features.core.domain import CrawlOutcome, StopReason
 from backend.features.core.models.crawl import CrawlRunModel, OutLinkModel
+from backend.features.crawl.gate import _to_link
 from backend.features.crawl.links import OutLink
 from backend.features.crawl.repository import save_crawl
 from backend.features.crawl.walk import CrawlReport
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.migration_helpers import columns_down_and_up
 
 pytestmark = pytest.mark.asyncio
 
@@ -118,6 +122,31 @@ async def test_marks_travel_to_the_database(session: AsyncSession) -> None:
     assert second.root_guessed is True
 
 
+async def test_article_facts_travel_to_the_database_and_back(session: AsyncSession) -> None:
+    """Пересчёт кандидатов идёт по базе, без нового обхода: пометка и дата
+    статьи обязаны вернуться из неё в ссылку такими же."""
+    labeled = _link(
+        "https://a.com/1", page_label="рубрика sponsored-content", page_published=date(2025, 12, 10)
+    )
+    report = _report(links=[labeled, _link("https://b.com/2")])
+
+    run = await save_crawl(session, report)
+    await session.commit()
+
+    rows = (
+        (await session.execute(select(OutLinkModel).where(OutLinkModel.crawl_run_id == run.id)))
+        .scalars()
+        .all()
+    )
+    back = {link.url: link for link in (_to_link(row) for row in rows)}
+    assert back["https://a.com/1"].page_label == "рубрика sponsored-content"
+    assert back["https://a.com/1"].page_published == date(2025, 12, 10)
+    assert (back["https://b.com/2"].page_label, back["https://b.com/2"].page_published) == (
+        None,
+        None,
+    )
+
+
 async def test_degradation_and_stats_are_stored(session: AsyncSession) -> None:
     """Уровень каскада, который не поднялся, лежит в записи, а не в логе:
     иначе обход выглядит зелёным и врёт, что закрытые страницы проверены."""
@@ -133,3 +162,15 @@ async def test_degradation_and_stats_are_stored(session: AsyncSession) -> None:
     assert run.stats is not None
     assert run.stats["blocked_share"] == 0.25
     assert run.stats["host"] == HOST
+
+
+async def test_page_facts_migration_goes_down_and_up(session: AsyncSession) -> None:
+    """Ревизия, которую выкатка применит к проду, — вниз и вверх на тестовой базе."""
+    connection = await session.connection()
+    columns = {"page_label", "page_published"}
+
+    down, up = await connection.run_sync(
+        columns_down_and_up, "b7c3e91d0a52_outlink_page_facts.py", "outlinks", columns
+    )
+
+    assert (down, up) == (set(), columns)
