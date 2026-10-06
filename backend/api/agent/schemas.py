@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, StringConstraints, field_validator
 
@@ -33,6 +33,12 @@ class AgentSettingsBody(BaseModel):
     points: list[Line] = Field(max_length=MAX_LINES)
     price_limit_usd: Decimal | None = Field(default=None, ge=0, le=MAX_PRICE, decimal_places=2)
     stop_topics: list[Line] = Field(max_length=MAX_LINES)
+    #: `drafts` — черновик отправляет человек, `autopilot` — ответ в границах
+    #: уходит сам. Автопилот сохраняется, только если этапу он разрешён (код
+    #: этапа и выключатель сервера) и у сохраняющего есть право send.
+    mode: Literal["drafts", "autopilot"] = "drafts"
+    #: Ответов автопилота в одной переписке, прежде чем она уйдёт человеку.
+    max_turns: int = Field(default=2, ge=1, le=10)
 
     @field_validator("points", "stop_topics")
     @classmethod
@@ -48,6 +54,8 @@ class AgentSettingsBody(BaseModel):
             points=tuple(self.points),
             price_limit_usd=self.price_limit_usd,
             stop_topics=tuple(self.stop_topics),
+            mode=self.mode,
+            max_turns=self.max_turns,
         )
 
     @classmethod
@@ -59,6 +67,8 @@ class AgentSettingsBody(BaseModel):
             points=list(settings.points),
             price_limit_usd=settings.price_limit_usd,
             stop_topics=list(settings.stop_topics),
+            mode="autopilot" if settings.mode == "autopilot" else "drafts",
+            max_turns=settings.max_turns,
         )
 
 
@@ -90,6 +100,9 @@ class AgentStageView(BaseModel):
     current: AgentSettingsVersion | None
     defaults: AgentSettingsBody
     history: list[AgentSettingsVersion]
+    #: Разрешён ли этапу автопилот (код этапа и выключатель сервера): нет —
+    #: экран переключателя не показывает, а сервер режим не сохранит.
+    autopilot_allowed: bool = False
 
 
 class AgentView(BaseModel):

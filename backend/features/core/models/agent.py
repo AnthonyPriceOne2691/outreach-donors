@@ -23,6 +23,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -61,6 +62,17 @@ class AgentSettingsModel(TimestampedMixin, Base):
     price_limit_usd: Mapped[Decimal | None] = mapped_column(DECIMAL(10, 2), nullable=True)
     #: Темы, на которых агент не отвечает сам, а отдаёт разговор человеку.
     stop_topics: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    #: Режим: `drafts` — агент пишет черновик, отправляет человек; `autopilot` —
+    #: ответ в границах уходит сам (`agent/autopilot.py`), если этапу автопилот
+    #: разрешён в коде и выключатель сервера включён.
+    mode: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="drafts", server_default="drafts"
+    )
+    #: Сколько ответов автопилот шлёт в одну переписку, прежде чем отдать её
+    #: человеку: разговор, который не сходится за пару писем, ведёт человек.
+    max_turns: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, default=2, server_default="2"
+    )
 
     __table_args__ = (UniqueConstraint("stage", "version", name="uq_agent_settings_stage_version"),)
 

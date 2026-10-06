@@ -29,7 +29,11 @@ from backend.features.access.repository import EmailTakenError
 from backend.features.access.tokens import SecretMissingError, TokenError
 from backend.features.agent.drafting import DraftRefusedError, UnknownDraftReplyError
 from backend.features.agent.drafts import DraftDecisionError, UnknownDraftError
-from backend.features.agent.settings import AgentSettingsConflictError, UnknownAgentStageError
+from backend.features.agent.settings import (
+    AgentSettingsConflictError,
+    AutopilotOffError,
+    UnknownAgentStageError,
+)
 from backend.features.agent.writer import DraftUnavailableError
 from backend.features.contacts.forms import UnknownFormError
 from backend.features.contacts.manual import (
@@ -128,6 +132,8 @@ STATUSES: dict[type[Exception], int] = {
     DraftDecisionError: status.HTTP_409_CONFLICT,
     # Две правки настроек агента одного этапа разом: вторая не ложится молча.
     AgentSettingsConflictError: status.HTTP_409_CONFLICT,
+    # Автопилот этапу не разрешён (код этапа, сервер): состояние, а не запрос.
+    AutopilotOffError: status.HTTP_409_CONFLICT,
     UnknownAgentStageError: status.HTTP_404_NOT_FOUND,
     # У рассылки уже свой текст письма — это состояние, а не запрос.
     LetterConflictError: status.HTTP_409_CONFLICT,

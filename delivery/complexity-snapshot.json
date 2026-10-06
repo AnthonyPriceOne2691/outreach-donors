@@ -32,14 +32,14 @@
       "worst": "—"
     },
     "backend/api/agent/routes.py": {
-      "lines": 152,
+      "lines": 163,
       "complexity": 4,
-      "worst": "agent_settings:48"
+      "worst": "agent_settings:49"
     },
     "backend/api/agent/schemas.py": {
-      "lines": 175,
+      "lines": 188,
       "complexity": 2,
-      "worst": "_without_blank:39"
+      "worst": "_without_blank:45"
     },
     "backend/api/app.py": {
       "lines": 92,
@@ -117,9 +117,9 @@
       "worst": "of:161"
     },
     "backend/api/errors.py": {
-      "lines": 200,
+      "lines": 206,
       "complexity": 3,
-      "worst": "handle:186"
+      "worst": "handle:192"
     },
     "backend/api/events/__init__.py": {
       "lines": 1,
@@ -592,9 +592,9 @@
       "worst": "—"
     },
     "backend/config/outreach.py": {
-      "lines": 235,
+      "lines": 241,
       "complexity": 4,
-      "worst": "_own_account:197"
+      "worst": "_own_account:203"
     },
     "backend/config/sales.py": {
       "lines": 64,
@@ -666,6 +666,11 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/agent/autopilot.py": {
+      "lines": 194,
+      "complexity": 12,
+      "worst": "run:106"
+    },
     "backend/features/agent/cleaning.py": {
       "lines": 68,
       "complexity": 3,
@@ -687,9 +692,9 @@
       "worst": "compose:58"
     },
     "backend/features/agent/settings.py": {
-      "lines": 168,
+      "lines": 189,
       "complexity": 3,
-      "worst": "save:135"
+      "worst": "save:154"
     },
     "backend/features/agent/stages.py": {
       "lines": 199,
@@ -877,7 +882,7 @@
       "worst": "in_force:123"
     },
     "backend/features/core/models/agent.py": {
-      "lines": 119,
+      "lines": 131,
       "complexity": 0,
       "worst": "—"
     },
@@ -1867,9 +1872,9 @@
       "worst": "—"
     },
     "backend/workers/agent_jobs.py": {
-      "lines": 105,
+      "lines": 135,
       "complexity": 4,
-      "worst": "draft_answer:88"
+      "worst": "_autopilot:98"
     },
     "backend/workers/crawl_jobs.py": {
       "lines": 270,

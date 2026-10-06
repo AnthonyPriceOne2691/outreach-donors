@@ -22,12 +22,13 @@ from backend.api.agent.schemas import (
     RejectDraftBody,
     SendDraftBody,
 )
-from backend.api.deps import db_session, needs
+from backend.api.deps import actor, db_session, needs
 from backend.api.letters.schemas import SendResult
+from backend.features.access.permissions import require
 from backend.features.access.repository import AccessRepository
-from backend.features.agent import drafts
+from backend.features.agent import autopilot, drafts
 from backend.features.agent.drafts import Decider
-from backend.features.agent.settings import AgentSettingsRepository
+from backend.features.agent.settings import AUTOPILOT, AgentSettingsRepository, AutopilotOffError
 from backend.features.agent.stages import AGENT_STAGES, agent_stage
 from backend.features.core.domain import AuditAction, DraftStatus, Permission, Stage
 from backend.features.core.models.access import UserModel
@@ -58,6 +59,7 @@ async def agent_settings(
                 stage=stage,
                 current=None if current is None else AgentSettingsVersion.of(current),
                 defaults=AgentSettingsBody.of(parts.defaults),
+                autopilot_allowed=autopilot.refusal(stage) is None,
                 history=[AgentSettingsVersion.of(row) for row in await repository.history(stage)],
             )
         )
@@ -76,6 +78,13 @@ async def save_agent_settings(
     session: AsyncSession = Depends(db_session),
 ) -> AgentSettingsVersion:
     agent_stage(stage)  # этапа без агента нет — 404 словами
+    if body.mode == AUTOPILOT:
+        # Автопилот — письмо наружу без человека: его включает тот, кто может
+        # отправлять, и только там, где его разрешают код этапа и сервер.
+        why = autopilot.refusal(stage)
+        if why is not None:
+            raise AutopilotOffError(why)
+        require(actor(author), Permission.SEND)
     row = await AgentSettingsRepository(session).save(
         stage, body.to_settings(), author=author.email
     )
@@ -90,6 +99,8 @@ async def save_agent_settings(
             "предел цены": None if body.price_limit_usd is None else str(body.price_limit_usd),
             "доводов": len(body.points),
             "тем человеку": len(body.stop_topics),
+            "режим": body.mode,
+            "ответов автопилота в переписке": body.max_turns,
         },
     )
     await session.commit()

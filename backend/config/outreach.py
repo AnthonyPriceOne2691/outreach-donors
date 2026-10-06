@@ -34,6 +34,11 @@ class _Outreach(DomainSettings):
     # Чьим именем подписаны письма. Имя человека, а не ящика: ящики
     # ротируются по остатку дневного лимита, подпись — нет.
     sender_name: str = Field(default="", validation_alias="OUTREACH_SENDER_NAME")
+    # Автопилот агента переписки: ответ уходит без человека в границах настроек
+    # этапа. Выключатель сервера поверх флага этапа в коде и режима на экране:
+    # пока он выключен, «автопилот» не сохранить и не исполнить. На проде
+    # выключен — решение владельца 04.10.2026: сначала черновики.
+    agent_autopilot: bool = Field(default=False, validation_alias="OUTREACH_AGENT_AUTOPILOT")
     postal_address: str = Field(default="", validation_alias="OUTREACH_POSTAL_ADDRESS")
     unsubscribe_url: str = Field(default="", validation_alias="OUTREACH_UNSUBSCRIBE_URL")
     # Передача лида дальше (`replies/lead_handoff.py`): адрес приёма у CRM и общий
@@ -94,6 +99,7 @@ ALLOWED_RECIPIENTS: tuple[str, ...] = tuple(
 TRANSPORT: str = _s.transport
 REPLY_SUBDOMAIN: str = _s.reply_subdomain
 SENDER_NAME: str = _s.sender_name
+AGENT_AUTOPILOT: bool = _s.agent_autopilot
 POSTAL_ADDRESS: str = _s.postal_address
 UNSUBSCRIBE_URL: str = _s.unsubscribe_url
 LEAD_WEBHOOK_URL: str = _s.lead_webhook_url.strip()
