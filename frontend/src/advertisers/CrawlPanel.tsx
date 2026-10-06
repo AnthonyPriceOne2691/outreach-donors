@@ -40,6 +40,7 @@ import { useSession } from '../auth/AuthProvider';
 import { formatDate, formatDateTime, formatNumber, formatUsd, plural } from '../format';
 import type { Column } from '../components/ColumnsHead';
 import { ColumnsHead } from '../components/ColumnsHead';
+import { Seams } from '../components/Seams';
 import { RunReason } from '../runs/RunReason';
 
 export const CRAWL_TARGETS_KEY = ['crawl-targets'] as const;
@@ -146,6 +147,11 @@ const COLUMNS: Column[] = [
   { title: 'Ссылок', width: '7rem' },
 ];
 const PICK_WIDTH = '3.25rem';
+/** Уже — прокрутка. Колонки с шириной — 676 px вместе с отметкой; донору
+ *  остаётся 176 px, как «Донору» в очереди рекламодателей ниже. До 06.10.2026
+ *  здесь было 760, и на телефоне донору доставалось 84 px: домен в строку
+ *  не помещался и наезжал на цену. */
+const TABLE_MIN_WIDTH = 852;
 
 function TargetsTable({
   donors,
@@ -159,8 +165,15 @@ function TargetsTable({
   mayStart: boolean;
 }) {
   return (
-    <Table.ScrollContainer minWidth={760} type="native" className="scrollSlim">
-      <Table className="dataTable fixedTable" layout="fixed" tabularNums verticalSpacing="sm">
+    <Table.ScrollContainer minWidth={TABLE_MIN_WIDTH} type="native" className="scrollSlim">
+      {/* Имя донора — слева, как имя в любой таблице, хотя колонка вторая:
+          первая — отметка (`pickFirst`). */}
+      <Table
+        className={mayStart ? 'dataTable fixedTable pickFirst' : 'dataTable fixedTable'}
+        layout="fixed"
+        tabularNums
+        verticalSpacing="sm"
+      >
         <ColumnsHead columns={COLUMNS} lead={mayStart ? PICK_WIDTH : null} />
         <Table.Tbody>
           {donors.map((donor) => (
@@ -177,7 +190,13 @@ function TargetsTable({
                   </Group>
                 </Table.Td>
               ) : null}
-              <Table.Td className="cellName">{donor.host}</Table.Td>
+              {/* Вторая колонка в строку не переносится (`fixedTable`), и домен
+                  длиннее колонки наезжал на соседнюю — имени перенос нужен,
+                  как у «Донора» в очереди ниже: по швам, а не где кончилось
+                  место. */}
+              <Table.Td className="wrapCell cellName">
+                <Seams text={donor.host} />
+              </Table.Td>
               <Table.Td>{donor.price === null ? '—' : formatUsd(donor.price)}</Table.Td>
               <Table.Td>{formatDate(donor.priced_at)}</Table.Td>
               <Table.Td>
@@ -204,10 +223,12 @@ function RecentCrawls({ view }: { view: CrawlsView | undefined }) {
       <Text size="sm" fw={600}>
         Последние обходы
       </Text>
+      {/* На телефоне строка складывается в ярусы — домен, значок, дата, —
+          а не ужимает значок до «идё…» (06.10.2026). */}
       {rows.map((row) => (
-        <Group key={row.id} gap="xs" wrap="nowrap">
+        <Group key={row.id} gap="xs">
           <Text size="sm" className="cellName">
-            {row.host}
+            <Seams text={row.host} />
           </Text>
           <CrawlState crawl={row} />
           <Text size="xs" c="dimmed">
@@ -340,7 +361,7 @@ export function CrawlPanel() {
   const offerStart = mayStart && (data?.donors.length ?? 0) > 0;
 
   return (
-    <Card className="glassPanel" p="xl">
+    <Card className="glassPanel crawlPanel" p="xl">
       <Stack gap="sm">
         <Title order={3}>Обход доноров</Title>
         <Lead data={data} />
