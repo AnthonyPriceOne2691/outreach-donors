@@ -15,8 +15,10 @@
 зовётся; его факты уходят писателю, его `meta` ложится в черновик.
 
 **Из чего пишется.** Переписка целиком, в порядке времени: наши ушедшие
-письма и ответы человека без процитированного хвоста (`replies/quoting`);
-разобранная цена последнего ответа, если она есть; настройки этапа.
+письма и ответы человека после общей очистки (`agent/cleaning.py`: невидимые
+знаки, разметка ролей модели, цитата и подпись); разобранная цена последнего
+ответа, если она есть; настройки этапа. Судья этапа и петля правки —
+`agent/guarding.py`.
 
 **Потолок расхода на модель** проверяется до вызова, как у разбора ответа,
 и расход пишется в журнал операцией этапа.
@@ -36,6 +38,8 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import outreach as outreach_cfg
+from backend.features.agent import guarding
+from backend.features.agent.cleaning import clean
 from backend.features.agent.settings import AgentSettingsRepository, settings_of
 from backend.features.agent.stages import (
     AGENT_STAGES,
@@ -46,7 +50,6 @@ from backend.features.agent.stages import (
     SkipKind,
 )
 from backend.features.agent.writer import Request, Turn, Written
-from backend.features.core import usage
 from backend.features.core.domain import (
     DraftStatus,
     MessageStatus,
@@ -61,7 +64,6 @@ from backend.features.core.models.outreach import (
     ReplyModel,
     ThreadModel,
 )
-from backend.features.replies.quoting import written_by_hand
 
 logger = logging.getLogger(__name__)
 
@@ -157,12 +159,14 @@ async def draft_answer(
     if why is not None or stage is None or settings is None:
         return DraftOutcome(reply_id=reply_id, skipped=why or "агент на этом этапе не работает")
 
+    turns, cleaned = await _turns(session, target)
     conversation = Conversation(
         stage=target.stage,
         thread_id=target.thread.id,
         reply_id=reply_id,
-        turns=await _turns(session, target),
+        turns=turns,
         settings=settings_of(settings),
+        cleaned=cleaned,
     )
     brief = await stage.brief(session, conversation)
     if brief.skip is not None and not force:
@@ -219,10 +223,14 @@ async def _written(
 ) -> _Draft:
     """Черновик модели по настройкам, переписке и фактам брифа."""
     meta: dict[str, Any] = dict(brief.meta)
+    if conversation.cleaned:
+        meta["cleaned"] = list(conversation.cleaned)
     if brief.skip is not None:  # «всё же написать» поверх пропуска брифа
         meta["forced_over_skip"] = {"kind": brief.skip.kind.value, "reason": brief.skip.reason}
-    await usage.ensure_llm_within_cap(session)
-    written = await writer.write(
+    composed = await guarding.compose(
+        session,
+        stage,
+        writer,
         Request(
             stage=conversation.stage,
             settings=conversation.settings,
@@ -232,18 +240,23 @@ async def _written(
             facts=brief.facts,
             prompt=stage.prompt,
             model=stage.model,
-        )
+        ),
+        incoming=_last_incoming(conversation.turns),
     )
-    if written.tokens:
-        usage.record(session, operation=stage.usage_operation, units=written.tokens)
-    held = written.needs_human or not written.body.strip()
+    if composed.attempts:
+        meta["attempts"] = composed.attempts
     return _Draft(
-        status=DraftStatus.ESCALATED if held else DraftStatus.DRAFTED,
-        body=written.body,
-        reason=written.reason,
+        status=DraftStatus.ESCALATED if composed.held else DraftStatus.DRAFTED,
+        body=composed.body,
+        reason=composed.reason,
         meta=meta,
-        tokens=written.tokens,
+        tokens=composed.tokens,
     )
+
+
+def _last_incoming(turns: tuple[Turn, ...]) -> str:
+    """Письмо собеседника, на которое отвечаем, — для судьи."""
+    return next((turn.text for turn in reversed(turns) if not turn.ours), "")
 
 
 async def _target(session: AsyncSession, reply_id: int) -> _Target | None:
@@ -298,7 +311,9 @@ async def _done(session: AsyncSession, reply_id: int, *, again: bool) -> str | N
     return "черновик уже написан"
 
 
-async def _turns(session: AsyncSession, target: _Target) -> tuple[Turn, ...]:
+async def _turns(
+    session: AsyncSession, target: _Target
+) -> tuple[tuple[Turn, ...], tuple[str, ...]]:
     letters = (
         await session.execute(
             select(MessageModel.sent_at, MessageModel.body).where(
@@ -323,14 +338,21 @@ async def _turns(session: AsyncSession, target: _Target) -> tuple[Turn, ...]:
 def conversation(
     letters: Sequence[tuple[datetime | None, str | None]],
     replies: Sequence[tuple[datetime, str]],
-) -> tuple[Turn, ...]:
-    """Переписка по времени: последние `MAX_TURNS` писем, каждое — с начала."""
+) -> tuple[tuple[Turn, ...], tuple[str, ...]]:
+    """Переписка по времени: последние `MAX_TURNS` писем, каждое — с начала.
+
+    Письма собеседника — после общей очистки (`agent/cleaning.py`); что она
+    убрала — вторым значением, без повторов.
+    """
+    cleaned = [(at, clean(raw)) for at, raw in replies]
     timed = [(at or _EPOCH, Turn(ours=True, text=body or "")) for at, body in letters]
-    timed += [(at, Turn(ours=False, text=written_by_hand(raw))) for at, raw in replies]
+    timed += [(at, Turn(ours=False, text=found.text)) for at, found in cleaned]
     timed.sort(key=lambda pair: pair[0])
-    return tuple(
+    turns = tuple(
         Turn(ours=turn.ours, text=turn.text[:MAX_TURN_CHARS]) for _, turn in timed[-MAX_TURNS:]
     )
+    notes = dict.fromkeys(note for _, found in cleaned for note in found.notes)
+    return turns, tuple(notes)
 
 
 def _parsed(reply: ReplyModel) -> dict[str, str]:

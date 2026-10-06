@@ -666,15 +666,25 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/agent/cleaning.py": {
+      "lines": 68,
+      "complexity": 3,
+      "worst": "clean:57"
+    },
     "backend/features/agent/drafting.py": {
-      "lines": 394,
+      "lines": 416,
       "complexity": 9,
-      "worst": "draft_answer:136"
+      "worst": "draft_answer:138"
     },
     "backend/features/agent/drafts.py": {
       "lines": 191,
       "complexity": 7,
       "worst": "send_draft:92"
+    },
+    "backend/features/agent/guarding.py": {
+      "lines": 117,
+      "complexity": 8,
+      "worst": "compose:51"
     },
     "backend/features/agent/settings.py": {
       "lines": 168,
@@ -682,14 +692,14 @@
       "worst": "save:135"
     },
     "backend/features/agent/stages.py": {
-      "lines": 183,
+      "lines": 188,
       "complexity": 3,
-      "worst": "__post_init__:84"
+      "worst": "__post_init__:89"
     },
     "backend/features/agent/writer.py": {
-      "lines": 254,
+      "lines": 263,
       "complexity": 9,
-      "worst": "checked:188"
+      "worst": "checked:197"
     },
     "backend/features/ahrefs/__init__.py": {
       "lines": 1,
