@@ -10,6 +10,9 @@
 каждую долю примерно на шестую часть, и домены у границы порога проходили бы
 фильтр, не имея на это права.
 
+Исключение одно — когда сумма стран больше трафика домена (`share_base`): числа
+приходят разными запросами и расходятся, и тогда база — сумма стран.
+
 Почему `limit=5` вообще допустим. Если считать долю от суммы стран, нужны все строки, и запрос дорожает в тридцать раз. Нам хватает пяти без
 лимита именно потому, что их гейты считают долю целевой страны от суммы стран
 и потому нуждаются во всех строках. Нам хватает пяти по арифметической причине:
@@ -26,6 +29,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from backend.config import filters
@@ -36,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class CountryShare:
-    """Страна, её органический трафик и доля от всего трафика домена."""
+    """Страна, её органический трафик и доля от всего трафика домена (база — `share_base`)."""
 
     country: str
     org_traffic: int
@@ -58,6 +62,24 @@ class GeoVerdict:
     partial: bool = False
 
 
+def share_base(total_org_traffic: float, country_traffic: Iterable[float]) -> float:
+    """Знаменатель доли страны: трафик домена — или сумма стран, если она больше.
+
+    Трафик домена приходит пакетным анализом, страны — своим отчётом (или
+    колонкой верхней страны), и у них свой счёт: боевой прогон показал на экране
+    доноров «Канада · 128%» — одна страна дала больше, чем весь домен (правка
+    07.10.2026). Сумма стран из ответа — нижняя граница трафика, который этот
+    ответ видел, поэтому при расхождении база — она: ни одна доля не выходит
+    за 100%, сумма долей — за единицу. Без расхождения база — трафик домена,
+    как и прежде (см. «Про знаменатель» в начале модуля).
+
+    Сумма долей не больше единицы — то, на чём стоит `top_n * min_share >= 1`:
+    со старым знаменателем пять стран «давали» больше 100% трафика, и довод
+    «страна с долей 20% не может быть шестой» переставал быть доводом.
+    """
+    return max(float(total_org_traffic), float(sum(country_traffic)))
+
+
 def build_breakdown(rows: list[dict[str, object]], total_org_traffic: int) -> list[CountryShare]:
     """Строки ответа Ahrefs → доли, по убыванию трафика.
 
@@ -67,7 +89,20 @@ def build_breakdown(rows: list[dict[str, object]], total_org_traffic: int) -> li
     if not rows or total_org_traffic <= 0:
         return []
 
-    shares = []
+    readable = _country_traffic(rows)
+    # База — после разбора всех строк: она зависит от суммы стран.
+    base = share_base(total_org_traffic, (traffic for _, traffic in readable))
+    shares = [
+        CountryShare(country=country, org_traffic=int(traffic), share=traffic / base)
+        for country, traffic in readable
+    ]
+    shares.sort(key=lambda s: s.org_traffic, reverse=True)
+    return shares
+
+
+def _country_traffic(rows: list[dict[str, object]]) -> list[tuple[str, float]]:
+    """Пары «страна, трафик» из строк ответа — без строк, которые не разобрать."""
+    readable: list[tuple[str, float]] = []
     skipped = 0
     for row in rows:
         country = row.get("country")
@@ -78,23 +113,15 @@ def build_breakdown(rows: list[dict[str, object]], total_org_traffic: int) -> li
             # домен станет «нет данных по странам» без всякой причины.
             skipped += 1
             continue
-        shares.append(
-            CountryShare(
-                country=country.lower(),
-                org_traffic=int(traffic),
-                share=float(traffic) / total_org_traffic,
-            )
-        )
-    if skipped and not shares:
+        readable.append((country.lower(), float(traffic)))
+    if skipped and not readable:
         logger.warning(
             "Ни одна из %s строк по странам не разобрана — вероятно, изменились имена полей",
             skipped,
         )
     elif skipped:
         logger.debug("Пропущено строк по странам: %s из %s", skipped, len(rows))
-
-    shares.sort(key=lambda s: s.org_traffic, reverse=True)
-    return shares
+    return readable
 
 
 def assert_settings_allow_limited_fetch(
