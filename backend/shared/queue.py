@@ -46,6 +46,7 @@ CRAWL_QUEUE_NAME = "crawl"
 #: задачу, что и нажатие.
 RUN_JOB = "backend.workers.jobs.run_donor_search"
 BUILD_JOB = "backend.workers.jobs.build_letter_queue"
+SEND_QUEUE_JOB = "backend.workers.send_jobs.send_letter_queue"
 PARSE_JOB = "backend.workers.jobs.parse_reply"
 CONTACTS_JOB = "backend.workers.jobs.find_contacts"
 LEAD_JOB = "backend.workers.jobs.send_lead"
