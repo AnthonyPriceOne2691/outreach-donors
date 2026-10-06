@@ -191,6 +191,15 @@ def probe_domain() -> ColumnElement[bool]:
     return DomainModel.host.like(f"%{PROBE_ZONE}")
 
 
+def emptied_campaign() -> ColumnElement[bool]:
+    """Рассылка пуста: ни писем, ни переписки. Удаляется только такая — переписка
+    ушла бы с рассылкой каскадом, вместе с ответами."""
+    return and_(
+        ~exists().where(MessageModel.campaign_id == CampaignModel.id),
+        ~exists().where(ThreadModel.campaign_id == CampaignModel.id),
+    )
+
+
 @dataclass(slots=True)
 class ProbeTrace:
     """Что оставили липовые доноры — уходит целиком при `prune --probes`."""
@@ -281,11 +290,6 @@ async def remove_probes(session: AsyncSession, trace: ProbeTrace) -> None:
         delete(DomainModel).where(DomainModel.id.in_(trace.domains), probe_domain())
     )
     if trace.campaigns:
-        # Пустая — без писем и без переписки: переписка ушла бы с рассылкой каскадом.
-        emptied = and_(
-            ~exists().where(MessageModel.campaign_id == CampaignModel.id),
-            ~exists().where(ThreadModel.campaign_id == CampaignModel.id),
-        )
         await session.execute(
-            delete(CampaignModel).where(CampaignModel.id.in_(trace.campaigns), emptied)
+            delete(CampaignModel).where(CampaignModel.id.in_(trace.campaigns), emptied_campaign())
         )
