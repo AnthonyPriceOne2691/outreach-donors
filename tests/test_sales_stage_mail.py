@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -19,6 +20,7 @@ import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from backend.cli.main import main
+from backend.config import outreach as outreach_cfg
 from backend.config import storage
 from backend.features.core.domain import (
     MessageStatus,
@@ -49,6 +51,8 @@ from httpx import AsyncClient
 from sqlalchemy import Connection, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import TEST_DSN, bearer, make_donor, make_sender
+from tests.test_delivery_events import _keypair, _sign
+from tests.test_mail_accounts import _ByStage
 from tests.test_sales_model import ROOT, _migration
 
 NOW = datetime(2026, 10, 5, 12, 0, tzinfo=UTC)
@@ -226,14 +230,17 @@ class TestSending:
     async def test_a2_letter_is_refused_and_stays_queued_untouched(
         self, session: AsyncSession, filled_legal: None
     ) -> None:
-        """Путь доноров отправил бы его: домен — принятый донор, ящик есть."""
+        """Путь доноров отправил бы его: домен — принятый донор, ящик есть. Отказ —
+        до выбора транспорта этапа: учётку продаж письмо не трогает."""
         world = await sales_world(session)
         await make_sender(session, "anna@mail-donors.example.test")
+        source = _ByStage(donors=NullTransport(), sales=NullTransport())
 
         with pytest.raises(SalesNotConnectedError) as refused:
-            await Sending(session, NullTransport(), now=NOW).send(world.letter.id)
+            await Sending(session, source, now=NOW).send(world.letter.id)
 
         assert str(refused.value) == f"Письмо №{world.letter.id}: {SALES_NOT_CONNECTED}"
+        assert source.asked == []
         await session.refresh(world.letter)
         assert world.letter.status is MessageStatus.QUEUED
         assert world.letter.sender_id is None
@@ -256,6 +263,36 @@ class TestSending:
 
         assert response.status_code == 409
         assert response.json()["detail"] == f"Письмо №{world.letter.id}: {SALES_NOT_CONNECTED}"
+
+
+# --- учётка направления: события продаж принимает общий вебхук --------------------------
+
+
+async def test_events_of_the_sales_account_are_taken_by_the_one_webhook(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Учётку этапа выбирает общий механизм (`config.outreach.mail_account`), ключи
+    событий — по всем значениям `Stage`. Со значением `sales` вебхук принимает
+    события учётки продаж, подписанные её ключом; своей копии выбора у продаж нет."""
+    _, shared_public = _keypair()
+    own, own_public = _keypair()
+    monkeypatch.setattr(outreach_cfg, "EVENTS_PUBLIC_KEY", shared_public)
+    monkeypatch.setenv("OUTREACH_SALES_EVENTS_PUBLIC_KEY", own_public)
+    payload = b'[{"event":"delivered","message_id":"999999"}]'
+    stamp = str(int(time.time()))
+
+    response = await client.post(
+        "/api/events/delivery",
+        content=payload,
+        headers={
+            "X-Twilio-Email-Event-Webhook-Signature": _sign(own, payload, stamp),
+            "X-Twilio-Email-Event-Webhook-Timestamp": stamp,
+            "Content-Type": "application/json",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["accepted"] is True
 
 
 # --- A5: очередь продаж не из доноров -------------------------------------------------------
