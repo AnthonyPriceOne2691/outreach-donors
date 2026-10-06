@@ -92,6 +92,7 @@ docker compose exec api outreach user-add --email ivan@site.com --role admin
 | `web` | nginx: собранный фронт и прокси на `/api` |
 | `api` | сервер FastAPI, проверка живости ходит в базу |
 | `worker` | очередь прогонов (rq), слушает `runs` |
+| `crawler` | обходы доноров Этапа 2 (rq), слушает `crawl`; копий — `CRAWL_WORKERS` (4) |
 | `reaper` | разбор мёртвых прогонов: продолжает осиротевших, закрывает безнадёжных |
 | `followups` | добивки: второе и третье письмо цепочки уходят по сроку |
 | `postgres`, `redis` | база и очередь, тома переживают пересоздание |

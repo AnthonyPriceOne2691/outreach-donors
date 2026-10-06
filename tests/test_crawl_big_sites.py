@@ -21,9 +21,9 @@ from backend.features.crawl.big_sites import MAX_DR, ahrefs_ratings, apply_ratin
 from backend.features.crawl.denylist import DenyReason
 from backend.features.crawl.gate import judge_run
 from backend.features.crawl.links import OutLink
+from backend.features.crawl.report import CrawlReport
 from backend.features.crawl.repository import save_crawl
 from backend.features.crawl.scoring import Candidate
-from backend.features.crawl.walk import CrawlReport
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.migration_helpers import columns_down_and_up

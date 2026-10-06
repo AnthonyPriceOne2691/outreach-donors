@@ -157,6 +157,44 @@ class TestPlumbing:
         assert built.name == queue.QUEUE_NAME
         assert built._default_timeout == queue.JOB_TIMEOUT
 
+    def test_crawl_queue_is_its_own_with_a_longer_timeout(self) -> None:
+        built = queue.crawl_queue(queue.connection())
+        assert built.name == queue.CRAWL_QUEUE_NAME == "crawl"
+        assert built._default_timeout == queue.CRAWL_JOB_TIMEOUT > queue.JOB_TIMEOUT
+
+    def test_crawl_job_number_is_known_before_the_queue(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Номер задачи пишется в строку обхода до постановки — и ровно под
+        ним задача встаёт в очередь."""
+        put: list[tuple[Any, ...]] = []
+
+        class _Queue:
+            def enqueue(self, *args: Any, **kwargs: Any) -> Any:
+                put.append((*args, kwargs["job_id"], kwargs["result_ttl"]))
+                return type("Job", (), {"id": kwargs["job_id"]})()
+
+        monkeypatch.setattr(queue, "crawl_queue", _Queue)
+        first, second = queue.crawl_job_id(7), queue.crawl_job_id(7)
+
+        assert first.startswith("crawl-7-")
+        assert first != second
+        assert queue.enqueue_crawl(7, first) == first
+        assert queue.enqueue_crawl(8).startswith("crawl-8-")
+        assert put[0] == (queue.CRAWL_JOB, 7, first, queue.RESULT_TTL)
+
+    def test_workers_are_counted_per_queue(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        asked: list[str] = []
+
+        def listening(queue: Any) -> list[object]:
+            asked.append(queue.name)
+            return [object()]
+
+        monkeypatch.setattr(queue.Worker, "all", listening)
+
+        assert queue.workers_alive(FakeRedis(), queue=queue.CRAWL_QUEUE_NAME) == 1  # type: ignore[arg-type]
+        assert asked == ["crawl"]
+
     def test_last_line_of_an_empty_trace_is_none(self) -> None:
         assert queue.last_error_line(None) is None
         assert queue.last_error_line("  \n ") is None

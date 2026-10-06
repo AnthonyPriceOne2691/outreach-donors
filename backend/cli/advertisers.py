@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.config import ahrefs as ahrefs_cfg
 from backend.config import storage
@@ -36,7 +36,7 @@ from backend.features.core.models.advertisers import SupplierDonorModel
 from backend.features.core.models.crawl import CrawlRunModel
 from backend.features.crawl.big_sites import Ratings, ahrefs_ratings
 from backend.features.crawl.contacts import AdvertiserContactRepository
-from backend.features.crawl.gate import judge_run
+from backend.features.crawl.gate import judge_run, latest_crawls
 from backend.features.crawl.promote import promote as promote_candidates
 
 logger = logging.getLogger(__name__)
@@ -53,7 +53,9 @@ MEANING: dict[Verdict, str] = {
 
 def add_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     judge = sub.add_parser("advertisers", help="пересчитать кандидатов по обходам и показать их")
-    judge.add_argument("--run", type=int, default=None, help="номер обхода; без него — все")
+    judge.add_argument(
+        "--run", type=int, default=None, help="номер обхода; без него — последний у каждого донора"
+    )
     judge.add_argument(
         "--verdict",
         choices=[v.value for v in Verdict],
@@ -159,11 +161,13 @@ async def cmd_advertisers(args: argparse.Namespace) -> int:
     return 0
 
 
-async def _runs(session: object, run_id: int | None) -> list[CrawlRunModel]:
-    query = select(CrawlRunModel).order_by(CrawlRunModel.id)
-    if run_id is not None:
-        query = query.where(CrawlRunModel.id == run_id)
-    return list((await session.execute(query)).scalars().all())  # type: ignore[attr-defined]
+async def _runs(session: AsyncSession, run_id: int | None) -> list[CrawlRunModel]:
+    """Какие обходы считать: названный — или последний пригодный у каждого
+    донора (`gate.latest_crawls`): кандидаты прежних обходов он заменяет."""
+    if run_id is None:
+        return await latest_crawls(session)
+    query = select(CrawlRunModel).where(CrawlRunModel.id == run_id)
+    return list((await session.execute(query)).scalars().all())
 
 
 async def _candidates(

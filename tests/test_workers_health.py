@@ -170,3 +170,23 @@ class TestWorker:
 def test_command_says_what_to_check(capsys: pytest.CaptureFixture[str]) -> None:
     assert health.main([]) == 2
     assert "beats" in capsys.readouterr().out
+
+
+def test_crawler_is_checked_against_its_own_queue(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Обходчик слушает `crawl`: проверка по общей очереди сочла бы его
+    «не отмеченным» и пометила бы здоровый контейнер больным."""
+    asked: list[str] = []
+
+    def problems(redis: object, queue_name: str) -> list[str]:
+        asked.append(queue_name)
+        return [] if queue_name == "crawl" else ["не тот"]
+
+    monkeypatch.setattr(health, "worker_problems", problems)
+    monkeypatch.setattr(health, "connection", lambda: None)
+
+    assert health.main(["crawler"]) == 0
+    assert health.main(["worker"]) == 1
+    assert asked == ["crawl", "runs"]
+    assert capsys.readouterr().out.splitlines() == ["здоров", "не тот"]

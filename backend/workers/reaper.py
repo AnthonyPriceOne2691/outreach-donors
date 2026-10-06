@@ -21,11 +21,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.config import storage
 from backend.config.startup_checks import check_storage
+from backend.features.crawl.lifecycle import recover as recover_crawls
 from backend.features.ops.silence import report as silence_report
-from backend.features.runs.lifecycle import recover
+from backend.features.runs.lifecycle import Recovery, recover
 from backend.features.runs.repository import RunRepository
 from backend.shared.logs import setup_logging
-from backend.shared.queue import RUN_JOB, job_alive, job_failure, runs_queue
+from backend.shared.queue import RUN_JOB, enqueue_crawl, job_alive, job_failure, runs_queue
 from backend.workers.ticker import every
 
 logger = logging.getLogger(__name__)
@@ -54,21 +55,44 @@ def _enqueue(run_id: int) -> str | None:
         return None
 
 
+def _enqueue_crawl(run_id: int) -> str | None:
+    """Продолжение обхода — в очередь обходов. `None` — очередь не ответила."""
+    try:
+        return enqueue_crawl(run_id)
+    except Exception:
+        logger.exception("Разбор: обход %s продолжить не удалось — очередь не ответила", run_id)
+        return None
+
+
 async def sweep() -> None:
-    """Один проход разбора. Своя сессия на проход: процесс живёт сутками,
-    а сессия, живущая столько же, видит базу такой, какой она была при
-    её открытии."""
+    """Один проход разбора: прогоны Этапа 1 и обходы Этапа 2. Своя сессия
+    на проход: процесс живёт сутками, а сессия, живущая столько же, видит
+    базу такой, какой она была при её открытии."""
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with factory() as session:
-            outcome = await recover(
-                RunRepository(session), alive=job_alive, enqueue=_enqueue, failure=job_failure
+            _told(
+                "Разбор прогонов",
+                await recover(
+                    RunRepository(session), alive=job_alive, enqueue=_enqueue, failure=job_failure
+                ),
             )
-        if outcome.resumed or outcome.stopped or outcome.unknown:
-            logger.info("Разбор прогонов: %s", outcome.as_report)
+        async with factory() as session:
+            _told(
+                "Разбор обходов",
+                await recover_crawls(
+                    session, alive=job_alive, enqueue=_enqueue_crawl, failure=job_failure
+                ),
+            )
     finally:
         await engine.dispose()
+
+
+def _told(what: str, outcome: Recovery) -> None:
+    """Строка журнала — только если проход что-то сделал или не выяснил."""
+    if outcome.resumed or outcome.stopped or outcome.unknown:
+        logger.info("%s: %s", what, outcome.as_report)
 
 
 async def watch() -> None:

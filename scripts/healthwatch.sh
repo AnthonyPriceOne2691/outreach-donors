@@ -112,13 +112,24 @@ if [ "$SERVICES_CODE" -ne 0 ] || [ "$PS_CODE" -ne 0 ]; then
   done
 else
   for service in $SERVICES; do
-    line="$(printf '%s\n' "$PS" | awk -F '|' -v s="$service" '$1 == s' | head -n 1)"
-    IFS='|' read -r _ state health code <<<"$line"
-    result="$(verdict "$service" "${state:-}" "${health:-}" "${code:-}")"
-    case "$result" in
-      bad:*) add "$service" "${result#bad:}" ;;
-      wait) keep "$service" ;;
-    esac
+    # У сервиса бывает несколько копий (обходчик — `CRAWL_WORKERS`): смотрим
+    # каждую, сломана одна — сломан сервис. Раньше смотрелась первая строка,
+    # и вставшая третья копия выглядела бы здоровой.
+    lines="$(printf '%s\n' "$PS" | awk -F '|' -v s="$service" '$1 == s')"
+    [ -n "$lines" ] || lines="$service|||"
+    worst="" waiting=""
+    while IFS='|' read -r _ state health code; do
+      result="$(verdict "$service" "${state:-}" "${health:-}" "${code:-}")"
+      case "$result" in
+        bad:*) [ -n "$worst" ] || worst="${result#bad:}" ;;
+        wait) waiting=1 ;;
+      esac
+    done <<<"$lines"
+    if [ -n "$worst" ]; then
+      add "$service" "$worst"
+    elif [ -n "$waiting" ]; then
+      keep "$service"
+    fi
   done
 fi
 
