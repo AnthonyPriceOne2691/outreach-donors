@@ -26,11 +26,17 @@ import { Fragment } from 'react';
 const ZONE_TAIL = /^\.[a-z]{2}\/?$/i;
 const ZONE_HEAD = /^\.[a-z]{2,3}$/i;
 
+/** Метка шва на время разбора: в домене и адресе её не бывает. */
+const SEAM = '\u0000';
+
 /** Куски имени между швами: «news.example.com» — «news», «.example», «.com».
  *  «//» после схемы не рвётся: «https:/» на одной строке и «/» на другой
- *  читались бы как два адреса. */
+ *  читались бы как два адреса. Шов после «/» ставится заменой, а не
+ *  ретроспективной проверкой (`(?<=…)`): её не знает Safari до 16.4, и
+ *  такая регулярка роняла бы экран целиком, а не один перенос. */
 export function seamsOf(text: string): string[] {
-  const pieces = text.split(/(?=[.?&=#])|(?<=\/)(?!\/)/).filter((piece) => piece !== '');
+  const marked = text.replace(/[.?&=#]/g, (mark) => SEAM + mark).replace(/\/(?!\/)/g, `/${SEAM}`);
+  const pieces = marked.split(SEAM).filter((piece) => piece !== '');
   return pieces.reduce<string[]>((joined, piece) => {
     const previous = joined[joined.length - 1];
     if (previous !== undefined && ZONE_TAIL.test(piece) && ZONE_HEAD.test(previous)) {
