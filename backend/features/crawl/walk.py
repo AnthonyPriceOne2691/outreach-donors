@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 from urllib.parse import urldefrag
 
@@ -43,6 +43,7 @@ from backend.features.crawl.fetch import CascadeLevel, FetchOutcome, FetchResult
 from backend.features.crawl.health import CrawlHealth, HealthVerdict
 from backend.features.crawl.limiter import DomainLimiter
 from backend.features.crawl.links import OutLink, harvest
+from backend.features.crawl.page_facts import read_page
 from backend.features.crawl.robots import RobotsRules, RobotsStatus
 from backend.features.crawl.sitemap import SitemapReader, SitemapScan
 from backend.shared.net.url_parts import join_url, parse_url
@@ -74,6 +75,11 @@ class CrawlReport:
     pages: list[str] = field(default_factory=list)
     links: list[OutLink] = field(default_factory=list)
     articles: int = 0
+    # Выброшенные кнопки «поделиться», страницы с пометкой рекламы и с датой.
+    # Числом в отчёте: выброшенное молча и найденное молча одинаково не проверить.
+    share_links: int = 0
+    pages_labeled: int = 0
+    pages_dated: int = 0
     robots_status: RobotsStatus = RobotsStatus.UNREADABLE
     crawl_delay: float | None = None
     sitemap_found: bool | None = False
@@ -96,6 +102,9 @@ class CrawlReport:
             "links_found": len(self.links),
             "advertisers": len({link.target_root for link in self.links}),
             "links_in_body": sum(1 for link in self.links if link.in_body),
+            "share_links": self.share_links,
+            "pages_labeled": self.pages_labeled,
+            "pages_dated": self.pages_dated,
             # Ссылки, у которых корень домена угадан: суффикс неизвестен
             # вшитому снимку. Ноль — норма, рост — повод обновить список.
             "roots_guessed": sum(1 for link in self.links if link.root_guessed),
@@ -182,6 +191,9 @@ class DonorCrawler:
         self._slowed = False
         self.articles = 0
         self.links: list[OutLink] = []
+        self.share_links = 0
+        self.pages_labeled = 0
+        self.pages_dated = 0
 
     async def crawl(self, host: str) -> CrawlReport:
         """Обойти донора. Единственный публичный вход."""
@@ -360,11 +372,21 @@ class DonorCrawler:
         бы нас без рекламодателей вовсе.
 
         Сырой HTML при этом никуда не уезжает: наружу выходят адрес,
-        анкор, пометки `rel` и домен-получатель.
+        анкор, пометки `rel` и домен-получатель — и то, что статья
+        сказала о себе (`page_facts`): пометка рекламы и дата выхода.
         """
-        if extract_article(html) is not None:
+        article = extract_article(html)
+        if article is not None:
             self.articles += 1
-        self.links.extend(harvest(html, page_url, host))
+        facts = read_page(html, article.text if article is not None else None)
+        self.pages_labeled += facts.label is not None
+        self.pages_dated += facts.published is not None
+        shares: set[str] = set()
+        self.links.extend(
+            replace(link, page_label=facts.label, page_published=facts.published)
+            for link in harvest(html, page_url, host, shares=shares)
+        )
+        self.share_links += len(shares)
 
     def _enqueue(self, result: FetchResult, host: str, queue: deque[str], seen: set[str]) -> None:
         """Ссылки со страницы — в очередь, каждая по одному разу."""
@@ -436,6 +458,9 @@ class DonorCrawler:
             pages=pages or [],
             links=list(self.links),
             articles=self.articles,
+            share_links=self.share_links,
+            pages_labeled=self.pages_labeled,
+            pages_dated=self.pages_dated,
             robots_status=rules.status,
             crawl_delay=rules.crawl_delay,
             sitemap_found=scan.found if scan else False,

@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import pytest
 from backend.features.crawl.article import (
     MIN_BODY_CHARS,
     BodySource,
@@ -120,6 +121,23 @@ class TestArticleBody:
         article = extract_article(html)
 
         assert article is not None, "обёртка вёрстки выброшена как меню"
+
+    def test_stylesheet_bigger_than_the_page_is_not_a_wrapper(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Стили на 78 тысяч знаков при тексте страницы в 31 тысячу (боевой
+        обход 06.10) страховка принимала за «обёртку вёрстки» и на каждой
+        странице донора писала ложное предупреждение. Код и стили уходят
+        до страховки: текста статьи в них не бывает."""
+        css = "body{margin:0}" * 5_000
+        html = _page(f"<style>{css}</style><article><p>{LONG}</p></article>")
+
+        with caplog.at_level("WARNING"):
+            article = extract_article(html)
+
+        assert article is not None
+        assert "margin" not in article.text
+        assert "обёртка вёрстки" not in caplog.text
 
     def test_page_without_an_article_is_none_not_empty(self) -> None:
         """Раздел со списком и карточка товара статьями не являются.
@@ -368,3 +386,76 @@ class TestHarvestMarksPosition:
 
         assert len(links) == 1
         assert links[0].in_body is True
+
+
+class TestShareButtons:
+    """Кнопка «поделиться» — не ссылка на рекламодателя.
+
+    Боевой обход двух финансовых площадок (06.10.2026): ~2 000 ссылок
+    из 4 177 — кнопки соцсетей, и все «в теле статьи». Правило одно для
+    всех сетей: путь — приёмник «поделиться», в параметрах — адрес донора.
+    """
+
+    PAGE = "https://www.donor.com/which-investments-are-best/"
+    OWN = "https%3A%2F%2Fwww.donor.com%2Fwhich-investments-are-best%2F"
+
+    def _harvest(self, *hrefs: str) -> tuple[list[str], set[str]]:
+        anchors = "".join(f'<p><a href="{href}">ссылка</a></p>' for href in hrefs)
+        html = _page(f"<article><p>{LONG}</p>{anchors}</article>")
+        shares: set[str] = set()
+        links = harvest(html, self.PAGE, "donor.com", shares=shares)
+        return [link.target_root for link in links], shares
+
+    @pytest.mark.parametrize(
+        "href",
+        [
+            "https://x.com/intent/tweet?text=Roth%20IRAs&url={own}",
+            "https://www.reddit.com/submit?url={own}",
+            "https://www.facebook.com/sharer/sharer.php?u={own}",
+            "https://www.linkedin.com/shareArticle?title=x&url={own}",
+            "https://www.linkedin.com/sharing/share-offsite/?url={own}",
+            "https://www.threads.net/intent/post?text={own}",
+            "https://share.flipboard.com/bookmarklet/popout?v=2&url={own}",
+            "https://bsky.app/intent/compose?text=Roth%20IRAs%20{own}",
+            "https://pinterest.com/pin/create/button/?url={own}",
+            "https://t.me/share/url?url={own}",
+            "https://api.whatsapp.com/send?text={own}",
+            # Без кодирования и через `http://` — так пишут старые темы.
+            "http://twitter.com/share?text=x&url=https://donor.com/which-investments-are-best/",
+        ],
+    )
+    def test_share_button_is_dropped_and_counted(self, href: str) -> None:
+        roots, shares = self._harvest(href.format(own=self.OWN))
+
+        assert roots == []
+        assert len(shares) == 1
+
+    @pytest.mark.parametrize(
+        "href",
+        [
+            # Трекер рекламной сети несёт страницу-источник — это и есть размещение.
+            "https://track.adnet.example/click?ref={own}&to=https%3A%2F%2Fadvertiser.com",
+            # Раздел рекламодателя с тем же словом — без адреса донора.
+            "https://advertiser.com/submit",
+            # Метка источника без схемы — не адрес донора.
+            "https://advertiser.com/share?utm_source=donor.com",
+            # Раздел сайта, а не приёмник: слово в составе раздела.
+            "https://advertiser.com/send-money/?ref={own}",
+            # Адрес чужого сайта, похожего именем, — не адрес донора.
+            "https://x.com/intent/tweet?url=https%3A%2F%2Fnotdonor.com%2Fpost",
+        ],
+    )
+    def test_look_alikes_stay_links(self, href: str) -> None:
+        roots, shares = self._harvest(href.format(own=self.OWN))
+
+        assert len(roots) == 1
+        assert shares == set()
+
+    def test_button_in_both_passes_is_counted_once(self) -> None:
+        href = f"https://www.facebook.com/sharer/sharer.php?u={self.OWN}"
+        anchors = f'<p><a href="{href}">fb</a></p>'
+        html = _page(f"<article><p>{LONG}</p>{anchors}</article>", extra=anchors)
+        shares: set[str] = set()
+
+        assert harvest(html, self.PAGE, "donor.com", shares=shares) == []
+        assert len(shares) == 1

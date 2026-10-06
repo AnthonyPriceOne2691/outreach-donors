@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from backend.features.core.domain import Verdict
 from backend.features.crawl.denylist import DenyReason, denial_for
 from backend.features.crawl.links import OutLink
@@ -20,6 +22,7 @@ from backend.features.crawl.scoring import (
     has_marker,
     is_address,
     is_commercial_anchor,
+    marker_reason,
     score_candidates,
     score_link,
 )
@@ -376,3 +379,35 @@ class TestOwnBrand:
         candidate = score_candidates([_link(root="sportsboom.com")])[0]
 
         assert candidate.verdict is not Verdict.BLOCKED
+
+
+class TestArticleLabel:
+    """Пометка статьи — то, что сайт сказал о ней сам (`page_facts`):
+    рубрика, раздел, фраза раскрытия. Достаётся только ссылкам из тела:
+    рядом со статьёй лежит то, что стоит на каждой странице сайта."""
+
+    @staticmethod
+    def _labeled(*, in_body: bool = True) -> OutLink:
+        return replace(_link(in_body=in_body), page_label="рубрика sponsored-content")
+
+    def test_labeled_article_marks_its_body_links(self) -> None:
+        score = score_link(self._labeled())
+
+        assert score.points >= BOUGHT_AT
+        assert any("рубрика sponsored-content" in reason for reason in score.reasons)
+
+    def test_label_does_not_reach_links_beside_the_article(self) -> None:
+        assert marker_reason(self._labeled(in_body=False)) is None
+
+    def test_marked_address_does_not_reach_links_beside_the_article(self) -> None:
+        page = f"https://{DONOR}/sponsored/betting-guide"
+
+        assert marker_reason(_link(page=page, in_body=True)) == "раздел адреса статьи"
+        assert marker_reason(_link(page=page, in_body=False)) is None
+
+    def test_caption_in_the_anchor_counts_anywhere(self) -> None:
+        """Подпись «Sponsored» — свойство самой ссылки, где бы она ни стояла."""
+        assert (
+            marker_reason(_link(anchor="Sponsored: Acme Loans", in_body=False))
+            == "подпись в анкоре"
+        )

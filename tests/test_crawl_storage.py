@@ -12,9 +12,12 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 from backend.features.core.domain import CrawlOutcome, StopReason
 from backend.features.core.models.crawl import CrawlRunModel, OutLinkModel
+from backend.features.crawl.gate import _to_link
 from backend.features.crawl.links import OutLink
 from backend.features.crawl.repository import save_crawl
 from backend.features.crawl.walk import CrawlReport
@@ -116,6 +119,31 @@ async def test_marks_travel_to_the_database(session: AsyncSession) -> None:
     second = rows["https://b.com/2"]
     assert second.in_body is False
     assert second.root_guessed is True
+
+
+async def test_article_facts_travel_to_the_database_and_back(session: AsyncSession) -> None:
+    """Пересчёт кандидатов идёт по базе, без нового обхода: пометка и дата
+    статьи обязаны вернуться из неё в ссылку такими же."""
+    labeled = _link(
+        "https://a.com/1", page_label="рубрика sponsored-content", page_published=date(2025, 12, 10)
+    )
+    report = _report(links=[labeled, _link("https://b.com/2")])
+
+    run = await save_crawl(session, report)
+    await session.commit()
+
+    rows = (
+        (await session.execute(select(OutLinkModel).where(OutLinkModel.crawl_run_id == run.id)))
+        .scalars()
+        .all()
+    )
+    back = {link.url: link for link in (_to_link(row) for row in rows)}
+    assert back["https://a.com/1"].page_label == "рубрика sponsored-content"
+    assert back["https://a.com/1"].page_published == date(2025, 12, 10)
+    assert (back["https://b.com/2"].page_label, back["https://b.com/2"].page_published) == (
+        None,
+        None,
+    )
 
 
 async def test_degradation_and_stats_are_stored(session: AsyncSession) -> None:

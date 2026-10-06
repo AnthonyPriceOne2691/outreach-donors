@@ -43,6 +43,8 @@ def _to_link(row: OutLinkModel) -> OutLink:
         ugc=row.ugc,
         root_guessed=row.root_guessed,
         in_body=row.in_body,
+        page_label=row.page_label,
+        page_published=row.page_published,
     )
 
 

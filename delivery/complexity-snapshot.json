@@ -517,7 +517,7 @@
       "worst": "—"
     },
     "backend/config/crawl.py": {
-      "lines": 108,
+      "lines": 112,
       "complexity": 0,
       "worst": "—"
     },
@@ -812,7 +812,7 @@
       "worst": "—"
     },
     "backend/features/core/models/crawl.py": {
-      "lines": 109,
+      "lines": 115,
       "complexity": 2,
       "worst": "_enum:29"
     },
@@ -852,9 +852,9 @@
       "worst": "—"
     },
     "backend/features/crawl/article.py": {
-      "lines": 261,
-      "complexity": 7,
-      "worst": "_by_density:214"
+      "lines": 274,
+      "complexity": 8,
+      "worst": "strip_noise:173"
     },
     "backend/features/crawl/contacts.py": {
       "lines": 121,
@@ -872,9 +872,9 @@
       "worst": "classify:141"
     },
     "backend/features/crawl/gate.py": {
-      "lines": 145,
+      "lines": 147,
       "complexity": 6,
-      "worst": "judge_run:67"
+      "worst": "judge_run:69"
     },
     "backend/features/crawl/health.py": {
       "lines": 106,
@@ -887,14 +887,19 @@
       "worst": "__init__:55"
     },
     "backend/features/crawl/links.py": {
-      "lines": 253,
-      "complexity": 11,
-      "worst": "collect_links:166"
+      "lines": 326,
+      "complexity": 13,
+      "worst": "collect_links:222"
     },
     "backend/features/crawl/niche.py": {
       "lines": 134,
       "complexity": 7,
       "worst": "collect:62"
+    },
+    "backend/features/crawl/page_facts.py": {
+      "lines": 221,
+      "complexity": 12,
+      "worst": "_published:190"
     },
     "backend/features/crawl/promote.py": {
       "lines": 276,
@@ -902,7 +907,7 @@
       "worst": "promote:131"
     },
     "backend/features/crawl/repository.py": {
-      "lines": 70,
+      "lines": 72,
       "complexity": 3,
       "worst": "save_crawl:26"
     },
@@ -917,14 +922,14 @@
       "worst": "_collect_groups:199"
     },
     "backend/features/crawl/scoring.py": {
-      "lines": 318,
+      "lines": 343,
       "complexity": 10,
-      "worst": "score_link:198"
+      "worst": "score_link:222"
     },
     "backend/features/crawl/sitemap.py": {
-      "lines": 219,
+      "lines": 268,
       "complexity": 15,
-      "worst": "scan:125"
+      "worst": "scan:162"
     },
     "backend/features/crawl/targets.py": {
       "lines": 132,
@@ -932,9 +937,9 @@
       "worst": "choose:60"
     },
     "backend/features/crawl/walk.py": {
-      "lines": 457,
+      "lines": 482,
       "complexity": 8,
-      "worst": "same_site_links:126"
+      "worst": "same_site_links:135"
     },
     "backend/features/donors/__init__.py": {
       "lines": 1,

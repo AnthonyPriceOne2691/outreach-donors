@@ -13,10 +13,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -99,6 +99,12 @@ class OutLinkModel(TimestampedMixin, Base):
     # Корень домена угадан: суффикс неизвестен вшитому снимку списка.
     # Ноль — норма, рост — повод обновить список, а не тихая потеря.
     root_guessed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    # Про статью, а не про ссылку: чем она помечена сама («рубрика
+    # sponsored-post», «This post is sponsored by…») и когда вышла.
+    # У обходов до 06.10.2026 — `NULL`: не смотрели, а не «пометки нет».
+    page_label: Mapped[str | None] = mapped_column(Text, nullable=True)
+    page_published: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     __table_args__ = (
         Index("idx_outlinks_run", "crawl_run_id"),
