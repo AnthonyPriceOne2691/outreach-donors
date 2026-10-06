@@ -11,18 +11,23 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import date
 
+import pytest
 from backend.features.core.domain import Verdict
+from backend.features.crawl.anchors import (
+    AnchorKind,
+    anchor_kind,
+    is_address,
+    is_commercial_anchor,
+)
 from backend.features.crawl.denylist import DenyReason, denial_for
 from backend.features.crawl.links import OutLink
+from backend.features.crawl.markers import has_marker, marker_reason
 from backend.features.crawl.scoring import (
     BOUGHT_AT,
     REVIEW_AT,
     boost_across_donors,
-    has_marker,
-    is_address,
-    is_commercial_anchor,
-    marker_reason,
     score_candidates,
     score_link,
 )
@@ -196,8 +201,12 @@ class TestOtherNicheFalsePositives:
         for anchor in ("Play now", "Visit site", "Claim offer", "Use code"):
             assert is_commercial_anchor(anchor) is True, anchor
 
-    def test_niche_money_sells_at_any_length(self) -> None:
-        assert is_commercial_anchor("the best welcome bonus of the season in one place") is True
+    def test_goods_that_buy_links_everywhere_count_at_any_length(self) -> None:
+        """Казино, букмекер, CBD покупают ссылки на донорах любой ниши — их
+        название коммерческое в анкоре любой длины. Слово сделки в длинной
+        фразе — нет: «бонус» в редакционном тексте ничего не продаёт."""
+        assert is_commercial_anchor("the best online casino of the season in one place") is True
+        assert is_commercial_anchor("the best welcome bonus of the season in one place") is False
 
     def test_a_sitewide_button_on_every_article_is_not_bought(self) -> None:
         """Кнопка «Add as preferred source on Google» на 199 статьях одного донора
@@ -324,7 +333,7 @@ class TestRepetitionNeedsACommercialSignal:
         assert candidate.pages == 12
         assert candidate.points == 0
         assert candidate.verdict is Verdict.SKIPPED
-        assert any("коммерческих признаков нет" in reason for reason in candidate.reasons)
+        assert any("сильных признаков рекламы нет" in reason for reason in candidate.reasons)
 
     def test_cross_donor_boost_does_not_revive_it_either(self) -> None:
         """Регулятор встречается у всех доноров ниши — усилитель про него
@@ -411,3 +420,313 @@ class TestArticleLabel:
             marker_reason(_link(anchor="Sponsored: Acme Loans", in_body=False))
             == "подпись в анкоре"
         )
+
+
+TODAY = date(2026, 10, 6)
+
+
+def _pages(count: int, *, published: date | None = None, **kwargs: object) -> list[OutLink]:
+    return [
+        replace(_link(page=f"https://{DONOR}/post/{n}", **kwargs), page_published=published)  # type: ignore[arg-type]
+        for n in range(count)
+    ]
+
+
+class TestAnyNiche:
+    """Оценка не под нишу (слово Anthony 06.10): агентство разбирает разные.
+
+    Финансовый блог 06.10 дал «куплено» 4 из 4 — все ложные, — потому что
+    коммерческий анкор узнавали по словам ставок и по «review» где угодно.
+    Каждый класс той ошибки — проверкой, рядом — признаки других ниш."""
+
+    @pytest.mark.parametrize(
+        "anchor",
+        [
+            "his review",
+            "our review",
+            "my year-end review",
+            "the odds of winning the Mega Millions lottery",
+            "Savings Deposit Program",
+            "Fixed term deposit account",
+            "bet a $2,222,278",
+            "Get Rich Slowly",
+            "Visit Paris in spring",
+            "Play Store",
+            "shop the perimeter",  # совет финансового блога, 06.10
+            "subscribe to a newspaper",
+            "Buy This, Not That",  # название книги
+            "Contributions vs. Returns Calculator",
+        ],
+    )
+    def test_editorial_phrases_of_any_niche_sell_nothing(self, anchor: str) -> None:
+        assert anchor_kind(anchor) is AnchorKind.PLAIN, anchor
+
+    @pytest.mark.parametrize(
+        "anchor",
+        [
+            "Start your free trial",  # софт
+            "Book now",  # путешествия
+            "Shop now",  # магазин
+            "Apply now",  # финансы
+            "Claim your bonus",  # ставки
+            "Sign up today",
+            "Buy now",
+            "Use code SAVE20",
+        ],
+    )
+    def test_a_call_to_act_is_strong_in_any_niche(self, anchor: str) -> None:
+        assert anchor_kind(anchor) is AnchorKind.CALL, anchor
+
+    @pytest.mark.parametrize(
+        "anchor",
+        ["Acme VPN review", "50% off coupon", "cheap flights to Lisbon", "Acme vs Globex pricing"],
+    )
+    def test_a_deal_word_is_weak_in_any_niche(self, anchor: str) -> None:
+        assert anchor_kind(anchor) is AnchorKind.DEAL, anchor
+
+    def test_the_founders_site_on_hundreds_of_pages_is_not_bought(self) -> None:
+        """Сайт основателя блога со 431 страницы: повторяемость без сильного
+        признака — автор, а не схема."""
+        links = _pages(431, root="founder.com", anchor="my year-end review")
+
+        candidate = score_candidates(links, donor_root=DONOR, today=TODAY)[0]
+
+        assert candidate.verdict is Verdict.SKIPPED
+        assert candidate.points == 0
+
+    def test_weak_signals_alone_never_reach_bought(self) -> None:
+        """Слово сделки, dofollow из тела, десять страниц — это «спорно»:
+        решает человек, а не порог."""
+        links = _pages(10, anchor="Acme VPN review")
+
+        candidate = score_candidates(links, today=TODAY)[0]
+
+        assert candidate.verdict is Verdict.PENDING
+        assert candidate.strong is False
+
+    def test_weak_signals_are_not_lifted_by_two_donors(self) -> None:
+        candidates = score_candidates(_pages(10, anchor="Acme VPN review"), today=TODAY)
+
+        boost_across_donors(candidates, {"advertiser.com": 3})
+
+        assert candidates[0].verdict is Verdict.PENDING
+
+    def test_a_call_repeated_across_pages_is_still_bought(self) -> None:
+        """То, ради чего повторяемость заведена: партнёрка с десятков страниц."""
+        links = _pages(12, anchor="Sign up today", nofollow=True)
+
+        assert score_candidates(links, today=TODAY)[0].verdict is Verdict.BOUGHT
+
+
+class TestAffiliateLinks:
+    """Партнёрская метка одинакова в любой нише — сильный признак."""
+
+    def test_affiliate_mark_under_nofollow_is_bought(self) -> None:
+        link = _link(url="https://advertiser.com/signup?aff_id=77", nofollow=True)
+
+        score = score_link(link)
+
+        assert score.points >= BOUGHT_AT
+        assert score.strong is True
+        assert any("партнёрская ссылка" in reason for reason in score.reasons)
+
+    def test_affiliate_mark_in_the_body_is_bought(self) -> None:
+        link = _link(url="https://advertiser.com/?utm_medium=affiliate&utm_source=donor")
+
+        assert score_link(link).points >= BOUGHT_AT
+
+    def test_network_link_counts_for_the_advertiser_it_names(self) -> None:
+        """Письмо уходит рекламодателю, которого сеть назвала, а не сети."""
+        url = (
+            "https://www.awin1.com/cread.php?awinmid=1&awinaffid=2"
+            "&ued=https%3A%2F%2Fwww.acmeshop.com%2Fsale"
+        )
+        link = _link(root="awin1.com", url=url, anchor="Acme Store", nofollow=True)
+
+        candidate = score_candidates([link], today=TODAY)[0]
+
+        assert candidate.target_root == "acmeshop.com"
+        assert candidate.verdict is Verdict.BOUGHT
+        assert any("awin1.com" in reason for reason in candidate.reasons)
+
+    def test_network_that_hides_the_advertiser_is_not_written_to(self) -> None:
+        url = "https://click.linksynergy.com/fs-bin/click?id=abc&offerid=1"
+        link = _link(root="linksynergy.com", url=url, anchor="Acme Store", nofollow=True)
+
+        candidate = score_candidates([link], today=TODAY)[0]
+
+        assert candidate.verdict is Verdict.BLOCKED
+        assert candidate.denial is not None
+        assert candidate.denial.reason is DenyReason.HIDDEN
+
+
+class TestStalePlacement:
+    """Требование: «переманить существующих рекламодателей». Бонус банка
+    2007 года, которого давно нет, был «куплено» (финансы, 06.10)."""
+
+    def test_all_old_articles_make_a_former_advertiser(self) -> None:
+        links = _pages(4, anchor="Sign up today", nofollow=True, published=date(2007, 3, 21))
+
+        candidate = score_candidates(links, today=TODAY)[0]
+
+        assert candidate.verdict is Verdict.SKIPPED
+        assert candidate.stale is True
+        assert any("давнее размещение" in reason for reason in candidate.reasons)
+
+    def test_one_fresh_article_keeps_it_current(self) -> None:
+        links = _pages(3, anchor="Sign up today", nofollow=True, published=date(2007, 3, 21))
+        fresh = _link(anchor="Sign up today", nofollow=True, page=f"https://{DONOR}/post/new")
+        links.append(replace(fresh, page_published=date(2026, 5, 1)))
+
+        assert score_candidates(links, today=TODAY)[0].verdict is Verdict.BOUGHT
+
+    def test_unknown_date_is_not_old(self) -> None:
+        """Незнание — не давность: статья без даты могла выйти вчера."""
+        links = _pages(3, anchor="Sign up today", nofollow=True, published=date(2007, 3, 21))
+        links.append(_link(anchor="Sign up today", nofollow=True, page=f"https://{DONOR}/x"))
+
+        assert score_candidates(links, today=TODAY)[0].stale is False
+
+    def test_two_donors_do_not_revive_a_former_advertiser(self) -> None:
+        links = _pages(4, anchor="Sign up today", nofollow=True, published=date(2007, 3, 21))
+        candidates = score_candidates(links, today=TODAY)
+
+        boost_across_donors(candidates, {"advertiser.com": 3})
+
+        assert candidates[0].verdict is Verdict.SKIPPED
+
+    def test_leap_day_counts_back_without_failing(self) -> None:
+        links = _pages(1, anchor="Sign up today", nofollow=True, published=date(2023, 3, 1))
+
+        candidate = score_candidates(links, today=date(2028, 2, 29))[0]
+
+        assert candidate.stale is True
+
+
+class TestWholePaidArticle:
+    """Площадка, продающая посты, метит `rel=sponsored` всю статью — вместе со
+    ссылками-источниками. «Куплено» — тот, о ком статья (обход 06.10:
+    было 71 «куплено», из них около 45 источников — ethereum.org, coingecko)."""
+
+    @staticmethod
+    def _article(slug: str, *targets: tuple[str, str]) -> list[OutLink]:
+        page = f"https://{DONOR}/{slug}/"
+        return [
+            _link(root=root, anchor=anchor, page=page, sponsored=True) for root, anchor in targets
+        ]
+
+    def _verdicts(self, links: list[OutLink]) -> dict[str, Verdict]:
+        return {c.target_root: c.verdict for c in score_candidates(links, today=TODAY)}
+
+    def test_the_advertiser_named_in_the_address_is_bought_sources_are_not(self) -> None:
+        links = self._article(
+            "xrp-etf-news-zentrix-announces-final-presale-stage",
+            ("zentrixpresale.example", "Zentrix"),
+            ("coingecko.com", "market capitalization"),
+            ("northfieldfunds.example", "XRP ETF filing"),
+        )
+
+        verdicts = self._verdicts(links)
+
+        assert verdicts["zentrixpresale.example"] is Verdict.BOUGHT
+        assert verdicts["coingecko.com"] is Verdict.PENDING
+        assert verdicts["northfieldfunds.example"] is Verdict.PENDING
+
+    def test_two_names_in_the_address_leave_both_to_a_human(self) -> None:
+        """«cardano-price-prediction-…-while-zetafrog-…»: крючок и рекламодатель."""
+        links = self._article(
+            "cardano-price-prediction-breakout-while-zetafrog-buyers-chase",
+            ("cardano.com", "Cardano"),
+            ("zetafrog.example", "ZetaFrog"),
+            ("cryptowire.example", "analysts"),
+        )
+
+        verdicts = self._verdicts(links)
+
+        assert verdicts["cardano.com"] is Verdict.PENDING
+        assert verdicts["zetafrog.example"] is Verdict.PENDING
+
+    def test_a_possessive_anchor_is_a_source_not_the_subject(self) -> None:
+        """«Solana’s Alpenglow upgrade work» — так ссылаются на чужое."""
+        links = self._article(
+            "solana-price-today-as-markets-wait",
+            ("solana.com", "Solana’s Alpenglow upgrade work"),
+            ("coingecko.com", "price data"),
+            ("fundflows.example", "fund flows"),
+        )
+
+        assert self._verdicts(links)["solana.com"] is Verdict.PENDING
+
+    def test_a_site_marking_whole_articles_is_read_on_short_articles_too(self) -> None:
+        """Сайт метит статьи целиком — и статья с двумя ссылками тоже статья."""
+        links = [
+            *self._article(
+                "quickforge-launches-tool",
+                ("quickforge.example", "QuickForge"),
+                ("news.com", "report"),
+            ),
+            *self._article(
+                "weekly-market-wrap", ("tether.to", "Tether’s USDT"), ("cmc.com", "data")
+            ),
+            *self._article(
+                "restaurant-opens-terrace", ("harbourbistro.example", "birthday dinner")
+            ),
+        ]
+
+        verdicts = self._verdicts(links)
+
+        assert verdicts["quickforge.example"] is Verdict.BOUGHT
+        assert verdicts["harbourbistro.example"] is Verdict.BOUGHT
+        assert verdicts["tether.to"] is Verdict.PENDING
+        assert verdicts["news.com"] is Verdict.PENDING
+
+    def test_a_single_sponsored_link_elsewhere_keeps_its_full_weight(self) -> None:
+        """На сайте, который метит ссылку, а не статью, `rel=sponsored` — как
+        в требовании: +5 и «куплено»."""
+        links = [_link(sponsored=True), *_pages(6)]
+
+        verdicts = self._verdicts(links)
+
+        assert verdicts["advertiser.com"] is Verdict.BOUGHT
+
+
+class TestNonprofitZone:
+    def test_an_org_is_never_bought_without_a_human(self) -> None:
+        candidate = score_candidates([_link(root="ethereum.org", sponsored=True)], today=TODAY)[0]
+
+        assert candidate.verdict is Verdict.PENDING
+        assert any("зона .org" in reason for reason in candidate.reasons)
+
+
+class TestGreyNicheGoods:
+    """Букмекер под nofollow — признак размещения, но слабый: новости о ставках
+    выглядят так же («online betting surge»). Решает человек (ставки, 06.10)."""
+
+    @pytest.mark.parametrize(
+        "anchor",
+        [
+            "Betway | Soccer Betting & World Cup 2026 Betting",
+            "Promotions Free Bet",
+            "Online casino",
+        ],
+    )
+    def test_grey_goods_under_nofollow_go_to_a_human(self, anchor: str) -> None:
+        candidate = score_candidates([_link(anchor=anchor, nofollow=True)], today=TODAY)[0]
+
+        assert anchor_kind(anchor) is AnchorKind.TRADE
+        assert candidate.verdict is Verdict.PENDING
+
+    def test_grey_goods_are_not_multiplied_by_repetition(self) -> None:
+        links = _pages(48, anchor="National Betting Board warns the public", nofollow=True)
+
+        assert score_candidates(links, today=TODAY)[0].verdict is Verdict.PENDING
+
+
+class TestAdNetworks:
+    def test_an_ad_network_hides_the_advertiser(self) -> None:
+        url = "https://ad.doubleclick.net/ddm/clk/123;456;789"
+        link = _link(root="doubleclick.net", url=url, anchor="at Experian.com", sponsored=True)
+
+        candidate = score_candidates([link], today=TODAY)[0]
+
+        assert candidate.verdict is Verdict.BLOCKED
