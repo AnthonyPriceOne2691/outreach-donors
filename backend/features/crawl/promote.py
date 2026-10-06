@@ -32,7 +32,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,6 +40,7 @@ from backend.features.core.domain import Verdict
 from backend.features.core.models.advertiser import CandidateModel
 from backend.features.core.models.advertisers import AdvertiserModel, SupplierDonorModel
 from backend.features.core.models.domain import DomainModel
+from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.ops import SuppressionModel
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,55 @@ class PromotionReport:
             "снято с уже заведённых": self.removed,
             "подтверждено человеком": self.by_human,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class Standing:
+    """Что видно над кнопкой «Перевести»: сколько переводить и сколько уже есть.
+
+    `ready` — домены среди «куплено» и «пишем», `fresh` — те из них, кого
+    среди рекламодателей ещё нет. Стоп-листы здесь не вычитаются: их
+    проверяет сам перевод и называет отсеянных в отчёте числом.
+    """
+
+    ready: int
+    fresh: int
+    advertisers: int
+    with_address: int
+
+
+def _eligible() -> ColumnElement[bool]:
+    """Кого переводим: «куплено» или «пишем» человека — и не «не пишем».
+
+    Решение человека сильнее вердикта скоринга: отклонённый не идёт
+    дальше, сколько бы баллов ему ни насчитали.
+    """
+    chosen = (CandidateModel.verdict == Verdict.BOUGHT) | CandidateModel.confirmed.is_(True)
+    return chosen & CandidateModel.confirmed.is_not(False)
+
+
+async def standing(session: AsyncSession) -> Standing:
+    """Числа для экрана — тем же условием, что и сам перевод."""
+    known = (
+        select(AdvertiserModel.id)
+        .join(DomainModel, DomainModel.id == AdvertiserModel.domain_id)
+        .where(DomainModel.host == CandidateModel.target_root)
+        .exists()
+    )
+    roots = func.count(func.distinct(CandidateModel.target_root))
+    ready = await session.scalar(select(roots).where(_eligible()))
+    fresh = await session.scalar(select(roots).where(_eligible(), ~known))
+    addressed = select(ContactModel.id).where(ContactModel.domain_id == AdvertiserModel.domain_id)
+    total = await session.scalar(select(func.count(AdvertiserModel.id)))
+    with_address = await session.scalar(
+        select(func.count(AdvertiserModel.id)).where(addressed.exists())
+    )
+    return Standing(
+        ready=int(ready or 0),
+        fresh=int(fresh or 0),
+        advertisers=int(total or 0),
+        with_address=int(with_address or 0),
+    )
 
 
 def _wins(candidate: CandidateModel, current: CandidateModel) -> bool:
@@ -133,20 +183,7 @@ def _pick(candidates: list[CandidateModel]) -> dict[str, CandidateModel]:
 async def promote(session: AsyncSession) -> PromotionReport:
     """Перевести подходящих кандидатов в рекламодателей."""
     report = PromotionReport()
-    rows = list(
-        (
-            await session.execute(
-                select(CandidateModel).where(
-                    (CandidateModel.verdict == Verdict.BOUGHT) | CandidateModel.confirmed.is_(True)
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    # Решение человека сильнее вердикта скоринга: отклонённый не идёт
-    # дальше, сколько бы баллов ему ни насчитали.
-    rows = [row for row in rows if row.confirmed is not False]
+    rows = list((await session.execute(select(CandidateModel).where(_eligible()))).scalars().all())
     report.considered = len({row.target_root for row in rows})
     if not rows:
         return report

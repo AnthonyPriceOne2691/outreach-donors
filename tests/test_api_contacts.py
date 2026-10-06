@@ -37,8 +37,15 @@ from backend.features.contacts.repository import (
     refusal_of,
     search_refusal,
 )
-from backend.features.core.domain import ContactSource, ContactStatus, DonorStatus, UserRole
+from backend.features.core.domain import (
+    ContactSource,
+    ContactStatus,
+    DonorStatus,
+    Stage,
+    UserRole,
+)
 from backend.features.core.models.access import UserModel
+from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.shared.queue import CONTACTS_JOB
@@ -523,6 +530,30 @@ class TestTheJobBody:
         ).scalar_one()
         assert contact.email == "editor@weak.example.test"
         assert contact.source is ContactSource.PROVIDER
+
+    async def test_advertiser_stage_walks_advertisers_not_donors(
+        self, session: AsyncSession, ladder: FakeProvider
+    ) -> None:
+        """Рекламодатели Этапа 2 идут той же задачей по своей очереди: ждущий
+        адреса донор при этом не проходится и не оплачивается."""
+        await _donor(session, "donor.example.test")
+        domain = DomainModel(host="brand.example.test")
+        session.add(domain)
+        await session.flush()
+        session.add(AdvertiserModel(domain_id=domain.id, points=5, links=1))
+        await session.commit()
+
+        report = await jobs._search_contacts(5, False, False, None, Stage.ADVERTISERS)
+
+        assert ladder.calls == ["brand.example.test"]
+        assert report["walked"] == 1
+        assert report["saved"] == 1
+
+    def test_job_names_the_advertiser_search_in_words(self) -> None:
+        """Причина сбоя в журнале называет, чей поиск упал."""
+        assert jobs._contacts_what(None, Stage.ADVERTISERS) == "поиск адресов рекламодателей"
+        assert jobs._contacts_what(7, Stage.DONORS) == "поиск адреса донора №7"
+        assert jobs._contacts_what(None, Stage.DONORS) == "поиск контактов"
 
     async def test_job_leaves_a_donor_that_no_longer_waits(
         self, session: AsyncSession, ladder: FakeProvider
