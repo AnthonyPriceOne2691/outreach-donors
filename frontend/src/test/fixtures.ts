@@ -90,3 +90,13 @@ export const HOME_ROUTES: Record<string, Answer> = {
   'GET /api/watchdog': { body: { alarms: [] } },
   'GET /api/overview': { body: OVERVIEW },
 };
+
+/** Панель «К письму» под рекламодателями: переводить некого, адресов не ждут. */
+export const PROMOTE_ROUTES: Record<string, Answer> = {
+  'GET /api/advertisers/promotion': {
+    body: { ready: 0, fresh: 0, advertisers: 0, with_address: 0 },
+  },
+  'GET /api/advertisers/contacts': {
+    body: { pending: 0, running: false, job_id: null, last: null, workers: 1 },
+  },
+};

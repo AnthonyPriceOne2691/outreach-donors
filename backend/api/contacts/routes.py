@@ -28,9 +28,6 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, Query
-from redis.exceptions import RedisError
-from rq.exceptions import NoSuchJobError
-from rq.job import Job
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.contacts.schemas import (
@@ -43,9 +40,9 @@ from backend.api.contacts.schemas import (
     GiveUpBody,
     SearchBody,
 )
+from backend.api.contacts.search_state import search_state
 from backend.api.deps import db_session, needs
 from backend.api.donors.schemas import DonorFullCard
-from backend.api.jobs.routes import JobCard
 from backend.config import contacts as contacts_cfg
 from backend.features.access.repository import AccessRepository
 from backend.features.contacts import forms, manual
@@ -58,12 +55,10 @@ from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.donors.browse import DonorBrowser, UnknownDonorError
-from backend.features.ops.job_outcome import job_outcome
 from backend.shared.database.ids import storable
 from backend.shared.queue import (
     CONTACTS_JOB,
     contacts_job_id,
-    job_alive,
     remember_contacts_job,
     runs_queue,
     with_retries,
@@ -85,17 +80,7 @@ async def state(
 ) -> ContactsState:
     """Сколько доноров ждёт контакта и идёт ли поиск прямо сейчас."""
     pending = await ContactRepository(session).pending_count()
-    job_id = contacts_job_id()
-    running = bool(job_id) and job_alive(job_id) is True
-    outcome = job_outcome(job_id) if job_id else None
-    return ContactsState(
-        pending=pending,
-        running=running,
-        job_id=job_id,
-        last=_last_report(job_id) if job_id and not running else None,
-        workers=workers_alive(),
-        job=JobCard.of(outcome) if outcome is not None else None,
-    )
+    return search_state(pending, contacts_job_id(), workers_alive())
 
 
 @router.post("", response_model=ContactsQueued, summary="Найти контакты")
@@ -268,17 +253,3 @@ async def give_up(
     )
     await session.commit()
     return FormCard.of(row)
-
-
-def _last_report(job_id: str) -> dict[str, object] | None:
-    """Отчёт законченной задачи. Живёт в самой очереди и исчезает
-    вместе с ней — это нормально: числа нужны сразу после прохода,
-    а не через неделю."""
-    try:
-        job = Job.fetch(job_id, connection=runs_queue().connection)
-    except (NoSuchJobError, RedisError) as exc:
-        logger.info("контакты: отчёт задачи %s недоступен (%s)", job_id, exc)
-        return None
-    result = job.latest_result() if job.is_finished else None
-    value = result.return_value if result is not None else None
-    return value if isinstance(value, dict) else None

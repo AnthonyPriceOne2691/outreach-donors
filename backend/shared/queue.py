@@ -180,27 +180,33 @@ def workers_alive(redis: Redis | None = None, queue: str = QUEUE_NAME) -> int | 
 #: отчёта в самой очереди.
 CONTACTS_JOB_KEY = "outreach:contacts:job"
 
+#: То же для рекламодателей Этапа 2. Ключ свой: под общим экран доноров
+#: показал бы исход чужого поиска как свой.
+ADVERTISER_CONTACTS_JOB_KEY = "outreach:advertiser-contacts:job"
+
 #: Сколько помним номер задачи. Дольше её собственного срока хранения
 #: смысла нет: отчёт всё равно исчезнет вместе с задачей.
 CONTACTS_JOB_TTL = 24 * 60 * 60
 
 
-def remember_contacts_job(job_id: str, redis: Redis | None = None) -> None:
+def remember_contacts_job(
+    job_id: str, redis: Redis | None = None, *, key: str = CONTACTS_JOB_KEY
+) -> None:
     """Запомнить, какая задача сейчас ищет контакты.
 
     Не удалось — не беда: экран покажет «идёт» по самой очереди,
     а поиск от этого не остановится. Молчать об этом всё равно нельзя.
     """
     try:
-        (redis or connection()).set(CONTACTS_JOB_KEY, job_id, ex=CONTACTS_JOB_TTL)
+        (redis or connection()).set(key, job_id, ex=CONTACTS_JOB_TTL)
     except RedisError:
         logger.warning("очередь: номер задачи поиска контактов не запомнен")
 
 
-def contacts_job_id(redis: Redis | None = None) -> str | None:
+def contacts_job_id(redis: Redis | None = None, *, key: str = CONTACTS_JOB_KEY) -> str | None:
     """Номер последней задачи поиска контактов. `None` — очередь молчит."""
     try:
-        raw = (redis or connection()).get(CONTACTS_JOB_KEY)
+        raw = (redis or connection()).get(key)
     except RedisError:
         logger.warning("очередь: номер задачи поиска контактов не прочитан")
         return None

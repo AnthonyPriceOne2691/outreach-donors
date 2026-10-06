@@ -38,7 +38,28 @@ DONOR = "donor.example.test"
 ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("GET", "/api/advertisers", None, "view"),
     ("POST", "/api/advertisers/{row}/decide", {"confirmed": True}, "prices"),
+    ("GET", "/api/advertisers/promotion", None, "view"),
+    ("POST", "/api/advertisers/promote", None, "run"),
+    ("GET", "/api/advertisers/contacts", None, "view"),
+    ("POST", "/api/advertisers/contacts", {"limit": 10}, "run"),
 ]
+
+
+class _Queue:
+    """Очередь, которая ничего не выполняет: перевод ставит поиск адресов."""
+
+    def enqueue(self, *_args: Any, **_kwargs: Any) -> object:
+        return type("Job", (), {"id": "job-адреса"})()
+
+
+@pytest.fixture(autouse=True)
+def quiet_queue(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Права проверяются без Redis: очередь и её память подменены."""
+    routes = "backend.api.advertisers.routes"
+    monkeypatch.setattr(f"{routes}.runs_queue", _Queue)
+    monkeypatch.setattr(f"{routes}.remember_contacts_job", lambda *_a, **_k: None)
+    monkeypatch.setattr(f"{routes}.contacts_job_id", lambda **_k: None)
+    monkeypatch.setattr(f"{routes}.workers_alive", lambda: 1)
 
 
 @pytest.fixture
