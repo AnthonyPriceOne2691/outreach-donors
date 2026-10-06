@@ -112,9 +112,9 @@
       "worst": "_file:100"
     },
     "backend/api/donors/schemas.py": {
-      "lines": 292,
+      "lines": 297,
       "complexity": 4,
-      "worst": "of:159"
+      "worst": "of:160"
     },
     "backend/api/errors.py": {
       "lines": 174,
@@ -227,7 +227,7 @@
       "worst": "_ascii_name:28"
     },
     "backend/api/replies/routes.py": {
-      "lines": 294,
+      "lines": 298,
       "complexity": 10,
       "worst": "review:241"
     },
@@ -362,9 +362,9 @@
       "worst": "all_threads:32"
     },
     "backend/api/threads/schemas.py": {
-      "lines": 217,
+      "lines": 240,
       "complexity": 3,
-      "worst": "of:207"
+      "worst": "listed:138"
     },
     "backend/api/unsubscribe/__init__.py": {
       "lines": 1,
@@ -442,14 +442,14 @@
       "worst": "_print_summary:169"
     },
     "backend/cli/demo_content.py": {
-      "lines": 128,
+      "lines": 137,
       "complexity": 0,
       "worst": "—"
     },
     "backend/cli/demo_data.py": {
-      "lines": 452,
+      "lines": 470,
       "complexity": 7,
-      "worst": "_add_reply:287"
+      "worst": "_add_reply:289"
     },
     "backend/cli/doors.py": {
       "lines": 97,
@@ -842,7 +842,7 @@
       "worst": "—"
     },
     "backend/features/core/models/donor.py": {
-      "lines": 147,
+      "lines": 151,
       "complexity": 2,
       "worst": "_enum:34"
     },
@@ -852,7 +852,7 @@
       "worst": "_enum:18"
     },
     "backend/features/core/models/outreach.py": {
-      "lines": 318,
+      "lines": 322,
       "complexity": 2,
       "worst": "_enum:37"
     },
@@ -1352,9 +1352,9 @@
       "worst": "_header_says:97"
     },
     "backend/features/replies/extract.py": {
-      "lines": 391,
+      "lines": 421,
       "complexity": 9,
-      "worst": "parse_form:280"
+      "worst": "parse_form:309"
     },
     "backend/features/replies/form_data.py": {
       "lines": 194,
@@ -1382,9 +1382,14 @@
       "worst": "from_form:274"
     },
     "backend/features/replies/money.py": {
-      "lines": 305,
+      "lines": 310,
       "complexity": 8,
-      "worst": "_plain_number:197"
+      "worst": "_plain_number:202"
+    },
+    "backend/features/replies/offers.py": {
+      "lines": 151,
+      "complexity": 7,
+      "worst": "_offer:104"
     },
     "backend/features/replies/outcome.py": {
       "lines": 237,
@@ -1397,7 +1402,7 @@
       "worst": "compiled:456"
     },
     "backend/features/replies/pipeline.py": {
-      "lines": 467,
+      "lines": 471,
       "complexity": 8,
       "worst": "_settle:202"
     },
@@ -1417,9 +1422,9 @@
       "worst": "sort_out:149"
     },
     "backend/features/replies/repository.py": {
-      "lines": 486,
+      "lines": 491,
       "complexity": 7,
-      "worst": "add:380"
+      "worst": "add:385"
     },
     "backend/features/replies/robots.py": {
       "lines": 56,

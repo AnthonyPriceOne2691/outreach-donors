@@ -207,6 +207,47 @@ class TestReviewing:
         assert donor.last_price == Decimal("300.00")
         assert donor.last_price_currency == "EUR"
 
+    async def test_confirmed_price_carries_the_reply_list(
+        self, client: AsyncClient, reviewer_token: str, unsure: ReplyModel, session: AsyncSession
+    ) -> None:
+        """Человек решает главную цену, а прочие цены письма идут в карточку
+        донора как лежат у ответа: правкой они не затрагиваются."""
+        listed = [
+            {"product": "guest post", "niche": None, "price": "250", "currency": "EUR"},
+            {"product": "link insertion", "niche": None, "price": "90", "currency": "EUR"},
+        ]
+        unsure.offers = listed
+        await session.commit()
+
+        await client.patch(
+            f"/api/replies/{unsure.id}",
+            json={"price_white": "300", "currency": "EUR"},
+            headers=bearer(reviewer_token),
+        )
+
+        donor = (await session.execute(select(DonorModel))).scalars().one()
+        await session.refresh(donor)
+        assert donor.last_price == Decimal("300.00")
+        assert donor.last_offers == listed
+
+    async def test_reply_parsed_before_the_list_clears_the_old_one(
+        self, client: AsyncClient, reviewer_token: str, unsure: ReplyModel, session: AsyncSession
+    ) -> None:
+        """Ответ, разобранный до 06.10.2026, списка не несёт: прежний список
+        другого ответа рядом с новой ценой врал бы."""
+        donor = (await session.execute(select(DonorModel))).scalars().one()
+        donor.last_offers = [{"product": "old", "niche": None, "price": "1", "currency": "EUR"}]
+        await session.commit()
+
+        await client.patch(
+            f"/api/replies/{unsure.id}",
+            json={"price_white": "300", "currency": "EUR"},
+            headers=bearer(reviewer_token),
+        )
+
+        await session.refresh(donor)
+        assert donor.last_offers is None
+
     async def test_model_confidence_is_not_erased(
         self, client: AsyncClient, reviewer_token: str, unsure: ReplyModel, session: AsyncSession
     ) -> None:

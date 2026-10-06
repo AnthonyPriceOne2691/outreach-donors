@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -283,13 +284,16 @@ class ReplyRepository:
         domain_id: int,
         price: Decimal,
         currency: str | None,
+        offers: list[dict[str, Any]] | None,
         now: datetime | None = None,
     ) -> None:
-        """Перенести цену в карточку донора.
+        """Перенести цену в карточку донора — вместе со всеми ценами того же
+        ответа (`offers`, как они лежат у ответа).
 
         Цена кладётся в той валюте, в которой её назвали: конвертации
         в сервисе нет, и подписать евро долларами значит записать
-        неверное число.
+        неверное число. Список — всегда от того же ответа, что цена, и пусто
+        затирает прежний: список чужого ответа рядом с новой ценой врал бы.
         """
         rows = await self._session.execute(
             select(DonorModel).where(DonorModel.domain_id == domain_id)
@@ -300,6 +304,7 @@ class ReplyRepository:
         donor.last_price = price
         donor.last_price_currency = currency
         donor.last_price_at = now or datetime.now(UTC)
+        donor.last_offers = offers
 
     async def record_seller_answer(
         self,

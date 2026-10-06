@@ -33,11 +33,13 @@ from typing import Any
 from backend.features.letters import masking
 from backend.features.replies.inbound import Incoming
 from backend.features.replies.money import (
+    IMPLAUSIBLE_PRICE,
     amounts_in,
     appears_in,
     as_price,
     normalize_currency,
 )
+from backend.features.replies.offers import Offer, offers_from
 from backend.features.replies.quoting import written_by_hand
 from backend.shared.llm import (
     ModelClient,
@@ -56,16 +58,13 @@ TOPIC = "разбор ответа"
 TOKENS_REASONING = 1200
 TOKENS_PLAIN = 500
 
-
-#: Больше этого за одну статью не платят: такое число — ошибка разбора,
-#: а не прайс. Порог намеренно щедрый — отсечь надо выдумку, не дорогой сайт.
-IMPLAUSIBLE_PRICE = Decimal("100000")
-
 #: Версия промпта разбора. Меняется при КАЖДОЙ правке `SYSTEM`: калибровка
 #: сравнивает версии между собой, и без метки правки было бы не отличить от
 #: смены писем. Приём взят у соседней системы — там по такой метке сверяли
 #: предложенное моделью с тем, что сделал оператор.
-PROMPT_VERSION = "reply-parse-v5-label-silence"
+#: v6 (06.10.2026) — цены списком (`offers`): прочие продукты и ниши
+#: перестали уходить в заметку, которая не хранится.
+PROMPT_VERSION = "reply-parse-v6-offers"
 
 SYSTEM = """You extract placement pricing from a reply an outreach recipient sent us.
 
@@ -75,6 +74,13 @@ sponsored/advertising.
 - "price_grey": number or null — the price for a post that is NOT marked as \
 sponsored, when the reply names a different one.
 - "currency": string or null — ISO code or the symbol used, exactly as written.
+- "offers": array with one object per price the reply names, empty if it \
+names none. Each object: "product" — what the price is for, as the sender \
+wrote it, lowercase, at most 6 words, e.g. "guest post", "link insertion", \
+"homepage link", "sponsored post"; "niche" — null or the niche word as \
+written, e.g. "casino", "crypto"; "price" — number; "currency" — string or \
+null, as written; "period" — null, or "month" / "year" when the price is \
+per period.
 - "payment_methods": array of short strings, empty if none are named.
 - "placement_days": integer or null — how long publication takes, in days.
 - "link_type": "dofollow", "nofollow" or null.
@@ -103,7 +109,8 @@ and the product correctly. When a price is named, never leave both \
 - "price_grey" is ONLY the same post without a sponsored label. Prices for a \
 different topic (casino, crypto, adult…) or a different product (homepage \
 link, link insertion, monthly placement) are NEVER "price_grey": put the \
-regular guest post price in "price_white" and mention the others in "note".
+regular guest post price in "price_white" and list every named price in \
+"offers".
 - For a range or "starting from", take the lowest number named.
 - Never invent a number. If a value is not in the text, it is null.
 - Copy digits exactly as written. Do not convert currencies or round.
@@ -120,6 +127,10 @@ class Extracted:
     price_white: Decimal | None = None
     price_grey: Decimal | None = None
     currency: str | None = None
+    #: Все цены, названные в ответе, словами донора (`offers.py`). Цена
+    #: гостевого поста лежит и здесь, и в `price_white`: список не заменяет
+    #: пару белая/серая, а сохраняет остальное, что донор продаёт.
+    offers: tuple[Offer, ...] = ()
     payment_methods: tuple[str, ...] = ()
     placement_days: int | None = None
     link_type: str | None = None
@@ -150,6 +161,7 @@ class Extracted:
             "price_white": str(self.price_white) if self.price_white is not None else None,
             "price_grey": str(self.price_grey) if self.price_grey is not None else None,
             "currency": self.currency,
+            "offers": [offer.as_json() for offer in self.offers],
             "placement": self.placement,
             "label_stated": self.label_stated,
             "confidence": self.confidence,
@@ -201,6 +213,7 @@ def temper(found: Extracted, *, text: str) -> Extracted:
     потолка, и ниже всех оказывается самая суровая из сработавших.
     """
     result = _numbers_checked(found, text)
+    result = _offers_checked(result, text)
     result = _choice_checked(result, text)
     return _declines_checked(result, text)
 
@@ -219,6 +232,22 @@ def _numbers_checked(found: Extracted, text: str) -> Extracted:
         # Число без валюты положить в базу нельзя: «250» — это не цена.
         result = result.lowered(0.3, "цена названа, а валюта — нет")
     return result
+
+
+def _offers_checked(found: Extracted, text: str) -> Extracted:
+    """Цена из списка, которой в письме нет, — та же выдумка, что у главной
+    цены, и та же проверка (`appears_in`). Пункт снимается, а разбор уходит
+    человеку: модель, придумавшая одно число, могла придумать и другое.
+    Типичный случай — сложенная цена: «гостевой пост $200, казино +$100»
+    и в списке «guest post · casino — 300» (живая проверка v6, 06.10.2026)."""
+    invented = [offer for offer in found.offers if not appears_in(offer.price, text)]
+    if not invented:
+        return found
+    kept = tuple(offer for offer in found.offers if offer not in invented)
+    named = ", ".join(f"{offer.name} {offer.price}" for offer in invented)
+    return replace(found, offers=kept).lowered(
+        0.0, f"цена из списка в письме не встречается: {named}"
+    )
 
 
 def _choice_checked(found: Extracted, text: str) -> Extracted:
@@ -295,6 +324,7 @@ def parse_form(content: str) -> Extracted | None:
         price_white=as_price(body.get("price_white")),
         price_grey=as_price(body.get("price_grey")),
         currency=normalize_currency(body.get("currency")),
+        offers=offers_from(body.get("offers")),
         payment_methods=tuple(str(m)[:64] for m in methods if m)
         if isinstance(methods, list)
         else (),

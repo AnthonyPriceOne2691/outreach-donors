@@ -35,6 +35,7 @@ from backend.features.core.models.outreach import (
 from backend.features.letters import reply_to
 from backend.features.replies.extract import Extracted
 from backend.features.replies.inbound import Attachment, Incoming
+from backend.features.replies.offers import Offer
 from backend.features.replies.pipeline import Inbox, Parser
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -366,6 +367,68 @@ class TestParsingThePrice:
 
         donor = (await session.execute(select(DonorModel))).scalars().one()
         assert donor.last_price_currency == "PLN"
+
+    async def test_every_named_price_reaches_the_reply_and_the_donor(
+        self, session: AsyncSession, sent: MessageModel
+    ) -> None:
+        """Цены списком (06.10.2026): прочие продукты и ниши раньше уходили
+        в заметку, которая не хранится, — теперь лежат у ответа и у донора."""
+        reply_id = await self._accept(session, sent, "Guest post 250 EUR, homepage 400 EUR/month.")
+        offers = (
+            Offer(product="guest post", price=Decimal("250"), currency="EUR"),
+            Offer(product="homepage", price=Decimal("400"), currency="EUR", period="month"),
+        )
+        extractor = FakeExtractor(
+            Extracted(price_white=Decimal("250"), currency="EUR", offers=offers, confidence=0.95)
+        )
+
+        await Parser(session, extractor, now=NOW).parse(reply_id)  # type: ignore[arg-type]
+
+        listed = [offer.as_json() for offer in offers]
+        reply = await session.get(ReplyModel, reply_id)
+        assert reply is not None
+        assert reply.offers == listed
+        assert reply.model_parse is not None
+        assert reply.model_parse["offers"] == listed
+        donor = (await session.execute(select(DonorModel))).scalars().one()
+        assert donor.last_offers == listed
+
+    async def test_unsure_parse_keeps_the_list_at_the_reply_only(
+        self, session: AsyncSession, sent: MessageModel
+    ) -> None:
+        reply_id = await self._accept(session, sent, "Maybe 250 EUR, I need to check.")
+        offers = (Offer(product="guest post", price=Decimal("250"), currency="EUR"),)
+        extractor = FakeExtractor(
+            Extracted(price_white=Decimal("250"), currency="EUR", offers=offers, confidence=0.4)
+        )
+
+        await Parser(session, extractor, now=NOW).parse(reply_id)  # type: ignore[arg-type]
+
+        reply = await session.get(ReplyModel, reply_id)
+        assert reply is not None
+        assert reply.offers == [offers[0].as_json()]
+        donor = (await session.execute(select(DonorModel))).scalars().one()
+        assert donor.last_offers is None
+
+    async def test_new_price_replaces_the_old_list(
+        self, session: AsyncSession, sent: MessageModel
+    ) -> None:
+        """Список — всегда того же ответа, что цена: прежний рядом с новой
+        ценой врал бы. Ответ без прочих цен — пустой список, а не старый."""
+        donor = (await session.execute(select(DonorModel))).scalars().one()
+        donor.last_offers = [{"product": "old", "price": "1", "niche": None}]
+        reply_id = await self._accept(session, sent, "Placement is 250 EUR.")
+        extractor = FakeExtractor(
+            Extracted(price_white=Decimal("250"), currency="EUR", confidence=0.95)
+        )
+
+        await Parser(session, extractor, now=NOW).parse(reply_id)  # type: ignore[arg-type]
+
+        await session.refresh(donor)
+        assert donor.last_offers == []
+        reply = await session.get(ReplyModel, reply_id)
+        assert reply is not None
+        assert reply.offers == []
 
     async def test_model_is_not_called_for_an_auto_reply(
         self, session: AsyncSession, sent: MessageModel

@@ -88,6 +88,10 @@ class DonorModel(TimestampedMixin, ContactAttemptMixin, Base):
     last_price: Mapped[Decimal | None] = mapped_column(DECIMAL(10, 2), nullable=True)
     last_price_currency: Mapped[str | None] = mapped_column(String(8), nullable=True)
     last_price_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Все цены того же ответа, что `last_price`, — список ответа как есть
+    # (`ReplyModel.offers`): вставка ссылки, главная, свои цены для ниш.
+    # Пусто — цена записана до 06.10.2026 или из ответа без разбора моделью.
+    last_offers: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
 
     # --- Контакт: исход поиска — колонки `ContactAttemptMixin` ---
 

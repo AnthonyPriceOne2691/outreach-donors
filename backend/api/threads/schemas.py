@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -122,6 +123,24 @@ class AttachmentCard(BaseModel):
         )
 
 
+class OfferCard(BaseModel):
+    """Одна цена из ответа (`replies/offers.py`). Продукт и ниша — словами
+    донора: это цитата письма, а не наш справочник."""
+
+    product: str
+    niche: str | None = None
+    price: Decimal
+    currency: str | None = None
+    #: `month` или `year` — цена за срок; пусто — разовая.
+    period: str | None = None
+
+    @classmethod
+    def listed(cls, stored: Sequence[Mapping[str, Any]] | None) -> list[OfferCard] | None:
+        """Список, как он лежит в базе. Пусто остаётся пустым: «разобран
+        до списка» и «цен не названо» (`[]`) — разные ответы."""
+        return None if stored is None else [cls.model_validate(item) for item in stored]
+
+
 class IncomingCard(BaseModel):
     """Входящее письмо и то, что из него распознали.
 
@@ -143,6 +162,9 @@ class IncomingCard(BaseModel):
     price_white: Decimal | None
     price_grey: Decimal | None
     currency: str | None
+    #: Все цены, названные в ответе. Пусто — ответ разобран до 06.10.2026,
+    #: когда списка ещё не было, или не разбирался; `[]` — цен не названо.
+    offers: list[OfferCard] | None = None
     payment_methods: list[str] | None
     confidence: float | None
     #: Продаёт ли донор размещение по разбору: `sells`, `declines`, `unclear`.
@@ -181,6 +203,7 @@ class IncomingCard(BaseModel):
             price_white=reply.price_white,
             price_grey=reply.price_grey,
             currency=reply.currency,
+            offers=OfferCard.listed(reply.offers),
             payment_methods=reply.payment_methods,
             confidence=reply.confidence,
             placement=reply.placement,
