@@ -38,9 +38,13 @@ from backend.features.core.models.ops import SuppressionModel, UsageRecordModel
 from backend.features.core.models.outreach import CampaignModel, ReplyModel, ThreadModel
 from backend.features.core.models.run import RunCandidateModel, RunModel, RunSettingsModel
 from backend.features.runs.prune import (
+    DETACHED_ADVERTISERS,
+    DETACHED_CAMPAIGNS,
+    DETACHED_USAGE,
     KEPT_DECISION,
     KEPT_HISTORY,
     KEPT_OTHER_RUN,
+    KEPT_SALES,
     KEPT_STOPLIST,
     PruneRefusedError,
     apply_prune,
@@ -48,6 +52,12 @@ from backend.features.runs.prune import (
 )
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.thresholds import defaults
+from backend.features.sales.models import (
+    LeadSource,
+    LeadStatus,
+    SalesHypothesisModel,
+    SalesLeadModel,
+)
 from sqlalchemy import Connection, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import make_donor
@@ -196,8 +206,42 @@ async def test_apply_removes_run_queue_domains_and_addresses_and_keeps_the_spend
     assert journal[0].target == f"run:{old.id}"
     details = journal[0].details or {}
     assert (details["доменов"], details["адресов"], details["прогоны"]) == (2, 1, [old.id])
-    assert details["расход без номера прогона"] == 1
+    assert details["без номера прогона"] == {DETACHED_USAGE: 1}
     assert details["кто"] == "тест"
+
+
+async def test_what_the_run_built_or_found_stays_without_its_number(
+    session: AsyncSession,
+) -> None:
+    """Рассылка, собранная по прогону, рекламодатель, найденный им, и расход остаются:
+    отправленное отправлено, потраченное потрачено. Теряется только номер прогона —
+    и план называет это до удаления."""
+    run = await _run(session, [])
+    found = await _donor(session, "advertiser.example.test")
+    session.add_all(
+        [
+            CampaignModel(stage=Stage.DONORS, name="Пилот", status="running", run_id=run.id),
+            AdvertiserModel(domain_id=found.id, found_run_id=run.id),
+            UsageRecordModel(
+                system="outreach",
+                provider=UsageProvider.AHREFS,
+                run_id=run.id,
+                operation="batch_metrics",
+                units=120,
+            ),
+        ]
+    )
+    await session.flush()
+
+    plan = await plan_prune(session, run_ids=[run.id])
+    assert plan.detached == {DETACHED_USAGE: 1, DETACHED_CAMPAIGNS: 1, DETACHED_ADVERTISERS: 1}
+    await apply_prune(session, plan, author="тест")
+    await session.flush()
+
+    campaigns = (await session.scalars(select(CampaignModel.run_id))).all()
+    advertisers = (await session.scalars(select(AdvertiserModel.found_run_id))).all()
+    spend = (await session.scalars(select(UsageRecordModel.run_id))).all()
+    assert (list(campaigns), list(advertisers), list(spend)) == ([None], [None], [None])
 
 
 async def test_many_runs_fit_the_journal_and_keep_exact_numbers_in_details(
@@ -277,6 +321,23 @@ async def _crawled(session: AsyncSession, domain: DomainModel) -> None:
     )
 
 
+async def _sales_lead(session: AsyncSession, domain: DomainModel) -> None:
+    """Ревью продаж 06.10: лид ссылается на общую строку домена без каскада, а чистка
+    о нём не знала — обещала домен удалить и падала на внешнем ключе целиком."""
+    hypothesis = SalesHypothesisModel(name="Гипотеза")
+    session.add(hypothesis)
+    await session.flush()
+    session.add(
+        SalesLeadModel(
+            hypothesis_id=hypothesis.id,
+            domain_id=domain.id,
+            email="ceo@kept.example.test",
+            source=LeadSource.IMPORT,
+            status=LeadStatus.NEW,
+        )
+    )
+
+
 Holder = Callable[[AsyncSession, DomainModel], Awaitable[None]]
 
 
@@ -292,6 +353,7 @@ Holder = Callable[[AsyncSession, DomainModel], Awaitable[None]]
         (_thread, KEPT_HISTORY),
         (_advertiser, KEPT_HISTORY),
         (_crawled, KEPT_HISTORY),
+        (_sales_lead, KEPT_SALES),
     ],
     ids=lambda value: getattr(value, "__name__", value),
 )
@@ -510,3 +572,77 @@ async def test_journal_values_are_there_once_and_survive_a_rerun(session: AsyncS
     connection = await session.connection()
     values = await connection.run_sync(_journal_values)
     assert (values.count("data_pruned"), values.count("probe_created")) == (1, 1)
+
+
+#: Откуда чистка удаляет сама. Каскад добавит то, что уходит вместе с ними.
+_PRUNED = frozenset({"domains", "runs", "run_settings", "replies", "messages", "campaigns"})
+
+#: Ссылка на удаляемое → что с ней при чистке. «Держит» — правило в `runs/prune.py`
+#: (каждое проверено тестом выше); «уходит» — каскадом вместе с удаляемым; «теряет
+#: номер» — запись остаётся, план называет их число.
+REVIEWED = {
+    "advertisers.domain_id → domains CASCADE": "держит: история",
+    "contacts.domain_id → domains CASCADE": "уходит с доменом; вписанный руками — держит",
+    "donors.domain_id → domains CASCADE": "уходит с доменом; решение и цена — держат",
+    "messages.domain_id → domains NO ACTION": "держит: история",
+    "run_candidates.domain_id → domains CASCADE": "очередь оставшегося прогона держит",
+    "sales_leads.domain_id → domains RESTRICT": "держит: лид продаж",
+    "suppressions.domain_id → domains CASCADE": "держит: стоп-лист",
+    "threads.domain_id → domains CASCADE": "держит: история",
+    "run_candidates.run_id → runs CASCADE": "очередь уходит с прогоном",
+    "usage_records.run_id → runs SET NULL": "теряет номер",
+    "campaigns.run_id → runs SET NULL": "теряет номер",
+    "advertisers.found_run_id → runs SET NULL": "теряет номер",
+    "runs.settings_id → run_settings NO ACTION": "версия уходит, только если не ссылаются",
+    "messages.answers_reply_id → replies SET NULL": "ответ, на который ответили, не уходит",
+    "reply_attachments.reply_id → replies CASCADE": "вложения пробного ответа уходят с ним",
+    "replies.message_id → messages SET NULL": "уходят только липовые письма — с ответами",
+    "messages.thread_id → threads CASCADE": "уходит только липовая переписка",
+    "replies.thread_id → threads CASCADE": "уходит только липовая переписка",
+    "messages.campaign_id → campaigns CASCADE": "рассылка уходит только пустой",
+    "threads.campaign_id → campaigns CASCADE": "рассылка уходит только пустой",
+    # Адрес письма и переписки — всегда адрес их домена (letters/recipients.py,
+    # letters/answers.py), а домен держит история.
+    "messages.contact_id → contacts SET NULL": "держит: история",
+    "threads.contact_id → contacts SET NULL": "держит: история",
+    "sales_leads.contact_id → contacts SET NULL": "лид знает адрес по email (sales/models.py)",
+}
+
+
+def _references() -> set[str]:
+    """Ссылки на таблицы, из которых чистка удаляет, — сама или каскадом."""
+    links = [
+        (
+            table.name,
+            fk.parent.name,
+            fk.target_fullname.split(".")[0],
+            (fk.ondelete or "NO ACTION").upper(),
+        )
+        for table in DomainModel.metadata.tables.values()
+        for fk in table.foreign_keys
+    ]
+    pruned = set(_PRUNED)
+    grown = True
+    while grown:  # каскад уносит и то, что ссылается на удаляемое
+        cascaded = {
+            source for source, _, target, rule in links if target in pruned and rule == "CASCADE"
+        }
+        grown = not cascaded <= pruned
+        pruned |= cascaded
+    return {
+        f"{source}.{column} → {target} {rule}"
+        for source, column, target, rule in links
+        if target in pruned
+    }
+
+
+def test_every_reference_to_what_prune_deletes_is_decided() -> None:
+    """Ревью продаж 06.10: лид ссылался на домен без каскада, а чистка о нём не знала.
+    Новая ссылка на домены, прогоны, адреса, ответы — вопрос к чистке: держит ли она
+    домен, уходит с ним или теряет номер. Тест красный, пока ответ не вписан сюда,
+    а «держит» — правилом в `runs/prune.py`."""
+    found = _references()
+    assert found == set(REVIEWED), (
+        f"не разобраны: {sorted(found - set(REVIEWED))}; "
+        f"больше нет: {sorted(set(REVIEWED) - found)}"
+    )

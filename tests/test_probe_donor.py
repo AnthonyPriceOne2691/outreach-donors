@@ -263,6 +263,35 @@ async def test_prune_probes_takes_the_probe_whole_and_leaves_the_real_donor(
     assert target == f"run:{plan.runs[0]}, probes:1"
 
 
+@pytest.mark.parametrize(
+    ("before_plan", "listed"), [(True, False), (False, True)], ids=["до плана", "после плана"]
+)
+async def test_a_campaign_with_a_real_thread_stays(
+    session: AsyncSession, before_plan: bool, listed: bool
+) -> None:
+    """Рассылка уходит, только если пуста: переписка с настоящим доменом ушла бы
+    с ней каскадом — вместе с ответами. Проверяют и план, и само удаление."""
+    _, real_id, only_id, _ = await _talked_to(session)
+    real = ThreadModel(domain_id=real_id, campaign_id=only_id)
+
+    if before_plan:
+        session.add(real)
+        await session.flush()
+    plan = await plan_prune(session, run_ids=[], probes=True)
+    assert plan.probes is not None
+    assert (only_id in plan.probes.campaigns) is listed
+    if not before_plan:
+        session.add(real)
+        await session.flush()
+    await apply_prune(session, plan, author="тест")
+    await session.flush()
+
+    campaign = await session.scalar(select(CampaignModel.id).where(CampaignModel.id == only_id))
+    assert campaign == only_id
+    threads = await session.scalars(select(ThreadModel.domain_id))
+    assert list(threads.all()) == [real_id]
+
+
 async def test_without_probes_the_probe_domain_is_not_touched(session: AsyncSession) -> None:
     probe_id, _, _, _ = await _talked_to(session)
     run_id = await session.scalar(select(RunModel.id))

@@ -467,9 +467,9 @@
       "worst": "run_probe_donor:40"
     },
     "backend/cli/prune.py": {
-      "lines": 129,
-      "complexity": 10,
-      "worst": "_print_plan:62"
+      "lines": 136,
+      "complexity": 9,
+      "worst": "_print_runs:76"
     },
     "backend/cli/review_queue.py": {
       "lines": 56,
@@ -992,7 +992,7 @@
       "worst": "judge_candidates:326"
     },
     "backend/features/donors/probe.py": {
-      "lines": 283,
+      "lines": 292,
       "complexity": 8,
       "worst": "_checked:78"
     },
@@ -1422,9 +1422,9 @@
       "worst": "gather_candidates:236"
     },
     "backend/features/runs/prune.py": {
-      "lines": 397,
+      "lines": 433,
       "complexity": 11,
-      "worst": "_replies:292"
+      "worst": "_replies:328"
     },
     "backend/features/runs/reasons.py": {
       "lines": 110,

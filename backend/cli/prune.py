@@ -61,24 +61,7 @@ def add_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-ar
 
 def _print_plan(plan: PrunePlan, *, done: bool) -> None:
     if plan.runs:
-        print("Прогоны: " + ", ".join(f"№{n}" for n in plan.runs))
-        print(f"  очередь разбора:      {plan.candidates} строк")
-        settings = ", ".join(str(n) for n in plan.settings) or "нет — на них ссылаются другие"
-        print(f"  версии порогов:       {settings}")
-        print(f"  журнал расхода:       {plan.usage_detached} записей остаются, без номера прогона")
-        verb = "Удалено" if done else "Уйдёт"
-        print(
-            f"{verb} доменов, которые принесли только эти прогоны: {len(plan.domains)} "
-            f"(с донором и адресами — адресов {plan.contacts})"
-        )
-        if plan.kept:
-            print("Оставлены — их держит не только этот прогон:")
-            for reason, count in plan.kept.items():
-                print(f"  {reason + ':':<45} {count}")
-        print(
-            "Смета следующих прогонов берёт долю по странам и долю новых доменов "
-            "из истории — останется история только оставшихся прогонов."
-        )
+        _print_runs(plan, done=done)
     for reply_id, subject in plan.replies.items():
         print(f"Ответ №{reply_id} — не привязан к переписке, тема «{subject}»")
     if plan.probes is not None:
@@ -88,6 +71,30 @@ def _print_plan(plan: PrunePlan, *, done: bool) -> None:
             f"перепиской ({probes.threads}) и ответами ({probes.replies}); "
             f"рассылок без них не останется: {len(probes.campaigns)}"
         )
+
+
+def _print_runs(plan: PrunePlan, *, done: bool) -> None:
+    print("Прогоны: " + ", ".join(f"№{n}" for n in plan.runs))
+    print(f"  очередь разбора:      {plan.candidates} строк")
+    settings = ", ".join(str(n) for n in plan.settings) or "нет — на них ссылаются другие"
+    print(f"  версии порогов:       {settings}")
+    if plan.detached:
+        print("  остаются, без номера прогона:")
+        for what, count in plan.detached.items():
+            print(f"    {what + ':':<36} {count}")
+    verb = "Удалено" if done else "Уйдёт"
+    print(
+        f"{verb} доменов, которые принесли только эти прогоны: {len(plan.domains)} "
+        f"(с донором и адресами — адресов {plan.contacts})"
+    )
+    if plan.kept:
+        print("Оставлены — их держит не только этот прогон:")
+        for reason, count in plan.kept.items():
+            print(f"  {reason + ':':<45} {count}")
+    print(
+        "Смета следующих прогонов берёт долю по странам и долю новых доменов "
+        "из истории — останется история только оставшихся прогонов."
+    )
 
 
 async def run_prune(session: AsyncSession, args: argparse.Namespace) -> int:

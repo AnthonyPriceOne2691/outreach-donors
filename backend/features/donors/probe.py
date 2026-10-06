@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import ColumnElement, Select, delete, exists, func, select
+from sqlalchemy import ColumnElement, Select, and_, delete, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import outreach as outreach_cfg
@@ -201,7 +201,7 @@ class ProbeTrace:
     letters: int = 0
     threads: int = 0
     replies: int = 0
-    #: Рассылки, в которых были только липовые письма: без них они пусты.
+    #: Рассылки, где только липовые письма и переписка: без них они пусты.
     campaigns: list[int] = field(default_factory=list)
 
     def as_details(self) -> dict[str, Any]:
@@ -244,8 +244,13 @@ async def probe_trace(session: AsyncSession) -> ProbeTrace:
         .join(ThreadModel, ThreadModel.id == ReplyModel.thread_id)
         .where(ThreadModel.domain_id.in_(ids)),
     )
-    elsewhere = exists().where(
-        MessageModel.campaign_id == CampaignModel.id, MessageModel.domain_id.not_in(ids)
+    elsewhere = or_(
+        exists().where(
+            MessageModel.campaign_id == CampaignModel.id, MessageModel.domain_id.not_in(ids)
+        ),
+        exists().where(
+            ThreadModel.campaign_id == CampaignModel.id, ThreadModel.domain_id.not_in(ids)
+        ),
     )
     touched = exists().where(
         MessageModel.campaign_id == CampaignModel.id, MessageModel.domain_id.in_(ids)
@@ -276,7 +281,11 @@ async def remove_probes(session: AsyncSession, trace: ProbeTrace) -> None:
         delete(DomainModel).where(DomainModel.id.in_(trace.domains), probe_domain())
     )
     if trace.campaigns:
-        emptied = ~exists().where(MessageModel.campaign_id == CampaignModel.id)
+        # Пустая — без писем и без переписки: переписка ушла бы с рассылкой каскадом.
+        emptied = and_(
+            ~exists().where(MessageModel.campaign_id == CampaignModel.id),
+            ~exists().where(ThreadModel.campaign_id == CampaignModel.id),
+        )
         await session.execute(
             delete(CampaignModel).where(CampaignModel.id.in_(trace.campaigns), emptied)
         )
