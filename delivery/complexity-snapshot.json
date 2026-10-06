@@ -666,6 +666,11 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/agent/drafting.py": {
+      "lines": 394,
+      "complexity": 9,
+      "worst": "draft_answer:136"
+    },
     "backend/features/agent/settings.py": {
       "lines": 168,
       "complexity": 3,
@@ -902,9 +907,9 @@
       "worst": "check_connected:99"
     },
     "backend/features/core/usage.py": {
-      "lines": 154,
+      "lines": 156,
       "complexity": 7,
-      "worst": "ensure_llm_within_cap:125"
+      "worst": "ensure_llm_within_cap:127"
     },
     "backend/features/crawl/__init__.py": {
       "lines": 5,
