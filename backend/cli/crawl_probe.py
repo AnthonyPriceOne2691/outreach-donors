@@ -10,6 +10,10 @@ $600–900 при 20%, больше полутора тысяч при 50%). У�
 «обойти всех»: домены называются руками, по одному. Своей записи
 в базе он не заводит — отчёт печатается и, если попросили, ложится
 файлом рядом с замером.
+
+С `--queue` команда не обходит сама, а ставит обходы в очередь сервиса
+обходов (`crawler`) — тем же порядком, что кнопка «Запустить Этап 2»
+(`crawl/launch.py`): строка обхода, замок «один обход донора», задача.
 """
 
 from __future__ import annotations
@@ -28,11 +32,13 @@ from backend.config.startup_checks import check_storage
 from backend.features.contacts.browser import PlaywrightRenderer
 from backend.features.core.domain import CrawlOutcome, StopReason
 from backend.features.crawl import targets
+from backend.features.crawl.launch import launch
 from backend.features.crawl.limiter import DomainLimiter
 from backend.features.crawl.report import CrawlReport
 from backend.features.crawl.repository import save_crawl
 from backend.features.crawl.walk import DonorCrawler
 from backend.shared.net.url_guard import guarded_client
+from backend.shared.queue import CRAWL_QUEUE_NAME, crawl_job_id, enqueue_crawl, workers_alive
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +106,14 @@ def add_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None
         "--save",
         action="store_true",
         help="записать проходы и найденные ссылки в базу",
+    )
+    crawl.add_argument(
+        "--queue",
+        action="store_true",
+        help=(
+            "не обходить здесь, а поставить обходы в очередь сервиса обходов: "
+            "ссылки пишутся по ходу, кандидаты считаются сами после обхода"
+        ),
     )
     crawl.add_argument(
         "--json",
@@ -264,13 +278,39 @@ async def _targets(args: argparse.Namespace) -> list[str] | None:
     return chosen.hosts
 
 
+async def _queue(hosts: list[str]) -> int:
+    """Поставить обходы в очередь сервиса обходов и сказать, что вышло."""
+    check_storage()
+    engine = create_async_engine(storage.DSN)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with factory() as session:
+            done = await launch(
+                session, hosts, by="консоль", job_id=crawl_job_id, enqueue=enqueue_crawl
+            )
+    finally:
+        await engine.dispose()
+    for host, run_id in done.queued.items():
+        print(f"  {host}: обход №{run_id} в очереди")
+    for host in done.busy:
+        print(f"  {host}: обход уже идёт или ждёт — второй не ставлю")
+    for host in done.failed:
+        print(f"  {host}: очередь не ответила — обход не поставлен, причина в журнале")
+    if done.queued and workers_alive(queue=CRAWL_QUEUE_NAME) == 0:
+        print(
+            "ВНИМАНИЕ: обходчиков нет — задачи ждут в очереди. "
+            "Поднять: docker compose up -d crawler"
+        )
+    return 0 if done.queued else EXIT_NOTHING_CRAWLED
+
+
 async def cmd_crawl(args: argparse.Namespace) -> int:
     """Обойти названные домены и напечатать замер."""
     hosts = await _targets(args)
-    if hosts is None:
-        return EXIT_NOTHING_CRAWLED
     if not hosts:
         return EXIT_NOTHING_CRAWLED
+    if args.queue:
+        return await _queue(hosts)
     # Флаг командной строки сильнее настройки: прибор запускают руками
     # и ровно тогда, когда готовы заплатить секундами за закрытые сайты.
     use_browser = args.browser or cfg.BROWSER_ENABLED

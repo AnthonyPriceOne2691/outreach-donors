@@ -20,7 +20,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE="${COMPOSE:-docker compose}"
 # Кто пишет в базу. Порядок остановки не важен, важно, что никого
 # не забыли: забытый процесс тихо допишет своё в середину восстановления.
-WRITERS="${WRITERS:-api worker reaper followups}"
+WRITERS="${WRITERS:-api worker crawler reaper followups}"
 SOURCE="${1:-}"
 CONFIRM="${2:-}"
 

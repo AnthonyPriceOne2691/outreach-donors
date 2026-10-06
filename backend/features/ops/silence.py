@@ -28,7 +28,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import ahrefs as ahrefs_cfg
 from backend.features.ahrefs.client import AhrefsClient, AhrefsError
-from backend.features.core.domain import CrawlOutcome, MessageStatus, RunStatus, StopReason
+from backend.features.core.domain import (
+    CrawlOutcome,
+    CrawlStatus,
+    MessageStatus,
+    RunStatus,
+    StopReason,
+)
 from backend.features.core.models.crawl import CrawlRunModel
 from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.core.models.run import RunModel
@@ -255,12 +261,16 @@ async def _crawl_blocked(session: AsyncSession) -> Alarm | None:
     не знал вовсе.
 
     Считается по последним обходам, а не за всё время: доля за всю
-    историю прячет защиту, включившуюся вчера.
+    историю прячет защиту, включившуюся вчера. Только законченным:
+    у идущего обхода исхода ещё нет, и он разбавлял бы долю закрытых.
     """
     rows = (
         (
             await session.execute(
-                select(CrawlRunModel).order_by(CrawlRunModel.id.desc()).limit(CRAWL_RUNS_WATCHED)
+                select(CrawlRunModel)
+                .where(CrawlRunModel.status == CrawlStatus.DONE)
+                .order_by(CrawlRunModel.id.desc())
+                .limit(CRAWL_RUNS_WATCHED)
             )
         )
         .scalars()

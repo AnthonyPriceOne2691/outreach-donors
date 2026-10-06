@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import uuid
 from typing import Any
 
 from redis import Redis
@@ -34,6 +35,11 @@ logger = logging.getLogger(__name__)
 #: Одно имя на весь проект. Менять — вместе с воркером.
 QUEUE_NAME = "runs"
 
+#: Очередь обходов Этапа 2 — своя, у своего сервиса (`workers/crawler.py`).
+#: Обход донора идёт до получаса, и в общей очереди он занял бы единственный
+#: воркер: разбор ответов и сборка писем ждали бы его.
+CRAWL_QUEUE_NAME = "crawl"
+
 #: Пути задач строкой в одном месте. Раньше каждый маршрут держал свой:
 #: пока путь знает только тот, кто ставит задачу, его некому свериться
 #: с тем, кто ставит её заново — а разбор мёртвых прогонов ставит ту же
@@ -43,11 +49,18 @@ BUILD_JOB = "backend.workers.jobs.build_letter_queue"
 PARSE_JOB = "backend.workers.jobs.parse_reply"
 CONTACTS_JOB = "backend.workers.jobs.find_contacts"
 LEAD_JOB = "backend.workers.jobs.send_lead"
+CRAWL_JOB = "backend.workers.crawl_jobs.crawl_donor"
+JUDGE_CRAWL_JOB = "backend.workers.crawl_jobs.judge_crawl"
 
 #: Прогон идёт минутами и может упереться в ожидание провайдера.
 #: Час — потолок, после которого задача считается зависшей: без него
 #: умолчание в три минуты убивало бы каждый настоящий прогон.
 JOB_TIMEOUT = 3600
+
+#: Потолок задачи обхода: сам обход упирается в свой час (`CRAWL_MAX_SECONDS`),
+#: сверху — чтение карты сайта и запись. Таймаут очереди здесь — последняя
+#: страховка от зависания, а не способ остановить обход.
+CRAWL_JOB_TIMEOUT = 2 * 3600
 
 #: Паузы перед повторами задачи, упавшей на временном сбое: сеть, 5xx,
 #: база. Три попытки сверху: полминуты на мигнувшую сеть, две минуты
@@ -98,6 +111,20 @@ def parse_job_id(reply_id: int, message_id: str | None = None) -> str:
     return f"parse-reply-{reply_id}-{tail}"
 
 
+def crawl_job_id(run_id: int) -> str:
+    """Номер задачи обхода — свой и заранее: он записывается в строку обхода
+    до постановки, и задача, взятая раньше записи, с ней не разойдётся."""
+    return f"crawl-{run_id}-{uuid.uuid4().hex[:8]}"
+
+
+def enqueue_crawl(run_id: int, job_id: str | None = None) -> str:
+    """Поставить обход в очередь обходов. Возвращает номер задачи."""
+    job = crawl_queue().enqueue(
+        CRAWL_JOB, run_id, job_id=job_id or crawl_job_id(run_id), result_ttl=RESULT_TTL
+    )
+    return str(job.id)
+
+
 def with_retries() -> dict[str, Any]:
     """Параметры постановки для задач с повтором: всё, кроме прогона."""
     return {
@@ -115,6 +142,12 @@ def runs_queue(redis: Redis | None = None) -> Queue:
     return Queue(QUEUE_NAME, connection=redis or connection(), default_timeout=JOB_TIMEOUT)
 
 
+def crawl_queue(redis: Redis | None = None) -> Queue:
+    return Queue(
+        CRAWL_QUEUE_NAME, connection=redis or connection(), default_timeout=CRAWL_JOB_TIMEOUT
+    )
+
+
 #: Ключ живого воркера в Redis. Он держится heartbeat'ом самого rq
 #: и исчезает вместе с процессом — это единственный признак, которому
 #: можно верить.
@@ -124,8 +157,8 @@ WORKER_KEY_PREFIX = "rq:worker:"
 _LIVE_STATES = frozenset({"queued", "deferred", "scheduled"})
 
 
-def workers_alive(redis: Redis | None = None) -> int | None:
-    """Сколько живых воркеров слушает нашу очередь. `None` — не спросили.
+def workers_alive(redis: Redis | None = None, queue: str = QUEUE_NAME) -> int | None:
+    """Сколько живых воркеров слушает очередь. `None` — не спросили.
 
     Нужно ровно для одного ответа человеку: «задача поставлена, и её
     некому взять». Без этого числа очередь без воркера выглядит как
@@ -135,7 +168,7 @@ def workers_alive(redis: Redis | None = None) -> int | None:
     """
     try:
         connection = redis or Redis.from_url(storage.REDIS_URL)
-        return len(Worker.all(queue=Queue(QUEUE_NAME, connection=connection)))
+        return len(Worker.all(queue=Queue(queue, connection=connection)))
     except RedisError as exc:
         logger.warning("очередь: не удалось спросить, есть ли воркеры — %s", exc)
         return None

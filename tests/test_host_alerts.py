@@ -21,7 +21,7 @@ from tests.ops_fakes import ROOT, Host
 TOKEN = "777:watch-token-for-tests"
 
 #: Все сервисы компоуза, как их называет `docker compose config --services`.
-SERVICES = "postgres\nredis\nmigrate\napi\nworker\nreaper\nfollowups\nweb\n"
+SERVICES = "postgres\nredis\nmigrate\napi\nworker\ncrawler\nreaper\nfollowups\nweb\n"
 
 HEALTHY = {
     "postgres": "running|healthy|0",
@@ -29,6 +29,7 @@ HEALTHY = {
     "migrate": "exited||0",
     "api": "running|healthy|0",
     "worker": "running|healthy|0",
+    "crawler": "running|healthy|0",
     "reaper": "running|healthy|0",
     "followups": "running|healthy|0",
     "web": "running|healthy|0",
@@ -185,6 +186,19 @@ class TestHealthwatch:
 
         [alert] = host.alerts()
         assert f"• followups — {said}" in alert
+
+    def test_every_copy_of_a_service_is_looked_at(self, host: Host) -> None:
+        """Обходчиков несколько копий: вставшая третья — сломанный сервис,
+        даже если первая здорова."""
+        _stack(host)
+        rows = host.scenario["compose ps"]["out"]
+        copies = "crawler|running|healthy|0\ncrawler|running|unhealthy|0\n"
+        host.scenario["compose ps"] = {"out": rows + copies}
+
+        host.run("healthwatch.sh")
+
+        [alert] = host.alerts()
+        assert "• crawler — unhealthy" in alert
 
     def test_migrations_may_finish_but_not_fail(self, host: Host) -> None:
         _stack(host, migrate="exited||0")
