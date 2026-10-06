@@ -44,15 +44,13 @@ from datetime import UTC, datetime
 from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.access.repository import AccessRepository
-from backend.features.core import usage
-from backend.features.core.domain import AuditAction, MessageStatus, SenderStatus, Stage
+from backend.features.core.domain import MessageStatus, SenderStatus, Stage
 from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, SenderModel
-from backend.features.letters import chain, compose, identity, reply_to, unsubscribe
+from backend.features.letters import compose, identity, reply_to, settle, unsubscribe
 from backend.features.letters.transport import Mail, Outgoing, Transport, TransportError, of_stage
 from backend.features.outreach import senders as sender_rules
 from backend.features.outreach.repository import OutreachRepository
@@ -352,11 +350,6 @@ class Sending:
                 "Письмо стоит убрать из очереди"
             )
 
-    async def _cadence(self, campaign_id: int) -> list[int] | None:
-        """Сроки добивок этой рассылки. Их задал человек при её создании."""
-        campaign = await self._session.get(CampaignModel, campaign_id)
-        return campaign.followup_days if campaign is not None else None
-
     async def _pinned_sender(self, sender_id: int) -> SenderModel:
         """Ящик, который ведёт эту переписку. Выключенный не подменяется
         другим: цепочка подождёт, пока его вернут, — второй голос
@@ -453,37 +446,21 @@ class Sending:
         provider_id: str,
         author_id: int | None,
     ) -> None:
-        """Записать, что письмо ушло."""
-        moment = self._moment()
-        target.message.status = MessageStatus.SENT
-        target.message.sent_at = moment
-        target.message.provider_message_id = provider_id
-        # Срок следующего письма цепочки назначается здесь, а не
-        # вызывающим: вызывающих трое — экран, консоль и проход добивок, —
-        # и правило, которое каждый из них обязан не забыть, однажды
-        # забудут. Пусто означает, что цепочка кончилась.
-        target.message.next_action_at = chain.due_after(
-            moment, step=target.message.step, days=await self._cadence(target.message.campaign_id)
+        """Записать, что письмо ушло, — тем же путём, что и исход, выясненный
+        позже событием платформы или человеком (`settle.py`)."""
+        witness = settle.Witness(
+            host=target.host,
+            email=target.email,
+            sender_email=sender.email,
+            transport=transport.name,
+            real=transport.real,
         )
-
-        if target.message.contact_id is not None:
-            contact = await self._session.get(ContactModel, target.message.contact_id)
-            if contact is not None:
-                contact.last_contacted_at = moment
-
-        # Расход пишется и у нулевого транспорта: иначе по журналу
-        # не отличить «не отправляли» от «отправили даром».
-        usage.record(self._session, operation="letter_send", units=1)
-        await AccessRepository(self._session).record(
-            AuditAction.LETTER_SENT,
+        await settle.record_sent(
+            self._session,
+            target.message,
+            moment=self._moment(),
+            provider_id=provider_id,
             author_id=author_id,
-            target=f"message:{target.message.id}",
-            details={
-                "донор": target.host,
-                "кому": target.email,
-                "от кого": sender.email,
-                "транспорт": transport.name,
-                "ушло на самом деле": transport.real,
-            },
+            witness=witness,
         )
         await self._session.commit()

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 
 from pydantic import BaseModel, Field
 
 from backend.config import outreach as cfg
 from backend.features.core.domain import MessageStatus, Stage
-from backend.features.letters import compose, template
+from backend.features.letters import compose, template, unknown_outcome
 from backend.features.letters.chain import MAX_STEPS, cadence
 from backend.features.letters.draft import Draft, default_draft
 from backend.features.letters.repository import QueuedLetter
@@ -275,3 +276,54 @@ class SendResult(BaseModel):
     sender_email: str
     #: Ушло ли письмо на самом деле. У нулевого транспорта — нет.
     real: bool
+
+
+class UnknownLetterCard(BaseModel):
+    """Письмо с неизвестным исходом — с тем, по чему его ищут в журнале
+    платформы: кому, с какого ящика и когда его отдали почте."""
+
+    id: int
+    host: str
+    email: str | None
+    sender_email: str | None
+    campaign: str
+    #: Какое это письмо — словами: первое, добивка, ответ в переписке.
+    what: str
+    #: Когда началась передача почте. Если письмо ушло, от этого времени
+    #: считаются срок добивки и дневной лимит ящика.
+    since: datetime
+
+    @classmethod
+    def of(cls, letter: unknown_outcome.StuckLetter) -> UnknownLetterCard:
+        return cls(
+            id=letter.message.id,
+            host=letter.host,
+            email=letter.email,
+            sender_email=letter.sender_email,
+            campaign=letter.campaign,
+            what=letter.what,
+            since=letter.since,
+        )
+
+
+class UnknownLettersView(BaseModel):
+    """Блок «Исход неизвестен» на экране писем."""
+
+    stage: Stage
+    letters: list[UnknownLetterCard]
+    #: Через сколько минут после начала передачи письмо попадает сюда.
+    after_minutes: int = unknown_outcome.STUCK_MINUTES
+
+
+class ResolveBody(BaseModel):
+    """Что человек нашёл в журнале платформы: письмо ушло или нет."""
+
+    outcome: unknown_outcome.Outcome
+
+
+class ResolvedLetter(BaseModel):
+    """Чем кончилось решение: состояние письма и то же словами."""
+
+    id: int
+    status: MessageStatus
+    said: str

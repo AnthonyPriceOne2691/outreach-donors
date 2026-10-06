@@ -34,16 +34,20 @@ from backend.api.letters.schemas import (
     LetterDraftView,
     LettersView,
     QueuedLetterCard,
+    ResolveBody,
+    ResolvedLetter,
     SendQueueBody,
     SendQueueQueued,
     SendResult,
     Transport,
+    UnknownLetterCard,
+    UnknownLettersView,
 )
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.outreach import CampaignModel
-from backend.features.letters import compose, draft, review
+from backend.features.letters import compose, draft, review, unknown_outcome
 from backend.features.letters.building import run_scope
 from backend.features.letters.repository import LetterRepository, QueuedLetter
 from backend.features.letters.sending import Sending
@@ -251,3 +255,32 @@ async def send_queue(
         waiting,
     )
     return SendQueueQueued(job_id=str(job.id), queued=waiting)
+
+
+@router.get("/unknown", response_model=UnknownLettersView, summary="Письма с неизвестным исходом")
+async def unknown(
+    stage: Stage = Stage.DONORS,
+    _: UserModel = _viewer,
+    session: AsyncSession = Depends(db_session),
+) -> UnknownLettersView:
+    """Письма этапа, застрявшие в «отправляется»: связь с почтой оборвалась
+    посреди передачи, и ушли ли они, неизвестно (`letters/unknown_outcome.py`)."""
+    found = await unknown_outcome.stuck(session, stage=stage)
+    return UnknownLettersView(stage=stage, letters=[UnknownLetterCard.of(row) for row in found])
+
+
+@router.post("/{letter_id}/resolve", response_model=ResolvedLetter, summary="Решить исход письма")
+async def resolve(
+    letter_id: int,
+    body: ResolveBody,
+    author: UserModel = _sender,
+    session: AsyncSession = Depends(db_session),
+) -> ResolvedLetter:
+    """«Ушло» или «Вернуть в очередь» — по журналу платформы.
+
+    Под правом на отправку: «вернуть в очередь» — это разрешение отправить
+    письмо, которое, возможно, уже ушло.
+    """
+    done = await unknown_outcome.resolve(session, letter_id, body.outcome, author_id=author.id)
+    await session.commit()
+    return ResolvedLetter(id=letter_id, status=done.status, said=done.said)

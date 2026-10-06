@@ -15,6 +15,14 @@
 `delivered` не должен откатывать письмо, которое уже отмечено
 недоставленным, а повтор — удваивать счётчики.
 
+**Событие решает исход письма, застрявшего в «отправляется»** (07.10.2026).
+Связь оборвалась посреди передачи — ушло ли письмо, неизвестно
+(`unknown_outcome.py`). Любое событие по нему доказывает, что платформа
+письмо приняла: письмо сначала записывается ушедшим тем же путём, что
+обычная отправка (`settle.py`), и только потом событие делает своё. Иначе
+«доставлено» по такому письму оставляло его без времени ухода и без срока
+добивки, а «не дошло» — мимо доли отказов его ящика.
+
 **Отказ доставки и жалоба на спам — разные последствия.** Первый
 означает «адреса нет»: контакт помечается негодным, и открывается
 следующий адрес донора — не дошедшее письмо «писали» не считается,
@@ -44,6 +52,7 @@ from backend.features.core.domain import MessageStatus, SuppressionReason
 from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import MessageModel, SenderModel
+from backend.features.letters import unknown_outcome
 from backend.features.outreach.senders import disable
 
 logger = logging.getLogger(__name__)
@@ -53,10 +62,26 @@ logger = logging.getLogger(__name__)
 #: сервер отказал; для нас все три означают «письмо не дошло».
 BOUNCE_EVENTS = frozenset({"bounce", "dropped", "blocked"})
 
+#: События, которые платформа шлёт только о принятом письме: всё, что она
+#: делает с письмом, начинается с приёма. Незнакомое событие не доказывает
+#: ничего и, как и раньше, пропускается.
+PROVES_ACCEPTED = BOUNCE_EVENTS | {
+    "processed",
+    "deferred",
+    "delivered",
+    "open",
+    "click",
+    "spamreport",
+    "unsubscribe",
+    "group_unsubscribe",
+    "group_resubscribe",
+}
+
 #: Из каких состояний письмо ещё можно отметить доставленным.
 #: Запоздавший `delivered` поверх недоставки означал бы, что письмо
-#: одновременно дошло и не дошло.
-BEFORE_DELIVERY = frozenset({MessageStatus.SENDING, MessageStatus.SENT})
+#: одновременно дошло и не дошло. «Отправляется» сюда не входит:
+#: событие по такому письму сначала записывает его ушедшим.
+BEFORE_DELIVERY = frozenset({MessageStatus.SENT})
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,13 +105,16 @@ class EventReport:
     bounced: int = 0
     complained: int = 0
     unknown: int = 0
+    #: Письма из «отправляется», которые событие записало ушедшими.
+    resolved: int = 0
     paused_domains: list[str] = field(default_factory=list)
 
     @property
     def as_report(self) -> str:
         return (
             f"доставлено {self.delivered}, отказов {self.bounced}, "
-            f"жалоб {self.complained}, без письма {self.unknown}"
+            f"жалоб {self.complained}, без письма {self.unknown}, "
+            f"исход выяснен {self.resolved}"
         )
 
 
@@ -103,6 +131,8 @@ async def apply_events(
         if message is None:
             report.unknown += 1
             continue
+        if await _resolves(session, message, event):
+            report.resolved += 1
         await _apply_one(session, message, event, moment, report)
         if event.kind in BOUNCE_EVENTS and message.sender_id is not None:
             checked.add(message.sender_id)
@@ -120,6 +150,13 @@ async def _message_of(session: AsyncSession, event: DeliveryEvent) -> MessageMod
     if event.message_id is None:
         return None
     return await session.get(MessageModel, event.message_id)
+
+
+async def _resolves(session: AsyncSession, message: MessageModel, event: DeliveryEvent) -> bool:
+    """Письмо в «отправляется», а платформа о нём сообщила: записать его ушедшим."""
+    if message.status is not MessageStatus.SENDING or event.kind not in PROVES_ACCEPTED:
+        return False
+    return await unknown_outcome.settle_by_event(session, message, kind=event.kind)
 
 
 async def _apply_one(
