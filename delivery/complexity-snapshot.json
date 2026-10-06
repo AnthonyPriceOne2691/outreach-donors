@@ -457,9 +457,14 @@
       "worst": "_report:181"
     },
     "backend/cli/main.py": {
-      "lines": 482,
+      "lines": 487,
       "complexity": 9,
-      "worst": "_print_report:251"
+      "worst": "_print_report:253"
+    },
+    "backend/cli/prune.py": {
+      "lines": 113,
+      "complexity": 9,
+      "worst": "_print_plan:57"
     },
     "backend/cli/review_queue.py": {
       "lines": 56,
@@ -762,7 +767,7 @@
       "worst": "—"
     },
     "backend/features/core/domain.py": {
-      "lines": 245,
+      "lines": 248,
       "complexity": 0,
       "worst": "—"
     },
@@ -1405,6 +1410,11 @@
       "lines": 352,
       "complexity": 7,
       "worst": "gather_candidates:236"
+    },
+    "backend/features/runs/prune.py": {
+      "lines": 358,
+      "complexity": 11,
+      "worst": "_replies:283"
     },
     "backend/features/runs/reasons.py": {
       "lines": 110,
