@@ -74,8 +74,13 @@ def _settled(work: Callable[[], dict[str, Any]], *, what: str) -> dict[str, Any]
         if not is_permanent(exc):
             _remember_error(exc, what=what)
             raise
-        logger.warning("%s не выполнена: %s", what, described(exc))
-        return {"error": described(exc), "permanent": True}
+        return _given_up(exc, what=what)
+
+
+def _given_up(exc: BaseException, *, what: str) -> dict[str, Any]:
+    """Итог задачи, которую повтор не исправит: причина — в журнал и на экран."""
+    logger.warning("%s не выполнена: %s", what, described(exc))
+    return {"error": described(exc), "permanent": True}
 
 
 def _remember_error(exc: BaseException, *, what: str) -> None:
@@ -313,23 +318,46 @@ async def _search_contacts(
     donor_id: int | None = None,
     stage: Stage = Stage.DONORS,
 ) -> dict[str, Any]:
+    # Этап — явным разбором, без «иначе доноры»: этап, добавленный позже,
+    # молча пошёл бы по очереди доноров и платным ступеням (07.10.2026).
+    queue_of: type[AdvertiserContactRepository] | None
+    match stage:
+        case Stage.DONORS:
+            queue_of = None  # очередь доноров — умолчание `search_contacts`
+        case Stage.ADVERTISERS:
+            queue_of = AdvertiserContactRepository
+        case _:
+            raise StageWithoutContactsError(stage)
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with factory() as session:
-            advertisers = stage is Stage.ADVERTISERS
             report = await search_contacts(
                 session,
                 limit=limit,
                 use_browser=use_browser,
                 paid_first=paid_first,
                 donor_id=donor_id,
-                queue=AdvertiserContactRepository(session) if advertisers else None,
+                queue=None if queue_of is None else queue_of(session),
             )
             await session.commit()
             return report.as_dict()
     finally:
         await engine.dispose()
+
+
+class StageWithoutContactsError(ValueError):
+    """У этапа нет поиска адресов: задача отказывает, а не ищет за него донорам."""
+
+    #: Повтор задачи это не исправит (`runs/failures.py`).
+    permanent = True
+
+    def __init__(self, stage: object) -> None:
+        super().__init__(
+            f"У этапа «{stage}» нет поиска адресов: задача не ищет за него ни донорам, "
+            "ни рекламодателям. Чтобы искать, заведите этапу очередь в `_search_contacts` "
+            "и подпись в `_contacts_what` (backend/workers/jobs.py)"
+        )
 
 
 def find_contacts(
@@ -357,18 +385,29 @@ def find_contacts(
     """
     setup_logging()
     check_storage()
+    chosen = Stage(stage)
+    try:
+        what = _contacts_what(donor_id, chosen)
+    except StageWithoutContactsError as exc:
+        # Подпись считается до работы, то есть мимо `_settled`: без этой
+        # ветки очередь трижды повторила бы отказ, который повтор не исправит,
+        # и экран показывал бы «ждёт повтора» без причины.
+        return _given_up(exc, what="поиск адресов")
     return _settled(
-        lambda: asyncio.run(
-            _search_contacts(limit, use_browser, paid_first, donor_id, Stage(stage))
-        ),
-        what=_contacts_what(donor_id, Stage(stage)),
+        lambda: asyncio.run(_search_contacts(limit, use_browser, paid_first, donor_id, chosen)),
+        what=what,
     )
 
 
 def _contacts_what(donor_id: int | None, stage: Stage) -> str:
-    if stage is Stage.ADVERTISERS:
-        return "поиск адресов рекламодателей"
-    return "поиск контактов" if donor_id is None else f"поиск адреса донора №{donor_id}"
+    """Чей поиск — словами, для журнала. Этап разбирается явно, как и очередь."""
+    match stage:
+        case Stage.ADVERTISERS:
+            return "поиск адресов рекламодателей"
+        case Stage.DONORS:
+            return "поиск контактов" if donor_id is None else f"поиск адреса донора №{donor_id}"
+        case _:
+            raise StageWithoutContactsError(stage)
 
 
 async def _parse_reply(reply_id: int) -> dict[str, Any]:
