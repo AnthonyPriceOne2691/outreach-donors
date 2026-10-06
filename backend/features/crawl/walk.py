@@ -26,8 +26,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import deque
-from dataclasses import dataclass, field, replace
-from typing import Any
+from dataclasses import replace
 from urllib.parse import urldefrag
 
 import httpx
@@ -44,7 +43,9 @@ from backend.features.crawl.health import CrawlHealth, HealthVerdict
 from backend.features.crawl.limiter import DomainLimiter
 from backend.features.crawl.links import OutLink, harvest
 from backend.features.crawl.page_facts import read_page
-from backend.features.crawl.robots import RobotsRules, RobotsStatus
+from backend.features.crawl.progress import Checkpoint, CrawlInterruptedError, Progress
+from backend.features.crawl.report import CrawlReport
+from backend.features.crawl.robots import RobotsRules
 from backend.features.crawl.sitemap import SitemapReader, SitemapScan
 from backend.shared.net.url_parts import join_url, parse_url
 
@@ -58,67 +59,6 @@ SKIP_SUFFIXES: tuple[str, ...] = (
     ".zip", ".gz", ".rar", ".7z", ".tar",
     ".mp3", ".mp4", ".avi", ".mov", ".webm", ".woff", ".woff2", ".ttf",
 )  # fmt: skip
-
-
-@dataclass(slots=True)
-class CrawlReport:
-    """Отчёт обхода: адреса, числа и всё, чего не хватило.
-
-    Деградация лежит здесь, а не в логе, намеренно: иначе обход,
-    у которого не поднялся браузер, выглядит зелёным и врёт, что
-    закрытые страницы проверены.
-    """
-
-    host: str
-    outcome: CrawlOutcome
-    stop_reason: StopReason
-    pages: list[str] = field(default_factory=list)
-    links: list[OutLink] = field(default_factory=list)
-    articles: int = 0
-    # Выброшенные кнопки «поделиться», страницы с пометкой рекламы и с датой.
-    # Числом в отчёте: выброшенное молча и найденное молча одинаково не проверить.
-    share_links: int = 0
-    pages_labeled: int = 0
-    pages_dated: int = 0
-    robots_status: RobotsStatus = RobotsStatus.UNREADABLE
-    crawl_delay: float | None = None
-    sitemap_found: bool | None = False
-    sitemap_complete: bool = False
-    source: str = "none"  # откуда брались адреса: sitemap или ссылки
-    elapsed_sec: float = 0.0
-    slowed_down: bool = False
-    health: dict[str, float | int] = field(default_factory=dict)
-    by_level: dict[str, int] = field(default_factory=dict)
-    degradation: dict[str, str] = field(default_factory=dict)
-
-    def as_dict(self) -> dict[str, Any]:
-        """Плоская запись для колонки прогона и для отчёта замера."""
-        return {
-            "host": self.host,
-            "outcome": self.outcome.value,
-            "stop_reason": self.stop_reason.value,
-            "pages_opened": len(self.pages),
-            "articles": self.articles,
-            "links_found": len(self.links),
-            "advertisers": len({link.target_root for link in self.links}),
-            "links_in_body": sum(1 for link in self.links if link.in_body),
-            "share_links": self.share_links,
-            "pages_labeled": self.pages_labeled,
-            "pages_dated": self.pages_dated,
-            # Ссылки, у которых корень домена угадан: суффикс неизвестен
-            # вшитому снимку. Ноль — норма, рост — повод обновить список.
-            "roots_guessed": sum(1 for link in self.links if link.root_guessed),
-            "robots": self.robots_status.value,
-            "crawl_delay": self.crawl_delay,
-            "sitemap_found": self.sitemap_found,
-            "sitemap_complete": self.sitemap_complete,
-            "source": self.source,
-            "elapsed_sec": round(self.elapsed_sec, 1),
-            "slowed_down": self.slowed_down,
-            "degradation": self.degradation,
-            "by_level": self.by_level,
-            **self.health,
-        }
 
 
 def _crawlable(url: str, host: str) -> bool:
@@ -194,34 +134,50 @@ class DonorCrawler:
         self.share_links = 0
         self.pages_labeled = 0
         self.pages_dated = 0
+        self._progress: Progress | None = None
+        self._sent = 0
+        self._where: tuple[str, float] = ("none", time.monotonic())
+        self._was_slowed = False
 
-    async def crawl(self, host: str) -> CrawlReport:
-        """Обойти донора. Единственный публичный вход."""
+    async def crawl(self, host: str, progress: Progress | None = None) -> CrawlReport:
+        """Обойти донора. Единственный публичный вход.
+
+        `progress` — пульт задачи очереди: пачки по ходу, остановка
+        и продолжение (`crawl/progress.py`). У консоли его нет — всё
+        в памяти и в конце, как прежде.
+        """
         host = host.lower().removeprefix("www.")
-        started = time.monotonic()
+        point = self._resume(progress)
+        # Продолжение считает время с прошлых попыток: потолок — на донора.
+        started = time.monotonic() - point.elapsed_sec
         # Срок общий на всего донора, а не на обход страниц: robots и карты
         # тоже запросы, и на сайте с длинной паузой они одни съедают минуты.
         deadline = started + self._max_seconds
+        done = list(point.pages)
         rules = await self._robots(host)
 
         if not rules.readable:
-            return self._report(host, CrawlOutcome.FAILED, StopReason.ROBOTS, rules, started)
+            stop = StopReason.ROBOTS
+            return self._report(host, self._outcome(done, stop), stop, rules, started, pages=done)
         home = await self._base(host, rules)
         if home is None:
-            return self._no_start(host, rules, started)
+            return self._no_start(host, rules, started, done)
 
         # Главную качает проверка «сайт открывается», и обход до неё
         # уже не доходит — значит, снять с неё ссылки надо здесь. Иначе
         # у каждого донора теряется ровно одна страница, и та, где чаще
-        # всего висит оффер.
-        self._harvest(home.html or "", home.url, host)
+        # всего висит оффер. У продолжения она уже снята.
+        if home.url not in done:
+            self._harvest(home.html or "", home.url, host)
 
         self._limiter.set_delay(host, rules.crawl_delay)
         scan = await self._sitemap(host, home.url, rules, deadline)
-        queue, source, opened = self._queue(home, host, scan)
+        queue, source, opened = self._queue(home, host, scan, point)
+        self._where = (source, started)
         pages, stop = await self._walk(
             host, rules, queue, started, opened=opened, follow=source == "links"
         )
+        await self._send(pages, queue)
         return self._report(
             host,
             self._outcome(pages, stop),
@@ -233,7 +189,19 @@ class DonorCrawler:
             source=source,
         )
 
-    def _no_start(self, host: str, rules: RobotsRules, started: float) -> CrawlReport:
+    def _resume(self, progress: Progress | None) -> Checkpoint:
+        """С чего начать: чекпоинт продолжения или чистый лист. Счётчики
+        продолжения — с прошлых попыток: обход один, попыток несколько."""
+        self._progress = progress
+        point = (progress.resume if progress is not None else None) or Checkpoint("none")
+        self._attempts, self._was_slowed = point.attempts, point.slowed
+        self.articles, self.share_links = point.articles, point.share_links
+        self.pages_labeled, self.pages_dated = point.pages_labeled, point.pages_dated
+        return point
+
+    def _no_start(
+        self, host: str, rules: RobotsRules, started: float, done: list[str]
+    ) -> CrawlReport:
         """Главная не открылась. Исход — три разных, и путать их дорого.
 
         Запретил robots — донора смотрит человек. Закрылся антибот —
@@ -241,9 +209,10 @@ class DonorCrawler:
         Не ответил вовсе — поломка, и покупать для неё прокси не за чем.
         """
         if not rules.allows(f"https://{host}/"):
-            return self._report(host, CrawlOutcome.FORBIDDEN, StopReason.ROBOTS, rules, started)
-        outcome = CrawlOutcome.BLOCKED if self._health.blocked_share > 0 else CrawlOutcome.FAILED
-        return self._report(host, outcome, StopReason.NO_START, rules, started)
+            forbidden = CrawlOutcome.FORBIDDEN
+            return self._report(host, forbidden, StopReason.ROBOTS, rules, started, pages=done)
+        stop = StopReason.NO_START
+        return self._report(host, self._outcome(done, stop), stop, rules, started, pages=done)
 
     async def _robots(self, host: str) -> RobotsRules:
         """robots.txt в первом виде хоста, который ответил."""
@@ -298,7 +267,7 @@ class DonorCrawler:
         return await reader.scan(host, base, rules.sitemaps, deadline=deadline)
 
     def _queue(
-        self, home: FetchResult, host: str, scan: SitemapScan
+        self, home: FetchResult, host: str, scan: SitemapScan, point: Checkpoint
     ) -> tuple[deque[str], str, list[str]]:
         """Очередь адресов, источник списка и уже открытые страницы.
 
@@ -310,10 +279,15 @@ class DonorCrawler:
         # Главная открыта в любом случае — её качала проверка «сайт
         # открывается». Она же и первая страница отчёта, откуда бы
         # ни взялась очередь: иначе статей окажется больше, чем страниц.
+        # Продолжение начинает с уже открытых, а очередь по ссылкам
+        # берёт из чекпоинта: собрать её заново — обойти сайт второй раз.
+        opened = list(point.pages) or [home.url]
+        if point.source == "links":
+            return deque(point.queue), "links", opened
         if scan.urls:
-            return deque(scan.urls), "sitemap", [home.url]
+            return deque(scan.urls), "sitemap", opened
         links = same_site_links(home.html or "", home.url, host)
-        return deque(links), "links", [home.url]
+        return deque(links), "links", opened
 
     async def _walk(
         self,
@@ -338,6 +312,7 @@ class DonorCrawler:
             stop = self._limit_hit(pages, started)
             if stop is not None:
                 return pages, stop
+            await self._stop_if_asked(pages, queue)
 
             url = queue.popleft()
             if url in visited or not rules.allows(url):
@@ -356,8 +331,44 @@ class DonorCrawler:
             self._harvest(result.html, result.url, host)
             if follow:
                 self._enqueue(result, host, queue, seen)
+            await self._send_if_due(pages, queue)
 
         return pages, StopReason.EXHAUSTED
+
+    async def _send_if_due(self, pages: list[str], queue: deque[str]) -> None:
+        """Пачка по ходу — если обход ведёт задача очереди и пора."""
+        if self._progress is not None and self._progress.due(len(pages)):
+            await self._send(pages, queue)
+
+    async def _stop_if_asked(self, pages: list[str], queue: deque[str]) -> None:
+        """Просьба остановиться (выкатка) — на границе страницы: пачка
+        дописывается, и обход выходит с чекпоинтом, а не обрывается."""
+        if self._progress is None or not self._progress.stop():
+            return
+        raise CrawlInterruptedError(await self._send(pages, queue))
+
+    async def _send(self, pages: list[str], queue: deque[str]) -> Checkpoint:
+        """Ссылки с прошлой пачки и чекпоинт — тому, кто ведёт обход."""
+        source, started = self._where
+        # Очередь по ссылкам — не длиннее оставшихся попыток: больше не открыть.
+        left = max(self._max_attempts - self._attempts, 0)
+        checkpoint = Checkpoint(
+            source=source,
+            pages=list(pages),
+            queue=list(queue)[:left] if source == "links" else [],
+            attempts=self._attempts,
+            articles=self.articles,
+            share_links=self.share_links,
+            pages_labeled=self.pages_labeled,
+            pages_dated=self.pages_dated,
+            elapsed_sec=round(time.monotonic() - started, 1),
+            slowed=self._slowed or self._was_slowed,
+        )
+        if self._progress is not None:
+            fresh = self.links[self._sent :]
+            await self._progress.send(fresh, checkpoint)
+            self._sent += len(fresh)
+        return checkpoint
 
     def _harvest(self, html: str, page_url: str, host: str) -> None:
         """Внешние ссылки страницы с пометкой «в теле статьи или вне».
@@ -467,7 +478,7 @@ class DonorCrawler:
             sitemap_complete=scan.complete if scan else False,
             source=source,
             elapsed_sec=time.monotonic() - started,
-            slowed_down=self._slowed,
+            slowed_down=self._slowed or self._was_slowed,
             health=self._health.report(),
             by_level={
                 level.value: count

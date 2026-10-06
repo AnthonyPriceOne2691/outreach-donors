@@ -29,8 +29,9 @@ from backend.features.contacts.browser import PlaywrightRenderer
 from backend.features.core.domain import CrawlOutcome, StopReason
 from backend.features.crawl import targets
 from backend.features.crawl.limiter import DomainLimiter
+from backend.features.crawl.report import CrawlReport
 from backend.features.crawl.repository import save_crawl
-from backend.features.crawl.walk import CrawlReport, DonorCrawler
+from backend.features.crawl.walk import DonorCrawler
 from backend.shared.net.url_guard import guarded_client
 
 logger = logging.getLogger(__name__)
