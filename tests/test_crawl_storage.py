@@ -23,6 +23,7 @@ from backend.features.crawl.repository import save_crawl
 from backend.features.crawl.walk import CrawlReport
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.migration_helpers import columns_down_and_up
 
 pytestmark = pytest.mark.asyncio
 
@@ -161,3 +162,15 @@ async def test_degradation_and_stats_are_stored(session: AsyncSession) -> None:
     assert run.stats is not None
     assert run.stats["blocked_share"] == 0.25
     assert run.stats["host"] == HOST
+
+
+async def test_page_facts_migration_goes_down_and_up(session: AsyncSession) -> None:
+    """Ревизия, которую выкатка применит к проду, — вниз и вверх на тестовой базе."""
+    connection = await session.connection()
+    columns = {"page_label", "page_published"}
+
+    down, up = await connection.run_sync(
+        columns_down_and_up, "b7c3e91d0a52_outlink_page_facts.py", "outlinks", columns
+    )
+
+    assert (down, up) == (set(), columns)
