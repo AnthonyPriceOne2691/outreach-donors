@@ -36,6 +36,10 @@
 **Идущий прогон — отказ:** у него задача в очереди, и она писала бы в удалённое.
 **Привязанный ответ — отказ:** это переписка, а не проверка приёма.
 
+Отдельно — следы проверки на настоящих доменах (`--test-traces`): всё, что
+адресовано своим ящикам из предохранителя, — с перепиской, ответами и ценой
+из них (`outreach/own_inboxes.py`). Домен и донор при этом остаются.
+
 Правила оставления проверяются дважды: планом — чтобы показать человеку, что
 останется и почему, — и самим удалением, условиями в том же запросе. Между
 показом и записью домену могли написать; удаление его тогда не тронет.
@@ -66,6 +70,12 @@ from backend.features.core.models.outreach import (
 )
 from backend.features.core.models.run import RunCandidateModel, RunModel, RunSettingsModel
 from backend.features.donors.probe import ProbeTrace, probe_domain, probe_trace, remove_probes
+from backend.features.outreach.own_inboxes import (
+    InboxTrace,
+    inbox_trace,
+    own_inboxes,
+    remove_inbox_trace,
+)
 from backend.features.runs.repository import RunRepository
 from backend.features.sales.models import SalesLeadModel
 
@@ -113,6 +123,8 @@ class PrunePlan:
     detached: dict[str, int] = field(default_factory=dict)
     #: Липовые доноры (`--probes`): уходят целиком, с перепиской. `None` — не просили.
     probes: ProbeTrace | None = None
+    #: Следы проверки на настоящих доменах (`--test-traces`). `None` — не просили.
+    test_traces: InboxTrace | None = None
 
     def as_details(self) -> dict[str, Any]:
         """Запись в журнал действий: из неё потом видно, что и почему ушло."""
@@ -126,6 +138,7 @@ class PrunePlan:
             "ответы": sorted(self.replies),
             "без номера прогона": self.detached,
             **(self.probes.as_details() if self.probes is not None else {}),
+            **(self.test_traces.as_details() if self.test_traces is not None else {}),
         }
 
 
@@ -355,15 +368,20 @@ async def plan_prune(
     run_ids: Sequence[int],
     reply_ids: Sequence[int] = (),
     probes: bool = False,
+    test_traces: bool = False,
 ) -> PrunePlan:
     """Что уйдёт при чистке. Отказ словами — до того, как что-либо удалено.
 
-    `probes` — липовые доноры целиком и их проверочные прогоны (`donors/probe.py`)."""
-    if not run_ids and not reply_ids and not probes:
+    `probes` — липовые доноры целиком и их проверочные прогоны (`donors/probe.py`);
+    `test_traces` — следы проверки на настоящих доменах (`outreach/own_inboxes.py`)."""
+    if not run_ids and not reply_ids and not probes and not test_traces:
         raise PruneRefusedError(
-            "Нечего чистить: назовите прогоны (--runs), ответы (--replies) или --probes."
+            "Нечего чистить: назовите прогоны (--runs), ответы (--replies), --probes "
+            "или --test-traces."
         )
     plan = PrunePlan()
+    if test_traces:
+        plan.test_traces = await _test_traces(session)
     if probes:
         plan.probes = await probe_trace(session)
         run_ids = sorted({*run_ids, *plan.probes.runs})
@@ -374,6 +392,15 @@ async def plan_prune(
     return plan
 
 
+async def _test_traces(session: AsyncSession) -> InboxTrace:
+    """Следы проверки — или отказ: без своих ящиков в предохранителе «следов нет»
+    было бы неправдой, а не чистотой: отличить их не по чему."""
+    inboxes = own_inboxes()
+    if not inboxes.addresses:
+        raise PruneRefusedError(inboxes.refusal())
+    return await inbox_trace(session, inboxes)
+
+
 async def apply_prune(session: AsyncSession, plan: PrunePlan, *, author: str) -> None:
     """Удалить по плану одной транзакцией и записать в журнал. Без коммита:
     решает вызывающий. Условия оставления повторены в запросе удаления."""
@@ -381,6 +408,8 @@ async def apply_prune(session: AsyncSession, plan: PrunePlan, *, author: str) ->
         await session.execute(
             delete(ReplyModel).where(ReplyModel.id.in_(sorted(plan.replies)), ~_bound())
         )
+    if plan.test_traces is not None:
+        await remove_inbox_trace(session, plan.test_traces)
     if plan.runs:
         # Расход, рассылки и рекламодатели остаются: номер прогона гасит внешний
         # ключ, но запрос явный — чтобы поведение не зависело от того, как когда-то
@@ -423,10 +452,14 @@ def _target(plan: PrunePlan) -> str:
     Поле короткое, а прогонов в чистке может быть десяток: длинный перечень
     ронял запись журнала, а с ней — всю чистку. Точные номера лежат в `details`.
     """
-    probes = [] if plan.probes is None else [f"probes:{len(plan.probes.domains)}"]
+    marks = [
+        *([] if plan.probes is None else [f"probes:{len(plan.probes.domains)}"]),
+        *([] if plan.test_traces is None else [f"test-traces:{len(plan.test_traces.domains)}"]),
+    ]
     named = ", ".join(
-        [*(f"run:{n}" for n in plan.runs), *(f"reply:{n}" for n in plan.replies), *probes]
+        [*(f"run:{n}" for n in plan.runs), *(f"reply:{n}" for n in plan.replies), *marks]
     )
     if len(named) <= TARGET_LIMIT:
         return named
-    return f"runs:{len(plan.runs)} replies:{len(plan.replies)} (номера — в details)"
+    counts = [f"runs:{len(plan.runs)}", f"replies:{len(plan.replies)}", *marks]
+    return " ".join([*counts, "(номера — в details)"])

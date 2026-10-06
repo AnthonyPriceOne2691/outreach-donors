@@ -16,6 +16,9 @@
 (`letters-build --runs N`), и в рассылку не попадает никто, кроме липового.
 Прогон «остановлен», а не «завершён»: смета берёт историю только завершённых,
 и проверка не должна сдвигать её.
+
+Тот же домен в зоне и тот же свой ящик — у пробного рекламодателя Этапа 2
+(`crawl/probe_advertiser.py`): чистка `--probes` уносит и его — по зоне домена.
 """
 
 from __future__ import annotations
@@ -36,6 +39,7 @@ from backend.features.core.domain import (
     RunStatus,
     Stage,
 )
+from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.outreach import (
@@ -57,7 +61,8 @@ PROBE_REASON = "проверочный прогон: липовый донор �
 
 
 class ProbeError(ValueError):
-    """Липового донора завести нельзя. Сообщение говорит почему и что сделать."""
+    """Липового донора или пробного рекламодателя завести нельзя. Сообщение говорит
+    почему и что сделать."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,25 +80,44 @@ def is_probe_host(host: str) -> bool:
     return host.strip().lower().endswith(PROBE_ZONE)
 
 
-def _checked(host: str, email: str) -> tuple[str, str]:
-    host, email = host.strip().lower(), email.strip().lower()
+def checked_host(host: str) -> str:
+    """Липовый домен: в зоне `.invalid`, и не сама зона."""
+    host = host.strip().lower()
     if not is_probe_host(host) or host == PROBE_ZONE.lstrip("."):
         raise ProbeError(
             f"«{host}» — не липовый домен: нужен домен в зоне {PROBE_ZONE}, например "
             f"probe{PROBE_ZONE}. Настоящий сайт так не назовут, и чистка уберёт его целиком"
         )
+    return host
+
+
+def checked_email(email: str, stage: Stage, *, required: bool = False) -> str:
+    """Свой ящик проверяющего — по предохранителю учётки этапа.
+
+    `required` — снятый предохранитель тоже отказ: пробный рекламодатель
+    заводится только на ящик из списка — без списка опечатка в адресе
+    отправила бы проверочный оффер живому человеку.
+    """
+    email = email.strip().lower()
     if email.count("@") != 1 or not email.split("@")[0] or "." not in email.split("@")[1]:
         raise ProbeError(f"«{email}» — не адрес почты")
-    account = outreach_cfg.mail_account(Stage.DONORS.value)
+    account = outreach_cfg.mail_account(stage.value)
+    if not account.allowed_recipients and required:
+        raise ProbeError(
+            f"Предохранитель снят ({account.allowlist_setting} пуст): пробный заводится "
+            "только на свой ящик из списка — без списка опечатка в адресе отправила бы "
+            "проверочное письмо живому человеку"
+        )
     if account.allowed_recipients and not allowed_recipient(email, account.allowed_recipients):
         raise ProbeError(
             f"Адреса {email} нет в списке разрешённых ({account.allowlist_setting}): "
             "пока стоит предохранитель, письмо на него не уйдёт. Взять свой ящик из списка"
         )
-    return host, email
+    return email
 
 
-async def _domain(session: AsyncSession, host: str) -> tuple[DomainModel, bool]:
+async def fake_domain(session: AsyncSession, host: str) -> tuple[DomainModel, bool]:
+    """Строка липового домена: прежняя или новая. Второе — заведена ли сейчас."""
     found = await session.scalar(select(DomainModel).where(DomainModel.host == host))
     if found is not None:
         return found, False
@@ -117,7 +141,8 @@ async def _donor(session: AsyncSession, domain: DomainModel, author: str) -> Don
     return donor
 
 
-async def _contact(session: AsyncSession, domain: DomainModel, email: str) -> None:
+async def own_address(session: AsyncSession, domain: DomainModel, email: str) -> None:
+    """Свой ящик — адресом липового домена, вписанным руками. Повтор не задваивает."""
     exists = await session.scalar(
         select(ContactModel.id).where(
             ContactModel.domain_id == domain.id, ContactModel.email == email
@@ -166,10 +191,10 @@ async def _run(session: AsyncSession, domain: DomainModel, author: str) -> RunMo
 
 async def make_probe(session: AsyncSession, *, host: str, email: str, author: str) -> Probe:
     """Завести липового донора с адресом и проверочным прогоном. Без коммита."""
-    host, email = _checked(host, email)
-    domain, created = await _domain(session, host)
+    host, email = checked_host(host), checked_email(email, Stage.DONORS)
+    domain, created = await fake_domain(session, host)
     donor = await _donor(session, domain, author)
-    await _contact(session, domain, email)
+    await own_address(session, domain, email)
     run = await _run(session, domain, author)
     await AccessRepository(session).record(
         AuditAction.PROBE_CREATED,
@@ -187,15 +212,26 @@ async def make_probe(session: AsyncSession, *, host: str, email: str, author: st
 
 
 def probe_domain() -> ColumnElement[bool]:
-    """Домен липового донора — условием запроса: зона `.invalid`."""
+    """Домен липового донора или пробного рекламодателя — условием запроса: зона `.invalid`."""
     return DomainModel.host.like(f"%{PROBE_ZONE}")
+
+
+def emptied_campaign() -> ColumnElement[bool]:
+    """Рассылка пуста: ни писем, ни переписки. Удаляется только такая — переписка
+    ушла бы с рассылкой каскадом, вместе с ответами."""
+    return and_(
+        ~exists().where(MessageModel.campaign_id == CampaignModel.id),
+        ~exists().where(ThreadModel.campaign_id == CampaignModel.id),
+    )
 
 
 @dataclass(slots=True)
 class ProbeTrace:
-    """Что оставили липовые доноры — уходит целиком при `prune --probes`."""
+    """Что оставили липовые домены — уходит целиком при `prune --probes`."""
 
     domains: list[int] = field(default_factory=list)
+    #: Из них пробные рекламодатели (`crawl/probe_advertiser.py`): уходят с доменом.
+    advertisers: int = 0
     #: Проверочные прогоны: в выдаче только липовые домены.
     runs: list[int] = field(default_factory=list)
     letters: int = 0
@@ -206,7 +242,8 @@ class ProbeTrace:
 
     def as_details(self) -> dict[str, Any]:
         return {
-            "липовых доноров": len(self.domains),
+            "липовых доменов": len(self.domains),
+            "из них рекламодателей": self.advertisers,
             "проверочные прогоны": self.runs,
             "писем": self.letters,
             "переписок": self.threads,
@@ -232,6 +269,10 @@ async def probe_trace(session: AsyncSession) -> ProbeTrace:
     if not trace.domains:
         return trace
     ids = trace.domains
+    trace.advertisers = await _count(
+        session,
+        select(func.count(AdvertiserModel.id)).where(AdvertiserModel.domain_id.in_(ids)),
+    )
     trace.letters = await _count(
         session, select(func.count(MessageModel.id)).where(MessageModel.domain_id.in_(ids))
     )
@@ -266,12 +307,12 @@ async def probe_trace(session: AsyncSession) -> ProbeTrace:
 
 
 async def remove_probes(session: AsyncSession, trace: ProbeTrace) -> None:
-    """Убрать липовых доноров с письмами и перепиской. Без коммита.
+    """Убрать липовые домены с письмами и перепиской. Без коммита.
 
     Письма — первыми: на домен они ссылаются без каскада, и база не дала бы
-    удалить домен с письмами. Переписка и ответы уходят с доменом каскадом.
-    Зона проверяется и здесь, в самом запросе: настоящий домен этим путём
-    не удаляется, что бы ни лежало в плане.
+    удалить домен с письмами. Переписка, ответы, адреса и строка пробного
+    рекламодателя уходят с доменом каскадом. Зона проверяется и здесь, в самом
+    запросе: настоящий домен этим путём не удаляется, что бы ни лежало в плане.
     """
     if not trace.domains:
         return
@@ -281,11 +322,6 @@ async def remove_probes(session: AsyncSession, trace: ProbeTrace) -> None:
         delete(DomainModel).where(DomainModel.id.in_(trace.domains), probe_domain())
     )
     if trace.campaigns:
-        # Пустая — без писем и без переписки: переписка ушла бы с рассылкой каскадом.
-        emptied = and_(
-            ~exists().where(MessageModel.campaign_id == CampaignModel.id),
-            ~exists().where(ThreadModel.campaign_id == CampaignModel.id),
-        )
         await session.execute(
-            delete(CampaignModel).where(CampaignModel.id.in_(trace.campaigns), emptied)
+            delete(CampaignModel).where(CampaignModel.id.in_(trace.campaigns), emptied_campaign())
         )

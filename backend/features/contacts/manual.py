@@ -37,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.contacts.quality import NOT_AN_ADDRESS, rejection_reason
 from backend.features.core.domain import ContactSource, ContactStatus
+from backend.features.core.models._mixins import ContactAttemptMixin
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.outreach import MessageModel, ThreadModel
@@ -167,13 +168,24 @@ async def remove(session: AsyncSession, donor: DonorModel, contact_id: int) -> R
     left = await session.scalar(
         select(func.count(ContactModel.id)).where(ContactModel.domain_id == donor.domain_id)
     )
-    if not left and donor.contact_status is ContactStatus.FOUND:
-        donor.contact_status = (
-            None if donor.contact_attempted_at is None else ContactStatus.NOT_FOUND
-        )
+    if not left:
+        donor.contact_status = status_without_addresses(donor)
         await session.flush()
     logger.info("адреса: у донора №%s удалён адрес, осталось %s", donor.id, left)
     return Removed(email=email, contact_status=donor.contact_status)
+
+
+def status_without_addresses(role: ContactAttemptMixin) -> ContactStatus | None:
+    """Исход поиска у роли домена, когда адресов у домена не осталось.
+
+    «Адрес найден» без адресов — неправда: «адреса нет», если лестница по
+    домену ходила, и «не искали», если нет. Другой исход не трогается. Одно
+    правило на удаление с карточки и на чистку следов проверки
+    (`outreach/own_inboxes.py`): у неё те же донор и рекламодатель.
+    """
+    if role.contact_status is not ContactStatus.FOUND:
+        return role.contact_status
+    return None if role.contact_attempted_at is None else ContactStatus.NOT_FOUND
 
 
 async def host_of(session: AsyncSession, donor: DonorModel) -> str:
