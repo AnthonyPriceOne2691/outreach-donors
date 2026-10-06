@@ -1102,7 +1102,7 @@
       "worst": "next_address_note:100"
     },
     "backend/features/letters/building.py": {
-      "lines": 403,
+      "lines": 404,
       "complexity": 7,
       "worst": "build:230"
     },
@@ -1162,9 +1162,9 @@
       "worst": "letter_for:71"
     },
     "backend/features/letters/recipients.py": {
-      "lines": 495,
+      "lines": 499,
       "complexity": 5,
-      "worst": "_why_not:309"
+      "worst": "_why_not:312"
     },
     "backend/features/letters/reply_to.py": {
       "lines": 153,
@@ -1182,9 +1182,9 @@
       "worst": "edit:54"
     },
     "backend/features/letters/rewrite.py": {
-      "lines": 311,
+      "lines": 352,
       "complexity": 7,
-      "worst": "parse_zones:159"
+      "worst": "parse_zones:192"
     },
     "backend/features/letters/sendgrid.py": {
       "lines": 262,

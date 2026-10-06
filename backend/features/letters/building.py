@@ -354,6 +354,7 @@ class QueueBuilder:
                 host=candidate.host,
                 country=request.country,
                 niche=tuple(found_by.get(candidate.host, ())) or request.niche,
+                about=candidate.about,
             ),
         )
         for note in rewritten.notes:
