@@ -27,6 +27,7 @@
  * **«Куплено» — тоже списком** (06.10.2026). Раньше это было число в шапке,
  * и ложного среди купленных снять было нечем, кроме консоли; письмо уходит
  * именно им. Сверху — обход доноров (`CrawlPanel`): откуда кандидаты берутся.
+ * Снизу — «К письму» (`PromotePanel`): перевод в рекламодатели и их адреса.
  */
 
 import {
@@ -57,6 +58,7 @@ import { formatDate, formatNumber, plural } from '../format';
 import type { Column } from '../components/ColumnsHead';
 import { ColumnsHead } from '../components/ColumnsHead';
 import { CrawlPanel } from './CrawlPanel';
+import { PromotePanel } from './PromotePanel';
 
 const QUERY_KEY = ['advertisers'] as const;
 
@@ -359,6 +361,7 @@ export function AdvertisersPage() {
           </Table.ScrollContainer>
         )}
       </Card>
+      <PromotePanel />
     </Stack>
   );
 }
