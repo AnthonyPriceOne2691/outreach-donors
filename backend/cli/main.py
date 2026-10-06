@@ -45,6 +45,8 @@ from backend.cli.letters_queue import add_parser as add_letters_parser
 from backend.cli.letters_queue import cmd_letters, cmd_letters_build, cmd_letters_send
 from backend.cli.mail_test import add_parser as add_mail_test_parser
 from backend.cli.mail_test import cmd_mail_test
+from backend.cli.probe_advertiser import add_parser as add_probe_advertiser_parser
+from backend.cli.probe_advertiser import cmd_probe_advertiser
 from backend.cli.probe_donor import add_parser as add_probe_donor_parser
 from backend.cli.probe_donor import cmd_probe_donor
 from backend.cli.prune import add_parser as add_prune_parser
@@ -398,6 +400,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_mail_test_parser(sub)
     add_prune_parser(sub)
     add_probe_donor_parser(sub)
+    add_probe_advertiser_parser(sub)
     add_sales_parser(sub)
     return parser
 
@@ -427,6 +430,7 @@ _KEPT_ON_INTERRUPT: dict[str, str] = {
     "sales-kb-load": "База знаний пишется одной транзакцией: в базе ничего не осталось.",
     "prune": "Чистка идёт одной транзакцией: в базе ничего не изменилось.",
     "probe-donor": "Липовый донор заводится одной транзакцией: в базе ничего не изменилось.",
+    "probe-advertiser": "Пробный заводится одной транзакцией: в базе ничего не изменилось.",
 }
 
 
@@ -458,6 +462,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] =
     "mail-test": cmd_mail_test,
     "prune": cmd_prune,
     "probe-donor": cmd_probe_donor,
+    "probe-advertiser": cmd_probe_advertiser,
     "sales-hypothesis-add": cmd_sales_hypothesis_add,
     "sales-import": cmd_sales_import,
     "sales-stoplist-add": cmd_sales_stoplist_add,

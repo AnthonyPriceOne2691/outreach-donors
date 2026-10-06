@@ -477,9 +477,14 @@
       "worst": "_report:181"
     },
     "backend/cli/main.py": {
-      "lines": 492,
+      "lines": 497,
       "complexity": 9,
-      "worst": "_print_report:255"
+      "worst": "_print_report:257"
+    },
+    "backend/cli/probe_advertiser.py": {
+      "lines": 93,
+      "complexity": 2,
+      "worst": "run_probe_advertiser:51"
     },
     "backend/cli/probe_donor.py": {
       "lines": 69,
@@ -487,9 +492,9 @@
       "worst": "run_probe_donor:40"
     },
     "backend/cli/prune.py": {
-      "lines": 136,
+      "lines": 193,
       "complexity": 9,
-      "worst": "_print_runs:76"
+      "worst": "_print_runs:129"
     },
     "backend/cli/review_queue.py": {
       "lines": 56,
@@ -707,9 +712,9 @@
       "worst": "_step_pages:218"
     },
     "backend/features/contacts/manual.py": {
-      "lines": 184,
-      "complexity": 8,
-      "worst": "remove:156"
+      "lines": 196,
+      "complexity": 6,
+      "worst": "removal_refusals:124"
     },
     "backend/features/contacts/messengers.py": {
       "lines": 457,
@@ -961,6 +966,11 @@
       "complexity": 9,
       "worst": "_subject:69"
     },
+    "backend/features/crawl/probe_advertiser.py": {
+      "lines": 298,
+      "complexity": 6,
+      "worst": "_priced_donor:143"
+    },
     "backend/features/crawl/progress.py": {
       "lines": 137,
       "complexity": 5,
@@ -1067,9 +1077,9 @@
       "worst": "judge_candidates:326"
     },
     "backend/features/donors/probe.py": {
-      "lines": 292,
+      "lines": 328,
       "complexity": 8,
-      "worst": "_checked:78"
+      "worst": "checked_email:94"
     },
     "backend/features/donors/publisher_judge.py": {
       "lines": 486,
@@ -1311,6 +1321,11 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/outreach/own_inboxes.py": {
+      "lines": 460,
+      "complexity": 8,
+      "worst": "inbox_trace:228"
+    },
     "backend/features/outreach/repository.py": {
       "lines": 213,
       "complexity": 4,
@@ -1502,9 +1517,9 @@
       "worst": "gather_candidates:236"
     },
     "backend/features/runs/prune.py": {
-      "lines": 433,
+      "lines": 466,
       "complexity": 11,
-      "worst": "_replies:328"
+      "worst": "_replies:341"
     },
     "backend/features/runs/reasons.py": {
       "lines": 110,
