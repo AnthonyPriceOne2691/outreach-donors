@@ -42,6 +42,7 @@ from backend.shared.queue import (
     PARSE_JOB,
     QUEUE_NAME,
     RUN_JOB,
+    SEND_QUEUE_JOB,
     connection,
     job_error,
     last_error_line,
@@ -53,6 +54,7 @@ logger = logging.getLogger(__name__)
 KINDS = {
     RUN_JOB: "прогон",
     BUILD_JOB: "сборка писем",
+    SEND_QUEUE_JOB: "отправка очереди",
     CONTACTS_JOB: "поиск контактов",
     PARSE_JOB: "разбор ответа",
 }

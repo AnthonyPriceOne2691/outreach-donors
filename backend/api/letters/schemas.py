@@ -248,6 +248,21 @@ class BuildQueued(BaseModel):
     job_id: str
 
 
+class SendQueueBody(BaseModel):
+    """Какую очередь отправить пачкой."""
+
+    stage: Stage = Stage.DONORS
+
+
+class SendQueueQueued(BaseModel):
+    """Пачка ушла в очередь задач: письма уходят по одному, минутами."""
+
+    job_id: str
+    #: Сколько писем ждёт в очереди этапа. Уйдёт не больше, чем позволит
+    #: дневной лимит ящиков, — итог скажет строка задачи.
+    queued: int
+
+
 class EditRequestBody(BaseModel):
     subject: str
     body: str
