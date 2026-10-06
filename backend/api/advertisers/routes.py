@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.api.advertisers.schemas import CandidateCard, CandidatesView, DecisionBody
 from backend.api.deps import db_session, needs
 from backend.features.access.repository import AccessRepository
-from backend.features.core.domain import AuditAction, Permission
+from backend.features.core.domain import AuditAction, Permission, Verdict
 from backend.features.core.models.access import UserModel
 from backend.features.crawl import review
 
@@ -43,14 +43,27 @@ async def queue(
     include_decided: bool = Query(
         default=False, description="показывать и те, по которым решение уже принято"
     ),
+    verdict: Verdict = Query(
+        default=Verdict.PENDING, description="спорные (pending) или «куплено» (bought)"
+    ),
     limit: int = Query(default=review.PAGE_SIZE, ge=1, le=200),
     _: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> CandidatesView:
-    """Пограничные кандидаты, которых ещё никто не смотрел."""
-    rows = await review.queue(session, limit=limit, include_decided=include_decided)
+    """Кандидаты, которых смотрит человек: спорные — решить, «куплено» —
+    проверить перед письмом и снять ложного."""
+    if verdict not in review.REVIEWED:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "Списком смотрят спорных (pending) и «куплено» (bought): «мимо» и «кому не пишем» "
+            "видны числами в шапке",
+        )
+    rows = await review.queue(
+        session, limit=limit, include_decided=include_decided, verdict=verdict
+    )
+    dates = await review.article_dates(session, rows)
     return CandidatesView(
-        rows=[CandidateCard.of(row) for row in rows],
+        rows=[CandidateCard.of(row, published=dates.get(row.id)) for row in rows],
         waiting=await review.waiting(session),
         counts=await review.counts(session),
     )

@@ -45,9 +45,26 @@ const QUEUE = {
   counts: { bought: 6, pending: 1, skipped: 14, blocked: 12 },
 };
 
+/** Панель обхода над очередью: доноров для обхода нет, обходов не было. */
+const CRAWL_ROUTES = {
+  'GET /api/crawls/targets': {
+    body: {
+      donors: [],
+      no_price: 0,
+      stale_price: 0,
+      supplier: 0,
+      notes: ['Подходящих доноров в базе нет: сначала прогон Этапа 1.'],
+      max_pages: 1000,
+      workers: 4,
+    },
+  },
+  'GET /api/crawls': { body: { rows: [], active: 0, workers: 4 } },
+};
+
 async function openScreen(routes: Record<string, unknown> = {}, who: unknown = ADMIN) {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   const recorded = serve({
+    ...CRAWL_ROUTES,
     'GET /api/auth/me': { body: who },
     'GET /api/advertisers': { body: QUEUE },
     ...(routes as Record<string, never>),
@@ -141,6 +158,7 @@ describe('ручная проверка рекламодателей', () => {
   it('пустая очередь объясняет, кто сюда попадает', async () => {
     localStorage.setItem(TOKEN_KEY, 'пропуск');
     serve({
+      ...CRAWL_ROUTES,
       'GET /api/auth/me': { body: ADMIN },
       'GET /api/advertisers': { body: { rows: [], waiting: 0, counts: {} } },
     });
@@ -156,6 +174,7 @@ describe('числа и текст сходятся', () => {
   it('«спорно: 1» при решённом спорном — не «спорных нет», а сколько решено и где их видно', async () => {
     localStorage.setItem(TOKEN_KEY, 'пропуск');
     serve({
+      ...CRAWL_ROUTES,
       'GET /api/auth/me': { body: ADMIN },
       'GET /api/advertisers': { body: { ...QUEUE, rows: [], waiting: 0 } },
       'GET /api/advertisers?include_decided=true': { body: { ...QUEUE, rows: [DECIDED] } },
@@ -218,6 +237,7 @@ describe('слова при числах', () => {
   it('«1 ссылка с 1 страницы», а не «ссылок 1 с 1 страниц»', async () => {
     localStorage.setItem(TOKEN_KEY, 'пропуск');
     serve({
+      ...CRAWL_ROUTES,
       'GET /api/auth/me': { body: ADMIN },
       'GET /api/advertisers': {
         body: { ...QUEUE, rows: [{ ...CANDIDATE, links: 1, pages: 1 }] },

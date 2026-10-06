@@ -20,21 +20,25 @@ import type { RunStatus } from '../api/types';
 interface Props {
   reason: string;
   status: RunStatus;
+  /** Кого закрыл разбор зависших — прогонов или обходов (`crawl/lifecycle.py`). */
+  subject?: string;
 }
 
 /** Зачины, которыми сервер начинает причину остановки (`workers/jobs.py`,
  *  `runs/lifecycle.py`). Под заголовком «Почему остановлен» «остановлен:»
  *  было бы повтором; кто остановил — разбор зависших — остаётся словами. */
-const STOP_LEADS: [string, string][] = [
-  ['остановлен разбором: ', 'Закрыт разбором зависших прогонов: '],
-  ['остановлен: ', ''],
-];
+function stopLeads(subject: string): [string, string][] {
+  return [
+    ['остановлен разбором: ', `Закрыт разбором зависших ${subject}: `],
+    ['остановлен: ', ''],
+  ];
+}
 
 /** Причина без повтора заголовка. Незнакомый зачин показывается как есть:
  *  лишнее слово лучше потерянного. */
-export function reasonText(reason: string, stopped: boolean): string {
+export function reasonText(reason: string, stopped: boolean, subject = 'прогонов'): string {
   if (!stopped) return reason;
-  for (const [lead, said] of STOP_LEADS) {
+  for (const [lead, said] of stopLeads(subject)) {
     if (reason.startsWith(lead)) {
       const rest = reason.slice(lead.length);
       return said === '' ? rest.charAt(0).toUpperCase() + rest.slice(1) : said + rest;
@@ -43,7 +47,7 @@ export function reasonText(reason: string, stopped: boolean): string {
   return reason;
 }
 
-export function RunReason({ reason, status }: Props) {
+export function RunReason({ reason, status, subject = 'прогонов' }: Props) {
   const [opened, setOpened] = useState(false);
   // Цвет — по смыслу. Остановленный сам не продолжится, ждать нечего:
   // это отказ, роза. Прогон, который прерывался, но продолжен или будет
@@ -95,7 +99,7 @@ export function RunReason({ reason, status }: Props) {
           data-run-reason
           style={{ whiteSpace: 'pre-line', overflowWrap: 'break-word' }}
         >
-          {reasonText(reason, stopped)}
+          {reasonText(reason, stopped, subject)}
         </Text>
       </Popover.Dropdown>
     </Popover>

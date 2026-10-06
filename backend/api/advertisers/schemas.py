@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
@@ -29,12 +29,14 @@ class CandidateCard(BaseModel):
     #: Страница и анкор, под которые будет написано письмо.
     best_page_url: str | None = None
     best_anchor: str | None = None
+    #: Когда вышла эта статья: свежее размещение — живое, давнее — забытое.
+    best_published: date | None = None
     confirmed: bool | None = None
     decided_by: str | None = None
     decided_at: datetime | None = None
 
     @classmethod
-    def of(cls, row: CandidateModel) -> CandidateCard:
+    def of(cls, row: CandidateModel, *, published: date | None = None) -> CandidateCard:
         return cls(
             id=row.id,
             donor_host=row.donor_host,
@@ -46,6 +48,7 @@ class CandidateCard(BaseModel):
             pages=row.pages,
             best_page_url=row.best_page_url,
             best_anchor=row.best_anchor,
+            best_published=published,
             confirmed=row.confirmed,
             decided_by=row.decided_by,
             decided_at=row.decided_at,
