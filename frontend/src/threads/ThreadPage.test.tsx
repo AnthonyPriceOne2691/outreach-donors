@@ -187,6 +187,36 @@ describe('карточка переписки', () => {
     expect(screen.queryByRole('button', { name: 'Подтвердить' })).not.toBeInTheDocument();
   });
 
+  it('все цены из ответа видны под ценой, пока человек решает', async () => {
+    await openThread({
+      incoming: [
+        {
+          ...UNSURE,
+          offers: [
+            { product: 'guest post', niche: null, price: '250', currency: 'EUR', period: null },
+            {
+              product: 'homepage link',
+              niche: 'casino',
+              price: '400',
+              currency: 'EUR',
+              period: 'month',
+            },
+          ],
+        },
+      ],
+    });
+
+    const rows = within(screen.getByRole('list', { name: 'Все цены из ответа' })).getAllByRole(
+      'listitem',
+    );
+    expect(rows.map((row) => row.textContent?.replace(/[\u00a0\u202f]/g, ' '))).toEqual([
+      'guest post — 250,00 €',
+      'homepage link · casino — 400,00 € в месяц',
+    ]);
+    // Форма решения — рядом и та же: список её не заменяет.
+    expect(screen.getByLabelText('Белая цена')).toHaveValue('250');
+  });
+
   it('вложение видно, а сам файл не показывается', async () => {
     await openThread({
       incoming: [

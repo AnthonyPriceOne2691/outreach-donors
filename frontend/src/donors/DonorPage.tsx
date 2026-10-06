@@ -53,6 +53,7 @@ import { formatDate, formatMoney, formatNumber, formatShare } from '../format';
 import { BackLink, backTo } from '../components/BackLink';
 import { Metric } from '../components/Metric';
 import { fetchDonor } from '../api/runs';
+import { ReplyOffers } from '../threads/ReplyOffers';
 import { DonorAddresses } from './DonorAddresses';
 
 const when = formatDate;
@@ -236,6 +237,7 @@ export function DonorPage() {
           <Text>
             {formatMoney(data.last_price, data.last_price_currency)} · {when(data.last_price_at)}
           </Text>
+          <ReplyOffers offers={data.last_offers} />
         </Card>
       )}
     </Stack>

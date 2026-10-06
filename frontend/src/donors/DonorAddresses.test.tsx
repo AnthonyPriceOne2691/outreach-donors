@@ -276,4 +276,28 @@ describe('карточка донора: цена', () => {
     expect(price.textContent?.replace(/[\u00a0\u202f]/g, ' ')).toContain('1 250,00 € · 20.09.2026');
     expect(price.textContent).not.toContain('1250.00');
   });
+
+  it('рядом с последней ценой — все цены того же ответа', async () => {
+    await openCard({
+      ...CARD,
+      last_price: '1250.00',
+      last_price_currency: 'EUR',
+      last_price_at: '2026-09-20T10:00:00+00:00',
+      last_offers: [
+        { product: 'guest post', niche: null, price: '1250', currency: 'EUR', period: null },
+        { product: 'link insertion', niche: null, price: '300', currency: 'EUR', period: null },
+      ],
+    });
+
+    const price = screen
+      .getByRole('heading', { name: 'Последняя цена' })
+      .closest<HTMLElement>('.mantine-Card-root')!;
+    const rows = within(
+      within(price).getByRole('list', { name: 'Все цены из ответа' }),
+    ).getAllByRole('listitem');
+    expect(rows.map((row) => row.textContent?.replace(/[\u00a0\u202f]/g, ' '))).toEqual([
+      'guest post — 1 250,00 €',
+      'link insertion — 300,00 €',
+    ]);
+  });
 });

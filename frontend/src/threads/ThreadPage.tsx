@@ -44,6 +44,7 @@ import { corridorText, readable, uniquenessText } from '../letters/letterText';
 import { AnswerBox } from './AnswerBox';
 import { PriceReview } from './PriceReview';
 import { ReplyFiles } from './ReplyFiles';
+import { ReplyOffers } from './ReplyOffers';
 
 const when = formatDateTime;
 
@@ -250,6 +251,7 @@ function Incoming({
           </Group>
         </>
       )}
+      <ReplyOffers offers={incoming.offers} />
 
       {incoming.lead ? (
         <LeadAction
