@@ -348,3 +348,8 @@ def test_command_is_registered_in_the_console() -> None:
     assert "sales-telegram-chat-id" in _COMMANDS
     assert build_parser().parse_args(["sales-telegram-chat-id"]).command == "sales-telegram-chat-id"
     assert "ничего не изменилось" in _KEPT_ON_INTERRUPT["sales-telegram-chat-id"]
+
+
+async def test_command_client_is_a_plain_httpx_client() -> None:
+    async with cli._client() as http:
+        assert isinstance(http, httpx.AsyncClient)

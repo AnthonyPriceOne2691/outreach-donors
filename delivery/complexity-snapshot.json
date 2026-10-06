@@ -1731,6 +1731,21 @@
       "complexity": 4,
       "worst": "_by_name:351"
     },
+    "backend/features/sales/handoff.py": {
+      "lines": 439,
+      "complexity": 11,
+      "worst": "_card:346"
+    },
+    "backend/features/sales/handoff_kommo.py": {
+      "lines": 154,
+      "complexity": 9,
+      "worst": "write:42"
+    },
+    "backend/features/sales/handoff_text.py": {
+      "lines": 108,
+      "complexity": 8,
+      "worst": "note:90"
+    },
     "backend/features/sales/hypotheses.py": {
       "lines": 68,
       "complexity": 6,
