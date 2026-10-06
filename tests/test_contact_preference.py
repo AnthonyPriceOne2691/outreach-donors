@@ -53,8 +53,9 @@ async def test_typed_address_beats_a_found_one_with_the_same_score(session: Asyn
     assert (await _order(session, domain.id))[0] == "editor@tie.example.test"
 
 
-async def test_typed_address_beats_one_that_replied(session: AsyncSession) -> None:
-    """Решение человека сильнее эвристики «пишем тому, кто отвечал»."""
+async def test_address_that_replied_still_beats_the_typed_one(session: AsyncSession) -> None:
+    """Пишем тому, кто отвечает: ответивший сильнее вписанного (решение
+    до боевого прогона, `test_letter_address.py`), — правка его не трогает."""
     domain = await make_donor(session, "replied.example.test")
     session.add(
         _contact(
@@ -76,8 +77,8 @@ async def test_typed_address_beats_one_that_replied(session: AsyncSession) -> No
     await session.flush()
 
     assert await _order(session, domain.id) == [
-        "editor@replied.example.test",
         "sales@replied.example.test",
+        "editor@replied.example.test",
     ]
 
 
@@ -101,9 +102,32 @@ async def test_dead_typed_address_still_goes_last(session: AsyncSession) -> None
     ]
 
 
-async def test_address_learned_from_a_reply_is_not_a_typed_one(session: AsyncSession) -> None:
+async def test_typed_address_beats_found_ones_that_never_replied(session: AsyncSession) -> None:
+    """Среди тех, с кого не отвечали, вписанный — первым, даже младшей записью."""
+    domain = await make_donor(session, "found.example.test")
+    for name in ("info", "contact"):
+        session.add(
+            _contact(
+                domain.id, f"{name}@found.example.test", ContactSource.PAGE, verification_score=100
+            )
+        )
+    await session.flush()
+    session.add(
+        _contact(
+            domain.id,
+            "editor@found.example.test",
+            ContactSource.MANUAL,
+            verification_score=MANUAL_SCORE,
+        )
+    )
+    await session.flush()
+
+    assert (await _order(session, domain.id))[0] == "editor@found.example.test"
+
+
+async def test_address_learned_from_a_reply_is_first_by_replying(session: AsyncSession) -> None:
     """Адрес из ответа тоже заводится как `manual`, но без оценки — человек его
-    не вписывал, и первым он встаёт по «отвечали», а не по решению человека."""
+    не вписывал; первым он встаёт потому, что с него ответили."""
     domain = await make_donor(session, "learned.example.test")
     session.add(
         _contact(
@@ -123,4 +147,4 @@ async def test_address_learned_from_a_reply_is_not_a_typed_one(session: AsyncSes
     )
     await session.flush()
 
-    assert (await _order(session, domain.id))[0] == "editor@learned.example.test"
+    assert (await _order(session, domain.id))[0] == "john@learned.example.test"
