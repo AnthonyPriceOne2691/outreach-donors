@@ -811,9 +811,10 @@ export interface CandidateCard {
   reasons: string[];
   links: number;
   pages: number;
-  /** Страница и анкор, под которые будет написано письмо. */
+  /** Страница и анкор, под которые будет написано письмо, и когда вышла статья. */
   best_page_url: string | null;
   best_anchor: string | null;
+  best_published?: string | null;
   confirmed: boolean | null;
   decided_by: string | null;
   decided_at: string | null;

@@ -23,6 +23,10 @@
  * сбой: спорный был, но решённый, и прятался за выключенным «Показывать
  * решённые» без объяснения (аудит 25.09.2026). Пустая таблица теперь
  * говорит, сколько решено и где их видно.
+ *
+ * **«Куплено» — тоже списком** (06.10.2026). Раньше это было число в шапке,
+ * и ложного среди купленных снять было нечем, кроме консоли; письмо уходит
+ * именно им. Сверху — обход доноров (`CrawlPanel`): откуда кандидаты берутся.
  */
 
 import {
@@ -33,6 +37,7 @@ import {
   Card,
   Group,
   Loader,
+  SegmentedControl,
   Stack,
   Switch,
   Table,
@@ -44,10 +49,14 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { useState } from 'react';
 
 import { refusalOf } from '../api/client';
+import type { ReviewedVerdict } from '../api/advertisers';
 import { decideCandidate, fetchCandidates } from '../api/advertisers';
 import type { CandidateCard } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
-import { formatNumber, plural } from '../format';
+import { formatDate, formatNumber, plural } from '../format';
+import type { Column } from '../components/ColumnsHead';
+import { ColumnsHead } from '../components/ColumnsHead';
+import { CrawlPanel } from './CrawlPanel';
 
 const QUERY_KEY = ['advertisers'] as const;
 
@@ -63,7 +72,7 @@ const VERDICTS: Record<CandidateCard['verdict'], { label: string; color: string 
  *  «За что» и «Ссылка» — текст, он переносится; остальные — по самому
  *  длинному шрифтом экрана (25.09.2026): кнопки «Пишем» и «Не пишем» с
  *  зазором — около 154 px. Плюс 32 px полей ячейки и запас. */
-const COLUMNS: { title: string; width?: string }[] = [
+const COLUMNS: Column[] = [
   { title: 'Кому ссылается' },
   { title: 'Донор', width: '11rem' },
   { title: 'Балл', width: '4.75rem' },
@@ -73,14 +82,41 @@ const COLUMNS: { title: string; width?: string }[] = [
 const ACTIONS_WIDTH = '12.5rem';
 const TABLE_MIN_WIDTH = 1080;
 
+/** Что смотрит человек — спорных или «куплено» — и что это значит. */
+const LISTS: Record<ReviewedVerdict, { title: string; lead: string }> = {
+  pending: {
+    title: 'Рекламодатели: спорные',
+    lead:
+      'Скоринг разложил найденные ссылки на три кучи: куплена, мимо и спорно. Спорные — здесь. ' +
+      'Решение человека сильнее вердикта скоринга и балл не переписывает: по расхождению между ' +
+      'ними и видно, как часто скоринг ошибается.',
+  },
+  bought: {
+    title: 'Рекламодатели: куплено',
+    lead:
+      'Ссылки, которые скоринг счёл купленными: им уйдёт оффер. Ложного снимите «Не пишем» ' +
+      'до письма — балл при этом не переписывается.',
+  },
+};
+
 /** Почему таблица пуста — словами, и с теми же числами, что в шапке. */
 function EmptyQueue({
+  verdict,
   decided,
   onShowDecided,
 }: {
+  verdict: ReviewedVerdict;
   decided: number;
   onShowDecided: (() => void) | null;
 }) {
+  if (verdict === 'bought') {
+    return (
+      <Text size="sm" c="dimmed">
+        Купленных нет. Сюда попадают ссылки с пометкой рекламы или с четырьмя баллами и больше — им
+        и уходит оффер. Решённые «не пишем» скрыты, пока выключено «Показывать решённые».
+      </Text>
+    );
+  }
   if (decided > 0 && onShowDecided !== null) {
     return (
       <Stack gap={6} align="flex-start">
@@ -109,10 +145,11 @@ export function AdvertisersPage() {
   const { can } = useSession();
   const queryClient = useQueryClient();
   const [includeDecided, setIncludeDecided] = useState(false);
+  const [verdict, setVerdict] = useState<ReviewedVerdict>('pending');
 
   const query = useQuery({
-    queryKey: [...QUERY_KEY, includeDecided],
-    queryFn: () => fetchCandidates(includeDecided),
+    queryKey: [...QUERY_KEY, includeDecided, verdict],
+    queryFn: () => fetchCandidates(includeDecided, verdict),
     // Переключатель не перерисовывает экран: прежняя таблица стоит
     // приглушённой, пока не придёт новая. Раньше экран целиком сменялся
     // значком загрузки — «как будто страница загружается заново».
@@ -154,13 +191,22 @@ export function AdvertisersPage() {
 
   return (
     <Stack gap="lg">
+      <CrawlPanel />
       <Card className="glassPanel" p="xl">
         <Stack gap="sm">
-          <Title order={3}>Рекламодатели: спорные</Title>
+          <Title order={3}>{LISTS[verdict].title}</Title>
+          <SegmentedControl
+            aria-label="Какой список смотреть"
+            value={verdict}
+            onChange={(picked) => setVerdict(picked as ReviewedVerdict)}
+            data={[
+              { value: 'pending', label: `Спорные · ${formatNumber(counts['pending'] ?? 0)}` },
+              { value: 'bought', label: `Куплено · ${formatNumber(counts['bought'] ?? 0)}` },
+            ]}
+            style={{ alignSelf: 'flex-start' }}
+          />
           <Text size="sm" c="dimmed" maw={720}>
-            Скоринг разложил найденные ссылки на три кучи: куплена, мимо и спорно. Спорные — здесь.
-            Решение человека сильнее вердикта скоринга и балл не переписывает: по расхождению между
-            ними и видно, как часто скоринг ошибается.
+            {LISTS[verdict].lead}
           </Text>
           <Group gap="xs">
             {(['bought', 'pending', 'skipped', 'blocked'] as const).map((verdict) => (
@@ -203,6 +249,7 @@ export function AdvertisersPage() {
           </Alert>
         ) : rows.length === 0 ? (
           <EmptyQueue
+            verdict={verdict}
             decided={decided}
             onShowDecided={includeDecided ? null : () => setIncludeDecided(true)}
           />
@@ -215,23 +262,7 @@ export function AdvertisersPage() {
               verticalSpacing="sm"
               horizontalSpacing="md"
             >
-              <colgroup>
-                {COLUMNS.map((column) => (
-                  <col
-                    key={column.title}
-                    style={column.width ? { width: column.width } : undefined}
-                  />
-                ))}
-                {mayDecide ? <col style={{ width: ACTIONS_WIDTH }} /> : null}
-              </colgroup>
-              <Table.Thead>
-                <Table.Tr>
-                  {COLUMNS.map((column) => (
-                    <Table.Th key={column.title}>{column.title}</Table.Th>
-                  ))}
-                  {mayDecide ? <Table.Th /> : null}
-                </Table.Tr>
-              </Table.Thead>
+              <ColumnsHead columns={COLUMNS} tail={mayDecide ? ACTIONS_WIDTH : null} />
               <Table.Tbody>
                 {rows.map((row) => (
                   <Table.Tr key={row.id}>
@@ -290,6 +321,11 @@ export function AdvertisersPage() {
                       {row.best_anchor ? (
                         <Text size="xs" c="dimmed" className="cellName">
                           анкор: {row.best_anchor}
+                        </Text>
+                      ) : null}
+                      {row.best_published ? (
+                        <Text size="xs" c="dimmed">
+                          статья от {formatDate(row.best_published)}
                         </Text>
                       ) : null}
                     </Table.Td>

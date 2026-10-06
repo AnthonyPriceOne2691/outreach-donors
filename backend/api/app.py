@@ -14,6 +14,7 @@ from backend.api.advertisers import routes as advertisers_routes
 from backend.api.agent import routes as agent_routes
 from backend.api.auth import routes as auth_routes
 from backend.api.contacts import routes as contacts_routes
+from backend.api.crawls import routes as crawls_routes
 from backend.api.donors import routes as donors_routes
 from backend.api.errors import install
 from backend.api.events import routes as events_routes
@@ -70,6 +71,7 @@ def create_app() -> FastAPI:
     app.include_router(donors_routes.router, prefix=API_PREFIX)
     app.include_router(contacts_routes.router, prefix=API_PREFIX)
     app.include_router(advertisers_routes.router, prefix=API_PREFIX)
+    app.include_router(crawls_routes.router, prefix=API_PREFIX)
     app.include_router(selection_routes.router, prefix=API_PREFIX)
     app.include_router(review_routes.router, prefix=API_PREFIX)
     app.include_router(senders_routes.router, prefix=API_PREFIX)

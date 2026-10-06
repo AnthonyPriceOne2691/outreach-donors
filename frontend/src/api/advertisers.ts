@@ -9,9 +9,18 @@
 import { request } from './client';
 import type { CandidateCard, CandidatesView } from './types';
 
-/** Пограничные кандидаты. С `includeDecided` — и те, по которым решили. */
-export function fetchCandidates(includeDecided = false): Promise<CandidatesView> {
-  const query = includeDecided ? '?include_decided=true' : '';
+/** Что человек смотрит списком: спорных — решить, «куплено» — проверить до письма. */
+export type ReviewedVerdict = 'pending' | 'bought';
+
+/** Кандидаты с вердиктом. С `includeDecided` — и те, по которым решили. */
+export function fetchCandidates(
+  includeDecided = false,
+  verdict: ReviewedVerdict = 'pending',
+): Promise<CandidatesView> {
+  const params = new URLSearchParams();
+  if (includeDecided) params.set('include_decided', 'true');
+  if (verdict !== 'pending') params.set('verdict', verdict);
+  const query = params.size > 0 ? `?${params.toString()}` : '';
   return request<CandidatesView>(`/advertisers${query}`);
 }
 

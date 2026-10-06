@@ -19,13 +19,14 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import Verdict
 from backend.features.core.models.advertiser import CandidateModel
+from backend.features.core.models.crawl import OutLinkModel
 
 logger = logging.getLogger(__name__)
 
@@ -47,23 +48,58 @@ class AlreadyDecidedError(ValueError):
     """
 
 
+#: Какие вердикты человек смотрит списком: спорные — решить, «куплено» —
+#: проверить перед письмом и снять ложного («Не пишем»).
+REVIEWED = (Verdict.PENDING, Verdict.BOUGHT)
+
+
 async def queue(
-    session: AsyncSession, *, limit: int = PAGE_SIZE, include_decided: bool = False
+    session: AsyncSession,
+    *,
+    limit: int = PAGE_SIZE,
+    include_decided: bool = False,
+    verdict: Verdict = Verdict.PENDING,
 ) -> list[CandidateModel]:
-    """Пограничные кандидаты, которых ещё никто не смотрел.
+    """Кандидаты с вердиктом (по умолчанию — спорные), которых ещё никто не смотрел.
 
     Порядок — по баллу вниз: сначала те, что ближе всего к «куплена»,
     потому что ошибка на них дороже.
     """
     query = (
         select(CandidateModel)
-        .where(CandidateModel.verdict == Verdict.PENDING)
+        .where(CandidateModel.verdict == verdict)
         .order_by(CandidateModel.points.desc(), CandidateModel.id)
         .limit(limit)
     )
     if not include_decided:
         query = query.where(CandidateModel.confirmed.is_(None))
     return list((await session.execute(query)).scalars().all())
+
+
+async def article_dates(session: AsyncSession, rows: list[CandidateModel]) -> dict[int, date]:
+    """Когда вышла статья, под которую будет письмо: у кандидата — страница,
+    дата — у ссылок этой страницы в обходе. Свежая статья — живое размещение,
+    статья 2012 года — давно забытое."""
+    pairs = [(row.crawl_run_id, row.best_page_url) for row in rows if row.best_page_url]
+    if not pairs:
+        return {}
+    found = (
+        await session.execute(
+            select(
+                OutLinkModel.crawl_run_id,
+                OutLinkModel.page_url,
+                func.max(OutLinkModel.page_published),
+            )
+            .where(tuple_(OutLinkModel.crawl_run_id, OutLinkModel.page_url).in_(pairs))
+            .group_by(OutLinkModel.crawl_run_id, OutLinkModel.page_url)
+        )
+    ).all()
+    dated = {(run_id, page): day for run_id, page, day in found if day is not None}
+    return {
+        row.id: dated[(row.crawl_run_id, row.best_page_url)]
+        for row in rows
+        if (row.crawl_run_id, row.best_page_url) in dated
+    }
 
 
 async def waiting(session: AsyncSession) -> int:
