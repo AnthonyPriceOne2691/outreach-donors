@@ -397,9 +397,9 @@
       "worst": "cmd_user_add:28"
     },
     "backend/cli/advertisers.py": {
-      "lines": 324,
+      "lines": 328,
       "complexity": 9,
-      "worst": "cmd_advertisers:126"
+      "worst": "cmd_advertisers:128"
     },
     "backend/cli/contact_refind.py": {
       "lines": 95,
@@ -417,9 +417,9 @@
       "worst": "_plan:145"
     },
     "backend/cli/crawl_probe.py": {
-      "lines": 310,
+      "lines": 350,
       "complexity": 18,
-      "worst": "_print_summary:155"
+      "worst": "_print_summary:169"
     },
     "backend/cli/demo_content.py": {
       "lines": 128,
@@ -877,14 +877,24 @@
       "worst": "classify:141"
     },
     "backend/features/crawl/gate.py": {
-      "lines": 211,
-      "complexity": 6,
-      "worst": "_rate:105"
+      "lines": 255,
+      "complexity": 7,
+      "worst": "judge_run:167"
     },
     "backend/features/crawl/health.py": {
       "lines": 106,
       "complexity": 4,
       "worst": "verdict:85"
+    },
+    "backend/features/crawl/launch.py": {
+      "lines": 89,
+      "complexity": 5,
+      "worst": "launch:52"
+    },
+    "backend/features/crawl/lifecycle.py": {
+      "lines": 191,
+      "complexity": 11,
+      "worst": "recover:112"
     },
     "backend/features/crawl/limiter.py": {
       "lines": 125,
@@ -1242,9 +1252,9 @@
       "worst": "_letters:244"
     },
     "backend/features/ops/silence.py": {
-      "lines": 321,
+      "lines": 331,
       "complexity": 7,
-      "worst": "_crawl_blocked:249"
+      "worst": "_crawl_blocked:255"
     },
     "backend/features/outreach/__init__.py": {
       "lines": 2,
@@ -1657,9 +1667,9 @@
       "worst": "split_url:25"
     },
     "backend/shared/queue.py": {
-      "lines": 259,
+      "lines": 292,
       "complexity": 7,
-      "worst": "job_alive:179"
+      "worst": "job_alive:212"
     },
     "backend/shared/sliding_window.py": {
       "lines": 75,
@@ -1676,15 +1686,25 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/workers/crawl_jobs.py": {
+      "lines": 270,
+      "complexity": 6,
+      "worst": "_judge:252"
+    },
+    "backend/workers/crawler.py": {
+      "lines": 67,
+      "complexity": 2,
+      "worst": "handle_warm_shutdown_request:48"
+    },
     "backend/workers/followups.py": {
       "lines": 65,
       "complexity": 4,
       "worst": "sweep:38"
     },
     "backend/workers/health.py": {
-      "lines": 112,
+      "lines": 115,
       "complexity": 9,
-      "worst": "worker_problems:73"
+      "worst": "worker_problems:74"
     },
     "backend/workers/jobs.py": {
       "lines": 438,
@@ -1697,9 +1717,9 @@
       "worst": "main:18"
     },
     "backend/workers/reaper.py": {
-      "lines": 109,
+      "lines": 133,
       "complexity": 4,
-      "worst": "sweep:57"
+      "worst": "_told:92"
     },
     "backend/workers/ticker.py": {
       "lines": 69,

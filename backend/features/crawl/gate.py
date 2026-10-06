@@ -16,6 +16,12 @@
 у провайдера только для «куплено» и «спорно» и только тот, которого
 ещё не знаем. Без источника DR (`ratings=None`) вердикт не трогается,
 а в причинах так и написано.
+
+**Кандидаты донора — по его последнему пригодному обходу**, а не сумма всех:
+обход стал кнопкой, и у донора их бывает несколько. Новый обход заменяет
+кандидатов прежнего, а решения человека и спрошенный DR переносит. Обход
+без открытых страниц (закрылся, не начался) и незаконченный не заменяет
+ничего: он не знает о сайте ничего нового.
 """
 
 from __future__ import annotations
@@ -24,10 +30,11 @@ import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.ahrefs.client import AhrefsError
+from backend.features.core.domain import CrawlOutcome, CrawlStatus
 from backend.features.core.models.advertiser import CandidateModel
 from backend.features.core.models.crawl import CrawlRunModel, OutLinkModel
 from backend.features.crawl.big_sites import Ratings, apply_ratings, needs_rating
@@ -35,6 +42,31 @@ from backend.features.crawl.links import OutLink
 from backend.features.crawl.scoring import Candidate, boost_across_donors, score_candidates
 
 logger = logging.getLogger(__name__)
+
+#: Обход, по которому считаются кандидаты: законченный и с открытыми страницами.
+USABLE_OUTCOMES = (CrawlOutcome.OK, CrawlOutcome.PARTIAL)
+
+
+def _usable() -> ColumnElement[bool]:
+    return (CrawlRunModel.status == CrawlStatus.DONE) & CrawlRunModel.outcome.in_(USABLE_OUTCOMES)
+
+
+async def latest_crawls(session: AsyncSession) -> list[CrawlRunModel]:
+    """Последний пригодный обход каждого донора — по ним и считаются кандидаты."""
+    newest = select(func.max(CrawlRunModel.id)).where(_usable()).group_by(CrawlRunModel.host)
+    query = select(CrawlRunModel).where(CrawlRunModel.id.in_(newest)).order_by(CrawlRunModel.id)
+    return list((await session.execute(query)).scalars().all())
+
+
+async def _not_latest(session: AsyncSession, run: CrawlRunModel) -> str | None:
+    """Почему по этому обходу кандидатов не считаем. `None` — он последний пригодный."""
+    query = select(func.max(CrawlRunModel.id)).where(_usable(), CrawlRunModel.host == run.host)
+    latest = (await session.execute(query)).scalar_one_or_none()
+    if latest == run.id:
+        return None
+    if latest is not None and latest > run.id:
+        return f"у донора есть обход новее (№{latest})"
+    return "обход не закончен или без открытых страниц"
 
 
 def _to_link(row: OutLinkModel) -> OutLink:
@@ -69,7 +101,7 @@ async def donors_per_root(session: AsyncSession, roots: list[str]) -> dict[str, 
     query = (
         select(OutLinkModel.target_root, func.count(func.distinct(CrawlRunModel.host)))
         .join(CrawlRunModel, CrawlRunModel.id == OutLinkModel.crawl_run_id)
-        .where(OutLinkModel.target_root.in_(roots))
+        .where(OutLinkModel.target_root.in_(roots), _usable())
         .group_by(OutLinkModel.target_root)
     )
     return dict((await session.execute(query)).all())  # type: ignore[arg-type]
@@ -86,9 +118,17 @@ class _Previous:
     rated_at: dict[str, datetime] = field(default_factory=dict)
 
 
-async def _previous(session: AsyncSession, run_id: int) -> _Previous:
+async def _previous(session: AsyncSession, host: str) -> _Previous:
+    """Решения и DR со всех обходов донора: последний обход заменяет кандидатов
+    прежнего, а решение человека и оплаченный DR переезжают к нему."""
     rows = (
-        (await session.execute(select(CandidateModel).where(CandidateModel.crawl_run_id == run_id)))
+        (
+            await session.execute(
+                select(CandidateModel)
+                .where(CandidateModel.donor_host == host)
+                .order_by(CandidateModel.crawl_run_id, CandidateModel.id)
+            )
+        )
         .scalars()
         .all()
     )
@@ -139,6 +179,10 @@ async def judge_run(
     run = await session.get(CrawlRunModel, run_id)
     if run is None:
         raise ValueError(f"обхода {run_id} нет в базе")
+    skip = await _not_latest(session, run)
+    if skip is not None:
+        logger.info("обход %s (%s): кандидаты не считаются — %s", run.host, run_id, skip)
+        return []
 
     rows = (
         (await session.execute(select(OutLinkModel).where(OutLinkModel.crawl_run_id == run_id)))
@@ -149,7 +193,7 @@ async def judge_run(
     seen = await donors_per_root(session, [c.target_root for c in candidates])
     boost_across_donors(candidates, seen)
 
-    previous = await _previous(session, run.id)
+    previous = await _previous(session, run.host)
     await _rate(candidates, previous, ratings)
     await _replace_candidates(session, run, candidates, previous)
     logger.info(
@@ -166,7 +210,7 @@ async def judge_run(
 async def _replace_candidates(
     session: AsyncSession, run: CrawlRunModel, candidates: list[Candidate], previous: _Previous
 ) -> None:
-    """Переписать кандидатов обхода целиком.
+    """Переписать кандидатов донора целиком — прежних обходов тоже.
 
     Пересчёт с новыми весами обязан заменить прежний вердикт, а не лечь
     рядом: две строки про один домен с разными баллами — это вопрос
@@ -177,7 +221,7 @@ async def _replace_candidates(
     тоже: за него заплачено.
     """
     existing = (
-        (await session.execute(select(CandidateModel).where(CandidateModel.crawl_run_id == run.id)))
+        (await session.execute(select(CandidateModel).where(CandidateModel.donor_host == run.host)))
         .scalars()
         .all()
     )

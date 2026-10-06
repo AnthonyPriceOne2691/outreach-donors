@@ -157,6 +157,41 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # Обходы Этапа 2 — своей очередью (`crawl`) и своим сервисом: обход донора идёт
+  # до получаса, и в общей очереди он занял бы единственный воркер. Сколько
+  # доноров идут разом — числом копий (`CRAWL_WORKERS`): в каждой один воркер
+  # и одна задача, у каждой свои лимиты (`docker-compose.prod.yml`).
+  #
+  # Выкатка не обрывает обход: просьбу остановиться сервис передаёт задаче,
+  # и обход дописывает пачку на границе страницы и ставит себе продолжение
+  # (`workers/crawler.py`). Ждём дольше умолчания в 10 с: страница с паузой
+  # сайта и браузером идёт до полуминуты.
+  crawler:
+    image: ${BACKEND_IMAGE:-outreach-backend:local}
+    build:
+      context: .
+      target: backend
+    command: python -m backend.workers.crawler
+    env_file: *backend-env-file
+    environment: *backend-env
+    restart: unless-stopped
+    stop_grace_period: 90s
+    deploy:
+      replicas: ${CRAWL_WORKERS:-4}
+    healthcheck:
+      test: ["CMD", "python", "-m", "backend.workers.health", "crawler"]
+      interval: 60s
+      timeout: 15s
+      retries: 2
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
   # Разбор мёртвых прогонов отдельным процессом: сервер бывает не один
   # (каждый ставил бы свою задачу тому же прогону), а воркер, который
   # и умирает, собственную смерть разобрать не может.
