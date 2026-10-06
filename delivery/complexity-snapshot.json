@@ -862,7 +862,7 @@
       "worst": "—"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 64,
+      "lines": 66,
       "complexity": 0,
       "worst": "—"
     },
@@ -1762,9 +1762,9 @@
       "worst": "wanted_email:122"
     },
     "backend/features/sales/models.py": {
-      "lines": 313,
+      "lines": 390,
       "complexity": 2,
-      "worst": "_enum:74"
+      "worst": "_enum:75"
     },
     "backend/features/sales/ooo.py": {
       "lines": 149,
