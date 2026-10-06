@@ -38,6 +38,7 @@ from backend.features.contacts.repository import SearchRefusedError
 from backend.features.core.usage import LlmCapExceededError
 from backend.features.donors.browse import UnknownDonorError
 from backend.features.donors.export import PickRefusedError
+from backend.features.donors.manual_price import DonorRefusedError, ManualPriceError
 from backend.features.letters.answers import UnknownAnswerTargetError
 from backend.features.letters.building import LetterScopeError
 from backend.features.letters.compose import ComposeError
@@ -127,6 +128,10 @@ STATUSES: dict[type[Exception], int] = {
     UnknownAddressError: status.HTTP_404_NOT_FOUND,
     # Выгрузка отмеченных: ни одного или больше потолка — это запрос.
     PickRefusedError: status.HTTP_400_BAD_REQUEST,
+    # Цена руками: не цена, не валюта, не домен — запрос; домен в стоп-листе,
+    # поставщик, отклонён, ждёт решения в очереди, не прошёл пороги — состояние.
+    ManualPriceError: status.HTTP_400_BAD_REQUEST,
+    DonorRefusedError: status.HTTP_409_CONFLICT,
     # Стоп-лист: уже там, такого нет, снятие отписки без причины.
     # Всё это про состояние списка и про то, что человек чинит сам.
     StopListError: status.HTTP_409_CONFLICT,

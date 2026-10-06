@@ -7,7 +7,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 from pydantic_core import PydanticCustomError
 
-from backend.features.core.domain import CrawlOutcome, CrawlStatus, StopReason
+from backend.features.core.domain import CrawlOutcome, CrawlStatus, PriceSource, StopReason
 from backend.features.crawl.board import CrawlLine, DonorLine
 
 #: Сколько доноров ставится одним нажатием. Обходчиков четыре, обход — до
@@ -57,12 +57,15 @@ class CrawlRow(BaseModel):
 
 
 class DonorRow(BaseModel):
-    """Донор, которого можно обойти: цена — основание, обход — что о нём знаем."""
+    """Донор, которого можно обойти: цена — основание, обход — что о нём знаем.
+    Валюта — рядом с ценой, источник — из ответа или вручную."""
 
     host: str
     price: float | None = None
     priced_at: datetime | None = None
     crawl: CrawlRow | None = None
+    currency: str | None = None
+    source: PriceSource | None = None
 
     @classmethod
     def of(cls, line: DonorLine, *, max_pages: int) -> DonorRow:
@@ -71,6 +74,8 @@ class DonorRow(BaseModel):
             price=float(line.price) if line.price is not None else None,
             priced_at=line.priced_at,
             crawl=CrawlRow.of(line.crawl, max_pages=max_pages) if line.crawl else None,
+            currency=line.currency,
+            source=line.source,
         )
 
 

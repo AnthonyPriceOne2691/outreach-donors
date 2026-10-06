@@ -96,10 +96,10 @@ def _why_not(host: str, chosen: targets.Targets) -> str | None:
     if host in {name.lower() for name in chosen.stale_price}:
         return f"цена старше {filters.PRICE_TTL_DAYS} дней — сначала перезапрос цены"
     if host in {name.lower() for name in chosen.no_price}:
-        return "цены нет — по донору без цены Этап 2 не запускается"
+        return "цены нет — по донору без цены Этап 2 не запускается; знаете цену — укажите её"
     if host in {name.lower() for name in chosen.supplier}:
         return "донор-поставщик — его рекламодателей не трогаем"
-    return "не принятый донор: Этап 2 — по донорам из базы Этапа 1"
+    return "не принятый донор: Этап 2 — по донорам из базы Этапа 1 или заведённым вручную с ценой"
 
 
 @router.post("", response_model=LaunchResult, summary="Обойти доноров")

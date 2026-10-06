@@ -26,7 +26,8 @@
 (`manual.status_without_addresses`).
 
 **Что остаётся.** Донор и решение по нему, обходы, кандидаты, рекламодатели —
-настоящие данные; журнал действий и расход. Цена, рядом с которой на домене
+настоящие данные; журнал действий и расход; цена, указанная человеком
+(`donors/manual_price.py`), — её ответ не приносил. Цена, рядом с которой на домене
 есть и другой ответ с ценой, остаётся и называется в показе: какой из ответов
 её принёс, база не помнит, а затереть настоящую цену хуже, чем оставить
 тестовую на виду.
@@ -64,7 +65,7 @@ from sqlalchemy.orm import InstrumentedAttribute, aliased
 
 from backend.config import outreach as outreach_cfg
 from backend.features.contacts.manual import status_without_addresses
-from backend.features.core.domain import ContactStatus, Stage
+from backend.features.core.domain import ContactStatus, PriceSource, Stage
 from backend.features.core.models._mixins import ContactAttemptMixin
 from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
@@ -326,15 +327,17 @@ async def _effects(session: AsyncSession, trace: InboxTrace, priced: set[int]) -
 
 
 async def _price(session: AsyncSession, item: DomainTrace, reply_ids: list[int]) -> None:
-    """Цена донора уходит, если принести её мог только тестовый ответ."""
+    """Цена донора уходит, если принести её мог только тестовый ответ. Цену,
+    указанную человеком (`donors/manual_price.py`), не приносил ни один ответ —
+    чистка её не трогает и не называет."""
     donor = (
         await session.execute(
-            select(DonorModel.last_price, DonorModel.last_price_currency).where(
-                DonorModel.domain_id == item.domain_id
-            )
+            select(
+                DonorModel.last_price, DonorModel.last_price_currency, DonorModel.last_price_source
+            ).where(DonorModel.domain_id == item.domain_id)
         )
     ).first()
-    if donor is None or donor.last_price is None:
+    if donor is None or donor.last_price is None or donor.last_price_source == PriceSource.MANUAL:
         return
     shown = " ".join(part for part in (str(donor.last_price), donor.last_price_currency) if part)
     if await session.scalar(select(_other_price(item.domain_id, reply_ids))):
@@ -436,13 +439,22 @@ async def _settle(session: AsyncSession, trace: InboxTrace) -> None:
     """Цена, исход поиска и пустые рассылки — по тому, что осталось после удаления."""
     priced = [item.domain_id for item in trace.domains if item.price]
     if priced:
+        # С ценой уходят и список цен того же ответа, и её источник: без цены
+        # они говорили бы о цене, которой нет.
         await session.execute(
             update(DonorModel)
             .where(
                 DonorModel.domain_id.in_(priced),
+                DonorModel.last_price_source.is_distinct_from(PriceSource.MANUAL.value),
                 ~_other_price(DonorModel.domain_id, trace.replies),
             )
-            .values(last_price=None, last_price_currency=None, last_price_at=None)
+            .values(
+                last_price=None,
+                last_price_currency=None,
+                last_price_at=None,
+                last_offers=None,
+                last_price_source=None,
+            )
         )
     for item in trace.domains:
         left = await session.scalar(

@@ -6,6 +6,12 @@
 **Список — только доноры, принятые человеком** (`donors/standing.py`,
 решение 26.09.2026). Карточка открывается у любой записи `donors`
 и сама говорит, донор это или кандидат.
+
+**Цена руками** (07.10.2026) — «Указать цену» на карточке и «Завести донора
+вручную» на панели обхода: Этап 2 запускается только по донорам с известной
+ценой, а агентство знает цены многих сайтов само. Правило одно с консолью
+(`donors/manual_price.py`), право то же, что у адреса руками, — `run`, в
+журнале — кто, сколько и откуда цена.
 """
 
 from __future__ import annotations
@@ -22,17 +28,22 @@ from backend.api.donors.schemas import (
     DonorPageQuery,
     DonorQuery,
     DonorsPage,
+    EnteredDonor,
+    ManualDonorBody,
     PickedBody,
+    PriceBody,
 )
 from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
 from backend.features.donors.browse import DonorBrowser, DonorRow
 from backend.features.donors.export import EXPORT_LIMIT, checked_picks, to_csv
+from backend.features.donors.manual_price import enter_host, manual_price, price_donor
 from backend.features.donors.standing import waiting
 
 router = APIRouter(prefix="/donors", tags=["доноры"])
 
 _viewer = Depends(needs(Permission.VIEW))
+_runner = Depends(needs(Permission.RUN))
 
 
 @router.get("", response_model=DonorsPage, summary="Таблица доноров")
@@ -116,4 +127,40 @@ async def one_donor(
     _: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> DonorFullCard:
+    return DonorFullCard.of(await DonorBrowser(session).card(donor_id))
+
+
+@router.post("", response_model=EnteredDonor, summary="Завести донора вручную, с ценой")
+async def enter_donor(
+    body: ManualDonorBody,
+    author: UserModel = _runner,
+    session: AsyncSession = Depends(db_session),
+) -> EnteredDonor:
+    """Домен и цена, которую агентство знает само, — донором Этапа 2.
+
+    Домен не донор — становится им, принятым человеком без прогона; уже
+    донор — ему записывается цена. Ahrefs и другие платные сервисы не
+    зовутся. Отказ — словами ядра, до записи.
+    """
+    price = manual_price(body.price, body.currency, body.note, by=author.email)
+    entered = await enter_host(session, body.host, price, author_id=author.id)
+    await session.commit()
+    return EnteredDonor.of(entered, price)
+
+
+@router.post("/{donor_id}/price", response_model=DonorFullCard, summary="Указать цену донору")
+async def set_price(
+    donor_id: int,
+    body: PriceBody,
+    author: UserModel = _runner,
+    session: AsyncSession = Depends(db_session),
+) -> DonorFullCard:
+    """Цена, которую человек знает сам, — последней ценой донора.
+
+    Ответ — карточка целиком: цена и её источник показываются словами
+    сервера, а не догадкой экрана.
+    """
+    price = manual_price(body.price, body.currency, body.note, by=author.email)
+    await price_donor(session, donor_id, price, author_id=author.id)
+    await session.commit()
     return DonorFullCard.of(await DonorBrowser(session).card(donor_id))
