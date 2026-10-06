@@ -432,6 +432,24 @@ describe('ответ собеседнику', () => {
     await openThread(VIEW, {}, OPERATOR);
 
     expect(screen.queryByRole('button', { name: 'Ответить' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/с того же ящика/)).not.toBeInTheDocument();
+  });
+
+  it('с какого ящика уйдёт ответ — у самого поля, а не карточкой внизу', async () => {
+    await openThread(VIEW);
+    const user = userEvent.setup();
+
+    // До 06.10.2026 внизу переписки всегда стояло «ответ из карточки
+    // появится вместе с подключением почты» — и после того, как ответ
+    // заработал.
+    expect(screen.queryByText(/вместе с подключением почты/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/с того же ящика/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Ответить' }));
+
+    expect(screen.getByLabelText('Текст ответа')).toHaveAccessibleDescription(
+      /с того же ящика, что вёл переписку/,
+    );
   });
 
   it('отвеченный ответ говорит об этом, а наше письмо подписано «наш ответ»', async () => {

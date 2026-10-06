@@ -52,6 +52,7 @@ import type { DonorFullCard } from '../api/types';
 import { formatDate, formatMoney, formatNumber, formatShare } from '../format';
 import { BackLink, backTo } from '../components/BackLink';
 import { Metric } from '../components/Metric';
+import { Seams } from '../components/Seams';
 import { fetchDonor } from '../api/runs';
 import { DonorAddresses } from './DonorAddresses';
 
@@ -161,7 +162,11 @@ export function DonorPage() {
         <Stack gap={6}>
           <BackLink to={back}>К списку</BackLink>
           <Group gap="sm">
-            <Title order={3}>{data.host}</Title>
+            {/* Домен шире карточки на телефоне срезался её краем; теперь
+                переносится по точкам и дефисам (06.10.2026). */}
+            <Title order={3} className="cellName">
+              <Seams text={data.host} />
+            </Title>
             {/* Исход поиска адреса — в разделе «Адреса», а не здесь:
                 один и тот же значок дважды читается как сбой. */}
             <Badge variant="light" color={DONOR_STATUSES[data.status].color}>
