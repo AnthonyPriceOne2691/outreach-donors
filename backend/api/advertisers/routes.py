@@ -28,6 +28,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.advertisers.schemas import (
@@ -49,6 +50,7 @@ from backend.shared.queue import (
     ADVERTISER_CONTACTS_JOB_KEY,
     CONTACTS_JOB,
     contacts_job_id,
+    job_alive,
     remember_contacts_job,
     runs_queue,
     with_retries,
@@ -164,7 +166,7 @@ async def promote_candidates(
     )
     await session.commit()
     pending = await AdvertiserContactRepository(session).pending_count()
-    job_id = _search(pending) if pending > 0 else None
+    job_id = _search_after_promotion(pending) if pending > 0 else None
     logger.info(
         "рекламодатели: %s перевёл — заведено %s, ждут адреса %s",
         author.email,
@@ -199,8 +201,30 @@ async def search_contacts(
     return ContactsQueued(job_id=job_id, pending=pending)
 
 
+def _search_after_promotion(pending: int) -> str | None:
+    """Поиск после перевода. Очередь не ответила — перевод всё равно сделан.
+
+    Ответить отказом значило бы сказать «не перевели» о записанном
+    переводе. Строка «ждут адреса · найти» на экране остаётся — поиск
+    ставится ею, когда очередь вернётся.
+    """
+    try:
+        return _search(pending)
+    except RedisError as exc:
+        logger.warning("рекламодатели: переведены, поиск адресов не поставлен — %s", exc)
+        return None
+
+
 def _search(limit: int) -> str:
-    """Поиск адресов рекламодателям — задача поиска доноров по своей очереди."""
+    """Поиск адресов рекламодателям — задача поиска доноров по своей очереди.
+
+    Идущий поиск не дублируется: второй проход по тем же доменам заплатил
+    бы платной ступени дважды (нажали «Перевести» второй раз, пока ищет).
+    """
+    running = contacts_job_id(key=ADVERTISER_CONTACTS_JOB_KEY)
+    if running is not None and job_alive(running) is True:
+        logger.info("рекламодатели: поиск адресов уже идёт (%s) — второй не ставим", running)
+        return running
     job = runs_queue().enqueue(
         CONTACTS_JOB,
         min(limit, SEARCH_MAX),

@@ -32,6 +32,7 @@ from backend.features.core.models.donor import ContactModel
 from backend.shared.queue import ADVERTISER_CONTACTS_JOB_KEY, CONTACTS_JOB
 from backend.workers import jobs
 from httpx import AsyncClient
+from redis.exceptions import ConnectionError as RedisConnectionError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
@@ -248,6 +249,52 @@ class TestPromote:
         assert body["pending"] == 0
         assert body["contacts_job_id"] is None
         assert queue.calls == []
+
+    async def test_second_click_while_searching_does_not_pay_twice(
+        self,
+        client: AsyncClient,
+        operator_token: str,
+        mixed: None,
+        queue: FakeQueue,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """«Перевести» нажали второй раз, пока поиск идёт: второй проход по тем же
+        доменам заплатил бы платной ступени дважды — отдаётся идущий."""
+        routes = "backend.api.advertisers.routes"
+        monkeypatch.setattr(f"{routes}.contacts_job_id", lambda **_k: "job-идёт")
+        monkeypatch.setattr(f"{routes}.job_alive", lambda _job: True)
+
+        body = (
+            await client.post("/api/advertisers/promote", headers=bearer(operator_token))
+        ).json()
+
+        assert body["contacts_job_id"] == "job-идёт"
+        assert queue.calls == []
+
+    async def test_queue_down_after_promotion_is_not_a_refusal(
+        self,
+        client: AsyncClient,
+        operator_token: str,
+        mixed: None,
+        monkeypatch: pytest.MonkeyPatch,
+        session: AsyncSession,
+    ) -> None:
+        """Перевод записан до постановки поиска: отказ сказал бы «не перевели»
+        о сделанном. Поиск потом ставится строкой «ждут адреса · найти»."""
+
+        class DownQueue:
+            def enqueue(self, *_args: Any, **_kwargs: Any) -> object:
+                raise RedisConnectionError("очередь не отвечает")
+
+        routes = "backend.api.advertisers.routes"
+        monkeypatch.setattr(f"{routes}.runs_queue", DownQueue)
+        monkeypatch.setattr(f"{routes}.contacts_job_id", lambda **_k: None)
+
+        response = await client.post("/api/advertisers/promote", headers=bearer(operator_token))
+
+        assert response.status_code == 200, response.text
+        assert response.json()["contacts_job_id"] is None
+        assert response.json()["report"]["заведено"] == 2
 
     async def test_promotion_is_in_the_journal(
         self,

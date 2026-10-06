@@ -14,7 +14,7 @@
  * что у доноров (`usePendingContacts`), с запросами рекламодателей.
  */
 
-import { Anchor, Badge, Button, Card, Group, Stack, Text, Title } from '@mantine/core';
+import { Alert, Anchor, Badge, Button, Card, Group, Stack, Text, Title } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -64,7 +64,7 @@ export function PromotePanel() {
   const queryClient = useQueryClient();
   const contacts = usePendingContacts(ADVERTISER_CONTACTS);
   const [outcome, setOutcome] = useState<PromoteResult | null>(null);
-  const { data } = useQuery({ queryKey: PROMOTION_QUERY_KEY, queryFn: fetchPromotion });
+  const { data, error } = useQuery({ queryKey: PROMOTION_QUERY_KEY, queryFn: fetchPromotion });
 
   const promote = useMutation({
     mutationFn: promoteAdvertisers,
@@ -79,7 +79,14 @@ export function PromotePanel() {
       notifications.show({ title: 'Не перевели', message: refusalOf(failure), color: 'red' }),
   });
 
-  if (data === undefined) return null;
+  if (data === undefined) {
+    // Пропавшая молча панель читалась бы как «перевода нет», а не «не загрузилось».
+    return error ? (
+      <Alert color="red" title="«К письму» не загрузилось">
+        {refusalOf(error)}
+      </Alert>
+    ) : null;
+  }
 
   return (
     <Card className="glassPanel" p="xl">

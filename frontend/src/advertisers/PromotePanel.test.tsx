@@ -127,6 +127,16 @@ describe('к письму', () => {
   });
 });
 
+describe('панель не пропадает молча', () => {
+  it('не загрузилось — сказано словами', async () => {
+    open({
+      'GET /api/advertisers/promotion': { status: 500, body: { detail: 'база не ответила' } },
+    });
+
+    expect(await screen.findByText('«К письму» не загрузилось')).toBeInTheDocument();
+  });
+});
+
 describe('итог перевода словами', () => {
   it('называет отсеянных стоп-листами и снятых', () => {
     const line = promotedLine({
