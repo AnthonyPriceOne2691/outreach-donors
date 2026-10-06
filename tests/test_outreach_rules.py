@@ -184,6 +184,37 @@ class TestThreadState:
 
         assert summary.state is ThreadState.PRICED
 
+    def test_price_column_is_the_settled_price_not_the_first_sum(self) -> None:
+        """Боевой прогон 06.10: в «Диалогах» стояло 250 $ из ответа, ждущего
+        человека, а в карточке донора — 150 $ из следующего, подтверждённого.
+        Колонка берёт последнюю принятую цену — как карточка."""
+        waiting = _reply(ReplyKind.HUMAN, price=Decimal("250"), confidence=0.6)
+        settled = _reply(ReplyKind.HUMAN, price=Decimal("150"), confidence=0.95)
+        settled.created_at = NOW + timedelta(hours=1)
+        later_waiting = _reply(ReplyKind.HUMAN, price=Decimal("300"), confidence=0.5)
+        later_waiting.created_at = NOW + timedelta(hours=2)
+
+        summary = summarize([_message(MessageStatus.DELIVERED)], [waiting, settled, later_waiting])
+
+        assert summary.price_white == Decimal("150")
+
+    def test_of_two_settled_prices_the_later_one(self) -> None:
+        first = _reply(ReplyKind.HUMAN, price=Decimal("200"), confidence=0.95)
+        second = _reply(ReplyKind.HUMAN, price=Decimal("180"), confidence=0.4, reviewed=True)
+        second.created_at = NOW + timedelta(days=1)
+
+        summary = summarize([_message(MessageStatus.DELIVERED)], [second, first])
+
+        assert summary.price_white == Decimal("180")
+
+    def test_only_unconfirmed_sum_is_no_price_yet(self) -> None:
+        summary = summarize(
+            [_message(MessageStatus.DELIVERED)],
+            [_reply(ReplyKind.HUMAN, price=Decimal("250"), confidence=0.4)],
+        )
+
+        assert summary.price_white is None
+
     def test_decline_is_a_finished_answer(self) -> None:
         """«Не продаём» — законченный ответ, как цена: работы по нему нет."""
         summary = summarize(

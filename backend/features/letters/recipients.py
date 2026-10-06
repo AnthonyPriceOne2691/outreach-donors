@@ -62,6 +62,8 @@ class Candidate:
     #: Номер попытки: больше единицы — прежние письма не дошли, и это
     #: письмо уходит на следующий адрес (`attempts.py`). Едет в ключ письма.
     attempt: int = 1
+    #: О чём сайт — цитата его страницы, сохранённая судьёй: вступление письма.
+    about: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -263,6 +265,7 @@ class Recipients:
                 ContactModel.email.label("email"),
                 DonorModel.dr.label("dr"),
                 attempts.attempt_number(DomainModel.id, Stage.DONORS).label("attempt"),
+                DomainModel.judge_quote.label("about"),
             )
             .join(DonorModel, DonorModel.domain_id == DomainModel.id)
             .join(ContactModel, ContactModel.domain_id == DomainModel.id)
@@ -374,6 +377,7 @@ class Recipients:
                 email=row.email,
                 dr=row.dr,
                 attempt=row.attempt,
+                about=row.about,
             )
             for row in rows
         ]

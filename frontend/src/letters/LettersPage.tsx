@@ -179,6 +179,10 @@ export function LettersPage() {
     remembered(STAGE_KEY) === 'advertisers' ? 'advertisers' : 'donors',
   );
   const [chosen, setChosen] = useState<number | null>(null);
+  // После «Отправить» следующее письмо само не открывается (боевой прогон
+  // 06.10): на месте кнопки оказывалось письмо другому донору, и второй
+  // щелчок ушёл бы ему без подтверждения. Следующее открывает человек.
+  const [held, setHeld] = useState(false);
   const [campaign, setCampaign] = useState('');
   const [limit, setLimit] = useState<number>(50);
   // Сроки добивок задаются здесь, при создании рассылки: их подбирают
@@ -220,6 +224,7 @@ export function LettersPage() {
   const switchStage = (next: LetterStage) => {
     setStage(next);
     setChosen(null);
+    setHeld(false);
     setLetterEdit(null);
     setRunIds([]);
     remember(STAGE_KEY, next);
@@ -232,7 +237,9 @@ export function LettersPage() {
   const letterDefault = data?.letter_default ?? null;
   const letterChanged =
     letterEdit !== null && letterDefault !== null && !sameDraft(letterEdit, draftOf(letterDefault));
-  const selected = letters.find((letter) => letter.id === chosen) ?? letters[0] ?? null;
+  const selected = held
+    ? null
+    : (letters.find((letter) => letter.id === chosen) ?? letters[0] ?? null);
 
   // Выбранное письмо могло уйти из очереди — отправили, пропустили.
   // Тогда выбор снимается, иначе экран показывает письмо, которого
@@ -255,6 +262,7 @@ export function LettersPage() {
       return;
     }
     reveal.current = oneColumn;
+    setHeld(false);
     setChosen(id);
   };
 
@@ -291,6 +299,7 @@ export function LettersPage() {
   const send = useMutation({
     mutationFn: (id: number) => sendLetter(id),
     onSuccess: async (result) => {
+      setHeld(true);
       await refresh();
       notifications.show({
         message: result.real
@@ -686,7 +695,24 @@ function Queue({
         className="letterPreviewCol"
         ref={previewRef}
       >
-        {selected !== null ? (
+        {selected === null ? (
+          <Card className="glass" p="xl">
+            <Stack gap="xs" align="flex-start">
+              <Text fw={500}>Письмо ушло</Text>
+              <Text size="sm" c="dimmed">
+                Следующее не открывается само: на месте кнопки «Отправить» оказалось бы письмо
+                другому адресату. Выберите его в очереди.
+              </Text>
+              <Button
+                variant="light"
+                className="press"
+                onClick={() => letters[0] && onChoose(letters[0].id)}
+              >
+                Открыть следующее
+              </Button>
+            </Stack>
+          </Card>
+        ) : (
           <LetterPreview
             letter={selected}
             corridor={view.corridor}
@@ -698,7 +724,7 @@ function Queue({
             onSkip={() => onSkip(selected.id)}
             onSave={(subject, body) => onSave(selected.id, subject, body)}
           />
-        ) : null}
+        )}
       </Grid.Col>
     </Grid>
   );

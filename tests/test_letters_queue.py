@@ -55,9 +55,11 @@ class FakeRewriter:
     def __init__(self, *, answer: bool = True) -> None:
         self.answer = answer
         self.seen: list[str] = []
+        self.about: list[str | None] = []
 
     async def rewrite(self, rendered: object, about: object) -> RewriteResult:
         self.seen.append(getattr(about, "host", ""))
+        self.about.append(getattr(about, "about", None))
         if not self.answer:
             return RewriteResult(notes=["модель недоступна или отказала — причина в логе"])
         return RewriteResult(
@@ -268,6 +270,19 @@ class TestBuildingTheQueue:
         await _build(session, rewriter=rewriter)
 
         assert rewriter.seen == ["one.example.test"]
+
+    async def test_what_the_site_publishes_reaches_the_model(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        """Вступление «под контент донора»: цитата его страницы, сохранённая
+        судьёй, едет к модели вместе с ключами (боевой прогон 06.10)."""
+        domain = await make_donor(session, "one.example.test", email="info@one.example.test")
+        domain.judge_quote = "Honest reviews of budget hiking gear"
+        rewriter = FakeRewriter()
+
+        await _build(session, rewriter=rewriter)
+
+        assert rewriter.about == ["Honest reviews of budget hiking gear"]
 
 
 class TestSending:
