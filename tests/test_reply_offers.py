@@ -79,26 +79,21 @@ class TestParsing:
     def test_period_words_are_recognised(self, raw: str, period: str) -> None:
         assert offers_from([item(period=raw)])[0].period == period
 
-    def test_unknown_period_is_not_guessed(self) -> None:
-        """«500 $ в неделю» под видом разовой цены — неверное число: такой
-        пункт не берётся, а соседние остаются."""
-        got = offers_from([item(period="week"), item(product="link insertion", price=80)])
-
-        assert [offer.product for offer in got] == ["link insertion"]
-
     @pytest.mark.parametrize(
-        "junk",
+        ("junk", "why"),
         [
-            "guest post 150",
-            item(price=None),
-            item(price="сто пятьдесят"),
-            item(price=-5),
-            item(price=0),
-            item(price=True),
-            item(price=IMPLAUSIBLE_PRICE),
-            item(product=None),
-            item(product="   "),
-            item(product=150),
+            ("guest post 150", "не объект"),
+            (item(price=None), "цена — не число больше нуля"),
+            (item(price="сто пятьдесят"), "цена — не число больше нуля"),
+            (item(price=-5), "цена — не число больше нуля"),
+            (item(price=0), "цена — не число больше нуля"),
+            (item(price=True), "цена — не число больше нуля"),
+            (item(price=IMPLAUSIBLE_PRICE), "неправдоподобная цена"),
+            (item(product=None), "не сказано, за что цена"),
+            (item(product="   "), "не сказано, за что цена"),
+            (item(product=150), "не сказано, за что цена"),
+            # «500 $ в неделю» под видом разовой цены — неверное число.
+            (item(period="week"), "срок не узнан"),
         ],
         ids=[
             "не объект",
@@ -111,23 +106,22 @@ class TestParsing:
             "нет продукта",
             "пустой продукт",
             "продукт не строкой",
+            "срок не узнан",
         ],
     )
-    def test_junk_item_is_dropped_alone(self, junk: object) -> None:
-        got = offers_from([junk, item(product="link insertion", price=80)])
+    def test_junk_item_is_dropped_alone_and_said_why(
+        self, junk: object, why: str, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level(logging.WARNING):
+            got = offers_from([junk, item(product="link insertion", price=80)])
 
         assert [offer.product for offer in got] == ["link insertion"]
+        assert f"разбор ответа: пункт списка цен выброшен — {why}: " in caplog.text
 
     def test_price_just_under_the_ceiling_is_kept(self) -> None:
         got = offers_from([item(price=IMPLAUSIBLE_PRICE - Decimal("0.01"))])
 
         assert got[0].price == Decimal("99999.99")
-
-    def test_dropped_item_is_visible_in_the_log(self, caplog: pytest.LogCaptureFixture) -> None:
-        with caplog.at_level(logging.WARNING):
-            offers_from([item(price=IMPLAUSIBLE_PRICE)])
-
-        assert "пункт списка цен выброшен — неправдоподобная цена" in caplog.text
 
     @pytest.mark.parametrize("raw", [None, "guest post $150", {"price": 150}])
     def test_not_a_list_means_no_prices(
