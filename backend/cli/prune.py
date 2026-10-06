@@ -54,7 +54,8 @@ def add_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-ar
     parser.add_argument(
         "--probes",
         action="store_true",
-        help="липовые доноры (outreach probe-donor) целиком — с письмами, перепиской и ответами",
+        help="липовые доноры и пробные рекламодатели (outreach probe-donor, probe-advertiser) "
+        "целиком — с письмами, перепиской и ответами",
     )
     parser.add_argument(
         "--test-traces",
@@ -75,7 +76,8 @@ def _print_plan(plan: PrunePlan, *, done: bool) -> None:
     if plan.probes is not None:
         probes = plan.probes
         print(
-            f"Липовые доноры: {len(probes.domains)} — с письмами ({probes.letters}), "
+            f"Липовые домены: {len(probes.domains)} (из них пробных рекламодателей: "
+            f"{probes.advertisers}) — с письмами ({probes.letters}), "
             f"перепиской ({probes.threads}) и ответами ({probes.replies}); "
             f"рассылок без них не останется: {len(probes.campaigns)}"
         )
@@ -175,7 +177,7 @@ async def run_prune(session: AsyncSession, args: argparse.Namespace) -> int:
 
 async def in_session(work: Callable[[AsyncSession], Awaitable[int]]) -> int:
     """Одна сессия на команду: открыть, отдать работе, закрыть. Общее у чистки
-    и липового донора."""
+    и пробных: липового донора и рекламодателя."""
     check_storage()
     engine = create_async_engine(storage.DSN)
     try:

@@ -619,6 +619,16 @@ async def test_nothing_to_clean_is_said_in_words(
     assert "на настоящих доменах своих ящиков нет — убирать нечего" in capsys.readouterr().out
 
 
+async def test_probes_line_names_probe_advertisers(
+    session: AsyncSession, capsys: pytest.CaptureFixture[str]
+) -> None:
+    await _lab(session)
+
+    await run_prune(session, build_parser().parse_args(["prune", "--probes"]))
+
+    assert "Липовые домены: 1 (из них пробных рекламодателей: 0)" in capsys.readouterr().out
+
+
 # --- запрос удаления сам проверяет условие -----------------------------------------------------
 
 
