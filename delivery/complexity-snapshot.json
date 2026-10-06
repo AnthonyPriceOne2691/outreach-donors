@@ -92,7 +92,7 @@
       "worst": "_file:100"
     },
     "backend/api/donors/schemas.py": {
-      "lines": 286,
+      "lines": 292,
       "complexity": 4,
       "worst": "of:159"
     },
@@ -707,9 +707,9 @@
       "worst": "language_hint:116"
     },
     "backend/features/contacts/preference.py": {
-      "lines": 52,
+      "lines": 65,
       "complexity": 1,
-      "worst": "preferred_first:39"
+      "worst": "preferred_first:47"
     },
     "backend/features/contacts/provider.py": {
       "lines": 224,
@@ -1262,9 +1262,9 @@
       "worst": "_spot:112"
     },
     "backend/features/outreach/threads.py": {
-      "lines": 202,
-      "complexity": 9,
-      "worst": "summarize:179"
+      "lines": 220,
+      "complexity": 8,
+      "worst": "_answer_rules:153"
     },
     "backend/features/replies/__init__.py": {
       "lines": 1,

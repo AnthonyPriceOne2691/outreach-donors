@@ -34,6 +34,7 @@
 
 import {
   ActionIcon,
+  Anchor,
   Badge,
   Button,
   Card,
@@ -49,6 +50,7 @@ import { notifications } from '@mantine/notifications';
 import { IconLock, IconTrash } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useState } from 'react';
+import { Link } from 'react-router-dom';
 
 import { refusalOf } from '../api/client';
 import { addDonorAddress, removeDonorAddress, searchDonorContact } from '../api/contacts';
@@ -337,6 +339,23 @@ function AddAddress({
   );
 }
 
+/** Только форма: где её заполнить и что будет дальше. */
+function FormOnly({ host }: { host: string }) {
+  return (
+    <Text size="sm">
+      Адреса нет — на сайте только форма, её заполняет человек:{' '}
+      <Anchor href={`https://${host}`} target="_blank" rel="noreferrer" size="sm">
+        открыть сайт
+      </Anchor>
+      . Донор стоит в очереди{' '}
+      <Anchor component={Link} to="/forms" size="sm">
+        «Формы»
+      </Anchor>
+      : ответ на форму письмом даст адрес, и ему уйдёт письмо из очереди.
+    </Text>
+  );
+}
+
 export function DonorAddresses({ donor }: { donor: DonorFullCard }) {
   const { can } = useSession();
   const queryClient = useQueryClient();
@@ -412,6 +431,9 @@ export function DonorAddresses({ donor }: { donor: DonorFullCard }) {
           </Badge>
         </Group>
         <SearchState donor={donor} />
+        {/* Адреса нет, а форма есть: её заполняет человек. Где именно форма,
+            лестница не запоминает — ссылка ведёт на сайт и в очередь форм. */}
+        {empty && donor.contact_status === 'form_only' ? <FormOnly host={donor.host} /> : null}
 
         {!empty && (
           <AddressTable

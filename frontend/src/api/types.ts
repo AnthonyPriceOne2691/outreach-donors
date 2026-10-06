@@ -443,8 +443,10 @@ export interface DonorFullCard extends Omit<DonorRowCard, 'contacts'> {
   /** Почему поиск адреса сейчас не ставится; `null` — ставится. Правило то же,
    *  что у общего поиска, и решает его сервер — экран только показывает. */
   contact_refusal: string | null;
-  /** `null` — кандидат, ещё не решали. */
+  /** `null` — кандидат, ещё не решали. Кто и когда решил — рядом. */
   review: DonorReview | null;
+  review_by?: string | null;
+  review_at?: string | null;
   /** Прогон, в очереди которого о домене решают или решили. */
   review_run: number | null;
   /** На какой адрес ушло бы первое письмо — запросом сборки писем. */

@@ -1,8 +1,9 @@
 """Какой адрес донора лучший — одно правило для писем и для карточки.
 
-Порядок: мёртвые адреса последними, дальше адрес, с которого уже отвечали
-(дальше пишем тому, кто отвечает, а не в ящик, где письмо пролежало неделю),
-потом по оценке проверки адреса, потом старшая запись. По нему сборка писем
+Порядок: мёртвые адреса последними; первым — адрес, вписанный человеком
+(или названный автоответом донора: «пишите на editor@»); дальше адрес,
+с которого уже отвечали (пишем тому, кто отвечает, а не в ящик, где письмо
+пролежало неделю), потом по оценке проверки адреса, потом старшая запись. По нему сборка писем
 берёт один адрес на донора (`letters.recipients`), а карточка донора
 показывает адреса в том же порядке и отмечает, на какой уйдёт письмо.
 
@@ -18,15 +19,22 @@
 лучшим: сборка снова выбрала бы его, карточка отметила бы его. Сборка
 теперь мёртвый адрес не берёт вовсе (`letters/attempts.py`); порядок
 решает, где он стоит в карточке, — внизу.
+
+**Вписанный руками — первым, своим ключом, а не оценкой 100** (боевой прогон
+06.10.2026). У найденного лестницей оценка тоже бывает 100, и ничья решалась
+старшей записью — то есть в пользу найденного: человек вписал адрес, а письмо
+ушло бы на другой. Решение человека сильнее эвристик — и «отвечали», и оценки.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import ColumnElement, case
+from sqlalchemy import ColumnElement, and_, case
 from sqlalchemy.orm import InstrumentedAttribute
 
+from backend.features.contacts.manual import MANUAL_SCORE
+from backend.features.core.domain import ContactSource
 from backend.features.core.models.donor import ContactModel
 
 #: Отметка мёртвого адреса в `verification_status`: ящика нет или его
@@ -43,8 +51,13 @@ def preferred_first() -> tuple[ColumnElement[Any] | InstrumentedAttribute[Any], 
     без отметки (`NULL`) сравнение дало бы `NULL`, и такие адреса встали
     бы в конец вместе с мёртвыми.
     """
+    human = and_(
+        ContactModel.source == ContactSource.MANUAL,
+        ContactModel.verification_score >= MANUAL_SCORE,
+    )
     return (
         case((ContactModel.verification_status == DEAD, 1), else_=0),
+        case((human, 0), else_=1),
         ContactModel.last_replied_at.desc().nullslast(),
         ContactModel.verification_score.desc().nullslast(),
         ContactModel.id,

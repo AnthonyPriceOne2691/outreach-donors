@@ -271,6 +271,37 @@ describe('очередь писем', () => {
     expect(posts[0]?.path).toBe('/api/letters/7/send');
   });
 
+  it('после «Отправить» следующее письмо само не открывается — второй щелчок некуда', async () => {
+    // Боевой прогон 06.10: после отправки на месте кнопки оказывалось письмо
+    // другому донору, и двойной щелчок отправил бы и его.
+    let sent = false;
+    const recorded = await openLetters(
+      { blocked_by: [] },
+      {
+        'GET /api/letters': () => ({
+          body: {
+            ...VIEW,
+            blocked_by: [],
+            letters: sent ? [OFF_CORRIDOR] : [LETTER, OFF_CORRIDOR],
+          },
+        }),
+        'POST /api/letters/7/send': () => {
+          sent = true;
+          return { body: { id: 7, sender_email: 'outreach1@mail-alpha.example.test', real: true } };
+        },
+      },
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Отправить' }));
+
+    expect(await screen.findByText('Письмо ушло')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Отправить' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Открыть следующее' }));
+    expect(await screen.findByRole('button', { name: 'Отправить' })).toBeInTheDocument();
+    expect(recorded.calls.filter((call: Call) => call.method === 'POST')).toHaveLength(1);
+  });
+
   it('правка отправляет новый текст и показывает пересчитанный процент', async () => {
     const recorded = await openLetters(
       {},

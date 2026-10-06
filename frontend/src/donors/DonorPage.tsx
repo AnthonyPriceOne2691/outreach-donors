@@ -72,11 +72,32 @@ function NoSuchDonor({ back, said }: { back: string; said: string }) {
   );
 }
 
-/** Не донор — кто тогда и где о нём решают. Для донора — ничего: его
- *  шапка и так говорит, что он донор. */
+/** Кто и когда решил: «принят claude@site.com 06.10.2026». */
+function decidedBy(donor: DonorFullCard): string {
+  const who = donor.review_by ? ` ${donor.review_by}` : '';
+  const day = donor.review_at ? ` ${when(donor.review_at)}` : '';
+  return `${who}${day}`;
+}
+
+/** Решение человека по домену: донор — кем принят и в каком прогоне;
+ *  не донор — кто тогда и где о нём решают. До 06.10.2026 у донора не
+ *  было ничего: «принят» было видно в списке, а кем и когда — нигде. */
 function Standing({ donor }: { donor: DonorFullCard }) {
-  if (donor.review === 'accepted') return null;
   const run = donor.review_run;
+  if (donor.review === 'accepted') {
+    return (
+      <Text size="sm" className="donorStanding">
+        Донор: принят{decidedBy(donor)}
+        {run === null ? '' : ' '}
+        {run === null ? null : (
+          <Anchor component={Link} to={`/runs/${run}/review`} size="sm" fw={500}>
+            в очереди прогона №{run}
+          </Anchor>
+        )}
+        .
+      </Text>
+    );
+  }
   const where =
     run === null ? null : (
       <Anchor component={Link} to={`/runs/${run}/review`} size="sm" fw={500}>
@@ -86,7 +107,8 @@ function Standing({ donor }: { donor: DonorFullCard }) {
   if (donor.review === 'rejected') {
     return (
       <Text size="sm" className="donorStanding">
-        Не донор: отклонён человеком{where === null ? '' : ' '}
+        Не донор: отклонён{decidedBy(donor) || ' человеком'}
+        {where === null ? '' : ' '}
         {where}. Решение можно снять там же.
       </Text>
     );
