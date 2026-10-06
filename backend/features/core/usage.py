@@ -53,6 +53,8 @@ OPERATION_PROVIDERS = {
     "reply_parse": UsageProvider.LLM,
     # Черновик ответа агентом переписки: единица — токен.
     "agent_draft": UsageProvider.LLM,
+    # Вид ответа лида продаж: единица — токен.
+    "sales_reply_kind": UsageProvider.LLM,
     # Проверка адреса лида продаж: единица — проверка. Ключ сервиса общий
     # с соседней системой, и до этой строки его траты не писались нигде.
     "sales_verify": UsageProvider.HUNTER,

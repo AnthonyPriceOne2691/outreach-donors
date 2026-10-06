@@ -40,6 +40,7 @@ from backend.features.replies import outcome
 from backend.features.replies.inbound import Incoming
 from backend.features.replies.pipeline import Inbox
 from backend.features.sales.replies import SalesReplies
+from backend.features.sales.reply_kind import KindFound, SalesKind, Unanswered
 from backend.shared import queue
 from backend.shared.sliding_window import SlidingWindow
 from backend.workers import health, sales_jobs
@@ -74,7 +75,7 @@ def queues(monkeypatch: pytest.MonkeyPatch) -> dict[str, UniqueQueue]:
     return fakes
 
 
-async def _letter(session: AsyncSession, stage: Stage = Stage.SALES) -> MessageModel:
+async def sales_letter(session: AsyncSession, stage: Stage = Stage.SALES) -> MessageModel:
     """Отправленное письмо этапа и его переписка; срок добивки не погашен."""
     domain = DomainModel(host=HOST)
     campaign = CampaignModel(stage=stage, name="Проверка", status="running")
@@ -127,6 +128,23 @@ def _incoming(letter: MessageModel, text: str, **extra: Any) -> Incoming:
     )
 
 
+class FakeClassifier:
+    """Вид ответа без модели: отдаёт заданное и считает вызовы."""
+
+    model = "fake-model"
+
+    def __init__(self, found: KindFound | Unanswered | None = None) -> None:
+        self.found = found or KindFound(SalesKind.INTERESTED, 0.9, quote="Tell me more")
+        self.calls = 0
+
+    async def classify(self, *, text: str, subject: str) -> KindFound | Unanswered:
+        self.calls += 1
+        return self.found
+
+    async def aclose(self) -> None:
+        return None
+
+
 async def _reply(session: AsyncSession) -> ReplyModel:
     return (await session.execute(select(ReplyModel))).scalars().one()
 
@@ -137,7 +155,7 @@ async def _reply(session: AsyncSession) -> ReplyModel:
 async def test_a1_human_answer_goes_to_the_sales_queue_not_to_price_or_lead(
     client: AsyncClient, session: AsyncSession, queues: dict[str, UniqueQueue]
 ) -> None:
-    letter = await _letter(session)
+    letter = await sales_letter(session)
 
     response = await client.post(
         URL, data=_form(letter, "We pay $300 a month today. Call me tomorrow."), headers=AUTH
@@ -163,7 +181,7 @@ async def test_a1_human_answer_goes_to_the_sales_queue_not_to_price_or_lead(
 async def test_a1_inbox_hands_the_answer_to_sales_and_stops_the_chain(
     session: AsyncSession,
 ) -> None:
-    letter = await _letter(session)
+    letter = await sales_letter(session)
 
     got = await Inbox(session, now=NOW).accept(_incoming(letter, "Tell me more, please."))
 
@@ -199,7 +217,7 @@ def test_only_a_human_answer_in_a_sales_thread_goes_to_sales(
 async def test_donor_answer_still_goes_to_the_price_parse(
     client: AsyncClient, session: AsyncSession, queues: dict[str, UniqueQueue]
 ) -> None:
-    letter = await _letter(session, Stage.DONORS)
+    letter = await sales_letter(session, Stage.DONORS)
 
     response = await client.post(URL, data=_form(letter, "Our rate is 150 USD."), headers=AUTH)
 
@@ -288,9 +306,9 @@ def test_a2_health_checks_the_sales_worker_against_its_own_queue(
 async def test_a2_the_job_body_takes_the_answer_without_the_runs_queue(
     session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Тело задачи — на настоящей базе: ответ взят и ждёт разбора вида; общая
+    """Тело задачи — на настоящей базе: вид разобран, ответ ведён по пути; общая
     очередь не тронута — задача продаж её не ждёт и в неё не ставит."""
-    letter = await _letter(session)
+    letter = await sales_letter(session)
     got = await Inbox(session, now=NOW).accept(_incoming(letter, "Tell me more, please."))
     await session.commit()
     assert got.reply_id is not None
@@ -299,6 +317,7 @@ async def test_a2_the_job_body_takes_the_answer_without_the_runs_queue(
         raise AssertionError("задача продаж не трогает общую очередь")
 
     monkeypatch.setattr(queue, "runs_queue", no_runs_queue)
+    monkeypatch.setattr(sales_jobs, "KindClient", FakeClassifier)
     monkeypatch.setattr(sales_jobs, "create_async_engine", lambda _dsn: _Closable())
     monkeypatch.setattr(
         sales_jobs,
@@ -308,7 +327,14 @@ async def test_a2_the_job_body_takes_the_answer_without_the_runs_queue(
 
     report = await sales_jobs.handle(got.reply_id)
 
-    assert report == {"reply": got.reply_id, "waits": True, "reason": outcome.SALES_WAITING}
+    assert report == {
+        "reply": got.reply_id,
+        "kind": "interested",
+        "route": "agent",
+        "waits": True,
+        "reason": "интересуется: ответит агент; пока — человек",
+        "tokens": 0,
+    }
     assert job_outcome.KINDS[queue.SALES_REPLY_JOB] == "разбор ответа продаж"
 
 
@@ -319,9 +345,10 @@ class _Closable:
 
 async def test_job_does_not_take_what_is_not_a_fresh_sales_answer(session: AsyncSession) -> None:
     """Задача живёт дольше кода: к чужому, удалённому или решённому ответу — итог словами."""
-    donor = await _letter(session, Stage.DONORS)
+    donor = await sales_letter(session, Stage.DONORS)
     donor_reply = await Inbox(session, now=NOW).accept(_incoming(donor, "Our rate is $90."))
-    sales = SalesReplies(session)
+    model = FakeClassifier()
+    sales = SalesReplies(session, model)
 
     assert (await sales.handle(10**9)).skipped == "ответа нет: удалён до разбора"
     assert donor_reply.reply_id is not None
@@ -330,6 +357,7 @@ async def test_job_does_not_take_what_is_not_a_fresh_sales_answer(session: Async
     assert reply is not None
     reply.reviewed_at = NOW
     assert (await sales.handle(reply.id)).skipped == "решён человеком"
+    assert model.calls == 0, "чужой ответ модели не отдаётся"
 
 
 # --- A3: Redis лежит — 503, повтор ставит задачу -------------------------------------------
@@ -338,7 +366,7 @@ async def test_job_does_not_take_what_is_not_a_fresh_sales_answer(session: Async
 async def test_a3_queue_down_means_503_and_the_retry_queues_the_sales_job(
     client: AsyncClient, session: AsyncSession, queues: dict[str, UniqueQueue]
 ) -> None:
-    letter = await _letter(session)
+    letter = await sales_letter(session)
     sales = queues[queue.SALES_QUEUE_NAME]
     sales.down = True
 
@@ -362,7 +390,7 @@ async def test_a3_queue_down_means_503_and_the_retry_queues_the_sales_job(
 async def test_a3_retry_after_the_answer_was_sorted_queues_nothing(
     client: AsyncClient, session: AsyncSession, queues: dict[str, UniqueQueue]
 ) -> None:
-    letter = await _letter(session)
+    letter = await sales_letter(session)
     await client.post(URL, data=_form(letter, "Tell me more, please."), headers=AUTH)
     reply = await _reply(session)
     reply.model_parse = {"stage": "sales", "kind": "interested"}
@@ -381,7 +409,7 @@ async def test_a3_retry_after_the_answer_was_sorted_queues_nothing(
 async def test_a4_auto_reply_in_a_sales_thread_is_decided_by_the_rules(
     client: AsyncClient, session: AsyncSession, queues: dict[str, UniqueQueue]
 ) -> None:
-    letter = await _letter(session)
+    letter = await sales_letter(session)
 
     response = await client.post(
         URL,
@@ -404,7 +432,7 @@ async def test_a4_auto_reply_in_a_sales_thread_is_decided_by_the_rules(
 async def test_a4_bounce_in_a_sales_thread_marks_the_address_without_the_model(
     session: AsyncSession,
 ) -> None:
-    letter = await _letter(session)
+    letter = await sales_letter(session)
     bounce = Incoming(
         message_id=MESSAGE_ID,
         to=_incoming(letter, "").to,

@@ -399,6 +399,8 @@ jobs:
           from backend.features.replies import extract
           for prompt in (publisher_judge.SYSTEM, publisher_judge.ARBITER_SYSTEM, rewrite.SYSTEM, extract.SYSTEM):
               assert prompt, "пустой промпт"
+          from backend.features.sales import reply_kind
+          reply_kind.load_prompt()
           print("шаблоны писем и промпты читаются из", backend.__file__)
           EOF
 

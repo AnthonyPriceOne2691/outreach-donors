@@ -25,7 +25,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.core.domain import ReplyKind
+from backend.features.core.domain import ReplyKind, Stage
 from backend.features.core.models.outreach import ReplyModel
 from backend.features.replies.outcome import waiting_for_review
 
@@ -101,6 +101,8 @@ async def calibrate(session: AsyncSession) -> list[VersionScore]:
     scores: dict[str, VersionScore] = {}
     order: defaultdict[str, int] = defaultdict(int)
     for reply in rows.scalars().all():
+        if (reply.model_parse or {}).get("stage") == Stage.SALES.value:
+            continue  # снимок вида ответа продаж: цены в нём нет, судит свой eval
         version = str((reply.model_parse or {}).get("prompt_version") or "без версии")
         score = scores.setdefault(version, VersionScore(version))
         order[version] = max(order[version], reply.id)

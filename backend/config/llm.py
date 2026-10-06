@@ -36,6 +36,10 @@ class _Llm(DomainSettings):
     # Модель агента переписки: письмо живому собеседнику, и слабая модель
     # пишет его шаблонно и путает языки — та же причина, что у уникализации.
     agent_model: str = Field(default="gpt-5", validation_alias="LLM_AGENT_MODEL")
+    # Модель вида ответа лида продаж (`features/sales/reply_kind.py`): от вида
+    # зависит, позвонят ли человеку и закроют ли его адрес, — та же, что у
+    # разбора цены, пока замер на наборе не скажет, что дешёвая не хуже.
+    sales_classify_model: str = Field(default="gpt-5", validation_alias="LLM_SALES_CLASSIFY_MODEL")
     timeout_s: float = Field(default=180.0, validation_alias="LLM_TIMEOUT_S")
     # Фраз за один вызов. Больше — растёт доля почти одинаковых, а ответ
     # обрывается на середине токенного лимита.
@@ -71,6 +75,7 @@ KEYGEN_MODEL: str = _s.keygen_model
 JUDGE_MODEL: str = _s.judge_model
 LETTERS_MODEL: str = _s.letters_model
 AGENT_MODEL: str = _s.agent_model
+SALES_CLASSIFY_MODEL: str = _s.sales_classify_model
 TIMEOUT_S: float = _s.timeout_s
 MAX_PHRASES_PER_CALL: int = _s.max_phrases_per_call
 ANGLE_BUFFER: int = _s.angle_buffer

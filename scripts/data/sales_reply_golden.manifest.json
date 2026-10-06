@@ -1,0 +1,18 @@
+{
+  "name": "sales_reply_golden",
+  "about": "Обезличенные ответы лидов продаж с видом ответа по каждому. Сам набор вне репозитория (он публичный): каталог из SALES_GOLDEN_DIR, файл ниже.",
+  "file": "sales_reply_golden.jsonl",
+  "format": "JSONL, строка на ответ: id, subject, text, expect.kind (вид из SalesKind), expect.contact (адрес для referral)",
+  "count": null,
+  "sha256": null,
+  "date": null,
+  "baseline": null,
+  "gates": {
+    "wants_to_talk_recall": 0.95,
+    "unsubscribe_recall": 1.0,
+    "dangerous": 0,
+    "false_unsubscribe": 0
+  },
+  "gates_status": "предложение до замера: пороги утверждает владелец по прогону на наборе",
+  "fill_in": "count, sha256 и date печатает eval_sales_reply.py --golden; baseline — его итог на утверждённой версии промпта"
+}

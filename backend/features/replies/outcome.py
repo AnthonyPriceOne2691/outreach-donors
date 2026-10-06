@@ -44,8 +44,9 @@ noreply предпочтительным не становится (`robots`), �
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import assert_never
+from typing import Any, assert_never
 
 from backend.config import outreach as cfg
 from backend.features.core.domain import ReplyKind, Stage
@@ -178,6 +179,20 @@ def to_sales_queue(kind: ReplyKind, stage: Stage | None) -> bool:
     разбирает модуль продаж. Автоответ, отказ доставки и отписку решают правила
     выше, как у всех этапов, — без модели."""
     return stage is Stage.SALES and kind is ReplyKind.HUMAN
+
+
+def sales_review(snapshot: Mapping[str, Any] | None) -> tuple[bool, str]:
+    """Ждёт ли ответ продаж человека и почему — по снимку разбора вида.
+
+    Вид и путь решает модуль продаж и кладёт в снимок ответа (`model_parse`
+    с `"stage": "sales"`), ждёт ли ответ человека (`waits`) и почему (`reason`).
+    Здесь они только читаются: почта продаж не знает (`mail-does-not-know-sales`).
+    Снимка нет — вид ещё не разобран, ответ ждёт.
+    """
+    if not snapshot or snapshot.get("stage") != Stage.SALES.value:
+        return True, SALES_WAITING
+    reason = snapshot.get("reason")
+    return snapshot.get("waits") is not False, str(reason) if reason else SALES_WAITING
 
 
 def names_a_sum(text: str) -> bool:
