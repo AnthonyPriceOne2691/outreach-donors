@@ -164,6 +164,28 @@ async def test_stop_request_requeues_and_the_next_job_finishes(
     assert site.asked.count("/p0") == 1
 
 
+async def test_silent_queue_after_the_crawl_does_not_undo_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Обход записан «done» — молчащая общая очередь не делает его упавшим:
+    пересчёт досчитает консоль, а сказано об этом в журнале."""
+    _site(monkeypatch)
+
+    class _Silent:
+        def enqueue(self, *_: Any, **__: Any) -> Any:
+            raise ConnectionError("Redis недоступен")
+
+    monkeypatch.setattr(crawl_jobs, "runs_queue", _Silent)
+    async with committed_sessions() as factory:
+        run_id = await _queued(factory)
+
+        done = await crawl_jobs._crawl(run_id)
+
+        run = await _row(factory, run_id)
+    assert done["judge_job"] is None
+    assert run.status is CrawlStatus.DONE
+
+
 async def test_failure_is_written_to_the_crawl_and_raised(
     monkeypatch: pytest.MonkeyPatch, runs: _Queue
 ) -> None:

@@ -112,17 +112,31 @@ async def _crawl(run_id: int) -> dict[str, Any]:
             await _note(factory, run_id, f"сбой, будет продолжен: {explained(exc)}", exc)
             raise
         stats = await _finish(factory, run_id, report)
-        judge = runs_queue().enqueue(JUDGE_CRAWL_JOB, run_id, **with_retries())
         return {
             "crawl": run_id,
             "host": host,
             "outcome": report.outcome.value,
             "pages": len(report.pages),
             "links": stats["links_found"],
-            "judge_job": str(judge.id),
+            "judge_job": _judge_later(run_id),
         }
     finally:
         await engine.dispose()
+
+
+def _judge_later(run_id: int) -> str | None:
+    """Пересчёт кандидатов — в общую очередь. Обход уже записан «done», и падать
+    из-за молчащей очереди здесь незачем: кандидатов досчитает `outreach advertisers`."""
+    try:
+        return str(runs_queue().enqueue(JUDGE_CRAWL_JOB, run_id, **with_retries()).id)
+    except Exception:
+        logger.exception(
+            "обход №%s закончен, но пересчёт кандидатов не поставлен — "
+            "досчитать: outreach advertisers --run %s",
+            run_id,
+            run_id,
+        )
+        return None
 
 
 async def _take(

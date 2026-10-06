@@ -1687,9 +1687,9 @@
       "worst": "—"
     },
     "backend/workers/crawl_jobs.py": {
-      "lines": 256,
+      "lines": 270,
       "complexity": 6,
-      "worst": "_judge:238"
+      "worst": "_judge:252"
     },
     "backend/workers/crawler.py": {
       "lines": 67,
