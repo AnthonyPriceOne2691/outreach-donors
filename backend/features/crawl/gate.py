@@ -11,17 +11,26 @@
 **Усилитель считается по базе, а не по обходу.** Признак «домен
 встречается у двух наших доноров» внутри одного обхода не вычисляется
 никак: донор там всегда один.
+
+**«DR > 80 — не пишем» — здесь же** (`big_sites.py`): DR спрашивается
+у провайдера только для «куплено» и «спорно» и только тот, которого
+ещё не знаем. Без источника DR (`ratings=None`) вердикт не трогается,
+а в причинах так и написано.
 """
 
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.features.ahrefs.client import AhrefsError
 from backend.features.core.models.advertiser import CandidateModel
 from backend.features.core.models.crawl import CrawlRunModel, OutLinkModel
+from backend.features.crawl.big_sites import Ratings, apply_ratings, needs_rating
 from backend.features.crawl.links import OutLink
 from backend.features.crawl.scoring import Candidate, boost_across_donors, score_candidates
 
@@ -66,12 +75,66 @@ async def donors_per_root(session: AsyncSession, roots: list[str]) -> dict[str, 
     return dict((await session.execute(query)).all())  # type: ignore[arg-type]
 
 
-async def judge_run(session: AsyncSession, run_id: int) -> list[Candidate]:
+@dataclass(slots=True)
+class _Previous:
+    """Что переносится через пересчёт: решения человека и спрошенный DR."""
+
+    decisions: dict[str, tuple[bool | None, str | None, datetime | None]] = field(
+        default_factory=dict
+    )
+    ratings: dict[str, int | None] = field(default_factory=dict)
+    rated_at: dict[str, datetime] = field(default_factory=dict)
+
+
+async def _previous(session: AsyncSession, run_id: int) -> _Previous:
+    rows = (
+        (await session.execute(select(CandidateModel).where(CandidateModel.crawl_run_id == run_id)))
+        .scalars()
+        .all()
+    )
+    found = _Previous()
+    for row in rows:
+        if row.confirmed is not None:
+            found.decisions[row.target_root] = (row.confirmed, row.decided_by, row.decided_at)
+        if row.dr_checked_at is not None:
+            found.ratings[row.target_root] = row.dr
+            found.rated_at[row.target_root] = row.dr_checked_at
+    return found
+
+
+async def _rate(candidates: list[Candidate], previous: _Previous, ratings: Ratings | None) -> None:
+    """DR тем, кому он нужен: из прошлых пересчётов, а недостающий — у провайдера.
+
+    Отказ провайдера не роняет пересчёт: вердикты остаются, а в причинах —
+    «DR не проверен». Повтор — следующим пересчётом, юниты за уже
+    спрошенное не тратятся.
+    """
+    asked = sorted({c.target_root for c in candidates if needs_rating(c)} - set(previous.ratings))
+    if asked and ratings is not None:
+        try:
+            fresh = await ratings(asked)
+        except AhrefsError as exc:
+            logger.warning("DR кандидатов не получен (%s доменов): %s", len(asked), exc)
+        else:
+            now = datetime.now(UTC)
+            previous.ratings.update(fresh)
+            previous.rated_at.update(dict.fromkeys(fresh, now))
+    blocked = apply_ratings(candidates, previous.ratings)
+    if blocked:
+        logger.info("кандидаты: крупных сайтов (DR > 80) отсеяно %s", blocked)
+
+
+async def judge_run(
+    session: AsyncSession, run_id: int, *, ratings: Ratings | None = None
+) -> list[Candidate]:
     """Посчитать кандидатов по сохранённому обходу и записать вердикты.
 
     Пересчёт по существующей записи, а не по свежему обходу: веса
     скоринга будут меняться, и прогонять ради этого чужие сайты заново
     незачем — ссылки уже лежат в базе.
+
+    `ratings` — откуда брать DR для «DR > 80 — не пишем»; `None` — не
+    спрашивать (тесты, пересчёт без ключа): вердикт не трогается.
     """
     run = await session.get(CrawlRunModel, run_id)
     if run is None:
@@ -86,7 +149,9 @@ async def judge_run(session: AsyncSession, run_id: int) -> list[Candidate]:
     seen = await donors_per_root(session, [c.target_root for c in candidates])
     boost_across_donors(candidates, seen)
 
-    await _replace_candidates(session, run, candidates)
+    previous = await _previous(session, run.id)
+    await _rate(candidates, previous, ratings)
+    await _replace_candidates(session, run, candidates, previous)
     logger.info(
         "обход %s (%s): кандидатов %s, из них куплено %s, спорных %s",
         run.host,
@@ -99,7 +164,7 @@ async def judge_run(session: AsyncSession, run_id: int) -> list[Candidate]:
 
 
 async def _replace_candidates(
-    session: AsyncSession, run: CrawlRunModel, candidates: list[Candidate]
+    session: AsyncSession, run: CrawlRunModel, candidates: list[Candidate], previous: _Previous
 ) -> None:
     """Переписать кандидатов обхода целиком.
 
@@ -108,24 +173,21 @@ async def _replace_candidates(
     «какая из них правда», на который никто не ответит.
 
     Решение человека при этом переносится: его подтверждение сильнее
-    любого веса и теряться при пересчёте не должно.
+    любого веса и теряться при пересчёте не должно. Спрошенный DR —
+    тоже: за него заплачено.
     """
     existing = (
         (await session.execute(select(CandidateModel).where(CandidateModel.crawl_run_id == run.id)))
         .scalars()
         .all()
     )
-    decided = {
-        row.target_root: (row.confirmed, row.decided_by, row.decided_at)
-        for row in existing
-        if row.confirmed is not None
-    }
     for row in existing:
         await session.delete(row)
     await session.flush()
 
     for candidate in candidates:
-        confirmed, decided_by, decided_at = decided.get(candidate.target_root, (None, None, None))
+        root = candidate.target_root
+        confirmed, decided_by, decided_at = previous.decisions.get(root, (None, None, None))
         session.add(
             CandidateModel(
                 crawl_run_id=run.id,
@@ -141,6 +203,8 @@ async def _replace_candidates(
                 confirmed=confirmed,
                 decided_by=decided_by,
                 decided_at=decided_at,
+                dr=previous.ratings.get(root),
+                dr_checked_at=previous.rated_at.get(root),
             )
         )
     await session.flush()

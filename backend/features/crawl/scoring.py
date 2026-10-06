@@ -136,6 +136,9 @@ class Candidate:
     pages: int = 0
     denial: Denial | None = None
     best_link: OutLink | None = None
+    #: DR домена, если его спрашивали (`big_sites`); `None` — не спрашивали
+    #: или провайдер домена не знает.
+    dr: int | None = None
 
 
 def _tokens(text: str) -> list[str]:

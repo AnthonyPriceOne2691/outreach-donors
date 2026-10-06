@@ -397,9 +397,9 @@
       "worst": "cmd_user_add:28"
     },
     "backend/cli/advertisers.py": {
-      "lines": 289,
-      "complexity": 7,
-      "worst": "_print_summary:147"
+      "lines": 324,
+      "complexity": 9,
+      "worst": "cmd_advertisers:126"
     },
     "backend/cli/contact_refind.py": {
       "lines": 95,
@@ -792,7 +792,7 @@
       "worst": "_enum:28"
     },
     "backend/features/core/models/advertiser.py": {
-      "lines": 77,
+      "lines": 84,
       "complexity": 2,
       "worst": "_enum:34"
     },
@@ -856,15 +856,20 @@
       "complexity": 8,
       "worst": "strip_noise:173"
     },
+    "backend/features/crawl/big_sites.py": {
+      "lines": 101,
+      "complexity": 6,
+      "worst": "apply_ratings:78"
+    },
     "backend/features/crawl/contacts.py": {
       "lines": 121,
       "complexity": 5,
       "worst": "save:89"
     },
     "backend/features/crawl/denylist.py": {
-      "lines": 159,
+      "lines": 162,
       "complexity": 8,
-      "worst": "denial_for:137"
+      "worst": "denial_for:140"
     },
     "backend/features/crawl/fetch.py": {
       "lines": 307,
@@ -872,9 +877,9 @@
       "worst": "classify:141"
     },
     "backend/features/crawl/gate.py": {
-      "lines": 147,
+      "lines": 211,
       "complexity": 6,
-      "worst": "judge_run:69"
+      "worst": "_rate:105"
     },
     "backend/features/crawl/health.py": {
       "lines": 106,
@@ -902,9 +907,9 @@
       "worst": "_published:190"
     },
     "backend/features/crawl/promote.py": {
-      "lines": 276,
+      "lines": 278,
       "complexity": 10,
-      "worst": "promote:131"
+      "worst": "promote:133"
     },
     "backend/features/crawl/repository.py": {
       "lines": 72,
@@ -922,9 +927,9 @@
       "worst": "_collect_groups:199"
     },
     "backend/features/crawl/scoring.py": {
-      "lines": 343,
+      "lines": 346,
       "complexity": 10,
-      "worst": "score_link:222"
+      "worst": "score_link:225"
     },
     "backend/features/crawl/sitemap.py": {
       "lines": 268,

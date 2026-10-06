@@ -5,13 +5,17 @@
 а тут только доводы командной строки и печать. Пока порядок жил бы
 в консоли, у экрана появился бы свой — и разошлись бы они молча.
 
-**Пересчёт не ходит в сеть.** Ссылки уже в базе; веса скоринга будут
-меняться, и прогонять ради этого чужие сайты заново незачем.
+**Пересчёт не обходит сайты заново.** Ссылки уже в базе; веса скоринга
+будут меняться, и прогонять ради этого чужие сайты незачем. В сеть он
+ходит за одним — DR новых «куплено» и «спорно» для «DR > 80 — не пишем»:
+пакетом, только ещё не спрошенный, юниты — в журнал расхода (`--no-dr` —
+не спрашивать).
 """
 
 from __future__ import annotations
 
 import argparse
+import functools
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,13 +23,18 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from backend.config import ahrefs as ahrefs_cfg
 from backend.config import storage
 from backend.config.startup_checks import check_storage
+from backend.features.ahrefs.client import AhrefsClient
+from backend.features.ahrefs.units import UsageCollector
 from backend.features.contacts.search import search_contacts
+from backend.features.core import usage
 from backend.features.core.domain import Verdict
 from backend.features.core.models.advertiser import CandidateModel
 from backend.features.core.models.advertisers import SupplierDonorModel
 from backend.features.core.models.crawl import CrawlRunModel
+from backend.features.crawl.big_sites import Ratings, ahrefs_ratings
 from backend.features.crawl.contacts import AdvertiserContactRepository
 from backend.features.crawl.gate import judge_run
 from backend.features.crawl.promote import promote as promote_candidates
@@ -52,6 +61,12 @@ def add_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None
         help="показать только с этим вердиктом",
     )
     judge.add_argument("--limit", type=int, default=30, help="сколько строк печатать")
+    judge.add_argument(
+        "--no-dr",
+        action="store_true",
+        help="не спрашивать DR у Ahrefs (без юнитов): «DR > 80 — не пишем» не проверяется, "
+        "и в причинах кандидатов так и будет написано",
+    )
 
     promote = sub.add_parser(
         "advertisers-promote", help="перевести подходящих кандидатов в рекламодателей"
@@ -97,11 +112,25 @@ def _print_candidate(row: CandidateModel) -> None:
         print(f"       · {reason}")
 
 
+def _ahrefs(args: argparse.Namespace, spent: UsageCollector) -> AhrefsClient | None:
+    """Клиент для DR кандидатов — или `None`, и тогда сказано почему."""
+    if args.no_dr:
+        print("DR не спрашиваем (--no-dr): «DR > 80 — не пишем» не проверяется.")
+        return None
+    if not ahrefs_cfg.API_KEY:
+        print("Ключа Ahrefs нет: «DR > 80 — не пишем» не проверяется.")
+        return None
+    return AhrefsClient(on_usage=spent)
+
+
 async def cmd_advertisers(args: argparse.Namespace) -> int:
     """Пересчитать вердикты и показать кандидатов."""
     check_storage()
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
+    spent = UsageCollector()
+    client = _ahrefs(args, spent)
+    ratings: Ratings | None = functools.partial(ahrefs_ratings, client) if client else None
     try:
         async with factory() as session:
             runs = await _runs(session, args.run)
@@ -110,7 +139,11 @@ async def cmd_advertisers(args: argparse.Namespace) -> int:
                 return EXIT_NOT_FOUND
 
             for run in runs:
-                await judge_run(session, run.id)
+                await judge_run(session, run.id, ratings=ratings)
+            # Расход — в журнал той же транзакцией, что и вердикты: DR,
+            # за который заплачено, без строки расхода не остаётся.
+            for operation, cost in spent.drain():
+                usage.record(session, operation=operation, units=cost.billable)
             await session.commit()
 
             rows = await _candidates(session, [r.id for r in runs], args.verdict)
@@ -120,6 +153,8 @@ async def cmd_advertisers(args: argparse.Namespace) -> int:
             if len(rows) > args.limit:
                 print(f"\n  … ещё {len(rows) - args.limit}; поднять потолок — `--limit`")
     finally:
+        if client is not None:
+            await client.aclose()
         await engine.dispose()
     return 0
 
