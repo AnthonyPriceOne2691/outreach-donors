@@ -55,3 +55,11 @@ HTMLCanvasElement.prototype.getContext = (() =>
 if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = () => {};
 }
+
+// `<wbr>` в браузере строчный, а у jsdom вычисленного `display` у него нет —
+// и имя ссылки собиралось с пробелами на месте швов: «green-blog .example
+// .test» вместо домена (06.10.2026, швы длинных имён — `components/Seams`).
+// Правило — то, что браузер и так применяет.
+const wbrInline = document.createElement('style');
+wbrInline.textContent = 'wbr { display: inline; }';
+document.head.appendChild(wbrInline);

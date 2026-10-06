@@ -20,7 +20,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
@@ -32,6 +34,8 @@ from backend.api.letters.schemas import (
     LetterDraftView,
     LettersView,
     QueuedLetterCard,
+    SendQueueBody,
+    SendQueueQueued,
     SendResult,
     Transport,
 )
@@ -45,9 +49,11 @@ from backend.features.letters.repository import LetterRepository, QueuedLetter
 from backend.features.letters.sending import Sending
 from backend.features.letters.template import Template, of_campaign
 from backend.features.letters.transport_factory import Transports, in_use
-from backend.shared.queue import BUILD_JOB, runs_queue, with_retries
+from backend.shared.queue import BUILD_JOB, SEND_QUEUE_JOB, runs_queue, with_retries
 
 router = APIRouter(prefix="/letters", tags=["письма"])
+
+logger = logging.getLogger(__name__)
 
 _viewer = Depends(needs(Permission.VIEW))
 _sender = Depends(needs(Permission.SEND))
@@ -205,10 +211,9 @@ async def send(
     author: UserModel = _sender,
     session: AsyncSession = Depends(db_session),
 ) -> SendResult:
-    """Отправить одно письмо.
+    """Отправить одно письмо — то, что человек прочёл и решил отправить сам.
 
-    По одному, а не пачкой: смысл экрана в том, что спорное решение видит
-    человек, и кнопка «отправить всё» этот смысл отменяет.
+    Пачкой — `send-queue` (слово Anthony 06.10.2026: «пачкой, вся очередь»).
     """
     # Транспорт — этапа письма: у направления бывает своя учётка платформы.
     async with in_use(Transports()) as transports:
@@ -218,3 +223,31 @@ async def send(
         sender_email=outcome.sender_email,
         real=outcome.real,
     )
+
+
+@router.post("/send-queue", response_model=SendQueueQueued, summary="Отправить очередь этапа")
+async def send_queue(
+    body: SendQueueBody,
+    author: UserModel = _sender,
+    session: AsyncSession = Depends(db_session),
+) -> SendQueueQueued:
+    """Отправить всю очередь этапа пачкой — задачей, по одному письму.
+
+    До 06.10.2026 кнопки «отправить всё» не было намеренно: каждое письмо
+    читал человек (`docs/WEB_LAYER.md`). Для запуска Anthony выбрал пачку.
+    Каждое письмо идёт тем же путём, что одно (`letters/batch.py`), и
+    в журнал пишется так же — по письму, с тем, кто нажал.
+    """
+    waiting = len(await LetterRepository(session).queued(stage=body.stage))
+    if waiting == 0:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "В очереди этого этапа писем нет — отправлять нечего"
+        )
+    job = runs_queue().enqueue(SEND_QUEUE_JOB, body.stage.value, author.id)
+    logger.info(
+        "письма: %s поставил отправку очереди этапа %s — писем %s",
+        author.email,
+        body.stage.value,
+        waiting,
+    )
+    return SendQueueQueued(job_id=str(job.id), queued=waiting)

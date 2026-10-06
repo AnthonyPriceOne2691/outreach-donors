@@ -54,6 +54,7 @@ import {
 } from '../api/labels';
 import type { DonorFreshness, DonorRowCard, DonorStatus } from '../api/types';
 import { InfoHint } from '../components/InfoHint';
+import { Seams } from '../components/Seams';
 import { formatCompact, formatNumber, formatShare } from '../format';
 import { FRESHNESS, totalOf, TRAFFIC_DIGITS } from './donorFilters';
 import type { DonorFilters, Emptiness } from './donorFilters';
@@ -363,7 +364,9 @@ function DonorRow({ donor, from, picked, onPick, onOpen }: RowProps) {
           className="donorHost"
           onClick={(event) => event.stopPropagation()}
         >
-          {donor.host}
+          {/* Перенос — по швам домена, а не где кончилось место:
+              «analysis.example.te / st» (06.10.2026). */}
+          <Seams text={donor.host} />
         </Anchor>
         {donor.reject_reason !== null && (
           <Text size="xs" c="dimmed">

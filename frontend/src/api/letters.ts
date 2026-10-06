@@ -31,3 +31,14 @@ export function skipLetter(id: number): Promise<QueuedLetter> {
 export function sendLetter(id: number): Promise<SendResult> {
   return request<SendResult>(`/letters/${id}/send`, { method: 'POST' });
 }
+
+/** Пачка ушла в очередь задач: сколько писем ждёт в очереди этапа. */
+export interface SendQueueQueued {
+  job_id: string;
+  queued: number;
+}
+
+/** Отправить всю очередь этапа пачкой (слово Anthony 06.10.2026). */
+export function sendQueue(stage: LetterStage): Promise<SendQueueQueued> {
+  return request<SendQueueQueued>('/letters/send-queue', { method: 'POST', body: { stage } });
+}

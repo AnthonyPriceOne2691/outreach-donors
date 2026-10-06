@@ -48,6 +48,7 @@ LETTER_ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("PATCH", "/api/letters/{letter}", {"subject": "S", "body": "B"}, "send"),
     ("POST", "/api/letters/{letter}/skip", None, "send"),
     ("POST", "/api/letters/{letter}/send", None, "send"),
+    ("POST", "/api/letters/send-queue", {"stage": "donors"}, "send"),
 ]
 
 

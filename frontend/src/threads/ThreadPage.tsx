@@ -39,6 +39,7 @@ import { answerReply, fetchThread, reviewReply, sendLead, takeLead } from '../ap
 import type { Corridor, IncomingCard, LetterCard, MessageStatus } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { BackLink, backTo } from '../components/BackLink';
+import { Seams } from '../components/Seams';
 import { formatDateTime, formatMoney } from '../format';
 import { corridorText, readable, uniquenessText } from '../letters/letterText';
 import { AnswerBox } from './AnswerBox';
@@ -447,7 +448,11 @@ export function ThreadPage() {
         <Stack gap={6}>
           <BackLink to={back}>К списку</BackLink>
           <Group gap="sm">
-            <Title order={3}>{data.card.host}</Title>
+            {/* Длинный домен переносится по швам: без переноса на телефоне
+                он уходил за край карточки и обрезался (06.10.2026). */}
+            <Title order={3} className="cellName">
+              <Seams text={data.card.host} />
+            </Title>
             <Badge variant="light" color={THREAD_STATES[data.card.state].color}>
               {THREAD_STATES[data.card.state].title}
             </Badge>
@@ -460,13 +465,6 @@ export function ThreadPage() {
       </Card>
 
       <Stack gap="md">{timeline.map((item) => item.node)}</Stack>
-
-      <Card className="glass" p="md">
-        <Text size="sm" c="dimmed">
-          Ответ из карточки появится вместе с подключением почты. Он уйдёт с того же ящика, что вёл
-          переписку: смена отправителя посреди разговора уводит письма в спам.
-        </Text>
-      </Card>
     </Stack>
   );
 }
