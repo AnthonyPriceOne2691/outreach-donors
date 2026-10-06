@@ -111,6 +111,9 @@ different topic (casino, crypto, adult…) or a different product (homepage \
 link, link insertion, monthly placement) are NEVER "price_grey": put the \
 regular guest post price in "price_white" and list every named price in \
 "offers".
+- In "offers", copy every price exactly as written. A surcharge ("+$100 for \
+casino") is its own item, e.g. "casino surcharge" with price 100 — never add \
+it to another price.
 - For a range or "starting from", take the lowest number named.
 - Never invent a number. If a value is not in the text, it is null.
 - Copy digits exactly as written. Do not convert currencies or round.
