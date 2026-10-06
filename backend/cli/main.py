@@ -45,6 +45,10 @@ from backend.cli.letters_queue import add_parser as add_letters_parser
 from backend.cli.letters_queue import cmd_letters, cmd_letters_build, cmd_letters_send
 from backend.cli.mail_test import add_parser as add_mail_test_parser
 from backend.cli.mail_test import cmd_mail_test
+from backend.cli.probe_donor import add_parser as add_probe_donor_parser
+from backend.cli.probe_donor import cmd_probe_donor
+from backend.cli.prune import add_parser as add_prune_parser
+from backend.cli.prune import cmd_prune
 from backend.cli.review_queue import add_parser as add_review_queue_parser
 from backend.cli.review_queue import cmd_review_queue
 from backend.cli.sales import add_parser as add_sales_parser
@@ -392,6 +396,8 @@ def build_parser() -> argparse.ArgumentParser:
     add_letters_parser(sub)
     add_senders_parser(sub)
     add_mail_test_parser(sub)
+    add_prune_parser(sub)
+    add_probe_donor_parser(sub)
     add_sales_parser(sub)
     return parser
 
@@ -419,6 +425,8 @@ _KEPT_ON_INTERRUPT: dict[str, str] = {
     "sales-stoplist-add": "Стоп-лист пишется одной транзакцией: в базе ничего не осталось.",
     "sales-clean": "Записанные партии остались в базе; повторный проход продолжит с лидов `new`.",
     "sales-kb-load": "База знаний пишется одной транзакцией: в базе ничего не осталось.",
+    "prune": "Чистка идёт одной транзакцией: в базе ничего не изменилось.",
+    "probe-donor": "Липовый донор заводится одной транзакцией: в базе ничего не изменилось.",
 }
 
 
@@ -448,6 +456,8 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] =
     "sender-add": cmd_sender_add,
     "senders": cmd_senders,
     "mail-test": cmd_mail_test,
+    "prune": cmd_prune,
+    "probe-donor": cmd_probe_donor,
     "sales-hypothesis-add": cmd_sales_hypothesis_add,
     "sales-import": cmd_sales_import,
     "sales-stoplist-add": cmd_sales_stoplist_add,

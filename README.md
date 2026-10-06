@@ -254,6 +254,10 @@ OUTREACH_INBOUND_SECRET=$(openssl rand -hex 32)   # им подписана ме
 .venv/bin/outreach letters-send --id 42    # отправить одно письмо
 .venv/bin/outreach demo-seed              # выдуманные домены и переписка — посмотреть экраны
 .venv/bin/outreach demo-seed --clear      # убрать выдуманное
+.venv/bin/outreach prune --runs 18,19 --replies 1        # что уйдёт с прогонами и пробными ответами
+.venv/bin/outreach prune --runs 18,19 --replies 1 --yes  # удалить одной транзакцией, с записью в журнал
+.venv/bin/outreach probe-donor --email me@ours.example     # липовый донор: проверить цепочку письмо → ответ → цена
+.venv/bin/outreach prune --probes --yes                   # убрать липовых доноров целиком, с перепиской
 ```
 
 Ключи берутся двумя способами: своим списком или сборкой по обкатанному
