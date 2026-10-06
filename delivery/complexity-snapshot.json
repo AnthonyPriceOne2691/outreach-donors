@@ -527,9 +527,14 @@
       "worst": "_mapping:362"
     },
     "backend/cli/sales_commands.py": {
-      "lines": 52,
+      "lines": 55,
       "complexity": 1,
-      "worst": "add_parsers:49"
+      "worst": "add_parsers:51"
+    },
+    "backend/cli/sales_telegram.py": {
+      "lines": 69,
+      "complexity": 5,
+      "worst": "cmd_sales_telegram_chat_id:34"
     },
     "backend/cli/senders_admin.py": {
       "lines": 134,
@@ -602,9 +607,9 @@
       "worst": "_own_account:203"
     },
     "backend/config/sales.py": {
-      "lines": 126,
+      "lines": 164,
       "complexity": 6,
-      "worst": "_days:70"
+      "worst": "_days:90"
     },
     "backend/config/serp.py": {
       "lines": 56,
@@ -1810,6 +1815,11 @@
       "lines": 136,
       "complexity": 10,
       "worst": "read_entries:63"
+    },
+    "backend/features/sales/telegram.py": {
+      "lines": 240,
+      "complexity": 13,
+      "worst": "_chat_of:229"
     },
     "backend/features/sales/unsubscribe.py": {
       "lines": 55,

@@ -1,4 +1,4 @@
-"""Модуль «Продажи»: выключатель, проверяльщик адресов и CRM для лидов.
+"""Модуль «Продажи»: выключатель, проверяльщик адресов, CRM для лидов и бот телемаркетолога.
 
 **По умолчанию выключен.** Продажи пишут живым людям от имени компании,
 и включение — решение человека для конкретного развёртывания, а не умолчание
@@ -18,6 +18,16 @@
 
 **Окно отправки — рабочие часы получателя по его часам** (Ф4, 4.3): дни «1-5» или «1,3,5»
 (1 — понедельник), часы «09:00-17:00»; разбор при старте — опечатка не ждёт первого письма.
+**Телемаркетологу пишет свой бот продаж, а не бот тревог.** Сообщение о лиде —
+бизнес-событие для сотрудника, тревога — сигнал владельцу о поломке. Отозванный
+или заблокированный бот продаж не должен глушить тревогу о том, что лид не
+доставлен: она уходит другим ботом (`ALERT_TELEGRAM_*`). Адрес Bot API — общий,
+`ALERT_TELEGRAM_API`. Пустые значения — не ошибка конфига: передача лида тогда
+кончается «не доставлено» и тревогой, а не падением на старте.
+
+**Ссылка на диалог** собирается от `SALES_APP_URL` — адреса сервиса, который
+открывает телемаркетолог: до подключения Kommo и при его сбое она заменяет
+ссылку на сделку.
 """
 
 from __future__ import annotations
@@ -65,6 +75,16 @@ class _Sales(DomainSettings):
     # Автоответ в треде продаж цепочку не останавливает, а переносит следующий шаг:
     # до даты возвращения из текста или на столько дней от автоответа.
     ooo_delay_days: int = Field(default=7, ge=1, le=60, validation_alias="SALES_OOO_DELAY_DAYS")
+
+    # Бот продаж (секрет: в `.env`). Телемаркетолог один раз жмёт Start, его
+    # chat id печатает `outreach sales-telegram-chat-id`.
+    telegram_bot_token: str = Field(default="", validation_alias="SALES_TELEGRAM_BOT_TOKEN")
+    telegram_chat_id: str = Field(default="", validation_alias="SALES_TELEGRAM_CHAT_ID")
+    # Копия каждого сообщения о лиде — в группу продаж; выключается настройкой.
+    telegram_group_chat_id: str = Field(default="", validation_alias="SALES_TELEGRAM_GROUP_CHAT_ID")
+    telegram_group_copy: bool = Field(default=True, validation_alias="SALES_TELEGRAM_GROUP_COPY")
+    # Адрес сервиса для ссылки на диалог: `https://…` без косой черты в конце.
+    app_url: str = Field(default="", validation_alias="SALES_APP_URL")
 
 
 def _days(text: str) -> frozenset[int]:
@@ -123,3 +143,21 @@ OOO_DELAY_DAYS: int = _s.ooo_delay_days
 KOMMO_RATE_PER_SEC = 7
 #: Сколько ждать ответа Kommo на один запрос.
 KOMMO_TIMEOUT_SEC = 20.0
+
+TELEGRAM_BOT_TOKEN: str = _s.telegram_bot_token.strip()
+TELEGRAM_CHAT_ID: str = _s.telegram_chat_id.strip()
+TELEGRAM_GROUP_CHAT_ID: str = _s.telegram_group_chat_id.strip()
+TELEGRAM_GROUP_COPY: bool = _s.telegram_group_copy
+APP_URL: str = _s.app_url.strip().rstrip("/")
+
+#: Сколько ждать Telegram на одну попытку. Попыток три (`features/sales/telegram`).
+TELEGRAM_TIMEOUT_SEC = 10.0
+
+#: Через сколько проход по расписанию повторяет передачу, которую Kommo не принял.
+#: Лидов единицы в день: четверть часа не теряет лида и не дёргает Kommo зря.
+HANDOFF_RETRY_SEC = 15 * 60
+#: Как часто проход заглядывает в передачи (`workers/sales_jobs.retry_pass`).
+HANDOFF_PASS_SEC = 5 * 60
+#: Сколько задача держит передачу. Дольше — задача умерла, передачу берёт следующая:
+#: три попытки Kommo и три Telegram укладываются в минуты.
+HANDOFF_CLAIM_SEC = 15 * 60
