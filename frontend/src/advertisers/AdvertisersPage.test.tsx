@@ -13,7 +13,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
-import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
+import { ADMIN, OPERATOR, PROMOTE_ROUTES, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import type { Call } from '../test/server';
 import { serve } from '../test/server';
@@ -45,8 +45,10 @@ const QUEUE = {
   counts: { bought: 6, pending: 1, skipped: 14, blocked: 12 },
 };
 
-/** Панель обхода над очередью: доноров для обхода нет, обходов не было. */
+/** Панели над очередью и под ней: доноров для обхода нет, обходов не было,
+ *  переводить некого. */
 const CRAWL_ROUTES = {
+  ...PROMOTE_ROUTES,
   'GET /api/crawls/targets': {
     body: {
       donors: [],

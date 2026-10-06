@@ -29,6 +29,7 @@ from backend.features.ahrefs.client import AhrefsClient
 from backend.features.contacts.search import search_contacts
 from backend.features.core.domain import Stage
 from backend.features.core.usage import LlmCapExceededError
+from backend.features.crawl.contacts import AdvertiserContactRepository
 from backend.features.crawl.niche import collect as collect_niche
 from backend.features.donors.doors import door_check
 from backend.features.donors.repository import DonorRepository
@@ -306,18 +307,24 @@ def build_letter_queue(
 
 
 async def _search_contacts(
-    limit: int, use_browser: bool, paid_first: bool, donor_id: int | None = None
+    limit: int,
+    use_browser: bool,
+    paid_first: bool,
+    donor_id: int | None = None,
+    stage: Stage = Stage.DONORS,
 ) -> dict[str, Any]:
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with factory() as session:
+            advertisers = stage is Stage.ADVERTISERS
             report = await search_contacts(
                 session,
                 limit=limit,
                 use_browser=use_browser,
                 paid_first=paid_first,
                 donor_id=donor_id,
+                queue=AdvertiserContactRepository(session) if advertisers else None,
             )
             await session.commit()
             return report.as_dict()
@@ -330,6 +337,7 @@ def find_contacts(
     use_browser: bool = False,
     paid_first: bool = False,
     donor_id: int | None = None,
+    stage: str = Stage.DONORS.value,
 ) -> dict[str, Any]:
     """Лестница контактов по донорам, которым он нужен.
 
@@ -342,13 +350,25 @@ def find_contacts(
     та же лестница, те же повторы и тот же разбор исхода на экране.
     Свой путь задачи понадобился бы разбору исходов (`ops/job_outcome`)
     отдельной строкой, и без неё экран показал бы имя функции.
+
+    `stage` — по той же причине: рекламодатели Этапа 2 идут той же задачей
+    по своей очереди (`crawl/contacts.py`). Этап — строкой, как у сборки
+    писем: задача живёт в очереди дольше версии кода.
     """
     setup_logging()
     check_storage()
     return _settled(
-        lambda: asyncio.run(_search_contacts(limit, use_browser, paid_first, donor_id)),
-        what="поиск контактов" if donor_id is None else f"поиск адреса донора №{donor_id}",
+        lambda: asyncio.run(
+            _search_contacts(limit, use_browser, paid_first, donor_id, Stage(stage))
+        ),
+        what=_contacts_what(donor_id, Stage(stage)),
     )
+
+
+def _contacts_what(donor_id: int | None, stage: Stage) -> str:
+    if stage is Stage.ADVERTISERS:
+        return "поиск адресов рекламодателей"
+    return "поиск контактов" if donor_id is None else f"поиск адреса донора №{donor_id}"
 
 
 async def _parse_reply(reply_id: int) -> dict[str, Any]:

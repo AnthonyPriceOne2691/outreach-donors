@@ -12,6 +12,10 @@
  * **Исход задачи — словами.** Поставленную здесь задачу ведёт `JobLine`;
  * упавшую или ждущую повтора прошлую сервер отдаёт сам, и она видна
  * с причиной, а не тишиной.
+ *
+ * **Та же строка — у рекламодателей Этапа 2** (06.10.2026): поиск у них тот же,
+ * отличаются запросы (`ContactsSource`). Две копии строки разъехались бы на
+ * первой правке.
  */
 
 import { Alert, Button, Group, Text } from '@mantine/core';
@@ -22,11 +26,28 @@ import type { ReactNode } from 'react';
 
 import { refusalOf } from '../api/client';
 import { fetchContactsState, searchContacts } from '../api/contacts';
+import type { ContactsQueued, ContactsState } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { formatNumber } from '../format';
 import { JobLine, JobOutcome } from '../jobs/JobLine';
 
 export const CONTACTS_QUERY_KEY = ['contacts-state'] as const;
+
+/** Чей поиск адресов: запросы и то, что перечитать, когда он кончился. */
+export interface ContactsSource {
+  queryKey: readonly unknown[];
+  fetchState: () => Promise<ContactsState>;
+  search: (body: { limit: number }) => Promise<ContactsQueued>;
+  /** У кого-то появились адреса — эти списки перечитываются. */
+  refresh: readonly (readonly unknown[])[];
+}
+
+export const DONOR_CONTACTS: ContactsSource = {
+  queryKey: CONTACTS_QUERY_KEY,
+  fetchState: fetchContactsState,
+  search: searchContacts,
+  refresh: [['donors']],
+};
 
 /** Отчёт прошлого прохода по ступеням: отношение «вошло» к «нашли» на каждой
  *  и есть проверка порядка ступеней, ради которого лестница так устроена. */
@@ -48,26 +69,28 @@ interface PendingContacts {
   control: ReactNode;
   /** Исход поиска и предупреждения — под шапкой, во всю ширину. */
   outcome: ReactNode;
+  /** Вести задачу, поставленную не этой строкой (перевод в рекламодатели). */
+  follow: (jobId: string) => void;
 }
 
-export function usePendingContacts(): PendingContacts {
+export function usePendingContacts(source: ContactsSource = DONOR_CONTACTS): PendingContacts {
   const { can } = useSession();
   const queryClient = useQueryClient();
   // Задача, поставленная с этого экрана. Её ведёт `JobLine`; до неё — та,
   // что сервер помнит сам.
   const [jobId, setJobId] = useState<string | null>(null);
   const { data } = useQuery({
-    queryKey: CONTACTS_QUERY_KEY,
-    queryFn: fetchContactsState,
+    queryKey: source.queryKey,
+    queryFn: source.fetchState,
     // Пока поиск идёт, спрашиваем чаще: человек смотрит на экран именно сейчас.
     refetchInterval: (query) => (query.state.data?.running ? 5_000 : false),
   });
 
   const start = useMutation({
-    mutationFn: () => searchContacts({ limit: 100 }),
+    mutationFn: () => source.search({ limit: 100 }),
     onSuccess: async (queued) => {
       setJobId(queued.job_id);
-      await queryClient.invalidateQueries({ queryKey: CONTACTS_QUERY_KEY });
+      await queryClient.invalidateQueries({ queryKey: source.queryKey });
       notifications.show({
         message: `Поиск поставлен в очередь. Ждут адреса: ${formatNumber(queued.pending)}.`,
         color: 'green',
@@ -77,14 +100,14 @@ export function usePendingContacts(): PendingContacts {
       notifications.show({ title: 'Не поставили', message: refusalOf(failure), color: 'red' }),
   });
 
-  // Кончилась задача — перечитать и число ждущих, и таблицу: у доноров
+  // Кончилась задача — перечитать и число ждущих, и таблицу: у кого-то
   // появились адреса.
   const finished = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: CONTACTS_QUERY_KEY });
-    void queryClient.invalidateQueries({ queryKey: ['donors'] });
-  }, [queryClient]);
+    void queryClient.invalidateQueries({ queryKey: source.queryKey });
+    for (const key of source.refresh) void queryClient.invalidateQueries({ queryKey: key });
+  }, [queryClient, source]);
 
-  if (data === undefined) return { control: null, outcome: null };
+  if (data === undefined) return { control: null, outcome: null, follow: setJobId };
 
   const running = data.running;
   const control =
@@ -139,7 +162,7 @@ export function usePendingContacts(): PendingContacts {
       </Text>,
     );
   }
-  return { control, outcome: lines.length > 0 ? lines : null };
+  return { control, outcome: lines.length > 0 ? lines : null, follow: setJobId };
 }
 
 /** Исходы прошлой задачи, о которых под шапкой говорить нечего: удачный
