@@ -607,9 +607,9 @@
       "worst": "—"
     },
     "backend/config/llm.py": {
-      "lines": 91,
+      "lines": 103,
       "complexity": 2,
-      "worst": "_unset_if_empty:66"
+      "worst": "_unset_if_empty:75"
     },
     "backend/config/observability.py": {
       "lines": 21,
@@ -952,9 +952,9 @@
       "worst": "check_connected:107"
     },
     "backend/features/core/usage.py": {
-      "lines": 194,
+      "lines": 199,
       "complexity": 10,
-      "worst": "ensure_llm_within_cap:151"
+      "worst": "ensure_llm_within_cap:156"
     },
     "backend/features/core/window.py": {
       "lines": 172,
@@ -1710,6 +1710,21 @@
       "lines": 33,
       "complexity": 1,
       "worst": "_mail:25"
+    },
+    "backend/features/sales/agent/__init__.py": {
+      "lines": 20,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/features/sales/agent/calling.py": {
+      "lines": 98,
+      "complexity": 3,
+      "worst": "ask:73"
+    },
+    "backend/features/sales/agent/situation.py": {
+      "lines": 250,
+      "complexity": 10,
+      "worst": "parse:187"
     },
     "backend/features/sales/browse.py": {
       "lines": 184,
