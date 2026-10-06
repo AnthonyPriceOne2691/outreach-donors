@@ -200,6 +200,25 @@ async def test_apply_removes_run_queue_domains_and_addresses_and_keeps_the_spend
     assert details["кто"] == "тест"
 
 
+async def test_many_runs_fit_the_journal_and_keep_exact_numbers_in_details(
+    session: AsyncSession,
+) -> None:
+    """Живой прогон 06.10 на копии базы: пятнадцать прогонов не влезли в поле цели
+    журнала (64 знака), запись упала — и с ней вся чистка. Номера — в `details`."""
+    runs = [await _run(session, []) for _ in range(15)]
+
+    plan = await plan_prune(session, run_ids=[run.id for run in runs])
+    await apply_prune(session, plan, author="тест")
+    await session.flush()
+
+    entry = await session.scalar(
+        select(AuditLogModel).where(AuditLogModel.action == AuditAction.DATA_PRUNED)
+    )
+    assert entry is not None
+    assert entry.target == "runs:15 replies:0 (номера — в details)"
+    assert (entry.details or {})["прогоны"] == sorted(run.id for run in runs)
+
+
 # --- что держит домен ------------------------------------------------------------------------
 
 
@@ -487,6 +506,7 @@ def _journal_values(connection: Connection) -> list[str]:
     return list(values.scalars())
 
 
-async def test_journal_value_is_there_once_and_survives_a_rerun(session: AsyncSession) -> None:
+async def test_journal_values_are_there_once_and_survive_a_rerun(session: AsyncSession) -> None:
     connection = await session.connection()
-    assert (await connection.run_sync(_journal_values)).count("data_pruned") == 1
+    values = await connection.run_sync(_journal_values)
+    assert (values.count("data_pruned"), values.count("probe_created")) == (1, 1)

@@ -199,6 +199,9 @@ class AuditAction(StrEnum):
     # Чистка: удалены прогоны с тем, что принесли только они, или пробные ответы
     # (`outreach prune`). Удалённое не вернуть — в журнале остаётся, что и почему.
     DATA_PRUNED = "data_pruned"
+    # Заведён липовый донор для проверки цепочки на живом сервисе (`outreach probe-donor`):
+    # домен в зоне .invalid, свой ящик проверяющего, проверочный прогон.
+    PROBE_CREATED = "probe_created"
 
 
 class UsageProvider(StrEnum):

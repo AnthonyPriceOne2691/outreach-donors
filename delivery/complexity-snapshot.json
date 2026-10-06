@@ -457,14 +457,19 @@
       "worst": "_report:181"
     },
     "backend/cli/main.py": {
-      "lines": 487,
+      "lines": 492,
       "complexity": 9,
-      "worst": "_print_report:253"
+      "worst": "_print_report:255"
+    },
+    "backend/cli/probe_donor.py": {
+      "lines": 69,
+      "complexity": 3,
+      "worst": "run_probe_donor:40"
     },
     "backend/cli/prune.py": {
-      "lines": 113,
-      "complexity": 9,
-      "worst": "_print_plan:57"
+      "lines": 129,
+      "complexity": 10,
+      "worst": "_print_plan:62"
     },
     "backend/cli/review_queue.py": {
       "lines": 56,
@@ -767,7 +772,7 @@
       "worst": "—"
     },
     "backend/features/core/domain.py": {
-      "lines": 248,
+      "lines": 251,
       "complexity": 0,
       "worst": "—"
     },
@@ -985,6 +990,11 @@
       "lines": 389,
       "complexity": 13,
       "worst": "judge_candidates:326"
+    },
+    "backend/features/donors/probe.py": {
+      "lines": 283,
+      "complexity": 8,
+      "worst": "_checked:78"
     },
     "backend/features/donors/publisher_judge.py": {
       "lines": 486,
@@ -1412,9 +1422,9 @@
       "worst": "gather_candidates:236"
     },
     "backend/features/runs/prune.py": {
-      "lines": 358,
+      "lines": 397,
       "complexity": 11,
-      "worst": "_replies:283"
+      "worst": "_replies:292"
     },
     "backend/features/runs/reasons.py": {
       "lines": 110,

@@ -51,7 +51,7 @@ PROVIDER_ID_HEADER = "X-Message-Id"
 TIMEOUT_S = 30.0
 
 
-def _allowed(address: str, allowlist: tuple[str, ...]) -> bool:
+def allowed_recipient(address: str, allowlist: tuple[str, ...]) -> bool:
     """Можно ли писать на этот адрес.
 
     Сравнение по адресу целиком и по домену: в списке удобно держать
@@ -97,7 +97,7 @@ class SendGridTransport:
 
     async def send(self, outgoing: Outgoing) -> str:
         """Отдать письмо платформе. Возвращает её номер письма."""
-        if not _allowed(outgoing.to, self._allowlist):
+        if not allowed_recipient(outgoing.to, self._allowlist):
             raise TransportError(
                 f"Адрес {outgoing.to} не в списке разрешённых получателей "
                 f"({self._account.allowlist_setting}). Пока список не пуст, боевая отправка "

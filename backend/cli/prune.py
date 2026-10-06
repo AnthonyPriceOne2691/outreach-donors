@@ -50,6 +50,11 @@ def add_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-ar
         help="номера пробных ответов через запятую — только не привязанные к переписке",
     )
     parser.add_argument(
+        "--probes",
+        action="store_true",
+        help="липовые доноры (outreach probe-donor) целиком — с письмами, перепиской и ответами",
+    )
+    parser.add_argument(
         "--yes", action="store_true", help="удалить: одной транзакцией, с записью в журнал"
     )
 
@@ -76,12 +81,21 @@ def _print_plan(plan: PrunePlan, *, done: bool) -> None:
         )
     for reply_id, subject in plan.replies.items():
         print(f"Ответ №{reply_id} — не привязан к переписке, тема «{subject}»")
+    if plan.probes is not None:
+        probes = plan.probes
+        print(
+            f"Липовые доноры: {len(probes.domains)} — с письмами ({probes.letters}), "
+            f"перепиской ({probes.threads}) и ответами ({probes.replies}); "
+            f"рассылок без них не останется: {len(probes.campaigns)}"
+        )
 
 
 async def run_prune(session: AsyncSession, args: argparse.Namespace) -> int:
     """Чистка на готовой сессии. Без `--yes` в базе не меняется ничего."""
     try:
-        plan = await plan_prune(session, run_ids=args.runs, reply_ids=args.replies)
+        plan = await plan_prune(
+            session, run_ids=args.runs, reply_ids=args.replies, probes=args.probes
+        )
     except PruneRefusedError as exc:
         print(f"Чистка не выполнена: {exc}")
         return EXIT_REFUSED
@@ -97,7 +111,9 @@ async def run_prune(session: AsyncSession, args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-async def _in_session(work: Callable[[AsyncSession], Awaitable[int]]) -> int:
+async def in_session(work: Callable[[AsyncSession], Awaitable[int]]) -> int:
+    """Одна сессия на команду: открыть, отдать работе, закрыть. Общее у чистки
+    и липового донора."""
     check_storage()
     engine = create_async_engine(storage.DSN)
     try:
@@ -109,4 +125,4 @@ async def _in_session(work: Callable[[AsyncSession], Awaitable[int]]) -> int:
 
 async def cmd_prune(args: argparse.Namespace) -> int:
     """Убрать названные прогоны и пробные ответы. Без `--yes` — только показ."""
-    return await _in_session(lambda session: run_prune(session, args))
+    return await in_session(lambda session: run_prune(session, args))

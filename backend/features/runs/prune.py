@@ -52,6 +52,7 @@ from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.ops import SuppressionModel, UsageRecordModel
 from backend.features.core.models.outreach import MessageModel, ReplyModel, ThreadModel
 from backend.features.core.models.run import RunCandidateModel, RunModel, RunSettingsModel
+from backend.features.donors.probe import ProbeTrace, probe_domain, probe_trace, remove_probes
 from backend.features.runs.repository import RunRepository
 
 #: Причины оставить домен — в порядке проверки. Домен считается по первой
@@ -85,6 +86,8 @@ class PrunePlan:
     replies: dict[int, str] = field(default_factory=dict)
     #: Записей расхода, которые потеряют номер прогона.
     usage_detached: int = 0
+    #: Липовые доноры (`--probes`): уходят целиком, с перепиской. `None` — не просили.
+    probes: ProbeTrace | None = None
 
     def as_details(self) -> dict[str, Any]:
         """Запись в журнал действий: из неё потом видно, что и почему ушло."""
@@ -97,6 +100,7 @@ class PrunePlan:
             "оставлено": self.kept,
             "ответы": sorted(self.replies),
             "расход без номера прогона": self.usage_detached,
+            **(self.probes.as_details() if self.probes is not None else {}),
         }
 
 
@@ -170,8 +174,13 @@ async def _domains(session: AsyncSession, plan: PrunePlan, run_ids: Sequence[int
     """Какие домены уйдут с прогонами, а какие останутся и почему."""
     pruned = await _hosts_of(session, run_ids, keep=False)
     others = await _hosts_of(session, run_ids, keep=True)
-    brought = or_(
-        DomainModel.host.in_(sorted(pruned.hosts)), DomainModel.id.in_(sorted(pruned.domain_ids))
+    # Липовые доноры — не здесь: их держит своя переписка, и убирает их только `--probes`.
+    brought = and_(
+        or_(
+            DomainModel.host.in_(sorted(pruned.hosts)),
+            DomainModel.id.in_(sorted(pruned.domain_ids)),
+        ),
+        ~probe_domain(),
     )
     in_other_run = or_(
         DomainModel.host.in_(sorted(others.hosts)), DomainModel.id.in_(sorted(others.domain_ids))
@@ -305,12 +314,23 @@ async def _replies(session: AsyncSession, plan: PrunePlan, reply_ids: Sequence[i
 
 
 async def plan_prune(
-    session: AsyncSession, *, run_ids: Sequence[int], reply_ids: Sequence[int] = ()
+    session: AsyncSession,
+    *,
+    run_ids: Sequence[int],
+    reply_ids: Sequence[int] = (),
+    probes: bool = False,
 ) -> PrunePlan:
-    """Что уйдёт при чистке. Отказ словами — до того, как что-либо удалено."""
-    if not run_ids and not reply_ids:
-        raise PruneRefusedError("Нечего чистить: назовите прогоны (--runs) или ответы (--replies).")
+    """Что уйдёт при чистке. Отказ словами — до того, как что-либо удалено.
+
+    `probes` — липовые доноры целиком и их проверочные прогоны (`donors/probe.py`)."""
+    if not run_ids and not reply_ids and not probes:
+        raise PruneRefusedError(
+            "Нечего чистить: назовите прогоны (--runs), ответы (--replies) или --probes."
+        )
     plan = PrunePlan()
+    if probes:
+        plan.probes = await probe_trace(session)
+        run_ids = sorted({*run_ids, *plan.probes.runs})
     if run_ids:
         await _runs(session, plan, sorted(set(run_ids)))
         await _domains(session, plan, plan.runs)
@@ -350,8 +370,27 @@ async def apply_prune(session: AsyncSession, plan: PrunePlan, *, author: str) ->
         await session.execute(
             delete(DomainModel).where(DomainModel.id.in_(plan.domains), ~in_other_run, ~_held())
         )
+    if plan.probes is not None:
+        await remove_probes(session, plan.probes)
     await AccessRepository(session).record(
-        AuditAction.DATA_PRUNED,
-        target=", ".join([*(f"run:{n}" for n in plan.runs), *(f"reply:{n}" for n in plan.replies)]),
-        details={**plan.as_details(), "кто": author},
+        AuditAction.DATA_PRUNED, target=_target(plan), details={**plan.as_details(), "кто": author}
     )
+
+
+#: Длина поля цели в журнале (`audit_log.target`). Перечень сверх неё — в `details`.
+TARGET_LIMIT = 64
+
+
+def _target(plan: PrunePlan) -> str:
+    """Цель записи журнала: перечень, если влезает в поле, иначе — счёт.
+
+    Поле короткое, а прогонов в чистке может быть десяток: длинный перечень
+    ронял запись журнала, а с ней — всю чистку. Точные номера лежат в `details`.
+    """
+    probes = [] if plan.probes is None else [f"probes:{len(plan.probes.domains)}"]
+    named = ", ".join(
+        [*(f"run:{n}" for n in plan.runs), *(f"reply:{n}" for n in plan.replies), *probes]
+    )
+    if len(named) <= TARGET_LIMIT:
+        return named
+    return f"runs:{len(plan.runs)} replies:{len(plan.replies)} (номера — в details)"
