@@ -38,7 +38,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from selectolax.parser import HTMLParser, Node
 
-from backend.features.crawl.scoring import names_a_mark
+from backend.features.crawl.markers import names_a_mark
 
 logger = logging.getLogger(__name__)
 

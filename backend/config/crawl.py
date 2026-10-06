@@ -88,6 +88,12 @@ class _Crawl(DomainSettings):
     # из трёх в начале прогона — это не 100% нездоровья, это три отказа.
     health_min_requests: int = Field(default=20, validation_alias="CRAWL_HEALTH_MIN_REQUESTS")
 
+    # --- Скоринг ---
+    # Размещение старше стольких лет — не «существующий рекламодатель донора»
+    # (требование: «переманить существующих рекламодателей»). Обход 06.10
+    # дал «куплено» бонусу банка 2007 года, которого давно нет.
+    stale_years: int = Field(default=3, validation_alias="CRAWL_STALE_YEARS")
+
 
 _s = _Crawl()
 
@@ -109,3 +115,4 @@ HEALTH_WINDOW: int = _s.health_window
 SLOW_DOWN_SHARE: float = _s.slow_down_share
 STOP_SHARE: float = _s.stop_share
 HEALTH_MIN_REQUESTS: int = _s.health_min_requests
+STALE_YEARS: int = _s.stale_years
