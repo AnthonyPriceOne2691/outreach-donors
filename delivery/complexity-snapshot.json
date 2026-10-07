@@ -682,9 +682,9 @@
       "worst": "draft_answer:138"
     },
     "backend/features/agent/drafts.py": {
-      "lines": 216,
-      "complexity": 7,
-      "worst": "send_draft:117"
+      "lines": 282,
+      "complexity": 5,
+      "worst": "send_draft:130"
     },
     "backend/features/agent/guarding.py": {
       "lines": 135,
