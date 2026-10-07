@@ -1,0 +1,86 @@
+"""Этап, который почта ещё не ведёт: громкий отказ вместо пути доноров.
+
+Этап продаж заведён раньше, чем почта научилась его вести: письма, добивки
+и разбор ответов продаж приходят следующими срезами модуля. Почти каждая
+ветка почты была устроена как «рекламодатели, иначе доноры», и новый этап
+в ней молча становился донором: очередь из принятых доноров, вопрос о цене,
+цена из ответа лида в карточке донора.
+
+Поэтому ветка, где этап решает путь, разбирает его целиком — `match`
+с `assert_never` — и продажам отказывает этим исключением. Текст отказа
+один на всю почту: человек читает его на экране, в консоли и в итоге
+задачи, и разные слова о том же значили бы разные причины.
+
+Где этапу нужен только допуск — отправка, ответ в переписке, сборка, —
+стоит шлюз `mail_stage`: дальше идёт `MailStage`, и ветка, разбирающая
+его, краснеет в mypy, как только этот тип расширят. При отправке шлюз
+стоит до выбора учётки этапа (`transport.of_stage`): учётку продаж — свой
+ключ и свой список разрешённых, `config.outreach.mail_account` — письмо,
+которое почта не ведёт, не трогает.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Literal, assert_never
+
+from backend.features.core.domain import Stage
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+#: Почему почта не делает того, о чём просят, для этапа продаж.
+SALES_NOT_CONNECTED = "продажи к почте ещё не подключены"
+
+#: Этапы, которые почта ведёт. Шире — только вместе с ветками, которые
+#: разбирают этот тип (`sending._check_review`: после рекламодателей там
+#: путь доноров, и `donor_path` не даст пройти туда новому этапу).
+MailStage = Literal[Stage.DONORS, Stage.ADVERTISERS]
+
+
+class SalesNotConnectedError(RuntimeError):
+    """Почта не ведёт этап продаж: `what` — что не сделано."""
+
+    #: Повтор задачи это не исправит (`runs/failures.py`).
+    permanent = True
+
+    def __init__(self, what: str) -> None:
+        super().__init__(f"{what}: {SALES_NOT_CONNECTED}")
+
+
+def mail_stage(stage: Stage, what: str) -> MailStage:
+    """Этап, если почта его ведёт; продажам — отказ (`what` — что не сделано)."""
+    match stage:
+        case Stage.DONORS | Stage.ADVERTISERS:
+            return stage
+        case Stage.SALES:
+            raise SalesNotConnectedError(what)
+        case _:
+            assert_never(stage)
+
+
+async def check_connected(
+    session: AsyncSession,  # noqa: ARG001 — её прочтёт правило продаж, см. ниже
+    stage: Stage,
+    what: str,
+) -> None:
+    """Мост подключения этапа (спрашивает отправка очереди пачкой): почта ведёт
+    этап сейчас — или отказ словами. Правило «продажи подключены» встанет в их
+    ветку и прочтёт базу; спрашивающие не меняются. Не `mail_stage`: тот отказывает
+    продажам там, где их не будет и подключённых (очередь из доноров, шаблоны)."""
+    match stage:
+        case Stage.DONORS | Stage.ADVERTISERS:
+            return
+        case Stage.SALES:
+            raise SalesNotConnectedError(what)
+        case _:
+            assert_never(stage)
+
+
+def donor_path(stage: Literal[Stage.DONORS]) -> None:
+    """Пометка в ветке по `MailStage`: остальные этапы разобраны выше, дальше —
+    путь доноров.
+
+    На исполнении ничего не делает — проверяет mypy. Этап, добавленный в
+    `MailStage` без своей ветки выше вызова, сюда не пройдёт по типу, и путь
+    доноров не станет его путём молча.
+    """

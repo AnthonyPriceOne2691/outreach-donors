@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, assert_never
 
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +26,7 @@ from backend.features.core.models.outreach import (
     ThreadModel,
 )
 from backend.features.core.models.run import RunCandidateModel, RunModel
+from backend.features.core.stages import SalesNotConnectedError
 from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.compose import FoundLink
 from backend.features.letters.funnel import AdvertiserFunnel, Funnel
@@ -60,18 +61,41 @@ class LetterRepository:
         self._session = session
 
     # --- отбор (`recipients.py`) ---
+    #
+    # Этап разбирается здесь, целиком, и только здесь: путь, принимавший этап,
+    # отдавал принятых доноров любому этапу, кроме рекламодателей. Продажам —
+    # отказ, следующему новому этапу — ошибка mypy, а не очередь из доноров.
 
     async def funnel(
         self, stage: Stage, *, run_ids: Sequence[int] = ()
     ) -> Funnel | AdvertiserFunnel:
         """Воронка отбора: где именно кончились адресаты этапа."""
-        return await Recipients(self._session).funnel(stage, run_ids=run_ids)
+        recipients = Recipients(self._session)
+        match stage:
+            case Stage.DONORS:
+                return await recipients.donor_funnel(run_ids=run_ids)
+            case Stage.ADVERTISERS:
+                return await recipients.advertiser_funnel()
+            case Stage.SALES:
+                raise SalesNotConnectedError(f"Воронка отбора этапа {stage.value}")
+            case _:
+                assert_never(stage)
 
     async def candidates(
         self, stage: Stage, *, limit: int, run_ids: Sequence[int] = ()
     ) -> list[Candidate]:
-        """Кому писать, по одному адресу на адресата этапа."""
-        return await Recipients(self._session).candidates(stage, limit=limit, run_ids=run_ids)
+        """Кому писать, по одному адресу на адресата этапа. У рекламодателей
+        прогонов нет: их находит обход (`building.run_scope`)."""
+        recipients = Recipients(self._session)
+        match stage:
+            case Stage.DONORS:
+                return await recipients.donor_candidates(limit=limit, run_ids=run_ids)
+            case Stage.ADVERTISERS:
+                return await recipients.advertiser_candidates(limit=limit)
+            case Stage.SALES:
+                raise SalesNotConnectedError(f"Отбор адресатов этапа {stage.value}")
+            case _:
+                assert_never(stage)
 
     # --- очередь ---
 

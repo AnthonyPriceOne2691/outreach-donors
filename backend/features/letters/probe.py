@@ -74,7 +74,7 @@ def letter_for(stage: Stage) -> compose.Letter:
     Громкие метки на месте незаданного остаются, как в письме донору:
     по ним `check_ready` и откажет — тем же объяснением.
     """
-    link = PROBE_LINK if stage is Stage.ADVERTISERS else None
+    link = PROBE_LINK if template.first_letter(stage).link else None
     rendered = compose.render(
         template.for_stage(stage),
         compose.values_for(host=PROBE_HOST, domain_id=PROBE_DOMAIN_ID, link=link),

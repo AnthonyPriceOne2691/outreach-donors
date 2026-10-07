@@ -50,6 +50,7 @@ from backend.features.core import usage
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.core.models.run import RunModel
+from backend.features.core.stages import mail_stage
 from backend.features.letters import compose, guards
 from backend.features.letters.recipients import Candidate
 from backend.features.letters.repository import LetterRepository
@@ -146,8 +147,11 @@ async def run_scope(
     У рекламодателей прогонов нет: их находит обход доноров, а не выдача.
     Прогоны, названные для Этапа 2, — ошибка формы, и молча их не взять:
     человек решил бы, что рассылка сужена до них.
+
+    Продажам — отказ до всего остального: сборка с этапом продаж шла бы
+    путём доноров и заводила бы рассылку продаж из принятых доноров.
     """
-    if stage is Stage.ADVERTISERS and run_ids:
+    if mail_stage(stage, "Очередь писем не собрана") is Stage.ADVERTISERS and run_ids:
         raise LetterScopeError(
             "Рекламодатели собираются не по прогонам: их находит обход доноров, "
             "а не выдача. Прогоны для рассылки рекламодателям не выбирать"

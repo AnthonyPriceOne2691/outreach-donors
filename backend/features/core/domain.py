@@ -68,10 +68,15 @@ class SenderStatus(StrEnum):
 
 
 class Stage(StrEnum):
-    """Этап продукта. У этапов разные домены отправки."""
+    """Этап продукта. У этапов разные домены отправки.
+
+    Ветки почты разбирают этап целиком (`match` с `assert_never`): новое
+    значение — ошибка mypy в каждой, а не тихий путь доноров.
+    """
 
     DONORS = "donors"  # Этап 1: запрос цены у донора
     ADVERTISERS = "advertisers"  # Этап 2: оффер рекламодателю
+    SALES = "sales"  # модуль «Продажи»: почта его ещё не ведёт — отказ (`core/stages.py`)
 
 
 class RunStatus(StrEnum):

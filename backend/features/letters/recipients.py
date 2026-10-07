@@ -1,9 +1,11 @@
 """Кому писать: отбор адресатов обоих этапов и воронка этого отбора.
 
 Отдельно от очереди писем, потому что это другой вопрос: очередь — что
-уже собрано и ждёт человека, отбор — кого ещё можно собрать. Вход один,
-`Recipients.candidates(stage)`: этап выбирает, из кого — принятые доноры
-Этапа 1 или рекламодатели Этапа 2, найденные обходом.
+уже собрано и ждёт человека, отбор — кого ещё можно собрать. Путей два —
+принятые доноры Этапа 1 и рекламодатели Этапа 2, найденные обходом, — и
+у каждого свой вход без параметра этапа. Этап разбирает один вход сверху
+(`LetterRepository.candidates`), целиком: путь, который принимал этап,
+отдавал доноров любому этапу, кроме рекламодателей.
 
 **Отсев считается по ступеням.** Запрос мог бы вернуть просто список
 годных адресатов, но тогда пустая очередь выглядела бы одинаково при
@@ -229,23 +231,19 @@ class Recipients:
             "exhausted": await self._count(dead_only.where(no_way)),
         }
 
-    async def funnel(
-        self, stage: Stage, *, run_ids: Sequence[int] = ()
-    ) -> Funnel | AdvertiserFunnel:
-        """Воронка отбора: где именно кончились адресаты этапа."""
-        if stage is Stage.ADVERTISERS:
-            return await self._advertiser_funnel()
+    async def donor_funnel(self, *, run_ids: Sequence[int] = ()) -> Funnel:
+        """Воронка отбора доноров: где именно кончились адресаты Этапа 1."""
         base = self._suitable()
         accepted = self._accepted(base, run_ids)
         with_contact = self._has_contact(accepted)
-        not_suppressed = self._reachable(with_contact, stage)
+        not_suppressed = self._reachable(with_contact, Stage.DONORS)
 
         return Funnel(
             suitable=await self._count(base),
             accepted=await self._count(accepted),
             with_contact=await self._count(with_contact),
             not_suppressed=await self._count(not_suppressed),
-            **await self._last_steps(not_suppressed, stage),
+            **await self._last_steps(not_suppressed, Stage.DONORS),
         )
 
     def _donor_picks(self, run_ids: Sequence[int] = ()) -> Select[Any]:
@@ -348,23 +346,17 @@ class Recipients:
         rows = await self._session.execute(select(func.count()).select_from(statement.subquery()))
         return int(rows.scalar_one())
 
-    async def candidates(
-        self, stage: Stage, *, limit: int, run_ids: Sequence[int] = ()
-    ) -> list[Candidate]:
-        """Кому писать, по одному адресу на адресата.
+    async def donor_candidates(self, *, limit: int, run_ids: Sequence[int] = ()) -> list[Candidate]:
+        """Кому из доноров писать, по одному адресу на донора.
 
         Лучший адрес — тот, с которого уже отвечали: дальше пишем тому,
         кто отвечает, а не в ящик, где письмо пролежало неделю. Дальше
         по оценке проверки адреса, дальше по возрасту записи. Мёртвые
         адреса и адреса, куда письмо уже уходило, не берутся вовсе.
 
-        Этап выбирает, из кого: доноры Этапа 1 или рекламодатели Этапа 2.
-        Вход один нарочно — отдельная функция для второго этапа оставила
-        бы первую с параметром `stage`, который молча отдаёт доноров
-        на любой этап.
+        Параметра этапа здесь нет нарочно: с ним этот путь молча отдавал
+        доноров любому этапу, кроме рекламодателей, — новому тоже.
         """
-        if stage is Stage.ADVERTISERS:
-            return await self._advertiser_candidates(limit=limit)
         picked = self._donor_picks(run_ids).subquery()
         rows = await self._session.execute(
             select(picked).order_by(picked.c.dr.desc().nullslast(), picked.c.domain_id).limit(limit)
@@ -422,7 +414,7 @@ class Recipients:
         )
         return statement.where(fresh)
 
-    async def _advertiser_funnel(self, *, now: datetime | None = None) -> AdvertiserFunnel:
+    async def advertiser_funnel(self, *, now: datetime | None = None) -> AdvertiserFunnel:
         moment = now or datetime.now(UTC)
         base = self._advertisers()
         with_link = self._with_link(base)
@@ -439,7 +431,7 @@ class Recipients:
             **await self._last_steps(not_suppressed, Stage.ADVERTISERS),
         )
 
-    async def _advertiser_candidates(
+    async def advertiser_candidates(
         self, *, limit: int, now: datetime | None = None
     ) -> list[Candidate]:
         """Рекламодатели, которым можно написать, по одному адресу на домен.

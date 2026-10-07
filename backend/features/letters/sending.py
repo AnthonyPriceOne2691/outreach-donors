@@ -46,6 +46,7 @@ from datetime import UTC, datetime
 from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.features.core import stages
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
@@ -163,7 +164,7 @@ class _Target:
     message: MessageModel
     host: str
     email: str
-    stage: Stage
+    stage: stages.MailStage
     #: Ящик и `Message-ID` прежней попытки — до захвата. Пусто у нового письма;
     #: у возвращённого человеком из «отправляется» — след попытки, которая
     #: могла уйти (`unknown_outcome.py`).
@@ -253,7 +254,7 @@ class Sending:
             message=message,
             host=host,
             email=email,
-            stage=stage,
+            stage=stages.mail_stage(stage, f"Письмо №{message_id}"),
             before=(message.sender_id, message.internet_message_id),
         )
 
@@ -304,6 +305,7 @@ class Sending:
         if target.stage is Stage.ADVERTISERS:
             await self._check_advertiser(target)
             return
+        stages.donor_path(target.stage)
         review = await self._session.scalar(
             select(DonorModel.review).where(DonorModel.domain_id == target.message.domain_id)
         )

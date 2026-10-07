@@ -4,6 +4,8 @@
 аргументов, таблицу команд и подписи прерывания — и упирала его в потолок длины,
 а соседние срезы спотыкались о те же строки. Здесь — всё, что `main.py` знает о
 продажах: он берёт перечни целиком и сам ни одной команды продаж не называет.
+Отказ этапу продаж в общих командах (`letters-build --stage sales` и др.) — тоже
+здесь: перечнем `FAILURES` со своим кодом выхода.
 """
 
 from __future__ import annotations
@@ -13,6 +15,16 @@ from collections.abc import Callable, Coroutine
 from typing import Any
 
 from backend.cli import sales
+from backend.features.core.stages import SalesNotConnectedError
+
+#: Этап продаж: почта его ещё не ведёт (`core/stages.py`). Код — свой, как у
+#: каждого вида отказа в `main.py`: скрипт различает его кодом, человек — текстом.
+EXIT_NOT_CONNECTED = 9
+
+#: Отказ → код выхода и подпись; вливается в перечень отказов `main.py`.
+FAILURES: tuple[tuple[type[Exception], int, str], ...] = (
+    (SalesNotConnectedError, EXIT_NOT_CONNECTED, "Отказ"),
+)
 
 #: Команда → что выполнить; вливается в таблицу команд `main.py`.
 COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] = {

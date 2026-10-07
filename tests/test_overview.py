@@ -406,11 +406,11 @@ class TestShape:
     async def test_mail_state_and_stages_are_in_the_answer(
         self, client: AsyncClient, operator_token: str
     ) -> None:
-        """Почта и оба этапа приходят всегда — пустой этап это нули, а не
+        """Почта и все этапы приходят всегда — пустой этап это нули, а не
         отсутствие ключа, на котором экран упал бы."""
         response = await client.get("/api/overview", headers=bearer(operator_token))
 
         body = response.json()
-        assert set(body["letters"]) == {"donors", "advertisers"}
+        assert set(body["letters"]) == {stage.value for stage in Stage}
         assert body["transport"]["real"] is False
         assert body["last_run"] is None

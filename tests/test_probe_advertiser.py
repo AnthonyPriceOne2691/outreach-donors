@@ -400,10 +400,10 @@ async def test_when_the_build_takes_another_the_refusal_says_so(
 ) -> None:
     await _crawled(session)
 
-    async def nobody(self: Recipients, stage: Stage, *, limit: int) -> list[object]:
+    async def nobody(self: Recipients, *, limit: int) -> list[object]:
         return []
 
-    monkeypatch.setattr(Recipients, "candidates", nobody)
+    monkeypatch.setattr(Recipients, "advertiser_candidates", nobody)
 
     with pytest.raises(ProbeError, match="первым берёт не пробного"):
         await _probe(session)

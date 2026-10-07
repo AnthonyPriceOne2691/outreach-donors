@@ -40,6 +40,7 @@ from backend.features.core.models.outreach import (
     ReplyModel,
     ThreadModel,
 )
+from backend.features.core.stages import mail_stage
 from backend.features.letters import guards
 from backend.features.letters.chain import ANSWER_STEP, FIRST_STEP
 from backend.features.letters.sending import SendError, Sending, SendOutcome
@@ -138,6 +139,8 @@ async def _context(session: AsyncSession, *, thread_id: int, reply_id: int) -> _
             f"Ответ №{reply_id} — не письмо человека ({reply.kind.value}): автоответчику, "
             "отказу доставки и отписке не отвечают"
         )
+    # До заведения письма: отказ отправки продажам оставил бы ответ в очереди.
+    mail_stage(stage, f"Ответ в переписке №{thread_id}")
     return _Context(reply=reply, thread=thread, stage=stage, host=host)
 
 

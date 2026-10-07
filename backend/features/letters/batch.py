@@ -35,6 +35,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import Stage
+from backend.features.core.stages import SalesNotConnectedError
 from backend.features.letters.repository import LetterRepository
 from backend.features.letters.sending import (
     NoSenderError,
@@ -137,7 +138,9 @@ async def _send_one(
     """Одно письмо пачки. Возвращает причину остановки пачки или `None`."""
     try:
         await sending.send(letter_id, author_id=author_id)
-    except NoSenderError as exc:
+    except (NoSenderError, SalesNotConnectedError) as exc:
+        # Лимит ящиков или этап, который почта ещё не ведёт: следующее письмо упрётся
+        # в то же — пачка встаёт с причиной словами, а не «связь с почтой оборвалась».
         logger.info("письма: пачка встала на письме №%s — %s", letter_id, exc)
         return str(exc)
     except SendError as exc:

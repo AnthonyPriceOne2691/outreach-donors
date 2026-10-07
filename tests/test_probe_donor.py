@@ -35,7 +35,7 @@ from backend.features.donors.probe import (
     probe_trace,
     remove_probes,
 )
-from backend.features.letters.recipients import Recipients
+from backend.features.letters.repository import LetterRepository
 from backend.features.runs.prune import apply_prune, plan_prune
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.thresholds import defaults
@@ -112,7 +112,9 @@ async def test_the_build_by_the_probe_run_sees_only_the_probe(session: AsyncSess
     await make_donor(session, "real.example.test", email="editor@real.example.test")
     probe = await make_probe(session, host="probe.invalid", email=MINE, author="тест")
 
-    picked = await Recipients(session).candidates(Stage.DONORS, limit=10, run_ids=[probe.run_id])
+    picked = await LetterRepository(session).candidates(
+        Stage.DONORS, limit=10, run_ids=[probe.run_id]
+    )
 
     assert [(c.host, c.email) for c in picked] == [("probe.invalid", MINE)]
 
