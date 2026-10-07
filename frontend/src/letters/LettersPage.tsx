@@ -65,6 +65,7 @@ import { StageSwitch } from '../components/StageSwitch';
 import { formatPercent, plural } from '../format';
 import { LetterDraftEditor, draftOf, sameDraft } from './LetterDraftEditor';
 import { LetterPreview, toneOf } from './LetterPreview';
+import { mailTile } from './mailTile';
 import { corridorText, uniquenessText } from './letterText';
 import { RunPicker } from './RunPicker';
 import { SendQueue } from './SendQueue';
@@ -475,6 +476,7 @@ function QueueControls({
   onLetterEdit,
 }: ControlsProps) {
   const offCorridor = letters.filter((letter) => letter.verdict !== null).length;
+  const mail = mailTile(view.transport);
   const defaultDays = view.followup_default;
   const letterDefault = view.letter_default;
 
@@ -507,15 +509,11 @@ function QueueControls({
         <Metric
           title="Почта"
           value={
-            view.transport.real ? (
-              view.transport.name
-            ) : (
-              // Слова переносятся по слогам: на телефоне «подключена» шире
-              // плитки и вылезала за её край (на 17 px при 390, аудит 25.09).
-              <span className="tileWords">не подключена</span>
-            )
+            // Слова переносятся по слогам: на телефоне «подключена» шире
+            // плитки и вылезала за её край (на 17 px при 390, аудит 25.09).
+            <span className="tileWords">{mail.value}</span>
           }
-          hint={view.transport.real ? 'письма уходят' : 'подключается на рабочем сервере'}
+          hint={mail.hint}
           color={view.transport.real ? undefined : 'yellow'}
         />
       </SimpleGrid>
