@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 from scripts.gates import (
     MAX_LINES_PROD,
+    PRIVATE_DOCUMENTS,
     check_config_access,
     check_env_example,
     check_file_length,
@@ -19,6 +20,7 @@ from scripts.gates import (
     check_layers,
     check_public_repo,
     check_silent_except,
+    document_names,
     run,
 )
 
@@ -161,6 +163,45 @@ class TestPublicRepo:
     def test_private_document_name_is_caught(self, tmp_path: Path) -> None:
         repo = self._repo(tmp_path, "backend/a.py", "# смета описана в TZ.md\n")
         assert [v.rule for v in check_public_repo(repo)] == ["public-repo"]
+
+    @pytest.mark.parametrize(
+        "name", PRIVATE_DOCUMENTS, ids=[f"doc{i}" for i in range(len(PRIVATE_DOCUMENTS))]
+    )
+    def test_bare_document_name_is_caught(self, tmp_path: Path, name: str) -> None:
+        """Имя без расширения называет документ так же, как с ним: голым,
+        в docstring, оно проходило зелёным."""
+        text = f'"""Решение о рассылке ({name}): отписавшимся не писать."""\n'
+        repo = self._repo(tmp_path, "backend/a.py", text)
+        assert [v.rule for v in check_public_repo(repo)] == ["public-repo"]
+
+    def test_ordinary_words_are_not_document_names(self, tmp_path: Path) -> None:
+        """Регистр различается: имя пишется заглавными, а то же слово строчными
+        или с заглавной буквы — обычный текст (ключ JSON, аргумент функции).
+        Часть идентификатора — тоже не имя."""
+        forms = (str.lower, str.capitalize, "HTML_{}".format, "{}_PATH".format, "{}S".format)
+        text = "".join(f"# {form(name)}\n" for name in PRIVATE_DOCUMENTS for form in forms)
+        repo = self._repo(tmp_path, "backend/a.py", text)
+        assert list(check_public_repo(repo)) == []
+
+    @pytest.mark.parametrize(
+        ("text", "caught"),
+        [
+            pytest.param("см. FAKEDOC, раздел о рассылке", True, id="comma"),
+            pytest.param("смета описана в FAKEDOC.md", True, id="extension"),
+            pytest.param("(FAKEDOC): правило", True, id="parentheses"),
+            pytest.param("FAKEDOC-документ", True, id="hyphen"),
+            pytest.param("по FAKEDOCу", True, id="russian-ending"),
+            pytest.param("fakedoc", False, id="lowercase"),
+            pytest.param("Fakedoc", False, id="capitalized"),
+            pytest.param("HTML_FAKEDOC", False, id="identifier-tail"),
+            pytest.param("FAKEDOC_PATH", False, id="identifier-head"),
+            pytest.param("FAKEDOCS", False, id="longer-word"),
+        ],
+    )
+    def test_document_name_is_a_whole_uppercase_word(self, text: str, caught: bool) -> None:
+        """Образец из выдуманного имени: с расширением и без, целым словом,
+        заглавными. Русское окончание вплотную слова не продолжает."""
+        assert (document_names(["FAKEDOC"]).search(text) is not None) is caught
 
     def test_impersonal_wording_passes(self, tmp_path: Path) -> None:
         repo = self._repo(

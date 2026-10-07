@@ -1892,7 +1892,7 @@
       "worst": "report:116"
     },
     "scripts/gates.py": {
-      "lines": 369,
+      "lines": 385,
       "complexity": 10,
       "worst": "_python_files:76"
     },
