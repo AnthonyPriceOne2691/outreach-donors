@@ -2,7 +2,7 @@
 
 **Version:** 1.0
 **Ratified:** 2026-09-18
-**Canon stack:** delivery@2.00 · cqg@2.51 · okf@1.19 · stack-map@1.52
+**Canon stack:** delivery@2.00 · cqg@2.55 · okf@1.19 · stack-map@1.52
 **CI:** deployed (.github/workflows/ci.yml — ruff, формат, mypy, pytest)
 
 ## Product non-negotiables

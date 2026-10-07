@@ -1,7 +1,7 @@
 {
   "_": "Замок payload'а: что канон отдавал на этих версиях. Пишет обновление контура (§5.5), читает доктор; руками не править.",
   "versions": {
-    "cqg": "2.51",
+    "cqg": "2.55",
     "delivery": "2.00",
     "okf": "1.19",
     "stack-map": "1.52"
@@ -133,7 +133,7 @@
     },
     "scripts/lint/check_new_dependency.py": {
       "canon": "cqg",
-      "digest": "sha256:71e50aa22c4fdddd315c8f35e0a5f9700f5ed268f48e454b3db88ac740c94e53"
+      "digest": "sha256:44a9f1a5b4569593bfe834b7a55c42713b097d99bd84448b69ba7508a7c528f6"
     },
     "scripts/lint/complexity_halves.sh": {
       "canon": "cqg",
