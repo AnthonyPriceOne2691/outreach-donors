@@ -11,6 +11,7 @@ import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from backend.cli import sending_domains
+from backend.cli.main import build_parser
 from backend.config import outreach as cfg
 from backend.config import storage
 from backend.features.core.domain import MessageStatus, Stage, UserRole
@@ -210,18 +211,18 @@ class TestScreen:
         ]
 
 
+def _args(domain: str = "Mail-B.example.test", **given: object) -> argparse.Namespace:
+    """Доводы `outreach sending-domain`: названное — как задано, прочее — не названо."""
+    base = {**dict.fromkeys(("stage", "daily_limit", "young_days", "pause")), "resume": False}
+    return argparse.Namespace(domain=domain, **(base | given))
+
+
 class TestConsole:
     async def test_a_domain_is_added_tuned_paused_and_resumed(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         monkeypatch.setattr(storage, "DSN", TEST_DSN)
-
-        def args(**given: object) -> argparse.Namespace:
-            base = {
-                **dict.fromkeys(("stage", "daily_limit", "young_days", "pause")),
-                "resume": False,
-            }
-            return argparse.Namespace(domain="Mail-B.example.test", **(base | given))
+        args = _args
 
         async with committed_sessions() as factory:
             incomplete = await sending_domains.cmd_sending_domain(args())
@@ -246,6 +247,84 @@ class TestConsole:
         )
         assert (resumed.paused_at, resumed.daily_limit) == (None, 25)
         assert resumed.young_until < paused.young_until  # type: ignore[operator]
+
+    async def test_a_writing_domain_is_not_held_and_a_new_one_says_it_waits(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """С домена доноров письма уже уходили — выдержки по умолчанию нет, фильтр его ящик
+        не отсеивает и строка говорит «пишет»; новый домен — на выдержке, и строка так и говорит."""
+        monkeypatch.setattr(storage, "DSN", TEST_DSN)
+        async with committed_sessions() as factory:
+            async with factory() as session:
+                box = await make_sender(session, "anna@mail-donors.example.test")
+                await _sent_letters(session, box, count=1)
+                await session.commit()
+            for domain in ("mail-donors.example.test", "mail-new.example.test"):
+                await sending_domains.cmd_sending_domain(
+                    _args(domain, stage="donors", daily_limit=40)
+                )
+            async with factory() as session:
+                rows = {
+                    row.domain: row for row in await session.scalars(select(SendingDomainModel))
+                }
+
+        out = capsys.readouterr().out
+        writing, new = rows["mail-donors.example.test"], rows["mail-new.example.test"]
+        assert (writing.young_until, new.young_until is not None) == (None, True)
+        assert "Домен mail-donors.example.test (donors): лимит 40, пишет" in out
+        assert "Домен mail-new.example.test (donors): лимит 40, на выдержке до " in out
+        assert "первые письма с домена не уходят" in out
+        screened = limits.screen(
+            [box],
+            stage=Stage.DONORS,
+            sent_today={},
+            domains=rows,
+            direction_limit=None,
+            now=datetime.now(UTC),
+        )
+        assert [fit.email for fit in screened.fit] == [box.email]
+
+    async def test_a_stage_other_than_its_boxes_is_refused_naming_them(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(storage, "DSN", TEST_DSN)
+        async with committed_sessions() as factory:
+            async with factory() as session:
+                await make_sender(session, "anna@mail-donors.example.test")
+                await session.commit()
+            refused = await sending_domains.cmd_sending_domain(
+                _args("mail-donors.example.test", stage="advertisers", daily_limit=40)
+            )
+            async with factory() as session:
+                rows = (await session.scalars(select(SendingDomainModel))).all()
+
+        out = capsys.readouterr().out
+        assert (refused, rows) == (sending_domains.EXIT_REFUSED, [])
+        assert "его ящики anna@mail-donors.example.test (donors) — другого этапа" in out
+
+
+@pytest.mark.parametrize(
+    ("given", "said"),
+    [
+        (["--daily-limit", "0"], "«0» — нужно целое число от 1"),
+        (["--daily-limit", "-3"], "«-3» — нужно целое число от 1"),
+        (["--young-days", "семь"], "«семь» — нужно целое число от 0"),
+        (["--pause", " "], "причина паузы — словами"),
+        (["--domain", "anna@mail-b.example.test"], "адрес, а не домен: нужен домен ящика, mail-b"),
+        (["--domain", "localhost"], "«localhost» — не домен"),
+    ],
+)
+def test_console_refuses_a_bad_value_in_words_before_the_database(
+    given: list[str], said: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["sending-domain", "--domain", "mail-b.example.test", *given])
+    assert said in capsys.readouterr().err
+
+
+def test_console_domain_with_a_trailing_dot_is_the_same_domain() -> None:
+    parsed = build_parser().parse_args(["sending-domain", "--domain", "Mail-B.example.test."])
+    assert parsed.domain == "mail-b.example.test"
 
 
 def _cycle(connection: Connection) -> tuple[object, object]:

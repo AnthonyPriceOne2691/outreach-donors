@@ -608,6 +608,7 @@ REVIEWED = {
     "messages.contact_id → contacts SET NULL": "держит: история",
     "threads.contact_id → contacts SET NULL": "держит: история",
     "sales_leads.contact_id → contacts SET NULL": "лид знает адрес по email (sales/models.py)",
+    "sales_leads.referred_from_thread_id → threads SET NULL": "лид остаётся, теряет ссылку",
 }
 
 

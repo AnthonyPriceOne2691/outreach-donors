@@ -37,19 +37,19 @@ noreply предпочтительным не становится (`robots`), �
 сайта, который заодно бывает донором, и стал бы ценой, которой никто
 не называл. Такой ответ ведёт человек.
 
-**Ответ лида продаж ждёт человека и ничего не пишет.** Почта продажи
-ещё не ведёт: разбирать такой ответ нечем, а донорский разбор положил бы
-сумму из него ценой в карточку донора, адрес — в контакты домена.
+**Ответ лида продаж уходит своей очереди и ничего не пишет здесь.** Вид
+ответа разбирает модуль продаж (`to_sales_queue`), а донорский разбор положил
+бы сумму из него ценой в карточку донора, адрес — в контакты домена.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import assert_never
+from typing import Any, assert_never
 
 from backend.config import outreach as cfg
 from backend.features.core.domain import ReplyKind, Stage
-from backend.features.core.stages import SALES_NOT_CONNECTED
 from backend.features.replies.extract import Extracted
 from backend.features.replies.inbound import MAX_TEXT_CHARS
 from backend.features.replies.money import amounts_in
@@ -58,8 +58,8 @@ from backend.features.replies.quoting import written_by_hand
 #: Почему ответ рекламодателя ждёт человека — словами, для карточки.
 ADVERTISER_LEAD = "ответ рекламодателя — лид: цену не разбираем, его ведёт человек"
 
-#: Почему ответ лида продаж ждёт человека — словами, для карточки.
-SALES_WAITING = f"ответ продаж ждёт разбора: {SALES_NOT_CONNECTED}"
+#: Почему ответ лида продаж ждёт — словами, для карточки: вид ответа ещё не разобран.
+SALES_WAITING = "ответ продаж ждёт разбора вида: задача в очереди продаж"
 
 #: Почему автоответ ждёт человека — словами, для карточки.
 AUTO_REPLY_WITH_SUM = (
@@ -171,6 +171,44 @@ def priced_by_model(stage: Stage | None) -> bool:
             return False
         case _:
             assert_never(stage)
+
+
+#: Что из треда продаж уходит модулю продаж: вид ответа человека (модель),
+#: перенос шага по автоответу и отписка во всех направлениях (без модели).
+#: Отказ доставки решают правила выше целиком, как у всех этапов.
+TO_SALES = frozenset({ReplyKind.HUMAN, ReplyKind.AUTO_REPLY, ReplyKind.UNSUBSCRIBE})
+
+
+def to_sales_queue(kind: ReplyKind, stage: Stage | None) -> bool:
+    """Уходит ли ответ очереди продаж (`queue.SALES_REPLY_JOB`) — одно правило
+    для приёма и повтора вебхука. Вид ответа (человек, автоответ, отписка)
+    решили правила приёма; модель зовётся только для ответа человека."""
+    return stage is Stage.SALES and kind in TO_SALES
+
+
+def sales_review(snapshot: Mapping[str, Any] | None) -> tuple[bool, str]:
+    """Ждёт ли ответ продаж человека и почему — по снимку разбора вида.
+
+    Вид и путь решает модуль продаж и кладёт в снимок ответа (`model_parse`
+    с `"stage": "sales"`), ждёт ли ответ человека (`waits`) и почему (`reason`).
+    Здесь они только читаются: почта продаж не знает (`mail-does-not-know-sales`).
+    Снимка нет — вид ещё не разобран, ответ ждёт.
+    """
+    if not snapshot or snapshot.get("stage") != Stage.SALES.value:
+        return True, SALES_WAITING
+    reason = snapshot.get("reason")
+    return snapshot.get("waits") is not False, str(reason) if reason else SALES_WAITING
+
+
+def sales_closed_address(snapshot: Mapping[str, Any] | None) -> bool:
+    """Закрыл ли модуль продаж адрес по ответу человека («просит не писать»
+    словами, без человека) — диалог тогда «отписался», как при отписке правилами."""
+    return bool(
+        snapshot
+        and snapshot.get("stage") == Stage.SALES.value
+        and snapshot.get("route") == "unsubscribe"
+        and snapshot.get("waits") is False
+    )
 
 
 def names_a_sum(text: str) -> bool:

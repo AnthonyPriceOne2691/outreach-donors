@@ -378,4 +378,4 @@ def test_repository_registry_mirrors_these_fixtures() -> None:  # A12
     waves, errors = cw.parse_registry((cw.ROOT / cw.REGISTRY).read_text(encoding="utf-8"))
     assert errors == []
     assert {w.name: (w.triggers, w.limit) for w in waves} == ROWS
-    assert {w.name for w in waves if w.state == "deployed"} == {"В0", "В1", "В-обн"}
+    assert {w.name for w in waves if w.state == "deployed"} == {"В0", "В1", "В3а", "В-обн"}

@@ -11,7 +11,8 @@
 3. отписка где угодно — общие `suppressions`: строки без этапа и отписки
    с жалобами любого этапа (приём ответов пишет отписку с этапом кампании,
    `replies/pipeline.py`; человек отписывается от нас, а не от рассылки);
-4. домен в работе у доноров или рекламодателей — идущий диалог;
+4. домен в работе у доноров или рекламодателей — идущий диалог (диалог
+   продаж — не другое направление: у компании бывает несколько лидов);
 5. годность адреса — общий `contacts/quality.rejection_reason` целиком
    и ролевой ящик на бесплатной почте;
 6. почта домена самого адреса — `contacts/mx.mail_route`: один запрос DNS
@@ -59,10 +60,10 @@ from backend.features.contacts.provider import (
 )
 from backend.features.contacts.quality import rejection_reason
 from backend.features.core import usage
-from backend.features.core.domain import SuppressionReason, ThreadStatus
+from backend.features.core.domain import Stage, SuppressionReason, ThreadStatus
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.ops import SuppressionModel
-from backend.features.core.models.outreach import ThreadModel
+from backend.features.core.models.outreach import CampaignModel, ThreadModel
 from backend.features.sales.intake import host_key
 from backend.features.sales.models import (
     LeadStatus,
@@ -85,6 +86,8 @@ VERIFY_CONCURRENCY = 4
 CHUNK = 1000
 #: Диалог, который идёт: лид на таком домене — помеха чужому разговору.
 IN_WORK = (ThreadStatus.OPEN, ThreadStatus.REPLIED)
+#: Чей идущий диалог мешает: другие направления. Диалог продаж — свой.
+OTHER_DIRECTIONS = (Stage.DONORS, Stage.ADVERTISERS)
 #: Сам просил не писать — держит при любом этапе записи, не только без этапа.
 ASKED_NOT_TO_WRITE = (SuppressionReason.UNSUBSCRIBED, SuppressionReason.COMPLAINED)
 OPERATION = "sales_verify"
@@ -283,8 +286,11 @@ async def _load_known(
         unsub_domains.update(
             (await session.scalars(_unsub(SuppressionModel.domain_id, chunk, moment))).all()
         )
-        working = select(ThreadModel.domain_id).where(
-            ThreadModel.domain_id.in_(chunk), ThreadModel.status.in_(IN_WORK)
+        working = (
+            select(ThreadModel.domain_id)
+            .join(CampaignModel, CampaignModel.id == ThreadModel.campaign_id)
+            .where(ThreadModel.domain_id.in_(chunk), ThreadModel.status.in_(IN_WORK))
+            .where(CampaignModel.stage.in_(OTHER_DIRECTIONS))
         )
         busy.update((await session.scalars(working)).all())
     stop = (await session.execute(select(SalesStoplistModel.host, SalesStoplistModel.email))).all()
@@ -427,6 +433,25 @@ def _tally(report: CleaningReport, outcomes: Sequence[Outcome]) -> None:
         if outcome.verdict is not None:
             report.verified += 1
             report.paid_units += outcome.verdict.units
+
+
+async def clean_leads(
+    session: AsyncSession,
+    leads: Sequence[SalesLeadModel],
+    verifier: EmailVerifier,
+    *,
+    now: datetime | None = None,
+) -> CleaningReport:
+    """Очистить названных лидов тем же порядком, что проход. Коммит — за вызывающим:
+    лид из ответа «пишите другому» чистится в транзакции задачи ответа."""
+    moment = now or datetime.now(UTC)
+    report = CleaningReport(checked=len(leads), verifier=verifier.name)
+    halt = _Halt()
+    outcomes = await _clean_batch(session, leads, verifier, moment, halt, report, MX_CONCURRENCY)
+    await _write(session, outcomes, moment)
+    _tally(report, outcomes)
+    report.stopped = halt.reason
+    return report
 
 
 async def clean(

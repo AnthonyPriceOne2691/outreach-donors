@@ -1,54 +1,74 @@
-# Eval smoke — срез `mail-windows-limits`, части 4.3, 4.5a и 4.5b одним PR
+# Eval smoke — модуль «Продажи», Ф2 одним PR (2.1, 2.2, 2.3a, 2.3b)
 
-Derived from spec acceptance (W — 4.3, L — 4.5a, H — 4.5b), the neighbour session's conditions (07.10 ~17:05) and
-the bridge contract (#211, #216). Run during verify.
+Derived from spec acceptance (id — буква части и номер: Q — 2.1, K — 2.2, R — 2.3a, U — 2.3b). Run during verify.
 
-## 4.3 — окно получателя
+## 2.1 — своя очередь
 
-- [x] W1 Добивка продаж в субботу 10:00 (Берлин) ждёт до понедельника 09:00 + сдвиг, в 9:00–9:30; в 9:30 ушла с ящика переписки — `tests/test_sales_send_window.py::test_a1_saturday_followup_waits_for_monday_nine_to_half_past`; чистая функция — `tests/test_send_window.py::test_a1_saturday_moves_to_monday_nine_to_half_past_by_the_generator`.
-- [x] W2 Пояс по порядку лида, страны (DE → Europe/Berlin), гипотезы — `test_a2_zones_of_a_lead_go_lead_country_hypothesis`, `test_a2_the_first_known_zone_decides_and_an_unknown_name_gives_way`.
-- [x] W3 Добивка доноров ночью уходит; `CURRENT` у доноров, рекламодателей и у продаж без модуля — `test_a3_donor_followup_at_night_goes_as_before`, `test_donors_and_advertisers_keep_the_policy_they_had`.
-- [x] W4 `[3, 5]` — второе через 3 дня, третье через 5 после второго, дальше срока нет — `test_a4_sales_chain_goes_three_then_five_days_after_the_previous_letter`.
-- [x] W5 Первое письмо вне окна: `OutsideWindowError`, письмо `queued`, ящик не выбран, `why` — «вне окна получателя»; в окне — ушло — `test_first_letter_outside_the_window_stays_queued_and_is_named`.
-- [x] W6 Пояса нет: «пояс получателя неизвестен» — `test_without_any_zone_the_first_letter_waits_and_the_refusal_says_why`.
-- [x] W7 Ответ в переписке в субботу уходит, и при сломанной политике — `test_an_answer_in_the_thread_does_not_wait_for_the_window`.
-- [x] W8 Модуль бросает в `policy`: проход добивок идёт, донорская ушла, срок продаж через час, причина в журнале — `tests/test_sales_stage_bridge.py::test_a_broken_sales_module_does_not_stop_the_pass_for_donors[policy-…]` (исключение, запрос к базе, стоп-лист не по смыслу).
-- [x] W9 Модуль бросает в `policy` при отправке: «не подключены» с причиной, письмо в очереди — `test_a_broken_sales_module_is_said_in_words_and_the_letter_waits[policy]`.
-- [x] W10 Сбой своих несохранённых изменений почты у вопроса о политике — как есть, модуль не спрошен — `test_own_unsaved_change_failure_surfaces_as_is_and_the_module_is_not_asked[policy]`.
-- [x] W11 Недели перевода часов (Берлин, Нью-Йорк, Сидней), время, которого нет (Берлин 02:30, Гавана 00:30), и время, которое бывает дважды — `test_the_week_of_a_clock_change_opens_at_local_nine`, `test_a_start_inside_a_clock_change`.
-- [ ] Живое письмо продаж в окне и вне его — «заложено»: модуль продаж подключается к мосту в 4.6b-модуле.
+- [x] Q1 Ответ человека в треде продаж — задача `SALES_REPLY_JOB` в очереди `sales` (номер от ответа и письма,
+      `unique`), общая очередь пуста, причина «ждёт разбора вида», диалог `sales_pending`, цены нет, цепочка остановлена —
+      `test_a1_human_answer_goes_to_the_sales_queue_not_to_price_or_lead`, `test_a1_inbox_hands_the_answer_to_sales_and_stops_the_chain`.
+- [x] Q2 Воркер слушает данную ему очередь с планировщиком; compose, лимиты и `restore.sh`; здоровье; тело задачи на
+      базе без общей очереди — `test_a2_*` (6).
+- [x] Q3 Redis лежит: 503 с причиной, ответ сохранён; повтор ставит одну задачу, третий — ни одной; разобранному
+      повтор не ставит — `test_a3_queue_down_means_503_and_the_retry_queues_the_sales_job`, `test_a3_retry_after_the_answer_was_sorted_queues_nothing`.
+- [x] Q4 Автоответ и отказ доставки в треде продаж решают правила приёма, модель не зовётся — `test_a4_*` (2).
+- [x] Q5 Задача продаж и обход `crawl` в «ждёт повтора» получают своё время — `test_retry_time_is_read_from_the_queue_the_job_came_from`
+      (без правки — 2 из 3 красные).
+- [x] Красный прогон: на базе без части — `test_sales_reply_routing.py` не собирается; «имена есть, логика прежняя» —
+      8 из 22 красные; мутанты M1–M6 убиты.
 
-## 4.5a — домены и лимиты
+## 2.2 — вид ответа моделью (В3а)
 
-- [x] L1 Лимит домена на два ящика: фильтр и пачка (ушло 3, осталось 2, причина словами; добивка домена лимит не съела) — `tests/test_sending_limits.py::test_a1_domain_limit_is_shared_by_all_its_boxes`, `TestBatch::test_a1_batch_stops_with_the_domain_in_words`.
-- [x] L2 Лимит направления — `test_direction_limit_stops_every_box_of_the_stage_and_only_it`, `TestBatch::test_direction_limit_stops_the_batch_in_words`.
-- [x] L3 Пауза, выдержка, чужое направление, выдержка прошла — `test_paused_young_or_foreign_domain_is_named` (4 случая).
-- [x] L4 Этапы 1–2 без строк — прежние слова дословно (`TestBatch::test_stages_1_2_without_rows_stop_with_the_old_words`); экран у одних доноров прежний, «Отправлять нечем» — vitest; 409 на пустой очереди — `tests/test_letters_send_queue.py` (зелёный).
-- [x] L5 Свой ящик исчерпан, свободен чужой — добивка ждёт — `test_a_followup_waits_for_its_own_box_even_when_another_is_free`.
-- [x] L6 Экран: разделы, пометка, лимиты — vitest «разделы этапов, пометка продаж, лимит домена и направления»; API — `TestScreen::test_the_senders_screen_shows_stage_domains_and_directions`.
-- [x] L7 Пачка продаж: `{stage: 'sales'}`, 409 словами — vitest «продажи уходят своим этапом, отказ сервера — словами».
-- [x] L8 Консоль: завести, поправить, пауза, снять — `TestConsole::test_a_domain_is_added_tuned_paused_and_resumed`.
-- [x] L9 Ревизия — откат и подъём в процессе — `test_the_revision_goes_down_and_up`.
-- [ ] Живой экран (обе темы, 1440 и 390, клавиатура) — не снимался.
+- [x] K1 «Давайте созвонимся во вторник» — `wants_to_talk`, путь `handoff`, цитата дословно, снимок с версией промпта и
+      моделью, расход `sales_reply_kind`, диалог `sales_pending`; тело задачи с точкой передачи по умолчанию на уровне
+      INFO не падает — `test_a1_call_on_tuesday_is_wants_to_talk_with_a_verbatim_quote`,
+      `test_a1_job_with_the_default_handoff_survives_the_production_log_level` (без правки — `KeyError`).
+- [x] K2 «Сколько стоит аудит?» — `question`, путь агента, ждёт человека — `test_a2_price_question_goes_to_the_agent_path_and_waits`.
+- [x] K3 Адрес «другого» в модель не ушёл, вернулся из метки и сверен с текстом; выдуманный — не взят — `test_a3_*` (2).
+- [x] K4 «Хватит слать спам» (правила мимо) — `unsubscribe` — `test_a4_stop_sending_in_words_is_unsubscribe`.
+- [x] K5 Не-JSON и чужая форма — `parse_failed`, ручная очередь, расход записан — `test_a5_*` (2).
+- [x] K6 Инъекция — письмо между метками, своя метка конца погашена, «цитата»-промпт не хранится — `test_a6_*` (2).
+- [x] K7 429/503 после трёх попыток, сеть, ключ — вида нет, записка с причиной, повтор пишет вид поверх записки, задача
+      поднимает исключение для повтора очереди, постоянный отказ — итог — `test_a7_*` (6).
+- [x] K8 Цитата не из письма — уверенность 0, ручная очередь, диалог не закрыт — `test_a8_quote_not_in_the_letter_lowers_confidence_to_a_human`.
+- [x] K9 Синтетика 28 примеров; ворота зелёные на верных видах, закрыты на опасной ошибке, ложной отписке и порче
+      промпта; внешний набор — по манифесту — `tests/test_sales_reply_eval.py` (11). Живой прогон координатора на
+      синтетике (07.10): `gpt-5` — 28 из 28, опасных 0, ложных отписок 0; `gpt-5-mini` — 28 из 28, человеку 1; порча
+      `--drop-kind wants_to_talk` — полнота 0 %, ворота закрыты.
+- [x] K10 Расход вида ответа на экране — «разбор ответов продаж» — `UsagePage.test.tsx` (без строки — 1 из 10 красный).
+- [x] Путь решает код, ниже порога любой вид — человек, закрывающие виды закрывают диалог —
+      `test_route_is_decided_by_code_not_by_extra_fields_of_the_model`, `test_below_the_threshold_every_kind_waits_for_a_human`,
+      `test_closing_kinds_close_the_thread_and_stop_waiting`.
+- [x] Красный прогон: на голове 2.1 — три файла не собираются, зеркало реестра — 1 красный; мутанты M7–M16 убиты.
 
-## 4.5b — мягкие сигналы и сторож
+## 2.3a — другой контакт
 
-- [x] H1 Три мягких сигнала — журнал `deferred, deferred, blocked, limit_cut`, лимит 20 → 10, фильтр называет причину; через сутки от времени платформы — полный — `tests/test_sales_soft_signals.py::test_a2_three_soft_signals_cut_the_box_for_a_day`.
-- [x] H2 Доноры — следов нет — `test_donors_soft_signals_leave_no_trace`.
-- [x] H3 3 отказа из 20: продажи — пауза, доноры — нет, продажи с молчащим о политике модулем — прежнее правило, журнал пуст — `test_three_bounces_in_twenty_pause_sales_by_the_window_and_not_donors[…]`.
-- [x] H4 Одна жалоба — пауза — `test_one_complaint_in_the_window_pauses_the_sales_box`.
-- [x] H5 Отказы старше окна — паузы нет — `test_bounces_older_than_the_window_do_not_pause`.
-- [x] H6 Ящик молчит 15 минут — тревога (через 10 минут — нет; письмо ушло 5 минут назад — нет; тревога в общем списке) — `tests/test_mail_watch.py::test_a3_a_box_with_waiting_letters_and_nothing_sent_is_quiet`.
-- [x] H7 Все на паузе, очередь есть — «некому» и «все на паузе»; домен на паузе — «некому» — `test_a4_queue_and_nobody_to_send_while_all_boxes_are_paused`.
-- [x] H8 Доноры — новых тревог нет — `test_donors_get_no_new_alarms`.
-- [x] H9 Модуль не ответил о политике — тревога `no-policy:sales` — `test_a_module_without_a_policy_is_an_alarm_and_the_watch_goes_on`.
-- [x] H10 «тревога» и «прошло» — по одному разу на 4 прохода — `test_an_alarm_is_told_once_and_its_end_once`.
-- [x] H11 Без бота — строка «ТРЕВОГА НЕ ОТПРАВЛЕНА» один раз — `test_without_a_bot_the_journal_line_is_said_once`.
-- [x] H12 Telegram не принял — повтор — `test_a_refused_alarm_is_said_again_next_pass`.
-- [x] H13 Проход сторожа отдаёт найденное ленте — `tests/test_reaper.py::test_watch_reports_silence_and_tells_the_feed`.
-- [x] H14 Ревизия журнала — откат и подъём — `test_the_journal_revision_goes_down_and_up`.
-- [ ] Живая тревога в Telegram, канарейка выкатки (A5), восстановление копии (A6) — «заложено», у выкатки d6.
+- [x] R1 «Пишите коллеге: адрес» — новый лид `ready` после очистки, гипотеза, домен, компания, страна и язык
+      исходного, `source=referral`, ссылка на тред; исходный тред `closed`; без адреса и без лида исходного — ждёт
+      человека — `test_a1_referral_makes_a_ready_lead_and_closes_the_thread`, `test_a1_referral_without_*` (2).
+- [x] R2 Адрес в ручном стоп-листе продаж — лид `rejected`, тред закрыт; в общем стоп-листе — `unsubscribed`; диалог
+      продаж компании — не «другое направление», доноров — да — `test_a2_*` (3).
+- [x] R3 Проверка адресов не настроена (`live` без ключа): тело задачи дважды, модель позвана один раз, расход записан,
+      лида нет — `test_a1_misconfigured_verifier_costs_one_model_call_and_no_retry` (без правки — красный).
+- [x] R4 Цикл ревизии `739817077a57` в процессе; решение ссылки в обоих реестрах чистки —
+      `test_migration_adds_the_link_and_takes_it_back`; второй реестр без строки — красный.
+- [x] Красный прогон: на голове 2.2 — все 8 тестов среза и решение ссылки в `test_prune.py` красные; мутанты M21–M23
+      убиты.
 
-## Все части
+## 2.3b — автоответ и отписка
 
-- [x] Красный прогон по частям — новые тесты не собираются на коде до части; мутанты — в verify-report.
+- [x] U1 «Вернусь 14.10» — срок письма 14.10.2026 00:00 UTC, модель не звана, тред открыт; без даты — +7 дней; поздний
+      срок не тянется назад; разбор даты — 14 случаев — `test_a3_*` (4), `test_return_date_*` (2).
+- [x] U2 «Remove me» — стоп-лист `stage NULL`, письмо доноров тому же адресу в очереди снято, срок добивки погашен, тред
+      `unsubscribed`; слова мимо правил — по виду модели; неуверенная отписка ничего не закрывает; доноры без
+      изменений — `test_a4_*` (4).
+- [x] U3 Строка стоп-листа продаж у адреса уже есть — отписка всё равно добавляет строку без этапа;
+      `TestUnsubscribeIsForeverOnEveryStage` (строка одного этапа → общая, общая со сроком → бессрочная, бессрочная →
+      без дубля) — без правки 4 красных, «без дубля» зелёный и до правки.
+- [x] Красный прогон: на голове 2.3a — `test_sales_ooo_unsubscribe.py` не собирается, изменённые тесты — 6 красных;
+      мутанты M17–M20, M24–M26 убиты.
+
+## Не замерено
+
+- [ ] Живой `worker-sales` с настоящей задачей, живой ответ продаж через вебхук, живой eval на наборе владельца и цена
+      вызова в деньгах — «заложено» (писем продаж нет, пока почта им отказывает; набор не положен в `SALES_GOLDEN_DIR`).

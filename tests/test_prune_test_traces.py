@@ -753,6 +753,7 @@ REVIEWED = {
     "sales_leads.contact_id → contacts SET NULL": "лид знает адрес по email (sales/models.py)",
     "agent_drafts.reply_id → replies CASCADE": "черновик ответа своему ящику уходит с ним",
     "agent_drafts.sent_message_id → messages SET NULL": "черновик уходит раньше — с ответом",
+    "sales_leads.referred_from_thread_id → threads SET NULL": "лид остаётся, теряет ссылку",
 }
 
 

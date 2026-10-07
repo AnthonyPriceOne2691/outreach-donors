@@ -3,6 +3,7 @@
     python -m backend.workers.health beats    # циклы: разбор прогонов, добивки
     python -m backend.workers.health worker   # воркер очереди
     python -m backend.workers.health crawler  # обходчик Этапа 2 (своя очередь)
+    python -m backend.workers.health sales    # воркер ответов продаж (своя очередь)
 
 **Зачем, если докер и так перезапускает упавший процесс.** Упавший — да.
 Зависший — нет: процесс жив, контейнер «Up», а добивки не уходят, и узнать
@@ -32,7 +33,7 @@ from redis.exceptions import RedisError
 from rq import Queue, Worker
 from rq.defaults import DEFAULT_WORKER_TTL
 
-from backend.shared.queue import CRAWL_QUEUE_NAME, QUEUE_NAME, connection
+from backend.shared.queue import CRAWL_QUEUE_NAME, QUEUE_NAME, SALES_QUEUE_NAME, connection
 from backend.workers.ticker import BEATS_DIR
 
 logger = logging.getLogger(__name__)
@@ -103,8 +104,10 @@ def main(argv: list[str]) -> int:
         problems = worker_problems(connection(), QUEUE_NAME)
     elif kind == "crawler":
         problems = worker_problems(connection(), CRAWL_QUEUE_NAME)
+    elif kind == "sales":
+        problems = worker_problems(connection(), SALES_QUEUE_NAME)
     else:
-        print("Что проверять: beats (циклы), worker (воркер очереди) или crawler (обходчик)")
+        print("Что проверять: beats (циклы), worker (воркер очереди), crawler (обходчик) или sales")
         return 2
     print("; ".join(problems) if problems else "здоров")
     return 1 if problems else 0

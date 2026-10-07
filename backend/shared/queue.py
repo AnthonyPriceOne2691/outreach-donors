@@ -40,6 +40,10 @@ QUEUE_NAME = "runs"
 #: воркер: разбор ответов и сборка писем ждали бы его.
 CRAWL_QUEUE_NAME = "crawl"
 
+#: Очередь ответов продаж — своя, у своего воркера (`worker-sales`): в общей
+#: очереди ответ лида ждал бы часовой прогон доноров.
+SALES_QUEUE_NAME = "sales"
+
 #: Пути задач строкой в одном месте. Раньше каждый маршрут держал свой:
 #: пока путь знает только тот, кто ставит задачу, его некому свериться
 #: с тем, кто ставит её заново — а разбор мёртвых прогонов ставит ту же
@@ -52,6 +56,7 @@ CONTACTS_JOB = "backend.workers.jobs.find_contacts"
 LEAD_JOB = "backend.workers.jobs.send_lead"
 CRAWL_JOB = "backend.workers.crawl_jobs.crawl_donor"
 JUDGE_CRAWL_JOB = "backend.workers.crawl_jobs.judge_crawl"
+SALES_REPLY_JOB = "backend.workers.sales_jobs.sales_reply"
 
 #: Прогон идёт минутами и может упереться в ожидание провайдера.
 #: Час — потолок, после которого задача считается зависшей: без него
@@ -112,6 +117,11 @@ def parse_job_id(reply_id: int, message_id: str | None = None) -> str:
     return f"parse-reply-{reply_id}-{tail}"
 
 
+def sales_job_id(reply_id: int, message_id: str | None = None) -> str:
+    """Номер задачи ответа продаж: один на ответ, по правилу `parse_job_id`."""
+    return f"sales-{parse_job_id(reply_id, message_id)}"
+
+
 def crawl_job_id(run_id: int) -> str:
     """Номер задачи обхода — свой и заранее: он записывается в строку обхода
     до постановки, и задача, взятая раньше записи, с ней не разойдётся."""
@@ -147,6 +157,10 @@ def crawl_queue(redis: Redis | None = None) -> Queue:
     return Queue(
         CRAWL_QUEUE_NAME, connection=redis or connection(), default_timeout=CRAWL_JOB_TIMEOUT
     )
+
+
+def sales_queue(redis: Redis | None = None) -> Queue:
+    return Queue(SALES_QUEUE_NAME, connection=redis or connection(), default_timeout=JOB_TIMEOUT)
 
 
 #: Ключ живого воркера в Redis. Он держится heartbeat'ом самого rq

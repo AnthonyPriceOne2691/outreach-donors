@@ -94,6 +94,12 @@ describe('расход', () => {
     expect(operationTitle('sales_verify')).toBe('проверка адресов продаж');
   });
 
+  it('вид ответа лида продаж назван словами, а не кодом', () => {
+    // Операция сервера `sales_reply_kind` (`OPERATION_PROVIDERS`, срез продаж 2.2):
+    // без подписи экран показывал «прочее (sales_reply_kind)».
+    expect(operationTitle('sales_reply_kind')).toBe('разбор ответов продаж');
+  });
+
   it('там, где платят не деньгами, нулей в долларах нет', async () => {
     await openUsage({
       ...SPENDING,

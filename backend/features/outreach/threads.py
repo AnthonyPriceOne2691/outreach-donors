@@ -27,9 +27,10 @@
 ждёт человека, пока хоть один ответ не взят в работу, — новый ответ
 после взятого снова работа.
 
-**Ответ лида продаж — своё состояние.** Почта продажи ещё не ведёт
-(`replies.outcome.SALES_WAITING`): ни цены, ни лида рекламодателя в нём
-нет, а «ответил человек» спрятало бы работу за словом «всё хорошо».
+**Ответ лида продаж — своё состояние.** Ни цены, ни лида рекламодателя
+в нём нет: его вид разбирает модуль продаж, а ждёт ли ответ человека и почему,
+читается из снимка разбора (`replies.outcome.sales_review`). «Ответил человек»
+спрятало бы работу за словом «всё хорошо».
 """
 
 from __future__ import annotations
@@ -45,8 +46,9 @@ from backend.features.core.domain import GONE_STATUSES, MessageStatus, ReplyKind
 from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.replies.outcome import (
     AUTO_REPLY_WITH_SUM,
-    SALES_WAITING,
     names_a_sum,
+    sales_closed_address,
+    sales_review,
     waiting_for_review,
 )
 
@@ -134,8 +136,13 @@ def _answered(replies: Sequence[ReplyModel], stage: Stage) -> _Rules:
             return _lead_rules(replies)
         case Stage.SALES:
             human = [r for r in replies if r.kind is ReplyKind.HUMAN]
+            closed = any(sales_closed_address(r.model_parse) for r in human)
             waiting = any(review_of(r, stage).waiting for r in human)
-            return ((waiting, ThreadState.SALES_PENDING), (bool(human), ThreadState.REPLIED))
+            return (
+                (closed, ThreadState.UNSUBSCRIBED),
+                (waiting, ThreadState.SALES_PENDING),
+                (bool(human), ThreadState.REPLIED),
+            )
         case _:
             assert_never(stage)
 
@@ -162,7 +169,7 @@ class Review:
 def review_of(reply: ReplyModel, stage: Stage = Stage.DONORS) -> Review:
     """Ждёт ли ответ человека — у донора. У рекламодателя разбора цены нет
     вовсе: его ответ — лид, и сумма в нём — его расход, а не цена. Ответ
-    человека в продажах ждёт человека: разбирать его почта ещё не умеет.
+    человека в продажах ждёт, пока вид не разобран или путь вида — человек.
 
     Сумма в автоответе считается по сохранённому тексту и только у
     автоответа: у остальных видов она на ожидание не влияет, а читать
@@ -173,8 +180,9 @@ def review_of(reply: ReplyModel, stage: Stage = Stage.DONORS) -> Review:
             return Review(waiting=False)
         case Stage.SALES:
             human = reply.kind is ReplyKind.HUMAN
-            waits = human and reply.reviewed_at is None
-            return Review(waiting=waits, reason=SALES_WAITING if human else None)
+            waits, why = sales_review(reply.model_parse)
+            pending = human and waits and reply.reviewed_at is None
+            return Review(waiting=pending, reason=why if human else None)
         case Stage.DONORS:
             pass
         case _:

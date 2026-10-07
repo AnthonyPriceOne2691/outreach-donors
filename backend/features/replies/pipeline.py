@@ -22,8 +22,8 @@
 цену в отказе доставки или в автоответчике — платить за заведомо пустой
 результат; разбирать её в ответе рекламодателя — записать его расход
 ценой площадки (`outcome.ADVERTISER_LEAD`), в ответе лида продаж — то же
-самое (`outcome.SALES_WAITING`). Автоответ с суммой в валюте
-модели тоже не отдаётся — его цену смотрит человек (`outcome.AUTO_REPLY_WITH_SUM`).
+самое: его вид разбирает очередь продаж (`Accepted.to_sales`). Автоответ с суммой
+в валюте модели тоже не отдаётся — его цену смотрит человек (`outcome.AUTO_REPLY_WITH_SUM`).
 И один ответ разбирается один раз: разобранный или решённый человеком
 модели второй раз не уходит.
 
@@ -83,6 +83,10 @@ class Accepted:
     #: Повтор вебхука застал ответ, чей разбор цены так и не шёл: номер
     #: этого ответа. Разбор ставится снова — иначе он не пошёл бы никогда.
     unparsed: int | None = None
+    #: Ответ уходит очереди продаж (`outcome.to_sales_queue`): вид разбирает модуль продаж.
+    sales_pending: bool = False
+    #: Повтор вебхука застал ответ продаж, чей разбор вида так и не шёл.
+    sales_again: int | None = None
     #: Что назвал автоответ мёртвого ящика и что с этим сделано.
     forwarding: redirect.Redirect = field(default_factory=redirect.Redirect)
 
@@ -92,6 +96,13 @@ class Accepted:
         if self.parse_pending and self.reply_id is not None:
             return self.reply_id
         return self.unparsed
+
+    @property
+    def to_sales(self) -> int | None:
+        """Какой ответ отдать очереди продаж: только что принятый или застрявший."""
+        if self.sales_pending and self.reply_id is not None:
+            return self.reply_id
+        return self.sales_again
 
     @property
     def as_report(self) -> dict[str, object]:
@@ -105,6 +116,7 @@ class Accepted:
             "повтор": self.duplicate,
             "ждёт человека": self.needs_review,
             "разбор снова": self.unparsed,
+            "продажам": self.to_sales,
             **self.forwarding.as_report,
         }
 
@@ -187,6 +199,10 @@ class Inbox:
         «уже принято», и ответ оставался «ждёт разбора» навсегда.
         """
         unparsed = taken.id if await self._repo.parse_never_ran(taken) else None
+        # Тот же случай у ответа продаж: снимка разбора вида нет, человек не решал.
+        unsorted = taken.model_parse is None and taken.reviewed_at is None
+        stage = await self._repo.stage_of(taken) if unsorted else None
+        sales_again = taken.id if outcome.to_sales_queue(taken.kind, stage) else None
         logger.info(
             "приём: письмо %s уже принято ответом №%s — повтор вебхука%s",
             incoming.message_id,
@@ -199,6 +215,7 @@ class Inbox:
             way=binding.BindingWay.NONE,
             duplicate=True,
             unparsed=unparsed,
+            sales_again=sales_again,
         )
 
     async def _settle(
@@ -238,6 +255,7 @@ class Inbox:
             review_reason=consequences.review_reason or found.review_reason,
             parse_pending=verdict.kind is ReplyKind.HUMAN
             and outcome.priced_by_model(addressee.stage),
+            sales_pending=outcome.to_sales_queue(verdict.kind, addressee.stage),
             forwarding=found,
         )
 

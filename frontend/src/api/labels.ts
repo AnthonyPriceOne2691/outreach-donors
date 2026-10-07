@@ -261,6 +261,7 @@ const OPERATION_TITLES: Record<string, string> = {
   agent_draft: 'черновики агента',
   contacts_search: 'поиск адресов',
   sales_verify: 'проверка адресов продаж',
+  sales_reply_kind: 'разбор ответов продаж',
   // Прежние имена: в журнале они остались у старых строк.
   dr_screen: 'просев по DR',
   serp_task: 'запрос выдачи',

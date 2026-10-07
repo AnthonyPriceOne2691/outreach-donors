@@ -157,6 +157,32 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # Ответы продаж — своей очередью (`sales`) и своим воркером: в общей очереди
+  # ответ лида ждал бы часовой прогон доноров. Один процесс; планировщик — на
+  # свою очередь (повторы задачи ответа с паузой).
+  worker-sales:
+    image: ${BACKEND_IMAGE:-outreach-backend:local}
+    build:
+      context: .
+      target: backend
+    command: python -m backend.workers.main --queue sales
+    env_file: *backend-env-file
+    environment: *backend-env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-m", "backend.workers.health", "sales"]
+      interval: 60s
+      timeout: 15s
+      retries: 2
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
   # Обходы Этапа 2 — своей очередью (`crawl`) и своим сервисом: обход донора идёт
   # до получаса, и в общей очереди он занял бы единственный воркер. Сколько
   # доноров идут разом — числом копий (`CRAWL_WORKERS`): в каждой один воркер

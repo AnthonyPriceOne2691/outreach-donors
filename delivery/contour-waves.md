@@ -22,7 +22,7 @@
 |---|---|---|---|---|---|
 | В0 | ① delivery модуля: непреложное и проверка волн | `sales-code` | `this-pr` | deployed | `delivery/CONSTITUTION.md` (раздел «Продажи»), `scripts/contour_waves.py`, `tests/test_contour_waves.py` |
 | В1 | ② граница модуля + ④ гейт мержа | `sales-code` | `sales-in-base` | deployed | контракт `mail-does-not-know-sales` в `.importlinter` и правило того же имени в `.dependency-cruiser.cjs`; обратный прогон — `tests/test_sales_boundary.py`; числа гейтов — ниже, «В1: что видит каждый гейт» |
-| В3а | ⑤ разбор ответов | `sales-prompt`, `sales-llm` | `this-pr` | pending | — |
+| В3а | ⑤ разбор ответов | `sales-prompt`, `sales-llm` | `this-pr` | deployed | промпт файлом `backend/features/sales/prompts/reply_kind.md` (версия и пин — в `model_surface` STATUS); eval `scripts/eval_sales_reply.py` на синтетике `scripts/data/sales_reply_synthetic.jsonl`; внешний набор вне репозитория — манифест `scripts/data/sales_reply_golden.manifest.json`; порча промпта и ворота — `tests/test_sales_reply_eval.py`; живой прогон и пороги — по слову владельца, числа — в verify-report среза 2.2 |
 | В3б | ⑤ агент и судья | `sales-agent-prompt` | `this-pr` | pending | — |
 | В3в | ⑤ судья сегмента | `sales-segment-prompt` | `this-pr` | pending | — |
 | В4 | ⑥ минимум эксплуатации | `sales-autosend` | `this-pr` | pending | — |

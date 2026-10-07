@@ -54,6 +54,18 @@ class _Sales(DomainSettings):
     # задолго до 0,3% почтовых сервисов: на 50 письмах одна жалоба. Решение владельца.
     complaint_pause: float = Field(default=0.001, validation_alias="SALES_COMPLAINT_PAUSE")
 
+    # Уверенность вида ответа, ниже которой ответ ждёт человека (ручная очередь
+    # продаж). Предложение до замера на наборе владельца — как у разбора цены.
+    reply_confidence: float = Field(
+        default=0.80, ge=0.0, le=1.0, validation_alias="SALES_REPLY_CONFIDENCE"
+    )
+    # Каталог внешнего набора ответов для eval (`scripts/eval_sales_reply.py
+    # --golden`): обезличенная переписка лежит вне репозитория — он публичный.
+    golden_dir: str = Field(default="", validation_alias="SALES_GOLDEN_DIR")
+    # Автоответ в треде продаж цепочку не останавливает, а переносит следующий шаг:
+    # до даты возвращения из текста или на столько дней от автоответа.
+    ooo_delay_days: int = Field(default=7, ge=1, le=60, validation_alias="SALES_OOO_DELAY_DAYS")
+
 
 def _days(text: str) -> frozenset[int]:
     """«1-5» или «1,3,5» → дни недели с нуля (0 — понедельник), как `date.weekday()`."""
@@ -98,6 +110,12 @@ SEND_DAYS: frozenset[int] = _days(_s.send_days)
 SEND_OPENS, SEND_CLOSES = _hours(_s.send_hours)
 SEND_SPREAD_MIN: int = _s.send_spread_min
 COMPLAINT_PAUSE: float = _s.complaint_pause
+#: Порог уверенности вида ответа лида (`features/sales/replies.py`).
+REPLY_CONFIDENCE: float = _s.reply_confidence
+#: Где лежит внешний набор ответов для eval. Пусто — не задан.
+GOLDEN_DIR: str = _s.golden_dir.strip()
+#: На сколько дней автоответ переносит следующий шаг продаж, если даты в нём нет.
+OOO_DELAY_DAYS: int = _s.ooo_delay_days
 
 #: Не больше стольких запросов в секунду. Предел Kommo из его документации —
 #: семь в секунду с одного IP для любой интеграции; чаще — 429, а частые 429

@@ -37,6 +37,10 @@
 ответ навсегда оставался «ждёт разбора». Постановка идемпотентна — номер
 задачи от номера ответа (`queue.parse_job_id`), и два повтора подряд
 не дают двух платных разборов.
+
+**Ответ лида продаж — в свою очередь** (`sales`, воркер `worker-sales`): его
+вид разбирает модуль продаж, и часовой прогон доноров в общей очереди его
+не держит. Правила постановки те же: одна задача на ответ, не встала — 503.
 """
 
 from __future__ import annotations
@@ -45,9 +49,11 @@ import base64
 import binascii
 import hmac
 import logging
+from collections.abc import Callable
 
 from fastapi import APIRouter, Depends, Header, Request, Response, status
 from redis.exceptions import RedisError
+from rq import Queue
 from rq.exceptions import DuplicateJobError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -58,7 +64,15 @@ from backend.features.replies.form_data import FormError, read_form
 from backend.features.replies.inbound import MAX_BODY_CHARS, Incoming, masked_for_log
 from backend.features.replies.mime import incoming_from
 from backend.features.replies.pipeline import Inbox
-from backend.shared.queue import PARSE_JOB, parse_job_id, runs_queue, with_retries
+from backend.shared.queue import (
+    PARSE_JOB,
+    SALES_REPLY_JOB,
+    parse_job_id,
+    runs_queue,
+    sales_job_id,
+    sales_queue,
+    with_retries,
+)
 from backend.shared.sliding_window import SlidingWindow
 
 logger = logging.getLogger(__name__)
@@ -165,29 +179,48 @@ def _queue_parse(reply_id: int | None, message_id: str, response: Response) -> s
     """
     if reply_id is None:
         return None
+    job_id = parse_job_id(reply_id, message_id)
+    return _queue(runs_queue, PARSE_JOB, reply_id, job_id, response, what="разбор цены")
+
+
+def _queue_sales(reply_id: int | None, message_id: str, response: Response) -> str | None:
+    """Отдать ответ продаж своей очереди — по тем же правилам, что разбор цены."""
+    if reply_id is None:
+        return None
+    job_id = sales_job_id(reply_id, message_id)
+    return _queue(
+        sales_queue, SALES_REPLY_JOB, reply_id, job_id, response, what="разбор ответа продаж"
+    )
+
+
+def _queue(
+    queue: Callable[[], Queue],
+    job: str,
+    reply_id: int,
+    job_id: str,
+    response: Response,
+    *,
+    what: str,
+) -> str | None:
+    """Одна задача на ответ в названную очередь. Причина — если не вышло."""
     try:
-        runs_queue().enqueue(
-            PARSE_JOB,
-            reply_id,
-            job_id=parse_job_id(reply_id, message_id),
-            unique=True,
-            **with_retries(),
-        )
+        queue().enqueue(job, reply_id, job_id=job_id, unique=True, **with_retries())
     except DuplicateJobError:
         # Задача с этим номером есть: стоит, идёт, ждёт повтора или хранит
         # итог (неделю, упавшая — дольше). Упавшую видно в её исходе, а сам
         # ответ без разбора остаётся «ждёт разбора» у человека.
-        logger.info("приём: задача разбора ответа №%s уже есть — второй не ставлю", reply_id)
+        logger.info("приём: задача (%s) ответа №%s уже есть — второй не ставлю", what, reply_id)
     except RedisError as exc:
         logger.warning(
-            "приём: разбор ответа №%s не поставлен — очередь недоступна (%s). "
+            "приём: %s ответа №%s не поставлен — очередь недоступна (%s). "
             "Ответ сохранён; платформа повторит письмо, и повтор поставит разбор",
+            what,
             reply_id,
             exc,
         )
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         return (
-            f"Ответ №{reply_id} сохранён, но разбор цены не поставлен: очередь недоступна. "
+            f"Ответ №{reply_id} сохранён, но {what} не поставлен: очередь недоступна. "
             "Повторите доставку — разбор встанет при повторе"
         )
     return None
@@ -251,6 +284,7 @@ async def take_reply(
     await session.commit()
 
     refused = _queue_parse(outcome.to_parse, incoming.message_id, response)
+    refused = _queue_sales(outcome.to_sales, incoming.message_id, response) or refused
 
     logger.info(
         "приём: письмо от %s — %s",
