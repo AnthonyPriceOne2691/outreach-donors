@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 
 import pytest
+from backend.features.agent.writer import Written
 from backend.features.core.domain import DraftStatus, UserRole
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.outreach import MessageModel, ReplyModel
@@ -152,3 +153,31 @@ class TestStaleDraft:
 
         assert sent_now.status_code == 200, sent_now.text
         assert (await stored(session, reply.id)).status is DraftStatus.SENT
+
+
+#: Модель часто кончает текст переводом строки — сверка идёт после обрезки.
+_DOUBT = Written(body="We could do $120.\n", needs_human=True, reason="цена за пределом", tokens=9)
+
+
+@pytest.mark.usefixtures("no_caps")
+async def test_escalated_draft_does_not_go_with_its_own_text_as_an_edit(
+    client: AsyncClient,
+    make_user: MakeUser,
+    sign_in: SignIn,
+    session: AsyncSession,
+    conversation: Conversation,
+) -> None:
+    """«Как есть» у отданного человеку закрыто и правкой тем же текстом."""
+    reply = conversation[1]
+    draft = await _drafted(session, reply.id, _DOUBT)
+    assert draft.status is DraftStatus.ESCALATED
+    token = await _admin(make_user, sign_in)
+    path = f"/api/agent/drafts/{draft.id}/send"
+
+    same = await client.post(path, json={"body": "  We could do $120.\n"}, headers=bearer(token))
+    edited = await client.post(path, json={"body": "We could do $100."}, headers=bearer(token))
+
+    assert same.status_code == 409
+    assert "прежним текстом через правку тоже" in same.json()["detail"]
+    assert edited.status_code == 200, edited.text
+    assert (await stored(session, reply.id)).final_body == "We could do $100."

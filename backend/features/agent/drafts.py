@@ -138,8 +138,7 @@ async def send_draft(
     """Отправить ответ по черновику: `body=None` — как есть, иначе — с правкой."""
     shown = await one(session, draft_id)
     draft = _undecided(shown.draft)
-    if body is None:
-        _sendable_as_is(draft)
+    _refuse_as_is(draft, body)
     if shown.thread_id is None:
         raise DraftDecisionError(f"Ответ черновика №{draft_id} ни к чему не привязан")
     why = await stale(session, draft, shown.thread_id)
@@ -240,14 +239,20 @@ async def reject_draft(
     return draft
 
 
-def _sendable_as_is(draft: AgentDraftModel) -> None:
-    """«Как есть» уходит только готовый черновик с текстом."""
-    if draft.status is DraftStatus.ESCALATED:
+def _refuse_as_is(draft: AgentDraftModel, body: str | None) -> None:
+    """«Как есть» уходит только готовый черновик с текстом.
+
+    У отданного человеку «как есть» закрыто и правкой тем же текстом (после
+    обрезки пробелов): иначе запрет обходится одним запросом с прежним текстом.
+    """
+    unchanged = body is None or body.strip() == draft.body.strip()
+    if draft.status is DraftStatus.ESCALATED and unchanged:
         raise DraftDecisionError(
             f"Черновик №{draft.id} отдан человеку ({draft.reason or 'без причины'}) — "
-            "как есть он не уходит: поправьте текст или ответьте сами"
+            "как есть он не уходит, и прежним текстом через правку тоже: поправьте текст "
+            "или ответьте сами"
         )
-    if not draft.body.strip():
+    if body is None and not draft.body.strip():
         raise DraftDecisionError(f"В черновике №{draft.id} нет текста — отправлять нечего")
 
 
