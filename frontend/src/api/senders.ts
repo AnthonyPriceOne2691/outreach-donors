@@ -1,21 +1,17 @@
 /**
- * Домены рассылки по этапу: направление ящика, лимиты доменов и направлений (Ф4, 4.5a).
- *
- * Лимиты считают первые письма за сутки — тем же счётом, что фильтр отправки
- * (`backend/features/outreach/limits.py`); у ящика `sent_today` — все письма, как было.
- * Своим файлом, а не в `types.ts`: тот у потолка длины.
+ * Домены рассылки по этапу (Ф4, 4.5a): лимиты считают первые письма за сутки — тем же
+ * счётом, что фильтр отправки; у ящика `sent_today` — все письма, как было.
+ * Своим файлом: `types.ts` у потолка длины.
  */
 
 import { request } from './client';
 import type { Stage } from './stages';
 import type { SenderCard, SendersView } from './types';
 
-/** Ящик с направлением: у этапов домены отправки свои. */
 export interface StagedSender extends SenderCard {
   stage: Stage;
 }
 
-/** Домен рассылки строкой лимитов: лимит, выдержка, пауза и первые письма за сутки. */
 export interface DomainLimit {
   domain: string;
   stage: Stage;
@@ -26,7 +22,7 @@ export interface DomainLimit {
   pause_reason: string | null;
 }
 
-/** Направление целиком: дневной лимит (`null` — своего нет) и первые письма за сутки. */
+/** `daily_limit: null` — своего лимита у направления нет. */
 export interface DirectionLimit {
   stage: Stage;
   daily_limit: number | null;

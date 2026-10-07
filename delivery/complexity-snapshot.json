@@ -322,12 +322,12 @@
       "worst": "—"
     },
     "backend/api/senders/routes.py": {
-      "lines": 108,
-      "complexity": 5,
+      "lines": 105,
+      "complexity": 6,
       "worst": "all_senders:36"
     },
     "backend/api/senders/schemas.py": {
-      "lines": 114,
+      "lines": 101,
       "complexity": 2,
       "worst": "of:41"
     },
@@ -497,9 +497,9 @@
       "worst": "_report:190"
     },
     "backend/cli/main.py": {
-      "lines": 494,
+      "lines": 497,
       "complexity": 9,
-      "worst": "_print_report:254"
+      "worst": "_print_report:256"
     },
     "backend/cli/probe_advertiser.py": {
       "lines": 93,
@@ -532,9 +532,14 @@
       "worst": "add_parsers:49"
     },
     "backend/cli/senders_admin.py": {
-      "lines": 212,
+      "lines": 134,
       "complexity": 6,
-      "worst": "cmd_sender_add:49"
+      "worst": "cmd_sender_add:42"
+    },
+    "backend/cli/sending_domains.py": {
+      "lines": 81,
+      "complexity": 7,
+      "worst": "_apply:53"
     },
     "backend/config/__init__.py": {
       "lines": 1,
@@ -1417,9 +1422,9 @@
       "worst": "—"
     },
     "backend/features/outreach/limits.py": {
-      "lines": 103,
+      "lines": 95,
       "complexity": 10,
-      "worst": "screen:52"
+      "worst": "screen:44"
     },
     "backend/features/outreach/own_inboxes.py": {
       "lines": 472,

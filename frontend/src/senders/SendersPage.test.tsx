@@ -130,25 +130,20 @@ describe('отправлено сегодня', () => {
 });
 
 describe('домены по этапу (4.5a)', () => {
-  const SALES_BOX = {
-    ...SENDERS.senders[0],
-    id: 3,
-    domain: 'mail-sales.example.test',
-    email: 'hello@mail-sales.example.test',
-    stage: 'sales',
-  };
+  const domain = 'mail-sales.example.test';
+  const SALES_BOX = { ...SENDERS.senders[0], id: 3, domain, email: `hi@${domain}`, stage: 'sales' };
   const BY_STAGE = {
     senders: [{ ...SENDERS.senders[0], stage: 'donors' }, SALES_BOX],
     enabled_domains: 2,
     domains: [
       {
-        domain: 'mail-sales.example.test',
+        domain,
         stage: 'sales',
         daily_limit: 30,
         sent_today: 4,
-        young_until: '2099-10-14T09:00:00+00:00',
         paused_at: null,
         pause_reason: null,
+        young_until: '2099-10-14T09:00:00+00:00',
       },
     ],
     directions: [

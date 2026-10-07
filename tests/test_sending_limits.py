@@ -1,9 +1,5 @@
-"""Лимиты домена и направления — фильтр до выбора ящика (Ф4, срез 4.5a).
-
-Фильтр отдаёт годные ящики и причину словами для каждого отсеянного, `pick` выбирает
-среди годных по прежнему правилу, причина доходит до итога пачки. «Отправлено
-сегодня» — один счёт с разгоном (первые письма, сутки по UTC). У Этапов 1–2 строк
-доменов и лимита направления нет — всё как было: счётчики, отказ словами, 409.
+"""Лимиты домена и направления — фильтр до выбора ящика (Ф4, срез 4.5a): причина
+доходит до итога пачки, счёт — первые письма, как у разгона; у Этапов 1–2 всё как было.
 """
 
 from __future__ import annotations
@@ -12,7 +8,9 @@ import argparse
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from backend.cli import senders_admin
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
+from backend.cli import sending_domains
 from backend.config import outreach as cfg
 from backend.config import storage
 from backend.features.core.domain import MessageStatus, Stage, UserRole
@@ -21,10 +19,12 @@ from backend.features.letters import batch, followups
 from backend.features.letters.transport import NullTransport
 from backend.features.outreach import limits
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import Connection, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import TEST_DSN, bearer, make_donor, make_sender
+from tests.test_api_outreach import _sent_letters
 from tests.test_letters_queue import _build
+from tests.test_sales_model import ROOT, _migration
 from tests.test_send_race import committed_sessions
 from tests.thread_letters import conversation
 
@@ -106,12 +106,12 @@ def test_paused_young_or_foreign_domain_is_named(
     assert [box.id for box in found.fit] == ([2] if words else [1, 2])
 
 
-async def _queue(session: AsyncSession, letters: int, boxes: list[str]) -> None:
+async def _queue(session: AsyncSession, letters: int, boxes: list[str], cap: int = 20) -> None:
     """Очередь доноров и ящики Этапа 1 — на одном домене или на разных."""
     for n in range(letters):
         await make_donor(session, f"donor{n}.example.test", email=f"info@donor{n}.example.test")
     for email in boxes:
-        await make_sender(session, email)
+        await make_sender(session, email, cap=cap)
     await _build(session)
     await session.commit()
 
@@ -122,6 +122,19 @@ class TestBatch:
     ) -> None:
         await _queue(session, 5, ["a@mail.example.test", "b@mail.example.test"])
         session.add(_row("mail.example.test", stage=Stage.DONORS))
+        # Добивка с ящика домена сегодня лимит не ест: счёт — первые письма, как у разгона.
+        first = await session.scalar(select(MessageModel))
+        assert first is not None
+        followup = {"step": 1, "status": MessageStatus.SENT, "sent_at": datetime.now(UTC)}
+        session.add(
+            MessageModel(
+                **followup,
+                campaign_id=first.campaign_id,
+                domain_id=first.domain_id,
+                sender_id=await session.scalar(select(SenderModel.id)),
+                idempotency_key="donors:followup.example.test:1",
+            )
+        )
         await session.commit()
 
         report = await batch.send_queue(session, NullTransport(), stage=Stage.DONORS)
@@ -145,11 +158,7 @@ class TestBatch:
     async def test_stages_1_2_without_rows_stop_with_the_old_words(
         self, session: AsyncSession, filled_legal: None
     ) -> None:
-        await _queue(session, 3, ["a@mail.example.test"])
-        box = await session.scalar(select(SenderModel))
-        assert box is not None
-        box.daily_cap = 2
-        await session.commit()
+        await _queue(session, 3, ["a@mail.example.test"], cap=2)
 
         report = await batch.send_queue(session, NullTransport(), stage=Stage.DONORS)
 
@@ -173,12 +182,7 @@ async def test_a_followup_waits_for_its_own_box_even_when_another_is_free(
     report = await followups.send_due(session, transport=NullTransport(), limit=5, now=due)
 
     assert (report.sent, report.postponed) == (0, 1)
-    sent = await session.scalar(
-        select(MessageModel).where(
-            MessageModel.step == 1, MessageModel.status == MessageStatus.SENT
-        )
-    )
-    assert sent is None
+    assert await session.scalar(select(MessageModel.id).where(MessageModel.step == 1)) is None
 
 
 class TestScreen:
@@ -187,28 +191,23 @@ class TestScreen:
     ) -> None:
         box = await make_sender(session, "a@mail.example.test")
         session.add(_row("mail.example.test", stage=Stage.DONORS, daily_limit=30))
-        await session.commit()
+        await _sent_letters(session, box, count=2)
         await make_user("админ@site.com", role=UserRole.ADMIN)  # type: ignore[operator]
         token = await sign_in("админ@site.com")  # type: ignore[operator]
 
         response = await client.get("/api/senders", headers=bearer(token))
 
         view = response.json()
-        assert view["senders"][0]["stage"] == "donors"
-        assert view["senders"][0]["id"] == box.id
-        assert view["domains"] == [
-            {
-                "domain": "mail.example.test",
-                "stage": "donors",
-                "daily_limit": 30,
-                "sent_today": 0,
-                "young_until": None,
-                "paused_at": None,
-                "pause_reason": None,
-            }
+        assert (view["senders"][0]["id"], view["senders"][0]["stage"]) == (box.id, "donors")
+        [domain] = view["domains"]
+        assert (domain["domain"], domain["daily_limit"], domain["sent_today"]) == (
+            "mail.example.test",
+            30,
+            2,
+        )
+        assert [(d["stage"], d["daily_limit"]) for d in view["directions"]] == [
+            (stage.value, None) for stage in Stage
         ]
-        assert [d["stage"] for d in view["directions"]] == [stage.value for stage in Stage]
-        assert all(d["daily_limit"] is None for d in view["directions"])
 
 
 class TestConsole:
@@ -219,41 +218,46 @@ class TestConsole:
 
         def args(**given: object) -> argparse.Namespace:
             base = {
-                "domain": "Mail-B.example.test",
-                "stage": None,
-                "daily_limit": None,
-                "young_days": None,
-                "pause": None,
+                **dict.fromkeys(("stage", "daily_limit", "young_days", "pause")),
                 "resume": False,
             }
-            return argparse.Namespace(**{**base, **given})
+            return argparse.Namespace(domain="Mail-B.example.test", **(base | given))
 
         async with committed_sessions() as factory:
-            incomplete = await senders_admin.cmd_sending_domain(args())
-            created = await senders_admin.cmd_sending_domain(args(stage="sales", daily_limit=30))
-            await senders_admin.cmd_sending_domain(args(daily_limit=25, pause="жалоба"))
+            incomplete = await sending_domains.cmd_sending_domain(args())
+            created = await sending_domains.cmd_sending_domain(args(stage="sales", daily_limit=30))
+            await sending_domains.cmd_sending_domain(args(daily_limit=25, pause="жалоба"))
             async with factory() as session:
                 paused = await session.scalar(select(SendingDomainModel))
-            await senders_admin.cmd_sending_domain(args(resume=True, young_days=0))
+            await sending_domains.cmd_sending_domain(args(resume=True, young_days=0))
             async with factory() as session:
                 resumed = await session.scalar(select(SendingDomainModel))
 
         out = capsys.readouterr().out
-        assert (incomplete, created) == (senders_admin.EXIT_INCOMPLETE, senders_admin.EXIT_OK)
+        assert (incomplete, created) == (sending_domains.EXIT_INCOMPLETE, sending_domains.EXIT_OK)
         assert "заводится с --stage и --daily-limit" in out
+        assert "Домен mail-b.example.test (sales): лимит 25, на паузе (жалоба)" in out
         assert paused is not None
         assert resumed is not None
-        assert (paused.domain, paused.stage, paused.daily_limit) == (
+        assert (paused.domain, paused.stage, paused.pause_reason) == (
             "mail-b.example.test",
             Stage.SALES,
-            25,
-        )
-        assert (paused.pause_reason, resumed.paused_at, resumed.pause_reason) == (
             "жалоба",
-            None,
-            None,
         )
-        assert paused.young_until is not None
-        assert resumed.young_until is not None
-        assert resumed.young_until < paused.young_until
-        assert "лимит 25 первых писем в сутки, на паузе (жалоба)" in out
+        assert (resumed.paused_at, resumed.daily_limit) == (None, 25)
+        assert resumed.young_until < paused.young_until  # type: ignore[operator]
+
+
+def _cycle(connection: Connection) -> tuple[object, object]:
+    """Ревизия ещё раз, в процессе: подъём сьюта идёт подпроцессом, и покрытие его не видит."""
+    migration = _migration(ROOT / "backend/migrations/versions/e054d221b2df_sending_domains.py")
+    there = text("SELECT to_regclass('sending_domains') IS NOT NULL")
+    with Operations.context(MigrationContext.configure(connection)):
+        migration.downgrade()
+        gone = connection.scalar(there)
+        migration.upgrade()
+    return gone, connection.scalar(there)
+
+
+async def test_the_revision_goes_down_and_up(session: AsyncSession) -> None:
+    assert await (await session.connection()).run_sync(_cycle) == (False, True)

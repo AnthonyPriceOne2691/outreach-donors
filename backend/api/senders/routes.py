@@ -42,24 +42,21 @@ async def all_senders(
     today = await repository.sent_today()
     # Лимиты домена и направления считают первые письма — тем же счётом, что фильтр.
     first = await repository.sent_today(first_only=True)
-    by_domain: dict[str, int] = {}
-    by_stage: dict[Stage, int] = {}
-    for sender in found:
-        by_domain[sender.domain] = by_domain.get(sender.domain, 0) + first.get(sender.id, 0)
-        by_stage[sender.stage] = by_stage.get(sender.stage, 0) + first.get(sender.id, 0)
     rows = await limits.sending_domains(session)
     return SendersView(
         senders=[SenderCard.of(s, sent_today=today.get(s.id, 0)) for s in found],
         enabled_domains=len(await repository.enabled_domains()),
         domains=[
-            DomainLimit.of(row, sent_today=by_domain.get(name, 0))
+            DomainLimit.model_validate(row).model_copy(
+                update={"sent_today": sum(first.get(s.id, 0) for s in found if s.domain == name)}
+            )
             for name, row in sorted(rows.items())
         ],
         directions=[
             DirectionLimit(
                 stage=stage,
                 daily_limit=cfg.direction_limit(stage.value),
-                sent_today=by_stage.get(stage, 0),
+                sent_today=sum(first.get(s.id, 0) for s in found if s.stage is stage),
             )
             for stage in Stage
         ],

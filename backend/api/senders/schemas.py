@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from backend.features.core.domain import SenderStatus, Stage
-from backend.features.core.models.outreach import SenderModel, SendingDomainModel
+from backend.features.core.models.outreach import SenderModel
 from backend.features.outreach.senders import Warmup, warmup_state
 
 
@@ -67,31 +67,18 @@ class DisableRequest(BaseModel):
 
 
 class DomainLimit(BaseModel):
-    """Домен рассылки строкой `sending_domains`: лимит, выдержка, пауза и счёт за сутки.
+    """Домен рассылки строкой `sending_domains`. `sent_today` — первые письма со всех
+    ящиков домена: тот же счёт, что у лимита и разгона (`outreach/limits.py`)."""
 
-    `sent_today` — первые письма со всех ящиков домена: тот же счёт, что у лимита
-    и разгона (`outreach/limits.py`); добивки в нём не считаются.
-    """
+    model_config = ConfigDict(from_attributes=True)
 
     domain: str
     stage: Stage
     daily_limit: int
-    sent_today: int
+    sent_today: int = 0
     young_until: datetime | None = None
     paused_at: datetime | None = None
     pause_reason: str | None = None
-
-    @classmethod
-    def of(cls, row: SendingDomainModel, *, sent_today: int) -> DomainLimit:
-        return cls(
-            domain=row.domain,
-            stage=row.stage,
-            daily_limit=row.daily_limit,
-            sent_today=sent_today,
-            young_until=row.young_until,
-            paused_at=row.paused_at,
-            pause_reason=row.pause_reason,
-        )
 
 
 class DirectionLimit(BaseModel):

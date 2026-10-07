@@ -59,7 +59,9 @@ from backend.cli.sales_commands import FAILURES as SALES_FAILURES
 from backend.cli.sales_commands import KEPT_ON_INTERRUPT as SALES_KEPT
 from backend.cli.sales_commands import add_parsers as add_sales_parsers
 from backend.cli.senders_admin import add_parser as add_senders_parser
-from backend.cli.senders_admin import cmd_sender_add, cmd_senders, cmd_sending_domain
+from backend.cli.senders_admin import cmd_sender_add, cmd_senders
+from backend.cli.sending_domains import add_parser as add_domains_parser
+from backend.cli.sending_domains import cmd_sending_domain
 from backend.config import ahrefs as ahrefs_cfg
 from backend.config import filters, storage
 from backend.config import judge as judge_cfg
@@ -394,6 +396,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_advertisers_parser(sub)
     add_letters_parser(sub)
     add_senders_parser(sub)
+    add_domains_parser(sub)
     add_mail_test_parser(sub)
     add_prune_parser(sub)
     geo_shares.add_parser(sub)
