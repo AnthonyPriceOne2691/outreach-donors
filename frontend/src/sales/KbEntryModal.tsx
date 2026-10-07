@@ -11,7 +11,6 @@
  */
 
 import {
-  Alert,
   Button,
   Group,
   Modal,
@@ -25,13 +24,13 @@ import {
 import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 
-import { refusalOf } from '../api/client';
 import { addKbEntry, changeKbEntry } from '../api/sales';
 import { KB_KINDS, kbKindTitle } from '../api/salesLabels';
 import type { KbEntryCard, KbKind, KbLimits } from '../api/salesTypes';
 import { formatNumber } from '../format';
 import { changed, draftOf, refusalsOf } from './kbDraft';
 import type { KbDraft } from './kbDraft';
+import { SaveRefusal } from './SaveRefusal';
 
 interface Props {
   /** Правка — запись; новая — `null`. */
@@ -143,11 +142,7 @@ export function KbEntryModal({ entry, kinds, limits, onClose, onSaved }: Props) 
         }}
       >
         <Stack gap="sm">
-          {save.error !== null && (
-            <Alert color="red" title="Не сохранили">
-              {refusalOf(save.error)}
-            </Alert>
-          )}
+          <SaveRefusal error={save.error} />
           <KbFields
             draft={draft}
             kinds={kinds}

@@ -1,5 +1,5 @@
 /**
- * Продажи: гипотезы, лиды и загрузка базы.
+ * Продажи: гипотезы, лиды, загрузка базы, база знаний, отправитель и цепочка писем.
  *
  * Списки — обычным `request`. Загрузка — файлом или ссылкой на Google-таблицу
  * формой `multipart/form-data` (контракт сервера 1.3c): байты файла уходят как
@@ -17,6 +17,11 @@ import { clearToken, readToken } from '../auth/session';
 import { ApiError, AuthError, DeniedError, request } from './client';
 import type {
   AgentView,
+  ChainPreviewBody,
+  ChainPreviewView,
+  ChainStepBody,
+  ChainStepCard,
+  ChainView,
   HypothesesView,
   IntakeView,
   KbEntryBody,
@@ -153,4 +158,21 @@ export function readSender(): Promise<SenderView> {
 /** Отправитель целиком: пустое поле уходит `null` — «не задано». */
 export function saveSender(body: SenderBody): Promise<SenderView> {
   return request<SenderView>('/sales/sender', { method: 'POST', body });
+}
+
+/** Набор шаблонов цепочки и цепочки по языкам: общий (`null`) или гипотезы. */
+export function readChain(hypothesis: number | null): Promise<ChainView> {
+  return request<ChainView>(
+    hypothesis === null ? '/sales/chain' : `/sales/chain?hypothesis=${hypothesis}`,
+  );
+}
+
+/** Записать шаг набора: завести или поправить — ключ «набор, шаг, язык» знает сервер. */
+export function saveChainStep(body: ChainStepBody): Promise<ChainStepCard> {
+  return request<ChainStepCard>('/sales/chain', { method: 'POST', body });
+}
+
+/** Письмо глазами адресата: выдуманные значения, подпись и адрес из настроек. Без записи. */
+export function previewChainStep(body: ChainPreviewBody): Promise<ChainPreviewView> {
+  return request<ChainPreviewView>('/sales/chain/preview', { method: 'POST', body });
 }

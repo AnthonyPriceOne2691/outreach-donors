@@ -1,211 +1,255 @@
 # Verify report
 
-**Поставка:** срез `sales-kb` (модуль «Продажи», 3.1) — база знаний агента и настройки отправителя.
-Одним PR под постоянный вейвер владельца для модульных срезов продаж (05.10) — числа в разделе «Предохранитель».
+**Поставка:** срез `sales-chain` (модуль «Продажи», 4.6a — часть 1 среза 4.6) — цепочка писем продаж в базе и
+экран правки. Одним PR под постоянный вейвер владельца для модульных срезов продаж (05.10).
 
 **Date:** 2026-10-05
 **Verifier:** process:ci — обязательные `check`, `web`, `docker`, на PR ещё `gates` и `delivery`; до пуша — локальные прогоны ниже; общие точки — на ревью соседней сессии outreach-donors
-**asserts_reviewed_by:** deferred reason=157 утверждений без примера спеки ждут подписи человека (36 привязаны к A1–A3 и уроку L5); подписывает владелец при ревью, дайджест в конце отчёта
+**asserts_reviewed_by:** deferred reason=192 утверждений без примера спеки ждут подписи человека: примеры C1–C11 записаны после кода, связь примеров с тестами — в eval-smoke; подписывает владелец при ревью, дайджест в конце
 **CI run:** нет — снимается на PR; пре-пуш гоняет полный набор
-**Commit:** ветка `sales/3.1-kb-pr` на main `b07ca62`; полные прогоны агента — на вершине его ветки `06722e8` (тот же код среза), после переноса — проверки ниже
+**Commit:** ветка PR на main `94e5945`; полные прогоны агента — на вершине его ветки `c1ba8a2` (тот же код среза), после переноса — проверки ниже
 
 ## Сборка
 
-Ветка агента `sales/3.1-kb` (на main `b1f0f60`) перенесена на main `b07ca62` (после #171 и #173): документы — первым
-коммитом (`sales-kommo` в архив, активный срез `sales-kb`), затем 11 коммитов агента в том же порядке. При переносе:
+Ветка агента (на main `7085826`, после 3.1) перенесена на main `94e5945` (после #174, #172, #177, #175, #179, #176, #182, #181, #183, #184, #186, #185, #187, #188, #189, #190, #191, #193, #192, #195, #196, #194): документы —
+первым коммитом (`sales-kb` в архив, активный срез `sales-chain`), затем 7 коммитов агента в том же порядке и правка
+проверяльщика адресов последним коммитом кода. При переносе:
 
-- миграция `c6efe4e5de7e` перецеплена с `8dbc46c01caf` на голову main `d7da62eb8165` (настройки агента переписки, #171):
-  `down_revision` и строка `Revises:` — больше ничего; голова одна — `a51e5688f79e`; база тестов поднимается
-  `alembic upgrade head` с нуля, `test_migrations_match_models` зелёный;
-- конфликты T1 с #171 — только перечни, куда обе стороны дописали своё: `AuditAction` (`AGENT_SETTINGS_CHANGED` и
-  `SALES_KB_CHANGED`), таблицы в `tests/test_schema.py`; снимок сложности пересчитан `complexity.py --update` на каждом
-  коммите, `.secrets.baseline` пересканирован;
-- сообщение коммита T5 «WIP … остановлен на ночь» заменено сутью коммита (новые коммиты, запушенная история не
-  переписывалась);
-- файлы среза совпадают с вершиной агента `06722e8` байт в байт — отличаются только две строки миграции.
+- миграция `723e3ddab31f` перецеплена с `a51e5688f79e` на голову main `ad4a79bc6000` — `down_revision` и строка `Revises:`;
+  голова одна — `cbc5aadf4fc2`; база тестов поднимается `alembic upgrade head` с нуля;
+- конфликты — только в общих перечнях и снимках: `cli/main.py` — обе стороны; снимок сложности пересчитан,
+  `.secrets.baseline` — сторона main и пересканирование; в файлах среза конфликтов нет;
+- сообщение WIP-коммита ветки агента заменено сутью (новые коммиты, запушенная история не переписывалась).
 
 | SHA | Суть | Файлов (без `delivery/`) | +/− | net |
 |---|---|---|---|---|
-| `9fe2fec` | T1: таблицы `sales_kb_entries`/`sales_settings`, версия базы, выборка `facts`, правила записи, журнал, `check_ready`; миграции; тесты A1–A3, цикл миграции | 12 | +1 434/−6 | 1 428 |
-| `65dbf71` | подпись операции расхода `sales_verify` + тест функцией `operationTitle` (добавка координатора) | 2 | +7/−0 | 7 |
-| `a06d92e` | T2: API под `Permission.SALES` — записи, предпросмотр агента, отправитель; отказы через `api/errors.py` | 5 | +593/−0 | 593 |
-| `71f42b8` | T3: `outreach sales-kb-load` — JSON вне репозитория, всё или ничего, повтор не задваивает | 4 | +597/−3 | 594 |
-| `2f07aac` | правило имени отправителя в `check_ready` (решение владельца 05.10) + тесты A3 | 3 | +42/−16 | 26 |
-| `6a85286` | шапки `SalesSettingsModel` и миграции называют имя среди обязательного | 2 | +4/−3 | 1 |
-| `24334f2` | T4: вкладки «База знаний» и «Отправитель», клиент, типы, подписи, сверка кодов с экраном | 15 | +1 467/−29 | 1 438 |
-| `58db76b` | T5: правки экрана по снимкам и каталог замеров шести экранов (сообщение «WIP» ветки агента заменено сутью при переносе) | 5 | +147/−13 | 134 |
-| `5b31856` | плашка «готова» не перечисляет поля — правило держит сервер | 2 | +16/−8 | 8 |
-| `fc3a787` | каталог замеров: значения однострочных полей окна не меряются (кромка в вырезке), текст записи — длинным текстом | 1 | +23/−5 | 18 |
-| `202da46` | тест консоли очистки (1.4) не настраивает журнал всерьёз — изоляция соседнего `test_cli_main.py` | 1 | +3/−0 | 3 |
+| `9811dda` | ядро: таблица, миграции, правила записи `chain_text.py`, набор/версия/запись с журналом `chain.py`, общий `outside.py` (`kb_load.py` на нём); тесты ядра (77) | 12 | +1 384/−49 | 1 335 |
+| `9baa050` | API под `Permission.SALES`: набор, запись шага, предпросмотр; тесты API (19) | 4 | +551/−2 | 549 |
+| `9041a2f` | консоль `outreach sales-chain-load`; тесты консоли (21) | 4 | +679/−2 | 677 |
+| `bd10037` | вкладка «Цепочка писем», окно шага, письмо глазами адресата, `SaveRefusal`; vitest (12) и сверка кодов (4) | 15 | +1 283/−17 | 1 266 |
+| `b08895c` | экраны цепочки в каталоге замеров, классы-якоря (сообщение «WIP» ветки агента заменено сутью при переносе) | 4 | +87/−5 | 82 |
+| `ab93f19` | замер окна шага: подготовка вписывает плотное выдуманное тело вместо щелчка по подписи переключателя; снимок длины каталога 372 → 474 | 1 (+ снимок) | +27/−3 | 24 |
+| `9098df4` | цикл миграции 1.1a (`tests/test_sales_model.py`) откатывает сначала зависимую миграцию цепочки — полный pytest на `ab93f19` упал на `DROP TABLE sales_hypotheses` | 1 | +9/−1 | 8 |
+| `a9a78ed` | проверяльщик адресов 1.4: отказ сети без текста исключения у несобранного запроса (`reason_of`, `from None`, как Hunter и выдача в #174); тест | 2 | +24/−1 | 23 |
+| `0ee7838` | команды консоли продаж одним перечнем — `backend/cli/sales_commands.py`; `cli/main.py` их больше не называет (у предела длины: срезы продаж вместе с соседним PR давали 507 строк при пределе 500); согласовано с соседней сессией | 3 (+ снимок) | +50/−23 | 27 |
 
 ## Shape oracles
 
-pytest, pre-commit и фронт — на `4670e7d`: его дерево равно дереву головы `202da46` после переноса на main `b07ca62`
-(`git rev-parse …^{tree}` совпали — перенос не менял ни байта). Миграции, ратчет, подпись, волны, `delivery_check` и дайджест —
-на голове `202da46` против main `b07ca62`. Всё — по одному разу.
+На голове `8dfe13d` после переноса на main `94e5945`, по одному разу.
 
 | Проверка | Итог | exit |
 |---|---|---|
-| `alembic heads` | одна голова `a51e5688f79e` (после `d7da62eb8165` main) | 0 |
-| pytest среза и соседних (`test_sales_*`, `test_api_sales_*`, `test_cli_main`, `test_schema`, `test_migrations_match_models`, `test_agent_settings`, `test_contour_waves`) с покрытием; база — `alembic upgrade head` с нуля | 582 passed in 45.98s | 0 |
-| `SKIP_TESTS=1 STRICT=1 check_diff_coverage.sh` | ядро и API среза, обе миграции — 100 %; `cli/sales.py` — 92,7 %, `cli/main.py` — 96,6 % (по файлу целиком) | 0 |
-| `pre-commit run --all-files` | 27 хуков Passed или Skipped, ни одного Failed (ruff, формат, mypy, гейты, DRY, слои, сложность, длина, секреты) | 0 |
+| `alembic heads` | одна голова `cbc5aadf4fc2` (`723e3ddab31f` после `ad4a79bc6000` main) | 0 |
+| pytest среза и соседей (`test_sales_*`, `test_api_sales_*`, `test_cli_main`, `test_schema`, `test_migrations_match_models`, `test_agent_settings`, `test_contour_waves`, `test_prune`, `test_probe_donor`) с покрытием; база — `alembic upgrade head` с нуля | 751 passed in 92.39s (0:01:32) | 0 |
+| `SKIP_TESTS=1 STRICT=1 check_diff_coverage.sh` (BASE — main) | см. лог; миграции среза — под циклом «вниз и вверх» | 0 |
+| `pre-commit run --all-files` | 27 хуков Passed или Skipped, ни одного Failed | 0 |
 | `check_baseline_ratchet.sh` (BASE — main) | снимки не выросли | 0 |
 | `check_irreversible_signature.sh` | подпись строки необратимого сошлась | 0 |
 | `contour_waves --base origin/main` | ниже, дословно | 0 |
-| `delivery_check --require-ci --diff-base origin/main` | `breakers: files=40 net_loc=4250 (+4288/-38)` — вейвер владельца; ниже, дословно | 0 |
-| `assert_digest.sh` | `asserts_without_example: 157` | 0 |
+| `delivery_check --require-ci --diff-base origin/main` | `breakers: files=40 net_loc=3988 (+4078/-90)` — вейвер владельца; ниже, дословно | 0 |
+| `assert_digest.sh` | `asserts_without_example: 192` | 0 |
 | `tsc --noEmit` / `eslint src/` / `prettier --check` | чисто | 0 / 0 / 0 |
-| vitest `src/sales` + `src/settings` (`--maxWorkers=2`) | Tests  79 passed (79) | 0 |
+| vitest `src/sales` + `src/settings` (`--maxWorkers=2`) | Tests  91 passed (91) | 0 |
 
 ## Behavior oracles
 
-- [x] PASS — после переноса: 582 passed in 45.98s; vitest `src/sales` + `src/settings` — Tests  79 passed (79).
-- [x] PASS — полный pytest с покрытием на вершине агента `06722e8`: **3771 passed** за 5:56, exit 0 (код среза тот же;
-      полный набор на голове PR гоняет пре-пуш).
-- [x] PASS — полный vitest `--maxWorkers=2` на вершине агента: **53 файла, 498 тестов**, exit 0.
-- [x] PASS — новые тесты среза: `tests/test_sales_kb.py`, `tests/test_sales_sender.py`, `tests/test_sales_kb_api.py`,
-      `tests/test_sales_kb_cli.py`, `tests/test_sales_kb_screen.py`; vitest `KbPane.test.tsx` (10), `SenderPane.test.tsx` (4).
-- [x] PASS — изоляция журнала: `pytest tests/test_sales_clean_cli.py tests/test_cli_main.py` — до правки 5 failed,
-      после — 102 passed; обратный порядок — 102 passed и до, и после; с `test_sales_kb_cli.py` между ними — 119 passed.
+- [x] PASS — после переноса: 751 passed in 92.39s (0:01:32); vitest `src/sales` + `src/settings` — Tests  91 passed (91).
+- [x] PASS — полные прогоны агента на вершине `c1ba8a2` (тот же код среза): pytest 3994 passed, vitest 54 файла / 510 тестов,
+      `pre-commit --all-files` — 27 хуков, exit 0; полный набор на голове PR гоняет пре-пуш.
+      Первый полный прогон — на `ab93f19`: **1 failed**, 3993 passed, exit 1 —
+      `tests/test_sales_model.py::test_downgrade_drops_tables_and_types_and_upgrade_runs_again` (срез 1.1a) откатывал только
+      свою миграцию поверх схемы головы, и `DROP TABLE sales_hypotheses` упёрся в новый ключ
+      `sales_chain_templates_hypothesis_id_fkey` (`DependentObjectsStillExistError`). В выборочных прогонах прошлого агента
+      этого файла не было. Правка `9098df4`: откат, как у `alembic downgrade`, — сначала поздние зависимые миграции
+      (`DEPENDENTS`), затем своя; что проверяет тест, не изменилось.
+- [x] PASS — новые тесты среза: `tests/test_sales_chain.py` (77), `tests/test_sales_chain_api.py` (19),
+      `tests/test_sales_chain_cli.py` (21), `tests/test_sales_chain_screen.py` (4) — 121 passed за 10 с; vitest
+      `src/sales` — 5 файлов, 59 тестов (`ChainPane.test.tsx` — 12), exit 0.
 
 ### Красный прогон до кода
 
-Дерево main `3695a7f` (`git archive`) + тесты 3.1 поверх, своя временная база (снесена):
+Дерево `origin/main` `448ef4c` (`git archive`) + тесты среза поверх (`tests/test_sales_chain*.py`, `tests/test_schema.py`,
+`frontend/src/sales/ChainPane.test.tsx`), своя временная база `outreach_test_<хэш дерева>` — снесена, дерево удалено.
+Пакет `backend` брался из архива (путь в тексте ошибки).
 
-- pytest: 5 файлов не собрались — `ImportError: cannot import name 'kb'` / `'sender' from 'backend.features.sales'`,
-  `cannot import name 'run_kb_load' from 'backend.cli.sales'`; `tests/test_schema.py` — 2 failed, 6 passed
-  (`test_all_entities_registered`, `test_models_exported`). exit 2 / 1.
-- vitest: 16 failed — `KbPane.test.tsx` 10/10, `SenderPane.test.tsx` 4/4, `SalesPage.test.tsx` 1/19 (сводка с вкладками),
-  `UsagePage.test.tsx` 1/8 (подпись `sales_verify`). exit 1.
-- Правило имени (`2f07aac`) — отдельно на прежнем `sender.py`: 5 failed, 36 passed. Плашка «готова» (`5b31856`) —
-  на прежней строке: 1 failed.
+- pytest: 4 файла не собрались — `ImportError: cannot import name 'chain' from 'backend.features.sales'`
+  (`test_sales_chain.py`, `test_sales_chain_api.py`), `cannot import name 'run_chain_load' from 'backend.cli.sales'`,
+  `cannot import name 'chain_text' …` (`test_sales_chain_screen.py`), exit 2; `tests/test_schema.py` — 2 failed, 6 passed
+  (`test_all_entities_registered`, `test_models_exported`), exit 1.
+- vitest `ChainPane.test.tsx`: 12 из 12 failed — вкладки «Цепочка писем» на main нет: тест не дожидается её содержимого
+  (5 с) и ходит мимо записанных ответов; exit 1.
 
 ### Обратные прогоны
 
-Мутант — одна правка строки, прогон тестов правила, возврат файла с проверкой байтов; дерево после — чистое.
+Мутант — одна правка строки (`mutate.py`: ровно одно вхождение), прогон `tests/test_sales_chain.py`,
+`tests/test_sales_chain_api.py`, `tests/test_sales_chain_cli.py` (117 тестов) или vitest `ChainPane.test.tsx`, возврат
+файла `git checkout` с проверкой sha256 — байт в байт у всех; дерево после — чистое. Сняты на `ab93f19` (правка
+`9098df4` — только тест 1.1a, файлы мутантов не тронуты).
 
-| Мутант | Файл | Итог | Убит тестами |
+| Мутант | Правка | Итог | Убит тестами |
 |---|---|---|---|
-| M1 версия без сортировки записей | `kb.py` `version_of` | 1 failed | `test_a1_order_numbers_and_whitespace_do_not_change_the_version` |
-| M2 версия без сведения пробелов | `kb.py` `version_of` | 1 failed | то же |
-| M3 номер записи входит в версию | `kb.py` `version_of` | 6 failed | `test_a1_version_is_content_not_row_numbers`, A2, журнал, API |
-| M4 текст не входит в версию | `kb.py` `version_of` | 3 failed | `test_a1_price_edit_changes_the_version_…`, `…each_field…[text]`, API A1 |
-| M5 выборка агента без «включена» | `kb.py` `facts` | 2 failed | `test_a2_switched_off_entry_is_not_seen_by_the_agent_by_any_selection`, API A2 |
-| M6 предпросмотр из всех записей | `api/sales/kb.py` `agent_preview` | 1 failed | `test_a2_switched_off_entry_stays_on_the_list_and_leaves_the_agent_preview` |
-| M7 готовность без правила адреса | `sender.py` `REQUIRED` | 5 failed | A3 ×3, `test_saving_nothing_over_nothing_writes_no_row`, API |
-| M8 адрес доноров засчитан продажам | `sender.py` `Sender.missing` | 1 failed | `test_a3_no_address_refuses_in_words_even_with_the_donor_address_in_the_environment` |
-| M9 готовность без правила имени | `sender.py` `REQUIRED` | 5 failed | `test_a3_no_sender_name_refuses_in_words` ×2, A3 пустые, API |
+| M1 тема с «Re:» проходит | `chain_text._subject`: `if False and (prefix := _REPLY.match(text)) …` | 9 failed | `test_first_letter_subject_never_pretends_to_be_a_reply` ×5, `test_russian_reply_prefix_is_refused_too` ×2, API `test_refusals_come_in_words_and_nothing_is_written[Re:]`, консоль `test_every_bad_template_is_named_by_its_number` |
+| M2 метрики в теле не проверяются | `step_template`: `guards.assert_no_metrics(letter.subject)` вместо темы и тела | 6 failed | `test_ahrefs_metrics_never_get_into_the_template` ×4, API `…[метрики Ahrefs]`, консоль `test_every_bad_template_is_named_by_its_number` |
+| M3 незнакомая подстановка проходит | `_placeholders`: `if name not in PLACEHOLDERS and False:` | 5 failed | `test_unknown_or_broken_placeholder_is_refused_in_words[{{first_name}}]`, `…[{{nam}}]`, `test_unknown_placeholder_in_the_subject_is_refused_too`, API `…[{{nam}}]`, консоль `test_every_bad_template_is_named_by_its_number` |
+| M4a версия без тела — правка текста её не меняет | `version_of`: `[step, language, subject]` | 4 failed | `test_each_field_of_a_step_changes_the_version[body]`, `test_edit_changes_the_version_and_reverting_the_edit_returns_it`, `test_version_is_chain_and_twelve_hex_digits_of_sha256`, API `test_editing_the_text_on_the_screen_changes_the_chain_version` |
+| M4b версия без темы | `version_of`: `[step, language, body]` | 2 failed | `test_each_field_of_a_step_changes_the_version[subject]`, `test_version_is_chain_and_twelve_hex_digits_of_sha256` |
+| M5 шаги двух наборов смешиваются | `resolve`: `{**общий, **свой}` | 1 failed | `test_own_chain_replaces_the_common_one_whole_steps_never_mix` |
+| M6 выключенный шаг входит в цепочку | `_active` без `active.is_(True)` | 3 failed | `test_switched_off_own_steps_leave_the_hypothesis_on_the_common_chain`, `test_switched_off_step_is_not_in_the_chain`, консоль `test_hypothesis_set_goes_to_the_named_hypothesis` |
+| M7 подпись из настроек в теле проходит | `unsigned`: `if value and … in body and False:` | 6 failed | `test_settings_signature_or_address_inside_the_body_is_refused` ×2, `test_save_refuses_the_signature_written_in_the_sender_settings`, API `test_preview_refuses_a_body_that_repeats_the_settings_signature`, консоль ×2 |
+| M8 экран не говорит «цепочка не задана» | `ChainPane.tsx`: `state.missing.length === 2` | 1 failed | vitest «пустой набор — у каждого языка «цепочка не задана» словами и дорога к загрузке» |
+| M9 тема добивки уходит на сервер | `chainDraft.ts`: `subject: draft.subject` | 1 failed | vitest «новая добивка гипотезы: поля темы нет, тема уходит null, набор — гипотезы» |
 
-9 из 9 убиты. M1 и M2 держит один тест — метаморфные отношения примером (см. «реляционный оракул» ниже).
+10 из 10 убиты. Четыре мутанта задания — M1 (тема с «Re:»), M2 (метрики в теле), M3 (незнакомая подстановка), M4a/M4b
+(версия не меняется при правке). M4b держат два теста — правка темы видна только им; M5 — один тест.
 
 ## Живой прогон
 
-Стенд: своя база `outreach_live_sales_j` (на голове миграций), API `:8104`, фронт `:5178` (прокси), учётка стенда;
-стенд остановлен. Снято прошлым агентом (05.10 ночью, код T1–T4): миграции `downgrade 8dbc46c01caf` → `upgrade head` на
-живой базе — чисто; консоль — 5 сценариев (добавлено 13; повтор — «без изменений 13»; правка без `--update` —
-«отличается 1 — не тронуто», версия не сдвинулась; файл в копии репозитория — отказ, exit 2; чужой вид — отказ с номером);
-API — A2 («Дорого» ушла из выборки, в списке осталась), A1 (kb-3c10… → kb-67e7… → откат kb-3c10…), A3 (оба отказа, затем
-только адрес), ссылка без https — 400, двойник — 409, нет записи — 404; журнал — 6 записей, цепочка версий сходится.
+Стенд: своя база `outreach_live_sales_m` (на голове миграций), API `:8107` (`SALES_ENABLED=true`), фронт `:5181`
+(прокси на `:8107`), учётка стенда; Playwright `1.63.0` с Pillow через `uv run --with`. Выдуманные тексты — файлы в
+scratchpad, вне репозитория. После прогона стенд остановлен, база снесена (`DROP DATABASE`), чужие базы стендов не тронуты.
+Вершина замеров — `ab93f19` (до неё — `b08895c`: код экрана тот же, правился только каталог).
 
-Снято в этой сессии (вершина до переноса на `b1f0f60`; экран раздела с тех пор не менялся):
+**Миграции на живой базе:** `downgrade a51e5688f79e` → таблицы нет, значение журнала осталось (1 — `ADD VALUE` необратим) →
+`upgrade head` — таблица есть, значение одно; чисто.
 
-**Контраст** (`ui_contrast.py`, норма 4,5 текст / 3,0 крупное) — шесть экранов, обе темы, все точки «ок», exit 0:
+**Консоль — 10 сценариев** (`outreach sales-chain-load`, файл вне репозитория):
+
+| Сценарий | Вывод | exit |
+|---|---|---|
+| `--dry-run` | «добавлено 4 … Предпросмотр: в базу ничего не записано.» | 0 |
+| первая загрузка (EN 1–3, третий выключен; RU 1) | «добавлено 4»; версии ru `chain-4f53…` (пустая) → `chain-c1cd…`, en → `chain-b190…` | 0 |
+| повтор | «без изменений 4», версии те же, журнал не пишется | 0 |
+| другой текст добивки без `--update` | «отличается 1 — не тронуто (перезаписать: --update)», «№2: первая добивка, en», версия прежняя | 0 |
+| то же с `--update` | «обновлено 1», en `chain-b190…` → `chain-7485…`, журнал одной записью | 0 |
+| файл с 4 плохими шаблонами из 5 («Re:», «DR 45», `{{first_name}}`, тема у добивки) | «Файл не загружен: шаблонов с ошибками 4 из 5 — в базе ничего не изменилось», каждый — номером, шагом и языком | 2 |
+| файл в копии репозитория | «…лежит в копии репозитория … — тексты писем уехали бы в публичную историю», до чтения | 2 |
+| `--hypothesis "Нет такой"` | «Гипотезы «Нет такой» нет — её набору некуда лечь» | 5 |
+| `--hypothesis "Стенд-гипотеза А"` (свой EN-шаг 1) | «набор гипотезы №1», en `chain-4f53…` → `chain-78b1…`, ru не тронута | 0 |
+| файла нет | «не открылся: No such file or directory» | 2 |
+
+**API** (`httpx`, учётка стенда): общий набор — ru `common`, нет первой и второй добивки; en `common`, нет второй добивки
+(третий шаг выключен); гипотеза А — en `own`, нет обеих добивок (свой набор целиком, общие добивки не подмешаны); гипотеза Б —
+обе `common`. Отказы словами: «Re:» и «FW:» — 400; «Domain Rating» — 400 (общая проверка метрик); `{{first_name}}` — 400 с
+перечнем подстановок; тема у добивки — 400; `rewrite` в добивке — 400; подпись стенда в теле — 400; зона `[signature]` —
+400 с номером строки; недостижимый коридор — 400 («2% письма — нижний край 15% недостижим»); чужое поле — 422; гипотезы
+№999 нет — 404 словами. Правка текста первого письма EN: `chain-b190…` → `chain-76ef…`, откат → `chain-b190…`; запись
+без изменений — 200 без журнала. Предпросмотр: тема и зоны с «Alex Example», «Example Company», «example.com»; добивка RU —
+«Алекс Пример», тема `null`; подпись и имя из «Отправителя», `missing: ["не задан физический адрес"]`.
+Порядок прогона поймал слепую зону правила (C4): пока подпись в «Отправителе» не задана, текст подписи в шаблоне
+проходит (сверять не с чем) — тот же шаблон после записи подписи отказывается; уже записанный шаблон перепроверит только
+сборка 4.6b (Spec gaps).
+
+**403:** учётка оператора с `{"sales": false}` — `GET /api/sales/chain`, `POST /api/sales/chain`,
+`POST /api/sales/chain/preview` — 403 «Действие «sales» недоступно этой учётке».
+
+**Журнал:** 10 строк `sales_chain_changed` за прогон: 3 загрузки (`target=sales_chain`, `user_id` пуст, версии по языкам) и
+7 записей с экрана и API (`sales_chain_template:<номер>`, автор, `поля`, `было`, версия до и после); цепочка версий
+сходится; повторы и запись без изменений строк не дали.
+
+**Экран живьём** (Playwright): выключение первого письма RU в окне → «Сохранено: Первое письмо · Русский», карточка RU —
+«цепочка не задана», шаг — «выключен»; включение обратно — «цепочка неполна»; тема «Re: stand question» → «Не сохранили» и
+слова сервера над формой, введённое осталось; «Показать письмо» с той же темой — «Письмо не собралось».
+
+**Контраст** (`ui_contrast.py`, норма 4,5 текст / 3,0 крупное) — три экрана, обе темы, все точки «ок», exit 0:
 
 | Экран | Точек | Свет: минимум текста / крупного | Тьма: минимум текста / крупного |
 |---|---|---|---|
-| `sales-kb` (1440) | 28 | 5,12 версия базы / 5,35 «Добавить запись» | 6,80 / 6,61 |
-| `sales-kb-phone` (390) | 10 | 5,19 / 5,43 | 6,68 / 6,64 |
-| `sales-kb-entry` (окно записи) | 14 | 5,02 текст записи / 4,81 «Отмена» | 10,40 / 7,33 |
-| `sales-kb-agent` («Что увидит агент») | 12 | 5,34 / 8,74 | 9,17 / 13,98 |
-| `sales-sender` (1440) | 16 | 6,34 / 5,10 «Сохранить» | 5,09 кто и когда правил / 6,52 |
-| `sales-sender-phone` (390) | 10 | 6,30 / 5,14 | 7,40 / 6,26 |
+| `sales-chain` (1440) | 14 | 6,48 пояснение над цепочками / — | 7,65 значок «не задан» / — |
+| `sales-chain-phone` (390) | 8 | 6,51 пояснение / — | 8,70 пояснение / — |
+| `sales-chain-step` (окно шага с письмом) | 17 | 4,86 текст поля / 3,93 «Показать письмо» | 9,31 что за шаг / 7,33 «Сохранить» |
 
-**Окно записи на свету — 2,74 / 2,74 / 3,85 у прошлого агента: слепое пятно замера, не провал.** Разбор на стенде
-(снимок `contrast-kb-entry-light.png` рядом с черновиком):
+**Окно шага: каталог не снимался, текст поля — слепое пятно замера.** (1) Подготовка `open_step` (WIP) щёлкала по подписи
+переключателя — Playwright отклонял щелчок 30 с: подпись Mantine накрыта скрытым полем переключателя; экран не снимался
+вовсе. (2) С шаблоном стенда (пустые строки между зонами) текст поля на свету — 4,39 «МАЛО». Разбор на стенде:
 
-| Поле (свет) | Проба (рамка + 6 px) | Строка букв | Ядро букв | По цветам CSS |
+| Текст поля (свет) | Проба каталога (рамка + 6 px) | Внутри поля без рамки | Первая строка букв | Ядро букв |
 |---|---|---|---|---|
-| значение вида «о компании» | 2,74 | 6,41 | 15,46 | 14,53 |
-| значение заголовка «Who we are» | 2,74 | 5,00 | 15,44 | 14,53 |
-| текст записи (2 строки) | 3,85 | 6,21 | 15,57 | 14,66 |
-| тот же текст длинный (5 строк) | 5,02 | 6,50 | 15,50 | 14,66 |
-| для сравнения: поле «Имя отправителя» на панели, «Ива» | 6,36 | 6,39 | 16,44 | 16,61 |
+| шаблон стенда | 4,39 | 6,11 | 5,86 | 15,55 |
+| плотное выдуманное тело `STEP_BODY` | 4,86 | — | — | — |
+| тьма, шаблон стенда | 13,78 | 13,85 | 11,96 | 13,33 |
 
-Текст поля — `rgb(14, 32, 36)` на подложке `rgba(12, 40, 50, 0.035)` поверх плотного стекла; кромка поля на плотном
-стекле светлой темы — чернила `rgb(12 40 50 / 0.42)` (`glass.css`, `.glassSolid`), у поля текста ещё кольцо фокуса.
-Порог Оцу делит вырезку на «кромка + буквы» и «подложка»; у короткой строки пикселей кромки больше, чем букв, и среднее
-«чернил» съезжает к фону. На панели кромка белая — она уходит в группу фона, и проба видит буквы. Тот же класс записан в
-`scripts/ui_screens.py:161` («вырезка берёт кромку поля (3,27 при 6,37)»). Правка — в своём каталоге (`fc3a787`):
-значения вида и заголовка не меряются с объяснением у проб, текст записи — длинным `ENTRY_TEXT`; после неё все 14 точек
-окна «ок».
+Текст — `oklch(0.23 0.025 215)` на подложке `rgba(12, 40, 50, 0.035)` поверх окна `rgba(255, 255, 255, 0.93)`; кромка поля на
+плотном стекле светлой темы — чернила `rgba(12, 40, 50, 0.42)`. Порог делит вырезку на «кромка + буквы» и «подложка», и у
+поля с пустыми строками кромка — большая доля вырезки; по строке букв и внутри поля норма выполнена. Тот же класс — у окна
+записи базы знаний (3.1) и в `scripts/ui_screens.py:161`. Правка — в своём каталоге (`ab93f19`): подготовка вписывает
+плотное выдуманное тело (годное для показа письма), разбор — у пробы; после неё все 17 точек окна «ок» в обеих темах.
+У «Показать письмо» (кнопка `default` с кромкой) 3,93 — по норме кнопок каталога (3,0), класс тот же.
 
-**Наведение** (`ui_hover.py --path`, общий `PATHS` не тронут): `/sales?tab=kb` — 39 элементов, сдвигов 0, не проверено 0,
-exit 0; `/sales?tab=sender` — 25, 0, 0, exit 0.
+**Рамка:** документ 1440/1440 и 390/390 во всех состояниях обеих тем — общий набор, гипотеза А (своя неполная цепочка),
+гипотеза Б (пустой набор, «Шаблонов в наборе нет…»), окно шага с письмом; элементов вкладки за краем окна — 0; окно шага —
+780 px на 1440 и 351 px на 390, элементов за краем окна — 0.
 
-**Рамка (A4):** документ 1440/1440 и 390/390 во всех состояниях обеих тем (список, окно записи, «что увидит агент»,
-отправитель); таблица базы на 390 — 1040 в своей прокрутке 316; окна — 620 и 780 на 1440, 351 на 390; элементов за краем
-окна вне прокрутки — 0.
+**Наведение:** `ui_hover.py --path /sales?tab=chain` — 39 элементов, сдвигов 0, не проверено 0, exit 0 (общий `PATHS` не
+тронут); в окне шага — 4 кнопки (рамка и `transform` до и после наведения), сдвигов 0, обе темы, 1440 и 390.
+
+**Клавиатура:** Tab по вкладке — «Набор» → «Править»/«Задать» шести шагов → меню; фокус виден на каждом элементе; окно шага
+открывается Enter с «Править», Tab идёт тема → текст → переключатель → «Показать письмо» → «Отмена» → закрыть → по кругу
+внутри окна, Escape закрывает.
+
+**Шапка окна при прокрутке — находка в общем коде (не чинил).** Окно шага с письмом выше окна браузера (1045 из 808 px на
+1440, 1501 из 758 на 390), и при прокрутке заголовок «Первое письмо · Английский — общий набор» и крестик ложатся поверх
+кнопок и текста: шапка Mantine `position: sticky`, а фон её — `transparent` из общего `frontend/src/theme.ts:222`.
+Нарушает правило `docs/UI_RULES.md` «ничего прозрачного поверх содержимого». Снимки — `modal-header-1440-light.png` и `modal-header-390-dark.png` рядом с черновиком.
 
 ## Product oracles
 
-- [x] PASS — `eval-smoke.md`: A1–A4, консоль, API, сверка кодов, красный прогон, мутанты отмечены; настоящие тексты
-      компании и версия в черновике — «заложено».
+- [x] PASS — `eval-smoke.md`: C1–C11, сверка кодов, красный прогон, мутанты отмечены; настоящие тексты и версия в письме —
+      «заложено».
 
 ## Ревью рисковых мест
 
-- **деньги** — риска нет, потому что денег в срезе нет: `PRICE_POLICY = "price_policy"` в `backend/features/sales/models.py` —
-  вид записи базы знаний («что можно говорить о цене и чего нельзя»), то есть текст для агента, а не сумма; `PRICE` в
-  `tests/test_sales_kb.py` — выдуманная запись «Цена аудита»; `{"kind": "pricing"}` — проверка отказа незнакомому виду;
-  «не в счёт» — комментарий теста. Подпись `sales_verify` в `frontend/src/api/labels.ts` — только слово для строки расхода,
-  суммы считает прежний код.
-- **безопасность** — каждый маршрут `backend/api/sales/kb.py` под `_seller = Depends(needs(Permission.SALES))`, 403 словами
-  проверен на каждом маршруте (`tests/test_sales_kb_api.py`). В `sales_settings` нет места секретам —
-  `test_settings_table_has_no_place_for_secrets` (колонок с `key`/`secret`/`token`/`password`/`dsn` нет); чужое поле
-  `{"api_token": …}` отказывается словами (`sender.cleaned`). Коммерческие тексты — только в базе: файл базы внутри копии
-  репозитория `kb_load._repository_of` отказывает до чтения. `hashed_secret` в `.secrets.baseline` — номер ревизии миграции
-  (ложное срабатывание, как у соседних миграций). `bearer(await sign_in(SELLER))` — помощник тестов.
-- **транзакция БД** — правка записи и её строка журнала пишутся одной транзакцией: `kb.add`/`kb.change`/`sender.save` зовут
-  `AccessRepository(session).record` до `await session.commit()` маршрута — правка без журнала не ляжет. Загрузка — одна
-  транзакция: `kb_load.apply` → `session.commit()` в `run_kb_load` (`backend/cli/sales.py`); ошибка в любой записи — ничего
-  не записано (тест «всё или ничего»). `session.begin_nested()` — только в тестах ограничений. Опасно здесь: две
-  одновременные правки одной записи — побеждает последняя (журнал покажет обе); два одновременных заведения одного ключа —
-  `_key_free` их не разведёт, второе упадёт на `uq_sales_kb_entries_key` ответом 500, а не 409 словами. Для десятков записей и
-  одного-двух правящих — приемлемо, записано в spec gaps.
-- **производительность** — `kb.facts` и `GET /api/sales/kb` отдают базу без страниц: база — десятки записей по замыслу
-  (файл загрузки ограничен `MAX_BYTES` 2 МБ), гейт `unbounded-list` пройден. `version_of` — `json.dumps` отсортированного
-  содержимого включённых записей: микросекунды на десятки записей. `json.loads` файла загрузки — в потоке
-  (`asyncio.to_thread(kb_load.read, …)`), цикл событий не держит. `re.compile` — шаблоны модулей (`LANGUAGE_CODE`,
-  `_TELEGRAM_NAME`) собираются один раз; `re.search` — в тестах сверки кодов.
+Классы, поднятые диффом (`delivery_risk.risky_classes` от `origin/main`): безопасность (`auth`, `bearer`, `permission`,
+`secret`), транзакция БД (`commit`, `session.begin_nested`), производительность (`json.dumps`, `json.loads`, `re.compile`,
+`re.search`), интеграция (`httpx`), новый модуль. Деньги не задеты.
+
+- **безопасность** — каждый маршрут `backend/api/sales/chain.py` под `_seller = Depends(needs(Permission.SALES))`; 403
+  словами проверен на каждом маршруте (`test_without_the_sales_right_every_route_refuses_in_words`, таблица маршрутов
+  сверена `test_the_table_covers_every_route_of_the_chain`) и живьём. Тела запросов — `ConfigDict(extra="forbid")`: опечатка
+  в поле — 422, а не молча. Коммерческие тексты — только в базе: файл внутри копии репозитория `outside.read_json` отказывает
+  до чтения (`repository_of`). `hashed_secret` в `.secrets.baseline` — номер ревизии `723e3ddab31f` (ложное срабатывание,
+  как у соседних миграций). `bearer(await sign_in(SELLER))` и `'GET /api/auth/me': { body: ADMIN }` — помощники тестов.
+- **транзакция БД** — запись шага и её строка журнала — одна транзакция: `chain.save` зовёт
+  `AccessRepository(session).record` до `await session.commit()` маршрута `save_step`; шаблон без журнала не ляжет, отказ
+  `ChainError` до `commit` — ничего (тест `test_refusals_come_in_words_and_nothing_is_written`). Загрузка — одна транзакция:
+  `chain_load.apply` → `await session.commit()` в `run_chain_load`; ошибка в любом шаблоне — ничего (проверка до записи).
+  `session.begin_nested()` — только в тестах ограничений базы. Опасно здесь: две одновременные записи одного нового шага —
+  `_row` обеих видит пусто, вторая упадёт на `uq_sales_chain_templates_key` ответом 500, а не 409 словами (как у базы знаний
+  3.1) — открытый вопрос; две правки одного шага — побеждает последняя, журнал покажет обе.
+- **производительность** — `json.dumps` в `version_of` — отпечаток не больше трёх шагов цепочки; `json.loads` — файл
+  загрузки не больше `MAX_BYTES` 1 МБ, читается в потоке (`asyncio.to_thread(chain_load.read, path, found)`), цикл событий
+  не держит. `re.compile` — шаблоны модуля (`_REPLY`, `_LOOSE_HEADER`, `_BRACE`) собираются один раз; разбор тела
+  (`zones_of`, `_BRACE.search`) — по строкам текста не длиннее `BODY_LENGTH` 10 000 знаков (гейт `cpu-in-async` пройден).
+  `chain.rows` без страниц — в наборе не больше шести строк (ключ «набор, шаг, язык»: 3 шага × 2 языка), гейт
+  `unbounded-list` пройден; `GET /api/sales/chain` — от 3 запросов к базе (общий набор: 2 языка и строки набора) до 6 (гипотеза: её проверка, по 1–2 на язык, строки).
 - **интеграция** — риска нет, потому что срез никуда не ходит: `httpx` — только `AsyncClient` тестов API
-  (`tests/test_sales_kb_api.py`); `urllib.parse.urlsplit` в `sender._link`/`sender._telegram` разбирает форму ссылки, сети нет.
-  Ссылки сайта, созвона и Telegram хранятся, а не открываются.
-- **новый модуль** — `kb.py`, `kb_load.py`, `sender.py`, `kb_schemas.py`, миграции и файлы экрана: правила — в ядре
-  (`features/sales/`), экран и консоль зовут одни функции; покрытие изменённого — 100 % у модулей ядра и API.
+  (`from httpx import AsyncClient` в `tests/test_sales_chain_api.py`); консоль читает локальный файл, сети нет.
+- **новый модуль** — `chain.py`, `chain_text.py`, `chain_load.py`, `outside.py`, `chain_schemas.py`, API `chain.py`,
+  миграции и файлы экрана (`ChainPane`, `ChainStepModal`, `ChainLetter`, `chainData`, `chainDraft`, `SaveRefusal`): правила —
+  в ядре (`features/sales/`), экран, консоль и предпросмотр зовут одни `chain_text.step_template` и `unsigned`; покрытие
+  изменённого — 100 % у ядра (кроме недостижимой строки 221 `chain_text.py`), API и миграций.
+- **деньги** — риска нет, потому что денег в срезе нет: «offer» — имя выдуманной зоны в тестах (`[offer] fixed\nTest offer:
+  nothing real is sold here.`), сумм и цен нет.
+- **безопасность (правка 1.4)** — `backend/features/sales/verifier.py`: у несобранного запроса текст исключения httpx несёт заголовок `Authorization` с ключом Hunter; отказ теперь собран из `reason_of(exc)` и поднят `from None` — ключа нет ни в отказе, ни в журнале, ни в цепочке причин (`test_unsent_request_refusal_carries_no_key_or_cause`).
 
 ## Предохранитель
 
-40 файлов, net 4 250 (+4 288 / −38) при пределах 25 и 800 — **постоянный вейвер
-владельца для модульных срезов продаж (05.10)** строкой `waivers: max_loc_diff=4250 max_files_touched=40 … by=human:anthony`
-в STATUS. Условия владельца соблюдены:
+40 файлов, net 3988 (+4078/-90) при пределах 25 и 800 — **постоянный вейвер владельца для модульных срезов
+продаж (05.10)** строкой `waivers:` в STATUS. Условия владельца соблюдены:
 
 1. числа конкретные — из `delivery_check` после переноса;
-2. общая часть — **152 строки** нетто при пределе ~300: миграции `c6efe4e5de7e` (78) и `a51e5688f79e` (36),
-   `backend/api/errors.py` (8), `backend/features/core/domain.py` (4), `backend/features/core/models/__init__.py` (4),
-   `backend/cli/main.py` (3), `tests/test_schema.py` (3), `frontend/src/settings/UsagePage.test.tsx` (6),
-   `frontend/src/api/labels.ts` (1), `.secrets.baseline` (+10/−1); свои файлы раздела вне масок `SALES_PATHS`
-   (`backend/api/sales/*`, `backend/cli/sales.py`, `frontend/src/api/sales*.ts`) — модуль продаж, не общая часть;
-3. список общих файлов отправлен соседней сессии до PR (05.10).
-
-Из строк среза 1 828 — тесты. Разрезы, посчитанные агентом до решения владельца (сервер / экран; четыре PR), не
-понадобились.
+2. общая часть — **111 строк** нетто при пределе ~300: миграции `723e3ddab31f` (+72) и `cbc5aadf4fc2` (+35),
+   `backend/cli/main.py` (−12), `backend/features/core/domain.py` (+3), `backend/features/core/models/__init__.py` (+2),
+   `tests/test_schema.py` (+2), `.secrets.baseline` (+10/−1); свои файлы раздела вне масок `SALES_PATHS`
+   (`backend/api/sales/*`, `backend/cli/sales.py`, `backend/cli/sales_commands.py`, `frontend/src/api/sales*.ts`) —
+   модуль продаж, не общая часть;
+3. список общих файлов отправлен соседней сессии до PR и принят (05.10).
 
 ## Предупреждения delivery_check, разобранные
 
-Дословно (`delivery_check --require-ci --diff-base origin/main`, голова `202da46`):
+Дословно (`delivery_check --require-ci --diff-base origin/main`, голова `8dfe13d`):
 
 ```
-breakers: files=40 net_loc=4250 (+4288/-38), excluded=9 (delivery/|knowledge/|scripts/lint/|scripts/merge_guard.sh|scripts/delivery_|scripts/okf_|.claude/|docs/canon/|.pre-commit-config.yaml|.github/workflows/|.gitlab-ci.yml|package-lock.json|npm-shrinkwrap.json|yarn.lock|pnpm-lock.yaml|bun.lockb|poetry.lock|uv.lock|Pipfile.lock|Cargo.lock|go.sum|Gemfile.lock|composer.lock|Podfile.lock), limits={'max_files_touched': 40, 'max_loc_diff': 4250, 'max_runtime_paths': 1, 'max_unsigned_irreversible': 0}
+breakers: files=40 net_loc=3988 (+4078/-90), excluded=9 (delivery/|knowledge/|scripts/lint/|scripts/merge_guard.sh|scripts/delivery_|scripts/okf_|.claude/|docs/canon/|.pre-commit-config.yaml|.github/workflows/|.gitlab-ci.yml|package-lock.json|npm-shrinkwrap.json|yarn.lock|pnpm-lock.yaml|bun.lockb|poetry.lock|uv.lock|Pipfile.lock|Cargo.lock|go.sum|Gemfile.lock|composer.lock|Podfile.lock), limits={'max_files_touched': 40, 'max_loc_diff': 3988, 'max_runtime_paths': 1, 'max_unsigned_irreversible': 0}
 WARNING: необратимое без человека: `irreversible_surfaces:` не называет отправка наружу (§3.4a) — детектор видит это в коде. Либо назови, либо объясни в той же строке, почему это не необратимо
 WARNING: class M: asserts_reviewed_by deferred — ещё никем не подписано (§2.2b); долг закрывается до handoff
 WARNING: class M: ни одного реляционного оракула (§6.5) — не найдено ни `@given` (hypothesis), ни `fc.property` (fast-check). Инвариант, round-trip, идемпотентность, метаморфное отношение или differential: в них нет ожидаемого значения, поэтому в них нельзя спрятать неверное ожидание. Один инвариант обычно ловит больше десяти тестов-значений, потому что раннер перебирает входы, о которых автор не думал. Проверь заодно, что mutation-гейт у тебя не пропускается: иначе слабое свойство (`assert result is not None`) пройдёт
@@ -213,23 +257,22 @@ WARNING: CONSTITUTION.md: нет блока `agent-permissions` (§4.5 / A.1) �
 delivery_check: 0 error(s), 4 warning(s)
 ```
 
-- «`irreversible_surfaces:` не называет отправка наружу» — детектор `_outward_surface` (`scripts/delivery_runtime.py`)
-  находит маркеры отправки во всём продуктовом коде (письма доноров) — предупреждение стоит и на STATUS main. Строка
-  подписана владельцем и перенесена дословно; срез отправки не добавляет — `check_ready` только проверяет готовность для Ф4.
-- «asserts_reviewed_by deferred» — 157 утверждений ждут подписи человека (дайджест ниже).
-- «Ни одного реляционного оракула» — hypothesis и fast-check не в зависимостях проекта (новая зависимость — решение
-  владельца). Метаморфные отношения версии (перестановка, пробелы, номер записи, откат правки) — примерами в
-  `test_a1_order_numbers_and_whitespace_do_not_change_the_version` и `test_a1_price_edit_…`; мутанты M1–M4 убиты.
+- «`irreversible_surfaces:` не называет отправка наружу» — детектор видит отправку во всём продуктовом коде (письма
+  доноров); строка подписана владельцем и перенесена дословно. Срез отправки не добавляет: шаблоны хранятся и правятся,
+  письма продаж откроет часть 2 (4.6b) — переподпись тогда.
+- «asserts_reviewed_by deferred» — 192 утверждений ждут подписи человека (дайджест ниже).
+- «Ни одного реляционного оракула» — hypothesis и fast-check не в зависимостях проекта; метаморфные отношения версии
+  набора — примерами и мутантами M4a, M4b.
 - «Нет блока `agent-permissions`» в CONSTITUTION — было до среза.
 
 ## Проверка волн
 
-Дословно (`contour_waves --base origin/main`, голова `202da46`):
+Дословно (`contour_waves --base origin/main`, голова `8dfe13d`):
 
 ```
 contour-waves: CI — нарушение красное
 волны: В0 deployed · В1 deployed · В3а pending · В3б pending · В3в pending · В4 pending · В2 pending · В-обн deployed
-в дереве продаж: 17 файл(ов)
+в дереве продаж: 21 файл(ов)
 ○ В3б: промпт агента и судьи назовёт срез агента — пока волну судит человек
 ○ В3в: промпт судьи сегмента назовёт его срез — пока волну судит человек
 ○ В4: маркер автоотправки назовёт срез В4 — пока волну судит человек
@@ -242,26 +285,32 @@ contour-waves: нарушений нет
 
 ## Spec coverage gaps
 
-- A3 расширен решением владельца 05.10: готовность требует и имя отправителя; спека и тесты — по новому правилу.
-- A4 (контраст, рамка, наведение) — замером живьём, не тестом сьюта (нужен браузер и сервер).
-- Гонка двух заведений одного ключа — 500 вместо 409 словами (ключ держит база); правки одной записи — побеждает последняя.
-- Ключ записи сводит пробелы в заголовке, но не регистр: «Цена» и «цена» — две записи.
-- Строка лога «база знаний загружена» (`kb_load.apply`) пишется и при повторе без записи — журнал аудита при этом не пишется
-  (верно); правка — одна строка, в бэклоге продаж вместе с гонкой ключа.
-- `check_ready` пока никто не зовёт (Ф4), версию никто не пишет (Ф3.2) — «заложено».
+- Подпись и адрес из «Отправителя» сверяются с шаблоном при записи шаблона: шаблон, записанный до того, как задали подпись,
+  её текст может содержать (живой прогон это показал) — сборка 4.6b должна сверить ещё раз на готовом письме.
+- Первый включённый свой шаг гипотезы переключает её язык на свою цепочку целиком: пока там нет трёх шагов, письма гипотезы
+  на этом языке не соберутся. Экран это говорит («цепочка неполна»); заготовка — выключенными шагами. Подтвердить у владельца.
+- Гонка двух записей одного нового шага — 500 вместо 409 словами (ключ держит база) — открытый вопрос.
+- Письмо «вас посоветовал коллега» для `referral` — в хранении T1 варианта первого письма нет (открытый вопрос).
+- `{{first_name}}` — нет: у лида только полное имя (открытый вопрос).
+- C11 (контраст, рамка, наведение) — замером живьём, не тестом сьюта (нужен браузер и сервер).
+- `check_ready` и версию пока никто не зовёт (4.6b) — «заложено».
+- `GET /api/sales/chain?hypothesis=0` — 422 с текстом pydantic по-английски (`ge=1`), как у прочих маршрутов проекта; экран
+  такого не шлёт.
 
 ## Находки (общий код — не чинил)
 
-1. **Кромка полей ниже нормы границы элемента.** `frontend/src/styles/glass.css:480` (`.glassSolid` светлой темы,
-   `--field-edge: rgb(12 40 50 / 0.42)`) — кромка поля в окне 2,48 : 1 к полю и 2,52 : 1 к стеклу; на обычной панели
-   (`glass.css:83`, `--field-edge: var(--glass-edge)`) кромка поля «Имя отправителя» — 1,05 : 1, подложка поля к стеклу —
-   1,04 : 1; в тёмной теме в окне — 1,62 : 1. Норма проекта для границы элемента управления — 3 : 1 (`docs/UI_RULES.md`,
-   24.09: флажок переведён на чернила, 4,2 и 4,6). Воспроизвести: пиксели по вертикали через поле на снимке пробы
-   (скрипт разбора — в scratchpad сессии; снимок `contrast-kb-entry-light.png`). Поля узнаются по подписи и тексту, но
-   норма записана для границ — решение за владельцем `glass.css`.
-2. **Жёлтые `Alert`:** заголовок `--status-amber-ink` на `--mantine-color-yellow-light` — 4,30 : 1 на свету (замер прошлого
-   агента на «Отправителе»); у себя — `INK_TITLE`, общее правило для `Alert` в `glass.css` — кандидат в общую правку.
-3. Падение `/usage` на `hunter` (находка прошлого агента) — закрыто соседями #169, в main.
+1. **Прозрачная шапка окна поверх содержимого при прокрутке.** `frontend/src/theme.ts:222` —
+   `styles: { header: { background: 'transparent' } }` (#98, 25.09) при `position: sticky` шапки Mantine: в любом окне выше
+   окна браузера заголовок и крестик ложатся поверх прокрученного текста и кнопок. Нарушает `docs/UI_RULES.md` («ничего
+   прозрачного поверх содержимого»). Воспроизвести: «Продажи» → «Цепочка писем» → «Править» у первого письма → «Показать
+   письмо» → прокрутить окно вниз (1440 × 900 или 390 × 844); снимки `modal-header-1440-light.png`, `modal-header-390-dark.png` рядом с черновиком.
+   Решение — за владельцем общей темы (фон шапки — стекло окна, а не прозрачный).
+2. **Крестик окна без доступного имени.** У `.mantine-Modal-close` нет `aria-label` (в теме нет `closeButtonProps`, в
+   `frontend/src/` — ни одного): программа чтения экрана назовёт его просто «кнопка». Во всех окнах приложения.
+3. Нумерация шагов: у шаблонов продаж 1–3, у `messages.step` доноров 0–2 (`letters/chain.py: FIRST_STEP = 0`) — сборке 4.6b
+   переводить в одном месте (находка прошлого агента).
+
+Находки общего кода переданы соседней сессии 05.10.
 
 ## Verdict
 
@@ -275,148 +324,151 @@ contour-waves: нарушений нет
 
 База: `origin/main` · сгенерировано `assert_digest.sh`
 
-Новых/изменённых утверждений: **193**, из них без ссылки на пример спеки:
-**157**. Вопрос к каждому непривязанному один: **откуда взято ожидаемое
+Новых/изменённых утверждений: **188**, из них без ссылки на пример спеки:
+**188**. Вопрос к каждому непривязанному один: **откуда взято ожидаемое
 значение — из спеки или придумано под реализацию?**
 
 ```
--	expect(price.getByText('Цену называем после короткого созвона.')).toBeInTheDocument();
--	expect(price.getByText('цены')).toBeInTheDocument();
--	expect(price.getByText('ru')).toBeInTheDocument();
--	expect(price.getByText('аудит, цена')).toBeInTheDocument();
--	expect(price.getByText('seller@ours.example.test')).toBeInTheDocument();
--	expect(price.getByRole('switch', { name: 'Агент видит «Цена аудита»' })).toBeChecked();
--	expect(old.getByText('кейс')).toBeInTheDocument();
--	expect(old.getByRole('switch', { name: 'Агент видит «Made-up shop»' })).not.toBeChecked();
--	expect(screen.getByText('kb-3f2a9c1d0b7e')).toBeInTheDocument();
--	expect(screen.getByText(/агент видит 1 из 2/)).toBeInTheDocument();
--	expect(screen.getByText('База знаний — 2')).toBeInTheDocument();
+-	expect(card.getByText('цепочка не задана')).toBeInTheDocument();
 -	expect(
--	expect(screen.getByText(/sales-kb-load/)).toBeInTheDocument();
+-	expect(card.getAllByText('не задан')).toHaveLength(3);
+-	expect(card.getAllByRole('button', { name: 'Задать' })).toHaveLength(3);
+-	expect(screen.getByText(/sales-chain-load --file/)).toBeInTheDocument();
+-	expect(first.getByText('задан')).toBeInTheDocument();
+-	expect(first.getByText('Тема: Test for {{company}}')).toBeInTheDocument();
+-	expect(first.getByText('Hello {{name}}, · Test offer body.')).toBeInTheDocument();
+-	expect(first.getByText(/seller@ours\.example\.test/)).toBeInTheDocument();
+-	expect(within(stepOf('Английский', '3. Вторая добивка')).getByText('выключен')).toBeVisible();
+-	expect(english.getByText('цепочка неполна')).toBeInTheDocument();
+-	expect(
+-	expect(screen.queryByText(/sales-chain-load/)).not.toBeInTheDocument();
+-	expect(english.getByText('цепочка полна')).toBeInTheDocument();
+-	expect(english.getByText('Версия chain-en0000000000.')).toBeInTheDocument();
+-	() => expect(calls(recorded, 'GET', '/api/sales/chain?hypothesis=5')).toHaveLength(1),
+-	expect(
+-	expect(english.getAllByText('не задан')).toHaveLength(3);
 -	expect(
 -	expect(screen.getByText('База не ответила — повторите')).toBeInTheDocument();
--	await waitFor(() => expect(calls(recorded, 'PATCH', '/api/sales/kb/7')).toHaveLength(1));
--	expect(calls(recorded, 'PATCH', '/api/sales/kb/7')[0]?.body).toEqual({ active: false });
--	expect(calls(recorded, 'GET', '/api/sales/kb').length).toBeGreaterThan(before),
--	expect(
--	expect(screen.getByText('Не переключили')).toBeInTheDocument();
--	expect(dialog.queryByText(/Впишите/)).not.toBeInTheDocument();
--	expect(dialog.getByRole('button', { name: 'Завести' })).toBeDisabled();
--	await waitFor(() => expect(calls(recorded, 'POST', '/api/sales/kb')).toHaveLength(1));
--	expect(calls(recorded, 'POST', '/api/sales/kb')[0]?.body).toEqual({
--	expect(
--	await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
--	expect(dialog.getByText('Впишите заголовок — по нему запись узнают')).toBeInTheDocument();
--	expect(dialog.getByText('Длиннее 40 знаков: сейчас 44')).toBeInTheDocument();
+-	await waitFor(() => expect(calls(recorded, 'POST', '/api/sales/chain')).toHaveLength(1));
+-	expect(calls(recorded, 'POST', '/api/sales/chain')[0]?.body).toEqual({
+-	expect(calls(recorded, 'GET', '/api/sales/chain').length).toBeGreaterThan(before),
+-	expect(await screen.findByText('Сохранено: Первое письмо · Английский')).toBeInTheDocument();
+-	() => expect(calls(recorded, 'GET', '/api/sales/chain?hypothesis=5')).toHaveLength(1),
+-	expect(dialog.queryByRole('textbox', { name: 'Тема' })).not.toBeInTheDocument();
+-	await waitFor(() => expect(calls(recorded, 'POST', '/api/sales/chain')).toHaveLength(1));
+-	expect(calls(recorded, 'POST', '/api/sales/chain')[0]?.body).toEqual({
+-	expect(within(alert.closest('[role="alert"]') as HTMLElement).getByText(refusal)).toBeVisible();
+-	expect(subject).toHaveValue('Re: test');
+-	expect(dialog.getByText('Впишите тему — у первого письма она обязательна')).toBeVisible();
 -	expect(dialog.getByRole('button', { name: 'Сохранить' })).toBeDisabled();
+-	expect(dialog.getByRole('button', { name: 'Показать письмо' })).toBeDisabled();
+-	expect(calls(recorded, 'POST', '/api/sales/chain/preview')[0]?.body).toEqual({
+-	expect(letter.getByText('Test for Example Company')).toBeInTheDocument();
+-	expect(letter.getByText('Hello Alex Example,')).toBeInTheDocument();
+-	expect(letter.getByText('переписывает модель')).toBeInTheDocument();
+-	expect(letter.getByText('уходит как есть')).toBeInTheDocument();
+-	expect(letter.getByText(/Test lead/)).toBeInTheDocument();
 -	expect(
--	expect(calls(recorded, 'PATCH', '/api/sales/kb/7')[0]?.body).toEqual({
--	expect(title).toHaveValue('Кто мы');
--	expect(await dialog.findByText('цены · ru', {}, SCREEN_WAIT)).toBeInTheDocument();
--	expect(dialog.getByText('Цена аудита')).toBeInTheDocument();
--	expect(dialog.getByText('теги: цена')).toBeInTheDocument();
--	expect(dialog.getByText(/Выключенных здесь нет/)).toBeInTheDocument();
--	expect(dialog.queryByText('Made-up shop')).not.toBeInTheDocument();
--	expect(calls(recorded, 'GET', '/api/sales/kb/preview')).toHaveLength(1);
+-	expect(letter.getByText('Отправка продаж не готова')).toBeInTheDocument();
 -	expect(
--	expect(await screen.findByText('База знаний — 3', {}, SCREEN_WAIT)).toBeInTheDocument();
--	expect(screen.getByText('Отправитель')).toBeInTheDocument();
--	expect(warning).toHaveTextContent(
--	expect(field('Физический адрес')).toHaveValue('');
--	expect(screen.getByText('Ещё не заполнялся.')).toBeInTheDocument();
--	expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled();
--	await waitFor(() => expect(recorded.calls.filter((c) => c.method === 'POST')).toHaveLength(1));
--	expect(recorded.calls.find((c) => c.method === 'POST')?.body).toEqual({
--	expect(ready).toHaveTextContent('Всё, без чего письмо продаж не уходит, задано.');
--	expect(screen.getByText(/Правил seller@ours\.example\.test/)).toBeInTheDocument();
--	expect(field('Подпись')).toHaveValue('Ива Тестова');
--	expect(
--	expect(field('Сайт')).toHaveValue('studio.example.test');
--	expect(screen.getByText('Длиннее 5 знаков: сейчас 11')).toBeInTheDocument();
--	expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled();
--	expect(recorded.calls.filter((c) => c.method === 'POST')).toEqual([]);
--	expect(operationTitle('sales_verify')).toBe('проверка адресов продаж');
-A1	assert edited != kept
-A1	assert await kb.version(session) == kept
-A1	assert versions == [{"было": kept, "стало": edited}, {"было": edited, "стало": kept}]
-A1	assert kb.version_of([BRIEF, PRICE]) == kb.version_of([PRICE, BRIEF])
-A1	assert kb.version_of([BRIEF, spaced]) == kb.version_of([BRIEF, PRICE])
-A1	assert kb.version_of([fact]) == kb.version_of([PRICE])
-A1	assert kb.version_of(seen) != kb.version_of([BRIEF, PRICE])
-A1	assert kb.version_of([]) == f"kb-{empty}"
-A1	assert len(kb.version_of([PRICE])) == len("kb-") + 12
-A1	assert again.id != price.id
-A1	assert await kb.version(session) == before == kb.version_of([BRIEF, PRICE])
-A2	assert _titles(await kb.facts(session)) == ["Кто мы", "Made-up shop"]
-A2	assert await kb.facts(session, kinds=[KbKind.PRICE_POLICY]) == []
-A2	assert await kb.facts(session, tags=["цена"]) == []
-A2	assert _titles(await kb.facts(session, language="ru")) == ["Кто мы"]
-A2	assert await kb.version(session) == kb.version_of([BRIEF, CASE])
-A2	assert [(group.kind, group.language) for group in groups] == [
-A2	assert [row.title for row in await kb.entries(session)] == [
-A2	assert _titles(await kb.facts(session, kinds=[KbKind.PRICE_POLICY])) == ["Цена аудита"]
-A2	assert await kb.version(session) == both
--	assert _titles(await kb.facts(session, kinds=[KbKind.CASE, KbKind.BRIEF])) == [
--	assert _titles(await kb.facts(session, language=" EN ")) == ["Made-up shop"]
--	assert _titles(await kb.facts(session, tags=["SEO", "нет такого"])) == ["Made-up shop"]
--	assert _titles(await kb.facts(session, tags=[])) == ["Кто мы", "Made-up shop", "Цена аудита"]
--	assert await kb.facts(session, kinds=[]) == []
--	assert [(g.kind, g.language) for g in kb.grouped(found)] == [
--	assert found == Entry(
--	assert str(refused.value).startswith(words)
+-	expect(dialog.queryByLabelText('Письмо глазами адресата')).not.toBeInTheDocument();
+-	expect(await dialog.findByText('Письмо не собралось', {}, SCREEN_WAIT)).toBeVisible();
+-	expect(dialog.getByText(refusal)).toBeVisible();
+-	assert (made.step, made.language, made.subject) == (1, "en", "Test question for {{company}}")
+-	assert made.body == FIRST_BODY
+-	assert [(zone.name, zone.kind) for zone in made.zones] == [
+-	assert f"начинается с «{prefix}»" in str(refused.value)
+-	assert "обман адресата" in str(refused.value)
+-	assert first(subject=subject).subject == subject
+-	assert follow().subject is None
+-	assert follow(step=3, subject="  ").subject is None
+-	assert words in str(refused.value)
+-	assert words in str(refused.value)
+-	assert "{{name}}, {{company}}, {{site}}" in str(refused.value)
+-	assert chain.version_of([first()]) == "chain-" + digest[:12]
+-	assert chain.version_of([first(), follow()]) == chain.version_of([follow(), first()])
+-	assert chain.version_of([first(), off]) == chain.version_of([first()])
+-	assert chain.version_of([first(**changes)]) != chain.version_of([first()])
+-	assert edited != kept
+-	assert await chain.set_version(session, None, "en") == kept
+-	assert versions == [{"было": kept, "стало": edited}, {"было": edited, "стало": kept}]
+-	assert (found.hypothesis_id, found.language, sorted(found.steps)) == (None, "en", [1, 2, 3])
+-	assert found.missing == []
+-	assert (found.hypothesis_id, sorted(found.steps)) == (hypothesis_id, [1])
+-	assert found.steps[1].subject == "Own test question"
+-	assert found.missing == ["первой добивки", "второй добивки"]
 -	assert str(refused.value) == (
--	assert len(await kb.entries(session)) == 2
--	assert (edited.title, edited.text) == ("Цена аудита", "Новый текст.")
--	assert str(refused.value) == "записи базы знаний №999999 нет — обновите список"
--	assert (price.text, len(await _journal(session))) == (PRICE.text, 1)
--	assert (row.updated_by, row.tags, row.active) == (
--	assert (row.created_at is not None, row.updated_at is not None) == (True, True)
+-	assert (found.hypothesis_id, found.version) == (
+-	assert (english.hypothesis_id, russian.hypothesis_id) == (hypothesis_id, None)
+-	assert sorted(russian.steps) == [1, 2]
+-	assert found.steps == {}
+-	assert (sorted(found.steps), found.missing) == ([1, 2], ["второй добивки"])
+-	assert (row.hypothesis_id, row.step, row.language, row.updated_by) == (
+-	assert (row.subject, row.body, row.active) == (SUBJECT, FIRST_BODY, True)
 -	assert await _journal(session) == [
--	assert (edited.updated_by, edited.updated_at is not None) == ("admin@ours.example.test", True)
 -	assert details is not None
--	assert (details["поля"], details["было"]) == (
--	assert (same.updated_by, len(await _journal(session))) == ("тест", 1)
+-	assert (details["поля"], details["было"], details["набор"]) == (
+-	assert (row.active, row.updated_by) == (False, "другой")
+-	assert (same.id, same.updated_by, len(await _journal(session))) == (row.id, "тест", 1)
+-	assert await chain.rows(session, None) == []
+-	assert listed == [(1, "en", True), (1, "ru", True), (2, "ru", False)]
+-	assert [row.hypothesis_id for row in await chain.rows(session, hypothesis_id)] == [
+-	assert shown.subject == "Test question for Example Company"
+-	assert [zone.text for zone in shown.zones][:2] == [
+-	assert shown.values == chain_text.SAMPLE["en"]
+-	assert (shown.sender.values["signature"], shown.sender.missing) == (
+-	assert chain_text.preview(follow(language="ru"), settings).subject is None
 -	assert spec is not None, path
 -	assert spec.loader is not None, path
-L5	assert await connection.run_sync(_present) == SCHEMA
-L5	assert (after_downgrade, after_upgrade) == (set(), SCHEMA)
--	assert (await connection.run_sync(_journal_values)).count("sales_kb_changed") == 1
--	assert response.status_code == 201, response.text
--	assert {k: card[k] for k in ("kind", "language", "title", "tags", "active", "updated_by")} == {
--	assert (listed["total"], listed["active"], [row["id"] for row in listed["rows"]]) == (
--	assert listed["version"] == kb.version_of([kb.entry(**PRICE)])
--	assert listed["kinds"] == [kind.value for kind in KbKind]
--	assert listed["limits"] == {"title": 255, "text": 20_000, "tag": 64, "tags": 20}
+-	assert (after_downgrade, after_upgrade) == ([], ["sales_chain_templates"])
+-	assert (await connection.run_sync(_journal_values)).count("sales_chain_changed") == 1
+-	assert response.status_code == 200, response.text
+-	assert response.status_code == 200, response.text
+-	assert (view["hypothesis_id"], view["rows"]) == (None, [])
+-	assert _states(view) == {
+-	assert (view["steps"], view["languages"]) == ([1, 2, 3], ["ru", "en"])
+-	assert view["placeholders"] == ["name", "company", "site"]
+-	assert view["limits"] == {"subject": 255, "body": 10_000}
+-	assert {k: card[k] for k in ("hypothesis_id", "step", "language", "subject", "updated_by")} == {
+-	assert [(zone["name"], zone["kind"]) for zone in card["zones"]] == [
+-	assert [row["id"] for row in view["rows"]] == [card["id"]]
+-	assert _states(view)["en"] == ("common", ["первой добивки", "второй добивки"])
 -	assert list(authors) == [user.id]
-A1	assert edited.status_code == 200, edited.text
-A1	assert edited.json()["text"] == "Цену называем сразу."
-A1	assert after != before
-A2	assert (off.status_code, off.json()["active"]) == (200, False)
-A2	assert (listed["total"], listed["active"]) == (3, 2)
-A2	assert [
-A2	assert preview["total"] == 2
-A2	assert (
+-	assert after["en"] != before["en"]
+-	assert after["ru"] == before["ru"]
+-	assert after["en"] == chain.version_of(
+-	assert (before["rows"], _states(before)["en"][0]) == ([], "common")
+-	assert [row["subject"] for row in after["rows"]] == ["Own test"]
+-	assert {lang: source for lang, (source, _) in _states(after).items()} == {
+-	assert [row["hypothesis_id"] for row in (await _chain(client, headers))["rows"]] == [None]
 -	assert response.status_code == code, response.text
--	assert response.json()["detail"].startswith(words)
+-	assert words in response.json()["detail"]
+-	assert await chain.rows(session, None) == []
 -	assert response.status_code == 422
--	assert (missing.status_code, missing.json()["detail"]) == (
--	assert (kept.status_code, kept.json()["title"], kept.json()["text"]) == (
--	assert body["missing"] == [
--	assert (body["physical_address"], body["updated_at"]) == (None, None)
--	assert body["limits"] == {
--	assert saved.status_code == 200, saved.text
--	assert (read["sender_name"], read["missing"], read["updated_by"]) == ("Ива Тестова", [], SELLER)
--	assert (read["website"], read["telegram"]) == (None, "@studio_example")
--	assert (bad.status_code, bad.json()["detail"]) == (
--	assert typo.status_code == 422
+-	assert (response.status_code, response.json()["detail"]) == (
+-	assert response.status_code == 200, response.text
+-	assert shown["subject"] == "Test for Example Company"
+-	assert shown["zones"][0]["text"] == "Hello Alex Example,"
+-	assert (shown["sender_name"], shown["signature"], shown["address"], shown["missing"]) == (
+-	assert shown["values"] == {
+-	assert await chain.rows(session, None) == []
+-	assert response.status_code == 200, response.text
+-	assert (response.json()["subject"], response.json()["missing"]) == (
+-	assert response.status_code == 400
+-	assert "подпись из настроек отправителя" in response.json()["detail"]
 -	assert (response.status_code, response.json()["detail"]) == (403, NO_RIGHT)
--	assert in_app == in_table
+-	assert in_app == {(method, path) for method, path, _ in ROUTES}
 -	assert problems == []
--	assert entries == [kb.entry(**BRIEF), kb.entry(**PRICE), kb.entry(**CASE)]
--	assert entries == [kb.entry(**BRIEF)]
--	assert problems == [
+-	assert templates == [step_template(**FIRST), step_template(**SECOND), step_template(**THIRD)]
+-	assert templates == [step_template(**FIRST)]
+-	assert [(p.number, p.where) for p in problems] == [
+-	assert "начинается с «Re:»" in reasons[0]
+-	assert reasons[1:8] == [
+-	assert "метрики Ahrefs" in reasons[8]
+-	assert reasons[9] == "подстановки {{host}} нет; есть только {{name}}, {{company}}, {{site}}"
+-	assert problems == [Problem(3, "шаг 1, en", "тот же шаг и язык, что у №1: в наборе он один")]
+-	assert [p.reason for p in problems] == [
 -	assert str(refused.value).startswith(words)
--	assert str(refused.value).startswith(f"файл {tmp_path / 'нет.json'} не открылся: No such file")
 -	assert str(refused.value) == (
 -	assert not inside.exists()
 -	assert await _run(session, _file(tmp_path)) == EXIT_OK
@@ -426,58 +478,51 @@ A2	assert (
 -	assert await _run(session, path) == EXIT_OK
 -	assert "добавлено 0, без изменений 3, отличается 0" in capsys.readouterr().out
 -	assert (len(await _rows(session)), len(await _journal(session))) == (3, 1)
--	assert price is not None
--	assert await _run(session, edited) == EXIT_OK
--	assert capsys.readouterr().out.splitlines()[1:4] == [
--	assert [text for title, text, *_ in await _rows(session) if title == "Цена аудита"] == [
--	assert len(await _journal(session)) == 1
--	assert (
--	assert [text for title, text, *_ in await _rows(session) if title == "Цена аудита"] == [
+-	assert await _run(session, _file(tmp_path, edited)) == EXIT_OK
+-	assert "отличается 1 — не тронуто (перезаписать: --update)" in out
+-	assert f"    №{row_id}: первое письмо, en\n" in out
+-	assert "  в наборе, но не в файле: 1 — не тронуты\n" in out
+-	assert (await chain.rows(session, None))[0].subject == "Test for {{company}}"
+-	assert await _run(session, _file(tmp_path, edited), "--update") == EXIT_OK
+-	assert (first_row.subject, first_row.updated_by) == ("Edited test subject", "консоль")
 -	assert details is not None
--	assert (details["обновлено"], details["версия"]["было"]) == (1, before)
--	assert details["версия"]["стало"] == await kb.version(session) != before
--	assert "обновлено 1" in capsys.readouterr().out
+-	assert (details["обновлено"], details["без изменений"]) == (1, 0)
 -	assert await _run(session, _file(tmp_path), "--dry-run") == EXIT_OK
 -	assert capsys.readouterr().out.endswith("Предпросмотр: в базу ничего не записано.\n")
 -	assert (await _rows(session), await _journal(session)) == ([], [])
+-	assert await _run(session, _file(tmp_path), "--hypothesis", " Тестовая  гипотеза ") == EXIT_OK
+-	assert f"шаблонов 3, набор гипотезы №{owner.id}." in capsys.readouterr().out
+-	assert {row[0] for row in await _rows(session)} == {owner.id}
+-	assert (found.hypothesis_id, sorted(found.steps)) == (owner.id, [1, 2])
+-	assert await _run(session, _file(tmp_path), "--hypothesis", "Нет такой") == EXIT_NO_HYPOTHESIS
+-	assert capsys.readouterr().out == (
+-	assert await _rows(session) == []
 -	assert await _run(session, path) == EXIT_BAD_INPUT
 -	assert capsys.readouterr().out == (
 -	assert await _rows(session) == []
+-	assert await _run(session, path) == EXIT_BAD_INPUT
+-	assert "подпись из настроек отправителя" in capsys.readouterr().out
+-	assert await _rows(session) == []
 -	assert await _run(session, tmp_path / "нет.json") == EXIT_BAD_INPUT
--	assert capsys.readouterr().out.startswith("База знаний не прочитана: файл ")
--	assert main(["sales-kb-load", "--file", "база.json"]) == EXIT_CANCELLED
--	assert "База знаний пишется одной транзакцией: в базе ничего не осталось." in err
+-	assert capsys.readouterr().out.startswith(
+-	assert main(["sales-chain-load", "--file", "цепочка.json"]) == EXIT_CANCELLED
+-	assert "Цепочка писем пишется одной транзакцией: в базе ничего не осталось." in err
 -	assert "домены остались" not in err
 -	assert found is not None, f"в salesTypes.ts нет типа {name}"
 -	assert found is not None, f"в salesLabels.ts нет таблицы {name}"
--	assert _union("KbKind") == kinds
--	assert _keys("KB_KINDS") == kinds
--	assert _union("SenderField") == fields
--	assert _keys("SENDER_FIELDS") == fields
-A3	assert str(refused.value) == (
-A3	assert "; ".join(every) in str(refused.value)
-A3	assert (await sender.read(session)).missing == every
-A3	assert saved.values["physical_address"] is None
-A3	assert str(refused.value) == (
-A3	assert (ready.missing, ready.values["physical_address"]) == ([], ADDRESS)
--	assert saved.values == FILLED
--	assert (saved.updated_by, saved.updated_at is not None) == ("admin@ours.example.test", True)
--	assert (await sender.read(session)).values == FILLED
--	assert await session.scalar(select(func.count()).select_from(SalesSettingsModel)) == 1
--	assert saved.values == dict.fromkeys(sender.FIELDS) | {
--	assert str(refused.value).startswith(words)
--	assert await session.get(SalesSettingsModel, 1) is None
--	assert [target for target, _ in journal] == ["sales_settings", "sales_settings"]
--	assert journal[-1][1] == {"поля": ["physical_address"], "было": {"physical_address": ADDRESS}}
--	assert saved.missing == [
--	assert (await session.get(SalesSettingsModel, 1), await _journal(session)) == (None, [])
--	assert secret_like == []
--	assert columns == {*sender.FIELDS, "id", "updated_by", "created_at", "updated_at"}
+-	assert _union("ChainLanguage") == languages
+-	assert _keys("CHAIN_LANGUAGES") == languages
+-	assert _union("ChainPlaceholder") == placeholders
+-	assert _keys("CHAIN_PLACEHOLDERS") == placeholders
+-	assert _union("ZoneKind") == kinds
+-	assert _keys("ZONE_KINDS") == kinds
+-	assert {int(step): title.lower() for step, title in titles.items()} == chain_text.STEP_TITLES
 ```
 
-Привязаны к примерам: **A1 A2 A3 L5**. Остальные 157 — нет.
+⚠ **Ни одно утверждение не ссылается на пример из спеки.** Значит все
+ожидания придумал исполнитель — это ровно тот круг, о котором §3.1d.
 
 Читать нужно **только строки с `-` в первой колонке**: их ожидание
 ничем не подписано. Подпись: `asserts_reviewed_by: human:… at=…`.
 
-asserts_without_example: 157
+asserts_without_example: 188

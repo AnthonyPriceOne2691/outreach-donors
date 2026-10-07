@@ -1,13 +1,21 @@
 /**
  * Русские подписи к кодам раздела «Продажи»: состояния лида, причины отказа,
- * поля файла. Подпись самого права `sales` — в `labels.ts`, рядом с остальными.
+ * поля файла, шаги и языки цепочки писем. Подпись самого права `sales` — в `labels.ts`, рядом с остальными.
  *
  * Своим файлом по той же причине, что `salesTypes.ts`: `labels.ts` стоит
  * в тающем baseline длины, и новый раздел его не растит. Правило одно место —
  * одно слово держится: у каждого кода продаж подпись ровно здесь.
  */
 
-import type { KbKind, LeadField, LeadState, SenderField } from './salesTypes';
+import type {
+  ChainLanguage,
+  ChainPlaceholder,
+  KbKind,
+  LeadField,
+  LeadState,
+  SenderField,
+  ZoneKind,
+} from './salesTypes';
 
 /** Состояние лида продаж словами и цветом. «Новый» — загружен и ещё не
  *  очищен: серый, ждать очистки; «готов» — прошёл очистку, можно в письма;
@@ -89,3 +97,42 @@ export const SENDER_FIELDS: Record<
   telegram: { label: 'Telegram для лидов', hint: '@имя или https://t.me/имя' },
   call_link: { label: 'Ссылка на созвон', hint: 'ссылка https://… на запись в календарь' },
 };
+
+/** Шаг цепочки писем словами и что о нём знать. Номера — шаги сервера
+ *  (`chain_text.STEPS`; сверку держит `tests/test_sales_chain_screen.py`). */
+export const CHAIN_STEPS: Record<number, { title: string; hint: string }> = {
+  1: { title: 'Первое письмо', hint: 'с темой; зоны rewrite модель переписывает под адресата' },
+  2: { title: 'Первая добивка', hint: 'в той же переписке, без темы; уходит как есть' },
+  3: { title: 'Вторая добивка', hint: 'последнее письмо цепочки; уходит как есть' },
+};
+
+export function chainStepTitle(step: number): string {
+  return CHAIN_STEPS[step]?.title ?? `шаг ${step}`;
+}
+
+/** Язык письма словами. Незнакомый код виден как есть. */
+export const CHAIN_LANGUAGES: Record<ChainLanguage, string> = {
+  ru: 'Русский',
+  en: 'Английский',
+};
+
+export function chainLanguageTitle(code: string): string {
+  return code in CHAIN_LANGUAGES ? CHAIN_LANGUAGES[code as ChainLanguage] : code;
+}
+
+/** Что сборка сделает с зоной — подпись у зоны в предпросмотре. */
+export const ZONE_KINDS: Record<ZoneKind, string> = {
+  rewrite: 'переписывает модель',
+  fixed: 'уходит как есть',
+};
+
+/** Подстановки шаблона цепочки и что в них встанет. */
+export const CHAIN_PLACEHOLDERS: Record<ChainPlaceholder, string> = {
+  name: 'имя адресата',
+  company: 'компания',
+  site: 'сайт компании',
+};
+
+export function chainPlaceholderTitle(name: string): string {
+  return name in CHAIN_PLACEHOLDERS ? CHAIN_PLACEHOLDERS[name as ChainPlaceholder] : name;
+}

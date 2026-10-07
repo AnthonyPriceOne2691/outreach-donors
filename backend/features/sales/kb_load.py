@@ -22,10 +22,9 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction
-from backend.features.sales import kb
+from backend.features.sales import kb, outside
 from backend.features.sales.kb import Entry, KbError
 from backend.features.sales.models import SalesKbEntryModel
 
@@ -58,15 +57,8 @@ class Problem:
     reason: str
 
 
-@dataclass(frozen=True, slots=True)
-class Plan:
-    """Что станет с базой: по ключу записи — новая, такая же или отличается."""
-
-    added: list[Entry] = field(default_factory=list)
-    same: list[Entry] = field(default_factory=list)
-    differs: list[tuple[Entry, SalesKbEntryModel]] = field(default_factory=list)
-    #: Записей базы, которых нет в файле: их не трогаем.
-    absent: int = 0
+#: Что станет с базой: по ключу записи — новая, такая же или отличается.
+type Plan = outside.Sorting[Entry, SalesKbEntryModel]
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,34 +69,13 @@ class Loaded:
     after: str
 
 
-def _repository_of(path: Path) -> Path | None:
-    """Копия репозитория, внутри которой лежит файл: каталог с `.git` и модулем продаж."""
-    for parent in path.resolve().parents:
-        if (parent / ".git").exists() and (parent / "backend/features/sales").is_dir():
-            return parent
-    return None
-
-
 def _decoded(path: Path) -> Any:
-    if (root := _repository_of(path)) is not None:
-        raise KbFileError(
-            f"файл {path} лежит в копии репозитория {root} — факты компании уехали бы "
-            "в публичную историю; положите файл вне репозитория"
-        )
     try:
-        data = path.read_bytes()
-    except OSError as exc:
-        raise KbFileError(f"файл {path} не открылся: {exc.strerror or exc}") from exc
-    if len(data) > MAX_BYTES:
-        raise KbFileError(
-            f"файл {path.name} больше {MAX_BYTES // 1024 // 1024} МБ — это не база знаний"
+        return outside.read_json(
+            path, leaks="факты компании", too_big="это не база знаний", max_bytes=MAX_BYTES
         )
-    try:
-        return json.loads(data.decode("utf-8-sig"))
-    except UnicodeDecodeError as exc:
-        raise KbFileError(f"файл {path.name} не в UTF-8 (байт {exc.start})") from exc
-    except json.JSONDecodeError as exc:
-        raise KbFileError(f"файл {path.name} — не JSON: {exc.msg}, строка {exc.lineno}") from exc
+    except outside.OutsideFileError as exc:
+        raise KbFileError(str(exc)) from exc
 
 
 def _problem(item: Any) -> str | None:
@@ -171,16 +142,7 @@ def _same(new: Entry, row: SalesKbEntryModel) -> bool:
 async def plan(session: AsyncSession, entries: Sequence[Entry]) -> Plan:
     """Сверка файла с базой по ключу записи. Ничего не пишет."""
     rows = {(row.kind, row.language, row.title): row for row in await kb.entries(session)}
-    result = Plan(absent=len(set(rows) - {new.key for new in entries}))
-    for new in entries:
-        row = rows.get(new.key)
-        if row is None:
-            result.added.append(new)
-        elif _same(new, row):
-            result.same.append(new)
-        else:
-            result.differs.append((new, row))
-    return result
+    return outside.sort_against(entries, rows, key=lambda new: new.key, same=_same)
 
 
 async def apply(
