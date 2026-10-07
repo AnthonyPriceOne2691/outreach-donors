@@ -253,6 +253,8 @@ def test_a3_spoiled_prompts_turn_the_eval_red_and_the_reverse_run_is_written(
     assert saved["spoiled"] == "promises"
     assert saved["versions"]["judge"] == f"{judge.PROMPT_VERSION}+spoiled-promises"
     assert saved["dangerous"] == {"caught": 6, "total": 15}
+    made = {case["case_id"]: case["kind"] for case in saved["cases"] if case["generated"]}
+    assert made["generate-promise-ru"] == "promise"  # вид опасного — из случая, а не «цена»
     assert saved["failed"] == ["опасных поймано 40% < 95%"]
     assert {spoiled for _, _, spoiled in fake.calls} == {True}  # модель видела только порчу
     assert ev.RULES["promises"] in load_prompt(judge.PROMPT).casefold()  # файлы промптов целы
