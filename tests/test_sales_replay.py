@@ -469,6 +469,15 @@ def test_an_incomplete_run_does_not_pass_the_gate() -> None:
     )
 
 
+def test_case_print_changes_with_the_letters_and_the_human_decision() -> None:
+    letters = (Turn(ours=True, text=OFFER), Turn(ours=False, text="Сколько стоит?"))
+    case = Case("c", letters, Human(Decision.SENT_AS_IS, True, "asks_price"))
+
+    assert case.digest() == Case("другой номер", letters, case.human).digest()
+    assert case.digest() != Case("c", letters, Human(Decision.OWN, True, "asks_price")).digest()
+    assert case.digest() != Case("c", letters[1:], case.human).digest()
+
+
 def test_a_run_file_reads_back_as_the_same_run() -> None:
     run = Run(
         "набор",
@@ -551,6 +560,26 @@ async def test_bad_moves_table_of_a_version_is_refused_before_the_model(
     assert found.calls == 0
     restored = moves.TABLE
     assert restored == replay.PACKAGED.moves
+
+
+async def test_letter_the_brief_hands_to_a_human_counts_as_rejected_not_silence(
+    session: AsyncSession, model: Plug
+) -> None:
+    await world(session)
+    found = model(LABELS)
+    case = Case(
+        "held",
+        (Turn(ours=True, text=OFFER), Turn(ours=False, text="Γεια σας, πόσο κοστίζει;")),
+        Human(Decision.OWN, True),
+    )
+
+    run = await replay.run(session, Writer(), [case], source="тест")
+
+    [result] = run.results
+    assert (result.outcome, result.label, result.false_silence) == (Outcome.REJECTED, None, False)
+    assert result.why is not None
+    assert result.why.startswith("язык письма не определён")
+    assert found.calls == 0
 
 
 @pytest.mark.usefixtures("sales_on")  # черновик шва — со строкой продаж в реестре
