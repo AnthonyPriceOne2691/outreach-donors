@@ -100,6 +100,13 @@ describe('расход', () => {
     expect(operationTitle('sales_reply_kind')).toBe('разбор ответов продаж');
   });
 
+  it('расход агента продаж назван словами, а не кодом', () => {
+    // Операции сервера агента продаж (`OPERATION_PROVIDERS`, срез продаж 3.2a).
+    expect(operationTitle('sales_situation')).toBe('ситуация писем продаж');
+    expect(operationTitle('sales_draft')).toBe('черновики продаж');
+    expect(operationTitle('sales_judge')).toBe('судья черновиков продаж');
+  });
+
   it('там, где платят не деньгами, нулей в долларах нет', async () => {
     await openUsage({
       ...SPENDING,
