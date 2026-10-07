@@ -1721,6 +1721,11 @@
       "complexity": 3,
       "worst": "ask:73"
     },
+    "backend/features/sales/agent/moves.py": {
+      "lines": 164,
+      "complexity": 6,
+      "worst": "_move:102"
+    },
     "backend/features/sales/agent/situation.py": {
       "lines": 250,
       "complexity": 10,

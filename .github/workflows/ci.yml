@@ -401,6 +401,9 @@ jobs:
               assert prompt, "пустой промпт"
           from backend.features.sales import reply_kind
           reply_kind.load_prompt()
+          from backend.features.sales.agent import moves, situation
+          writer.load_prompt(situation.PROMPT)
+          moves.table()  # таблица ходов продаж: данными, проверяется при чтении
           print("шаблоны писем и промпты читаются из", backend.__file__)
           EOF
 
