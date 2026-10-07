@@ -35,6 +35,7 @@ from backend.features.contacts.manual import (
     UnknownAddressError,
 )
 from backend.features.contacts.repository import SearchRefusedError
+from backend.features.core.stages import SalesNotConnectedError
 from backend.features.core.usage import LlmCapExceededError
 from backend.features.donors.browse import UnknownDonorError
 from backend.features.donors.export import PickRefusedError
@@ -101,6 +102,9 @@ STATUSES: dict[type[Exception], int] = {
     MaybeSentError: status.HTTP_409_CONFLICT,
     # Исход письма уже известен или письмо может быть ещё в пути — состояние.
     ResolveError: status.HTTP_409_CONFLICT,
+    # Письмо, добивка, разбор или лид этапа продаж: почта его ещё не ведёт.
+    # Состояние продукта, а не ошибка запроса и не наша поломка.
+    SalesNotConnectedError: status.HTTP_409_CONFLICT,
     # Метрики Ahrefs в письме: правка человека, которую нельзя принять.
     ForbiddenContentError: status.HTTP_400_BAD_REQUEST,
     # Текст письма с экрана не разобрался как шаблон: нет зоны, подписи,

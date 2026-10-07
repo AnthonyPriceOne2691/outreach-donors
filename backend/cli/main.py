@@ -55,6 +55,7 @@ from backend.cli.prune import cmd_prune
 from backend.cli.review_queue import add_parser as add_review_queue_parser
 from backend.cli.review_queue import cmd_review_queue
 from backend.cli.sales_commands import COMMANDS as SALES_COMMANDS
+from backend.cli.sales_commands import FAILURES as SALES_FAILURES
 from backend.cli.sales_commands import KEPT_ON_INTERRUPT as SALES_KEPT
 from backend.cli.sales_commands import add_parsers as add_sales_parsers
 from backend.cli.senders_admin import add_parser as add_senders_parser
@@ -412,6 +413,7 @@ _FAILURES: tuple[tuple[type[Exception], int, str], ...] = (
     (LlmCapExceededError, EXIT_CAP_EXCEEDED, "Остановлено"),
     (QuotaUnavailableError, EXIT_QUOTA_UNAVAILABLE, "Прогон не запущен"),
     (AhrefsError, EXIT_PROVIDER_FAILED, "Провайдер не ответил"),
+    *SALES_FAILURES,
 )
 
 
