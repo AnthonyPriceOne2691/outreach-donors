@@ -11,7 +11,7 @@
 
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
 import type { FunnelCounts, HypothesesView, SalesFunnelView } from '../api/salesTypes';
@@ -227,6 +227,25 @@ describe('воронка продаж', () => {
       ),
     ).toBeInTheDocument();
     expect(tile('Доставлено')).toEqual(['Доставлено', '0', 'нет отправленных']);
+  });
+
+  it('на узком окне период — столбиком во всю ширину: в ряд «Свои даты» уходили за край', async () => {
+    // Заглушку снимает `restoreAllMocks` после теста (`test/setup.ts`).
+    vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({
+      matches: query.includes('max-width: 36em'),
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }));
+    await openFunnel();
+
+    const period = screen.getByRole('radiogroup', { name: 'Период' });
+    expect(period).toHaveAttribute('data-orientation', 'vertical');
+    expect(period).toHaveAttribute('data-full-width');
   });
 
   it('отказ сервера — словами', async () => {
