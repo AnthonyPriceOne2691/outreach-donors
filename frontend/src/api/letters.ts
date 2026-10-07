@@ -7,6 +7,7 @@ import type {
   SendResult,
 } from './types';
 import { request } from './client';
+import type { Stage } from './stages';
 import type { ResolveOutcome, ResolvedLetter, UnknownLettersView } from './unknownOutcome';
 
 /** Очередь этапа. Донорам — без параметра: это умолчание сервера. */
@@ -40,7 +41,7 @@ export interface SendQueueQueued {
 }
 
 /** Отправить всю очередь этапа пачкой (слово Anthony 06.10.2026). */
-export function sendQueue(stage: LetterStage): Promise<SendQueueQueued> {
+export function sendQueue(stage: Stage): Promise<SendQueueQueued> {
   return request<SendQueueQueued>('/letters/send-queue', { method: 'POST', body: { stage } });
 }
 

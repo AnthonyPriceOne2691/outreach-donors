@@ -15,7 +15,7 @@ import { AppRoutes } from '../App';
 import { ADMIN, NO_STUCK_LETTERS, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
-import { batchLine } from './SendQueue';
+import { SendQueue, batchLine } from './SendQueue';
 
 function letter(id: number, host: string) {
   return {
@@ -129,5 +129,26 @@ describe('итог пачки словами', () => {
     expect(batchLine({ sent: 20, refused: {}, stopped: 'Сегодня писать некому', left: 5 })).toBe(
       'Ушло 20, осталось в очереди 5. Остановлено: Сегодня писать некому',
     );
+  });
+});
+
+describe('пачка любого этапа (4.5a)', () => {
+  it('продажи уходят своим этапом, отказ сервера — словами', async () => {
+    const refusal = 'Очередь писем не отправлена: продажи к почте ещё не подключены';
+    const recorded = serve({
+      'POST /api/letters/send-queue': { status: 409, body: { detail: refusal } },
+    });
+    renderWith(<SendQueue stage="sales" count={2} blocked={false} onFinished={() => undefined} />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Отправить очередь · 2' }));
+    await user.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Отправить 2' }),
+    );
+
+    expect(await screen.findByText(refusal)).toBeInTheDocument();
+    expect(recorded.calls.find((call) => call.path === '/api/letters/send-queue')?.body).toEqual({
+      stage: 'sales',
+    });
   });
 });

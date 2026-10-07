@@ -18,15 +18,35 @@ import { useMediaQuery } from '@mantine/hooks';
 import { IconChevronDown } from '@tabler/icons-react';
 import { useState } from 'react';
 
-import type { SenderCard as Mailbox } from '../api/types';
+import type { DomainLimit, StagedSender as Mailbox } from '../api/senders';
+import type { Stage } from '../api/stages';
+import { THREAD_STAGE_NOTES } from '../api/stages';
 import { Meter } from '../components/Meter';
+import { formatDate, formatNumber } from '../format';
 
 export interface DomainGroup {
   domain: string;
+  /** Направление домена: у этапов домены отправки свои. */
+  stage: Stage;
   boxes: Mailbox[];
   enabled: boolean;
   sentToday: number;
   allowance: number;
+  /** Лимит домена целиком (`sending_domains`); нет строки — у домена лимита нет. */
+  limit: DomainLimit | undefined;
+}
+
+/** Лимит домена словами: счёт первых писем, выдержка, пауза. */
+export function limitLine(limit: DomainLimit): string {
+  const parts = [
+    `лимит домена: ${formatNumber(limit.sent_today)} из ${formatNumber(limit.daily_limit)} первых писем сегодня`,
+  ];
+  if (limit.young_until !== null && new Date(limit.young_until) > new Date()) {
+    parts.push(`на выдержке до ${formatDate(limit.young_until)}`);
+  }
+  if (limit.paused_at !== null)
+    parts.push(`домен на паузе: ${limit.pause_reason ?? 'без причины'}`);
+  return parts.join(' · ');
 }
 
 interface Props {
@@ -111,6 +131,11 @@ export function SenderCard({ group, busy, onSwitch }: Props) {
             <Badge variant="light" color={group.enabled ? 'green' : 'gray'}>
               {group.enabled ? 'отправляет' : 'выключен'}
             </Badge>
+            {THREAD_STAGE_NOTES[group.stage] !== '' && (
+              <Badge variant="outline" color="gray">
+                {THREAD_STAGE_NOTES[group.stage]}
+              </Badge>
+            )}
             {warming && (
               <Badge variant="light" color="lagoon">
                 разгон, день {warmupDay}
@@ -131,6 +156,11 @@ export function SenderCard({ group, busy, onSwitch }: Props) {
           {!group.enabled && (
             <Text size="xs" c="dimmed">
               Включённый заново домен начинает разгон с начала.
+            </Text>
+          )}
+          {group.limit !== undefined && (
+            <Text size="xs" c="dimmed">
+              {limitLine(group.limit)}
             </Text>
           )}
 

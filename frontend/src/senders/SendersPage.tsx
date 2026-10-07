@@ -16,32 +16,44 @@ import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { refusalOf } from '../api/client';
-import { disableSender, enableSender, listSenders } from '../api/outreach';
-import type { SenderCard } from '../api/types';
+import { disableSender, enableSender } from '../api/outreach';
+import { STAGE_TITLES, listSendersByStage } from '../api/senders';
+import type { DirectionLimit, DomainLimit, StagedSender } from '../api/senders';
+import type { Stage } from '../api/stages';
+import { formatNumber } from '../format';
 import { SenderCard as DomainCard } from './SenderCard';
 import type { DomainGroup } from './SenderCard';
 
 const SENDERS_QUERY_KEY = ['senders'] as const;
+const STAGES = Object.keys(STAGE_TITLES) as Stage[];
 
-function groupByDomain(senders: SenderCard[]): DomainGroup[] {
-  const groups = new Map<string, SenderCard[]>();
+function groupByDomain(senders: StagedSender[], limits: DomainLimit[]): DomainGroup[] {
+  const groups = new Map<string, StagedSender[]>();
   for (const sender of senders) {
     groups.set(sender.domain, [...(groups.get(sender.domain) ?? []), sender]);
   }
   return [...groups.entries()].map(([domain, boxes]) => ({
     domain,
+    stage: boxes[0]?.stage ?? 'donors',
     boxes,
     enabled: boxes.some((box) => box.enabled),
     sentToday: boxes.reduce((sum, box) => sum + box.sent_today, 0),
     allowance: boxes.reduce((sum, box) => sum + box.warmup_allowance, 0),
+    limit: limits.find((limit) => limit.domain === domain),
   }));
+}
+
+/** Лимит направления словами; `null` — своего лимита у направления нет. */
+function directionLine(direction: DirectionLimit | undefined): string | null {
+  if (direction?.daily_limit == null) return null;
+  return `Лимит направления: ${formatNumber(direction.sent_today)} из ${formatNumber(direction.daily_limit)} первых писем сегодня`;
 }
 
 export function SendersPage() {
   const queryClient = useQueryClient();
   const { data, isLoading, error } = useQuery({
     queryKey: SENDERS_QUERY_KEY,
-    queryFn: listSenders,
+    queryFn: listSendersByStage,
   });
 
   const switchDomain = useMutation({
@@ -73,8 +85,14 @@ export function SendersPage() {
     );
   }
 
-  const groups = groupByDomain(data?.senders ?? []);
+  const groups = groupByDomain(data?.senders ?? [], data?.domains ?? []);
   const enabledDomains = groups.filter((group) => group.enabled).length;
+  // Разделы по этапу — только когда этапов больше одного: у одних доноров экран прежний.
+  const sections = STAGES.map((stage) => ({
+    stage,
+    groups: groups.filter((group) => group.stage === stage),
+    limit: directionLine(data?.directions?.find((direction) => direction.stage === stage)),
+  })).filter((section) => section.groups.length > 0);
 
   return (
     <Stack gap="lg">
@@ -99,16 +117,20 @@ export function SendersPage() {
         </Stack>
       </Card>
 
-      <Stack gap="sm">
-        {groups.map((group) => (
-          <DomainCard
-            key={group.domain}
-            group={group}
-            busy={switchDomain.isPending && switchDomain.variables?.group.domain === group.domain}
-            onSwitch={(on) => switchDomain.mutate({ group, on })}
-          />
-        ))}
-      </Stack>
+      {sections.map((section) => (
+        <Stack gap="sm" key={section.stage}>
+          {sections.length > 1 && <Title order={4}>{STAGE_TITLES[section.stage]}</Title>}
+          {section.limit !== null && <Text size="sm">{section.limit}</Text>}
+          {section.groups.map((group) => (
+            <DomainCard
+              key={group.domain}
+              group={group}
+              busy={switchDomain.isPending && switchDomain.variables?.group.domain === group.domain}
+              onSwitch={(on) => switchDomain.mutate({ group, on })}
+            />
+          ))}
+        </Stack>
+      ))}
     </Stack>
   );
 }
