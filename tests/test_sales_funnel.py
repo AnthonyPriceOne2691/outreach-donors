@@ -188,6 +188,20 @@ async def test_period_is_by_the_first_letter_of_the_lead(session: AsyncSession, 
     assert await funnel.leads(session, Step.SENT, before) == [earlier.lead_id]
 
 
+async def test_period_takes_its_start_and_leaves_its_end(session: AsyncSession, rows: Rows) -> None:
+    """Полуинтервал: первое письмо ровно в начале — в периоде, ровно в конце — уже в следующем."""
+    hypothesis = await rows.hypothesis("границы")
+    at_start = await rows.lead(hypothesis, "start@alpha.example.test")
+    await rows.letter(at_start, step=0, status=MessageStatus.SENT, days_ago=7)
+    at_end = await rows.lead(hypothesis, "end@beta.example.test")
+    await rows.letter(at_end, step=0, status=MessageStatus.SENT, days_ago=3)
+    period = Period(since=NOW - timedelta(days=7), until=NOW - timedelta(days=3))
+    after = Period(since=NOW - timedelta(days=3))
+
+    assert await funnel.leads(session, Step.SENT, period) == [at_start.lead_id]
+    assert await funnel.leads(session, Step.SENT, after) == [at_end.lead_id]
+
+
 async def test_gone_letter_without_send_time_counts_by_the_time_it_was_written(
     session: AsyncSession, rows: Rows
 ) -> None:
