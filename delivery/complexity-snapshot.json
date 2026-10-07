@@ -1182,9 +1182,9 @@
       "worst": "cadence:34"
     },
     "backend/features/letters/compose.py": {
-      "lines": 237,
-      "complexity": 3,
-      "worst": "values_for:115"
+      "lines": 271,
+      "complexity": 4,
+      "worst": "unset_reason:228"
     },
     "backend/features/letters/draft.py": {
       "lines": 160,
@@ -1262,9 +1262,9 @@
       "worst": "_post:139"
     },
     "backend/features/letters/sending.py": {
-      "lines": 499,
+      "lines": 490,
       "complexity": 5,
-      "worst": "_pinned_sender:369"
+      "worst": "_pinned_sender:360"
     },
     "backend/features/letters/stoplist.py": {
       "lines": 310,

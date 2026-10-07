@@ -55,7 +55,20 @@ _UNSET_TITLES = {
     "donor_host": "ПЛОЩАДКА ССЫЛКИ НЕ ЗАДАНА",
     "page_url": "СТРАНИЦА ССЫЛКИ НЕ ЗАДАНА",
     "anchor": "АНКОР ССЫЛКИ НЕ ЗАДАН",
+    "donor_country": "СТРАНА АУДИТОРИИ НЕ ЗАДАНА",
 }
+
+#: Необязательные фразы: пустая — фразы в письме нет, и это не дыра.
+#: Подставляются как есть, без обрезки: хвостовой пробел — часть фразы.
+#: Обрезка его съедала, и оффер склеивал предложения («…the United
+#: States.I buy placements…», первое письмо Этапа 2, 07.10.2026), а пустая
+#: фраза становилась меткой «НЕ ЗАДАНО» прямо в тексте письма.
+OPTIONAL_VALUES = frozenset({"donor_audience"})
+
+#: Метка пустого значения без своего названия: `_substitute` пишет имя
+#: подстановки заглавными. Отправлять её так же нельзя, а проверка до
+#: 07.10.2026 знала только названия из `_UNSET_TITLES` и такую пропускала.
+_ANY_UNSET_RE = re.compile(r"«([A-Z0-9_]+ НЕ ЗАДАНО)»")
 
 #: Подстановки найденной ссылки. Есть только у письма рекламодателю.
 LINK_VALUES = ("donor_host", "page_url", "anchor")
@@ -190,6 +203,8 @@ def _substitute(text: str, values: dict[str, str]) -> str:
                 f"В шаблоне подстановка {{{{{name}}}}}, а значения для неё нет. "
                 "Либо опечатка в шаблоне, либо значение надо добавить в values_for()"
             )
+        if name in OPTIONAL_VALUES:
+            return values[name]
         value = values[name].strip()
         if value:
             return value
@@ -205,7 +220,26 @@ def unset_in(text: str) -> list[str]:
     могли заполнить после того, как письмо собрали, — и в письме всё
     равно стоит метка.
     """
-    return [title for title in _UNSET_TITLES.values() if _UNSET.format(title=title) in text]
+    known = [title for title in _UNSET_TITLES.values() if _UNSET.format(title=title) in text]
+    other = [title for title in dict.fromkeys(_ANY_UNSET_RE.findall(text)) if title not in known]
+    return known + other
+
+
+def unset_reason(unset: list[str]) -> str:
+    """Отказ отправке словами для экрана: что не задано и чем это лечится."""
+    names = ", ".join(title.split(" НЕ ЗАДАН")[0].lower() for title in unset)
+    if LINK_TITLES & set(unset):
+        # Пустую ссылку подключение почты не лечит: у рекламодателя
+        # не нашлось, под что писать, и письмо собирается заново.
+        cure = "письмо стоит убрать и собрать очередь заново"
+    elif _UNSET_TITLES["donor_country"] in unset:
+        cure = (
+            "у площадки неизвестна страна аудитории: поправьте письмо или возьмите в шаблоне "
+            "{{donor_audience}} — эта фраза без страны пропадает"
+        )
+    else:
+        cure = "настраивается при подключении почты, после него очередь собирается заново"
+    return f"не задано {names} — {cure}"
 
 
 def render(template: Template, values: dict[str, str]) -> Rendered:

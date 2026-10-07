@@ -149,17 +149,8 @@ def check_ready(body: str, *, what: str) -> None:
     о каком письме речь, остальное объяснение одно на все письма.
     """
     unset = compose.unset_in(body)
-    if not unset:
-        return
-    names = ", ".join(title.split(" НЕ ЗАДАН")[0].lower() for title in unset)
-    # Пустую ссылку подключение почты не лечит: у рекламодателя
-    # не нашлось, под что писать, и письмо собирается заново.
-    cure = (
-        "письмо стоит убрать и собрать очередь заново"
-        if compose.LINK_TITLES & set(unset)
-        else "настраивается при подключении почты, после него очередь собирается заново"
-    )
-    raise NotReadyError(f"{what} пока не отправить: не задано {names} — {cure}")
+    if unset:
+        raise NotReadyError(f"{what} пока не отправить: {compose.unset_reason(unset)}")
 
 
 @dataclass(frozen=True, slots=True)
