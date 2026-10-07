@@ -116,11 +116,24 @@ jobs:
       # Сьют идёт на PR ОДИН раз — здесь (cqg@2.47). Прежде гейт покрытия в
       # quality.yml гонял его второй раз (7–8 минут на каждом PR).
       #
-      # Покрытие снимается только с ИЗМЕНЁННЫХ модулей backend: гейту нужно ровно
-      # оно, а полное (`concurrency = greenlet`, без него coverage слеп к async-коду)
-      # стоило обязательной проверке +47% — 826 с против 560 (замер #195, 07.10).
-      # Нет правок python — нет и трассировки. Привязка `coverage.json.head` — SHA,
-      # на котором шёл сьют: гейт откажется судить отчёт чужого коммита.
+      # Покрытие снимается только с КАТАЛОГОВ изменённых файлов backend: гейту
+      # нужны изменённые файлы, а полное (`concurrency = greenlet`, без него
+      # coverage слеп к async-коду) стоило обязательной проверке +47% — 826 с
+      # против 560 (замер #195, 07.10). Нет правок python — нет и трассировки.
+      # Привязка `coverage.json.head` — SHA, на котором шёл сьют: гейт откажется
+      # судить отчёт чужого коммита.
+      #
+      # ⚠ Каталоги, а не имена модулей — по двум независимым причинам (#196):
+      # 1. Имя модуля coverage ищет через find_spec ещё до первого теста, и тот
+      #    импортирует родительский пакет: `backend.features.core.models.donor`
+      #    тянет все модели и SQLAlchemy до старта трассировки, после чего процесс
+      #    падает segfault на первом подключении к базе (#194: в CI 1 из 1,
+      #    локально 3 из 3; каталогом — 3 из 3 зелёные). Так же — `features/sales`.
+      # 2. По имени coverage не видит файл, загруженный по пути: ревизии миграций
+      #    (`tests/migration_helpers.py`, spec_from_file_location) выпадали из
+      #    отчёта, и гейт краснел «не исполнялся тестами вовсе».
+      # Соседние файлы каталога в отчёте гейту не мешают: он судит изменённые
+      # файлы целиком (`percent_covered` файла), а не строки диффа.
       - name: Тесты
         env:
           BEFORE: ${{ github.event.before }}
@@ -133,14 +146,14 @@ jobs:
                && git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
             base="$BEFORE"
           fi
-          mods=""
+          dirs=""
           if [ -n "$base" ]; then
-            mods=$(git diff --name-only --diff-filter=ACMR "$base"...HEAD -- 'backend/*.py' \
-              | sed -E 's#\.py$##; s#/__init__$##; s#/#.#g' | sort -u)
+            dirs=$(git diff --name-only --diff-filter=ACMR "$base"...HEAD -- 'backend/*.py' \
+              | xargs -r -n1 dirname | sort -u)
           fi
-          if [ -n "$mods" ]; then
-            echo "покрытие изменённых модулей: $(echo $mods)"
-            pytest $(printf -- '--cov=%s ' $mods) --cov-report=json:coverage.json
+          if [ -n "$dirs" ]; then
+            echo "покрытие каталогов изменённых файлов: $(echo $dirs)"
+            pytest $(printf -- '--cov=%s ' $dirs) --cov-report=json:coverage.json
           else
             echo "правок python в backend нет — сьют без покрытия"
             pytest

@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -80,11 +81,35 @@ class TestTheRealRepositoryIsUntouched:
         assert _git("ls-files", cwd=scratch) == "docs/note.md"
 
 
+HOOK = ROOT / "scripts" / "hooks" / "pre-push"
+
+
 class TestTheHook:
     def test_hook_drops_the_binding_before_any_check(self) -> None:
-        hook = (ROOT / "scripts" / "hooks" / "pre-push").read_text(encoding="utf-8")
+        hook = HOOK.read_text(encoding="utf-8")
 
         unset = hook.index("unset $(git rev-parse --local-env-vars)")
 
-        assert unset < hook.index('"$PY/ruff"')
-        assert unset < hook.index('"$PY/pytest"')
+        for check in (
+            "uv lock --check",
+            "scripts/contour_waves.py",
+            '"$PY/ruff"',
+            '"$PY/mypy"',
+            "scripts/gates.py",
+            "scripts/complexity.py",
+            "npm run lint",
+        ):
+            assert unset < hook.index(check), check
+
+    def test_hook_runs_no_test_suite(self) -> None:
+        """Наборы тестов гоняет CI, один раз на PR. На push они стоили 6–13
+        минут при бюджете в 10 секунд (§8.6 канона). Комментарии не в счёт:
+        признак тот же, что у доктора канона (`SUITE_RE`)."""
+        suite = re.compile(r"\b(pytest|vitest|jest)\b|\bnpm\s+(run\s+)?test\b")
+        code = [
+            line
+            for line in HOOK.read_text(encoding="utf-8").splitlines()
+            if not line.lstrip().startswith("#")
+        ]
+
+        assert [line for line in code if suite.search(line)] == []
