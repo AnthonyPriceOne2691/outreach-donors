@@ -3,6 +3,7 @@
 
 import type { PriceOrigin } from './manualPrice';
 import type { Offer } from './offers';
+import type { Stage } from './stages';
 export type Role = 'admin' | 'operator';
 
 /** Именованные действия. Ровно те же, что в матрице прав на сервере. */
@@ -93,15 +94,16 @@ export type ThreadState =
   | 'unsubscribed'
   | 'stopped'
   | 'lead'
-  | 'lead_taken';
+  | 'lead_taken'
+  | 'sales_pending';
 
 export interface ThreadCard {
   id: number;
   host: string;
   contact_email: string | null;
   campaign: string;
-  /** Этап рассылки: донору писали о цене, рекламодателю — оффер. */
-  stage: LetterStage;
+  /** Этап рассылки: донору писали о цене, рекламодателю — оффер, продажам — лиду. */
+  stage: Stage;
   state: ThreadState;
   messages_sent: number;
   last_event_at: string | null;
@@ -165,8 +167,8 @@ export interface IncomingCard {
   /** Ждёт ли разбор человека. Считает сервер: порог живёт в настройках,
    *  и второй его экземпляр на фронте разъехался бы при первой правке. */
   needs_review: boolean;
-  /** Почему цену в ответе не человека всё равно смотрит человек, — словами.
-   *  Сейчас это автоответ с суммой в валюте: модель автоответы не разбирает.
+  /** Почему ответ ждёт человека не по уверенности разбора, — словами: автоответ
+   *  с суммой в валюте (модель автоответы не разбирает) или ответ лида продаж.
    *  Пусто — обычный ответ. Решает сервер тем же правилом, что приём.
    *  Необязательное: записанные до поля ответы его не несут, и отсутствие
    *  значит то же, что пустое. */
@@ -643,8 +645,8 @@ export interface StopEntry {
   host: string | null;
   email: string | null;
   reason: SuppressionReason;
-  /** Пусто — запрет действует на обоих этапах. */
-  stage: 'donors' | 'advertisers' | null;
+  /** Пусто — запрет действует на всех этапах. */
+  stage: Stage | null;
   created_by: string | null;
   created_at: string;
   /** Докуда запись держит. Пусто — навсегда. */

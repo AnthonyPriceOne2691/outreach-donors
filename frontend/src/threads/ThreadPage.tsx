@@ -36,6 +36,7 @@ import { ApiError, refusalOf } from '../api/client';
 import { rowIdOf } from '../api/ids';
 import { MESSAGE_STATUSES, REPLY_KINDS, threadState } from '../api/labels';
 import { answerReply, fetchThread, reviewReply, sendLead, takeLead } from '../api/outreach';
+import { THREAD_STAGE_NOTES } from '../api/stages';
 import type { Corridor, IncomingCard, LetterCard, MessageStatus } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { BackLink, backTo } from '../components/BackLink';
@@ -170,10 +171,13 @@ interface IncomingProps {
   answered: boolean;
   onAnswer: (text: string) => void;
   onSendLead: () => void;
+  /** Ответ лида продаж: почта продажи ещё не ведёт — ни формы цены, ни ответа. */
+  sales: boolean;
 }
 
 function Incoming({
   incoming,
+  sales,
   canReview,
   busy,
   onConfirm,
@@ -189,7 +193,8 @@ function Incoming({
   // Разбирают ответы людей: у автоответчика и отказа доставки разбирать
   // нечего. Кроме автоответа с суммой в валюте — у него сервер называет
   // причину, и без формы цену из него было бы некуда вписать.
-  const reviewable = incoming.kind === 'human' || Boolean(incoming.review_reason);
+  // У продаж нет ни того ни другого: причину ожидания называет сервер.
+  const reviewable = !sales && (incoming.kind === 'human' || Boolean(incoming.review_reason));
 
   return (
     <Card className="glass" p="md">
@@ -273,8 +278,14 @@ function Incoming({
         />
       ) : null}
 
+      {sales && incoming.review_reason ? (
+        <Text size="sm" c="dimmed" mt="sm">
+          Ждёт человека: {incoming.review_reason}.
+        </Text>
+      ) : null}
+
       {/* Отвечают человеку: автоответчику, отказу доставки и отписке — нет. */}
-      {canAnswer && incoming.kind === 'human' ? (
+      {canAnswer && incoming.kind === 'human' && !sales ? (
         <AnswerBox answered={answered} busy={busy} onSend={onAnswer} />
       ) : null}
     </Card>
@@ -404,6 +415,7 @@ export function ThreadPage() {
     );
   }
   if (data === undefined) return null;
+  const stageNote = THREAD_STAGE_NOTES[data.card.stage];
 
   // Письма и входящие идут одной лентой по времени — так же, как их
   // читал бы человек в почте.
@@ -418,6 +430,7 @@ export function ThreadPage() {
         <Incoming
           key={`incoming-${incoming.id}`}
           incoming={incoming}
+          sales={data.card.stage === 'sales'}
           canReview={can('prices')}
           busy={
             (confirm.isPending && confirm.variables?.replyId === incoming.id) ||
@@ -460,7 +473,7 @@ export function ThreadPage() {
           </Group>
           <Text size="sm" c="dimmed">
             {data.card.contact_email ?? 'адрес не определён'} · кампания «{data.card.campaign}»
-            {data.card.stage === 'advertisers' ? ' · рекламодатель' : ''}
+            {stageNote ? ` · ${stageNote}` : ''}
           </Text>
           <ThreadMailLine mail={data.mail} />
         </Stack>

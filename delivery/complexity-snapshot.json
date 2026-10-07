@@ -187,9 +187,9 @@
       "worst": "—"
     },
     "backend/api/letters/routes.py": {
-      "lines": 290,
+      "lines": 291,
       "complexity": 5,
-      "worst": "build:90"
+      "worst": "build:91"
     },
     "backend/api/letters/schemas.py": {
       "lines": 333,
@@ -372,7 +372,7 @@
       "worst": "all_threads:33"
     },
     "backend/api/threads/schemas.py": {
-      "lines": 273,
+      "lines": 274,
       "complexity": 3,
       "worst": "listed:139"
     },
@@ -1562,9 +1562,9 @@
       "worst": "budget:73"
     },
     "backend/features/runs/exclusions.py": {
-      "lines": 269,
+      "lines": 280,
       "complexity": 8,
-      "worst": "excluded_hosts:135"
+      "worst": "excluded_hosts:136"
     },
     "backend/features/runs/failures.py": {
       "lines": 37,
