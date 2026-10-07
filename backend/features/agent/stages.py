@@ -16,7 +16,9 @@
 **Судья — после письма** (`guard`): получает черновик, письмо собеседника и
 факты брифа и выносит `Verdict` — пропустить, вернуть на правку с причинами
 словами или отдать человеку. Судьи нет — черновик не проверяется сверх того,
-что проверяет писатель (`writer.checked`).
+что проверяет писатель (`writer.checked`). Вердикт `block` уходит писателю
+ключом `rewrite` запроса (прежний черновик и что исправить): промпт этапа с
+судьёй обязан о нём знать, как и о ключе `facts`, если бриф даёт факты.
 """
 
 from __future__ import annotations
@@ -68,6 +70,9 @@ class Conversation:
     reply_id: int
     turns: tuple[Turn, ...]
     settings: AgentSettings
+    #: Что общая очистка убрала из писем собеседника (`agent/cleaning.py`):
+    #: бриф может отдать такой ответ человеку.
+    cleaned: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,6 +177,17 @@ AGENT_STAGES: Mapping[Stage, AgentStage] = MappingProxyType(
         Stage.ADVERTISERS: AgentStage(defaults=defaults(Stage.ADVERTISERS), price=PriceSide.SELL),
     }
 )
+
+
+def agent_operations() -> frozenset[str]:
+    """Операции расхода агента всех этапов реестра — черновики и судьи: их
+    считает свой дневной потолок черновиков (`guarding.drafts_cap`)."""
+    found = {
+        op
+        for parts in AGENT_STAGES.values()
+        for op in (parts.usage_operation, parts.guard_operation)
+    }
+    return frozenset(op for op in found if op)
 
 
 def agent_stage(stage: Stage) -> AgentStage:

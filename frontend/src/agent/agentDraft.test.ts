@@ -18,6 +18,9 @@ const SAVED: AgentSettingsBody = {
   stop_topics: ['Договор'],
 };
 
+/** Действующие в автопилоте: режим и предел ответов приходят с сервера. */
+const AUTO: AgentSettingsBody = { ...SAVED, mode: 'autopilot', max_turns: 3 };
+
 describe('черновик настроек агента', () => {
   it('пункты — по одному на строку, пустые строки не пункты', () => {
     expect(linesOf('  первый \n\n второй\n ')).toEqual(['первый', 'второй']);
@@ -61,5 +64,12 @@ describe('черновик настроек агента', () => {
     };
     expect(sameDraft(draft, SAVED)).toBe(true);
     expect(sameDraft({ ...draft, enabled: false }, SAVED)).toBe(false);
+  });
+
+  it('режим и предел ответов автопилота уходят обратно, их смена — правка', () => {
+    expect(bodyOf(draftOf(AUTO))).toEqual(AUTO);
+    expect(sameDraft(draftOf(AUTO), AUTO)).toBe(true);
+    expect(sameDraft({ ...draftOf(AUTO), mode: 'drafts' }, AUTO)).toBe(false);
+    expect(sameDraft({ ...draftOf(AUTO), maxTurns: 2 }, AUTO)).toBe(false);
   });
 });

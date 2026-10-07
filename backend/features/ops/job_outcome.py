@@ -60,6 +60,8 @@ KINDS = {
     "backend.features.sales.queue_jobs.build_sales_queue": "сборка очереди продаж",
     CONTACTS_JOB: "поиск контактов",
     PARSE_JOB: "разбор ответа",
+    # Задача агента переписки живёт в своём модуле (`workers/agent_jobs.py`).
+    "backend.workers.agent_jobs.draft_answer": "черновик ответа",
 }
 
 TITLES = {

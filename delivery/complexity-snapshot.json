@@ -32,14 +32,14 @@
       "worst": "—"
     },
     "backend/api/agent/routes.py": {
-      "lines": 154,
-      "complexity": 4,
-      "worst": "agent_settings:48"
+      "lines": 165,
+      "complexity": 6,
+      "worst": "save_agent_settings:74"
     },
     "backend/api/agent/schemas.py": {
-      "lines": 175,
-      "complexity": 2,
-      "worst": "_without_blank:39"
+      "lines": 204,
+      "complexity": 6,
+      "worst": "to_settings:57"
     },
     "backend/api/app.py": {
       "lines": 92,
@@ -117,9 +117,9 @@
       "worst": "of:161"
     },
     "backend/api/errors.py": {
-      "lines": 193,
+      "lines": 206,
       "complexity": 3,
-      "worst": "handle:179"
+      "worst": "handle:192"
     },
     "backend/api/events/__init__.py": {
       "lines": 1,
@@ -367,14 +367,14 @@
       "worst": "—"
     },
     "backend/api/threads/routes.py": {
-      "lines": 106,
-      "complexity": 2,
-      "worst": "all_threads:38"
+      "lines": 159,
+      "complexity": 4,
+      "worst": "redraft:129"
     },
     "backend/api/threads/schemas.py": {
-      "lines": 274,
-      "complexity": 3,
-      "worst": "listed:139"
+      "lines": 285,
+      "complexity": 4,
+      "worst": "of:266"
     },
     "backend/api/unsubscribe/__init__.py": {
       "lines": 1,
@@ -582,9 +582,9 @@
       "worst": "—"
     },
     "backend/config/llm.py": {
-      "lines": 69,
-      "complexity": 0,
-      "worst": "—"
+      "lines": 86,
+      "complexity": 2,
+      "worst": "_unset_if_empty:62"
     },
     "backend/config/observability.py": {
       "lines": 21,
@@ -592,9 +592,9 @@
       "worst": "—"
     },
     "backend/config/outreach.py": {
-      "lines": 235,
+      "lines": 241,
       "complexity": 4,
-      "worst": "_own_account:197"
+      "worst": "_own_account:203"
     },
     "backend/config/sales.py": {
       "lines": 64,
@@ -666,30 +666,45 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/agent/autopilot.py": {
+      "lines": 194,
+      "complexity": 12,
+      "worst": "run:106"
+    },
+    "backend/features/agent/cleaning.py": {
+      "lines": 68,
+      "complexity": 3,
+      "worst": "clean:57"
+    },
     "backend/features/agent/drafting.py": {
-      "lines": 394,
+      "lines": 430,
       "complexity": 9,
-      "worst": "draft_answer:136"
+      "worst": "draft_answer:138"
     },
     "backend/features/agent/drafts.py": {
-      "lines": 191,
+      "lines": 216,
       "complexity": 7,
-      "worst": "send_draft:92"
+      "worst": "send_draft:117"
+    },
+    "backend/features/agent/guarding.py": {
+      "lines": 135,
+      "complexity": 8,
+      "worst": "compose:58"
     },
     "backend/features/agent/settings.py": {
-      "lines": 168,
+      "lines": 189,
       "complexity": 3,
-      "worst": "save:135"
+      "worst": "save:154"
     },
     "backend/features/agent/stages.py": {
-      "lines": 183,
-      "complexity": 3,
-      "worst": "__post_init__:84"
+      "lines": 199,
+      "complexity": 4,
+      "worst": "agent_operations:182"
     },
     "backend/features/agent/writer.py": {
-      "lines": 254,
+      "lines": 263,
       "complexity": 9,
-      "worst": "checked:188"
+      "worst": "checked:197"
     },
     "backend/features/ahrefs/__init__.py": {
       "lines": 1,
@@ -867,7 +882,7 @@
       "worst": "in_force:123"
     },
     "backend/features/core/models/agent.py": {
-      "lines": 119,
+      "lines": 131,
       "complexity": 0,
       "worst": "—"
     },
@@ -912,9 +927,9 @@
       "worst": "check_connected:100"
     },
     "backend/features/core/usage.py": {
-      "lines": 156,
-      "complexity": 7,
-      "worst": "ensure_llm_within_cap:127"
+      "lines": 192,
+      "complexity": 10,
+      "worst": "ensure_llm_within_cap:149"
     },
     "backend/features/crawl/__init__.py": {
       "lines": 5,
@@ -1377,9 +1392,9 @@
       "worst": "—"
     },
     "backend/features/ops/job_outcome.py": {
-      "lines": 180,
+      "lines": 182,
       "complexity": 10,
-      "worst": "_outcome:121"
+      "worst": "_outcome:123"
     },
     "backend/features/ops/overview.py": {
       "lines": 272,
@@ -1856,6 +1871,11 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/workers/agent_jobs.py": {
+      "lines": 154,
+      "complexity": 4,
+      "worst": "_autopilot:117"
+    },
     "backend/workers/crawl_jobs.py": {
       "lines": 270,
       "complexity": 6,
@@ -1877,9 +1897,9 @@
       "worst": "worker_problems:74"
     },
     "backend/workers/jobs.py": {
-      "lines": 498,
+      "lines": 500,
       "complexity": 6,
-      "worst": "_search_contacts:314"
+      "worst": "_search_contacts:315"
     },
     "backend/workers/main.py": {
       "lines": 29,

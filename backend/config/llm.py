@@ -17,7 +17,7 @@
 
 from __future__ import annotations
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from backend.config._base import DomainSettings
 
@@ -51,6 +51,17 @@ class _Llm(DomainSettings):
     # по строкам журнала с номером прогона.
     daily_token_cap: int = Field(default=0, ge=0, validation_alias="LLM_DAILY_TOKEN_CAP")
     run_token_cap: int = Field(default=0, ge=0, validation_alias="LLM_RUN_TOKEN_CAP")
+    # Свой дневной потолок черновиков агента переписки — внутри общего (проверяются
+    # оба). Не задан — доля общего (`AGENT_CAP_SHARE`); 0 — своего потолка нет.
+    agent_daily_token_cap: int | None = Field(
+        default=None, ge=0, validation_alias="AGENT_DAILY_TOKEN_CAP"
+    )
+
+    @field_validator("agent_daily_token_cap", mode="before")
+    @classmethod
+    def _unset_if_empty(cls, value: object) -> object:
+        """Пустое значение в `.env` — «не задан», а не ошибка разбора числа."""
+        return None if value == "" else value
 
 
 _s = _Llm()
@@ -66,3 +77,9 @@ ANGLE_BUFFER: int = _s.angle_buffer
 BACKFILL_ROUNDS: int = _s.backfill_rounds
 DAILY_TOKEN_CAP: int = _s.daily_token_cap
 RUN_TOKEN_CAP: int = _s.run_token_cap
+AGENT_DAILY_TOKEN_CAP: int | None = _s.agent_daily_token_cap
+#: Доля общего дневного потолка у черновиков агента, когда свой не задан. Черновики
+#: на сотни лидов иначе выбрали бы день целиком, и разбор ответов доноров, судья
+#: прогона, письма и ключи встали бы до завтра; черновик же подождёт завтра или
+#: кнопки «написать заново».
+AGENT_CAP_SHARE = 0.3

@@ -93,6 +93,10 @@ class Request:
     #: Промпт и модель этапа (`AgentStage`); модель `None` — клиента.
     prompt: Path = PROMPT_PATH
     model: str | None = None
+    #: Петля правки (`agent/guarding.py`): что судья велел исправить и
+    #: черновик, который он вернул. Пусто — первый черновик, ключа нет.
+    corrections: tuple[str, ...] = ()
+    previous: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +138,11 @@ def user_message(request: Request) -> str:
     }
     if request.facts:
         facts["facts"] = list(request.facts)
+    if request.corrections:
+        facts["rewrite"] = {
+            "previous_draft": _quiet(request.previous),
+            "fix": list(request.corrections),
+        }
     conversation = [
         {"from": "us" if turn.ours else "them", "text": _quiet(turn.text)} for turn in request.turns
     ]

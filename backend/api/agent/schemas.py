@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, StringConstraints, field_validator
 
@@ -33,6 +33,12 @@ class AgentSettingsBody(BaseModel):
     points: list[Line] = Field(max_length=MAX_LINES)
     price_limit_usd: Decimal | None = Field(default=None, ge=0, le=MAX_PRICE, decimal_places=2)
     stop_topics: list[Line] = Field(max_length=MAX_LINES)
+    #: `drafts` — черновик отправляет человек, `autopilot` — ответ в границах уходит
+    #: сам (включают там, где разрешено, а версию в нём сохраняет тот, у кого send).
+    #: Не прислан — остаётся режим текущей версии: экран без поля не выключит автопилот.
+    mode: Literal["drafts", "autopilot"] | None = None
+    #: Ответов автопилота в переписке до передачи человеку; не прислан — текущий.
+    max_turns: int | None = Field(default=None, ge=1, le=10)
 
     @field_validator("points", "stop_topics")
     @classmethod
@@ -40,7 +46,23 @@ class AgentSettingsBody(BaseModel):
         """Пустые строки — след переносов в поле ввода, а не пункты."""
         return [line for line in lines if line]
 
-    def to_settings(self) -> AgentSettings:
+    @field_validator("mode", "max_turns")
+    @classmethod
+    def _not_null(cls, value: object) -> object:
+        """Явный `null` — ошибка: чтобы оставить как было, поле не присылают."""
+        if value is None:
+            raise ValueError("пусто — не присылайте поле, и останется текущее значение")
+        return value
+
+    def to_settings(
+        self, current: AgentSettingsModel | None, defaults: AgentSettings
+    ) -> AgentSettings:
+        """Настройки из тела. Режим и предел, которых тело не прислало (их нет в
+        `model_fields_set`), — из текущей версии этапа, у не настроенного — умолчания."""
+        kept = defaults if current is None else settings_of(current)
+        sent = self.model_fields_set
+        mode = self.mode if "mode" in sent and self.mode else kept.mode
+        turns = self.max_turns if "max_turns" in sent and self.max_turns else kept.max_turns
         return AgentSettings(
             enabled=self.enabled,
             goal=self.goal,
@@ -48,6 +70,8 @@ class AgentSettingsBody(BaseModel):
             points=tuple(self.points),
             price_limit_usd=self.price_limit_usd,
             stop_topics=tuple(self.stop_topics),
+            mode=mode,
+            max_turns=turns,
         )
 
     @classmethod
@@ -59,6 +83,8 @@ class AgentSettingsBody(BaseModel):
             points=list(settings.points),
             price_limit_usd=settings.price_limit_usd,
             stop_topics=list(settings.stop_topics),
+            mode="autopilot" if settings.mode == "autopilot" else "drafts",
+            max_turns=settings.max_turns,
         )
 
 
@@ -90,6 +116,9 @@ class AgentStageView(BaseModel):
     current: AgentSettingsVersion | None
     defaults: AgentSettingsBody
     history: list[AgentSettingsVersion]
+    #: Разрешён ли этапу автопилот (код этапа и выключатель сервера): нет —
+    #: экран переключателя не показывает, а сервер режим не сохранит.
+    autopilot_allowed: bool = False
 
 
 class AgentView(BaseModel):

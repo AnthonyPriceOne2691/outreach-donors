@@ -22,9 +22,22 @@ from backend.features.core.models.agent import AgentSettingsModel
 #: Сколько последних версий отдаётся экрану. Остальные лежат в базе.
 HISTORY = 10
 
+#: Режимы агента: черновик отправляет человек — или ответ в границах уходит
+#: сам (`agent/autopilot.py`). По умолчанию черновики (решение владельца
+#: 04.10.2026).
+DRAFTS = "drafts"
+AUTOPILOT = "autopilot"
+
+#: Ответов автопилота в одной переписке, пока предел не задан иначе.
+DEFAULT_MAX_TURNS = 2
+
 
 class AgentSettingsConflictError(RuntimeError):
     """Две правки одного этапа разом: вторая не ложится поверх первой молча."""
+
+
+class AutopilotOffError(RuntimeError):
+    """Автопилот этапу не разрешён — кодом этапа или выключателем сервера."""
 
 
 class UnknownAgentStageError(LookupError):
@@ -43,6 +56,10 @@ class AgentSettings:
     #: нет, и цену агент не обещает: её называет человек.
     price_limit_usd: Decimal | None
     stop_topics: tuple[str, ...]
+    mode: str = DRAFTS
+    #: Сколько ответов автопилот шлёт в одну переписку, прежде чем отдать
+    #: её человеку.
+    max_turns: int = DEFAULT_MAX_TURNS
 
 
 _TONE = "Вежливо, коротко и по делу, как пишет живой менеджер. Без давления и канцелярита."
@@ -105,6 +122,8 @@ def settings_of(row: AgentSettingsModel) -> AgentSettings:
         points=tuple(row.points),
         price_limit_usd=row.price_limit_usd,
         stop_topics=tuple(row.stop_topics),
+        mode=row.mode,
+        max_turns=row.max_turns,
     )
 
 
@@ -153,6 +172,8 @@ class AgentSettingsRepository:
             points=list(settings.points),
             price_limit_usd=settings.price_limit_usd,
             stop_topics=list(settings.stop_topics),
+            mode=settings.mode,
+            max_turns=settings.max_turns,
         )
         # Своя точка сохранения: отказ откатывает только эту вставку, а не
         # всю транзакцию вызывающего — после него сессия годна к работе.

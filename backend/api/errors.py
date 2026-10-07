@@ -27,8 +27,14 @@ from backend.features.access.passwords import WeakPasswordError
 from backend.features.access.permissions import AccessDeniedError
 from backend.features.access.repository import EmailTakenError
 from backend.features.access.tokens import SecretMissingError, TokenError
+from backend.features.agent.drafting import DraftRefusedError, UnknownDraftReplyError
 from backend.features.agent.drafts import DraftDecisionError, UnknownDraftError
-from backend.features.agent.settings import AgentSettingsConflictError, UnknownAgentStageError
+from backend.features.agent.settings import (
+    AgentSettingsConflictError,
+    AutopilotOffError,
+    UnknownAgentStageError,
+)
+from backend.features.agent.writer import DraftUnavailableError
 from backend.features.contacts.forms import UnknownFormError
 from backend.features.contacts.manual import (
     AddressConflictError,
@@ -116,11 +122,18 @@ STATUSES: dict[type[Exception], int] = {
     # что поправить.
     TemplateError: status.HTTP_400_BAD_REQUEST,
     ComposeError: status.HTTP_400_BAD_REQUEST,
+    # Черновик агента: ответа нет в переписке; модель недоступна или ключа нет —
+    # сообщение говорит, что из двух и что чинить; черновик не положен — 409.
+    UnknownDraftReplyError: status.HTTP_404_NOT_FOUND,
+    DraftUnavailableError: status.HTTP_503_SERVICE_UNAVAILABLE,
+    DraftRefusedError: status.HTTP_409_CONFLICT,
     # Решение по черновику агента: уже решён, «как есть» у отданного человеку — 409.
     UnknownDraftError: status.HTTP_404_NOT_FOUND,
     DraftDecisionError: status.HTTP_409_CONFLICT,
     # Две правки настроек агента одного этапа разом: вторая не ложится молча.
     AgentSettingsConflictError: status.HTTP_409_CONFLICT,
+    # Автопилот этапу не разрешён (код этапа, сервер): состояние, а не запрос.
+    AutopilotOffError: status.HTTP_409_CONFLICT,
     UnknownAgentStageError: status.HTTP_404_NOT_FOUND,
     # У рассылки уже свой текст письма — это состояние, а не запрос.
     LetterConflictError: status.HTTP_409_CONFLICT,

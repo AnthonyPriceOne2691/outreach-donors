@@ -22,7 +22,7 @@ import httpx
 import pytest
 from backend.config import llm as llm_cfg
 from backend.config import outreach as outreach_cfg
-from backend.features.agent import drafting
+from backend.features.agent import drafting, stages
 from backend.features.agent import writer as agent_writer
 from backend.features.agent.settings import AgentSettingsRepository, defaults
 from backend.features.agent.stages import (
@@ -105,6 +105,7 @@ def donors_with(monkeypatch: pytest.MonkeyPatch, **parts: Any) -> AgentStage:
     stage = replace(AGENT_STAGES[Stage.DONORS], **parts)
     registry = MappingProxyType({**AGENT_STAGES, Stage.DONORS: stage})
     monkeypatch.setattr(drafting, "AGENT_STAGES", registry)
+    monkeypatch.setattr(stages, "AGENT_STAGES", registry)
     return stage
 
 

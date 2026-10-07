@@ -22,12 +22,13 @@ from backend.api.agent.schemas import (
     RejectDraftBody,
     SendDraftBody,
 )
-from backend.api.deps import db_session, needs
+from backend.api.deps import actor, db_session, needs
 from backend.api.letters.schemas import SendResult
+from backend.features.access.permissions import require
 from backend.features.access.repository import AccessRepository
-from backend.features.agent import drafts
+from backend.features.agent import autopilot, drafts
 from backend.features.agent.drafts import Decider
-from backend.features.agent.settings import AgentSettingsRepository
+from backend.features.agent.settings import AUTOPILOT, AgentSettingsRepository, AutopilotOffError
 from backend.features.agent.stages import AGENT_STAGES, agent_stage
 from backend.features.core.domain import AuditAction, DraftStatus, Permission, Stage
 from backend.features.core.models.access import UserModel
@@ -58,6 +59,7 @@ async def agent_settings(
                 stage=stage,
                 current=None if current is None else AgentSettingsVersion.of(current),
                 defaults=AgentSettingsBody.of(parts.defaults),
+                autopilot_allowed=autopilot.refusal(stage) is None,
                 history=[AgentSettingsVersion.of(row) for row in await repository.history(stage)],
             )
         )
@@ -75,10 +77,19 @@ async def save_agent_settings(
     author: UserModel = _settler,
     session: AsyncSession = Depends(db_session),
 ) -> AgentSettingsVersion:
-    agent_stage(stage)  # этапа без агента нет — 404 словами
-    row = await AgentSettingsRepository(session).save(
-        stage, body.to_settings(), author=author.email
-    )
+    parts = agent_stage(stage)  # этапа без агента нет — 404 словами
+    repository = AgentSettingsRepository(session)
+    previous = await repository.current(stage)
+    settings = body.to_settings(previous, parts.defaults)
+    if settings.mode == AUTOPILOT:
+        # Письмо наружу без человека: включают там, где разрешают код этапа и сервер;
+        # версию в автопилоте (и правку без режима поверх него) сохраняет тот, у кого send.
+        if previous is None or previous.mode != AUTOPILOT:
+            why = autopilot.refusal(stage)
+            if why is not None:
+                raise AutopilotOffError(why)
+        require(actor(author), Permission.SEND)
+    row = await repository.save(stage, settings, author=author.email)
     await AccessRepository(session).record(
         AuditAction.AGENT_SETTINGS_CHANGED,
         author_id=author.id,
@@ -90,6 +101,8 @@ async def save_agent_settings(
             "предел цены": None if body.price_limit_usd is None else str(body.price_limit_usd),
             "доводов": len(body.points),
             "тем человеку": len(body.stop_topics),
+            "режим": settings.mode,
+            "ответов автопилота в переписке": settings.max_turns,
         },
     )
     await session.commit()
@@ -132,7 +145,7 @@ async def send_draft(
             Sending(session, transports),
             draft_id,
             body=body.body,
-            by=Decider(name=author.email, user_id=author.id),
+            by=Decider.of(author),
         )
     await session.commit()
     return SendResult(id=outcome.message_id, sender_email=outcome.sender_email, real=outcome.real)
@@ -146,8 +159,6 @@ async def reject_draft(
     session: AsyncSession = Depends(db_session),
 ) -> DraftDetail:
     """Причина обязательна: без неё схема отвечает 422."""
-    await drafts.reject_draft(
-        session, draft_id, reason=body.reason, by=Decider(name=author.email, user_id=author.id)
-    )
+    await drafts.reject_draft(session, draft_id, reason=body.reason, by=Decider.of(author))
     await session.commit()
     return DraftDetail.of(await drafts.one(session, draft_id))
