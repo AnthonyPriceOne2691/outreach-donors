@@ -1,7 +1,7 @@
 """Eval судьи продаж (волна В3б, Spec 3.4 A1 и A3): набор, ворота, порча промптов.
 
 Живая модель не зовётся: на её месте подставной HTTP с записанными ответами
-(`tests/data/sales_judge_answers.json`) — по случаю и по промпту: обычному и
+(`tests/test_sales_judge_eval_answers.json`) — по случаю и по промпту: обычному и
 испорченному, без правила «цены только из базы». Ответы записаны вручную по форме
 судьи и генератора, а не сняты с живой модели: это проверка механики ворот, числа
 живой модели — прогон координатора по слову владельца.
@@ -32,7 +32,7 @@ from backend.features.sales.agent import calling, judge, parts
 from scripts import eval_sales_judge as ev
 
 ANSWERS: dict[str, dict[str, Any]] = json.loads(
-    (Path(__file__).parent / "data" / "sales_judge_answers.json").read_text(encoding="utf-8")
+    Path(__file__).with_name("test_sales_judge_eval_answers.json").read_text(encoding="utf-8")
 )
 CASES = ev.load(ev.SYNTHETIC)
 TOKENS = 53
