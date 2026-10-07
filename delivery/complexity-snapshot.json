@@ -1717,9 +1717,9 @@
       "worst": "—"
     },
     "backend/features/sales/agent/brief.py": {
-      "lines": 153,
+      "lines": 159,
       "complexity": 7,
-      "worst": "brief:120"
+      "worst": "brief:126"
     },
     "backend/features/sales/agent/calling.py": {
       "lines": 98,
@@ -1732,7 +1732,7 @@
       "worst": "_of_kind:112"
     },
     "backend/features/sales/agent/judge.py": {
-      "lines": 199,
+      "lines": 201,
       "complexity": 7,
       "worst": "_ids:73"
     },
@@ -1760,6 +1760,11 @@
       "lines": 131,
       "complexity": 5,
       "worst": "language_of:89"
+    },
+    "backend/features/sales/agent/safety.py": {
+      "lines": 245,
+      "complexity": 5,
+      "worst": "mixed_words:220"
     },
     "backend/features/sales/agent/situation.py": {
       "lines": 255,
@@ -2132,9 +2137,9 @@
       "worst": "compare:185"
     },
     "scripts/contour_waves.py": {
-      "lines": 484,
+      "lines": 490,
       "complexity": 14,
-      "worst": "collect:397"
+      "worst": "collect:403"
     },
     "scripts/eval_judge.py": {
       "lines": 170,
@@ -2145,6 +2150,11 @@
       "lines": 163,
       "complexity": 16,
       "worst": "report:116"
+    },
+    "scripts/eval_sales_judge.py": {
+      "lines": 458,
+      "complexity": 16,
+      "worst": "report:312"
     },
     "scripts/eval_sales_reply.py": {
       "lines": 236,
@@ -2170,6 +2180,11 @@
       "lines": 186,
       "complexity": 8,
       "worst": "tracked_text_files:70"
+    },
+    "scripts/sales_injection_canary.py": {
+      "lines": 214,
+      "complexity": 21,
+      "worst": "report:158"
     },
     "scripts/sample_keywords.py": {
       "lines": 145,

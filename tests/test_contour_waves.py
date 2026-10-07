@@ -378,4 +378,55 @@ def test_repository_registry_mirrors_these_fixtures() -> None:  # A12
     waves, errors = cw.parse_registry((cw.ROOT / cw.REGISTRY).read_text(encoding="utf-8"))
     assert errors == []
     assert {w.name: (w.triggers, w.limit) for w in waves} == ROWS
-    assert {w.name for w in waves if w.state == "deployed"} == {"В0", "В1", "В3а", "В-обн"}
+    assert {w.name for w in waves if w.state == "deployed"} == {"В0", "В1", "В3а", "В3б", "В-обн"}
+
+
+AGENT_PROMPT = "backend/features/sales/agent/prompts/judge.md"
+AGENT_NOT_NAMED = "✗ промпт judge.md не назван в model_surface"
+
+
+@pytest.mark.parametrize(
+    ("states", "surface", "line"),
+    [
+        (
+            {"В3а": "deployed"},
+            f"`{AGENT_PROMPT}`",
+            "✗ В3б: в sales/agent/ есть промпт агента или судьи, волна не развёрнута",
+        ),
+        (
+            {"В3а": "deployed", "В3б": "deployed"},
+            "backend/features/keywords/prompts/",
+            AGENT_NOT_NAMED,
+        ),
+        (
+            {"В3а": "deployed", "В3б": "deployed"},
+            "backend/features/sales/agent/prompts/ <!-- судья judge.md -->",
+            None,
+        ),
+    ],
+    ids=["pending", "not-named", "named"],
+)
+def test_agent_prompt_brings_wave_v3b(
+    tmp_path: Path, capsys: Capture, states: dict[str, str], surface: str, line: str | None
+) -> None:  # В3б
+    """Промпт агента продаж — триггер В3б (срез `sales-v3b` назвал детектор): волна
+    обязана быть развёрнута в том же PR, а промпт — назван в model_surface. Промпт,
+    не названный ни для В3а, ни для В3б, — одна находка, а не две."""
+    files = docs(reg=registry({"В0": "deployed", **states}), surface=surface)
+    base = repo(tmp_path, files, {AGENT_PROMPT: "Проверь черновик."})
+    got, out = run(tmp_path, capsys, "--base", base)
+    assert got == (0 if line is None else 1)
+    assert line is None or line in out
+    assert out.count(AGENT_NOT_NAMED) == (line == AGENT_NOT_NAMED)
+
+
+def test_reverse_run_without_the_agent_prompt_detector_v3b_is_silent(
+    tmp_path: Path, capsys: Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:  # В3б
+    """Обратный прогон: детектор промпта агента не видит ничего — сценарий «pending»
+    зеленеет. Красное там даёт детектор, а не случай."""
+    name = "sales-agent-prompt"
+    monkeypatch.setitem(cw.DETECTORS, name, dataclasses.replace(cw.DETECTORS[name], pattern="(?!)"))
+    files = docs(reg=registry({"В0": "deployed", "В3а": "deployed"}), surface=f"`{AGENT_PROMPT}`")
+    base = repo(tmp_path, files, {AGENT_PROMPT: "Проверь черновик."})
+    assert run(tmp_path, capsys, "--base", base)[0] == 0
