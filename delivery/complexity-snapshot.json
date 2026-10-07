@@ -1717,9 +1717,9 @@
       "worst": "—"
     },
     "backend/features/sales/agent/brief.py": {
-      "lines": 159,
-      "complexity": 7,
-      "worst": "brief:126"
+      "lines": 174,
+      "complexity": 8,
+      "worst": "brief:141"
     },
     "backend/features/sales/agent/calling.py": {
       "lines": 98,
@@ -1737,9 +1737,9 @@
       "worst": "_ids:73"
     },
     "backend/features/sales/agent/judge_rules.py": {
-      "lines": 173,
+      "lines": 182,
       "complexity": 6,
-      "worst": "channels:85"
+      "worst": "foreign_numbers:62"
     },
     "backend/features/sales/agent/moves.py": {
       "lines": 172,
