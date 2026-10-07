@@ -107,7 +107,7 @@ def client(model: Model) -> KindClient:
 
 
 class Handover:
-    """Точка передачи лида (срез передачи встанет сюда): кого передали."""
+    """Передача лида (`handoff.start` по умолчанию) — подставная: кого передали."""
 
     def __init__(self) -> None:
         self.threads: list[int] = []
@@ -188,7 +188,8 @@ async def test_a1_call_on_tuesday_is_wants_to_talk_with_a_verbatim_quote(
     reply, handled = await _handle(session, text, model, handover=handover)
 
     assert (handled.kind, handled.route, handled.waits) == ("wants_to_talk", "handoff", True)
-    assert handover.threads == [reply.thread_id], "точка передачи лида вызвана"
+    assert handled.handoff_thread == reply.thread_id, "лид диалога — к передаче"
+    assert handover.threads == [], "внутри разбора не зовётся: передача — после записи ответа"
     snap = reply.model_parse or {}
     assert snap["quote"] == "Давайте созвонимся во вторник"
     assert snap["quote"] in text
@@ -235,6 +236,7 @@ async def test_a2_price_question_goes_to_the_agent_path_and_waits(session: Async
     reply, handled = await _handle(session, "Сколько стоит аудит?", model, handover=handover)
 
     assert (handled.kind, handled.route, handled.waits) == ("question", "agent", True)
+    assert handled.handoff_thread is None
     assert handover.threads == []
     assert review_of(reply, Stage.SALES).reason == "задал вопрос: ответит агент; пока — человек"
 

@@ -18,6 +18,10 @@
 следующий шаг (`ooo.py`), отписка закрывает адрес во всех направлениях
 (`unsubscribe.py`).
 
+**«Хочет говорить» — передача лида телемаркетологу** (`handoff.start`, срез 5.3) —
+только после записи ответа (`pass_on`): передача коммитит сама и ставит задачу,
+которая идёт в Kommo и Telegram. Её отказ разбор не роняет: вид уже записан.
+
 **«Пишите другому»** заводит лида той же компании (`referral.py`) и закрывает
 диалог. Проверка адресов не настроена — лида заводит человек: вид уже назван
 и оплачен, а упавшая задача откатила бы расход и позвала модель снова.
@@ -45,7 +49,7 @@ from backend.features.core.domain import ReplyKind, Stage, ThreadStatus
 from backend.features.core.models.outreach import ReplyModel, ThreadModel
 from backend.features.replies import outcome
 from backend.features.replies.repository import ReplyRepository
-from backend.features.sales import ooo
+from backend.features.sales import handoff, ooo
 from backend.features.sales.referral import Referred, refer
 from backend.features.sales.reply_kind import (
     OPERATION,
@@ -145,20 +149,9 @@ class KindClassifier(Protocol):
     async def classify(self, *, text: str, subject: str) -> KindFound | Unanswered: ...
 
 
-#: Передача лида по треду (вход среза передачи: `handoff.start(session, thread_id)`).
-HandOver = Callable[[AsyncSession, int], Awaitable[None]]
-
-
-async def mark_for_handoff(_session: AsyncSession, thread_id: int) -> None:
-    """Точка передачи лида: сюда при сборке встанет `handoff.start(session, thread_id)`.
-
-    Пока передачи в дереве нет, пометка — путь `handoff` в снимке ответа,
-    и ответ ждёт человека. Сессия — та же, что у задачи: передача должна лечь
-    в одну транзакцию со снимком.
-    """
-    logger.info(
-        "продажи: лид хочет говорить — передача ждёт своего среза", extra={"thread_id": thread_id}
-    )
+#: Передача лида по треду — `handoff.start(session, thread_id)`: коммитит сессию сама
+#: и ставит задачу передачи (Kommo, Telegram), поэтому зовётся после записи ответа.
+HandOver = Callable[[AsyncSession, int], Awaitable[object]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,6 +169,8 @@ class Handled:
     tokens: int = 0
     #: Модель не ответила — вида нет. Пусто — ответила.
     unanswered: Unanswered | None = None
+    #: Диалог, лида которого передать телемаркетологу после записи ответа (`pass_on`).
+    handoff_thread: int | None = None
 
     @property
     def as_report(self) -> dict[str, object]:
@@ -200,7 +195,7 @@ class SalesReplies:
         session: AsyncSession,
         classifier: KindClassifier,
         *,
-        hand_over: HandOver = mark_for_handoff,
+        hand_over: HandOver = handoff.start,
         verifier: Callable[[], EmailVerifier] | None = None,
         threshold: float | None = None,
         now: datetime | None = None,
@@ -256,6 +251,31 @@ class SalesReplies:
             waits=decision.waits,
             reason=decision.reason,
             tokens=found.tokens,
+            handoff_thread=reply.thread_id if decision.route is Route.HANDOFF else None,
+        )
+
+    async def pass_on(self, handled: Handled) -> None:
+        """Передать лида, если ответ «хочет говорить», — после коммита снимка ответа.
+
+        Внешнее — только после записи ответа: передача коммитит сессию сама и ставит
+        задачу, которая идёт в Kommo и Telegram. Отказ передачи разбор не роняет —
+        вид уже записан: заведённую строку передачи повторит её проход по расписанию,
+        а без строки (нет лида у диалога) ответ ждёт человека по снимку. Сессию после
+        отказа задача только закрывает — открытая транзакция откатится с ней.
+        """
+        if handled.handoff_thread is None:
+            return
+        try:
+            await self._hand_over(self._session, handled.handoff_thread)
+        except Exception:
+            logger.exception(
+                "продажи: передача лида не заведена — ответ разобран и ждёт человека",
+                extra={"reply": handled.reply_id, "thread_id": handled.handoff_thread},
+            )
+            return
+        logger.info(
+            "продажи: лид передан телемаркетологу",
+            extra={"reply": handled.reply_id, "thread_id": handled.handoff_thread},
         )
 
     async def _out_of_office(self, reply: ReplyModel) -> Handled:
@@ -316,12 +336,10 @@ class SalesReplies:
         }
 
     async def _follow(self, reply: ReplyModel, found: KindFound, decision: Decision) -> Decision:
-        """Что путь делает сразу — и что из этого вышло. Ждущие человека пути не пишут."""
+        """Что путь делает сразу — и что из этого вышло. Ждущие человека пути не пишут;
+        передача лида — не здесь, а после записи ответа (`pass_on`)."""
         words = KIND_WORDS[found.kind]
         match decision.route:
-            case Route.HANDOFF:
-                if reply.thread_id is not None:
-                    await self._hand_over(self._session, reply.thread_id)
             case Route.CLOSED:
                 await self._close(reply.thread_id)
             case Route.REFERRAL:
@@ -330,7 +348,7 @@ class SalesReplies:
             case Route.UNSUBSCRIBE:
                 closed = await close_address(self._session, reply)
                 return Decision(Route.UNSUBSCRIBE, closed.email is None, f"{words}: {closed.words}")
-            case Route.AGENT | Route.MANUAL:
+            case Route.HANDOFF | Route.AGENT | Route.MANUAL:
                 pass
             case _:
                 assert_never(decision.route)
