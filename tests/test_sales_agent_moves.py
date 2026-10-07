@@ -72,6 +72,7 @@ def _broken(path: tuple[str, ...], value: object) -> dict[str, Any]:
         (("situations", "asks_price", "kinds"), "price_policy", "ждём список строк"),
         (("situations", "asks_price", "cta"), ["whatsapp"], "призыва «whatsapp» нет"),
         (("situations", "asks_info", "does"), "  ", "нет хода (move) или что он делает (does)"),
+        (("situations", "asks_info", "move"), "Inform-Now", "имя хода «Inform-Now»"),
         (("situations", "objection"), None, "нет хода для ситуаций: objection"),
         (("situations", "ack"), {"move": "thanks", "does": "Ответить"}, "решает код"),
         (("situations", "terms"), {"move": "x", "does": "y"}, "ситуации «terms» нет среди меток"),

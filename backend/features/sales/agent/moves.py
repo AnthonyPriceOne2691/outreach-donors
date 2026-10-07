@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import re
 import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -29,6 +30,8 @@ from backend.features.sales.agent.situation import SILENT, Label
 from backend.features.sales.models import KbKind
 
 TABLE = Path(__file__).with_name("moves.toml")
+#: Имя хода — метка строки брифа `[move <имя>]`: другие знаки судья назад не прочтёт.
+_NAME = re.compile(r"[a-z_]+")
 #: Ситуации, где ответ нужен и агент пишет: остальное бриф решает до таблицы.
 ANSWERED = frozenset(Label) - SILENT - {Label.PARSE_FAILED}
 
@@ -110,6 +113,11 @@ def _move(code: str, raw: object) -> Move:
         or not (name.strip() and does.strip())
     ):
         raise MovesTableError(f"{where}: нет хода (move) или что он делает (does)")
+    if not _NAME.fullmatch(name.strip()):
+        raise MovesTableError(
+            f"{where}: имя хода «{name.strip()}» — латиница строчными и «_»: оно метка строки "
+            "брифа, и судья читает его назад (`facts.read`)"
+        )
     return Move(
         name=name.strip(),
         does=" ".join(does.split()),

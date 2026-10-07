@@ -1742,9 +1742,9 @@
       "worst": "channels:85"
     },
     "backend/features/sales/agent/moves.py": {
-      "lines": 164,
-      "complexity": 6,
-      "worst": "_move:102"
+      "lines": 172,
+      "complexity": 7,
+      "worst": "_move:105"
     },
     "backend/features/sales/agent/parts.py": {
       "lines": 81,
