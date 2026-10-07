@@ -18,11 +18,14 @@ from backend.api.sales.queue import SalesQueueBody, SalesQueueView
 from backend.cli.sales_queue import run_sales_queue
 from backend.config import sales as sales_cfg
 from backend.config import storage
-from backend.features.core.domain import AuditAction
+from backend.features.core.domain import AuditAction, SenderStatus, Stage
 from backend.features.core.models.access import AuditLogModel, UserModel
 from backend.features.core.models.outreach import MessageModel
 from backend.features.core.stages import SALES_NOT_CONNECTED, SalesNotConnectedError
+from backend.features.letters import followups
+from backend.features.letters.batch import send_queue
 from backend.features.letters.rewrite import RewriteClient
+from backend.features.letters.sending import Sending
 from backend.features.ops import job_outcome
 from backend.features.sales import chain, queue, queue_jobs, sender
 from backend.features.sales.handoff import lead_of
@@ -33,6 +36,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests import test_sales_send_world as w
 from tests.conftest import TEST_DSN, bearer
+from tests.test_sales_send import FIRST_DUE, _transports
 
 MakeUser = Callable[..., Awaitable[UserModel]]
 SignIn = Callable[..., Awaitable[str]]
@@ -110,6 +114,32 @@ async def test_queue_shows_connected_sales_chains_and_what_waits(
         "missing": [],
         "version": common.version,
     }
+
+
+async def test_followup_stuck_in_the_queue_is_not_in_the_number_of_the_batch(
+    session: AsyncSession, world: w.World, client: AsyncClient, headers: dict[str, str]
+) -> None:
+    """Пачка этапа берёт только первые письма (общая очередь почты): добивка, застрявшая
+    в очереди без своего ящика, ждёт проход добивок — в числе на кнопке её нет, и пачка
+    уходит ровно тем числом, что названо."""
+    await w.lead(session, world.hypothesis_id, "jane@acme.example.test")
+    await w.lead(session, world.hypothesis_id, "olga@acme.example.test")
+    await queue.build(session, w.CorridorRewriter(), hypothesis_id=world.hypothesis_id, limit=5)
+    first = await session.scalar(select(MessageModel).order_by(MessageModel.id).limit(1))
+    assert first is not None
+    source = _transports()
+    await Sending(session, source, now=w.NOW).send(first.id)
+    world.sales_box.status = SenderStatus.PAUSED
+    stuck = await followups.send_due(session, transport=source, limit=5, now=FIRST_DUE)
+    world.sales_box.status = SenderStatus.FREE
+    await session.commit()
+
+    body = (await client.get(f"{QUEUE}?hypothesis={world.hypothesis_id}", headers=headers)).json()
+    report = await send_queue(session, source, stage=Stage.SALES)
+
+    assert stuck.postponed == 1
+    assert (body["queued"], body["stage_queued"]) == (1, 1)
+    assert (report.sent, report.left) == (1, 0)
 
 
 async def test_queue_says_in_words_what_sales_lack(

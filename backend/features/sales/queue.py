@@ -356,10 +356,11 @@ class QueueState:
     chains: list[chain.Chain]
     #: Лидов `ready` без диалога — им ещё не собрано письмо.
     unwritten: int
-    #: Писем гипотезы в очереди — ждут отправки.
+    #: Первых писем гипотезы в очереди — ждут отправки (их же пересобирает сборка).
     queued: int
     #: Писем продаж в очереди — всех гипотез: пачка (`send_queue` этапа продаж) берёт
-    #: очередь этапа целиком, и кнопка называет это число, а не число гипотезы.
+    #: очередь этапа целиком, и кнопка называет это число, а не число гипотезы. Как и у
+    #: пачки, только первые письма: добивка в очереди ждёт свой ящик и проход добивок.
     stage_queued: int
 
 
@@ -387,13 +388,18 @@ async def state(session: AsyncSession, hypothesis_id: int) -> QueueState:
         .where(
             SalesLeadModel.hypothesis_id == hypothesis_id,
             MessageModel.status == MessageStatus.QUEUED,
+            MessageModel.step == FIRST_STEP,
         )
     )
     stage_queued = await session.scalar(
         select(func.count())
         .select_from(MessageModel)
         .join(CampaignModel, CampaignModel.id == MessageModel.campaign_id)
-        .where(CampaignModel.stage == Stage.SALES, MessageModel.status == MessageStatus.QUEUED)
+        .where(
+            CampaignModel.stage == Stage.SALES,
+            MessageModel.status == MessageStatus.QUEUED,
+            MessageModel.step == FIRST_STEP,
+        )
     )
     return QueueState(
         await connection.missing(session),

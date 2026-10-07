@@ -1832,7 +1832,7 @@
       "worst": "zones_of:35"
     },
     "backend/features/sales/queue.py": {
-      "lines": 405,
+      "lines": 411,
       "complexity": 9,
       "worst": "_prepare:244"
     },
