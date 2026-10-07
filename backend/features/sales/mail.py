@@ -23,10 +23,12 @@
 - `policy` — политика почты продаж (`policy.sales_policy`): окно получателя, мягкие
   сигналы ящика, сторож.
 
-**Чем отказ отличается для прохода добивок.** «Писать больше нельзя» (лид снят, передан,
-в стоп-листе) — `LeadStoppedError`, наследник стоп-листа: цепочка кончается. «Пока нельзя»
-(продажи не подключены, цепочка неполна) — `SalesNotConnectedError`: срок возвращается.
-«Письмо не то» — `NotReadyError`: письмо стоит в очереди с причиной.
+**Отказ — только словами почты** (договор моста): «писать больше нельзя» (лид снят,
+передан, в стоп-листе) — `LeadStoppedError`, наследник стоп-листа: цепочка кончается;
+«письмо не то» — `NotReadyError`: письмо стоит в очереди с причиной; «пока нельзя»
+(продажи не подключены, цепочка неполна, добивка не собирается) — `SalesNotConnectedError`:
+срок добивки возвращается. Другое исключение мост считает поломкой модуля. Ответы читают
+базу и ничего не сохраняют: мост спрашивает модуль в своей точке сохранения.
 """
 
 from __future__ import annotations
@@ -213,8 +215,8 @@ async def followup(session: AsyncSession, thread_id: int | None, step: int) -> S
     values = letter.values_of(dialog.lead, dialog.host)
     body = letter.signed(compose.assemble(compose.render(template.letter, values), {}).body, found)
     problem = letter.problem(body, found)
-    if problem is not None:
-        raise NotReadyError(f"{what} не собрана: {problem}")
+    if problem is not None:  # письма ещё нет — «пока нельзя», а не поломка модуля
+        raise SalesNotConnectedError(what, problem, words="не собрана")
     return SalesFollowup(body=body)
 
 

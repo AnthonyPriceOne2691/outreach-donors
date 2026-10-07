@@ -1807,9 +1807,9 @@
       "worst": "problem:76"
     },
     "backend/features/sales/mail.py": {
-      "lines": 224,
+      "lines": 226,
       "complexity": 7,
-      "worst": "check:178"
+      "worst": "check:180"
     },
     "backend/features/sales/models.py": {
       "lines": 432,
