@@ -367,14 +367,14 @@
       "worst": "—"
     },
     "backend/api/threads/routes.py": {
-      "lines": 75,
+      "lines": 76,
       "complexity": 2,
-      "worst": "all_threads:32"
+      "worst": "all_threads:33"
     },
     "backend/api/threads/schemas.py": {
-      "lines": 240,
+      "lines": 273,
       "complexity": 3,
-      "worst": "listed:138"
+      "worst": "listed:139"
     },
     "backend/api/unsubscribe/__init__.py": {
       "lines": 1,
@@ -1247,9 +1247,9 @@
       "worst": "sender_domain:50"
     },
     "backend/features/letters/mailbox.py": {
-      "lines": 128,
+      "lines": 211,
       "complexity": 4,
-      "worst": "_thread_box:88"
+      "worst": "_silence:107"
     },
     "backend/features/letters/masking.py": {
       "lines": 111,

@@ -19,21 +19,31 @@
 
 Отказ здесь — значение, а не исключение: отказы отправки живут в
 `sending.py`, который этот модуль и зовёт, — он и превращает их в свои.
+
+**Карточка переписки говорит то же, что отказ** (`thread_mail`): ящик
+переписки, пишет ли он и когда следующая добивка. До 07.10.2026 причина
+ожидания жила только в журнале прохода добивок: человек видел, что добивка
+не ушла, но не видел почему, пока не нажимал «Ответить» и не получал отказ.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.core.domain import SenderStatus, Stage
+from backend.features.core.domain import MessageStatus, SenderStatus, Stage
 from backend.features.core.models.outreach import MessageModel, SenderModel
-from backend.features.letters.chain import ANSWER_STEP, FIRST_STEP, kind_of
+from backend.features.letters.chain import ANSWER_STEP, CHAINABLE, FIRST_STEP, MAX_STEPS, kind_of
 from backend.features.outreach import senders as sender_rules
 from backend.features.outreach.repository import OutreachRepository
+
+#: Письмо ушло к почте — и получило ящик (`Sending._claim` пишет его вместе
+#: с «отправляется»). Пустой ящик у такого письма значит, что ящик удалили.
+_WENT = (MessageStatus.SENDING, MessageStatus.SENT, MessageStatus.DELIVERED, MessageStatus.BOUNCED)
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,24 +98,97 @@ async def _free_box(session: AsyncSession, stage: Stage, now: datetime) -> Choic
 async def _thread_box(session: AsyncSession, sender_id: int) -> Choice:
     """Ящик, который ведёт переписку. Не пишет — письмо ждёт его."""
     sender = await session.get(SenderModel, sender_id)
+    silence = _silence(sender, gone=f"№{sender_id}")
+    if silence is not None:
+        return Choice(sender=None, refusal=silence)
+    return Choice(sender=sender)
+
+
+def _silence(sender: SenderModel | None, *, gone: str) -> str | None:
+    """Почему ящик переписки не пишет — словами отказа; `None` — пишет.
+    `gone` — как назвать ящик, которого нет: номером или «первого письма».
+
+    Одни слова на отправку и на карточку переписки (`thread_mail`): в карточке
+    человек читает ровно то, что скажет отказ, если нажать «Ответить».
+    """
     if sender is None:
-        return Choice(
-            sender=None,
-            refusal=(
-                f"Ящика №{sender_id} нет: им начата переписка, а его удалили. "
-                "С другого ящика письмо переписки не уйдёт — оно ждёт"
-            ),
+        return (
+            f"Ящика {gone} нет: им начата переписка, а его удалили. "
+            "С другого ящика письмо переписки не уйдёт — оно ждёт"
         )
     if not sender.enabled or sender.status is SenderStatus.PAUSED:
-        return Choice(
-            sender=None,
-            refusal=(
-                f"Ящик {sender.email} сейчас не пишет ({_why_silent(sender)}), а переписку "
-                "ведёт он. С другого ящика письмо не уйдёт — оно ждёт, пока ящик не включат "
-                "на экране «Домены рассылки»"
-            ),
+        return (
+            f"Ящик {sender.email} сейчас не пишет ({_why_silent(sender)}), а переписку "
+            "ведёт он. С другого ящика письмо не уйдёт — оно ждёт, пока ящик не включат "
+            "на экране «Домены рассылки»"
         )
-    return Choice(sender=sender)
+    return None
+
+
+@dataclass(frozen=True, slots=True)
+class ThreadMail:
+    """Чем переписка пишет дальше — для её карточки."""
+
+    #: Адрес ящика переписки; пусто — ящик удалили.
+    mailbox: str | None
+    #: Почему письма переписки ждут — словами отказа; пусто — ящик пишет.
+    waiting: str | None
+    #: Шаг и срок следующей добивки. Пусто — добивки не будет: цепочка
+    #: кончилась, собеседник ответил или исход письма ещё неизвестен.
+    next_step: int | None = None
+    next_at: datetime | None = None
+
+
+async def thread_mail(session: AsyncSession, messages: Sequence[MessageModel]) -> ThreadMail | None:
+    """Ящик переписки и её следующая добивка. `None` — первое письмо ещё
+    не уходило: ящик выберется в момент отправки (`_free_box`).
+
+    Ящик переписки — тот, с которого ушло первое письмо: им же уходят ответ
+    (`answers._thread_sender`) и добивки (`followups.py`).
+    """
+    first = _first_gone(messages)
+    if first is None:
+        return None
+    sender = await _box_of(session, first)
+    next_step, next_at = _next_followup(messages)
+    return ThreadMail(
+        mailbox=sender.email if sender is not None else None,
+        waiting=_silence(sender, gone="первого письма"),
+        next_step=next_step,
+        next_at=next_at,
+    )
+
+
+def _first_gone(messages: Sequence[MessageModel]) -> MessageModel | None:
+    """Первое письмо переписки, ушедшее к почте; `None` — ещё не уходило."""
+    return next((m for m in messages if m.step == FIRST_STEP and m.status in _WENT), None)
+
+
+async def _box_of(session: AsyncSession, letter: MessageModel) -> SenderModel | None:
+    """Ящик, с которого ушло письмо; `None` — ящик удалили, и номер ушёл из письма."""
+    if letter.sender_id is None:
+        return None
+    return await session.get(SenderModel, letter.sender_id)
+
+
+def _next_followup(messages: Sequence[MessageModel]) -> tuple[int | None, datetime | None]:
+    """Шаг и срок следующей добивки — по тем же условиям, что у захвата
+    прохода (`followups.Chain.claim`): иначе карточка обещала бы добивку,
+    которую проход не возьмёт."""
+    due = [m for m in messages if _claimable(m)]
+    if not due:
+        return None, None
+    last = max(due, key=lambda m: m.step)
+    return last.step + 1, last.next_action_at
+
+
+def _claimable(message: MessageModel) -> bool:
+    """Срок письма возьмёт проход добивок: условия захвата `Chain.claim`."""
+    return (
+        message.next_action_at is not None
+        and message.status in CHAINABLE
+        and message.step < MAX_STEPS - 1
+    )
 
 
 def _why_silent(sender: SenderModel) -> str:

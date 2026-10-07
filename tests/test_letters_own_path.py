@@ -22,9 +22,9 @@ import pytest
 from backend.features.core.domain import MessageStatus, Stage, UserRole
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.outreach import MessageModel, ReplyModel, SenderModel
-from backend.features.letters import answers, batch
+from backend.features.letters import answers, batch, mailbox
 from backend.features.letters.answers import AnswerRefusedError
-from backend.features.letters.chain import ANSWER_STEP
+from backend.features.letters.chain import ANSWER_STEP, MAX_STEPS
 from backend.features.letters.followups import send_due
 from backend.features.letters.repository import LetterRepository
 from backend.features.letters.sending import NoSenderError, OwnPathError, Sending
@@ -293,3 +293,65 @@ class TestWhenTheThreadBoxCannotWrite:
             await session.scalar(select(MessageModel.id).where(MessageModel.step == ANSWER_STEP))
             is None
         )
+
+
+class TestTheCardSaysItBeforeTheClick:
+    """Карточка переписки называет её ящик, пишет ли он и срок следующей добивки —
+    словами отказа отправки (`mailbox.thread_mail`), а не после клика."""
+
+    async def test_card_names_its_box_and_the_next_followup(
+        self, session: AsyncSession, talk: Conversation
+    ) -> None:
+        mail = await mailbox.thread_mail(session, [talk.first])
+
+        assert mail == mailbox.ThreadMail(mailbox=BOX, waiting=None, next_step=1, next_at=DUE)
+
+    async def test_parked_box_waits_in_the_words_of_the_refusal(
+        self, session: AsyncSession, talk: Conversation
+    ) -> None:
+        sender_rules.disable(await _box(session, BOX), PARKED, now=NOW)
+        await session.commit()
+
+        mail = await mailbox.thread_mail(session, [talk.first])
+        refused = await mailbox.choose(
+            session, talk.first, stage=Stage.DONORS, thread_sender_id=talk.sender.id, now=NOW
+        )
+
+        assert mail is not None
+        assert (mail.mailbox, mail.next_step) == (BOX, 1)
+        assert mail.waiting == refused.refusal
+        assert f"Ящик {BOX} сейчас не пишет (выключен: {PARKED})" in mail.waiting
+
+    async def test_deleted_box_is_named_gone(
+        self, session: AsyncSession, talk: Conversation
+    ) -> None:
+        await session.delete(await _box(session, BOX))
+        await session.commit()
+        await session.refresh(talk.first)
+
+        mail = await mailbox.thread_mail(session, [talk.first])
+
+        assert mail is not None
+        assert mail.mailbox is None
+        assert mail.waiting is not None
+        assert mail.waiting.startswith("Ящика первого письма нет: им начата переписка")
+
+    async def test_queued_first_letter_has_no_box_yet(self, session: AsyncSession) -> None:
+        """Ящик первого письма выбирается в момент отправки — до неё называть нечего."""
+        queued = await first_letter(session, host="newcomer.example.test")
+
+        assert await mailbox.thread_mail(session, [queued]) is None
+
+    async def test_no_followup_is_promised_that_the_pass_would_not_take(
+        self, session: AsyncSession, talk: Conversation
+    ) -> None:
+        """Срок на последнем шаге цепочки проход не берёт (`Chain.claim`) —
+        и карточка не обещает добивку, которой не будет."""
+        talk.first.next_action_at = None
+        last = MessageModel(
+            step=MAX_STEPS - 1, status=MessageStatus.SENT, next_action_at=DUE + timedelta(days=7)
+        )
+
+        mail = await mailbox.thread_mail(session, [talk.first, last])
+
+        assert mail == mailbox.ThreadMail(mailbox=BOX, waiting=None)
