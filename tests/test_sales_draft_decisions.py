@@ -60,8 +60,8 @@ async def _draft(session: AsyncSession, llm: Plug, judge: Any = ALLOW) -> AgentD
 
 
 async def _admin(make_user: MakeUser, sign_in: SignIn) -> dict[str, str]:
-    await make_user("продажи@site.com", role=UserRole.ADMIN)
-    return bearer(await sign_in("продажи@site.com"))
+    await make_user("admin@sales-desk.example.test", role=UserRole.ADMIN)
+    return bearer(await sign_in("admin@sales-desk.example.test"))
 
 
 async def _decisions(session: AsyncSession) -> list[dict[str, Any]]:
