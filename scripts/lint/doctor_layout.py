@@ -55,6 +55,7 @@ class LayoutChecks:
                  "есть" if cfg.is_file() else "нет — коммит-гейтов не существует")
 
         self._check_hooks_installed(cfg.is_file())
+        self._check_push_budget(cfg)
 
         # CI ищется у ОБОИХ хостингов (`cqg@2.00`). Первая редакция смотрела
         # только в `.github/workflows`, поэтому на GitLab-проекте с живым
@@ -131,6 +132,28 @@ class LayoutChecks:
                          "конфиг есть, а хук НЕ установлен: `pre-commit install"
                          f"{' --hook-type pre-push' if hook == 'pre-push' else ''}`"
                          if has_cfg else "нет")
+
+    def _check_push_budget(self, cfg: Path) -> None:
+        """Бюджет pre-push (§8.6, ≤ 10 с): ни повтора гейтов коммита, ни сьюта.
+
+        Поле `outreach-donors` 07.10: на push шли все гейты коммита ещё раз (конфиг
+        без `default_stages`) и проектный хук с полными pytest и vitest — около
+        12 минут на push, при том что сьют идёт и в CI. Признаки текстовые,
+        поэтому вердикт — WEAK: вопрос к проекту, а не приговор (`cqg@2.47`).
+        """
+        if not cfg.is_file():
+            return
+        hooks = self._push_hooks(cfg.read_text("utf-8", errors="ignore"))
+        repeated = [h for h, body in hooks if not re.search(r"^\s*stages:", body, re.M)]
+        suites = [f"{h} → {s}" for h, body in hooks if (s := self._suite_in(body))]
+        notes = []
+        if repeated:
+            notes.append(f"{len(repeated)} хук(ов) без `stages:` повторяют на push работу "
+                         "коммита — нужен `default_stages: [pre-commit]`")
+        if suites:
+            notes.append("набор тестов на push: " + ", ".join(suites) + " — его место CI")
+        self.add(WEAK if notes else AUTO, "бюджет pre-push",
+                 "; ".join(notes) or f"на push {len(hooks)} хук(ов), набора тестов нет")
 
     # --- C. инструменты ------------------------------------------------------
     def check_tools(self) -> None:
