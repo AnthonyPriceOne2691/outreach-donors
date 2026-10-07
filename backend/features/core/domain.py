@@ -100,6 +100,14 @@ class MessageStatus(StrEnum):
     STOPPED = "stopped"
 
 
+#: Письмо ушло: платформа его приняла. Отказ доставки — тоже ушедшее письмо,
+#: просто не дошедшее; «отправляется» — ещё нет, исход не известен. Одно
+#: определение на всех, кто считает ушедшие (главная, перепоиск адресов,
+#: список диалогов): до 07.10.2026 у каждого был свой список, и новый статус
+#: разошёлся бы между ними молча.
+GONE_STATUSES = (MessageStatus.SENT, MessageStatus.DELIVERED, MessageStatus.BOUNCED)
+
+
 class ThreadStatus(StrEnum):
     OPEN = "open"
     REPLIED = "replied"

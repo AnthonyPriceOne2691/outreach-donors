@@ -34,6 +34,7 @@ from backend.config import ahrefs as ahrefs_cfg
 from backend.config import filters as filters_cfg
 from backend.features.contacts import forms
 from backend.features.core.domain import (
+    GONE_STATUSES,
     ContactStatus,
     DonorStatus,
     MessageStatus,
@@ -52,9 +53,6 @@ from backend.features.replies import unbound
 from backend.features.review.candidates import Decision
 from backend.features.runs.browse import RunBrowser, RunRow
 from backend.features.runs.spending import SpendingRepository
-
-#: Письмо ушло: отказ доставки — тоже ушедшее письмо, просто не дошедшее.
-_GONE = (MessageStatus.SENT, MessageStatus.DELIVERED, MessageStatus.BOUNCED)
 
 #: Донор ответил человеком — в любом из состояний, куда ведёт ответ.
 _ANSWERED = frozenset(
@@ -235,7 +233,7 @@ async def _written(session: AsyncSession) -> int:
             select(func.count(func.distinct(MessageModel.domain_id)))
             .join(CampaignModel, CampaignModel.id == MessageModel.campaign_id)
             .join(DonorModel, DonorModel.domain_id == MessageModel.domain_id)
-            .where(CampaignModel.stage == Stage.DONORS, MessageModel.status.in_(_GONE))
+            .where(CampaignModel.stage == Stage.DONORS, MessageModel.status.in_(GONE_STATUSES))
             .where(standing.is_donor())
         )
         or 0
@@ -258,7 +256,7 @@ async def _letters(session: AsyncSession) -> dict[Stage, LetterCounts]:
     return {
         stage: LetterCounts(
             queued=counts.get(MessageStatus.QUEUED, 0),
-            sent=sum(counts.get(status, 0) for status in _GONE),
+            sent=sum(counts.get(status, 0) for status in GONE_STATUSES),
             delivered=counts.get(MessageStatus.DELIVERED, 0),
             bounced=counts.get(MessageStatus.BOUNCED, 0),
         )

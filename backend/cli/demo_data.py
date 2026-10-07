@@ -31,6 +31,7 @@ from backend.cli.demo_content import (
     QUEUE,
     REPLIES,
     SENDER_DOMAINS,
+    reply_text,
 )
 from backend.config import storage
 from backend.config.startup_checks import check_storage
@@ -310,7 +311,7 @@ def _add_reply(
         ReplyModel(
             thread_id=thread_id,
             kind=kind,
-            raw_body=template.format(white=white, grey=grey) if white else template,
+            raw_body=reply_text(template, white, grey),
             # Отправитель и тема заполняются как у настоящего входящего:
             # без них карточка показывает «—» там, где в бою стоит адрес
             # ответившего.

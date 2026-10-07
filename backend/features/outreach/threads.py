@@ -41,7 +41,7 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import assert_never
 
-from backend.features.core.domain import MessageStatus, ReplyKind, Stage
+from backend.features.core.domain import GONE_STATUSES, MessageStatus, ReplyKind, Stage
 from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.replies.outcome import (
     AUTO_REPLY_WITH_SUM,
@@ -242,11 +242,7 @@ def summarize(
     human = [r for r in replies if r.kind is ReplyKind.HUMAN]
     return ThreadSummary(
         state=_state(messages, replies, stage),
-        messages_sent=sum(
-            1
-            for m in messages
-            if m.status in (MessageStatus.SENT, MessageStatus.DELIVERED, MessageStatus.BOUNCED)
-        ),
+        messages_sent=sum(1 for m in messages if m.status in GONE_STATUSES),
         last_event_at=_last_at(messages, replies),
         last_reply_at=max((r.created_at for r in human), default=None),
         price_white=priced.price_white if priced else None,

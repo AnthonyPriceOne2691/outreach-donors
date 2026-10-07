@@ -107,7 +107,7 @@ def contrast(path, box, pad=6, core=False):
             int((box["y"] + box["height"] + pad) * SCALE),
         )
     )
-    # `getdata` уходит из Pillow 14; новый вызов есть с 12-й.
+    # `getdata` уходит из Pillow 14; новый вызов есть с 12.1 (не с 12.0).
     lums = [lum(p) for p in crop.get_flattened_data()]
     hist = [0] * 256
     for value in lums:

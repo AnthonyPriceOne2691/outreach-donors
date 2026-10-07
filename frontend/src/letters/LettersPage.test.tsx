@@ -764,3 +764,37 @@ describe('отказ транспорта словами', () => {
     expect(screen.queryByText(/OUTREACH_/)).not.toBeInTheDocument();
   });
 });
+
+describe('плитка «Почта» словами', () => {
+  /** Плитка целиком: подпись, значение и пояснение. */
+  function mailTileOnScreen(): HTMLElement {
+    return screen.getByText('Почта').closest('.metricTile') as HTMLElement;
+  }
+
+  it('настоящая почта — имя платформы, а не код транспорта', async () => {
+    await openLetters({ transport: { name: 'sendgrid', real: true, problem: null } });
+
+    const tile = mailTileOnScreen();
+    expect(within(tile).getByText('SendGrid')).toBeInTheDocument();
+    expect(within(tile).getByText('письма уходят')).toBeInTheDocument();
+    expect(within(tile).queryByText('sendgrid')).not.toBeInTheDocument();
+  });
+
+  it('нулевой транспорт — проверочная почта, письма не уходят', async () => {
+    await openLetters({ transport: { name: 'null', real: false, problem: null } });
+
+    const tile = mailTileOnScreen();
+    expect(within(tile).getByText('не подключена')).toBeInTheDocument();
+    expect(within(tile).getByText('проверочная почта, письма не уходят')).toBeInTheDocument();
+  });
+
+  it('не собравшаяся настоящая почта проверочной не называется', async () => {
+    await openLetters({
+      transport: { name: '—', real: false, problem: 'OUTREACH_SENDGRID_API_KEY не задан' },
+    });
+
+    const tile = mailTileOnScreen();
+    expect(within(tile).getByText('письма не уходят')).toBeInTheDocument();
+    expect(within(tile).queryByText(/проверочная/)).not.toBeInTheDocument();
+  });
+});

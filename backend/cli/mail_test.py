@@ -13,9 +13,11 @@
 двигает разгон ящика: оно не рассылка, и считать его рассылкой значит
 отнять у ящика письмо донору.
 
-**Предохранитель действует как обычно.** Пока `OUTREACH_ALLOWED_RECIPIENTS`
-не пуст, письмо уйдёт только на адрес из списка. Проверку и надо делать
-до снятия предохранителя — со своими ящиками в списке.
+**Предохранитель действует как обычно.** Пока список учётки этапа не пуст
+(`OUTREACH_ALLOWED_RECIPIENTS` или свой у этапа —
+`OUTREACH_<ЭТАП>_ALLOWED_RECIPIENTS`, `config.outreach.mail_account`), письмо
+уйдёт только на адрес из списка. Проверку и надо делать до снятия
+предохранителя — со своими ящиками в списке.
 
 **Что проверить — печатается.** Заголовки полученного письма говорят
 о настройке домена больше любого ответа платформы: подпись DKIM с доменом
@@ -53,7 +55,8 @@ def add_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-ar
     probe.add_argument(
         "--to",
         required=True,
-        help="свой ящик; пока предохранитель включён, он должен быть в OUTREACH_ALLOWED_RECIPIENTS",
+        help="свой ящик; пока предохранитель включён, он должен быть в списке этапа "
+        "(OUTREACH_ALLOWED_RECIPIENTS или свой — OUTREACH_<ЭТАП>_ALLOWED_RECIPIENTS)",
     )
     probe.add_argument(
         "--sender", help="с какого ящика рассылки; по умолчанию — первый включённый ящик этапа"
@@ -105,7 +108,7 @@ async def run_mail_test(
     # Только чтение: обещание «ни строки в базе» держит база, а не
     # внимательность следующей правки.
     await session.execute(text("SET TRANSACTION READ ONLY"))
-    _announce(transport)
+    _announce(transport, stage)
 
     sender_email = sender.strip().lower() if sender else await _first_sender(session, stage)
     if sender_email is None:
@@ -129,22 +132,28 @@ async def run_mail_test(
     return EXIT_OK
 
 
-def _announce(transport: Transport) -> None:
-    """Куда вообще может уйти письмо — до того, как оно уйдёт."""
+def _announce(transport: Transport, stage: Stage) -> None:
+    """Куда вообще может уйти письмо — до того, как оно уйдёт.
+
+    Список и его имя — учётки этапа (`cfg.mail_account`), как у транспорта:
+    у этапа бывает свой список, и общий здесь назвал бы не тот, по которому
+    судит отправка.
+    """
+    account = cfg.mail_account(stage.value)
     if not transport.real:
         print(
             f"Транспорт «{transport.name}» ничего не отправляет: пробное письмо никуда не уйдёт, "
             "а боевые адреса он отвергает. Домен проверяется с OUTREACH_TRANSPORT=sendgrid"
         )
-    elif cfg.ALLOWED_RECIPIENTS:
+    elif account.allowed_recipients:
         print(
-            "Предохранитель включён (OUTREACH_ALLOWED_RECIPIENTS): письмо уйдёт, только если "
-            f"адрес в списке — {', '.join(cfg.ALLOWED_RECIPIENTS)}. Держите там свои ящики, "
+            f"Предохранитель включён ({account.allowlist_setting}): письмо уйдёт, только если "
+            f"адрес в списке — {', '.join(account.allowed_recipients)}. Держите там свои ящики, "
             "пока идёт проверка"
         )
     else:
         print(
-            "Предохранитель снят (OUTREACH_ALLOWED_RECIPIENTS пуст): отправка идёт на любой "
+            f"Предохранитель снят ({account.allowlist_setting} пуст): отправка идёт на любой "
             "адрес. Пробное письмо — до снятия, со своими ящиками в списке"
         )
 
