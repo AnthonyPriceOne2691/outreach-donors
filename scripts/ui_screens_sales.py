@@ -18,6 +18,8 @@
 выключены, пока ничего не правлено, — подготовка дописывает знак в поле: у
 выключенной кнопки меряется серое на сером. Записи — в базе стенда.
 
+Очередь писем (срез 4.6b) — своим модулем `ui_screens_sales_queue.py`.
+
 Цепочка писем (срез 4.6) — вкладка с карточками языков и окно шага с письмом глазами
 адресата. Шаблоны и отправитель — в базе стенда: у английской цепочки заданы все шаги
 (третий выключен), у русской — первое письмо, у отправителя нет адреса — так на экране
@@ -30,6 +32,7 @@ from tempfile import mkdtemp
 from typing import Any
 
 from playwright.sync_api import expect
+from ui_screens_sales_queue import queue_screens
 
 #: Узкое окно — телефон: вкладки встают столбиком, таблицы уезжают в прокрутку.
 PHONE = {"width": 390, "height": 844}
@@ -236,6 +239,7 @@ def sales_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         },
         **kb_screens(norm, big),
         **chain_screens(norm, big),
+        **queue_screens(norm, big),
     }
 
 

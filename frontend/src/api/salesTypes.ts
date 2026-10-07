@@ -305,3 +305,42 @@ export interface ChainPreviewView {
   /** Чего не хватает для отправки продаж — словами сервера. */
   missing: string[];
 }
+
+/** Очередь писем продаж гипотезы (`GET /sales/queue`): подключены ли продажи,
+ *  цепочки по языкам, сколько лидов и писем ждёт. */
+export interface SalesQueueView {
+  hypothesis_id: number;
+  connected: boolean;
+  /** Чего не хватает продажам — словами отказа отправки. Пусто — подключены. */
+  missing: string[];
+  /** Цепочка гипотезы на каждом языке — той же формой, что у вкладки цепочки. */
+  chains: ChainState[];
+  /** Лидов «готов» без письма — их возьмёт следующая сборка. */
+  unwritten: number;
+  /** Писем гипотезы в очереди. */
+  queued: number;
+  /** Писем продаж в очереди — всех гипотез: пачка берёт очередь этапа целиком. */
+  stage_queued: number;
+  /** Больше писем за одну сборку сервер не примет. */
+  limit_max: number;
+}
+
+/** Собрать очередь гипотезы: сколько писем за раз. */
+export interface SalesQueueBody {
+  hypothesis_id: number;
+  limit: number;
+}
+
+/** Итог сборки — отчёт задачи (`QueueReport` сервера). */
+export interface SalesQueueReport {
+  campaign_id: number;
+  prepared: number;
+  /** Письма в очереди, собранные заново: сменилась цепочка, подпись или адрес. */
+  refreshed: number;
+  tokens_spent: number;
+  off_corridor: number;
+  /** Почему лиды ждут: причина словами → сколько. */
+  waiting: Record<string, number>;
+  /** Сборка остановлена потолком расхода на модель — причина словами. */
+  stopped: string | null;
+}

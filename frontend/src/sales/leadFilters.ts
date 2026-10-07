@@ -23,17 +23,19 @@ import { LEAD_STATES, leadReasonTitle } from '../api/salesLabels';
 import type { LeadState } from '../api/salesTypes';
 import { formatNumber } from '../format';
 
-export type SalesTab = 'leads' | 'hypotheses' | 'kb' | 'sender' | 'chain';
+export type SalesTab = 'leads' | 'hypotheses' | 'kb' | 'sender' | 'chain' | 'queue';
 
 /** Вкладки раздела. Лиды первыми: с ними работают, гипотезы — сводка; база
  *  знаний и отправитель — то, из чего и от чьего имени пишет агент (срез 3.1);
- *  цепочка — тексты писем, которые уходят лидам (срез 4.6). */
+ *  цепочка — тексты писем, которые уходят лидам (срез 4.6); очередь — сборка
+ *  писем из лидов и отправка пачкой (срез 4.6b). */
 export const SALES_TABS: Record<SalesTab, string> = {
   leads: 'Лиды',
   hypotheses: 'Гипотезы',
   kb: 'База знаний',
   sender: 'Отправитель',
   chain: 'Цепочка писем',
+  queue: 'Очередь писем',
 };
 
 export const SALES_TAB_KEYS = Object.keys(SALES_TABS) as SalesTab[];

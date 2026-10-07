@@ -291,10 +291,15 @@
       "complexity": 3,
       "worst": "of:93"
     },
+    "backend/api/sales/queue.py": {
+      "lines": 114,
+      "complexity": 2,
+      "worst": "read_queue:74"
+    },
     "backend/api/sales/routes.py": {
-      "lines": 166,
+      "lines": 168,
       "complexity": 6,
-      "worst": "_found:59"
+      "worst": "_found:60"
     },
     "backend/api/sales/schemas.py": {
       "lines": 152,
@@ -527,9 +532,14 @@
       "worst": "_mapping:362"
     },
     "backend/cli/sales_commands.py": {
-      "lines": 55,
+      "lines": 58,
       "complexity": 1,
-      "worst": "add_parsers:51"
+      "worst": "add_parsers:53"
+    },
+    "backend/cli/sales_queue.py": {
+      "lines": 71,
+      "complexity": 4,
+      "worst": "run_sales_queue:51"
     },
     "backend/cli/sales_telegram.py": {
       "lines": 69,
@@ -867,7 +877,7 @@
       "worst": "—"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 66,
+      "lines": 68,
       "complexity": 0,
       "worst": "—"
     },
@@ -1692,9 +1702,9 @@
       "worst": "consequences:61"
     },
     "backend/features/sales/__init__.py": {
-      "lines": 15,
-      "complexity": 0,
-      "worst": "—"
+      "lines": 33,
+      "complexity": 1,
+      "worst": "_mail:25"
     },
     "backend/features/sales/browse.py": {
       "lines": 184,
@@ -1702,9 +1712,9 @@
       "worst": "_conditions:98"
     },
     "backend/features/sales/chain.py": {
-      "lines": 214,
+      "lines": 224,
       "complexity": 4,
-      "worst": "save:169"
+      "worst": "save:179"
     },
     "backend/features/sales/chain_load.py": {
       "lines": 213,
@@ -1712,7 +1722,7 @@
       "worst": "apply:161"
     },
     "backend/features/sales/chain_text.py": {
-      "lines": 319,
+      "lines": 320,
       "complexity": 8,
       "worst": "zones_of:197"
     },
@@ -1726,15 +1736,20 @@
       "complexity": 3,
       "worst": "guess:72"
     },
+    "backend/features/sales/connection.py": {
+      "lines": 85,
+      "complexity": 4,
+      "worst": "reasons:64"
+    },
     "backend/features/sales/geo.py": {
       "lines": 396,
       "complexity": 4,
       "worst": "_by_name:351"
     },
     "backend/features/sales/handoff.py": {
-      "lines": 446,
+      "lines": 456,
       "complexity": 11,
-      "worst": "_card:353"
+      "worst": "_card:363"
     },
     "backend/features/sales/handoff_jobs.py": {
       "lines": 151,
@@ -1786,8 +1801,18 @@
       "complexity": 2,
       "worst": "wanted_email:122"
     },
+    "backend/features/sales/letter.py": {
+      "lines": 101,
+      "complexity": 7,
+      "worst": "problem:76"
+    },
+    "backend/features/sales/mail.py": {
+      "lines": 224,
+      "complexity": 7,
+      "worst": "check:178"
+    },
     "backend/features/sales/models.py": {
-      "lines": 390,
+      "lines": 432,
       "complexity": 2,
       "worst": "_enum:75"
     },
@@ -1805,6 +1830,16 @@
       "lines": 39,
       "complexity": 2,
       "worst": "zones_of:35"
+    },
+    "backend/features/sales/queue.py": {
+      "lines": 405,
+      "complexity": 9,
+      "worst": "_prepare:244"
+    },
+    "backend/features/sales/queue_jobs.py": {
+      "lines": 66,
+      "complexity": 4,
+      "worst": "build_sales_queue:49"
     },
     "backend/features/sales/referral.py": {
       "lines": 115,
@@ -2102,9 +2137,14 @@
       "worst": "unbound_probes:32"
     },
     "scripts/ui_screens_sales.py": {
-      "lines": 474,
+      "lines": 478,
       "complexity": 1,
-      "worst": "pick_hypothesis:55"
+      "worst": "pick_hypothesis:58"
+    },
+    "scripts/ui_screens_sales_queue.py": {
+      "lines": 61,
+      "complexity": 1,
+      "worst": "queue_screens:22"
     }
   }
 }

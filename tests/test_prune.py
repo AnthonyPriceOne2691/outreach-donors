@@ -602,6 +602,7 @@ REVIEWED = {
     "messages.thread_id → threads CASCADE": "уходит только липовая переписка",
     "replies.thread_id → threads CASCADE": "уходит только липовая переписка",
     "sales_handoffs.thread_id → threads CASCADE": "уходит только липовая переписка",
+    "sales_threads.thread_id → threads CASCADE": "уходит только липовая переписка",
     "messages.campaign_id → campaigns CASCADE": "рассылка уходит только пустой",
     "threads.campaign_id → campaigns CASCADE": "рассылка уходит только пустой",
     # Адрес письма и переписки — всегда адрес их домена (letters/recipients.py,

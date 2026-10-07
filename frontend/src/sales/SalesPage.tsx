@@ -53,6 +53,7 @@ import {
 import type { LeadFilters, SalesTab } from './leadFilters';
 import { LeadsPane, pageBack, useLeads } from './LeadsPane';
 import { Pending } from './Pending';
+import { QueuePane } from './QueuePane';
 import { SenderPane } from './SenderPane';
 
 export const HYPOTHESES_QUERY_KEY = ['sales', 'hypotheses'] as const;
@@ -211,6 +212,7 @@ export function SalesPage() {
     kb: () => <KbPane />,
     sender: () => <SenderPane />,
     chain: () => <ChainPane hypotheses={known} />,
+    queue: () => <QueuePane hypotheses={known} />,
   };
 
   return (

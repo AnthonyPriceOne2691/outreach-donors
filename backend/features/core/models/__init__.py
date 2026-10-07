@@ -27,6 +27,7 @@ from backend.features.sales.models import (
     SalesLeadModel,
     SalesSettingsModel,
     SalesStoplistModel,
+    SalesThreadModel,
 )
 
 __all__ = [
@@ -54,6 +55,7 @@ __all__ = [
     "SalesLeadModel",
     "SalesSettingsModel",
     "SalesStoplistModel",
+    "SalesThreadModel",
     "SenderHealthModel",
     "SenderModel",
     "SendingDomainModel",

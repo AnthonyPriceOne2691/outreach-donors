@@ -1,5 +1,6 @@
 /**
- * Продажи: гипотезы, лиды, загрузка базы, база знаний, отправитель и цепочка писем.
+ * Продажи: гипотезы, лиды, загрузка базы, база знаний, отправитель, цепочка писем
+ * и очередь писем.
  *
  * Списки — обычным `request`. Загрузка — файлом или ссылкой на Google-таблицу
  * формой `multipart/form-data` (контракт сервера 1.3c): байты файла уходят как
@@ -30,9 +31,12 @@ import type {
   LeadField,
   LeadState,
   LeadsView,
+  SalesQueueBody,
+  SalesQueueView,
   SenderBody,
   SenderView,
 } from './salesTypes';
+import type { BuildQueued } from './types';
 
 /** Фильтры под колонками и страница. Размера страницы здесь нет: его называет
  *  сервер и возвращает в ответе (`limit`). Имена — те же, что в адресе экрана. */
@@ -175,4 +179,14 @@ export function saveChainStep(body: ChainStepBody): Promise<ChainStepCard> {
 /** Письмо глазами адресата: выдуманные значения, подпись и адрес из настроек. Без записи. */
 export function previewChainStep(body: ChainPreviewBody): Promise<ChainPreviewView> {
   return request<ChainPreviewView>('/sales/chain/preview', { method: 'POST', body });
+}
+
+/** Очередь писем продаж гипотезы: подключены ли продажи, цепочки, сколько ждёт. */
+export function readSalesQueue(hypothesis: number): Promise<SalesQueueView> {
+  return request<SalesQueueView>(`/sales/queue?hypothesis=${hypothesis}`);
+}
+
+/** Поставить сборку очереди в очередь задач. Ничего не отправляет. */
+export function buildSalesQueue(body: SalesQueueBody): Promise<BuildQueued> {
+  return request<BuildQueued>('/sales/queue', { method: 'POST', body });
 }
