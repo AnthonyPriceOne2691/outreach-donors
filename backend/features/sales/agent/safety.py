@@ -154,7 +154,7 @@ SIGNATURES: tuple[Signature, ...] = (
         r"|\b(?:other|previous)\s+(?:clients|customers|leads|users)'?\s*(?:emails?|addresses"
         r"|contacts?|phone\s+numbers|conversations?|correspondence)\b"
         r"|\b(?:переписк|контакт|адрес|почт|телефон|данн|список)\w*\s+(?:других|всех|прошлых"
-        r"|остальных)\s+(?:клиент|заказчик|лид|пользовател)\w*",
+        r"|остальных)\s+(?:клиент|покупател|лид|пользовател)\w*",
     ),
     _sig(
         "T4",

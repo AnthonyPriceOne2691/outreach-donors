@@ -251,6 +251,7 @@ async def _generated(case: dict[str, Any], writer: AgentWriter, used: Prompts) -
     try:
         written = await writer.write(request)
     except DraftUnavailableError as exc:
+        print(f"  генератор не ответил на {case['id']}: {exc}")
         return Result(case["id"], GOOD, "", None, (f"генератор не ответил: {exc}",), generated=True)
     named = any(re.search(pattern, written.body) for pattern in case["never"])
     kind = "price" if named else GOOD

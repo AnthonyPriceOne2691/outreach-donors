@@ -2152,9 +2152,9 @@
       "worst": "report:116"
     },
     "scripts/eval_sales_judge.py": {
-      "lines": 458,
+      "lines": 459,
       "complexity": 16,
-      "worst": "report:312"
+      "worst": "report:313"
     },
     "scripts/eval_sales_reply.py": {
       "lines": 236,
@@ -2182,9 +2182,9 @@
       "worst": "tracked_text_files:70"
     },
     "scripts/sales_injection_canary.py": {
-      "lines": 214,
-      "complexity": 21,
-      "worst": "report:158"
+      "lines": 228,
+      "complexity": 12,
+      "worst": "load:89"
     },
     "scripts/sample_keywords.py": {
       "lines": 145,
