@@ -9,9 +9,10 @@
 **Исходный диалог закрывается**: собеседник сказал, что это не к нему. Помехой новому
 лиду он не стал бы и открытым: «другое направление» очистки — только доноры и рекламодатели.
 
-**Связи «диалог → лид» в таблицах нет.** Лид знает свой адрес, диалог — домен
-и адрес контакта, которому писали; по ним лид и находится. Не нашёлся — лида
-не выдумываем: ответ ждёт человека с причиной.
+**Лид исходного диалога — по явной связи** (`sales_threads`, 4.6b): диалог, начатый
+сборкой очереди продаж, знает своего лида, а строки `contacts` у него нет. Диалог без
+связи — по домену и адресу контакта, которому писали. Не нашёлся — лида не выдумываем:
+ответ ждёт человека с причиной.
 """
 
 from __future__ import annotations
@@ -27,7 +28,12 @@ from backend.features.core.domain import ThreadStatus
 from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.outreach import ThreadModel
 from backend.features.sales.cleaning import clean_leads
-from backend.features.sales.models import LeadSource, LeadStatus, SalesLeadModel
+from backend.features.sales.models import (
+    LeadSource,
+    LeadStatus,
+    SalesLeadModel,
+    SalesThreadModel,
+)
 from backend.features.sales.verifier import EmailVerifier
 
 
@@ -45,7 +51,15 @@ class Referred:
 
 
 async def origin_lead(session: AsyncSession, thread: ThreadModel) -> SalesLeadModel | None:
-    """Лид исходного диалога: адрес контакта диалога на домене диалога, самый ранний."""
+    """Лид исходного диалога: по явной связи, без неё — адрес контакта диалога на домене
+    диалога, самый ранний."""
+    linked: SalesLeadModel | None = await session.scalar(
+        select(SalesLeadModel)
+        .join(SalesThreadModel, SalesThreadModel.lead_id == SalesLeadModel.id)
+        .where(SalesThreadModel.thread_id == thread.id)
+    )
+    if linked is not None:
+        return linked
     if thread.contact_id is None:
         return None
     email = await session.scalar(
