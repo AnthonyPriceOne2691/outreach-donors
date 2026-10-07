@@ -19,7 +19,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from backend.cli import donor_add
+from backend.cli import donor_add, geo_shares
 from backend.cli.access_admin import cmd_user_add, cmd_user_reset
 from backend.cli.advertisers import add_parser as add_advertisers_parser
 from backend.cli.advertisers import (
@@ -396,6 +396,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_senders_parser(sub)
     add_mail_test_parser(sub)
     add_prune_parser(sub)
+    geo_shares.add_parser(sub)
     add_probe_donor_parser(sub)
     add_probe_advertiser_parser(sub)
     donor_add.add_parser(sub)
@@ -424,6 +425,7 @@ _KEPT_ON_INTERRUPT: dict[str, str] = {
     "contacts-file": "Пройденное — в чекпойнте: повторный запуск продолжит с места обрыва "
     "и запишет итог.",
     "prune": "Чистка идёт одной транзакцией: в базе ничего не изменилось.",
+    "geo-shares": "Пересчёт идёт одной транзакцией: в базе ничего не изменилось.",
     "probe-donor": "Липовый донор заводится одной транзакцией: в базе ничего не изменилось.",
     "probe-advertiser": "Пробный заводится одной транзакцией: в базе ничего не изменилось.",
     **SALES_KEPT,
@@ -457,6 +459,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] =
     "senders": cmd_senders,
     "mail-test": cmd_mail_test,
     "prune": cmd_prune,
+    "geo-shares": geo_shares.cmd_geo_shares,
     "probe-donor": cmd_probe_donor,
     "probe-advertiser": cmd_probe_advertiser,
     "donor-add": donor_add.cmd_donor_add,

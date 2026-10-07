@@ -37,7 +37,7 @@ from backend.features.core.models.outreach import (
     ThreadModel,
 )
 from backend.features.donors.price import put_price
-from backend.features.replies import robots
+from backend.features.replies import outcome, robots, stage_rules
 from backend.features.replies.binding import Unbound
 from backend.features.replies.extract import Extracted
 from backend.features.replies.inbound import Incoming, masked_for_log
@@ -113,7 +113,7 @@ class ReplyRepository:
             return False
         if reply.reviewed_at is not None:
             return False
-        return await self.stage_of(reply) is Stage.DONORS
+        return outcome.priced_by_model(await self.stage_of(reply))
 
     async def ours_by_internet_message_id(
         self, message_ids: Sequence[str]
@@ -450,9 +450,9 @@ class ReplyRepository:
 
         **Ответ рекламодателя подтвердить нельзя.** Цена из него легла бы
         в карточку донора, если сайт заодно донор: его расход стал бы ценой
-        площадки. Отказ — до записи, а не после.
+        площадки. Отказ — до записи, а не после. Ответ лида продаж — тоже.
         """
-        if await self.stage_of(reply) is Stage.ADVERTISERS:
+        if not stage_rules.price_confirmable(await self.stage_of(reply), reply.id):
             raise NotAPriceError(
                 f"Ответ №{reply.id} — от рекламодателя: это лид, а не цена площадки, "
                 "и в карточку донора он не ложится. Вести его в переписке"
@@ -477,7 +477,8 @@ class ReplyRepository:
         открывших один лид, должны узнать друг о друге до письма клиенту,
         а не после.
         """
-        if reply.kind is not ReplyKind.HUMAN or await self.stage_of(reply) is not Stage.ADVERTISERS:
+        stage = stage_rules.lead_stage(await self.stage_of(reply), reply.id)
+        if reply.kind is not ReplyKind.HUMAN or stage is not Stage.ADVERTISERS:
             raise LeadError(
                 f"Ответ №{reply.id} — не лид: лидом становится ответ человека на оффер "
                 "рекламодателю. Ответ донора разбирают как цену"

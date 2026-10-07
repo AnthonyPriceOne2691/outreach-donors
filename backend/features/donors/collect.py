@@ -36,7 +36,13 @@ from typing import Any
 from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.ahrefs.units import MAX_BATCH_TARGETS
 from backend.features.core.domain import DonorStatus
-from backend.features.donors.geo import CountryShare, GeoVerdict, build_breakdown, check_geo
+from backend.features.donors.geo import (
+    CountryShare,
+    GeoVerdict,
+    build_breakdown,
+    check_geo,
+    share_base,
+)
 from backend.features.donors.verdict import Metrics, Thresholds, check_dr, check_metrics
 
 logger = logging.getLogger(__name__)
@@ -191,7 +197,9 @@ def _top_country_share(row: dict[str, Any], total: int) -> CountryShare | None:
     if pair is None or total <= 0:
         return None
     country, traffic = pair
-    return CountryShare(country, traffic, traffic / total)
+    # База та же, что у полной разбивки: колонка страны и трафик домена
+    # считаются Ahrefs по-разному, и страна бывает больше домена (07.10.2026).
+    return CountryShare(country, traffic, traffic / share_base(total, [traffic]))
 
 
 def _geo_without_paying(
