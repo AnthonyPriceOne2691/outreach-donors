@@ -376,10 +376,13 @@ jobs:
           docker run --rm -i -w /tmp outreach-backend:ci python - <<'EOF'
           import backend
           assert "site-packages" in backend.__file__, backend.__file__
-          from backend.features.core.domain import Stage
+          import typing
+          from backend.features.core import stages
           from backend.features.keywords import angles
           from backend.features.letters import template
-          for stage in Stage:
+          # Шаблоны в колесе — у этапов с почтой (`MailStage`). Шаблоны продаж
+          # живут в базе, а почта продажам пока отказывает словами.
+          for stage in typing.get_args(stages.MailStage):
               template.for_stage(stage)
               for step in (1, 2):
                   template.followup(step, stage)

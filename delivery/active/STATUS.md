@@ -9,7 +9,7 @@
 - **verifier:** process:ci — обязательные джобы `check`, `web` и `docker`, на PR ещё `gates` и `delivery`; ревью общего кода почты — соседняя сессия outreach-donors; слив — не раньше первого письма Этапа 2 (решение владельца 01.10; условие выполнено 07.10 — письмо ушло и доставлено)
 - **human_ok_spec:** yes at=2026-10-05 by=human:anthony («даю да» — план фаз с примерами среза 1.1 A2, A3 (01.10); 1.1 разрезан решением владельца 01.10 — 1.1b «PR раньше, слив и выкатка — после первого письма Этапа 2»; 05.10 — делёжка с соседней сессией: 1.1b наш, с двумя обязательными пунктами — добивка нового этапа не теряется молча, очередь продаж не собирается из доноров)
 - **new_dependency:** no
-- **shared_changes:** часть «а» трогает 22 общих файла (и снимок сложности); каждый — полным путём:
+- **shared_changes:** часть «а» трогает 23 общих файла (и снимок сложности); каждый — полным путём:
   `backend/features/core/domain.py` — значение `Stage.SALES` и докстрока этапа;
   `backend/features/core/stages.py` — новый: текст отказа `SALES_NOT_CONNECTED`, `SalesNotConnectedError` (`permanent`), шлюз `mail_stage` и тип `MailStage`, мост подключения этапа `check_connected` (спрашивает отправка очереди пачкой), пометка `donor_path` для ветки по `MailStage`;
   `backend/migrations/versions/39e342cb2b21_stage_sales.py` — `ALTER TYPE stage ADD VALUE IF NOT EXISTS 'sales'` отдельной ревизией после головы main `7bfc6c880f0a` (#201); голова одна;
@@ -32,6 +32,7 @@
   `tests/test_probe_donor.py` — отбор доноров больше не принимает этап: тест сборки по проверочному прогону берёт общий вход `LetterRepository.candidates`, тот же, что у сборки;
   `tests/test_probe_advertiser.py` — тест отказа «сборка берёт не пробного» подменяет `Recipients.advertiser_candidates` (прежнего имени с этапом нет);
   `.secrets.baseline` — сдвиг строки в `backend/features/core/domain.py` 173 → 178 (ложное срабатывание, хэш тот же);
+  `.github/workflows/ci.yml` — шаг образа «Шаблоны писем и промпты — внутри образа» обходит этапы с почтой (`typing.get_args(stages.MailStage)`), а не все `Stage`: у продаж шаблонов в колесе нет, `for_stage(sales)` отказывает словами;
   `delivery/complexity-snapshot.json` — снимок ратчета: новый `core/stages.py`, рост файлов почты, `cli/main.py` и `cli/sales_commands.py`.
   Не тронуты механизм учётки направления — `backend/config/outreach.py` (`mail_account`), `backend/features/letters/transport.py`, `backend/features/letters/transport_factory.py`, `backend/api/events/routes.py`: со значением `sales` ключ событий и учётка продаж берутся им самим. Тесты среза — `tests/test_sales_stage_mail.py` (свой путь). Согласовано: с сессией outreach-donors — ОК на пересечения 1.1b и четыре её обязательные правки (06.10); перенос на #201, #202 и #204 — на её ревью в этом PR (07.10)
 
