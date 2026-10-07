@@ -7,6 +7,9 @@
 а без регистрации — прежний отказ 1.1b словами, транспорт этапа не спрошен. Мир — тот же,
 что у 1.1b (`tests/test_sales_stage_mail.py`): домен письма продаж — принятый донор с
 адресом сайта, ящики есть у обоих этапов, транспорт подставной.
+
+Поломка модуля — не его отказ словами — почте не достаётся: мост переводит её в «не
+подключены» с причиной, и общий проход добивок, пачка и кнопка её переживают.
 """
 
 from __future__ import annotations
@@ -29,11 +32,11 @@ from backend.features.letters import followups
 from backend.features.letters.building import followup_key, idempotency_key
 from backend.features.letters.sending import SendError, Sending, SuppressedError
 from backend.features.letters.transport import Outgoing
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.test_mail_accounts import _ByStage
 from tests.test_mail_identity import Recording
-from tests.test_sales_stage_mail import LEAD, NOW, sales_world, sender
+from tests.test_sales_stage_mail import LEAD, NOW, _donor_chain, sales_world, sender
 
 #: Выдуманные ответы подставного модуля продаж.
 LEAD_EMAIL = "jane@lead.example.test"
@@ -48,26 +51,43 @@ class FakeSalesMail:
     connected_now: bool = True
     body: str = "A made-up reminder."
     refusal: SendError | None = None
+    #: Какой ответ модуля ломается и чем: исключением Python, упавшим запросом к базе или
+    #: отказом почты, который этому ответу не подходит.
+    broken: str | None = None
+    broken_by: str = "runtime"
     asked: list[str] = field(default_factory=list)
 
+    async def _maybe_break(self, session: AsyncSession, answer: str) -> None:
+        if answer != self.broken:
+            return
+        if self.broken_by == "database":
+            await session.execute(text("SELECT 1 FROM made_up_table_of_the_sales_module"))
+        if self.broken_by == "refusal":
+            raise SuppressedError(f"выдуманный отказ модуля: {answer}")
+        raise RuntimeError(f"выдуманная поломка модуля: {answer}")
+
     async def recipient(
-        self, _session: AsyncSession, message: MessageModel, _what: str
+        self, session: AsyncSession, message: MessageModel, _what: str
     ) -> Recipient:
         self.asked.append(f"recipient {message.id}")
+        await self._maybe_break(session, "recipient")
         return Recipient(Stage.SALES, LEAD_EMAIL, SENDER_NAME)
 
-    async def check(self, _session: AsyncSession, message: MessageModel) -> None:
+    async def check(self, session: AsyncSession, message: MessageModel) -> None:
         self.asked.append(f"check {message.id}")
+        await self._maybe_break(session, "check")
         if self.refusal is not None:
             raise self.refusal
 
-    async def connected(self, _session: AsyncSession) -> bool:
+    async def connected(self, session: AsyncSession) -> bool:
+        await self._maybe_break(session, "connected")
         return self.connected_now
 
     async def followup(
-        self, _session: AsyncSession, thread_id: int | None, step: int
+        self, session: AsyncSession, thread_id: int | None, step: int
     ) -> SalesFollowup:
         self.asked.append(f"followup {thread_id}:{step}")
+        await self._maybe_break(session, "followup")
         return SalesFollowup(body=self.body)
 
 
@@ -294,6 +314,73 @@ async def test_followup_waiting_for_a_box_goes_with_the_text_of_today(
     assert [outgoing.body for outgoing in _seen(source)] == ["Another made-up reminder."]
     rows = await session.scalars(select(MessageModel.id).where(MessageModel.step == 1))
     assert len(list(rows)) == 1
+
+
+# --- модуль упал: почта получает только отказ словами ----------------------------------------
+
+
+@pytest.mark.parametrize("broken_by", ["runtime", "database", "refusal"])
+@pytest.mark.parametrize(("broken", "counts"), [("connected", (1, 0, 1)), ("followup", (1, 1, 0))])
+async def test_a_broken_sales_module_does_not_stop_the_pass_for_donors(
+    session: AsyncSession,
+    filled_legal: None,
+    fake: FakeSalesMail,
+    caplog: pytest.LogCaptureFixture,
+    broken: str,
+    counts: tuple[int, int, int],
+    broken_by: str,
+) -> None:
+    """Проход добивок общий: поломка модуля продаж его не роняет. Донорская добивка уходит,
+    срок продаж цел — «подключены ли» упало: срок не взят; текст добивки не собрался: срок
+    возвращён на час, — причина в журнале. Упавший запрос модуля не ломает транзакцию почты;
+    отказ почты, который добивке до письма не подходит (стоп-лист), — тоже «не подключены»."""
+    fake.broken, fake.broken_by = broken, broken_by
+    due = NOW - timedelta(days=2)
+    world = await sales_world(session, status=MessageStatus.SENT, due=due)
+    donor = await _donor_chain(session, due=NOW - timedelta(days=1))
+
+    with caplog.at_level(logging.WARNING, logger=stages.__name__):
+        report = await followups.send_due(session, transport=_transports(), limit=5, now=NOW)
+
+    assert (report.sent, report.postponed, report.waiting) == counts
+    await session.refresh(world.letter)
+    await session.refresh(donor)
+    later = {"connected": due, "followup": NOW + followups.POSTPONE}
+    assert world.letter.next_action_at == later[broken]
+    assert donor.next_action_at is None  # донорская ушла, срок следующей — у её добивки
+    assert "ошибка модуля продаж" in caplog.text
+
+
+@pytest.mark.parametrize("broken", ["recipient", "check"])
+async def test_a_broken_sales_module_is_said_in_words_and_the_letter_waits(
+    session: AsyncSession, filled_legal: None, fake: FakeSalesMail, broken: str
+) -> None:
+    """Поломка модуля на отправке — «не подключены» с причиной: кнопка получит 409, пачка
+    встанет словами, а не «связь с почтой оборвалась»; письмо в очереди, ничего не ушло."""
+    fake.broken = broken
+    world = await sales_world(session)
+    source = _transports()
+
+    with pytest.raises(SalesNotConnectedError) as refused:
+        await Sending(session, source, now=NOW).send(world.letter.id)
+
+    assert str(refused.value) == (
+        f"Письмо №{world.letter.id}: {SALES_NOT_CONNECTED} — выдуманная поломка модуля: {broken}"
+    )
+    assert isinstance(refused.value.__cause__, RuntimeError)
+    assert _seen(source) == []
+    await session.refresh(world.letter)
+    assert (world.letter.status, world.letter.sender_id) == (MessageStatus.QUEUED, None)
+
+
+async def test_queue_send_with_a_broken_module_is_refused_in_words(
+    session: AsyncSession, fake: FakeSalesMail
+) -> None:
+    fake.broken = "connected"
+    what = "Очередь писем не отправлена"
+
+    with pytest.raises(SalesNotConnectedError, match=f"^{what}: {SALES_NOT_CONNECTED}$"):
+        await stages.check_connected(session, Stage.SALES, what)
 
 
 # --- ключ добивки: из ключа предыдущего письма ---------------------------------------------

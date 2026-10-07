@@ -59,7 +59,7 @@ from backend.features.letters.transport import Mail, Outgoing, Transport, Transp
 logger = logging.getLogger(__name__)
 
 
-class SendError(RuntimeError):
+class SendError(stages.MailRefusalError):
     """Письмо не отправлено. Сообщение называет причину и что делать."""
 
 

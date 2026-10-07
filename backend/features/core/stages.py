@@ -27,11 +27,19 @@
 Отправка спрашивает мост до выбора учётки этапа (`transport.of_stage`): пока
 продажи не подключены — нет своей учётки, отправителя, цепочки, — письмо продаж
 учётку не трогает, и отказ называет, чего не хватает.
+
+**От модуля почта получает только отказ словами** (`MailRefusalError`): проход добивок,
+пачка и кнопка — общие, и поломка модуля продаж не должна их ронять. Любую другую
+ошибку модуля мост переводит в «не подключены» с причиной и пишет в журнал: срок
+добивки возвращается, пачка встаёт словами, кнопка получает 409; «подключены ли» с
+ошибкой — «нет», и проход идёт без продаж. Модуль отвечает в своей точке сохранения:
+упавший запрос модуля не ломает транзакцию почты.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Protocol, assert_never
 
@@ -41,6 +49,8 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from backend.features.core.models.outreach import MessageModel
+
+logger = logging.getLogger(__name__)
 
 #: Почему почта не делает того, о чём просят, для этапа продаж.
 SALES_NOT_CONNECTED = "продажи к почте ещё не подключены"
@@ -56,7 +66,13 @@ SALES_ELSEWHERE = (
 MailStage = Literal[Stage.DONORS, Stage.ADVERTISERS]
 
 
-class SalesNotConnectedError(RuntimeError):
+class MailRefusalError(RuntimeError):
+    """Отказ почты словами: письмо не ушло, сообщение называет причину. Такие отказы почта
+    разбирает сама — стоп-лист, «не готово», «некому писать», «не подключены»
+    (`letters.sending.SendError` и `SalesNotConnectedError` — его наследники)."""
+
+
+class SalesNotConnectedError(MailRefusalError):
     """Почта не ведёт продажи этим путём или продажи не подключены: `what` — что не
     сделано, `why` — чего не хватает (у отправки и прохода добивок — всё сразу)."""
 
@@ -129,13 +145,16 @@ class SalesFollowup:
 
 
 class SalesMail(Protocol):
-    """Что почта спрашивает у модуля продаж о письме продаж (модуль `sales/mail.py`)."""
+    """Что почта спрашивает у модуля продаж о письме продаж (модуль `sales/mail.py`).
+    Отказ — только словами почты; прочие ошибки мост переводит в «не подключены»."""
 
     async def recipient(self, session: AsyncSession, message: MessageModel, what: str) -> Recipient:
-        """Кому письмо и от чьего имени — или отказ словами, до выбора учётки этапа."""
+        """Кому письмо и от чьего имени — или отказ словами (`MailRefusalError`), до выбора
+        учётки этапа."""
 
     async def check(self, session: AsyncSession, message: MessageModel) -> None:
-        """Перед отправкой: лиду ещё можно писать, письмо цело — или отказ словами."""
+        """Перед отправкой: лиду ещё можно писать, письмо цело — или отказ словами
+        (`MailRefusalError`: стоп-лист кончает цепочку, «не готово» — письмо ждёт)."""
 
     async def connected(self, session: AsyncSession) -> bool:
         """Подключены ли продажи: проход добивок берёт их сроки только тогда."""
@@ -143,7 +162,8 @@ class SalesMail(Protocol):
     async def followup(
         self, session: AsyncSession, thread_id: int | None, step: int
     ) -> SalesFollowup:
-        """Текст добивки шага `step` (шаг письма, с нуля) в переписке `thread_id`."""
+        """Текст добивки шага `step` (шаг письма, с нуля) в переписке `thread_id` — или «пока
+        нельзя» (`SalesNotConnectedError`): письма ещё нет, и срок только возвращается."""
 
 
 @dataclass(slots=True)
@@ -166,11 +186,26 @@ def sales_registered() -> bool:
     return _SALES.load is not None
 
 
-def _sales_mail(what: str) -> SalesMail:
-    """Ответы модуля продаж — или отказ 1.1b словами, пока он не подключён."""
-    if _SALES.load is None:
+async def _asked[T](
+    session: AsyncSession,
+    what: str,
+    ask: Callable[[SalesMail], Awaitable[T]],
+    passes: type[MailRefusalError] = MailRefusalError,
+) -> T:
+    """Ответ модуля продаж — или отказ: модуль не подключён — 1.1b словами; отказ модуля
+    словами (`passes`) — как есть; любая другая ошибка модуля — «не подключены» с причиной
+    и записью в журнал. Модуль отвечает в своей точке сохранения (`begin_nested`)."""
+    load = _SALES.load
+    if load is None:
         raise SalesNotConnectedError(what)
-    return _SALES.load()
+    try:
+        async with session.begin_nested():
+            return await ask(load())
+    except passes:
+        raise
+    except Exception as exc:
+        logger.warning("мост продаж: %s — ошибка модуля продаж: %s", what, exc, exc_info=True)
+        raise SalesNotConnectedError(what, str(exc) or type(exc).__name__) from exc
 
 
 async def recipient(
@@ -182,22 +217,42 @@ async def recipient(
         case Stage.DONORS | Stage.ADVERTISERS:
             return Recipient(stage, email)
         case Stage.SALES:
-            return await _sales_mail(what).recipient(session, message, what)
+            return await _asked(session, what, lambda mail: mail.recipient(session, message, what))
         case _:
             assert_never(stage)
 
 
 async def check_sales(session: AsyncSession, message: MessageModel) -> None:
     """Ветка продаж в проверке перед отправкой: лиду ещё можно писать, письмо цело."""
-    await _sales_mail(f"Письмо №{message.id}").check(session, message)
+    await _asked(session, f"Письмо №{message.id}", lambda mail: mail.check(session, message))
 
 
 async def sales_connected(session: AsyncSession) -> bool:
-    """Подключены ли продажи: проход добивок берёт их сроки только тогда."""
-    return _SALES.load is not None and await _SALES.load().connected(session)
+    """Подключены ли продажи: проход добивок берёт их сроки только тогда. Не бросает:
+    ошибка модуля — «нет» с причиной в журнале (`_asked`), проход идёт без продаж, доноры
+    уходят, пачка продаж встаёт словами."""
+    if _SALES.load is None:
+        return False
+    try:
+        return await _asked(
+            session,
+            "Подключены ли продажи",
+            lambda mail: mail.connected(session),
+            SalesNotConnectedError,
+        )
+    except SalesNotConnectedError as exc:
+        logger.info("мост продаж: проход без продаж — %s", exc)
+        return False
 
 
 async def sales_followup(session: AsyncSession, thread_id: int | None, step: int) -> SalesFollowup:
-    """Текст добивки продаж шага `step` (шаг письма, с нуля) в переписке `thread_id`."""
+    """Текст добивки продаж шага `step` (шаг письма, с нуля) в переписке `thread_id`.
+    Письма ещё нет: любой отказ, кроме «не подключены», здесь — тоже «не подключены»,
+    и проход добивок возвращает срок (стоп-лист решает отправка, когда письмо уже есть)."""
     what = f"Добивка шага {step} в переписке №{thread_id}"
-    return await _sales_mail(what).followup(session, thread_id, step)
+    return await _asked(
+        session,
+        what,
+        lambda mail: mail.followup(session, thread_id, step),
+        SalesNotConnectedError,
+    )
