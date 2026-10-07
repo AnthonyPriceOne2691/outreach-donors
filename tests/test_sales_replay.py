@@ -98,6 +98,7 @@ class Model:
     ) -> None:
         self.labels, self.new, self.status = labels, new or labels, status
         self.situations: list[str] = []
+        self.judges: list[str] = []
         self.calls = 0
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -106,7 +107,9 @@ class Model:
             return httpx.Response(self.status, json={"error": {"message": "nope"}})
         system, user = (item["content"] for item in json.loads(request.content)["messages"])
         answer: dict[str, Any] = ALLOW
-        if not user.startswith("records:"):
+        if user.startswith("records:"):
+            self.judges.append(system)
+        else:
             self.situations.append(system)
             table = self.new if NEW in system else self.labels
             letter = _last_letter(user)
@@ -144,7 +147,6 @@ RU = {
     "call": "Удобнее обсудить на коротком созвоне: {link}.",
     "telegram": "Напишите нам в Telegram: {link}.",
     "price": "Аудит стоит 500 долларов.",
-    "sign": "Отдел продаж",
 }
 EN = {
     "hello": "Hello,",
@@ -153,12 +155,12 @@ EN = {
     "call": "It is easier to discuss the details on a short call: {link}.",
     "telegram": "Message us on Telegram: {link}.",
     "price": "The audit costs 500 dollars.",
-    "sign": "Sales desk",
 }
 
 
-def letter(context: Context, *, priced: bool = False) -> str:
-    """Черновик по брифу: на языке письма; с призывом и ссылкой хода — или без призыва."""
+def letter(context: Context, *, sign: str, priced: bool = False) -> str:
+    """Черновик по брифу: на языке письма; с призывом и ссылкой хода — или без призыва;
+    подпись — именем из запроса, как велит промпт."""
     words = RU if context.language == "ru" else EN
     if context.cta is None:
         lines = [words["hello"], words["close"]]
@@ -167,7 +169,7 @@ def letter(context: Context, *, priced: bool = False) -> str:
         lines = [words["hello"], words["body"], words[kind.value].format(link=link)]
     if priced:
         lines.insert(2, words["price"])
-    return "\n".join([*lines, words["sign"]])
+    return "\n".join([*lines, sign])
 
 
 class Writer:
@@ -180,7 +182,8 @@ class Writer:
 
     async def write(self, request: Request) -> Written:
         self.seen.append(request)
-        body = letter(facts.read(request.facts), priced=self.priced and not request.corrections)
+        priced = self.priced and not request.corrections
+        body = letter(facts.read(request.facts), sign=request.sign_as, priced=priced)
         return Written(body=body, needs_human=False, reason=None, tokens=WRITER_TOKENS)
 
 
@@ -286,6 +289,17 @@ async def test_drafts_with_violations_close_the_gate(
 # --- A2: набора нет ------------------------------------------------------------------------
 
 
+@pytest.fixture
+def offline(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Команда не должна дойти до базы и модели: отказ — раньше них."""
+
+    async def reached(*_: object) -> int:
+        raise AssertionError("команда дошла до базы и модели, а должна была отказать раньше")
+
+    monkeypatch.setattr(sales_replay, "_live", reached)
+
+
+@pytest.mark.usefixtures("offline")
 def test_a2_no_set_directory_is_refused_in_words_without_the_model(
     monkeypatch: pytest.MonkeyPatch, model: Plug, capsys: pytest.CaptureFixture[str]
 ) -> None:  # A2
@@ -300,6 +314,7 @@ def test_a2_no_set_directory_is_refused_in_words_without_the_model(
     assert found.calls == 0
 
 
+@pytest.mark.usefixtures("offline")
 def test_a2_no_set_by_the_path_is_refused_not_zero_discrepancies(
     monkeypatch: pytest.MonkeyPatch, model: Plug, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:  # A2
@@ -314,6 +329,7 @@ def test_a2_no_set_by_the_path_is_refused_not_zero_discrepancies(
     assert found.calls == 0
 
 
+@pytest.mark.usefixtures("offline")
 def test_a2_empty_set_is_refused_too(
     model: Plug, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:  # A2
@@ -327,6 +343,7 @@ def test_a2_empty_set_is_refused_too(
     assert found.calls == 0
 
 
+@pytest.mark.usefixtures("offline")
 def test_missing_run_file_is_refused(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
     assert sales_replay.main(["compare", str(tmp_path / "a.json"), str(tmp_path / "b.json")]) == 1
     assert f"прогон не найден: {tmp_path / 'a.json'}" in capsys.readouterr().out
@@ -487,27 +504,34 @@ async def test_no_model_key_stops_the_run_at_the_first_case_in_words(
     assert found.calls == 0
 
 
-async def test_prompt_version_is_handed_back_after_the_run(
+async def test_files_of_a_version_reach_the_agent_and_are_handed_back_after_the_run(
     session: AsyncSession, model: Plug, tmp_path: Path
 ) -> None:
     await world(session)
     found = model(LABELS)
-    (tmp_path / "v").mkdir()
+    folder = tmp_path / "v"
+    folder.mkdir()
     table = moves.TABLE.read_text(encoding="utf-8").replace(
         '"sales-moves-v1"', '"sales-moves-test"'
     )
-    (tmp_path / "v" / "moves.toml").write_text(table, "utf-8")
+    (folder / "moves.toml").write_text(table, "utf-8")
+    (folder / "reply.md").write_text(parts.PROMPT.read_text(encoding="utf-8"), "utf-8")
+    judge_text = replay.PACKAGED.judge.read_text(encoding="utf-8")
+    (folder / "judge.md").write_text(f"{judge_text}\n\n{NEW}\n", "utf-8")
     cases, _ = sales_replay.load_set("synthetic", None)
+    writer = Writer()
 
     run = await replay.run(
-        session, Writer(), cases[:1], source="тест", prompts=replay.from_folder(tmp_path / "v")
+        session, writer, cases[:1], source="тест", prompts=replay.from_folder(folder)
     )
 
     assert run.version["declared"]["moves"] == "sales-moves-test"
+    assert [request.prompt for request in writer.seen] == [folder / "reply.md"]
+    assert [NEW in system for system in found.judges] == [True]
+    assert found.calls == 2  # ситуация и судья одного случая
     restored = (situation.PROMPT, moves.TABLE)
     assert restored == (replay.PACKAGED.situation, replay.PACKAGED.moves)
     assert moves.table().version == "sales-moves-v1"
-    assert found.calls == 2  # ситуация и судья одного случая
 
 
 async def test_bad_moves_table_of_a_version_is_refused_before_the_model(

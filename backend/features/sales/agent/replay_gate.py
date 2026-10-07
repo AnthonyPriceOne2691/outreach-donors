@@ -70,7 +70,7 @@ class Tally:
         human, silent = result.human, result.outcome is Outcome.SILENT
         self.cases += 1
         self.replied += human.replied
-        self.false_silence += silent and human.replied
+        self.false_silence += result.false_silence
         self.true_silence += silent and not human.replied
         self.needless += not silent and not human.replied
         self.violations += bool(result.violations)
