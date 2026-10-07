@@ -34,10 +34,11 @@
 не ушла пачкой за минуту: почтовая платформа смотрит на скорость.
 
 **Этап без цепочки не захватывается.** Шаблон добивки выбирается по этапу
-уже после захвата, и этап без шаблонов (продажи — `template.CHAINED`)
-терял бы добивку: срок погашен, письма нет. Поэтому захват берёт только
-этапы с цепочкой, а подошедшие добивки остальных проход называет вслух
-и не трогает — срок цел и дождётся подключения этапа.
+уже после захвата, и этап без шаблонов терял бы добивку: срок погашен,
+письма нет. Поэтому захват берёт этапы с цепочкой файлами (`template.CHAINED`)
+и продажи, когда они подключены (текст их добивки — ответ модуля продаж через
+мост `core/stages.py`); подошедшие добивки остальных проход называет вслух и
+не трогает — срок цел и дождётся подключения этапа.
 """
 
 from __future__ import annotations
@@ -50,12 +51,13 @@ from sqlalchemy import ColumnElement, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import outreach as cfg
+from backend.features.core import stages
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.core.stages import SALES_NOT_CONNECTED, SalesNotConnectedError
 from backend.features.letters import compose, guards, template
-from backend.features.letters.building import attempt_of, idempotency_key
+from backend.features.letters.building import attempt_of, followup_key, idempotency_key
 from backend.features.letters.chain import CHAINABLE, FIRST_STEP, MAX_STEPS
 from backend.features.letters.sending import (
     NoSenderError,
@@ -83,13 +85,13 @@ def _due(moment: datetime) -> tuple[ColumnElement[bool], ...]:
     )
 
 
-def _chained() -> ColumnElement[bool]:
-    """Письмо рассылки этапа, у которого есть цепочка (`template.CHAINED`).
+def _chained(chained: tuple[Stage, ...]) -> ColumnElement[bool]:
+    """Письмо рассылки этапа, у которого есть цепочка (`chained`).
 
     Подзапросом, а не соединением: захват блокирует строку письма, и
     соединение заперло бы заодно строку рассылки — под всеми её письмами.
     """
-    campaigns = select(CampaignModel.id).where(CampaignModel.stage.in_(template.CHAINED))
+    campaigns = select(CampaignModel.id).where(CampaignModel.stage.in_(chained))
     return MessageModel.campaign_id.in_(campaigns)
 
 
@@ -114,14 +116,19 @@ class Claimed:
     """Номер попытки цепочки — из ключа письма, после которого пришёл срок
     (`building.attempt_of`). У того он свой от первого письма потока: каждая
     добивка получает номер предыдущего письма, а первая — первого."""
+    previous_key: str = ""  # ключ письма, после которого пришёл срок: у продаж в нём контакт
 
 
 class Chain:
     """Правила цепочки на настоящей базе."""
 
-    def __init__(self, session: AsyncSession, *, now: datetime | None = None) -> None:
+    def __init__(
+        self, session: AsyncSession, *, now: datetime | None = None, extra: tuple[Stage, ...] = ()
+    ) -> None:
         self._session = session
         self._now = now
+        #: Чьи добивки проход берёт: этапы с цепочкой файлами и `extra` (продажи, когда подключены).
+        self._take = _chained((*template.CHAINED, *extra))
 
     def _moment(self) -> datetime:
         return self._now or datetime.now(UTC)
@@ -135,7 +142,7 @@ class Chain:
         moment = self._moment()
         pick = (
             select(MessageModel.id)
-            .where(*_due(moment), _chained())
+            .where(*_due(moment), self._take)
             .order_by(MessageModel.next_action_at)
             .limit(1)
             .with_for_update(skip_locked=True)
@@ -183,12 +190,13 @@ class Chain:
             host=host,
             anchor=anchor,
             attempt=attempt_of(row[8]),
+            previous_key=row[8],
         )
 
     async def unchained(self) -> int:
         """Сколько подошедших добивок ждут этапа без цепочки. Срок у них цел."""
         total = await self._session.scalar(
-            select(func.count()).select_from(MessageModel).where(*_due(self._moment()), ~_chained())
+            select(func.count()).select_from(MessageModel).where(*_due(self._moment()), ~self._take)
         )
         return int(total or 0)
 
@@ -222,11 +230,17 @@ class Chain:
         отдельной веткой — о другом, чем письмо, на которое она ссылается.
         """
         stage = await self._stage(claimed.campaign_id)
-        rendered = compose.render(
-            template.followup(claimed.step, stage),
-            compose.values_for(host=claimed.host, domain_id=claimed.domain_id),
-        )
-        letter = compose.assemble(rendered, {})
+        if stage is Stage.SALES:  # шаг цепочки из базы — ответ модуля продаж (`stages.SalesMail`)
+            body = (
+                await stages.sales_followup(self._session, claimed.thread_id, claimed.step)
+            ).body
+            letter = compose.Letter(subject="", body=body, plain_body=body)
+        else:
+            rendered = compose.render(
+                template.followup(claimed.step, stage),
+                compose.values_for(host=claimed.host, domain_id=claimed.domain_id),
+            )
+            letter = compose.assemble(rendered, {})
         guards.assert_no_metrics(letter.body)
         first = await self._first_subject(claimed.thread_id)
         return replace(letter, subject=first) if first else letter
@@ -240,8 +254,10 @@ class Chain:
 
         Ключ — с номером попытки цепочки: добивка второй попытки (письма
         на следующий адрес после отказа) иначе получила бы ключ добивки
-        первой и не вставилась бы в базу.
+        первой и не вставилась бы в базу. У продаж в ключе ещё и контакт —
+        два лида одной компании, — и он берётся из ключа предыдущего письма.
         """
+        stage = await self._stage(claimed.campaign_id)
         existing = await self._session.scalar(
             select(MessageModel).where(
                 MessageModel.thread_id == claimed.thread_id,
@@ -249,10 +265,12 @@ class Chain:
             )
         )
         if existing is not None:
-            # Прошлая попытка сорвалась на вставшем ящике или отказе
-            # почты. Второй строки быть не должно: у неё тот же ключ
-            # идемпотентности, и вставка просто упала бы — а цепочка
-            # встала бы навсегда.
+            # Прошлая попытка сорвалась на вставшем ящике или отказе почты. Второй
+            # строки быть не должно: у неё тот же ключ идемпотентности, и вставка
+            # упала бы — а цепочка встала бы навсегда. Текст продаж — нынешний:
+            # подпись и адрес «Отправителя» могли смениться с прошлой попытки.
+            if stage is Stage.SALES and existing.status is MessageStatus.QUEUED:
+                existing.subject, existing.body = letter.subject, letter.body
             return existing
 
         message = MessageModel(
@@ -264,11 +282,12 @@ class Chain:
             status=MessageStatus.QUEUED,
             subject=letter.subject,
             body=letter.body,
-            idempotency_key=idempotency_key(
-                stage=await self._stage(claimed.campaign_id),
-                host=claimed.host,
-                step=claimed.step,
-                attempt=claimed.attempt,
+            idempotency_key=(
+                followup_key(claimed.previous_key, claimed.step)
+                if stage is Stage.SALES
+                else idempotency_key(
+                    stage=stage, host=claimed.host, step=claimed.step, attempt=claimed.attempt
+                )
             ),
         )
         self._session.add(message)
@@ -389,7 +408,9 @@ async def send_due(
     может оказаться сотня, и отправить их подряд значит выдать всплеск,
     по которому почтовая платформа судит о рассылке хуже, чем по объёму.
     """
-    chain = Chain(session, now=now)
+    # Продажи — только подключённые: иначе срок их добивки цел и назван вслух.
+    sales = (Stage.SALES,) if await stages.sales_connected(session) else ()
+    chain = Chain(session, now=now, extra=sales)
     postman = Sending(session, transport, now=now)
     report = PassReport()
 
@@ -438,10 +459,10 @@ async def _deliver(
         report.postponed += 1
         return
 
-    message = await chain.materialize(claimed, await chain.compose_letter(claimed))
-    await session.commit()
-
     try:
+        # Текст продаж собирается внутри: не подключены или цепочка неполна — срок вернётся.
+        message = await chain.materialize(claimed, await chain.compose_letter(claimed))
+        await session.commit()
         await postman.send(message.id, from_sender_id=claimed.sender_id, in_reply_to=claimed.anchor)
     except SuppressedError as exc:
         # Донор попросил не писать между первым письмом и сроком добивки.

@@ -1,50 +1,72 @@
-"""Этап, который почта ещё не ведёт: громкий отказ вместо пути доноров.
+"""Этап продаж в общей почте: отказ там, где почта его не ведёт, и мост к модулю продаж.
 
-Этап продаж заведён раньше, чем почта научилась его вести: письма, добивки
-и разбор ответов продаж приходят следующими срезами модуля. Почти каждая
-ветка почты была устроена как «рекламодатели, иначе доноры», и новый этап
-в ней молча становился донором: очередь из принятых доноров, вопрос о цене,
-цена из ответа лида в карточке донора.
+Этап продаж заведён раньше, чем почта научилась его вести: почти каждая ветка
+почты была устроена как «рекламодатели, иначе доноры», и новый этап в ней
+молча становился донором — очередь из принятых доноров, вопрос о цене, цена из
+ответа лида в карточке донора. Поэтому ветка, где этап решает путь, разбирает
+его целиком — `match` с `assert_never` — и продажам либо отказывает этим
+исключением, либо ведёт их своим путём. Текст отказа один на всю почту: человек
+читает его на экране, в консоли и в итоге задачи.
 
-Поэтому ветка, где этап решает путь, разбирает его целиком — `match`
-с `assert_never` — и продажам отказывает этим исключением. Текст отказа
-один на всю почту: человек читает его на экране, в консоли и в итоге
-задачи, и разные слова о том же значили бы разные причины.
+**Где почта продажи не ведёт** — сборка очереди доноров, шаблоны файлами, отбор,
+ответ в переписке: отказ (`SalesNotConnectedError`). Где этапу нужен только
+допуск — сборка и ответ, — стоит шлюз `mail_stage`: дальше идёт `MailStage`.
 
-Где этапу нужен только допуск — отправка, ответ в переписке, сборка, —
-стоит шлюз `mail_stage`: дальше идёт `MailStage`, и ветка, разбирающая
-его, краснеет в mypy, как только этот тип расширят. При отправке шлюз
-стоит до выбора учётки этапа (`transport.of_stage`): учётку продаж — свой
-ключ и свой список разрешённых, `config.outreach.mail_account` — письмо,
-которое почта не ведёт, не трогает.
+**Где ведёт** — отправка письма из очереди и проход добивок (срез 4.6b): письмо
+продаж собирает модуль продаж из лидов и цепочки в базе, а уходит оно общей
+отправкой — теми же стоп-листами, ящиками этапа и предохранителем. Почта
+(`letters/`) модуль продаж не импортирует (контракт `mail-does-not-know-sales`
+в `.importlinter`): о письме продаж она спрашивает этот мост (`SalesMail`).
+
+**Модуль продаж подключает себя сам** (`register_sales` — при загрузке пакета
+продаж): мост знает только, подключён ли он. Не подключён — отказ 1.1b словами, а
+проход добивок сроки продаж не берёт (срок цел). Регистрация хранит загрузчик, а не
+модуль: модуль продаж стоит на почте и при загрузке тянет её саму — загрузка при
+регистрации замкнула бы круг, поэтому загрузчик зовётся при первом письме продаж.
+
+Отправка спрашивает мост до выбора учётки этапа (`transport.of_stage`): пока
+продажи не подключены — нет своей учётки, отправителя, цепочки, — письмо продаж
+учётку не трогает, и отказ называет, чего не хватает.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, assert_never
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Literal, Protocol, assert_never
 
 from backend.features.core.domain import Stage
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from backend.features.core.models.outreach import MessageModel
+
 #: Почему почта не делает того, о чём просят, для этапа продаж.
 SALES_NOT_CONNECTED = "продажи к почте ещё не подключены"
 
-#: Этапы, которые почта ведёт. Шире — только вместе с ветками, которые
-#: разбирают этот тип (`sending._check_review`: после рекламодателей там
-#: путь доноров, и `donor_path` не даст пройти туда новому этапу).
+#: Почему этот путь почты продажи не ведёт, даже подключённые: их письма — свои.
+SALES_ELSEWHERE = (
+    "письма продаж собирает модуль продаж из лидов и цепочки в базе, "
+    "а не этот путь почты доноров и рекламодателей"
+)
+
+#: Этапы, которые ведут сборка и ответ в переписке. Шире — только вместе с ветками,
+#: которые разбирают этот тип.
 MailStage = Literal[Stage.DONORS, Stage.ADVERTISERS]
 
 
 class SalesNotConnectedError(RuntimeError):
-    """Почта не ведёт этап продаж: `what` — что не сделано."""
+    """Почта не ведёт продажи этим путём или продажи не подключены: `what` — что не
+    сделано, `why` — чего не хватает (у отправки и прохода добивок — всё сразу)."""
 
     #: Повтор задачи это не исправит (`runs/failures.py`).
     permanent = True
 
-    def __init__(self, what: str) -> None:
-        super().__init__(f"{what}: {SALES_NOT_CONNECTED}")
+    def __init__(
+        self, what: str, why: str | None = None, *, words: str = SALES_NOT_CONNECTED
+    ) -> None:
+        super().__init__(f"{what}: {words}" + (f" — {why}" if why else ""))
 
 
 def mail_stage(stage: Stage, what: str) -> MailStage:
@@ -58,29 +80,119 @@ def mail_stage(stage: Stage, what: str) -> MailStage:
             assert_never(stage)
 
 
-async def check_connected(
-    session: AsyncSession,  # noqa: ARG001 — её прочтёт правило продаж, см. ниже
-    stage: Stage,
-    what: str,
-) -> None:
+async def check_connected(session: AsyncSession, stage: Stage, what: str) -> None:
     """Мост подключения этапа (спрашивает отправка очереди пачкой): почта ведёт
-    этап сейчас — или отказ словами. Правило «продажи подключены» встанет в их
-    ветку и прочтёт базу; спрашивающие не меняются. Не `mail_stage`: тот отказывает
+    этап сейчас — или отказ словами. У продаж — ответ модуля продаж
+    (`SalesMail.connected`, читает базу): модуль не подключён к мосту или говорит
+    «нет» — отказ; спрашивающие не меняются. Не `mail_stage`: тот отказывает
     продажам там, где их не будет и подключённых (очередь из доноров, шаблоны)."""
     match stage:
         case Stage.DONORS | Stage.ADVERTISERS:
             return
         case Stage.SALES:
-            raise SalesNotConnectedError(what)
+            if not await sales_connected(session):
+                raise SalesNotConnectedError(what)
         case _:
             assert_never(stage)
 
 
 def donor_path(stage: Literal[Stage.DONORS]) -> None:
-    """Пометка в ветке по `MailStage`: остальные этапы разобраны выше, дальше —
-    путь доноров.
+    """Пометка в ветке по этапу: остальные этапы разобраны выше, дальше — путь доноров.
 
-    На исполнении ничего не делает — проверяет mypy. Этап, добавленный в
-    `MailStage` без своей ветки выше вызова, сюда не пройдёт по типу, и путь
-    доноров не станет его путём молча.
+    На исполнении ничего не делает — проверяет mypy. Этап, добавленный в `Stage`
+    без своей ветки выше вызова, сюда не пройдёт по типу, и путь доноров не станет
+    его путём молча.
     """
+
+
+@dataclass(frozen=True, slots=True)
+class Recipient:
+    """Кому письмо и от чьего имени — ответ этапа отправке (`sending._target`)."""
+
+    stage: Stage
+    #: Адрес получателя: у доноров и рекламодателей — строка `contacts`, у продаж — адрес
+    #: лида (его называет модуль продаж). Пусто — писать некому.
+    email: str | None
+    #: Имя в From. Пусто — общее (`compose.values_for`); у продаж — из «Отправителя».
+    sender_name: str | None = None
+
+    def from_name(self, shared: str) -> str:
+        """Имя в From: своё у этапа (продажи) или общее `shared`."""
+        return self.sender_name or shared
+
+
+@dataclass(frozen=True, slots=True)
+class SalesFollowup:
+    """Текст добивки продаж — шаг цепочки из базы с подписью и адресом из настроек."""
+
+    body: str
+
+
+class SalesMail(Protocol):
+    """Что почта спрашивает у модуля продаж о письме продаж (модуль `sales/mail.py`)."""
+
+    async def recipient(self, session: AsyncSession, message: MessageModel, what: str) -> Recipient:
+        """Кому письмо и от чьего имени — или отказ словами, до выбора учётки этапа."""
+
+    async def check(self, session: AsyncSession, message: MessageModel) -> None:
+        """Перед отправкой: лиду ещё можно писать, письмо цело — или отказ словами."""
+
+    async def connected(self, session: AsyncSession) -> bool:
+        """Подключены ли продажи: проход добивок берёт их сроки только тогда."""
+
+    async def followup(
+        self, session: AsyncSession, thread_id: int | None, step: int
+    ) -> SalesFollowup:
+        """Текст добивки шага `step` (шаг письма, с нуля) в переписке `thread_id`."""
+
+
+@dataclass(slots=True)
+class _Registry:
+    """Загрузчик модуля продаж. `None` — продажи к почте не подключены."""
+
+    load: Callable[[], SalesMail] | None = None
+
+
+_SALES = _Registry()
+
+
+def register_sales(load: Callable[[], SalesMail]) -> None:
+    """Подключить модуль продаж к почте: `load` отдаёт его ответы о письме продаж."""
+    _SALES.load = load
+
+
+def _sales_mail(what: str) -> SalesMail:
+    """Ответы модуля продаж — или отказ 1.1b словами, пока он не подключён."""
+    if _SALES.load is None:
+        raise SalesNotConnectedError(what)
+    return _SALES.load()
+
+
+async def recipient(
+    session: AsyncSession, message: MessageModel, stage: Stage, email: str | None, what: str
+) -> Recipient:
+    """Кому письмо этапа. Продажам — ответ модуля продаж (адрес лида и имя отправителя),
+    если он подключён; нет — отказ словами (до выбора учётки этапа)."""
+    match stage:
+        case Stage.DONORS | Stage.ADVERTISERS:
+            return Recipient(stage, email)
+        case Stage.SALES:
+            return await _sales_mail(what).recipient(session, message, what)
+        case _:
+            assert_never(stage)
+
+
+async def check_sales(session: AsyncSession, message: MessageModel) -> None:
+    """Ветка продаж в проверке перед отправкой: лиду ещё можно писать, письмо цело."""
+    await _sales_mail(f"Письмо №{message.id}").check(session, message)
+
+
+async def sales_connected(session: AsyncSession) -> bool:
+    """Подключены ли продажи: проход добивок берёт их сроки только тогда."""
+    return _SALES.load is not None and await _SALES.load().connected(session)
+
+
+async def sales_followup(session: AsyncSession, thread_id: int | None, step: int) -> SalesFollowup:
+    """Текст добивки продаж шага `step` (шаг письма, с нуля) в переписке `thread_id`."""
+    what = f"Добивка шага {step} в переписке №{thread_id}"
+    return await _sales_mail(what).followup(session, thread_id, step)

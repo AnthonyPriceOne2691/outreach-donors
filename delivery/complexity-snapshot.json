@@ -117,9 +117,9 @@
       "worst": "of:161"
     },
     "backend/api/errors.py": {
-      "lines": 186,
+      "lines": 189,
       "complexity": 3,
-      "worst": "handle:172"
+      "worst": "handle:175"
     },
     "backend/api/events/__init__.py": {
       "lines": 1,
@@ -897,9 +897,9 @@
       "worst": "_enum:27"
     },
     "backend/features/core/stages.py": {
-      "lines": 87,
-      "complexity": 4,
-      "worst": "mail_stage:50"
+      "lines": 199,
+      "complexity": 5,
+      "worst": "check_connected:83"
     },
     "backend/features/core/usage.py": {
       "lines": 154,
@@ -1222,9 +1222,9 @@
       "worst": "why:96"
     },
     "backend/features/letters/building.py": {
-      "lines": 408,
+      "lines": 421,
       "complexity": 7,
-      "worst": "build:234"
+      "worst": "build:247"
     },
     "backend/features/letters/chain.py": {
       "lines": 68,
@@ -1247,9 +1247,9 @@
       "worst": "apply_events:133"
     },
     "backend/features/letters/followups.py": {
-      "lines": 479,
+      "lines": 500,
       "complexity": 7,
-      "worst": "_deliver:415"
+      "worst": "_deliver:436"
     },
     "backend/features/letters/funnel.py": {
       "lines": 93,
@@ -1297,9 +1297,9 @@
       "worst": "message_id_from:121"
     },
     "backend/features/letters/repository.py": {
-      "lines": 260,
+      "lines": 265,
       "complexity": 5,
-      "worst": "funnel:69"
+      "worst": "funnel:70"
     },
     "backend/features/letters/review.py": {
       "lines": 95,
@@ -1317,9 +1317,9 @@
       "worst": "_post:150"
     },
     "backend/features/letters/sending.py": {
-      "lines": 458,
+      "lines": 459,
       "complexity": 5,
-      "worst": "_hand_over:383"
+      "worst": "_check_review:299"
     },
     "backend/features/letters/settle.py": {
       "lines": 143,
@@ -1332,7 +1332,7 @@
       "worst": "remove:158"
     },
     "backend/features/letters/template.py": {
-      "lines": 448,
+      "lines": 453,
       "complexity": 9,
       "worst": "_check_zones:237"
     },
@@ -1367,9 +1367,9 @@
       "worst": "—"
     },
     "backend/features/ops/job_outcome.py": {
-      "lines": 177,
+      "lines": 180,
       "complexity": 10,
-      "worst": "_outcome:118"
+      "worst": "_outcome:121"
     },
     "backend/features/ops/overview.py": {
       "lines": 272,

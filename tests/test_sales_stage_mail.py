@@ -1,15 +1,19 @@
-"""Этап продаж в общей почте, письма — срез 1.1b, часть «а».
+"""Этап продаж в общей почте, письма — срез 1.1b, часть «а»; после 4.6b.
 
-Почта продажи ещё не ведёт. Каждая её ветка, где этап решает путь, обязана
-отказать продажам словами, а не увести их путём доноров. Проверяется на базе,
-где путь доноров дал бы результат: домен письма продаж — принятый донор
-с адресом, ящики есть у обоих этапов. Отказ здесь виден по тому, чего в базе
-нет: письма не ушло, рассылки не заведено, срок добивки не погашен.
+Каждая ветка почты, где этап решает путь, обязана отказать продажам словами или
+вести их своим путём, а не увести путём доноров. С 4.6b отправка и проход добивок
+ведут продажи ответами модуля продаж, когда он подключён к мосту
+(`tests/test_sales_stage_bridge.py`); здесь — мир, где продажи не подключены, и пути
+доноров, которые продажи не ведут вовсе: их письма собирает модуль продаж.
+Проверяется на базе, где путь доноров дал бы результат: домен письма продаж —
+принятый донор с адресом, ящики есть у обоих этапов. Отказ здесь виден по тому,
+чего в базе нет: письма не ушло, рассылки не заведено, срок добивки не погашен.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -22,6 +26,7 @@ from alembic.operations import Operations
 from backend.cli.main import main
 from backend.config import outreach as outreach_cfg
 from backend.config import storage
+from backend.features.core import stages
 from backend.features.core.domain import (
     MessageStatus,
     ReplyKind,
@@ -37,7 +42,11 @@ from backend.features.core.models.outreach import (
     SenderModel,
     ThreadModel,
 )
-from backend.features.core.stages import SALES_NOT_CONNECTED, SalesNotConnectedError
+from backend.features.core.stages import (
+    SALES_ELSEWHERE,
+    SALES_NOT_CONNECTED,
+    SalesNotConnectedError,
+)
 from backend.features.letters import batch, draft, followups, probe, template
 from backend.features.letters.answers import answer_reply
 from backend.features.letters.building import BuildRequest, QueueBuilder, run_scope
@@ -181,7 +190,9 @@ async def _pure(call: Callable[[], object]) -> object:
     return call()
 
 
-#: Точки почты, где этап решает путь (таблица инвентаризации, часть «а»).
+#: Точки почты, где этап решает путь (таблица инвентаризации, часть «а»), — и что
+#: они говорят продажам с 4.6b: пути доноров, которые продажи не ведут вовсе, —
+#: «письма продаж собирает модуль продаж», допуск и отправка — «не подключены».
 POINTS: dict[str, Point] = {
     "repository.candidates": lambda s, w: LetterRepository(s).candidates(Stage.SALES, limit=5),
     "repository.funnel": lambda s, w: LetterRepository(s).funnel(Stage.SALES),
@@ -205,13 +216,18 @@ POINTS: dict[str, Point] = {
 }
 
 
+#: Точки, где продажи ещё не подключены (допуск и отправка); остальные — не их путь.
+NOT_CONNECTED = frozenset({"building.run_scope", "sending._target", "answers._context"})
+
+
 @pytest.mark.parametrize("point", sorted(POINTS))
 async def test_every_mail_point_refuses_sales_in_words(
     session: AsyncSession, filled_legal: None, point: str
 ) -> None:
     world = await sales_world(session)
+    words = SALES_NOT_CONNECTED if point in NOT_CONNECTED else SALES_ELSEWHERE
 
-    with pytest.raises(SalesNotConnectedError, match=SALES_NOT_CONNECTED):
+    with pytest.raises(SalesNotConnectedError, match=re.escape(words)):
         await POINTS[point](session, world)
 
     await session.refresh(world.letter)
@@ -389,7 +405,7 @@ class TestQueue:
         response = await client.get("/api/letters?stage=sales", headers=bearer(admin_token))
 
         assert response.status_code == 409
-        assert SALES_NOT_CONNECTED in response.json()["detail"]
+        assert SALES_ELSEWHERE in response.json()["detail"]
 
     def test_console_says_it_with_its_own_exit_code(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -488,10 +504,10 @@ class TestFollowup:
     async def test_sending_refusal_gives_the_deadline_back(
         self, session: AsyncSession, filled_legal: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Второй рубеж: цепочку продаж подключили раньше их писем — отказ отправки
-        возвращает срок, а не теряет добивку вместе с ним."""
-        monkeypatch.setattr(template, "CHAINED", (*template.CHAINED, Stage.SALES))
-        monkeypatch.setattr(template, "_followup_prefix", lambda _stage: "followup")
+        """Второй рубеж: проход счёл продажи подключёнными, а текст добивки собрать
+        нельзя (отключили посреди прохода) — срок возвращается, добивка не теряется.
+        С 4.6b текст продаж собирается до письма в базе: строки добивки нет."""
+        monkeypatch.setattr(stages, "sales_connected", _connected)
         world = await sales_world(session, status=MessageStatus.SENT, due=NOW - timedelta(days=1))
 
         report = await followups.send_due(session, transport=NullTransport(), limit=5, now=NOW)
@@ -499,12 +515,16 @@ class TestFollowup:
         assert (report.sent, report.postponed, report.waiting) == (0, 1, 0)
         await session.refresh(world.letter)
         assert world.letter.next_action_at == NOW + followups.POSTPONE
-        waiting = await session.scalar(
-            select(MessageModel.status).where(
-                MessageModel.thread_id == world.thread.id, MessageModel.step == 1
-            )
+        materialized = await session.scalar(
+            select(func.count())
+            .select_from(MessageModel)
+            .where(MessageModel.thread_id == world.thread.id, MessageModel.step == 1)
         )
-        assert waiting is MessageStatus.QUEUED
+        assert materialized == 0
+
+
+async def _connected(_session: AsyncSession) -> bool:
+    return True
 
 
 # --- ответ в переписке продаж -------------------------------------------------------------------

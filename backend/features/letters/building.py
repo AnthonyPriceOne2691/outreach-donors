@@ -93,6 +93,19 @@ def attempt_of(key: str) -> int:
     return int(number)
 
 
+def followup_key(previous: str, step: int) -> str:
+    """Ключ добивки — ключ предыдущего письма цепочки со своим шагом.
+
+    У продаж в ключе ещё и контакт — `{этап}:{домен}:{адрес}:{шаг}`: два лида одной
+    компании — два письма, — а адреса у почты нет, его знает ключ первого письма.
+    Номер попытки остаётся на месте, как у `idempotency_key`.
+    """
+    head, mark, number = previous.rpartition(_ATTEMPT_MARK)
+    attempt = f"{mark}{number}" if mark and head and number.isdigit() else ""
+    stem = head if attempt else previous
+    return f"{stem.rpartition(':')[0]}:{step}{attempt}"
+
+
 @dataclass(frozen=True, slots=True)
 class BuildRequest:
     """Что собираем."""

@@ -58,6 +58,7 @@ from backend.features.replies.repository import LeadError, NotAPriceError, Unkno
 from backend.features.review.candidates import NotInRunError
 from backend.features.review.candidates import UnknownRunError as ReviewUnknownRunError
 from backend.features.runs.browse import UnknownRunError
+from backend.features.sales.chain import ChainNotReadyError
 from backend.features.sales.intake import IntakeError, UnknownHypothesisError
 from backend.features.sales.kb import KbError, KbKeyTakenError, UnknownKbEntryError
 from backend.features.sales.sender import SenderSettingsError
@@ -105,6 +106,8 @@ STATUSES: dict[type[Exception], int] = {
     # Письмо, добивка, разбор или лид этапа продаж: почта его ещё не ведёт.
     # Состояние продукта, а не ошибка запроса и не наша поломка.
     SalesNotConnectedError: status.HTTP_409_CONFLICT,
+    # Цепочка писем продаж неполна: письмо не собрать — состояние, которое чинят на экране.
+    ChainNotReadyError: status.HTTP_409_CONFLICT,
     # Метрики Ahrefs в письме: правка человека, которую нельзя принять.
     ForbiddenContentError: status.HTTP_400_BAD_REQUEST,
     # Текст письма с экрана не разобрался как шаблон: нет зоны, подписи,
