@@ -18,7 +18,8 @@ PHONE = {"width": 390, "height": 844}
 
 def reversed_dates(page: Any) -> None:
     """Свои даты: первый день позже последнего — под полем отказ словами."""
-    page.get_by_role("radio", name="Свои даты").check(force=True)
+    # Радиокнопка сегмента спрятана под подписью — нажимается подпись, как человеком.
+    page.locator(".funnelPeriod label", has_text="Свои даты").click()
     page.get_by_label("Первый день").fill("2026-10-09")
     page.get_by_label("Последний день").fill("2026-10-01")
     page.get_by_text("Первый день позже последнего").wait_for()
@@ -61,7 +62,8 @@ def funnel_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
             "path": path,
             "ready": ready,
             "viewport": PHONE,
-            "probes": [probes[0], *probes[5:9]],
+            # Период на телефоне — столбиком: меряется и он, а не только плитки.
+            "probes": [probes[0], *probes[3:9]],
         },
         "sales-funnel-dates": {
             "path": path,

@@ -27,6 +27,7 @@ import {
   Text,
   TextInput,
 } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import { useState } from 'react';
 
 import { refusalOf } from '../api/client';
@@ -68,6 +69,9 @@ function Filters({
   problem: string | null;
   onChange: (patch: Partial<FunnelFilters>) => void;
 }) {
+  // На узком окне — столбиком во всю ширину, как вкладки раздела: в ряд «Свои даты»
+  // уходили за край телефона (снимок 390 px, 07.10.2026).
+  const narrow = useMediaQuery('(max-width: 36em)');
   return (
     <Stack gap="sm" px="md">
       <Group align="flex-end" gap="md" wrap="wrap">
@@ -84,12 +88,14 @@ function Filters({
           }}
           w={{ base: '100%', xs: 280 }}
         />
-        <Stack gap={4} className="funnelPeriod">
+        <Stack gap={4} className="funnelPeriod" w={narrow ? '100%' : undefined}>
           <Text size="sm" fw={500} component="span">
             Период
           </Text>
           <SegmentedControl
             aria-label="Период"
+            orientation={narrow ? 'vertical' : 'horizontal'}
+            fullWidth={narrow}
             value={filters.period}
             onChange={(value) => {
               const next = PERIOD_KEYS.find((key) => key === value);
@@ -100,10 +106,12 @@ function Filters({
         </Stack>
       </Group>
       {filters.period === 'custom' ? (
+        // Пояснение у обоих полей: у одного — и поля встали бы на разной высоте.
         <Group align="flex-start" gap="md" wrap="wrap">
           <TextInput
             type="date"
             label="Первый день"
+            description="с начала дня"
             value={filters.from}
             onChange={(event) => onChange({ from: event.currentTarget.value })}
             w={180}
