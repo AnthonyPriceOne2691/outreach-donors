@@ -28,6 +28,7 @@ import httpx
 import pytest
 from backend.config import llm as llm_cfg
 from backend.config import sales as sales_cfg
+from backend.config.sales import SalesJudgeMode
 from backend.features.agent import drafting
 from backend.features.agent.settings import AgentSettingsRepository
 from backend.features.agent.writer import Request, Turn, Written
@@ -306,6 +307,28 @@ async def test_drafts_with_violations_close_the_gate(
     assert "ВОРОТА ЗАКРЫТЫ: черновиков с нарушениями больше: было 0, стало 5" in out
     assert "Версия по судье и правилам: прошло бы как есть 0 (0%) · правка 5 (71%)" in out
     assert "syn-price-ru (asks_price): нарушения первого черновика — сумма 500" in out
+
+
+async def test_shadow_judge_of_the_stage_does_not_blind_the_gate(
+    session: AsyncSession,
+    model: Plug,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """В наблюдении (`SALES_JUDGE_MODE=shadow`) судья этапа пропускает черновик, а
+    нарушения прячет в слова. Прогон меряет вердикт, а не режим: ворота закрыты так же."""
+    monkeypatch.setattr(sales_cfg, "JUDGE_MODE", SalesJudgeMode.SHADOW)
+    await world(session)
+    model(LABELS)
+    before = tmp_path / "old.json"
+    assert await replayed(session, Writer(), "--out", str(before)) == 0
+
+    code = await replayed(session, Writer(priced=True), "--against", str(before))
+
+    assert code == 1
+    out = capsys.readouterr().out
+    assert "ВОРОТА ЗАКРЫТЫ: черновиков с нарушениями больше: было 0, стало 5" in out
 
 
 # --- A2: набора нет ------------------------------------------------------------------------
