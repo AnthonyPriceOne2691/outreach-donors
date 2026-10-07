@@ -408,6 +408,7 @@ class Parser:
             domain_id=domain_id,
             price=price,
             currency=found.currency,
+            offers=reply.offers,
             now=self._now or datetime.now(UTC),
         )
 
@@ -444,6 +445,9 @@ def _write_back(reply: ReplyModel, found: Extracted) -> None:
     reply.price_white = found.price_white
     reply.price_grey = found.price_grey
     reply.currency = found.currency
+    # Пустой список, а не пусто: `[]` — «разобран, цен не названо», а пусто
+    # остаётся у ответов, разобранных до того, как список появился.
+    reply.offers = [offer.as_json() for offer in found.offers]
     reply.payment_methods = list(found.payment_methods) or None
     reply.confidence = found.confidence
     _write_back_placement(reply, found)

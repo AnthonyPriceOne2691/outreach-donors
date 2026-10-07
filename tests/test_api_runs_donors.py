@@ -202,6 +202,40 @@ class TestDonorsTable:
         assert card["expires_at"] is not None
         assert card["fresh"] is True
 
+    async def test_card_lists_every_price_of_the_last_reply(
+        self,
+        client: AsyncClient,
+        operator_token: str,
+        donors: list[DonorModel],
+        session: AsyncSession,
+    ) -> None:
+        """Рядом с последней ценой — все цены того же ответа; записанная до
+        списка цена отдаёт пусто, а не «цен нет»."""
+        donors[0].last_offers = [
+            {
+                "product": "link insertion",
+                "niche": None,
+                "price": "80",
+                "currency": "USD",
+                "period": None,
+            }
+        ]
+        await session.commit()
+
+        listed = await client.get(f"/api/donors/{donors[0].id}", headers=bearer(operator_token))
+        unknown = await client.get(f"/api/donors/{donors[1].id}", headers=bearer(operator_token))
+
+        assert listed.json()["last_offers"] == [
+            {
+                "product": "link insertion",
+                "niche": None,
+                "price": "80",
+                "currency": "USD",
+                "period": None,
+            }
+        ]
+        assert unknown.json()["last_offers"] is None
+
     async def test_unknown_donor_is_not_found(
         self, client: AsyncClient, operator_token: str
     ) -> None:

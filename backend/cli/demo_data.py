@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from backend.cli.demo_content import (
     CONVERSATIONS,
     LETTER_BODY,
+    PRICE_LIST,
     QUEUE,
     REPLIES,
     SENDER_DOMAINS,
@@ -54,6 +55,7 @@ from backend.features.letters import compose
 from backend.features.letters import template as letters_template
 from backend.features.letters.uniqueness import difference
 from backend.features.outreach.senders import warmup_state
+from backend.features.replies.offers import Offer
 from backend.shared import demo
 
 #: Признак выдуманного домена один на весь сервис (`backend/shared/demo.py`):
@@ -318,12 +320,28 @@ def _add_reply(
             price_white=white,
             price_grey=grey,
             currency="EUR" if white else None,
+            offers=_price_list(white, grey),
             payment_methods=["счёт", "карта"] if white else None,
             # Один ответ нарочно с низкой уверенностью: без него
             # на экране не видно очереди разбора.
             confidence=0.93 if white else (0.42 if outcome == "ответ" else None),
         )
     )
+
+
+def _price_list(white: Decimal | None, grey: Decimal | None) -> list[dict[str, str | None]] | None:
+    """Все цены ответа «цена» — так, как их кладёт разбор (`replies/offers.py`):
+    статья без пометки и с пометкой, затем прочее из `PRICE_LIST`. Ответ без
+    цены списка не несёт: модель его не разбирала."""
+    if white is None:
+        return None
+    named = [("размещение статьи", white, None)]
+    if grey is not None:
+        named.append(("размещение статьи с пометкой «партнёрский материал»", grey, None))
+    return [
+        Offer(product=product, price=price, currency="EUR", period=period).as_json()
+        for product, price, period in [*named, *PRICE_LIST]
+    ]
 
 
 async def _seed_threads(session: AsyncSession, now: datetime) -> int:

@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from backend.api.threads.schemas import OfferCard
 from backend.features.contacts.preference import DEAD
 from backend.features.core.domain import ContactSource, ContactStatus, DonorStatus
 from backend.features.core.models.donor import ContactModel
@@ -228,6 +229,9 @@ class DonorFullCard(BaseModel):
     last_price: Decimal | None
     last_price_currency: str | None
     last_price_at: datetime | None
+    #: Все цены того же ответа, что последняя цена, словами донора. Пусто —
+    #: цена записана до 06.10.2026, когда списка ещё не было.
+    last_offers: list[OfferCard] | None = None
     #: Адреса в том порядке, в каком их берёт сборка писем: лучший первым.
     contacts: list[ContactCard]
     #: Почему поиск адреса сейчас не ставится; пусто — ставится. Правило
@@ -277,6 +281,7 @@ class DonorFullCard(BaseModel):
             last_price=donor.last_price,
             last_price_currency=donor.last_price_currency,
             last_price_at=donor.last_price_at,
+            last_offers=OfferCard.listed(donor.last_offers),
             contacts=[
                 ContactCard.of(contact, card.removal.get(contact.id)) for contact in card.contacts
             ],

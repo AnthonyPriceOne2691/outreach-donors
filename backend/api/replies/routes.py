@@ -262,7 +262,11 @@ async def review(
     stored = False
     answer: str | None = None
     if price is not None and domain_id is not None:
-        await repository.store_price(domain_id=domain_id, price=price, currency=body.currency)
+        # Список цен — тот, что лежит у ответа: человек решает главную цену,
+        # а прочие цены письма им не правятся и идут в карточку как есть.
+        await repository.store_price(
+            domain_id=domain_id, price=price, currency=body.currency, offers=reply.offers
+        )
         stored = True
         answer = PLACEMENT_SELLS
     elif body.declines:

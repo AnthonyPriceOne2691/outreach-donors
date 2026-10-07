@@ -1,6 +1,7 @@
 /** Что отдаёт сервер. Имена полей повторяют схему API один в один:
  *  перевод на ходу — лишний слой, в котором опечатка видна не сразу. */
 
+import type { Offer } from './offers';
 export type Role = 'admin' | 'operator';
 
 /** Именованные действия. Ровно те же, что в матрице прав на сервере. */
@@ -155,6 +156,7 @@ export interface IncomingCard {
   price_white: string | null;
   price_grey: string | null;
   currency: string | null;
+  offers?: Offer[] | null;
   payment_methods: string[] | null;
   confidence: number | null;
   /** Продаёт ли донор размещение по разбору: sells, declines, unclear. */
@@ -438,6 +440,7 @@ export interface DonorFullCard extends Omit<DonorRowCard, 'contacts'> {
   expires_at: string | null;
   contact_attempted_at: string | null;
   last_price_at: string | null;
+  last_offers?: Offer[] | null;
   /** Адреса в том порядке, в каком их берёт сборка писем: лучший первым. */
   contacts: ContactCard[];
   /** Почему поиск адреса сейчас не ставится; `null` — ставится. Правило то же,

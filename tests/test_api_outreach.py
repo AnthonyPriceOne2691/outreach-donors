@@ -332,6 +332,41 @@ class TestThreads:
         assert "250 EUR" in body["incoming"][0]["raw_body"]
         assert body["incoming"][0]["price_white"] == "250.00"
 
+    async def test_reply_card_lists_every_named_price(
+        self,
+        client: AsyncClient,
+        operator_token: str,
+        thread: ThreadModel,
+        session: AsyncSession,
+    ) -> None:
+        """Цены списком — рядом с главной ценой; разобранный до списка ответ
+        отдаёт пусто, а не «цен нет»: это разные ответы."""
+        reply = (await session.execute(select(ReplyModel))).scalars().one()
+        before = await client.get(f"/api/threads/{thread.id}", headers=bearer(operator_token))
+        reply.offers = [
+            {
+                "product": "homepage link",
+                "niche": "casino",
+                "price": "500.00",
+                "currency": "EUR",
+                "period": "month",
+            }
+        ]
+        await session.commit()
+
+        response = await client.get(f"/api/threads/{thread.id}", headers=bearer(operator_token))
+
+        assert before.json()["incoming"][0]["offers"] is None
+        assert response.json()["incoming"][0]["offers"] == [
+            {
+                "product": "homepage link",
+                "niche": "casino",
+                "price": "500.00",
+                "currency": "EUR",
+                "period": "month",
+            }
+        ]
+
     async def test_letter_share_and_corridor_come_from_the_server(
         self,
         client: AsyncClient,

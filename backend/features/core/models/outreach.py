@@ -289,6 +289,10 @@ class ReplyModel(TimestampedMixin, Base):
     price_white: Mapped[Decimal | None] = mapped_column(DECIMAL(10, 2), nullable=True)
     price_grey: Mapped[Decimal | None] = mapped_column(DECIMAL(10, 2), nullable=True)
     currency: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    #: Все цены, названные в ответе, словами донора (`replies/offers.py`):
+    #: продукт, ниша, цена строкой, валюта, срок. `[]` — разобран, цен нет;
+    #: пусто — разобран до 06.10.2026, когда списка ещё не было, или не разбирался.
+    offers: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
     payment_methods: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
 
     # Ниже порога — в ручную очередь, а не в базу. Приёмка требует не более
