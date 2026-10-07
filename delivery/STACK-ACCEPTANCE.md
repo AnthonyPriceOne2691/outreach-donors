@@ -1,7 +1,7 @@
 # Stack acceptance
 
 **Date:** 2026-10-01
-**Stack:** delivery@1.99 · cqg@2.48 · okf@1.19 · stack-map@1.52
+**Stack:** delivery@2.00 · cqg@2.51 · okf@1.19 · stack-map@1.52
 **Где лежат каноны:** вне репо, вариант D — четыре `*.md` и `extract_payload.py`
 лежат в корне ЛОКАЛЬНО и в коммит не идут (`.git/info/exclude`). Источник —
 `~/Documents/Prepare`.

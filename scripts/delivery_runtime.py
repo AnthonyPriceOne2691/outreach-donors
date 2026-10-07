@@ -11,7 +11,7 @@ import fnmatch
 import re
 from pathlib import Path
 
-from delivery_base import (BREAKER_EXCLUDE, DEFAULT_BREAKERS, ROOT, field,
+from delivery_base import (BREAKER_EXCLUDE, DEFAULT_BREAKERS, ROOT, field, git,
                            is_placeholder)
 
 # --- §12.6: путь, который проверяется только исполнением ---------------------
@@ -55,7 +55,10 @@ def declared_surfaces(status: str, key: str) -> tuple[set[str], bool]:
         # Слово отказа без причины — то же, что его отсутствие: см. `n/a reason=`
         # у `diagnosis:`. Само по себе оно ничего не сообщает.
         return set(), bool(re.search(r"(?i)reason\s*=\s*\S", raw))
-    return {p.strip() for p in raw.split(",") if p.strip()}, True
+    # Бэктик — разметка, а не часть пути: `a/b/` в STATUS пишут естественно, а с
+    # бэктиком элемент не совпадал ни с одним путём диффа (`delivery@2.00`).
+    items = (p.strip().strip("`").strip() for p in raw.split(","))
+    return {p for p in items if p}, True
 
 
 def breaker_value(status: str, name: str) -> int:
@@ -94,6 +97,40 @@ def runtime_touched(paths: list[str], surfaces: set[str]) -> set[str]:
                 hit.add(s)
                 break
     return hit
+
+
+def dead_surfaces(surfaces: set[str]) -> set[str]:
+    """Объявленные элементы, которые не совпадают ни с одним файлом дерева.
+
+    Такой элемент проверка не увидит никогда: `runtime_touched` сверяет пути диффа
+    с элементом как с префиксом или глобом. Проза, бэктик или имя переменной
+    вместо пути — зелёное без взгляда на правку (`green-without-the-thing`). Поле
+    `outreach-donors` 07.10: строка `model_surface` прозой резалась по запятым на
+    одиннадцать обрывков, и правка промпта продаж прошла без вопроса.
+    Нет git — пустое множество: молчать честнее, чем назвать мёртвым всё.
+    """
+    files = git("ls-files").splitlines()
+    if not files:
+        return set()
+    return {s for s in surfaces if not runtime_touched(files, {s})}
+
+
+def report_dead_surfaces(key: str, surfaces: set[str], sink: list[str],
+                         warnings: list[str]) -> None:
+    """Мёртвые элементы поля называются вслух — одна формулировка на все поля.
+
+    Мертвы ВСЕ — это то же, что поля нет, и сообщение идёт по лестнице §12.6
+    (`sink`). Мертва часть — среди них бывает ключ, а не файл: предупреждение
+    с именами, не отказ.
+    """
+    dead = dead_surfaces(surfaces)
+    if not dead:
+        return
+    (sink if dead == surfaces else warnings).append(
+        f"`{key}`: {len(dead)} из {len(surfaces)} элемент(ов) не совпадают ни с одним "
+        f"файлом дерева — правку по ним проверка не увидит: {', '.join(sorted(dead))}. "
+        "Форма поля — пути от корня и глобы через запятую, без бэктиков и прозы; "
+        "пояснения — в <!-- … --> на той же строке или строкой ниже")
 
 
 def surface_named(surface: str, low: str) -> bool:
