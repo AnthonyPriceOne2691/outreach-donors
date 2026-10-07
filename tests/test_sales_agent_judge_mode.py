@@ -53,7 +53,7 @@ def mode(monkeypatch: pytest.MonkeyPatch) -> SetMode:
     return set_mode
 
 
-def test_enforce_is_the_default() -> None:
+def test_enforce_is_the_default() -> None:  # M1
     field = sales_cfg._Sales.model_fields["judge_mode"]
 
     assert field.default is SalesJudgeMode.ENFORCE
@@ -84,11 +84,11 @@ def test_unknown_mode_is_refused_at_start(monkeypatch: pytest.MonkeyPatch) -> No
     ],
     ids=["allow", "escalate", "block"],
 )
-def test_shadow_lets_only_a_block_through(found: Verdict, expected: Verdict) -> None:
+def test_shadow_lets_only_a_block_through(found: Verdict, expected: Verdict) -> None:  # M2 M3
     assert judge.shadowed(found) == expected
 
 
-async def test_enforce_returns_the_block_as_is(mode: SetMode, llm: Plug) -> None:
+async def test_enforce_returns_the_block_as_is(mode: SetMode, llm: Plug) -> None:  # M1
     mode(SalesJudgeMode.ENFORCE)
     model = llm(judge=[FINE])
 
@@ -100,7 +100,7 @@ async def test_enforce_returns_the_block_as_is(mode: SetMode, llm: Plug) -> None
 
 async def test_shadow_writes_the_block_down_and_does_not_hold_the_draft(
     mode: SetMode, llm: Plug, caplog: pytest.LogCaptureFixture
-) -> None:
+) -> None:  # M2
     mode(SalesJudgeMode.SHADOW)
     llm(judge=[FINE])
 
@@ -111,7 +111,9 @@ async def test_shadow_writes_the_block_down_and_does_not_hold_the_draft(
     assert f"режим shadow — вернул бы черновик на правку: {WHY}" in caplog.text
 
 
-async def test_shadow_still_hands_an_unchecked_draft_to_a_human(mode: SetMode, llm: Plug) -> None:
+async def test_shadow_still_hands_an_unchecked_draft_to_a_human(
+    mode: SetMode, llm: Plug
+) -> None:  # M3
     """Отказ закрыт и в наблюдении: модель не ответила — человеку, а не `allow`."""
     mode(SalesJudgeMode.SHADOW)
     llm(503, judge=[FINE])
@@ -138,7 +140,7 @@ async def test_verdict_is_the_same_in_both_modes(mode: SetMode, llm: Plug) -> No
 
 async def test_shadow_draft_is_not_sent_back_but_carries_the_verdict(
     session: AsyncSession, llm: Plug, mode: SetMode
-) -> None:
+) -> None:  # M2
     mode(SalesJudgeMode.SHADOW)
     reply_id = await lead_replied(session)
     llm(situation=[INFORM], judge=[ALLOW])
@@ -161,7 +163,7 @@ async def test_shadow_draft_is_not_sent_back_but_carries_the_verdict(
 
 async def test_enforce_draft_records_its_mode(
     session: AsyncSession, llm: Plug, mode: SetMode
-) -> None:
+) -> None:  # M1
     mode(SalesJudgeMode.ENFORCE)
     reply_id = await lead_replied(session)
     llm(situation=[INFORM], judge=[ALLOW])

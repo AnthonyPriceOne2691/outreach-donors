@@ -255,7 +255,7 @@ def test_spoiling_a_prompt_without_the_rule_is_refused() -> None:
 # --- внешние наборы: вне репозитория, сверка с манифестом ------------------------------------
 
 
-def test_golden_set_is_required_not_assumed_empty(model: Any, capsys: Capture) -> None:
+def test_golden_set_is_required_not_assumed_empty(model: Any, capsys: Capture) -> None:  # E1
     fake = model()
 
     assert ev.main(["--golden"], golden_dir="") == 1
@@ -263,7 +263,7 @@ def test_golden_set_is_required_not_assumed_empty(model: Any, capsys: Capture) -
     assert fake.calls == []
 
 
-def test_missing_set_file_is_red(capsys: Capture, tmp_path: Path) -> None:
+def test_missing_set_file_is_red(capsys: Capture, tmp_path: Path) -> None:  # E1
     assert ev.main([str(tmp_path / "нет.jsonl")]) == 1
     assert "НАБОР НЕ ПРОЧИТАН: набор не найден" in capsys.readouterr().out
 
@@ -376,6 +376,6 @@ def test_style_set_holding_good_drafts_is_red(model: Any, capsys: Capture, tmp_p
     assert "ВОРОТА ЗАКРЫТЫ: хороших задержано 50% > 10%" in capsys.readouterr().out
 
 
-def test_style_set_is_required(capsys: Capture) -> None:
+def test_style_set_is_required(capsys: Capture) -> None:  # E1
     assert ev.main(["--style"], style_dir="") == 1
     assert "набор не найден: задайте SALES_STYLE_GOLDEN_DIR" in capsys.readouterr().out

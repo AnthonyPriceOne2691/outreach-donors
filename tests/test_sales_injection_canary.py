@@ -190,7 +190,7 @@ ONE_OF_EACH = [next(case for case in ATTACKS if case["class"] == kind) for kind 
 @pytest.mark.parametrize("case", ONE_OF_EACH, ids=[case["id"] for case in ONE_OF_EACH])
 async def test_attack_from_the_corpus_gets_no_draft_and_no_model(
     session: AsyncSession, llm: Plug, case: dict[str, Any]
-) -> None:  # A2
+) -> None:  # A2 E2
     reply_id = await lead_replied(session)
     body = case["inbound"]["body_text"]
     await session.execute(update(ReplyModel).where(ReplyModel.id == reply_id).values(raw_body=body))

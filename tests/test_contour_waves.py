@@ -413,7 +413,7 @@ AGENT_NOT_NAMED = "✗ промпт judge.md не назван в model_surface"
 )
 def test_agent_prompt_brings_wave_v3b(
     tmp_path: Path, capsys: Capture, states: dict[str, str], surface: str, line: str | None
-) -> None:  # В3б
+) -> None:  # W1 (волна В3б)
     """Промпт агента продаж — триггер В3б (срез `sales-v3b` назвал детектор): волна
     обязана быть развёрнута в том же PR, а промпт — назван в model_surface. Промпт,
     не названный ни для В3а, ни для В3б, — одна находка, а не две."""
@@ -427,7 +427,7 @@ def test_agent_prompt_brings_wave_v3b(
 
 def test_reverse_run_without_the_agent_prompt_detector_v3b_is_silent(
     tmp_path: Path, capsys: Capture, monkeypatch: pytest.MonkeyPatch
-) -> None:  # В3б
+) -> None:  # W1 (волна В3б)
     """Обратный прогон: детектор промпта агента не видит ничего — сценарий «pending»
     зеленеет. Красное там даёт детектор, а не случай."""
     name = "sales-agent-prompt"
