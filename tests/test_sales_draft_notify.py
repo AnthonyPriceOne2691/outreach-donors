@@ -19,6 +19,7 @@ from typing import Any
 
 import httpx
 import pytest
+import rq
 from alembic.operations import Operations
 from alembic.runtime.migration import MigrationContext
 from backend.config import sales as cfg
@@ -31,6 +32,7 @@ from backend.features.core.models.outreach import ReplyModel
 from backend.features.sales import telegram
 from backend.features.sales.agent import notify, parts
 from backend.features.sales.models import NoticeStatus, SalesDraftNoticeModel
+from backend.shared import queue as shared_queue
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError
 from sqlalchemy import select, text
@@ -51,6 +53,9 @@ GROUP = "-1004719305286"
 APP = "https://app.example.test"
 ALLOW = {"claims": [], "promises": [], "tone": {"ok": True, "problem": ""}}
 NOTICES_REVISION = "d64e2cd71614_sales_draft_notices.py"
+#: Очередь, которую модуль сообщения взял при импорте, — до страховки набора
+#: (`conftest._no_sales_notice_in_a_real_queue` подменяет её в каждом тесте).
+IMPORTED_QUEUE = notify.sales_queue
 
 
 class BotApi:
@@ -121,7 +126,7 @@ def alerts(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 @pytest.fixture
 def queue(monkeypatch: pytest.MonkeyPatch) -> Queue:
     placed = Queue()
-    monkeypatch.setattr(notify, "runs_queue", lambda: placed)
+    monkeypatch.setattr(notify, "sales_queue", lambda: placed)
     return placed
 
 
@@ -427,7 +432,24 @@ def test_suite_never_puts_a_notice_into_a_real_queue(request: pytest.FixtureRequ
     """Страховка набора: Redis по умолчанию — общий, задача теста ушла бы чужому воркеру."""
     assert "_no_sales_notice_in_a_real_queue" in request.fixturenames
     with pytest.raises(RedisError, match="настоящую очередь"):
-        notify.runs_queue()
+        notify.sales_queue()
+
+
+def test_notice_goes_to_the_sales_queue_and_its_worker(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Очередь продаж (`sales`, воркер `worker-sales`), а не общая: в общей весть о
+    черновике ждала бы часовой прогон доноров. Redis не трогается — постановка
+    подменена у самой очереди rq, страховка набора снята только здесь."""
+    placed: list[tuple[str, str, tuple[Any, ...]]] = []
+
+    def enqueue(self: rq.Queue, path: str, *args: Any, **_options: Any) -> None:
+        placed.append((self.name, path, args))
+
+    monkeypatch.setattr(rq.Queue, "enqueue", enqueue)
+    monkeypatch.setattr(notify, "sales_queue", IMPORTED_QUEUE)
+
+    notify.queue_notice(41)
+
+    assert placed == [(shared_queue.SALES_QUEUE_NAME, notify.NOTICE_JOB, (41,))]
 
 
 def test_sales_row_announces_drafts_and_lists_its_reject_reasons() -> None:
@@ -443,7 +465,7 @@ async def test_queue_down_leaves_the_draft_and_says_so(
     def broken() -> Queue:
         raise RedisConnectionError("redis down")
 
-    monkeypatch.setattr(notify, "runs_queue", broken)
+    monkeypatch.setattr(notify, "sales_queue", broken)
     notice = DraftNotice(
         draft_id=41,
         reply_id=7,

@@ -1747,9 +1747,9 @@
       "worst": "_move:105"
     },
     "backend/features/sales/agent/notify.py": {
-      "lines": 305,
+      "lines": 306,
       "complexity": 7,
-      "worst": "notify:113"
+      "worst": "notify:114"
     },
     "backend/features/sales/agent/parts.py": {
       "lines": 110,

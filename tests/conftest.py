@@ -315,7 +315,7 @@ def _no_sales_notice_in_a_real_queue(monkeypatch: pytest.MonkeyPatch) -> None:
     def refused() -> object:
         raise RedisError("тесты не ставят сообщения о черновиках продаж в настоящую очередь")
 
-    monkeypatch.setattr("backend.features.sales.agent.notify.runs_queue", refused)
+    monkeypatch.setattr("backend.features.sales.agent.notify.sales_queue", refused)
 
 
 @pytest.fixture

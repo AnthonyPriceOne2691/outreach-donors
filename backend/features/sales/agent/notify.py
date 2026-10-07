@@ -6,8 +6,9 @@
 
 **Задачей очереди, а не в запросе.** Крючок только ставит задачу (`queue_notice`):
 «написать заново» зовёт его из запроса, а Telegram отвечает секундами и бывает
-недоступен. Очередь недоступна — строка в журнал сервиса: черновик цел и виден
-в переписке.
+недоступен. Очередь — продаж (`sales`, свой воркер `worker-sales`): в общей весть
+о черновике ждала бы часовой прогон доноров, как ждал бы ответ лида. Очередь
+недоступна — строка в журнал сервиса: черновик цел и виден в переписке.
 
 **Что в сообщении** — только то, что уже лежит в базе: кому и о чём (адрес и домен
 собеседника, тема, ситуация и его вопрос), ход и вердикт судьи, ссылка на переписку
@@ -51,7 +52,7 @@ from backend.features.sales.models import NoticeStatus, SalesDraftNoticeModel
 from backend.features.sales.telegram import SalesBot, TelegramError
 from backend.shared.alerts import send_alert
 from backend.shared.logs import setup_logging
-from backend.shared.queue import remember_job_error, runs_queue, with_retries
+from backend.shared.queue import remember_job_error, sales_queue, with_retries
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +103,7 @@ def queue_notice(draft_id: int) -> None:
     """Поставить сообщение о черновике в очередь. Очередь недоступна — строка в журнал:
     черновик цел и виден в переписке, а крючок шва не роняет того, кто его позвал."""
     try:
-        runs_queue().enqueue(NOTICE_JOB, draft_id, **with_retries())
+        sales_queue().enqueue(NOTICE_JOB, draft_id, **with_retries())
     except RedisError as exc:
         logger.error(  # noqa: TRY400 — трассировка Redis ничего не добавит к причине
             "продажи: сообщение о черновике не поставлено — очередь недоступна; черновик цел",
