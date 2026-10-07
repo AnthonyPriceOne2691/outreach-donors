@@ -123,17 +123,22 @@ class TestWhenItGoesWrong:
         with pytest.raises(TransportError, match="401"):
             await transport.send(SENT)
 
-    async def test_missing_number_is_not_silent(self) -> None:
-        """Платформа приняла письмо, но привязать к нему события
-        доставки будет не к чему — это отказ, а не успех."""
+    async def test_missing_number_is_not_a_refusal(self) -> None:
+        """Платформа приняла письмо (202), но не вернула его номер: письмо уходит.
+        Отказ вернул бы его в очередь, и следующая отправка стала бы вторым
+        письмом тому же человеку (до 07.10.2026 так и было). Исход запишет её
+        событие — наш номер письма в нём есть и без её номера, — или человек."""
 
         def without_number(_: httpx.Request) -> httpx.Response:
             return httpx.Response(202)
 
-        transport, _ = _transport(without_number)
+        transport, seen = _transport(without_number)
 
-        with pytest.raises(TransportError, match="номер"):
+        with pytest.raises(MaybeSentError, match="не вернула его номер") as caught:
             await transport.send(SENT)
+
+        assert not isinstance(caught.value, TransportError)
+        assert len(seen) == 1  # принятое не повторяется
 
     async def test_network_failure_is_a_refusal(self) -> None:
         def broken(_: httpx.Request) -> httpx.Response:
