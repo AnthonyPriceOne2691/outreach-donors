@@ -6,10 +6,11 @@
 тогда он тает по мере правок. Нам растапливать нечего, и это выигрыш:
 жёсткий ноль сильнее любого ратчета.
 
-Запуск: `python scripts/gates.py [файлы...] [--commits BASE] [--pr-env]`. Без
-файлов проверяет всё дерево backend, tests и scripts; с `--commits` — ещё и
-сообщения коммитов `BASE..HEAD` (CI на PR и pre-push), с `--pr-env` — заголовок
-и тело PR из окружения. Один `--pr-env` дерево не обходит: это шаг на секунды.
+Запуск: `python scripts/gates.py [файлы...] [--commits BASE] [--commits-warn BASE]
+[--pr-env]`. Без файлов проверяет всё дерево backend, tests и scripts; с `--commits`
+— ещё и сообщения коммитов `BASE..HEAD` (CI на PR и pre-push), с `--commits-warn` —
+то же предупреждением (push в main), с `--pr-env` — заголовок и тело PR из
+окружения. Один `--pr-env` дерево не обходит: это шаг на секунды.
 """
 
 from __future__ import annotations
@@ -251,7 +252,13 @@ def check_public_repo(root: Path) -> Iterator[Violation]:
             )
 
 
-def check_commit_messages(root: Path, base: str) -> Iterator[Violation]:
+#: Что делать с именем в сообщении, которое уже в main: остановка его не исправит.
+PUBLISHED = "уже опубликовано: остановка не исправит, разобрать вручную"
+
+
+def check_commit_messages(
+    root: Path, base: str, advice: str = "переписать сообщение обезличенно"
+) -> Iterator[Violation]:
     """Закрытое не называется и в сообщениях коммитов `base..HEAD`.
 
     Сообщение уходит в публичную историю так же, как файл, и после слияния его
@@ -267,7 +274,7 @@ def check_commit_messages(root: Path, base: str) -> Iterator[Violation]:
                 f"коммит {sha[:9]}",
                 number,
                 "public-repo",
-                f"{what} в сообщении коммита — переписать сообщение обезличенно",
+                f"{what} в сообщении коммита — {advice}",
             )
 
 
@@ -309,25 +316,34 @@ def run(targets: Iterable[Path]) -> list[Violation]:
 @dataclass(slots=True)
 class Verdict:
     """Итог прогона. Нарушение краснит. «Не судил» — тоже: непрочитанный вход
-    не должен выглядеть чистым."""
+    не должен выглядеть чистым. Предупреждение видно и код не меняет."""
 
     violations: list[Violation] = field(default_factory=list)
+    warnings: list[Violation] = field(default_factory=list)
     unjudged: int = 0
 
-    def collect(self, found: Iterable[Violation]) -> None:
-        """Находки проверки; непрочитанный вход — вслух и в счёт «не судил»."""
+    def collect(self, found: Iterable[Violation], *, warn: bool = False) -> None:
+        """Находки проверки; непрочитанный вход — вслух и в счёт «не судил».
+
+        `warn` — вход уже опубликован (сообщение коммита в main): и находка, и
+        «не судил» видны в выводе, а код выхода не меняют.
+        """
         try:
-            self.violations.extend(found)
+            (self.warnings if warn else self.violations).extend(found)
         except public_repo.NotJudgedError as exc:
-            print(f"гейт не судил: {exc}", file=sys.stderr)
-            self.unjudged += 1
+            print(f"{'⚠ предупреждение: ' if warn else ''}гейт не судил: {exc}", file=sys.stderr)
+            if not warn:
+                self.unjudged += 1
 
 
 def _report(verdict: Verdict, targets: list[Path] | None) -> int:
     """Итог в вывод и код выхода. Без файлов (`targets is None`) — только текст PR."""
+    for warning in verdict.warnings:
+        print(f"⚠ предупреждение: {warning}")
     if not (verdict.violations or verdict.unjudged):
         judged = "текст PR" if targets is None else f"{len(list(_python_files(targets)))} файлов"
-        print(f"Гейты пройдены: {judged}, нарушений нет.")
+        warned = f"; предупреждений: {len(verdict.warnings)}" if verdict.warnings else ""
+        print(f"Гейты пройдены: {judged}, нарушений нет{warned}.")
         return 0
     for violation in verdict.violations:
         print(str(violation), file=sys.stderr)
@@ -344,6 +360,9 @@ def _args(argv: list[str]) -> argparse.Namespace:
         "--commits", metavar="BASE", help="и сообщения коммитов BASE..HEAD; не прочитаны — красное"
     )
     parser.add_argument(
+        "--commits-warn", metavar="BASE", help="то же предупреждением, код 0 (push в main)"
+    )
+    parser.add_argument(
         "--pr-env", action="store_true", help="заголовок и тело PR из PR_TITLE и PR_BODY"
     )
     return parser.parse_args(argv)
@@ -352,7 +371,7 @@ def _args(argv: list[str]) -> argparse.Namespace:
 def _judges_files(args: argparse.Namespace) -> bool:
     """Файлы судятся всегда, кроме одного случая: задан только текст PR. Шаг
     `pr-text.yml` судит заголовок и тело за секунды — обход дерева там лишний."""
-    return not args.pr_env or bool(args.targets or args.commits)
+    return not args.pr_env or bool(args.targets or args.commits or args.commits_warn)
 
 
 def main(argv: list[str]) -> int:
@@ -370,6 +389,8 @@ def main(argv: list[str]) -> int:
         verdict.collect(check_public_repo(ROOT))
     if args.commits:
         verdict.collect(check_commit_messages(ROOT, args.commits))
+    if args.commits_warn:
+        verdict.collect(check_commit_messages(ROOT, args.commits_warn, PUBLISHED), warn=True)
     if args.pr_env:
         verdict.collect(check_pr_text(*public_repo.pr_text_from_env()))
     return _report(verdict, targets)

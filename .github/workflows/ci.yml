@@ -77,7 +77,8 @@ jobs:
       # собирает squash-коммит. Текст PR — только через `env:`: подстановка
       # выражения в `run:` исполнила бы заголовок как код. Правку текста после
       # прогона судит pr-text.yml. База — ветка назначения, как у проверки волн
-      # ниже. На push в main сообщения уже опубликованы — гейт идёт по файлам.
+      # ниже. На push в main сообщение последнего коммита уже опубликовано (его
+      # задают руками при слиянии) — о нём только предупреждение, код 0.
       - name: Архитектурные гейты
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
@@ -88,7 +89,7 @@ jobs:
             git fetch --no-tags origin "+refs/heads/$GITHUB_BASE_REF:refs/remotes/origin/$GITHUB_BASE_REF"
             python scripts/gates.py --commits "origin/$GITHUB_BASE_REF" --pr-env
           else
-            python scripts/gates.py
+            python scripts/gates.py --commits-warn HEAD^
           fi
 
       # §3.4a. Необратимое без человека в цепочке требует подписи оператора.

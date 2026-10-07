@@ -300,6 +300,27 @@ class TestCommitMessages:
         assert code == 0
         assert f"сообщений коммитов {base}..HEAD — 2" in out
 
+    def test_published_message_is_only_a_warning(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Capture
+    ) -> None:
+        """Push в main: сообщение последнего коммита уже опубликовано (его задают
+        руками при слиянии). Имя в нём видно в выводе, а код 0: остановка ничего
+        не исправит."""
+        self._history(tmp_path, "база", f"Слияние: отписка ({PRIVATE_DOCUMENTS[0]})")
+        code, out, _ = gate(monkeypatch, capsys, tmp_path, "--commits-warn", "HEAD^")
+        assert code == 0
+        assert "⚠ предупреждение: коммит " in out
+        assert "имя закрытого документа в сообщении коммита — уже опубликовано" in out
+        assert "предупреждений: 1" in out
+
+    def test_unreadable_published_range_is_only_a_warning(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Capture
+    ) -> None:
+        self._history(tmp_path, "база")
+        code, _, err = gate(monkeypatch, capsys, tmp_path, "--commits-warn", "нет-такой-ветки")
+        assert code == 0
+        assert "⚠ предупреждение: гейт не судил: сообщения коммитов нет-такой-ветки..HEAD" in err
+
 
 class TestPrText:
     """Заголовок и тело PR: из них GitHub собирает squash-коммит, который уйдёт

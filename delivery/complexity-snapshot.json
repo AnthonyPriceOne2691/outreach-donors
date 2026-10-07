@@ -1892,9 +1892,9 @@
       "worst": "report:116"
     },
     "scripts/gates.py": {
-      "lines": 380,
+      "lines": 401,
       "complexity": 10,
-      "worst": "_python_files:85"
+      "worst": "_python_files:86"
     },
     "scripts/measure_outlinks.py": {
       "lines": 331,
