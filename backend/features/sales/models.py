@@ -136,6 +136,11 @@ class SalesLeadModel(TimestampedMixin, Base):
     verification_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
     verification_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Диалог, в котором этого лида назвали («пишите …», источник `referral`).
+    #: Удаление диалога лида не уносит: ссылка обнуляется.
+    referred_from_thread_id: Mapped[int | None] = mapped_column(
+        ForeignKey("threads.id", ondelete="SET NULL"), nullable=True
+    )
 
     __table_args__ = (
         Index("idx_sales_leads_hypothesis", "hypothesis_id"),
@@ -145,6 +150,7 @@ class SalesLeadModel(TimestampedMixin, Base):
         Index("idx_sales_leads_contact", "contact_id"),
         # Экран фильтрует лидов по состоянию и причине отказа.
         Index("idx_sales_leads_status_reason", "status", "rejection_reason"),
+        Index("idx_sales_leads_referred_from_thread", "referred_from_thread_id"),
     )
 
 

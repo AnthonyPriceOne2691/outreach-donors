@@ -22,6 +22,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
+import httpx
 from rq import get_current_job
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -30,6 +31,7 @@ from backend.config.startup_checks import check_storage
 from backend.features.core.usage import LlmCapExceededError
 from backend.features.sales.replies import SalesReplies
 from backend.features.sales.reply_kind import KindClient
+from backend.features.sales.verifier import build_verifier
 from backend.shared.logs import setup_logging
 from backend.shared.queue import (
     SALES_REPLY_JOB,
@@ -63,12 +65,17 @@ async def handle(reply_id: int) -> dict[str, Any]:
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     classifier = KindClient()
+    # Проверка адреса лида из «пишите другому» — по настройке (fixture или
+    # живой сервис); строится только тогда, когда такой лид появился.
+    http = httpx.AsyncClient()
     try:
         async with factory() as session:
-            handled = await SalesReplies(session, classifier).handle(reply_id)
+            sales = SalesReplies(session, classifier, verifier=lambda: build_verifier(http))
+            handled = await sales.handle(reply_id)
             await session.commit()
     finally:
         await classifier.aclose()
+        await http.aclose()
         await engine.dispose()
     logger.info("продажи: задача ответа кончилась", extra=handled.as_report)
     missing = handled.unanswered

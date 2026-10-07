@@ -14,6 +14,10 @@
 диалоги читают их там (`replies.outcome.sales_review`), почта модуля продаж
 не знает.
 
+**«Пишите другому»** заводит лида той же компании (`referral.py`) и закрывает
+диалог. Проверка адресов не настроена — лида заводит человек: вид уже назван
+и оплачен, а упавшая задача откатила бы расход и позвала модель снова.
+
 **Задача не верит, что её поставили по делу.** Задача живёт в очереди дольше
 кода и может прийти ко второму ответу, к удалённому, к уже разобранному или
 решённому человеком: каждый такой случай — итог словами, а не платный вызов.
@@ -24,17 +28,20 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Protocol, assert_never
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import sales as cfg
+from backend.config.startup_checks import ConfigError
 from backend.features.core import usage
 from backend.features.core.domain import Stage, ThreadStatus
 from backend.features.core.models.outreach import ReplyModel, ThreadModel
 from backend.features.replies import outcome
 from backend.features.replies.repository import ReplyRepository
+from backend.features.sales.referral import Referred, refer
 from backend.features.sales.reply_kind import (
     OPERATION,
     PROMPT_VERSION,
@@ -43,6 +50,7 @@ from backend.features.sales.reply_kind import (
     Unanswered,
     snapshot,
 )
+from backend.features.sales.verifier import EmailVerifier
 
 logger = logging.getLogger(__name__)
 
@@ -70,8 +78,8 @@ ROUTES: dict[SalesKind, Route] = {
     SalesKind.PARSE_FAILED: Route.MANUAL,
 }
 
-#: Пути, после которых ответ человека не ждёт.
-SETTLED = frozenset({Route.CLOSED})
+#: Пути, после которых ответ человека не ждёт (если путь удался — `_follow`).
+SETTLED = frozenset({Route.CLOSED, Route.REFERRAL})
 
 #: Вид словами — для причины в карточке.
 KIND_WORDS: dict[SalesKind, str] = {
@@ -89,7 +97,7 @@ KIND_WORDS: dict[SalesKind, str] = {
 ROUTE_WORDS: dict[Route, str] = {
     Route.HANDOFF: "передать лида на созвон; пока — человек",
     Route.AGENT: "ответит агент; пока — человек",
-    Route.REFERRAL: "завести лида на названный адрес; пока — человек",
+    Route.REFERRAL: "новый лид на названный адрес",
     Route.CLOSED: "диалог закрыт",
     Route.UNSUBSCRIBE: "закрыть адрес во всех направлениях; пока — человек",
     Route.MANUAL: "решает человек",
@@ -187,13 +195,20 @@ class SalesReplies:
         classifier: KindClassifier,
         *,
         hand_over: HandOver = mark_for_handoff,
+        verifier: Callable[[], EmailVerifier] | None = None,
         threshold: float | None = None,
+        now: datetime | None = None,
     ) -> None:
         self._session = session
         self._repo = ReplyRepository(session)
         self._classifier = classifier
         self._hand_over = hand_over
+        self._verifier = verifier
         self._threshold = cfg.REPLY_CONFIDENCE if threshold is None else threshold
+        self._now = now
+
+    def _moment(self) -> datetime:
+        return self._now or datetime.now(UTC)
 
     async def handle(self, reply_id: int) -> Handled:
         """Разобрать вид ответа и повести его по пути. Потолок модели — исключение
@@ -213,8 +228,7 @@ class SalesReplies:
             return self._unanswered(reply, found)
         if found.tokens:
             usage.record(self._session, operation=OPERATION, units=found.tokens)
-        decision = decide(found, self._threshold)
-        await self._follow(reply, decision)
+        decision = await self._follow(reply, found, decide(found, self._threshold))
         reply.model_parse = self._record(snapshot(found, model=self._classifier.model), decision)
         reply.confidence = found.confidence
         logger.info(
@@ -276,18 +290,39 @@ class SalesReplies:
             "reason": decision.reason,
         }
 
-    async def _follow(self, reply: ReplyModel, decision: Decision) -> None:
-        """Что путь делает сразу. Ждущие человека пути ничего не пишут."""
+    async def _follow(self, reply: ReplyModel, found: KindFound, decision: Decision) -> Decision:
+        """Что путь делает сразу — и что из этого вышло. Ждущие человека пути не пишут."""
         match decision.route:
             case Route.HANDOFF:
                 if reply.thread_id is not None:
                     await self._hand_over(self._session, reply.thread_id)
             case Route.CLOSED:
                 await self._close(reply.thread_id)
-            case Route.AGENT | Route.REFERRAL | Route.UNSUBSCRIBE | Route.MANUAL:
+            case Route.REFERRAL:
+                referred = await self._refer(reply, found.contact)
+                words = KIND_WORDS[found.kind]
+                return Decision(Route.REFERRAL, referred.waits, f"{words}: {referred.words}")
+            case Route.AGENT | Route.UNSUBSCRIBE | Route.MANUAL:
                 pass
             case _:
                 assert_never(decision.route)
+        return decision
+
+    async def _refer(self, reply: ReplyModel, contact: str | None) -> Referred:
+        """Лид из «пишите другому». Неверная настройка проверки адресов всплывает здесь,
+        уже после вызова модели, — поэтому не роняет задачу: откат стёр бы расход, а повтор
+        очереди позвал бы модель снова. Лида заводит человек."""
+        if self._verifier is None:
+            return Referred(None, "проверка адресов задаче не дана — завести лида руками")
+        try:
+            verifier = self._verifier()
+        except ConfigError:
+            logger.exception(
+                "продажи: проверка адресов не настроена — лида из ответа заведёт человек",
+                extra={"reply": reply.id},
+            )
+            return Referred(None, "проверка адресов не настроена — завести лида руками")
+        return await refer(self._session, reply.thread_id, contact, verifier, now=self._moment())
 
     async def _close(self, thread_id: int | None) -> None:
         """Закрыть диалог: «не интересно» и «не сейчас» — без давления. Отписку
