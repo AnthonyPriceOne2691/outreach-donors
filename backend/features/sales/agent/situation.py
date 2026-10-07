@@ -150,6 +150,9 @@ def _confidence(raw: object) -> float | None:
     try:
         value = float(raw)
     except ValueError:
+        # Не число на месте уверенности: это «не поставила себе оценку», а не ноль
+        # от модели — разбор отметит причину в `notes`.
+        logger.info("%s: уверенность не число — %r", TOPIC, str(raw)[:40])
         return None
     return min(1.0, max(0.0, value))
 
