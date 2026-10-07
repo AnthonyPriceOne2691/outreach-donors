@@ -13,6 +13,11 @@
 платформы может прийти раньше ответа на отправку, человек — нажать вместе
 с ним. Второй путь видит «уже не отправляется» и второй записи «ушло» —
 второго расхода и второй строки журнала об одном письме — не делает.
+
+**Из очереди — тоже захватом** (`WHERE status = 'queued'`): письмо туда вернул
+человек, не найдя его в журнале платформы, а событие платформы показало,
+что оно ушло (`unknown_outcome.py`). Пачка, взявшая его в ту же минуту,
+захватывает ту же строку — и кто-то из двоих видит «уже не в очереди».
 """
 
 from __future__ import annotations
@@ -48,14 +53,16 @@ class Witness:
     how: str | None = None
 
 
-async def leave_sending(session: AsyncSession, message: MessageModel, **values: Any) -> bool:
-    """Вывести письмо из «отправляется» — только если оно всё ещё там.
+async def leave(
+    session: AsyncSession, message: MessageModel, *, was: MessageStatus, **values: Any
+) -> bool:
+    """Вывести письмо из состояния `was` — только если оно всё ещё там.
 
     Ложь — его секундой раньше вывел другой путь, и писать поверх нельзя.
     """
     left = await session.execute(
         update(MessageModel)
-        .where(MessageModel.id == message.id, MessageModel.status == MessageStatus.SENDING)
+        .where(MessageModel.id == message.id, MessageModel.status == was)
         .values(**values)
         .returning(MessageModel.id)
         # Как у захвата в `Sending._claim`: прочитанное письмо получает новые
@@ -74,19 +81,22 @@ async def record_sent(
     provider_id: str | None,
     author_id: int | None,
     witness: Witness,
+    was: MessageStatus = MessageStatus.SENDING,
 ) -> bool:
     """Записать, что письмо ушло в `moment`. Без фиксации — её делает вызывающий.
 
-    Ложь — письмо уже записал ушедшим другой путь (или вернул в очередь
-    человек); тогда здесь не пишется ничего, кроме номера платформы: его
-    знает только ответ на отправку.
+    `was` — откуда письмо выходит: из «отправляется» или из очереди, куда
+    его вернул человек. Ложь — письмо уже вывел оттуда другой путь (записал
+    ушедшим, вернул в очередь, взял пачкой); тогда здесь не пишется ничего,
+    кроме номера платформы: его знает только ответ на отправку.
     """
-    if not await leave_sending(session, message, status=MessageStatus.SENT):
+    if not await leave(session, message, was=was, status=MessageStatus.SENT):
         if provider_id:
             message.provider_message_id = provider_id
         logger.warning(
-            "письма: письмо №%s уже не «отправляется» — его исход записал другой путь",
+            "письма: письмо №%s уже не «%s» — его исход записал другой путь",
             message.id,
+            was.value,
         )
         return False
 

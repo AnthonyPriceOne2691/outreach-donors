@@ -22,6 +22,14 @@
   всё же ушло, адресат получит его второй раз — окно подтверждения на экране
   говорит это прямо.
 
+**Событие, пришедшее после «Вернуть в очередь», письмо с очереди снимает**
+(07.10.2026). Письмо, которое человек не нашёл в журнале, а платформа о нём
+сообщила, на деле ушло: оно записывается ушедшим тем же путём и выходит из
+очереди захватом — пачка, взявшая его в ту же минуту, получает «уже не
+в очереди» (`settle.py`). Для этого возврат оставляет в строке ящик
+и `Message-ID` попытки: с них идут добивка и ветка переписки. Опоздает
+событие и к повторной отправке — второе письмо уже не вернуть.
+
 **Время ухода — начало передачи, а не минута решения.** Человек может
 разобрать письмо назавтра, а ушло оно тогда, когда его отдали почте: от этого
 времени считаются срок добивки и дневной лимит ящика. Начало передачи —
@@ -37,7 +45,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.access.repository import AccessRepository
@@ -187,28 +195,61 @@ def _witness(letter: StuckLetter, *, how: str) -> settle.Witness:
     )
 
 
-async def settle_by_event(session: AsyncSession, message: MessageModel, *, kind: str) -> bool:
-    """Событие платформы по письму в «отправляется»: записать его ушедшим.
+async def settle_by_event(
+    session: AsyncSession, message: MessageModel, *, kind: str, at: datetime
+) -> bool:
+    """Событие платформы по письму в «отправляется» или в очереди: записать его ушедшим.
 
-    Ложь — его секундой раньше вывел другой путь; тогда письмо перечитывается,
+    Время ухода из «отправляется» — начало передачи. Из очереди — время
+    самого события (`at`): начало передачи затёрто возвратом в очередь.
+    Ложь — письмо секундой раньше вывел другой путь; тогда оно перечитывается,
     и событие применяется к тому, что в базе, а не к прочитанному до захвата.
     """
     letter = await _one(session, message.id)
+    was = message.status
+    moment, how = _by_event(letter, kind=kind, at=at)
     done = await settle.record_sent(
         session,
         message,
-        moment=letter.since,
+        moment=moment,
         provider_id=None,
         author_id=None,
-        witness=_witness(letter, how=f"событие платформы «{kind}»"),
+        witness=_witness(letter, how=how),
+        was=was,
     )
     if not done:
         await session.refresh(message)
         return False
-    logger.info(
-        "письма: письмо №%s — исход выяснен событием платформы «%s»: ушло", message.id, kind
-    )
+    if was is MessageStatus.QUEUED:
+        await _close_resend(session, message)
+    logger.info("письма: письмо №%s ушло — исход выяснен: %s", message.id, how)
     return True
+
+
+def _by_event(letter: StuckLetter, *, kind: str, at: datetime) -> tuple[datetime, str]:
+    """Время ухода и как о нём узнали. Из очереди — временем события: начало
+    передачи затёрто возвратом, и письмо второй раз уже не уйдёт."""
+    how = f"событие платформы «{kind}»"
+    if letter.message.status is MessageStatus.QUEUED:
+        return at, f"{how} после возврата в очередь"
+    return letter.since, how
+
+
+async def _close_resend(session: AsyncSession, message: MessageModel) -> None:
+    """Добивка ушла, хотя её вернули в цепочку: срок повтора на предыдущем письме
+    гасится, иначе проход добивок раз в час приходил бы за ушедшей добивкой.
+    Следующий шаг цепочки считается уже от неё (`settle.record_sent`). У первого
+    письма и ответа предыдущего шага цепочки нет — гасить нечего."""
+    if not _is_followup(message):
+        return
+    await session.execute(
+        update(MessageModel)
+        .where(
+            MessageModel.thread_id == message.thread_id,
+            MessageModel.step == message.step - 1,
+        )
+        .values(next_action_at=None)
+    )
 
 
 async def resolve(
@@ -281,11 +322,10 @@ async def _back(
         if _is_followup(message) and previous is None
         else MessageStatus.QUEUED
     )
-    # Идентификатор уходит вместе с ящиком, как при отказе почты
-    # (`Sending._hand_over`): повтор может пойти с другого домена.
-    if not await settle.leave_sending(
-        session, message, status=status, sender_id=None, internet_message_id=None
-    ):
+    # Ящик и `Message-ID` попытки остаются в строке: если письмо всё же ушло,
+    # событие платформы запишет его ушедшим с ними — с них идут добивка
+    # и ветка переписки. Повтор берёт свои при захвате (`Sending._claim`).
+    if not await settle.leave(session, message, was=MessageStatus.SENDING, status=status):
         return None
     if previous is not None:
         previous.next_action_at = moment

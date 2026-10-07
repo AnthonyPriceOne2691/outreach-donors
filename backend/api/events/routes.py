@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, Request, Response, status
@@ -113,6 +114,7 @@ def _one(row: Any) -> DeliveryEvent | None:
         email=str(row.get("email") or ""),
         reason=_reason(row),
         soft=str(row.get("type") or "").strip().lower() == SOFT_BOUNCE,
+        at=_moment(row.get("timestamp")),
     )
 
 
@@ -127,6 +129,14 @@ def _number(raw: Any) -> int | None:
     """
     text = str(raw if raw is not None else "").strip()
     return int(text) if text.isdigit() else None
+
+
+def _moment(raw: Any) -> datetime | None:
+    """Когда платформа это сделала: `timestamp` — секунды Unix. Не число — пусто,
+    и событие датируется приходом. Десять цифр — до 2286 года: длиннее — не время,
+    а ошибка, и `fromtimestamp` уронил бы на ней всю пачку."""
+    text = str(raw if raw is not None else "").strip()
+    return datetime.fromtimestamp(int(text), UTC) if text.isdigit() and len(text) <= 10 else None
 
 
 def _reason(row: dict[str, Any]) -> str | None:

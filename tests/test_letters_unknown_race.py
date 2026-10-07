@@ -103,8 +103,8 @@ async def _decide(factory: Factory, letter_id: int, outcome: Outcome) -> Message
 def _second_lands_first(monkeypatch: pytest.MonkeyPatch, second: Any) -> None:
     """Первый путь прочёл письмо «отправляется» и идёт записывать — а второй
     в эту минуту проходит целиком и фиксируется. Крючок — в точке записи,
-    общей для всех путей (`settle.leave_sending`)."""
-    original = settle.leave_sending
+    общей для всех путей (`settle.leave`)."""
+    original = settle.leave
     landed = False
 
     async def hook(session: AsyncSession, message: MessageModel, **values: Any) -> bool:
@@ -114,7 +114,7 @@ def _second_lands_first(monkeypatch: pytest.MonkeyPatch, second: Any) -> None:
             await second()
         return await original(session, message, **values)
 
-    monkeypatch.setattr(settle, "leave_sending", hook)
+    monkeypatch.setattr(settle, "leave", hook)
 
 
 class TestEventAndHuman:
@@ -162,13 +162,13 @@ class TestEventAndHuman:
         assert letter.status is MessageStatus.DELIVERED
         assert letter.sent_at == SINCE
 
-    async def test_back_to_queue_first_the_late_event_does_not_mark_it_sent(
+    async def test_back_to_queue_first_the_late_event_takes_it_off_the_queue(
         self, committed: Factory, filled_legal: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Человек не нашёл письма в журнале и вернул его в очередь, а событие
-        пришло следом: решение человека не переписывается — ни «ушло», ни
-        расхода. Что адресат может получить письмо дважды, окно подтверждения
-        говорит до нажатия."""
+        """Человек не нашёл письма в журнале и вернул его в очередь, пока событие
+        о нём уже шло. Событие проигрывает захват из «отправляется» — и записывает
+        письмо ушедшим уже из очереди: оно ушло, и пачка не должна слать его
+        второй раз. Запись «ушло» одна, а решение человека остаётся в журнале."""
         letter_id = await _stuck(committed)
         statuses: list[MessageStatus] = []
 
@@ -180,10 +180,13 @@ class TestEventAndHuman:
         report = await _event(committed, letter_id)
 
         assert statuses == [MessageStatus.QUEUED]
-        assert report.resolved == 0
-        assert await _sent_records(committed) == []
-        assert await _spent(committed) == 0
-        assert (await _letter(committed, letter_id)).status is MessageStatus.QUEUED
+        assert report.resolved == 1
+        records = await _sent_records(committed)
+        assert [record["как узнали"] for record in records] == [
+            "событие платформы «processed» после возврата в очередь"
+        ]
+        assert await _spent(committed) == 1
+        assert (await _letter(committed, letter_id)).status is MessageStatus.SENT
 
     async def test_at_the_same_moment_the_base_decides_once(
         self, committed: Factory, filled_legal: None, monkeypatch: pytest.MonkeyPatch
@@ -193,13 +196,13 @@ class TestEventAndHuman:
         «уже не отправляется». Без условия в записи «ушло» легло бы дважды."""
         letter_id = await _stuck(committed)
         barrier = asyncio.Barrier(2)
-        original = settle.leave_sending
+        original = settle.leave
 
         async def meet(session: AsyncSession, message: MessageModel, **values: Any) -> bool:
             await asyncio.wait_for(barrier.wait(), timeout=MEETING)
             return await original(session, message, **values)
 
-        monkeypatch.setattr(settle, "leave_sending", meet)
+        monkeypatch.setattr(settle, "leave", meet)
 
         event, human = await asyncio.gather(
             _event(committed, letter_id),
@@ -272,11 +275,11 @@ class TestEventAndPlatformAnswer:
         original = unknown_outcome.settle_by_event
 
         async def read_then_wait(
-            session: AsyncSession, message: MessageModel, *, kind: str
+            session: AsyncSession, message: MessageModel, *, kind: str, at: datetime
         ) -> bool:
             read.set()
             await asyncio.wait_for(sent.wait(), timeout=MEETING)
-            return await original(session, message, kind=kind)
+            return await original(session, message, kind=kind, at=at)
 
         monkeypatch.setattr(unknown_outcome, "settle_by_event", read_then_wait)
 
