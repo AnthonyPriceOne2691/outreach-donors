@@ -191,64 +191,8 @@ function Badges({ draft, turn }: { draft: DraftCard; turn: number }) {
 /** Готовый или отданный человеку черновик — плашкой с решениями. */
 function Banner({ threadId, draft, turn, reasons }: DraftProps) {
   const { can } = useSession();
-  const decision = useDecision(threadId, draft);
   const [mode, setMode] = useState<Mode>('idle');
-  const [text, setText] = useState(draft.body);
   const escalated = draft.status === 'escalated';
-  const typed = text.trim();
-  // У отданного человеку прежний текст — тот же «как есть»: сервер его не пустит.
-  const edited = typed !== '' && (!escalated || typed !== draft.body.trim());
-
-  let actions = (
-    <Text size="sm" c="dimmed">
-      Отправить или отклонить черновик может тот, у кого есть право отправки писем.
-    </Text>
-  );
-  if (can('send') && mode === 'edit') {
-    actions = (
-      <Editor
-        text={text}
-        onText={setText}
-        action="Отправить правку"
-        ready={edited}
-        busy={decision.busy}
-        onSend={() => decision.send.mutate(typed)}
-        onCancel={() => setMode('idle')}
-      />
-    );
-  } else if (can('send') && mode === 'reject') {
-    actions = (
-      <Reasons
-        reasons={reasons}
-        busy={decision.busy}
-        onReject={(reason) => decision.reject.mutate(reason)}
-        onCancel={() => setMode('idle')}
-      />
-    );
-  } else if (can('send')) {
-    actions = (
-      <Group gap="xs">
-        {escalated ? null : (
-          <Button
-            color="lagoon"
-            className="press"
-            loading={decision.send.isPending}
-            disabled={decision.busy}
-            onClick={() => decision.send.mutate(null)}
-          >
-            Подходит · отправить
-          </Button>
-        )}
-        <Button variant="light" disabled={decision.busy} onClick={() => setMode('edit')}>
-          Править
-        </Button>
-        <Button variant="light" disabled={decision.busy} onClick={() => setMode('reject')}>
-          Отклонить
-        </Button>
-      </Group>
-    );
-  }
-
   return (
     <>
       <Card
@@ -274,7 +218,19 @@ function Banner({ threadId, draft, turn, reasons }: DraftProps) {
               {draft.body}
             </Text>
           ) : null}
-          {actions}
+          {can('send') ? (
+            <Actions
+              threadId={threadId}
+              draft={draft}
+              reasons={reasons}
+              mode={mode}
+              onMode={setMode}
+            />
+          ) : (
+            <Text size="sm" c="dimmed">
+              Отправить или отклонить черновик может тот, у кого есть право отправки писем.
+            </Text>
+          )}
         </Stack>
       </Card>
       {!escalated && can('send') ? (
@@ -284,6 +240,68 @@ function Banner({ threadId, draft, turn, reasons }: DraftProps) {
         </Text>
       ) : null}
     </>
+  );
+}
+
+interface ActionsProps {
+  threadId: number;
+  draft: DraftCard;
+  reasons: string[];
+  mode: Mode;
+  onMode: (mode: Mode) => void;
+}
+
+/** Решения по черновику: кнопки, поле правки или выбор причины. */
+function Actions({ threadId, draft, reasons, mode, onMode }: ActionsProps) {
+  const decision = useDecision(threadId, draft);
+  const [text, setText] = useState(draft.body);
+  const escalated = draft.status === 'escalated';
+  const typed = text.trim();
+  // У отданного человеку прежний текст — тот же «как есть»: сервер его не пустит.
+  const edited = typed !== '' && (!escalated || typed !== draft.body.trim());
+  if (mode === 'edit') {
+    return (
+      <Editor
+        text={text}
+        onText={setText}
+        action="Отправить правку"
+        ready={edited}
+        busy={decision.busy}
+        onSend={() => decision.send.mutate(typed)}
+        onCancel={() => onMode('idle')}
+      />
+    );
+  }
+  if (mode === 'reject') {
+    return (
+      <Reasons
+        reasons={reasons}
+        busy={decision.busy}
+        onReject={(reason) => decision.reject.mutate(reason)}
+        onCancel={() => onMode('idle')}
+      />
+    );
+  }
+  return (
+    <Group gap="xs">
+      {escalated ? null : (
+        <Button
+          color="lagoon"
+          className="press"
+          loading={decision.send.isPending}
+          disabled={decision.busy}
+          onClick={() => decision.send.mutate(null)}
+        >
+          Подходит · отправить
+        </Button>
+      )}
+      <Button variant="light" disabled={decision.busy} onClick={() => onMode('edit')}>
+        Править
+      </Button>
+      <Button variant="light" disabled={decision.busy} onClick={() => onMode('reject')}>
+        Отклонить
+      </Button>
+    </Group>
   );
 }
 
