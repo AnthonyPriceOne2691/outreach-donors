@@ -11,6 +11,8 @@ EXPECTED_TABLES = {
     "donors",
     "contacts",
     "senders",
+    # Домены рассылки: лимит домена, выдержка, пауза (Ф4, 4.5a).
+    "sending_domains",
     "campaigns",
     "threads",
     "messages",

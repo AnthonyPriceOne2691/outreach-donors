@@ -35,9 +35,11 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.config import outreach as cfg
 from backend.features.core.domain import MessageStatus, SenderStatus, Stage
 from backend.features.core.models.outreach import MessageModel, SenderModel
 from backend.features.letters.chain import ANSWER_STEP, CHAINABLE, FIRST_STEP, MAX_STEPS, kind_of
+from backend.features.outreach import limits
 from backend.features.outreach import senders as sender_rules
 from backend.features.outreach.repository import OutreachRepository
 
@@ -76,19 +78,29 @@ async def choose(
 async def _free_box(session: AsyncSession, stage: Stage, now: datetime) -> Choice:
     """Ящик этапа с наибольшим остатком на сегодня. Остаток считают первые
     письма: у добивок свой часовой лейн, и класть их в тот же кап значит
-    на каждую цепочку недосчитаться нового адресата."""
+    на каждую цепочку недосчитаться нового адресата.
+
+    До выбора — лимиты домена и направления (`outreach/limits.py`): отсеянный
+    ящик в выбор не идёт, а причина отсева становится словами отказа."""
     rows = await session.execute(select(SenderModel).order_by(SenderModel.id))
-    spot = sender_rules.pick(
+    sent = await OutreachRepository(session).sent_today(now=now, first_only=True)
+    screened = limits.screen(
         rows.scalars().all(),
-        sent_today=await OutreachRepository(session).sent_today(now=now, first_only=True),
         stage=stage,
+        sent_today=sent,
+        domains=await limits.sending_domains(session),
+        direction_limit=cfg.direction_limit(stage.value),
         now=now,
     )
+    spot = sender_rules.pick(screened.fit, sent_today=sent, stage=stage, now=now)
     if spot is None:
+        why = screened.why()
         return Choice(
             sender=None,
             refusal=(
-                "Сегодня писать некому: все ящики либо выключены, либо выбрали дневной "
+                f"Сегодня писать некому: {why}. Письмо остаётся в очереди"
+                if why
+                else "Сегодня писать некому: все ящики либо выключены, либо выбрали дневной "
                 "лимит. Письмо остаётся в очереди — завтра лимит откроется заново"
             ),
         )

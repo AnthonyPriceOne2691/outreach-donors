@@ -322,14 +322,14 @@
       "worst": "—"
     },
     "backend/api/senders/routes.py": {
-      "lines": 80,
-      "complexity": 2,
-      "worst": "all_senders:28"
+      "lines": 108,
+      "complexity": 5,
+      "worst": "all_senders:36"
     },
     "backend/api/senders/schemas.py": {
-      "lines": 72,
+      "lines": 114,
       "complexity": 2,
-      "worst": "of:39"
+      "worst": "of:41"
     },
     "backend/api/settings/__init__.py": {
       "lines": 1,
@@ -497,7 +497,7 @@
       "worst": "_report:190"
     },
     "backend/cli/main.py": {
-      "lines": 493,
+      "lines": 494,
       "complexity": 9,
       "worst": "_print_report:254"
     },
@@ -532,9 +532,9 @@
       "worst": "add_parsers:49"
     },
     "backend/cli/senders_admin.py": {
-      "lines": 134,
+      "lines": 212,
       "complexity": 6,
-      "worst": "cmd_sender_add:42"
+      "worst": "cmd_sender_add:49"
     },
     "backend/config/__init__.py": {
       "lines": 1,
@@ -592,7 +592,7 @@
       "worst": "—"
     },
     "backend/config/outreach.py": {
-      "lines": 241,
+      "lines": 266,
       "complexity": 4,
       "worst": "_own_account:203"
     },
@@ -857,7 +857,7 @@
       "worst": "—"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 60,
+      "lines": 62,
       "complexity": 0,
       "worst": "—"
     },
@@ -912,9 +912,9 @@
       "worst": "_enum:18"
     },
     "backend/features/core/models/outreach.py": {
-      "lines": 322,
+      "lines": 352,
       "complexity": 2,
-      "worst": "_enum:37"
+      "worst": "_enum:38"
     },
     "backend/features/core/models/run.py": {
       "lines": 141,
@@ -1297,9 +1297,9 @@
       "worst": "sender_domain:50"
     },
     "backend/features/letters/mailbox.py": {
-      "lines": 211,
+      "lines": 223,
       "complexity": 4,
-      "worst": "_silence:107"
+      "worst": "_silence:119"
     },
     "backend/features/letters/masking.py": {
       "lines": 111,
@@ -1415,6 +1415,11 @@
       "lines": 2,
       "complexity": 0,
       "worst": "—"
+    },
+    "backend/features/outreach/limits.py": {
+      "lines": 103,
+      "complexity": 10,
+      "worst": "screen:52"
     },
     "backend/features/outreach/own_inboxes.py": {
       "lines": 472,

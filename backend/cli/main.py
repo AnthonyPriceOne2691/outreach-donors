@@ -59,7 +59,7 @@ from backend.cli.sales_commands import FAILURES as SALES_FAILURES
 from backend.cli.sales_commands import KEPT_ON_INTERRUPT as SALES_KEPT
 from backend.cli.sales_commands import add_parsers as add_sales_parsers
 from backend.cli.senders_admin import add_parser as add_senders_parser
-from backend.cli.senders_admin import cmd_sender_add, cmd_senders
+from backend.cli.senders_admin import cmd_sender_add, cmd_senders, cmd_sending_domain
 from backend.config import ahrefs as ahrefs_cfg
 from backend.config import filters, storage
 from backend.config import judge as judge_cfg
@@ -457,6 +457,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] =
     "letters-send": cmd_letters_send,
     "sender-add": cmd_sender_add,
     "senders": cmd_senders,
+    "sending-domain": cmd_sending_domain,
     "mail-test": cmd_mail_test,
     "prune": cmd_prune,
     "geo-shares": geo_shares.cmd_geo_shares,

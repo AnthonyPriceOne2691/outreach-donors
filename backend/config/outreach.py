@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from backend.config._base import DomainSettings
 
@@ -228,6 +228,31 @@ def _own_account(own: _OwnAccount, shared: MailAccount, prefix: str) -> MailAcco
 
 def _own_or(own: str | None, shared: str) -> str:
     return shared if own is None else own.strip()
+
+
+class _Directions(DomainSettings):
+    """Дневной лимит направления — первых писем в сутки со всех ящиков этапа
+    (Ф4, 4.5a). Не задан — у направления своего лимита нет, как было всегда."""
+
+    donors: int | None = Field(default=None, validation_alias="OUTREACH_DONORS_DAILY_LIMIT")
+    advertisers: int | None = Field(
+        default=None, validation_alias="OUTREACH_ADVERTISERS_DAILY_LIMIT"
+    )
+    sales: int | None = Field(default=None, validation_alias="OUTREACH_SALES_DAILY_LIMIT")
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _blank_is_unset(cls, value: object) -> object:
+        return None if isinstance(value, str) and not value.strip() else value
+
+
+#: Лимит направления по этапу (`stage.value`); разбирается при старте.
+DIRECTION_LIMITS: dict[str, int | None] = _Directions().model_dump()
+
+
+def direction_limit(stage: str) -> int | None:
+    """Дневной лимит направления `stage`. `None` — своего лимита нет."""
+    return DIRECTION_LIMITS.get(stage)
 
 
 def events_public_keys(stages: Iterable[str]) -> tuple[str, ...]:
