@@ -47,6 +47,7 @@ from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.outreach import CampaignModel
+from backend.features.core.stages import check_connected
 from backend.features.letters import compose, draft, review, unknown_outcome
 from backend.features.letters.building import run_scope
 from backend.features.letters.repository import LetterRepository, QueuedLetter
@@ -242,6 +243,8 @@ async def send_queue(
     Каждое письмо идёт тем же путём, что одно (`letters/batch.py`), и
     в журнал пишется так же — по письму, с тем, кто нажал.
     """
+    # Этап, который почта ещё не ведёт, — отказ словами до счёта и до задачи.
+    await check_connected(session, body.stage, "Очередь писем не отправлена")
     waiting = len(await LetterRepository(session).queued(stage=body.stage))
     if waiting == 0:
         raise HTTPException(

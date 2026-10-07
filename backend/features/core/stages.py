@@ -21,9 +21,12 @@
 
 from __future__ import annotations
 
-from typing import Literal, assert_never
+from typing import TYPE_CHECKING, Literal, assert_never
 
 from backend.features.core.domain import Stage
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 #: Почему почта не делает того, о чём просят, для этапа продаж.
 SALES_NOT_CONNECTED = "продажи к почте ещё не подключены"
@@ -49,6 +52,24 @@ def mail_stage(stage: Stage, what: str) -> MailStage:
     match stage:
         case Stage.DONORS | Stage.ADVERTISERS:
             return stage
+        case Stage.SALES:
+            raise SalesNotConnectedError(what)
+        case _:
+            assert_never(stage)
+
+
+async def check_connected(
+    session: AsyncSession,  # noqa: ARG001 — её прочтёт правило продаж, см. ниже
+    stage: Stage,
+    what: str,
+) -> None:
+    """Мост подключения этапа (спрашивает отправка очереди пачкой): почта ведёт
+    этап сейчас — или отказ словами. Правило «продажи подключены» встанет в их
+    ветку и прочтёт базу; спрашивающие не меняются. Не `mail_stage`: тот отказывает
+    продажам там, где их не будет и подключённых (очередь из доноров, шаблоны)."""
+    match stage:
+        case Stage.DONORS | Stage.ADVERTISERS:
+            return
         case Stage.SALES:
             raise SalesNotConnectedError(what)
         case _:

@@ -38,7 +38,7 @@ from backend.features.core.models.outreach import (
     ThreadModel,
 )
 from backend.features.core.stages import SALES_NOT_CONNECTED, SalesNotConnectedError
-from backend.features.letters import draft, followups, probe, template
+from backend.features.letters import batch, draft, followups, probe, template
 from backend.features.letters.answers import answer_reply
 from backend.features.letters.building import BuildRequest, QueueBuilder, run_scope
 from backend.features.letters.chain import ANSWER_STEP
@@ -263,6 +263,47 @@ class TestSending:
 
         assert response.status_code == 409
         assert response.json()["detail"] == f"Письмо №{world.letter.id}: {SALES_NOT_CONNECTED}"
+
+
+# --- очередь этапа пачкой ---------------------------------------------------------------------
+
+
+class TestSendQueue:
+    async def test_the_batch_stops_on_a_sales_letter_in_words(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        """Не «связь с почтой оборвалась»: письмо продаж не уходило, и это известно."""
+        world = await sales_world(session)
+
+        report = await batch.send_queue(session, NullTransport(), stage=Stage.SALES)
+
+        assert report.stopped == f"Письмо №{world.letter.id}: {SALES_NOT_CONNECTED}"
+        assert (report.sent, dict(report.refused), report.left) == (0, {}, 1)
+
+    @pytest.mark.parametrize("letters", [0, 1])
+    async def test_screen_gets_409_before_the_job_queue(
+        self,
+        session: AsyncSession,
+        client: AsyncClient,
+        admin_token: str,
+        monkeypatch: pytest.MonkeyPatch,
+        letters: int,
+    ) -> None:
+        """Почта этап не ведёт — 409 этими словами, а не «писем нет», и задачи нет,
+        даже когда письмо продаж в очереди есть."""
+        if letters:
+            await sales_world(session)
+            await session.commit()
+        jobs_queue = NoJobs()
+        monkeypatch.setattr("backend.api.letters.routes.runs_queue", lambda: jobs_queue)
+
+        response = await client.post(
+            "/api/letters/send-queue", json={"stage": "sales"}, headers=bearer(admin_token)
+        )
+
+        assert response.status_code == 409
+        assert response.json()["detail"] == f"Очередь писем не отправлена: {SALES_NOT_CONNECTED}"
+        assert jobs_queue.enqueued == []
 
 
 # --- учётка направления: события продаж принимает общий вебхук --------------------------

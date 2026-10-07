@@ -187,9 +187,9 @@
       "worst": "—"
     },
     "backend/api/letters/routes.py": {
-      "lines": 287,
+      "lines": 290,
       "complexity": 5,
-      "worst": "build:89"
+      "worst": "build:90"
     },
     "backend/api/letters/schemas.py": {
       "lines": 333,
@@ -887,9 +887,9 @@
       "worst": "_enum:27"
     },
     "backend/features/core/stages.py": {
-      "lines": 66,
+      "lines": 87,
       "complexity": 4,
-      "worst": "mail_stage:47"
+      "worst": "mail_stage:50"
     },
     "backend/features/core/usage.py": {
       "lines": 154,
@@ -1202,9 +1202,9 @@
       "worst": "next_address_note:100"
     },
     "backend/features/letters/batch.py": {
-      "lines": 157,
+      "lines": 160,
       "complexity": 4,
-      "worst": "why:95"
+      "worst": "why:96"
     },
     "backend/features/letters/building.py": {
       "lines": 408,
