@@ -240,6 +240,9 @@ def using(prompts: Prompts) -> Iterator[None]:
     подменяются и возвращаются в любом случае. Промпт черновика уходит писателю в запросе
     (`Request.prompt`), промпт судьи — судье прогона явно (`judged`). Таблица проверяется
     сразу: негодная — отказ словами до первого вызова модели.
+
+    Подмена видна всему процессу: прогон — только отдельной командой
+    (`scripts/sales_replay.py`), не из API и не из воркера, где пишет живой агент.
     """
     saved = situation.PROMPT, moves.TABLE
     situation.PROMPT, moves.TABLE = prompts.situation, prompts.moves

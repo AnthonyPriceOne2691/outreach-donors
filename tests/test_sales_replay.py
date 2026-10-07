@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
+import sys
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -57,6 +59,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.test_sales_agent_brief import CALL, OFFER, world
 from tests.test_sales_agent_stage import sales_on
+from tests.test_sales_model import ROOT
 from tests.test_sales_stage_mail import sales_world
 
 __all__ = ["sales_on"]  # фикстура строки продаж в реестре — отсюда её видит pytest
@@ -347,6 +350,19 @@ def test_a2_empty_set_is_refused_too(
 def test_missing_run_file_is_refused(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
     assert sales_replay.main(["compare", str(tmp_path / "a.json"), str(tmp_path / "b.json")]) == 1
     assert f"прогон не найден: {tmp_path / 'a.json'}" in capsys.readouterr().out
+
+
+def test_the_command_starts_in_a_clean_process() -> None:
+    """Команда, модули прогона, шов и агент продаж импортируются первыми без круга."""
+    done = subprocess.run(
+        [sys.executable, "scripts/sales_replay.py", "--help"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    assert "{run,compare}" in done.stdout
 
 
 # --- набор и манифест --------------------------------------------------------------------------
