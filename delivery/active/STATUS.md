@@ -1,89 +1,99 @@
 # Active delivery status
 
-- **slug:** sales-chain (модуль «Продажи», срез 4.6a — цепочка писем продаж в базе и экран правки; часть 1 среза 4.6)
-- **stack:** delivery@1.99 · cqg@2.45 · okf@1.19 · stack-map@1.52
+- **slug:** sales-stage (модуль «Продажи», срез 1.1b, часть «а» из трёх — значение `sales` у этапа и громкий отказ продажам в письмах: очередь, сборка, отправка, добивки, ответ в переписке, отправка очереди пачкой; учётка продаж — общим механизмом по этапу)
+- **stack:** delivery@2.00 · cqg@2.51 · okf@1.19 · stack-map@1.52
 - **class:** M
 - **kind:** feature
 - **phase:** verify
 - **builder:** agent:claude
-- **verifier:** process:ci — обязательные джобы `check`, `web` и `docker`, на PR ещё `gates` и `delivery`; ревью общих точек — соседняя сессия outreach-donors, мерж — по решению владельца
-- **human_ok_spec:** yes at=2026-10-05 by=human:anthony («даю да» — план фаз с примерами Spec 4.6 A1–A5 (01.10); модульный срез продаж одним PR под постоянный вейвер — решение владельца 05.10; примеры части 1 C1–C11 — к подписи при ревью)
-- **waivers:** max_loc_diff=3988 max_files_touched=40 reason=модульный срез продаж, постоянный вейвер владельца 05.10; общая часть 126 строк (две миграции 107, значение журнала, реестр моделей, test_schema, cli/main.py, .secrets.baseline); из строк среза 1736 — тесты by=human:anthony
-- **new_dependency:** no (Playwright — extra `browser` из `pyproject.toml`; Pillow для `ui_contrast.py` — `uv run --with pillow`, в зависимости не внесён)
-- **shared_changes:** срез трогает 15 файлов вне масок `SALES_PATHS`; каждый — полным путём:
-  `backend/features/core/domain.py` — значение журнала `AuditAction.SALES_CHAIN_CHANGED`;
-  `backend/features/core/models/__init__.py` — экспорт `SalesChainTemplateModel`;
-  `backend/migrations/versions/723e3ddab31f_sales_chain_templates.py` — таблица `sales_chain_templates`; после головы main `ad4a79bc6000`;
-  `backend/migrations/versions/cbc5aadf4fc2_sales_chain_changed_audit_action.py` — `ADD VALUE 'sales_chain_changed'` отдельной ревизией;
-  `tests/test_schema.py` — новая таблица в перечне сущностей;
-  `backend/cli/main.py` — команды продаж берёт перечнем из `backend/cli/sales_commands.py` (`**SALES_COMMANDS`,
-  `**SALES_KEPT`, `add_sales_parsers`), сам ни одной не называет;
-  `backend/cli/sales_commands.py` — новый перечень команд консоли продаж: команды, подписи прерывания, разбор доводов
-  (`main.py` у предела длины 500 строк); согласовано с соседней сессией;
-  `backend/cli/sales.py` — `cmd_sales_chain_load`, `run_chain_load` и разбор доводов команды;
-  `backend/api/sales/routes.py` — включение роутера `chain` в роутер раздела;
-  `backend/api/sales/chain.py` — маршруты цепочки под `Permission.SALES`;
-  `backend/api/sales/chain_schemas.py` — схемы ответов и тел запросов этих маршрутов;
-  `frontend/src/api/sales.ts` — клиент вкладки «Цепочка писем»;
-  `frontend/src/api/salesTypes.ts` — типы вкладки своим файлом раздела (`types.ts` не тронут);
-  `frontend/src/api/salesLabels.ts` — подписи шагов, языков, видов зон и подстановок (`labels.ts` не тронут);
-  `.secrets.baseline` — номер ревизии миграции `723e3ddab31f` (ложное срабатывание, как у прочих миграций).
-  Не тронуты: `backend/api/errors.py` (`ChainError` — наследник `TemplateError`, 400 уже сопоставлен), `backend/api/app.py`, `frontend/src/api/client.ts`, `frontend/src/api/types.ts`, `frontend/src/api/labels.ts`, `frontend/src/theme.ts`, `frontend/src/styles/glass.css`, `scripts/ui_contrast.py`, `scripts/ui_hover.py`, `scripts/ui_screens.py`, `docs/UI_RULES.md`, `scripts/lint/*_baseline.txt`. В модулях 1.1a и 3.1 (маски продаж): `tests/test_sales_model.py` — цикл миграции лида и гипотезы откатывает сначала зависимую миграцию цепочки; `backend/features/sales/kb_load.py` — на общий `outside.py`; `frontend/src/sales/KbEntryModal.tsx` и `SenderPane.tsx` — на общую плашку `SaveRefusal`; `backend/features/sales/verifier.py` (1.4) — отказ сети без текста исключения у несобранного запроса (общий `reason_of`, `from None`), тест в `tests/test_sales_verifier.py`. Согласовано: с сессией outreach-donors (список общих файлов отправлен до PR, 05.10)
-  После слияния среза — PR «общее: проверки проекта» (вне среза): `.github/workflows/ci.yml`, `.github/workflows/pr-text.yml`, `scripts/contour_waves.py`, `scripts/gates.py`, `scripts/public_repo.py`, `scripts/hooks/pre-push`, `tests/test_contour_waves.py`, `tests/test_gates.py` — волны читают `model_surface` разбором фазового гейта, гейт public-repo ловит имя закрытого документа целым словом и проверяет сообщения коммитов, заголовок и тело PR; согласовано с сессиями outreach-donors и контура (07.10), ревью у них.
+- **verifier:** process:ci — обязательные джобы `check`, `web` и `docker`, на PR ещё `gates` и `delivery`; ревью общего кода почты — соседняя сессия outreach-donors; слив — не раньше первого письма Этапа 2 (решение владельца 01.10; условие выполнено 07.10 — письмо ушло и доставлено)
+- **human_ok_spec:** yes at=2026-10-05 by=human:anthony («даю да» — план фаз с примерами среза 1.1 A2, A3 (01.10); 1.1 разрезан решением владельца 01.10 — 1.1b «PR раньше, слив и выкатка — после первого письма Этапа 2»; 05.10 — делёжка с соседней сессией: 1.1b наш, с двумя обязательными пунктами — добивка нового этапа не теряется молча, очередь продаж не собирается из доноров)
+- **new_dependency:** no
+- **shared_changes:** часть «а» трогает 22 общих файла (и снимок сложности); каждый — полным путём:
+  `backend/features/core/domain.py` — значение `Stage.SALES` и докстрока этапа;
+  `backend/features/core/stages.py` — новый: текст отказа `SALES_NOT_CONNECTED`, `SalesNotConnectedError` (`permanent`), шлюз `mail_stage` и тип `MailStage`, мост подключения этапа `check_connected` (спрашивает отправка очереди пачкой), пометка `donor_path` для ветки по `MailStage`;
+  `backend/migrations/versions/39e342cb2b21_stage_sales.py` — `ALTER TYPE stage ADD VALUE IF NOT EXISTS 'sales'` отдельной ревизией после головы main `7bfc6c880f0a` (#201); голова одна;
+  `backend/api/errors.py` — `SalesNotConnectedError` → 409 словами (после `ResolveError` #202);
+  `backend/api/letters/routes.py` — `POST /api/letters/send-queue` спрашивает мост `check_connected` до счёта очереди и до задачи: продажам — 409 словами (+3 строки; `_STAGE_TITLES` — часть «в»);
+  `backend/cli/main.py` — перечень отказов `_FAILURES` берёт перечень консоли продаж целиком (`*SALES_FAILURES`, +2 строки); продаж `main.py` не называет;
+  `backend/cli/sales_commands.py` — перечень `FAILURES`: `SalesNotConnectedError` → код выхода 9 (`EXIT_NOT_CONNECTED`) и подпись «Отказ»;
+  `backend/features/crawl/probe_advertiser.py` — проверка «сборка берёт пробного первым» зовёт отбор рекламодателей по новому имени `Recipients.advertiser_candidates(limit=1)` — тот же запрос сборки (и имя в докстроке);
+  `backend/features/letters/recipients.py` — пути отбора без параметра этапа (`donor_candidates`, `donor_funnel`, `advertiser_candidates`, `advertiser_funnel`);
+  `backend/features/letters/repository.py` — этап разбирает один вход `LetterRepository.candidates`/`funnel` (`match` + `assert_never`), продажам отказ;
+  `backend/features/letters/building.py` — шлюз в `run_scope` до заведения рассылки;
+  `backend/features/letters/sending.py` — шлюз `stages.mail_stage` в `_target` — до выбора транспорта этапа (`transport.of_stage`); `_Target.stage: MailStage`; в `_check_review` после ветки рекламодателей — `stages.donor_path` (446 строк из 500; выбор ящика #202 — `mailbox.choose`, `OwnPathError` — не тронут, шлюз стоит до него);
+  `backend/features/letters/batch.py` — пачка: отказ этапу (`SalesNotConnectedError`) останавливает её с причиной словами, как лимит ящиков, а не как обрыв связи с почтой (+4 строки в `_send_one`);
+  `backend/features/letters/template.py` — `first_letter` и `_followup_prefix` разбором этапа вместо словарей, `CHAINED`, отказ в `followup`;
+  `backend/features/letters/followups.py` — захват только этапов с цепочкой (`_chained`), `Chain.unchained`, `PassReport.waiting` в отчёте рядом с «исход неизвестен» и предупреждение, `SalesNotConnectedError` в `_deliver` (после `MaybeSentError`) возвращает срок;
+  `backend/features/letters/answers.py` — шлюз до заведения письма-ответа;
+  `backend/features/letters/draft.py` — ссылка письма из `first_letter(stage).link`;
+  `backend/features/letters/probe.py` — то же для пробного письма;
+  `tests/test_overview.py` — главная отдаёт все этапы: сверка с `Stage`, а не с парой;
+  `tests/test_probe_donor.py` — отбор доноров больше не принимает этап: тест сборки по проверочному прогону берёт общий вход `LetterRepository.candidates`, тот же, что у сборки;
+  `tests/test_probe_advertiser.py` — тест отказа «сборка берёт не пробного» подменяет `Recipients.advertiser_candidates` (прежнего имени с этапом нет);
+  `.secrets.baseline` — сдвиг строки в `backend/features/core/domain.py` 173 → 178 (ложное срабатывание, хэш тот же);
+  `delivery/complexity-snapshot.json` — снимок ратчета: новый `core/stages.py`, рост файлов почты, `cli/main.py` и `cli/sales_commands.py`.
+  Не тронуты механизм учётки направления — `backend/config/outreach.py` (`mail_account`), `backend/features/letters/transport.py`, `backend/features/letters/transport_factory.py`, `backend/api/events/routes.py`: со значением `sales` ключ событий и учётка продаж берутся им самим. Тесты среза — `tests/test_sales_stage_mail.py` (свой путь). Согласовано: с сессией outreach-donors — ОК на пересечения 1.1b и четыре её обязательные правки (06.10); перенос на #201, #202 и #204 — на её ревью в этом PR (07.10)
 
 ## Что в срезе
 
-- **Шаблоны** — таблица `sales_chain_templates`: набор (гипотеза или общий), шаг (1 — первое письмо,
-  2 и 3 — добивки), язык (`ru`, `en`), тема (только у первого письма — и проверкой базы), тело в формате
-  зон доноров, включён ли, кто и когда правил; ключ «набор, шаг, язык» (`NULLS NOT DISTINCT`). Шаблоны не
-  удаляются — выключаются. Текстов в коде, миграциях и тестах нет.
-- **Правила записи — одни для экрана, консоли и предпросмотра**: тема первого письма обязательна и без
-  «Re:»/«Fwd:»/«Отв:»; у добивок нет темы и зон `rewrite`; метрик Ahrefs нет (`guards.assert_no_metrics`);
-  подстановки — только `{{name}}`, `{{company}}`, `{{site}}`; подписи и физического адреса нет ни зоной, ни
-  подстановкой, ни текстом из «Отправителя»; у первого письма коридор отличия достижим. Отказ — словами —
-  C1–C4.
-- **Набор гипотезы** — своя цепочка на языке целиком, если есть хоть один включённый свой шаг, иначе
-  общая целиком; шаги наборов не смешиваются — C6.
-- **Версия цепочки** — `chain-` и 12 знаков sha256 от включённых шагов цепочки языка; откат правки
-  возвращает версию — C5. **Готовность для 4.6b** — `Chain.check_ready`: неполная цепочка — отказ словами — C7.
-- **API** под `Permission.SALES`: `GET /api/sales/chain[?hypothesis=N]`, `POST /api/sales/chain`,
-  `POST /api/sales/chain/preview` (без записи) — C9.
-- **Консоль** — `outreach sales-chain-load --file цепочка.json [--hypothesis "…"] [--update] [--dry-run]`:
-  файл вне копии репозитория, всё или ничего, повтор не задваивает — C8.
-- **Журнал** — `AuditAction.SALES_CHAIN_CHANGED`: запись шага (прежние значения, версия до и после),
-  загрузка одной записью (версии по языкам); без изменений — без журнала.
-- **Экран** — вкладка «Цепочка писем»: набор, карточки языков, шаги, окно шага, «Показать письмо»;
-  обе темы, 1440 и 390 — C11.
+- **Значение** `Stage.SALES` и ревизия `39e342cb2b21` (`ADD VALUE`, без использования в ней) — A1.
+- **Отказ словами** — один класс и один текст «продажи к почте ещё не подключены»: API 409, консоль
+  код 9 (перечнем консоли продаж), задача — итог «не выполнена» (`permanent`).
+- **Письма** — разбор этапа целиком (`match` + `assert_never`) или шлюз `mail_stage`: отбор и
+  воронка (`LetterRepository`), сборка (`run_scope`), отправка (`_target`, до выбора транспорта
+  этапа) — A2, A5; первое письмо этапа (`template.first_letter`), ссылка в проверке текста и
+  пробном письме; ответ в переписке.
+- **Отправка очереди пачкой** (#191) — кнопка спрашивает мост подключения этапа и продажам отвечает
+  409 словами до задачи; письмо продаж в пачке останавливает её словами отказа, а не «связь с почтой
+  оборвалась».
+- **Добивки** — захват берёт только этапы с цепочкой (`template.CHAINED`), срок продаж цел, проход
+  считает и называет их вслух; отказ этапу при отправке возвращает срок — A4.
+- **Учётка направления** — своей копии выбора у продаж нет: ключ, ключ событий и список
+  разрешённых этапа выбирает общий `config.outreach.mail_account`; со значением `sales` вебхук
+  событий принимает события учётки продаж (тест); письмо продаж отказывается до выбора её
+  транспорта.
+
+## Размер и разрез
+
+| Часть | Коммиты | Файлов | net (+/−) |
+|---|---|---|---|
+| **«а» — эта поставка** | `baf62e4`, `7229840`, `8d34cb5`, `424e45e`, `2ac4c85`, `c678dca` | 23 (+ снимок) | 796 (+865/−69) |
+| «б» — ответы; состояние диалога, которого экран не знает | `75a42ba`, `a9d94da` | 10 (+ снимок) | 449 (+491/−42) |
+| «в» — API, отбор, экран | `9541fd4`, `24b838b` | 9 (+ снимок) | 322 (+344/−22) |
+
+Числа — `breakers:` (`delivery_check`, без `delivery/`): «а» — против main `59deaca` (#199–#204: промпты в каталогах, «цена руками», «отправляется» и свой ящик, два пути к повторному письму, гейт закрытых имён); у «б» и «в» — SHA на ветке переноса, при переносе на main сменятся; «б» — против головы «а», «в» — против головы «б»; предел 25 файлов и 800 строк — в пределах, вейвер не нужен
+(общий код почты — вейвера и нет).
 
 ## Оракулы
 
-- **shape-oracles:** cqg-deployed — ruff и формат, mypy, `scripts/gates.py`, ратчет сложности, гейт слоёв (import-linter и depcruise), ESLint, Prettier, `tsc`, гейты дублей и сложности TS, длина файлов, хуки pre-commit
-- **behavior-oracles:** tests-present — `tests/test_sales_chain.py` (правила записи, набор гипотезы, версия, журнал, ключ и проверки базы, цикл миграции), `tests/test_sales_chain_api.py` (набор, запись, предпросмотр, отказы словами, 403 на каждом маршруте), `tests/test_sales_chain_cli.py` (загрузка: всё или ничего, повтор, `--update`, `--dry-run`, набор гипотезы, файл в репозитории, Ctrl-C), `tests/test_sales_chain_screen.py` (шаги, языки, зоны и подстановки сервера = экрана); vitest `frontend/src/sales/ChainPane.test.tsx` через `serve()`
+- **shape-oracles:** cqg-deployed — ruff и формат, mypy strict, `scripts/gates.py`, ратчет сложности, import-linter, хуки pre-commit, подпись необратимого, `alembic heads`
+- **behavior-oracles:** tests-present — `tests/test_sales_stage_mail.py` (A1, A2, A4, A5, отказ в каждой точке писем, ответ в переписке, консоль и задача, события учётки продаж через общий вебхук, пачка и кнопка отправки очереди) и `tests/test_overview.py` — на настоящей базе дерева; тесты среза и соседей на голове — 1708 passed (70 файлов, с тестами #202 и #201: срез, письма, отправка очередью, ответы, переписка, учётки, события, пробные донор и рекламодатель, консоль, главная, схема); полный pytest — на голове «в»
 - **ci-oracles:** deployed — обязательные `check`, `web`, `docker`; quality — `gates` и `delivery`; шаг волн контура — в `check`
-- **artifact_oracle:** n/a reason=сборка фронта — та же `npm run build` в джобе `web` и образе; новых точек входа нет
-- **runtime_paths:** none reason=шаблоны, правила и журнал судятся тестами на настоящей базе дерева; живой прогон против своего сервера и своей базы — в verify-report (консоль, API, 403, журнал, контраст, рамка, наведение, клавиатура)
-- **rule_enforcers:** n/a reason=срез не вызывает модель: шаблоны — данные для сборки 4.6b, зоны `rewrite` переписывает прежний код доноров; поверхность модели продукта прежняя, строка ниже — слово в слово
+- **artifact_oracle:** n/a reason=сборка не меняется: новый модуль в пакете `backend` берёт поиск пакетов, ревизию исполняет та же `alembic upgrade head` сервиса `migrate`, что и сьют
+- **runtime_paths:** none reason=отправка, пачка, сборка и проход добивок судятся тестами на настоящей базе дерева с `NullTransport` и набором транспортов по этапам; живого письма продаж нет по построению — почта продажам отказывает до выбора транспорта
+- **rule_enforcers:** n/a reason=срез не трогает модель: сборка продаж отказывает до переписывания (тест с моделью, которую звать нельзя); поверхность модели продукта прежняя, строка ниже — слово в слово
 - **stack-selftest:** external (`~/Documents/Prepare`) — вариант D: каноны лежат в корне
   ЛОКАЛЬНО и в коммит не идут (`.git/info/exclude`), поэтому в CI их физически нет и
   `stack_selftest.py` проверять нечего. §7.1 требует записать это, а не умолчать:
   иначе инвариант «payload соответствует канону» выглядит покрытым, не будучи покрыт
   ничем. Сверка снимка с upstream делается перевендориванием из репозитория канона.
-- **model_surface:** `backend/features/keywords/prompts/` (guides · news · reviews · topics) — вызовы модели живут в продукте, а не в срезе. Пины из `backend/config/llm.py`: `LLM_KEYGEN_MODEL` (деф. gpt-5), `LLM_JUDGE_MODEL` (деф. gpt-5-mini), `LLM_LETTERS_MODEL` (деф. gpt-5). ⚠ Объявление исправлено при развёртывании контура 30.09: стояло «none — модель в срезе не вызывается», и это было верно про СРЕЗ и неверно про ПРОДУКТ — доктор поймал расхождение первым же прогоном (`поверхность модели`, DEAD)
+- **model_surface:** backend/features/keywords/prompts/, backend/features/agent/prompts/, backend/features/donors/prompts/, backend/features/letters/prompts/, backend/features/replies/prompts/, backend/config/llm.py <!-- промпты подбора ключей (guides · news · reviews · topics), агента переписки, судьи доноров, переписывания письма и разбора ответа; пины в llm.py: LLM_KEYGEN_MODEL (gpt-5), LLM_JUDGE_MODEL (gpt-5-mini), LLM_LETTERS_MODEL (gpt-5), LLM_AGENT_MODEL (gpt-5); вызовы модели живут в продукте, а не в срезе -->
+  - ⚠ Объявление исправлено при развёртывании контура 30.09: стояло «none — модель в срезе не вызывается», и это было верно про СРЕЗ и неверно про ПРОДУКТ — доктор поймал расхождение первым же прогоном (поверхность модели, DEAD).
+  - Формат строки — пути от корня через запятую, без бэктиков, скобок и прозы, пояснения — в комментарии: так её видит проверка поверхности модели (delivery@2.00). Прежняя строка не совпадала ни с одним файлом дерева.
 - **irreversible_surfaces:** отправка писем донорам, и без человека в цепочке — добивки уходят по расписанию фоновым процессом; страница отписки без пропуска — нажатие постороннего пишет в стоп-лист, снимает письма с очереди и гасит сроки; публикация образов в публичный реестр при каждом слиянии в main; приём ответов вебхуком; трата юнитов Ahrefs и платных провайдеров; публичный репозиторий; автомерж по зелёному; **обход чужих живых сайтов нашим трафиком — чужие машины и наша репутация по IP, отозвать сделанные запросы нельзя**; **письма рекламодателям с доменов Этапа 2 — оффер незваным адресатам: первое уходит по нажатию человека, добивки по расписанию без человека, жалоба бьёт по репутации доменов Этапа 2 и не отзывается**; **копия базы вне машины — по расписанию и перед каждой выкаткой, без человека, дамп с перепиской и адресами уходит в стороннее хранилище (R2 или B2), тексты тревог — в Telegram; отправленное не отзывается**
 
-Четыре строки — `stack:`, `stack-selftest:`, `model_surface:` и `irreversible_surfaces:` — переносятся из
-STATUS main слово в слово. Новых поверхностей необратимого срез не открывает: отправки в срезе нет —
-шаблоны хранятся и правятся, `check_ready` только отвечает сборке 4.6b; правка шаблона обратима и видна в
-журнале. Поверхность «письма продаж незваным адресатам» откроет часть 2 (4.6b) — переподпись тогда.
-
-Строка `waivers:` — постоянный вейвер владельца для модульных срезов продаж (05.10): числа — `delivery_check`
-после переноса на main; общая часть — 126 строк при пределе ~300; список общих файлов отправлен соседней
-сессии до PR.
+Четыре строки — `stack:`, `stack-selftest:`, `model_surface:` и `irreversible_surfaces:` —
+перенести дословно из STATUS main (здесь — копия со STATUS `0d65206` (#202 поверх main `06604c3`), сверено побайтно; `stack:` и
+`model_surface:` при сборке подставит координатор). Новых поверхностей необратимого часть не открывает: она добавляет
+только отказы — письмо, пачка, сборка и добивка продаж не уходят никуда; приём событий учётки продаж —
+тот же вебхук (строка «приём ответов вебхуком» уже есть). Переподпись не нужна.
 
 ## Чего в срезе нет
 
-- Сборки очереди продаж и отправки, веток продаж в `recipients`/`template`/`sending`, ключа с контактом,
-  адреса получателя из лида, обязательного адреса по направлению — часть 2 (4.6b).
-- Письма «вас посоветовал коллега» для лидов `referral` — открытый вопрос (вариант первого письма).
-- Удаления шаблонов и истории текста (кроме журнала).
-- Настоящих текстов писем — только данными в базе, не в репозитории.
+- Ответов продаж (разбор, подтверждение цены, «взять лид», состояние диалога) — часть «б».
+- Журнала сборки, отбора прогона и экрана — часть «в».
+- Правила «продажи подключены» — мост `check_connected` пока отказывает им всегда; правило (своя
+  учётка, отправитель, цепочка) встанет в ветку продаж моста срезом отправки продаж.
+- Настоящих писем и добивок продаж (шаблоны, ящики в балансировке, окна получателя) — Ф4; пробного
+  письма учёткой продаж (`mail-test --stage sales` отказывает: первого письма продаж нет).
