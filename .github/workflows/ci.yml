@@ -72,8 +72,19 @@ jobs:
       - name: Типы
         run: mypy backend/
 
+      # На PR гейт читает и сообщения коммитов PR (`--commits`): они уходят в
+      # публичную историю так же, как файлы, а после слияния их не переписать.
+      # База — ветка назначения, как у проверки волн ниже. На push в main
+      # сообщения уже опубликованы — судить их поздно, гейт идёт по файлам.
       - name: Архитектурные гейты
-        run: python scripts/gates.py
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            git fetch --no-tags origin "+refs/heads/$GITHUB_BASE_REF:refs/remotes/origin/$GITHUB_BASE_REF"
+            python scripts/gates.py --commits "origin/$GITHUB_BASE_REF"
+          else
+            python scripts/gates.py
+          fi
 
       # §3.4a. Необратимое без человека в цепочке требует подписи оператора.
       # Сверяется ИСПОЛНЕНИЕМ: подпись, которую никто не проверил, неотличима

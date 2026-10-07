@@ -6,12 +6,14 @@
 тогда он тает по мере правок. Нам растапливать нечего, и это выигрыш:
 жёсткий ноль сильнее любого ратчета.
 
-Запуск: `python scripts/gates.py [файлы...]`. Без аргументов проверяет всё
-дерево backend, tests и scripts.
+Запуск: `python scripts/gates.py [файлы...] [--commits BASE]`. Без файлов
+проверяет всё дерево backend, tests и scripts; с `--commits` — ещё и сообщения
+коммитов `BASE..HEAD` (CI на PR и pre-push).
 """
 
 from __future__ import annotations
 
+import argparse
 import ast
 import re
 import shutil
@@ -45,7 +47,7 @@ class Violation:
     message: str
 
     def __str__(self) -> str:
-        where = self.path.relative_to(ROOT)
+        where = self.path.relative_to(ROOT) if self.path.is_relative_to(ROOT) else self.path
         return f"{where}:{self.line} [{self.rule}] {self.message}"
 
 
@@ -330,16 +332,68 @@ def check_public_repo(root: Path) -> Iterator[Violation]:
         if _is_contour(path):
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
-        for number, line in enumerate(text.splitlines(), start=1):
-            for pattern, what in PRIVATE_MARKERS:
-                if pattern.search(line):
-                    yield Violation(
-                        path,
-                        number,
-                        "public-repo",
-                        f"{what} в публичном файле — написать обезличенно",
-                    )
-                    break
+        for number, what in _private_lines(text):
+            yield Violation(
+                path, number, "public-repo", f"{what} в публичном файле — написать обезличенно"
+            )
+
+
+def _private_lines(text: str) -> Iterator[tuple[int, str]]:
+    """Строки текста, называющие закрытое: номер строки и что названо."""
+    for number, line in enumerate(text.splitlines(), start=1):
+        for pattern, what in PRIVATE_MARKERS:
+            if pattern.search(line):
+                yield number, what
+                break
+
+
+#: Сообщения коммитов: записи через ноль, в записи — sha строкой и само сообщение.
+_GIT_LOG = ("log", "-z", "--format=%H%n%B", "--end-of-options")
+
+
+def _commit_messages(root: Path, base: str) -> list[tuple[str, str]]:
+    """(sha, сообщение) коммитов `base..HEAD`. Молчит вместо зелёного, если git не ответил."""
+    git = shutil.which("git")
+    if git is None:
+        print("public-repo: git не найден — сообщения коммитов не проверены", file=sys.stderr)
+        return []
+    try:
+        # Снаружи приходит только имя ревизии, и стоит оно после `--end-of-options`:
+        # ключом git его не прочтёт.
+        listed = subprocess.run(  # noqa: S603 — фиксированная команда, путь к git разрешён
+            [git, "-C", str(root), *_GIT_LOG, f"{base}..HEAD", "--"],
+            capture_output=True,
+            check=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        print(
+            f"public-repo: сообщения {base}..HEAD не прочитаны ({exc}) — проверка пропущена",
+            file=sys.stderr,
+        )
+        return []
+    records = listed.stdout.decode("utf-8", errors="replace").split("\0")
+    return [(sha, message) for sha, _, message in (r.partition("\n") for r in records) if sha]
+
+
+def check_commit_messages(root: Path, base: str) -> Iterator[Violation]:
+    """Закрытое не называется и в сообщениях коммитов `base..HEAD`.
+
+    Сообщение уходит в публичную историю так же, как файл, и после слияния его
+    не переписать, а гейт по файлам его не видит: «grep по сообщениям перед
+    пушем» держался на памяти. Число прочитанных сообщений печатается — «чисто»
+    не должно выглядеть так же, как «ничего не прочитано».
+    """
+    messages = _commit_messages(root, base)
+    print(f"public-repo: сообщений коммитов {base}..HEAD — {len(messages)}")
+    for sha, message in messages:
+        for number, what in _private_lines(message):
+            yield Violation(
+                Path(f"коммит {sha[:9]}"),
+                number,
+                "public-repo",
+                f"{what} в сообщении коммита — переписать сообщение обезличенно",
+            )
 
 
 CHECKS = (
@@ -360,8 +414,16 @@ def run(targets: Iterable[Path]) -> list[Violation]:
     return violations
 
 
+def _args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Архитектурные гейты проекта.")
+    parser.add_argument("targets", nargs="*", type=Path, help="файлы; без них — всё дерево")
+    parser.add_argument("--commits", metavar="BASE", help="ещё и сообщения коммитов BASE..HEAD")
+    return parser.parse_args(argv)
+
+
 def main(argv: list[str]) -> int:
-    targets = [Path(a).resolve() for a in argv] or [
+    args = _args(argv)
+    targets = [path.resolve() for path in args.targets] or [
         ROOT / "backend",
         ROOT / "tests",
         ROOT / "scripts",
@@ -369,6 +431,8 @@ def main(argv: list[str]) -> int:
     violations = run(targets)
     violations.extend(check_env_example(ROOT / ".env.example"))
     violations.extend(check_public_repo(ROOT))
+    if args.commits:
+        violations.extend(check_commit_messages(ROOT, args.commits))
     if not violations:
         checked = len(list(_python_files(targets)))
         print(f"Гейты пройдены: {checked} файлов, нарушений нет.")

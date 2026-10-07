@@ -7,12 +7,14 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
 from scripts.gates import (
     MAX_LINES_PROD,
     PRIVATE_DOCUMENTS,
+    check_commit_messages,
     check_config_access,
     check_env_example,
     check_file_length,
@@ -148,8 +150,6 @@ class TestPublicRepo:
 
     @staticmethod
     def _repo(tmp_path: Path, name: str, text: str) -> Path:
-        import subprocess  # noqa: PLC0415 — нужен только здесь, ради списка файлов
-
         (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / name).write_text(text, encoding="utf-8")
         subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
@@ -228,3 +228,45 @@ class TestPublicRepo:
         repo = self._repo(tmp_path, "docs/note.md", "чисто\n")
         (repo / "docs" / "fresh.md").write_text("смета описана в TZ.md\n", encoding="utf-8")
         assert [v.rule for v in check_public_repo(repo)] == ["public-repo"]
+
+
+class TestCommitMessages:
+    """Сообщение коммита уходит в публичную историю так же, как файл, а гейт
+    по файлам его не видит."""
+
+    @staticmethod
+    def _history(tmp_path: Path, base: str, *messages: str) -> str:
+        """Коммит-база и поверх него коммиты PR с этими сообщениями. Возвращает sha базы."""
+
+        def git(*args: str) -> str:
+            command = ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args]
+            done = subprocess.run(command, cwd=tmp_path, check=True, capture_output=True, text=True)
+            return done.stdout
+
+        git("init", "-q")
+        git("commit", "-q", "--allow-empty", "-m", base)
+        sha = git("rev-parse", "HEAD").strip()
+        for message in messages:
+            git("commit", "-q", "--allow-empty", "-m", message)
+        return sha
+
+    def test_private_name_in_a_pr_commit_is_caught(self, tmp_path: Path) -> None:
+        leak = f"Отписка: правила рассылки\n\nРешение — в {PRIVATE_DOCUMENTS[-1]}, раздел о ней"
+        base = self._history(tmp_path, "база", "Письма: очередь пачкой", leak)
+        found = [(v.rule, v.line) for v in check_commit_messages(tmp_path, base)]
+        assert found == [("public-repo", 3)]
+
+    def test_history_under_the_base_is_not_judged(self, tmp_path: Path) -> None:
+        """Сообщение базы уже в main: переписать его нельзя, и PR на нём не краснеет."""
+        base = self._history(tmp_path, f"Старое: {PRIVATE_DOCUMENTS[-1]}.md", "Письма: очередь")
+        assert list(check_commit_messages(tmp_path, base)) == []
+
+    def test_unreadable_base_is_said_aloud(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """База не читается — гейт говорит это и число прочитанных сообщений, ноль."""
+        self._history(tmp_path, "база")
+        assert list(check_commit_messages(tmp_path, "нет-такой-ветки")) == []
+        out, err = capsys.readouterr()
+        assert "сообщений коммитов нет-такой-ветки..HEAD — 0" in out
+        assert "не прочитаны" in err
