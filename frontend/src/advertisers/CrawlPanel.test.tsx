@@ -4,6 +4,8 @@
  * Проверяется то, ради чего панель: видно, кого можно обойти и почему
  * остальных нельзя; запуск уходит на сервер списком отмеченных; ход —
  * числом страниц; отказ и «некому взять» сказаны словами, а не молчанием.
+ * Цена — с валютой, ручная — с пометкой; донор, заведённый вручную, уходит
+ * на сервер как вписан, и что вышло — сказано (07.10.2026).
  */
 
 import { screen, waitFor, within } from '@testing-library/react';
@@ -16,6 +18,7 @@ import { ADMIN, OPERATOR, PROMOTE_ROUTES, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import { crawlState } from './CrawlPanel';
+import { enteredSummary } from './ManualDonor';
 
 function crawl(overrides: Partial<CrawlRow>): CrawlRow {
   return {
@@ -37,12 +40,26 @@ function crawl(overrides: Partial<CrawlRow>): CrawlRow {
   };
 }
 
+/** Текст без неразрывных пробелов разрядов и валюты: «150,00 $». */
+function plain(text: string): string {
+  return text.replace(/[\u00a0\u202f]/g, ' ');
+}
+
 const TARGETS = {
   donors: [
-    { host: 'fresh.example', price: 150, priced_at: '2026-10-01T10:00:00Z', crawl: null },
+    {
+      host: 'fresh.example',
+      price: 150,
+      currency: 'USD',
+      source: 'reply',
+      priced_at: '2026-10-01T10:00:00Z',
+      crawl: null,
+    },
     {
       host: 'running.example',
       price: 200,
+      currency: 'EUR',
+      source: 'manual',
       priced_at: '2026-09-30T10:00:00Z',
       crawl: crawl({}),
     },
@@ -137,11 +154,24 @@ describe('обход доноров', () => {
     expect(screen.queryByRole('button', { name: /Обойти отмеченных/ })).not.toBeInTheDocument();
   });
 
-  it('без права запуска — список без отметок и кнопки', async () => {
+  it('без права запуска — список без отметок и кнопок', async () => {
     open({}, { ...(OPERATOR as object), permissions: ['view'] });
 
     expect(await screen.findByText('fresh.example')).toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: /Обойти/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Завести донора вручную' })).toBeNull();
+  });
+
+  it('цена — с валютой, как её назвали; ручная — с пометкой «вручную»', async () => {
+    open();
+
+    const table = await screen.findByRole('table');
+    const fresh = within(table).getByText('fresh.example').closest('tr')!;
+    const running = within(table).getByText('running.example').closest('tr')!;
+    expect(plain(fresh.textContent ?? '')).toContain('150,00 $');
+    expect(within(fresh).queryByText('вручную')).toBeNull();
+    expect(plain(running.textContent ?? '')).toContain('200,00 €');
+    expect(within(running).getByText('вручную')).toBeVisible();
   });
 
   it('остановленный разбором — красным и с причиной за «!»', async () => {
@@ -199,6 +229,105 @@ describe('обход доноров', () => {
     expect(screen.getByText('статья от 12.03.2014')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Рекламодатели: куплено' })).toBeInTheDocument();
     expect(recorded.calls.some((call) => call.path.endsWith('?verdict=bought'))).toBe(true);
+  });
+});
+
+const ENTERED = {
+  donor_id: 41,
+  host: 'example.com',
+  created: true,
+  suitable: true,
+  price: '150.00',
+  currency: 'EUR',
+};
+
+describe('донор, заведённый вручную', () => {
+  it('вписанное уходит на сервер, и таблица перечитывается', async () => {
+    const recorded = open({ 'POST /api/donors': { body: ENTERED } });
+    const user = userEvent.setup();
+
+    const toggle = await screen.findByRole('button', { name: 'Завести донора вручную' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    const enter = screen.getByRole('button', { name: 'Завести донора' });
+    expect(enter).toBeDisabled();
+    await user.type(
+      screen.getByRole('textbox', { name: 'Домен' }),
+      ' https://www.example.com/blog ',
+    );
+    // Домен без цены — нажимать рано: без цены донора не заводят.
+    expect(enter).toBeDisabled();
+    await user.type(screen.getByRole('textbox', { name: 'Цена' }), '150');
+    await user.clear(screen.getByRole('textbox', { name: 'Валюта' }));
+    await user.type(screen.getByRole('textbox', { name: 'Валюта' }), 'eur');
+    await user.type(screen.getByRole('textbox', { name: 'Откуда цена' }), 'LinkDetective');
+    await user.click(enter);
+
+    expect(
+      await screen.findByText(
+        'Донор example.com заведён вручную: 150,00 €. Обход Этапа 2 его берёт.',
+        { normalizer: plain },
+      ),
+    ).toBeInTheDocument();
+    const sent = recorded.calls.filter((call) => call.method === 'POST');
+    expect(sent.map((call) => [call.path, call.body])).toEqual([
+      [
+        '/api/donors',
+        {
+          host: 'https://www.example.com/blog',
+          price: '150',
+          currency: 'eur',
+          note: 'LinkDetective',
+        },
+      ],
+    ]);
+    // Заведён — поля свёрнуты, а список «кого обходить» перечитан: донор в нём.
+    await waitFor(() => expect(screen.queryByRole('textbox', { name: 'Домен' })).toBeNull());
+    await waitFor(() =>
+      expect(recorded.calls.filter((call) => call.path === '/api/crawls/targets')).toHaveLength(2),
+    );
+  });
+
+  it('отказ сервера — его словами над полями, вписанное на месте', async () => {
+    const refusal =
+      'example.com в стоп-листе: ему не пишем, и донором с ценой его не заводим. Снять запись — на экране «Стоп-лист».';
+    open({ 'POST /api/donors': { status: 409, body: { detail: refusal } } });
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Завести донора вручную' }));
+    await user.type(screen.getByRole('textbox', { name: 'Домен' }), 'example.com');
+    await user.type(screen.getByRole('textbox', { name: 'Цена' }), '150{Enter}');
+
+    expect(await screen.findByText(refusal)).toBeVisible();
+    expect(screen.getByText('Донора не завели')).toBeVisible();
+    expect(screen.getByRole('textbox', { name: 'Домен' })).toHaveValue('example.com');
+    expect(screen.getByRole('textbox', { name: 'Цена' })).toHaveValue('150');
+  });
+
+  it('обходить некого — завести донора вручную всё равно можно', async () => {
+    open({
+      'GET /api/crawls/targets': {
+        body: { ...TARGETS, donors: [], notes: ['Подходящих доноров в базе нет.'] },
+      },
+    });
+
+    expect(await screen.findByRole('button', { name: 'Завести донора вручную' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: /Обойти отмеченных/ })).toBeNull();
+  });
+
+  it.each([
+    [ENTERED, 'Донор example.com заведён вручную: 150,00 €. Обход Этапа 2 его берёт.'],
+    [
+      { ...ENTERED, created: false },
+      'example.com уже был донором — записана цена 150,00 €. Обход Этапа 2 его берёт.',
+    ],
+    [
+      { ...ENTERED, created: false, suitable: false },
+      'example.com уже был донором — записана цена 150,00 €. По порогам отбора он не годен — обход Этапа 2 его не возьмёт.',
+    ],
+  ])('что вышло — словами: %o', (entered, said) => {
+    expect(plain(enteredSummary(entered))).toBe(said);
   });
 });
 

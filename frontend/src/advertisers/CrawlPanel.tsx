@@ -14,6 +14,12 @@
  *
  * **Кандидаты считаются сами** после обхода (задача пересчёта): когда идущих
  * не осталось, очередь рекламодателей ниже перечитывается.
+ *
+ * **Цена — с валютой, ручная — с пометкой** (07.10.2026). Конвертации нет, и
+ * «150» без валюты читалось долларами, даже названное в евро. Цену, которую
+ * агентство знает само, заводят здесь же — «Завести донора вручную»
+ * (`ManualDonor`), и в таблице она помечена «вручную»: на ней держится «мы
+ * дешевле», и цена со слов человека видна как таковая.
  */
 
 import {
@@ -37,11 +43,13 @@ import { refusalOf } from '../api/client';
 import type { CrawlLaunch, CrawlRow, CrawlsView, CrawlTarget, CrawlTargets } from '../api/crawls';
 import { fetchCrawlTargets, fetchCrawls, startCrawls } from '../api/crawls';
 import { useSession } from '../auth/AuthProvider';
-import { formatDate, formatDateTime, formatNumber, formatUsd, plural } from '../format';
+import { formatDate, formatDateTime, formatMoney, formatNumber, plural } from '../format';
 import type { Column } from '../components/ColumnsHead';
 import { ColumnsHead } from '../components/ColumnsHead';
 import { Seams } from '../components/Seams';
 import { RunReason } from '../runs/RunReason';
+import { Unfold } from '../runs/Unfold';
+import { ManualDonor } from './ManualDonor';
 
 export const CRAWL_TARGETS_KEY = ['crawl-targets'] as const;
 export const CRAWLS_KEY = ['crawls'] as const;
@@ -139,19 +147,37 @@ function Skipped({
   );
 }
 
+/** «Цена» — по самой длинной: до 100 000 с копейками и валюта кодом,
+ *  «99 999,99 USDT». До 07.10.2026 колонка была на 7rem — под доллары знаком. */
 const COLUMNS: Column[] = [
   { title: 'Донор' },
-  { title: 'Цена', width: '7rem' },
+  { title: 'Цена', width: '8.5rem' },
   { title: 'Цена от', width: '8rem' },
   { title: 'Последний обход', width: '17rem' },
   { title: 'Ссылок', width: '7rem' },
 ];
 const PICK_WIDTH = '3.25rem';
-/** Уже — прокрутка. Колонки с шириной — 676 px вместе с отметкой; донору
+/** Уже — прокрутка. Колонки с шириной — 700 px вместе с отметкой; донору
  *  остаётся 176 px, как «Донору» в очереди рекламодателей ниже. До 06.10.2026
  *  здесь было 760, и на телефоне донору доставалось 84 px: домен в строку
  *  не помещался и наезжал на цену. */
-const TABLE_MIN_WIDTH = 852;
+const TABLE_MIN_WIDTH = 876;
+
+/** Цена с валютой, как её назвали; ручная — с пометкой под ней. Валюты нет
+ *  (цена до 07.10.2026 без неё) — только число: знак доллара был бы догадкой. */
+function PriceCell({ donor }: { donor: CrawlTarget }) {
+  if (donor.price === null) return <>—</>;
+  return (
+    <Stack gap={0} align="center">
+      <span>{formatMoney(donor.price, donor.currency)}</span>
+      {donor.source === 'manual' ? (
+        <Text size="xs" c="dimmed">
+          вручную
+        </Text>
+      ) : null}
+    </Stack>
+  );
+}
 
 function TargetsTable({
   donors,
@@ -197,7 +223,9 @@ function TargetsTable({
               <Table.Td className="wrapCell cellName">
                 <Seams text={donor.host} />
               </Table.Td>
-              <Table.Td>{donor.price === null ? '—' : formatUsd(donor.price)}</Table.Td>
+              <Table.Td>
+                <PriceCell donor={donor} />
+              </Table.Td>
               <Table.Td>{formatDate(donor.priced_at)}</Table.Td>
               <Table.Td>
                 <CrawlState crawl={donor.crawl} />
@@ -351,9 +379,13 @@ function togglePicked(was: Set<string>, host: string, on: boolean): Set<string> 
   return next;
 }
 
+const MANUAL_FORM_ID = 'manual-donor';
+
 export function CrawlPanel() {
   const { can } = useSession();
+  const queryClient = useQueryClient();
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [entering, setEntering] = useState(false);
   const mayStart = can('run');
   const { targets, recent } = useCrawlData();
   const start = useStartCrawls(() => setPicked(new Set()));
@@ -375,17 +407,43 @@ export function CrawlPanel() {
             mayStart={mayStart}
           />
         ) : null}
-        {offerStart ? (
-          <Group>
+        {/* «Завести донора вручную» — и когда обходить некого: тогда он нужнее
+            всего («сначала прогон Этапа 1 — или донор, заведённый вручную»). */}
+        {mayStart ? (
+          <Group gap="sm">
+            {offerStart ? (
+              <Button
+                className="press"
+                disabled={picked.size === 0}
+                loading={start.isPending}
+                onClick={() => start.mutate([...picked])}
+              >
+                Обойти отмеченных · {formatNumber(picked.size)}
+              </Button>
+            ) : null}
             <Button
+              variant="default"
               className="press"
-              disabled={picked.size === 0}
-              loading={start.isPending}
-              onClick={() => start.mutate([...picked])}
+              aria-expanded={entering}
+              aria-controls={MANUAL_FORM_ID}
+              onClick={() => setEntering((was) => !was)}
             >
-              Обойти отмеченных · {formatNumber(picked.size)}
+              Завести донора вручную
             </Button>
           </Group>
+        ) : null}
+        {mayStart ? (
+          <Unfold open={entering}>
+            <ManualDonor
+              id={MANUAL_FORM_ID}
+              onEntered={() => {
+                setEntering(false);
+                void queryClient.invalidateQueries({ queryKey: CRAWL_TARGETS_KEY });
+                void queryClient.invalidateQueries({ queryKey: ['donors'] });
+              }}
+              onCancel={() => setEntering(false)}
+            />
+          </Unfold>
         ) : null}
         <RecentCrawls view={recent.data} />
       </Stack>
