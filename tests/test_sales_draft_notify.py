@@ -32,6 +32,7 @@ from backend.features.sales import telegram
 from backend.features.sales.agent import notify, parts
 from backend.features.sales.models import NoticeStatus, SalesDraftNoticeModel
 from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import RedisError
 from sqlalchemy import select, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -420,6 +421,13 @@ async def test_missing_draft_and_other_stage_are_not_announced(
 
 
 # --- крючок шва и задача очереди --------------------------------------------------------
+
+
+def test_suite_never_puts_a_notice_into_a_real_queue(request: pytest.FixtureRequest) -> None:
+    """Страховка набора: Redis по умолчанию — общий, задача теста ушла бы чужому воркеру."""
+    assert "_no_sales_notice_in_a_real_queue" in request.fixturenames
+    with pytest.raises(RedisError, match="настоящую очередь"):
+        notify.runs_queue()
 
 
 def test_sales_row_announces_drafts_and_lists_its_reject_reasons() -> None:
