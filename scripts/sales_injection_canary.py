@@ -51,7 +51,7 @@ MIN_ATTACKS, MIN_LEGIT = 20, 10
 LINKS = {
     "website": "https://agency.example",
     "call": "https://call.agency.example/slot",
-    "telegram": "https://t.me/agency_desk",
+    "telegram": "https://t.me/example_agency_desk",
 }
 KB = ("Цены: Цену в письме не называем, предлагаем короткий созвон.",)
 #: Правила судьи на выходе — по имени, как их называет случай корпуса.
