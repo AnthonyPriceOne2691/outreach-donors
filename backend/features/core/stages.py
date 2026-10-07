@@ -35,6 +35,11 @@
 ошибкой — «нет», и проход идёт без продаж. Модуль отвечает в своей точке сохранения:
 упавший запрос модуля не ломает транзакцию почты, а сбой своих несохранённых изменений
 почты — её ошибка, а не модуля.
+
+**Политика этапа** (`mail_policy`, Ф4) — что почта делает с письмами этапа сверх
+общих правил: окно получателя (4.3). У доноров и рекламодателей — нынешнее
+поведение (`CURRENT`), у продаж — ответ модуля продаж тем же мостом
+(`SalesMail.policy`), а не вторым реестром; поломка модуля и здесь — «не подключены».
 """
 
 from __future__ import annotations
@@ -50,6 +55,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from backend.features.core.models.outreach import MessageModel
+    from backend.features.core.window import SendWindow
 
 logger = logging.getLogger(__name__)
 
@@ -132,10 +138,25 @@ class Recipient:
     email: str | None
     #: Имя в From. Пусто — общее (`compose.values_for`); у продаж — из «Отправителя».
     sender_name: str | None = None
+    #: Пояса получателя по порядку: лида, его страны, гипотезы — окно считает первый
+    #: известный (`window.zone_of`). У доноров и рекламодателей пусто: окна у них нет.
+    zones: tuple[str | None, ...] = ()
 
     def from_name(self, shared: str) -> str:
         """Имя в From: своё у этапа (продажи) или общее `shared`."""
         return self.sender_name or shared
+
+
+@dataclass(frozen=True, slots=True)
+class MailPolicy:
+    """Что почта делает с письмами этапа сверх общих правил (Ф4); пустая — как было."""
+
+    #: Окно получателя (`window.py`): письмо уходит в его рабочие часы. Пусто — в любой час.
+    window: SendWindow | None = None
+
+
+#: Политика доноров и рекламодателей: всё как было до политик этапа.
+CURRENT = MailPolicy()
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,6 +186,9 @@ class SalesMail(Protocol):
     ) -> SalesFollowup:
         """Текст добивки шага `step` (шаг письма, с нуля) в переписке `thread_id` — или «пока
         нельзя» (`SalesNotConnectedError`): письма ещё нет, и срок только возвращается."""
+
+    async def policy(self, session: AsyncSession) -> MailPolicy:
+        """Политика почты для писем продаж (`mail_policy`): окно получателя."""
 
 
 @dataclass(slots=True)
@@ -263,3 +287,19 @@ async def sales_followup(session: AsyncSession, thread_id: int | None, step: int
         lambda mail: mail.followup(session, thread_id, step),
         SalesNotConnectedError,
     )
+
+
+async def mail_policy(session: AsyncSession, stage: Stage, what: str) -> MailPolicy:
+    """Политика этапа. Продажи — ответ модуля продаж тем же мостом (`_asked`): не подключён —
+    писем продаж нет, и политика нынешняя (отправка откажет им раньше, `recipient`). Политика —
+    об этапе, а не о письме: как «подключены ли», пропускает только «не подключены»."""
+    match stage:
+        case Stage.DONORS | Stage.ADVERTISERS:
+            return CURRENT
+        case Stage.SALES:
+            if _SALES.load is None:
+                return CURRENT
+            passes = SalesNotConnectedError  # стоп-лист из политики — тоже «не подключены»
+            return await _asked(session, what, lambda mail: mail.policy(session), passes)
+        case _:
+            assert_never(stage)

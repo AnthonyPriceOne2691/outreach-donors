@@ -41,12 +41,14 @@ from backend.features.letters.sending import (
     NoSenderError,
     NotQueuedError,
     NotReadyError,
+    OutsideWindowError,
     RejectedDonorError,
     RemovedAdvertiserError,
     SendError,
     Sending,
     SuppressedError,
     UndecidedDonorError,
+    UnknownZoneError,
 )
 from backend.features.letters.transport import Mail
 from backend.features.letters.unknown_outcome import STUCK_MINUTES
@@ -68,6 +70,9 @@ _WHY: tuple[tuple[type[SendError], str], ...] = (
     (UndecidedDonorError, "донор не принят человеком"),
     (NotReadyError, "письмо не готово к отправке"),
     (NotQueuedError, "уже не в очереди"),
+    # Окно получателя (`core/window.py`): письмо ждёт в очереди его рабочих часов.
+    (OutsideWindowError, "вне окна получателя"),
+    (UnknownZoneError, "пояс получателя неизвестен"),
 )
 #: Отказ предохранителя (`sendgrid.py`): пока список своих адресов не пуст,
 #: письма уходят только на них.

@@ -15,9 +15,14 @@
 в чужую CRM, и отозвать записанное нельзя: на `live` переключает человек,
 а без поддомена, ключа, воронки, этапа или ответственного клиент не
 собирается (`features/sales/kommo.build_kommo`).
+
+**Окно отправки — рабочие часы получателя по его часам** (Ф4, 4.3): дни «1-5» или «1,3,5»
+(1 — понедельник), часы «09:00-17:00»; разбор при старте — опечатка не ждёт первого письма.
 """
 
 from __future__ import annotations
+
+from datetime import time
 
 from pydantic import Field
 
@@ -41,6 +46,37 @@ class _Sales(DomainSettings):
     kommo_responsible_user_id: str = Field(
         default="", validation_alias="SALES_KOMMO_RESPONSIBLE_USER_ID"
     )
+    send_days: str = Field(default="1-5", validation_alias="SALES_SEND_DAYS")
+    send_hours: str = Field(default="09:00-17:00", validation_alias="SALES_SEND_HOURS")
+    # На сколько минут от открытия окна расходятся письма, ждавшие его.
+    send_spread_min: int = Field(default=30, validation_alias="SALES_SEND_SPREAD_MIN")
+
+
+def _days(text: str) -> frozenset[int]:
+    """«1-5» или «1,3,5» → дни недели с нуля (0 — понедельник), как `date.weekday()`."""
+    refusal = f"SALES_SEND_DAYS «{text}»: дни — числа 1…7, например «1-5»"
+    found: set[int] = set()
+    for part in text.split(","):
+        first, _, last = part.strip().partition("-")
+        try:
+            found.update(range(int(first) - 1, int(last or first)))
+        except ValueError as exc:
+            raise ValueError(refusal) from exc
+    if not found or not found <= set(range(7)):
+        raise ValueError(refusal)
+    return frozenset(found)
+
+
+def _hours(text: str) -> tuple[time, time]:
+    """«09:00-17:00» → открытие и закрытие окна; закрытие позже открытия."""
+    start, _, end = text.partition("-")
+    try:
+        opens, closes = time.fromisoformat(start.strip()), time.fromisoformat(end.strip())
+    except ValueError as exc:
+        raise ValueError(f"SALES_SEND_HOURS «{text}»: часы — «09:00-17:00»") from exc
+    if opens >= closes:
+        raise ValueError(f"SALES_SEND_HOURS «{text}»: окно закрывается раньше, чем открывается")
+    return opens, closes
 
 
 _s = _Sales()
@@ -54,6 +90,10 @@ KOMMO_TOKEN: str = _s.kommo_token.strip()
 KOMMO_PIPELINE_ID: str = _s.kommo_pipeline_id.strip()
 KOMMO_STATUS_ID: str = _s.kommo_status_id.strip()
 KOMMO_RESPONSIBLE_USER_ID: str = _s.kommo_responsible_user_id.strip()
+
+SEND_DAYS: frozenset[int] = _days(_s.send_days)
+SEND_OPENS, SEND_CLOSES = _hours(_s.send_hours)
+SEND_SPREAD_MIN: int = _s.send_spread_min
 
 #: Не больше стольких запросов в секунду. Предел Kommo из его документации —
 #: семь в секунду с одного IP для любой интеграции; чаще — 429, а частые 429
