@@ -134,7 +134,11 @@ Domain Authentication, вебхук событий, пробные письма 
      паролем в адресе: своих заголовков платформа не шлёт). Режим
      разобранный: галку «POST the raw, full MIME message» не ставить;
    - Event Webhook на `https://outreach.ДОМЕН/api/events/delivery`,
-     с подписью (Signed Event Webhook);
+     с подписью (Signed Event Webhook), события: Processed, Deferred,
+     Delivered, Bounced, Dropped, Spam Reports. `processed` и `deferred`
+     не для счёта: по ним решается исход письма, на котором оборвалась связь
+     с платформой (`okf/sender-health.md`) — без них такое письмо ждёт
+     доставки, отказа или решения человека на экране писем;
    - Tracking → Subscription Tracking **выключен**: иначе платформа
      допишет в текст письма свою отписку;
    - Click Tracking и Open Tracking выключены. Письмо и так выключает их

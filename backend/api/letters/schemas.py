@@ -292,6 +292,8 @@ class UnknownLetterCard(BaseModel):
     #: Когда началась передача почте. Если письмо ушло, от этого времени
     #: считаются срок добивки и дневной лимит ящика.
     since: datetime
+    #: Переписка письма: добивку и ответ после решения ведёт она, а не очередь.
+    thread_id: int | None
 
     @classmethod
     def of(cls, letter: unknown_outcome.StuckLetter) -> UnknownLetterCard:
@@ -303,6 +305,7 @@ class UnknownLetterCard(BaseModel):
             campaign=letter.campaign,
             what=letter.what,
             since=letter.since,
+            thread_id=letter.message.thread_id,
         )
 
 

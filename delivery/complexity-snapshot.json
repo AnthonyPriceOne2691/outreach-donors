@@ -117,9 +117,9 @@
       "worst": "of:160"
     },
     "backend/api/errors.py": {
-      "lines": 174,
+      "lines": 177,
       "complexity": 3,
-      "worst": "handle:160"
+      "worst": "handle:163"
     },
     "backend/api/events/__init__.py": {
       "lines": 1,
@@ -187,14 +187,14 @@
       "worst": "—"
     },
     "backend/api/letters/routes.py": {
-      "lines": 254,
+      "lines": 287,
       "complexity": 5,
-      "worst": "build:85"
+      "worst": "build:89"
     },
     "backend/api/letters/schemas.py": {
-      "lines": 278,
+      "lines": 333,
       "complexity": 5,
-      "worst": "followups_for:87"
+      "worst": "followups_for:88"
     },
     "backend/api/main.py": {
       "lines": 13,
@@ -1182,9 +1182,9 @@
       "worst": "next_address_note:100"
     },
     "backend/features/letters/batch.py": {
-      "lines": 152,
+      "lines": 156,
       "complexity": 4,
-      "worst": "why:92"
+      "worst": "why:94"
     },
     "backend/features/letters/building.py": {
       "lines": 404,
@@ -1207,9 +1207,9 @@
       "worst": "to_text:83"
     },
     "backend/features/letters/events.py": {
-      "lines": 228,
+      "lines": 267,
       "complexity": 8,
-      "worst": "apply_events:93"
+      "worst": "apply_events:121"
     },
     "backend/features/letters/followups.py": {
       "lines": 418,
@@ -1277,9 +1277,14 @@
       "worst": "_post:139"
     },
     "backend/features/letters/sending.py": {
-      "lines": 490,
+      "lines": 467,
       "complexity": 5,
-      "worst": "_pinned_sender:360"
+      "worst": "_pinned_sender:353"
+    },
+    "backend/features/letters/settle.py": {
+      "lines": 133,
+      "complexity": 6,
+      "worst": "record_sent:69"
     },
     "backend/features/letters/stoplist.py": {
       "lines": 310,
@@ -1305,6 +1310,11 @@
       "lines": 116,
       "complexity": 3,
       "worst": "difference:48"
+    },
+    "backend/features/letters/unknown_outcome.py": {
+      "lines": 350,
+      "complexity": 6,
+      "worst": "_back:269"
     },
     "backend/features/letters/unsubscribe.py": {
       "lines": 98,

@@ -100,3 +100,13 @@ export const PROMOTE_ROUTES: Record<string, Answer> = {
     body: { pending: 0, running: false, job_id: null, last: null, workers: 1 },
   },
 };
+
+/** Блок «Исход неизвестен» на экране писем: зависших писем нет ни на одном этапе.
+ *  Экран спрашивает их на каждом этапе сам, и тест, которому блок не нужен,
+ *  записывает пустой список — промах мимо записанных роняет тест. */
+export const NO_STUCK_LETTERS: Record<string, Answer> = {
+  'GET /api/letters/unknown': { body: { stage: 'donors', letters: [], after_minutes: 5 } },
+  'GET /api/letters/unknown?stage=advertisers': {
+    body: { stage: 'advertisers', letters: [], after_minutes: 5 },
+  },
+};

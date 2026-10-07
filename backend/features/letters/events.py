@@ -131,8 +131,7 @@ async def apply_events(
         if message is None:
             report.unknown += 1
             continue
-        if await _resolves(session, message, event):
-            report.resolved += 1
+        await _settle_if_sending(session, message, event, report)
         await _apply_one(session, message, event, moment, report)
         if event.kind in BOUNCE_EVENTS and message.sender_id is not None:
             checked.add(message.sender_id)
@@ -152,11 +151,14 @@ async def _message_of(session: AsyncSession, event: DeliveryEvent) -> MessageMod
     return await session.get(MessageModel, event.message_id)
 
 
-async def _resolves(session: AsyncSession, message: MessageModel, event: DeliveryEvent) -> bool:
+async def _settle_if_sending(
+    session: AsyncSession, message: MessageModel, event: DeliveryEvent, report: EventReport
+) -> None:
     """Письмо в «отправляется», а платформа о нём сообщила: записать его ушедшим."""
     if message.status is not MessageStatus.SENDING or event.kind not in PROVES_ACCEPTED:
-        return False
-    return await unknown_outcome.settle_by_event(session, message, kind=event.kind)
+        return
+    if await unknown_outcome.settle_by_event(session, message, kind=event.kind):
+        report.resolved += 1
 
 
 async def _apply_one(

@@ -7,6 +7,7 @@ import type {
   SendResult,
 } from './types';
 import { request } from './client';
+import type { ResolveOutcome, ResolvedLetter, UnknownLettersView } from './unknownOutcome';
 
 /** Очередь этапа. Донорам — без параметра: это умолчание сервера. */
 export function listLetters(stage: LetterStage = 'donors'): Promise<LettersView> {
@@ -41,4 +42,16 @@ export interface SendQueueQueued {
 /** Отправить всю очередь этапа пачкой (слово Anthony 06.10.2026). */
 export function sendQueue(stage: LetterStage): Promise<SendQueueQueued> {
   return request<SendQueueQueued>('/letters/send-queue', { method: 'POST', body: { stage } });
+}
+
+/** Письма этапа с неизвестным исходом: зависли в «отправляется» дольше пяти минут. */
+export function listUnknownLetters(stage: LetterStage = 'donors'): Promise<UnknownLettersView> {
+  return request<UnknownLettersView>(
+    stage === 'donors' ? '/letters/unknown' : `/letters/unknown?stage=${stage}`,
+  );
+}
+
+/** Решение человека по журналу платформы: «ушло» или «вернуть в очередь». */
+export function resolveLetter(id: number, outcome: ResolveOutcome): Promise<ResolvedLetter> {
+  return request<ResolvedLetter>(`/letters/${id}/resolve`, { method: 'POST', body: { outcome } });
 }

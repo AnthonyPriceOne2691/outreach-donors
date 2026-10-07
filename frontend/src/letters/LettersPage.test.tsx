@@ -12,7 +12,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
-import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
+import { ADMIN, NO_STUCK_LETTERS, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import type { Call } from '../test/server';
 import { serve } from '../test/server';
@@ -121,6 +121,7 @@ async function openLetters(
     'GET /api/runs/with-accepted': { body: [RUN_WITH_ACCEPTED] },
     // После «Собрать очередь» строка задачи сама спрашивает её исход.
     'GET /api/jobs/j': { body: BUILD_JOB },
+    ...NO_STUCK_LETTERS,
     ...(routes as Record<string, never>),
   });
   renderWith(<AppRoutes />, '/letters');
