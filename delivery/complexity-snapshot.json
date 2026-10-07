@@ -1761,6 +1761,26 @@
       "complexity": 5,
       "worst": "language_of:89"
     },
+    "backend/features/sales/agent/replay.py": {
+      "lines": 405,
+      "complexity": 7,
+      "worst": "run:270"
+    },
+    "backend/features/sales/agent/replay_drafts.py": {
+      "lines": 137,
+      "complexity": 10,
+      "worst": "decided:81"
+    },
+    "backend/features/sales/agent/replay_gate.py": {
+      "lines": 287,
+      "complexity": 8,
+      "worst": "worse_cases:239"
+    },
+    "backend/features/sales/agent/replay_sets.py": {
+      "lines": 239,
+      "complexity": 13,
+      "worst": "_spec:68"
+    },
     "backend/features/sales/agent/safety.py": {
       "lines": 245,
       "complexity": 5,
@@ -2185,6 +2205,11 @@
       "lines": 223,
       "complexity": 11,
       "worst": "load:89"
+    },
+    "scripts/sales_replay.py": {
+      "lines": 201,
+      "complexity": 9,
+      "worst": "execute:91"
     },
     "scripts/sample_keywords.py": {
       "lines": 145,
