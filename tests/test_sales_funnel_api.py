@@ -156,6 +156,7 @@ async def test_a4_screen_numbers_match_a_query_to_the_base(
     since_days: int | None,
     until_days: int | None,
 ) -> None:
+    # A4: числа экрана — запросом к базе в тесте
     first, second, empty = await _world(session)
     since = None if since_days is None else NOW - timedelta(days=since_days)
     until = None if until_days is None else NOW - timedelta(days=until_days)
@@ -186,6 +187,7 @@ async def test_a4_numbers_of_the_whole_period_in_words(
     session: AsyncSession, client: AsyncClient, headers: dict[str, str]
 ) -> None:
     """Те же числа — явно, чтобы ошибка сверки не пряталась в общем правиле теста."""
+    # A4: те же числа явно
     first, second, _ = await _world(session)
 
     body = (await client.get(FUNNEL, headers=headers)).json()

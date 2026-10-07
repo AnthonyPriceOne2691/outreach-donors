@@ -36,6 +36,7 @@ async def _total(session: AsyncSession, period: Period = ALL) -> Funnel:
 async def test_a1_three_letters_to_one_lead_are_one_sent_lead(
     session: AsyncSession, rows: Rows
 ) -> None:
+    # A1: три письма одному лиду — «отправлено» = 1 лид
     hypothesis = await rows.hypothesis("цепочка")
     lead = await rows.lead(hypothesis, "jane@acme.example.test")
     for step in range(3):
@@ -62,6 +63,7 @@ async def test_a1_three_letters_to_one_lead_are_one_sent_lead(
 async def test_a2_out_of_office_is_not_an_answer(
     session: AsyncSession, rows: Rows, kind: ReplyKind, answered: int
 ) -> None:
+    # A2: автоответ — не «ответ»
     hypothesis = await rows.hypothesis("ответы")
     lead = await rows.lead(hypothesis, "olga@beta.example.test")
     await rows.letter(lead, step=0, status=MessageStatus.DELIVERED, days_ago=4)
@@ -75,6 +77,7 @@ async def test_a2_out_of_office_is_not_an_answer(
 async def test_a2_out_of_office_then_a_person_is_one_answer(
     session: AsyncSession, rows: Rows
 ) -> None:
+    # A2: автоответ, затем человек — один ответ
     hypothesis = await rows.hypothesis("ответы")
     lead = await rows.lead(hypothesis, "olga@beta.example.test")
     await rows.letter(lead, step=0, status=MessageStatus.DELIVERED, days_ago=6)
@@ -91,6 +94,7 @@ async def test_a2_out_of_office_then_a_person_is_one_answer(
 async def test_a3_bounced_letter_is_bounced_not_delivered(
     session: AsyncSession, rows: Rows
 ) -> None:
+    # A3: отказ — в «отказ», не в «доставлено»
     hypothesis = await rows.hypothesis("отказы")
     gone = await rows.lead(hypothesis, "nobody@gamma.example.test")
     await rows.letter(gone, step=0, status=MessageStatus.BOUNCED, days_ago=2)
@@ -107,6 +111,7 @@ async def test_a3_bounced_letter_is_bounced_not_delivered(
 async def test_a3_a_later_bounce_outweighs_an_earlier_delivery(
     session: AsyncSession, rows: Rows
 ) -> None:
+    # A3: отказ после доставки — всё равно «отказ»
     hypothesis = await rows.hypothesis("отказы")
     lead = await rows.lead(hypothesis, "ivan@epsilon.example.test")
     await rows.letter(lead, step=0, status=MessageStatus.DELIVERED, days_ago=8)
