@@ -6,9 +6,10 @@
 тогда он тает по мере правок. Нам растапливать нечего, и это выигрыш:
 жёсткий ноль сильнее любого ратчета.
 
-Запуск: `python scripts/gates.py [файлы...] [--commits BASE]`. Без файлов
-проверяет всё дерево backend, tests и scripts; с `--commits` — ещё и сообщения
-коммитов `BASE..HEAD` (CI на PR и pre-push).
+Запуск: `python scripts/gates.py [файлы...] [--commits BASE] [--pr-env]`. Без
+файлов проверяет всё дерево backend, tests и scripts; с `--commits` — ещё и
+сообщения коммитов `BASE..HEAD` (CI на PR и pre-push), с `--pr-env` — заголовок
+и тело PR из окружения. Один `--pr-env` дерево не обходит: это шаг на секунды.
 """
 
 from __future__ import annotations
@@ -44,13 +45,16 @@ WEB_ALLOWED_PARTS = frozenset({"api", "web"})
 
 @dataclass(frozen=True, slots=True)
 class Violation:
-    path: Path
+    #: Файл — или место вне дерева: «коммит <sha>», «заголовок PR», «тело PR».
+    path: Path | str
     line: int
     rule: str
     message: str
 
     def __str__(self) -> str:
-        where = self.path.relative_to(ROOT) if self.path.is_relative_to(ROOT) else self.path
+        where = self.path
+        if isinstance(where, Path) and where.is_relative_to(ROOT):
+            where = where.relative_to(ROOT)
         return f"{where}:{self.line} [{self.rule}] {self.message}"
 
 
@@ -142,14 +146,22 @@ def _is_reporting_call(node: ast.Call) -> bool:
     return isinstance(func, ast.Name) and func.id == "print"
 
 
+#: Кому окружение — вход проверки, а не конфигурация: источник текста PR. Заголовок
+#: и тело приходят в шаг CI только через `env:` — подстановка в `run:` исполнила бы
+#: их как код.
+ENV_INPUT = frozenset({"scripts/public_repo.py"})
+
+
 def check_config_access(path: Path, source: str) -> Iterator[Violation]:
     """Переменные окружения читает только config: иначе опечатка в имени
     прячется от типизатора и всплывает в проде.
 
     Тестовая оснастка исключена намеренно: выбор тестовой базы через
-    окружение — это про запуск, а не про конфигурацию сервиса.
+    окружение — это про запуск, а не про конфигурацию сервиса. Источник
+    текста PR (`ENV_INPUT`) — по той же причине.
     """
-    if "config" in path.parts or "tests" in path.parts:
+    where = (path.relative_to(ROOT) if path.is_relative_to(ROOT) else path).as_posix()
+    if "config" in path.parts or "tests" in path.parts or where in ENV_INPUT:
         return
     for node in ast.walk(ast.parse(source, filename=str(path))):
         if not isinstance(node, ast.Attribute) or node.attr not in {"getenv", "environ"}:
@@ -248,14 +260,31 @@ def check_commit_messages(root: Path, base: str) -> Iterator[Violation]:
     не должно выглядеть так же, как «ничего не прочитано».
     """
     messages = public_repo.commit_messages(root, base)
-    print(f"public-repo: сообщений коммитов {base}..HEAD — {len(messages)}")
+    print(f"public-repo: сообщений коммитов {base}..HEAD — {len(messages)}", flush=True)
     for sha, message in messages:
         for number, what in public_repo.private_lines(message):
             yield Violation(
-                Path(f"коммит {sha[:9]}"),
+                f"коммит {sha[:9]}",
                 number,
                 "public-repo",
                 f"{what} в сообщении коммита — переписать сообщение обезличенно",
+            )
+
+
+def check_pr_text(title: str, body: str) -> Iterator[Violation]:
+    """Заголовок и тело PR: из них GitHub собирает squash-коммит, который уйдёт в main.
+
+    Пустой заголовок — не «чисто», а непереданный вход: у PR заголовок есть всегда.
+    Тела нет — пустая строка, судить в ней нечего.
+    """
+    if not title.strip():
+        raise public_repo.NotJudgedError("заголовок PR пуст — шагу не передан PR_TITLE")
+    lines = len(body.splitlines())
+    print(f"public-repo: текст PR — заголовок и тело, строк в теле: {lines}", flush=True)
+    for where, place, text in (("заголовок PR", "заголовке", title), ("тело PR", "теле", body)):
+        for number, what in public_repo.private_lines(text):
+            yield Violation(
+                where, number, "public-repo", f"{what} в {place} PR — переписать обезличенно"
             )
 
 
@@ -294,11 +323,11 @@ class Verdict:
             self.unjudged += 1
 
 
-def _report(verdict: Verdict, targets: list[Path]) -> int:
-    """Итог в вывод и код выхода."""
+def _report(verdict: Verdict, targets: list[Path] | None) -> int:
+    """Итог в вывод и код выхода. Без файлов (`targets is None`) — только текст PR."""
     if not (verdict.violations or verdict.unjudged):
-        checked = len(list(_python_files(targets)))
-        print(f"Гейты пройдены: {checked} файлов, нарушений нет.")
+        judged = "текст PR" if targets is None else f"{len(list(_python_files(targets)))} файлов"
+        print(f"Гейты пройдены: {judged}, нарушений нет.")
         return 0
     for violation in verdict.violations:
         print(str(violation), file=sys.stderr)
@@ -314,22 +343,35 @@ def _args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--commits", metavar="BASE", help="и сообщения коммитов BASE..HEAD; не прочитаны — красное"
     )
+    parser.add_argument(
+        "--pr-env", action="store_true", help="заголовок и тело PR из PR_TITLE и PR_BODY"
+    )
     return parser.parse_args(argv)
+
+
+def _judges_files(args: argparse.Namespace) -> bool:
+    """Файлы судятся всегда, кроме одного случая: задан только текст PR. Шаг
+    `pr-text.yml` судит заголовок и тело за секунды — обход дерева там лишний."""
+    return not args.pr_env or bool(args.targets or args.commits)
 
 
 def main(argv: list[str]) -> int:
     args = _args(argv)
-    targets = [path.resolve() for path in args.targets] or [
-        ROOT / "backend",
-        ROOT / "tests",
-        ROOT / "scripts",
-    ]
     verdict = Verdict()
-    verdict.collect(run(targets))
-    verdict.collect(check_env_example(ROOT / ".env.example"))
-    verdict.collect(check_public_repo(ROOT))
+    targets = None
+    if _judges_files(args):
+        targets = [path.resolve() for path in args.targets] or [
+            ROOT / "backend",
+            ROOT / "tests",
+            ROOT / "scripts",
+        ]
+        verdict.collect(run(targets))
+        verdict.collect(check_env_example(ROOT / ".env.example"))
+        verdict.collect(check_public_repo(ROOT))
     if args.commits:
         verdict.collect(check_commit_messages(ROOT, args.commits))
+    if args.pr_env:
+        verdict.collect(check_pr_text(*public_repo.pr_text_from_env()))
     return _report(verdict, targets)
 
 

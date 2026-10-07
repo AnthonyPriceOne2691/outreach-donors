@@ -81,6 +81,13 @@ class TestConfigAccess:
         bad = "import os\nDSN = os.getenv('TEST_DSN')\n"
         assert _rules(check_config_access, "tests/conftest.py", bad) == []
 
+    def test_pr_text_source_reads_its_input_from_env(self) -> None:
+        """Текст PR приходит в шаг CI только окружением: для его источника это
+        вход, а не конфигурация. Любой другой скрипт по-прежнему краснеет."""
+        read = "import os\nTITLE = os.environ.get('PR_TITLE', '')\n"
+        assert _rules(check_config_access, "scripts/public_repo.py", read) == []
+        assert _rules(check_config_access, "scripts/other.py", read) == ["config-access"]
+
 
 class TestLayers:
     def test_web_framework_in_domain_module_is_caught(self) -> None:
@@ -292,3 +299,70 @@ class TestCommitMessages:
         code, out, _ = gate(monkeypatch, capsys, tmp_path, "--commits", base)
         assert code == 0
         assert f"сообщений коммитов {base}..HEAD — 2" in out
+
+
+class TestPrText:
+    """Заголовок и тело PR: из них GitHub собирает squash-коммит, который уйдёт
+    в main, а гейт по коммитам их не видит. Текст приходит окружением шага."""
+
+    @staticmethod
+    def _env(monkeypatch: pytest.MonkeyPatch, title: str | None, body: str | None) -> None:
+        for name, value in (("PR_TITLE", title), ("PR_BODY", body)):
+            if value is None:
+                monkeypatch.delenv(name, raising=False)
+            else:
+                monkeypatch.setenv(name, value)
+
+    def test_name_in_title_is_red(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Capture
+    ) -> None:
+        self._env(monkeypatch, f"Отписка по {PRIVATE_DOCUMENTS[0]}", "Что сделано.")
+        code, _, err = gate(monkeypatch, capsys, tmp_path, "--pr-env")
+        assert code == 1
+        assert "заголовок PR:1 [public-repo] имя закрытого документа в заголовке PR" in err
+
+    @pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=["lf", "crlf"])
+    def test_name_in_body_is_red_with_its_line(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Capture, newline: str
+    ) -> None:
+        """Тело из веб-формы GitHub приходит с переводом строки `\\r\\n` — номер тот же."""
+        body = newline.join(["Что сделано", "", f"Решение — в {PRIVATE_DOCUMENTS[0]}"])
+        self._env(monkeypatch, "Письма: очередь пачкой", body)
+        code, _, err = gate(monkeypatch, capsys, tmp_path, "--pr-env")
+        assert code == 1
+        assert "тело PR:3 [public-repo] имя закрытого документа в теле PR" in err
+
+    @pytest.mark.parametrize(
+        "body", ["Что сделано: очередь.\nТесты зелёные.", "", None], ids=["clean", "empty", "null"]
+    )
+    def test_clean_text_or_empty_body_is_green(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Capture, body: str | None
+    ) -> None:
+        """Тела нет (`null` у GitHub — пустая строка или нет переменной) — не ошибка."""
+        self._env(monkeypatch, "Письма: очередь пачкой", body)
+        code, out, _ = gate(monkeypatch, capsys, tmp_path, "--pr-env")
+        assert code == 0
+        assert "нарушений нет" in out
+
+    def test_missing_title_is_not_judged(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Capture
+    ) -> None:
+        """У PR заголовок есть всегда: пустой — непереданный вход, а не «чисто»."""
+        self._env(monkeypatch, None, "Что сделано.")
+        code, _, err = gate(monkeypatch, capsys, tmp_path, "--pr-env")
+        assert code == 1
+        assert "гейт не судил: заголовок PR пуст" in err
+
+    def test_text_alone_does_not_walk_the_tree(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Capture
+    ) -> None:
+        """Один `--pr-env` — секунды: ни обхода кода, ни списка файлов от git."""
+
+        def walk(*_: object) -> None:
+            raise AssertionError("гейт текста PR обошёл дерево")
+
+        monkeypatch.setattr(gates, "_python_files", walk)
+        monkeypatch.setattr(public_repo, "tracked_text_files", walk)
+        self._env(monkeypatch, "Письма: очередь пачкой", "")
+        code, _, _ = gate(monkeypatch, capsys, tmp_path, "--pr-env")
+        assert code == 0

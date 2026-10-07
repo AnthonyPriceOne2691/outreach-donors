@@ -1,8 +1,9 @@
 """Закрытое не называется в публичном: признаки и откуда брать текст.
 
 Признаки — имена закрытых документов, идентификаторы строк закрытого чеклиста
-и одно слово. Текст — файлы, которые уедут в репозиторий, и сообщения коммитов.
-Судит и печатает `scripts/gates.py` (правило `public-repo`), здесь только поиск.
+и одно слово. Текст — файлы, которые уедут в репозиторий, сообщения коммитов,
+заголовок и тело PR. Судит и печатает `scripts/gates.py` (правило
+`public-repo`), здесь только поиск.
 
 Только стандартная библиотека и ни одного соседа: гейт текста запускают
 и голым `python3 -I`, без окружения проекта.
@@ -10,6 +11,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -169,3 +171,15 @@ def _why(exc: Exception) -> str:
     stderr = getattr(exc, "stderr", None) or b""
     lines = stderr.decode("utf-8", errors="replace").strip().splitlines()
     return lines[-1] if lines else str(exc)
+
+
+#: Откуда шаг CI даёт текст PR: только окружение (`env:` шага). Подставить
+#: `${{ github.event.pull_request.title }}` прямо в `run:` — исполнить заголовок
+#: как код: его пишет автор PR.
+PR_ENV = ("PR_TITLE", "PR_BODY")
+
+
+def pr_text_from_env() -> tuple[str, str]:
+    """Заголовок и тело PR из окружения шага. Тела нет (`null`) — пустая строка."""
+    title, body = (os.environ.get(name, "") for name in PR_ENV)
+    return title, body

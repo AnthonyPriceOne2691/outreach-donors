@@ -72,16 +72,21 @@ jobs:
       - name: Типы
         run: mypy backend/
 
-      # На PR гейт читает и сообщения коммитов PR (`--commits`): они уходят в
-      # публичную историю так же, как файлы, а после слияния их не переписать.
-      # База — ветка назначения, как у проверки волн ниже. На push в main
-      # сообщения уже опубликованы — судить их поздно, гейт идёт по файлам.
+      # На PR гейт судит и то, что уйдёт в main вместе с кодом: сообщения коммитов
+      # PR (`--commits`) и заголовок с телом PR (`--pr-env`) — из них GitHub
+      # собирает squash-коммит. Текст PR — только через `env:`: подстановка
+      # выражения в `run:` исполнила бы заголовок как код. Правку текста после
+      # прогона судит pr-text.yml. База — ветка назначения, как у проверки волн
+      # ниже. На push в main сообщения уже опубликованы — гейт идёт по файлам.
       - name: Архитектурные гейты
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           set -euo pipefail
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             git fetch --no-tags origin "+refs/heads/$GITHUB_BASE_REF:refs/remotes/origin/$GITHUB_BASE_REF"
-            python scripts/gates.py --commits "origin/$GITHUB_BASE_REF"
+            python scripts/gates.py --commits "origin/$GITHUB_BASE_REF" --pr-env
           else
             python scripts/gates.py
           fi
