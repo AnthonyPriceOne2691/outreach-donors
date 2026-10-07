@@ -250,6 +250,26 @@ describe('воронка продаж', () => {
     expect(period).toHaveAttribute('data-full-width');
   });
 
+  it('отказ на новом фильтре — словами над прежними числами, а не молча', async () => {
+    await openFunnel({
+      [`GET ${FUNNEL}?hypothesis=8`]: {
+        status: 404,
+        body: { detail: 'гипотезы №8 нет — обновите список гипотез' },
+      },
+    });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('textbox', { name: 'Гипотеза' }));
+    await user.click(
+      await screen.findByRole('option', { name: 'вторая тестовая', hidden: true }, SCREEN_WAIT),
+    );
+
+    const alert = (await screen.findByText('Воронка не загрузилась', {}, SCREEN_WAIT)).closest(
+      '[role="alert"]',
+    );
+    expect(alert).toHaveTextContent('гипотезы №8 нет — обновите список гипотез');
+  });
+
   it('отказ сервера — словами', async () => {
     openFunnelRefused();
 
