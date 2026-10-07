@@ -6,6 +6,12 @@
 и команды консоли. Выключатель читают срезы, которые приносят работу
 продаж; первой — проверка ключей продаж на старте.
 
+**Агент переписки на этапе продаж — своим тумблером, тоже выключен**
+(`SALES_AGENT_ENABLED`): без него строки продаж нет в реестре этапов агента
+(`agent/stages.AGENT_STAGES`) — черновиков ответов лидам модель не пишет, судья
+не зовётся, экран настроек агента этапа продаж не показывает. Включает владелец,
+когда агент замерен на наборе.
+
 **Проверяльщик адресов по умолчанию выдуманный (`fixture`).** Живой стоит
 денег с ключа, общего с соседней системой, и на него переключает человек:
 `SALES_VERIFIER_PROVIDER=live`. Ключ — тот же `CONTACTS_HUNTER_API_KEY`,
@@ -41,6 +47,7 @@ from backend.config._base import DomainSettings
 
 class _Sales(DomainSettings):
     enabled: bool = Field(default=False, validation_alias="SALES_ENABLED")
+    agent_enabled: bool = Field(default=False, validation_alias="SALES_AGENT_ENABLED")
     # `fixture` — вердикты по правилам из адреса, без сети и денег;
     # `live` — Hunter Email Verifier тем же ключом, что ступень 3 поиска.
     verifier_provider: str = Field(default="fixture", validation_alias="SALES_VERIFIER_PROVIDER")
@@ -117,6 +124,8 @@ def _hours(text: str) -> tuple[time, time]:
 _s = _Sales()
 
 ENABLED: bool = _s.enabled
+#: Строка продаж в реестре этапов агента переписки (`agent/stages.SALES_STAGE`).
+AGENT_ENABLED: bool = _s.agent_enabled
 VERIFIER_PROVIDER: str = _s.verifier_provider
 
 KOMMO_PROVIDER: str = _s.kommo_provider

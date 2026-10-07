@@ -33,9 +33,11 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import llm as llm_cfg
+from backend.config import sales as sales_cfg
 from backend.features.agent.settings import AgentSettings, UnknownAgentStageError, defaults
 from backend.features.agent.writer import PROMPT_PATH, PROMPT_VERSION, Turn
 from backend.features.core.domain import DraftStatus, Stage
+from backend.features.sales.agent import parts as sales
 
 
 class PriceSide(StrEnum):
@@ -187,6 +189,29 @@ class AgentStage:
     reject_reasons: tuple[str, ...] = REJECT_REASONS
 
 
+#: Продажи: свой промпт и пин, бриф (ситуация → ход → факты), судья (правила
+#: кодом, затем модель) — частями модуля продаж (`features/sales/agent/parts.py`).
+#: Строка собрана всегда — её берут прогон версии на накопленных ответах и тесты, —
+#: а в реестр встаёт только по тумблеру `SALES_AGENT_ENABLED`: по умолчанию он
+#: выключен, и агент продаж не пишет ни одного черновика, пока владелец его не
+#: включит. Автопилот — решение владельца, не здесь.
+SALES_STAGE = AgentStage(
+    defaults=sales.DEFAULTS,
+    price=PriceSide.SELL,
+    prompt=sales.PROMPT,
+    prompt_version=sales.PROMPT_VERSION,
+    model=sales.MODEL,
+    usage_operation=sales.DRAFT_OPERATION,
+    autopilot=False,
+    brief=sales.brief,
+    guard=sales.guard,
+    guard_operation=sales.JUDGE_OPERATION,
+    on_draft=None,
+    max_rewrites=sales.MAX_REWRITES,
+    title=sales.TITLE,
+    lead=sales.LEAD,
+)
+
 #: Этапы, на которых агент ведёт переписку. Явным реестром, а не всем
 #: `Stage`: новый этап не получает агента молча — без умолчаний и стороны
 #: цены экран упал бы на первом чтении, а агент писал бы чужим промптом.
@@ -204,6 +229,7 @@ AGENT_STAGES: Mapping[Stage, AgentStage] = MappingProxyType(
             title="Рекламодателям",
             lead="Рекламодателям мы продаём размещение: агент отвечает на вопросы и держит цену.",
         ),
+        **({Stage.SALES: SALES_STAGE} if sales_cfg.AGENT_ENABLED else {}),
     }
 )
 

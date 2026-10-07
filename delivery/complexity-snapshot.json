@@ -622,9 +622,9 @@
       "worst": "_own_account:203"
     },
     "backend/config/sales.py": {
-      "lines": 164,
+      "lines": 173,
       "complexity": 6,
-      "worst": "_days:90"
+      "worst": "_days:97"
     },
     "backend/config/serp.py": {
       "lines": 56,
@@ -722,9 +722,9 @@
       "worst": "save:154"
     },
     "backend/features/agent/stages.py": {
-      "lines": 228,
+      "lines": 254,
       "complexity": 4,
-      "worst": "agent_operations:211"
+      "worst": "agent_operations:237"
     },
     "backend/features/agent/writer.py": {
       "lines": 263,
@@ -1745,6 +1745,11 @@
       "lines": 164,
       "complexity": 6,
       "worst": "_move:102"
+    },
+    "backend/features/sales/agent/parts.py": {
+      "lines": 81,
+      "complexity": 1,
+      "worst": "brief:69"
     },
     "backend/features/sales/agent/reading.py": {
       "lines": 131,
