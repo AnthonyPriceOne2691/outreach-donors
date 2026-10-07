@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 TOPIC = "судья черновика продаж"
 PROMPT = Path(__file__).with_name("prompts") / "judge.md"
 #: Меняется при каждой правке промпта: калибровка сравнивает версии.
-PROMPT_VERSION = "sales-judge-v3"
+PROMPT_VERSION = "sales-judge-v4"
 #: Сколько раз спросить судью-модель, если её ответ не разобран: битый ответ — не вердикт,
 #: но и не повод звать модель без конца.
 ATTEMPTS = 2

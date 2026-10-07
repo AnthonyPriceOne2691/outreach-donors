@@ -13,7 +13,7 @@ Return one JSON object with exactly these keys:
 - "promises": every promise or offer the draft makes on our behalf that no record supports — a guarantee, a deadline, a result, a discount, free work, an extra service — each copied from the draft; [] when there is none.
 - "tone": {"ok": true or false, "problem": "<one short sentence in Russian, empty when ok>"}.
 
-Neither claims nor promises: greetings, thanks, questions to the correspondent and the sign-off; the invitation to the "cta" channel and any link from "sender" — that is the call to action, not a statement about us; anything the draft repeats from the correspondent's own letter — their company, site, plans or numbers — except amounts of money.
+Neither claims nor promises: greetings, thanks, questions to the correspondent and the sign-off; the call to action — the words that invite the correspondent to the "cta" channel or to a link from "sender" and say what we will do there ("we will show the details on a short call"), though any other statement in the same sentence — a price, a fact about us, a promise — still counts; anything the draft repeats from the correspondent's own letter — their company, site, plans or numbers — except amounts of money.
 
 Rules:
 - Prices only from the knowledge base: every price, fee, rate or payment amount the draft names — in digits or in words — is a claim, and only a record that names that price supports it.
