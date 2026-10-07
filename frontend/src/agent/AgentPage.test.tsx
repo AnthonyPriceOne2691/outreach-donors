@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
 import type { AgentSettingsBody, AgentStageView, AgentView } from '../api/agent';
+import type { LetterStage } from '../api/types';
 import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
@@ -28,8 +29,18 @@ const ADVERTISERS: AgentSettingsBody = {
   points: ['Назвать цену'],
 };
 
-function stage(name: AgentStageView['stage'], defaults: AgentSettingsBody): AgentStageView {
-  return { stage: name, current: null, defaults, history: [] };
+/** Как этапы приходят из реестра сервера: имя, пояснение и сторона цены. */
+const ABOUT: Record<LetterStage, Pick<AgentStageView, 'title' | 'lead' | 'price_side'>> = {
+  donors: { title: 'Донорам', lead: 'Донорам мы покупаем размещение.', price_side: 'buy' },
+  advertisers: {
+    title: 'Рекламодателям',
+    lead: 'Рекламодателям мы продаём размещение.',
+    price_side: 'sell',
+  },
+};
+
+function stage(name: LetterStage, defaults: AgentSettingsBody): AgentStageView {
+  return { stage: name, ...ABOUT[name], current: null, defaults, history: [] };
 }
 
 const BLANK: AgentView = { stages: [stage('donors', DONORS), stage('advertisers', ADVERTISERS)] };
@@ -128,6 +139,35 @@ describe('агент переписки', () => {
     expect(save).toBeEnabled();
     await user.click(screen.getByRole('button', { name: 'Вернуть действующие' }));
     expect(save).toBeDisabled();
+  });
+
+  it('этап из реестра сервера виден на экране — без правки экрана', async () => {
+    const newcomer: AgentStageView = {
+      stage: 'sales',
+      title: 'Лидам',
+      lead: 'Лидам мы отвечаем фактами из базы знаний.',
+      price_side: 'sell',
+      current: null,
+      defaults: { ...DONORS, goal: 'Довести разговор до созвона' },
+      history: [],
+    };
+    const recorded = await openAgent(
+      { stages: [...BLANK.stages, newcomer] },
+      {
+        'POST /api/agent/settings/sales': { body: { ...VERSION, version: 1 } },
+      },
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByText('Лидам'));
+
+    expect(screen.getByText('Лидам мы отвечаем фактами из базы знаний.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Цель разговора')).toHaveValue('Довести разговор до созвона');
+    expect(screen.getByLabelText('Не дешевле, $')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Сохранить новой версией/ }));
+    await waitFor(() => {
+      expect(recorded.calls.some((call) => call.path === '/api/agent/settings/sales')).toBe(true);
+    });
   });
 
   it('отказ — под полем и до нажатия', async () => {

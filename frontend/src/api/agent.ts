@@ -6,7 +6,7 @@
  */
 
 import { request } from './client';
-import type { LetterStage, SendResult } from './types';
+import type { SendResult } from './types';
 
 /** Как агент ведёт разговор на одном этапе — то, что правит человек. */
 export interface AgentSettingsBody {
@@ -32,7 +32,13 @@ export interface AgentSettingsVersion {
 }
 
 export interface AgentStageView {
-  stage: LetterStage;
+  /** Этап из реестра сервера: своего списка этапов у экрана нет. */
+  stage: string;
+  /** Кому агент пишет на этапе — имя в переключателе — и что он там делает. */
+  title: string;
+  lead: string;
+  /** Предел цены — «не дороже» (`buy`, мы покупаем) или «не дешевле» (`sell`). */
+  price_side: 'buy' | 'sell';
   /** `null` — этап не настраивали, и агент на нём не пишет. */
   current: AgentSettingsVersion | null;
   defaults: AgentSettingsBody;
@@ -48,7 +54,7 @@ export function fetchAgentSettings(): Promise<AgentView> {
 }
 
 export function saveAgentSettings(
-  stage: LetterStage,
+  stage: string,
   body: AgentSettingsBody,
 ): Promise<AgentSettingsVersion> {
   return request<AgentSettingsVersion>(`/agent/settings/${stage}`, { method: 'POST', body });

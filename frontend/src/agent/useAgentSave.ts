@@ -8,16 +8,15 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { saveAgentSettings } from '../api/agent';
 import type { AgentSettingsBody } from '../api/agent';
 import { refusalOf } from '../api/client';
-import type { LetterStage } from '../api/types';
 
 export const AGENT_KEY = ['agent-settings'] as const;
 
 /** После сохранения черновик этапа снимается (`onSaved`): экран показывает
  *  сохранённое, а не набранное. */
-export function useAgentSave(onSaved: (stage: LetterStage) => void) {
+export function useAgentSave(onSaved: (stage: string) => void) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ stage, body }: { stage: LetterStage; body: AgentSettingsBody }) =>
+    mutationFn: ({ stage, body }: { stage: string; body: AgentSettingsBody }) =>
       saveAgentSettings(stage, body),
     onSuccess: async (version, { stage }) => {
       onSaved(stage);

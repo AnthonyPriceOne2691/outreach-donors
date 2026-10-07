@@ -10,6 +10,10 @@
  * черновик агента объясняется той версией, по которой написан. Пока версий
  * у этапа нет, агент на нём не пишет, и экран говорит это словами, а
  * умолчания показывает как отправную точку.
+ *
+ * **Этапы — из реестра сервера** (`AGENT_STAGES`): имя, пояснение и сторона
+ * цены приходят с ними. Своего списка у экрана нет — новый этап встаёт на
+ * экран строкой реестра, без правки здесь.
  */
 
 import { Alert, Badge, Card, Group, Loader, Stack, Text, Title } from '@mantine/core';
@@ -19,7 +23,6 @@ import { useState } from 'react';
 import { fetchAgentSettings } from '../api/agent';
 import type { AgentStageView } from '../api/agent';
 import { refusalOf } from '../api/client';
-import type { LetterStage } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { StageSwitch } from '../components/StageSwitch';
 import { formatDateTime } from '../format';
@@ -29,23 +32,15 @@ import { bodyOf, draftOf, refusalsOf, sameDraft } from './agentDraft';
 import type { AgentDraft } from './agentDraft';
 import { AGENT_KEY, useAgentSave } from './useAgentSave';
 
-/** Что агент делает на этапе и как читается предел цены. */
-const ABOUT: Record<LetterStage, { lead: string; price: string; limit: string }> = {
-  donors: {
-    lead: 'Донорам мы покупаем размещение: агент узнаёт цену и условия и торгуется вниз.',
-    price: 'Не дороже, $',
-    limit: 'не дороже',
-  },
-  advertisers: {
-    lead: 'Рекламодателям мы продаём размещение: агент отвечает на вопросы и держит цену.',
-    price: 'Не дешевле, $',
-    limit: 'не дешевле',
-  },
+/** Как читается предел цены: покупаем — не дороже, продаём — не дешевле. */
+const LIMIT: Record<AgentStageView['price_side'], { price: string; limit: string }> = {
+  buy: { price: 'Не дороже, $', limit: 'не дороже' },
+  sell: { price: 'Не дешевле, $', limit: 'не дешевле' },
 };
 
-type Drafts = Partial<Record<LetterStage, AgentDraft>>;
+type Drafts = Partial<Record<string, AgentDraft>>;
 
-function without(drafts: Drafts, stage: LetterStage): Drafts {
+function without(drafts: Drafts, stage: string): Drafts {
   const rest = { ...drafts };
   delete rest[stage];
   return rest;
@@ -83,7 +78,7 @@ interface StageProps {
   onEdit: (draft: AgentDraft | null) => void;
   /** Сохранён этап — его набранное снимается. Этап приходит из сохранения,
    *  а не из экрана: пока шёл запрос, могли переключиться на другой. */
-  onSaved: (stage: LetterStage) => void;
+  onSaved: (stage: string) => void;
 }
 
 /** Настройки одного этапа: что действует и поля правки. */
@@ -103,7 +98,7 @@ function StageSettings({ view, canEdit, edit, onEdit, onSaved }: StageProps) {
         draft={draft}
         refusals={canEdit ? refusalsOf(draft) : {}}
         canEdit={canEdit}
-        priceLabel={ABOUT[view.stage].price}
+        priceLabel={LIMIT[view.price_side].price}
         onEdit={(change) => onEdit({ ...draft, ...change })}
         save={{
           busy: save.isPending,
@@ -118,11 +113,14 @@ function StageSettings({ view, canEdit, edit, onEdit, onSaved }: StageProps) {
 
 export function AgentPage() {
   const { can } = useSession();
-  const [stage, setStage] = useState<LetterStage>('donors');
+  const [picked, setPicked] = useState<string | null>(null);
   // Черновик у каждого этапа свой: переключение этапа не теряет набранное.
   const [drafts, setDrafts] = useState<Drafts>({});
   const { data, error } = useQuery({ queryKey: AGENT_KEY, queryFn: fetchAgentSettings });
-  const view = data?.stages.find((one) => one.stage === stage);
+  // Пока этап не выбран — первый в реестре.
+  const stages = data?.stages ?? [];
+  const view = stages.find((one) => one.stage === picked) ?? stages.at(0);
+  const stage = view?.stage ?? '';
 
   let content = <Loader size="sm" aria-label="Загружаем настройки агента" />;
   if (error) {
@@ -150,20 +148,28 @@ export function AgentPage() {
     <Stack gap="lg">
       <Card className="glassPanel" p="xl">
         <Stack gap="md">
-          {/* Заголовок и переключатель стоят при любой загрузке и любом
-              отказе, как у писем. */}
+          {/* Заголовок стоит при любой загрузке и любом отказе, как у писем;
+              переключатель — с ответом сервера: этапы знает его реестр. */}
           <Title order={3}>Агент переписки</Title>
           <Text size="sm" c="dimmed" maw={680}>
             Агент готовит черновик ответа собеседнику по этим настройкам, человек правит его и
             отправляет. Сохранение заводит новую версию: черновик объясняется той, по которой
             написан.
           </Text>
-          <StageSwitch label="Этап" value={stage} onChange={setStage} lead={ABOUT[stage].lead} />
+          {view !== undefined && (
+            <StageSwitch
+              label="Этап"
+              value={stage}
+              onChange={setPicked}
+              lead={view.lead}
+              stages={stages.map((one) => ({ value: one.stage, label: one.title }))}
+            />
+          )}
           {content}
         </Stack>
       </Card>
 
-      {view !== undefined && <AgentHistory view={view} limitWord={ABOUT[stage].limit} />}
+      {view !== undefined && <AgentHistory view={view} limitWord={LIMIT[view.price_side].limit} />}
     </Stack>
   );
 }
