@@ -16,6 +16,12 @@
    Отказ модели или неразобранный ответ — `escalate` со словами: судья, который
    не смог проверить, не пропускает, и причина видна человеку.
 
+**Режим — `SALES_JUDGE_MODE`.** `enforce` (по умолчанию) отдаёт шву вердикт как
+есть. `shadow` — для замера: `block` записан словами в попытки черновика и в
+журнал, а шву уходит `allow`, и черновик не задерживается. `escalate` в обоих
+режимах остаётся `escalate`: судья, который не смог проверить, не пропускает и
+в наблюдении. Вердикт без режима — `verdict`: его меряет eval судьи.
+
 **Своего потолка расхода у судьи нет**: в `GuardInput` нет сессии. Потолок
 проверяет шов перед каждым письмом писателя, а расход судьи шов пишет из
 `Verdict.tokens` операцией `sales_judge`.
@@ -30,6 +36,8 @@ from pathlib import Path
 from typing import Any
 
 from backend.config import llm as llm_cfg
+from backend.config import sales as sales_cfg
+from backend.config.sales import SalesJudgeMode
 from backend.features.agent.stages import GuardInput, Verdict, VerdictKind
 from backend.features.sales.agent import calling, facts, judge_rules, reading
 from backend.features.sales.agent.facts import Context
@@ -41,6 +49,8 @@ TOPIC = "судья черновика продаж"
 PROMPT = Path(__file__).with_name("prompts") / "judge.md"
 #: Меняется при каждой правке промпта: калибровка сравнивает версии.
 PROMPT_VERSION = "sales-judge-v1"
+#: Начало причины в режиме наблюдения: вердикт записан, черновик не задержан.
+SHADOW = "shadow"
 
 #: Знаков цитаты в нарушении: дальше — пересказ черновика, а не указание на место.
 MAX_QUOTE = 200
@@ -155,8 +165,8 @@ async def _model(check: GuardInput, context: Context) -> Verdict:
     return Verdict(VerdictKind.ALLOW, tokens=answer.tokens)
 
 
-async def guard(check: GuardInput) -> Verdict:
-    """Вердикт черновику продаж: правила кодом, затем модель."""
+async def verdict(check: GuardInput) -> Verdict:
+    """Вердикт черновику продаж без режима: правила кодом, затем модель."""
     context = facts.read(check.facts)
     why = _unchecked(check, context)
     if why is not None:
@@ -165,3 +175,24 @@ async def guard(check: GuardInput) -> Verdict:
     if broken:
         return Verdict(VerdictKind.BLOCK, tuple(broken))
     return await _model(check, context)
+
+
+def shadowed(found: Verdict) -> Verdict:
+    """Вердикт режима наблюдения: `block` записан словами, а черновик пропущен.
+
+    `escalate` не трогается: не смог проверить — человеку и в наблюдении.
+    """
+    if found.kind is not VerdictKind.BLOCK:
+        return found
+    said = "; ".join(found.reasons)
+    logger.info("%s: режим shadow — вернул бы черновик на правку: %s", TOPIC, said)
+    reasons = tuple(f"{SHADOW} {found.kind.value}: {reason}" for reason in found.reasons)
+    return Verdict(VerdictKind.ALLOW, reasons, tokens=found.tokens)
+
+
+async def guard(check: GuardInput) -> Verdict:
+    """Вердикт черновику продаж в режиме `SALES_JUDGE_MODE` — его получает шов."""
+    found = await verdict(check)
+    if sales_cfg.JUDGE_MODE is SalesJudgeMode.SHADOW:
+        return shadowed(found)
+    return found

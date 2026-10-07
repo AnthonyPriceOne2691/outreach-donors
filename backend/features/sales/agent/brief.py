@@ -30,6 +30,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.config import sales as sales_cfg
 from backend.features.agent.cleaning import ROLE_PLACEHOLDER
 from backend.features.agent.stages import Brief, Conversation, Skip, SkipKind
 from backend.features.agent.writer import Turn
@@ -126,6 +127,7 @@ async def brief(session: AsyncSession, conversation: Conversation) -> Brief:
         "language": language,
         "turn": situation.turn_of(conversation.turns),
         "versions": versions(),
+        "judge_mode": sales_cfg.JUDGE_MODE.value,
     }
     if not sign_as:
         return Brief(skip=Skip(SkipKind.HUMAN, _NO_NAME), meta=meta)

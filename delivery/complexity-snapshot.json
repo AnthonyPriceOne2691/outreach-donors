@@ -622,9 +622,9 @@
       "worst": "_own_account:203"
     },
     "backend/config/sales.py": {
-      "lines": 173,
+      "lines": 207,
       "complexity": 6,
-      "worst": "_days:97"
+      "worst": "_days:128"
     },
     "backend/config/serp.py": {
       "lines": 56,
@@ -1717,9 +1717,9 @@
       "worst": "—"
     },
     "backend/features/sales/agent/brief.py": {
-      "lines": 151,
+      "lines": 153,
       "complexity": 7,
-      "worst": "brief:119"
+      "worst": "brief:120"
     },
     "backend/features/sales/agent/calling.py": {
       "lines": 98,
@@ -1732,9 +1732,9 @@
       "worst": "_of_kind:112"
     },
     "backend/features/sales/agent/judge.py": {
-      "lines": 168,
+      "lines": 199,
       "complexity": 7,
-      "worst": "_ids:63"
+      "worst": "_ids:73"
     },
     "backend/features/sales/agent/judge_rules.py": {
       "lines": 173,

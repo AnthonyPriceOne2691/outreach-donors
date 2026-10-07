@@ -34,15 +34,38 @@
 **Ссылка на диалог** собирается от `SALES_APP_URL` — адреса сервиса, который
 открывает телемаркетолог: до подключения Kommo и при его сбое она заменяет
 ссылку на сделку.
+
+**Судья черновика продаж по умолчанию режет (`enforce`)** — в отличие от судьи
+площадки (`JUDGE_MODE`, наблюдение по умолчанию): черновик продаж читает живой
+человек, и выдуманная цена в нём дороже правки. `shadow` — для замера судьи на
+живых черновиках: вердикт ложится в журнал и в попытки черновика, но черновик
+не задерживает. Судья, который не смог проверить, отдаёт черновик человеку
+в обоих режимах.
+
+**Наборы eval судьи — вне репозитория** (он публичный): каталоги
+`SALES_JUDGE_GOLDEN_DIR` (опора на базу) и `SALES_STYLE_GOLDEN_DIR` (стиль),
+файлы и хэши — в манифестах `scripts/data/sales_*_golden.manifest.json`.
 """
 
 from __future__ import annotations
 
 from datetime import time
+from enum import StrEnum
 
 from pydantic import Field
 
 from backend.config._base import DomainSettings
+
+
+class SalesJudgeMode(StrEnum):
+    """Что судья черновика продаж делает со своим вердиктом.
+
+    ENFORCE — нарушения возвращают черновик писателю на правку, не сошлось — человеку.
+    SHADOW — вердикт пишется в журнал и в попытки черновика, но черновик не задерживает.
+    """
+
+    SHADOW = "shadow"
+    ENFORCE = "enforce"
 
 
 class _Sales(DomainSettings):
@@ -92,6 +115,14 @@ class _Sales(DomainSettings):
     telegram_group_copy: bool = Field(default=True, validation_alias="SALES_TELEGRAM_GROUP_COPY")
     # Адрес сервиса для ссылки на диалог: `https://…` без косой черты в конце.
     app_url: str = Field(default="", validation_alias="SALES_APP_URL")
+
+    # Судья черновика агента продаж: режим (`enforce` — режет, `shadow` — замер) и
+    # каталоги наборов его eval вне репозитория.
+    judge_mode: SalesJudgeMode = Field(
+        default=SalesJudgeMode.ENFORCE, validation_alias="SALES_JUDGE_MODE"
+    )
+    judge_golden_dir: str = Field(default="", validation_alias="SALES_JUDGE_GOLDEN_DIR")
+    style_golden_dir: str = Field(default="", validation_alias="SALES_STYLE_GOLDEN_DIR")
 
 
 def _days(text: str) -> frozenset[int]:
@@ -145,6 +176,9 @@ REPLY_CONFIDENCE: float = _s.reply_confidence
 GOLDEN_DIR: str = _s.golden_dir.strip()
 #: На сколько дней автоответ переносит следующий шаг продаж, если даты в нём нет.
 OOO_DELAY_DAYS: int = _s.ooo_delay_days
+JUDGE_MODE: SalesJudgeMode = _s.judge_mode
+JUDGE_GOLDEN_DIR: str = _s.judge_golden_dir.strip()
+STYLE_GOLDEN_DIR: str = _s.style_golden_dir.strip()
 
 #: Не больше стольких запросов в секунду. Предел Kommo из его документации —
 #: семь в секунду с одного IP для любой интеграции; чаще — 429, а частые 429
