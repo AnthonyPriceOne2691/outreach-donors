@@ -1,6 +1,6 @@
 # Active delivery status
 
-- **slug:** sales-replies (модуль «Продажи», Ф2 одним PR — части 2.1, 2.2, 2.3a и 2.3b: ответ лида продаж своей очередью и своим воркером, вид ответа моделью и путь по виду кодом (волна В3а), «пишите другому» — новый лид той же компании, автоответ переносит шаг, отписка словами закрывает адрес во всех направлениях)
+- **slug:** sales-replies (модуль «Продажи», Ф2 одним PR — части 2.1, 2.2, 2.3a и 2.3b: ответ лида продаж своей очередью и своим воркером, вид ответа моделью и путь по виду кодом (волна В3а), «пишите другому» — новый лид той же компании, автоответ переносит шаг, отписка словами закрывает адрес во всех направлениях; правка консоли доменов рассылки по ревью соседней сессии)
 - **stack:** delivery@2.00 · cqg@2.55 · okf@1.19 · stack-map@1.52
 - **class:** M
 - **kind:** feature
@@ -8,10 +8,10 @@
 - **builder:** agent:claude
 - **verifier:** process:ci — обязательные джобы `check`, `web` и `docker`, на PR ещё `gates` и `delivery`; ревью общего кода ответов, очереди и выкатки — соседняя сессия outreach-donors; слив и выкатка нового сервиса — по слову владельца
 - **human_ok_spec:** yes at=2026-10-07 by=human:anthony («да» на Spec срезов продаж 07.10; план фаз 01.10 — Spec 2.1 A1–A4, 2.2 A1–A8, 2.3 A1–A4; Ф2 одним PR — решение владельца 07.10; пороги разбора ответа 0,8 / ≥ 95 % / 100 % / 0, отписка — адрес во всех направлениях, автоответ — 7 дней — решения владельца 07.10)
-- **waivers:** max_loc_diff=3732 max_files_touched=43 reason=объединённый PR разбора ответов продаж (2.1, 2.2, 2.3a, 2.3b) — решение владельца 07.10: мелкие PR объединяем, чтобы не гонять CI на каждый; модульная часть — постоянный вейвер владельца 05.10; общая часть 28 файлов (+517/−45); ревью общего кода — соседняя сессия by=human:anthony
+- **waivers:** max_loc_diff=3880 max_files_touched=45 reason=объединённый PR разбора ответов продаж (2.1, 2.2, 2.3a, 2.3b) и правка консоли доменов рассылки по ревью соседней сессии — решение владельца 07.10: мелкие PR объединяем, чтобы не гонять CI на каждый; модульная часть — постоянный вейвер владельца 05.10; общая часть 30 файлов (+688/−68); ревью общего кода — соседняя сессия by=human:anthony
 - **new_dependency:** none
 - **выкатка:** новый сервис `worker-sales` (`python -m backend.workers.main --queue sales`, проверка здоровья `python -m backend.workers.health sales`, лимиты 1536m / 1 CPU, в `WRITERS` у `scripts/restore.sh`) — скрипт выкатки соседней сессии: healthy **11 → 12**, `worker-sales` — в список образов (`api worker crawler reaper followups web`); правит та сессия на выкатке, сервис выкатывается по слову владельца
-- **shared_changes:** Ф2 трогает 28 файлов вне масок `SALES_PATHS`; каждый — полным путём один раз, через «;» — что делает каждая часть:
+- **shared_changes:** Ф2 трогает 30 файлов вне масок `SALES_PATHS`; каждый — полным путём один раз, через «;» — что делает каждая часть:
   `backend/shared/queue.py` — 2.1: только добавления — `SALES_QUEUE_NAME = "sales"`, `SALES_REPLY_JOB`, `sales_job_id` (по правилу `parse_job_id`), `sales_queue` (путь соседней сессии);
   `backend/features/ops/job_outcome.py` — 2.1: подпись `SALES_REPLY_JOB: "разбор ответа продаж"` в `KINDS` (рядом с задачами отправки очереди, сборки очереди продаж и черновика агента) и её импорт; `_next_try` — время повтора из отложенных очереди самой задачи (`Queue(job.origin, …)`), попутно чинится и `crawl` (путь соседней сессии);
   `tests/test_job_outcome.py` — 2.1: время повтора задачи из `sales`, `crawl` и `runs` на настоящих `Job`, `Queue`, `ScheduledJobRegistry` rq;
@@ -40,8 +40,10 @@
   `tests/test_prune.py` — 2.3a: решение ссылки `sales_leads.referred_from_thread_id → threads SET NULL` в `REVIEWED` (лид остаётся, теряет ссылку; `runs/prune.py` не тронут);
   `tests/test_prune_test_traces.py` — 2.3a: то же решение во втором реестре (чистка следов проверки), рядом со строками `agent_drafts`;
   `tests/test_replies_inbox.py` — 2.3b: три случая `suppress` (строка одного этапа, общая со сроком, общая бессрочная);
+  `backend/cli/sending_domains.py` — правка консоли доменов рассылки (4.5a) по ревью соседней сессии: выдержка по умолчанию — только домену, с ящиков которого ещё не ушло ни одного письма (пишущему — лишь явным `--young-days`); `--stage`, не совпадающий с этапом ящиков домена, — отказ (код 6) с именами ящиков, строка домена не заводится и не меняется; строка состояния — «на выдержке до … — первые письма с домена не уходят», пауза — с причиной; разбор доводов — отказ словами (`--daily-limit` от 1, `--young-days` от 0, пустая `--pause`, адрес вместо домена, строка без точки; точка на конце снимается);
+  `tests/test_sending_limits.py` — правка консоли: пишущий домен доноров без выдержки, и фильтр его ящик не отсеивает, новый — на выдержке словами; чужой этап — отказ с ящиками, строки нет; отказы разбора и точка на конце;
   `delivery/complexity-snapshot.json` — снимок ратчета.
-  Свои: `backend/features/sales/replies.py`, `backend/features/sales/reply_kind.py`, `backend/features/sales/prompts/reply_kind.md`, `backend/features/sales/referral.py`, `backend/features/sales/ooo.py`, `backend/features/sales/unsubscribe.py`, `backend/features/sales/cleaning.py`, `backend/features/sales/models.py`, `scripts/eval_sales_reply.py`, `scripts/data/sales_reply_synthetic.jsonl`, `scripts/data/sales_reply_golden.manifest.json`, `delivery/contour-waves.md` (В3а → deployed); тесты частей — 2.1: `tests/test_sales_reply_routing.py`; 2.2: `tests/test_sales_reply_kind.py`, `tests/test_sales_reply_eval.py`; 2.3a: `tests/test_sales_referral.py`; 2.3b: `tests/test_sales_ooo_unsubscribe.py`. Правки `_next_try` и `suppress` соседняя сессия подтвердила, ревью — её (07.10); подпись операции в общем `labels.ts` — решение координатора 07.10. согласовано: с сессией outreach-donors — правка _next_try (job.origin) и suppress — её путь, ревью в этом PR; выкатка worker-sales (healthy 12) — предупреждена (07.10)
+  Свои: `backend/features/sales/replies.py`, `backend/features/sales/reply_kind.py`, `backend/features/sales/prompts/reply_kind.md`, `backend/features/sales/referral.py`, `backend/features/sales/ooo.py`, `backend/features/sales/unsubscribe.py`, `backend/features/sales/cleaning.py`, `backend/features/sales/models.py`, `scripts/eval_sales_reply.py`, `scripts/data/sales_reply_synthetic.jsonl`, `scripts/data/sales_reply_golden.manifest.json`, `delivery/contour-waves.md` (В3а → deployed); тесты частей — 2.1: `tests/test_sales_reply_routing.py`; 2.2: `tests/test_sales_reply_kind.py`, `tests/test_sales_reply_eval.py`; 2.3a: `tests/test_sales_referral.py`; 2.3b: `tests/test_sales_ooo_unsubscribe.py`. Правки `_next_try` и `suppress` соседняя сессия подтвердила, ревью — её (07.10); подпись операции в общем `labels.ts` — решение координатора 07.10. согласовано: с сессией outreach-donors — правка _next_try (job.origin) и suppress — её путь, ревью в этом PR; выкатка worker-sales (healthy 12) — предупреждена (07.10); правка консоли доменов рассылки — обязательный пункт её ревью #219, отдельным коммитом в этом PR (07.10)
 
 ## Что в PR
 
@@ -57,20 +59,24 @@
 - **2.3b — автоответ и отписка:** автоответ переносит следующий шаг (дата из текста или 7 дней), отписка закрывает адрес
   во всех направлениях и снимает назначенное; `suppress` пишет бессрочную строку без этапа, даже если у адреса уже есть
   другая.
+- **Консоль доменов рассылки (4.5a) — по ревью соседней сессии:** `outreach sending-domain` не ставит выдержку
+  пишущему домену и не принимает этап, чужой его ящикам; строка состояния говорит то, что увидит отправка; неверные
+  доводы — отказ словами, а не трасса базы.
 
 ## Размер
 
-`delivery_check --diff-base aeb35ff` на голове `8bb3e29` (07.10): `files=43 net_loc=3732 (+3782/-50)`, `excluded=3` — сверх 800 и 25 файлов: четыре части
-одним PR по слову владельца, вейвер на размер — за координатором. По частям (против головы предыдущей): 2.1 —
-files=14 net_loc=715; 2.2 — files=21 net_loc=1812; 2.3a — files=9 net_loc=566; 2.3b — files=11 net_loc=639. Общая часть
-— 28 файлов, +517/−45 (из них тесты общего кода `test_job_outcome.py`, `test_replies_inbox.py`, оба реестра чистки,
-зеркало реестра волн и тест экрана — +113/−3); остальное — модуль продаж, eval и их тесты. Голова миграций —
-`739817077a57` (одна голова).
+`delivery_check --diff-base origin/main` на голове ветки после правки консоли (07.10): `files=45 net_loc=3880
+(+3953/-73)` — сверх 800 и 25 файлов: четыре части и правка консоли одним PR по слову владельца, вейвер на размер —
+за координатором. По частям (против головы предыдущей): 2.1 — files=14 net_loc=715; 2.2 — files=21 net_loc=1812;
+2.3a — files=9 net_loc=566; 2.3b — files=11 net_loc=639; правка консоли — files=2 net_loc=148. Общая часть — 30
+файлов, +688/−68 (из них тесты общего кода `test_job_outcome.py`, `test_replies_inbox.py`, `test_sending_limits.py`,
+оба реестра чистки, зеркало реестра волн и тест экрана — +199/−10); остальное — модуль продаж, eval и их тесты.
+Голова миграций — `739817077a57` (одна голова).
 
 ## Оракулы
 
 - **shape-oracles:** cqg-deployed — ruff и формат, mypy strict, `scripts/gates.py` (в том числе `inline-prompt`), ратчет сложности, import-linter, хуки pre-commit, подпись необратимого, `alembic heads`
-- **behavior-oracles:** tests-present — `tests/test_sales_reply_routing.py`, `tests/test_sales_reply_kind.py`, `tests/test_sales_reply_eval.py`, `tests/test_sales_referral.py`, `tests/test_sales_ooo_unsubscribe.py`, `tests/test_job_outcome.py`, `tests/test_replies_inbox.py`, оба реестра чистки — на настоящей базе дерева, модель — `httpx.MockTransport`; vitest `frontend/src/settings/UsagePage.test.tsx`; тесты частей и соседей на голове `8bb3e29` — 86 файлов, 1908 passed; полный pytest — в verify-report
+- **behavior-oracles:** tests-present — `tests/test_sales_reply_routing.py`, `tests/test_sales_reply_kind.py`, `tests/test_sales_reply_eval.py`, `tests/test_sales_referral.py`, `tests/test_sales_ooo_unsubscribe.py`, `tests/test_job_outcome.py`, `tests/test_replies_inbox.py`, `tests/test_sending_limits.py`, оба реестра чистки — на настоящей базе дерева, модель — `httpx.MockTransport`; vitest `frontend/src/settings/UsagePage.test.tsx`; тесты частей и соседей у агента — 86 файлов, 1908 passed, на голове PR — в verify-report; полный pytest — в verify-report
 - **ci-oracles:** deployed — обязательные `check`, `web`, `docker`; quality — `gates` и `delivery`; шаг волн контура — в `check`
 - **artifact_oracle:** tests/test_package_data.py — промпт продаж объявлен в package-data `backend.features.sales` (колесо образа), а шаг CI «Шаблоны писем и промпты — внутри образа» читает его из site-packages (`reply_kind.load_prompt()`)
 - **runtime_paths:** docker-compose.yml
