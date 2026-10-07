@@ -1716,6 +1716,11 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/sales/agent/brief.py": {
+      "lines": 134,
+      "complexity": 6,
+      "worst": "brief:110"
+    },
     "backend/features/sales/agent/calling.py": {
       "lines": 98,
       "complexity": 3,
