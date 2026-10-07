@@ -23,6 +23,7 @@
 #   STRICT=1 check_diff_coverage.sh     # exit 1: файл < MIN_PCT / грязное дерево
 #   BASE=<ref> …                        # база диффа (дефолт origin/main)
 #   SKIP_TESTS=1 …                      # переиспользовать существующий coverage.json
+#   LINT_COV_FILE=<путь> …              # готовый отчёт джобы тестов; сьют не гоняется
 
 set -uo pipefail
 
@@ -31,6 +32,7 @@ BASE_WAS_SET=${BASE+set}
 BASE=${BASE:-origin/main}
 MIN_PCT=${MIN_PCT:-70}
 SKIP_TESTS=${SKIP_TESTS:-0}
+COV_FILE=${LINT_COV_FILE:-}
 
 BE_DIR=${LINT_BE_DIR:-backend}
 COV_PKG=${LINT_COV_PKG:-features}
@@ -78,17 +80,45 @@ if [[ "${py_tracked:-0}" -eq 0 ]]; then
 fi
 cd "$REPO_ROOT/$BE_DIR" || exit 1
 
+# Интерпретатор РЕЗОЛВИТСЯ, а не берётся из venv вслепую (`cqg@2.48`, починка
+# `ahrefs-cases` от 15.09): джоба CI законно ставит проект в системный питон, и
+# там гейт говорил «pytest-cov не установлен», не спросив питон проекта. Тот же
+# приём и по той же причине стоит в `merge_guard.sh`.
+PY="$VENV/bin/python"
+[[ -x "$PY" ]] || PY=$(command -v python3 || command -v python || true)
+if [[ -z "$PY" ]]; then
+  printf '%s⚠ diff-coverage: питон не найден — покрытие НЕ измерено. Задай LINT_VENV или поставь python3.%s\n' \
+    "$yellow" "$reset"
+  exit 0
+fi
+
 # git diff — от repo-root (git -C): pathspec от корня не матчится из cwd backend/.
+# `--diff-filter=ACMR`: УДАЛЁННЫХ нет намеренно (`cqg@2.48`, поле `ahrefs-cases`).
+# Удалённый файл в отчёте отсутствует, и гейт числил его «не исполнялся тестами
+# вовсе» — требовал покрыть то, чего больше нет. Выхода у такого вердикта не было:
+# тест писать не к чему, а `omit` пишут для живых путей.
 list_changed() { # $1 = base-реф; закоммиченный дифф prod-файлов (без тестов)
-  git -C "$REPO_ROOT" diff --name-only "$1"...HEAD -- "$PY_SRC/*.py" 2>/dev/null \
+  git -C "$REPO_ROOT" diff --name-only --diff-filter=ACMR "$1"...HEAD -- "$PY_SRC/*.py" 2>/dev/null \
     | grep -vE '(^|/)(test|tests|__tests__|spec|specs)/|(^|/)conftest\.py$|(^|/)test[_-]|[_-](test|spec)\.|(Test|Tests|Spec|Specs)\.|\.(test|spec)\.' \
     | sed "s#^$BE_DIR/##"
 }
 
 # Незакоммиченные правки — их дифф-списком не увидеть, а сьют их исполняет:
-# источник ложного зелёного.
+# источник ложного зелёного. Удаление и здесь не правка, которую надо покрыть.
 dirty=$(git -C "$REPO_ROOT" status --porcelain -- "$PY_SRC/*.py" 2>/dev/null \
-  | cut -c4- | grep -vE '(^|/)(test|tests|__tests__|spec|specs)/|(^|/)conftest\.py$|(^|/)test[_-]|[_-](test|spec)\.|(Test|Tests|Spec|Specs)\.|\.(test|spec)\.' || true)
+  | grep -vE '^ ?D' | cut -c4- | grep -vE '(^|/)(test|tests|__tests__|spec|specs)/|(^|/)conftest\.py$|(^|/)test[_-]|[_-](test|spec)\.|(Test|Tests|Spec|Specs)\.|\.(test|spec)\.' || true)
+
+# База обязана РЕЗОЛВИТЬСЯ (`cqg@2.47`). `git diff` ниже глушит ошибки, и на
+# неглубоком клоне без общей истории список изменённого был пуст — гейт печатал
+# зелёное «изменённых prod-файлов нет», не посмотрев никуда. Шаблон §8.3 держит
+# базу шагом «Diff base», но с переносом гейта в проектную джобу тестов (ради
+# одного прогона сьюта) за `fetch-depth: 0` отвечает уже чужой checkout.
+if ! git -C "$REPO_ROOT" merge-base "$BASE" HEAD >/dev/null 2>&1; then
+  printf '%s⚠ diff-coverage: база %s недоступна (нет ref или общей истории с HEAD) — гейт НЕ судил.\n' "$yellow" "$BASE"
+  printf 'В CI: checkout с fetch-depth: 0 и шаг «Diff base» (§8.3). Это не «изменений нет».%s\n' "$reset"
+  [[ "$STRICT" == "1" ]] && exit 1
+  exit 0
+fi
 
 changed=$(list_changed "$BASE")
 
@@ -154,28 +184,59 @@ if [[ -n "$dirty" ]]; then
   echo "$dirty" | sed 's/^/  • /'
 fi
 
-if [[ "$SKIP_TESTS" != "1" ]]; then
+# Готовый отчёт (`LINT_COV_FILE`, `cqg@2.47`): у проекта своя джоба тестов, и
+# второй прогон сьюта ради этого гейта — двойная работа. Поле `outreach-donors`
+# 07.10: сьют шёл в `ci.yml` (9 мин) и ещё раз здесь (7–8 мин) на каждом PR.
+COV_JSON=coverage.json
+if [[ -n "$COV_FILE" ]]; then
+  [[ "$COV_FILE" == /* ]] || COV_FILE="$REPO_ROOT/$COV_FILE"
+  COV_JSON=$COV_FILE
+elif [[ "$SKIP_TESTS" != "1" ]]; then
   echo "diff-coverage: гоняю сьют с coverage (может занять минуты)…"
   # Без pytest-cov гейт раньше падал `ERROR: unrecognized arguments: --cov=…`,
   # то есть отказом, хотя рядом в каноне jscpd в такой же ситуации честно
   # пропускается («инструмента нет»). Один класс — два разных ответа; найдено
   # независимым развёртыванием (lab-4). Отсутствие инструмента — не нарушение
   # правила, а непокрытая область: об этом предупреждают, а не роняют DoD-шаг.
-  if ! "$VENV/bin/python" -c 'import pytest_cov' >/dev/null 2>&1; then
+  if ! "$PY" -c 'import pytest_cov' >/dev/null 2>&1; then
     printf '%s⚠ pytest-cov не установлен — diff-coverage пропущен.%s\n' "$yellow" "$reset"
     printf 'Установка: pip install pytest-cov. Покрытие изменённого кода НЕ измерено —\n'
     printf 'отметь это в verify-report.md, иначе DoD §3.2 закрывается на непроверенном.\n'
     exit 0
   fi
-  "$VENV/bin/python" -m pytest -q --cov="$COV_PKG" --cov-report=json:coverage.json >/dev/null 2>&1
+  # Вывод СОХРАНЯЕТСЯ (`cqg@2.48`, поле `ahrefs-cases`): прежде он уходил в
+  # `/dev/null`, и обрыв сьюта печатался «сьют не отработал?» со знаком вопроса —
+  # pytest причину называл, а гейт её выбрасывал.
+  SUITE_LOG=$(mktemp)
+  "$PY" -m pytest -q --cov="$COV_PKG" --cov-report=json:coverage.json >"$SUITE_LOG" 2>&1 || true
 fi
-if [[ ! -f coverage.json ]]; then
-  echo "${red}coverage.json не найден (сьют не отработал?)${reset}"
+if [[ ! -f "$COV_JSON" ]]; then
+  echo "${red}$COV_JSON не найден — сьют не отработал. Последние строки его вывода:${reset}"
+  [[ -s "${SUITE_LOG:-}" ]] && tail -25 "$SUITE_LOG" | sed 's/^/  │ /'
   exit 1
 fi
 
+# Чужой отчёт ПРИВЯЗАН к коммиту: рядом лежит `<отчёт>.head` с SHA, на котором шёл
+# сьют. Отчёт с другого дерева — класс «ломается привязка, а не гейты»: числа
+# верны, но не про это дерево. Для `LINT_COV_FILE` привязка обязательна; у ручного
+# `SKIP_TESTS=1` её отсутствие называется, а чужой SHA — отказ всегда. Свой
+# прогон сьюта строкой выше привязан по построению и файла не пишет.
+head_now=$(git -C "$REPO_ROOT" rev-parse HEAD)
+head_cov=$(head -n 1 "$COV_JSON.head" 2>/dev/null || true)
+if [[ ( -n "$COV_FILE" || "$SKIP_TESTS" == "1" ) && "$head_cov" != "$head_now" ]]; then
+  if [[ -z "$head_cov" && -z "$COV_FILE" ]]; then
+    printf '%s⚠ у %s нет привязки к коммиту (%s.head) — отчёт мог быть снят с другого дерева%s\n' \
+      "$yellow" "$COV_JSON" "$COV_JSON" "$reset"
+  else
+    printf '%s✗ отчёт покрытия %s снят не с этого коммита: %s, а HEAD — %s.\n' \
+      "$red" "$COV_JSON" "${head_cov:-привязки нет}" "$head_now"
+    printf 'Пиши привязку там же, где сьют: git rev-parse HEAD > %s.head (§3.5).%s\n' "$COV_JSON" "$reset"
+    exit 1
+  fi
+fi
+
 # changed — через env: пайп в `python - <<heredoc` не работает (heredoc занимает stdin).
-CHANGED="$changed" "$VENV/bin/python" - "$MIN_PCT" "$STRICT" <<'PY'
+CHANGED="$changed" COV_JSON="$COV_JSON" "$PY" - "$MIN_PCT" "$STRICT" <<'PY'
 import json
 import os
 import sys
@@ -183,7 +244,7 @@ import sys
 min_pct = float(sys.argv[1])
 strict = sys.argv[2] == "1"
 changed = [line.strip() for line in os.environ.get("CHANGED", "").splitlines() if line.strip()]
-files = json.load(open("coverage.json"))["files"]
+files = json.load(open(os.environ.get("COV_JSON", "coverage.json")))["files"]
 
 # Корни, которые coverage ФАКТИЧЕСКИ измерял (--cov=<pkg>). Отсутствие файла в
 # отчёте имеет ДВЕ разные причины, и путать их нельзя:
