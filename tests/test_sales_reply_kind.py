@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -205,6 +206,23 @@ async def test_a1_call_on_tuesday_is_wants_to_talk_with_a_verbatim_quote(
         77,
         UsageProvider.LLM,
     )
+
+
+async def test_a1_job_with_the_default_handoff_survives_the_production_log_level(
+    monkeypatch: pytest.MonkeyPatch, session: AsyncSession, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Тело задачи с передачей по умолчанию и боевым уровнем журнала (`LOG_LEVEL=INFO`):
+    строка о передаче лида пишется, а не роняет задачу после вызова модели."""
+    quote = "Давайте созвонимся во вторник"
+    reply = await _sales_reply(session, f"{quote}, в 11 удобно?")
+    talk = KindFound(SalesKind.WANTS_TO_TALK, 0.93, quote=quote)
+    _job_body_on_test_base(monkeypatch, session, FakeClassifier(talk))
+
+    with caplog.at_level(logging.INFO, logger="backend.features.sales.replies"):
+        report = await sales_jobs.handle(reply.id)
+
+    assert (report["kind"], report["route"]) == ("wants_to_talk", "handoff")
+    assert any(getattr(r, "thread_id", None) == reply.thread_id for r in caplog.records)
 
 
 # --- A2: вопрос -------------------------------------------------------------------------

@@ -143,7 +143,7 @@ async def mark_for_handoff(_session: AsyncSession, thread_id: int) -> None:
     в одну транзакцию со снимком.
     """
     logger.info(
-        "продажи: лид хочет говорить — передача ждёт своего среза", extra={"thread": thread_id}
+        "продажи: лид хочет говорить — передача ждёт своего среза", extra={"thread_id": thread_id}
     )
 
 
