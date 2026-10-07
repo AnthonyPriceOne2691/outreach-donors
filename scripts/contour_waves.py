@@ -76,7 +76,8 @@ MSG = {
     "later": "{name}: {what} — пока волну судит человек",
     "proof": "{name}: доказательство {path} не найдено в дереве — deployed без улики",
     "rule": "{name}: {what} — без этой улики волна не развёрнута",
-    "prompt": "промпт {file} не назван в model_surface — допиши его путь от корня или каталог, пин модели и схему выхода в model_surface STATUS",
+    "prompt": "промпт {file} не назван в model_surface — назови его в первой строке поля путём от корня, каталогом или маской "
+    "(имя файла и <!-- … --> не в счёт; см. " + REGISTRY + "), там же пин модели и схему выхода",
     "selftest": "stack-selftest: нет ни в " + ACCEPTANCE + ", ни в STATUS — запиши stack-selftest: external (…) "
     "в STACK-ACCEPTANCE, иначе шаг CI «Canon payload selftest» красный",
     "lessons": "срез {slug}: в " + TASKS + " нет раздела «Уроки» с пунктами — прочитай уроки по путям диффа и сошлись на них",
@@ -300,7 +301,8 @@ def _evidence(wave: Wave, tree: Tree) -> list[Finding]:
     if holds and not any(holds(t) for t in texts):
         found.append(bad("rule", name=wave.name, what=what))
     if "sales-prompt" in wave.triggers:
-        # Промпт назван, если его покрывает элемент поля: путь, каталог или маска.
+        # «Назван» — покрыт элементом первой строки поля: путём от корня, каталогом
+        # или маской; имя файла и `<!-- … -->` не в счёт (определение — в реестре).
         surfaces, _ = declared_surfaces(tree.texts.get(STATUS, ""), "model_surface")
         prompts = [p for p in tree.sales if re.search(DETECTORS["sales-prompt"].pattern, p)]
         found += [
