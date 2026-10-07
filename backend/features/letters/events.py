@@ -59,6 +59,7 @@ from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import MessageModel, SenderModel
 from backend.features.letters import unknown_outcome
+from backend.features.outreach import health
 from backend.features.outreach.senders import disable
 
 logger = logging.getLogger(__name__)
@@ -145,7 +146,13 @@ async def apply_events(
             continue
         await _settle_if_pending(session, message, event, moment, report)
         await _apply_one(session, message, event, moment, report)
-        if event.kind in BOUNCE_EVENTS and message.sender_id is not None:
+        if message.sender_id is None:
+            continue
+        # Этап с мягкими сигналами судит ящик своей политикой (`outreach/health.py`).
+        heard = await health.listen(session, message.sender_id, event, moment)
+        if heard.paused is not None:
+            report.paused_domains.append(heard.paused)
+        if event.kind in BOUNCE_EVENTS and not heard.ruled:
             checked.add(message.sender_id)
 
     for sender_id in checked:

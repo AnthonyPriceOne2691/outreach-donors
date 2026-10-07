@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy import (
     DECIMAL,
+    CheckConstraint,
     Float,
     ForeignKey,
     Index,
@@ -77,6 +78,50 @@ class SenderModel(TimestampedMixin, Base):
         Index("idx_senders_stage_status", "stage", "status"),
         Index("idx_senders_domain", "domain"),
     )
+
+
+class SendingDomainModel(TimestampedMixin, Base):
+    """Домен рассылки целиком: дневной лимит на все его ящики, выдержка, пауза.
+
+    Репутация живёт у домена, а не у ящика: два ящика по двадцать писем на одном
+    домене — это сорок писем с домена. Строка не обязательна: домен без неё пишет
+    так, как пишут его ящики (у доноров строк нет — поведение прежнее).
+
+    Состояния не хранится словом: «на паузе» — есть `paused_at`, «на выдержке» —
+    `young_until` впереди. Слово, которое кто-то должен переписывать, однажды
+    перестают переписывать (урок `SenderModel` о счётчике отправленного).
+    """
+
+    __tablename__ = "sending_domains"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    #: Как в `senders.domain`: строка находит свои ящики по имени домена.
+    domain: Mapped[str] = mapped_column(String(253), nullable=False, unique=True)
+    stage: Mapped[Stage] = mapped_column(_enum(Stage), nullable=False)
+    #: Первых писем в сутки со всех ящиков домена (сутки и счёт — как у разгона).
+    daily_limit: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: Пауза домена целиком — с причиной словами и временем.
+    pause_reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: До этой минуты домен не пишет: новый домен выдерживают неделю.
+    young_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (CheckConstraint("daily_limit >= 0", name="ck_sending_domains_daily_limit"),)
+
+
+class SenderHealthModel(Base):
+    """Журнал здоровья ящика строкой; снижение лимита — следствие строк за сутки, не счётчик."""
+
+    __tablename__ = "sender_health"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sender_id: Mapped[int] = mapped_column(ForeignKey("senders.id", ondelete="CASCADE"))
+    #: `deferred`, `blocked`, `complaint`, `limit_cut`, `paused`.
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    detail: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+    __table_args__ = (Index("idx_sender_health_sender_at", "sender_id", "at"),)
 
 
 class CampaignModel(TimestampedMixin, Base):

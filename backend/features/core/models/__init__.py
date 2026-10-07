@@ -13,7 +13,9 @@ from backend.features.core.models.outreach import (
     CampaignModel,
     MessageModel,
     ReplyModel,
+    SenderHealthModel,
     SenderModel,
+    SendingDomainModel,
     ThreadModel,
 )
 from backend.features.core.models.run import RunCandidateModel, RunModel, RunSettingsModel
@@ -50,7 +52,9 @@ __all__ = [
     "SalesLeadModel",
     "SalesSettingsModel",
     "SalesStoplistModel",
+    "SenderHealthModel",
     "SenderModel",
+    "SendingDomainModel",
     "SupplierDonorModel",
     "SuppressionModel",
     "ThreadModel",

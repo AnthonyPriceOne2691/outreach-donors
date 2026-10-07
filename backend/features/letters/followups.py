@@ -51,7 +51,7 @@ from sqlalchemy import ColumnElement, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import outreach as cfg
-from backend.features.core import stages
+from backend.features.core import stages, window
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel
@@ -488,10 +488,10 @@ async def _deliver(
     except (NoSenderError, SendError, SalesNotConnectedError) as exc:
         # Отказ почты этапу — как вставший ящик: срок возвращается, а не
         # теряется, даже если цепочку этапа подключат раньше его писем.
-        await chain.restore(claimed, delay=POSTPONE)
+        await chain.restore(claimed, delay=window.postpone(exc, POSTPONE))  # окно — до открытия
         await session.commit()
         report.postponed += 1
-        logger.warning("добивки: %s — отложена на час (%s)", claimed.host, exc)
+        logger.warning("добивки: %s — отложена (%s)", claimed.host, exc)
         return
 
     await session.commit()

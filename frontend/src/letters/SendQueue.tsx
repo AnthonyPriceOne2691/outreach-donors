@@ -21,12 +21,12 @@ import { useEffect, useState } from 'react';
 
 import { refusalOf } from '../api/client';
 import { sendQueue } from '../api/letters';
-import type { LetterStage } from '../api/types';
+import type { Stage } from '../api/stages';
 import { formatNumber, plural } from '../format';
 import { JobLine } from '../jobs/JobLine';
 import { remember, remembered } from '../storage';
 
-const keyOf = (stage: LetterStage) => `letters:last-send-queue:${stage}`;
+const keyOf = (stage: Stage) => `letters:last-send-queue:${stage}`;
 
 /** Итог пачки одной строкой: что ушло, что нет и почему, что осталось. */
 export function batchLine(report: Record<string, unknown>): string {
@@ -41,7 +41,9 @@ export function batchLine(report: Record<string, unknown>): string {
 }
 
 interface Props {
-  stage: LetterStage;
+  /** Этап очереди — любой, и продажи тоже: сервер отказывает словами, если почта
+   *  этап ещё не ведёт (409), и называет причину в итоге пачки. */
+  stage: Stage;
   count: number;
   /** Почта не подключена или не заполнены обязательные поля письма. */
   blocked: boolean;

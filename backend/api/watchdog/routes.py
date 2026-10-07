@@ -13,7 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.api.deps import db_session, needs
 from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
-from backend.features.ops.silence import Alarm, alarms, probe_providers
+from backend.features.ops.alarms import Alarm
+from backend.features.ops.silence import alarms, probe_providers
 
 router = APIRouter(prefix="/watchdog", tags=["сторож тишины"])
 

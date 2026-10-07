@@ -24,7 +24,9 @@ from backend.features.core import stages
 from backend.features.core.domain import MessageStatus, SenderStatus, Stage
 from backend.features.core.models.outreach import MessageModel, SenderModel
 from backend.features.core.stages import (
+    CURRENT,
     SALES_NOT_CONNECTED,
+    MailPolicy,
     Recipient,
     SalesFollowup,
     SalesNotConnectedError,
@@ -60,6 +62,9 @@ class FakeSalesMail:
     #: Отказ почты, которым модуль ответил на «кому писать» не по смыслу.
     odd: Exception | None = None
     asked: list[str] = field(default_factory=list)
+    #: Политика почты продаж (Ф4, 4.3) и пояса получателя: по умолчанию окна нет.
+    rules: MailPolicy = CURRENT
+    zones: tuple[str | None, ...] = ()
 
     async def _maybe_break(self, session: AsyncSession, answer: str) -> None:
         if answer != self.broken:
@@ -77,7 +82,7 @@ class FakeSalesMail:
         await self._maybe_break(session, "recipient")
         if self.odd is not None:
             raise self.odd
-        return Recipient(Stage.SALES, LEAD_EMAIL, SENDER_NAME)
+        return Recipient(Stage.SALES, LEAD_EMAIL, SENDER_NAME, zones=self.zones)
 
     async def check(self, session: AsyncSession, message: MessageModel) -> None:
         self.asked.append(f"check {message.id}")
@@ -95,6 +100,10 @@ class FakeSalesMail:
         self.asked.append(f"followup {thread_id}:{step}")
         await self._maybe_break(session, "followup")
         return SalesFollowup(body=self.body)
+
+    async def policy(self, session: AsyncSession) -> MailPolicy:
+        await self._maybe_break(session, "policy")
+        return self.rules
 
 
 @pytest.fixture
@@ -326,7 +335,9 @@ async def test_followup_waiting_for_a_box_goes_with_the_text_of_today(
 
 
 @pytest.mark.parametrize("broken_by", ["runtime", "database", "refusal"])
-@pytest.mark.parametrize(("broken", "counts"), [("connected", (1, 0, 1)), ("followup", (1, 1, 0))])
+@pytest.mark.parametrize(
+    ("broken", "counts"), [("connected", (1, 0, 1)), ("followup", (1, 1, 0)), ("policy", (1, 1, 0))]
+)
 async def test_a_broken_sales_module_does_not_stop_the_pass_for_donors(
     session: AsyncSession,
     filled_legal: None,
@@ -337,8 +348,8 @@ async def test_a_broken_sales_module_does_not_stop_the_pass_for_donors(
     broken_by: str,
 ) -> None:
     """Проход добивок общий: поломка модуля продаж его не роняет. Донорская добивка уходит,
-    срок продаж цел — «подключены ли» упало: срок не взят; текст добивки не собрался: срок
-    возвращён на час, — причина в журнале. Упавший запрос модуля не ломает транзакцию почты;
+    срок продаж цел — «подключены ли» упало: срок не взят; текст или политика не получены:
+    срок на час, — причина в журнале. Упавший запрос модуля не ломает транзакцию почты;
     отказ почты, который добивке до письма не подходит (стоп-лист), — тоже «не подключены»."""
     fake.broken, fake.broken_by = broken, broken_by
     due = NOW - timedelta(days=2)
@@ -351,13 +362,13 @@ async def test_a_broken_sales_module_does_not_stop_the_pass_for_donors(
     assert (report.sent, report.postponed, report.waiting) == counts
     await session.refresh(world.letter)
     await session.refresh(donor)
-    later = {"connected": due, "followup": NOW + followups.POSTPONE}
-    assert world.letter.next_action_at == later[broken]
+    later = due if broken == "connected" else NOW + followups.POSTPONE
+    assert world.letter.next_action_at == later
     assert donor.next_action_at is None  # донорская ушла, срок следующей — у её добивки
     assert "ошибка модуля продаж" in caplog.text
 
 
-@pytest.mark.parametrize("broken", ["recipient", "check"])
+@pytest.mark.parametrize("broken", ["recipient", "check", "policy"])
 async def test_a_broken_sales_module_is_said_in_words_and_the_letter_waits(
     session: AsyncSession, filled_legal: None, fake: FakeSalesMail, broken: str
 ) -> None:
@@ -456,14 +467,14 @@ async def test_an_odd_refusal_of_the_module_postpones_the_followup_and_donors_go
     )
     assert step is not None
     assert (step.status, step.sender_id) == (MessageStatus.QUEUED, None)
-    [postponed] = [r.getMessage() for r in caplog.records if "отложена на час" in r.getMessage()]
+    [postponed] = [r.getMessage() for r in caplog.records if "— отложена (" in r.getMessage()]
     assert postponed.endswith(f"{said})")
 
 
 # --- свои изменения почты: их сбой — не ошибка модуля -------------------------------------
 
 
-#: Четыре вопроса почты к мосту о письме продаж.
+#: Пять вопросов почты к мосту о письме продаж (политика этапа — окно 4.3).
 _ASKS: dict[str, Callable[[AsyncSession, MessageModel], Awaitable[object]]] = {
     "connected": lambda session, letter: stages.sales_connected(session),
     "recipient": lambda session, letter: stages.recipient(
@@ -471,6 +482,7 @@ _ASKS: dict[str, Callable[[AsyncSession, MessageModel], Awaitable[object]]] = {
     ),
     "check": stages.check_sales,
     "followup": lambda session, letter: stages.sales_followup(session, letter.thread_id, 1),
+    "policy": lambda session, letter: stages.mail_policy(session, Stage.SALES, "Политика"),
 }
 
 

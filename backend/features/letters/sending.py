@@ -46,7 +46,7 @@ from datetime import UTC, datetime
 from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.core import stages
+from backend.features.core import stages, window
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
@@ -54,6 +54,7 @@ from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, SenderModel
 from backend.features.letters import compose, identity, mailbox, reply_to, settle, unsubscribe
+from backend.features.letters.chain import ANSWER_STEP
 from backend.features.letters.transport import Mail, Outgoing, Transport, TransportError, of_stage
 
 logger = logging.getLogger(__name__)
@@ -97,6 +98,14 @@ class NoSenderError(SendError):
 
 class OwnPathError(SendError):
     """Добивка или ответ пришли не своим путём: без ящика переписки не уходят."""
+
+
+class OutsideWindowError(window.DeferredError, SendError):
+    """Вне окна получателя: первое письмо ждёт в очереди, добивка — открытия окна."""
+
+
+class UnknownZoneError(window.DeferredError, SendError):
+    """Окно этапа есть, а пояса получателя нет ни у лида, ни у страны, ни у гипотезы."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,6 +218,7 @@ class Sending:
         await self._check_suppression(target)
         await self._check_review(target)
         check_ready(target.message.body or "", what=f"Письмо №{target.message.id}")
+        await self._check_window(target)
 
         sender = await self._sender(target, from_sender_id)
         own = own_headers(target.message.id, sender_email=sender.email, real=transport.real)
@@ -343,6 +353,18 @@ class Sending:
                 f"Рекламодателя {target.host} сняли после сборки письма №{target.message.id}: "
                 "его отсеял стоп-лист поставщиков или общий. Письмо стоит убрать из очереди"
             )
+
+    async def _check_window(self, target: _Target) -> None:
+        """Окно получателя — если его задаёт политика этапа (`core/window.py`). Ответ
+        в переписке окна и политики не ждёт: собеседник написал сам и ждёт ответа сейчас."""
+        if target.message.step >= ANSWER_STEP:
+            return
+        what = f"Письмо №{target.message.id}"
+        frame = (await stages.mail_policy(self._session, target.to.stage, what)).window
+        late = window.check(frame, target.to.zones, self._moment())
+        if late is not None:
+            kind = UnknownZoneError if late.delay is None else OutsideWindowError
+            raise kind(f"{what}: {late.words}", delay=late.delay)
 
     async def _check_suppression(self, target: _Target) -> None:
         """Стоп-лист на двух уровнях: адрес блокирует себя, донор — все свои

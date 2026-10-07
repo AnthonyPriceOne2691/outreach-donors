@@ -12,10 +12,18 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
-from backend.api.senders.schemas import DisableRequest, SenderCard, SendersView
+from backend.api.senders.schemas import (
+    DirectionLimit,
+    DisableRequest,
+    DomainLimit,
+    SenderCard,
+    SendersView,
+)
+from backend.config import outreach as cfg
 from backend.features.access.repository import AccessRepository
-from backend.features.core.domain import AuditAction, Permission
+from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
+from backend.features.outreach import limits
 from backend.features.outreach import senders as rules
 from backend.features.outreach.repository import OutreachRepository
 
@@ -32,9 +40,26 @@ async def all_senders(
     repository = OutreachRepository(session)
     found = await repository.senders()
     today = await repository.sent_today()
+    # Лимиты домена и направления считают первые письма — тем же счётом, что фильтр.
+    first = await repository.sent_today(first_only=True)
+    rows = await limits.sending_domains(session)
     return SendersView(
         senders=[SenderCard.of(s, sent_today=today.get(s.id, 0)) for s in found],
         enabled_domains=len(await repository.enabled_domains()),
+        domains=[
+            DomainLimit.model_validate(row).model_copy(
+                update={"sent_today": sum(first.get(s.id, 0) for s in found if s.domain == name)}
+            )
+            for name, row in sorted(rows.items())
+        ],
+        directions=[
+            DirectionLimit(
+                stage=stage,
+                daily_limit=cfg.direction_limit(stage.value),
+                sent_today=sum(first.get(s.id, 0) for s in found if s.stage is stage),
+            )
+            for stage in Stage
+        ],
     )
 
 

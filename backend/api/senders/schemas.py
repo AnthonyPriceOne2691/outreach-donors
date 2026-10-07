@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
-from backend.features.core.domain import SenderStatus
+from backend.features.core.domain import SenderStatus, Stage
 from backend.features.core.models.outreach import SenderModel
 from backend.features.outreach.senders import Warmup, warmup_state
 
@@ -25,6 +25,8 @@ class SenderCard(BaseModel):
     id: int
     domain: str
     email: str
+    #: Направление ящика: у этапов домены отправки свои.
+    stage: Stage
     enabled: bool
     status: SenderStatus
     sent_today: int
@@ -44,6 +46,7 @@ class SenderCard(BaseModel):
             id=sender.id,
             domain=sender.domain,
             email=sender.email,
+            stage=sender.stage,
             enabled=sender.enabled,
             status=sender.status,
             sent_today=sent_today,
@@ -63,9 +66,35 @@ class DisableRequest(BaseModel):
     reason: str = "выключено вручную"
 
 
+class DomainLimit(BaseModel):
+    """Домен рассылки строкой `sending_domains`. `sent_today` — первые письма со всех
+    ящиков домена: тот же счёт, что у лимита и разгона (`outreach/limits.py`)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    domain: str
+    stage: Stage
+    daily_limit: int
+    sent_today: int = 0
+    young_until: datetime | None = None
+    paused_at: datetime | None = None
+    pause_reason: str | None = None
+
+
+class DirectionLimit(BaseModel):
+    """Направление целиком: дневной лимит (пусто — своего нет) и первые письма за сутки."""
+
+    stage: Stage
+    daily_limit: int | None
+    sent_today: int
+
+
 class SendersView(BaseModel):
     """Список ящиков и ответ на единственный вопрос, который задаёт экран
-    перед выключением: останется ли чем отправлять."""
+    перед выключением: останется ли чем отправлять. Домены и направления —
+    лимиты сверх ящика (`outreach/limits.py`)."""
 
     senders: list[SenderCard]
     enabled_domains: int
+    domains: list[DomainLimit] = []
+    directions: list[DirectionLimit] = []

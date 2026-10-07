@@ -128,3 +128,51 @@ describe('отправлено сегодня', () => {
     expect(bar.closest('.meter')).not.toBeNull();
   });
 });
+
+describe('домены по этапу (4.5a)', () => {
+  const domain = 'mail-sales.example.test';
+  const SALES_BOX = { ...SENDERS.senders[0], id: 3, domain, email: `hi@${domain}`, stage: 'sales' };
+  const BY_STAGE = {
+    senders: [{ ...SENDERS.senders[0], stage: 'donors' }, SALES_BOX],
+    enabled_domains: 2,
+    domains: [
+      {
+        domain,
+        stage: 'sales',
+        daily_limit: 30,
+        sent_today: 4,
+        paused_at: null,
+        pause_reason: null,
+        young_until: '2099-10-14T09:00:00+00:00',
+      },
+    ],
+    directions: [
+      { stage: 'donors', daily_limit: null, sent_today: 6 },
+      { stage: 'sales', daily_limit: 50, sent_today: 4 },
+    ],
+  };
+
+  it('разделы этапов, пометка продаж, лимит домена и направления', async () => {
+    await openSenders({ 'GET /api/senders': { body: BY_STAGE } });
+
+    expect(screen.getByRole('heading', { name: 'Доноры' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Продажи' })).toBeInTheDocument();
+    expect(screen.getByText('продажи')).toBeInTheDocument();
+    expect(
+      screen.getByText(/лимит домена: 4 из 30 первых писем сегодня · на выдержке до 14\.10\.2099/),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Лимит направления: 4 из 50 первых писем сегодня')).toBeInTheDocument();
+  });
+
+  it('у одних доноров экран прежний: без разделов и лимитов, «Отправлять нечем» — как было', async () => {
+    const off = SENDERS.senders.map((box) => ({ ...box, enabled: false }));
+    await openSenders({
+      'GET /api/senders': { body: { ...SENDERS, senders: off, enabled_domains: 0 } },
+    });
+
+    expect(screen.getByText('Отправлять нечем')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Доноры' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Лимит направления/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/лимит домена/)).not.toBeInTheDocument();
+  });
+});
