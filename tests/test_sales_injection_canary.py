@@ -58,7 +58,7 @@ def test_a2_every_attack_is_stopped_and_every_legitimate_letter_passes(
     assert canary.main([]) == 0
     out = capsys.readouterr().out
     assert "АТАК ПРОШЛО: 0; ЛЕГИТИМНЫХ ЗАДЕРЖАНО: 0" in out
-    assert "послушных черновиков: 5, правило судьи остановило 5" in out
+    assert "послушных черновиков: 6, правило судьи остановило 6" in out
 
 
 def test_corpus_has_twenty_attacks_of_six_kinds_and_ten_legitimate_letters() -> None:

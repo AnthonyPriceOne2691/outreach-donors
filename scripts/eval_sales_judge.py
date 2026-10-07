@@ -5,7 +5,8 @@
     python scripts/eval_sales_judge.py                  # синтетика из репозитория
     python scripts/eval_sales_judge.py --golden         # «опора на базу»: $SALES_JUDGE_GOLDEN_DIR
     python scripts/eval_sales_judge.py --style          # «стиль»: $SALES_STYLE_GOLDEN_DIR
-    python scripts/eval_sales_judge.py --spoil          # порча — обязан покраснеть
+    python scripts/eval_sales_judge.py --spoil          # порча «обещаний» — обязан покраснеть
+    python scripts/eval_sales_judge.py --spoil prices   # порча «цен» — для сравнения
     python scripts/eval_sales_judge.py --out run.json   # итог ещё и файлом
 
 **Набор «опора на базу»** (Spec 3.4, набор 2): письмо собеседника, строки брифа
@@ -32,9 +33,12 @@
 **Ворота — предложение, решает владелец:** опасных поймано не меньше 95 %, ложных
 block на хороших не больше 10 % (`--dangerous-min`, `--false-block-max`); ниже — exit 1.
 
-**Порча** (`--spoil`) снимает строку правила «цены только из базы» из промпта
-генератора и промпта судьи: на живой модели eval обязан покраснеть. Обратный прогон
-пишется файлом (`--out`) и ложится в verify-report среза.
+**Порча** (`--spoil`) снимает одно правило из промпта генератора и промпта судьи —
+строку с его якорем (`RULES`): на живой модели eval обязан покраснеть. По умолчанию —
+«обещания»: их ловит только судья-модель. «Цены» (`--spoil prices`) — для сравнения:
+цифры ловят правила кодом (суммы — только из базы), а цену прописью — утверждение без
+опоры, поэтому снятая строка цен нагрузки не несёт (прогон калибровки 07.10). Обратный
+прогон пишется файлом (`--out`) и ложится в verify-report среза.
 
 Модель зовётся по-настоящему — нужен `LLM_API_KEY`; запускает координатор по слову
 владельца. Механика ворот — `tests/test_sales_judge_eval.py` на записанных ответах.
@@ -72,8 +76,10 @@ DATA = Path(__file__).parent / "data"
 SYNTHETIC = DATA / "sales_judge_synthetic.jsonl"
 MANIFEST = DATA / "sales_judge_golden.manifest.json"
 STYLE_MANIFEST = DATA / "sales_style_golden.manifest.json"
-#: Строка правила, которую снимает порча, — в обоих промптах она одна.
-PRICE_RULE = "prices only from the knowledge base"
+#: Правила, которые снимает порча, — якорь строки в обоих промптах: строка с ним одна.
+RULES = {"promises": "promise or offer", "prices": "prices only from the knowledge base"}
+RULE_WORDS = {"promises": "обещания только из базы", "prices": "цены только из базы"}
+PRICE_RULE = RULES["prices"]
 GOOD, GENERATE = "good", "generate"
 VIOLATIONS = ("price", "promise", "language", "two_cta", "foreign_link", "claim", "deferral",
               "form", "tone")  # fmt: skip
@@ -96,7 +102,8 @@ class Gates:
 @dataclass(frozen=True, slots=True)
 class Result:
     case_id: str
-    #: Вид случая; у `generate` — по оракулу: `price` (назвал цену) или `good`.
+    #: Вид случая; у `generate` — по оракулу: вид опасного (`danger` случая, по умолчанию
+    #: `price`), если черновик нарушил `never`, иначе `good`.
     kind: str
     draft: str
     #: Вердикт судьи; `None` — генератор сам отдал черновик человеку.
@@ -126,7 +133,8 @@ class Result:
 class Prompts:
     judge: Path = judge.PROMPT
     reply: Path = parts.PROMPT
-    spoiled: bool = False
+    #: Какое правило снято: `None` — промпты целы.
+    spoiled: str | None = None
     versions: dict[str, str] = field(default_factory=dict)
 
 
@@ -173,29 +181,30 @@ def golden(directory: str, manifest: Path) -> list[dict[str, Any]]:
 # --- порча промпта ----------------------------------------------------------------------
 
 
-def without_price_rule(prompt: str) -> str:
-    """Промпт без строки правила «цены только из базы» — порча для обратного прогона."""
-    kept = [line for line in prompt.splitlines() if PRICE_RULE not in line.casefold()]
+def without_rule(prompt: str, rule: str) -> str:
+    """Промпт без строки правила `rule` (`RULES`) — порча для обратного прогона."""
+    anchor = RULES[rule]
+    kept = [line for line in prompt.splitlines() if anchor not in line.casefold()]
     if len(kept) == len(prompt.splitlines()):
-        raise SetError("в промпте нет правила «цены только из базы» — портить нечего")
+        raise SetError(f"в промпте нет правила «{RULE_WORDS[rule]}» — портить нечего")
     return "\n".join(kept)
 
 
 @contextmanager
-def prompts(*, spoil: bool) -> Iterator[Prompts]:
-    """Промпты прогона; с порчей — копии без правила цен во временном каталоге."""
-    if not spoil:
+def prompts(*, spoil: str | None) -> Iterator[Prompts]:
+    """Промпты прогона; с порчей — копии без правила `spoil` во временном каталоге."""
+    if spoil is None:
         yield Prompts(versions={"judge": judge.PROMPT_VERSION, "reply": parts.PROMPT_VERSION})
         return
     with tempfile.TemporaryDirectory(prefix="sales-judge-spoil-") as folder:
-        spoiled = Prompts(spoiled=True)
+        spoiled = Prompts(spoiled=spoil)
         for name, source in (("judge", judge.PROMPT), ("reply", parts.PROMPT)):
             target = Path(folder) / f"{name}.md"
-            target.write_text(without_price_rule(load_prompt(source)), encoding="utf-8")
+            target.write_text(without_rule(load_prompt(source), spoil), encoding="utf-8")
             setattr(spoiled, name, target)
         spoiled.versions = {
-            "judge": f"{judge.PROMPT_VERSION}+spoiled",
-            "reply": f"{parts.PROMPT_VERSION}+spoiled",
+            "judge": f"{judge.PROMPT_VERSION}+spoiled-{spoil}",
+            "reply": f"{parts.PROMPT_VERSION}+spoiled-{spoil}",
         }
         yield spoiled
 
@@ -255,7 +264,7 @@ async def _generated(case: dict[str, Any], writer: AgentWriter, used: Prompts) -
         print(f"  генератор не ответил на {case['id']}: {exc}")
         return Result(case["id"], GOOD, "", None, (f"генератор не ответил: {exc}",), generated=True)
     named = any(re.search(pattern, written.body) for pattern in case["never"])
-    kind = "price" if named else GOOD
+    kind = case.get("danger", "price") if named else GOOD
     if written.needs_human or not written.body.strip():
         why = (written.reason or "генератор отдал черновик человеку",)
         return Result(
@@ -329,7 +338,7 @@ def report(results: list[Result], numbers: dict[str, Any], used: Prompts) -> Non
     if made:
         named = [r for r in made if r.dangerous]
         print(
-            f"генератор: случаев {len(made)}, назвал цену {len(named)}, судья не пропустил "
+            f"генератор: случаев {len(made)}, нарушил запрет never {len(named)}, судья не пропустил "
             f"{sum(r.stopped for r in named)}, отдал человеку сам {sum(r.verdict is None for r in made)}"
         )
     for r in (r for r in results if r.wrong):
@@ -396,7 +405,10 @@ def _args(argv: list[str]) -> argparse.Namespace:
     which = parser.add_mutually_exclusive_group()
     which.add_argument("--golden", action="store_true", help="набор «опора на базу» по манифесту")
     which.add_argument("--style", action="store_true", help="набор «стиль» по манифесту")
-    parser.add_argument("--spoil", action="store_true", help="без правила «цены только из базы»")
+    parser.add_argument(
+        "--spoil", nargs="?", const="promises", choices=sorted(RULES), default=None,
+        help="снять правило из обоих промптов: promises (по умолчанию) или prices",
+    )  # fmt: skip
     default = Gates()
     parser.add_argument("--dangerous-min", type=float, default=default.dangerous_min)
     parser.add_argument("--false-block-max", type=float, default=default.false_block_max)
@@ -433,7 +445,8 @@ def main(argv: list[str], *, golden_dir: str | None = None, style_dir: str | Non
             raise SetError("LLM_API_KEY не задан — eval судьи зовёт модель, без неё чисел нет")
         with prompts(spoil=args.spoil) as used:
             if used.spoiled:
-                print("ПОРЧА ПРОМПТА: снято правило «цены только из базы» у генератора и судьи")
+                words = RULE_WORDS[used.spoiled]
+                print(f"ПОРЧА ПРОМПТА: снято правило «{words}» у генератора и судьи")
             results = asyncio.run(run(cases, used))
     except SetError as exc:
         print(f"НАБОР НЕ ПРОЧИТАН: {exc}")

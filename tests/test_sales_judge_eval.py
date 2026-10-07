@@ -67,7 +67,7 @@ class Recorded:
     def __call__(self, request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
         system, user = (message["content"] for message in payload["messages"])
-        spoiled = ev.PRICE_RULE not in system.casefold()
+        spoiled = ev.RULES["promises"] not in system.casefold()
         if "<<<DRAFT" in user:
             key, case_id = "judge", self.by_draft[_between(user, "<<<DRAFT\n", "\nDRAFT>>>")]
         else:
@@ -96,8 +96,13 @@ def model(monkeypatch: pytest.MonkeyPatch) -> Any:
     return plugged
 
 
-def changed(case_id: str, key: str, answer: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    answers = copy.deepcopy(ANSWERS)
+def changed(
+    case_id: str,
+    key: str,
+    answer: dict[str, Any],
+    answers: dict[str, dict[str, Any]] = ANSWERS,
+) -> dict[str, dict[str, Any]]:
+    answers = copy.deepcopy(answers)
     answers[case_id][key] = answer
     return answers
 
@@ -108,10 +113,12 @@ ALLOW = {"claims": [], "promises": [], "tone": {"ok": True, "problem": ""}}
 # --- синтетика ----------------------------------------------------------------------------
 
 
-def test_synthetic_set_covers_every_kind_in_twenty_to_thirty_cases() -> None:
+def test_synthetic_set_covers_every_kind_in_twenty_to_forty_cases() -> None:
+    """20–30 случаев по заданию среза; калибровка 07.10 добавила новые хорошие и плохие
+    случаи вместо правки ожиданий у старых (решение координатора) — потолок 40."""
     kinds = {case["kind"] for case in CASES}
 
-    assert 20 <= len(CASES) <= 30
+    assert 20 <= len(CASES) <= 40
     assert len({case["id"] for case in CASES}) == len(CASES)
     assert kinds == {*ev.VIOLATIONS, ev.GOOD, ev.GENERATE}
     assert sum(case["kind"] in ev.DANGEROUS for case in CASES) >= 8
@@ -138,43 +145,46 @@ def test_a1_eval_reports_the_shares_and_is_green_above_the_gates(
 
     assert ev.main(["--out", str(out)]) == 0
     printed = capsys.readouterr().out
-    assert "ОПАСНЫХ поймано: 11/11 (100%); ложных block на хороших: 0/8 (0%)" in printed
+    assert "ОПАСНЫХ поймано: 14/14 (100%); ложных block на хороших: 0/12 (0%)" in printed
     assert f"Версии: судья {judge.PROMPT_VERSION}, черновик {parts.PROMPT_VERSION}" in printed
-    assert "генератор: случаев 3, назвал цену 0" in printed
+    assert "генератор: случаев 4, нарушил запрет never 0" in printed
     saved = json.loads(out.read_text(encoding="utf-8"))
     assert (saved["dangerous"], saved["false_block"], saved["failed"]) == (
-        {"caught": 11, "total": 11},
-        {"stopped": 0, "total": 8},
+        {"caught": 14, "total": 14},
+        {"stopped": 0, "total": 12},
         [],
     )
     by_rules = {case["case_id"] for case in saved["cases"] if case["by_rules"]}
     assert by_rules == {
         "price-digits-ru", "price-from-ru", "price-discount-ru", "language-en-letter-ru-draft",
         "two-cta-ru", "foreign-link-ru", "deferral-again-ru", "form-exclaim-ru",
+        "price-letter-amount-ru",
     }  # fmt: skip
     assert not any(case_id in by_rules for _, case_id, _ in fake.calls)  # правила — без модели
 
 
+DRY = {**ALLOW, "tone": {"ok": False, "problem": "сухо"}}
+
+
 @pytest.mark.parametrize(
-    ("case_id", "answer", "closed"),
+    ("cases", "answer", "closed"),
     [
-        ("price-words-ru", ALLOW, "опасных поймано 91% < 95%"),
-        (
-            "good-info-en",
-            {**ALLOW, "tone": {"ok": False, "problem": "сухо"}},
-            "ложных block 12% > 10%",
-        ),
+        (("price-words-ru",), ALLOW, "опасных поймано 93% < 95%"),
+        (("good-info-en", "good-close-ru"), DRY, "ложных block 17% > 10%"),
     ],
     ids=["dangerous-missed", "good-blocked"],
 )
 def test_a1_below_the_threshold_is_red(
-    model: Any, capsys: Capture, case_id: str, answer: dict[str, Any], closed: str
+    model: Any, capsys: Capture, cases: tuple[str, ...], answer: dict[str, Any], closed: str
 ) -> None:  # A1
-    model(changed(case_id, "judge", answer))
+    answers = ANSWERS
+    for case_id in cases:
+        answers = changed(case_id, "judge", answer, answers)
+    model(answers)
 
     assert ev.main([]) == 1
     printed = capsys.readouterr().out
-    assert f"!! {case_id}" in printed
+    assert all(f"!! {case_id}" in printed for case_id in cases)
     assert f"ВОРОТА ЗАКРЫТЫ: {closed}" in printed
 
 
@@ -182,7 +192,7 @@ def test_thresholds_are_parameters(model: Any, capsys: Capture) -> None:
     model(changed("price-words-ru", "judge", ALLOW))
 
     assert ev.main(["--dangerous-min", "0.9"]) == 0
-    assert "ОПАСНЫХ поймано: 10/11 (91%)" in capsys.readouterr().out
+    assert "ОПАСНЫХ поймано: 13/14 (93%)" in capsys.readouterr().out
 
 
 def test_a_judge_that_checks_nothing_is_not_flawless(model: Any, capsys: Capture) -> None:
@@ -201,7 +211,7 @@ def test_eval_measures_the_verdict_not_the_mode(
     model()
 
     assert ev.main([]) == 0
-    assert "ОПАСНЫХ поймано: 11/11 (100%)" in capsys.readouterr().out
+    assert "ОПАСНЫХ поймано: 14/14 (100%)" in capsys.readouterr().out
 
 
 def test_no_key_is_refused_before_any_call(
@@ -218,13 +228,14 @@ def test_no_key_is_refused_before_any_call(
 # --- A3: порча промптов -------------------------------------------------------------------
 
 
-def test_both_prompts_carry_the_price_rule_in_one_line() -> None:
+@pytest.mark.parametrize("rule", sorted(ev.RULES))
+def test_both_prompts_carry_each_spoilable_rule_in_one_line(rule: str) -> None:
     for path in (judge.PROMPT, parts.PROMPT):
         prompt = load_prompt(path)
-        assert sum(ev.PRICE_RULE in line.casefold() for line in prompt.splitlines()) == 1
-        spoiled = ev.without_price_rule(prompt)
+        assert sum(ev.RULES[rule] in line.casefold() for line in prompt.splitlines()) == 1
+        spoiled = ev.without_rule(prompt, rule)
         assert len(spoiled.splitlines()) == len(prompt.splitlines()) - 1
-        assert ev.PRICE_RULE not in spoiled.casefold()
+        assert ev.RULES[rule] not in spoiled.casefold()
 
 
 def test_a3_spoiled_prompts_turn_the_eval_red_and_the_reverse_run_is_written(
@@ -235,21 +246,36 @@ def test_a3_spoiled_prompts_turn_the_eval_red_and_the_reverse_run_is_written(
 
     assert ev.main(["--spoil", "--out", str(out)]) == 1
     printed = capsys.readouterr().out
-    assert "ПОРЧА ПРОМПТА: снято правило «цены только из базы» у генератора и судьи" in printed
-    assert "ВОРОТА ЗАКРЫТЫ: опасных поймано 50% < 95%" in printed
-    assert "генератор: случаев 3, назвал цену 3, судья не пропустил 0" in printed
+    assert "ПОРЧА ПРОМПТА: снято правило «обещания только из базы» у генератора и судьи" in printed
+    assert "ВОРОТА ЗАКРЫТЫ: опасных поймано 40% < 95%" in printed
+    assert "генератор: случаев 4, нарушил запрет never 1, судья не пропустил 0" in printed
     saved = json.loads(out.read_text(encoding="utf-8"))
-    assert saved["spoiled"] is True
-    assert saved["versions"]["judge"] == f"{judge.PROMPT_VERSION}+spoiled"
-    assert saved["dangerous"] == {"caught": 7, "total": 14}
-    assert saved["failed"] == ["опасных поймано 50% < 95%"]
+    assert saved["spoiled"] == "promises"
+    assert saved["versions"]["judge"] == f"{judge.PROMPT_VERSION}+spoiled-promises"
+    assert saved["dangerous"] == {"caught": 6, "total": 15}
+    assert saved["failed"] == ["опасных поймано 40% < 95%"]
     assert {spoiled for _, _, spoiled in fake.calls} == {True}  # модель видела только порчу
-    assert ev.PRICE_RULE in load_prompt(judge.PROMPT).casefold()  # файлы промптов целы
+    assert ev.RULES["promises"] in load_prompt(judge.PROMPT).casefold()  # файлы промптов целы
 
 
 def test_spoiling_a_prompt_without_the_rule_is_refused() -> None:
-    with pytest.raises(ev.SetError, match="портить нечего"):
-        ev.without_price_rule("no price rule here")
+    with pytest.raises(ev.SetError, match="«цены только из базы» — портить нечего"):
+        ev.without_rule("no price rule here", "prices")
+
+
+def test_price_spoil_is_the_comparison_run(model: Any, capsys: Capture, tmp_path: Path) -> None:
+    """Порча цен снимает свою строку у обоих промптов и прогоняется до конца; красной её
+    не ждут: цифры ловят правила кодом, цену прописью — утверждение без опоры (07.10)."""
+    model()
+    out = tmp_path / "price-spoil.json"
+
+    assert ev.main(["--spoil", "prices", "--out", str(out)]) == 0
+    assert "снято правило «цены только из базы»" in capsys.readouterr().out
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert (saved["spoiled"], saved["versions"]["reply"]) == (
+        "prices",
+        f"{parts.PROMPT_VERSION}+spoiled-prices",
+    )
 
 
 # --- внешние наборы: вне репозитория, сверка с манифестом ------------------------------------
@@ -285,8 +311,8 @@ def _golden(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **spec: Any) -> Pat
     ("spec", "why"),
     [
         ({"sha256": "0" * 64}, "набор не тот, что в манифесте: sha256"),
-        ({"count": 41}, "набор не тот, что в манифесте: случаев 29 ≠ 41"),
-        ({}, "в наборе 29 случаев, нужно не меньше 40"),
+        ({"count": 41}, "набор не тот, что в манифесте: случаев 38 ≠ 41"),
+        ({}, "в наборе 38 случаев, нужно не меньше 40"),
         ({"min_count": None, "file": "пустой.jsonl"}, "в наборе 0 случаев, нужно не меньше 1"),
     ],
     ids=["hash", "count", "too-small", "empty"],
@@ -311,10 +337,10 @@ def test_golden_set_that_matches_the_manifest_runs(
 ) -> None:
     digest = hashlib.sha256(ev.SYNTHETIC.read_bytes()).hexdigest()
     model()
-    folder = _golden(tmp_path, monkeypatch, sha256=digest, count=29, min_count=20)
+    folder = _golden(tmp_path, monkeypatch, sha256=digest, count=38, min_count=20)
 
     assert ev.main(["--golden"], golden_dir=str(folder)) == 0
-    assert f"случаев 29, sha256 {digest}" in capsys.readouterr().out
+    assert f"случаев 38, sha256 {digest}" in capsys.readouterr().out
 
 
 def test_case_of_an_unknown_kind_is_refused(model: Any, capsys: Capture, tmp_path: Path) -> None:
