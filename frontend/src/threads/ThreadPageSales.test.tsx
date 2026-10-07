@@ -7,6 +7,7 @@
  */
 
 import { screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
@@ -85,5 +86,26 @@ describe('переписка продаж', () => {
     expect(screen.queryByLabelText('Белая цена')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Взять в работу' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Ответить' })).not.toBeInTheDocument();
+  });
+
+  it('у донора пометки этапа нет, а пояснение у поля ответа на месте', async () => {
+    const donor = {
+      ...VIEW,
+      card: { ...VIEW.card, stage: 'donors', state: 'needs_review' },
+      incoming: [{ ...VIEW.incoming[0], review_reason: null }],
+    };
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    serve({ 'GET /api/auth/me': { body: ADMIN }, 'GET /api/threads/5': { body: donor } });
+
+    renderWith(<AppRoutes />, '/threads/5');
+    await screen.findByRole('heading', { name: 'lead.example.test' });
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Ответить' }));
+
+    // Пометка этапа и причина продаж — только у продаж: ответ донору и его
+    // пояснение, с какого ящика он уйдёт, — у самого поля, как без них.
+    expect(screen.getByLabelText('Текст ответа')).toHaveAccessibleDescription(
+      /с того же ящика, что вёл переписку/,
+    );
+    expect(screen.queryByText(/· продажи|Ждёт человека:/)).not.toBeInTheDocument();
   });
 });
