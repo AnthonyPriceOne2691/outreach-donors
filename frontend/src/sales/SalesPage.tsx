@@ -39,6 +39,7 @@ import { Metric } from '../components/Metric';
 import { useTyped } from '../donors/useTyped';
 import { formatNumber } from '../format';
 import { ChainPane } from './ChainPane';
+import { FunnelPane } from './FunnelPane';
 import { HypothesesTable } from './HypothesesTable';
 import { useKb } from './kbData';
 import { KbPane } from './KbPane';
@@ -213,6 +214,7 @@ export function SalesPage() {
     sender: () => <SenderPane />,
     chain: () => <ChainPane hypotheses={known} />,
     queue: () => <QueuePane hypotheses={known} />,
+    funnel: () => <FunnelPane hypotheses={known} />,
   };
 
   return (

@@ -1,0 +1,266 @@
+/**
+ * Воронка продаж: лиды на каждом шаге — от очереди до передачи телемаркетологу, по
+ * гипотезам и периоду.
+ *
+ * **Экран ничего не считает сам.** Числа называет сервер (`GET /sales/funnel`) правилом
+ * каждого шага — тем же, что у счётчиков и выгрузки; экран только делит доли и называет их
+ * основу словами: «от отправленных», «от ответивших».
+ *
+ * **Лиды, а не письма.** Цепочка из трёх писем одному человеку — один отправленный лид.
+ * Период — по первому письму лида: кто получил его в период, и всё, что с ним было потом.
+ * Открытий и кликов нет: пиксель вредит доставляемости. MQL и SQL ставит телемаркетолог
+ * в Kommo — воронка сервиса кончается передачей.
+ *
+ * **Смена фильтра — не перезагрузка.** Прежние числа стоят приглушёнными, пока едут новые;
+ * негодные свои даты на сервер не уходят — что не так, сказано под полем.
+ */
+
+import {
+  Alert,
+  Group,
+  Loader,
+  SegmentedControl,
+  Select,
+  SimpleGrid,
+  Stack,
+  Table,
+  Text,
+  TextInput,
+} from '@mantine/core';
+import { useState } from 'react';
+
+import { refusalOf } from '../api/client';
+import type { FunnelCounts, FunnelRow, HypothesisCard, SalesFunnelView } from '../api/salesTypes';
+import { Metric } from '../components/Metric';
+import { formatNumber } from '../format';
+import { FixedTable } from './FixedTable';
+import type { Column } from './FixedTable';
+import {
+  funnelQuery,
+  NO_FUNNEL_FILTERS,
+  PERIOD_KEYS,
+  PERIODS,
+  periodProblem,
+  stepHint,
+  stepShare,
+  STEPS,
+  useSalesFunnel,
+} from './funnelData';
+import type { FunnelFilters, PeriodKey } from './funnelData';
+
+const ALL = 'all';
+
+const COLUMNS: Column[] = [
+  { title: 'Гипотеза', width: '18rem' },
+  ...STEPS.map((step) => ({ title: step.column, width: '7.5rem' })),
+];
+
+export const FUNNEL_MIN_WIDTH = 1008;
+
+function Filters({
+  filters,
+  hypotheses,
+  problem,
+  onChange,
+}: {
+  filters: FunnelFilters;
+  hypotheses: HypothesisCard[];
+  problem: string | null;
+  onChange: (patch: Partial<FunnelFilters>) => void;
+}) {
+  return (
+    <Stack gap="sm" px="md">
+      <Group align="flex-end" gap="md" wrap="wrap">
+        <Select
+          label="Гипотеза"
+          allowDeselect={false}
+          data={[
+            { value: ALL, label: 'Все гипотезы' },
+            ...hypotheses.map((row) => ({ value: String(row.id), label: row.name })),
+          ]}
+          value={filters.hypothesis === null ? ALL : String(filters.hypothesis)}
+          onChange={(value) => {
+            if (value !== null) onChange({ hypothesis: value === ALL ? null : Number(value) });
+          }}
+          w={{ base: '100%', xs: 280 }}
+        />
+        <Stack gap={4} className="funnelPeriod">
+          <Text size="sm" fw={500} component="span">
+            Период
+          </Text>
+          <SegmentedControl
+            aria-label="Период"
+            value={filters.period}
+            onChange={(value) => {
+              const next = PERIOD_KEYS.find((key) => key === value);
+              if (next !== undefined) onChange({ period: next });
+            }}
+            data={PERIOD_KEYS.map((key: PeriodKey) => ({ value: key, label: PERIODS[key] }))}
+          />
+        </Stack>
+      </Group>
+      {filters.period === 'custom' ? (
+        <Group align="flex-start" gap="md" wrap="wrap">
+          <TextInput
+            type="date"
+            label="Первый день"
+            value={filters.from}
+            onChange={(event) => onChange({ from: event.currentTarget.value })}
+            w={180}
+          />
+          <TextInput
+            type="date"
+            label="Последний день"
+            description="включительно"
+            value={filters.to}
+            error={problem}
+            onChange={(event) => onChange({ to: event.currentTarget.value })}
+            w={180}
+          />
+        </Group>
+      ) : null}
+    </Stack>
+  );
+}
+
+function Tiles({ counts, stale }: { counts: FunnelCounts; stale: boolean }) {
+  return (
+    <SimpleGrid
+      cols={{ base: 2, sm: 3, lg: 6 }}
+      spacing="sm"
+      px="md"
+      className="staleRows funnelTiles"
+      data-stale={stale || undefined}
+      aria-busy={stale || undefined}
+    >
+      {STEPS.map((step) => (
+        <Metric
+          key={step.key}
+          title={step.title}
+          value={formatNumber(counts[step.key])}
+          hint={stepHint(counts, step.key)}
+        />
+      ))}
+    </SimpleGrid>
+  );
+}
+
+function Cell({ counts, step }: { counts: FunnelCounts; step: keyof FunnelCounts }) {
+  const share = stepShare(counts, step);
+  return (
+    <Table.Td>
+      <Text size="sm">{formatNumber(counts[step])}</Text>
+      {share !== null ? (
+        <Text size="xs" c="dimmed" className="funnelShare">
+          {share}
+        </Text>
+      ) : null}
+    </Table.Td>
+  );
+}
+
+function ByHypothesis({ view, stale }: { view: SalesFunnelView; stale: boolean }) {
+  const line = (key: string, name: string, counts: FunnelCounts, total = false) => (
+    <Table.Tr key={key}>
+      <Table.Td className="cellName wrapCell">
+        <Text size="sm" fw={total ? 600 : 500}>
+          {name}
+        </Text>
+      </Table.Td>
+      {STEPS.map((step) => (
+        <Cell key={step.key} counts={counts} step={step.key} />
+      ))}
+    </Table.Tr>
+  );
+  return (
+    <Stack gap={6}>
+      <Text size="sm" px="md" className="funnelTableNote">
+        По гипотезам: доли доставки, отказа и ответа — от отправленных, передачи — от ответивших.
+      </Text>
+      <FixedTable
+        columns={COLUMNS}
+        minWidth={FUNNEL_MIN_WIDTH}
+        className="funnelTable"
+        horizontalSpacing="md"
+        tabularNums
+        stale={stale}
+        label="Воронка по гипотезам"
+        rows={[
+          ...view.rows.map((row: FunnelRow) =>
+            line(String(row.hypothesis_id), row.name, row.counts),
+          ),
+          line('total', 'Всего', view.total, true),
+        ]}
+      />
+    </Stack>
+  );
+}
+
+/** Что значат шаги — словами под числами: правило сервера, а не догадка экрана. */
+function Rules() {
+  return (
+    <Text size="sm" c="dimmed" px="md" className="funnelRules">
+      Ответ — человек ответил сам или попросил больше не писать; автоответ ответом не считается.
+      Отказ — вернулось хоть одно письмо цепочки: он сильнее доставки. Лид передан — передача
+      телемаркетологу заведена. Открытия и клики не считаем: пиксель вредит доставляемости. MQL и
+      SQL ставит телемаркетолог в Kommo.
+    </Text>
+  );
+}
+
+function Empty({ filters }: { filters: FunnelFilters }) {
+  return (
+    <Text size="sm" px="md" className="funnelEmpty">
+      {filters.period === 'all'
+        ? 'Писем лидам ещё не было: очередь собирается на вкладке «Очередь писем».'
+        : 'За этот период первые письма лидам не уходили и в очередь не вставали.'}
+    </Text>
+  );
+}
+
+export function FunnelPane({ hypotheses }: { hypotheses: HypothesisCard[] }) {
+  const [filters, setFilters] = useState<FunnelFilters>(NO_FUNNEL_FILTERS);
+  const problem = periodProblem(filters);
+  const funnel = useSalesFunnel(funnelQuery(filters, new Date()), problem === null);
+  const view = funnel.data;
+  const stale = funnel.isPlaceholderData || problem !== null;
+
+  if (hypotheses.length === 0) {
+    return (
+      <Text size="sm" c="dimmed" px="md">
+        Гипотез пока нет. Воронка считается по лидам гипотез — загрузите базу.
+      </Text>
+    );
+  }
+  return (
+    <Stack gap="md">
+      <Text size="sm" px="md" className="funnelIntro" maw={760}>
+        Лиды на каждом шаге: письмо в очереди, ушло, дошло или вернулось, человек ответил, лид
+        передан телемаркетологу. Считаем лидов, а не письма; период — по первому письму лида, и всё,
+        что с ним было потом.
+      </Text>
+      <Filters
+        filters={filters}
+        hypotheses={hypotheses}
+        problem={problem}
+        onChange={(patch) => setFilters((current) => ({ ...current, ...patch }))}
+      />
+      {view === undefined ? (
+        funnel.error ? (
+          <Alert color="red" title="Воронка не загрузилась" mx="md">
+            {refusalOf(funnel.error)}
+          </Alert>
+        ) : (
+          <Loader aria-label="Загружаем воронку" m="md" />
+        )
+      ) : (
+        <>
+          <Tiles counts={view.total} stale={stale} />
+          {view.total.sent === 0 && view.total.queued === 0 ? <Empty filters={filters} /> : null}
+          <Rules />
+          {view.hypothesis_id === null ? <ByHypothesis view={view} stale={stale} /> : null}
+        </>
+      )}
+    </Stack>
+  );
+}
