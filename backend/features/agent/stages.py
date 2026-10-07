@@ -142,6 +142,18 @@ async def no_brief(_session: AsyncSession, _conversation: Conversation) -> Brief
     return Brief()
 
 
+#: Причины отклонить черновик — общий короткий список. Этап со своим разговором
+#: даёт свой (`AgentStage.reject_reasons`); «другое» с текстом экран добавляет
+#: всегда. Причина — датасет докрутки агента, поэтому выбор, а не поле.
+REJECT_REASONS: tuple[str, ...] = (
+    "не о том",
+    "неверный факт или цена",
+    "не тот тон",
+    "длинно",
+    "надо было промолчать",
+)
+
+
 @dataclass(frozen=True, slots=True)
 class AgentStage:
     """Части агента, свои у этапа. Всё, кроме умолчаний и стороны цены, —
@@ -166,6 +178,13 @@ class AgentStage:
     #: Сколько раз переписать черновик по замечаниям судьи, прежде чем отдать
     #: человеку.
     max_rewrites: int = 3
+    #: Этап на экране настроек агента: кому агент пишет (имя в переключателе) и
+    #: что он там делает. Экран строит переключатель по реестру, а не по списку
+    #: у себя: новый этап появляется на нём без правки экрана. Пусто — имя этапа.
+    title: str = ""
+    lead: str = ""
+    #: За что человек отклоняет черновик этапа (`REJECT_REASONS` — общий список).
+    reject_reasons: tuple[str, ...] = REJECT_REASONS
 
 
 #: Этапы, на которых агент ведёт переписку. Явным реестром, а не всем
@@ -173,8 +192,18 @@ class AgentStage:
 #: цены экран упал бы на первом чтении, а агент писал бы чужим промптом.
 AGENT_STAGES: Mapping[Stage, AgentStage] = MappingProxyType(
     {
-        Stage.DONORS: AgentStage(defaults=defaults(Stage.DONORS), price=PriceSide.BUY),
-        Stage.ADVERTISERS: AgentStage(defaults=defaults(Stage.ADVERTISERS), price=PriceSide.SELL),
+        Stage.DONORS: AgentStage(
+            defaults=defaults(Stage.DONORS),
+            price=PriceSide.BUY,
+            title="Донорам",
+            lead="Донорам мы покупаем размещение: агент узнаёт цену и условия и торгуется вниз.",
+        ),
+        Stage.ADVERTISERS: AgentStage(
+            defaults=defaults(Stage.ADVERTISERS),
+            price=PriceSide.SELL,
+            title="Рекламодателям",
+            lead="Рекламодателям мы продаём размещение: агент отвечает на вопросы и держит цену.",
+        ),
     }
 )
 

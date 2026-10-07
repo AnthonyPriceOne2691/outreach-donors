@@ -127,6 +127,12 @@ async def agent_writes(session: AsyncSession, stage: Stage) -> bool:
     return current is not None and current.enabled
 
 
+def reject_reasons(stage: Stage) -> tuple[str, ...]:
+    """За что отклоняют черновик на этапе; этапа без агента — не за что."""
+    parts = AGENT_STAGES.get(stage)
+    return () if parts is None else parts.reject_reasons
+
+
 async def send_draft(
     session: AsyncSession,
     sending: Sending,

@@ -57,6 +57,9 @@ async def agent_settings(
         stages.append(
             AgentStageView(
                 stage=stage,
+                title=parts.title or stage.value,
+                lead=parts.lead,
+                price_side=parts.price,
                 current=None if current is None else AgentSettingsVersion.of(current),
                 defaults=AgentSettingsBody.of(parts.defaults),
                 autopilot_allowed=autopilot.refusal(stage) is None,

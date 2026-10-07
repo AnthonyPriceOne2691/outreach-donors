@@ -10,10 +10,15 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
+from types import MappingProxyType
 
 import pytest
+from backend.api.agent import routes as agent_routes
+from backend.features.agent import drafts
+from backend.features.agent.stages import AGENT_STAGES, REJECT_REASONS
 from backend.features.agent.writer import Written
-from backend.features.core.domain import DraftStatus, UserRole
+from backend.features.core.domain import DraftStatus, Stage, UserRole
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.replies.pipeline import Inbox
@@ -181,3 +186,60 @@ async def test_escalated_draft_does_not_go_with_its_own_text_as_an_edit(
     assert "прежним текстом через правку тоже" in same.json()["detail"]
     assert edited.status_code == 200, edited.text
     assert (await stored(session, reply.id)).final_body == "We could do $100."
+
+
+async def test_settings_screen_lists_the_registry_stages_with_names(
+    client: AsyncClient, make_user: MakeUser, sign_in: SignIn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Экран строит переключатель по реестру: этап встаёт на экран строкой реестра."""
+    newcomer = replace(AGENT_STAGES[Stage.ADVERTISERS], title="", lead="Новый этап словами")
+    registry = MappingProxyType(
+        {Stage.ADVERTISERS: newcomer, Stage.DONORS: AGENT_STAGES[Stage.DONORS]}
+    )
+    monkeypatch.setattr(agent_routes, "AGENT_STAGES", registry)
+    token = await _admin(make_user, sign_in)
+
+    shown = await client.get("/api/agent/settings", headers=bearer(token))
+
+    assert shown.status_code == 200, shown.text
+    stages = shown.json()["stages"]
+    assert [(one["stage"], one["title"], one["price_side"]) for one in stages] == [
+        ("advertisers", "advertisers", "sell"),  # без имени — имя этапа
+        ("donors", "Донорам", "buy"),
+    ]
+    assert [one["lead"] for one in stages] == [
+        "Новый этап словами",
+        AGENT_STAGES[Stage.DONORS].lead,
+    ]
+
+
+@pytest.mark.usefixtures("no_caps")
+async def test_thread_carries_reject_reasons_and_what_the_judge_said(
+    client: AsyncClient,
+    make_user: MakeUser,
+    sign_in: SignIn,
+    session: AsyncSession,
+    conversation: Conversation,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first, reply = conversation
+    draft = await _drafted(session, reply.id)
+    token = await _admin(make_user, sign_in)
+    path = f"/api/threads/{first.thread_id}"
+
+    plain = (await client.get(path, headers=bearer(token))).json()
+    draft.meta = {
+        "attempts": [
+            {"attempt": 0, "verdict": "block", "reasons": ["длинно"]},
+            {"attempt": 1, "verdict": "allow", "reasons": []},
+        ]
+    }
+    await session.commit()
+    own = replace(AGENT_STAGES[Stage.DONORS], reject_reasons=("своя причина",))
+    monkeypatch.setattr(drafts, "AGENT_STAGES", MappingProxyType({Stage.DONORS: own}))
+    judged = (await client.get(path, headers=bearer(token))).json()
+
+    assert plain["agent_reasons"] == list(REJECT_REASONS)
+    assert [(card["verdict"], card["attempts"]) for card in plain["drafts"]] == [(None, 0)]
+    assert judged["agent_reasons"] == ["своя причина"]
+    assert [(card["verdict"], card["attempts"]) for card in judged["drafts"]] == [("allow", 2)]
