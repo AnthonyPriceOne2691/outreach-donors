@@ -487,9 +487,9 @@
       "worst": "_print_build:107"
     },
     "backend/cli/mail_test.py": {
-      "lines": 236,
+      "lines": 245,
       "complexity": 6,
-      "worst": "_report:181"
+      "worst": "_report:190"
     },
     "backend/cli/main.py": {
       "lines": 490,

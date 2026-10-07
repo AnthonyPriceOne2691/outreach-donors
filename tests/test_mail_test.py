@@ -257,6 +257,83 @@ class TestRefusals:
         assert fake.seen == []
 
 
+class TestTheStageSafetyList:
+    """Предохранитель называется по учётке этапа — тем списком и тем именем,
+    по которым судит отправка (`cfg.mail_account`). До 07.10.2026 команда
+    называла общий список строкой, а у этапа бывает свой
+    (`OUTREACH_ADVERTISERS_ALLOWED_RECIPIENTS`): в выводе стоял бы не тот
+    список и не та строка, которую править."""
+
+    OWN = "OUTREACH_ADVERTISERS_ALLOWED_RECIPIENTS"
+    MAX = "max@mail-b.example"
+
+    async def test_stage_without_own_list_names_the_shared_one(
+        self,
+        session: AsyncSession,
+        filled_legal: None,
+        platform: tuple[Platform, SendGridTransport],
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.delenv(self.OWN, raising=False)
+        monkeypatch.delenv("OUTREACH_ADVERTISERS_SENDGRID_API_KEY", raising=False)
+        _, transport = platform
+
+        code = await run_mail_test(
+            session, transport, to=TO, sender=self.MAX, stage=Stage.ADVERTISERS
+        )
+
+        assert code == EXIT_OK
+        assert (
+            "Предохранитель включён (OUTREACH_ALLOWED_RECIPIENTS): письмо уйдёт, только если "
+            f"адрес в списке — {TO}." in capsys.readouterr().out
+        )
+
+    async def test_own_list_of_the_stage_is_the_one_named(
+        self,
+        session: AsyncSession,
+        filled_legal: None,
+        platform: tuple[Platform, SendGridTransport],
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Общий список при этом задан (`platform`) — назван должен быть свой."""
+        monkeypatch.setenv(self.OWN, "Stage2@Ours.test")
+        fake = Platform()
+        async with httpx.AsyncClient(transport=httpx.MockTransport(fake)) as http:
+            # Транспорт этапа — как его собирает команда (`build_transport(stage=…)`).
+            transport = SendGridTransport(
+                api_key="sg-test-key", http=http, account=outreach_cfg.mail_account("advertisers")
+            )
+            code = await run_mail_test(
+                session, transport, to="stage2@ours.test", sender=self.MAX, stage=Stage.ADVERTISERS
+            )
+
+        assert code == EXIT_OK
+        assert fake.seen, "письмо на ящик из своего списка этапа должно было уйти"
+        printed = capsys.readouterr().out
+        assert (
+            f"Предохранитель включён ({self.OWN}): письмо уйдёт, только если адрес в списке — "
+            "stage2@ours.test." in printed
+        )
+        assert "OUTREACH_ALLOWED_RECIPIENTS" not in printed
+
+    async def test_empty_own_list_is_named_as_the_switched_off_catch(
+        self,
+        session: AsyncSession,
+        filled_legal: None,
+        platform: tuple[Platform, SendGridTransport],
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv(self.OWN, "")
+        _, transport = platform
+
+        await run_mail_test(session, transport, to=TO, sender=self.MAX, stage=Stage.ADVERTISERS)
+
+        assert f"Предохранитель снят ({self.OWN} пуст)" in capsys.readouterr().out
+
+
 class TestWhatTheProbeLeavesBehind:
     async def test_reply_to_a_probe_is_kept_unbound(
         self, session: AsyncSession, filled_legal: None
