@@ -53,6 +53,16 @@ def git(*args: str) -> str:
 
 
 
+#: Отказ от объявления — значение НАЧИНАЕТСЯ словом отказа, а хвост `reason=…` —
+#: его причина, как `n/a reason=…` у остальных полей канона (`cqg@2.54`). Прежде
+#: сверялось значение целиком, и `none reason=пакетов нет` читалось как пакет «none»
+#: без `by=` — красное на честном отказе (поле `ahrefs-cases` #53: архивная поставка
+#: того же окна с `no reason=…`). Молча пропустить пакет так нельзя: настоящий пакет,
+#: принятый за отказ, остаётся необъявленным, и гейт краснеет на нём. Пакет с именем
+#: слова отказа объявляется в бэктиках: `` `no` reason=… by=… ``.
+REFUSAL = re.compile(r"(?i)^(?:none|n/a|no|-|…)(?:\s|$)")
+
+
 def declared(status: str) -> tuple[set[str], list[str]]:
     """(корректно объявленные имена, строки без reason=/by=)."""
     ok: set[str] = set()
@@ -65,7 +75,7 @@ def declared(status: str) -> tuple[set[str], list[str]]:
     pattern = r"(?im)^[ \t]*[-*]?[ \t]*\**new_dependency\**[ \t]*:\**[ \t]*(.+)$"
     for m in re.finditer(pattern, status):
         val = re.sub(r"<!--.*?-->", "", m.group(1)).strip()
-        if not val or val.startswith("<") or val.lower() in {"none", "n/a", "-", "…"}:
+        if not val or val.startswith("<") or REFUSAL.match(val):
             continue
         low = val.lower()
         if "reason=" not in low or "by=" not in low:

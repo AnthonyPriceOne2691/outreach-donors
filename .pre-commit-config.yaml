@@ -48,10 +48,14 @@ repos:
         args: [--maxkb=512]
 
   # -------------------------------------------------------------------------
-  # Python: ruff (lint + format) — под backend.
+  # Python: ruff (lint + format) — под backend, ИЗ VENV ПРОЕКТА (`cqg@2.55`).
+  # Прежде здесь стоял `astral-sh/ruff-pre-commit` со своим `rev:`, а CI,
+  # pre-push и редактор брали ruff из lock проекта: две версии одного
+  # инструмента по построению. Поле outreach 07.10: rev v0.15.13 против 0.16.9
+  # в lock — `noqa: BLE001` одна версия требовала, другая отвергала как
+  # RUF100. Версия теперь одна, из lock; venv ищется лестницей хука mypy ниже.
   # -------------------------------------------------------------------------
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.13
+  - repo: local
     hooks:
       # ⚠ `exclude:` держится ОТДЕЛЬНО от `files:`, и это не дубль. `files:`
       # проект правит под свою раскладку — это прямо разрешено шапкой выше, и
@@ -64,10 +68,21 @@ repos:
       # плюс переписанные косметическими хуками файлы снимка.
       # Судит payload его владелец — сьют канона (`test_payload_passes_own_gates`).
       - id: ruff
-        args: [--fix, --exit-non-zero-on-fix]
+        name: ruff check (версия из lock проекта)
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+        entry: |-
+          bash -c 'R="$(git rev-parse --show-toplevel)" || exit 1; B="${LINT_BE_DIR:-backend}"; V="${LINT_VENV:-.venv}"; X=""; for c in "$R/$B/$V/bin/ruff" "$R/$V/bin/ruff" "$R/$B/.venv/bin/ruff"; do [ -x "$c" ] && { X="$c"; break; }; done; [ -n "$X" ] || { printf "\033[31mruff не найден — искал %s и %s. Версия хука — из lock проекта (cqg@2.55); правится LINT_VENV / LINT_BE_DIR или установкой ruff в venv проекта\033[0m\n" "$B/$V/bin/ruff" "$V/bin/ruff"; exit 1; }; exec "$X" check --force-exclude --fix --exit-non-zero-on-fix "$@"' --
         files: ^backend/
         exclude: ^(docs/canon/|scripts/(lint/|merge_guard\.sh|delivery_|okf_))
       - id: ruff-format
+        name: ruff format (версия из lock проекта)
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+        entry: |-
+          bash -c 'R="$(git rev-parse --show-toplevel)" || exit 1; B="${LINT_BE_DIR:-backend}"; V="${LINT_VENV:-.venv}"; X=""; for c in "$R/$B/$V/bin/ruff" "$R/$V/bin/ruff" "$R/$B/.venv/bin/ruff"; do [ -x "$c" ] && { X="$c"; break; }; done; [ -n "$X" ] || { printf "\033[31mruff не найден — искал %s и %s. Версия хука — из lock проекта (cqg@2.55); правится LINT_VENV / LINT_BE_DIR или установкой ruff в venv проекта\033[0m\n" "$B/$V/bin/ruff" "$V/bin/ruff"; exit 1; }; exec "$X" format --force-exclude "$@"' --
         files: ^backend/
         exclude: ^(docs/canon/|scripts/(lint/|merge_guard\.sh|delivery_|okf_))
 
@@ -233,7 +248,7 @@ repos:
         name: DRY — рост копипаста (jscpd clone-count ratchet)
         language: system
         entry: bash -c 'cd "$(git rev-parse --show-toplevel)"; export LINT_PY_SRC=backend LINT_BE_DIR=. LINT_COV_PKG=backend LINT_VENV=.venv; bash scripts/lint/check_jscpd_gate.sh'
-        files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
+        files: ^(backend/.*\.py|frontend/src/.*\.(ts|tsx)|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
         pass_filenames: false
 
   # -------------------------------------------------------------------------
@@ -254,11 +269,14 @@ repos:
   # -------------------------------------------------------------------------
   - repo: local
     hooks:
+      # `pass_filenames: false`: гейт судит всё дерево, а `files:` решает лишь, пойдёт
+      # ли он. Половина без маски не запускала его на коммите — правка одного `.tsx`
+      # видела «Skipped» (`cqg@2.53`, поле outreach #201). То же у jscpd выше.
       - id: complexity-gate
         name: function complexity ratchet (C901/PLR09xx)
         entry: bash scripts/lint/check_complexity_gate.sh
         language: system
-        files: ^(backend/.*\.py|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
+        files: ^(backend/.*\.py|frontend/src/.*\.(ts|tsx)|pyproject\.toml|setup\.cfg|\.pre-commit-config\.yaml|scripts/lint/.*)$
         pass_filenames: false
 
       - id: blind-error
