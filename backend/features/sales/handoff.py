@@ -47,7 +47,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from redis.exceptions import RedisError
-from sqlalchemy import exists, func, or_, select, update
+from sqlalchemy import ColumnElement, Exists, exists, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -210,10 +210,15 @@ async def lead_of(session: AsyncSession, thread_id: int) -> SalesLeadModel:
     return leads[0]
 
 
+def handed_off_rule(lead_id: ColumnElement[int] | int) -> Exists:
+    """Передан ли лид — условием запроса: передача заведена. Одно правило у шва цепочки
+    (`handed_off`) и у воронки (`funnel.py`): переданный, которому не пишут, — он же «передан»."""
+    return exists().where(SalesHandoffModel.lead_id == lead_id)
+
+
 async def handed_off(session: AsyncSession, lead_id: int) -> bool:
     """Передан ли лид телемаркетологу. Шов цепочки продаж (4.6b): переданному — не писать."""
-    found = await session.scalar(select(exists().where(SalesHandoffModel.lead_id == lead_id)))
-    return bool(found)
+    return bool(await session.scalar(select(handed_off_rule(lead_id))))
 
 
 async def _handoff_of(session: AsyncSession, thread_id: int, lead_id: int) -> SalesHandoffModel:
