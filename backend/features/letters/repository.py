@@ -26,6 +26,7 @@ from backend.features.core.models.outreach import (
     ThreadModel,
 )
 from backend.features.core.models.run import RunCandidateModel, RunModel
+from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.compose import FoundLink
 from backend.features.letters.funnel import AdvertiserFunnel, Funnel
 from backend.features.letters.recipients import Candidate, Recipients, donor_geo_of
@@ -126,8 +127,15 @@ class LetterRepository:
         человек принимает решение прямо сейчас. Этапы разводятся по той же
         причине: оффер рекламодателю и вопрос донору о цене читаются
         разными глазами.
+
+        **Только первые письма** (находка ревью 07.10.2026). Добивка и ответ,
+        которые отказ почты вернул «в очередь», стояли здесь же: их брала
+        пачка, и уходили они с любого свободного ящика — первым письмом вне
+        своей переписки. У них свой путь и свой ящик (`mailbox.py`).
         """
-        statement = self._letters().where(MessageModel.status == MessageStatus.QUEUED)
+        statement = self._letters().where(
+            MessageModel.status == MessageStatus.QUEUED, MessageModel.step == FIRST_STEP
+        )
         if stage is not None:
             statement = statement.where(CampaignModel.stage == stage)
         rows = await self._session.execute(statement.order_by(MessageModel.id).limit(limit))

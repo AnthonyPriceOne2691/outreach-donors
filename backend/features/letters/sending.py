@@ -32,7 +32,9 @@
 отправить второе.
 
 **Ящик выбирается в момент отправки**, а не при сборке: очередь общая,
-и вставший ящик не должен блокировать свою часть.
+и вставший ящик не должен блокировать свою часть. Это про первые письма:
+добивка и ответ уходят только с ящика своей переписки и только своим путём
+(`mailbox.py`).
 """
 
 from __future__ import annotations
@@ -44,16 +46,14 @@ from datetime import UTC, datetime
 from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.core.domain import MessageStatus, SenderStatus, Stage
+from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, SenderModel
-from backend.features.letters import compose, identity, reply_to, settle, unsubscribe
+from backend.features.letters import compose, identity, mailbox, reply_to, settle, unsubscribe
 from backend.features.letters.transport import Mail, Outgoing, Transport, TransportError, of_stage
-from backend.features.outreach import senders as sender_rules
-from backend.features.outreach.repository import OutreachRepository
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +90,12 @@ class NotReadyError(SendError):
 
 
 class NoSenderError(SendError):
-    """Сегодня писать некому: все ящики выключены или выбрали дневной лимит."""
+    """Сегодня писать некому: все ящики выключены или выбрали дневной лимит.
+    У письма переписки — её ящик не пишет, и письмо ждёт его."""
+
+
+class OwnPathError(SendError):
+    """Добивка или ответ пришли не своим путём: без ящика переписки не уходят."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,9 +190,10 @@ class Sending:
     ) -> SendOutcome:
         """Отправить письмо из очереди.
 
-        `from_sender_id` — ящик задан заранее. Так уходит добивка:
-        переписку ведёт тот ящик, что её начал, и менять его на середине
-        разговора значит попасть в спам и запутать собеседника.
+        `from_sender_id` — ящик переписки, названный её путём: так уходят
+        добивка и ответ. Переписку ведёт тот ящик, что её начал, и менять его
+        на середине разговора значит попасть в спам и запутать собеседника.
+        Без него письмо переписки не уходит вовсе (`mailbox.py`).
         """
         target = await self._target(message_id)
         try:  # не собрался транспорт этапа — отказ отправки, а не падение прохода
@@ -198,11 +204,7 @@ class Sending:
         await self._check_review(target)
         check_ready(target.message.body or "", what=f"Письмо №{target.message.id}")
 
-        sender = (
-            await self._pinned_sender(from_sender_id)
-            if from_sender_id is not None
-            else (await self._pick_sender(target.stage)).sender
-        )
+        sender = await self._sender(target, from_sender_id)
         own = own_headers(target.message.id, sender_email=sender.email, real=transport.real)
 
         # Факт отправки — в базе до вызова почты, и захватом: второй
@@ -350,45 +352,21 @@ class Sending:
                 "Письмо стоит убрать из очереди"
             )
 
-    async def _pinned_sender(self, sender_id: int) -> SenderModel:
-        """Ящик, который ведёт эту переписку. Выключенный не подменяется
-        другим: цепочка подождёт, пока его вернут, — второй голос
-        в начатом разговоре хуже паузы."""
-        sender = await self._session.get(SenderModel, sender_id)
-        if sender is None:
-            raise NoSenderError(
-                f"Ящика №{sender_id} нет: им начата переписка, а его удалили. "
-                "Письмо остаётся в очереди"
-            )
-        if not sender.enabled or sender.status is SenderStatus.PAUSED:
-            why = "выключен" if not sender.enabled else "на паузе"
-            raise NoSenderError(
-                f"Ящик {sender.email} сейчас не пишет ({why}), а переписку ведёт он. "
-                "Письмо остаётся в очереди"
-            )
-        return sender
-
-    async def _pick_sender(self, stage: Stage) -> sender_rules.Availability:
-        rows = await self._session.execute(select(SenderModel).order_by(SenderModel.id))
-        moment = self._moment()
-        spot = sender_rules.pick(
-            rows.scalars().all(),
-            sent_today=await self._sent_today(moment),
-            stage=stage,
-            now=moment,
+    async def _sender(self, target: _Target, from_sender_id: int | None) -> SenderModel:
+        """Ящик письма (`mailbox.py`): первое — любой свободный ящик этапа,
+        добивка и ответ — только ящик своей переписки."""
+        choice = await mailbox.choose(
+            self._session,
+            target.message,
+            stage=target.stage,
+            thread_sender_id=from_sender_id,
+            now=self._moment(),
         )
-        if spot is None:
-            raise NoSenderError(
-                "Сегодня писать некому: все ящики либо выключены, либо выбрали дневной "
-                "лимит. Письмо остаётся в очереди — завтра лимит откроется заново"
-            )
-        return spot
-
-    async def _sent_today(self, moment: datetime) -> dict[int, int]:
-        """Расход дневного капа. Считаются первые письма: у добивок свой
-        часовой лейн, и класть их в тот же кап значит на каждую цепочку
-        недосчитаться нового донора."""
-        return await OutreachRepository(self._session).sent_today(now=moment, first_only=True)
+        if choice.sender is not None:
+            return choice.sender
+        if choice.wrong_path:
+            raise OwnPathError(choice.refusal)
+        raise NoSenderError(choice.refusal)
 
     async def _hand_over(
         self,

@@ -22,22 +22,23 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 from backend.api import deps
 from backend.api.app import create_app
 from backend.features.access.attempts import LoginAttempts
 from backend.features.access.repository import AccessRepository
-from backend.features.core.domain import AuditAction, MessageStatus, Stage, UserRole
+from backend.features.core.domain import AuditAction, MessageStatus, UserRole
 from backend.features.core.models.access import AuditLogModel
 from backend.features.core.models.ops import UsageRecordModel
 from backend.features.core.models.outreach import MessageModel
+from backend.features.letters import mailbox
 from backend.features.letters.building import BuildRequest, QueueBuilder
 from backend.features.letters.followups import Chain, Claimed, send_due
 from backend.features.letters.rewrite import RewriteResult
 from backend.features.letters.sending import NotQueuedError, Sending
 from backend.features.letters.transport import Outgoing
-from backend.features.outreach import senders as sender_rules
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -122,14 +123,14 @@ def _meet_after_reading(monkeypatch: pytest.MonkeyPatch) -> None:
     код уже решил, что письмо в очереди, и дальше только записывал.
     """
     barrier = asyncio.Barrier(2)
-    pick = Sending._pick_sender
+    choose = mailbox.choose
 
-    async def meet(self: Sending, stage: Stage) -> sender_rules.Availability:
-        spot = await pick(self, stage)
+    async def meet(*args: Any, **kwargs: Any) -> mailbox.Choice:
+        choice = await choose(*args, **kwargs)
         await asyncio.wait_for(barrier.wait(), timeout=MEETING)
-        return spot
+        return choice
 
-    monkeypatch.setattr(Sending, "_pick_sender", meet)
+    monkeypatch.setattr(mailbox, "choose", meet)
 
 
 async def _count(factory: async_sessionmaker[AsyncSession], statement: object) -> int:

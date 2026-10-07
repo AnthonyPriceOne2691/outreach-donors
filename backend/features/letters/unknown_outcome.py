@@ -51,7 +51,7 @@ from backend.features.core.models.outreach import (
     ThreadModel,
 )
 from backend.features.letters import settle
-from backend.features.letters.chain import ANSWER_STEP, CHAINABLE, FIRST_STEP, MAX_STEPS
+from backend.features.letters.chain import ANSWER_STEP, CHAINABLE, FIRST_STEP, MAX_STEPS, kind_of
 from backend.features.letters.repository import UnknownLetterError
 from backend.features.letters.sendgrid import SendGridTransport
 
@@ -111,12 +111,7 @@ class StuckLetter:
     @property
     def what(self) -> str:
         """Какое это письмо — словами: решение по добивке и ответу разное."""
-        step = self.message.step
-        if step == FIRST_STEP:
-            return "первое письмо"
-        if step >= ANSWER_STEP:
-            return "ответ в переписке"
-        return f"добивка {step}"
+        return kind_of(self.message.step)
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,13 +266,13 @@ async def _back(
 ) -> MessageStatus | None:
     """«Вернуть в очередь»: письмо снова ждёт отправки — тем путём, каким уходит его вид.
 
-    Первое письмо и ответ в переписке уходят из очереди: первое — с экрана
-    писем, ответ — повтором из карточки переписки. Добивку отправляет проход
-    добивок (`followups.py`): с ящика переписки и в её ветку, а из очереди экрана
-    она ушла бы с любого ящика и без ветки. Поэтому у добивки назад
-    возвращается и срок — на предыдущем письме цепочки, и проход заберёт её
-    в ближайшую минуту. Цепочка кончилась, пока письмо висело (адресат
-    ответил, отписался, прежнее письмо не дошло), — добивка не пойдёт вовсе.
+    Первое письмо ждёт в очереди экрана писем, ответ — в карточке переписки,
+    откуда его отправляют повтором. Добивку отправляет проход добивок
+    (`followups.py`): с ящика переписки и в её ветку, а в общей очереди её нет
+    (`mailbox.py`). Поэтому у добивки назад возвращается и срок — на предыдущем
+    письме цепочки, и проход заберёт её в ближайшую минуту. Цепочка кончилась,
+    пока письмо висело (адресат ответил, отписался, прежнее письмо не дошло), —
+    добивка не пойдёт вовсе.
     """
     message = letter.message
     previous = await _alive_link(session, message) if _is_followup(message) else None
@@ -345,5 +340,8 @@ def _said(letter: StuckLetter, status: MessageStatus) -> str:
     if _is_followup(letter.message):
         return "добивка вернулась в цепочку и уйдёт с ближайшим проходом добивок, с того же ящика"
     if letter.message.step >= ANSWER_STEP:
-        return "ответ вернулся в очередь — отправить его снова можно из карточки переписки"
+        return (
+            "ответ не ушёл и ждёт: отправить его снова можно из карточки переписки — "
+            "с ящика переписки и веткой к письму собеседника"
+        )
     return "письмо вернулось в очередь — отправить его можно отсюда же"

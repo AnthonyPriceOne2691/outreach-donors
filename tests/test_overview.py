@@ -35,6 +35,7 @@ from backend.features.core.models.outreach import (
     ThreadModel,
 )
 from backend.features.core.models.run import RunCandidateModel, RunModel
+from backend.features.letters.chain import ANSWER_STEP
 from backend.features.ops.overview import overview
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.thresholds import defaults
@@ -293,6 +294,24 @@ class TestLettersAndSpending:
         donors = letters[Stage.DONORS]
         assert (donors.queued, donors.sent, donors.delivered, donors.bounced) == (2, 3, 1, 1)
         assert letters[Stage.ADVERTISERS].queued == 1
+
+    async def test_queue_counts_first_letters_like_the_letters_screen(
+        self, session: AsyncSession
+    ) -> None:
+        """«В очереди» ведёт на экран писем, а там только первые письма: добивка
+        и ответ ждут своим путём (`letters/mailbox.py`), и с ними число на главной
+        разошлось бы с экраном."""
+        campaign = await _campaign(session)
+        talking = await make_donor(session, "talk.example.test")
+        await _letter(session, campaign, talking, MessageStatus.SENT)
+        await _letter(session, campaign, talking, MessageStatus.QUEUED, step=1)
+        await _letter(session, campaign, talking, MessageStatus.QUEUED, step=ANSWER_STEP)
+        newcomer = await make_donor(session, "newcomer.example.test")
+        await _letter(session, campaign, newcomer, MessageStatus.QUEUED)
+
+        donors = (await overview(session)).letters[Stage.DONORS]
+
+        assert (donors.queued, donors.sent) == (1, 1)
 
     async def test_units_are_ours_and_cap_is_the_monthly_one(self, session: AsyncSession) -> None:
         usage.record(session, operation="batch_metrics", units=1_200)

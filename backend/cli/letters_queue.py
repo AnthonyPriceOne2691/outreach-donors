@@ -26,6 +26,7 @@ from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.outreach import MessageModel
 from backend.features.letters.building import BuildReport, BuildRequest, QueueBuilder
+from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.rewrite import RewriteClient
 from backend.features.letters.sending import SendError, Sending
 from backend.features.letters.transport import MaybeSentError
@@ -125,12 +126,13 @@ def _print_build(report: BuildReport) -> None:
 
 
 async def cmd_letters(args: argparse.Namespace) -> int:
-    """Показать очередь."""
+    """Показать очередь — первые письма, как на экране: у добивки и ответа
+    свой путь и свой ящик (`letters/mailbox.py`)."""
     async with _sessions() as factory, factory() as session:
         rows = await session.execute(
             select(MessageModel.id, DomainModel.host, MessageModel.uniqueness_pct)
             .join(DomainModel, DomainModel.id == MessageModel.domain_id)
-            .where(MessageModel.status == MessageStatus.QUEUED)
+            .where(MessageModel.status == MessageStatus.QUEUED, MessageModel.step == FIRST_STEP)
             .order_by(MessageModel.id)
             .limit(args.limit)
         )
