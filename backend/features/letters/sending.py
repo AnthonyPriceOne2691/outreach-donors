@@ -164,6 +164,10 @@ class _Target:
     host: str
     email: str
     stage: Stage
+    #: Ящик и `Message-ID` прежней попытки — до захвата. Пусто у нового письма;
+    #: у возвращённого человеком из «отправляется» — след попытки, которая
+    #: могла уйти (`unknown_outcome.py`).
+    before: tuple[int | None, str | None] = (None, None)
 
 
 class Sending:
@@ -245,7 +249,13 @@ class Sending:
                 f"У письма №{message_id} нет адреса получателя: контакт удалён после сборки "
                 "очереди. Письмо стоит убрать и собрать очередь заново"
             )
-        return _Target(message=message, host=host, email=email, stage=stage)
+        return _Target(
+            message=message,
+            host=host,
+            email=email,
+            stage=stage,
+            before=(message.sender_id, message.internet_message_id),
+        )
 
     async def _claim(self, target: _Target, sender: SenderModel, own: OwnHeaders) -> None:
         """Перевести письмо в «отправляется» — только если оно всё ещё в очереди.
@@ -395,12 +405,13 @@ class Sending:
         try:
             return await transport.send(outgoing)
         except TransportError as exc:
-            # Почта сказала «нет» — письмо точно не ушло, и его можно
-            # вернуть в очередь без риска отправить второе. Идентификатор
-            # уходит вместе с ящиком: повтор может пойти с другого домена.
+            # Почта сказала «нет» — эта попытка точно не ушла, и письмо можно
+            # вернуть в очередь без риска отправить второе. Ящик и идентификатор —
+            # прежние, а не этой попытки: повтор может пойти с другого домена,
+            # а прежняя попытка, если была, могла уйти — по её следу событие
+            # платформы запишет письмо ушедшим (`unknown_outcome.py`).
             target.message.status = MessageStatus.QUEUED
-            target.message.sender_id = None
-            target.message.internet_message_id = None
+            target.message.sender_id, target.message.internet_message_id = target.before
             await self._session.commit()
             raise SendError(str(exc)) from exc
         except Exception:

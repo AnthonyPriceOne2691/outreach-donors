@@ -52,6 +52,7 @@ from backend.features.letters.building import attempt_of, idempotency_key
 from backend.features.letters.chain import CHAINABLE, FIRST_STEP, MAX_STEPS
 from backend.features.letters.sending import (
     NoSenderError,
+    NotQueuedError,
     SendError,
     Sending,
     SuppressedError,
@@ -416,6 +417,13 @@ async def _deliver(
         await session.commit()
         report.unknown += 1
         logger.warning("добивки: %s — исход неизвестен, повтора не будет (%s)", claimed.host, exc)
+        return
+    except NotQueuedError as exc:
+        # Шаг уже решён другим путём: событие платформы записало ушедшей
+        # добивку, которую человек вернул в цепочку (`unknown_outcome.py`).
+        # Срок не возвращается — иначе проход раз в час приходил бы за ушедшей.
+        await session.commit()
+        logger.info("добивки: %s — шаг %s уже не в очереди (%s)", claimed.host, claimed.step, exc)
         return
     except (NoSenderError, SendError) as exc:
         await chain.restore(claimed, delay=POSTPONE)

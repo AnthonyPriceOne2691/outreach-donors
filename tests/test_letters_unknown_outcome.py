@@ -245,6 +245,7 @@ class TestHumanDecides:
         self, session: AsyncSession, filled_legal: None
     ) -> None:
         letter = await stuck_first(session, since=SINCE)
+        attempt = (letter.sender_id, letter.internet_message_id)
 
         done = await unknown_outcome.resolve(
             session, letter.id, Outcome.QUEUED, author_id=None, now=NOW
@@ -253,9 +254,11 @@ class TestHumanDecides:
 
         assert done.status is MessageStatus.QUEUED
         await session.refresh(letter)
-        # Ящик и идентификатор уходят, как при отказе почты: повтор возьмёт
-        # тот ящик, что свободен в минуту отправки.
-        assert (letter.sender_id, letter.internet_message_id, letter.sent_at) == (None, None, None)
+        # Ящик и идентификатор попытки остаются: если письмо всё же ушло,
+        # событие платформы запишет его ушедшим с ними. Повтор возьмёт свои.
+        assert attempt[0] is not None
+        assert (letter.sender_id, letter.internet_message_id) == attempt
+        assert letter.sent_at is None
         queued = await LetterRepository(session).queued(stage=Stage.DONORS)
         assert [row.message.id for row in queued] == [letter.id]
         record = await session.scalar(
@@ -270,6 +273,7 @@ class TestHumanDecides:
         await Sending(session, NullTransport(), now=NOW).send(letter.id)
         await session.refresh(letter)
         assert letter.status is MessageStatus.SENT
+        assert letter.internet_message_id != attempt[1]
 
     async def test_followup_goes_back_into_its_chain(
         self, session: AsyncSession, filled_legal: None

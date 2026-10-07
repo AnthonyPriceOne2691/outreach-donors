@@ -23,6 +23,12 @@
 «доставлено» по такому письму оставляло его без времени ухода и без срока
 добивки, а «не дошло» — мимо доли отказов его ящика.
 
+**И письма, которое человек вернул в очередь, а оно ушло.** Событие по нему
+снимает письмо с очереди и записывает ушедшим, и пачка второй раз его
+не шлёт. Других писем в очереди с событиями не бывает: событие есть только
+у письма, которое платформа приняла, а принятое в очередь возвращает лишь
+человек — отказ платформы значит «не приняла».
+
 **Отказ доставки и жалоба на спам — разные последствия.** Первый
 означает «адреса нет»: контакт помечается негодным, и открывается
 следующий адрес донора — не дошедшее письмо «писали» не считается,
@@ -77,6 +83,10 @@ PROVES_ACCEPTED = BOUNCE_EVENTS | {
     "group_resubscribe",
 }
 
+#: Из каких состояний событие о приёме записывает письмо ушедшим: исход
+#: неизвестен — или человек вернул письмо в очередь, не найдя его в журнале.
+PENDING = frozenset({MessageStatus.SENDING, MessageStatus.QUEUED})
+
 #: Из каких состояний письмо ещё можно отметить доставленным.
 #: Запоздавший `delivered` поверх недоставки означал бы, что письмо
 #: одновременно дошло и не дошло. «Отправляется» сюда не входит:
@@ -95,6 +105,8 @@ class DeliveryEvent:
     #: Мягкий отказ: ящик переполнен, сервер занят. Адрес живой,
     #: и помечать его негодным нельзя.
     soft: bool = False
+    #: Когда платформа это сделала. Пусто — время прихода события.
+    at: datetime | None = None
 
 
 @dataclass
@@ -105,7 +117,7 @@ class EventReport:
     bounced: int = 0
     complained: int = 0
     unknown: int = 0
-    #: Письма из «отправляется», которые событие записало ушедшими.
+    #: Письма из «отправляется» и из очереди, которые событие записало ушедшими.
     resolved: int = 0
     paused_domains: list[str] = field(default_factory=list)
 
@@ -131,7 +143,7 @@ async def apply_events(
         if message is None:
             report.unknown += 1
             continue
-        await _settle_if_sending(session, message, event, report)
+        await _settle_if_pending(session, message, event, moment, report)
         await _apply_one(session, message, event, moment, report)
         if event.kind in BOUNCE_EVENTS and message.sender_id is not None:
             checked.add(message.sender_id)
@@ -151,14 +163,29 @@ async def _message_of(session: AsyncSession, event: DeliveryEvent) -> MessageMod
     return await session.get(MessageModel, event.message_id)
 
 
-async def _settle_if_sending(
-    session: AsyncSession, message: MessageModel, event: DeliveryEvent, report: EventReport
+async def _settle_if_pending(
+    session: AsyncSession,
+    message: MessageModel,
+    event: DeliveryEvent,
+    moment: datetime,
+    report: EventReport,
 ) -> None:
-    """Письмо в «отправляется», а платформа о нём сообщила: записать его ушедшим."""
-    if message.status is not MessageStatus.SENDING or event.kind not in PROVES_ACCEPTED:
+    """Письмо в «отправляется» или в очереди, а платформа о нём сообщила: записать его
+    ушедшим.
+
+    Проигрыш захвата — не конец: пока событие шло, человек мог вернуть письмо
+    из «отправляется» в очередь, и тогда оно записывается уже оттуда — иначе
+    пачка отправила бы ушедшее письмо второй раз. Каждое состояние — не больше
+    одного раза: письмо, ушедшее из них, событие не догоняет."""
+    if event.kind not in PROVES_ACCEPTED:
         return
-    if await unknown_outcome.settle_by_event(session, message, kind=event.kind):
-        report.resolved += 1
+    at = event.at or moment
+    tried: set[MessageStatus] = set()
+    while message.status in PENDING and message.status not in tried:
+        tried.add(message.status)
+        if await unknown_outcome.settle_by_event(session, message, kind=event.kind, at=at):
+            report.resolved += 1
+            return
 
 
 async def _apply_one(
