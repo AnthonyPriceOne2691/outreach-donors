@@ -77,17 +77,19 @@ async def save_agent_settings(
     author: UserModel = _settler,
     session: AsyncSession = Depends(db_session),
 ) -> AgentSettingsVersion:
-    agent_stage(stage)  # этапа без агента нет — 404 словами
-    if body.mode == AUTOPILOT:
-        # Автопилот — письмо наружу без человека: его включает тот, кто может
-        # отправлять, и только там, где его разрешают код этапа и сервер.
-        why = autopilot.refusal(stage)
-        if why is not None:
-            raise AutopilotOffError(why)
+    parts = agent_stage(stage)  # этапа без агента нет — 404 словами
+    repository = AgentSettingsRepository(session)
+    previous = await repository.current(stage)
+    settings = body.to_settings(previous, parts.defaults)
+    if settings.mode == AUTOPILOT:
+        # Письмо наружу без человека: включают там, где разрешают код этапа и сервер;
+        # версию в автопилоте (и правку без режима поверх него) сохраняет тот, у кого send.
+        if previous is None or previous.mode != AUTOPILOT:
+            why = autopilot.refusal(stage)
+            if why is not None:
+                raise AutopilotOffError(why)
         require(actor(author), Permission.SEND)
-    row = await AgentSettingsRepository(session).save(
-        stage, body.to_settings(), author=author.email
-    )
+    row = await repository.save(stage, settings, author=author.email)
     await AccessRepository(session).record(
         AuditAction.AGENT_SETTINGS_CHANGED,
         author_id=author.id,
@@ -99,8 +101,8 @@ async def save_agent_settings(
             "предел цены": None if body.price_limit_usd is None else str(body.price_limit_usd),
             "доводов": len(body.points),
             "тем человеку": len(body.stop_topics),
-            "режим": body.mode,
-            "ответов автопилота в переписке": body.max_turns,
+            "режим": settings.mode,
+            "ответов автопилота в переписке": settings.max_turns,
         },
     )
     await session.commit()

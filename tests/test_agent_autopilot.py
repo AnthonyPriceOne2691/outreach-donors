@@ -6,7 +6,7 @@
 стороне цены этапа, неуверенный разбор, переписка человека и отказ пути
 отправки не уходят наружу, а отдают черновик человеку; выключенный сервер и
 режим черновиков не трогают почту вовсе; включить может только тот, кому
-можно отправлять.
+можно отправлять, а правка без режима его не сбрасывает.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from backend.features.letters.chain import ANSWER_STEP
 from backend.features.letters.sending import Sending
 from backend.features.letters.transport import NullTransport, Outgoing
 from backend.workers import agent_jobs
-from httpx import AsyncClient
+from httpx import AsyncClient, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer, make_sender
@@ -53,6 +53,15 @@ BODY = {
     "mode": "autopilot",
     "max_turns": 2,
 }
+#: Тело с экрана настроек: режима и предела в нём нет — экран о них не знает.
+SCREEN = {key: value for key, value in BODY.items() if key not in {"mode", "max_turns"}}
+
+
+def _mode(response: Response) -> tuple[str, int]:
+    """Режим и предел ответов автопилота в сохранённой версии."""
+    assert response.status_code == 200, response.text
+    saved = response.json()["settings"]
+    return saved["mode"], saved["max_turns"]
 
 
 class Recording(NullTransport):
@@ -323,6 +332,62 @@ class TestSwitch:
         assert drafts_only.status_code == 200
         assert allowed.status_code == 200, allowed.text
         assert allowed.json()["settings"]["mode"] == "autopilot"
+
+    async def test_save_without_mode_and_turns_keeps_them(
+        self,
+        client: AsyncClient,
+        make_user: MakeUser,
+        sign_in: SignIn,
+        allowed: None,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        await make_user("админ@site.com", role=UserRole.ADMIN)
+        admin = bearer(await sign_in("админ@site.com"))
+        path = "/api/agent/settings/donors"
+        await client.post(path, json={**BODY, "max_turns": 3}, headers=admin)
+
+        kept = await client.post(path, json={**SCREEN, "goal": "Другая цель"}, headers=admin)
+        monkeypatch.setattr(outreach_cfg, "AGENT_AUTOPILOT", False)
+        switched_off = await client.post(path, json=SCREEN, headers=admin)
+
+        assert _mode(kept) == ("autopilot", 3)
+        # автопилот не включают заново — правка ложится, письма держит выключатель
+        assert _mode(switched_off) == ("autopilot", 3)
+
+    async def test_sent_mode_or_turns_change_only_themselves(
+        self, client: AsyncClient, make_user: MakeUser, sign_in: SignIn, allowed: None
+    ) -> None:
+        await make_user("админ@site.com", role=UserRole.ADMIN)
+        admin = bearer(await sign_in("админ@site.com"))
+        path = "/api/agent/settings/donors"
+        await client.post(path, json={**BODY, "max_turns": 3}, headers=admin)
+
+        turns = await client.post(path, json={**SCREEN, "max_turns": 5}, headers=admin)
+        drafts = await client.post(path, json={**SCREEN, "mode": "drafts"}, headers=admin)
+        empty = await client.post(path, json={**SCREEN, "mode": None}, headers=admin)
+
+        assert _mode(turns) == ("autopilot", 5)
+        assert _mode(drafts) == ("drafts", 5)
+        assert empty.status_code == 422  # явный null — ошибка, а не «оставить как было»
+
+    async def test_send_right_is_checked_on_the_mode_that_will_stand(
+        self, client: AsyncClient, make_user: MakeUser, sign_in: SignIn, allowed: None
+    ) -> None:
+        await make_user("админ@site.com", role=UserRole.ADMIN)
+        admin = bearer(await sign_in("админ@site.com"))
+        await make_user("оператор@site.com", role=UserRole.OPERATOR)  # settings есть, send нет
+        operator = bearer(await sign_in("оператор@site.com"))
+        path = "/api/agent/settings/donors"
+        await client.post(path, json=BODY, headers=admin)
+
+        refused = await client.post(path, json={**SCREEN, "goal": "Правка"}, headers=operator)
+        shown = await client.get("/api/agent/settings", headers=admin)
+        off = await client.post(path, json={**SCREEN, "mode": "drafts"}, headers=operator)
+
+        assert refused.status_code == 403
+        current = shown.json()["stages"][0]["current"]["settings"]
+        assert (current["goal"], current["mode"]) == ("Узнать цену", "autopilot")
+        assert _mode(off) == ("drafts", 2)  # выключить автопилот можно и без send
 
 
 async def test_autopilot_migration_goes_down_and_up(session: AsyncSession) -> None:

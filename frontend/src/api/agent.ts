@@ -17,6 +17,10 @@ export interface AgentSettingsBody {
    *  у рекламодателей — не дешевле; `null` — предела нет. */
   price_limit_usd: string | null;
   stop_topics: string[];
+  /** Режим агента; в ответе сервера есть всегда, не прислан — сервер оставит текущий. */
+  mode?: 'drafts' | 'autopilot' | undefined;
+  /** Ответов автопилота в одной переписке; не прислан — тоже останется текущий. */
+  max_turns?: number | undefined;
 }
 
 export interface AgentSettingsVersion {

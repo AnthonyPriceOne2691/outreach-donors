@@ -21,6 +21,9 @@ export interface AgentDraft {
   /** Как набрано в поле: пусто — предела нет. */
   price: number | '';
   stopTopics: string;
+  /** Режим и предел ответов автопилота — как пришли: полей правки нет, терять нельзя. */
+  mode: AgentSettingsBody['mode'];
+  maxTurns: AgentSettingsBody['max_turns'];
 }
 
 export type DraftField = 'goal' | 'tone' | 'points' | 'price' | 'stopTopics';
@@ -33,6 +36,8 @@ export function draftOf(body: AgentSettingsBody): AgentDraft {
     points: body.points.join('\n'),
     price: body.price_limit_usd === null ? '' : Number(body.price_limit_usd),
     stopTopics: body.stop_topics.join('\n'),
+    mode: body.mode,
+    maxTurns: body.max_turns,
   };
 }
 
@@ -83,6 +88,8 @@ export function bodyOf(draft: AgentDraft): AgentSettingsBody | null {
     points: linesOf(draft.points),
     price_limit_usd: draft.price === '' ? null : draft.price.toFixed(2),
     stop_topics: linesOf(draft.stopTopics),
+    mode: draft.mode,
+    max_turns: draft.maxTurns,
   };
 }
 
@@ -95,6 +102,8 @@ export function sameDraft(draft: AgentDraft, inUse: AgentSettingsBody): boolean 
     draft.tone.trim() === asIs.tone &&
     linesOf(draft.points).join('\n') === asIs.points &&
     draft.price === asIs.price &&
-    linesOf(draft.stopTopics).join('\n') === asIs.stopTopics
+    linesOf(draft.stopTopics).join('\n') === asIs.stopTopics &&
+    draft.mode === asIs.mode &&
+    draft.maxTurns === asIs.maxTurns
   );
 }
