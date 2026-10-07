@@ -190,14 +190,15 @@ describe('плашка черновика агента', () => {
     await openThread({
       ...DRAFT,
       status: 'escalated',
-      reason: 'цена за пределом',
+      reason: 'цена за пределом.',
       verdict: null,
       attempts: 0,
     });
     const user = userEvent.setup();
 
     expect(within(banner()).getByText('агент отдал ответ человеку')).toBeInTheDocument();
-    expect(within(banner()).getByText(/Почему: цена за пределом/)).toBeInTheDocument();
+    // Своя точка в причине не удваивается.
+    expect(within(banner()).getByText(/Почему: цена за пределом\. Как есть/)).toBeInTheDocument();
     expect(within(banner()).queryByRole('button', { name: /Подходит/ })).not.toBeInTheDocument();
     await user.click(within(banner()).getByRole('button', { name: 'Править' }));
     const send = within(banner()).getByRole('button', { name: 'Отправить правку' });

@@ -158,6 +158,12 @@ function SkippedLine({ threadId, draft }: DraftProps) {
   );
 }
 
+/** Причина словами одной фразой: своя точка в конце не удваивается, нет причины — нет и фразы. */
+function whyOf(reason: string | null): string {
+  const said = (reason ?? '').trim().replace(/[.\s]+$/, '');
+  return said === '' ? '' : `Почему: ${said}. `;
+}
+
 function Badges({ draft, turn }: { draft: DraftCard; turn: number }) {
   const escalated = draft.status === 'escalated';
   return (
@@ -260,8 +266,7 @@ function Banner({ threadId, draft, turn, reasons }: DraftProps) {
           <Badges draft={draft} turn={turn} />
           {escalated ? (
             <Text size="sm">
-              Почему: {draft.reason ?? 'причина не названа'}. Как есть такой ответ не уходит —
-              поправьте его или ответьте сами.
+              {whyOf(draft.reason)}Как есть такой ответ не уходит — поправьте его или ответьте сами.
             </Text>
           ) : null}
           {draft.body.trim() !== '' && mode !== 'edit' ? (
