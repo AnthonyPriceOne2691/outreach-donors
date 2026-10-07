@@ -145,6 +145,25 @@ describe('карточка донора: «Указать цену»', () => {
     await waitFor(() => expect(screen.queryByRole('textbox', { name: 'Цена' })).toBeNull());
   });
 
+  it('донор, не годный по порогам, цену получает — и сказано, что обхода не будет', async () => {
+    await openCard(
+      { ...CARD, status: 'unsuitable', reject_reason: 'DR 8 ниже 20' },
+      {
+        'POST /api/donors/7/price': {
+          body: { ...CARD, ...MANUAL, status: 'unsuitable', reject_reason: 'DR 8 ниже 20' },
+        },
+      },
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Указать цену' }));
+    await user.type(screen.getByRole('textbox', { name: 'Цена' }), '150{Enter}');
+
+    expect(
+      await screen.findByText(/По порогам отбора донор не годен — обход Этапа 2 его не возьмёт\.$/),
+    ).toBeInTheDocument();
+  });
+
   it('пустая заметка уходит «не сказали», а не пустой строкой', async () => {
     const recorded = await openCard(CARD, {
       'POST /api/donors/7/price': { body: { ...CARD, ...MANUAL, last_price_note: null } },

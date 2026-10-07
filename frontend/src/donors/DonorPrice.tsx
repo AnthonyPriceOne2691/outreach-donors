@@ -58,9 +58,15 @@ function SetPrice({ donor }: { donor: DonorFullCard }) {
       void queryClient.invalidateQueries({ queryKey: ['donors'] });
       setDraft(NEW_PRICE);
       setOpen(false);
+      // Донор, ставший негодным после обновления метрик, цену получает, а обход
+      // его не берёт: это сказано, как у панели и консоли, — янтарём.
+      const suitable = card.status === 'suitable';
+      const money = formatMoney(card.last_price, card.last_price_currency);
       notifications.show({
-        message: `Цена записана: ${formatMoney(card.last_price, card.last_price_currency)}`,
-        color: 'green',
+        message: suitable
+          ? `Цена записана: ${money}.`
+          : `Цена записана: ${money}. По порогам отбора донор не годен — обход Этапа 2 его не возьмёт.`,
+        color: suitable ? 'green' : 'yellow',
       });
     },
   });
