@@ -7,6 +7,7 @@ import type {
   RunRequest,
   RunsView,
 } from './types';
+import type { EnteredDonor, ManualDonorBody, PriceBody } from './manualPrice';
 import { request } from './client';
 
 export function fetchCountries(): Promise<string[]> {
@@ -56,4 +57,16 @@ export function listDonors(query: DonorQuery = {}): Promise<DonorsPage> {
 
 export function fetchDonor(id: number): Promise<DonorFullCard> {
   return request<DonorFullCard>(`/donors/${id}`);
+}
+
+/** «Указать цену» с карточки донора. Ответ — карточка целиком: цена и откуда
+ *  она — словами сервера, а не догадкой экрана. */
+export function setDonorPrice(donorId: number, body: PriceBody): Promise<DonorFullCard> {
+  return request<DonorFullCard>(`/donors/${donorId}/price`, { method: 'POST', body });
+}
+
+/** «Завести донора вручную» с панели обхода: домен и цена, которую агентство
+ *  знает само. Уже донор — ему записывается цена. */
+export function enterDonor(body: ManualDonorBody): Promise<EnteredDonor> {
+  return request<EnteredDonor>('/donors', { method: 'POST', body });
 }

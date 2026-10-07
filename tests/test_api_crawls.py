@@ -18,6 +18,8 @@ from backend.features.core.domain import AuditAction, CrawlStatus, UserRole
 from backend.features.core.models.access import AuditLogModel, UserModel
 from backend.features.core.models.crawl import CrawlRunModel
 from backend.features.core.models.donor import DonorModel
+from backend.features.donors.manual_price import enter_host, manual_price
+from backend.features.replies.repository import ReplyRepository
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -92,6 +94,33 @@ async def test_targets_are_fresh_priced_donors_with_their_last_crawl(
     assert (donor["crawl"]["pages"], donor["crawl"]["max_pages"]) == (340, body["max_pages"])
     assert (body["stale_price"], body["no_price"], body["supplier"]) == (1, 0, 0)
     assert body["workers"] == 4
+
+
+async def test_a_row_says_the_currency_and_where_the_price_came_from(
+    client: AsyncClient, operator: str, donors: None, session: AsyncSession
+) -> None:
+    """Конвертации нет, и «150» без валюты читалось долларами, даже названное в евро;
+    ручная цена — с пометкой: видно, на чём держится «мы дешевле». У цены, записанной
+    до 07.10.2026, источника нет — тогда её давал только ответ."""
+    replied = await make_donor(session, "replied.example.test")
+    await ReplyRepository(session).store_price(
+        domain_id=replied.id, price=Decimal("120.00"), currency="EUR", offers=None
+    )
+    await enter_host(
+        session,
+        "example.com",
+        manual_price("90", "USD", "прайс агентства", by="anna@ours.example.test"),
+    )
+    await session.commit()
+
+    body = (await client.get("/api/crawls/targets", headers=bearer(operator))).json()
+
+    rows = {row["host"]: (row["price"], row["currency"], row["source"]) for row in body["donors"]}
+    assert rows == {
+        FRESH: (150.0, None, None),
+        "replied.example.test": (120.0, "EUR", "reply"),
+        "example.com": (90.0, "USD", "manual"),
+    }
 
 
 async def test_start_queues_fresh_and_names_the_rest(

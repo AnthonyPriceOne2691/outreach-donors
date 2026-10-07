@@ -116,6 +116,18 @@ class ReplyKind(StrEnum):
     UNSUBSCRIBE = "unsubscribe"
 
 
+class PriceSource(StrEnum):
+    """Откуда последняя цена донора (`donors.last_price_source`).
+
+    Хранится строкой, а не типом базы: новый источник — строка кода, а не
+    миграция. Пусто — цена записана до 07.10.2026, когда её давал только
+    ответ донора.
+    """
+
+    REPLY = "reply"  # разобранный ответ донора на письмо Этапа 1
+    MANUAL = "manual"  # указал человек: прайс агентства, биржа, прошлая сделка
+
+
 class SuppressionReason(StrEnum):
     UNSUBSCRIBED = "unsubscribed"
     COMPLAINED = "complained"

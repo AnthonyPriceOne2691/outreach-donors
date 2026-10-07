@@ -13,7 +13,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import Row, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import CrawlOutcome, CrawlStatus, StopReason
@@ -69,12 +69,19 @@ class CrawlLine:
 
 @dataclass(frozen=True, slots=True)
 class DonorLine:
-    """Донор, которого можно обойти: цена — основание, обход — что о нём знаем."""
+    """Донор, которого можно обойти: цена — основание, обход — что о нём знаем.
+
+    Валюта — рядом с ценой: конвертации нет, и «150» без неё на экране читалось
+    долларами, даже названное в евро. Источник — из ответа или вручную
+    (`donors/manual_price.py`): человек видит, на чём держится «мы дешевле».
+    """
 
     host: str
     price: Decimal | None
     priced_at: datetime | None
     crawl: CrawlLine | None
+    currency: str | None = None
+    source: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,10 +96,16 @@ async def eligible(session: AsyncSession, *, limit: int) -> Board:
     if not chosen.hosts:
         return Board(donors=[], chosen=chosen)
     prices = {
-        host: (price, priced_at)
-        for host, price, priced_at in (
+        row.host: row
+        for row in (
             await session.execute(
-                select(DomainModel.host, DonorModel.last_price, DonorModel.last_price_at)
+                select(
+                    DomainModel.host,
+                    DonorModel.last_price,
+                    DonorModel.last_price_at,
+                    DonorModel.last_price_currency,
+                    DonorModel.last_price_source,
+                )
                 .join(DonorModel, DonorModel.domain_id == DomainModel.id)
                 .where(DomainModel.host.in_(chosen.hosts))
             )
@@ -100,15 +113,24 @@ async def eligible(session: AsyncSession, *, limit: int) -> Board:
     }
     latest = await latest_by_host(session, [host.lower() for host in chosen.hosts])
     donors = [
-        DonorLine(
-            host=host,
-            price=prices.get(host, (None, None))[0],
-            priced_at=prices.get(host, (None, None))[1],
-            crawl=latest.get(host.lower().removeprefix("www.")),
-        )
+        _line(host, prices.get(host), latest.get(host.lower().removeprefix("www.")))
         for host in chosen.hosts
     ]
     return Board(donors=donors, chosen=chosen)
+
+
+def _line(host: str, priced: Row[Any] | None, crawl: CrawlLine | None) -> DonorLine:
+    """Строка донора: цена с валютой и источником — из его строки в базе."""
+    if priced is None:
+        return DonorLine(host=host, price=None, priced_at=None, crawl=crawl)
+    return DonorLine(
+        host=host,
+        price=priced.last_price,
+        priced_at=priced.last_price_at,
+        crawl=crawl,
+        currency=priced.last_price_currency,
+        source=priced.last_price_source,
+    )
 
 
 async def latest_by_host(session: AsyncSession, hosts: list[str]) -> dict[str, CrawlLine]:

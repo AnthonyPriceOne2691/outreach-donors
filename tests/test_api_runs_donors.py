@@ -43,6 +43,9 @@ ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("GET", "/api/donors/{donor}", None, "view"),
     ("GET", "/api/donors/export", None, "view"),
     ("POST", "/api/donors/export", {"ids": [1]}, "view"),
+    # Цена руками — то же право, что у адреса руками: пишет в базу доноров.
+    ("POST", "/api/donors", {"host": "example.com", "price": "150"}, "run"),
+    ("POST", "/api/donors/{donor}/price", {"price": "150"}, "run"),
 ]
 
 

@@ -45,6 +45,7 @@ from backend.features.core.models.outreach import (
     ThreadModel,
 )
 from backend.features.crawl import targets
+from backend.features.donors.manual_price import manual_price, price_donor
 from backend.features.donors.probe import make_probe
 from backend.features.letters.chain import ANSWER_STEP
 from backend.features.outreach.own_inboxes import (
@@ -53,6 +54,7 @@ from backend.features.outreach.own_inboxes import (
     own_inboxes,
     remove_inbox_trace,
 )
+from backend.features.replies.repository import ReplyRepository
 from backend.features.runs.prune import PruneRefusedError, apply_prune, plan_prune
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.thresholds import defaults
@@ -418,6 +420,78 @@ async def test_a_price_beside_another_priced_reply_stays_and_is_named(
         select(DonorModel.last_price).where(DonorModel.domain_id == domain.id)
     )
     assert price == Decimal("100.00")
+
+
+async def test_a_price_entered_by_hand_is_neither_named_nor_removed(
+    session: AsyncSession, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Цену, указанную человеком (`donors/manual_price.py`), не приносил ни один ответ:
+    тестовый ответ с ценой на том же домене её не уносит, и показ её не называет."""
+    domain = await make_donor(session, "m.example.test")
+    campaign = await _campaign(session, "Проверка")
+    own = await _address(session, domain, source=ContactSource.MANUAL)
+    await _reply(
+        session, await _letter(session, await _thread(session, campaign, own), "t"), price="150"
+    )
+    await _priced(session, domain, "150")
+    donor_id = await session.scalar(select(DonorModel.id).where(DonorModel.domain_id == domain.id))
+    assert donor_id is not None
+    by = "anna@ours.example.test"
+    await price_donor(session, donor_id, manual_price("120", "EUR", "прайс агентства", by=by))
+
+    shown = await run_prune(session, build_parser().parse_args(["prune", "--test-traces"]))
+    out = capsys.readouterr().out
+    assert shown == EXIT_OK
+    assert f"  m.example.test: адрес {MINE}; писем 1, переписок 1, ответов 1\n" in out
+    done = await run_prune(session, build_parser().parse_args(["prune", "--test-traces", "--yes"]))
+    assert done == EXIT_OK
+
+    price = (
+        await session.execute(
+            select(
+                DonorModel.last_price,
+                DonorModel.last_price_currency,
+                DonorModel.last_price_source,
+                DonorModel.last_price_note,
+                DonorModel.last_price_by,
+            ).where(DonorModel.domain_id == domain.id)
+        )
+    ).one()
+    assert tuple(price) == (Decimal("120.00"), "EUR", "manual", "прайс агентства", by)
+    assert await _hosts_with_address(session, MINE) == []
+    assert domain.host in (await targets.choose(session)).hosts
+
+
+async def test_with_a_reply_price_go_its_list_and_its_source(session: AsyncSession) -> None:
+    """Цена тестового ответа уходит со списком цен того же ответа и источником: без цены
+    они говорили бы о цене, которой нет."""
+    domain = await make_donor(session, "n.example.test")
+    campaign = await _campaign(session, "Проверка")
+    own = await _address(session, domain, source=ContactSource.MANUAL)
+    await _reply(
+        session, await _letter(session, await _thread(session, campaign, own), "t"), price="150"
+    )
+    await ReplyRepository(session).store_price(
+        domain_id=domain.id,
+        price=Decimal("150"),
+        currency="USD",
+        offers=[{"product": "guest post", "price": "150"}],
+    )
+
+    plan = await plan_prune(session, run_ids=[], test_traces=True)
+    assert plan.test_traces is not None
+    assert plan.test_traces.domains[0].price == "150.00 USD"
+    await apply_prune(session, plan, author="тест")
+    await session.flush()
+
+    left = (
+        await session.execute(
+            select(
+                DonorModel.last_price, DonorModel.last_offers, DonorModel.last_price_source
+            ).where(DonorModel.domain_id == domain.id)
+        )
+    ).one()
+    assert tuple(left) == (None, None, None)
 
 
 async def test_our_answer_inside_the_thread_with_own_inbox_goes_too(
