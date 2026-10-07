@@ -367,9 +367,9 @@
       "worst": "—"
     },
     "backend/api/threads/routes.py": {
-      "lines": 87,
+      "lines": 106,
       "complexity": 2,
-      "worst": "all_threads:34"
+      "worst": "all_threads:38"
     },
     "backend/api/threads/schemas.py": {
       "lines": 274,

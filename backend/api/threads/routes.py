@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +25,8 @@ from backend.features.letters.sending import Sending
 from backend.features.letters.transport_factory import Transports, in_use
 from backend.features.outreach.repository import OutreachRepository
 from backend.features.replies.attachments import ReplyFiles
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/threads", tags=["диалоги"])
 
@@ -74,13 +78,28 @@ async def answer(
             author_id=author.id,
         )
     # Ответ ушёл мимо кнопки черновика — черновик к нему всё равно закрыт:
-    # иначе он висел бы «ждёт человека» над уже отвеченным письмом.
-    await settle_sent(
-        session,
-        body.reply_id,
-        message_id=outcome.message_id,
-        text=body.body,
-        by=Decider(name=author.email, user_id=author.id),
-    )
-    await session.commit()
+    # иначе он висел бы «ждёт человека» над уже отвеченным письмом. Письмо к
+    # этому месту уже ушло и записано (`answer_reply`), поэтому сбой закрытия
+    # черновика не превращает ответ в «не отправили»: черновик остаётся ждать
+    # человека, причина — в журнале.
+    try:
+        async with session.begin_nested():
+            await settle_sent(
+                session,
+                body.reply_id,
+                message_id=outcome.message_id,
+                text=body.body,
+                by=Decider(name=author.email, user_id=author.id),
+            )
+        await session.commit()
+    except Exception as exc:  # noqa: BLE001, RUF100 — письмо ушло, сбой черновика его не отменяет
+        # Точка сохранения уже откатила своё; сессию закроет зависимость.
+        # RUF100 в noqa: ruff хука коммита (0.15) видит здесь BLE001, ruff проекта
+        # (0.16) — нет, потому что исключение уходит в журнал с трассой.
+        logger.warning(
+            "ответ в переписке №%s ушёл (письмо №%s), а черновик к нему не закрыт",
+            thread_id,
+            outcome.message_id,
+            exc_info=exc,
+        )
     return SendResult(id=outcome.message_id, sender_email=outcome.sender_email, real=outcome.real)

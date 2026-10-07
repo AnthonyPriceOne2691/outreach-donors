@@ -9,11 +9,13 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 
 import pytest
 from alembic.operations import Operations
 from alembic.runtime.migration import MigrationContext
+from backend.api.threads import routes as thread_routes
 from backend.config import llm as llm_cfg
 from backend.features.agent import drafting
 from backend.features.agent.stages import Brief
@@ -174,6 +176,40 @@ class TestDecisions:
         draft = await stored(session, reply.id)
         assert (draft.status, draft.edited) == (DraftStatus.SENT, True)
         assert draft.sent_message_id == answered.json()["id"]
+
+    async def test_draft_close_failure_does_not_turn_a_sent_answer_into_a_refusal(
+        self,
+        client: AsyncClient,
+        make_user: MakeUser,
+        sign_in: SignIn,
+        session: AsyncSession,
+        conversation: Conversation,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Письмо уже ушло и записано — сбой закрытия черновика не даёт 500:
+        человек видит «отправлено», черновик ждёт человека, причина в журнале."""
+        first, reply = conversation
+        await _drafted(session, reply.id, _DOUBT)
+        token = await _admin(make_user, sign_in)
+
+        async def broken(*_: object, **__: object) -> None:
+            await session.execute(text("SELECT * FROM no_such_table"))
+
+        monkeypatch.setattr(thread_routes, "settle_sent", broken)
+        with caplog.at_level(logging.WARNING, logger=thread_routes.__name__):
+            answered = await client.post(
+                f"/api/threads/{first.thread_id}/answer",
+                json={"reply_id": reply.id, "body": "Our limit is $100, sorry."},
+                headers=bearer(token),
+            )
+
+        assert answered.status_code == 200, answered.text
+        assert answered.json()["sender_email"]
+        assert await session.get(MessageModel, answered.json()["id"]) is not None
+        draft = await stored(session, reply.id)
+        assert (draft.status, draft.sent_message_id) == (DraftStatus.ESCALATED, None)
+        assert f"письмо №{answered.json()['id']}), а черновик к нему не закрыт" in caplog.text
 
     async def test_waiting_list_and_detail_with_meta(
         self,
