@@ -37,13 +37,10 @@ from backend.features.contacts.repository import search_refusal
 from backend.features.core.domain import ContactStatus, DonorStatus
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
-from backend.features.donors.standing import decided_in, is_donor
+from backend.features.donors.manual_price import price_refusal
+from backend.features.donors.standing import UnknownDonorError, decided_in, is_donor
 from backend.features.letters.recipients import LetterAddress, Recipients
 from backend.shared.database.ids import storable
-
-
-class UnknownDonorError(ValueError):
-    """Донора с таким номером нет."""
 
 
 class Freshness(StrEnum):
@@ -168,6 +165,11 @@ class DonorCard:
     #: объясняет отказ до нажатия, а не узнаёт о нём после. Без умолчания:
     #: `None` здесь значит «можно искать», и забытое поле разрешало бы молча.
     contact_refusal: str | None
+    #: Почему цену руками сейчас не записать; `None` — запишется. Слова те же,
+    #: что у отказа «Записать цену» (`manual_price.price_refusal`): экран
+    #: говорит отказ до нажатия, а не узнаёт о нём после. Без умолчания —
+    #: по той же причине, что у поиска.
+    price_refusal: str | None
     #: Прогон, в очереди которого о домене решают или решили (`standing`).
     review_run: int | None
     #: На какой адрес ушло бы первое письмо — запросом сборки писем.
@@ -350,6 +352,7 @@ class DonorBrowser:
             freshness=Freshness(state),
             expires_at=_expires_at(donor),
             contact_refusal=await search_refusal(self._session, donor),
+            price_refusal=await price_refusal(self._session, host, donor),
             review_run=await decided_in(self._session, donor.domain_id, donor.review),
             letter=await Recipients(self._session).letter_address(donor.domain_id),
             removal=await removal_refusals(self._session, contacts),

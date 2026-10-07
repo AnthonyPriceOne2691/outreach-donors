@@ -101,6 +101,7 @@ export const CARD: DonorFullCard = {
   last_price_at: null,
   contacts: [],
   contact_refusal: null,
+  price_refusal: null,
   review: 'accepted',
   review_run: 18,
   letter_contact_id: null,

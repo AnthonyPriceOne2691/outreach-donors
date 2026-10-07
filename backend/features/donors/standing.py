@@ -31,6 +31,15 @@ from backend.features.core.models.run import RunCandidateModel
 from backend.features.review.candidates import Decision
 
 
+class UnknownDonorError(ValueError):
+    """Донора с таким номером нет.
+
+    Здесь, а не у чтения базы (`browse.py`): карточка спрашивает отказ ручной
+    цены у `manual_price`, а тот бросает это исключение сам, — у чтения оно
+    замкнуло бы их импорты в круг.
+    """
+
+
 def is_donor() -> ColumnElement[bool]:
     """Условие «донор» для запроса по `donors`. Решение человека — последнее
     по всем прогонам (`donors.review`, его пишет `review.candidates`)."""

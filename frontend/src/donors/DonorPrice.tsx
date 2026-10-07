@@ -18,6 +18,12 @@
  * одно с панелью и консолью: отказ — словами сервера, ничего не записано.
  * Ответ — карточка целиком, как у адреса руками: цена и её источник
  * показываются словами сервера, а не догадкой экрана.
+ *
+ * **Отказ по состоянию донора — до нажатия** (08.10.2026): принятый донор
+ * попал в стоп-лист или в поставщики, его домен — наш домен рассылки или зона,
+ * где размещений не продают. Сервер называет это в карточке (`price_refusal`)
+ * словами отказа «Записать цену» — кнопка заперта, причина под ней. Прежде
+ * человек вписывал цену и узнавал об отказе нажатием.
  */
 
 import { Button, Card, Stack, Text, Title } from '@mantine/core';
@@ -71,13 +77,18 @@ function SetPrice({ donor }: { donor: DonorFullCard }) {
     },
   });
   const formId = `donor-${donor.id}-price`;
+  // Отказ по состоянию донора — словами сервера до нажатия: вписывать цену,
+  // которую всё равно не запишут, незачем, и поля не раскрываются.
+  const refusal = donor.price_refusal ?? null;
+  const shown = open && refusal === null;
   return (
     <Stack gap="sm" mt="md" align="flex-start">
       <Button
         variant="default"
         className="press"
-        aria-expanded={open}
+        aria-expanded={shown}
         aria-controls={formId}
+        disabled={refusal !== null}
         onClick={() => {
           setOpen((was) => !was);
           save.reset();
@@ -85,7 +96,8 @@ function SetPrice({ donor }: { donor: DonorFullCard }) {
       >
         Указать цену
       </Button>
-      <Unfold open={open} w="100%">
+      {refusal !== null ? <Text size="sm">{refusal}</Text> : null}
+      <Unfold open={shown} w="100%">
         <PriceForm
           id={formId}
           draft={draft}

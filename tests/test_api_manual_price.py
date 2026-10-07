@@ -211,6 +211,8 @@ async def test_the_card_gets_the_price_and_answers_with_itself(
     )
     # Донора принимали в очереди прогона, а не здесь: решение прежнее.
     assert (answer["review"], answer["entered_by"]) == ("accepted", None)
+    # Цену записали — значит, и отказа до нажатия карточка не говорила.
+    assert answer["price_refusal"] is None
     (row,) = await _journal(session)
     assert (row.details["действие"], row.details["прежняя цена"]) == (
         "цена указана вручную",
@@ -402,6 +404,40 @@ async def test_a_refused_domain_is_409_in_the_core_words_and_nothing_changes(
     assert (response.status_code, response.json()["detail"]) == (409, said)
     await _nothing_written(session, domains=domains)
     assert list((await session.scalars(select(DonorModel.review))).all()) == reviews
+
+
+@pytest.mark.parametrize(
+    ("host", "refused"),
+    [
+        ("example.net", _sending),
+        ("example.gov", _public_zone),
+        ("example.com", _stoplisted),
+        ("example.com", _supplier),
+    ],
+    ids=["наш домен рассылки", "гос. зона", "стоп-лист", "поставщик"],
+)  # fmt: skip
+async def test_the_card_says_the_refusal_before_the_press_in_the_same_words(
+    client: AsyncClient, anna: str, session: AsyncSession, host: str, refused: Refusal
+) -> None:
+    """Донор принят, а цену руками ему всё равно не записать: попал в стоп-лист или
+    в поставщики, его домен — наш домен рассылки или зона, где размещений не
+    продают (платформа — то же правило по имени, `runs/exclusions.by_name`).
+    Карточка говорит это до нажатия — словами отказа «Записать цену», как у
+    ящика переписки (`letters/mailbox._silence`)."""
+    said = await refused(session)
+    if await session.scalar(select(DomainModel.id).where(DomainModel.host == host)) is None:
+        await make_donor(session, host)
+    await session.commit()
+    donor = await _donor(session, host)
+
+    card = await client.get(f"/api/donors/{donor.id}", headers=bearer(anna))
+    pressed = await client.post(
+        f"/api/donors/{donor.id}/price", json={"price": "150"}, headers=bearer(anna)
+    )
+
+    assert (card.json()["review"], card.json()["price_refusal"]) == ("accepted", said)
+    assert (pressed.status_code, pressed.json()["detail"]) == (409, said)
+    await _nothing_written(session, domains=1)
 
 
 async def test_from_the_card_a_rejected_record_is_refused_too(

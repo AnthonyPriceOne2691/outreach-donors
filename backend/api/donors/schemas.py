@@ -245,6 +245,9 @@ class DonorFullCard(BaseModel):
     #: то же, что у общего поиска, и решает его сервер: второй экземпляр
     #: на экране разошёлся бы с ним на первой правке.
     contact_refusal: str | None
+    #: Почему цену руками сейчас не записать; пусто — запишется. Слова те же,
+    #: что у отказа «Записать цену» (`donors/manual_price.price_refusal`).
+    price_refusal: str | None
     #: Решение человека: `accepted` — донор, `rejected` — отклонён, пусто —
     #: кандидат, ещё не решали (`donors/standing.py`).
     review: str | None
@@ -298,6 +301,7 @@ class DonorFullCard(BaseModel):
                 ContactCard.of(contact, card.removal.get(contact.id)) for contact in card.contacts
             ],
             contact_refusal=card.contact_refusal,
+            price_refusal=card.price_refusal,
             review=donor.review,
             review_by=donor.review_by,
             review_at=donor.review_at,

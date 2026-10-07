@@ -44,9 +44,9 @@ from backend.features.contacts.manual import (
 from backend.features.contacts.repository import SearchRefusedError
 from backend.features.core.stages import SalesNotConnectedError
 from backend.features.core.usage import LlmCapExceededError
-from backend.features.donors.browse import UnknownDonorError
 from backend.features.donors.export import PickRefusedError
 from backend.features.donors.manual_price import DonorRefusedError, ManualPriceError
+from backend.features.donors.standing import UnknownDonorError
 from backend.features.letters.answers import UnknownAnswerTargetError
 from backend.features.letters.building import LetterScopeError
 from backend.features.letters.compose import ComposeError
