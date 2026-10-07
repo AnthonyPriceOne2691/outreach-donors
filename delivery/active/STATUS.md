@@ -1,86 +1,44 @@
 # Active delivery status
 
-- **slug:** sales-replies (модуль «Продажи», Ф2 одним PR — части 2.1, 2.2, 2.3a и 2.3b: ответ лида продаж своей очередью и своим воркером, вид ответа моделью и путь по виду кодом (волна В3а), «пишите другому» — новый лид той же компании, автоответ переносит шаг, отписка словами закрывает адрес во всех направлениях; правка консоли доменов рассылки по ревью соседней сессии)
+Состояние на 07.10 ночь: срез 5.3 и стык с разбором ответов Ф2 — одним PR на main после Ф2 (#220). Строка
+`irreversible_surfaces:` — из STATUS main дословно: объединённую строку продаж владелец подписал в #220, она называет
+обе поверхности 5.3 (запись в Kommo при живом подключении, сообщения ботом продаж в Telegram) — переподпись не нужна.
+
+- **slug:** sales-handoff (модуль «Продажи», срез 5.3 — передача лида: Kommo → Telegram, запасной путь, повторы; стык с разбором ответов Ф2 — «хочет говорить» передаёт лида после записи ответа и снимает с ответа ожидание человека)
 - **stack:** delivery@2.00 · cqg@2.55 · okf@1.19 · stack-map@1.52
 - **class:** M
 - **kind:** feature
 - **phase:** verify
 - **builder:** agent:claude
-- **verifier:** process:ci — обязательные джобы `check`, `web` и `docker`, на PR ещё `gates` и `delivery`; ревью общего кода ответов, очереди и выкатки — соседняя сессия outreach-donors; слив и выкатка нового сервиса — по слову владельца
-- **human_ok_spec:** yes at=2026-10-07 by=human:anthony («да» на Spec срезов продаж 07.10; план фаз 01.10 — Spec 2.1 A1–A4, 2.2 A1–A8, 2.3 A1–A4; Ф2 одним PR — решение владельца 07.10; пороги разбора ответа 0,8 / ≥ 95 % / 100 % / 0, отписка — адрес во всех направлениях, автоответ — 7 дней — решения владельца 07.10)
-- **waivers:** max_loc_diff=3880 max_files_touched=45 reason=объединённый PR разбора ответов продаж (2.1, 2.2, 2.3a, 2.3b) и правка консоли доменов рассылки по ревью соседней сессии — решение владельца 07.10: мелкие PR объединяем, чтобы не гонять CI на каждый; модульная часть — постоянный вейвер владельца 05.10; общая часть 30 файлов (+688/−68); ревью общего кода — соседняя сессия by=human:anthony
-- **new_dependency:** none
-- **выкатка:** новый сервис `worker-sales` (`python -m backend.workers.main --queue sales`, проверка здоровья `python -m backend.workers.health sales`, лимиты 1536m / 1 CPU, в `WRITERS` у `scripts/restore.sh`) — скрипт выкатки соседней сессии: healthy **11 → 12**, `worker-sales` — в список образов (`api worker crawler reaper followups web`); правит та сессия на выкатке, сервис выкатывается по слову владельца
-- **shared_changes:** Ф2 трогает 30 файлов вне масок `SALES_PATHS`; каждый — полным путём один раз, через «;» — что делает каждая часть:
-  `backend/shared/queue.py` — 2.1: только добавления — `SALES_QUEUE_NAME = "sales"`, `SALES_REPLY_JOB`, `sales_job_id` (по правилу `parse_job_id`), `sales_queue` (путь соседней сессии);
-  `backend/features/ops/job_outcome.py` — 2.1: подпись `SALES_REPLY_JOB: "разбор ответа продаж"` в `KINDS` (рядом с задачами отправки очереди, сборки очереди продаж и черновика агента) и её импорт; `_next_try` — время повтора из отложенных очереди самой задачи (`Queue(job.origin, …)`), попутно чинится и `crawl` (путь соседней сессии);
-  `tests/test_job_outcome.py` — 2.1: время повтора задачи из `sales`, `crawl` и `runs` на настоящих `Job`, `Queue`, `ScheduledJobRegistry` rq;
-  `backend/features/replies/outcome.py` — 2.1: правило `to_sales_queue` и текст `SALES_WAITING` без «не подключены»; 2.2: `sales_review(snapshot)` — ждёт ли ответ продаж человека и почему, из снимка вида; 2.3b: `TO_SALES` — автоответ и отписка правилами в треде продаж тоже модулю продаж (без модели), `sales_closed_address` — диалог отписки словами «отписался»;
-  `backend/features/replies/pipeline.py` — 2.1: `Accepted.sales_pending`, `sales_again`, `to_sales`; приём и повтор вебхука по `to_sales_queue` (файл 498 строк из 500);
-  `backend/features/replies/repository.py` — 2.3b: `ReplyRepository.suppress` — запись пропускается, только если у адреса уже есть строка `stage IS NULL AND expires_at IS NULL`, иначе добавляется такая строка; доноров меняет только в этих краях — в сторону docstring (файл 495 строк из 500);
-  `backend/features/replies/calibration.py` — 2.2: калибровка цены пропускает снимки вида продаж;
-  `backend/features/outreach/threads.py` — 2.2: `review_of` для продаж — по `sales_review`; 2.3b: адрес закрыт по ответу человека → состояние `unsubscribed`;
-  `backend/api/inbound/routes.py` — 2.1: постановка задачи продаж в свою очередь теми же правилами, что разбор цены (одна задача на ответ, не встала — 503 с причиной): общий `_queue`;
-  `backend/workers/main.py` — 2.1: флаг `--queue` (`runs` по умолчанию, `sales`), планировщик на свою очередь;
-  `backend/workers/health.py` — 2.1: проверка `health sales` по своей очереди;
-  `backend/workers/sales_jobs.py` — 2.1, новый: задача `sales_reply` (тонкая обёртка над `features/sales/replies.py`); 2.2: модель, записка отказа и исключение для повтора очереди, постоянный отказ — итог, потолок модели — задача на завтра (`next_utc_day` — импорт из `workers/jobs.py`, файл не тронут); 2.3a: проверяльщик адресов лида из «пишите другому» (строится лениво, `httpx.AsyncClient` закрывается в `finally`);
-  `docker-compose.yml` — 2.1: сервис `worker-sales` (один процесс, проверка здоровья, зависимости как у `worker`);
-  `docker-compose.prod.yml` — 2.1: лимиты `worker-sales` как у копии `crawler` (1536m, 1 CPU, логи);
-  `scripts/restore.sh` — 2.1: `worker-sales` в `WRITERS`;
-  `backend/config/llm.py` — 2.2: пин `LLM_SALES_CLASSIFY_MODEL` (деф. gpt-5);
-  `backend/config/sales.py` — 2.2: порог `SALES_REPLY_CONFIDENCE` (деф. 0.80), каталог внешнего набора `SALES_GOLDEN_DIR`; 2.3b: `SALES_OOO_DELAY_DAYS` (деф. 7, 1–60);
-  `backend/features/core/usage.py` — 2.2: операция расхода `sales_reply_kind` → `UsageProvider.LLM` (рядом с `agent_draft`; под общим потолком модели — свой потолок только у черновиков агента);
-  `.env.example` — 2.2: `LLM_SALES_CLASSIFY_MODEL`, `SALES_REPLY_CONFIDENCE`, `SALES_GOLDEN_DIR`; 2.3b: `SALES_OOO_DELAY_DAYS`;
-  `pyproject.toml` — 2.2: package-data `backend.features.sales` = `prompts/*.md`;
-  `.github/workflows/ci.yml` — 2.2: шаг «Шаблоны писем и промпты — внутри образа» читает промпт продаж;
-  `tests/test_contour_waves.py` — 2.2: зеркало реестра — В3а развёрнута;
-  `frontend/src/api/labels.ts` — 2.2: одна строка `OPERATION_TITLES` — `sales_reply_kind: 'разбор ответов продаж'`;
-  `frontend/src/settings/UsagePage.test.tsx` — 2.2: тест подписи операции рядом с тестом `sales_verify`;
-  `backend/migrations/versions/739817077a57_sales_lead_referred_from_thread.py` — 2.3a: колонка `sales_leads.referred_from_thread_id` (FK `threads` `SET NULL`) и индекс, после головы базы `75242c2ed7ba`;
-  `tests/test_prune.py` — 2.3a: решение ссылки `sales_leads.referred_from_thread_id → threads SET NULL` в `REVIEWED` (лид остаётся, теряет ссылку; `runs/prune.py` не тронут);
-  `tests/test_prune_test_traces.py` — 2.3a: то же решение во втором реестре (чистка следов проверки), рядом со строками `agent_drafts`;
-  `tests/test_replies_inbox.py` — 2.3b: три случая `suppress` (строка одного этапа, общая со сроком, общая бессрочная);
-  `backend/cli/sending_domains.py` — правка консоли доменов рассылки (4.5a) по ревью соседней сессии: выдержка по умолчанию — только домену, с ящиков которого ещё не ушло ни одного письма (пишущему — лишь явным `--young-days`); `--stage`, не совпадающий с этапом ящиков домена, — отказ (код 6) с именами ящиков, строка домена не заводится и не меняется; строка состояния — «на выдержке до … — первые письма с домена не уходят», пауза — с причиной; разбор доводов — отказ словами (`--daily-limit` от 1, `--young-days` от 0, пустая `--pause`, адрес вместо домена, строка без точки; точка на конце снимается);
-  `tests/test_sending_limits.py` — правка консоли: пишущий домен доноров без выдержки, и фильтр его ящик не отсеивает, новый — на выдержке словами; чужой этап — отказ с ящиками, строки нет; отказы разбора и точка на конце;
-  `delivery/complexity-snapshot.json` — снимок ратчета.
-  Свои: `backend/features/sales/replies.py`, `backend/features/sales/reply_kind.py`, `backend/features/sales/prompts/reply_kind.md`, `backend/features/sales/referral.py`, `backend/features/sales/ooo.py`, `backend/features/sales/unsubscribe.py`, `backend/features/sales/cleaning.py`, `backend/features/sales/models.py`, `scripts/eval_sales_reply.py`, `scripts/data/sales_reply_synthetic.jsonl`, `scripts/data/sales_reply_golden.manifest.json`, `delivery/contour-waves.md` (В3а → deployed); тесты частей — 2.1: `tests/test_sales_reply_routing.py`; 2.2: `tests/test_sales_reply_kind.py`, `tests/test_sales_reply_eval.py`; 2.3a: `tests/test_sales_referral.py`; 2.3b: `tests/test_sales_ooo_unsubscribe.py`. Правки `_next_try` и `suppress` соседняя сессия подтвердила, ревью — её (07.10); подпись операции в общем `labels.ts` — решение координатора 07.10. согласовано: с сессией outreach-donors — правка _next_try (job.origin) и suppress — её путь, ревью в этом PR; выкатка worker-sales (healthy 12) — предупреждена (07.10); правка консоли доменов рассылки — обязательный пункт её ревью #219, отдельным коммитом в этом PR (07.10)
-
-## Что в PR
-
-- **2.1 — своя очередь:** ответ человека в треде продаж — задача `SALES_REPLY_JOB` в очереди `sales`; разбора цены нет;
-  вебхук ставит её теми же правилами, что разбор цены (одна задача на ответ, Redis лежит — 503, повтор ставит снова);
-  воркер `--queue sales` со своим планировщиком, сервис `worker-sales`, `health sales`; время повтора задачи — из её
-  очереди.
-- **2.2 — вид ответа моделью:** промпт файлом, вход как у разбора цены, строгая форма, свои проверки только понижают;
-  путь по виду — код; снимок вида у ответа, «ждёт ли» читают диалоги; расход `sales_reply_kind`, потолок — задача на
-  завтра; eval с синтетикой 28 и манифестом внешнего набора (В3а); подпись расхода на экране.
-- **2.3a — другой контакт:** «пишите другому» — лид той же компании после очистки, исходный тред закрыт; идущий диалог
-  продаж — не «другое направление»; неверная настройка проверки адресов не роняет задачу.
-- **2.3b — автоответ и отписка:** автоответ переносит следующий шаг (дата из текста или 7 дней), отписка закрывает адрес
-  во всех направлениях и снимает назначенное; `suppress` пишет бессрочную строку без этапа, даже если у адреса уже есть
-  другая.
-- **Консоль доменов рассылки (4.5a) — по ревью соседней сессии:** `outreach sending-domain` не ставит выдержку
-  пишущему домену и не принимает этап, чужой его ящикам; строка состояния говорит то, что увидит отправка; неверные
-  доводы — отказ словами, а не трасса базы.
-
-## Размер
-
-`delivery_check --diff-base origin/main` на голове ветки после правки консоли (07.10): `files=45 net_loc=3880
-(+3953/-73)` — сверх 800 и 25 файлов: четыре части и правка консоли одним PR по слову владельца, вейвер на размер —
-за координатором. По частям (против головы предыдущей): 2.1 — files=14 net_loc=715; 2.2 — files=21 net_loc=1812;
-2.3a — files=9 net_loc=566; 2.3b — files=11 net_loc=639; правка консоли — files=2 net_loc=148. Общая часть — 30
-файлов, +688/−68 (из них тесты общего кода `test_job_outcome.py`, `test_replies_inbox.py`, `test_sending_limits.py`,
-оба реестра чистки, зеркало реестра волн и тест экрана — +199/−10); остальное — модуль продаж, eval и их тесты.
-Голова миграций — `739817077a57` (одна голова).
+- **verifier:** process:ci — обязательные джобы `check`, `web` и `docker`, на PR ещё `gates` и `delivery`; ревью общих точек — соседняя сессия outreach-donors, строка необратимого — из main, подписана владельцем в #220
+- **human_ok_spec:** yes at=2026-10-07 by=human:anthony («да» на Spec срезов продаж 07.10; план фаз 01.10 — Spec 5.3, примеры A1–A6)
+- **waivers:** max_loc_diff=3587 max_files_touched=29 reason=модульный срез продаж 5.3 и стык с разбором ответов Ф2 одним PR — постоянный вейвер владельца 05.10, объединение PR — решение владельца 07.10; общая часть 262 строки в 14 файлах (миграция, реестр моделей, test_schema, conftest, reaper.py и тесты, оба реестра чистки, перечень консоли продаж, команда бота, конфиг продаж, .env.example, .secrets.baseline, задача ответа продаж); из строк PR 2172 — тесты by=human:anthony
+- **new_dependency:** none (httpx, rq, redis — уже в зависимостях)
+- **shared_changes:** срез трогает 14 файлов вне масок `SALES_PATHS`, 262 строки (+252/−10); каждый — полным путём:
+  `backend/migrations/versions/a9e76c0eb5b0_sales_handoffs.py` — таблица `sales_handoffs` и типы `sales_handoff_kommo`, `sales_handoff_telegram`; после головы main `39e342cb2b21` (значение `sales` типа этапа, 1.1b); перед слиянием — на тогдашнюю голову (перецепляет координатор);
+  `backend/features/core/models/__init__.py` — экспорт `SalesHandoffModel`;
+  `backend/config/sales.py` — `SALES_TELEGRAM_BOT_TOKEN`, `SALES_TELEGRAM_CHAT_ID`, `SALES_TELEGRAM_GROUP_CHAT_ID`, `SALES_TELEGRAM_GROUP_COPY`, `SALES_APP_URL`, константы `TELEGRAM_TIMEOUT_SEC`, `HANDOFF_RETRY_SEC`, `HANDOFF_PASS_SEC`, `HANDOFF_CLAIM_SEC` (модуль конфига продаж);
+  `.env.example` — пять переменных `SALES_TELEGRAM_*` и `SALES_APP_URL`, пустые, копия в группу `true`;
+  `backend/workers/reaper.py` — третий цикл `every(HANDOFF_PASS_SEC, retry_handoffs, name="Повтор передачи лидов продаж")`, импорт из `backend/features/sales/handoff_jobs.py`, `_both` → `_loops`;
+  `backend/workers/sales_jobs.py` — стык с Ф2: после `session.commit()` снимка ответа — `sales.pass_on(handled)` (передача лида «хочет говорить» после записи ответа, её отказ задачу не роняет) и абзац docstring;
+  `backend/cli/sales_telegram.py` — команда `outreach sales-telegram-chat-id`;
+  `backend/cli/sales_commands.py` — эта команда в `COMMANDS`, подпись прерывания в `KEPT_ON_INTERRUPT` («команда только читает»), разбор доводов в `add_parsers`; рядом с `FAILURES` и `EXIT_NOT_CONNECTED` 1.1b, их не трогает; `backend/cli/main.py` не тронут;
+  `tests/conftest.py` — автофикстура `_no_real_sales_bot` рядом с `_no_real_kommo`;
+  `tests/test_prune.py` — строка `sales_handoffs.thread_id → threads CASCADE` в `REVIEWED` («уходит только липовая переписка»);
+  `tests/test_prune_test_traces.py` — та же ссылка во втором реестре чистки (`REVIEWED`, чистка следов проверки): «передача переписки со своим ящиком — след проверки»;
+  `tests/test_reaper.py` — третий цикл в ожидаемом списке (`test_main_runs_all_loops`);
+  `tests/test_schema.py` — `sales_handoffs` в перечне сущностей;
+  `.secrets.baseline` — номер ревизии `a9e76c0eb5b0` (ложное срабатывание, как у прочих миграций) и сдвиг строки известной записи `tests/conftest.py` (380 → 391); сторона main + `detect-secrets scan --baseline`.
+  Только читаются: `backend/shared/alerts.py` (`send_alert`), `backend/config/alerts.py` (`TELEGRAM_API`), `backend/shared/queue.py` (`runs_queue`, `with_retries`, `remember_job_error`), `backend/features/runs/failures.py`, `backend/features/replies/quoting.py` (`written_by_hand`), `backend/workers/ticker.py`. В масках продаж, но вне среза: `tests/test_sales_model.py` — `DEPENDENTS` цикла миграции лидов 1.1a — один кортеж из двух ревизий (цепочка 4.6a и передача 5.3, по порядку миграций). Согласовано: с сессией outreach-donors — порядок (5.3 после Ф2, стык с разбором ответов — в этом PR) и общие точки: третий цикл reaper.py, задача ответа продаж, конфиг и консоль продаж, реестры чистки — её ревью в этом PR (08.10)
 
 ## Оракулы
 
-- **shape-oracles:** cqg-deployed — ruff и формат, mypy strict, `scripts/gates.py` (в том числе `inline-prompt`), ратчет сложности, import-linter, хуки pre-commit, подпись необратимого, `alembic heads`
-- **behavior-oracles:** tests-present — `tests/test_sales_reply_routing.py`, `tests/test_sales_reply_kind.py`, `tests/test_sales_reply_eval.py`, `tests/test_sales_referral.py`, `tests/test_sales_ooo_unsubscribe.py`, `tests/test_job_outcome.py`, `tests/test_replies_inbox.py`, `tests/test_sending_limits.py`, оба реестра чистки — на настоящей базе дерева, модель — `httpx.MockTransport`; vitest `frontend/src/settings/UsagePage.test.tsx`; тесты частей и соседей у агента — 86 файлов, 1908 passed, на голове PR — в verify-report; полный pytest — в verify-report
-- **ci-oracles:** deployed — обязательные `check`, `web`, `docker`; quality — `gates` и `delivery`; шаг волн контура — в `check`
-- **artifact_oracle:** tests/test_package_data.py — промпт продаж объявлен в package-data `backend.features.sales` (колесо образа), а шаг CI «Шаблоны писем и промпты — внутри образа» читает его из site-packages (`reply_kind.load_prompt()`)
-- **runtime_paths:** docker-compose.yml
-- **rule_enforcers:** backend/features/sales/reply_kind.py — реестр «правило промпта → исполнитель ниже модели»: цитата дословно — `temper`; адрес «другого» — из письма (`temper`); семь видов и строгая форма — `parse_form` (иначе `parse_failed`); «письмо — данные» — обёртка, погашенные метки (`user_message`) и путь кодом (`replies.decide`); «отписка сильнее всего» и «созвон сильнее вопроса» — advisory, меряет eval (`scripts/eval_sales_reply.py`)
+- **shape-oracles:** cqg-deployed — ruff и формат, mypy, `scripts/gates.py`, ратчет сложности, гейт слоёв (import-linter), jscpd, хуки pre-commit, detect-secrets, подпись необратимого, `alembic heads`
+- **behavior-oracles:** tests-present — `tests/test_sales_handoff.py` (A1–A8, захват, проход), `tests/test_sales_handoff_table.py` (таблица, ключ, каскад, запрет, цикл миграции), `tests/test_sales_telegram.py` (три попытки, отказы, токен, getUpdates, команда и её подпись прерывания, настройки), `tests/test_sales_handoff_jobs.py` (выбор Kommo, задача, проход, цикл разбора; падающий проход не роняет соседние циклы; проход без провайдеров и без отказа при недоступной очереди — отметка цикла здорова); оба реестра чистки (`tests/test_prune.py`, `tests/test_prune_test_traces.py`) судят новую ссылку; Kommo — `KommoFixture`, Telegram — `httpx.MockTransport`, база настоящая
+- **ci-oracles:** deployed — обязательные `check`, `web`, `docker`; quality — `gates` и `delivery`; шаг волн контура — в `check`; покрытие — необязательные `coverage` и `diff-coverage` (#199)
+- **artifact_oracle:** n/a reason=фронт не тронут; новая точка входа — задача очереди и команда консоли в том же образе backend
+- **runtime_paths:** none reason=передачу зовёт только разбор ответа продаж на «хочет говорить» (стык Ф2), а ответов продаж до писем продаж (4.6b) нет; без `SALES_KOMMO_PROVIDER=live` вместо сделки — ссылка на диалог, без `SALES_TELEGRAM_*` сообщения нет; живые Kommo и Telegram — после доступа (5.5); проход повторов в процессе разбора на пустой таблице — один запрос раз в 5 минут
+- **rule_enforcers:** n/a reason=срез не вызывает модель: тексты передачи — шаблон и данные; поверхность модели продукта прежняя, строка ниже — слово в слово
 - **stack-selftest:** external (`~/Documents/Prepare`) — вариант D: каноны лежат в корне
   ЛОКАЛЬНО и в коммит не идут (`.git/info/exclude`), поэтому в CI их физически нет и
   `stack_selftest.py` проверять нечего. §7.1 требует записать это, а не умолчать:
@@ -91,19 +49,25 @@
   - Формат строки — пути от корня через запятую, без бэктиков, скобок и прозы, пояснения — в комментарии: так её видит проверка поверхности модели (delivery@2.00). Прежняя строка не совпадала ни с одним файлом дерева.
 - **irreversible_surfaces:** отправка писем донорам, и без человека в цепочке — добивки уходят по расписанию фоновым процессом; страница отписки без пропуска — нажатие постороннего пишет в стоп-лист, снимает письма с очереди и гасит сроки; публикация образов в публичный реестр при каждом слиянии в main; приём ответов вебхуком; трата юнитов Ahrefs и платных провайдеров; публичный репозиторий; автомерж по зелёному; **обход чужих живых сайтов нашим трафиком — чужие машины и наша репутация по IP, отозвать сделанные запросы нельзя**; **письма рекламодателям с доменов Этапа 2 — оффер незваным адресатам: первое уходит по нажатию человека, добивки по расписанию без человека, жалоба бьёт по репутации доменов Этапа 2 и не отзывается**; **копия базы вне машины — по расписанию и перед каждой выкаткой, без человека, дамп с перепиской и адресами уходит в стороннее хранилище (R2 или B2), тексты тревог — в Telegram; отправленное не отзывается**; **запись в Kommo при живом подключении (SALES_KOMMO_PROVIDER=live) — сделки, контакты, компании и примечания с именем, почтой, компанией и последним письмом лида уходят в стороннюю CRM без человека: по ответу лида, захотевшего говорить, и повтором по расписанию, пока Kommo не ответит; записанное из сервиса не отзывается**; **сообщения телемаркетологу и в группу продаж в Telegram — ботом продаж без человека: по ответу лида, ещё раз, когда сделка заведена после повтора, и о каждом черновике агента продаж, который ждёт человека (адрес и тема письма лида); отправленное не отзывается**; **письма продаж с доменов продаж — холодный оффер незваным адресатам: первые уходят по нажатию человека (по одному или пачкой), добивки по расписанию без человека, жалоба бьёт по репутации доменов продаж и не отзывается**; **отписка словами в треде продаж — по виду ответа, названному моделью не ниже порога, без человека: адрес закрывается во всех направлениях (стоп-лист без этапа), письма в очереди и сроки добивок любого направления снимаются и сами не возвращаются**; **ответы модели живым людям — ответ, написанный агентом переписки, уходит собеседнику по нажатию человека («Подходит · отправить» или после правки); отправленное не отзывается**
 
-Строки `stack:`, `stack-selftest:` и `irreversible_surfaces:` — перенести дословно из STATUS main на момент PR.
-**`model_surface:` — строка main плюс каталог промпта вида ответа продаж** `backend/features/sales/prompts/` первой
-строкой поля (пин `LLM_SALES_CLASSIFY_MODEL` — в `backend/config/llm.py`, он уже в строке); подпункты — main слово в
-слово; координатор берёт её из черновика (`--keep model_surface`). PR задевает оба элемента — в verify-report блок
-«Изменение поверхности модели». **Необратимое:** новый вход — отписка словами по виду модели (стоп-лист без этапа и
-снятие назначенного без человека, 2.3b); пункт «отписка словами в треде продаж» вошёл в общую строку продаж, которую
-владелец подписывает в PR передачи лида 5.3 — Ф2 сливается после него и берёт строку из main уже с этим пунктом.
-Остальное новых поверхностей не открывает: ответ продаж ставится в свою очередь, «не интересно» только закрывает
-диалог, передача лида — точка без действия до стыка с 5.3, новый лид не получает письма (очередь Ф4).
+Четыре строки — `stack:`, `stack-selftest:`, `model_surface:` и `irreversible_surfaces:` — из STATUS main на момент PR
+дословно (вписывает T0). Строку `waivers:` пишет координатор.
 
-## Чего в PR нет
+## Коммиты ветки
 
-- Передачи лида (`handoff.start`, срез 5.3) — только точка `mark_for_handoff`; стык — два коммита после слива 5.3 и Ф2
-  (ветка проверки `sales/2.x-5.3-wire`): передача после записи ответа и снятие ожидания после удачной передачи.
-- Агента на вопросы (Ф3); письма лиду из «пишите другому» (очередь Ф4, 4.6b); экрана продаж.
-- Живого eval на наборе владельца (набор ещё не положен в `SALES_GOLDEN_DIR`); правки скрипта выкатки соседней сессии.
+T1 — таблица `sales_handoffs`, два типа состояний, ключ диалога, каскад и запрет; миграция `a9e76c0eb5b0` на голову
+main. T2 — бот продаж: три попытки, отказы с советом, токен не в журнале; `outreach sales-telegram-chat-id`. T3 —
+`handoff.start`/`process`: правило лида, Kommo → Telegram, запасной путь, потерянный ответ, захват, `due`, шов цепочки.
+Задача передачи — в модуле продаж (`handoff_jobs.py`), проход повторов — третьим циклом процесса разбора; доводка
+тестами (мутанты M14–M19). Стык с Ф2 — два коммита: «хочет говорить» передаёт лида после коммита снимка ответа
+(`SalesReplies.pass_on` → `handoff.start`; отказ передачи разбор не роняет), удачная передача снимает с ответа
+ожидание человека тем же снимком (`waits: false`, причина «хочет говорить: передан телемаркетологу»).
+
+## Чего в срезе нет
+
+- Триггера 3.2 (агент), экрана передач, цепочки продаж (4.6b — только шов `handed_off`; ветка 4.6b его уже зовёт).
+  Триггер 2.2 — в PR: стык с разбором ответов.
+- Явной связи диалога с лидом: правило `lead_of` (домен + адрес/почта); явную связь `sales_threads` приносит 4.6b.
+- Живых Kommo и Telegram: доступа нет; живая проверка — 5.5.
+- Снятия ожидания при передаче не по ответу: передача не трогает `reviewed_at`; ожидание человека снимает стык
+  (снимок ответа «передан телемаркетологу»), а `sales_pending` — любой неразобранный ответ человека, передача на нём
+  не срабатывает.
