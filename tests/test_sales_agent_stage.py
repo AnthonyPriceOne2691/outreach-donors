@@ -283,7 +283,7 @@ async def test_judge_that_could_not_check_hands_the_draft_to_a_human(
     assert outcome.status is DraftStatus.ESCALATED
     draft = await stored(session, reply_id)
     assert draft.body == GOOD  # человек видит, что не проверено
-    assert draft.reason == "судья: судья-модель ответила не по форме — черновик не проверен"
+    assert draft.reason == "судья: судья-модель 2 раза ответила не по форме — черновик не проверен"
 
 
 async def test_thanks_costs_only_the_situation(session: AsyncSession, llm: Plug) -> None:  # A2

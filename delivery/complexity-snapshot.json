@@ -1722,19 +1722,19 @@
       "worst": "brief:141"
     },
     "backend/features/sales/agent/calling.py": {
-      "lines": 98,
+      "lines": 106,
       "complexity": 3,
-      "worst": "ask:73"
+      "worst": "payload:57"
     },
     "backend/features/sales/agent/facts.py": {
-      "lines": 244,
+      "lines": 248,
       "complexity": 8,
-      "worst": "_of_kind:112"
+      "worst": "_of_kind:114"
     },
     "backend/features/sales/agent/judge.py": {
-      "lines": 201,
+      "lines": 266,
       "complexity": 7,
-      "worst": "_ids:73"
+      "worst": "_ids:123"
     },
     "backend/features/sales/agent/judge_rules.py": {
       "lines": 182,

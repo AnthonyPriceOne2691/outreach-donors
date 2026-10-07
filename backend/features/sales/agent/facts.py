@@ -85,6 +85,8 @@ class Context:
     links: Mapping[str, str] = field(default_factory=dict)
     cta: tuple[Cta, str] | None = None
     move: str | None = None
+    #: Что ход велит сделать — словами строки `[move …]`.
+    move_does: str | None = None
     deferred: tuple[str, ...] = ()
     language: str | None = None
     persona: str | None = None
@@ -197,6 +199,7 @@ class _Seen:
     links: dict[str, str] = field(default_factory=dict)
     cta: tuple[Cta, str] | None = None
     move: str | None = None
+    move_does: str | None = None
     deferred: list[str] = field(default_factory=list)
     language: str | None = None
     persona: str | None = None
@@ -213,7 +216,7 @@ class _Seen:
 
     def _note(self, mark: str, arg: str, text: str) -> None:
         if mark == Mark.MOVE:
-            self.move = arg or None
+            self.move, self.move_does = arg or None, text.strip()
         elif mark == Mark.DEFERRED:
             self.deferred.append(text)
         elif mark == Mark.LANGUAGE:
@@ -227,6 +230,7 @@ class _Seen:
             links=self.links,
             cta=self.cta,
             move=self.move,
+            move_does=self.move_does,
             deferred=tuple(self.deferred),
             language=self.language,
             persona=self.persona,

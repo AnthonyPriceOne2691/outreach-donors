@@ -9,12 +9,15 @@
 2. **язык письма собеседника не определён** — человеку: язык черновика не сверить;
 3. **правила кодом** (`judge_rules.py`) — нарушения уходят писателю правкой
    (`block`), модель не зовётся;
-4. **судья-модель** (`prompts/judge.md`) — строгий JSON: утверждения черновика
-   со ссылками на номера записей базы, обещания вне базы, тон. Самооценка модели
-   только добавляет нарушения: утверждение без опоры или со ссылкой на запись,
-   которой в брифе нет, — нарушение; тон, не подтверждённый `true`, — тоже.
-   Отказ модели или неразобранный ответ — `escalate` со словами: судья, который
-   не смог проверить, не пропускает, и причина видна человеку.
+4. **судья-модель** (`prompts/judge.md`) — строгий JSON по схеме у провайдера
+   (`SCHEMA`): утверждения черновика со ссылками на номера записей базы, обещания
+   вне базы, тон. Судья видит записи базы, письмо собеседника и отправителя —
+   персону, ссылки, призыв и ход: призыв и ссылки из настроек — не утверждения.
+   Самооценка модели только добавляет нарушения: утверждение без опоры или со
+   ссылкой на запись, которой в брифе нет, — нарушение; тон, не подтверждённый
+   `true`, — тоже. Отказ модели — `escalate` со словами; неразобранный ответ —
+   один повтор, и только второй неразобранный — `escalate`: судья, который не смог
+   проверить, не пропускает, и причина видна человеку.
 
 **Режим — `SALES_JUDGE_MODE`.** `enforce` (по умолчанию) отдаёт шву вердикт как
 есть. `shadow` — для замера: `block` записан словами в попытки черновика и в
@@ -48,7 +51,42 @@ logger = logging.getLogger(__name__)
 TOPIC = "судья черновика продаж"
 PROMPT = Path(__file__).with_name("prompts") / "judge.md"
 #: Меняется при каждой правке промпта: калибровка сравнивает версии.
-PROMPT_VERSION = "sales-judge-v2"
+PROMPT_VERSION = "sales-judge-v3"
+#: Сколько раз спросить судью-модель, если её ответ не разобран: битый ответ — не вердикт,
+#: но и не повод звать модель без конца.
+ATTEMPTS = 2
+
+#: Строгая форма ответа судьи-модели — схемой у провайдера: объект другой формы
+#: модель не вернёт. Разбор (`parse`) всё равно проверяет форму сам.
+SCHEMA: dict[str, Any] = {
+    "name": "sales_judge_opinion",
+    "schema": {
+        "type": "object",
+        "properties": {
+            "claims": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "quote": {"type": "string"},
+                        "kb": {"type": "array", "items": {"type": "integer"}},
+                    },
+                    "required": ["quote", "kb"],
+                    "additionalProperties": False,
+                },
+            },
+            "promises": {"type": "array", "items": {"type": "string"}},
+            "tone": {
+                "type": "object",
+                "properties": {"ok": {"type": "boolean"}, "problem": {"type": "string"}},
+                "required": ["ok", "problem"],
+                "additionalProperties": False,
+            },
+        },
+        "required": ["claims", "promises", "tone"],
+        "additionalProperties": False,
+    },
+}
 #: Начало причины в режиме наблюдения: вердикт записан, черновик не задержан.
 SHADOW = "shadow"
 
@@ -60,11 +98,23 @@ def _quiet(text: str) -> str:
     return text.replace("<<<", "‹‹‹").replace(">>>", "›››")
 
 
+def sender_of(context: Context) -> dict[str, Any]:
+    """Кто пишет, куда зовёт и что велит ход — то, что судья не должен считать утверждением."""
+    cta = None if context.cta is None else {"channel": context.cta[0].value, "link": context.cta[1]}
+    return {
+        "persona": context.persona,
+        "links": dict(context.links),
+        "cta": cta,
+        "move": {"name": context.move, "does": context.move_does or None},
+    }
+
+
 def user_message(check: GuardInput, context: Context) -> str:
-    """Записи базы брифа, черновик и письмо собеседника — в метках данных."""
+    """Записи базы брифа, отправитель, черновик и письмо собеседника — в метках данных."""
     records = [{"id": number, "text": text} for number, text in context.kb.items()]
     return (
         f"records:\n{json.dumps(records, ensure_ascii=False)}\n"
+        f"sender:\n{json.dumps(sender_of(context), ensure_ascii=False)}\n"
         f"<<<DRAFT\n{_quiet(check.draft)}\nDRAFT>>>\n"
         f"<<<LETTER\n{_quiet(check.incoming)}\nLETTER>>>"
     )
@@ -106,16 +156,26 @@ def _list_of(raw: object, kind: type) -> list[Any] | None:
     return None
 
 
+def _misshaped(raw: object) -> str | None:
+    """Что не так с формой ответа — словами для журнала. `None` — форма верна."""
+    if not isinstance(raw, dict):
+        return f"ждали объект, пришло {type(raw).__name__}"
+    if _list_of(raw.get("claims"), dict) is None:
+        return "claims — не список объектов"
+    if _list_of(raw.get("promises"), str) is None:
+        return "promises — не список строк"
+    if not isinstance(raw.get("tone"), dict):
+        return "tone — не объект"
+    return None
+
+
 def _shaped(raw: object) -> tuple[list[Any], list[Any], Mapping[str, Any]] | None:
     """Форма ответа: три ключа, каждый своего вида. Иначе — не разобрано."""
-    if not isinstance(raw, dict):
+    problem = _misshaped(raw)
+    if problem is not None or not isinstance(raw, dict):
+        logger.warning("%s: ответ модели не той формы — %s", TOPIC, problem)
         return None
-    claims = _list_of(raw.get("claims"), dict)
-    promises = _list_of(raw.get("promises"), str)
-    tone = raw.get("tone")
-    if claims is None or promises is None or not isinstance(tone, dict):
-        return None
-    return claims, promises, tone
+    return raw["claims"], raw["promises"], raw["tone"]
 
 
 def parse(content: str, *, known: Mapping[int, str]) -> list[str] | None:
@@ -127,7 +187,6 @@ def parse(content: str, *, known: Mapping[int, str]) -> list[str] | None:
         return None
     shaped = _shaped(raw)
     if shaped is None:
-        logger.warning("%s: ответ модели не той формы", TOPIC)
         return None
     claims, promises, tone = shaped
     return [
@@ -147,22 +206,28 @@ def _unchecked(check: GuardInput, context: Context) -> str | None:
 
 
 async def _model(check: GuardInput, context: Context, prompt: Path) -> Verdict:
-    """Судья-модель: строгий JSON → нарушения. Не смогла проверить — человеку."""
-    answer = await calling.ask(
-        prompt=prompt,
-        user=user_message(check, context),
-        model=llm_cfg.SALES_JUDGE_MODEL,
-        topic=TOPIC,
-    )
-    if isinstance(answer, Refusal):
-        return Verdict(VerdictKind.ESCALATE, (f"судья-модель не проверила черновик: {answer}",))
-    found = parse(answer.content, known=context.kb)
-    if found is None:
-        why = "судья-модель ответила не по форме — черновик не проверен"
-        return Verdict(VerdictKind.ESCALATE, (why,), tokens=answer.tokens)
-    if found:
-        return Verdict(VerdictKind.BLOCK, tuple(found), tokens=answer.tokens)
-    return Verdict(VerdictKind.ALLOW, tokens=answer.tokens)
+    """Судья-модель: строгий JSON → нарушения. Битый ответ — один повтор; не смогла
+    проверить — человеку."""
+    tokens = 0
+    for attempt in range(1, ATTEMPTS + 1):
+        answer = await calling.ask(
+            prompt=prompt,
+            user=user_message(check, context),
+            model=llm_cfg.SALES_JUDGE_MODEL,
+            topic=TOPIC,
+            schema=SCHEMA,
+        )
+        if isinstance(answer, Refusal):
+            why = f"судья-модель не проверила черновик: {answer}"
+            return Verdict(VerdictKind.ESCALATE, (why,), tokens=tokens)
+        tokens += answer.tokens
+        found = parse(answer.content, known=context.kb)
+        if found is not None:
+            kind = VerdictKind.BLOCK if found else VerdictKind.ALLOW
+            return Verdict(kind, tuple(found), tokens=tokens)
+        logger.warning("%s: ответ не разобран, попытка %s из %s", TOPIC, attempt, ATTEMPTS)
+    why = f"судья-модель {ATTEMPTS} раза ответила не по форме — черновик не проверен"
+    return Verdict(VerdictKind.ESCALATE, (why,), tokens=tokens)
 
 
 async def verdict(check: GuardInput, *, prompt: Path = PROMPT) -> Verdict:

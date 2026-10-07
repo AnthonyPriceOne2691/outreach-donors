@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 #: Промпт черновика ответа лиду — файлом в package-data.
 PROMPT = Path(__file__).with_name("prompts") / "reply.md"
 #: Меняется при каждой правке промпта: черновик хранит, по какой версии написан.
-PROMPT_VERSION = "sales-reply-v2"
+PROMPT_VERSION = "sales-reply-v3"
 #: Модель черновика — пин продаж (`LLM_SALES_DRAFT_MODEL`): письмо живому человеку.
 MODEL = llm_cfg.SALES_DRAFT_MODEL
 #: Операции расхода: черновик — писатель шва, судья — вызов модели в судье,

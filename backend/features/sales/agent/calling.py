@@ -54,13 +54,19 @@ def client() -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=llm_cfg.TIMEOUT_S)
 
 
-def payload(model: str, *, prompt: Path, user: str) -> dict[str, Any]:
+def payload(
+    model: str, *, prompt: Path, user: str, schema: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Тело запроса: системный промпт файлом, данные — сообщением, ответ — JSON.
 
     Форма — та же, что у писателя шва (`writer.build_payload`), своё — потолок
-    вывода и сэмплинг: метка и строгая форма, а не письмо.
+    вывода и сэмплинг: метка и строгая форма, а не письмо. Схема (`schema`) —
+    строгая форма ответа у провайдера (`json_schema`, `strict`): модель не может
+    вернуть объект другой формы. Без схемы — любой JSON-объект.
     """
     body = build_payload(model, user=user, prompt=prompt)
+    if schema is not None:
+        body["response_format"] = {"type": "json_schema", "json_schema": {**schema, "strict": True}}
     if is_reasoning(model):
         body["max_completion_tokens"] = TOKENS_REASONING
         body["reasoning_effort"] = "minimal"
@@ -70,7 +76,9 @@ def payload(model: str, *, prompt: Path, user: str) -> dict[str, Any]:
     return body
 
 
-async def ask(*, prompt: Path, user: str, model: str, topic: str) -> Answer | Refusal:
+async def ask(
+    *, prompt: Path, user: str, model: str, topic: str, schema: dict[str, Any] | None = None
+) -> Answer | Refusal:
     """Один вызов модели со строгим JSON в ответе. `Refusal` — не вышло, со словами.
 
     Ключа нет — тоже `Refusal` («чинить»): его называет общий `post_chat`.
@@ -87,7 +95,7 @@ async def ask(*, prompt: Path, user: str, model: str, topic: str) -> Answer | Re
         body = await post_chat(
             http,
             api_key=llm_cfg.API_KEY,
-            payload=payload(model, prompt=prompt, user=hidden.text),
+            payload=payload(model, prompt=prompt, user=hidden.text, schema=schema),
             topic=topic,
         )
     if isinstance(body, Refusal):

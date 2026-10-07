@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 from backend.config import llm as llm_cfg
-from backend.features.agent.stages import GuardInput, VerdictKind
+from backend.features.agent.stages import GuardInput, Verdict, VerdictKind
 from backend.features.agent.writer import load_prompt
 from backend.features.core.domain import Stage
 from backend.features.sales.agent import judge
@@ -123,6 +123,49 @@ async def test_clean_draft_goes_to_the_model_with_records_and_passes(llm: Plug) 
     assert '"id": 4' in user
     assert "Трафик вырос в 3,7 раза" in user
     assert user.count("DRAFT>>>") == 1
+
+
+async def test_the_judge_sees_the_sender_and_answers_by_a_strict_schema(llm: Plug) -> None:  # C1
+    """Калибровка 07.10: призыв и ссылки отправителя — не утверждения, поэтому судья их
+    видит; форма ответа — схемой у провайдера, а не просьбой в промпте."""
+    model = llm(judge=[FINE])
+
+    await judge.guard(check())
+
+    [sent] = model.sent["judge"]
+    form = sent["response_format"]
+    assert form["type"] == "json_schema"
+    assert form["json_schema"]["strict"] is True
+    assert form["json_schema"]["schema"] == judge.SCHEMA["schema"]
+    sender = json.loads(sent["messages"][1]["content"].split("sender:\n", 1)[1].split("\n", 1)[0])
+    assert sender["cta"] == {"channel": "call", "link": CALL}
+    assert sender["links"] == {"call": CALL}
+    assert sender["move"] == {
+        "name": "price",
+        "does": "Ответить о цене по политике цен из базы.",
+    }
+
+
+async def test_a_broken_answer_is_asked_again_once(llm: Plug) -> None:  # C2
+    model = llm(judge=["Черновик хороший.", FINE])
+
+    verdict = await judge.guard(check())
+
+    assert (verdict.kind, verdict.tokens) == (VerdictKind.ALLOW, 2 * TOKENS)
+    assert len(model.sent["judge"]) == judge.ATTEMPTS == 2
+
+
+async def test_two_broken_answers_escalate_with_words(llm: Plug) -> None:  # C2
+    model = llm(judge=[{"claims": "нет"}])
+
+    verdict = await judge.guard(check())
+
+    assert verdict == Verdict(
+        VerdictKind.ESCALATE,
+        ("судья-модель 2 раза ответила не по форме — черновик не проверен",),
+        tokens=2 * TOKENS,
+    )
+    assert len(model.sent["judge"]) == 2
 
 
 async def test_unsupported_claim_from_the_model_blocks(llm: Plug) -> None:
