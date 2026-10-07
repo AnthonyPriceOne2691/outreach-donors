@@ -53,15 +53,9 @@ from backend.cli.prune import add_parser as add_prune_parser
 from backend.cli.prune import cmd_prune
 from backend.cli.review_queue import add_parser as add_review_queue_parser
 from backend.cli.review_queue import cmd_review_queue
-from backend.cli.sales import add_parser as add_sales_parser
-from backend.cli.sales import (
-    cmd_sales_chain_load,
-    cmd_sales_clean,
-    cmd_sales_hypothesis_add,
-    cmd_sales_import,
-    cmd_sales_kb_load,
-    cmd_sales_stoplist_add,
-)
+from backend.cli.sales_commands import COMMANDS as SALES_COMMANDS
+from backend.cli.sales_commands import KEPT_ON_INTERRUPT as SALES_KEPT
+from backend.cli.sales_commands import add_parsers as add_sales_parsers
 from backend.cli.senders_admin import add_parser as add_senders_parser
 from backend.cli.senders_admin import cmd_sender_add, cmd_senders
 from backend.config import ahrefs as ahrefs_cfg
@@ -402,7 +396,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_prune_parser(sub)
     add_probe_donor_parser(sub)
     add_probe_advertiser_parser(sub)
-    add_sales_parser(sub)
+    add_sales_parsers(sub)
     return parser
 
 
@@ -425,14 +419,10 @@ _FAILURES: tuple[tuple[type[Exception], int, str], ...] = (
 _KEPT_ON_INTERRUPT: dict[str, str] = {
     "contacts-file": "Пройденное — в чекпойнте: повторный запуск продолжит с места обрыва "
     "и запишет итог.",
-    "sales-import": "Загрузка одной транзакцией: в базе ничего не осталось.",
-    "sales-stoplist-add": "Стоп-лист пишется одной транзакцией: в базе ничего не осталось.",
-    "sales-clean": "Записанные партии остались в базе; повторный проход продолжит с лидов `new`.",
-    "sales-kb-load": "База знаний пишется одной транзакцией: в базе ничего не осталось.",
     "prune": "Чистка идёт одной транзакцией: в базе ничего не изменилось.",
     "probe-donor": "Липовый донор заводится одной транзакцией: в базе ничего не изменилось.",
     "probe-advertiser": "Пробный заводится одной транзакцией: в базе ничего не изменилось.",
-    "sales-chain-load": "Цепочка писем пишется одной транзакцией: в базе ничего не осталось.",
+    **SALES_KEPT,
 }
 
 
@@ -465,12 +455,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] =
     "prune": cmd_prune,
     "probe-donor": cmd_probe_donor,
     "probe-advertiser": cmd_probe_advertiser,
-    "sales-hypothesis-add": cmd_sales_hypothesis_add,
-    "sales-import": cmd_sales_import,
-    "sales-stoplist-add": cmd_sales_stoplist_add,
-    "sales-clean": cmd_sales_clean,
-    "sales-kb-load": cmd_sales_kb_load,
-    "sales-chain-load": cmd_sales_chain_load,
+    **SALES_COMMANDS,
 }
 
 

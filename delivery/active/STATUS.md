@@ -10,13 +10,16 @@
 - **human_ok_spec:** yes at=2026-10-05 by=human:anthony («даю да» — план фаз с примерами Spec 4.6 A1–A5 (01.10); модульный срез продаж одним PR под постоянный вейвер — решение владельца 05.10; примеры части 1 C1–C11 — к подписи при ревью)
 - **waivers:** max_loc_diff=3988 max_files_touched=40 reason=модульный срез продаж, постоянный вейвер владельца 05.10; общая часть 126 строк (две миграции 107, значение журнала, реестр моделей, test_schema, cli/main.py, .secrets.baseline); из строк среза 1736 — тесты by=human:anthony
 - **new_dependency:** no (Playwright — extra `browser` из `pyproject.toml`; Pillow для `ui_contrast.py` — `uv run --with pillow`, в зависимости не внесён)
-- **shared_changes:** срез трогает 14 файлов вне масок `SALES_PATHS`; каждый — полным путём:
+- **shared_changes:** срез трогает 15 файлов вне масок `SALES_PATHS`; каждый — полным путём:
   `backend/features/core/domain.py` — значение журнала `AuditAction.SALES_CHAIN_CHANGED`;
   `backend/features/core/models/__init__.py` — экспорт `SalesChainTemplateModel`;
   `backend/migrations/versions/723e3ddab31f_sales_chain_templates.py` — таблица `sales_chain_templates`; после головы main `ad4a79bc6000`;
   `backend/migrations/versions/cbc5aadf4fc2_sales_chain_changed_audit_action.py` — `ADD VALUE 'sales_chain_changed'` отдельной ревизией;
   `tests/test_schema.py` — новая таблица в перечне сущностей;
-  `backend/cli/main.py` — команда `sales-chain-load` в `_COMMANDS` и подсказка второго Ctrl-C;
+  `backend/cli/main.py` — команды продаж берёт перечнем из `backend/cli/sales_commands.py` (`**SALES_COMMANDS`,
+  `**SALES_KEPT`, `add_sales_parsers`), сам ни одной не называет;
+  `backend/cli/sales_commands.py` — новый перечень команд консоли продаж: команды, подписи прерывания, разбор доводов
+  (`main.py` у предела длины 500 строк); согласовано с соседней сессией;
   `backend/cli/sales.py` — `cmd_sales_chain_load`, `run_chain_load` и разбор доводов команды;
   `backend/api/sales/routes.py` — включение роутера `chain` в роутер раздела;
   `backend/api/sales/chain.py` — маршруты цепочки под `Permission.SALES`;

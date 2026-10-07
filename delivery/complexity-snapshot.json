@@ -487,9 +487,9 @@
       "worst": "_report:181"
     },
     "backend/cli/main.py": {
-      "lines": 500,
+      "lines": 485,
       "complexity": 9,
-      "worst": "_print_report:258"
+      "worst": "_print_report:252"
     },
     "backend/cli/probe_advertiser.py": {
       "lines": 93,
@@ -515,6 +515,11 @@
       "lines": 473,
       "complexity": 7,
       "worst": "_mapping:362"
+    },
+    "backend/cli/sales_commands.py": {
+      "lines": 40,
+      "complexity": 1,
+      "worst": "add_parsers:37"
     },
     "backend/cli/senders_admin.py": {
       "lines": 134,
