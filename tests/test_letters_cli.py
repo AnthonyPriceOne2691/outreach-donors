@@ -9,14 +9,22 @@
 from __future__ import annotations
 
 import argparse
+from datetime import UTC, datetime
 
 import pytest
 from backend.cli import letters_queue
 from backend.config import storage
+from backend.features.core.models.outreach import MessageModel
 from backend.features.letters import transport_factory
+from backend.features.letters.followups import send_due
 from backend.features.letters.transport import MaybeSentError, NullTransport, Outgoing
+from sqlalchemy import select
 from tests.conftest import TEST_DSN, make_donor, make_sender
 from tests.test_send_race import _one_letter, committed_sessions
+from tests.thread_letters import Refusing, conversation, first_letter
+
+#: Первое письмо переписки ушло давно — срок добивки прошёл.
+SENT = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 
 
 @pytest.fixture(autouse=True)
@@ -74,6 +82,28 @@ async def test_queue_is_shown_and_empty_queue_says_how_to_fill_it(
     assert "Очередь пуста" in said_empty
     assert f"№{letter_id:>5}" in said_full
     assert "race.example.test" in said_full
+
+
+async def test_queue_shows_first_letters_only(
+    capsys: pytest.CaptureFixture[str], filled_legal: None
+) -> None:
+    """Добивка, которую отказ почты вернул «в очередь», в консоли не стоит: у неё
+    свой путь и свой ящик (`letters/mailbox.py`), как и на экране."""
+    async with committed_sessions() as factory:
+        async with factory() as session:
+            talk = await conversation(session, sent_at=SENT)
+            assert talk.first.next_action_at is not None
+            await send_due(session, transport=Refusing(), limit=1, now=talk.first.next_action_at)
+            newcomer = await first_letter(session, host="newcomer.example.test")
+            await session.commit()
+            followup = await session.scalar(select(MessageModel.id).where(MessageModel.step == 1))
+
+        await letters_queue.cmd_letters(argparse.Namespace(limit=20))
+        said = capsys.readouterr().out
+
+    assert followup is not None
+    assert f"№{newcomer.id:>5}" in said
+    assert f"№{followup:>5}" not in said
 
 
 async def test_send_tells_the_fate_and_the_unknown_outcome_without_a_traceback(

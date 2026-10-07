@@ -11,7 +11,9 @@
 - **Шаг вне цепочки** (`chain.ANSWER_STEP`): после ответа добивок нет —
   разговор ведёт человек, и напоминание поверх его письма выглядело бы спамом.
 - **Ящик — тот, что начал переписку.** Сменить его посреди разговора значит
-  попасть в спам и запутать собеседника.
+  попасть в спам и запутать собеседника. Ящика нет (удалён) или он не пишет —
+  ответ не уходит с другого, а отказ говорит почему; в общей очереди писем
+  ответа нет, и пачка его не берёт (`mailbox.py`).
 - **Адрес — тот, с которого ответили** (приём запоминает его контактом):
   ответить могли с другого ящика, чем тот, на который ушло первое письмо.
 - **Ветка — к письму собеседника** (`In-Reply-To` его `Message-ID`): у него
@@ -105,12 +107,13 @@ async def answer_reply(
     # Ahrefs наружу не уходят ни в каком письме, и ответ — не исключение.
     guards.assert_no_metrics(text)
     found = await _context(session, thread_id=thread_id, reply_id=reply_id)
+    sender_id = await _thread_sender(session, thread_id)
     message = await _materialize(session, found, text)
     await session.commit()
     return await sending.send(
         message.id,
         author_id=author_id,
-        from_sender_id=await _thread_sender(session, thread_id),
+        from_sender_id=sender_id,
         in_reply_to=found.reply.inbound_message_id,
     )
 
@@ -181,8 +184,12 @@ async def _answering_contact(session: AsyncSession, found: _Context) -> int | No
     return found.thread.contact_id
 
 
-async def _thread_sender(session: AsyncSession, thread_id: int) -> int | None:
-    """Ящик, с которого ушло первое письмо переписки."""
+async def _thread_sender(session: AsyncSession, thread_id: int) -> int:
+    """Ящик, с которого ушло первое письмо переписки.
+
+    Нет его — ответ не уходит вовсе: с любого свободного ящика он ушёл бы
+    первым письмом от незнакомца посреди разговора (находка ревью 07.10.2026).
+    """
     sender_id = await session.scalar(
         select(MessageModel.sender_id)
         .where(
@@ -193,4 +200,10 @@ async def _thread_sender(session: AsyncSession, thread_id: int) -> int | None:
         .order_by(MessageModel.id)
         .limit(1)
     )
-    return int(sender_id) if sender_id is not None else None
+    if sender_id is None:
+        raise AnswerRefusedError(
+            f"У переписки №{thread_id} нет ящика, с которого ушло первое письмо: его "
+            "удалили, и писать в эту переписку нечем. С другого ящика ответ не уйдёт — "
+            "для собеседника это был бы незнакомец посреди разговора"
+        )
+    return int(sender_id)

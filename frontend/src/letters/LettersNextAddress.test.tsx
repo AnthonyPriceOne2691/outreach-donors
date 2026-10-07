@@ -12,7 +12,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
-import { ADMIN, TOKEN_KEY } from '../test/fixtures';
+import { ADMIN, NO_STUCK_LETTERS, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 
@@ -36,6 +36,7 @@ async function openLetters(routes: Record<string, unknown>): Promise<void> {
   serve({
     'GET /api/auth/me': { body: ADMIN },
     'GET /api/runs/with-accepted': { body: [] },
+    ...NO_STUCK_LETTERS,
     ...(routes as Record<string, never>),
   });
   renderWith(<AppRoutes />, '/letters');

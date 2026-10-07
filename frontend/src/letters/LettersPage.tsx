@@ -68,6 +68,7 @@ import { LetterPreview, toneOf } from './LetterPreview';
 import { corridorText, uniquenessText } from './letterText';
 import { RunPicker } from './RunPicker';
 import { SendQueue } from './SendQueue';
+import { UnknownOutcome } from './UnknownOutcome';
 import { remember, remembered } from '../storage';
 import { JobLine } from '../jobs/JobLine';
 
@@ -393,6 +394,9 @@ export function LettersPage() {
           ) : null}
         </Stack>
       </Card>
+
+      {/* Зависшие письма — над пачкой: их исход решают до того, как слать дальше. */}
+      <UnknownOutcome stage={stage} canSend={can('send')} />
 
       {data !== undefined && can('send') && !stale ? (
         <SendQueue

@@ -31,6 +31,15 @@ MAX_STEPS = 3
 CHAINABLE = (MessageStatus.SENT, MessageStatus.DELIVERED)
 
 
+def kind_of(step: int) -> str:
+    """Какое это письмо — словами: у первого письма, добивки и ответа разный путь."""
+    if step == FIRST_STEP:
+        return "первое письмо"
+    if step >= ANSWER_STEP:
+        return "ответ в переписке"
+    return f"добивка {step}"
+
+
 def cadence(days: list[int] | None) -> tuple[int, ...]:
     """Сроки добивок рассылки, в днях от предыдущего письма.
 

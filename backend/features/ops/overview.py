@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import ColumnElement, and_, func, select
+from sqlalchemy import ColumnElement, and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import ahrefs as ahrefs_cfg
@@ -45,6 +45,7 @@ from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.core.models.run import RunModel
 from backend.features.crawl import review as advertiser_review
 from backend.features.donors import standing
+from backend.features.letters.chain import FIRST_STEP
 from backend.features.outreach.repository import OutreachRepository, ThreadRow
 from backend.features.outreach.threads import ThreadState
 from backend.features.replies import unbound
@@ -242,9 +243,13 @@ async def _written(session: AsyncSession) -> int:
 
 
 async def _letters(session: AsyncSession) -> dict[Stage, LetterCounts]:
+    """Письма по этапам. «В очереди» — первые письма, как на экране писем,
+    куда ведёт число: добивка и ответ ждут своим путём (`letters/mailbox.py`),
+    и с ними главная разошлась бы с экраном."""
     rows = await session.execute(
         select(CampaignModel.stage, MessageModel.status, func.count())
         .join(CampaignModel, CampaignModel.id == MessageModel.campaign_id)
+        .where(or_(MessageModel.status != MessageStatus.QUEUED, MessageModel.step == FIRST_STEP))
         .group_by(CampaignModel.stage, MessageModel.status)
     )
     by_stage: dict[Stage, dict[MessageStatus, int]] = {stage: {} for stage in Stage}

@@ -23,7 +23,9 @@
 **Добивка идёт с того же ящика, что и первое письмо.** Менять ящик
 на середине переписки значит попасть в спам и запутать собеседника —
 то же правило, что у ответа оператора из карточки диалога. Ящик
-на паузе не заменяется другим: срок переносится, цепочка ждёт.
+на паузе не заменяется другим: срок переносится, цепочка ждёт. Уходит
+добивка только этим проходом: в общей очереди писем её нет, и пачка
+её не берёт (`mailbox.py`).
 
 **Свой лейн, а не дневной кап.** Дневной кап ящика считает первые
 письма; добивки идут своим часовым потолком (решение 21.09.2026).
@@ -377,10 +379,20 @@ async def _deliver(
     claimed: Claimed,
     report: PassReport,
 ) -> None:
-    """Одна добивка: проверить лейн, собрать текст, отдать почте."""
-    if claimed.sender_id is not None and await chain.sent_this_hour(claimed.sender_id) >= (
-        cfg.FOLLOWUP_PER_SENDER_PER_HOUR
-    ):
+    """Одна добивка: проверить ящик и лейн, собрать текст, отдать почте."""
+    if claimed.sender_id is None:
+        # Письма теряют номер ящика, когда ящик удаляют. С другого ящика
+        # добивка не уходит (`mailbox.py`): она ждёт, и проход говорит почему.
+        await chain.restore(claimed, delay=POSTPONE)
+        await session.commit()
+        report.postponed += 1
+        logger.warning(
+            "добивки: %s — ящик переписки неизвестен (удалён): добивка ждёт, "
+            "с другого ящика она не уйдёт",
+            claimed.host,
+        )
+        return
+    if await chain.sent_this_hour(claimed.sender_id) >= cfg.FOLLOWUP_PER_SENDER_PER_HOUR:
         await chain.restore(claimed, delay=POSTPONE)
         await session.commit()
         report.postponed += 1
