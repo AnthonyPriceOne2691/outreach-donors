@@ -113,34 +113,84 @@ jobs:
       - name: Ратчет сложности
         run: python scripts/complexity.py
 
-      # Сьют идёт на PR ОДИН раз — здесь (cqg@2.47). Прежде гейт покрытия в
-      # quality.yml гонял его второй раз (7–8 минут на каждом PR).
-      #
-      # Покрытие снимается только с КАТАЛОГОВ изменённых файлов backend: гейту
-      # нужны изменённые файлы, а полное (`concurrency = greenlet`, без него
-      # coverage слеп к async-коду) стоило обязательной проверке +47% — 826 с
-      # против 560 (замер #195, 07.10). Нет правок python — нет и трассировки.
-      # Привязка `coverage.json.head` — SHA, на котором шёл сьют: гейт откажется
-      # судить отчёт чужого коммита.
-      #
-      # ⚠ Каталоги, а не имена модулей — по двум независимым причинам (#196):
-      # 1. Имя модуля coverage ищет через find_spec ещё до первого теста, и тот
-      #    импортирует родительский пакет: `backend.features.core.models.donor`
-      #    тянет все модели и SQLAlchemy до старта трассировки, после чего процесс
-      #    падает segfault на первом подключении к базе (#194: в CI 1 из 1,
-      #    локально 3 из 3; каталогом — 3 из 3 зелёные). Так же — `features/sales`.
-      # 2. По имени coverage не видит файл, загруженный по пути: ревизии миграций
-      #    (`tests/migration_helpers.py`, spec_from_file_location) выпадали из
-      #    отчёта, и гейт краснел «не исполнялся тестами вовсе».
-      # Соседние файлы каталога в отчёте гейту не мешают: он судит изменённые
-      # файлы целиком (`percent_covered` файла), а не строки диффа.
+      # Сьют в обязательной проверке идёт ГОЛЫМ. Покрытие с `concurrency =
+      # greenlet` (без него coverage слеп к async-коду, а ядро sysmon гринлеты не
+      # держит) стоило ей +200–290 с на каждом backend-PR: «Тесты» 530/532/561/608 с
+      # без покрытия против 801/822 с с ним (замер 07.10, #180/#194/#196). При
+      # `strict` и слиянии по одному это минуты на каждый PR очереди. Покрытие —
+      # в джобе `coverage` ниже, параллельно и необязательно.
       - name: Тесты
+        run: pytest
+
+  # Покрытие изменённого кода — отдельной необязательной джобой, ПАРАЛЛЕЛЬНО
+  # check: обязательный путь не ждёт трассировку. Сьют на backend-PR идёт дважды —
+  # это место в очереди раннеров, а не деньги (репозиторий публичный), и скорость
+  # слияний важнее (решение 07.10). Нет правок python в backend — сьют здесь не
+  # гоняется, джоба кладёт только привязку `coverage.json.head`.
+  #
+  # Покрытие снимается с КАТАЛОГОВ изменённых файлов, а не с имён модулей — по
+  # двум независимым причинам (#196):
+  # 1. Имя модуля coverage ищет через find_spec ещё до первого теста, и тот
+  #    импортирует родительский пакет: `backend.features.core.models.donor`
+  #    тянет все модели и SQLAlchemy до старта трассировки, после чего процесс
+  #    падает segfault на первом подключении к базе (#194: в CI 1 из 1,
+  #    локально 3 из 3; каталогом — 3 из 3 зелёные). Так же — `features/sales`.
+  # 2. По имени coverage не видит файл, загруженный по пути: ревизии миграций
+  #    (`tests/migration_helpers.py`, spec_from_file_location) выпадали из
+  #    отчёта, и гейт краснел «не исполнялся тестами вовсе».
+  # Соседние файлы каталога в отчёте гейту не мешают: он судит изменённые
+  # файлы целиком (`percent_covered` файла), а не строки диффа. Привязка
+  # `coverage.json.head` — SHA, на котором шёл сьют: гейт откажется судить
+  # отчёт чужого коммита.
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: outreach
+          POSTGRES_PASSWORD: outreach
+          POSTGRES_DB: outreach_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U outreach"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      TEST_STORAGE_DSN: postgresql+asyncpg://outreach:outreach@localhost:5432/outreach_test
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Та же версия uv и тот же lock, что в check: покрытие снимается с того же
+      # окружения, на котором check судит тесты.
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.11.26"
+
+      - name: Установить зависимости
+        run: |
+          uv sync --frozen --extra dev --python 3.12
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Тесты с покрытием изменённых каталогов
         env:
           BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
           base=""
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            git fetch --no-tags origin "+refs/heads/$GITHUB_BASE_REF:refs/remotes/origin/$GITHUB_BASE_REF"
             base="origin/$GITHUB_BASE_REF"
           elif [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ] \
                && git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
@@ -155,8 +205,7 @@ jobs:
             echo "покрытие каталогов изменённых файлов: $(echo $dirs)"
             pytest $(printf -- '--cov=%s ' $dirs) --cov-report=json:coverage.json
           else
-            echo "правок python в backend нет — сьют без покрытия"
-            pytest
+            echo "правок python в backend нет — сьют здесь не гоняется, судить нечего"
           fi
           git rev-parse HEAD > coverage.json.head
 
@@ -170,11 +219,11 @@ jobs:
           retention-days: 3
 
   # Гейт покрытия изменённого кода (контур, scripts/lint/check_diff_coverage.sh)
-  # читает отчёт джобы check и сьют не гоняет. Отдельная джоба, а не шаг в check:
-  # check — обязательная проверка, а гейт покрытия у проекта не блокирующий, как
-  # и прежде в quality.yml. Без базы и питона проекта — только git и python3.
+  # читает отчёт джобы coverage и сьют не гоняет. Как и coverage, не блокирующий:
+  # обязательная проверка у проекта — check. Без базы и питона проекта — только
+  # git и python3.
   diff-coverage:
-    needs: check
+    needs: coverage
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
