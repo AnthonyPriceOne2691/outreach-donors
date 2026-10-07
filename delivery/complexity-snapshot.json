@@ -1857,9 +1857,9 @@
       "worst": "worker_problems:74"
     },
     "backend/workers/jobs.py": {
-      "lines": 496,
-      "complexity": 5,
-      "worst": "_mark:195"
+      "lines": 498,
+      "complexity": 6,
+      "worst": "_search_contacts:314"
     },
     "backend/workers/main.py": {
       "lines": 29,

@@ -17,7 +17,7 @@ import asyncio
 import logging
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, time, timedelta
-from typing import Any
+from typing import Any, assert_never
 
 import httpx
 from rq import get_current_job
@@ -318,16 +318,18 @@ async def _search_contacts(
     donor_id: int | None = None,
     stage: Stage = Stage.DONORS,
 ) -> dict[str, Any]:
-    # Этап — явным разбором, без «иначе доноры»: этап, добавленный позже,
-    # молча пошёл бы по очереди доноров и платным ступеням (07.10.2026).
+    # Этап — разбором целиком, как в почте (`core/stages.py`): с «иначе доноры» новый
+    # этап молча шёл бы путём доноров и платил за их ступени, а так он — ошибка mypy.
     queue_of: type[AdvertiserContactRepository] | None
     match stage:
         case Stage.DONORS:
             queue_of = None  # очередь доноров — умолчание `search_contacts`
         case Stage.ADVERTISERS:
             queue_of = AdvertiserContactRepository
-        case _:
+        case Stage.SALES:
             raise StageWithoutContactsError(stage)
+        case _:
+            assert_never(stage)
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
@@ -392,21 +394,21 @@ def find_contacts(
     )
 
 
-def _contacts_what(donor_id: int | None, stage: str) -> str:
-    """Чей поиск — словами, для журнала. Этап разбирается явно, как и очередь.
+def _contacts_what(donor_id: int | None, stage: Stage) -> str:
+    """Чей поиск — словами, для журнала; этап — разбором целиком, как и очередь.
 
-    Этап без поиска здесь только называется (этап — строкой: подпись нужна
-    и тому, которого код ещё не знает), а отказывает `_search_contacts` —
-    внутри `_settled`. Отказ из подписи случился бы до него, и очередь трижды
-    повторила бы постоянный отказ с «ждёт повтора» без причины на экране.
+    Этап без поиска только называется, а отказ — в `_search_contacts`, внутри
+    `_settled`: отсюда он ушёл бы мимо, и очередь трижды повторила бы его.
     """
     match stage:
         case Stage.ADVERTISERS:
             return "поиск адресов рекламодателей"
         case Stage.DONORS:
             return "поиск контактов" if donor_id is None else f"поиск адреса донора №{donor_id}"
+        case Stage.SALES:
+            return "поиск адресов продаж"
         case _:
-            return f"поиск адресов этапа «{stage}»"
+            assert_never(stage)
 
 
 async def _parse_reply(reply_id: int) -> dict[str, Any]:
