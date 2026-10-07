@@ -77,9 +77,13 @@ class Brief:
     facts: tuple[str, ...] = ()
     skip: Skip | None = None
     meta: Mapping[str, Any] = field(default_factory=dict)
-    #: Чьим именем подписать черновик (пусто — без подписи). `None` — общим
-    #: именем отправителя `OUTREACH_SENDER_NAME`, как до шва.
+    #: Чьим именем подписать черновик. `None` — общим именем отправителя
+    #: `OUTREACH_SENDER_NAME`, как до шва; пустое имя — отказ, а не письмо без подписи.
     sign_as: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.sign_as is not None and not self.sign_as.strip():
+            raise ValueError("пустое имя подписи — задай имя или None")
 
 
 class VerdictKind(StrEnum):

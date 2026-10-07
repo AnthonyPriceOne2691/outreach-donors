@@ -324,6 +324,11 @@ class TestSignAs:
         assert body.splitlines()[-1] == signed
         assert ("Anna" in body) is (sign_as is None)  # имя брифа — вместо общего
 
+    @pytest.mark.parametrize("empty", ["", "  "])
+    def test_empty_name_is_refused_in_words(self, empty: str) -> None:
+        with pytest.raises(ValueError, match="пустое имя подписи — задай имя или None"):
+            Brief(sign_as=empty)
+
 
 class TestAnnounce:
     async def test_hook_hears_ready_drafts_and_its_failure_keeps_the_draft(
