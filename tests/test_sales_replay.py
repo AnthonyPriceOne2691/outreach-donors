@@ -513,6 +513,23 @@ async def test_no_model_key_stops_the_run_at_the_first_case_in_words(
     assert found.calls == 0
 
 
+async def test_spend_cap_stops_the_run_in_words(
+    session: AsyncSession,
+    model: Plug,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    await world(session)
+    model(LABELS)
+    monkeypatch.setattr(llm_cfg, "DAILY_TOKEN_CAP", TOKENS)  # хватит на одну ситуацию
+
+    assert await replayed(session, Writer()) == 1
+
+    out = capsys.readouterr().out
+    assert "ПРОГОН НЕПОЛНЫЙ: потолок расхода на модель: потолок расхода на модель за день" in out
+    assert "Прогон: набор «synthetic»" in out
+
+
 async def test_files_of_a_version_reach_the_agent_and_are_handed_back_after_the_run(
     session: AsyncSession, model: Plug, tmp_path: Path
 ) -> None:
