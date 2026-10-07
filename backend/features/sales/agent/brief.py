@@ -6,7 +6,8 @@
    нечем. Пустой подписи шов не примет, а общая (`sign_as=None`) подписала бы
    письмо продаж именем отправителя доноров;
 2. **разметка ролей модели** в письме собеседника (общая очистка шва заменила
-   её меткой) — человеку: похоже на попытку управлять агентом;
+   её меткой) или **сигнатуры инъекции** (`safety.py`: T1–T6) — человеку: похоже
+   на попытку управлять агентом. Эту же проверку проходит канарейка инъекций;
 3. **язык письма** по алфавиту не определён — человеку: судья не сверит язык
    черновика с письмом, а писать вслепую нельзя;
 4. **ситуация** (модель) → «нужен ли ответ» — кодом: «спасибо» и автоответ —
@@ -36,7 +37,7 @@ from backend.features.agent.stages import Brief, Conversation, Skip, SkipKind
 from backend.features.agent.writer import Turn
 from backend.features.sales import kb
 from backend.features.sales import sender as sales_sender
-from backend.features.sales.agent import facts, judge, moves, reading, situation
+from backend.features.sales.agent import facts, judge, moves, reading, safety, situation
 from backend.features.sales.agent.situation import Label, Situation
 
 #: Почему ответ не нужен — словами для человека.
@@ -57,10 +58,15 @@ def versions() -> dict[str, str]:
     }
 
 
-def _held(letter: str) -> str | None:
-    """Почему письмо сразу человеку — до модели. `None` — агент берётся."""
+def held(letter: str) -> str | None:
+    """Почему письмо сразу человеку — до модели. `None` — агент берётся.
+
+    Письмо — после общей очистки шва (`agent/cleaning.clean`): так его видит бриф."""
     if ROLE_PLACEHOLDER in letter:
         return "в письме разметка ролей модели — похоже на попытку управлять агентом"
+    threat = safety.threat(letter)
+    if threat is not None:
+        return threat
     if reading.language_of(letter) is None:
         return "язык письма не определён: не кириллица и не латиница — судья его не сверит"
     return None
@@ -131,7 +137,7 @@ async def brief(session: AsyncSession, conversation: Conversation) -> Brief:
     }
     if not sign_as:
         return Brief(skip=Skip(SkipKind.HUMAN, _NO_NAME), meta=meta)
-    why = _held(letter)
+    why = held(letter)
     if why is not None or language is None:
         return Brief(skip=Skip(SkipKind.HUMAN, why or ""), meta=meta, sign_as=sign_as)
     entries = await kb.facts(session)
