@@ -2152,9 +2152,9 @@
       "worst": "report:116"
     },
     "scripts/eval_sales_judge.py": {
-      "lines": 459,
+      "lines": 460,
       "complexity": 16,
-      "worst": "report:313"
+      "worst": "report:314"
     },
     "scripts/eval_sales_reply.py": {
       "lines": 236,
