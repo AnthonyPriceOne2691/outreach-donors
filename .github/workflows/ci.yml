@@ -389,7 +389,9 @@ jobs:
           for name in ("guides", "news", "reviews", "topics"):
               angles.load_prompt(name)
           from backend.features.agent import writer
-          writer.load_prompt()
+          from backend.features.agent.stages import AGENT_STAGES
+          for parts in AGENT_STAGES.values():
+              writer.load_prompt(parts.prompt)
           # Судья, переписывание и разбор ответа читают промпт при импорте:
           # без файла в колесе падает уже импорт.
           from backend.features.donors import publisher_judge

@@ -32,9 +32,9 @@
       "worst": "—"
     },
     "backend/api/agent/routes.py": {
-      "lines": 88,
+      "lines": 83,
       "complexity": 4,
-      "worst": "agent_settings:38"
+      "worst": "agent_settings:34"
     },
     "backend/api/agent/schemas.py": {
       "lines": 98,
@@ -667,14 +667,19 @@
       "worst": "—"
     },
     "backend/features/agent/settings.py": {
-      "lines": 171,
+      "lines": 168,
       "complexity": 3,
-      "worst": "save:138"
+      "worst": "save:135"
+    },
+    "backend/features/agent/stages.py": {
+      "lines": 175,
+      "complexity": 2,
+      "worst": "agent_stage:169"
     },
     "backend/features/agent/writer.py": {
-      "lines": 243,
+      "lines": 254,
       "complexity": 9,
-      "worst": "checked:179"
+      "worst": "checked:188"
     },
     "backend/features/ahrefs/__init__.py": {
       "lines": 1,
@@ -822,12 +827,12 @@
       "worst": "—"
     },
     "backend/features/core/domain.py": {
-      "lines": 290,
+      "lines": 305,
       "complexity": 0,
       "worst": "—"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 59,
+      "lines": 60,
       "complexity": 0,
       "worst": "—"
     },
@@ -852,7 +857,7 @@
       "worst": "in_force:123"
     },
     "backend/features/core/models/agent.py": {
-      "lines": 54,
+      "lines": 119,
       "complexity": 0,
       "worst": "—"
     },

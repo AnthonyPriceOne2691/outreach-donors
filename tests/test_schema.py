@@ -37,8 +37,9 @@ EXPECTED_TABLES = {
     "sales_hypotheses",
     "sales_leads",
     "sales_stoplist",
-    # Агент переписки: версии настроек по этапам.
+    # Агент переписки: версии настроек по этапам и черновики ответов.
     "agent_settings",
+    "agent_drafts",
     # База знаний агента продаж и отправитель — тексты только в базе: репозиторий публичный.
     "sales_kb_entries",
     "sales_settings",

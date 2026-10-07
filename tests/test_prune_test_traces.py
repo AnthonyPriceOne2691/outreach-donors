@@ -751,6 +751,8 @@ REVIEWED = {
     "messages.contact_id → contacts SET NULL": "письма своему ящику уходят раньше адреса",
     "threads.contact_id → contacts SET NULL": "переписка со своим ящиком уходит раньше адреса",
     "sales_leads.contact_id → contacts SET NULL": "лид знает адрес по email (sales/models.py)",
+    "agent_drafts.reply_id → replies CASCADE": "черновик ответа своему ящику уходит с ним",
+    "agent_drafts.sent_message_id → messages SET NULL": "черновик уходит раньше — с ответом",
 }
 
 
