@@ -81,29 +81,34 @@ function decidedBy(donor: DonorFullCard): string {
   return `${who}${day}`;
 }
 
+/** Донор: кем принят и в каком прогоне. Донор, заведённый вручную с ценой
+ *  (07.10.2026), в очереди прогона не стоял — так и сказано: «заведён вручную». */
+function AcceptedStanding({ donor }: { donor: DonorFullCard }) {
+  const run = donor.review_run;
+  const how = donor.entered_by && run === null ? 'заведён вручную' : 'принят';
+  return (
+    <Text size="sm" className="donorStanding">
+      Донор: {how}
+      {decidedBy(donor)}
+      {run === null ? '' : ' '}
+      {run === null ? null : (
+        <Anchor component={Link} to={`/runs/${run}/review`} size="sm" fw={500}>
+          в очереди прогона №{run}
+        </Anchor>
+      )}
+      .
+    </Text>
+  );
+}
+
 /** Решение человека по домену: донор — кем принят и в каком прогоне;
  *  не донор — кто тогда и где о нём решают. До 06.10.2026 у донора не
- *  было ничего: «принят» было видно в списке, а кем и когда — нигде.
- *  Донор, заведённый вручную с ценой (07.10.2026), в очереди прогона не
- *  стоял — так и сказано: «заведён вручную». */
+ *  было ничего: «принят» было видно в списке, а кем и когда — нигде. */
 function Standing({ donor }: { donor: DonorFullCard }) {
-  const run = donor.review_run;
   if (donor.review === 'accepted') {
-    const how = donor.entered_by && run === null ? 'заведён вручную' : 'принят';
-    return (
-      <Text size="sm" className="donorStanding">
-        Донор: {how}
-        {decidedBy(donor)}
-        {run === null ? '' : ' '}
-        {run === null ? null : (
-          <Anchor component={Link} to={`/runs/${run}/review`} size="sm" fw={500}>
-            в очереди прогона №{run}
-          </Anchor>
-        )}
-        .
-      </Text>
-    );
+    return <AcceptedStanding donor={donor} />;
   }
+  const run = donor.review_run;
   const where =
     run === null ? null : (
       <Anchor component={Link} to={`/runs/${run}/review`} size="sm" fw={500}>
