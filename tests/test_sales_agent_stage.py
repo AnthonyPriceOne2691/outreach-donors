@@ -32,11 +32,12 @@ from backend.features.agent.writer import Request, Written
 from backend.features.core.domain import DraftStatus, MessageStatus, Stage
 from backend.features.core.models.agent import AgentDraftModel
 from backend.features.core.models.ops import UsageRecordModel
-from backend.features.sales.agent import parts
+from backend.features.core.usage import LlmCapExceededError
+from backend.features.sales.agent import parts, situation
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.test_sales_agent_brief import CALL, NAME, world
-from tests.test_sales_agent_situation import TOKENS, Plug, llm
+from tests.test_sales_agent_situation import LETTER, TOKENS, Plug, llm, talk
 from tests.test_sales_model import ROOT
 from tests.test_sales_stage_mail import sales_world
 
@@ -141,7 +142,7 @@ def test_sales_agent_switch_is_off_by_default() -> None:
     ("switch", "printed"),
     [
         ("false", "False ['agent_draft']"),
-        ("true", "True ['agent_draft', 'sales_draft', 'sales_judge']"),
+        ("true", "True ['agent_draft', 'sales_draft', 'sales_judge', 'sales_situation']"),
     ],
 )
 def test_sales_joins_the_registry_only_when_switched_on(switch: str, printed: str) -> None:
@@ -158,6 +159,24 @@ def test_sales_joins_the_registry_only_when_switched_on(switch: str, printed: st
     )
     assert done.returncode == 0, done.stderr
     assert done.stdout.strip() == printed
+
+
+async def test_drafts_cap_stops_the_situation_and_counts_its_spend(
+    session: AsyncSession, llm: Plug, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ситуация письма — первый вызов модели черновика продаж, до писателя: свой
+    дневной потолок черновиков агента проверяется до неё и считает её расход
+    (операция брифа этапа), иначе бриф тратил бы мимо потолка черновиков."""
+    model = llm(situation=[{"situation": "ack", "confidence": 0.9}])
+    monkeypatch.setattr(llm_cfg, "AGENT_DAILY_TOKEN_CAP", 2 * TOKENS)
+
+    for _ in range(2):  # ровно потолок — расходом одной ситуации
+        await situation.classify(session, talk((False, LETTER)), tags=())
+    await session.flush()
+    with pytest.raises(LlmCapExceededError, match="потолок черновиков агента"):
+        await situation.classify(session, talk((False, LETTER)), tags=())
+
+    assert len(model.sent["situation"]) == 2  # третий раз модель не звали
 
 
 @pytest.mark.parametrize(

@@ -31,9 +31,11 @@ PROMPT = Path(__file__).with_name("prompts") / "reply.md"
 PROMPT_VERSION = "sales-reply-v1"
 #: Модель черновика — пин продаж (`LLM_SALES_DRAFT_MODEL`): письмо живому человеку.
 MODEL = llm_cfg.SALES_DRAFT_MODEL
-#: Операции расхода: черновик — писатель шва, судья — вызов модели в судье.
+#: Операции расхода: черновик — писатель шва, судья — вызов модели в судье,
+#: ситуация письма — вызов модели в брифе. Все три — в своём потолке черновиков.
 DRAFT_OPERATION = "sales_draft"
 JUDGE_OPERATION = "sales_judge"
+SITUATION_OPERATION = "sales_situation"
 #: Правок по замечаниям судьи, прежде чем отдать черновик человеку (план судьи).
 MAX_REWRITES = 3
 #: Этап на экране настроек агента: кому агент пишет и что он там делает.

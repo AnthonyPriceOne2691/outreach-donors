@@ -722,9 +722,9 @@
       "worst": "save:154"
     },
     "backend/features/agent/stages.py": {
-      "lines": 254,
+      "lines": 259,
       "complexity": 4,
-      "worst": "agent_operations:237"
+      "worst": "agent_operations:242"
     },
     "backend/features/agent/writer.py": {
       "lines": 263,
@@ -1747,9 +1747,9 @@
       "worst": "_move:105"
     },
     "backend/features/sales/agent/parts.py": {
-      "lines": 81,
+      "lines": 83,
       "complexity": 1,
-      "worst": "brief:69"
+      "worst": "brief:71"
     },
     "backend/features/sales/agent/reading.py": {
       "lines": 131,
@@ -1757,9 +1757,9 @@
       "worst": "language_of:89"
     },
     "backend/features/sales/agent/situation.py": {
-      "lines": 253,
+      "lines": 255,
       "complexity": 10,
-      "worst": "parse:190"
+      "worst": "parse:191"
     },
     "backend/features/sales/browse.py": {
       "lines": 184,

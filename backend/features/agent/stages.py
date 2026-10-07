@@ -174,6 +174,10 @@ class AgentStage:
     guard: Guard | None = None
     #: Операция расхода судьи; `None` — расход судьи идёт операцией черновика.
     guard_operation: str | None = None
+    #: Операция расхода брифа, если бриф сам зовёт модель (ситуация письма у
+    #: продаж): её, как черновик и судью, считает свой потолок черновиков.
+    #: Бриф проверяет потолок до вызова сам — шов проверяет его перед писателем.
+    brief_operation: str | None = None
     #: Сколько секунд ждать судью: дольше — `escalate`, как при его ошибке.
     guard_timeout_s: float = 60.0
     on_draft: OnDraft | None = None
@@ -206,6 +210,7 @@ SALES_STAGE = AgentStage(
     brief=sales.brief,
     guard=sales.guard,
     guard_operation=sales.JUDGE_OPERATION,
+    brief_operation=sales.SITUATION_OPERATION,
     on_draft=None,
     max_rewrites=sales.MAX_REWRITES,
     title=sales.TITLE,
@@ -235,12 +240,12 @@ AGENT_STAGES: Mapping[Stage, AgentStage] = MappingProxyType(
 
 
 def agent_operations() -> frozenset[str]:
-    """Операции расхода агента всех этапов реестра — черновики и судьи: их
-    считает свой дневной потолок черновиков (`guarding.drafts_cap`)."""
+    """Операции расхода агента всех этапов реестра — черновики, судьи и брифы с
+    моделью: их считает свой дневной потолок черновиков (`guarding.drafts_cap`)."""
     found = {
         op
         for parts in AGENT_STAGES.values()
-        for op in (parts.usage_operation, parts.guard_operation)
+        for op in (parts.usage_operation, parts.guard_operation, parts.brief_operation)
     }
     return frozenset(op for op in found if op)
 

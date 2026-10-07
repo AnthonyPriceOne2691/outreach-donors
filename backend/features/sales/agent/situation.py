@@ -32,17 +32,18 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import llm as llm_cfg
+from backend.features.agent import guarding
 from backend.features.agent.stages import Conversation
 from backend.features.agent.writer import DraftUnavailableError, Turn
 from backend.features.core import usage
-from backend.features.sales.agent import calling
+from backend.features.sales.agent import calling, parts
 from backend.features.sales.models import KbKind
 from backend.shared.llm import Refusal
 
 logger = logging.getLogger(__name__)
 
 TOPIC = "ситуация письма продаж"
-OPERATION = "sales_situation"
+OPERATION = parts.SITUATION_OPERATION
 PROMPT = Path(__file__).with_name("prompts") / "situation.md"
 #: Меняется при каждой правке промпта: калибровка сравнивает версии.
 PROMPT_VERSION = "sales-situation-v1"
@@ -227,10 +228,11 @@ async def classify(
     """Ситуация последнего письма собеседника. Расход — операцией ситуации.
 
     Отказ модели — `DraftUnavailableError`, как у писателя: задача черновика
-    повторит сбой сети и остановится с причиной на ключе; потолок расхода
-    проверяется до вызова (`usage.ensure_llm_within_cap`).
+    повторит сбой сети и остановится с причиной на ключе; потолки расхода —
+    общий и свой потолок черновиков агента (`guarding.drafts_cap`, ситуация — его
+    операция брифа) — проверяются до вызова (`usage.ensure_llm_within_cap`).
     """
-    await usage.ensure_llm_within_cap(session)
+    await usage.ensure_llm_within_cap(session, own=guarding.drafts_cap())
     answer = await calling.ask(
         prompt=PROMPT,
         user=user_message(conversation.turns, tags=tags),
