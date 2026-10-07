@@ -13,7 +13,6 @@ from pathlib import Path
 import pytest
 from scripts.gates import (
     MAX_LINES_PROD,
-    PRIVATE_DOCUMENTS,
     check_commit_messages,
     check_config_access,
     check_env_example,
@@ -22,9 +21,12 @@ from scripts.gates import (
     check_layers,
     check_public_repo,
     check_silent_except,
-    document_names,
+    public_repo,
     run,
 )
+
+#: Признаки — из модуля, которым пользуется гейт: тот же объект, что у `gates`.
+PRIVATE_DOCUMENTS = public_repo.PRIVATE_DOCUMENTS
 
 
 def _rules(check, path: str, source: str) -> list[str]:
@@ -201,7 +203,7 @@ class TestPublicRepo:
     def test_document_name_is_a_whole_uppercase_word(self, text: str, caught: bool) -> None:
         """Образец из выдуманного имени: с расширением и без, целым словом,
         заглавными. Русское окончание вплотную слова не продолжает."""
-        assert (document_names(["FAKEDOC"]).search(text) is not None) is caught
+        assert (public_repo.document_names(["FAKEDOC"]).search(text) is not None) is caught
 
     def test_impersonal_wording_passes(self, tmp_path: Path) -> None:
         repo = self._repo(

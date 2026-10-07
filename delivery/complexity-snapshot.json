@@ -1892,9 +1892,9 @@
       "worst": "report:116"
     },
     "scripts/gates.py": {
-      "lines": 449,
+      "lines": 312,
       "complexity": 10,
-      "worst": "_python_files:78"
+      "worst": "_python_files:81"
     },
     "scripts/measure_outlinks.py": {
       "lines": 331,
@@ -1905,6 +1905,11 @@
       "lines": 160,
       "complexity": 8,
       "worst": "measure:69"
+    },
+    "scripts/public_repo.py": {
+      "lines": 159,
+      "complexity": 8,
+      "worst": "tracked_text_files:68"
     },
     "scripts/sample_keywords.py": {
       "lines": 145,
