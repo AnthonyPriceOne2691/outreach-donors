@@ -111,4 +111,37 @@ class HookReaders:
                 return None
         return None
 
+    #: Набор тестов в команде хука. Бюджет pre-push — 10 с (§8.6), сьют идёт
+    #: минуты, и его место — CI. Признак ТЕКСТОВЫЙ, поэтому вердикт по нему —
+    #: WEAK, вопрос к проекту, а не приговор (`cqg@2.47`).
+    SUITE_RE = re.compile(r"\b(pytest|vitest|jest)\b|\b(npm|pnpm|yarn)\s+(run\s+)?test\b"
+                          r"|\b(go|cargo)\s+test\b")
+
+    def _push_hooks(self, text: str) -> list[tuple[str, str]]:
+        """(id, тело хука без комментариев) — всё, что git зовёт на push.
+
+        Хук без `stages:` идёт на КАЖДОЙ установленной стадии, если конфиг не
+        сузил `default_stages:`, — то есть повторяет на push работу коммита.
+        """
+        narrowed = re.search(r"^default_stages:", text, re.M) is not None
+        found = []
+        for chunk in re.split(r"^\s*-\s+id:", text, flags=re.M)[1:]:
+            body = "\n".join(ln for ln in chunk.splitlines() if not ln.lstrip().startswith("#"))
+            m = re.search(r"^\s*stages:\s*\[?([^\]\n]*)\]?", body, re.M)
+            stages = [s.strip(" '\"") for s in m.group(1).split(",")] if m else []
+            if (not m and not narrowed) or "pre-push" in stages or "push" in stages:
+                found.append((body.split("\n", 1)[0].strip(), body))
+        return found
+
+    def _suite_in(self, body: str) -> str | None:
+        """Какой набор тестов зовёт хук — сам или локальным скриптом из `entry:`."""
+        texts = [body]
+        for ref in re.findall(r"(?<![\w/.-])(scripts/[\w./-]+)", body):
+            path = self.root / ref
+            if path.is_file():
+                texts.append("\n".join(ln for ln in path.read_text("utf-8", errors="ignore")
+                                       .splitlines() if not ln.lstrip().startswith("#")))
+        hit = next((m for t in texts if (m := self.SUITE_RE.search(t))), None)
+        return hit.group(0) if hit else None
+
 

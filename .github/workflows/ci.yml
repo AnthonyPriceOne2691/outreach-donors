@@ -113,8 +113,67 @@ jobs:
       - name: Ратчет сложности
         run: python scripts/complexity.py
 
+      # Сьют идёт на PR ОДИН раз — здесь, сразу с покрытием (cqg@2.47). Прежде
+      # гейт покрытия в quality.yml гонял его второй раз (7–8 минут на каждом PR).
+      # Привязка `coverage.json.head` — SHA, на котором шёл сьют: гейт откажется
+      # судить отчёт чужого коммита, а не посчитает по нему.
       - name: Тесты
-        run: pytest
+        run: |
+          pytest --cov=backend --cov-report=json:coverage.json
+          git rev-parse HEAD > coverage.json.head
+
+      - name: Отчёт покрытия для гейта
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            coverage.json
+            coverage.json.head
+          retention-days: 3
+
+  # Гейт покрытия изменённого кода (контур, scripts/lint/check_diff_coverage.sh)
+  # читает отчёт джобы check и сьют не гоняет. Отдельная джоба, а не шаг в check:
+  # check — обязательная проверка, а гейт покрытия у проекта не блокирующий, как
+  # и прежде в quality.yml. Без базы и питона проекта — только git и python3.
+  diff-coverage:
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      STRICT: "1"
+      MIN_PCT: "70"
+      LINT_PY_SRC: backend
+      LINT_BE_DIR: "."
+      LINT_COV_PKG: backend
+      LINT_COV_FILE: coverage.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: coverage
+
+      # Лестница базы та же, что у шага волн и «Diff base» в quality.yml: PR — ветка
+      # назначения; push в main — состояние до толчка; иначе отказ вслух.
+      - name: Покрытие изменённого кода
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            git fetch --no-tags origin "+refs/heads/$GITHUB_BASE_REF:refs/remotes/origin/$GITHUB_BASE_REF"
+            base="origin/$GITHUB_BASE_REF"
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ] \
+               && git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            base="$BEFORE"
+          else
+            echo "::error::база диффа не определима (before=${BEFORE:-пусто}): гейт покрытия не судит пустоту"
+            exit 1
+          fi
+          echo "база диффа: $base"
+          BASE="$base" bash scripts/lint/check_diff_coverage.sh
 
   # Фронт проверяется отдельной работой: он не зависит ни от базы, ни от
   # питона, и держать его в одной работе значит ждать поднятия постгреса

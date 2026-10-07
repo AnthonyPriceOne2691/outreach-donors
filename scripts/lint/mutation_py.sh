@@ -126,7 +126,7 @@ if [[ -z "$MUT_VER" ]]; then
     printf '%s⚠ mutation: версия mutmut не читается — гейт не судит:%s\n' "$yellow" "$reset"
     printf '%s\n' "$ver_out" | head -3 >&2
   fi
-  exit 0
+  not_judged
 fi
 
 # Бюджет — жёсткий: timeout убивает прогон, и это НЕ провал гейта, а неполные
@@ -180,7 +180,7 @@ if (( rc == 124 )); then
   printf '%s⚠ mutation: бюджет %ss исчерпан — данные неполные, гейт не судит%s\n' \
     "$yellow" "$BUDGET_SEC" "$reset" >&2
   printf 'Сузь область (MIN файлов) или подними BUDGET_SEC в CI.\n' >&2
-  exit 0
+  not_judged
 fi
 
 # Счётчики. Три источника, по убыванию надёжности — потому что формат менялся, и

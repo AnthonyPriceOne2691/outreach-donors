@@ -1,7 +1,7 @@
 {
   ".github/workflows/quality.yml": {
-    "reason": "раскладка проекта отличается от канонной в трёх местах, и каждое молча обессмысливало проверку: (1) продуктовый python — весь backend/, а не backend/features (158 файлов api, cli, shared, config не видел ни один гейт); (2) pyproject и uv.lock лежат в КОРНЕ, шаблон ищет их под backend/, поэтому зависимости продукта не попадали в venv гейтов — pip-audit проверял окружение инструментов, а mypy strict шёл без зависимостей проекта; (3) значения области в CI и в хуках разошлись между собой; (4) шаг «Diff coverage» гоняет весь набор тестов, а тесты проекта идут на настоящей базе — в джобе gates её не было, и на PR с правкой python продукта шаг висел до таймаута джобы (01.10.2026, #122); (5) канон домена лежит в okf/, а не в канонном knowledge/ — без OKF_BUNDLE гейт синхронизации молча пропускал ось ③ (нашла соседняя сессия 01.10 чтением логов CI)",
-    "changed": "env: LINT_PY_SRC=backend, LINT_COV_PKG=backend, LINT_VENV=.venv; ветвь установки корневого pyproject в шаге «Install backend deps»; шаг «Diff base» из cqg@2.34 портирован при развёртывании; у джобы gates — сервис postgres и TEST_STORAGE_DSN, как у джобы check в ci.yml; OKF_BUNDLE=okf у шага Canon sync gate. 01.10: перенесён шаг «Canon payload selftest» из cqg@2.43 — объявление `stack-selftest:` ищется в STACK-ACCEPTANCE.md первым; до этого адаптация отставала от канона на эту правку при записи cqg@2.43",
+    "reason": "раскладка проекта отличается от канонной в трёх местах, и каждое молча обессмысливало проверку: (1) продуктовый python — весь backend/, а не backend/features (158 файлов api, cli, shared, config не видел ни один гейт); (2) pyproject и uv.lock лежат в КОРНЕ, шаблон ищет их под backend/, поэтому зависимости продукта не попадали в venv гейтов — pip-audit проверял окружение инструментов, а mypy strict шёл без зависимостей проекта; (3) значения области в CI и в хуках разошлись между собой; (4) шаг «Diff coverage» гоняет весь набор тестов, а тесты проекта идут на настоящей базе — в джобе gates её не было, и на PR с правкой python продукта шаг висел до таймаута джобы (01.10.2026, #122); (5) канон домена лежит в okf/, а не в канонном knowledge/ — без OKF_BUNDLE гейт синхронизации молча пропускал ось ③ (нашла соседняя сессия 01.10 чтением логов CI); (6) 07.10.2026, сокращение CI по указанию Anthony: сьют шёл на PR дважды — в ci.yml (джоба check) и здесь, в шаге «Diff coverage» (7–8 минут); с cqg@2.47 гейт покрытия читает отчёт джобы тестов",
+    "changed": "env: LINT_PY_SRC=backend, LINT_COV_PKG=backend, LINT_VENV=.venv; ветвь установки корневого pyproject в шаге «Install backend deps»; шаг «Diff base» из cqg@2.34 портирован при развёртывании; у джобы gates — сервис postgres и TEST_STORAGE_DSN, как у джобы check в ci.yml; OKF_BUNDLE=okf у шага Canon sync gate. 01.10: перенесён шаг «Canon payload selftest» из cqg@2.43 — объявление `stack-selftest:` ищется в STACK-ACCEPTANCE.md первым; до этого адаптация отставала от канона на эту правку при записи cqg@2.43; 07.10 (cqg@2.47): шаг «Diff coverage» снят вместе с сервисом postgres и TEST_STORAGE_DSN джобы gates — покрытие снимает ci.yml check (pytest --cov + coverage.json.head), гейт зовёт джоба diff-coverage там же",
     "kind": "adaptation"
   },
   "pyproject.toml": {
@@ -11,7 +11,7 @@
   },
   ".pre-commit-config.yaml": {
     "reason": "три правки под проект: (1) собственный pre-push проекта сохранён локальным хуком — он жил через core.hooksPath, что запрещает pre-commit install; (2) default_install_hook_types дополнен pre-push, иначе в новой копии защита перед пушем молча не появлялась; (3) check-yaml с --unsafe: docker-compose.prod.yml несёт тег !override, и стандартный хук падает на нём ложным красным; (4) хук mypy брал область только из окружения, а умолчания стояли канонные (backend и пакет features): в CI их задаёт quality.yml, а обычный git commit без LINT_* падал «Cannot find config file pyproject.toml» — на любом коммите с правкой питона",
-    "changed": "локальный хук project-pre-push; default_install_hook_types: [pre-commit, pre-push]; args: [--unsafe] у check-yaml; env-префиксы области под раскладку проекта; умолчания хука mypy — корень (LINT_BE_DIR=.) и пакет backend, как у раскладки проекта",
+    "changed": "локальный хук project-pre-push; default_install_hook_types: [pre-commit, pre-push]; args: [--unsafe] у check-yaml; env-префиксы области под раскладку проекта; умолчания хука mypy — корень (LINT_BE_DIR=.) и пакет backend, как у раскладки проекта; default_stages: [pre-commit] — с pre-push в default_install_hook_types все гейты коммита иначе повторялись на push (cqg@2.47, в шаблоне канона теперь та же строка)",
     "kind": "adaptation"
   },
   "scripts/lint/check_grep_gate.sh": {
@@ -37,6 +37,11 @@
   "frontend/eslint.config.js": {
     "reason": "конфиг ПРОЕКТА, существовавший до развёртывания контура (#21, 19.09; контур — #117, 30.09): канонный шаблон поверх не накатывали, чтобы не сменить правила фронта молча",
     "changed": "свой flat-конфиг: `globals` и `typescript-eslint` проекта вместо набора плагинов шаблона (react, import, prettier)",
+    "kind": "adaptation"
+  },
+  ".dependency-cruiser.cjs": {
+    "reason": "граница модуля «Продажи» (волна В1, #146, 03.10.2026): экраны почты не импортируют экраны продаж — пара контракту .importlinter того же имени. Правило дописано без объявления; замок payload'а (cqg@2.44) назвал расхождение при накате cqg@2.47",
+    "changed": "правило mail-does-not-know-sales: from ^frontend/src/(letters|threads|suppressions|senders)/ → to ^frontend/src/sales/; каталог синхронен SALES_PATHS в scripts/contour_waves.py",
     "kind": "adaptation"
   }
 }
