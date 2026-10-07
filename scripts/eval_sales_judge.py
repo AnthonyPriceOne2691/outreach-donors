@@ -164,8 +164,9 @@ def golden(directory: str, manifest: Path) -> list[dict[str, Any]]:
         raise SetError(f"набор не тот, что в манифесте: sha256 {digest} ≠ {spec['sha256']}")
     if spec.get("count") and spec["count"] != len(cases):
         raise SetError(f"набор не тот, что в манифесте: случаев {len(cases)} ≠ {spec['count']}")
-    if len(cases) < (spec.get("min_count") or 1):
-        raise SetError(f"в наборе {len(cases)} случаев, нужно не меньше {spec['min_count']}")
+    least = spec.get("min_count") or 1
+    if len(cases) < least:
+        raise SetError(f"в наборе {len(cases)} случаев, нужно не меньше {least}")
     return cases
 
 

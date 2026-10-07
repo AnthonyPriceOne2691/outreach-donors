@@ -273,6 +273,7 @@ def _golden(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **spec: Any) -> Pat
     folder.mkdir()
     data = folder / "sales_judge_golden.jsonl"
     data.write_bytes(ev.SYNTHETIC.read_bytes())
+    (folder / "пустой.jsonl").write_text("", encoding="utf-8")
     manifest = json.loads(ev.MANIFEST.read_text(encoding="utf-8")) | spec
     path = tmp_path / "manifest.json"
     path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
@@ -286,8 +287,9 @@ def _golden(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **spec: Any) -> Pat
         ({"sha256": "0" * 64}, "набор не тот, что в манифесте: sha256"),
         ({"count": 41}, "набор не тот, что в манифесте: случаев 29 ≠ 41"),
         ({}, "в наборе 29 случаев, нужно не меньше 40"),
+        ({"min_count": None, "file": "пустой.jsonl"}, "в наборе 0 случаев, нужно не меньше 1"),
     ],
-    ids=["hash", "count", "too-small"],
+    ids=["hash", "count", "too-small", "empty"],
 )
 def test_golden_set_must_match_the_manifest(
     model: Any,
