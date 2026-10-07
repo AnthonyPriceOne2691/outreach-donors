@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Protocol, assert_never
@@ -102,6 +102,9 @@ KIND_WORDS: dict[SalesKind, str] = {
     SalesKind.UNSUBSCRIBE: "просит не писать",
     SalesKind.PARSE_FAILED: "вид ответа не разобран",
 }
+
+#: Чем кончился путь «хочет говорить», когда передача заведена, — словами.
+HANDED_OVER = "передан телемаркетологу"
 
 #: Что дальше по пути — словами.
 ROUTE_WORDS: dict[Route, str] = {
@@ -254,7 +257,7 @@ class SalesReplies:
             handoff_thread=reply.thread_id if decision.route is Route.HANDOFF else None,
         )
 
-    async def pass_on(self, handled: Handled) -> None:
+    async def pass_on(self, handled: Handled) -> Handled:
         """Передать лида, если ответ «хочет говорить», — после коммита снимка ответа.
 
         Внешнее — только после записи ответа: передача коммитит сессию сама и ставит
@@ -262,9 +265,14 @@ class SalesReplies:
         вид уже записан: заведённую строку передачи повторит её проход по расписанию,
         а без строки (нет лида у диалога) ответ ждёт человека по снимку. Сессию после
         отказа задача только закрывает — открытая транзакция откатится с ней.
+
+        Удачная передача снимает с ответа ожидание человека тем же снимком, по которому
+        его ждут (`waits` и причина словами — `outcome.sales_review`): иначе ответ висел
+        бы в «ждут человека», и человек написал бы лиду, которому уже звонят. Поля
+        решения человека (`reviewed_*`) не трогаются: решала не она.
         """
         if handled.handoff_thread is None:
-            return
+            return handled
         try:
             await self._hand_over(self._session, handled.handoff_thread)
         except Exception:
@@ -272,11 +280,17 @@ class SalesReplies:
                 "продажи: передача лида не заведена — ответ разобран и ждёт человека",
                 extra={"reply": handled.reply_id, "thread_id": handled.handoff_thread},
             )
-            return
+            return handled
+        settled = f"{KIND_WORDS[SalesKind.WANTS_TO_TALK]}: {HANDED_OVER}"
+        reply = await self._session.get(ReplyModel, handled.reply_id)
+        if reply is not None:
+            reply.model_parse = {**(reply.model_parse or {}), "waits": False, "reason": settled}
+            await self._session.commit()
         logger.info(
-            "продажи: лид передан телемаркетологу",
+            "продажи: лид передан телемаркетологу — ответ человека не ждёт",
             extra={"reply": handled.reply_id, "thread_id": handled.handoff_thread},
         )
+        return replace(handled, waits=False, reason=settled)
 
     async def _out_of_office(self, reply: ReplyModel) -> Handled:
         """Автоответ: цепочка идёт, следующий шаг — не раньше возвращения."""

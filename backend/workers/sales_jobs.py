@@ -13,7 +13,8 @@
 
 **Передача лида — после коммита ответа.** «Хочет говорить» передаётся телемаркетологу
 (`SalesReplies.pass_on` → `handoff.start`) уже после записи вида: передача коммитит
-сама и ставит задачу Kommo и Telegram, а её отказ задачу ответа не роняет.
+сама и ставит задачу Kommo и Telegram, а её отказ задачу ответа не роняет. Удачная
+передача снимает с ответа ожидание человека (снимок: «передан телемаркетологу»).
 
 **Потолок расхода на модель — «не сегодня».** Задача ставит себя на начало
 следующих суток UTC, как разбор цены (`jobs._parse_or_postpone`).
@@ -77,7 +78,7 @@ async def handle(reply_id: int) -> dict[str, Any]:
             sales = SalesReplies(session, classifier, verifier=lambda: build_verifier(http))
             handled = await sales.handle(reply_id)
             await session.commit()
-            await sales.pass_on(handled)
+            handled = await sales.pass_on(handled)
     finally:
         await classifier.aclose()
         await http.aclose()

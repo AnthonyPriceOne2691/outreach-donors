@@ -19,11 +19,11 @@ from typing import Any
 import pytest
 from backend.config import sales as sales_cfg
 from backend.features.core.domain import Stage
-from backend.features.core.models.outreach import ReplyModel
-from backend.features.outreach.threads import review_of
+from backend.features.core.models.outreach import MessageModel, ReplyModel
+from backend.features.outreach.threads import ThreadState, review_of, summarize
 from backend.features.sales import handoff
 from backend.features.sales.models import LeadStatus, SalesHandoffModel
-from backend.features.sales.replies import Route, SalesReplies
+from backend.features.sales.replies import HANDED_OVER, Route, SalesReplies
 from backend.features.sales.reply_kind import KindFound, SalesKind
 from backend.workers import sales_jobs
 from sqlalchemy import select
@@ -36,6 +36,10 @@ AT = datetime(2026, 10, 14, 10, 23, tzinfo=UTC)
 
 #: «Давайте созвонимся» — вид, который передаёт лида (текст ответа — `sales_dialog`).
 TALK = KindFound(SalesKind.WANTS_TO_TALK, 0.93, quote="Давайте созвонимся во вторник")
+
+#: Причина ответа «хочет говорить» до передачи и после неё — словами снимка.
+WAITS_FOR_CALL = "хочет говорить: передать лида на созвон; пока — человек"
+HANDED = f"хочет говорить: {HANDED_OVER}"
 
 
 class Start:
@@ -93,6 +97,13 @@ async def _reread(session: AsyncSession, dialog: Dialog) -> ReplyModel:
     return reply
 
 
+async def _state(session: AsyncSession, dialog: Dialog, reply: ReplyModel) -> ThreadState:
+    letters = await session.scalars(
+        select(MessageModel).where(MessageModel.thread_id == dialog.thread.id)
+    )
+    return summarize(list(letters), [reply], Stage.SALES).state
+
+
 async def test_wants_to_talk_is_handed_over_after_the_answer_is_committed(
     monkeypatch: pytest.MonkeyPatch, session: AsyncSession, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -106,9 +117,34 @@ async def test_wants_to_talk_is_handed_over_after_the_answer_is_committed(
         report = await sales_jobs.handle(dialog.reply.id)
 
     assert (report["kind"], report["route"]) == ("wants_to_talk", "handoff")
-    assert events == ["commit", "start"], "передача — только после коммита снимка ответа"
+    assert events == ["commit", "start", "commit"], "передача — только после коммита снимка ответа"
     assert start.calls == [(dialog.thread.id, True, "wants_to_talk")]
     assert "лид передан телемаркетологу" in caplog.text
+    assert (report["waits"], report["reason"]) == (False, HANDED)
+
+
+async def test_handed_over_answer_no_longer_waits_for_a_human(
+    monkeypatch: pytest.MonkeyPatch, session: AsyncSession
+) -> None:
+    dialog = await sales_dialog(session)
+    queued: list[int] = []
+    start = partial(handoff.start, enqueue=queued.append, now=lambda: AT)
+    _job_on_test_base(monkeypatch, session, TALK, start, [])
+
+    await sales_jobs.handle(dialog.reply.id)
+
+    row = await session.scalar(
+        select(SalesHandoffModel).where(SalesHandoffModel.thread_id == dialog.thread.id)
+    )
+    assert row is not None, "передача заведена"
+    assert queued == [row.id], "и её задача поставлена"
+    reply = await _reread(session, dialog)
+    snap = reply.model_parse or {}
+    assert (snap["kind"], snap["route"], snap["waits"]) == ("wants_to_talk", "handoff", False)
+    review = review_of(reply, Stage.SALES)
+    assert (review.waiting, review.reason) == (False, HANDED), "человеку писать не надо"
+    assert reply.reviewed_at is None, "решения человека не было — его поля пусты"
+    assert await _state(session, dialog, reply) is ThreadState.REPLIED
 
 
 async def test_handoff_that_fails_after_its_row_keeps_the_answer_and_waits_for_the_retry_pass(
@@ -125,6 +161,8 @@ async def test_handoff_that_fails_after_its_row_keeps_the_answer_and_waits_for_t
     assert "передача лида не заведена" in caplog.text
     reply = await _reread(session, dialog)
     assert (reply.model_parse or {})["kind"] == "wants_to_talk", "разбор ответа записан"
+    review = review_of(reply, Stage.SALES)
+    assert (review.waiting, review.reason) == (True, WAITS_FOR_CALL), "ответ ждёт человека"
     row = await session.scalar(
         select(SalesHandoffModel).where(SalesHandoffModel.thread_id == dialog.thread.id)
     )
@@ -148,21 +186,22 @@ async def test_handoff_refused_before_its_row_leaves_the_answer_sorted_and_waiti
     assert "нет лида продаж" in caplog.text, "почему передачи нет — в журнале"
     reply = await _reread(session, dialog)
     assert (reply.model_parse or {})["kind"] == "wants_to_talk"
-    assert review_of(reply, Stage.SALES).waiting is True, "ответ ждёт человека"
+    review = review_of(reply, Stage.SALES)
+    assert (review.waiting, review.reason) == (True, WAITS_FOR_CALL), "ответ ждёт человека"
     assert await session.scalar(select(SalesHandoffModel.id)) is None
 
 
 @pytest.mark.parametrize(
-    "found",
+    ("found", "waits"),
     [
-        KindFound(SalesKind.QUESTION, 0.91, quote="Давайте созвонимся"),
-        KindFound(SalesKind.NOT_INTERESTED, 0.95, quote="Давайте созвонимся"),
-        KindFound(SalesKind.WANTS_TO_TALK, 0.55, quote="Давайте созвонимся"),
+        (KindFound(SalesKind.QUESTION, 0.91, quote="Давайте созвонимся"), True),
+        (KindFound(SalesKind.NOT_INTERESTED, 0.95, quote="Давайте созвонимся"), False),
+        (KindFound(SalesKind.WANTS_TO_TALK, 0.55, quote="Давайте созвонимся"), True),
     ],
     ids=["question", "not_interested", "wants_to_talk-below-threshold"],
 )
 async def test_job_does_not_hand_over_any_other_answer(
-    monkeypatch: pytest.MonkeyPatch, session: AsyncSession, found: KindFound
+    monkeypatch: pytest.MonkeyPatch, session: AsyncSession, found: KindFound, waits: bool
 ) -> None:
     dialog = await sales_dialog(session)
     events: list[str] = []
@@ -172,6 +211,9 @@ async def test_job_does_not_hand_over_any_other_answer(
     await sales_jobs.handle(dialog.reply.id)
 
     assert (events, start.calls) == (["commit"], [])
+    review = review_of(await _reread(session, dialog), Stage.SALES)
+    assert review.waiting is waits, "ожидание решает путь вида, а не передача"
+    assert HANDED_OVER not in str(review.reason)
 
 
 @pytest.mark.parametrize("kind", list(SalesKind), ids=[kind.value for kind in SalesKind])
