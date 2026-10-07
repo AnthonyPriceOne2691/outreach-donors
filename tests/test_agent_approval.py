@@ -15,6 +15,7 @@ from types import MappingProxyType
 
 import pytest
 from backend.api.agent import routes as agent_routes
+from backend.config import outreach as outreach_cfg
 from backend.features.agent import drafts
 from backend.features.agent.stages import AGENT_STAGES, REJECT_REASONS
 from backend.features.agent.writer import Written
@@ -27,7 +28,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
 from tests.test_agent_decisions import _drafted, no_caps
-from tests.test_agent_drafting import stored
+from tests.test_agent_drafting import donors_with, stored
 from tests.test_replies_inbox import NOW, reply_from, sent
 from tests.test_thread_answer import conversation
 
@@ -243,3 +244,25 @@ async def test_thread_carries_reject_reasons_and_what_the_judge_said(
     assert [(card["verdict"], card["attempts"]) for card in plain["drafts"]] == [(None, 0)]
     assert judged["agent_reasons"] == ["своя причина"]
     assert [(card["verdict"], card["attempts"]) for card in judged["drafts"]] == [("allow", 2)]
+
+
+async def test_settings_screen_knows_whether_the_autopilot_switch_is_on(
+    client: AsyncClient, make_user: MakeUser, sign_in: SignIn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Автопилот выбран, а выключатель снят — экран обязан сказать это словами: сервер
+    отдаёт, действует ли автопилот этапа, и почему нет — словами `autopilot.refusal`."""
+    donors_with(monkeypatch, autopilot=True)  # код этапа разрешает — решает выключатель
+    token = await _admin(make_user, sign_in)
+
+    monkeypatch.setattr(outreach_cfg, "AGENT_AUTOPILOT", False)
+    off = (await client.get("/api/agent/settings", headers=bearer(token))).json()["stages"][0]
+    monkeypatch.setattr(outreach_cfg, "AGENT_AUTOPILOT", True)
+    on = (await client.get("/api/agent/settings", headers=bearer(token))).json()["stages"][0]
+
+    assert (off["stage"], off["autopilot_allowed"], on["autopilot_allowed"]) == (
+        "donors",
+        False,
+        True,
+    )
+    assert "OUTREACH_AGENT_AUTOPILOT" in off["autopilot_refusal"]
+    assert on["autopilot_refusal"] is None

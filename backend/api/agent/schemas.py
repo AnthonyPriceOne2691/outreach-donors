@@ -126,6 +126,9 @@ class AgentStageView(BaseModel):
     #: Разрешён ли этапу автопилот (код этапа и выключатель сервера): нет —
     #: экран переключателя не показывает, а сервер режим не сохранит.
     autopilot_allowed: bool = False
+    #: Почему не разрешён — словами `autopilot.refusal`: автопилот, выбранный
+    #: раньше, при снятом выключателе писем не шлёт, и экран говорит почему.
+    autopilot_refusal: str | None = None
 
 
 class AgentView(BaseModel):

@@ -32,12 +32,12 @@
       "worst": "—"
     },
     "backend/api/agent/routes.py": {
-      "lines": 168,
+      "lines": 170,
       "complexity": 6,
-      "worst": "save_agent_settings:77"
+      "worst": "save_agent_settings:79"
     },
     "backend/api/agent/schemas.py": {
-      "lines": 227,
+      "lines": 230,
       "complexity": 6,
       "worst": "to_settings:58"
     },
