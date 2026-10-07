@@ -64,8 +64,9 @@ _viewer = Depends(needs(Permission.VIEW))
 _sender = Depends(needs(Permission.SEND))
 
 
-#: Этап словами — для журнала действий.
-_STAGE_TITLES = {Stage.DONORS: "доноры", Stage.ADVERTISERS: "рекламодатели"}
+#: Этап словами — для журнала действий. Каждый этап: без записи журнал падал бы
+#: `KeyError` уже после постановки задачи (сверка — `tests/test_sales_stage_screens.py`).
+_STAGE_TITLES = {Stage.DONORS: "доноры", Stage.ADVERTISERS: "рекламодатели", Stage.SALES: "продажи"}
 
 
 @router.get("", response_model=LettersView, summary="Очередь писем этапа")

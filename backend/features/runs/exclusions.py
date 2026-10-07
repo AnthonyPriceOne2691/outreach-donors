@@ -23,6 +23,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from typing import assert_never
 
 from sqlalchemy import distinct, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -153,16 +154,26 @@ class Exclusions:
         found: dict[str, ExclusionReason] = by_name(hosts)
         for host in await self._silent(hosts, stage, moment):
             found[host] = ExclusionReason.SILENT
-        if stage is Stage.DONORS:
-            # Только донорам: «не продаём размещения» — ответ про донорство.
-            # Рекламодателем тот же сайт быть может — ему письмо о другом.
-            for host in await self._declined(hosts, moment):
-                found[host] = ExclusionReason.DECLINES
-            for host in await self._rejected(hosts):
-                found[host] = ExclusionReason.REJECTED
+        match stage:
+            case Stage.DONORS:
+                found.update(await self._donor_answers(hosts, moment))
+            case Stage.ADVERTISERS | Stage.SALES:
+                pass
+            case _:
+                assert_never(stage)
         for host in await self._suppliers(hosts, moment):
             found[host] = ExclusionReason.SUPPLIER
         found.update(await self._stoplisted(hosts, stage, moment))
+        return found
+
+    async def _donor_answers(
+        self, hosts: Sequence[str], moment: datetime
+    ) -> dict[str, ExclusionReason]:
+        """Только донорам: «не продаём размещения» — ответ про донорство,
+        «отклонён» — решение по донору. Рекламодателем или лидом продаж тот же
+        сайт быть может — им письмо о другом. Отклонение перебивает ответ."""
+        found = dict.fromkeys(await self._declined(hosts, moment), ExclusionReason.DECLINES)
+        found.update(dict.fromkeys(await self._rejected(hosts), ExclusionReason.REJECTED))
         return found
 
     async def _rejected(self, hosts: Sequence[str]) -> list[str]:
