@@ -272,6 +272,25 @@ async def test_same_version_twice_opens_the_gate_and_counts_against_the_humans(
     assert "Общих случаев: 7 (только в прежнем 0, только в новом 0" in out
 
 
+async def test_pilot_runs_only_the_first_cases_and_says_so(
+    session: AsyncSession, model: Plug, capsys: pytest.CaptureFixture[str]
+) -> None:
+    await world(session)
+    found = model(LABELS)
+
+    assert await replayed(session, Writer(), "--limit", "2") == 0
+
+    out = capsys.readouterr().out
+    assert "Пилот: первые 2 из 7 случаев — ворота судят только их" in out
+    assert "; случаев 2" in out
+    assert len(found.situations) == 2
+
+
+def test_pilot_of_no_cases_is_refused() -> None:
+    with pytest.raises(SystemExit):
+        run_args("--limit", "0")
+
+
 async def test_drafts_with_violations_close_the_gate(
     session: AsyncSession, model: Plug, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

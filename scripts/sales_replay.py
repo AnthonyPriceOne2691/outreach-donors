@@ -5,6 +5,7 @@
     python scripts/sales_replay.py run --set crm [--dir КАТАЛОГ] [--out прогон.json]
     python scripts/sales_replay.py run --drafts [--settle-days 3] [--out прогон.json]
     python scripts/sales_replay.py run --set crm --prompts НОВАЯ --against ПРЕЖНЯЯ
+    python scripts/sales_replay.py run --set crm --limit 15 --out пилот.json   # пилот
     python scripts/sales_replay.py compare прежний.json новый.json [--strict]
 
 **Набор** — вне репозитория: каталог `SALES_REPLAY_DIR` или `--dir`; что в нём лежит и
@@ -23,7 +24,8 @@
 Неполный прогон (отказ модели, потолок расхода) ворота не проходит.
 
 **Модель настоящая**: прогон тратит токены — ситуация, черновик, судья с правками — и пишет
-их в расход. Ключа нет — прогон останавливается на первом случае словами.
+их в расход. Ключа нет — прогон останавливается на первом случае словами. `--limit N` —
+пилот на первых N случаях: набор по манифесту всё равно обязан быть целым.
 """
 
 from __future__ import annotations
@@ -101,6 +103,9 @@ async def execute(
         if not cases:
             print("НАБОР ПУСТ: у черновиков продаж ещё нет решений людей — сравнивать не с чем")
             return 1
+    if args.limit is not None and args.limit < len(cases):
+        print(f"Пилот: первые {args.limit} из {len(cases)} случаев — ворота судят только их")
+        cases, source = cases[: args.limit], f"{source}, первые {args.limit} из {len(cases)}"
     against = _against(args.against)
     prompts = replay.from_folder(Path(args.prompts)) if args.prompts else replay.PACKAGED
     old = against if isinstance(against, Run) else None
@@ -155,6 +160,14 @@ async def _live(args: argparse.Namespace, cases: list[Case] | None, source: str)
         await engine.dispose()
 
 
+def _positive(raw: str) -> int:
+    """Сколько случаев в пилоте — от одного: пустой прогон ничего бы не проверил."""
+    number = int(raw)
+    if number < 1:
+        raise argparse.ArgumentTypeError(f"пилот — от одного случая, а не {number}")
+    return number
+
+
 def parser() -> argparse.ArgumentParser:
     """Доводы команды: `run` — прогон (и ворота с `--against`), `compare` — два файла."""
     found = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
@@ -171,6 +184,9 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--against", default=None, help="прежняя версия: файл прогона или каталог")
     run.add_argument("--out", default=None, help="куда записать прогон (JSON)")
     run.add_argument("--strict", action="store_true", help="нарушений строго меньше")
+    run.add_argument(
+        "--limit", type=_positive, default=None, help="пилот: прогнать только первые N случаев"
+    )
     compare = commands.add_parser("compare", help="сравнить два прогона из файлов")
     compare.add_argument("old", type=Path)
     compare.add_argument("new", type=Path)
