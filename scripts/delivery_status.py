@@ -17,9 +17,9 @@ from delivery_decisions import signature_verdict
 from delivery_diff import diff_identifiers, diff_stats
 from delivery_risk import risk_review_gaps, risky_classes
 from delivery_runtime import (breaker_value, declared_surfaces,
-                              model_surface_gaps, rule_enforcer_gaps,
-                              runtime_proof_gaps, runtime_touched,
-                              unsigned_irreversible_gaps)
+                              model_surface_gaps, report_dead_surfaces,
+                              rule_enforcer_gaps, runtime_proof_gaps,
+                              runtime_touched, unsigned_irreversible_gaps)
 
 def check_phase_and_class(raw_phase: str, raw_class: str, phase: str,
                           klass: str, allowed: set[str], errors: list[str],
@@ -147,10 +147,12 @@ def check_runtime_paths(status: str, args, phase: str, verify,
     if not (rstats and rstats[4]):
         return                    # ⚠ ВТОРАЯ охрана: блок жил и под непустым диффом
     # --- §12.6: путь, проверяемый только исполнением. Та же лестница
-    # (предупреждение на verify, отказ на handoff) и по той же причине.
+    # (предупреждение на verify, отказ на handoff) и по той же причине; выбирается
+    # ОДИН раз, как у соседа §14 — иначе каждый новый вызов поднимал бы сложность.
+    sink = errors if phase == "handoff" else warnings
     surfaces, declared = declared_surfaces(status, "runtime_paths")
     if not declared:
-        (errors if phase == "handoff" else warnings).append(
+        sink.append(
             "нет строки `runtime_paths:` в STATUS (§12.6) — назови "
             "пути, чей отказ не виден ни сборке, ни тестам (экран, "
             "права, железо, тракт съёмки), либо `none reason=…`. "
@@ -158,11 +160,10 @@ def check_runtime_paths(status: str, args, phase: str, verify,
             "четыре падения подряд ровно в них"
         )
     else:
+        report_dead_surfaces("runtime_paths", surfaces, sink, warnings)
         touched = runtime_touched(rstats[4], surfaces)
         for g in runtime_proof_gaps(read(verify), touched):
-            (errors if phase == "handoff" else warnings).append(
-                f"исполнение: {g}"
-            )
+            sink.append(f"исполнение: {g}")
         check_surface_breaker(status, phase, touched, errors, warnings)
 
 
@@ -195,6 +196,7 @@ def check_model_surface(status: str, args, phase: str, verify,
             "полигона дал обратное: правка промпта проезжает мимо всех гейтов"
         )
         return
+    report_dead_surfaces("model_surface", surfaces, sink, warnings)
     for g in model_surface_gaps(read(verify), runtime_touched(rstats[4], surfaces)):
         sink.append(f"поверхность модели: {g}")
     for g in rule_enforcer_gaps(status, surfaces):

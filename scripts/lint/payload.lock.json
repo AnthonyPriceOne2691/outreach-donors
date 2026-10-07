@@ -1,8 +1,8 @@
 {
   "_": "Замок payload'а: что канон отдавал на этих версиях. Пишет обновление контура (§5.5), читает доктор; руками не править.",
   "versions": {
-    "cqg": "2.48",
-    "delivery": "1.99",
+    "cqg": "2.51",
+    "delivery": "2.00",
     "okf": "1.19",
     "stack-map": "1.52"
   },
@@ -57,11 +57,11 @@
     },
     "scripts/delivery_runtime.py": {
       "canon": "delivery",
-      "digest": "sha256:b2b666b17d8c488a91790738987a9665ce3b4561ec60252c2a05d5f39c93ad74"
+      "digest": "sha256:0743b6638e3158f437314f2786c17550e5f7b553715a03fc5696a3fc00b97717"
     },
     "scripts/delivery_status.py": {
       "canon": "delivery",
-      "digest": "sha256:727e5a91ebd5f28f108c5785882d1ef994eafda8f80b4a779600bbb38ea773ec"
+      "digest": "sha256:c48af37dde7ffb4720745fab09b6083c466b25fc58ac4b76b80b8c0cb9a502e2"
     },
     "scripts/lint/assert_digest.sh": {
       "canon": "cqg",
@@ -97,7 +97,7 @@
     },
     "scripts/lint/check_diff_coverage.sh": {
       "canon": "cqg",
-      "digest": "sha256:f4f6ec9ff429e23b08ff552978ee8cbe264a3199d4986905fce687ab2da33e12"
+      "digest": "sha256:8a6f912c48f09c2d6117957b284447a2dc858979094984e149e624d863d42742"
     },
     "scripts/lint/check_eslint_warnings.sh": {
       "canon": "cqg",
