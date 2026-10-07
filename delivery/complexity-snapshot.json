@@ -772,9 +772,9 @@
       "worst": "_vcard_emails:40"
     },
     "backend/features/contacts/refind.py": {
-      "lines": 221,
+      "lines": 219,
       "complexity": 9,
-      "worst": "_clear:195"
+      "worst": "_clear:193"
     },
     "backend/features/contacts/repository.py": {
       "lines": 327,
@@ -817,7 +817,7 @@
       "worst": "—"
     },
     "backend/features/core/domain.py": {
-      "lines": 282,
+      "lines": 290,
       "complexity": 0,
       "worst": "—"
     },
@@ -1357,9 +1357,9 @@
       "worst": "_outcome:118"
     },
     "backend/features/ops/overview.py": {
-      "lines": 274,
+      "lines": 272,
       "complexity": 5,
-      "worst": "_letters:245"
+      "worst": "_letters:243"
     },
     "backend/features/ops/silence.py": {
       "lines": 331,
@@ -1387,7 +1387,7 @@
       "worst": "_spot:112"
     },
     "backend/features/outreach/threads.py": {
-      "lines": 220,
+      "lines": 216,
       "complexity": 8,
       "worst": "_answer_rules:153"
     },

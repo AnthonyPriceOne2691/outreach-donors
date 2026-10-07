@@ -38,7 +38,7 @@ from backend.features.contacts import attempts
 from backend.features.contacts.ladder import LadderResult
 from backend.features.contacts.manual import removal_refusals
 from backend.features.contacts.repository import ContactRepository
-from backend.features.core.domain import ContactSource, ContactStatus, MessageStatus
+from backend.features.core.domain import GONE_STATUSES, ContactSource, ContactStatus, MessageStatus
 from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
@@ -53,10 +53,8 @@ logger = logging.getLogger(__name__)
 CONCLUSIVE = frozenset({ContactStatus.FOUND, ContactStatus.NOT_FOUND, ContactStatus.FORM_ONLY})
 
 
-#: Письмо ещё уйдёт — его можно остановить.
+#: Письмо ещё уйдёт — его можно остановить. Ушедшее — `GONE_STATUSES`.
 _WAITING = frozenset({MessageStatus.QUEUED, MessageStatus.SENDING})
-#: Письмо ушло.
-_GONE = frozenset({MessageStatus.SENT, MessageStatus.DELIVERED, MessageStatus.BOUNCED})
 
 
 def _why_kept(refusal: str, letters: dict[int, tuple[int, int]], contact: ContactModel) -> str:
@@ -160,7 +158,7 @@ class NamedDomains:
             queued, gone = counts.get(contact_id, (0, 0))
             if status in _WAITING:
                 queued += count
-            elif status in _GONE:
+            elif status in GONE_STATUSES:
                 gone += count
             counts[contact_id] = (queued, gone)
         return counts
