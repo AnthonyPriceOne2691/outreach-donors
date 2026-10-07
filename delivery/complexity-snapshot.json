@@ -452,14 +452,14 @@
       "worst": "_print_summary:169"
     },
     "backend/cli/demo_content.py": {
-      "lines": 137,
-      "complexity": 0,
-      "worst": "—"
+      "lines": 151,
+      "complexity": 3,
+      "worst": "reply_text:91"
     },
     "backend/cli/demo_data.py": {
-      "lines": 470,
-      "complexity": 7,
-      "worst": "_add_reply:289"
+      "lines": 471,
+      "complexity": 6,
+      "worst": "_seed_senders:129"
     },
     "backend/cli/donor_add.py": {
       "lines": 80,

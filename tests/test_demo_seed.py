@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from backend.cli import demo_data
+from backend.cli.demo_content import REPLIES, reply_text
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.outreach import ReplyModel
 from backend.features.replies.money import appears_in
@@ -57,6 +58,39 @@ async def test_priced_demo_reply_lists_every_price_of_its_text(session: AsyncSes
         ("ссылка на главной", "300", "month"),
     ]
     assert len(priced[1].offers or []) == 3
+
+
+async def test_reply_text_says_only_the_prices_the_donor_named(session: AsyncSession) -> None:
+    """«— None EUR» в «Диалогах»: шаблон ответа «цена» держал фразу о цене
+    с пометкой и у донора, который её не называл (city-news, 07.10.2026)."""
+    await _seed(session)
+
+    replies = (await session.execute(select(ReplyModel).order_by(ReplyModel.id))).scalars().all()
+
+    assert replies
+    for reply in replies:
+        assert "None" not in reply.raw_body
+        assert "{" not in reply.raw_body, "в тексте осталась незаполненная метка шаблона"
+    white_only = [r for r in replies if r.price_white is not None and r.price_grey is None]
+    both = [r for r in replies if r.price_grey is not None]
+    assert white_only, "ответа без цены с пометкой нет — проверять нечего"
+    assert all("пометкой" not in reply.raw_body for reply in white_only)
+    assert both
+    for reply in both:
+        assert reply.price_grey is not None
+        assert appears_in(reply.price_grey, reply.raw_body)
+
+
+def test_reply_text_of_each_price_set() -> None:
+    _, template = REPLIES["цена"]
+
+    both = reply_text(template, Decimal("250"), Decimal("180"))
+    white_only = reply_text(template, Decimal("400"), None)
+
+    assert "Размещение статьи — 250 EUR, с пометкой «партнёрский материал» — 180 EUR." in both
+    assert "Размещение статьи — 400 EUR. Ссылка в опубликованной статье" in white_only
+    # Без цены текст не форматируется: ответ без цены шаблоном не пишется.
+    assert reply_text("Прайс уточняю.", None, None) == "Прайс уточняю."
 
 
 async def test_clear_removes_only_the_demo(session: AsyncSession) -> None:
