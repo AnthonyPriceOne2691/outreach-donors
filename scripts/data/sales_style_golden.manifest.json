@@ -1,0 +1,18 @@
+{
+  "name": "sales_style_golden",
+  "about": "Набор «стиль» для eval судьи продаж (Spec 3.4, набор 1): копия CRM — отклонённые черновики и исходники исправленных (плохие), итоговые тексты (хорошие). Предметная часть там другая, поэтому судятся только правила стиля, отсрочки и длины, без модели. Сам набор вне репозитория: каталог из SALES_STYLE_GOLDEN_DIR, файл ниже.",
+  "env": "SALES_STYLE_GOLDEN_DIR",
+  "file": "sales_style_golden.jsonl",
+  "format": "JSONL, строка на черновик: id; draft — текст; verdict — bad | good; source — rejected | edited_original | edited_final; deferred — наши прежние отсрочки в переписке, необязательно",
+  "min_count": null,
+  "count": null,
+  "sha256": null,
+  "date": null,
+  "baseline": null,
+  "gates": {
+    "false_block_max": 0.1,
+    "style_caught_min": 0.0
+  },
+  "gates_status": "предложение до замера: хороших задержано не больше 10 %; доля пойманных плохих — для сведения, плохие там не только по стилю",
+  "fill_in": "count, sha256 и date печатает eval_sales_judge.py --style; baseline — его итог на утверждённой версии правил"
+}

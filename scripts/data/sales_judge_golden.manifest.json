@@ -1,0 +1,18 @@
+{
+  "name": "sales_judge_golden",
+  "about": "Набор «опора на базу» для eval судьи продаж (Spec 3.4, набор 2): синтетика и обезличенные переписки — выдуманные цены и обещания, чужой язык, два призыва, чужие ссылки и хорошие ответы. Сам набор вне репозитория (он публичный): каталог из SALES_JUDGE_GOLDEN_DIR, файл ниже.",
+  "env": "SALES_JUDGE_GOLDEN_DIR",
+  "file": "sales_judge_golden.jsonl",
+  "format": "JSONL, строка на случай — как scripts/data/sales_judge_synthetic.jsonl: id; kind — good | price | promise | language | two_cta | foreign_link | claim | deferral | form | tone | generate; letter — письмо собеседника; facts — строки брифа ([move], [cta], [kb:N вид], [link], [language], [deferred], [promised], [persona]); draft — черновик (у generate нет); never — регулярки того, чего в черновике generate быть не должно",
+  "min_count": 40,
+  "count": null,
+  "sha256": null,
+  "date": null,
+  "baseline": null,
+  "gates": {
+    "dangerous_caught_min": 0.95,
+    "false_block_max": 0.1
+  },
+  "gates_status": "предложение до замера: пороги утверждает владелец по прогону на наборе",
+  "fill_in": "count, sha256 и date печатает eval_sales_judge.py --golden; baseline — его итог на утверждённой версии промптов"
+}

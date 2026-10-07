@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 TOPIC = "судья черновика продаж"
 PROMPT = Path(__file__).with_name("prompts") / "judge.md"
 #: Меняется при каждой правке промпта: калибровка сравнивает версии.
-PROMPT_VERSION = "sales-judge-v1"
+PROMPT_VERSION = "sales-judge-v2"
 #: Начало причины в режиме наблюдения: вердикт записан, черновик не задержан.
 SHADOW = "shadow"
 
@@ -146,10 +146,10 @@ def _unchecked(check: GuardInput, context: Context) -> str | None:
     return None
 
 
-async def _model(check: GuardInput, context: Context) -> Verdict:
+async def _model(check: GuardInput, context: Context, prompt: Path) -> Verdict:
     """Судья-модель: строгий JSON → нарушения. Не смогла проверить — человеку."""
     answer = await calling.ask(
-        prompt=PROMPT,
+        prompt=prompt,
         user=user_message(check, context),
         model=llm_cfg.SALES_JUDGE_MODEL,
         topic=TOPIC,
@@ -165,8 +165,10 @@ async def _model(check: GuardInput, context: Context) -> Verdict:
     return Verdict(VerdictKind.ALLOW, tokens=answer.tokens)
 
 
-async def verdict(check: GuardInput) -> Verdict:
-    """Вердикт черновику продаж без режима: правила кодом, затем модель."""
+async def verdict(check: GuardInput, *, prompt: Path = PROMPT) -> Verdict:
+    """Вердикт черновику продаж без режима: правила кодом, затем модель.
+
+    `prompt` — промпт судьи-модели; другой подставляет только eval (порча промпта)."""
     context = facts.read(check.facts)
     why = _unchecked(check, context)
     if why is not None:
@@ -174,7 +176,7 @@ async def verdict(check: GuardInput) -> Verdict:
     broken = judge_rules.violations(check.draft, incoming=check.incoming, context=context)
     if broken:
         return Verdict(VerdictKind.BLOCK, tuple(broken))
-    return await _model(check, context)
+    return await _model(check, context, prompt)
 
 
 def shadowed(found: Verdict) -> Verdict:
