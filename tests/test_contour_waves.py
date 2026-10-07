@@ -399,12 +399,17 @@ AGENT_NOT_NAMED = "✗ промпт judge.md не назван в model_surface"
             AGENT_NOT_NAMED,
         ),
         (
+            {"В3а": "n/a reason=разбор ответов — другим PR", "В3б": "deployed"},
+            "backend/features/keywords/prompts/",
+            AGENT_NOT_NAMED,
+        ),
+        (
             {"В3а": "deployed", "В3б": "deployed"},
             "backend/features/sales/agent/prompts/ <!-- судья judge.md -->",
             None,
         ),
     ],
-    ids=["pending", "not-named", "named"],
+    ids=["pending", "not-named", "not-named-v3b-alone", "named"],
 )
 def test_agent_prompt_brings_wave_v3b(
     tmp_path: Path, capsys: Capture, states: dict[str, str], surface: str, line: str | None
