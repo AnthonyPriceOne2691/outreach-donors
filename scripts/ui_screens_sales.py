@@ -17,6 +17,11 @@
 окно правки, окно «что увидит агент» и форма отправителя. Кнопки «Сохранить»
 выключены, пока ничего не правлено, — подготовка дописывает знак в поле: у
 выключенной кнопки меряется серое на сером. Записи — в базе стенда.
+
+Цепочка писем (срез 4.6) — вкладка с карточками языков и окно шага с письмом глазами
+адресата. Шаблоны и отправитель — в базе стенда: у английской цепочки заданы все шаги
+(третий выключен), у русской — первое письмо, у отправителя нет адреса — так на экране
+есть все значки шага и плашка «отправка не готова».
 """
 
 from collections.abc import Callable
@@ -230,6 +235,7 @@ def sales_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
             ],
         },
         **kb_screens(norm, big),
+        **chain_screens(norm, big),
     }
 
 
@@ -358,6 +364,101 @@ def kb_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
     }
 
 
+#: Тело первого письма для замера — плотное, на все строки поля: значение поля замер видит
+#: только тогда, когда буквы — большая часть вырезки (как `ENTRY_TEXT` базы знаний).
+#: Годное для показа письма: зоны, подстановки из списка, коридор отличия достижим.
+STEP_LINES = (
+    "Made-up letter for the contrast check, {{name}}: line after line,",
+    "so that the letters fill the field. Text colour does not depend on length;",
+    "only the share of letters in the probe crop changes with it.",
+    "One more made-up line for the same check, for {{company}} and {{site}} only,",
+    "and the last made-up line, so that the field grows to all of its rows",
+    "and the edge of the field becomes a small share of the crop.",
+)
+STEP_BODY = (
+    "[greeting] rewrite\n"
+    + "\n".join(STEP_LINES[:3])
+    + "\n\n[offer] fixed\n"
+    + "\n".join(STEP_LINES[3:])
+)
+
+
+def open_step(page: Any) -> None:
+    """Окно первого письма английской цепочки и письмо глазами адресата под формой.
+
+    Текст поля — плотный (`STEP_BODY`): им меряется значение поля, и правка оживляет
+    «Сохранить» — у выключенной кнопки меряется серое на сером. Шаблон стенда с пустыми
+    строками между зонами вырезка видит хуже: кромка поля — большая доля (разбор — у проб окна)."""
+    english = page.get_by_role("region", name="Английский")
+    english.locator(".chainStep").first.get_by_role("button", name="Править").click()
+    dialog = page.get_by_role("dialog")
+    expect(dialog).to_be_visible()
+    dialog.get_by_role("textbox", name="Текст письма").fill(STEP_BODY)
+    expect(dialog.get_by_role("button", name="Сохранить")).to_be_enabled()
+    dialog.get_by_role("button", name="Показать письмо").click()
+    expect(dialog.locator(".chainLetter")).to_be_visible()
+    page.wait_for_timeout(400)
+
+
+def chain_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
+    """Вкладка «Цепочка писем»: карточки языков на 1440 и 390, окно шага с письмом."""
+    ready = ("heading", "Продажи")
+    card = "section.glassQuiet"
+    chain_list = [
+        ("пояснение над цепочками", ".glassPanel .mantine-SegmentedControl-root + div p", norm),
+        ("подпись поля набора", "label:text-is('Набор')", norm),
+        ("язык цепочки", f"{card} h5", norm),
+        ("значок цепочки", f"{card} h5 + .mantine-Badge-root .mantine-Badge-label", norm),
+        ("состояние цепочки", f"{card} .chainState", norm),
+        ("название шага", f"{card} .chainStepTitle", norm),
+        ("значок «задан»", ".chainStep .mantine-Badge-label:text-is('задан')", norm),
+        ("значок «выключен»", ".chainStep .mantine-Badge-label:text-is('выключен')", norm),
+        ("значок «не задан»", ".chainStep .mantine-Badge-label:text-is('не задан')", norm),
+        ("тема шага", ".chainSubject", norm),
+        ("начало текста", ".chainExcerpt", norm),
+        ("кто и когда правил", ".chainWho", norm),
+        ("кнопка «Править»", ".chainStep button:has-text('Править')", norm),
+        ("кнопка «Задать»", ".chainStep button:has-text('Задать')", norm),
+    ]
+    dialog = ".mantine-Modal-content"
+    return {
+        "sales-chain": {"path": "/sales?tab=chain", "ready": ready, "probes": chain_list},
+        "sales-chain-phone": {
+            "path": "/sales?tab=chain",
+            "ready": ready,
+            "viewport": PHONE,
+            "probes": [chain_list[0], *chain_list[2:7], chain_list[10], chain_list[12]],
+        },
+        "sales-chain-step": {
+            "path": "/sales?tab=chain",
+            "ready": ready,
+            "probes": [
+                ("заголовок окна", f"{dialog} .mantine-Modal-title", norm),
+                ("что за шаг", f"{dialog} .chainHint", norm),
+                ("подпись поля", f"{dialog} .mantine-InputWrapper-label", norm),
+                ("пояснение поля", f"{dialog} .mantine-InputWrapper-description", norm),
+                # Текст поля — плотный (`open_step`): шаблон стенда с пустыми строками между
+                # зонами давал на свету 4,39 — вырезка берёт кромку поля из чернил
+                # (`--field-edge`, 0,42), а по строке букв 5,86, внутри поля 6,11, по ядру
+                # 15,55 (05.10.2026); тот же класс, что у окна записи базы знаний.
+                ("текст письма", f"{dialog} textarea", norm),
+                ("подпись переключателя", f"{dialog} .mantine-Switch-label", norm),
+                ("кнопка «Показать письмо»", f"{dialog} button:has-text('Показать письмо')", big),
+                ("кнопка «Сохранить»", f"{dialog} button:has-text('Сохранить')", big),
+                ("от кого", f"{dialog} .chainLetter > p:first-child", norm),
+                ("имя зоны", f"{dialog} .chainZone .mantine-Group-root p", norm),
+                ("что с зоной", f"{dialog} .chainZone .mantine-Badge-label", norm),
+                ("текст зоны", f"{dialog} .chainZone > p", norm),
+                ("подпись из настроек", f"{dialog} .chainSigned", norm),
+                ("адреса нет", f"{dialog} .chainLetter > p:text-matches('не задан')", norm),
+                ("заголовок «не готова»", f"{dialog} .mantine-Alert-title", norm),
+                ("слова «не готова»", f"{dialog} .mantine-Alert-message", norm),
+                ("что подставлено", f"{dialog} .chainValues", norm),
+            ],
+        },
+    }
+
+
 def sales_prepare() -> dict[str, Callable[[Any], None]]:
     """Что сделать на экране до замера: мастер показывает шаг только после действий."""
     return {
@@ -368,4 +469,5 @@ def sales_prepare() -> dict[str, Callable[[Any], None]]:
         "sales-kb-agent": open_agent,
         "sales-sender": touch_sender,
         "sales-sender-phone": touch_sender,
+        "sales-chain-step": open_step,
     }

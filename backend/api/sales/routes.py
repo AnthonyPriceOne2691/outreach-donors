@@ -15,8 +15,9 @@
 страница — в адресе экрана (`?state=rejected&reason=duplicate&page=2`), имена
 параметров — те же, что в адресе. Логика чтения — `features/sales/browse.py`.
 
-**База знаний и отправитель** (срез 3.1) — своим модулем `kb.py`, его маршруты
-входят в этот же роутер: у раздела один префикс и одно право.
+**База знаний и отправитель** (срез 3.1) — своим модулем `kb.py`, **цепочка писем**
+(срез 4.6) — модулем `chain.py`; их маршруты входят в этот же роутер: у раздела один
+префикс и одно право.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ from pydantic import BaseModel, Field, NonNegativeInt, TypeAdapter, ValidationEr
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
+from backend.api.sales import chain as chain_routes
 from backend.api.sales import kb as kb_routes
 from backend.api.sales.schemas import HypothesesView, HypothesisCard, IntakeView, LeadsView
 from backend.features.core.domain import Permission
@@ -160,3 +162,4 @@ async def list_leads(
 
 
 router.include_router(kb_routes.router)
+router.include_router(chain_routes.router)

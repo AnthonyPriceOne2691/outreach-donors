@@ -1,4 +1,4 @@
-"""Лид, гипотеза, стоп-лист, база знаний и отправитель продаж — свои таблицы модуля.
+"""Лид, гипотеза, стоп-лист, база знаний, отправитель и цепочка писем продаж — свои таблицы модуля.
 
 **Лид — своя таблица, а не колонки `contacts`.** Имя, должность и компания —
 сущность продаж; донорская таблица адресов о них не знает. Почтовые сущности
@@ -25,6 +25,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -256,3 +257,50 @@ class SalesSettingsModel(TimestampedMixin, Base):
     updated_by: Mapped[str | None] = mapped_column(String(AUTHOR_LENGTH), nullable=True)
 
     __table_args__ = (CheckConstraint("id = 1", name="ck_sales_settings_one_row"),)
+
+
+#: Ширина темы письма: тема — строка, а не абзац.
+SUBJECT_LENGTH = 255
+
+
+class SalesChainTemplateModel(TimestampedMixin, Base):
+    """Шаблон шага цепочки писем продаж. Текст — данными в базе: репозиторий публичный.
+
+    **Ключ — набор, шаг и язык.** Набор — гипотеза или общий (`hypothesis_id` пуст):
+    общий действует для всех гипотез, своя цепочка гипотезы заменяет его на языке
+    целиком (`sales/chain.py`). Пустой номер гипотезы — тоже значение ключа
+    (`NULLS NOT DISTINCT`): второго общего шаблона того же шага и языка база не пустит.
+    **Тема — только у первого письма**: добивки идут в той же переписке, и тему им
+    даёт первое письмо — это держит и проверка базы. Шаблон не удаляется — выключается.
+    """
+
+    __tablename__ = "sales_chain_templates"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    hypothesis_id: Mapped[int | None] = mapped_column(
+        ForeignKey("sales_hypotheses.id", ondelete="RESTRICT"), nullable=True
+    )
+    #: 1 — первое письмо, 2 и 3 — добивки.
+    step: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    #: Код языка письма нижним регистром: `ru`, `en`.
+    language: Mapped[str] = mapped_column(String(LANGUAGE_LENGTH), nullable=False)
+    subject: Mapped[str | None] = mapped_column(String(SUBJECT_LENGTH), nullable=True)
+    #: Тело в формате зон, как у шаблонов доноров: `[имя] rewrite` / `[имя] fixed`.
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    #: Кто правил последним; когда — `updated_at`.
+    updated_by: Mapped[str | None] = mapped_column(String(AUTHOR_LENGTH), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "hypothesis_id",
+            "step",
+            "language",
+            name="uq_sales_chain_templates_key",
+            postgresql_nulls_not_distinct=True,
+        ),
+        CheckConstraint("step BETWEEN 1 AND 3", name="ck_sales_chain_templates_step"),
+        CheckConstraint(
+            "(step = 1) = (subject IS NOT NULL)", name="ck_sales_chain_templates_subject"
+        ),
+    )

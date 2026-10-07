@@ -38,6 +38,7 @@ import type { HypothesisCard, LeadState } from '../api/salesTypes';
 import { Metric } from '../components/Metric';
 import { useTyped } from '../donors/useTyped';
 import { formatNumber } from '../format';
+import { ChainPane } from './ChainPane';
 import { HypothesesTable } from './HypothesesTable';
 import { useKb } from './kbData';
 import { KbPane } from './KbPane';
@@ -209,6 +210,7 @@ export function SalesPage() {
     hypotheses: () => <HypothesesTable rows={known} />,
     kb: () => <KbPane />,
     sender: () => <SenderPane />,
+    chain: () => <ChainPane hypotheses={known} />,
   };
 
   return (
