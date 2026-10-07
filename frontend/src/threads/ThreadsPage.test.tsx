@@ -244,11 +244,12 @@ describe('диалоги', () => {
     // промпта. Приём соседней системы, работавший в бою.
     await openThreads();
 
-    expect(
-      await screen.findByText(
-        /подтвердил как есть 7 из 10, поправил 3 — чаще всего белая цена 2, валюта 1/,
-      ),
-    ).toBeInTheDocument();
+    const line = await screen.findByText(
+      /подтвердил как есть 7 из 10, поправил 3 — чаще всего белая цена 2, валюта 1/,
+    );
+    // Версия промпта — номером, а не кодом сервера (замечание 06.10.2026).
+    expect(line).toHaveTextContent(/^Разбор ответов \(версия 4\):/);
+    expect(screen.queryByText(/reply-parse/)).not.toBeInTheDocument();
   });
 });
 

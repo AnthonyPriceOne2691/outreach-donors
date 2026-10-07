@@ -22,6 +22,14 @@ const FIELD_TITLES: Record<string, string> = {
   placement: 'продаёт ли',
 };
 
+/** Версия промпта словами — номером, как у версий порогов и настроек агента.
+ *  Сервер называет её кодом (`reply-parse-v6-offers`): по коду версию ищут
+ *  в журнале и в истории промпта, а человеку из него нужен только номер. */
+export function versionTitle(code: string): string {
+  const number = /^reply-parse-v(\d+)(?:-|$)/.exec(code)?.[1];
+  return number === undefined ? 'версия без номера' : `версия ${number}`;
+}
+
 export function ParseCalibration() {
   const { data } = useQuery({ queryKey: ['replies-calibration'], queryFn: fetchCalibration });
   const current = data?.versions[0];
@@ -34,8 +42,8 @@ export function ParseCalibration() {
 
   return (
     <Text size="sm" c="dimmed">
-      Разбор ответов ({current.version}): человек подтвердил как есть {current.as_is} из{' '}
-      {current.reviewed}, поправил {current.edited}
+      Разбор ответов ({versionTitle(current.version)}): человек подтвердил как есть {current.as_is}{' '}
+      из {current.reviewed}, поправил {current.edited}
       {fixes.length > 0 ? ` — чаще всего ${fixes.join(', ')}` : ''}. Сами легли в базу{' '}
       {current.auto_stored}, ждут человека {current.waiting}.
     </Text>
