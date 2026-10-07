@@ -677,9 +677,9 @@
       "worst": "save:135"
     },
     "backend/features/agent/stages.py": {
-      "lines": 175,
+      "lines": 179,
       "complexity": 2,
-      "worst": "agent_stage:169"
+      "worst": "agent_stage:173"
     },
     "backend/features/agent/writer.py": {
       "lines": 254,

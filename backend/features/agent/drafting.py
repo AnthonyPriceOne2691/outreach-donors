@@ -227,7 +227,7 @@ async def _written(
             stage=conversation.stage,
             settings=conversation.settings,
             turns=conversation.turns,
-            sign_as=outreach_cfg.SENDER_NAME.strip(),
+            sign_as=outreach_cfg.SENDER_NAME.strip() if brief.sign_as is None else brief.sign_as,
             parsed=_parsed(reply),
             facts=brief.facts,
             prompt=stage.prompt,

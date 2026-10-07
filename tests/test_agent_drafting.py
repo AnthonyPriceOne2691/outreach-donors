@@ -5,18 +5,20 @@
 отвеченному ответу черновик не пишется; повтор не платит модели второй раз,
 а «написать заново» переписывает черновик; расход ложится в журнал операцией
 этапа; пропуск брифа двух видов модель не зовёт, а `human` не пишет текста;
-факты брифа доходят до писателя, а `meta` — до черновика; сбой крючка
-уведомления черновик не теряет.
+факты брифа доходят до писателя, а `meta` — до черновика; черновик подписан
+именем брифа, а без него — как до шва; сбой крючка уведомления черновик не теряет.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import replace
 from decimal import Decimal
 from types import MappingProxyType
 from typing import Any
 
+import httpx
 import pytest
 from backend.config import llm as llm_cfg
 from backend.config import outreach as outreach_cfg
@@ -33,7 +35,7 @@ from backend.features.agent.stages import (
     Skip,
     SkipKind,
 )
-from backend.features.agent.writer import Request, Turn, Written
+from backend.features.agent.writer import AgentWriter, Request, Turn, Written
 from backend.features.core.domain import DraftStatus, ReplyKind, Stage, ThreadStatus
 from backend.features.core.models.agent import AgentDraftModel
 from backend.features.core.models.ops import UsageRecordModel
@@ -59,6 +61,14 @@ class FakeWriter:
     async def write(self, request: Request) -> Written:
         self.seen.append(request)
         return self.written
+
+
+def signing_model(request: httpx.Request) -> httpx.Response:
+    """Модель по правилу промпта: подпись — именем из `sign_as` запроса."""
+    user = json.loads(request.content)["messages"][1]["content"]
+    name = json.loads(user.split("\n")[1]).get("sign_as", "")
+    form = {"body": f"Thanks, a guide works.\n{name}", "needs_human": False, "reason": ""}
+    return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(form)}}]})
 
 
 @pytest.fixture
@@ -291,6 +301,28 @@ class TestBrief:
         draft = await stored(session, reply.id)
         assert draft.status is DraftStatus.DRAFTED
         assert draft.meta == {"forced_over_skip": {"kind": "no_reply", "reason": "спасибо"}}
+
+
+class TestSignAs:
+    @pytest.mark.parametrize(("sign_as", "signed"), [("Ivo Test", "Ivo Test"), (None, "Anna")])
+    async def test_draft_is_signed_by_the_brief_name_and_without_it_as_before(
+        self,
+        session: AsyncSession,
+        reply: ReplyModel,
+        monkeypatch: pytest.MonkeyPatch,
+        sign_as: str | None,
+        signed: str,
+    ) -> None:
+        donors_with(monkeypatch, brief=briefed(Brief(sign_as=sign_as)))
+        await agent_on(session)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(signing_model)) as http:
+            agent = AgentWriter(http, model="gpt-5", api_key="test-key")
+            await drafting.draft_answer(session, agent, reply.id)
+
+        body = (await stored(session, reply.id)).body
+        assert body.splitlines()[-1] == signed
+        assert ("Anna" in body) is (sign_as is None)  # имя брифа — вместо общего
 
 
 class TestAnnounce:
