@@ -8,7 +8,7 @@
 - **builder:** agent:claude
 - **verifier:** process:ci — обязательные джобы `check`, `web` и `docker`, на PR ещё `gates` и `delivery`; ревью общего кода агента — соседняя сессия outreach-donors; слив — по решению владельца
 - **human_ok_spec:** yes at=2026-10-06 by=human:anthony (весь план Ф2–Ф5 06.10 ~23:00; согласованный интерфейс шва 05.10 ~18:20/~18:40; шов отдан модулю продаж 06.10 ~22:55: «общий код объявляй, ревью моё»)
-- **waivers:** max_loc_diff=1889 max_files_touched=34 reason=объединённый PR шва агента (части Б, В, Г, Д) — решение владельца 07.10: мелкие PR объединяем, чтобы не гонять CI на каждый; ревью общего кода — соседняя сессия by=human:anthony
+- **waivers:** max_loc_diff=1926 max_files_touched=34 reason=объединённый PR шва агента (части Б, В, Г, Д) — решение владельца 07.10: мелкие PR объединяем, чтобы не гонять CI на каждый; ревью общего кода — соседняя сессия by=human:anthony
 - **new_dependency:** none
 - **shared_changes:** части «Б»–«Д» — общий код агента переписки всех этапов; каждый файл полным путём один раз, через «;» — что делает каждая часть:
   `backend/features/agent/guarding.py` — Б, новый: петля правки до `max_rewrites`, судья с таймаутом, отказ закрыт, расход судьи; В: `drafts_cap()` — оба потолка перед каждым вызовом писателя;
@@ -24,7 +24,7 @@
   `backend/features/ops/job_outcome.py` — Д: имя задачи черновика в `KINDS` — строкой пути функции;
   `backend/migrations/versions/75242c2ed7ba_agent_autopilot.py` — Г: две колонки настроек после `3924977db911`;
   `backend/workers/agent_jobs.py` — В, новый (из заготовки `cc68357`): задача `draft_answer`, `queue_draft`, имя и номер задачи, итог потолка и ключа; Г: автопилот после записи — только готовому черновику и где разрешён, уведомление — если письмо не ушло; Д: `after_parse` — агент на этапе пишет — поставить задачу;
-  `backend/workers/jobs.py` — Д, путь соседней сессии, поверх #209: после разбора ответа (`_parse_reply`) — импорт и вызов `agent_jobs.after_parse` (+2; файл у предела 500 строк);
+  `backend/workers/jobs.py` — Д, путь соседней сессии, поверх #209: после разбора ответа (`_parse_reply`) — импорт и вызов `agent_jobs.after_parse` (+2; файл у предела 500 строк); сбой постановки черновика в `agent_jobs.after_parse` пишется в журнал и не роняет задачу разбора (ревью соседней сессии);
   `backend/config/llm.py` — В: `AGENT_DAILY_TOKEN_CAP` (свой дневной потолок черновиков; не задан — `AGENT_CAP_SHARE` 30 % общего; 0 — своего нет; пустое значение в `.env` — «не задан»);
   `backend/config/outreach.py` — Г: выключатель сервера `OUTREACH_AGENT_AUTOPILOT` (по умолчанию выкл.);
   `.env.example` — Г: `OUTREACH_AGENT_AUTOPILOT=0`; В: `AGENT_DAILY_TOKEN_CAP=` рядом с `LLM_DAILY_TOKEN_CAP`;

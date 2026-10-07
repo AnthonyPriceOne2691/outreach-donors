@@ -72,9 +72,21 @@ def queue_draft(reply_id: int) -> None:
 
 async def after_parse(session: AsyncSession, reply_id: int) -> None:
     """Черновик — задачей сразу после разбора ответа: агенту нужна разобранная цена.
-    Где агент на этапе не пишет (`drafting.wants_draft`), очередь не трогается."""
-    if await drafting.wants_draft(session, reply_id):
-        queue_draft(reply_id)
+    Где агент на этапе не пишет (`drafting.wants_draft`), очередь не трогается.
+
+    Разбор к этому месту уже закоммичен: сбой постановки черновика — любой, и запрос
+    `wants_draft` к базе тоже, — не роняет задачу разбора и не уводит её на повтор
+    (на повторе итогом стало бы «уже разобран» вместо настоящего разбора). Черновик
+    тогда не поставлен — его можно попросить кнопкой в переписке."""
+    try:
+        if await drafting.wants_draft(session, reply_id):
+            queue_draft(reply_id)
+    except Exception:
+        logger.warning(
+            "ответ №%s разобран, а черновик не поставлен — его можно попросить кнопкой в переписке",
+            reply_id,
+            exc_info=True,
+        )
 
 
 async def _draft_answer(reply_id: int) -> dict[str, Any]:

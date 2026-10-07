@@ -1872,9 +1872,9 @@
       "worst": "—"
     },
     "backend/workers/agent_jobs.py": {
-      "lines": 142,
+      "lines": 154,
       "complexity": 4,
-      "worst": "_autopilot:105"
+      "worst": "_autopilot:117"
     },
     "backend/workers/crawl_jobs.py": {
       "lines": 270,
