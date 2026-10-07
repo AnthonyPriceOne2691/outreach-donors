@@ -43,6 +43,10 @@ export interface AgentStageView {
   current: AgentSettingsVersion | null;
   defaults: AgentSettingsBody;
   history: AgentSettingsVersion[];
+  /** Действует ли автопилот этапа: разрешён кодом этапа, и выключатель сервера включён. */
+  autopilot_allowed: boolean;
+  /** Почему не действует — словами сервера; `null` — действует. */
+  autopilot_refusal: string | null;
 }
 
 export interface AgentView {

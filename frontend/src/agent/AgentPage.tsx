@@ -59,14 +59,31 @@ function Standing({ view }: { view: AgentStageView }) {
   const { version, created_by: author, created_at: at, settings } = view.current;
   const who = author === null ? formatDateTime(at) : `${author} · ${formatDateTime(at)}`;
   return (
-    <Group gap="xs">
-      <Badge variant="light" color={settings.enabled ? 'green' : 'yellow'}>
-        {settings.enabled ? 'пишет черновики' : 'выключен'}
-      </Badge>
-      <Text size="sm" className="agentStanding">
-        Действует версия {version} — {who}.
-      </Text>
-    </Group>
+    <Stack gap="xs">
+      <Group gap="xs">
+        <Badge variant="light" color={settings.enabled ? 'green' : 'yellow'}>
+          {settings.enabled ? 'пишет черновики' : 'выключен'}
+        </Badge>
+        <Text size="sm" className="agentStanding">
+          Действует версия {version} — {who}.
+        </Text>
+      </Group>
+      {/* Автопилот выбран раньше, а теперь его не пускает выключатель или код этапа:
+          без этих слов человек видит «автопилот» и думает, что агент шлёт сам. */}
+      {settings.mode === 'autopilot' && !view.autopilot_allowed ? (
+        <Alert
+          color="yellow"
+          title="Автопилот выбран, но письма сами не уходят"
+          // Заголовок — к чернилам, как значки (glass.css): шестая ступень жёлтого
+          // на светлой подложке дала 4,39 : 1 при норме 4,5.
+          styles={{
+            title: { color: 'color-mix(in oklab, var(--alert-color) 40%, var(--ink) 60%)' },
+          }}
+        >
+          {view.autopilot_refusal ?? 'Автопилот этапу сейчас не разрешён'}
+        </Alert>
+      ) : null}
+    </Stack>
   );
 }
 

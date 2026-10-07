@@ -40,7 +40,8 @@ const ABOUT: Record<LetterStage, Pick<AgentStageView, 'title' | 'lead' | 'price_
 };
 
 function stage(name: LetterStage, defaults: AgentSettingsBody): AgentStageView {
-  return { stage: name, ...ABOUT[name], current: null, defaults, history: [] };
+  const autopilot = { autopilot_allowed: false, autopilot_refusal: null };
+  return { stage: name, ...ABOUT[name], current: null, defaults, history: [], ...autopilot };
 }
 
 const BLANK: AgentView = { stages: [stage('donors', DONORS), stage('advertisers', ADVERTISERS)] };
@@ -51,6 +52,22 @@ const VERSION = {
   created_at: '2026-10-04T10:00:00+00:00',
   settings: { ...DONORS, price_limit_usd: '150.00' },
 };
+
+const OFF_WORDS =
+  'Автопилот на этом сервере выключен (OUTREACH_AGENT_AUTOPILOT) — агент пишет только черновики';
+
+/** Доноры в автопилоте: выключатель снят (`allowed` — нет) или включён. */
+function onAutopilot(allowed: boolean): AgentView {
+  const version = { ...VERSION, settings: { ...VERSION.settings, mode: 'autopilot' as const } };
+  const donors = { ...stage('donors', DONORS), current: version, history: [version] };
+  const words = allowed ? null : OFF_WORDS;
+  return {
+    stages: [
+      { ...donors, autopilot_allowed: allowed, autopilot_refusal: words },
+      stage('advertisers', ADVERTISERS),
+    ],
+  };
+}
 
 const CONFIGURED: AgentView = {
   stages: [
@@ -150,6 +167,8 @@ describe('агент переписки', () => {
       current: null,
       defaults: { ...DONORS, goal: 'Довести разговор до созвона' },
       history: [],
+      autopilot_allowed: false,
+      autopilot_refusal: null,
     };
     const recorded = await openAgent(
       { stages: [...BLANK.stages, newcomer] },
@@ -168,6 +187,22 @@ describe('агент переписки', () => {
     await waitFor(() => {
       expect(recorded.calls.some((call) => call.path === '/api/agent/settings/sales')).toBe(true);
     });
+  });
+
+  it('автопилот выбран, а выключатель снят — словами, что письма сами не уходят', async () => {
+    await openAgent(onAutopilot(false));
+
+    expect(screen.getByText('Автопилот выбран, но письма сами не уходят')).toBeInTheDocument();
+    expect(screen.getByText(OFF_WORDS)).toBeInTheDocument();
+  });
+
+  it('выключатель включён — предупреждения нет', async () => {
+    await openAgent(onAutopilot(true));
+
+    expect(screen.getByText(/Действует версия 2/)).toBeInTheDocument();
+    expect(
+      screen.queryByText('Автопилот выбран, но письма сами не уходят'),
+    ).not.toBeInTheDocument();
   });
 
   it('отказ — под полем и до нажатия', async () => {
