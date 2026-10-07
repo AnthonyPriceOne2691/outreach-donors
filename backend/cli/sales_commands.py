@@ -17,8 +17,9 @@ from typing import Any
 from backend.cli import sales, sales_queue, sales_telegram
 from backend.features.core.stages import SalesNotConnectedError
 
-#: Этап продаж: почта его ещё не ведёт (`core/stages.py`). Код — свой, как у
-#: каждого вида отказа в `main.py`: скрипт различает его кодом, человек — текстом.
+#: Этап продаж там, где почта его не ведёт или продажи не подключены (`core/stages.py`).
+#: Код — свой, как у каждого вида отказа в `main.py`: скрипт различает его кодом,
+#: человек — текстом.
 EXIT_NOT_CONNECTED = 9
 
 #: Отказ → код выхода и подпись; вливается в перечень отказов `main.py`.

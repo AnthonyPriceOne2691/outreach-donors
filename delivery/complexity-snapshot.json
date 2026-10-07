@@ -532,9 +532,9 @@
       "worst": "_mapping:362"
     },
     "backend/cli/sales_commands.py": {
-      "lines": 58,
+      "lines": 59,
       "complexity": 1,
-      "worst": "add_parsers:53"
+      "worst": "add_parsers:54"
     },
     "backend/cli/sales_queue.py": {
       "lines": 71,

@@ -76,7 +76,7 @@ class Stage(StrEnum):
 
     DONORS = "donors"  # Этап 1: запрос цены у донора
     ADVERTISERS = "advertisers"  # Этап 2: оффер рекламодателю
-    SALES = "sales"  # модуль «Продажи»: почта его ещё не ведёт — отказ (`core/stages.py`)
+    SALES = "sales"  # модуль «Продажи»: почта ведёт его ответами модуля (`core/stages.py`)
 
 
 class RunStatus(StrEnum):
