@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import timedelta
 
@@ -33,6 +34,7 @@ from backend.features.letters.building import followup_key, idempotency_key
 from backend.features.letters.sending import NoSenderError, SendError, Sending, SuppressedError
 from backend.features.letters.transport import MaybeSentError, Outgoing
 from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.test_mail_accounts import _ByStage
 from tests.test_mail_identity import Recording
@@ -456,6 +458,51 @@ async def test_an_odd_refusal_of_the_module_postpones_the_followup_and_donors_go
     assert (step.status, step.sender_id) == (MessageStatus.QUEUED, None)
     [postponed] = [r.getMessage() for r in caplog.records if "отложена на час" in r.getMessage()]
     assert postponed.endswith(f"{said})")
+
+
+# --- свои изменения почты: их сбой — не ошибка модуля -------------------------------------
+
+
+#: Четыре вопроса почты к мосту о письме продаж.
+_ASKS: dict[str, Callable[[AsyncSession, MessageModel], Awaitable[object]]] = {
+    "connected": lambda session, letter: stages.sales_connected(session),
+    "recipient": lambda session, letter: stages.recipient(
+        session, letter, Stage.SALES, None, f"Письмо №{letter.id}"
+    ),
+    "check": stages.check_sales,
+    "followup": lambda session, letter: stages.sales_followup(session, letter.thread_id, 1),
+}
+
+
+@pytest.mark.parametrize("ask", list(_ASKS))
+async def test_own_unsaved_change_failure_surfaces_as_is_and_the_module_is_not_asked(
+    session: AsyncSession, filled_legal: None, fake: FakeSalesMail, ask: str
+) -> None:
+    """Точка сохранения моста сначала сбрасывает в базу несохранённое вызывающего. Сбой этого
+    сброса — ошибка почты: мост не выдаёт его за ошибку модуля продаж — исходная ошибка базы
+    всплывает как есть (и у «подключены ли», который на ошибках модуля не бросает), а модуль
+    продаж не спрошен."""
+    world = await sales_world(session, status=MessageStatus.SENT, due=NOW - timedelta(days=2))
+    loaded: list[str] = []
+
+    def load() -> FakeSalesMail:
+        loaded.append(ask)
+        return fake
+
+    stages.register_sales(load)
+    copy = {
+        column.key: getattr(world.letter, column.key)
+        for column in MessageModel.__table__.columns
+        if column.key != "id"
+    }
+
+    with pytest.raises(IntegrityError, match="uq_messages_idempotency"):
+        async with session.begin_nested():
+            session.add(MessageModel(**copy))  # тот же ключ письма — дубль, база его не примет
+            await _ASKS[ask](session, world.letter)
+
+    assert loaded == []
+    assert fake.asked == []
 
 
 # --- ключ добивки: из ключа предыдущего письма ---------------------------------------------
