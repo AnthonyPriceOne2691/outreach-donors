@@ -32,14 +32,14 @@
       "worst": "—"
     },
     "backend/api/agent/routes.py": {
-      "lines": 83,
+      "lines": 154,
       "complexity": 4,
-      "worst": "agent_settings:34"
+      "worst": "agent_settings:48"
     },
     "backend/api/agent/schemas.py": {
-      "lines": 98,
+      "lines": 175,
       "complexity": 2,
-      "worst": "_without_blank:38"
+      "worst": "_without_blank:39"
     },
     "backend/api/app.py": {
       "lines": 92,
@@ -117,9 +117,9 @@
       "worst": "of:161"
     },
     "backend/api/errors.py": {
-      "lines": 189,
+      "lines": 193,
       "complexity": 3,
-      "worst": "handle:175"
+      "worst": "handle:179"
     },
     "backend/api/events/__init__.py": {
       "lines": 1,
@@ -367,9 +367,9 @@
       "worst": "—"
     },
     "backend/api/threads/routes.py": {
-      "lines": 76,
+      "lines": 106,
       "complexity": 2,
-      "worst": "all_threads:33"
+      "worst": "all_threads:38"
     },
     "backend/api/threads/schemas.py": {
       "lines": 274,
@@ -671,6 +671,11 @@
       "complexity": 9,
       "worst": "draft_answer:136"
     },
+    "backend/features/agent/drafts.py": {
+      "lines": 191,
+      "complexity": 7,
+      "worst": "send_draft:92"
+    },
     "backend/features/agent/settings.py": {
       "lines": 168,
       "complexity": 3,
@@ -832,7 +837,7 @@
       "worst": "—"
     },
     "backend/features/core/domain.py": {
-      "lines": 305,
+      "lines": 308,
       "complexity": 0,
       "worst": "—"
     },

@@ -1,6 +1,6 @@
 # Active delivery status
 
-- **slug:** agent-seam (общий шов агента переписки по этапам — часть «А3» из семи: решения по черновику — отправить как есть, с правкой, отклонить с причиной)
+- **slug:** agent-seam (общий шов агента переписки по этапам — часть «А2» из семи: черновик по брифу этапа — кому положен, что видит этап, где лежит)
 - **stack:** delivery@2.00 · cqg@2.51 · okf@1.19 · stack-map@1.52
 - **class:** M
 - **kind:** feature
@@ -9,34 +9,31 @@
 - **verifier:** process:ci — обязательные джобы `check`, `web` и `docker`, на PR ещё `gates` и `delivery`; ревью общего кода агента — соседняя сессия outreach-donors; слив — по решению владельца
 - **human_ok_spec:** yes at=2026-10-06 by=human:anthony (весь план Ф2–Ф5 06.10 ~23:00; согласованный интерфейс шва 05.10 ~18:20/~18:40; шов отдан модулю продаж 06.10 ~22:55: «общий код объявляй, ревью моё»)
 - **new_dependency:** none
-- **shared_changes:** часть «А3» — общий код агента переписки всех этапов; каждый файл полным путём:
-  `backend/features/agent/drafts.py` — новый: список и черновик целиком, `send_draft` (как есть / с правкой, путём `answer_reply`), `settle_sent`, `reject_draft`, журнал решения;
-  `backend/api/agent/routes.py` — `GET /api/agent/drafts`, `GET /api/agent/drafts/{id}`, `POST …/send`, `POST …/reject`;
-  `backend/api/agent/schemas.py` — `DraftCard`, `DraftDetail`, `SendDraftBody`, `RejectDraftBody` (причина обязательна);
-  `backend/api/errors.py` — `UnknownDraftError` → 404, `DraftDecisionError` → 409;
-  `backend/api/threads/routes.py` — ответ из переписки закрывает черновик (`settle_sent`) и коммитит — в точке сохранения после ушедшего письма: сбой закрытия пишется в журнал, черновик ждёт человека, ответ — 200 (ревью соседней сессии); `logger`;
-  `tests/test_agent_decisions.py` — и тест «закрытие черновика упало — ушедший ответ не становится «не отправили»»;
-  `backend/features/core/domain.py` — значение журнала `AuditAction.AGENT_DRAFT_DECIDED` (после `SALES_CHAIN_CHANGED` из #180, в порядке ревизий);
-  `backend/migrations/versions/3924977db911_agent_draft_decided_audit_action.py` — `ADD VALUE IF NOT EXISTS 'agent_draft_decided'` отдельной ревизией;
+- **shared_changes:** часть «А2» — общий код агента переписки всех этапов; каждый файл полным путём:
+  `backend/features/agent/drafting.py` — новый (из заготовки `cc68357`): кому черновик положен, переписка, бриф до модели (`Skip` двух видов, факты, `meta`), статусы, запись с заменой, `announce` (крючок `on_draft`); подпись черновика — именем брифа (`Brief.sign_as`), без него — общим `OUTREACH_SENDER_NAME`, как до шва;
+  `backend/features/agent/stages.py` — поле `Brief.sign_as: str | None = None` (имя в подписи черновика от этапа), `Brief.__post_init__` — пустое имя отказом `ValueError`, абзац в докстроке модуля;
+  `backend/features/core/usage.py` — операция `agent_draft` → провайдер LLM;
+  `frontend/src/api/labels.ts` — подпись операции расхода «черновики агента»;
   `delivery/complexity-snapshot.json` — снимок ратчета;
-  тесты части — `tests/test_agent_decisions.py`. согласовано: с сессией outreach-donors — «общий код объявляй, ревью моё» (06.10); ревью части и правка маршрута ответа — в этом PR (07.10) (ревью общего кода — соседняя сессия outreach-donors: «общий код объявляй, ревью моё», 06.10)
+  тесты части — `tests/test_agent_drafting.py`. согласовано: с сессией outreach-donors — «общий код объявляй, ревью моё» (06.10); ревью части на свежем main — в этом PR (07.10) (ревью общего кода — соседняя сессия outreach-donors: «общий код объявляй, ревью моё», 06.10)
 
 ## Что в части
 
-- **Решения общие для всех этапов, проверяет сервер**: отклонить — только с причиной (422), второе решение — 409, «как есть» у `escalated` — 409, с правкой — уходит.
-- **Отправка — путь ответа человека** (`answer_reply`): стоп-лист, решение по донору, метрики, ящик переписки; ответ из переписки мимо черновика тоже закрывает черновик.
-- **Список «ждут человека»** (`GET /api/agent/drafts`, по умолчанию `escalated`, предел страницы) и черновик целиком с `meta`.
+- **Черновик** по настройкам этапа, переписке без цитат и разобранной цене — механизм заготовки `cc68357`.
+- **Бриф до модели**: `no_reply` → `skipped`, `human` → `escalated` без текста, модель не зовётся; факты — писателю, `meta` — в черновик; «всё же написать» (`force`).
+- **Крючок уведомления** этапа после коммита, только по черновикам, которые ждут человека; сбой — в лог.
+- **Подпись от этапа** (`Brief.sign_as`, отдельный коммит): бриф назвал имя — писатель подписывает черновик им (пустое имя или пробелы — `ValueError` словами: «пустое имя подписи — задай имя или None»); `None` — общим именем отправителя `OUTREACH_SENDER_NAME`, как до шва.
 
 ## Размер
 
-Против А2: **файлов 8, net 614 (+620/−6)** — `delivery_check --diff-base`, строка
+Против А1 (PR #212): **файлов 5, net 779 (+781/−2)** (три коммита: черновик по брифу, `Brief.sign_as`, пустое имя подписи запрещено) — `delivery_check --diff-base`, строка
 `breakers:` (без `delivery/` и `.github/workflows/`). Предел 25 файлов и 800 строк — в пределах, вейвер не нужен.
-Голова миграций — 3924977db911 (одна голова; после 7ccbaf6d840a).
+Голова миграций — 7ccbaf6d840a (одна голова).
 
 ## Оракулы
 
 - **shape-oracles:** cqg-deployed — ruff и формат, mypy strict, `scripts/gates.py`, ратчет сложности, import-linter, хуки pre-commit, подпись необратимого, `alembic heads`
-- **behavior-oracles:** tests-present — `tests/test_agent_decisions.py` на настоящей базе дерева, соседи — агент, переписка, ответы, письма (`tests/test_agent_*`, `test_thread_*`, `test_api_outreach`, `test_api_replies`, `test_replies_*`, `test_reply_*`, `test_api_letters*`, `test_letter_*`, `test_letters_*`) и `test_schema`, `test_prune`, `test_prune_test_traces`, `test_migrations_match_models`, `test_parse_requeue`, `test_job_outcome`, `test_llm_cap`
+- **behavior-oracles:** tests-present — `tests/test_agent_drafting.py` на настоящей базе дерева, соседи — агент, переписка, ответы, письма (`tests/test_agent_*`, `test_thread_*`, `test_api_outreach`, `test_api_replies`, `test_replies_*`, `test_reply_*`, `test_api_letters*`, `test_letter_*`, `test_letters_*`) и `test_schema`, `test_prune`, `test_prune_test_traces`, `test_migrations_match_models`, `test_parse_requeue`, `test_job_outcome`, `test_llm_cap`
 - **ci-oracles:** deployed — обязательные `check`, `web`, `docker`; quality — `gates` и `delivery`
 - **artifact_oracle:** n/a reason=сборка не меняется: модули в пакете `backend`, промпты — та же package-data `backend.features.agent`, ревизии — та же `alembic upgrade head` сервиса `migrate`
 - **runtime_paths:** none reason=черновики, решения, судья и автопилот судятся тестами на настоящей базе дерева с подставной моделью (`httpx.MockTransport`/писатель-подмена) и `NullTransport`; живой модели и живого письма нет — «заложено» в verify-report
@@ -52,8 +49,9 @@
 - **irreversible_surfaces:** отправка писем донорам, и без человека в цепочке — добивки уходят по расписанию фоновым процессом; страница отписки без пропуска — нажатие постороннего пишет в стоп-лист, снимает письма с очереди и гасит сроки; публикация образов в публичный реестр при каждом слиянии в main; приём ответов вебхуком; трата юнитов Ahrefs и платных провайдеров; публичный репозиторий; автомерж по зелёному; **обход чужих живых сайтов нашим трафиком — чужие машины и наша репутация по IP, отозвать сделанные запросы нельзя**; **письма рекламодателям с доменов Этапа 2 — оффер незваным адресатам: первое уходит по нажатию человека, добивки по расписанию без человека, жалоба бьёт по репутации доменов Этапа 2 и не отзывается**; **копия базы вне машины — по расписанию и перед каждой выкаткой, без человека, дамп с перепиской и адресами уходит в стороннее хранилище (R2 или B2), тексты тревог — в Telegram; отправленное не отзывается**
 
 Четыре строки — `stack:`, `stack-selftest:`, `model_surface:` и `irreversible_surfaces:` — перенести дословно из
-STATUS main на момент PR. Строка `model_surface:` в main — пути через запятую (с 1.1b), переносится дословно. Новой поверхности необратимого часть не открывает.
+STATUS main на момент PR. После слива А1 строка `model_surface:` в main — пути через запятую с комментарием и двумя
+подпунктами (А1 заменила прозу, которая не ловила ни одного пути); переносится вместе с подпунктами. Новой поверхности необратимого часть не открывает.
 
 ## Чего в части нет
 
-Черновиков в карточке переписки и «написать заново» (В), экрана.
+Решений (А3), судьи и петли (Б), задачи очереди и кнопки (В) — черновик в А2 пишет только вызов функции.

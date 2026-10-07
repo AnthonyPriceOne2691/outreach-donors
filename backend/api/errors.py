@@ -27,6 +27,7 @@ from backend.features.access.passwords import WeakPasswordError
 from backend.features.access.permissions import AccessDeniedError
 from backend.features.access.repository import EmailTakenError
 from backend.features.access.tokens import SecretMissingError, TokenError
+from backend.features.agent.drafts import DraftDecisionError, UnknownDraftError
 from backend.features.agent.settings import AgentSettingsConflictError, UnknownAgentStageError
 from backend.features.contacts.forms import UnknownFormError
 from backend.features.contacts.manual import (
@@ -115,6 +116,9 @@ STATUSES: dict[type[Exception], int] = {
     # что поправить.
     TemplateError: status.HTTP_400_BAD_REQUEST,
     ComposeError: status.HTTP_400_BAD_REQUEST,
+    # Решение по черновику агента: уже решён, «как есть» у отданного человеку — 409.
+    UnknownDraftError: status.HTTP_404_NOT_FOUND,
+    DraftDecisionError: status.HTTP_409_CONFLICT,
     # Две правки настроек агента одного этапа разом: вторая не ложится молча.
     AgentSettingsConflictError: status.HTTP_409_CONFLICT,
     UnknownAgentStageError: status.HTTP_404_NOT_FOUND,
