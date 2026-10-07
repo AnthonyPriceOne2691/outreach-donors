@@ -1567,9 +1567,9 @@
       "worst": "sort_out:149"
     },
     "backend/features/replies/repository.py": {
-      "lines": 495,
+      "lines": 496,
       "complexity": 7,
-      "worst": "add:388"
+      "worst": "add:389"
     },
     "backend/features/replies/robots.py": {
       "lines": 56,

@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -37,6 +37,7 @@ from backend.features.replies.extract import Extracted
 from backend.features.replies.inbound import Attachment, Incoming
 from backend.features.replies.offers import Offer
 from backend.features.replies.pipeline import Inbox, Parser
+from backend.features.replies.repository import ReplyRepository
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -512,3 +513,62 @@ class TestSellerAnswer:
         assert parsed.needs_review
         domain = (await session.execute(select(DomainModel))).scalars().one()
         assert domain.seller_answer is None
+
+
+class TestUnsubscribeIsForeverOnEveryStage:
+    """Отписка ложится строкой без этапа и без срока, даже если у адреса уже есть
+    другая строка стоп-листа. До 07.10.2026 `suppress` пропускал запись при ЛЮБОЙ
+    строке адреса: ручная строка одного этапа оставляла открытыми остальные, строка
+    со сроком открывала адрес, когда срок выходил. Пропуск — только при бессрочной
+    строке без этапа: адрес уже закрыт везде и навсегда."""
+
+    @staticmethod
+    async def _rows(session: AsyncSession) -> list[tuple[str, str, bool]]:
+        """(этап, причина, бессрочна ли) — по строкам адреса, с повторами."""
+        found = await session.execute(
+            select(
+                SuppressionModel.stage, SuppressionModel.reason, SuppressionModel.expires_at
+            ).where(SuppressionModel.email == WROTE_TO)
+        )
+        return sorted(
+            (stage.value if stage else "—", reason.value, expires is None)
+            for stage, reason, expires in found.all()
+        )
+
+    async def test_a_row_of_one_stage_gets_a_row_for_every_stage(
+        self, session: AsyncSession
+    ) -> None:
+        session.add(
+            SuppressionModel(email=WROTE_TO, stage=Stage.SALES, reason=SuppressionReason.MANUAL)
+        )
+        await session.flush()
+
+        await ReplyRepository(session).suppress(WROTE_TO)
+        await session.flush()
+
+        assert await self._rows(session) == [("sales", "manual", True), ("—", "unsubscribed", True)]
+
+    @pytest.mark.parametrize("reason", [SuppressionReason.MANUAL, SuppressionReason.SUPPLIER])
+    async def test_a_general_row_with_a_term_gets_a_forever_one(
+        self, session: AsyncSession, reason: SuppressionReason
+    ) -> None:
+        session.add(
+            SuppressionModel(email=WROTE_TO, reason=reason, expires_at=NOW + timedelta(days=30))
+        )
+        await session.flush()
+
+        await ReplyRepository(session).suppress(WROTE_TO)
+        await session.flush()
+
+        assert await self._rows(session) == sorted(
+            [("—", reason.value, False), ("—", "unsubscribed", True)]
+        )
+
+    async def test_a_forever_general_row_is_not_doubled(self, session: AsyncSession) -> None:
+        session.add(SuppressionModel(email=WROTE_TO, reason=SuppressionReason.UNSUBSCRIBED))
+        await session.flush()
+
+        await ReplyRepository(session).suppress(WROTE_TO)
+        await session.flush()
+
+        assert await self._rows(session) == [("—", "unsubscribed", True)]

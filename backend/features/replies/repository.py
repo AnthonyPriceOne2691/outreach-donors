@@ -216,10 +216,11 @@ class ReplyRepository:
 
         Срок не ставится и поставить его тут нечем: отписка бессрочна.
         Записи со сроком заводит только человек с экрана, и причины
-        ему доступны другие — «вручную» и «поставщик».
+        ему доступны другие — «вручную» и «поставщик»: ни она, ни строка этапа отписку не заменяет.
         """
+        forever = SuppressionModel.stage.is_(None) & SuppressionModel.expires_at.is_(None)
         rows = await self._session.execute(
-            select(SuppressionModel.id).where(SuppressionModel.email == email)
+            select(SuppressionModel.id).where(SuppressionModel.email == email, forever)
         )
         if rows.first() is not None:
             return

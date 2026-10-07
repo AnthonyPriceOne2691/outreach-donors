@@ -9,7 +9,13 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
-from backend.features.core.domain import MessageStatus, ReplyKind, Stage, ThreadStatus
+from backend.features.core.domain import (
+    MessageStatus,
+    ReplyKind,
+    Stage,
+    SuppressionReason,
+    ThreadStatus,
+)
 from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import (
@@ -24,7 +30,7 @@ from backend.features.replies.pipeline import Inbox
 from backend.features.sales.ooo import return_date
 from backend.features.sales.replies import SalesReplies
 from backend.features.sales.reply_kind import KindFound, SalesKind
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.test_sales_reply_routing import (
     HOST,
@@ -244,6 +250,35 @@ async def test_a4_stop_in_words_the_rules_miss_is_closed_by_the_model_kind(
         )
     ).all()
     assert summarize(messages, [reply], Stage.SALES).state is ThreadState.UNSUBSCRIBED
+
+
+async def test_a4_a_sales_row_already_there_still_closes_every_direction(
+    session: AsyncSession,
+) -> None:
+    """У адреса уже есть строка стоп-листа с этапом продаж (её ставит человек) —
+    отписка словами всё равно закрывает адрес во всех направлениях: строка без этапа
+    появляется рядом. До правки общего `suppress` он молча пропускал запись."""
+    letter = await sales_letter(session)
+    await _other_direction(session, letter)
+    address = f"ceo@{HOST}"
+    session.add(SuppressionModel(email=address, stage=Stage.SALES, reason=SuppressionReason.MANUAL))
+    reply = await _answer(session, letter, "Please stop sending these emails.")
+    found = KindFound(SalesKind.UNSUBSCRIBE, 0.95, quote="Please stop sending these emails")
+    sales, _ = _sales(session, found)
+
+    handled = await sales.handle(reply.id)
+
+    await session.flush()
+    assert (handled.route, handled.waits) == ("unsubscribe", False)
+    assert set(await _suppressions(session)) == {(address, Stage.SALES), (address, None)}
+    # Тот же предикат, что у читателей стоп-листа: письмо донору на адрес не уйдёт.
+    for_donors = or_(SuppressionModel.stage.is_(None), SuppressionModel.stage == Stage.DONORS)
+    held = await session.scalar(
+        select(func.count())
+        .select_from(SuppressionModel)
+        .where(SuppressionModel.email == address, for_donors, SuppressionModel.in_force(NOW))
+    )
+    assert held == 1
 
 
 async def test_a4_unsure_unsubscribe_waits_for_a_human_and_closes_nothing(
