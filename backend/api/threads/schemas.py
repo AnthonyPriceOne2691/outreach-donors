@@ -9,7 +9,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from backend.api.agent.schemas import DraftCard
 from backend.api.letters.schemas import Corridor
+from backend.features.agent.drafts import ShownDraft
 from backend.features.core.domain import MessageStatus, ReplyKind, Stage
 from backend.features.core.models.attachment import ReplyAttachmentModel
 from backend.features.core.models.outreach import MessageModel, ReplyModel
@@ -255,6 +257,10 @@ class ThreadView(BaseModel):
     #: Ящик переписки и следующая добивка. Пусто — первое письмо ещё
     #: не уходило: ящик выберется в момент отправки.
     mail: ThreadMailCard | None = None
+    #: Черновики агента к ответам переписки (`agent/drafting.py`).
+    drafts: list[DraftCard] = Field(default_factory=list)
+    #: Пишет ли агент на этапе переписки: без него кнопки «Написать черновик» нет.
+    agent_writes: bool = False
 
     @classmethod
     def of(
@@ -262,6 +268,9 @@ class ThreadView(BaseModel):
         detail: ThreadDetail,
         files: Mapping[int, Sequence[ReplyAttachmentModel]],
         mail: ThreadMail | None = None,
+        *,
+        drafts: Sequence[ShownDraft] = (),
+        agent_writes: bool = False,
     ) -> ThreadView:
         return cls(
             card=ThreadCard.of(detail.row),
@@ -270,4 +279,6 @@ class ThreadView(BaseModel):
                 IncomingCard.of(r, detail.row.stage, files.get(r.id, ())) for r in detail.replies
             ],
             mail=ThreadMailCard.of(mail),
+            drafts=[DraftCard.of(shown) for shown in drafts],
+            agent_writes=agent_writes,
         )

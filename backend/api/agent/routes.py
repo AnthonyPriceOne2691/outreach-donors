@@ -132,7 +132,7 @@ async def send_draft(
             Sending(session, transports),
             draft_id,
             body=body.body,
-            by=Decider(name=author.email, user_id=author.id),
+            by=Decider.of(author),
         )
     await session.commit()
     return SendResult(id=outcome.message_id, sender_email=outcome.sender_email, real=outcome.real)
@@ -146,8 +146,6 @@ async def reject_draft(
     session: AsyncSession = Depends(db_session),
 ) -> DraftDetail:
     """Причина обязательна: без неё схема отвечает 422."""
-    await drafts.reject_draft(
-        session, draft_id, reason=body.reason, by=Decider(name=author.email, user_id=author.id)
-    )
+    await drafts.reject_draft(session, draft_id, reason=body.reason, by=Decider.of(author))
     await session.commit()
     return DraftDetail.of(await drafts.one(session, draft_id))

@@ -49,6 +49,7 @@ OUTREACH_ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("GET", "/api/threads", None, "view"),
     ("GET", "/api/threads/{thread}", None, "view"),
     ("POST", "/api/threads/{thread}/answer", {"reply_id": 999_999, "body": "Thanks"}, "send"),
+    ("POST", "/api/threads/{thread}/replies/{reply}/draft", None, "send"),
 ]
 
 
@@ -158,7 +159,8 @@ async def operator_token(make_user: MakeUser, sign_in: SignIn) -> str:
 
 
 def _path(template: str, sender: SenderModel, thread: ThreadModel) -> str:
-    return template.format(sender=sender.id, thread=thread.id)
+    # Ответа с таким номером нет: проверяется право, а не сам черновик.
+    return template.format(sender=sender.id, thread=thread.id, reply=999_999)
 
 
 class TestWhoIsLetIn:
@@ -228,7 +230,12 @@ class TestWhoIsLetIn:
             for method in methods
         }
         in_table = {
-            (method, path.replace("{sender}", "{sender_id}").replace("{thread}", "{thread_id}"))
+            (
+                method,
+                path.replace("{sender}", "{sender_id}")
+                .replace("{thread}", "{thread_id}")
+                .replace("{reply}", "{reply_id}"),
+            )
             for method, path, _, _ in OUTREACH_ROUTES
         }
         assert in_app == in_table

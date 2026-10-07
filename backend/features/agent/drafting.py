@@ -205,6 +205,20 @@ async def announce(outcome: DraftOutcome) -> None:
         )
 
 
+async def wants_draft(session: AsyncSession, reply_id: int) -> bool:
+    """Положен ли ответу черновик — до постановки задачи.
+
+    Без агента на этапе задача не ставится вовсе: очередь не копит задачи,
+    которым заведомо нечего делать. Отвечен ли ответ и есть ли черновик,
+    решает сама задача — к её часу это может измениться.
+    """
+    target = await _target(session, reply_id)
+    if target is None:
+        return False
+    settings = await AgentSettingsRepository(session).current(target.stage)
+    return _refusal(target, AGENT_STAGES.get(target.stage), settings) is None
+
+
 def _skipped(brief: Brief) -> _Draft:
     """Бриф решил не писать: `no_reply` — пропуск, `human` — человеку без текста."""
     assert brief.skip is not None

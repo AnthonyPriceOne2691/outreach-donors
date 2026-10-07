@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -23,7 +23,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.access.repository import AccessRepository
 from backend.features.agent.drafting import DECIDED
-from backend.features.core.domain import AuditAction, DraftStatus
+from backend.features.agent.settings import AgentSettingsRepository
+from backend.features.agent.stages import AGENT_STAGES
+from backend.features.core.domain import AuditAction, DraftStatus, Stage
+from backend.features.core.models.access import UserModel
 from backend.features.core.models.agent import AgentDraftModel, AgentSettingsModel
 from backend.features.core.models.outreach import ReplyModel
 from backend.features.letters.answers import answer_reply
@@ -59,6 +62,11 @@ class Decider:
     name: str
     user_id: int | None = None
 
+    @classmethod
+    def of(cls, user: UserModel) -> Decider:
+        """Человек, нажавший кнопку: адрес — в черновик, номер — в журнал."""
+        return cls(name=user.email, user_id=user.id)
+
 
 def _shown() -> Select[tuple[AgentDraftModel, int, int | None]]:
     return (
@@ -66,6 +74,15 @@ def _shown() -> Select[tuple[AgentDraftModel, int, int | None]]:
         .join(AgentSettingsModel, AgentSettingsModel.id == AgentDraftModel.settings_id)
         .join(ReplyModel, ReplyModel.id == AgentDraftModel.reply_id)
     )
+
+
+async def drafts_of(session: AsyncSession, reply_ids: Iterable[int]) -> Sequence[ShownDraft]:
+    """Черновики к ответам переписки — одним запросом на всю переписку."""
+    ids = list(reply_ids)
+    if not ids:
+        return []
+    rows = await session.execute(_shown().where(AgentDraftModel.reply_id.in_(ids)))
+    return [ShownDraft(draft, version, thread) for draft, version, thread in rows.all()]
 
 
 async def waiting(
@@ -87,6 +104,14 @@ async def one(session: AsyncSession, draft_id: int) -> ShownDraft:
         raise UnknownDraftError(f"Черновика №{draft_id} нет")
     draft, version, thread = row
     return ShownDraft(draft, version, thread)
+
+
+async def agent_writes(session: AsyncSession, stage: Stage) -> bool:
+    """Пишет ли агент на этапе: этап в реестре, настроен и включён."""
+    if stage not in AGENT_STAGES:
+        return False
+    current = await AgentSettingsRepository(session).current(stage)
+    return current is not None and current.enabled
 
 
 async def send_draft(
