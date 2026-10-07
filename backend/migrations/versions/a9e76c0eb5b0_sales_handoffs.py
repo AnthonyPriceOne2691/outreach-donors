@@ -1,7 +1,7 @@
 """продажи: передача лида телемаркетологу — сделка в Kommo и сообщение в Telegram
 
 Revision ID: a9e76c0eb5b0
-Revises: 39e342cb2b21
+Revises: 739817077a57
 Create Date: 2026-10-06 23:30:00.000000
 
 `sales_handoffs` — одна строка на диалог: ключ — номер диалога, следующий
@@ -24,7 +24,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "a9e76c0eb5b0"
-down_revision: Union[str, Sequence[str], None] = "39e342cb2b21"
+down_revision: Union[str, Sequence[str], None] = "739817077a57"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
