@@ -95,6 +95,7 @@ def test_alphabet_changing_twice_inside_a_word_is_a_signature(word: str, mixed: 
         "Можно оплатить по счёту? Реквизиты компании пришлём во вложении.",
         "Наш SEOшник говорит, что сайт медленный.",
         "Forget about the earlier timeline, we can start in May.",
+        "Our setup:\nDeveloper: in-house team\nHosting: our own servers.",
     ],
 )
 def test_ordinary_requests_are_not_held(letter: str) -> None:
