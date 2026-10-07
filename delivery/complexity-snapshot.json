@@ -1877,9 +1877,9 @@
       "worst": "compare:185"
     },
     "scripts/contour_waves.py": {
-      "lines": 479,
+      "lines": 482,
       "complexity": 14,
-      "worst": "collect:392"
+      "worst": "collect:395"
     },
     "scripts/eval_judge.py": {
       "lines": 170,

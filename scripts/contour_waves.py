@@ -29,6 +29,13 @@ from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
 
+# `model_surface` разбирают функции фазового гейта `delivery_check`, а не свой парсер:
+# свой читал строку иначе — каталог без имени файла не засчитывал, путь из `<!-- … -->`
+# засчитывал. Модули канона импортируют соседей голым именем, поэтому `scripts/`
+# добавлен в `sys.path` (при запуске файлом он там уже есть).
+sys.path.append(str(Path(__file__).resolve().parent))
+from delivery_runtime import declared_surfaces, runtime_touched
+
 ROOT = Path(__file__).resolve().parent.parent
 REGISTRY = "delivery/contour-waves.md"
 STATUS = "delivery/active/STATUS.md"
@@ -69,7 +76,7 @@ MSG = {
     "later": "{name}: {what} — пока волну судит человек",
     "proof": "{name}: доказательство {path} не найдено в дереве — deployed без улики",
     "rule": "{name}: {what} — без этой улики волна не развёрнута",
-    "prompt": "промпт {file} не назван в model_surface — допиши файл, пин модели и схему выхода в model_surface STATUS",
+    "prompt": "промпт {file} не назван в model_surface — допиши его путь от корня или каталог, пин модели и схему выхода в model_surface STATUS",
     "selftest": "stack-selftest: нет ни в " + ACCEPTANCE + ", ни в STATUS — запиши stack-selftest: external (…) "
     "в STACK-ACCEPTANCE, иначе шаг CI «Canon payload selftest» красный",
     "lessons": "срез {slug}: в " + TASKS + " нет раздела «Уроки» с пунктами — прочитай уроки по путям диффа и сошлись на них",
@@ -293,19 +300,15 @@ def _evidence(wave: Wave, tree: Tree) -> list[Finding]:
     if holds and not any(holds(t) for t in texts):
         found.append(bad("rule", name=wave.name, what=what))
     if "sales-prompt" in wave.triggers:
-        surface = field(tree.texts.get(STATUS, ""), "model_surface")
+        # Промпт назван, если его покрывает элемент поля: путь, каталог или маска.
+        surfaces, _ = declared_surfaces(tree.texts.get(STATUS, ""), "model_surface")
         prompts = [p for p in tree.sales if re.search(DETECTORS["sales-prompt"].pattern, p)]
         found += [
-            bad("prompt", file=PurePosixPath(p).name) for p in prompts if not _named(p, surface)
+            bad("prompt", file=PurePosixPath(p).name)
+            for p in prompts
+            if not runtime_touched([p], surfaces)
         ]
     return found
-
-
-def _named(path: str, surface: str) -> bool:
-    """Промпт назван: путём, именем файла или каталогом вместе с именем без `.md`."""
-    pure = PurePosixPath(path)
-    stem = re.search(rf"\b{re.escape(pure.stem)}\b", surface) is not None
-    return path in surface or pure.name in surface or (str(pure.parent) in surface and stem)
 
 
 # --- Ядро: объявления среза ---------------------------------------------------

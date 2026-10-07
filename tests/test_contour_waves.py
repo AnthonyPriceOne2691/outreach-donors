@@ -132,17 +132,78 @@ def test_v1_limit_is_the_next_sales_pr(
     assert line in out
 
 
+NOT_NAMED = "✗ промпт reply_kind.md не назван в model_surface"
+
+
+def run_with_prompt(tmp_path: Path, capsys: Capture, surface: str) -> tuple[int, str]:
+    """PR приносит промпт продаж при развёрнутой В3а и такой строке `model_surface`."""
+    files = docs(reg=registry({"В0": "deployed", "В3а": "deployed"}), surface=surface)
+    base = repo(tmp_path, files, {PROMPT: "Разбери ответ."})
+    return run(tmp_path, capsys, "--base", base)
+
+
 @pytest.mark.parametrize(
     ("surface", "code"), [("`backend/features/keywords/prompts/` (guides)", 1), (f"`{PROMPT}`", 0)]
 )
 def test_prompt_must_be_named_in_model_surface(
     tmp_path: Path, capsys: Capture, surface: str, code: int
 ) -> None:  # A6
-    files = docs(reg=registry({"В0": "deployed", "В3а": "deployed"}), surface=surface)
-    base = repo(tmp_path, files, {PROMPT: "Разбери ответ."})
-    got, out = run(tmp_path, capsys, "--base", base)
+    got, out = run_with_prompt(tmp_path, capsys, surface)
     assert got == code
-    assert ("✗ промпт reply_kind.md не назван в model_surface" in out) is (code == 1)
+    assert (NOT_NAMED in out) is (code == 1)
+
+
+@pytest.mark.parametrize(
+    "surface",
+    [
+        "`backend/features/sales/prompts/`",
+        "backend/features/keywords/prompts/, backend/features/sales/prompts <!-- пины — в llm.py -->",
+        "backend/features/sales/",
+        "backend/features/sales/prompts/*.md",
+    ],
+    ids=["directory", "list-and-comment", "parent-directory", "glob"],
+)
+def test_declared_directory_covers_its_prompts(
+    tmp_path: Path, capsys: Capture, surface: str
+) -> None:
+    """Каталог или маска покрывают промпт без имени файла — так `model_surface`
+    читает фазовый гейт (`runtime_touched`), и правильная строка не красит волны."""
+    got, out = run_with_prompt(tmp_path, capsys, surface)
+    assert got == 0
+    assert NOT_NAMED not in out
+
+
+@pytest.mark.parametrize(
+    "surface",
+    [
+        f"backend/features/keywords/prompts/ <!-- {PROMPT} -->",
+        f"<!-- {PROMPT} -->",
+        f"backend/features/keywords/prompts/\n  <!-- {PROMPT} -->",
+    ],
+    ids=["after-path", "comment-only", "next-line"],
+)
+def test_path_in_comment_is_not_declared(tmp_path: Path, capsys: Capture, surface: str) -> None:
+    """Пояснение в `<!-- … -->` — не объявление: путь из комментария промпт не покрывает."""
+    got, out = run_with_prompt(tmp_path, capsys, surface)
+    assert got == 1
+    assert NOT_NAMED in out
+
+
+@pytest.mark.parametrize(
+    "surface",
+    [
+        "backend/features/keywords/prompts/reply_kind.md",
+        "backend/features/sales/prompts/archive/reply_kind.md",
+    ],
+    ids=["same-name-other-module", "same-name-subdirectory"],
+)
+def test_prompt_outside_declared_paths_stays_a_violation(
+    tmp_path: Path, capsys: Capture, surface: str
+) -> None:
+    """Совпало имя файла, а путь другой — промпт не объявлен, нарушение остаётся."""
+    got, out = run_with_prompt(tmp_path, capsys, surface)
+    assert got == 1
+    assert NOT_NAMED in out
 
 
 @pytest.mark.parametrize(
