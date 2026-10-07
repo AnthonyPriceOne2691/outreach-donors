@@ -407,6 +407,10 @@ def test_a_set_line_becomes_a_case_with_the_human_decision(tmp_path: Path) -> No
             "метки ситуации «lunch» нет",
         ),
         ({**GOOD, "id": " "}, "у случая нет id"),
+        (
+            {**GOOD, "human": {"decision": "own", "situation": ["ack"]}},
+            "метки ситуации «\\['ack'\\]» нет",
+        ),
     ],
 )
 def test_a_bad_set_line_is_refused_with_the_place(tmp_path: Path, line: object, said: str) -> None:
@@ -419,6 +423,13 @@ def test_repeated_case_numbers_and_a_small_set_are_refused(tmp_path: Path) -> No
         _set(tmp_path, GOOD, GOOD)
     with pytest.raises(replay.SetError, match="мал: случаев 1, а нужно не меньше 2"):
         _set(tmp_path, GOOD, spec=replay_sets.SetSpec("t", ("cases.jsonl",), 2))
+
+
+def test_a_set_file_not_in_utf8_is_refused_in_words(tmp_path: Path) -> None:
+    (tmp_path / "cases.jsonl").write_bytes(json.dumps(GOOD, ensure_ascii=False).encode("cp1251"))
+
+    with pytest.raises(replay.SetError, match=r"cases\.jsonl не в UTF-8"):
+        replay_sets.read_set(SPEC, replay_sets.located(SPEC, tmp_path))
 
 
 def test_checksum_from_the_manifest_is_checked(tmp_path: Path) -> None:
@@ -506,6 +517,8 @@ def test_a_run_file_reads_back_as_the_same_run() -> None:
     assert replay_sets.loaded(json.loads(json.dumps(replay_sets.dumped(run))), "файл") == run
     with pytest.raises(replay.SetError, match="не файл прогона"):
         replay_sets.loaded({"format": "other"}, "файл")
+    odd = {**replay_sets.dumped(run), "version": ["не таблица"]}
+    assert replay_sets.loaded(odd, "файл").version == {}
 
 
 # --- прогон тем же путём, что агент ------------------------------------------------------------

@@ -1777,7 +1777,7 @@
       "worst": "worse_cases:239"
     },
     "backend/features/sales/agent/replay_sets.py": {
-      "lines": 239,
+      "lines": 244,
       "complexity": 13,
       "worst": "_spec:68"
     },

@@ -118,7 +118,11 @@ def _cases_in(spec: SetSpec, name: str, path: Path) -> list[Case]:
             f"набор «{spec.name}»: {name} не тот, что в манифесте — контрольная сумма не "
             "сходится; выгрузили заново — обновите сумму в манифесте"
         )
-    lines = enumerate(data.decode("utf-8").splitlines(), start=1)
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise SetError(f"набор «{spec.name}»: {name} не в UTF-8 ({exc.reason})") from None
+    lines = enumerate(text.splitlines(), start=1)
     return [case_of(_json(line, f"{name}:{n}"), f"{name}:{n}") for n, line in lines if line.strip()]
 
 
@@ -166,7 +170,7 @@ def _human(raw: object, where: str) -> Human:
     if not isinstance(replied, bool) or (fixed and replied != (found in REPLIED)):
         raise SetError(f"{where}: «ответил ли человек» (replied) не сходится с «{found.value}»")
     label, reason = raw.get("situation"), raw.get("reason")
-    if label is not None and label not in LABELS:
+    if label is not None and (not isinstance(label, str) or label not in LABELS):
         raise SetError(f"{where}: метки ситуации «{label}» нет; есть: {', '.join(sorted(LABELS))}")
     said = reason.strip() if isinstance(reason, str) and reason.strip() else None
     return Human(found, replied, None if label is None else str(label), "human", said)
@@ -214,8 +218,9 @@ def loaded(raw: object, where: str) -> Run:
         errors = tuple((str(e["case"]), str(e["error"])) for e in raw.get("errors") or [])
     except (KeyError, TypeError, ValueError) as exc:
         raise SetError(f"{where}: файл прогона повреждён ({exc!r})") from None
-    stopped = raw.get("stopped")
-    return Run(str(raw.get("source")), raw.get("version") or {}, results, errors, stopped)
+    version, stopped = raw.get("version"), raw.get("stopped")
+    known = version if isinstance(version, dict) else {}
+    return Run(str(raw.get("source")), known, results, errors, stopped)
 
 
 def _result_of(item: Mapping[str, Any]) -> Result:
