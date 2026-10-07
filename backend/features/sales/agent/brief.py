@@ -2,15 +2,19 @@
 
 Порядок — от дешёвого к дорогому, и модель здесь одна — ситуации письма:
 
-1. **разметка ролей модели** в письме собеседника (общая очистка шва заменила
+1. **нет имени отправителя продаж** в настройках — человеку: подписать черновик
+   нечем. Пустой подписи шов не примет, а общая (`sign_as=None`) подписала бы
+   письмо продаж именем отправителя доноров;
+2. **разметка ролей модели** в письме собеседника (общая очистка шва заменила
    её меткой) — человеку: похоже на попытку управлять агентом;
-2. **язык письма** по алфавиту не определён — человеку: судья не сверит язык
+3. **язык письма** по алфавиту не определён — человеку: судья не сверит язык
    черновика с письмом, а писать вслепую нельзя;
-3. **ситуация** (модель) → «нужен ли ответ» — кодом: «спасибо» и автоответ —
+4. **ситуация** (модель) → «нужен ли ответ» — кодом: «спасибо» и автоответ —
    `no_reply`, писатель не зовётся; сбой разбора — `human`, черновик без текста;
-4. **ход** по таблице; ход зовёт, а позвать некуда — `human` со словами, что
+5. **ход** по таблице; ход зовёт, а позвать некуда — `human` со словами, что
    заполнить;
-5. **факты под ход** строками, `meta` для калибровки и подпись персоной продаж.
+6. **факты под ход** строками, `meta` для калибровки и подпись персоной продаж —
+   у всех брифов, где имя задано: «всё же написать» тоже подпишет ею.
 
 Пропуск — без фактов: «всё же написать» поверх пропуска пишет без хода, и судья
 продаж отдаёт такой черновик человеку (`judge.py`).
@@ -40,6 +44,7 @@ _SILENT_WHY = {
     Label.AUTORESPONDER: "это автоответ",
 }
 _WHERE = "заполните «Продажи» → «Отправитель»"
+_NO_NAME = f"нет имени отправителя продаж в настройках — подписать черновик нечем; {_WHERE}"
 
 
 def versions() -> dict[str, str]:
@@ -86,6 +91,7 @@ def _answered(
     sender: sales_sender.Sender,
     conversation: Conversation,
     meta: dict[str, Any],
+    sign_as: str,
 ) -> Brief:
     """Ответ нужен: ход по таблице и факты под него — или человеку, если позвать некуда."""
     move = moves.table().move(found.label)
@@ -103,7 +109,6 @@ def _answered(
         "cta": selected.cta.value if selected.cta else None,
         "kb_ids": list(selected.kb_ids),
     }
-    sign_as = sender.values.get("sender_name") or ""
     if selected.no_cta_link:
         wanted = " или ".join(option.value for option in move.cta)
         why = f"ход «{move.name}» зовёт ({wanted}), а ссылок нет — {_WHERE}"
@@ -114,7 +119,7 @@ def _answered(
 async def brief(session: AsyncSession, conversation: Conversation) -> Brief:
     """Что шов отдаст писателю и судье — или почему писать не надо."""
     sender = await sales_sender.read(session)
-    sign_as = sender.values.get("sender_name") or ""
+    sign_as = (sender.values.get("sender_name") or "").strip()
     letter = situation.last_letter(conversation.turns)
     language = reading.language_of(letter)
     meta: dict[str, Any] = {
@@ -122,6 +127,8 @@ async def brief(session: AsyncSession, conversation: Conversation) -> Brief:
         "turn": situation.turn_of(conversation.turns),
         "versions": versions(),
     }
+    if not sign_as:
+        return Brief(skip=Skip(SkipKind.HUMAN, _NO_NAME), meta=meta)
     why = _held(letter)
     if why is not None or language is None:
         return Brief(skip=Skip(SkipKind.HUMAN, why or ""), meta=meta, sign_as=sign_as)
@@ -133,5 +140,11 @@ async def brief(session: AsyncSession, conversation: Conversation) -> Brief:
     if skip is not None:
         return Brief(skip=skip, meta=meta, sign_as=sign_as)
     return _answered(
-        entries, found, language=language, sender=sender, conversation=conversation, meta=meta
+        entries,
+        found,
+        language=language,
+        sender=sender,
+        conversation=conversation,
+        meta=meta,
+        sign_as=sign_as,
     )

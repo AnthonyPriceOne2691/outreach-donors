@@ -29,7 +29,7 @@ NAME = "Отдел продаж"
 OFFER = "Добрый день. Предлагаем аудит сайта."
 
 
-async def world(session: AsyncSession, *, links: bool = True) -> None:
+async def world(session: AsyncSession, *, links: bool = True, name: bool = True) -> None:
     """База знаний и отправитель продаж — выдуманные."""
     for item in (
         kb.entry(kind="brief", language="ru", title="Кто мы", text="Делаем аудит сайтов."),
@@ -50,7 +50,7 @@ async def world(session: AsyncSession, *, links: bool = True) -> None:
         kb.entry(kind="forbidden", language="ru", title="Нельзя", text="Не обещать позиции."),
     ):
         await kb.add(session, item, author="тест", author_id=None)
-    values = {"sender_name": NAME, "sender_position": "Менеджер", "website": SITE}
+    values = {"sender_name": NAME if name else None, "sender_position": "Менеджер", "website": SITE}
     if links:
         values |= {"call_link": CALL, "telegram": "@sales_desk_chat"}
     await sales_sender.save(session, values, author="тест", author_id=None)
@@ -95,6 +95,7 @@ async def test_a2_thanks_needs_no_reply_and_gives_no_facts(
     assert found.skip.kind is SkipKind.NO_REPLY
     assert "ответ не нужен" in found.skip.reason
     assert (found.facts, found.meta["situation"]) == ((), "ack")
+    assert found.sign_as == NAME  # «всё же написать» подпишет персоной продаж
 
 
 async def test_a3_unreadable_situation_goes_to_a_human(
@@ -181,3 +182,20 @@ async def test_move_that_calls_with_no_link_in_settings_goes_to_a_human(
     assert found.skip.kind is SkipKind.HUMAN
     assert "ссылок нет" in found.skip.reason
     assert found.meta["lead"] is True
+
+
+async def test_no_sales_sender_name_goes_to_a_human_without_the_model(
+    session: AsyncSession, llm: Plug
+) -> None:
+    """Без имени отправителя продаж черновик подписать нечем: пустой подписи шов не
+    примет, а общая (`None`) подписала бы письмо продаж именем отправителя доноров."""
+    await world(session, name=False)
+    model = llm(situation=[{"situation": "asks_price", "confidence": 0.9}])
+
+    found = await brief.brief(session, talk((True, OFFER), (False, "Сколько стоит аудит?")))
+
+    assert found.skip is not None
+    assert found.skip.kind is SkipKind.HUMAN
+    assert found.skip.reason.startswith("нет имени отправителя продаж в настройках")
+    assert (found.sign_as, found.facts) == (None, ())
+    assert model.sent["situation"] == []
