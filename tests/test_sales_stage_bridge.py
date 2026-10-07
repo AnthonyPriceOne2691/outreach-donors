@@ -28,10 +28,10 @@ from backend.features.core.stages import (
     SalesFollowup,
     SalesNotConnectedError,
 )
-from backend.features.letters import followups
+from backend.features.letters import batch, followups
 from backend.features.letters.building import followup_key, idempotency_key
-from backend.features.letters.sending import SendError, Sending, SuppressedError
-from backend.features.letters.transport import Outgoing
+from backend.features.letters.sending import NoSenderError, SendError, Sending, SuppressedError
+from backend.features.letters.transport import MaybeSentError, Outgoing
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.test_mail_accounts import _ByStage
@@ -55,6 +55,8 @@ class FakeSalesMail:
     #: отказом почты, который этому ответу не подходит.
     broken: str | None = None
     broken_by: str = "runtime"
+    #: Отказ почты, которым модуль ответил на «кому писать» не по смыслу.
+    odd: Exception | None = None
     asked: list[str] = field(default_factory=list)
 
     async def _maybe_break(self, session: AsyncSession, answer: str) -> None:
@@ -71,6 +73,8 @@ class FakeSalesMail:
     ) -> Recipient:
         self.asked.append(f"recipient {message.id}")
         await self._maybe_break(session, "recipient")
+        if self.odd is not None:
+            raise self.odd
         return Recipient(Stage.SALES, LEAD_EMAIL, SENDER_NAME)
 
     async def check(self, session: AsyncSession, message: MessageModel) -> None:
@@ -381,6 +385,77 @@ async def test_queue_send_with_a_broken_module_is_refused_in_words(
 
     with pytest.raises(SalesNotConnectedError, match=f"^{what}: {SALES_NOT_CONNECTED}$"):
         await stages.check_connected(session, Stage.SALES, what)
+
+
+# Граница договора: модуль ответил на «кому писать» отказом почты не по смыслу. `NoSenderError` —
+# наследник `SendError`, идёт как есть; `MaybeSentError` — нет (`transport.py`: «могло уйти»
+# — не отказ словами), мост переводит его в «не подключены». Письмо не виснет и не зовётся
+# «могло уйти» без отправки.
+ODD = [
+    pytest.param(
+        NoSenderError("выдуманно: ящиков продаж нет"),
+        "выдуманно: ящиков продаж нет",
+        id="no-sender",
+    ),
+    pytest.param(
+        MaybeSentError("выдуманно: почта не ответила"),
+        f"{SALES_NOT_CONNECTED} — выдуманно: почта не ответила",
+        id="maybe-sent",
+    ),
+]
+
+
+@pytest.mark.parametrize(("odd", "said"), ODD)
+async def test_an_odd_refusal_of_the_module_stops_the_batch_in_words(
+    session: AsyncSession, filled_legal: None, fake: FakeSalesMail, odd: Exception, said: str
+) -> None:
+    """Пачка встаёт на письме словами отказа, ничего не уходит, письмо остаётся в очереди."""
+    fake.odd = odd
+    world = await sales_world(session)
+    source = _transports()
+
+    report = await batch.send_queue(session, source, stage=Stage.SALES)
+
+    assert (report.sent, dict(report.refused), report.left) == (0, {}, 1)
+    assert report.stopped is not None
+    assert report.stopped.endswith(said)
+    assert _seen(source) == []
+    await session.refresh(world.letter)
+    assert (world.letter.status, world.letter.sender_id) == (MessageStatus.QUEUED, None)
+
+
+@pytest.mark.parametrize(("odd", "said"), ODD)
+async def test_an_odd_refusal_of_the_module_postpones_the_followup_and_donors_go(
+    session: AsyncSession,
+    filled_legal: None,
+    fake: FakeSalesMail,
+    caplog: pytest.LogCaptureFixture,
+    odd: Exception,
+    said: str,
+) -> None:
+    """Проход добивок: добивка продаж собрана строкой и отложена на час с причиной в журнале —
+    срок вернулся, «исход неизвестен» не назван; донорская того же прохода ушла."""
+    fake.odd = odd
+    world = await sales_world(session, status=MessageStatus.SENT, due=NOW - timedelta(days=2))
+    donor = await _donor_chain(session, due=NOW - timedelta(days=1))
+
+    with caplog.at_level(logging.WARNING, logger=followups.__name__):
+        report = await followups.send_due(session, transport=_transports(), limit=5, now=NOW)
+
+    assert (report.sent, report.postponed, report.unknown, report.waiting) == (1, 1, 0, 0)
+    await session.refresh(world.letter)
+    await session.refresh(donor)
+    assert world.letter.next_action_at == NOW + followups.POSTPONE
+    assert donor.next_action_at is None
+    step = await session.scalar(
+        select(MessageModel).where(
+            MessageModel.thread_id == world.thread.id, MessageModel.step == 1
+        )
+    )
+    assert step is not None
+    assert (step.status, step.sender_id) == (MessageStatus.QUEUED, None)
+    [postponed] = [r.getMessage() for r in caplog.records if "отложена на час" in r.getMessage()]
+    assert postponed.endswith(f"{said})")
 
 
 # --- ключ добивки: из ключа предыдущего письма ---------------------------------------------
