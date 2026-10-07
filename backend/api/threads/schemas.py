@@ -13,6 +13,7 @@ from backend.api.letters.schemas import Corridor
 from backend.features.core.domain import MessageStatus, ReplyKind, Stage
 from backend.features.core.models.attachment import ReplyAttachmentModel
 from backend.features.core.models.outreach import MessageModel, ReplyModel
+from backend.features.letters.mailbox import ThreadMail
 from backend.features.outreach.repository import ThreadDetail, ThreadRow
 from backend.features.outreach.threads import ThreadState, review_of
 
@@ -215,6 +216,31 @@ class IncomingCard(BaseModel):
         )
 
 
+class ThreadMailCard(BaseModel):
+    """Чем переписка пишет дальше: её ящик, пишет ли он и срок следующей
+    добивки (`letters/mailbox.py`). Слова ожидания — те же, что у отказа
+    отправки: экран говорит их до клика, а не после."""
+
+    #: Адрес ящика переписки; пусто — ящик удалили.
+    mailbox: str | None
+    #: Почему письма переписки ждут; пусто — ящик пишет.
+    waiting: str | None
+    #: Шаг и срок следующей добивки; пусто — добивки не будет.
+    next_step: int | None
+    next_at: datetime | None
+
+    @classmethod
+    def of(cls, mail: ThreadMail | None) -> ThreadMailCard | None:
+        if mail is None:
+            return None
+        return cls(
+            mailbox=mail.mailbox,
+            waiting=mail.waiting,
+            next_step=mail.next_step,
+            next_at=mail.next_at,
+        )
+
+
 class ThreadView(BaseModel):
     """Переписка целиком."""
 
@@ -225,10 +251,16 @@ class ThreadView(BaseModel):
     #: стояло вшитое «цель 15–25%», которое разошлось бы с настройкой
     #: при первой её правке.
     corridor: Corridor = Field(default_factory=Corridor)
+    #: Ящик переписки и следующая добивка. Пусто — первое письмо ещё
+    #: не уходило: ящик выберется в момент отправки.
+    mail: ThreadMailCard | None = None
 
     @classmethod
     def of(
-        cls, detail: ThreadDetail, files: Mapping[int, Sequence[ReplyAttachmentModel]]
+        cls,
+        detail: ThreadDetail,
+        files: Mapping[int, Sequence[ReplyAttachmentModel]],
+        mail: ThreadMail | None = None,
     ) -> ThreadView:
         return cls(
             card=ThreadCard.of(detail.row),
@@ -236,4 +268,5 @@ class ThreadView(BaseModel):
             incoming=[
                 IncomingCard.of(r, detail.row.stage, files.get(r.id, ())) for r in detail.replies
             ],
+            mail=ThreadMailCard.of(mail),
         )

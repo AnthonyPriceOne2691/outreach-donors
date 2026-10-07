@@ -394,6 +394,33 @@ class TestThreads:
             "max": cfg.UNIQUENESS_TARGET_MAX,
         }
 
+    async def test_card_names_the_thread_box_and_the_next_followup(
+        self,
+        client: AsyncClient,
+        operator_token: str,
+        thread: ThreadModel,
+        sender: SenderModel,
+        session: AsyncSession,
+    ) -> None:
+        """Ящик переписки и срок добивки — в карточке: добивка, которая ждёт
+        ящик на паузе, говорит почему, а не молчит до клика «Ответить»."""
+        due = NOW + timedelta(days=2)
+        letter = (await session.execute(select(MessageModel))).scalars().one()
+        letter.sender_id = sender.id
+        letter.next_action_at = due
+        sender.status = SenderStatus.PAUSED
+        sender.pause_reason = "доля отказов 7%"
+        await session.commit()
+
+        response = await client.get(f"/api/threads/{thread.id}", headers=bearer(operator_token))
+
+        mail = response.json()["mail"]
+        assert (mail["mailbox"], mail["next_step"]) == (sender.email, 1)
+        assert datetime.fromisoformat(mail["next_at"]) == due
+        assert mail["waiting"].startswith(
+            f"Ящик {sender.email} сейчас не пишет (на паузе: доля отказов 7%)"
+        )
+
     async def test_unknown_thread_is_not_found(
         self, client: AsyncClient, operator_token: str
     ) -> None:

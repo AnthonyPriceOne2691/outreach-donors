@@ -17,6 +17,7 @@ from backend.api.threads.schemas import AnswerBody, ThreadCard, ThreadView
 from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
 from backend.features.letters.answers import answer_reply
+from backend.features.letters.mailbox import thread_mail
 from backend.features.letters.sending import Sending
 from backend.features.letters.transport_factory import Transports, in_use
 from backend.features.outreach.repository import OutreachRepository
@@ -47,7 +48,7 @@ async def one_thread(
     # Вложения — одним запросом на всю переписку и без самих файлов:
     # карточке нужны имена и размеры, а не мегабайты прайсов.
     files = await ReplyFiles(session).listed(reply.id for reply in detail.replies)
-    return ThreadView.of(detail, files)
+    return ThreadView.of(detail, files, await thread_mail(session, detail.messages))
 
 
 @router.post("/{thread_id}/answer", response_model=SendResult, summary="Ответить в переписке")

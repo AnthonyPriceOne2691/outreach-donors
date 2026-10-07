@@ -240,14 +240,6 @@ export interface Reviewed {
   seller_answer: 'sells' | 'declines' | null;
 }
 
-export interface ThreadView {
-  card: ThreadCard;
-  letters: LetterCard[];
-  incoming: IncomingCard[];
-  /** Коридор отличия — с сервера, как и на экране писем. */
-  corridor: Corridor;
-}
-
 export type DonorStatus = 'suitable' | 'unsuitable' | 'unchecked';
 export type ContactStatus =
   | 'found'

@@ -11,9 +11,9 @@ import type {
   StopListView,
   SuppressionReason,
   ThreadCard,
-  ThreadView,
   UnboundView,
 } from './types';
+import type { ThreadView } from './thread';
 import { download, request } from './client';
 import type { Downloaded } from './client';
 

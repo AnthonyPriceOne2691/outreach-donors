@@ -495,3 +495,39 @@ describe('ответ собеседнику', () => {
     expect(screen.queryByRole('button', { name: 'Ответить' })).not.toBeInTheDocument();
   });
 });
+
+describe('ящик переписки', () => {
+  // Полдень по UTC — та же дата в любом поясе, где идёт тест.
+  const MAIL = {
+    mailbox: 'outreach@mail-one.example.test',
+    waiting: null,
+    next_step: 1,
+    next_at: '2026-10-10T12:00:00+00:00',
+  };
+
+  it('карточка называет ящик переписки и срок следующей добивки', async () => {
+    await openThread({ mail: MAIL });
+
+    expect(
+      screen.getByText(/^Пишет outreach@mail-one\.example\.test · добивка 1 — 10\.10\.2026/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Письма переписки ждут свой ящик')).not.toBeInTheDocument();
+  });
+
+  it('ящик не пишет — почему ждут, видно до клика, словами сервера', async () => {
+    // Прежде причина жила только в журнале прохода добивок: человек узнавал
+    // её, нажав «Ответить» и получив отказ.
+    const waiting =
+      'Ящик outreach@mail-one.example.test сейчас не пишет (на паузе: доля отказов 7%)';
+    await openThread({ mail: { ...MAIL, waiting } });
+
+    expect(screen.getByText('Письма переписки ждут свой ящик')).toBeInTheDocument();
+    expect(screen.getByText(waiting)).toBeInTheDocument();
+  });
+
+  it('первое письмо ещё не уходило — ящика нет, и строки нет', async () => {
+    await openThread({ mail: null });
+
+    expect(screen.queryByText(/^Пишет /)).not.toBeInTheDocument();
+  });
+});

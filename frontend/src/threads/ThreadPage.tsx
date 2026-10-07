@@ -46,6 +46,7 @@ import { AnswerBox } from './AnswerBox';
 import { PriceReview } from './PriceReview';
 import { ReplyFiles } from './ReplyFiles';
 import { ReplyOffers } from './ReplyOffers';
+import { ThreadMailLine } from './ThreadMailLine';
 
 const when = formatDateTime;
 
@@ -461,6 +462,7 @@ export function ThreadPage() {
             {data.card.contact_email ?? 'адрес не определён'} · кампания «{data.card.campaign}»
             {data.card.stage === 'advertisers' ? ' · рекламодатель' : ''}
           </Text>
+          <ThreadMailLine mail={data.mail} />
         </Stack>
       </Card>
 
