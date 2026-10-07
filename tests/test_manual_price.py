@@ -32,7 +32,6 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.ops import SuppressionModel, UsageRecordModel
 from backend.features.core.models.run import RunCandidateModel
-from backend.features.donors.browse import UnknownDonorError
 from backend.features.donors.manual_price import (
     DonorRefusedError,
     ManualPrice,
@@ -41,6 +40,7 @@ from backend.features.donors.manual_price import (
     manual_price,
     price_donor,
 )
+from backend.features.donors.standing import UnknownDonorError
 from backend.features.replies.repository import ReplyRepository
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.thresholds import defaults

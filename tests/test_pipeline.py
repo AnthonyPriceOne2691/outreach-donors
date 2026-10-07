@@ -247,6 +247,17 @@ class TestQuota:
         with pytest.raises(QuotaUnavailableError, match="соседней системы"):
             await units_left(client)
 
+    async def test_a_page_instead_of_the_quota_stops_the_run_in_words(self) -> None:
+        """Страница вместо остатка (посредник, заглушка на время работ) — тот же
+        отказ «остаток неизвестен», а не техническая ошибка разбора JSON."""
+
+        def page(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, text="<!doctype html><title>Maintenance</title>")
+
+        http = httpx.AsyncClient(transport=httpx.MockTransport(page), base_url="https://api.test")
+        with pytest.raises(QuotaUnavailableError, match="соседней системы"):
+            await units_left(AhrefsClient(api_key="k", http=http))
+
 
 def _quota_client(payload: dict | None) -> AhrefsClient:
     def handler(request: httpx.Request) -> httpx.Response:

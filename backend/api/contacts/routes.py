@@ -54,7 +54,8 @@ from backend.features.contacts.repository import (
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.donor import DonorModel
-from backend.features.donors.browse import DonorBrowser, UnknownDonorError
+from backend.features.donors.browse import DonorBrowser
+from backend.features.donors.standing import UnknownDonorError
 from backend.shared.database.ids import storable
 from backend.shared.queue import (
     CONTACTS_JOB,

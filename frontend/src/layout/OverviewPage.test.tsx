@@ -118,11 +118,28 @@ describe('сводка на главной', () => {
     expect(within(review).getByText('в очередях №24, №21, №18 и ещё 1')).toBeInTheDocument();
   });
 
-  it('почта не подключена — сказано спокойно, а не как поломка', async () => {
+  it('почта не подключена — сказано спокойно и как есть, а не обещанием', async () => {
     await openOverview();
 
     expect(await screen.findByText('почта не подключена')).toBeInTheDocument();
-    expect(screen.getByText(/подключается на рабочем сервере/)).toBeInTheDocument();
+    // Словами плитки «Почта» на экране писем. «Подключается на рабочем сервере»
+    // стояло до 08.10.2026 и было ложью на рабочем сервере с выключенной почтой.
+    expect(
+      screen.getByText('Проверочная почта: письма собираются и правятся, но наружу не уходят.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/рабочем сервере/)).toBeNull();
+  });
+
+  it('настоящая почта не собралась — не «проверочная»', async () => {
+    await openOverview([], {
+      body: { ...OVERVIEW, transport: { name: '—', real: false, problem: 'ключа нет' } },
+    });
+
+    expect(await screen.findByText('почта не подключена')).toBeInTheDocument();
+    expect(
+      screen.getByText('Почта не подключилась: письма собираются и правятся, но наружу не уходят.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Проверочная почта/)).toBeNull();
   });
 
   it('последний прогон — своими числами, без второго «Рассмотреть»', async () => {

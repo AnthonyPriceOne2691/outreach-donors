@@ -27,6 +27,9 @@
   не из письма;
 * кандидат, ждущий решения в очереди прогона, — решают там, а не здесь;
 * не прошёл пороги отбора — Этап 2 обходит только годных доноров.
+
+Отказ по состоянию домена карточка донора называет до нажатия — теми же
+словами (`price_refusal`, 08.10.2026).
 """
 
 from __future__ import annotations
@@ -44,10 +47,9 @@ from backend.features.core.domain import AuditAction, DonorStatus, PriceSource
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.outreach import SenderModel
-from backend.features.donors.browse import UnknownDonorError
 from backend.features.donors.host import normalize_host
 from backend.features.donors.price import put_price
-from backend.features.donors.standing import decided_in, donor_now
+from backend.features.donors.standing import UnknownDonorError, decided_in, donor_now
 from backend.features.donors.wording import reject_reason_text
 from backend.features.replies.money import (
     CASE_SENSITIVE,
@@ -250,27 +252,41 @@ async def enter(
 ) -> Entered:
     """Записать ручную цену донору домена; домен ещё не донор — сделать донором.
 
-    Отказ — до первой записи. Без коммита: коммитит вызывающий, вместе с
-    записью в журнал.
+    Отказ — до первой записи, словами `price_refusal`. Без коммита: коммитит
+    вызывающий, вместе с записью в журнал.
     """
-    refusal = await refusal_for(session, host)
-    if refusal is not None:
-        raise DonorRefusedError(refusal)
-    moment = now or datetime.now(UTC)
     domain = await session.scalar(select(DomainModel).where(DomainModel.host == host))
     donor = (
         None
         if domain is None
         else await session.scalar(select(DonorModel).where(DonorModel.domain_id == domain.id))
     )
+    refusal = await price_refusal(session, host, donor)
+    if refusal is not None:
+        raise DonorRefusedError(refusal)
+    moment = now or datetime.now(UTC)
     if donor is not None and donor_now(donor):
         return await _priced(
             session, donor, host, price, created=False, author_id=author_id, at=moment
         )
-    if donor is not None:
-        await _candidate_refusal(session, donor, host)
     made = await _accepted(session, domain, donor, host=host, by=price.by, at=moment)
     return await _priced(session, made, host, price, created=True, author_id=author_id, at=moment)
+
+
+async def price_refusal(session: AsyncSession, host: str, donor: DonorModel | None) -> str | None:
+    """Почему цену руками домену не записать — словами отказа; `None` — запишется.
+    `donor` — запись домена в `donors`, если она есть.
+
+    Одни слова на отказ «Записать цену» и на карточку донора
+    (`DonorCard.price_refusal`): в карточке человек читает до нажатия ровно
+    то, что скажет отказ, — как у ящика переписки (`letters/mailbox._silence`).
+    До 08.10.2026 о том, что принятый донор в стоп-листе, человек узнавал,
+    только вписав цену и нажав кнопку.
+    """
+    refusal = await refusal_for(session, host)
+    if refusal is not None or donor is None or donor_now(donor):
+        return refusal
+    return await _candidate_refusal(session, donor, host)
 
 
 async def refusal_for(session: AsyncSession, host: str) -> str | None:
@@ -294,7 +310,7 @@ async def _sending_roots(session: AsyncSession) -> set[str]:
     return {normalize_host(domain) or domain.strip().lower() for domain in domains.all()}
 
 
-async def _candidate_refusal(session: AsyncSession, donor: DonorModel, host: str) -> None:
+async def _candidate_refusal(session: AsyncSession, donor: DonorModel, host: str) -> str | None:
     """Домен в базе, но не донор: ждёт решения в очереди прогона или не прошёл пороги.
 
     Решение о кандидате принимают в очереди прогона — там судья, выдача и
@@ -303,16 +319,17 @@ async def _candidate_refusal(session: AsyncSession, donor: DonorModel, host: str
     """
     waits = await decided_in(session, donor.domain_id, None)
     if waits is not None:
-        raise DonorRefusedError(
+        return (
             f"{host} ждёт решения в очереди прогона №{waits}: решают там. Примете — "
             "цену укажете на карточке донора."
         )
     if donor.status is DonorStatus.UNSUITABLE:
         why = reject_reason_text(donor.reject_reason)
-        raise DonorRefusedError(
+        return (
             f"{host} не прошёл пороги отбора{f' ({why})' if why else ''}: Этап 2 обходит "
             "только годных доноров."
         )
+    return None
 
 
 async def _accepted(

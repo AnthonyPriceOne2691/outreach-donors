@@ -201,6 +201,32 @@ describe('карточка донора: «Указать цену»', () => {
     expect(screen.queryByText(refusal)).toBeNull();
   });
 
+  it('отказ по состоянию донора — словами сервера до нажатия: кнопка заперта, причина рядом', async () => {
+    // Принятый донор, попавший в стоп-лист: слова те же, что вернул бы
+    // отказ «Записать цену» (`manual_price.price_refusal`).
+    const refusal =
+      'card.example.test в стоп-листе: ему не пишем, и донором с ценой его не заводим. ' +
+      'Снять запись — на экране «Стоп-лист».';
+    const recorded = await openCard({ ...CARD, price_refusal: refusal });
+    const user = userEvent.setup();
+
+    const open = within(priceCard()).getByRole('button', { name: 'Указать цену' });
+    expect(open).toBeDisabled();
+    expect(within(priceCard()).getByText(refusal)).toBeVisible();
+    await user.click(open);
+
+    expect(open).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('textbox', { name: 'Цена' })).toBeNull();
+    expect(recorded.calls.filter((call) => call.method === 'POST')).toEqual([]);
+  });
+
+  it('отказа нет — кнопка нажимается, причины под ней нет', async () => {
+    await openCard({ ...CARD, price_refusal: null });
+
+    expect(within(priceCard()).getByRole('button', { name: 'Указать цену' })).toBeEnabled();
+    expect(within(priceCard()).queryByText(/стоп-листе/)).toBeNull();
+  });
+
   it('«Отмена» сворачивает поля, ничего не отправив', async () => {
     const recorded = await openCard(CARD);
     const user = userEvent.setup();
