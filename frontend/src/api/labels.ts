@@ -75,6 +75,13 @@ export const THREAD_STATES: Record<ThreadState, { title: string; color: string }
   lead_taken: { title: 'лид в работе', color: 'green' },
 };
 
+/** Состояние словами и цветом — и то, которого экран ещё не знает: сервер новее
+ *  экрана. Тогда — код серым, а не падение списка или карточки на `undefined`. */
+export function threadState(state: string): { title: string; color: string } {
+  const known: Partial<Record<string, { title: string; color: string }>> = THREAD_STATES;
+  return known[state] ?? { title: state, color: 'gray' };
+}
+
 export const MESSAGE_STATUSES: Record<MessageStatus, string> = {
   queued: 'в очереди',
   sending: 'отправляется',

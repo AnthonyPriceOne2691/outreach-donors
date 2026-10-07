@@ -34,7 +34,7 @@ import { useLocation, useParams } from 'react-router-dom';
 
 import { ApiError, refusalOf } from '../api/client';
 import { rowIdOf } from '../api/ids';
-import { MESSAGE_STATUSES, REPLY_KINDS, THREAD_STATES } from '../api/labels';
+import { MESSAGE_STATUSES, REPLY_KINDS, threadState } from '../api/labels';
 import { answerReply, fetchThread, reviewReply, sendLead, takeLead } from '../api/outreach';
 import type { Corridor, IncomingCard, LetterCard, MessageStatus } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
@@ -454,8 +454,8 @@ export function ThreadPage() {
             <Title order={3} className="cellName">
               <Seams text={data.card.host} />
             </Title>
-            <Badge variant="light" color={THREAD_STATES[data.card.state].color}>
-              {THREAD_STATES[data.card.state].title}
+            <Badge variant="light" color={threadState(data.card.state).color}>
+              {threadState(data.card.state).title}
             </Badge>
           </Group>
           <Text size="sm" c="dimmed">
