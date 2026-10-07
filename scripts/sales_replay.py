@@ -49,6 +49,8 @@ from backend.features.sales.agent.replay import Case, Prompts, Run
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 MANIFEST = Path(__file__).parent / "data" / "sales_replay" / "manifest.toml"
+#: Корень копии репозитория: файл прогона в него не пишется — в нём тексты черновиков.
+REPOSITORY = Path(__file__).resolve().parent.parent
 #: Набор по умолчанию — из резервной копии CRM, вне репозитория.
 DEFAULT_SET = "crm"
 
@@ -80,6 +82,24 @@ def read_run(path: Path) -> Run:
     except json.JSONDecodeError as exc:
         raise replay.SetError(f"{path}: не JSON ({exc.msg})") from None
     return replay_sets.loaded(raw, str(path))
+
+
+def out_checked(raw: str | None) -> None:
+    """Куда писать прогон — до первого вызова модели: каталог есть и он вне репозитория.
+
+    Прогон стоит денег, и его итог не должен пропасть на записи файла; а в файле — тексты
+    черновиков и причины отклонения, им не место в публичном репозитории.
+    """
+    if raw is None:
+        return
+    path = Path(raw).resolve()
+    if not path.parent.is_dir():
+        raise replay.SetError(f"каталога для файла прогона нет: {path.parent}")
+    if path.is_relative_to(REPOSITORY):
+        raise replay.SetError(
+            f"файл прогона — вне репозитория ({REPOSITORY}): в нём тексты черновиков и причины "
+            "отклонения — держите его рядом с набором"
+        )
 
 
 def _against(raw: str | None) -> Run | Prompts | None:
@@ -201,6 +221,7 @@ def main(argv: list[str] | None = None) -> int:
             return _gated(read_run(args.old), read_run(args.new), strict=args.strict)
         cases, source = (None, "") if args.drafts else load_set(args.set, args.dir)
         _against(args.against)  # прежняя версия проверяется до первого вызова модели
+        out_checked(args.out)
         if args.prompts:
             replay.from_folder(Path(args.prompts))
         return asyncio.run(_live(args, cases, source))

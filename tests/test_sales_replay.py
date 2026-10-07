@@ -366,6 +366,19 @@ def test_a2_empty_set_is_refused_too(
 
 
 @pytest.mark.usefixtures("offline")
+def test_run_file_inside_the_repository_or_in_no_folder_is_refused_before_the_run(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    inside = ROOT / "replay-run.json"
+    assert sales_replay.main(["run", "--set", "synthetic", "--out", str(inside)]) == 1
+    assert "файл прогона — вне репозитория" in capsys.readouterr().out
+    nowhere = tmp_path / "нет" / "run.json"
+    assert sales_replay.main(["run", "--set", "synthetic", "--out", str(nowhere)]) == 1
+    assert f"каталога для файла прогона нет: {nowhere.parent}" in capsys.readouterr().out
+    assert not inside.exists()
+
+
+@pytest.mark.usefixtures("offline")
 def test_missing_run_file_is_refused(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
     assert sales_replay.main(["compare", str(tmp_path / "a.json"), str(tmp_path / "b.json")]) == 1
     assert f"прогон не найден: {tmp_path / 'a.json'}" in capsys.readouterr().out

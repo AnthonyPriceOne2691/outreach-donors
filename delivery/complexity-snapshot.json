@@ -2207,9 +2207,9 @@
       "worst": "load:89"
     },
     "scripts/sales_replay.py": {
-      "lines": 217,
+      "lines": 238,
       "complexity": 11,
-      "worst": "execute:93"
+      "worst": "execute:113"
     },
     "scripts/sample_keywords.py": {
       "lines": 145,
