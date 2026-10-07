@@ -537,9 +537,9 @@
       "worst": "cmd_sender_add:42"
     },
     "backend/cli/sending_domains.py": {
-      "lines": 81,
-      "complexity": 7,
-      "worst": "_apply:53"
+      "lines": 150,
+      "complexity": 8,
+      "worst": "cmd_sending_domain:35"
     },
     "backend/config/__init__.py": {
       "lines": 1,
