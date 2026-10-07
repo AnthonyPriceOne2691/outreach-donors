@@ -109,6 +109,21 @@ class SendingDomainModel(TimestampedMixin, Base):
     __table_args__ = (CheckConstraint("daily_limit >= 0", name="ck_sending_domains_daily_limit"),)
 
 
+class SenderHealthModel(Base):
+    """Журнал здоровья ящика строкой; снижение лимита — следствие строк за сутки, не счётчик."""
+
+    __tablename__ = "sender_health"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sender_id: Mapped[int] = mapped_column(ForeignKey("senders.id", ondelete="CASCADE"))
+    #: `deferred`, `blocked`, `complaint`, `limit_cut`, `paused`.
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    detail: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+    __table_args__ = (Index("idx_sender_health_sender_at", "sender_id", "at"),)
+
+
 class CampaignModel(TimestampedMixin, Base):
     """Рассылка, собранная из прогона."""
 

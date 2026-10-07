@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from backend.config import storage
 from backend.config.startup_checks import check_storage
 from backend.features.crawl.lifecycle import recover as recover_crawls
+from backend.features.ops.alarm_feed import Feed
 from backend.features.ops.silence import report as silence_report
 from backend.features.runs.lifecycle import Recovery, recover
 from backend.features.runs.repository import RunRepository
@@ -39,6 +40,9 @@ POLL_INTERVAL_SEC = 60.0
 #: Как часто сторож смотрит на тишину. Реже разбора намеренно: его
 #: пороги измеряются часами, и спрашивать базу каждую минуту незачем.
 WATCHDOG_INTERVAL_SEC = 600.0
+
+#: Что сторож уже сказал человеку в Telegram — по смене состояния (`ops/alarm_feed.py`).
+FEED = Feed()
 
 
 def _enqueue(run_id: int) -> str | None:
@@ -108,7 +112,7 @@ async def watch() -> None:
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with factory() as session:
-            await silence_report(session)
+            await FEED.tell(await silence_report(session))
     finally:
         await engine.dispose()
 

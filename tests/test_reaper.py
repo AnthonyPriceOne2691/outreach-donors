@@ -70,18 +70,24 @@ def test_silent_queue_is_not_a_crash(monkeypatch: pytest.MonkeyPatch) -> None:
     assert reaper._enqueue(5) is None
 
 
-async def test_watch_reports_silence(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_watch_reports_silence_and_tells_the_feed(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[object] = []
+    told: list[object] = []
 
-    async def report(session: object) -> None:
+    async def report(session: object) -> list[str]:
         seen.append(session)
+        return ["тревога"]
+
+    async def tell(found: object) -> None:
+        told.append(found)
 
     monkeypatch.setattr(reaper, "silence_report", report)
+    monkeypatch.setattr(reaper.FEED, "tell", tell)
 
     async with committed_sessions():
         await reaper.watch()
 
-    assert len(seen) == 1
+    assert (len(seen), told) == (1, [["тревога"]])
 
 
 def test_main_runs_both_loops(monkeypatch: pytest.MonkeyPatch) -> None:

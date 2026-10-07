@@ -20,7 +20,6 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
@@ -38,6 +37,8 @@ from backend.features.core.domain import (
 from backend.features.core.models.crawl import CrawlRunModel
 from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.core.models.run import RunModel
+from backend.features.ops import mail_watch
+from backend.features.ops.alarms import Alarm
 from backend.features.runs.spending import ahrefs_spent_this_month
 from backend.features.serp.dataforseo import SerpError
 from backend.features.serp.factory import UnknownProviderError, build_provider
@@ -66,15 +67,6 @@ RUN_SILENCE_MINUTES = 30
 CRAWL_RUNS_WATCHED = 10
 
 
-@dataclass(frozen=True, slots=True)
-class Alarm:
-    """Одна тревога: что молчит, с каких пор и что это значит."""
-
-    code: str
-    title: str
-    detail: str
-
-
 async def alarms(session: AsyncSession, *, now: datetime | None = None) -> list[Alarm]:
     """Всё, что сейчас молчит не по делу."""
     moment = now or datetime.now(UTC)
@@ -86,6 +78,7 @@ async def alarms(session: AsyncSession, *, now: datetime | None = None) -> list[
         await _cap_reached(session),
         await _crawl_blocked(session),
     ]
+    found += await mail_watch.alarms(session, moment)  # почта этапов со сторожем в политике
     return [alarm for alarm in found if alarm is not None]
 
 

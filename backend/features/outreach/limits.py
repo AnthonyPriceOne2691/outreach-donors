@@ -27,6 +27,7 @@ DOMAIN_SPENT = "домен исчерпан на сегодня"
 DOMAIN_PAUSED = "домен на паузе"
 DOMAIN_YOUNG = "домен на выдержке"
 DOMAIN_ELSEWHERE = "домен записан за другим направлением"
+BOX_CUT = "ящику снижен лимит на сутки (мягкие отказы)"
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +50,7 @@ def screen(
     domains: Mapping[str, SendingDomainModel],
     direction_limit: int | None,
     now: datetime,
+    cuts: Mapping[int, int] | None = None,
 ) -> Screened:
     """Кто из включённых ящиков этапа сегодня проходит лимиты домена и направления."""
     own = [sender for sender in senders if sender.enabled and sender.stage is stage]
@@ -63,7 +65,12 @@ def screen(
     fit: list[SenderModel] = []
     refused: dict[int, str] = {}
     for sender in own:
-        verdict = _domain_refusal(domains.get(sender.domain), stage, by_domain[sender.domain], now)
+        cut, sent = (cuts or {}).get(sender.id), sent_today.get(sender.id, 0)
+        verdict = (
+            f"{BOX_CUT}: {sender.email} — {sent} из {cut}"
+            if cut is not None and sent >= cut
+            else _domain_refusal(domains.get(sender.domain), stage, by_domain[sender.domain], now)
+        )
         if verdict is None:
             fit.append(sender)
         else:

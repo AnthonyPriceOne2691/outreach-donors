@@ -56,6 +56,7 @@ if TYPE_CHECKING:
 
     from backend.features.core.models.outreach import MessageModel
     from backend.features.core.window import SendWindow
+    from backend.features.outreach.health import SoftSignals
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +154,10 @@ class MailPolicy:
 
     #: Окно получателя (`window.py`): письмо уходит в его рабочие часы. Пусто — в любой час.
     window: SendWindow | None = None
+    #: Мягкие сигналы ящика (`outreach/health.py`). Пусто — прежнее правило парковки.
+    soft: SoftSignals | None = None
+    #: Сторож почты этапа (`ops/mail_watch.py`): ящик молчит, отправить некому, все на паузе.
+    watch: bool = False
 
 
 #: Политика доноров и рекламодателей: всё как было до политик этапа.

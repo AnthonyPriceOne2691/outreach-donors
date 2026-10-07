@@ -39,7 +39,7 @@ from backend.config import outreach as cfg
 from backend.features.core.domain import MessageStatus, SenderStatus, Stage
 from backend.features.core.models.outreach import MessageModel, SenderModel
 from backend.features.letters.chain import ANSWER_STEP, CHAINABLE, FIRST_STEP, MAX_STEPS, kind_of
-from backend.features.outreach import limits
+from backend.features.outreach import health, limits
 from backend.features.outreach import senders as sender_rules
 from backend.features.outreach.repository import OutreachRepository
 
@@ -91,6 +91,7 @@ async def _free_box(session: AsyncSession, stage: Stage, now: datetime) -> Choic
         domains=await limits.sending_domains(session),
         direction_limit=cfg.direction_limit(stage.value),
         now=now,
+        cuts=await health.cuts(session, stage, now),
     )
     spot = sender_rules.pick(screened.fit, sent_today=sent, stage=stage, now=now)
     if spot is None:

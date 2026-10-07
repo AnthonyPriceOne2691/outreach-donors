@@ -412,9 +412,9 @@
       "worst": "—"
     },
     "backend/api/watchdog/routes.py": {
-      "lines": 53,
+      "lines": 54,
       "complexity": 3,
-      "worst": "silence:42"
+      "worst": "silence:43"
     },
     "backend/cli/__init__.py": {
       "lines": 1,
@@ -602,9 +602,9 @@
       "worst": "_own_account:203"
     },
     "backend/config/sales.py": {
-      "lines": 104,
+      "lines": 108,
       "complexity": 6,
-      "worst": "_days:55"
+      "worst": "_days:58"
     },
     "backend/config/serp.py": {
       "lines": 56,
@@ -862,7 +862,7 @@
       "worst": "—"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 62,
+      "lines": 64,
       "complexity": 0,
       "worst": "—"
     },
@@ -917,7 +917,7 @@
       "worst": "_enum:18"
     },
     "backend/features/core/models/outreach.py": {
-      "lines": 352,
+      "lines": 367,
       "complexity": 2,
       "worst": "_enum:38"
     },
@@ -927,9 +927,9 @@
       "worst": "_enum:27"
     },
     "backend/features/core/stages.py": {
-      "lines": 306,
+      "lines": 311,
       "complexity": 5,
-      "worst": "check_connected:106"
+      "worst": "check_connected:107"
     },
     "backend/features/core/usage.py": {
       "lines": 192,
@@ -1277,9 +1277,9 @@
       "worst": "to_text:84"
     },
     "backend/features/letters/events.py": {
-      "lines": 294,
-      "complexity": 8,
-      "worst": "apply_events:133"
+      "lines": 301,
+      "complexity": 10,
+      "worst": "apply_events:134"
     },
     "backend/features/letters/followups.py": {
       "lines": 500,
@@ -1302,9 +1302,9 @@
       "worst": "sender_domain:50"
     },
     "backend/features/letters/mailbox.py": {
-      "lines": 223,
+      "lines": 224,
       "complexity": 4,
-      "worst": "_silence:119"
+      "worst": "_silence:120"
     },
     "backend/features/letters/masking.py": {
       "lines": 111,
@@ -1401,10 +1401,25 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/ops/alarm_feed.py": {
+      "lines": 43,
+      "complexity": 8,
+      "worst": "tell:28"
+    },
+    "backend/features/ops/alarms.py": {
+      "lines": 16,
+      "complexity": 0,
+      "worst": "—"
+    },
     "backend/features/ops/job_outcome.py": {
       "lines": 182,
       "complexity": 10,
       "worst": "_outcome:123"
+    },
+    "backend/features/ops/mail_watch.py": {
+      "lines": 132,
+      "complexity": 8,
+      "worst": "_of_stage:57"
     },
     "backend/features/ops/overview.py": {
       "lines": 272,
@@ -1412,19 +1427,24 @@
       "worst": "_letters:243"
     },
     "backend/features/ops/silence.py": {
-      "lines": 331,
+      "lines": 324,
       "complexity": 7,
-      "worst": "_crawl_blocked:255"
+      "worst": "_crawl_blocked:248"
     },
     "backend/features/outreach/__init__.py": {
       "lines": 2,
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/outreach/health.py": {
+      "lines": 163,
+      "complexity": 12,
+      "worst": "listen:65"
+    },
     "backend/features/outreach/limits.py": {
-      "lines": 95,
-      "complexity": 10,
-      "worst": "screen:44"
+      "lines": 102,
+      "complexity": 13,
+      "worst": "screen:45"
     },
     "backend/features/outreach/own_inboxes.py": {
       "lines": 472,
@@ -1752,9 +1772,9 @@
       "worst": "read_json:35"
     },
     "backend/features/sales/policy.py": {
-      "lines": 36,
+      "lines": 39,
       "complexity": 2,
-      "worst": "zones_of:32"
+      "worst": "zones_of:35"
     },
     "backend/features/sales/sender.py": {
       "lines": 182,
@@ -1927,9 +1947,9 @@
       "worst": "main:18"
     },
     "backend/workers/reaper.py": {
-      "lines": 133,
+      "lines": 137,
       "complexity": 4,
-      "worst": "_told:92"
+      "worst": "_told:96"
     },
     "backend/workers/send_jobs.py": {
       "lines": 42,

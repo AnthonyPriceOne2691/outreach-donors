@@ -50,6 +50,9 @@ class _Sales(DomainSettings):
     send_hours: str = Field(default="09:00-17:00", validation_alias="SALES_SEND_HOURS")
     # На сколько минут от открытия окна расходятся письма, ждавшие его.
     send_spread_min: int = Field(default=30, validation_alias="SALES_SEND_SPREAD_MIN")
+    # Доля жалоб в окне последних писем ящика, с которой он встаёт на паузу (Ф4, 4.5b), —
+    # задолго до 0,3% почтовых сервисов: на 50 письмах одна жалоба. Решение владельца.
+    complaint_pause: float = Field(default=0.001, validation_alias="SALES_COMPLAINT_PAUSE")
 
 
 def _days(text: str) -> frozenset[int]:
@@ -94,6 +97,7 @@ KOMMO_RESPONSIBLE_USER_ID: str = _s.kommo_responsible_user_id.strip()
 SEND_DAYS: frozenset[int] = _days(_s.send_days)
 SEND_OPENS, SEND_CLOSES = _hours(_s.send_hours)
 SEND_SPREAD_MIN: int = _s.send_spread_min
+COMPLAINT_PAUSE: float = _s.complaint_pause
 
 #: Не больше стольких запросов в секунду. Предел Kommo из его документации —
 #: семь в секунду с одного IP для любой интеграции; чаще — 429, а частые 429
