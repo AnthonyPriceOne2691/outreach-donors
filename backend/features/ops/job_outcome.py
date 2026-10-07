@@ -40,7 +40,6 @@ from backend.shared.queue import (
     BUILD_JOB,
     CONTACTS_JOB,
     PARSE_JOB,
-    QUEUE_NAME,
     RUN_JOB,
     SALES_REPLY_JOB,
     SEND_QUEUE_JOB,
@@ -173,9 +172,10 @@ def _error_of(
 
 
 def _next_try(job: Job, conn: Redis) -> datetime | None:
+    """Время повтора — в отложенных очереди самой задачи (`sales`, `crawl` — не `runs`)."""
     try:
         registry = ScheduledJobRegistry(  # type: ignore[no-untyped-call]  # rq без аннотаций
-            queue=Queue(QUEUE_NAME, connection=conn)
+            queue=Queue(job.origin, connection=conn)
         )
         return registry.get_scheduled_time(job)
     except NoSuchJobError:

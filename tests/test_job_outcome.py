@@ -14,10 +14,18 @@ from typing import Any
 import pytest
 from backend.features.ops import job_outcome as module
 from backend.features.ops.job_outcome import job_outcome
+from backend.shared.queue import (
+    CRAWL_JOB,
+    CRAWL_QUEUE_NAME,
+    PARSE_JOB,
+    QUEUE_NAME,
+    SALES_QUEUE_NAME,
+    SALES_REPLY_JOB,
+)
 from backend.workers import jobs
 from redis.exceptions import ConnectionError as RedisConnectionError
 from rq.exceptions import NoSuchJobError
-from rq.job import JobStatus
+from rq.job import Job, JobStatus
 
 AT = datetime(2026, 9, 24, 12, 0, tzinfo=UTC)
 
@@ -125,6 +133,40 @@ def test_unknown_job_and_silent_queue_are_different(fetched: dict[str, Any]) -> 
     outcome = job_outcome("job-1", redis=object())  # type: ignore[arg-type]
     assert outcome is not None
     assert (outcome.state, outcome.title) == ("unknown", "очередь не отвечает")
+
+
+class _Scheduled:
+    """Redis ровно настолько, насколько его читает реестр отложенных задач rq:
+    отложенная задача лежит в отсортированном наборе СВОЕЙ очереди."""
+
+    def __init__(self, queue: str, job_id: str, at: datetime) -> None:
+        self._sets = {f"rq:scheduled:{queue}": {job_id: at.timestamp()}}
+
+    def zscore(self, key: str, member: str) -> float | None:
+        return self._sets.get(key, {}).get(member)
+
+
+@pytest.mark.parametrize(
+    ("origin", "path"),
+    [(SALES_QUEUE_NAME, SALES_REPLY_JOB), (CRAWL_QUEUE_NAME, CRAWL_JOB), (QUEUE_NAME, PARSE_JOB)],
+)
+def test_retry_time_is_read_from_the_queue_the_job_came_from(
+    monkeypatch: pytest.MonkeyPatch, origin: str, path: str
+) -> None:
+    """Задача ждёт повтора в отложенных своей очереди. До 07.10.2026 время искали
+    только в `runs`, и у ответа продаж (`sales`) и обхода Этапа 2 (`crawl`)
+    «ждёт повтора» стояло без времени. Задача, реестр и очередь — настоящие rq."""
+    conn: Any = _Scheduled(origin, "job-1", AT)
+    job = Job.create(path, args=(5,), connection=conn, id="job-1", origin=origin)
+    monkeypatch.setattr(job, "get_status", lambda refresh=True: JobStatus.SCHEDULED)
+    monkeypatch.setattr(job, "latest_result", lambda: None)
+    monkeypatch.setattr(module.Job, "fetch", lambda job_id, connection: job)
+    monkeypatch.setattr(module, "job_error", lambda job_id, conn: "ConnectError: сеть")
+
+    outcome = job_outcome("job-1", redis=conn)
+
+    assert outcome is not None
+    assert (outcome.state, outcome.next_try_at, outcome.error) == ("retry_wait", AT, "сеть")
 
 
 class TestJobsSettleTheirOutcome:
