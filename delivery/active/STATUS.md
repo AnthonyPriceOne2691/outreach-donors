@@ -1,7 +1,7 @@
 # Active delivery status
 
 - **slug:** agent-seam (общий шов агента переписки по этапам — часть «А3» из семи: решения по черновику — отправить как есть, с правкой, отклонить с причиной)
-- **stack:** delivery@2.00 · cqg@2.51 · okf@1.19 · stack-map@1.52
+- **stack:** delivery@2.00 · cqg@2.55 · okf@1.19 · stack-map@1.52
 - **class:** M
 - **kind:** feature
 - **phase:** verify
@@ -20,6 +20,7 @@
   `backend/migrations/versions/3924977db911_agent_draft_decided_audit_action.py` — `ADD VALUE IF NOT EXISTS 'agent_draft_decided'` отдельной ревизией;
   `delivery/complexity-snapshot.json` — снимок ратчета;
   тесты части — `tests/test_agent_decisions.py`. согласовано: с сессией outreach-donors — «общий код объявляй, ревью моё» (06.10); ревью части и правка маршрута ответа — в этом PR (07.10) (ревью общего кода — соседняя сессия outreach-donors: «общий код объявляй, ревью моё», 06.10)
+  После слияния части — PR «общее: мост продаж — сбой своих изменений почты не выдаётся за ошибку модуля» (вне части): `backend/features/core/stages.py` — `_asked` сбрасывает несохранённое вызывающего (`session.flush()`) до точки сохранения модуля, докстринги `_asked`, `sales_connected` и модуля; `tests/test_sales_stage_bridge.py` — тест «дубль ключа письма у вызывающего → исходный `IntegrityError`, модуль не спрошен» на всех четырёх вопросах моста; `delivery/complexity-snapshot.json`; строка `stack:` — с CONSTITUTION после #215 (cqg@2.55). Согласовано с сессией outreach-donors (07.10, находка агента 4.3/4.5), ревью у неё.
 
 ## Что в части
 
