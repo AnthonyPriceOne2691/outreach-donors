@@ -47,6 +47,7 @@ from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.replies.outcome import (
     AUTO_REPLY_WITH_SUM,
     names_a_sum,
+    sales_closed_address,
     sales_review,
     waiting_for_review,
 )
@@ -135,8 +136,13 @@ def _answered(replies: Sequence[ReplyModel], stage: Stage) -> _Rules:
             return _lead_rules(replies)
         case Stage.SALES:
             human = [r for r in replies if r.kind is ReplyKind.HUMAN]
+            closed = any(sales_closed_address(r.model_parse) for r in human)
             waiting = any(review_of(r, stage).waiting for r in human)
-            return ((waiting, ThreadState.SALES_PENDING), (bool(human), ThreadState.REPLIED))
+            return (
+                (closed, ThreadState.UNSUBSCRIBED),
+                (waiting, ThreadState.SALES_PENDING),
+                (bool(human), ThreadState.REPLIED),
+            )
         case _:
             assert_never(stage)
 

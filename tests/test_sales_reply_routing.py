@@ -200,15 +200,16 @@ async def test_a1_inbox_hands_the_answer_to_sales_and_stops_the_chain(
     ("stage", "kind", "to_sales"),
     [
         (Stage.SALES, ReplyKind.HUMAN, True),
-        (Stage.SALES, ReplyKind.AUTO_REPLY, False),
+        # 2.3: автоответ переносит шаг продаж, отписка закрывает адрес — без модели.
+        (Stage.SALES, ReplyKind.AUTO_REPLY, True),
         (Stage.SALES, ReplyKind.BOUNCE, False),
-        (Stage.SALES, ReplyKind.UNSUBSCRIBE, False),
+        (Stage.SALES, ReplyKind.UNSUBSCRIBE, True),
         (Stage.DONORS, ReplyKind.HUMAN, False),
         (Stage.ADVERTISERS, ReplyKind.HUMAN, False),
         (None, ReplyKind.HUMAN, False),
     ],
 )
-def test_only_a_human_answer_in_a_sales_thread_goes_to_sales(
+def test_only_answers_of_a_sales_thread_go_to_sales_and_never_a_bounce(
     stage: Stage | None, kind: ReplyKind, to_sales: bool
 ) -> None:
     assert outcome.to_sales_queue(kind, stage) is to_sales
@@ -409,6 +410,8 @@ async def test_a3_retry_after_the_answer_was_sorted_queues_nothing(
 async def test_a4_auto_reply_in_a_sales_thread_is_decided_by_the_rules(
     client: AsyncClient, session: AsyncSession, queues: dict[str, UniqueQueue]
 ) -> None:
+    """Вид — по правилам приёма, цепочка не остановлена; задача продаж — только
+    чтобы перенести следующий шаг (2.3), модель автоответу не отдаётся."""
     letter = await sales_letter(session)
 
     response = await client.post(
@@ -422,9 +425,13 @@ async def test_a4_auto_reply_in_a_sales_thread_is_decided_by_the_rules(
     )
 
     assert response.status_code == 200, response.text
-    assert (await _reply(session)).kind is ReplyKind.AUTO_REPLY
-    assert queues[queue.SALES_QUEUE_NAME].jobs == []
+    reply = await _reply(session)
+    assert reply.kind is ReplyKind.AUTO_REPLY
+    assert [args for _, args, _ in queues[queue.SALES_QUEUE_NAME].jobs] == [(reply.id,)]
     assert queues[queue.QUEUE_NAME].jobs == []
+    model = FakeClassifier()
+    await SalesReplies(session, model).handle(reply.id)
+    assert model.calls == 0
     await session.refresh(letter)
     assert letter.next_action_at is not None, "автоответ цепочку не останавливает"
 

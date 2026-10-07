@@ -62,6 +62,9 @@ class _Sales(DomainSettings):
     # Каталог внешнего набора ответов для eval (`scripts/eval_sales_reply.py
     # --golden`): обезличенная переписка лежит вне репозитория — он публичный.
     golden_dir: str = Field(default="", validation_alias="SALES_GOLDEN_DIR")
+    # Автоответ в треде продаж цепочку не останавливает, а переносит следующий шаг:
+    # до даты возвращения из текста или на столько дней от автоответа.
+    ooo_delay_days: int = Field(default=7, ge=1, le=60, validation_alias="SALES_OOO_DELAY_DAYS")
 
 
 def _days(text: str) -> frozenset[int]:
@@ -111,6 +114,8 @@ COMPLAINT_PAUSE: float = _s.complaint_pause
 REPLY_CONFIDENCE: float = _s.reply_confidence
 #: Где лежит внешний набор ответов для eval. Пусто — не задан.
 GOLDEN_DIR: str = _s.golden_dir.strip()
+#: На сколько дней автоответ переносит следующий шаг продаж, если даты в нём нет.
+OOO_DELAY_DAYS: int = _s.ooo_delay_days
 
 #: Не больше стольких запросов в секунду. Предел Kommo из его документации —
 #: семь в секунду с одного IP для любой интеграции; чаще — 429, а частые 429

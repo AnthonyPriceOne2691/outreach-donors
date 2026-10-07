@@ -173,12 +173,17 @@ def priced_by_model(stage: Stage | None) -> bool:
             assert_never(stage)
 
 
+#: Что из треда продаж уходит модулю продаж: вид ответа человека (модель),
+#: перенос шага по автоответу и отписка во всех направлениях (без модели).
+#: Отказ доставки решают правила выше целиком, как у всех этапов.
+TO_SALES = frozenset({ReplyKind.HUMAN, ReplyKind.AUTO_REPLY, ReplyKind.UNSUBSCRIBE})
+
+
 def to_sales_queue(kind: ReplyKind, stage: Stage | None) -> bool:
     """Уходит ли ответ очереди продаж (`queue.SALES_REPLY_JOB`) — одно правило
-    для приёма и повтора вебхука. Ответ человека в треде продаж: его вид
-    разбирает модуль продаж. Автоответ, отказ доставки и отписку решают правила
-    выше, как у всех этапов, — без модели."""
-    return stage is Stage.SALES and kind is ReplyKind.HUMAN
+    для приёма и повтора вебхука. Вид ответа (человек, автоответ, отписка)
+    решили правила приёма; модель зовётся только для ответа человека."""
+    return stage is Stage.SALES and kind in TO_SALES
 
 
 def sales_review(snapshot: Mapping[str, Any] | None) -> tuple[bool, str]:
@@ -193,6 +198,17 @@ def sales_review(snapshot: Mapping[str, Any] | None) -> tuple[bool, str]:
         return True, SALES_WAITING
     reason = snapshot.get("reason")
     return snapshot.get("waits") is not False, str(reason) if reason else SALES_WAITING
+
+
+def sales_closed_address(snapshot: Mapping[str, Any] | None) -> bool:
+    """Закрыл ли модуль продаж адрес по ответу человека («просит не писать»
+    словами, без человека) — диалог тогда «отписался», как при отписке правилами."""
+    return bool(
+        snapshot
+        and snapshot.get("stage") == Stage.SALES.value
+        and snapshot.get("route") == "unsubscribe"
+        and snapshot.get("waits") is False
+    )
 
 
 def names_a_sum(text: str) -> bool:

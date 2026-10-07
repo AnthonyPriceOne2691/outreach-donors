@@ -14,6 +14,10 @@
 диалоги читают их там (`replies.outcome.sales_review`), почта модуля продаж
 не знает.
 
+**Без модели — то, что вид уже решили правила приёма**: автоответ переносит
+следующий шаг (`ooo.py`), отписка закрывает адрес во всех направлениях
+(`unsubscribe.py`).
+
 **«Пишите другому»** заводит лида той же компании (`referral.py`) и закрывает
 диалог. Проверка адресов не настроена — лида заводит человек: вид уже назван
 и оплачен, а упавшая задача откатила бы расход и позвала модель снова.
@@ -37,10 +41,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.config import sales as cfg
 from backend.config.startup_checks import ConfigError
 from backend.features.core import usage
-from backend.features.core.domain import Stage, ThreadStatus
+from backend.features.core.domain import ReplyKind, Stage, ThreadStatus
 from backend.features.core.models.outreach import ReplyModel, ThreadModel
 from backend.features.replies import outcome
 from backend.features.replies.repository import ReplyRepository
+from backend.features.sales import ooo
 from backend.features.sales.referral import Referred, refer
 from backend.features.sales.reply_kind import (
     OPERATION,
@@ -50,6 +55,7 @@ from backend.features.sales.reply_kind import (
     Unanswered,
     snapshot,
 )
+from backend.features.sales.unsubscribe import close_address
 from backend.features.sales.verifier import EmailVerifier
 
 logger = logging.getLogger(__name__)
@@ -79,7 +85,7 @@ ROUTES: dict[SalesKind, Route] = {
 }
 
 #: Пути, после которых ответ человека не ждёт (если путь удался — `_follow`).
-SETTLED = frozenset({Route.CLOSED, Route.REFERRAL})
+SETTLED = frozenset({Route.CLOSED, Route.REFERRAL, Route.UNSUBSCRIBE})
 
 #: Вид словами — для причины в карточке.
 KIND_WORDS: dict[SalesKind, str] = {
@@ -99,7 +105,7 @@ ROUTE_WORDS: dict[Route, str] = {
     Route.AGENT: "ответит агент; пока — человек",
     Route.REFERRAL: "новый лид на названный адрес",
     Route.CLOSED: "диалог закрыт",
-    Route.UNSUBSCRIBE: "закрыть адрес во всех направлениях; пока — человек",
+    Route.UNSUBSCRIBE: "адрес закрыт во всех направлениях",
     Route.MANUAL: "решает человек",
 }
 
@@ -221,6 +227,14 @@ class SalesReplies:
         if skipped is not None:
             logger.info("продажи: ответ не взят", extra={"reply": reply_id, "why": skipped})
             return Handled(reply_id, skipped=skipped)
+        match reply.kind:
+            case ReplyKind.AUTO_REPLY:
+                return await self._out_of_office(reply)
+            case ReplyKind.UNSUBSCRIBE:
+                closed = await close_address(self._session, reply)
+                return Handled(reply.id, kind=reply.kind.value, reason=closed.words)
+            case _:
+                pass
 
         await usage.ensure_llm_within_cap(self._session)
         found = await self._classifier.classify(text=reply.raw_body, subject=reply.subject or "")
@@ -243,6 +257,17 @@ class SalesReplies:
             reason=decision.reason,
             tokens=found.tokens,
         )
+
+    async def _out_of_office(self, reply: ReplyModel) -> Handled:
+        """Автоответ: цепочка идёт, следующий шаг — не раньше возвращения."""
+        moved = await ooo.postpone(
+            self._session, reply, delay_days=cfg.OOO_DELAY_DAYS, now=self._moment()
+        )
+        logger.info(
+            "продажи: автоответ — следующий шаг перенесён",
+            extra={"reply": reply.id, "until": moved.until.isoformat(), "moved": moved.moved},
+        )
+        return Handled(reply.id, kind=reply.kind.value, reason=moved.words)
 
     async def _not_ours(self, reply: ReplyModel) -> str | None:
         """Почему задаче этот ответ не брать. `None` — брать.
@@ -292,6 +317,7 @@ class SalesReplies:
 
     async def _follow(self, reply: ReplyModel, found: KindFound, decision: Decision) -> Decision:
         """Что путь делает сразу — и что из этого вышло. Ждущие человека пути не пишут."""
+        words = KIND_WORDS[found.kind]
         match decision.route:
             case Route.HANDOFF:
                 if reply.thread_id is not None:
@@ -300,9 +326,11 @@ class SalesReplies:
                 await self._close(reply.thread_id)
             case Route.REFERRAL:
                 referred = await self._refer(reply, found.contact)
-                words = KIND_WORDS[found.kind]
                 return Decision(Route.REFERRAL, referred.waits, f"{words}: {referred.words}")
-            case Route.AGENT | Route.UNSUBSCRIBE | Route.MANUAL:
+            case Route.UNSUBSCRIBE:
+                closed = await close_address(self._session, reply)
+                return Decision(Route.UNSUBSCRIBE, closed.email is None, f"{words}: {closed.words}")
+            case Route.AGENT | Route.MANUAL:
                 pass
             case _:
                 assert_never(decision.route)
