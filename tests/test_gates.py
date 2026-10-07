@@ -11,6 +11,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from scripts import gates
 from scripts.gates import (
     MAX_LINES_PROD,
     check_commit_messages,
@@ -27,6 +28,17 @@ from scripts.gates import (
 
 #: Признаки — из модуля, которым пользуется гейт: тот же объект, что у `gates`.
 PRIVATE_DOCUMENTS = public_repo.PRIVATE_DOCUMENTS
+Capture = pytest.CaptureFixture[str]
+
+
+def gate(
+    monkeypatch: pytest.MonkeyPatch, capsys: Capture, root: Path, *argv: str
+) -> tuple[int, str, str]:
+    """Гейт целиком, как его зовут CI и pre-push, над деревом `root`."""
+    monkeypatch.setattr(gates, "ROOT", root)
+    code = gates.main(list(argv))
+    out, err = capsys.readouterr()
+    return code, out, err
 
 
 def _rules(check, path: str, source: str) -> list[str]:
@@ -263,12 +275,20 @@ class TestCommitMessages:
         base = self._history(tmp_path, f"Старое: {PRIVATE_DOCUMENTS[-1]}.md", "Письма: очередь")
         assert list(check_commit_messages(tmp_path, base)) == []
 
-    def test_unreadable_base_is_said_aloud(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    def test_unreadable_range_is_a_refusal(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Capture
     ) -> None:
-        """База не читается — гейт говорит это и число прочитанных сообщений, ноль."""
-        self._history(tmp_path, "база")
-        assert list(check_commit_messages(tmp_path, "нет-такой-ветки")) == []
-        out, err = capsys.readouterr()
-        assert "сообщений коммитов нет-такой-ветки..HEAD — 0" in out
-        assert "не прочитаны" in err
+        """Диапазон задан явно, а сообщения не прочитаны — гейт не судил, и это
+        красное: непрочитанное не должно выглядеть чистым."""
+        self._history(tmp_path, "база", "Письма: очередь")
+        code, _, err = gate(monkeypatch, capsys, tmp_path, "--commits", "нет-такой-ветки")
+        assert code != 0
+        assert "гейт не судил: сообщения коммитов нет-такой-ветки..HEAD не прочитаны" in err
+
+    def test_readable_clean_range_is_green(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Capture
+    ) -> None:
+        base = self._history(tmp_path, "база", "Письма: очередь", "Чистка: прогоны")
+        code, out, _ = gate(monkeypatch, capsys, tmp_path, "--commits", base)
+        assert code == 0
+        assert f"сообщений коммитов {base}..HEAD — 2" in out

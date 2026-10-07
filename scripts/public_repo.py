@@ -129,16 +129,26 @@ def private_lines(text: str) -> Iterator[tuple[int, str]]:
                 break
 
 
+class NotJudgedError(Exception):
+    """Вход проверки не прочитан: гейт не судил, и это не «чисто»."""
+
+
 #: Сообщения коммитов: записи через ноль, в записи — sha строкой и само сообщение.
 _GIT_LOG = ("log", "-z", "--format=%H%n%B", "--end-of-options")
 
 
 def commit_messages(root: Path, base: str) -> list[tuple[str, str]]:
-    """(sha, сообщение) коммитов `base..HEAD`. Молчит вместо зелёного, если git не ответил."""
+    """(sha, сообщение) коммитов `base..HEAD`.
+
+    Не прочитаны — `NotJudgedError` с причиной, а не пустой список: диапазон задают
+    явно (CI, pre-push), и непрочитанный диапазон — «гейт не судил», а не «чисто».
+    Тот же класс канон закрыл у гейта покрытия (cqg@2.47): недоступная база —
+    красное, а не пропуск.
+    """
+    unread = f"сообщения коммитов {base}..HEAD не прочитаны"
     git = shutil.which("git")
     if git is None:
-        print("public-repo: git не найден — сообщения коммитов не проверены", file=sys.stderr)
-        return []
+        raise NotJudgedError(f"{unread} (git не найден)")
     try:
         # Снаружи приходит только имя ревизии, и стоит оно после `--end-of-options`:
         # ключом git его не прочтёт.
@@ -149,10 +159,13 @@ def commit_messages(root: Path, base: str) -> list[tuple[str, str]]:
             timeout=30,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        print(
-            f"public-repo: сообщения {base}..HEAD не прочитаны ({exc}) — проверка пропущена",
-            file=sys.stderr,
-        )
-        return []
+        raise NotJudgedError(f"{unread} ({_why(exc)})") from exc
     records = listed.stdout.decode("utf-8", errors="replace").split("\0")
     return [(sha, message) for sha, _, message in (r.partition("\n") for r in records) if sha]
+
+
+def _why(exc: Exception) -> str:
+    """Причина одной строкой: последняя строка stderr git, иначе само исключение."""
+    stderr = getattr(exc, "stderr", None) or b""
+    lines = stderr.decode("utf-8", errors="replace").strip().splitlines()
+    return lines[-1] if lines else str(exc)

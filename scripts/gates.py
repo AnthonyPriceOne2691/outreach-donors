@@ -17,7 +17,7 @@ import argparse
 import ast
 import sys
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # Признаки закрытого и откуда брать текст — в `public_repo.py`: стандартная
@@ -277,10 +277,43 @@ def run(targets: Iterable[Path]) -> list[Violation]:
     return violations
 
 
+@dataclass(slots=True)
+class Verdict:
+    """Итог прогона. Нарушение краснит. «Не судил» — тоже: непрочитанный вход
+    не должен выглядеть чистым."""
+
+    violations: list[Violation] = field(default_factory=list)
+    unjudged: int = 0
+
+    def collect(self, found: Iterable[Violation]) -> None:
+        """Находки проверки; непрочитанный вход — вслух и в счёт «не судил»."""
+        try:
+            self.violations.extend(found)
+        except public_repo.NotJudgedError as exc:
+            print(f"гейт не судил: {exc}", file=sys.stderr)
+            self.unjudged += 1
+
+
+def _report(verdict: Verdict, targets: list[Path]) -> int:
+    """Итог в вывод и код выхода."""
+    if not (verdict.violations or verdict.unjudged):
+        checked = len(list(_python_files(targets)))
+        print(f"Гейты пройдены: {checked} файлов, нарушений нет.")
+        return 0
+    for violation in verdict.violations:
+        print(str(violation), file=sys.stderr)
+    tail = f"; не судил: {verdict.unjudged} — это не «чисто»" if verdict.unjudged else ""
+    count = len(verdict.violations)
+    print(f"\nНарушений: {count}{tail}. Пороги жёсткие — снимка легаси нет.", file=sys.stderr)
+    return 1
+
+
 def _args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Архитектурные гейты проекта.")
     parser.add_argument("targets", nargs="*", type=Path, help="файлы; без них — всё дерево")
-    parser.add_argument("--commits", metavar="BASE", help="ещё и сообщения коммитов BASE..HEAD")
+    parser.add_argument(
+        "--commits", metavar="BASE", help="и сообщения коммитов BASE..HEAD; не прочитаны — красное"
+    )
     return parser.parse_args(argv)
 
 
@@ -291,20 +324,13 @@ def main(argv: list[str]) -> int:
         ROOT / "tests",
         ROOT / "scripts",
     ]
-    violations = run(targets)
-    violations.extend(check_env_example(ROOT / ".env.example"))
-    violations.extend(check_public_repo(ROOT))
+    verdict = Verdict()
+    verdict.collect(run(targets))
+    verdict.collect(check_env_example(ROOT / ".env.example"))
+    verdict.collect(check_public_repo(ROOT))
     if args.commits:
-        violations.extend(check_commit_messages(ROOT, args.commits))
-    if not violations:
-        checked = len(list(_python_files(targets)))
-        print(f"Гейты пройдены: {checked} файлов, нарушений нет.")
-        return 0
-
-    for violation in violations:
-        print(str(violation), file=sys.stderr)
-    print(f"\nНарушений: {len(violations)}. Пороги жёсткие — снимка легаси нет.", file=sys.stderr)
-    return 1
+        verdict.collect(check_commit_messages(ROOT, args.commits))
+    return _report(verdict, targets)
 
 
 if __name__ == "__main__":
