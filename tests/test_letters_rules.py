@@ -204,6 +204,33 @@ class TestCompose:
             assert "{{" not in offer
             assert ("the United States" in offer) is (geo == "us")
             assert "  " not in offer
+            # Фраза кончается пробелом и встаёт перед следующим предложением, а
+            # без страны пропадает: ни склейки «States.I», ни метки (письмо №26, 07.10).
+            joint = "the United States. I buy" if geo == "us" else "https://donor.test/p. I buy"
+            assert joint in offer
+            assert compose.unset_in(offer) == []
+
+    def test_a_leaked_mark_without_a_title_is_still_unset(self) -> None:
+        """Пустое значение без своего названия — тоже метка: отправка её не пропустит."""
+        text = _template_text(greeting="Hello {{nickname}},")
+        values = compose.values_for(host="site.test") | {"nickname": ""}
+
+        letter = compose.assemble(compose.render(parse(text), values), {})
+
+        assert "NICKNAME НЕ ЗАДАНО" in compose.unset_in(letter.body)
+
+    def test_unknown_country_in_own_phrase_is_refused_with_its_cure(self) -> None:
+        """Своя фраза с {{donor_country}} при неизвестном гео — отказ, а не «in .»."""
+        link = compose.FoundLink(
+            donor_host="donor.test", page_url="https://donor.test/p", anchor="x", donor_geo=None
+        )
+        values = compose.values_for(host="site.test", link=link)
+        text = _template_text(greeting="Hello from {{donor_country}},")
+
+        unset = compose.unset_in(compose.assemble(compose.render(parse(text), values), {}).body)
+
+        assert "СТРАНА АУДИТОРИИ НЕ ЗАДАНА" in unset
+        assert "{{donor_audience}}" in compose.unset_reason(unset)
 
     def test_unknown_placeholder_is_refused(self) -> None:
         text = _template_text(greeting="Hello {{nickname}},")
