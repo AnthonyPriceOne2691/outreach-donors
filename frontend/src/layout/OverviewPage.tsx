@@ -41,6 +41,7 @@ import { useSession } from '../auth/AuthProvider';
 import { Meter } from '../components/Meter';
 import { Metric } from '../components/Metric';
 import { formatDateTime, formatNumber, formatShare, formatUsd, plural } from '../format';
+import { mailLine } from '../letters/mailTile';
 
 /**
  * Тревоги сторожа тишины — на главной, а не в отдельном разделе: поломка
@@ -297,14 +298,15 @@ function LettersSection({
   unbound: number;
 }) {
   const quietStageTwo = advertisers.queued === 0 && advertisers.sent === 0;
+  const mail = mailLine(transport);
   return (
     <Section
       title="Письма донорам"
       to="/letters"
       toTitle="К письмам"
       aside={
-        // Слово то же, что на экране писем: «не подключена» — состояние
-        // до рабочего сервера, а не поломка.
+        // Слово то же, что в плитке «Почта» на экране писем (`mailTile`):
+        // «не подключена», а что с письмами — фразой под плитками.
         <Badge variant="light" color={transport.real ? 'green' : 'yellow'}>
           {transport.real ? 'почта подключена' : 'почта не подключена'}
         </Badge>
@@ -324,10 +326,9 @@ function LettersSection({
           />
         </SimpleGrid>
         <UnboundLine count={unbound} />
-        {!transport.real && (
+        {mail !== null && (
           <Text size="sm" c="dimmed">
-            Почта подключается на рабочем сервере: до этого письма собираются и правятся, но наружу
-            не уходят.
+            {mail}
           </Text>
         )}
         <Text size="sm" c="dimmed">
