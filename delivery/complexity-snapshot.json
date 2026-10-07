@@ -1392,9 +1392,9 @@
       "worst": "—"
     },
     "backend/features/ops/job_outcome.py": {
-      "lines": 180,
+      "lines": 182,
       "complexity": 10,
-      "worst": "_outcome:121"
+      "worst": "_outcome:123"
     },
     "backend/features/ops/overview.py": {
       "lines": 272,
@@ -1872,9 +1872,9 @@
       "worst": "—"
     },
     "backend/workers/agent_jobs.py": {
-      "lines": 135,
+      "lines": 142,
       "complexity": 4,
-      "worst": "_autopilot:98"
+      "worst": "_autopilot:105"
     },
     "backend/workers/crawl_jobs.py": {
       "lines": 270,
@@ -1897,9 +1897,9 @@
       "worst": "worker_problems:74"
     },
     "backend/workers/jobs.py": {
-      "lines": 498,
+      "lines": 500,
       "complexity": 6,
-      "worst": "_search_contacts:314"
+      "worst": "_search_contacts:315"
     },
     "backend/workers/main.py": {
       "lines": 29,

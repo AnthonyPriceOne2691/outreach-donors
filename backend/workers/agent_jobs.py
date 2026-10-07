@@ -70,6 +70,13 @@ def queue_draft(reply_id: int) -> None:
         )
 
 
+async def after_parse(session: AsyncSession, reply_id: int) -> None:
+    """Черновик — задачей сразу после разбора ответа: агенту нужна разобранная цена.
+    Где агент на этапе не пишет (`drafting.wants_draft`), очередь не трогается."""
+    if await drafting.wants_draft(session, reply_id):
+        queue_draft(reply_id)
+
+
 async def _draft_answer(reply_id: int) -> dict[str, Any]:
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)

@@ -56,6 +56,7 @@ from backend.shared.queue import (
     runs_queue,
     with_retries,
 )
+from backend.workers.agent_jobs import after_parse
 
 logger = logging.getLogger(__name__)
 
@@ -419,6 +420,7 @@ async def _parse_reply(reply_id: int) -> dict[str, Any]:
         async with factory() as session:
             parsed = await Parser(session, extractor).parse(reply_id)
             await session.commit()
+            await after_parse(session, reply_id)
             return {
                 "reply": parsed.reply_id,
                 "confidence": parsed.confidence,
