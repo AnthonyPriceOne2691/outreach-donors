@@ -1,7 +1,7 @@
 """лид продаж из ответа «пишите другому» — ссылка на исходный диалог
 
 Revision ID: 739817077a57
-Revises: 75242c2ed7ba
+Revises: 3f9663d69a56
 Create Date: 2026-10-07 01:00:00.000000
 
 Ответ «это не ко мне, пишите …» заводит нового лида той же компании
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "739817077a57"
-down_revision: Union[str, Sequence[str], None] = "75242c2ed7ba"
+down_revision: Union[str, Sequence[str], None] = "3f9663d69a56"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
