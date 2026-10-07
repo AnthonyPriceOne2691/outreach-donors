@@ -1,7 +1,9 @@
 """Мир продаж для тестов отправки и сборки очереди (срез 4.6b): подключённые продажи.
 
 Гипотеза, цепочка писем общим набором на двух языках, «Отправитель», ящик продаж, своя
-учётка почты продаж (переменные окружения), ссылка отписки — и лиды. Тексты заведомо
+учётка почты продаж (переменные окружения), ссылка отписки — и лиды с известным поясом.
+Окно получателя (4.3) здесь открыто во все дни и часы: эти тесты не об окне, а пачка и
+экран берут настоящие часы; окно и пояса — `test_sales_send_zones.py`. Тексты заведомо
 выдуманные: репозиторий публичный, коммерческих текстов в нём нет. Адреса — на
 `*.example.test`: нулевой транспорт пишет только туда, боевой не собирается вовсе.
 """
@@ -9,7 +11,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time
 from typing import Any
 
 import pytest
@@ -60,13 +62,17 @@ RU_FOLLOW = {
 
 
 def connect(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Подключить продажи: выключатель, своя учётка, ссылка отписки и метки ответа."""
+    """Подключить продажи: выключатель, своя учётка, ссылка отписки и метки ответа; окно
+    получателя — во все дни и часы."""
     monkeypatch.setattr(sales_cfg, "ENABLED", True)
     monkeypatch.setenv("OUTREACH_SALES_SENDGRID_API_KEY", OWN_KEY)
     monkeypatch.setenv("OUTREACH_SALES_ALLOWED_RECIPIENTS", "")
     monkeypatch.setattr(outreach_cfg, "UNSUBSCRIBE_URL", "https://unsub.example.test/u")
     monkeypatch.setattr(outreach_cfg, "INBOUND_SECRET", "made-up-inbound-secret")
     monkeypatch.setattr(outreach_cfg, "SENDER_NAME", "Donor Desk Name")
+    monkeypatch.setattr(sales_cfg, "SEND_DAYS", frozenset(range(7)))
+    monkeypatch.setattr(sales_cfg, "SEND_OPENS", time.min)
+    monkeypatch.setattr(sales_cfg, "SEND_CLOSES", time.max)
 
 
 async def settings(session: AsyncSession, **changes: str | None) -> None:
@@ -132,6 +138,7 @@ async def lead(
         "name": "Jane Example",
         "company": "Example Test Co",
         "language": "en",
+        "timezone": "Europe/Berlin",
         "source": LeadSource.IMPORT,
         "status": LeadStatus.READY,
     }
