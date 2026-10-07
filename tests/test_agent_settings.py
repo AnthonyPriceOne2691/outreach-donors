@@ -162,11 +162,9 @@ class TestScreen:
         assert refused.status_code == 422
 
 
-def _migration() -> ModuleType:
-    path = Path(__file__).resolve().parents[1] / (
-        "backend/migrations/versions/d7da62eb8165_agent_settings.py"
-    )
-    spec = importlib.util.spec_from_file_location("agent_settings_migration", path)
+def _migration(name: str) -> ModuleType:
+    path = Path(__file__).resolve().parents[1] / "backend/migrations/versions" / name
+    spec = importlib.util.spec_from_file_location(name.removesuffix(".py"), path)
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -175,15 +173,21 @@ def _migration() -> ModuleType:
 
 
 def _tables(connection: Connection) -> tuple[bool, bool]:
+    """Откат настроек и снова вперёд. Черновики ссылаются на версию настроек
+    и откатываются первыми — как откатил бы alembic по цепочке."""
+
     def exists() -> bool:
         found = connection.execute(text("SELECT to_regclass('agent_settings')")).scalar()
         return found is not None
 
-    migration = _migration()
+    settings = _migration("d7da62eb8165_agent_settings.py")
+    drafts = _migration("7ccbaf6d840a_agent_drafts.py")
     with Operations.context(MigrationContext.configure(connection)):
-        migration.downgrade()
+        drafts.downgrade()
+        settings.downgrade()
         down = exists()
-        migration.upgrade()
+        settings.upgrade()
+        drafts.upgrade()
     return down, exists()
 
 

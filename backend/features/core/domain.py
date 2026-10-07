@@ -141,6 +141,21 @@ class PriceSource(StrEnum):
     MANUAL = "manual"  # указал человек: прайс агентства, биржа, прошлая сделка
 
 
+class DraftStatus(StrEnum):
+    """Черновик агента переписки (`agent_drafts`): где он в жизни ответа.
+
+    `SKIPPED` — ответ не нужен (бриф этапа так решил), текста нет.
+    `ESCALATED` — агент или судья отдали ответ человеку: «как есть» не уходит.
+    `SENT` и `REJECTED` — решение принято, черновик больше не переписывается.
+    """
+
+    DRAFTED = "drafted"
+    SKIPPED = "skipped"
+    ESCALATED = "escalated"
+    SENT = "sent"
+    REJECTED = "rejected"
+
+
 class SuppressionReason(StrEnum):
     UNSUBSCRIBED = "unsubscribed"
     COMPLAINED = "complained"

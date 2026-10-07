@@ -1,4 +1,4 @@
-"""Агент переписки: его настройки, по этапу на каждую ветку разговора.
+"""Агент переписки: настройки по этапам и черновики ответов.
 
 На этапе доноров мы покупаем размещение и торгуемся вниз, на этапе
 рекламодателей — продаём его и держим цену. Цель, доводы и предел цены у них
@@ -12,14 +12,26 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
-from sqlalchemy import DECIMAL, Boolean, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    DECIMAL,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from backend.features.core.domain import Stage
+from backend.features.core.domain import DraftStatus, Stage
 from backend.features.core.models._mixins import TimestampedMixin
 from backend.shared.database.base import Base
 
@@ -51,3 +63,56 @@ class AgentSettingsModel(TimestampedMixin, Base):
     stop_topics: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
 
     __table_args__ = (UniqueConstraint("stage", "version", name="uq_agent_settings_stage_version"),)
+
+
+class AgentDraftModel(TimestampedMixin, Base):
+    """Черновик агента — ответ на один входящий ответ человека, и решение по нему.
+
+    Один на ответ: «написать заново» переписывает его, пока решения нет, —
+    объяснимость держит ссылка на версию настроек, а попытки петли правки
+    лежат в `meta`. Черновик — не письмо: в `messages` его нет, и ни очередь,
+    ни счётчики писем его не видят. Письмом он становится, когда ответ
+    отправят (`agent/drafts.py`): рядом ложатся ушедший текст и была ли
+    правка — по ним видно, как часто агента правят (датасет калибровки).
+    """
+
+    __tablename__ = "agent_drafts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    reply_id: Mapped[int] = mapped_column(
+        ForeignKey("replies.id", ondelete="CASCADE"), nullable=False
+    )
+    #: По какой версии настроек написан.
+    settings_id: Mapped[int] = mapped_column(ForeignKey("agent_settings.id"), nullable=False)
+    status: Mapped[DraftStatus] = mapped_column(
+        SQLEnum(DraftStatus, values_callable=lambda x: [i.value for i in x]), nullable=False
+    )
+    #: Текст агента. Пусто — бриф этапа решил не писать (`skipped`) или сразу
+    #: отдал ответ человеку (`escalated`), либо модель не вернула годного.
+    body: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    #: Почему пропущен или отдан человеку — словами.
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Что этап знал и решил до письма (бриф) и что было в петле правки —
+    #: для калибровки по версиям, а не для отправки.
+    meta: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
+    )
+    model: Mapped[str] = mapped_column(String(64), nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    #: Решение: что ушло, правили ли текст агента, кто и когда решил
+    #: (`autopilot` — без человека), почему отклонён, каким письмом ушёл.
+    final_body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    edited: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    decided_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reject_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sent_message_id: Mapped[int | None] = mapped_column(
+        ForeignKey("messages.id", ondelete="SET NULL"), nullable=True
+    )
+
+    __table_args__ = (
+        UniqueConstraint("reply_id", name="uq_agent_drafts_reply"),
+        Index("idx_agent_drafts_status", "status"),
+    )

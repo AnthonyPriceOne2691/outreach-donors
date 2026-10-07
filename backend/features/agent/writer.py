@@ -87,6 +87,12 @@ class Request:
     sign_as: str
     #: Что разбор уже достал из последнего ответа: цена, валюта, продаёт ли.
     parsed: dict[str, str]
+    #: Факты брифа этапа (`agent/stages.Brief`) — строками. Пусто — ключа в
+    #: запросе нет вовсе: промпт этапа без брифа о нём не знает.
+    facts: tuple[str, ...] = ()
+    #: Промпт и модель этапа (`AgentStage`); модель `None` — клиента.
+    prompt: Path = PROMPT_PATH
+    model: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,9 +105,10 @@ class Written:
     tokens: int = 0
 
 
-@lru_cache(maxsize=1)
-def load_prompt() -> str:
-    return PROMPT_PATH.read_text(encoding="utf-8").strip()
+@lru_cache(maxsize=8)
+def load_prompt(path: Path = PROMPT_PATH) -> str:
+    """Промпт этапа — файлом в package-data, по одному на путь."""
+    return path.read_text(encoding="utf-8").strip()
 
 
 def _quiet(text: str) -> str:
@@ -111,7 +118,7 @@ def _quiet(text: str) -> str:
 def user_message(request: Request) -> str:
     """Настройки, факты и переписка — тем видом, о котором говорит промпт."""
     settings = request.settings
-    facts = {
+    facts: dict[str, object] = {
         "stage": request.stage.value,
         "settings": {
             "goal": settings.goal,
@@ -125,6 +132,8 @@ def user_message(request: Request) -> str:
         "sign_as": request.sign_as,
         "parsed_from_last_message": request.parsed or None,
     }
+    if request.facts:
+        facts["facts"] = list(request.facts)
     conversation = [
         {"from": "us" if turn.ours else "them", "text": _quiet(turn.text)} for turn in request.turns
     ]
@@ -134,11 +143,11 @@ def user_message(request: Request) -> str:
     )
 
 
-def build_payload(model: str, *, user: str) -> dict[str, Any]:
+def build_payload(model: str, *, user: str, prompt: Path = PROMPT_PATH) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "model": model,
         "messages": [
-            {"role": "system", "content": load_prompt()},
+            {"role": "system", "content": load_prompt(prompt)},
             {"role": "user", "content": user},
         ],
         "response_format": {"type": "json_object"},
@@ -225,7 +234,9 @@ class AgentWriter(ModelClient):
         body = await post_chat(
             self._http,
             api_key=self._api_key,
-            payload=build_payload(self._model, user=hidden.text),
+            payload=build_payload(
+                request.model or self._model, user=hidden.text, prompt=request.prompt
+            ),
             topic=TOPIC,
         )
         if isinstance(body, Refusal):

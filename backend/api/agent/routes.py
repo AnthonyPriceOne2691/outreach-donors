@@ -19,12 +19,8 @@ from backend.api.agent.schemas import (
 )
 from backend.api.deps import db_session, needs
 from backend.features.access.repository import AccessRepository
-from backend.features.agent.settings import (
-    AGENT_STAGES,
-    AgentSettingsRepository,
-    UnknownAgentStageError,
-    defaults,
-)
+from backend.features.agent.settings import AgentSettingsRepository
+from backend.features.agent.stages import AGENT_STAGES, agent_stage
 from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 
@@ -41,13 +37,13 @@ async def agent_settings(
 ) -> AgentView:
     repository = AgentSettingsRepository(session)
     stages = []
-    for stage in AGENT_STAGES:
+    for stage, parts in AGENT_STAGES.items():
         current = await repository.current(stage)
         stages.append(
             AgentStageView(
                 stage=stage,
                 current=None if current is None else AgentSettingsVersion.of(current),
-                defaults=AgentSettingsBody.of(defaults(stage)),
+                defaults=AgentSettingsBody.of(parts.defaults),
                 history=[AgentSettingsVersion.of(row) for row in await repository.history(stage)],
             )
         )
@@ -65,8 +61,7 @@ async def save_agent_settings(
     author: UserModel = _settler,
     session: AsyncSession = Depends(db_session),
 ) -> AgentSettingsVersion:
-    if stage not in AGENT_STAGES:
-        raise UnknownAgentStageError(f"На этапе «{stage.value}» агент переписку не ведёт")
+    agent_stage(stage)  # этапа без агента нет — 404 словами
     row = await AgentSettingsRepository(session).save(
         stage, body.to_settings(), author=author.email
     )
