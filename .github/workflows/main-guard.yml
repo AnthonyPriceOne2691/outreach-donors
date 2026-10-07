@@ -14,8 +14,11 @@ permissions:
 jobs:
   alert:
     # Только на красный результат quality: зелёный прогон даёт честный skipped,
-    # а не «успешно ничего не сделали».
-    if: github.event.workflow_run.conclusion == 'failure'
+    # а не «успешно ничего не сделали». И только на push: `branches: [main]` у
+    # workflow_run судит ИМЯ ветки, и PR из ветки `main` (форк или PR в другую
+    # базу) с красной quality открывал ложный «RED on main» (`cqg@2.51`, починка
+    # `portfolio-site`, разбор безопасности 03.10).
+    if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     # §8.7: предохранитель на КАЖДОЙ джобе — дефолт GitHub 6 часов. Приёмочное
     # развёртывание нашло, что таймауты стояли только в quality.yml.
