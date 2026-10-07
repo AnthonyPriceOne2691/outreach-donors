@@ -49,13 +49,13 @@ import { ApiError, refusalOf } from '../api/client';
 import { rowIdOf } from '../api/ids';
 import { countryTitle, DONOR_STATUSES } from '../api/labels';
 import type { DonorFullCard } from '../api/types';
-import { formatDate, formatMoney, formatNumber, formatShare } from '../format';
+import { formatDate, formatNumber, formatShare } from '../format';
 import { BackLink, backTo } from '../components/BackLink';
 import { Metric } from '../components/Metric';
 import { Seams } from '../components/Seams';
 import { fetchDonor } from '../api/runs';
-import { ReplyOffers } from '../threads/ReplyOffers';
 import { DonorAddresses } from './DonorAddresses';
+import { DonorPrice } from './DonorPrice';
 
 const when = formatDate;
 
@@ -83,13 +83,17 @@ function decidedBy(donor: DonorFullCard): string {
 
 /** Решение человека по домену: донор — кем принят и в каком прогоне;
  *  не донор — кто тогда и где о нём решают. До 06.10.2026 у донора не
- *  было ничего: «принят» было видно в списке, а кем и когда — нигде. */
+ *  было ничего: «принят» было видно в списке, а кем и когда — нигде.
+ *  Донор, заведённый вручную с ценой (07.10.2026), в очереди прогона не
+ *  стоял — так и сказано: «заведён вручную». */
 function Standing({ donor }: { donor: DonorFullCard }) {
   const run = donor.review_run;
   if (donor.review === 'accepted') {
+    const how = donor.entered_by && run === null ? 'заведён вручную' : 'принят';
     return (
       <Text size="sm" className="donorStanding">
-        Донор: принят{decidedBy(donor)}
+        Донор: {how}
+        {decidedBy(donor)}
         {run === null ? '' : ' '}
         {run === null ? null : (
           <Anchor component={Link} to={`/runs/${run}/review`} size="sm" fw={500}>
@@ -230,21 +234,9 @@ export function DonorPage() {
           другого донора не должна унаследовать его от предыдущей. */}
       <DonorAddresses key={data.id} donor={data} />
 
-      {data.last_price !== null && (
-        <Card className="glass" p="xl">
-          <Title order={5} mb="xs">
-            Последняя цена
-          </Title>
-          {/* Валюта приходит с ценой, а не подставляется здесь: конвертации
-              в сервисе нет, и «USD» рядом с числом в евро — это не подпись,
-              а неверное число. Деньги — общей функцией, как на остальных
-              экранах: сырой строкой сервера цена печаталась «250.00 EUR». */}
-          <Text>
-            {formatMoney(data.last_price, data.last_price_currency)} · {when(data.last_price_at)}
-          </Text>
-          <ReplyOffers offers={data.last_offers} />
-        </Card>
-      )}
+      {/* Цена, откуда она и «Указать цену» — тоже по ключу донора: вписанное
+          в поля одного донора не должно уехать в карточку другого. */}
+      <DonorPrice key={`price-${data.id}`} donor={data} />
     </Stack>
   );
 }
