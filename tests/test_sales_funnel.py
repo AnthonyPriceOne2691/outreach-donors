@@ -7,6 +7,7 @@ A4 — числа экрана сходятся с запросом к базе 
 
 from __future__ import annotations
 
+import random
 from datetime import timedelta
 
 import pytest
@@ -338,3 +339,53 @@ async def test_list_of_a_step_is_its_number(session: AsyncSession, rows: Rows) -
     for step in Step:
         assert len(await funnel.leads(session, step, ALL)) == getattr(total, step.value), step
     assert total == Funnel(queued=1, sent=3, delivered=1, bounced=1, answered=1, handed_off=1)
+
+
+async def _random_world(session: AsyncSession, rows: Rows, seed: int) -> None:
+    """Сорок лидов со случайным путём — детерминированно, от `seed`: письма цепочки всех
+    состояний, ответы всех видов, передачи. Времена — целые сутки назад, ровно на границах."""
+    chance = random.Random(seed)
+    hypotheses = [await rows.hypothesis(f"случай {seed}-{n}") for n in range(2)]
+    first_states = (
+        MessageStatus.QUEUED,
+        MessageStatus.STOPPED,
+        MessageStatus.SENT,
+        MessageStatus.DELIVERED,
+        MessageStatus.BOUNCED,
+    )
+    later_states = (MessageStatus.SENT, MessageStatus.DELIVERED, MessageStatus.BOUNCED)
+    for n in range(40):
+        lead = await rows.lead(chance.choice(hypotheses), f"lead{n}@case{seed}.example.test")
+        first = chance.choice(first_states)
+        days = chance.randint(0, 30)
+        await rows.letter(lead, step=0, status=first, days_ago=days)
+        if first in later_states:
+            for step in range(1, chance.randint(1, 3)):
+                status = chance.choice((*later_states, MessageStatus.QUEUED))
+                await rows.letter(lead, step=step, status=status, days_ago=max(days - 3 * step, 0))
+            if chance.random() < 0.5:
+                kind = chance.choice(tuple(ReplyKind))
+                await rows.reply(lead, kind, days_ago=max(days - 1, 0))
+                if kind is ReplyKind.HUMAN and chance.random() < 0.5:
+                    await rows.hand_off(lead)
+
+
+@pytest.mark.parametrize("seed", [7391, 4127])
+async def test_adjacent_periods_split_every_step_without_gaps_or_double_counting(
+    session: AsyncSession, rows: Rows, seed: int
+) -> None:
+    """Отношение, а не значение: любой разрез периода делит лидов каждого шага на две части
+    без дыр и двойного счёта; доли шагов не больше основы."""
+    await _random_world(session, rows, seed)
+    start, end = NOW - timedelta(days=40), NOW + timedelta(days=1)
+    whole = await _total(session, Period(since=start, until=end))
+    assert whole == await _total(session)
+    for days in (0, 1, 3, 7, 12, 19, 26, 30):
+        cut = NOW - timedelta(days=days)
+        before = await _total(session, Period(since=start, until=cut))
+        after = await _total(session, Period(since=cut, until=end))
+        assert before + after == whole, f"разрез {days} сут. назад"
+    assert whole.delivered + whole.bounced <= whole.sent
+    assert max(whole.answered, whole.handed_off) <= whole.sent
+    # Мир не пустой: разрезу есть что делить.
+    assert min(whole.sent, whole.queued, whole.answered) > 0
