@@ -319,7 +319,7 @@ class TestRefusals:
         """Ящик живёт на поддомене, а донор — корень: сравниваются корни."""
         await make_sender(session, "outreach@mail.example.net")
 
-        with pytest.raises(DonorRefusedError, match="example.net — наш домен рассылки"):
+        with pytest.raises(DonorRefusedError, match=r"example\.net — наш домен рассылки"):
             await enter_host(session, "https://example.net/", price())
         await _nothing_changed(session, 0)
 
@@ -343,7 +343,7 @@ class TestRefusals:
         )
         await session.flush()
 
-        with pytest.raises(DonorRefusedError, match="example.com в стоп-листе"):
+        with pytest.raises(DonorRefusedError, match=r"example\.com в стоп-листе"):
             await enter_host(session, "example.com", price())
         await _nothing_changed(session, 1)
 
@@ -372,7 +372,7 @@ class TestRefusals:
     async def test_rejected_by_a_human(self, session: AsyncSession) -> None:
         await make_donor(session, "example.com", review="rejected")
 
-        with pytest.raises(DonorRefusedError, match="example.com отклонён человеком"):
+        with pytest.raises(DonorRefusedError, match=r"example\.com отклонён человеком"):
             await enter_host(session, "example.com", price())
         await _nothing_changed(session, 1)
         assert (await _donor(session, "example.com")).review == "rejected"
