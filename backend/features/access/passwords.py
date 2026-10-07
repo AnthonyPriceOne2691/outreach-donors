@@ -69,5 +69,5 @@ def assert_strong_enough(plain: str) -> None:
 
 
 def generate_one_time() -> str:
-    """Разовый пароль (свидетель CI #199). Хранится только хешем."""
+    """Разовый пароль. Показывается один раз и хранится только хешем."""
     return "".join(secrets.choice(_ALPHABET) for _ in range(ONE_TIME_LENGTH))
