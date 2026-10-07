@@ -31,7 +31,7 @@ from backend.features.agent.stages import Brief, Conversation, Skip, SkipKind
 from backend.features.agent.writer import Turn
 from backend.features.sales import kb
 from backend.features.sales import sender as sales_sender
-from backend.features.sales.agent import facts, moves, reading, situation
+from backend.features.sales.agent import facts, judge, moves, reading, situation
 from backend.features.sales.agent.situation import Label, Situation
 
 #: Почему ответ не нужен — словами для человека.
@@ -44,7 +44,11 @@ _WHERE = "заполните «Продажи» → «Отправитель»"
 
 def versions() -> dict[str, str]:
     """Версии того, по чему бриф собран, — калибровка сравнивает черновики по ним."""
-    return {"situation": situation.PROMPT_VERSION, "moves": moves.table().version}
+    return {
+        "situation": situation.PROMPT_VERSION,
+        "judge": judge.PROMPT_VERSION,
+        "moves": moves.table().version,
+    }
 
 
 def _held(letter: str) -> str | None:

@@ -16,7 +16,7 @@ from backend.features.agent.cleaning import ROLE_PLACEHOLDER
 from backend.features.agent.stages import SkipKind
 from backend.features.sales import kb
 from backend.features.sales import sender as sales_sender
-from backend.features.sales.agent import brief, reading
+from backend.features.sales.agent import brief, judge, moves, reading
 from backend.features.sales.agent import situation as sales_situation
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.test_sales_agent_situation import Plug, llm, talk
@@ -76,7 +76,11 @@ async def test_a1_price_question_with_no_prices_named_gets_the_call_link_and_no_
         "call",
     )
     assert found.meta["kb_version"] == await kb.version(session)
-    assert found.meta["versions"]["situation"] == sales_situation.PROMPT_VERSION
+    assert found.meta["versions"] == {
+        "situation": sales_situation.PROMPT_VERSION,
+        "judge": judge.PROMPT_VERSION,
+        "moves": moves.table().version,
+    }
 
 
 async def test_a2_thanks_needs_no_reply_and_gives_no_facts(
