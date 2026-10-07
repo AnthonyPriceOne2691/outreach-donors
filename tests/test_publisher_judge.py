@@ -351,6 +351,30 @@ def test_both_prompts_know_placement() -> None:
         assert "link_vendor" in prompt
 
 
+def _placement_text(prompt: str) -> list[str]:
+    """Общий текст о продаже размещения: пункты от `sells_placement` до
+    `sells_own` и два абзаца о плате целиком."""
+    begin = prompt.index("sells_placement (")
+    rules = prompt[begin : prompt.index("sells_own (", begin)]
+    notes = [
+        line
+        for line in prompt.splitlines()
+        if line.startswith(("Где окажется оплаченная статья", "Приглашение писать для сайта"))
+    ]
+    return [rules, *notes]
+
+
+def test_judge_and_arbiter_describe_placement_with_one_text() -> None:
+    """Продажа размещения у судьи и арбитра описана одним текстом.
+
+    До 07.10.2026 его держали общие константы модуля, и разойтись ему было
+    негде. Теперь промпты — два файла в `donors/prompts/`, и правка одного без
+    другого судила бы домен по выдаче одним правилом, а спор с главной — другим.
+    """
+    assert len(_placement_text(SYSTEM)) == 3
+    assert _placement_text(SYSTEM) == _placement_text(ARBITER_SYSTEM)
+
+
 def test_every_intent_has_advice() -> None:
     assert set(ADVICE) == set(Intent)
 
