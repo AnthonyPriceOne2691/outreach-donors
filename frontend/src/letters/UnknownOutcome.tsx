@@ -154,8 +154,18 @@ function StuckLetter({ letter, canSend, busy, onChoose }: LetterProps) {
             Кому {letter.email ?? 'адрес не определён'}, с ящика {letter.sender_email ?? '—'},
             отдано почте {formatDateTime(letter.since)} · {letter.campaign}
           </Text>
+          {/* Чернилами и с подчёркиванием, как ссылки посреди текста на главной:
+              бирюзовая на светлом месте стекла намерилась 4,23 : 1 (07.10.2026). */}
           {letter.thread_id === null ? null : (
-            <Anchor component={Link} to={`/threads/${letter.thread_id}`} size="sm">
+            <Anchor
+              component={Link}
+              to={`/threads/${letter.thread_id}`}
+              size="sm"
+              fw={500}
+              c="var(--ink)"
+              underline="always"
+              className="inkLink"
+            >
               Переписка
             </Anchor>
           )}
