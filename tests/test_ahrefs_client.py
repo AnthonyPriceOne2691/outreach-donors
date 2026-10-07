@@ -21,6 +21,10 @@ COST_HEADERS = {
     "x-api-units-cost-row": "11",
 }
 
+#: Ответ 200 со страницей вместо данных — так отвечают посредник и заглушка
+#: на время работ.
+PAGE = "<!doctype html><html><body>Service temporarily unavailable</body></html>"
+
 
 def _client(handler: Any, **kwargs: Any) -> AhrefsClient:
     http = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.test")
@@ -166,6 +170,28 @@ class TestFailuresAreVisible:
 
         with pytest.raises(AhrefsError, match="изменил"):
             await _client(handler).metrics_by_country("example.com", "2026-09-01")
+
+    async def test_page_instead_of_json_is_a_refusal_in_words(self) -> None:
+        """`JSONDecodeError` уходил мимо всех `except AhrefsError` — прогон падал
+        технической ошибкой разбора. Страница вместо данных — не смена формы
+        ответа: повтор может помочь, и ошибка не постоянная."""
+        handler = lambda r: httpx.Response(200, text=PAGE, headers=COST_HEADERS)  # noqa: E731
+
+        with pytest.raises(AhrefsError, match="by_country: ответ Ahrefs не разобран") as caught:
+            await _client(handler).metrics_by_country("example.com", "2026-09-01")
+
+        assert not caught.value.permanent
+        assert "Service temporarily unavailable" in str(caught.value)
+
+    async def test_quota_answered_with_a_page_is_a_refusal_in_words(self) -> None:
+        """Тот же ответ на вопрос об остатке — «остаток недоступен», а не
+        `ValueError`: его не ловил ни сторож тишины, ни запуск прогона."""
+        handler = lambda r: httpx.Response(200, text=PAGE)  # noqa: E731
+
+        with pytest.raises(AhrefsError, match="Остаток квоты недоступен: ответ Ahrefs") as caught:
+            await _client(handler).limits_and_usage()
+
+        assert not caught.value.permanent
 
     async def test_genuinely_empty_answer_is_not_an_error(self) -> None:
         """А пустой список — законный ответ: провайдер просто ничего не знает."""

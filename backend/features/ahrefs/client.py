@@ -47,8 +47,9 @@ MAX_BACKOFF_SEC = 60.0
 
 class AhrefsError(RuntimeError):
     """Запрос не удался. `permanent` — повтор не поможет: ключ, права,
-    неверный запрос, непонятный ответ. Без признака — повторы запроса
-    кончились на временном сбое, и прогон стоит продолжить позже."""
+    неверный запрос, непонятная форма ответа. Без признака — повторы запроса
+    кончились на временном сбое или вместо данных пришла страница (ответ
+    не JSON), и прогон стоит продолжить позже."""
 
     def __init__(self, message: str, *, permanent: bool = False) -> None:
         super().__init__(message)
@@ -185,7 +186,6 @@ class AhrefsClient:
         try:
             response = await self._http.get("/v3/subscription-info/limits-and-usage")
             response.raise_for_status()
-            payload = response.json()
         except httpx.HTTPError as exc:
             # Наружу идёт один тип ошибки: вызывающему важно не «что сломалось»,
             # а «остаток неизвестен, тратить нельзя». Несобранный запрос — без
@@ -194,6 +194,7 @@ class AhrefsClient:
                 f"Остаток квоты недоступен: {reason_of(exc)}", permanent=unsent(exc)
             )
             raise error from None if unsent(exc) else exc
+        payload = _json(response, "Остаток квоты недоступен")
         data = payload.get("limits_and_usage") if isinstance(payload, dict) else None
         if not isinstance(data, dict):
             raise AhrefsError("Ahrefs не вернул остаток квоты")
@@ -283,11 +284,29 @@ class AhrefsClient:
                 continue
 
             response.raise_for_status()
-            return Response(rows=_rows(response.json(), operation), cost=cost)
+            return Response(rows=_rows(_json(response, operation), operation), cost=cost)
 
         raise AhrefsError(
             f"{operation}: не удалось за {MAX_ATTEMPTS} попыток — {last_error}"
         ) from last_error
+
+
+def _json(response: httpx.Response, what: str) -> Any:
+    """Тело ответа как JSON; не JSON — `AhrefsError` словами, а не `ValueError`.
+
+    Ответ 200 со страницей вместо данных — посредник, заглушка на время работ —
+    не поломка нашего кода и не смена формы ответа (та постоянная, `_rows`):
+    повтор может помочь, поэтому ошибка не постоянная. Без обёртки
+    `JSONDecodeError` проходил мимо всех `except AhrefsError`: проход сторожа
+    тишины падал целиком, вместе с тревогами доноров, а запуск прогона вместо
+    «не удалось узнать остаток» падал технической ошибкой разбора.
+    """
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise AhrefsError(
+            f"{what}: ответ Ahrefs не разобран как JSON — {response.text[:200]!r}"
+        ) from exc
 
 
 def _rows(payload: Any, operation: str) -> list[dict[str, Any]]:

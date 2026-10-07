@@ -9,9 +9,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import httpx
 import pytest
 from backend.api.settings import routes as settings_routes
 from backend.config import serp as serp_cfg
+from backend.features.ahrefs.client import AhrefsClient
 from backend.features.core import usage
 from backend.features.core.domain import (
     CrawlOutcome,
@@ -271,3 +273,40 @@ class TestProvidersNotConfigured:
         assert left is None
         assert error is not None
         assert "не подключён" in error
+
+
+class TestProviderAnswersWithAPage:
+    """Ahrefs ответил 200 страницей вместо данных — посредник, заглушка на время
+    работ. До 08.10.2026 `JSONDecodeError` уходил мимо `except AhrefsError` и ронял
+    проход сторожа целиком — вместе с тревогами доноров."""
+
+    @pytest.fixture(autouse=True)
+    def _page_instead_of_data(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def page(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, text="<!doctype html><title>Maintenance</title>")
+
+        def ahrefs() -> AhrefsClient:
+            http = httpx.AsyncClient(
+                transport=httpx.MockTransport(page), base_url="https://ahrefs.example.test"
+            )
+            return AhrefsClient(api_key="k", http=http)
+
+        async def serp_answers() -> None:
+            return None
+
+        monkeypatch.setattr(silence_module, "AhrefsClient", ahrefs)
+        monkeypatch.setattr(silence_module, "_serp_silent", serp_answers)
+
+    async def test_probe_names_the_provider_instead_of_crashing(self) -> None:
+        alarm = await silence_module.probe_providers()
+
+        assert alarm is not None
+        assert (alarm.code, alarm.title) == ("provider-unreachable", "Провайдер не отвечает")
+        assert alarm.detail.startswith("Не отвечает: Ahrefs.")
+
+    async def test_the_pass_keeps_the_other_alarms(self, session: AsyncSession) -> None:
+        await _letter(session, status=MessageStatus.SENT, sent_at=NOW - timedelta(hours=8))
+
+        found = await silence_module.report(session, now=NOW)
+
+        assert {"provider-unreachable", "delivery-silence"} <= _codes(found)
