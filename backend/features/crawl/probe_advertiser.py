@@ -16,7 +16,7 @@
 которое получил бы рекламодатель с этой страницы.
 
 **Сборка должна взять его — и первым.** Условия те же, что у сборки
-(`Recipients._advertiser_candidates`): свежая цена донора-площадки, адрес вне
+(`Recipients.advertiser_candidates`): свежая цена донора-площадки, адрес вне
 стоп-листа, писем домену ещё не было. Рекламодателей сборка берёт по баллу,
 и балл пробного — на единицу выше лучшего настоящего: сборка с лимитом 1
 возьмёт его, а не настоящего. Последнее слово — за запросом самой сборки:
@@ -268,7 +268,7 @@ async def _advertiser(
 
 async def _taken_first(session: AsyncSession, domain_id: int, email: str) -> None:
     """Сборка офферов с лимитом 1 берёт пробного — проверено её же запросом."""
-    picked = await Recipients(session).candidates(Stage.ADVERTISERS, limit=1)
+    picked = await Recipients(session).advertiser_candidates(limit=1)
     if picked and picked[0].domain_id == domain_id:
         return
     written = await session.scalar(

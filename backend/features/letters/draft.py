@@ -31,6 +31,7 @@ from backend.features.letters.template import (
     Template,
     TemplateError,
     ZoneKind,
+    first_letter,
     for_stage,
     parse,
     spec_for,
@@ -133,7 +134,7 @@ _PROBE_LINK = compose.FoundLink(donor_host="", page_url="", anchor="")
 
 
 def _check_values(checked: Template, stage: Stage) -> None:
-    link = _PROBE_LINK if stage is Stage.ADVERTISERS else None
+    link = _PROBE_LINK if first_letter(stage).link else None
     known = set(compose.values_for(host="", link=link))
     unknown = sorted(checked.placeholders() - known)
     if unknown:

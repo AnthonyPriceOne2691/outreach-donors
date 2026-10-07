@@ -26,9 +26,11 @@ import re
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+from typing import assert_never
 
 from backend.config import outreach as cfg
 from backend.features.core.domain import Stage
+from backend.features.core.stages import SalesNotConnectedError
 from backend.features.letters.uniqueness import words
 
 #: Заголовок зоны: `[имя] вид`.
@@ -358,24 +360,43 @@ def advertiser() -> Template:
     return load(ADVERTISER_PATH, ADVERTISER)
 
 
-#: Первое письмо этапа: файл по умолчанию и требования к нему. Этап
-#: письма — этап рассылки, и перепутать их значит отправить рекламодателю
-#: вопрос о цене его же размещения.
-_FIRST_LETTER: dict[Stage, tuple[Path, Spec]] = {
-    Stage.DONORS: (DEFAULT_PATH, FIRST),
-    Stage.ADVERTISERS: (ADVERTISER_PATH, ADVERTISER),
-}
+@dataclass(frozen=True, slots=True)
+class FirstLetter:
+    """Первое письмо этапа: файл по умолчанию и требования к нему."""
+
+    path: Path
+    spec: Spec
+    #: Пишется ли письмо под найденную ссылку — площадку, страницу и анкор.
+    link: bool
+
+
+def first_letter(stage: Stage) -> FirstLetter:
+    """Первое письмо этапа. Этап письма — этап рассылки, и перепутать их
+    значит отправить рекламодателю вопрос о цене его же размещения.
+
+    Разбор целиком, а не словарём: этап без письма — отказ словами здесь,
+    а не `KeyError` где-то ниже; следующий новый этап — ошибка mypy.
+    """
+    match stage:
+        case Stage.DONORS:
+            return FirstLetter(DEFAULT_PATH, FIRST, link=False)
+        case Stage.ADVERTISERS:
+            return FirstLetter(ADVERTISER_PATH, ADVERTISER, link=True)
+        case Stage.SALES:
+            raise SalesNotConnectedError(f"Первое письмо этапа {stage.value}")
+        case _:
+            assert_never(stage)
 
 
 def spec_for(stage: Stage) -> Spec:
     """Требования к первому письму этапа."""
-    return _FIRST_LETTER[stage][1]
+    return first_letter(stage).spec
 
 
 def for_stage(stage: Stage) -> Template:
     """Первое письмо этапа по умолчанию."""
-    path, spec = _FIRST_LETTER[stage]
-    return load(path, spec)
+    found = first_letter(stage)
+    return load(found.path, found.spec)
 
 
 def of_campaign(stage: Stage, stored: str | None) -> Template:
@@ -388,11 +409,22 @@ def of_campaign(stage: Stage, stored: str | None) -> Template:
     return parse(stored, spec_for(stage)) if stored else for_stage(stage)
 
 
-#: Имена файлов добивок по этапам: `<префикс>_<шаг>.txt`.
-_FOLLOWUP_PREFIX: dict[Stage, str] = {
-    Stage.DONORS: "followup",
-    Stage.ADVERTISERS: "advertiser_followup",
-}
+def _followup_prefix(stage: Stage) -> str | None:
+    """Имена файлов добивок этапа: `<префикс>_<шаг>.txt`. `None` — цепочки нет."""
+    match stage:
+        case Stage.DONORS:
+            return "followup"
+        case Stage.ADVERTISERS:
+            return "advertiser_followup"
+        case Stage.SALES:
+            return None
+        case _:
+            assert_never(stage)
+
+
+#: Этапы с цепочкой добивок. Проход добивок берёт только их: срок добивки
+#: этапа без цепочки не гасится, пока её нечем отправить (`followups.claim`).
+CHAINED: tuple[Stage, ...] = tuple(s for s in Stage if _followup_prefix(s) is not None)
 
 
 def followup(step: int, stage: Stage = Stage.DONORS) -> Template:
@@ -401,9 +433,12 @@ def followup(step: int, stage: Stage = Stage.DONORS) -> Template:
     Шаблоны лежат файлами рядом с первым письмом, а не строками в базе:
     текст добивки один на всю рассылку, правится редко и должен
     проходить ревью кодом. У этапов добивки свои: донору напоминают
-    о вопросе про цену, рекламодателю — об оффере.
+    о вопросе про цену, рекламодателю — об оффере. У продаж цепочки нет.
     """
-    path = TEMPLATES / f"{_FOLLOWUP_PREFIX[stage]}_{step}.txt"
+    prefix = _followup_prefix(stage)
+    if prefix is None:
+        raise SalesNotConnectedError(f"Добивка шага {step}")
+    path = TEMPLATES / f"{prefix}_{step}.txt"
     if not path.exists():
         raise TemplateError(
             f"Шаблона добивки для шага {step} нет ({path.name}). "

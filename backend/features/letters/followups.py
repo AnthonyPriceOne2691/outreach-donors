@@ -32,6 +32,12 @@
 Иначе backlog первых писем голодит цепочки, а цепочки съедают квоту
 новых доноров. Часовой, а не дневной, — чтобы сотня подошедших добивок
 не ушла пачкой за минуту: почтовая платформа смотрит на скорость.
+
+**Этап без цепочки не захватывается.** Шаблон добивки выбирается по этапу
+уже после захвата, и этап без шаблонов (продажи — `template.CHAINED`)
+терял бы добивку: срок погашен, письма нет. Поэтому захват берёт только
+этапы с цепочкой, а подошедшие добивки остальных проход называет вслух
+и не трогает — срок цел и дождётся подключения этапа.
 """
 
 from __future__ import annotations
@@ -40,13 +46,14 @@ import logging
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select, update
+from sqlalchemy import ColumnElement, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import outreach as cfg
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel
+from backend.features.core.stages import SALES_NOT_CONNECTED, SalesNotConnectedError
 from backend.features.letters import compose, guards, template
 from backend.features.letters.building import attempt_of, idempotency_key
 from backend.features.letters.chain import CHAINABLE, FIRST_STEP, MAX_STEPS
@@ -64,6 +71,26 @@ logger = logging.getLogger(__name__)
 
 class FollowupError(RuntimeError):
     """Добивку отправить нельзя, и причина названа."""
+
+
+def _due(moment: datetime) -> tuple[ColumnElement[bool], ...]:
+    """Подошедшая добивка: письмо ушло, срок наступил, шаг не последний."""
+    return (
+        MessageModel.status.in_(CHAINABLE),
+        MessageModel.next_action_at.is_not(None),
+        MessageModel.next_action_at <= moment,
+        MessageModel.step < MAX_STEPS - 1,
+    )
+
+
+def _chained() -> ColumnElement[bool]:
+    """Письмо рассылки этапа, у которого есть цепочка (`template.CHAINED`).
+
+    Подзапросом, а не соединением: захват блокирует строку письма, и
+    соединение заперло бы заодно строку рассылки — под всеми её письмами.
+    """
+    campaigns = select(CampaignModel.id).where(CampaignModel.stage.in_(template.CHAINED))
+    return MessageModel.campaign_id.in_(campaigns)
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,12 +135,7 @@ class Chain:
         moment = self._moment()
         pick = (
             select(MessageModel.id)
-            .where(
-                MessageModel.status.in_(CHAINABLE),
-                MessageModel.next_action_at.is_not(None),
-                MessageModel.next_action_at <= moment,
-                MessageModel.step < MAX_STEPS - 1,
-            )
+            .where(*_due(moment), _chained())
             .order_by(MessageModel.next_action_at)
             .limit(1)
             .with_for_update(skip_locked=True)
@@ -162,6 +184,13 @@ class Chain:
             anchor=anchor,
             attempt=attempt_of(row[8]),
         )
+
+    async def unchained(self) -> int:
+        """Сколько подошедших добивок ждут этапа без цепочки. Срок у них цел."""
+        total = await self._session.scalar(
+            select(func.count()).select_from(MessageModel).where(*_due(self._moment()), ~_chained())
+        )
+        return int(total or 0)
 
     async def restore(self, claimed: Claimed, *, delay: timedelta) -> None:
         """Вернуть срок: отправить сейчас не вышло, но цепочка жива.
@@ -329,13 +358,16 @@ class PassReport:
     unknown: int = 0
     """Почта не ответила после отправки: ушла ли добивка — неизвестно. Не
     повторяется: срок погашен, письмо «отправляется» до события платформы."""
+    waiting: int = 0
+    """Подошли, но у этапа нет цепочки: срок цел, добивка ждёт подключения этапа."""
 
     @property
     def as_report(self) -> str:
-        return (
+        said = (
             f"отправлено {self.sent}, отложено {self.postponed}, остановлено {self.stopped}, "
             f"исход неизвестен {self.unknown}"
         )
+        return f"{said}, ждут этапа {self.waiting}" if self.waiting else said
 
 
 #: На сколько откладывается добивка, если отправить её сейчас нельзя:
@@ -370,6 +402,13 @@ async def send_due(
         await session.commit()
         await _deliver(session, chain, postman, claimed, report)
 
+    report.waiting = await chain.unchained()
+    if report.waiting:
+        # Вслух на каждом проходе: молчащая цепочка выглядит как «никто
+        # не ответил», а это добивки, которые некому отправить.
+        logger.warning(
+            "добивки: %s подошли, срок не погашен — %s", report.waiting, SALES_NOT_CONNECTED
+        )
     return report
 
 
@@ -425,7 +464,9 @@ async def _deliver(
         await session.commit()
         logger.info("добивки: %s — шаг %s уже не в очереди (%s)", claimed.host, claimed.step, exc)
         return
-    except (NoSenderError, SendError) as exc:
+    except (NoSenderError, SendError, SalesNotConnectedError) as exc:
+        # Отказ почты этапу — как вставший ящик: срок возвращается, а не
+        # теряется, даже если цепочку этапа подключат раньше его писем.
         await chain.restore(claimed, delay=POSTPONE)
         await session.commit()
         report.postponed += 1
