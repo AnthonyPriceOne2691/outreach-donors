@@ -597,6 +597,7 @@ REVIEWED = {
     "messages.answers_reply_id → replies SET NULL": "ответ, на который ответили, не уходит",
     "reply_attachments.reply_id → replies CASCADE": "вложения пробного ответа уходят с ним",
     "agent_drafts.reply_id → replies CASCADE": "черновик пробного ответа уходит с ним",
+    "sales_draft_notices.draft_id → agent_drafts CASCADE": "сообщение о черновике — с черновиком",
     "replies.message_id → messages SET NULL": "уходят только липовые письма — с ответами",
     "agent_drafts.sent_message_id → messages SET NULL": "уходят только липовые письма — с ответами",
     "messages.thread_id → threads CASCADE": "уходит только липовая переписка",

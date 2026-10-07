@@ -722,9 +722,9 @@
       "worst": "save:154"
     },
     "backend/features/agent/stages.py": {
-      "lines": 271,
+      "lines": 272,
       "complexity": 4,
-      "worst": "agent_operations:254"
+      "worst": "agent_operations:255"
     },
     "backend/features/agent/writer.py": {
       "lines": 263,
@@ -882,7 +882,7 @@
       "worst": "—"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 68,
+      "lines": 70,
       "complexity": 0,
       "worst": "—"
     },
@@ -1746,10 +1746,15 @@
       "complexity": 7,
       "worst": "_move:105"
     },
+    "backend/features/sales/agent/notify.py": {
+      "lines": 305,
+      "complexity": 7,
+      "worst": "notify:113"
+    },
     "backend/features/sales/agent/parts.py": {
-      "lines": 96,
+      "lines": 110,
       "complexity": 1,
-      "worst": "brief:84"
+      "worst": "brief:91"
     },
     "backend/features/sales/agent/reading.py": {
       "lines": 131,
@@ -1872,9 +1877,9 @@
       "worst": "check:180"
     },
     "backend/features/sales/models.py": {
-      "lines": 432,
+      "lines": 470,
       "complexity": 2,
-      "worst": "_enum:75"
+      "worst": "_enum:76"
     },
     "backend/features/sales/ooo.py": {
       "lines": 149,

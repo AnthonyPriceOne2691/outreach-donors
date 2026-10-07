@@ -204,7 +204,8 @@ class AgentStage:
 
 
 #: Продажи: свой промпт и пин, бриф (ситуация → ход → факты), судья (правила
-#: кодом, затем модель) — частями модуля продаж (`features/sales/agent/parts.py`).
+#: кодом, затем модель), сообщение о черновике в группу продаж и строгий список
+#: причин отклонения — частями модуля продаж (`features/sales/agent/parts.py`).
 #: Строка собрана всегда — её берут прогон версии на накопленных ответах и тесты, —
 #: а в реестр встаёт только по тумблеру `SALES_AGENT_ENABLED`: по умолчанию он
 #: выключен, и агент продаж не пишет ни одного черновика, пока владелец его не
@@ -221,7 +222,7 @@ SALES_STAGE = AgentStage(
     guard=sales.guard,
     guard_operation=sales.JUDGE_OPERATION,
     brief_operation=sales.SITUATION_OPERATION,
-    on_draft=None,
+    on_draft=sales.on_draft,
     max_rewrites=sales.MAX_REWRITES,
     title=sales.TITLE,
     lead=sales.LEAD,

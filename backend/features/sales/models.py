@@ -1,4 +1,5 @@
-"""Лид, гипотеза, стоп-лист, база знаний, отправитель, цепочка писем, диалог и передача — таблицы модуля.
+"""Лид, гипотеза, стоп-лист, база знаний, отправитель, цепочка писем, диалог, передача лида и
+журнал сообщений о черновиках агента продаж — свои таблицы модуля.
 
 **Лид — своя таблица, а не колонки `contacts`.** Имя, должность и компания —
 сущность продаж; донорская таблица адресов о них не знает. Почтовые сущности
@@ -428,4 +429,41 @@ class SalesHandoffModel(TimestampedMixin, Base):
         UniqueConstraint("thread_id", name="uq_sales_handoffs_thread"),
         # Без индекса проверка запрета на удаление лида читала бы всю таблицу.
         Index("idx_sales_handoffs_lead", "lead_id"),
+    )
+
+
+class NoticeStatus(StrEnum):
+    """Чем кончилось сообщение о черновике в группе продаж. Перечисление данными, как
+    `RejectionReason`: новый исход — строка здесь, а не миграция типа."""
+
+    SENT = "sent"  # Telegram принял сообщение
+    UNDELIVERED = "undelivered"  # не доставлено за попытки бота — ушла тревога эксплуатации
+
+
+class SalesDraftNoticeModel(TimestampedMixin, Base):
+    """Журнал отправки: сообщение о черновике агента продаж в группу продаж (срез 3.5).
+
+    **Строка — версия черновика** (`written_at` — когда он написан): «написать заново»
+    переписывает черновик, и о новой версии группа узнаёт новым сообщением, а повтор
+    задачи ту же версию второй раз не объявляет. Сам черновик здесь не хранится и от
+    исхода сообщения не зависит: не доставлено — черновик цел и виден в переписке.
+    Черновик удалён (чистка пробного ответа) — его строки уходят с ним.
+    """
+
+    __tablename__ = "sales_draft_notices"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    draft_id: Mapped[int] = mapped_column(
+        ForeignKey("agent_drafts.id", ondelete="CASCADE"), nullable=False
+    )
+    written_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    #: `NoticeStatus` строкой.
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    #: Что ушло в группу — так, как прочёл его человек.
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    #: Почему не доставлено — словами бота, без токена.
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("draft_id", "written_at", name="uq_sales_draft_notices_version"),
     )

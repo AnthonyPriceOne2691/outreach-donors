@@ -121,7 +121,7 @@ def test_sales_row_is_built_from_the_sales_parts() -> None:
     )
     assert (row.usage_operation, row.guard_operation) == ("sales_draft", "sales_judge")
     assert (row.brief, row.guard) == (parts.brief, parts.guard)
-    assert (row.autopilot, row.on_draft, row.max_rewrites) == (False, None, 3)
+    assert (row.autopilot, row.on_draft, row.max_rewrites) == (False, parts.on_draft, 3)
     assert (row.title, row.lead) == (parts.TITLE, parts.LEAD)
     assert (row.reject_reasons, row.strict_reasons) == (parts.REJECT_REASONS, True)
 

@@ -1,14 +1,15 @@
 """Части агента продаж для строки `Stage.SALES` реестра этапов шва.
 
 Строку собирает шов (`agent/stages.SALES_STAGE`) из того, что здесь: умолчания
-настроек, промпт черновика и его версия, операции расхода, бриф и судья, имя этапа
-на экране настроек агента. В реестр этапов строка встаёт только по тумблеру
-`SALES_AGENT_ENABLED` (по умолчанию выключен).
+настроек, промпт черновика и его версия, операции расхода, бриф, судья, сообщение о
+черновике в группу продаж, причины отклонения и имя этапа на экране настроек
+агента. В реестр этапов строка встаёт только по тумблеру `SALES_AGENT_ENABLED`
+(по умолчанию выключен).
 
 **Круг импорта разорван здесь.** Бриф и судья продаж стоят на типах шва
 (`Brief`, `Verdict`, …), а шов, собирая реестр, берёт этот модуль. Поэтому
-модуль не импортирует ни шов, ни бриф, ни судью при загрузке: типы — только для
-проверки типов, бриф и судья — в момент вызова. Шов можно загрузить первым, и
+модуль не импортирует ни шов, ни бриф, ни судью, ни сообщение при загрузке: типы —
+только для проверки типов, остальное — в момент вызова. Шов можно загрузить первым, и
 бриф — тоже (тест в чистом процессе).
 """
 
@@ -23,7 +24,13 @@ from backend.features.agent.settings import AgentSettings
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from backend.features.agent.stages import Brief, Conversation, GuardInput, Verdict
+    from backend.features.agent.stages import (
+        Brief,
+        Conversation,
+        DraftNotice,
+        GuardInput,
+        Verdict,
+    )
 
 #: Промпт черновика ответа лиду — файлом в package-data.
 PROMPT = Path(__file__).with_name("prompts") / "reply.md"
@@ -93,3 +100,10 @@ async def guard(check: GuardInput) -> Verdict:
     from backend.features.sales.agent import judge  # noqa: PLC0415 — круг импорта
 
     return await judge.guard(check)
+
+
+async def on_draft(notice: DraftNotice) -> None:
+    """Черновик ждёт человека — сообщение в группу продаж задачей очереди (`notify`)."""
+    from backend.features.sales.agent import notify  # noqa: PLC0415 — круг импорта
+
+    notify.queue_notice(notice.draft_id)
