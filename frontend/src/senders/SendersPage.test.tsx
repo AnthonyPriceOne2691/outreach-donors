@@ -164,9 +164,13 @@ describe('домены по этапу (4.5a)', () => {
     expect(screen.getByText('Лимит направления: 4 из 50 первых писем сегодня')).toBeInTheDocument();
   });
 
-  it('у одних доноров экран прежний: без разделов и лимитов', async () => {
-    await openSenders();
+  it('у одних доноров экран прежний: без разделов и лимитов, «Отправлять нечем» — как было', async () => {
+    const off = SENDERS.senders.map((box) => ({ ...box, enabled: false }));
+    await openSenders({
+      'GET /api/senders': { body: { ...SENDERS, senders: off, enabled_domains: 0 } },
+    });
 
+    expect(screen.getByText('Отправлять нечем')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Доноры' })).not.toBeInTheDocument();
     expect(screen.queryByText(/Лимит направления/)).not.toBeInTheDocument();
     expect(screen.queryByText(/лимит домена/)).not.toBeInTheDocument();
