@@ -471,6 +471,11 @@
       "complexity": 6,
       "worst": "cmd_doors:52"
     },
+    "backend/cli/geo_shares.py": {
+      "lines": 76,
+      "complexity": 5,
+      "worst": "_print_plan:38"
+    },
     "backend/cli/judge_backfill.py": {
       "lines": 127,
       "complexity": 7,
@@ -492,7 +497,7 @@
       "worst": "_report:181"
     },
     "backend/cli/main.py": {
-      "lines": 490,
+      "lines": 493,
       "complexity": 9,
       "worst": "_print_report:254"
     },
@@ -1067,9 +1072,9 @@
       "worst": "picked:271"
     },
     "backend/features/donors/collect.py": {
-      "lines": 294,
+      "lines": 302,
       "complexity": 5,
-      "worst": "_screen_batch:117"
+      "worst": "_screen_batch:123"
     },
     "backend/features/donors/doors.py": {
       "lines": 179,
@@ -1082,9 +1087,14 @@
       "worst": "to_csv:102"
     },
     "backend/features/donors/geo.py": {
-      "lines": 163,
-      "complexity": 9,
-      "worst": "build_breakdown:61"
+      "lines": 190,
+      "complexity": 7,
+      "worst": "_country_traffic:103"
+    },
+    "backend/features/donors/geo_recount.py": {
+      "lines": 137,
+      "complexity": 6,
+      "worst": "_recounted:91"
     },
     "backend/features/donors/home_signals.py": {
       "lines": 310,
@@ -1852,9 +1862,9 @@
       "worst": "worker_problems:74"
     },
     "backend/workers/jobs.py": {
-      "lines": 458,
-      "complexity": 5,
-      "worst": "_mark:190"
+      "lines": 498,
+      "complexity": 6,
+      "worst": "_search_contacts:314"
     },
     "backend/workers/main.py": {
       "lines": 29,
