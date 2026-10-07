@@ -26,6 +26,10 @@
 было бы неправдой: подтверждение цены для него — отказ. Диалог Этапа 2
 ждёт человека, пока хоть один ответ не взят в работу, — новый ответ
 после взятого снова работа.
+
+**Ответ лида продаж — своё состояние.** Почта продажи ещё не ведёт
+(`replies.outcome.SALES_WAITING`): ни цены, ни лида рекламодателя в нём
+нет, а «ответил человек» спрятало бы работу за словом «всё хорошо».
 """
 
 from __future__ import annotations
@@ -35,10 +39,16 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import assert_never
 
 from backend.features.core.domain import MessageStatus, ReplyKind, Stage
 from backend.features.core.models.outreach import MessageModel, ReplyModel
-from backend.features.replies.outcome import AUTO_REPLY_WITH_SUM, names_a_sum, waiting_for_review
+from backend.features.replies.outcome import (
+    AUTO_REPLY_WITH_SUM,
+    SALES_WAITING,
+    names_a_sum,
+    waiting_for_review,
+)
 
 
 class ThreadState(StrEnum):
@@ -56,6 +66,7 @@ class ThreadState(StrEnum):
     STOPPED = "stopped"  # цепочка остановлена руками
     LEAD = "lead"  # ответил рекламодатель — лид ждёт человека
     LEAD_TAKEN = "lead_taken"  # лид взят в работу
+    SALES_PENDING = "sales_pending"  # ответил лид продаж — ждёт, пока почта их подключит
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,11 +106,11 @@ def _state(
     целиком и переставить в нём строку значит изменить правило осознанно.
 
     Что считать ответом, решает этап: у донора — цена и её разбор,
-    у рекламодателя — лид.
+    у рекламодателя — лид, у продаж — ответ, который ждёт своего разбора.
     """
     kinds = {r.kind for r in replies}
     statuses = {m.status for m in messages}
-    answered = _lead_rules(replies) if stage is Stage.ADVERTISERS else _answer_rules(replies)
+    answered = _answered(replies, stage)
 
     rules: _Rules = (
         (ReplyKind.UNSUBSCRIBE in kinds, ThreadState.UNSUBSCRIBED),
@@ -112,6 +123,21 @@ def _state(
         if matched:
             return state
     return ThreadState.QUEUED
+
+
+def _answered(replies: Sequence[ReplyModel], stage: Stage) -> _Rules:
+    """Правила ответа — по этапу рассылки, целиком: новый этап — ошибка mypy."""
+    match stage:
+        case Stage.DONORS:
+            return _answer_rules(replies)
+        case Stage.ADVERTISERS:
+            return _lead_rules(replies)
+        case Stage.SALES:
+            human = [r for r in replies if r.kind is ReplyKind.HUMAN]
+            waiting = any(review_of(r, stage).waiting for r in human)
+            return ((waiting, ThreadState.SALES_PENDING), (bool(human), ThreadState.REPLIED))
+        case _:
+            assert_never(stage)
 
 
 def _lead_rules(replies: Sequence[ReplyModel]) -> _Rules:
@@ -128,21 +154,31 @@ class Review:
     """Ждёт ли ответ человека и почему — одно правило для списка и карточки."""
 
     waiting: bool
-    #: Почему цену в ответе не человека смотрит человек, — словами.
-    #: Пусто — обычный ответ, его ждут по уверенности разбора.
+    #: Почему ответ ждёт человека не по уверенности разбора — словами:
+    #: автоответ с суммой в валюте, ответ лида продаж. Пусто — обычный ответ.
     reason: str | None = None
 
 
 def review_of(reply: ReplyModel, stage: Stage = Stage.DONORS) -> Review:
     """Ждёт ли ответ человека — у донора. У рекламодателя разбора цены нет
-    вовсе: его ответ — лид, и сумма в нём — его расход, а не цена.
+    вовсе: его ответ — лид, и сумма в нём — его расход, а не цена. Ответ
+    человека в продажах ждёт человека: разбирать его почта ещё не умеет.
 
     Сумма в автоответе считается по сохранённому тексту и только у
     автоответа: у остальных видов она на ожидание не влияет, а читать
     текст каждого ответа ради списка незачем.
     """
-    if stage is Stage.ADVERTISERS:
-        return Review(waiting=False)
+    match stage:
+        case Stage.ADVERTISERS:
+            return Review(waiting=False)
+        case Stage.SALES:
+            human = reply.kind is ReplyKind.HUMAN
+            waits = human and reply.reviewed_at is None
+            return Review(waiting=waits, reason=SALES_WAITING if human else None)
+        case Stage.DONORS:
+            pass
+        case _:
+            assert_never(stage)
     priced = reply.kind is ReplyKind.AUTO_REPLY and names_a_sum(reply.raw_body)
     waiting = waiting_for_review(
         reply.kind, reply.confidence, reviewed=reply.reviewed_at is not None, names_a_sum=priced

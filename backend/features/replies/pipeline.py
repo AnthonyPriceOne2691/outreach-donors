@@ -21,7 +21,8 @@
 **Модель зовётся только для ответов людей — и только доноров.** Разбирать
 цену в отказе доставки или в автоответчике — платить за заведомо пустой
 результат; разбирать её в ответе рекламодателя — записать его расход
-ценой площадки (`outcome.ADVERTISER_LEAD`). Автоответ с суммой в валюте
+ценой площадки (`outcome.ADVERTISER_LEAD`), в ответе лида продаж — то же
+самое (`outcome.SALES_WAITING`). Автоответ с суммой в валюте
 модели тоже не отдаётся — его цену смотрит человек (`outcome.AUTO_REPLY_WITH_SUM`).
 И один ответ разбирается один раз: разобранный или решённый человеком
 модели второй раз не уходит.
@@ -44,6 +45,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import assert_never
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -234,7 +236,8 @@ class Inbox:
             bound=True,
             needs_review=consequences.needs_review or found.review_reason is not None,
             review_reason=consequences.review_reason or found.review_reason,
-            parse_pending=verdict.kind is ReplyKind.HUMAN and addressee.stage is Stage.DONORS,
+            parse_pending=verdict.kind is ReplyKind.HUMAN
+            and outcome.priced_by_model(addressee.stage),
             forwarding=found,
         )
 
@@ -382,12 +385,19 @@ class Parser:
             # разбора, по которому калибруется модель, и решение человека.
             logger.info("разбор: ответ №%s уже разобран или решён — модель не зову", reply.id)
             return _without_model(reply, "уже разобран или решён человеком")
-        if await self._repo.stage_of(reply) is Stage.ADVERTISERS:
-            # Приём такой разбор не ставит; пришла задача — значит, её
-            # поставили в обход, и платить за неё модели незачем.
-            logger.warning("разбор: ответ №%s — %s, отказ", reply.id, outcome.ADVERTISER_LEAD)
-            return _without_model(reply, "ответ рекламодателя", why=outcome.ADVERTISER_LEAD)
-        return None
+        match await self._repo.stage_of(reply):
+            case Stage.DONORS | None:
+                return None
+            case Stage.ADVERTISERS:
+                skipped, why = "ответ рекламодателя", outcome.ADVERTISER_LEAD
+            case Stage.SALES:
+                skipped, why = "ответ продаж", outcome.SALES_WAITING
+            case unknown:
+                assert_never(unknown)
+        # Приём такой разбор не ставит; пришла задача — значит, её
+        # поставили в обход, и платить за неё модели незачем.
+        logger.warning("разбор: ответ №%s — %s, отказ", reply.id, why)
+        return _without_model(reply, skipped, why=why)
 
     async def _seller_answer(self, reply: ReplyModel, answer: str) -> None:
         domain_id = await self._repo.domain_of(reply)

@@ -56,7 +56,7 @@ import { refusalOf } from '../api/client';
 import { useSession } from '../auth/AuthProvider';
 import { exportCounts, saveFile } from '../api/donors';
 import { exportLeads } from '../api/outreach';
-import { THREAD_STATES } from '../api/labels';
+import { threadState } from '../api/labels';
 import { listThreads } from '../api/outreach';
 import type { ThreadCard, ThreadState } from '../api/types';
 import { usePageParam } from '../components/PageSwitch';
@@ -316,7 +316,7 @@ export function ThreadsPage() {
                           { value: 'all', label: counted('все', threads.length) },
                           ...states.map((state) => ({
                             value: state,
-                            label: counted(THREAD_STATES[state].title, counts.get(state) ?? 0),
+                            label: counted(threadState(state).title, counts.get(state) ?? 0),
                           })),
                         ]}
                       />
@@ -378,8 +378,8 @@ export function ThreadsPage() {
                         </Text>
                       </Table.Td>
                       <Table.Td>
-                        <Badge variant="light" color={THREAD_STATES[thread.state].color}>
-                          {THREAD_STATES[thread.state].title}
+                        <Badge variant="light" color={threadState(thread.state).color}>
+                          {threadState(thread.state).title}
                         </Badge>
                       </Table.Td>
                       <Table.Td>{formatNumber(thread.messages_sent)}</Table.Td>

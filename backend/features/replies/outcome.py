@@ -36,14 +36,20 @@ noreply предпочтительным не становится (`robots`), �
 а не цена площадки. Разобранный как цена донора, он лёг бы в карточку
 сайта, который заодно бывает донором, и стал бы ценой, которой никто
 не называл. Такой ответ ведёт человек.
+
+**Ответ лида продаж ждёт человека и ничего не пишет.** Почта продажи
+ещё не ведёт: разбирать такой ответ нечем, а донорский разбор положил бы
+сумму из него ценой в карточку донора, адрес — в контакты домена.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import assert_never
 
 from backend.config import outreach as cfg
 from backend.features.core.domain import ReplyKind, Stage
+from backend.features.core.stages import SALES_NOT_CONNECTED
 from backend.features.replies.extract import Extracted
 from backend.features.replies.inbound import MAX_TEXT_CHARS
 from backend.features.replies.money import amounts_in
@@ -51,6 +57,9 @@ from backend.features.replies.quoting import written_by_hand
 
 #: Почему ответ рекламодателя ждёт человека — словами, для карточки.
 ADVERTISER_LEAD = "ответ рекламодателя — лид: цену не разбираем, его ведёт человек"
+
+#: Почему ответ лида продаж ждёт человека — словами, для карточки.
+SALES_WAITING = f"ответ продаж ждёт разбора: {SALES_NOT_CONNECTED}"
 
 #: Почему автоответ ждёт человека — словами, для карточки.
 AUTO_REPLY_WITH_SUM = (
@@ -107,16 +116,28 @@ def decide(
     if kind is ReplyKind.AUTO_REPLY:
         return _auto_reply(stage, names_a_sum=names_a_sum)
 
-    if stage is Stage.ADVERTISERS:
-        # Ответил рекламодатель: цепочка кончилась, дальше — человек.
-        return Consequences(
-            stop_chain=True,
-            remember_answering_address=True,
-            needs_review=True,
-            review_reason=ADVERTISER_LEAD,
-        )
+    return _human_answer(stage, found, limit)
 
-    return _donor_answer(found, limit)
+
+def _human_answer(stage: Stage, found: Extracted | None, limit: float) -> Consequences:
+    """Ответил человек. Что это значит, решает этап рассылки — разбором целиком."""
+    match stage:
+        case Stage.DONORS:
+            return _donor_answer(found, limit)
+        case Stage.ADVERTISERS:
+            # Ответил рекламодатель: цепочка кончилась, дальше — человек.
+            return Consequences(
+                stop_chain=True,
+                remember_answering_address=True,
+                needs_review=True,
+                review_reason=ADVERTISER_LEAD,
+            )
+        case Stage.SALES:
+            # Цепочка кончилась и здесь; адрес — не контакт донора, и в
+            # контакты домена его не пишем: следующее письмо донору ушло бы лиду.
+            return Consequences(stop_chain=True, needs_review=True, review_reason=SALES_WAITING)
+        case _:
+            assert_never(stage)
 
 
 def _auto_reply(stage: Stage, *, names_a_sum: bool) -> Consequences:
@@ -127,11 +148,29 @@ def _auto_reply(stage: Stage, *, names_a_sum: bool) -> Consequences:
     в нём тоже цена донора. Вид остаётся автоответом, цепочка добивок идёт,
     как шла, а ответ ждёт человека тем же путём, что неуверенный разбор:
     модель автоответы не разбирает, и без человека цена пропала бы молча.
-    Ответ рекламодателя сюда не относится: его сумма — его расход, а не цена.
+    Ответ рекламодателя сюда не относится: его сумма — его расход, а не цена;
+    у продаж цены нет вовсе.
     """
-    if names_a_sum and stage is Stage.DONORS:
-        return Consequences(needs_review=True, review_reason=AUTO_REPLY_WITH_SUM)
-    return Consequences()
+    match stage:
+        case Stage.DONORS if names_a_sum:
+            return Consequences(needs_review=True, review_reason=AUTO_REPLY_WITH_SUM)
+        case Stage.DONORS | Stage.ADVERTISERS | Stage.SALES:
+            return Consequences()
+        case _:
+            assert_never(stage)
+
+
+def priced_by_model(stage: Stage | None) -> bool:
+    """Отдаётся ли ответ человека разбору цены моделью — одно правило для приёма
+    и повтора вебхука. Только ответ донора: у рекламодателя — лид, у продаж
+    разбора ещё нет, непривязанный ответ сначала смотрит человек."""
+    match stage:
+        case Stage.DONORS:
+            return True
+        case Stage.ADVERTISERS | Stage.SALES | None:
+            return False
+        case _:
+            assert_never(stage)
 
 
 def names_a_sum(text: str) -> bool:
