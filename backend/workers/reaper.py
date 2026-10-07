@@ -10,6 +10,10 @@
 (`features/runs/lifecycle`), здесь только проводка: сессия, очередь,
 интервал и то, что процесс не должен падать целиком из-за одного
 неудачного прохода.
+
+Третий цикл — повтор передачи лидов продаж (`features/sales/handoff_jobs.retry_pass`):
+передачи, которые Kommo не принял, и задачи, потерянные очередью. Своего
+контейнера ему не заводим — ему, как и сторожу, нужна сессия раз в несколько минут.
 """
 
 from __future__ import annotations
@@ -19,6 +23,7 @@ import logging
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from backend.config import sales as sales_cfg
 from backend.config import storage
 from backend.config.startup_checks import check_storage
 from backend.features.crawl.lifecycle import recover as recover_crawls
@@ -26,6 +31,7 @@ from backend.features.ops.alarm_feed import Feed
 from backend.features.ops.silence import report as silence_report
 from backend.features.runs.lifecycle import Recovery, recover
 from backend.features.runs.repository import RunRepository
+from backend.features.sales.handoff_jobs import retry_pass as retry_handoffs
 from backend.shared.logs import setup_logging
 from backend.shared.queue import RUN_JOB, enqueue_crawl, job_alive, job_failure, runs_queue
 from backend.workers.ticker import every
@@ -117,19 +123,20 @@ async def watch() -> None:
         await engine.dispose()
 
 
-async def _both() -> None:
-    """Два прохода с разными интервалами в одном процессе. Падение
-    одного не должно останавливать другой — этим занимается `every`."""
+async def _loops() -> None:
+    """Проходы с разными интервалами в одном процессе. Падение
+    одного не должно останавливать другие — этим занимается `every`."""
     await asyncio.gather(
         every(POLL_INTERVAL_SEC, sweep, name="Разбор мёртвых прогонов"),
         every(WATCHDOG_INTERVAL_SEC, watch, name="Сторож тишины"),
+        every(sales_cfg.HANDOFF_PASS_SEC, retry_handoffs, name="Повтор передачи лидов продаж"),
     )
 
 
 def main() -> None:
     setup_logging()
     check_storage()
-    asyncio.run(_both())
+    asyncio.run(_loops())
 
 
 if __name__ == "__main__":

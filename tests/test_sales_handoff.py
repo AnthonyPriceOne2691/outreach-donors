@@ -21,6 +21,7 @@ from backend.features.sales.handoff import Deps, HandoffBusyError, HandoffError
 from backend.features.sales.kommo import (
     CreatedLead,
     KommoAuthError,
+    KommoContact,
     KommoFixture,
     KommoUnavailableError,
     KommoUnconfirmedError,
@@ -39,7 +40,7 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from sqlalchemy import select, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
-from tests.sales_handoff_rows import Dialog, answer, sales_dialog
+from tests.test_sales_handoff_rows import Dialog, answer, sales_dialog
 from tests.test_sales_telegram import GROUP, PERSONAL, TOKEN, Recorder, ok, refused
 
 NOW = datetime(2026, 10, 15, 11, 23, 17, tzinfo=UTC)
@@ -237,6 +238,24 @@ async def test_a2_next_answer_is_a_note_to_the_same_deal(
     assert (row.kommo, row.noted_reply_id) == (HandoffKommo.DONE, later.id)
 
 
+async def test_a2_answer_that_came_while_a_job_ran_is_noted_by_the_next_job(
+    session: AsyncSession, http: httpx.AsyncClient, api: Recorder, alerts: Alerts
+) -> None:
+    """Ответ пришёл, пока шла задача: её итог перезаписал «есть что записать», поставленное
+    триггером. Следующая задача сама видит неотмеченный ответ — примечание не теряется."""
+    dialog = await sales_dialog(session)
+    kommo = KommoFixture()
+    work = deps(http, alerts, kommo)
+    row = await hand_off(session, dialog, work)
+    await answer(session, dialog.thread, dialog.message, "Созвон во вторник?", at=NOW)
+    assert row.kommo is HandoffKommo.DONE, "итог прошлой задачи — «записано»"
+
+    await handoff.process(session, row.id, work)
+
+    assert len(kommo.leads[9301].notes) == 2
+    assert len(kommo.leads) == 1
+
+
 async def test_a2_same_trigger_twice_is_one_handoff(
     session: AsyncSession, http: httpx.AsyncClient, api: Recorder, alerts: Alerts
 ) -> None:
@@ -384,6 +403,27 @@ async def test_unconfirmed_write_when_contact_existed_is_left_to_a_human(
 
     assert kommo.writes == 1
     assert row.kommo is HandoffKommo.UNCONFIRMED
+
+
+async def test_contact_that_was_there_before_the_write_decides_even_if_gone_after(
+    session: AsyncSession, http: httpx.AsyncClient, api: Recorder, alerts: Alerts
+) -> None:
+    """Контакт был до записи — по поиску не узнать, создалась ли сделка, даже если
+    после записи поиск его не видит: повтор мог бы завести вторую."""
+
+    class Vanishing(LostAnswerKommo):
+        searches = 0
+
+        async def find_contact(self, email: str) -> KommoContact | None:
+            self.searches += 1
+            return KommoContact(5711, "") if self.searches == 1 else None
+
+    dialog = await sales_dialog(session)
+    kommo = Vanishing(lands=False)
+
+    row = await hand_off(session, dialog, deps(http, alerts, kommo))
+
+    assert (kommo.searches, kommo.writes, row.kommo) == (2, 1, HandoffKommo.UNCONFIRMED)
 
 
 async def test_note_whose_answer_was_lost_is_not_repeated(
@@ -787,7 +827,7 @@ async def test_handoff_job_goes_to_the_common_queue_with_retries(
     handoff.enqueue_handoff(4127)
 
     assert calls == [(handoff.HANDOFF_JOB, 4127, ["result_ttl", "retry"])]
-    assert handoff.HANDOFF_JOB == "backend.workers.sales_jobs.hand_off_lead"
+    assert handoff.HANDOFF_JOB == "backend.features.sales.handoff_jobs.hand_off_lead"
 
 
 class _BrokenTransaction:

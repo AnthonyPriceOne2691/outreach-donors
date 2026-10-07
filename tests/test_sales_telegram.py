@@ -89,13 +89,35 @@ def printed() -> Iterator[io.StringIO]:
         root.setLevel(before)
 
 
-def test_suite_never_carries_a_real_bot() -> None:
+def test_suite_never_carries_a_real_bot(request: pytest.FixtureRequest) -> None:
     """Страховка набора: `.env` разработчика с живым ботом продаж не доходит до тестов."""
-    assert (cfg.TELEGRAM_BOT_TOKEN, cfg.TELEGRAM_CHAT_ID, cfg.TELEGRAM_GROUP_CHAT_ID) == (
-        "",
-        "",
-        "",
-    )
+    assert "_no_real_sales_bot" in request.fixturenames
+    chats = (cfg.TELEGRAM_BOT_TOKEN, cfg.TELEGRAM_CHAT_ID, cfg.TELEGRAM_GROUP_CHAT_ID)
+    assert chats == ("", "", "")
+
+
+#: Настройка → поле, умолчание и выдуманное значение (урок L4: поле читается только по алиасу).
+SETTINGS = [
+    ("SALES_TELEGRAM_BOT_TOKEN", "telegram_bot_token", "", TOKEN),
+    ("SALES_TELEGRAM_CHAT_ID", "telegram_chat_id", "", PERSONAL),
+    ("SALES_TELEGRAM_GROUP_CHAT_ID", "telegram_group_chat_id", "", GROUP),
+    ("SALES_TELEGRAM_GROUP_COPY", "telegram_group_copy", True, False),
+    ("SALES_APP_URL", "app_url", "", "https://app.example.test"),
+]
+
+
+def test_bot_settings_are_empty_by_default_and_read_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for env, *_ in SETTINGS:
+        monkeypatch.delenv(env, raising=False)
+    empty = cfg._Sales(_env_file=None)
+    assert [getattr(empty, field) for _, field, _, _ in SETTINGS] == [d for *_, d, _ in SETTINGS]
+
+    for env, _, _, value in SETTINGS:
+        monkeypatch.setenv(env, str(value).lower() if isinstance(value, bool) else value)
+    filled = cfg._Sales(_env_file=None)
+    assert [getattr(filled, field) for _, field, _, _ in SETTINGS] == [v for *_, v in SETTINGS]
 
 
 @pytest.mark.usefixtures("token")

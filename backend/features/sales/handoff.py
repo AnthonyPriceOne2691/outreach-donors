@@ -77,7 +77,7 @@ from backend.shared.queue import runs_queue, with_retries
 logger = logging.getLogger(__name__)
 
 #: Путь задачи строкой: очередь импортирует её в воркере (`shared/queue.py`).
-HANDOFF_JOB = "backend.workers.sales_jobs.hand_off_lead"
+HANDOFF_JOB = "backend.features.sales.handoff_jobs.hand_off_lead"
 
 #: Сколько передач проход берёт за круг: лидов единицы в день, круг короткий.
 PASS_LIMIT = 50
@@ -251,6 +251,9 @@ async def process(session: AsyncSession, handoff_id: int, deps: Deps) -> dict[st
     row = await _claim(session, handoff_id, deps.now())
     try:
         card = await _card(session, row)
+        # Работу задача выводит сама из последнего ответа, а не только из состояния:
+        # ответ, пришедший во время прошлой задачи, её итог мог перезаписать.
+        _reopen(row, card.reply_id)
         await handoff_kommo.write(session, row, card, deps.kommo, deps.alert)
         await _telegram_step(row, card, deps)
     except Exception:

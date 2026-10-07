@@ -1,7 +1,9 @@
 """Строки базы для тестов передачи лида продаж: диалог с лидом, письмом и ответом.
 
-Этапа продаж у рассылки ещё нет (срез 1.1b), поэтому рассылка диалога — Этапа 2:
-передаче этап не важен, ей нужен лид, найденный по домену и адресу диалога.
+Рассылка диалога — этапа продаж (`Stage.SALES`, 1.1b), как будет у писем лидам;
+ответ лида — ответ человека (`ReplyKind.HUMAN`) — то же правило, по которому
+main считает ответ продаж (`outreach/threads.py`, `review_of`). Сама передача
+этап не читает: ей нужен лид, найденный по домену и адресу диалога.
 Тексты и адреса выдуманные (`*.example.test`).
 """
 
@@ -50,7 +52,7 @@ async def sales_dialog(
     """Лид продаж, первое письмо ему и ответ «давайте созвонимся»."""
     domain = DomainModel(host=host)
     hypothesis = SalesHypothesisModel(name=f"гипотеза {host}")
-    campaign = CampaignModel(stage=Stage.ADVERTISERS, name=f"продажи {host}")
+    campaign = CampaignModel(stage=Stage.SALES, name=f"продажи {host}")
     session.add_all([domain, hypothesis, campaign])
     await session.flush()
     contact = ContactModel(domain_id=domain.id, email=email, source=ContactSource.MANUAL)

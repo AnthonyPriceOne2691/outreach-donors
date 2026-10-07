@@ -21,7 +21,7 @@ from sqlalchemy import Connection, delete, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.migration_helpers import load_migration
-from tests.sales_handoff_rows import sales_dialog
+from tests.test_sales_handoff_rows import sales_dialog
 
 MIGRATION = "a9e76c0eb5b0_sales_handoffs.py"
 SCHEMA = frozenset({"sales_handoffs", "sales_handoff_kommo", "sales_handoff_telegram"})
