@@ -121,6 +121,15 @@ jobs:
       # стоило обязательной проверке +47% — 826 с против 560 (замер #195, 07.10).
       # Нет правок python — нет и трассировки. Привязка `coverage.json.head` — SHA,
       # на котором шёл сьют: гейт откажется судить отчёт чужого коммита.
+      #
+      # ⚠ `--cov=` получает КАТАЛОГИ изменённых файлов, а не имена модулей. Имя
+      # модуля coverage ищет через find_spec ещё до первого теста — и импортирует
+      # родительский пакет: `backend.features.core.models.donor` тянет все модели
+      # и SQLAlchemy раньше, чем включается трассировка гринлетов, и процесс падает
+      # segfault на первом подключении к базе (#194, 07.10: 3 из 3 и в CI, и
+      # локально; каталог `backend/features/core/models` — 3 из 3 зелёные).
+      # Каталог не импортируется, и соседние файлы в отчёте гейту не мешают: он
+      # судит только изменённые строки.
       - name: Тесты
         env:
           BEFORE: ${{ github.event.before }}
@@ -133,14 +142,14 @@ jobs:
                && git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
             base="$BEFORE"
           fi
-          mods=""
+          dirs=""
           if [ -n "$base" ]; then
-            mods=$(git diff --name-only --diff-filter=ACMR "$base"...HEAD -- 'backend/*.py' \
-              | sed -E 's#\.py$##; s#/__init__$##; s#/#.#g' | sort -u)
+            dirs=$(git diff --name-only --diff-filter=ACMR "$base"...HEAD -- 'backend/*.py' \
+              | xargs -r -n1 dirname | sort -u)
           fi
-          if [ -n "$mods" ]; then
-            echo "покрытие изменённых модулей: $(echo $mods)"
-            pytest $(printf -- '--cov=%s ' $mods) --cov-report=json:coverage.json
+          if [ -n "$dirs" ]; then
+            echo "покрытие каталогов изменённых файлов: $(echo $dirs)"
+            pytest $(printf -- '--cov=%s ' $dirs) --cov-report=json:coverage.json
           else
             echo "правок python в backend нет — сьют без покрытия"
             pytest
