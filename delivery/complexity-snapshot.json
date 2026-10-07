@@ -1731,6 +1731,11 @@
       "complexity": 8,
       "worst": "_of_kind:112"
     },
+    "backend/features/sales/agent/judge_rules.py": {
+      "lines": 173,
+      "complexity": 6,
+      "worst": "channels:85"
+    },
     "backend/features/sales/agent/moves.py": {
       "lines": 164,
       "complexity": 6,
