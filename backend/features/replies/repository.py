@@ -21,6 +21,7 @@ from backend.features.contacts.preference import DEAD
 from backend.features.core.domain import (
     ContactSource,
     MessageStatus,
+    PriceSource,
     ReplyKind,
     Stage,
     SuppressionReason,
@@ -35,6 +36,7 @@ from backend.features.core.models.outreach import (
     ReplyModel,
     ThreadModel,
 )
+from backend.features.donors.price import put_price
 from backend.features.replies import robots
 from backend.features.replies.binding import Unbound
 from backend.features.replies.extract import Extracted
@@ -294,6 +296,7 @@ class ReplyRepository:
         в сервисе нет, и подписать евро долларами значит записать
         неверное число. Список — всегда от того же ответа, что цена, и пусто
         затирает прежний: список чужого ответа рядом с новой ценой врал бы.
+        Источник — «из ответа», и заметка с автором ручной цены уходят с ней.
         """
         rows = await self._session.execute(
             select(DonorModel).where(DonorModel.domain_id == domain_id)
@@ -301,10 +304,10 @@ class ReplyRepository:
         donor = rows.scalars().first()
         if donor is None:
             return
-        donor.last_price = price
-        donor.last_price_currency = currency
-        donor.last_price_at = now or datetime.now(UTC)
-        donor.last_offers = offers
+        at = now or datetime.now(UTC)
+        put_price(
+            donor, amount=price, currency=currency, at=at, source=PriceSource.REPLY, offers=offers
+        )
 
     async def record_seller_answer(
         self,

@@ -92,6 +92,13 @@ class DonorModel(TimestampedMixin, ContactAttemptMixin, Base):
     # (`ReplyModel.offers`): вставка ссылки, главная, свои цены для ниш.
     # Пусто — цена записана до 06.10.2026 или из ответа без разбора моделью.
     last_offers: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
+    # Откуда последняя цена (`PriceSource`): `reply` — разобранный ответ
+    # донора, `manual` — указал человек (`donors/manual_price.py`). Пусто —
+    # цена записана до 07.10.2026, когда её давал только ответ. Заметка
+    # «откуда цена» и автор — у ручной; у цены из ответа источник — сам ответ.
+    last_price_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    last_price_note: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    last_price_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # --- Контакт: исход поиска — колонки `ContactAttemptMixin` ---
 
@@ -104,6 +111,10 @@ class DonorModel(TimestampedMixin, ContactAttemptMixin, Base):
     review: Mapped[str | None] = mapped_column(String(16), nullable=True)
     review_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     review_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Заведён человеком вручную, с ценой, а не принят в очереди прогона:
+    # кем (почта). Пусто — донор из прогона Этапа 1. Само решение — в тех же
+    # `review*`: донор — принятый человеком, где бы его ни приняли.
+    entered_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     __table_args__ = (
         Index("idx_donors_status", "status"),

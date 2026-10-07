@@ -6,6 +6,7 @@
  */
 
 import { request } from './client';
+import type { PriceSource } from './manualPrice';
 
 export type CrawlStatus = 'queued' | 'running' | 'done' | 'stopped';
 export type CrawlOutcome = 'ok' | 'partial' | 'forbidden' | 'blocked' | 'failed';
@@ -33,6 +34,11 @@ export interface CrawlRow {
 export interface CrawlTarget {
   host: string;
   price: number | null;
+  /** Валюта цены, как её назвали: конвертации в сервисе нет. */
+  currency: string | null;
+  /** Из ответа донора или вписана человеком; `null` — цена до 07.10.2026,
+   *  из ответа. */
+  source: PriceSource | null;
   priced_at: string | null;
   crawl: CrawlRow | null;
 }

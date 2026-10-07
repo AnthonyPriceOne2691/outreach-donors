@@ -1,6 +1,7 @@
 /** Что отдаёт сервер. Имена полей повторяют схему API один в один:
  *  перевод на ходу — лишний слой, в котором опечатка видна не сразу. */
 
+import type { PriceOrigin } from './manualPrice';
 import type { Offer } from './offers';
 export type Role = 'admin' | 'operator';
 
@@ -431,7 +432,7 @@ export interface ContactCard {
 /** Решение человека о домене: донор — только принятый (`donors/standing.py`). */
 export type DonorReview = 'accepted' | 'rejected';
 
-export interface DonorFullCard extends Omit<DonorRowCard, 'contacts'> {
+export interface DonorFullCard extends Omit<DonorRowCard, 'contacts'>, PriceOrigin {
   geo_breakdown: { country: string; share: number }[] | null;
   /** Разбивка неполная: спрашивали только верхнюю страну — её хватило
    *  для вердикта, а полный запрос стоит впятеро дороже. */

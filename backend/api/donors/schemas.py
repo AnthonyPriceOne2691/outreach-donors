@@ -10,11 +10,12 @@ from pydantic import BaseModel, Field
 
 from backend.api.threads.schemas import OfferCard
 from backend.features.contacts.preference import DEAD
-from backend.features.core.domain import ContactSource, ContactStatus, DonorStatus
+from backend.features.core.domain import ContactSource, ContactStatus, DonorStatus, PriceSource
 from backend.features.core.models.donor import ContactModel
 from backend.features.donors.browse import DonorCard as CardData
 from backend.features.donors.browse import DonorFilters, DonorRow, Facets, Freshness
 from backend.features.donors.browse import DonorPage as PageData
+from backend.features.donors.manual_price import DEFAULT_CURRENCY, Entered, ManualPrice
 from backend.features.donors.standing import Waiting
 from backend.features.donors.wording import reject_reason_text
 
@@ -230,8 +231,14 @@ class DonorFullCard(BaseModel):
     last_price_currency: str | None
     last_price_at: datetime | None
     #: Все цены того же ответа, что последняя цена, словами донора. Пусто —
-    #: цена записана до 06.10.2026, когда списка ещё не было.
+    #: цена записана до 06.10.2026, когда списка ещё не было, или указана руками.
     last_offers: list[OfferCard] | None = None
+    #: Откуда последняя цена: `reply` — из ответа донора, `manual` — указал
+    #: человек. Пусто — записана до 07.10.2026, то есть из ответа.
+    last_price_source: PriceSource | None = None
+    #: У ручной цены — заметка «откуда цена» и кто её указал.
+    last_price_note: str | None = None
+    last_price_by: str | None = None
     #: Адреса в том порядке, в каком их берёт сборка писем: лучший первым.
     contacts: list[ContactCard]
     #: Почему поиск адреса сейчас не ставится; пусто — ставится. Правило
@@ -245,6 +252,8 @@ class DonorFullCard(BaseModel):
     #: «принят» было видно только в списке, а кем и когда — нигде).
     review_by: str | None = None
     review_at: datetime | None = None
+    #: Донор заведён вручную, с ценой, а не принят в очереди прогона, — кем.
+    entered_by: str | None = None
     #: Прогон, в очереди которого о домене решают или решили.
     review_run: int | None
     #: На какой адрес ушло бы первое письмо, если собрать очередь сейчас, —
@@ -282,6 +291,9 @@ class DonorFullCard(BaseModel):
             last_price_currency=donor.last_price_currency,
             last_price_at=donor.last_price_at,
             last_offers=OfferCard.listed(donor.last_offers),
+            last_price_source=donor.last_price_source,
+            last_price_note=donor.last_price_note,
+            last_price_by=donor.last_price_by,
             contacts=[
                 ContactCard.of(contact, card.removal.get(contact.id)) for contact in card.contacts
             ],
@@ -289,8 +301,52 @@ class DonorFullCard(BaseModel):
             review=donor.review,
             review_by=donor.review_by,
             review_at=donor.review_at,
+            entered_by=donor.entered_by,
             review_run=card.review_run,
             letter_contact_id=card.letter.contact_id,
             letter_blocked=card.letter.blocked,
             letter_note=card.letter.note,
+        )
+
+
+class PriceBody(BaseModel):
+    """Цена, которую человек знает сам. Проверяет ядро — словами
+    (`donors/manual_price.py`): тот же текст отказа у кнопки и у консоли."""
+
+    #: Число или строка: строку («150.50») ядро разберёт и, если это не цена,
+    #: скажет словами, а не отказом разбора схемы.
+    price: Decimal | str
+    currency: str = Field(default=DEFAULT_CURRENCY, description="код или знак валюты")
+    note: str | None = Field(
+        default=None, description="откуда цена: «прайс агентства», «LinkDetective»"
+    )
+
+
+class ManualDonorBody(PriceBody):
+    """Донор, заведённый вручную: домен и цена."""
+
+    host: str = Field(description="домен или адрес сайта: приводится к корню, как у прогона")
+
+
+class EnteredDonor(BaseModel):
+    """Что вышло из «Завести донора вручную»."""
+
+    donor_id: int
+    host: str
+    #: Донором домен стал сейчас; `false` — уже был донором, записана цена.
+    created: bool
+    #: Годен по порогам — обход Этапа 2 его берёт.
+    suitable: bool
+    price: Decimal
+    currency: str
+
+    @classmethod
+    def of(cls, entered: Entered, price: ManualPrice) -> EnteredDonor:
+        return cls(
+            donor_id=entered.donor_id,
+            host=entered.host,
+            created=entered.created,
+            suitable=entered.suitable,
+            price=price.amount,
+            currency=price.currency,
         )

@@ -19,6 +19,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from backend.cli import donor_add
 from backend.cli.access_admin import cmd_user_add, cmd_user_reset
 from backend.cli.advertisers import add_parser as add_advertisers_parser
 from backend.cli.advertisers import (
@@ -396,6 +397,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_prune_parser(sub)
     add_probe_donor_parser(sub)
     add_probe_advertiser_parser(sub)
+    donor_add.add_parser(sub)
     add_sales_parsers(sub)
     return parser
 
@@ -455,6 +457,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] =
     "prune": cmd_prune,
     "probe-donor": cmd_probe_donor,
     "probe-advertiser": cmd_probe_advertiser,
+    "donor-add": donor_add.cmd_donor_add,
     **SALES_COMMANDS,
 }
 
