@@ -582,9 +582,9 @@
       "worst": "—"
     },
     "backend/config/llm.py": {
-      "lines": 69,
-      "complexity": 0,
-      "worst": "—"
+      "lines": 86,
+      "complexity": 2,
+      "worst": "_unset_if_empty:62"
     },
     "backend/config/observability.py": {
       "lines": 21,
@@ -682,9 +682,9 @@
       "worst": "send_draft:117"
     },
     "backend/features/agent/guarding.py": {
-      "lines": 117,
+      "lines": 135,
       "complexity": 8,
-      "worst": "compose:51"
+      "worst": "compose:58"
     },
     "backend/features/agent/settings.py": {
       "lines": 168,
@@ -692,9 +692,9 @@
       "worst": "save:135"
     },
     "backend/features/agent/stages.py": {
-      "lines": 188,
-      "complexity": 3,
-      "worst": "__post_init__:89"
+      "lines": 199,
+      "complexity": 4,
+      "worst": "agent_operations:182"
     },
     "backend/features/agent/writer.py": {
       "lines": 263,
@@ -922,9 +922,9 @@
       "worst": "check_connected:100"
     },
     "backend/features/core/usage.py": {
-      "lines": 156,
-      "complexity": 7,
-      "worst": "ensure_llm_within_cap:127"
+      "lines": 192,
+      "complexity": 10,
+      "worst": "ensure_llm_within_cap:149"
     },
     "backend/features/crawl/__init__.py": {
       "lines": 5,

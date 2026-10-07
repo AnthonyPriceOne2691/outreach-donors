@@ -26,7 +26,14 @@ from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.agent.stages import AgentStage, GuardInput, Verdict, VerdictKind
+from backend.config import llm as llm_cfg
+from backend.features.agent.stages import (
+    AgentStage,
+    GuardInput,
+    Verdict,
+    VerdictKind,
+    agent_operations,
+)
 from backend.features.agent.writer import Request, Written
 from backend.features.core import usage
 
@@ -60,8 +67,9 @@ async def compose(
     attempts: list[dict[str, Any]] = []
     tokens = 0
     current = request
+    cap = drafts_cap()
     for attempt in range(max(stage.max_rewrites, 0) + 1):
-        await usage.ensure_llm_within_cap(session)
+        await usage.ensure_llm_within_cap(session, own=cap)
         written = await writer.write(current)
         tokens += _spent(session, stage.usage_operation, written.tokens)
         held = written.needs_human or not written.body.strip()
@@ -87,6 +95,16 @@ async def compose(
         current = replace(request, corrections=verdict.reasons, previous=written.body)
     why = f"судья не пропустил черновик и после {stage.max_rewrites} правок: {_said(verdict)}"
     return Composed(written.body, True, why, tokens, attempts)
+
+
+def drafts_cap() -> usage.OwnCap:
+    """Свой дневной потолок черновиков агента: настройка, не задана — доля общего.
+    Общий 0 («потолка нет») при не заданном своём — потолка нет и у черновиков."""
+    own = llm_cfg.AGENT_DAILY_TOKEN_CAP
+    if own is None:
+        general = llm_cfg.DAILY_TOKEN_CAP
+        own = max(1, int(general * llm_cfg.AGENT_CAP_SHARE)) if general else 0
+    return usage.OwnCap("черновиков агента", agent_operations(), own, "AGENT_DAILY_TOKEN_CAP")
 
 
 async def judged(stage: AgentStage, check: GuardInput) -> Verdict:

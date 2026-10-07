@@ -12,6 +12,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
+from dataclasses import dataclass
 from datetime import UTC, datetime, time
 from decimal import Decimal
 
@@ -109,10 +111,28 @@ class LlmCapExceededError(RuntimeError):
     у Ahrefs: не тратить дальше, сказать словами, сколько и из чего."""
 
 
+@dataclass(frozen=True, slots=True)
+class OwnCap:
+    """Свой дневной потолок части операций модели — внутри общего, тем же журналом.
+
+    `tokens` 0 — своего потолка нет. `what` и `setting` — слова отказа: чей
+    потолок и какой настройкой его поднять.
+    """
+
+    what: str
+    operations: frozenset[str]
+    tokens: int
+    setting: str
+
+
 async def llm_tokens_spent(
-    session: AsyncSession, *, since: datetime | None = None, run_id: int | None = None
+    session: AsyncSession,
+    *,
+    since: datetime | None = None,
+    run_id: int | None = None,
+    operations: Collection[str] | None = None,
 ) -> int:
-    """Токены модели по журналу: с момента `since` и/или по прогону `run_id`."""
+    """Токены модели по журналу: с момента `since`, по прогону `run_id`, по операциям."""
     statement = select(func.coalesce(func.sum(UsageRecordModel.units), 0)).where(
         UsageRecordModel.system == SYSTEM,
         UsageRecordModel.provider == UsageProvider.LLM,
@@ -121,11 +141,17 @@ async def llm_tokens_spent(
         statement = statement.where(UsageRecordModel.created_at >= since)
     if run_id is not None:
         statement = statement.where(UsageRecordModel.run_id == run_id)
+    if operations is not None:
+        statement = statement.where(UsageRecordModel.operation.in_(sorted(operations)))
     return int(await session.scalar(statement) or 0)
 
 
 async def ensure_llm_within_cap(
-    session: AsyncSession, *, run_id: int | None = None, now: datetime | None = None
+    session: AsyncSession,
+    *,
+    run_id: int | None = None,
+    now: datetime | None = None,
+    own: OwnCap | None = None,
 ) -> None:
     """Проверить потолки расхода на модель ДО вызова. Бросает `LlmCapExceededError`.
 
@@ -135,16 +161,26 @@ async def ensure_llm_within_cap(
     начатый до записи предыдущего, проходит — перебор до одного вызова на
     поток (у судьи в прогоне — до числа параллельных). Это цена простоты;
     потолок держит порядок трат, а не каждый токен.
+
+    `own` — ещё и свой дневной потолок части операций (черновики агента): тот же
+    день и тот же журнал, только по своим операциям; общий проверяется всё равно.
     """
     moment = now or datetime.now(UTC)
+    day_start = datetime.combine(moment.date(), time.min, tzinfo=UTC)
     if llm_cfg.DAILY_TOKEN_CAP:
-        day_start = datetime.combine(moment.date(), time.min, tzinfo=UTC)
         spent = await llm_tokens_spent(session, since=day_start)
         if spent >= llm_cfg.DAILY_TOKEN_CAP:
             raise LlmCapExceededError(
                 f"потолок расхода на модель за день достигнут: {spent} из "
                 f"{llm_cfg.DAILY_TOKEN_CAP} токенов (LLM_DAILY_TOKEN_CAP) — "
                 "продолжение завтра или поднять потолок"
+            )
+    if own is not None and own.tokens:
+        spent = await llm_tokens_spent(session, since=day_start, operations=own.operations)
+        if spent >= own.tokens:
+            raise LlmCapExceededError(
+                f"дневной потолок {own.what} выбран: {spent} из {own.tokens} токенов "
+                f"({own.setting}); завтра или поднимите {own.setting}"
             )
     if llm_cfg.RUN_TOKEN_CAP and run_id is not None:
         spent = await llm_tokens_spent(session, run_id=run_id)

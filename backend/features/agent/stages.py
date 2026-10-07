@@ -179,6 +179,17 @@ AGENT_STAGES: Mapping[Stage, AgentStage] = MappingProxyType(
 )
 
 
+def agent_operations() -> frozenset[str]:
+    """Операции расхода агента всех этапов реестра — черновики и судьи: их
+    считает свой дневной потолок черновиков (`guarding.drafts_cap`)."""
+    found = {
+        op
+        for parts in AGENT_STAGES.values()
+        for op in (parts.usage_operation, parts.guard_operation)
+    }
+    return frozenset(op for op in found if op)
+
+
 def agent_stage(stage: Stage) -> AgentStage:
     """Части агента этапа. Этапа нет в реестре — отказ словами."""
     found = AGENT_STAGES.get(stage)
