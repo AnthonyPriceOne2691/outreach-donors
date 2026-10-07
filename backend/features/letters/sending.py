@@ -59,7 +59,7 @@ from backend.features.letters.transport import Mail, Outgoing, Transport, Transp
 logger = logging.getLogger(__name__)
 
 
-class SendError(RuntimeError):
+class SendError(stages.MailRefusalError):
     """Письмо не отправлено. Сообщение называет причину и что делать."""
 
 
@@ -164,7 +164,8 @@ class _Target:
     message: MessageModel
     host: str
     email: str
-    stage: stages.MailStage
+    #: Кому и от чьего имени — ответ этапа (`stages.recipient`).
+    to: stages.Recipient
     #: Ящик и `Message-ID` прежней попытки — до захвата. Пусто у нового письма;
     #: у возвращённого человеком из «отправляется» — след попытки, которая
     #: могла уйти (`unknown_outcome.py`).
@@ -202,9 +203,9 @@ class Sending:
         """
         target = await self._target(message_id)
         try:  # не собрался транспорт этапа — отказ отправки, а не падение прохода
-            transport = of_stage(self._transports, target.stage.value)
+            transport = of_stage(self._transports, target.to.stage.value)
         except TransportError as exc:
-            raise SendError(f"Почта этапа «{target.stage.value}» не собрана: {exc}") from exc
+            raise SendError(f"Почта этапа «{target.to.stage.value}» не собрана: {exc}") from exc
         await self._check_suppression(target)
         await self._check_review(target)
         check_ready(target.message.body or "", what=f"Письмо №{target.message.id}")
@@ -245,7 +246,8 @@ class Sending:
                 f"Письмо №{message_id} в состоянии «{message.status.value}», а не в очереди. "
                 "Отправить можно только то, что ещё ждёт отправки"
             )
-        if not email:
+        to = await stages.recipient(self._session, message, stage, email, f"Письмо №{message_id}")
+        if not to.email:
             raise SendError(
                 f"У письма №{message_id} нет адреса получателя: контакт удалён после сборки "
                 "очереди. Письмо стоит убрать и собрать очередь заново"
@@ -253,8 +255,8 @@ class Sending:
         return _Target(
             message=message,
             host=host,
-            email=email,
-            stage=stages.mail_stage(stage, f"Письмо №{message_id}"),
+            email=to.email,
+            to=to,
             before=(message.sender_id, message.internet_message_id),
         )
 
@@ -300,12 +302,16 @@ class Sending:
         Между сборкой и отправкой человек может передумать: принять, вернуть
         в «предложен», отклонить (Anthony, 24.09.2026). Без этой проверки
         письмо, собранное для принятого, ушло бы отклонённому. Рекламодатели
-        Этапа 2 рассмотрения донора не проходят, у них своя проверка.
+        Этапа 2 рассмотрения донора не проходят, у них своя проверка; можно ли
+        писать лиду продаж — проверка модуля продаж (`stages.check_sales`).
         """
-        if target.stage is Stage.ADVERTISERS:
+        if target.to.stage is Stage.ADVERTISERS:
             await self._check_advertiser(target)
             return
-        stages.donor_path(target.stage)
+        if target.to.stage is Stage.SALES:  # лиду можно писать, письмо цело (`stages.SalesMail`)
+            await stages.check_sales(self._session, target.message)
+            return
+        stages.donor_path(target.to.stage)
         review = await self._session.scalar(
             select(DonorModel.review).where(DonorModel.domain_id == target.message.domain_id)
         )
@@ -352,7 +358,7 @@ class Sending:
             .where(
                 or_(
                     SuppressionModel.stage.is_(None),
-                    SuppressionModel.stage == target.stage,
+                    SuppressionModel.stage == target.to.stage,
                 )
             )
             .where(SuppressionModel.in_force(datetime.now(UTC)))
@@ -370,7 +376,7 @@ class Sending:
         choice = await mailbox.choose(
             self._session,
             target.message,
-            stage=target.stage,
+            stage=target.to.stage,
             thread_sender_id=from_sender_id,
             now=self._moment(),
         )
@@ -394,7 +400,7 @@ class Sending:
             message_id=target.message.id,
             to=target.email,
             from_email=sender.email,
-            from_name=compose.values_for(host=target.host)["sender_name"],
+            from_name=target.to.from_name(compose.values_for(host=target.host)["sender_name"]),
             reply_to=own.reply_to,
             subject=target.message.subject or "",
             body=target.message.body or "",

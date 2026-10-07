@@ -30,7 +30,7 @@ from typing import assert_never
 
 from backend.config import outreach as cfg
 from backend.features.core.domain import Stage
-from backend.features.core.stages import SalesNotConnectedError
+from backend.features.core.stages import SALES_ELSEWHERE, SalesNotConnectedError
 from backend.features.letters.uniqueness import words
 
 #: Заголовок зоны: `[имя] вид`.
@@ -375,7 +375,8 @@ def first_letter(stage: Stage) -> FirstLetter:
     значит отправить рекламодателю вопрос о цене его же размещения.
 
     Разбор целиком, а не словарём: этап без письма — отказ словами здесь,
-    а не `KeyError` где-то ниже; следующий новый этап — ошибка mypy.
+    а не `KeyError` где-то ниже; следующий новый этап — ошибка mypy. Первое
+    письмо продаж — шаблоном из базы, его собирает модуль продаж.
     """
     match stage:
         case Stage.DONORS:
@@ -383,7 +384,9 @@ def first_letter(stage: Stage) -> FirstLetter:
         case Stage.ADVERTISERS:
             return FirstLetter(ADVERTISER_PATH, ADVERTISER, link=True)
         case Stage.SALES:
-            raise SalesNotConnectedError(f"Первое письмо этапа {stage.value}")
+            raise SalesNotConnectedError(
+                f"Первое письмо этапа {stage.value} файлом", words=SALES_ELSEWHERE
+            )
         case _:
             assert_never(stage)
 
@@ -410,20 +413,21 @@ def of_campaign(stage: Stage, stored: str | None) -> Template:
 
 
 def _followup_prefix(stage: Stage) -> str | None:
-    """Имена файлов добивок этапа: `<префикс>_<шаг>.txt`. `None` — цепочки нет."""
+    """Имена файлов добивок этапа: `<префикс>_<шаг>.txt`. `None` — файлов нет."""
     match stage:
         case Stage.DONORS:
             return "followup"
         case Stage.ADVERTISERS:
             return "advertiser_followup"
-        case Stage.SALES:
+        case Stage.SALES:  # цепочка продаж — в базе (`sales_chain_templates`), не файлами
             return None
         case _:
             assert_never(stage)
 
 
-#: Этапы с цепочкой добивок. Проход добивок берёт только их: срок добивки
-#: этапа без цепочки не гасится, пока её нечем отправить (`followups.claim`).
+#: Этапы с цепочкой добивок файлами. Проход добивок берёт их и продажи, когда те
+#: подключены (`followups.send_due`): срок добивки этапа без цепочки не гасится,
+#: пока её нечем отправить (`followups.claim`).
 CHAINED: tuple[Stage, ...] = tuple(s for s in Stage if _followup_prefix(s) is not None)
 
 
@@ -433,11 +437,12 @@ def followup(step: int, stage: Stage = Stage.DONORS) -> Template:
     Шаблоны лежат файлами рядом с первым письмом, а не строками в базе:
     текст добивки один на всю рассылку, правится редко и должен
     проходить ревью кодом. У этапов добивки свои: донору напоминают
-    о вопросе про цену, рекламодателю — об оффере. У продаж цепочки нет.
+    о вопросе про цену, рекламодателю — об оффере. Добивки продаж — шаблонами
+    из базы: их текст собирает модуль продаж (`followups.compose_letter`).
     """
     prefix = _followup_prefix(stage)
     if prefix is None:
-        raise SalesNotConnectedError(f"Добивка шага {step}")
+        raise SalesNotConnectedError(f"Добивка шага {step} файлом", words=SALES_ELSEWHERE)
     path = TEMPLATES / f"{prefix}_{step}.txt"
     if not path.exists():
         raise TemplateError(

@@ -26,7 +26,7 @@ from backend.features.core.models.outreach import (
     ThreadModel,
 )
 from backend.features.core.models.run import RunCandidateModel, RunModel
-from backend.features.core.stages import SalesNotConnectedError
+from backend.features.core.stages import SALES_ELSEWHERE, SalesNotConnectedError
 from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.compose import FoundLink
 from backend.features.letters.funnel import AdvertiserFunnel, Funnel
@@ -64,7 +64,8 @@ class LetterRepository:
     #
     # Этап разбирается здесь, целиком, и только здесь: путь, принимавший этап,
     # отдавал принятых доноров любому этапу, кроме рекламодателей. Продажам —
-    # отказ, следующему новому этапу — ошибка mypy, а не очередь из доноров.
+    # отказ: их адресаты — лиды, очередь собирает модуль продаж;
+    # следующему новому этапу — ошибка mypy, а не очередь из доноров.
 
     async def funnel(
         self, stage: Stage, *, run_ids: Sequence[int] = ()
@@ -77,7 +78,9 @@ class LetterRepository:
             case Stage.ADVERTISERS:
                 return await recipients.advertiser_funnel()
             case Stage.SALES:
-                raise SalesNotConnectedError(f"Воронка отбора этапа {stage.value}")
+                raise SalesNotConnectedError(
+                    f"Воронка отбора этапа {stage.value}", words=SALES_ELSEWHERE
+                )
             case _:
                 assert_never(stage)
 
@@ -93,7 +96,9 @@ class LetterRepository:
             case Stage.ADVERTISERS:
                 return await recipients.advertiser_candidates(limit=limit)
             case Stage.SALES:
-                raise SalesNotConnectedError(f"Отбор адресатов этапа {stage.value}")
+                raise SalesNotConnectedError(
+                    f"Отбор адресатов этапа {stage.value}", words=SALES_ELSEWHERE
+                )
             case _:
                 assert_never(stage)
 
