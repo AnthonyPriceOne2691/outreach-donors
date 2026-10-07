@@ -7,8 +7,9 @@
 `AGENT_STAGES`, а не ветка `if stage is …` в механизме.
 
 **Бриф — до письма** (`brief`): этап смотрит на переписку и говорит, что агенту
-знать (факты строками), не писать ли вовсе (skip двух видов) и что запомнить
-для калибровки (`meta`, ложится в черновик). `no_reply` — ответ не нужен,
+знать (факты строками), не писать ли вовсе (skip двух видов), что запомнить
+для калибровки (`meta`, ложится в черновик) и чьим именем подписать черновик
+(`sign_as`; не назвал — общим именем отправителя). `no_reply` — ответ не нужен,
 черновик `skipped`; `human` — агент не берётся, черновик `escalated` без
 текста: модель в обоих случаях не зовётся.
 
@@ -76,6 +77,13 @@ class Brief:
     facts: tuple[str, ...] = ()
     skip: Skip | None = None
     meta: Mapping[str, Any] = field(default_factory=dict)
+    #: Чьим именем подписать черновик. `None` — общим именем отправителя
+    #: `OUTREACH_SENDER_NAME`, как до шва; пустое имя — отказ, а не письмо без подписи.
+    sign_as: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.sign_as is not None and not self.sign_as.strip():
+            raise ValueError("пустое имя подписи — задай имя или None")
 
 
 class VerdictKind(StrEnum):
