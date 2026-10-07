@@ -1,4 +1,4 @@
-# Spec: шов агента переписки, часть «А2» — черновик по брифу этапа — кому положен, что видит этап, где лежит
+# Spec: шов агента переписки, часть «А3» — решения по черновику — отправить как есть, с правкой, отклонить с причиной
 
 ## Problem
 
@@ -11,26 +11,21 @@
 
 ## In scope
 
-- **Черновик** по настройкам этапа, переписке без цитат и разобранной цене — механизм заготовки `cc68357`.
-- **Бриф до модели**: `no_reply` → `skipped`, `human` → `escalated` без текста, модель не зовётся; факты — писателю, `meta` — в черновик; «всё же написать» (`force`).
-- **Крючок уведомления** этапа после коммита, только по черновикам, которые ждут человека; сбой — в лог.
-- **Подпись от этапа**: `Brief.sign_as: str | None = None` — задано, черновик подписан этим именем; `None` — общим `OUTREACH_SENDER_NAME`, как до шва; пустое имя — отказ `ValueError`.
+- **Решения общие для всех этапов, проверяет сервер**: отклонить — только с причиной (422), второе решение — 409, «как есть» у `escalated` — 409, с правкой — уходит.
+- **Отправка — путь ответа человека** (`answer_reply`): стоп-лист, решение по донору, метрики, ящик переписки; ответ из переписки мимо черновика тоже закрывает черновик.
+- **Список «ждут человека»** (`GET /api/agent/drafts`, по умолчанию `escalated`, предел страницы) и черновик целиком с `meta`.
 
 ## Out of scope
 
-Решений (А3), судьи и петли (Б), задачи очереди и кнопки (В) — черновик в А2 пишет только вызов функции.
+Черновиков в карточке переписки и «написать заново» (В), экрана.
 
 ## Acceptance examples
 
 | # | Вход и ожидаемый выход | Тест |
 |---|---|---|
-| A1 | Черновик из всей переписки: наши письма и ответ без цитаты, разобранная цена, подпись, промпт и модель этапа; статус `drafted`, `meta` пустая | `tests/test_agent_drafting.py::TestWho::test_writes_a_draft_from_the_whole_conversation` |
-| A2 | Не положен: не настроен, выключен, автоответчик, отписка — модель не зовётся; отвеченный ответ — без черновика | `TestWho::test_no_draft_where_nobody_will_answer, test_answered_reply_gets_no_draft` |
-| A3 | Повтор не платит, «заново» переписывает, сомнение — `escalated`, решённый не переписывается | `TestAgain::test_retry_does_not_pay_twice_but_again_rewrites_until_decided` |
-| A4 | Расход — операцией этапа; потолок — до модели | `TestAgain::test_spend_is_journaled_as_the_stage_operation, test_cap_stops_before_the_model` |
-| A5 | Пропуск брифа двух видов: модель не зовётся, текста нет, статус `skipped`/`escalated`, `meta` с видом пропуска, расхода нет | `TestBrief::test_skip_does_not_call_the_model_and_leaves_no_text[no_reply|human]` |
-| A6 | Факты брифа — у писателя, `meta` — в черновике (сумма строкой) | `TestBrief::test_facts_reach_the_writer_and_meta_lands_in_the_draft` |
-| A7 | «Всё же написать» поверх пропуска — пропуск в `meta` | `TestBrief::test_forced_draft_writes_over_the_skip_and_remembers_it` |
-| A8 | Крючок слышит готовый черновик, его сбой черновик не теряет; пропуск не объявляется | `TestAnnounce::*` |
-| A9 | Бриф назвал имя — черновик подписан им, а не общим; не назвал — общим, как раньше (настоящий писатель, подставная модель `httpx.MockTransport` подписывает именем из запроса, как велит промпт) | `TestSignAs::test_draft_is_signed_by_the_brief_name_and_without_it_as_before[Ivo Test-Ivo Test|None-Anna]` |
-| A10 | Пустое имя подписи (и пробелы) — `ValueError` словами «пустое имя подписи — задай имя или None» | `TestSignAs::test_empty_name_is_refused_in_words[|  ]` |
+| A1 | 422 без причины и с пустой причиной; отклонение пишет причину, кто и событие журнала; второе решение и «отправить» после — 409 | `tests/test_agent_decisions.py::TestDecisions::test_reject_needs_a_reason_and_is_the_only_decision` |
+| A2 | «Как есть» у `escalated` — 409 словами; с правкой — уходит, `edited`, `final_body`, `sent_message_id` | `TestDecisions::test_escalated_draft_does_not_go_as_is_but_goes_edited` |
+| A3 | Готовый — как есть: ящик переписки, письмо-ответ с текстом черновика, `edited=False`, решил человек | `TestDecisions::test_ready_draft_goes_as_is_by_the_answer_path` |
+| A4 | Ответ из переписки мимо черновика закрывает его (`sent`, `edited`) | `TestDecisions::test_answer_from_the_thread_closes_the_draft` |
+| A5 | Список «ждут человека», черновик целиком с `meta`, 404, 403 без права send | `TestDecisions::test_waiting_list_and_detail_with_meta` |
+| A6 | Ревизия журнала ещё раз в процессе — значение одно | `test_journal_value_is_there_once_and_survives_a_rerun` |
