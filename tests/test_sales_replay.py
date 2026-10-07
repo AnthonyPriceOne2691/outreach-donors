@@ -506,6 +506,14 @@ def test_strict_gate_wants_fewer_violations_when_there_were_some() -> None:
     assert replay_gate.compare(clean, clean, strict=True).passed
 
 
+def test_handing_to_a_human_where_the_human_kept_silent_is_not_an_answer() -> None:
+    found = replay_gate.tally(
+        [_result("a", Outcome.REJECTED, replied=False), _result("b", Outcome.EDITED, replied=False)]
+    )
+
+    assert (found.needless, found.true_silence, found.false_silence) == (1, 0, 0)
+
+
 def test_cases_that_changed_between_runs_are_not_compared() -> None:
     old = _run(_result("a", Outcome.AS_IS, digest="one"))
     new = _run(_result("a", Outcome.SILENT, digest="two"))

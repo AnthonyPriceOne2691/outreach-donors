@@ -1772,9 +1772,9 @@
       "worst": "decided:81"
     },
     "backend/features/sales/agent/replay_gate.py": {
-      "lines": 287,
+      "lines": 289,
       "complexity": 8,
-      "worst": "worse_cases:239"
+      "worst": "worse_cases:241"
     },
     "backend/features/sales/agent/replay_sets.py": {
       "lines": 244,

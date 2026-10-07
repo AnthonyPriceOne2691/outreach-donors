@@ -47,6 +47,8 @@ OUTCOMES = {
     Outcome.SILENT: "молчание",
 }
 _BY = {"human": "с меткой человека", "model": "с меткой прежней версии"}
+#: Исходы, где версия ответила бы письмом; «отклонено» — не ответ, а человеку.
+_ANSWERED = frozenset({Outcome.AS_IS, Outcome.EDITED})
 
 
 @dataclass(slots=True)
@@ -72,7 +74,7 @@ class Tally:
         self.replied += human.replied
         self.false_silence += result.false_silence
         self.true_silence += silent and not human.replied
-        self.needless += not silent and not human.replied
+        self.needless += result.outcome in _ANSWERED and not human.replied
         self.violations += bool(result.violations)
         self.reasons += len(result.violations)
         self.outcomes[result.outcome] += 1
