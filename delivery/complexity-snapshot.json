@@ -1877,9 +1877,9 @@
       "worst": "compare:185"
     },
     "scripts/contour_waves.py": {
-      "lines": 479,
+      "lines": 484,
       "complexity": 14,
-      "worst": "collect:392"
+      "worst": "collect:397"
     },
     "scripts/eval_judge.py": {
       "lines": 170,
@@ -1892,9 +1892,9 @@
       "worst": "report:116"
     },
     "scripts/gates.py": {
-      "lines": 369,
+      "lines": 401,
       "complexity": 10,
-      "worst": "_python_files:76"
+      "worst": "_python_files:86"
     },
     "scripts/measure_outlinks.py": {
       "lines": 331,
@@ -1905,6 +1905,11 @@
       "lines": 160,
       "complexity": 8,
       "worst": "measure:69"
+    },
+    "scripts/public_repo.py": {
+      "lines": 186,
+      "complexity": 8,
+      "worst": "tracked_text_files:70"
     },
     "scripts/sample_keywords.py": {
       "lines": 145,

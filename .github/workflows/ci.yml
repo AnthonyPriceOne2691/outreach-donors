@@ -72,8 +72,25 @@ jobs:
       - name: Типы
         run: mypy backend/
 
+      # На PR гейт судит и то, что уйдёт в main вместе с кодом: сообщения коммитов
+      # PR (`--commits`) и заголовок с телом PR (`--pr-env`) — из них GitHub
+      # собирает squash-коммит. Текст PR — только через `env:`: подстановка
+      # выражения в `run:` исполнила бы заголовок как код. Правку текста после
+      # прогона судит pr-text.yml. База — ветка назначения, как у проверки волн
+      # ниже. На push в main сообщение последнего коммита уже опубликовано (его
+      # задают руками при слиянии) — о нём только предупреждение, код 0.
       - name: Архитектурные гейты
-        run: python scripts/gates.py
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            git fetch --no-tags origin "+refs/heads/$GITHUB_BASE_REF:refs/remotes/origin/$GITHUB_BASE_REF"
+            python scripts/gates.py --commits "origin/$GITHUB_BASE_REF" --pr-env
+          else
+            python scripts/gates.py --commits-warn HEAD^
+          fi
 
       # §3.4a. Необратимое без человека в цепочке требует подписи оператора.
       # Сверяется ИСПОЛНЕНИЕМ: подпись, которую никто не проверил, неотличима

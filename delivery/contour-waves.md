@@ -52,7 +52,13 @@
 - В1 — в `.importlinter` есть контракт с `backend.features.sales`.
 - В2 — у понятий `okf/` есть `implementation:` в `backend/features/sales`.
 - Волна с триггером `sales-prompt` — каждый промпт продаж назван
-  в `model_surface` STATUS.
+  в `model_surface` STATUS. «Назван» значит одно: промпт покрыт элементом
+  первой строки поля — путём от корня, каталогом или маской
+  (`backend/features/sales/prompts/reply_kind.md`, `backend/features/sales/prompts/`,
+  `backend/features/sales/prompts/*.md`). Голое имя файла не в счёт, путь из
+  `<!-- … -->` не в счёт, строки поля ниже первой не читаются. Поле разбирают
+  те же функции, что у фазового гейта `delivery_check` (`declared_surfaces`,
+  `runtime_touched`), — второго прочтения у понятия нет.
 
 ## В1: что видит каждый гейт
 

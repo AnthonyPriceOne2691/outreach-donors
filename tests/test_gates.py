@@ -7,11 +7,14 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
+from scripts import gates
 from scripts.gates import (
     MAX_LINES_PROD,
+    check_commit_messages,
     check_config_access,
     check_env_example,
     check_file_length,
@@ -19,8 +22,23 @@ from scripts.gates import (
     check_layers,
     check_public_repo,
     check_silent_except,
+    public_repo,
     run,
 )
+
+#: Признаки — из модуля, которым пользуется гейт: тот же объект, что у `gates`.
+PRIVATE_DOCUMENTS = public_repo.PRIVATE_DOCUMENTS
+Capture = pytest.CaptureFixture[str]
+
+
+def gate(
+    monkeypatch: pytest.MonkeyPatch, capsys: Capture, root: Path, *argv: str
+) -> tuple[int, str, str]:
+    """Гейт целиком, как его зовут CI и pre-push, над деревом `root`."""
+    monkeypatch.setattr(gates, "ROOT", root)
+    code = gates.main(list(argv))
+    out, err = capsys.readouterr()
+    return code, out, err
 
 
 def _rules(check, path: str, source: str) -> list[str]:
@@ -62,6 +80,13 @@ class TestConfigAccess:
         конфигурацию сервиса."""
         bad = "import os\nDSN = os.getenv('TEST_DSN')\n"
         assert _rules(check_config_access, "tests/conftest.py", bad) == []
+
+    def test_pr_text_source_reads_its_input_from_env(self) -> None:
+        """Текст PR приходит в шаг CI только окружением: для его источника это
+        вход, а не конфигурация. Любой другой скрипт по-прежнему краснеет."""
+        read = "import os\nTITLE = os.environ.get('PR_TITLE', '')\n"
+        assert _rules(check_config_access, "scripts/public_repo.py", read) == []
+        assert _rules(check_config_access, "scripts/other.py", read) == ["config-access"]
 
 
 class TestLayers:
@@ -146,8 +171,6 @@ class TestPublicRepo:
 
     @staticmethod
     def _repo(tmp_path: Path, name: str, text: str) -> Path:
-        import subprocess  # noqa: PLC0415 — нужен только здесь, ради списка файлов
-
         (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / name).write_text(text, encoding="utf-8")
         subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
@@ -161,6 +184,45 @@ class TestPublicRepo:
     def test_private_document_name_is_caught(self, tmp_path: Path) -> None:
         repo = self._repo(tmp_path, "backend/a.py", "# смета описана в TZ.md\n")
         assert [v.rule for v in check_public_repo(repo)] == ["public-repo"]
+
+    @pytest.mark.parametrize(
+        "name", PRIVATE_DOCUMENTS, ids=[f"doc{i}" for i in range(len(PRIVATE_DOCUMENTS))]
+    )
+    def test_bare_document_name_is_caught(self, tmp_path: Path, name: str) -> None:
+        """Имя без расширения называет документ так же, как с ним: голым,
+        в docstring, оно проходило зелёным."""
+        text = f'"""Решение о рассылке ({name}): отписавшимся не писать."""\n'
+        repo = self._repo(tmp_path, "backend/a.py", text)
+        assert [v.rule for v in check_public_repo(repo)] == ["public-repo"]
+
+    def test_ordinary_words_are_not_document_names(self, tmp_path: Path) -> None:
+        """Регистр различается: имя пишется заглавными, а то же слово строчными
+        или с заглавной буквы — обычный текст (ключ JSON, аргумент функции).
+        Часть идентификатора — тоже не имя."""
+        forms = (str.lower, str.capitalize, "HTML_{}".format, "{}_PATH".format, "{}S".format)
+        text = "".join(f"# {form(name)}\n" for name in PRIVATE_DOCUMENTS for form in forms)
+        repo = self._repo(tmp_path, "backend/a.py", text)
+        assert list(check_public_repo(repo)) == []
+
+    @pytest.mark.parametrize(
+        ("text", "caught"),
+        [
+            pytest.param("см. FAKEDOC, раздел о рассылке", True, id="comma"),
+            pytest.param("смета описана в FAKEDOC.md", True, id="extension"),
+            pytest.param("(FAKEDOC): правило", True, id="parentheses"),
+            pytest.param("FAKEDOC-документ", True, id="hyphen"),
+            pytest.param("по FAKEDOCу", True, id="russian-ending"),
+            pytest.param("fakedoc", False, id="lowercase"),
+            pytest.param("Fakedoc", False, id="capitalized"),
+            pytest.param("HTML_FAKEDOC", False, id="identifier-tail"),
+            pytest.param("FAKEDOC_PATH", False, id="identifier-head"),
+            pytest.param("FAKEDOCS", False, id="longer-word"),
+        ],
+    )
+    def test_document_name_is_a_whole_uppercase_word(self, text: str, caught: bool) -> None:
+        """Образец из выдуманного имени: с расширением и без, целым словом,
+        заглавными. Русское окончание вплотную слова не продолжает."""
+        assert (public_repo.document_names(["FAKEDOC"]).search(text) is not None) is caught
 
     def test_impersonal_wording_passes(self, tmp_path: Path) -> None:
         repo = self._repo(
@@ -187,3 +249,141 @@ class TestPublicRepo:
         repo = self._repo(tmp_path, "docs/note.md", "чисто\n")
         (repo / "docs" / "fresh.md").write_text("смета описана в TZ.md\n", encoding="utf-8")
         assert [v.rule for v in check_public_repo(repo)] == ["public-repo"]
+
+
+class TestCommitMessages:
+    """Сообщение коммита уходит в публичную историю так же, как файл, а гейт
+    по файлам его не видит."""
+
+    @staticmethod
+    def _history(tmp_path: Path, base: str, *messages: str) -> str:
+        """Коммит-база и поверх него коммиты PR с этими сообщениями. Возвращает sha базы."""
+
+        def git(*args: str) -> str:
+            command = ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args]
+            done = subprocess.run(command, cwd=tmp_path, check=True, capture_output=True, text=True)
+            return done.stdout
+
+        git("init", "-q")
+        git("commit", "-q", "--allow-empty", "-m", base)
+        sha = git("rev-parse", "HEAD").strip()
+        for message in messages:
+            git("commit", "-q", "--allow-empty", "-m", message)
+        return sha
+
+    def test_private_name_in_a_pr_commit_is_caught(self, tmp_path: Path) -> None:
+        leak = f"Отписка: правила рассылки\n\nРешение — в {PRIVATE_DOCUMENTS[-1]}, раздел о ней"
+        base = self._history(tmp_path, "база", "Письма: очередь пачкой", leak)
+        found = [(v.rule, v.line) for v in check_commit_messages(tmp_path, base)]
+        assert found == [("public-repo", 3)]
+
+    def test_history_under_the_base_is_not_judged(self, tmp_path: Path) -> None:
+        """Сообщение базы уже в main: переписать его нельзя, и PR на нём не краснеет."""
+        base = self._history(tmp_path, f"Старое: {PRIVATE_DOCUMENTS[-1]}.md", "Письма: очередь")
+        assert list(check_commit_messages(tmp_path, base)) == []
+
+    def test_unreadable_range_is_a_refusal(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Capture
+    ) -> None:
+        """Диапазон задан явно, а сообщения не прочитаны — гейт не судил, и это
+        красное: непрочитанное не должно выглядеть чистым."""
+        self._history(tmp_path, "база", "Письма: очередь")
+        code, _, err = gate(monkeypatch, capsys, tmp_path, "--commits", "нет-такой-ветки")
+        assert code != 0
+        assert "гейт не судил: сообщения коммитов нет-такой-ветки..HEAD не прочитаны" in err
+
+    def test_readable_clean_range_is_green(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Capture
+    ) -> None:
+        base = self._history(tmp_path, "база", "Письма: очередь", "Чистка: прогоны")
+        code, out, _ = gate(monkeypatch, capsys, tmp_path, "--commits", base)
+        assert code == 0
+        assert f"сообщений коммитов {base}..HEAD — 2" in out
+
+    def test_published_message_is_only_a_warning(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Capture
+    ) -> None:
+        """Push в main: сообщение последнего коммита уже опубликовано (его задают
+        руками при слиянии). Имя в нём видно в выводе, а код 0: остановка ничего
+        не исправит."""
+        self._history(tmp_path, "база", f"Слияние: отписка ({PRIVATE_DOCUMENTS[0]})")
+        code, out, _ = gate(monkeypatch, capsys, tmp_path, "--commits-warn", "HEAD^")
+        assert code == 0
+        assert "⚠ предупреждение: коммит " in out
+        assert "имя закрытого документа в сообщении коммита — уже опубликовано" in out
+        assert "предупреждений: 1" in out
+
+    def test_unreadable_published_range_is_only_a_warning(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Capture
+    ) -> None:
+        self._history(tmp_path, "база")
+        code, _, err = gate(monkeypatch, capsys, tmp_path, "--commits-warn", "нет-такой-ветки")
+        assert code == 0
+        assert "⚠ предупреждение: гейт не судил: сообщения коммитов нет-такой-ветки..HEAD" in err
+
+
+class TestPrText:
+    """Заголовок и тело PR: из них GitHub собирает squash-коммит, который уйдёт
+    в main, а гейт по коммитам их не видит. Текст приходит окружением шага."""
+
+    @staticmethod
+    def _env(monkeypatch: pytest.MonkeyPatch, title: str | None, body: str | None) -> None:
+        for name, value in (("PR_TITLE", title), ("PR_BODY", body)):
+            if value is None:
+                monkeypatch.delenv(name, raising=False)
+            else:
+                monkeypatch.setenv(name, value)
+
+    def test_name_in_title_is_red(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Capture
+    ) -> None:
+        self._env(monkeypatch, f"Отписка по {PRIVATE_DOCUMENTS[0]}", "Что сделано.")
+        code, _, err = gate(monkeypatch, capsys, tmp_path, "--pr-env")
+        assert code == 1
+        assert "заголовок PR:1 [public-repo] имя закрытого документа в заголовке PR" in err
+
+    @pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=["lf", "crlf"])
+    def test_name_in_body_is_red_with_its_line(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Capture, newline: str
+    ) -> None:
+        """Тело из веб-формы GitHub приходит с переводом строки `\\r\\n` — номер тот же."""
+        body = newline.join(["Что сделано", "", f"Решение — в {PRIVATE_DOCUMENTS[0]}"])
+        self._env(monkeypatch, "Письма: очередь пачкой", body)
+        code, _, err = gate(monkeypatch, capsys, tmp_path, "--pr-env")
+        assert code == 1
+        assert "тело PR:3 [public-repo] имя закрытого документа в теле PR" in err
+
+    @pytest.mark.parametrize(
+        "body", ["Что сделано: очередь.\nТесты зелёные.", "", None], ids=["clean", "empty", "null"]
+    )
+    def test_clean_text_or_empty_body_is_green(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Capture, body: str | None
+    ) -> None:
+        """Тела нет (`null` у GitHub — пустая строка или нет переменной) — не ошибка."""
+        self._env(monkeypatch, "Письма: очередь пачкой", body)
+        code, out, _ = gate(monkeypatch, capsys, tmp_path, "--pr-env")
+        assert code == 0
+        assert "нарушений нет" in out
+
+    def test_missing_title_is_not_judged(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Capture
+    ) -> None:
+        """У PR заголовок есть всегда: пустой — непереданный вход, а не «чисто»."""
+        self._env(monkeypatch, None, "Что сделано.")
+        code, _, err = gate(monkeypatch, capsys, tmp_path, "--pr-env")
+        assert code == 1
+        assert "гейт не судил: заголовок PR пуст" in err
+
+    def test_text_alone_does_not_walk_the_tree(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Capture
+    ) -> None:
+        """Один `--pr-env` — секунды: ни обхода кода, ни списка файлов от git."""
+
+        def walk(*_: object) -> None:
+            raise AssertionError("гейт текста PR обошёл дерево")
+
+        monkeypatch.setattr(gates, "_python_files", walk)
+        monkeypatch.setattr(public_repo, "tracked_text_files", walk)
+        self._env(monkeypatch, "Письма: очередь пачкой", "")
+        code, _, _ = gate(monkeypatch, capsys, tmp_path, "--pr-env")
+        assert code == 0

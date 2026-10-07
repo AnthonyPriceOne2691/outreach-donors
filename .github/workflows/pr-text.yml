@@ -1,0 +1,33 @@
+name: PR text
+
+# Правка заголовка или тела PR после прогона CI: из нового текста GitHub соберёт
+# squash-коммит, а джоба check его уже не видела. Остальные события PR судит шаг
+# «Архитектурные гейты» в ci.yml — здесь только `edited`, без сьюта и без
+# зависимостей проекта: гейту текста хватает стандартной библиотеки.
+on:
+  pull_request:
+    types: [edited]
+
+permissions:
+  contents: read
+
+jobs:
+  pr-text:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Текст PR — только через `env:`: подстановка выражения в `run:` исполнила
+      # бы заголовок как код. `-I` — без переменных PYTHON* и без каталога скрипта
+      # в пути импорта; один `--pr-env` дерево не обходит.
+      - name: Заголовок и тело PR
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: python3 -I scripts/gates.py --pr-env

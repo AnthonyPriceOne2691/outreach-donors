@@ -6,20 +6,27 @@
 тогда он тает по мере правок. Нам растапливать нечего, и это выигрыш:
 жёсткий ноль сильнее любого ратчета.
 
-Запуск: `python scripts/gates.py [файлы...]`. Без аргументов проверяет всё
-дерево backend, tests и scripts.
+Запуск: `python scripts/gates.py [файлы...] [--commits BASE] [--commits-warn BASE]
+[--pr-env]`. Без файлов проверяет всё дерево backend, tests и scripts; с `--commits`
+— ещё и сообщения коммитов `BASE..HEAD` (CI на PR и pre-push), с `--commits-warn` —
+то же предупреждением (push в main), с `--pr-env` — заголовок и тело PR из
+окружения. Один `--pr-env` дерево не обходит: это шаг на секунды.
 """
 
 from __future__ import annotations
 
+import argparse
 import ast
-import re
-import shutil
-import subprocess
 import sys
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+
+# Признаки закрытого и откуда брать текст — в `public_repo.py`: стандартная
+# библиотека без соседей. Каталог скрипта — в пути импорта: из тестов и под
+# `python -I` его там нет.
+sys.path.append(str(Path(__file__).resolve().parent))
+import public_repo
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -39,13 +46,16 @@ WEB_ALLOWED_PARTS = frozenset({"api", "web"})
 
 @dataclass(frozen=True, slots=True)
 class Violation:
-    path: Path
+    #: Файл — или место вне дерева: «коммит <sha>», «заголовок PR», «тело PR».
+    path: Path | str
     line: int
     rule: str
     message: str
 
     def __str__(self) -> str:
-        where = self.path.relative_to(ROOT)
+        where = self.path
+        if isinstance(where, Path) and where.is_relative_to(ROOT):
+            where = where.relative_to(ROOT)
         return f"{where}:{self.line} [{self.rule}] {self.message}"
 
 
@@ -137,14 +147,22 @@ def _is_reporting_call(node: ast.Call) -> bool:
     return isinstance(func, ast.Name) and func.id == "print"
 
 
+#: Кому окружение — вход проверки, а не конфигурация: источник текста PR. Заголовок
+#: и тело приходят в шаг CI только через `env:` — подстановка в `run:` исполнила бы
+#: их как код.
+ENV_INPUT = frozenset({"scripts/public_repo.py"})
+
+
 def check_config_access(path: Path, source: str) -> Iterator[Violation]:
     """Переменные окружения читает только config: иначе опечатка в имени
     прячется от типизатора и всплывает в проде.
 
     Тестовая оснастка исключена намеренно: выбор тестовой базы через
-    окружение — это про запуск, а не про конфигурацию сервиса.
+    окружение — это про запуск, а не про конфигурацию сервиса. Источник
+    текста PR (`ENV_INPUT`) — по той же причине.
     """
-    if "config" in path.parts or "tests" in path.parts:
+    where = (path.relative_to(ROOT) if path.is_relative_to(ROOT) else path).as_posix()
+    if "config" in path.parts or "tests" in path.parts or where in ENV_INPUT:
         return
     for node in ast.walk(ast.parse(source, filename=str(path))):
         if not isinstance(node, ast.Attribute) or node.attr not in {"getenv", "environ"}:
@@ -212,92 +230,6 @@ def check_env_example(path: Path) -> Iterator[Violation]:
             )
 
 
-#: Чего не должно быть в публичном репозитории. Это не стиль, а утечка:
-#: документ требований и план лежат в гитигноре целиком, и ссылка на них
-#: из опубликованного файла рассказывает и про их существование, и про их
-#: содержимое — номером строки, которую цитирует комментарий.
-PRIVATE_MARKERS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"\u042d[12]-\d+"), "идентификатор строки закрытого чеклиста"),
-    (
-        re.compile(r"\b(?:TZ|PHASES|VPS|HETZNER_LINKS|ENTITIES|REUSE)\.md\b"),
-        "имя закрытого документа",
-    ),
-    (
-        re.compile(r"\u0437\u0430\u043a\u0430\u0437\u0447\u0438\u043a", re.IGNORECASE),
-        "слово «заказчик»",
-    ),
-)
-
-#: Где эти слова законны. Гитигнор и докеригнор обязаны называть файлы
-#: по именам — иначе они их не исключат; сам гейт и его тест обязаны
-#: содержать образцы, иначе им нечего искать.
-PUBLIC_EXEMPT = frozenset(
-    {".gitignore", ".dockerignore", "scripts/gates.py", "tests/test_gates.py"}
-)
-
-#: Расширения, которые человек читает. Двоичное содержимое не проверяем:
-#: совпадение в нём означало бы не утечку, а случайные байты.
-TEXT_SUFFIXES = frozenset(
-    {".py", ".md", ".txt", ".yml", ".yaml", ".json", ".sh", ".toml", ".cfg", ".example", ".ts",
-     ".tsx", ".css", ".html", ".sql"}
-)  # fmt: skip
-
-
-def _tracked_text_files(root: Path) -> Iterator[Path]:
-    """Файлы, которые уедут в публичный репозиторий, — по списку git.
-
-    Не обходом дерева: уедет то, что git отслеживает, и спрашивать
-    об этом надо его. Нет гита — гейт молчит, а не врёт зелёным.
-
-    **Новые файлы считаются наравне с отслеживаемыми.** Один `ls-files`
-    показывает только то, что уже добавлено, — и гейт, запущенный
-    в середине работы, отвечал зелёным про файлы, которых ещё нет
-    в индексе. Именно так закрытый документ был назван по имени
-    в четырёх строках нового статуса, и нашлось это только после
-    коммита. Файлы из гитигнора сюда не попадают: `--exclude-standard`
-    именно об этом.
-    """
-    seen: set[str] = set()
-    for names in _git_lists(root):
-        for name in names:
-            if not name or name in PUBLIC_EXEMPT or name in seen:
-                continue
-            seen.add(name)
-            path = root / name
-            if path.suffix in TEXT_SUFFIXES and path.is_file():
-                yield path
-
-
-#: Что уедет в репозиторий: добавленное и ещё не добавленное. Второй
-#: список без первого не обходится — `--others` показывает только новое.
-_GIT_LISTINGS = (
-    ("ls-files", "-z"),
-    ("ls-files", "-z", "--others", "--exclude-standard"),
-)
-
-
-def _git_lists(root: Path) -> Iterator[list[str]]:
-    """Имена файлов от git. Молчит вместо зелёного, если спросить не вышло."""
-    git = shutil.which("git")
-    if git is None:
-        print("public-repo: git не найден — гейт пропущен", file=sys.stderr)
-        return
-    for arguments in _GIT_LISTINGS:
-        try:
-            # Аргументы заданы здесь целиком, снаружи не приходит ничего:
-            # `root` — путь самого репозитория, вычисленный от этого файла.
-            listed = subprocess.run(  # noqa: S603 — фиксированная команда, путь к git разрешён
-                [git, "-C", str(root), *arguments],
-                capture_output=True,
-                check=True,
-                timeout=30,
-            )
-        except (OSError, subprocess.SubprocessError) as exc:
-            print(f"public-repo: список файлов не получен ({exc}) — гейт пропущен", file=sys.stderr)
-            return
-        yield listed.stdout.decode("utf-8").split("\0")
-
-
 def check_public_repo(root: Path) -> Iterator[Violation]:
     """Закрытое не называется в публичном репозитории.
 
@@ -306,7 +238,7 @@ def check_public_repo(root: Path) -> Iterator[Violation]:
     на закрытый документ. Правило, которое обязан помнить человек или
     агент, не исполняется — исполняется то, что роняет пуш.
     """
-    for path in _tracked_text_files(root):
+    for path in public_repo.tracked_text_files(root):
         # Payload контура исключён по той же причине, что и в _python_files:
         # слово «заказчик» в docstring чужого по авторству файла — не наш текст
         # и правится не здесь. Замер: единственное срабатывание правила на
@@ -314,16 +246,53 @@ def check_public_repo(root: Path) -> Iterator[Violation]:
         if _is_contour(path):
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
-        for number, line in enumerate(text.splitlines(), start=1):
-            for pattern, what in PRIVATE_MARKERS:
-                if pattern.search(line):
-                    yield Violation(
-                        path,
-                        number,
-                        "public-repo",
-                        f"{what} в публичном файле — написать обезличенно",
-                    )
-                    break
+        for number, what in public_repo.private_lines(text):
+            yield Violation(
+                path, number, "public-repo", f"{what} в публичном файле — написать обезличенно"
+            )
+
+
+#: Что делать с именем в сообщении, которое уже в main: остановка его не исправит.
+PUBLISHED = "уже опубликовано: остановка не исправит, разобрать вручную"
+
+
+def check_commit_messages(
+    root: Path, base: str, advice: str = "переписать сообщение обезличенно"
+) -> Iterator[Violation]:
+    """Закрытое не называется и в сообщениях коммитов `base..HEAD`.
+
+    Сообщение уходит в публичную историю так же, как файл, и после слияния его
+    не переписать, а гейт по файлам его не видит: «grep по сообщениям перед
+    пушем» держался на памяти. Число прочитанных сообщений печатается — «чисто»
+    не должно выглядеть так же, как «ничего не прочитано».
+    """
+    messages = public_repo.commit_messages(root, base)
+    print(f"public-repo: сообщений коммитов {base}..HEAD — {len(messages)}", flush=True)
+    for sha, message in messages:
+        for number, what in public_repo.private_lines(message):
+            yield Violation(
+                f"коммит {sha[:9]}",
+                number,
+                "public-repo",
+                f"{what} в сообщении коммита — {advice}",
+            )
+
+
+def check_pr_text(title: str, body: str) -> Iterator[Violation]:
+    """Заголовок и тело PR: из них GitHub собирает squash-коммит, который уйдёт в main.
+
+    Пустой заголовок — не «чисто», а непереданный вход: у PR заголовок есть всегда.
+    Тела нет — пустая строка, судить в ней нечего.
+    """
+    if not title.strip():
+        raise public_repo.NotJudgedError("заголовок PR пуст — шагу не передан PR_TITLE")
+    lines = len(body.splitlines())
+    print(f"public-repo: текст PR — заголовок и тело, строк в теле: {lines}", flush=True)
+    for where, place, text in (("заголовок PR", "заголовке", title), ("тело PR", "теле", body)):
+        for number, what in public_repo.private_lines(text):
+            yield Violation(
+                where, number, "public-repo", f"{what} в {place} PR — переписать обезличенно"
+            )
 
 
 CHECKS = (
@@ -344,24 +313,87 @@ def run(targets: Iterable[Path]) -> list[Violation]:
     return violations
 
 
-def main(argv: list[str]) -> int:
-    targets = [Path(a).resolve() for a in argv] or [
-        ROOT / "backend",
-        ROOT / "tests",
-        ROOT / "scripts",
-    ]
-    violations = run(targets)
-    violations.extend(check_env_example(ROOT / ".env.example"))
-    violations.extend(check_public_repo(ROOT))
-    if not violations:
-        checked = len(list(_python_files(targets)))
-        print(f"Гейты пройдены: {checked} файлов, нарушений нет.")
-        return 0
+@dataclass(slots=True)
+class Verdict:
+    """Итог прогона. Нарушение краснит. «Не судил» — тоже: непрочитанный вход
+    не должен выглядеть чистым. Предупреждение видно и код не меняет."""
 
-    for violation in violations:
+    violations: list[Violation] = field(default_factory=list)
+    warnings: list[Violation] = field(default_factory=list)
+    unjudged: int = 0
+
+    def collect(self, found: Iterable[Violation], *, warn: bool = False) -> None:
+        """Находки проверки; непрочитанный вход — вслух и в счёт «не судил».
+
+        `warn` — вход уже опубликован (сообщение коммита в main): и находка, и
+        «не судил» видны в выводе, а код выхода не меняют.
+        """
+        try:
+            (self.warnings if warn else self.violations).extend(found)
+        except public_repo.NotJudgedError as exc:
+            print(f"{'⚠ предупреждение: ' if warn else ''}гейт не судил: {exc}", file=sys.stderr)
+            if not warn:
+                self.unjudged += 1
+
+
+def _report(verdict: Verdict, targets: list[Path] | None) -> int:
+    """Итог в вывод и код выхода. Без файлов (`targets is None`) — только текст PR."""
+    for warning in verdict.warnings:
+        print(f"⚠ предупреждение: {warning}")
+    if not (verdict.violations or verdict.unjudged):
+        judged = "текст PR" if targets is None else f"{len(list(_python_files(targets)))} файлов"
+        warned = f"; предупреждений: {len(verdict.warnings)}" if verdict.warnings else ""
+        print(f"Гейты пройдены: {judged}, нарушений нет{warned}.")
+        return 0
+    for violation in verdict.violations:
         print(str(violation), file=sys.stderr)
-    print(f"\nНарушений: {len(violations)}. Пороги жёсткие — снимка легаси нет.", file=sys.stderr)
+    tail = f"; не судил: {verdict.unjudged} — это не «чисто»" if verdict.unjudged else ""
+    count = len(verdict.violations)
+    print(f"\nНарушений: {count}{tail}. Пороги жёсткие — снимка легаси нет.", file=sys.stderr)
     return 1
+
+
+def _args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Архитектурные гейты проекта.")
+    parser.add_argument("targets", nargs="*", type=Path, help="файлы; без них — всё дерево")
+    parser.add_argument(
+        "--commits", metavar="BASE", help="и сообщения коммитов BASE..HEAD; не прочитаны — красное"
+    )
+    parser.add_argument(
+        "--commits-warn", metavar="BASE", help="то же предупреждением, код 0 (push в main)"
+    )
+    parser.add_argument(
+        "--pr-env", action="store_true", help="заголовок и тело PR из PR_TITLE и PR_BODY"
+    )
+    return parser.parse_args(argv)
+
+
+def _judges_files(args: argparse.Namespace) -> bool:
+    """Файлы судятся всегда, кроме одного случая: задан только текст PR. Шаг
+    `pr-text.yml` судит заголовок и тело за секунды — обход дерева там лишний."""
+    return not args.pr_env or bool(args.targets or args.commits or args.commits_warn)
+
+
+def main(argv: list[str]) -> int:
+    args = _args(argv)
+    verdict = Verdict()
+    targets = None
+    if _judges_files(args):
+        targets = [path.resolve() for path in args.targets] or [
+            ROOT / "backend",
+            ROOT / "tests",
+            ROOT / "scripts",
+        ]
+        verdict.collect(run(targets))
+        verdict.collect(check_env_example(ROOT / ".env.example"))
+        verdict.collect(check_public_repo(ROOT))
+    if args.commits:
+        verdict.collect(check_commit_messages(ROOT, args.commits))
+    if args.commits_warn:
+        verdict.collect(check_commit_messages(ROOT, args.commits_warn, PUBLISHED), warn=True)
+    if args.pr_env:
+        verdict.collect(check_pr_text(*public_repo.pr_text_from_env()))
+    return _report(verdict, targets)
 
 
 if __name__ == "__main__":

@@ -46,7 +46,8 @@ PY=".venv/bin"
 echo "── Линтер ──";              "$PY/ruff" check backend/ tests/ scripts/
 echo "── Форматирование ──";      "$PY/ruff" format --check backend/ tests/ scripts/
 echo "── Типы ──";                "$PY/mypy" backend/ | tail -1
-echo "── Архитектурные гейты ──"; "$PY/python" scripts/gates.py
+# Гейты читают и сообщения коммитов ветки: пуш публикует их так же, как файлы.
+echo "── Архитектурные гейты ──"; "$PY/python" scripts/gates.py --commits origin/main
 echo "── Ратчет сложности ──";   "$PY/python" scripts/complexity.py
 
 # Фронт — те же линтер, форматирование и типы, что в CI; тесты — в CI.
