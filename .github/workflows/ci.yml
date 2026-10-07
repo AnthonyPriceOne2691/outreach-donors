@@ -113,13 +113,38 @@ jobs:
       - name: Ратчет сложности
         run: python scripts/complexity.py
 
-      # Сьют идёт на PR ОДИН раз — здесь, сразу с покрытием (cqg@2.47). Прежде
-      # гейт покрытия в quality.yml гонял его второй раз (7–8 минут на каждом PR).
-      # Привязка `coverage.json.head` — SHA, на котором шёл сьют: гейт откажется
-      # судить отчёт чужого коммита, а не посчитает по нему.
+      # Сьют идёт на PR ОДИН раз — здесь (cqg@2.47). Прежде гейт покрытия в
+      # quality.yml гонял его второй раз (7–8 минут на каждом PR).
+      #
+      # Покрытие снимается только с ИЗМЕНЁННЫХ модулей backend: гейту нужно ровно
+      # оно, а полное (`concurrency = greenlet`, без него coverage слеп к async-коду)
+      # стоило обязательной проверке +47% — 826 с против 560 (замер #195, 07.10).
+      # Нет правок python — нет и трассировки. Привязка `coverage.json.head` — SHA,
+      # на котором шёл сьют: гейт откажется судить отчёт чужого коммита.
       - name: Тесты
+        env:
+          BEFORE: ${{ github.event.before }}
         run: |
-          pytest --cov=backend --cov-report=json:coverage.json
+          set -euo pipefail
+          base=""
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            base="origin/$GITHUB_BASE_REF"
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ] \
+               && git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            base="$BEFORE"
+          fi
+          mods=""
+          if [ -n "$base" ]; then
+            mods=$(git diff --name-only --diff-filter=ACMR "$base"...HEAD -- 'backend/*.py' \
+              | sed -E 's#\.py$##; s#/__init__$##; s#/#.#g' | sort -u)
+          fi
+          if [ -n "$mods" ]; then
+            echo "покрытие изменённых модулей: $(echo $mods)"
+            pytest $(printf -- '--cov=%s ' $mods) --cov-report=json:coverage.json
+          else
+            echo "правок python в backend нет — сьют без покрытия"
+            pytest
+          fi
           git rev-parse HEAD > coverage.json.head
 
       - name: Отчёт покрытия для гейта
