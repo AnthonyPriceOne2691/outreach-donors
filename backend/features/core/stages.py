@@ -161,6 +161,11 @@ def register_sales(load: Callable[[], SalesMail]) -> None:
     _SALES.load = load
 
 
+def sales_registered() -> bool:
+    """Подключён ли модуль продаж к мосту — а не «продажи подключены» (`sales_connected`)."""
+    return _SALES.load is not None
+
+
 def _sales_mail(what: str) -> SalesMail:
     """Ответы модуля продаж — или отказ 1.1b словами, пока он не подключён."""
     if _SALES.load is None:

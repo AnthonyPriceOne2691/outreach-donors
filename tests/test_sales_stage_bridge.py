@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import timedelta
 
@@ -113,15 +114,18 @@ async def test_without_the_module_a_sales_letter_is_refused_as_before(
 
 
 async def test_without_the_module_sales_deadlines_wait_and_are_not_claimed(
-    session: AsyncSession, filled_legal: None, unregistered: None
+    session: AsyncSession, filled_legal: None, unregistered: None, caplog: pytest.LogCaptureFixture
 ) -> None:
+    """Без модуля продаж проход называет ждущие сроки вслух на каждом проходе, как в 1.1b."""
     world = await sales_world(session, status=MessageStatus.SENT, due=NOW - timedelta(days=1))
 
-    report = await followups.send_due(session, transport=_transports(), limit=5, now=NOW)
+    with caplog.at_level(logging.WARNING, logger=followups.__name__):
+        report = await followups.send_due(session, transport=_transports(), limit=5, now=NOW)
 
     assert (report.sent, report.waiting) == (0, 1)
     await session.refresh(world.letter)
     assert world.letter.next_action_at == NOW - timedelta(days=1)
+    assert f"1 подошли, срок не погашен — {SALES_NOT_CONNECTED}" in caplog.text
 
 
 @pytest.mark.parametrize("stage", [Stage.DONORS, Stage.ADVERTISERS])
@@ -252,17 +256,21 @@ async def test_sales_followup_goes_in_the_same_thread_with_the_text_of_the_modul
 
 
 async def test_sales_deadline_waits_while_the_module_says_not_connected(
-    session: AsyncSession, filled_legal: None, fake: FakeSalesMail
+    session: AsyncSession, filled_legal: None, fake: FakeSalesMail, caplog: pytest.LogCaptureFixture
 ) -> None:
+    """Модуль подключён к мосту, но говорит «не подключены»: срок цел и посчитан в отчёте прохода,
+    а предупреждения в журнале нет — иначе оно шумело бы каждый час, пока продажи выключены."""
     fake.connected_now = False
     first, _ = await _first_letter_sent(session)
 
-    report = await followups.send_due(session, transport=_transports(), limit=5, now=NOW)
+    with caplog.at_level(logging.WARNING, logger=followups.__name__):
+        report = await followups.send_due(session, transport=_transports(), limit=5, now=NOW)
 
     assert (report.sent, report.waiting) == (0, 1)
     await session.refresh(first)
     assert first.next_action_at == NOW - timedelta(minutes=1)
     assert fake.asked == []
+    assert "срок не погашен" not in caplog.text
 
 
 async def test_followup_waiting_for_a_box_goes_with_the_text_of_today(

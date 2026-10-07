@@ -424,9 +424,9 @@ async def send_due(
         await _deliver(session, chain, postman, claimed, report)
 
     report.waiting = await chain.unchained()
-    if report.waiting:
-        # Вслух на каждом проходе: молчащая цепочка выглядит как «никто
-        # не ответил», а это добивки, которые некому отправить.
+    if report.waiting and not stages.sales_registered():
+        # Вслух, пока модуль продаж к мосту не подключён: молчащая цепочка выглядит как «никто не
+        # ответил». Подключён — сроки ждут его «подключены» (экран продаж), журнал не шумит каждый час.
         logger.warning(
             "добивки: %s подошли, срок не погашен — %s", report.waiting, SALES_NOT_CONNECTED
         )
