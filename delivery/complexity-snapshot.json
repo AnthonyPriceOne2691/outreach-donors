@@ -1857,7 +1857,7 @@
       "worst": "worker_problems:74"
     },
     "backend/workers/jobs.py": {
-      "lines": 497,
+      "lines": 496,
       "complexity": 5,
       "worst": "_mark:195"
     },

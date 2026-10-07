@@ -386,28 +386,27 @@ def find_contacts(
     setup_logging()
     check_storage()
     chosen = Stage(stage)
-    try:
-        what = _contacts_what(donor_id, chosen)
-    except StageWithoutContactsError as exc:
-        # Подпись считается до работы, то есть мимо `_settled`: без этой
-        # ветки очередь трижды повторила бы отказ, который повтор не исправит,
-        # и экран показывал бы «ждёт повтора» без причины.
-        return _given_up(exc, what="поиск адресов")
     return _settled(
         lambda: asyncio.run(_search_contacts(limit, use_browser, paid_first, donor_id, chosen)),
-        what=what,
+        what=_contacts_what(donor_id, chosen),
     )
 
 
-def _contacts_what(donor_id: int | None, stage: Stage) -> str:
-    """Чей поиск — словами, для журнала. Этап разбирается явно, как и очередь."""
+def _contacts_what(donor_id: int | None, stage: str) -> str:
+    """Чей поиск — словами, для журнала. Этап разбирается явно, как и очередь.
+
+    Этап без поиска здесь только называется (этап — строкой: подпись нужна
+    и тому, которого код ещё не знает), а отказывает `_search_contacts` —
+    внутри `_settled`. Отказ из подписи случился бы до него, и очередь трижды
+    повторила бы постоянный отказ с «ждёт повтора» без причины на экране.
+    """
     match stage:
         case Stage.ADVERTISERS:
             return "поиск адресов рекламодателей"
         case Stage.DONORS:
             return "поиск контактов" if donor_id is None else f"поиск адреса донора №{donor_id}"
         case _:
-            raise StageWithoutContactsError(stage)
+            return f"поиск адресов этапа «{stage}»"
 
 
 async def _parse_reply(reply_id: int) -> dict[str, Any]:
