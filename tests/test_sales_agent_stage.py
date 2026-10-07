@@ -123,6 +123,7 @@ def test_sales_row_is_built_from_the_sales_parts() -> None:
     assert (row.brief, row.guard) == (parts.brief, parts.guard)
     assert (row.autopilot, row.on_draft, row.max_rewrites) == (False, None, 3)
     assert (row.title, row.lead) == (parts.TITLE, parts.LEAD)
+    assert (row.reject_reasons, row.strict_reasons) == (parts.REJECT_REASONS, True)
 
 
 #: Что знает реестр в чистом процессе: есть ли строка продаж и чьи операции считает

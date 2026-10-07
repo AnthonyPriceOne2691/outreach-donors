@@ -28,7 +28,7 @@ from backend.features.access.permissions import AccessDeniedError
 from backend.features.access.repository import EmailTakenError
 from backend.features.access.tokens import SecretMissingError, TokenError
 from backend.features.agent.drafting import DraftRefusedError, UnknownDraftReplyError
-from backend.features.agent.drafts import DraftDecisionError, UnknownDraftError
+from backend.features.agent.drafts import DraftDecisionError, DraftReasonError, UnknownDraftError
 from backend.features.agent.settings import (
     AgentSettingsConflictError,
     AutopilotOffError,
@@ -130,6 +130,8 @@ STATUSES: dict[type[Exception], int] = {
     # Решение по черновику агента: уже решён, «как есть» у отданного человеку — 409.
     UnknownDraftError: status.HTTP_404_NOT_FOUND,
     DraftDecisionError: status.HTTP_409_CONFLICT,
+    # Причины нет, её нет в перечислении этапа, «другое» без текста — это запрос.
+    DraftReasonError: status.HTTP_422_UNPROCESSABLE_CONTENT,
     # Две правки настроек агента одного этапа разом: вторая не ложится молча.
     AgentSettingsConflictError: status.HTTP_409_CONFLICT,
     # Автопилот этапу не разрешён (код этапа, сервер): состояние, а не запрос.

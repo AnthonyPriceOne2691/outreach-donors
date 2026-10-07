@@ -37,7 +37,7 @@
       "worst": "save_agent_settings:79"
     },
     "backend/api/agent/schemas.py": {
-      "lines": 230,
+      "lines": 237,
       "complexity": 6,
       "worst": "to_settings:58"
     },
@@ -117,9 +117,9 @@
       "worst": "of:161"
     },
     "backend/api/errors.py": {
-      "lines": 206,
+      "lines": 208,
       "complexity": 3,
-      "worst": "handle:192"
+      "worst": "handle:194"
     },
     "backend/api/events/__init__.py": {
       "lines": 1,
@@ -702,14 +702,14 @@
       "worst": "clean:57"
     },
     "backend/features/agent/drafting.py": {
-      "lines": 430,
+      "lines": 431,
       "complexity": 9,
       "worst": "draft_answer:138"
     },
     "backend/features/agent/drafts.py": {
-      "lines": 293,
+      "lines": 333,
       "complexity": 7,
-      "worst": "_refuse_as_is:248"
+      "worst": "reject_draft:242"
     },
     "backend/features/agent/guarding.py": {
       "lines": 135,
@@ -722,9 +722,9 @@
       "worst": "save:154"
     },
     "backend/features/agent/stages.py": {
-      "lines": 259,
+      "lines": 271,
       "complexity": 4,
-      "worst": "agent_operations:242"
+      "worst": "agent_operations:254"
     },
     "backend/features/agent/writer.py": {
       "lines": 263,
@@ -907,7 +907,7 @@
       "worst": "in_force:123"
     },
     "backend/features/core/models/agent.py": {
-      "lines": 131,
+      "lines": 136,
       "complexity": 0,
       "worst": "—"
     },
@@ -1747,9 +1747,9 @@
       "worst": "_move:105"
     },
     "backend/features/sales/agent/parts.py": {
-      "lines": 83,
+      "lines": 96,
       "complexity": 1,
-      "worst": "brief:71"
+      "worst": "brief:84"
     },
     "backend/features/sales/agent/reading.py": {
       "lines": 131,

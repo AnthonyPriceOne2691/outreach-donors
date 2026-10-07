@@ -98,6 +98,37 @@ class TestDecisions:
         assert audit.details is not None
         assert (audit.details["решение"], audit.details["причина"]) == ("отклонён", "тон не тот")
 
+    @pytest.mark.parametrize(
+        ("reason", "kind"),
+        [
+            ("тон", None),
+            ("не тот тон", "не тот тон"),
+            ("другое: просил ответить завтра", "другое"),
+        ],
+        ids=["own-words", "listed", "other-with-words"],
+    )
+    async def test_reason_kind_is_the_listed_reason_and_donors_may_use_own_words(
+        self,
+        client: AsyncClient,
+        make_user: MakeUser,
+        sign_in: SignIn,
+        session: AsyncSession,
+        conversation: Conversation,
+        reason: str,
+        kind: str | None,
+    ) -> None:
+        """Вид причины — пункт списка этапа или «другое»: по нему считает калибровка.
+        Список доноров не строгий: причина своими словами принимается, без вида."""
+        draft = await _drafted(session, conversation[1].id)
+        token = await _admin(make_user, sign_in)
+
+        done = await client.post(
+            f"/api/agent/drafts/{draft.id}/reject", json={"reason": reason}, headers=bearer(token)
+        )
+
+        assert done.status_code == 200, done.text
+        assert (done.json()["reject_reason"], done.json()["reject_kind"]) == (reason, kind)
+
     async def test_escalated_draft_does_not_go_as_is_but_goes_edited(
         self,
         client: AsyncClient,
