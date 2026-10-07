@@ -261,6 +261,8 @@ class ThreadView(BaseModel):
     drafts: list[DraftCard] = Field(default_factory=list)
     #: Пишет ли агент на этапе переписки: без него кнопки «Написать черновик» нет.
     agent_writes: bool = False
+    #: За что отклоняют черновик на этапе переписки (`AgentStage.reject_reasons`).
+    agent_reasons: list[str] = Field(default_factory=list)
 
     @classmethod
     def of(
@@ -271,6 +273,7 @@ class ThreadView(BaseModel):
         *,
         drafts: Sequence[ShownDraft] = (),
         agent_writes: bool = False,
+        agent_reasons: Sequence[str] = (),
     ) -> ThreadView:
         return cls(
             card=ThreadCard.of(detail.row),
@@ -281,4 +284,5 @@ class ThreadView(BaseModel):
             mail=ThreadMailCard.of(mail),
             drafts=[DraftCard.of(shown) for shown in drafts],
             agent_writes=agent_writes,
+            agent_reasons=list(agent_reasons),
         )

@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, StringConstraints, field_validator
 
 from backend.features.agent.drafts import ShownDraft
 from backend.features.agent.settings import AgentSettings, settings_of
+from backend.features.agent.stages import PriceSide
 from backend.features.core.domain import DraftStatus, Stage
 from backend.features.core.models.agent import AgentSettingsModel
 
@@ -113,16 +114,25 @@ class AgentStageView(BaseModel):
     """
 
     stage: Stage
+    #: Кому агент пишет на этапе — имя в переключателе экрана — и что он там
+    #: делает: из реестра, чтобы новый этап встал на экран без его правки.
+    title: str
+    lead: str
+    #: На чьей стороне цены этап: предел — «не дороже» (`buy`) или «не дешевле».
+    price_side: PriceSide
     current: AgentSettingsVersion | None
     defaults: AgentSettingsBody
     history: list[AgentSettingsVersion]
     #: Разрешён ли этапу автопилот (код этапа и выключатель сервера): нет —
     #: экран переключателя не показывает, а сервер режим не сохранит.
     autopilot_allowed: bool = False
+    #: Почему не разрешён — словами `autopilot.refusal`: автопилот, выбранный
+    #: раньше, при снятом выключателе писем не шлёт, и экран говорит почему.
+    autopilot_refusal: str | None = None
 
 
 class AgentView(BaseModel):
-    """Оба этапа одним ответом: экран показывает их рядом."""
+    """Все этапы реестра одним ответом, в его порядке: экран показывает их рядом."""
 
     stages: list[AgentStageView]
 
@@ -145,10 +155,15 @@ class DraftCard(BaseModel):
     written_at: datetime
     decided_by: str | None
     decided_at: datetime | None
+    #: Последний вердикт судьи этапа (`allow`/`block`/`escalate`) и сколько раз
+    #: писатель писал под его проверкой; судьи не было — `None` и 0.
+    verdict: str | None = None
+    attempts: int = 0
 
     @classmethod
     def of(cls, shown: ShownDraft) -> DraftCard:
         draft = shown.draft
+        verdict, attempts = _judged(draft.meta)
         return cls(
             id=draft.id,
             reply_id=draft.reply_id,
@@ -160,7 +175,18 @@ class DraftCard(BaseModel):
             written_at=draft.updated_at,
             decided_by=draft.decided_by,
             decided_at=draft.decided_at,
+            verdict=verdict,
+            attempts=attempts,
         )
+
+
+def _judged(meta: dict[str, Any]) -> tuple[str | None, int]:
+    """Последний вердикт судьи и число попыток — из `meta["attempts"]`
+    (`agent/guarding.compose`). Там и бриф этапа, так что форму не берём на веру."""
+    tried = meta.get("attempts")
+    attempts = [one for one in tried if isinstance(one, dict)] if isinstance(tried, list) else []
+    last = attempts[-1].get("verdict") if attempts else None
+    return (last if isinstance(last, str) else None), len(attempts)
 
 
 class DraftDetail(DraftCard):

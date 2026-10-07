@@ -32,6 +32,7 @@ import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useParams } from 'react-router-dom';
 
+import { AgentDraftBanner } from '../agent/AgentDraftBanner';
 import { ApiError, refusalOf } from '../api/client';
 import { rowIdOf } from '../api/ids';
 import { MESSAGE_STATUSES, REPLY_KINDS, threadState } from '../api/labels';
@@ -284,6 +285,7 @@ function Incoming({
         </Text>
       ) : null}
 
+      <AgentDraftBanner replyId={incoming.id} />
       {/* Отвечают человеку: автоответчику, отказу доставки и отписке — нет. */}
       {canAnswer && incoming.kind === 'human' && !sales ? (
         <AnswerBox answered={answered} busy={busy} onSend={onAnswer} />

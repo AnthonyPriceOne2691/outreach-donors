@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
 import type { AgentSettingsBody, AgentStageView, AgentView } from '../api/agent';
+import type { LetterStage } from '../api/types';
 import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
@@ -28,8 +29,19 @@ const ADVERTISERS: AgentSettingsBody = {
   points: ['Назвать цену'],
 };
 
-function stage(name: AgentStageView['stage'], defaults: AgentSettingsBody): AgentStageView {
-  return { stage: name, current: null, defaults, history: [] };
+/** Как этапы приходят из реестра сервера: имя, пояснение и сторона цены. */
+const ABOUT: Record<LetterStage, Pick<AgentStageView, 'title' | 'lead' | 'price_side'>> = {
+  donors: { title: 'Донорам', lead: 'Донорам мы покупаем размещение.', price_side: 'buy' },
+  advertisers: {
+    title: 'Рекламодателям',
+    lead: 'Рекламодателям мы продаём размещение.',
+    price_side: 'sell',
+  },
+};
+
+function stage(name: LetterStage, defaults: AgentSettingsBody): AgentStageView {
+  const autopilot = { autopilot_allowed: false, autopilot_refusal: null };
+  return { stage: name, ...ABOUT[name], current: null, defaults, history: [], ...autopilot };
 }
 
 const BLANK: AgentView = { stages: [stage('donors', DONORS), stage('advertisers', ADVERTISERS)] };
@@ -40,6 +52,22 @@ const VERSION = {
   created_at: '2026-10-04T10:00:00+00:00',
   settings: { ...DONORS, price_limit_usd: '150.00' },
 };
+
+const OFF_WORDS =
+  'Автопилот на этом сервере выключен (OUTREACH_AGENT_AUTOPILOT) — агент пишет только черновики';
+
+/** Доноры в автопилоте: выключатель снят (`allowed` — нет) или включён. */
+function onAutopilot(allowed: boolean): AgentView {
+  const version = { ...VERSION, settings: { ...VERSION.settings, mode: 'autopilot' as const } };
+  const donors = { ...stage('donors', DONORS), current: version, history: [version] };
+  const words = allowed ? null : OFF_WORDS;
+  return {
+    stages: [
+      { ...donors, autopilot_allowed: allowed, autopilot_refusal: words },
+      stage('advertisers', ADVERTISERS),
+    ],
+  };
+}
 
 const CONFIGURED: AgentView = {
   stages: [
@@ -128,6 +156,53 @@ describe('агент переписки', () => {
     expect(save).toBeEnabled();
     await user.click(screen.getByRole('button', { name: 'Вернуть действующие' }));
     expect(save).toBeDisabled();
+  });
+
+  it('этап из реестра сервера виден на экране — без правки экрана', async () => {
+    const newcomer: AgentStageView = {
+      stage: 'sales',
+      title: 'Лидам',
+      lead: 'Лидам мы отвечаем фактами из базы знаний.',
+      price_side: 'sell',
+      current: null,
+      defaults: { ...DONORS, goal: 'Довести разговор до созвона' },
+      history: [],
+      autopilot_allowed: false,
+      autopilot_refusal: null,
+    };
+    const recorded = await openAgent(
+      { stages: [...BLANK.stages, newcomer] },
+      {
+        'POST /api/agent/settings/sales': { body: { ...VERSION, version: 1 } },
+      },
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByText('Лидам'));
+
+    expect(screen.getByText('Лидам мы отвечаем фактами из базы знаний.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Цель разговора')).toHaveValue('Довести разговор до созвона');
+    expect(screen.getByLabelText('Не дешевле, $')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Сохранить новой версией/ }));
+    await waitFor(() => {
+      expect(recorded.calls.some((call) => call.path === '/api/agent/settings/sales')).toBe(true);
+    });
+  });
+
+  it('автопилот выбран, а выключатель снят — словами, что письма сами не уходят', async () => {
+    await openAgent(onAutopilot(false));
+
+    expect(screen.getByText('Автопилот выбран, но письма сами не уходят')).toBeInTheDocument();
+    expect(screen.getByText(OFF_WORDS)).toBeInTheDocument();
+  });
+
+  it('выключатель включён — предупреждения нет', async () => {
+    await openAgent(onAutopilot(true));
+
+    expect(screen.getByText(/Действует версия 2/)).toBeInTheDocument();
+    expect(
+      screen.queryByText('Автопилот выбран, но письма сами не уходят'),
+    ).not.toBeInTheDocument();
   });
 
   it('отказ — под полем и до нажатия', async () => {

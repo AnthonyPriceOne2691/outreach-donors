@@ -32,14 +32,14 @@
       "worst": "—"
     },
     "backend/api/agent/routes.py": {
-      "lines": 165,
+      "lines": 170,
       "complexity": 6,
-      "worst": "save_agent_settings:74"
+      "worst": "save_agent_settings:79"
     },
     "backend/api/agent/schemas.py": {
-      "lines": 204,
+      "lines": 230,
       "complexity": 6,
-      "worst": "to_settings:57"
+      "worst": "to_settings:58"
     },
     "backend/api/app.py": {
       "lines": 92,
@@ -367,14 +367,14 @@
       "worst": "—"
     },
     "backend/api/threads/routes.py": {
-      "lines": 159,
+      "lines": 166,
       "complexity": 4,
-      "worst": "redraft:129"
+      "worst": "redraft:136"
     },
     "backend/api/threads/schemas.py": {
-      "lines": 285,
+      "lines": 289,
       "complexity": 4,
-      "worst": "of:266"
+      "worst": "of:268"
     },
     "backend/api/unsubscribe/__init__.py": {
       "lines": 1,
@@ -682,9 +682,9 @@
       "worst": "draft_answer:138"
     },
     "backend/features/agent/drafts.py": {
-      "lines": 216,
+      "lines": 293,
       "complexity": 7,
-      "worst": "send_draft:117"
+      "worst": "_refuse_as_is:248"
     },
     "backend/features/agent/guarding.py": {
       "lines": 135,
@@ -697,9 +697,9 @@
       "worst": "save:154"
     },
     "backend/features/agent/stages.py": {
-      "lines": 199,
+      "lines": 228,
       "complexity": 4,
-      "worst": "agent_operations:182"
+      "worst": "agent_operations:211"
     },
     "backend/features/agent/writer.py": {
       "lines": 263,

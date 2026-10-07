@@ -11,28 +11,43 @@ import type { ReactNode } from 'react';
 
 import type { LetterStage } from '../api/types';
 
-const STAGES: { value: LetterStage; label: string }[] = [
+/** Этап на выбор: значение и подпись. */
+export interface StageOption<S extends string> {
+  value: S;
+  label: string;
+}
+
+const STAGES: StageOption<LetterStage>[] = [
   { value: 'donors', label: 'Донорам' },
   { value: 'advertisers', label: 'Рекламодателям' },
 ];
 
-interface StageSwitchProps {
+interface StageSwitchProps<S extends string> {
   /** Имя переключателя для программ чтения с экрана и тестов. */
   label: string;
-  value: LetterStage;
-  onChange: (stage: LetterStage) => void;
+  value: S;
+  onChange: (stage: S) => void;
   /** Пояснение к выбранному этапу. */
   lead: ReactNode;
+  /** Этапы на выбор; нет — доноры и рекламодатели. Экран агента берёт их из
+   *  реестра сервера: новый этап встаёт на него без правки экрана. */
+  stages?: StageOption<S>[];
 }
 
-export function StageSwitch({ label, value, onChange, lead }: StageSwitchProps) {
+export function StageSwitch<S extends string = LetterStage>({
+  label,
+  value,
+  onChange,
+  lead,
+  stages,
+}: StageSwitchProps<S>) {
   return (
     <Stack gap={6}>
       <SegmentedControl
         aria-label={label}
         value={value}
-        onChange={(picked) => onChange(picked as LetterStage)}
-        data={STAGES}
+        onChange={(picked) => onChange(picked as S)}
+        data={stages ?? STAGES}
         style={{ alignSelf: 'flex-start' }}
       />
       <Text size="sm" c="dimmed" maw={680}>

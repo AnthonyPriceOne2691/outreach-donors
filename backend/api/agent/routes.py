@@ -54,12 +54,17 @@ async def agent_settings(
     stages = []
     for stage, parts in AGENT_STAGES.items():
         current = await repository.current(stage)
+        refused = autopilot.refusal(stage)
         stages.append(
             AgentStageView(
                 stage=stage,
+                title=parts.title or stage.value,
+                lead=parts.lead,
+                price_side=parts.price,
                 current=None if current is None else AgentSettingsVersion.of(current),
                 defaults=AgentSettingsBody.of(parts.defaults),
-                autopilot_allowed=autopilot.refusal(stage) is None,
+                autopilot_allowed=refused is None,
+                autopilot_refusal=refused,
                 history=[AgentSettingsVersion.of(row) for row in await repository.history(stage)],
             )
         )

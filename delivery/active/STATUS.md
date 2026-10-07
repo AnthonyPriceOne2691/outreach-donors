@@ -1,68 +1,62 @@
 # Active delivery status
 
-- **slug:** agent-seam (общий шов агента переписки по этапам — части «Б», «В», «Г» и «Д» одним PR: судья с петлёй правки и очистка переписки; черновик задачей и по кнопке и свой дневной потолок черновиков; автопилот — механизм и флаг, ни на одном этапе не включён; постановка черновика после разбора)
+- **slug:** sales-approval (модуль «Продажи», срез 5.1 — решения по черновику агента из переписки; части «А», «Б» и «В» одним PR: сервер шва — «черновик устарел», «как есть» у отданного человеку, вид этапа и почему автопилот не действует; экран — плашка черновика, подсказка у поля ответа, этапы экрана настроек из реестра, предупреждение об автопилоте)
 - **stack:** delivery@2.00 · cqg@2.55 · okf@1.19 · stack-map@1.52
 - **class:** M
 - **kind:** feature
 - **phase:** verify
 - **builder:** agent:claude
-- **verifier:** process:ci — обязательные джобы `check`, `web` и `docker`, на PR ещё `gates` и `delivery`; ревью общего кода агента — соседняя сессия outreach-donors; слив — по решению владельца
-- **human_ok_spec:** yes at=2026-10-06 by=human:anthony (весь план Ф2–Ф5 06.10 ~23:00; согласованный интерфейс шва 05.10 ~18:20/~18:40; шов отдан модулю продаж 06.10 ~22:55: «общий код объявляй, ревью моё»)
-- **waivers:** max_loc_diff=1926 max_files_touched=34 reason=объединённый PR шва агента (части Б, В, Г, Д) — решение владельца 07.10: мелкие PR объединяем, чтобы не гонять CI на каждый; ревью общего кода — соседняя сессия by=human:anthony
+- **verifier:** process:ci — обязательные джобы `check`, `web` и `docker`, на PR ещё `gates` и `delivery`; ревью общего кода и места в `ThreadPage.tsx` — соседняя сессия outreach-donors; слив — по решению владельца
+- **human_ok_spec:** yes at=2026-10-06 by=human:anthony (весь план Ф2–Ф5 06.10 ~23:00; срез 5.1 одобрен соседней сессией 07.10 ~14:55 с условием «409 черновик устарел на сервере»: компонент в `frontend/src/agent/`, в `ThreadPage.tsx` импорт и строка над `AnswerBox`, подсказка у поля ответа; предупреждение об автопилоте — просьба соседней сессии 07.10)
+- **waivers:** max_loc_diff=1251 max_files_touched=15 reason=объединённый PR среза 5.1 (части А, Б, В) — решение владельца 07.10: мелкие PR объединяем, чтобы не гонять CI на каждый; ревью общего кода — соседняя сессия by=human:anthony
 - **new_dependency:** none
-- **shared_changes:** части «Б»–«Д» — общий код агента переписки всех этапов; каждый файл полным путём один раз, через «;» — что делает каждая часть:
-  `backend/features/agent/guarding.py` — Б, новый: петля правки до `max_rewrites`, судья с таймаутом, отказ закрыт, расход судьи; В: `drafts_cap()` — оба потолка перед каждым вызовом писателя;
-  `backend/features/agent/cleaning.py` — Б, новый: очистка переписки одной функцией (NFKC, невидимые, разметка ролей модели, цитата и подпись);
-  `backend/features/agent/drafting.py` — Б: черновик через петлю (`guarding.compose`), переписка через очистку, `meta["attempts"]`, `meta["cleaned"]`; В: `wants_draft` — ставить ли задачу;
-  `backend/features/agent/stages.py` — Б: `Conversation.cleaned`, в докстроке — ключ `rewrite` запроса; В: `agent_operations()` — операции агента всех этапов реестра (сейчас `agent_draft`);
-  `backend/features/agent/writer.py` — Б: `Request.corrections`, `Request.previous`; ключ `rewrite` в запросе — только при правке;
-  `backend/features/agent/drafts.py` — В: `drafts_of` (черновики переписки), `agent_writes`, `Decider.of(user)` — кто решает, из пользователя;
-  `backend/features/agent/autopilot.py` — Г, новый (из заготовки `110d89c`): три ключа, границы по `PriceSide`, отправка путём решения человека, отказ — человеку;
-  `backend/features/agent/settings.py` — Г: режимы `drafts`/`autopilot`, `max_turns`, `AutopilotOffError`;
-  `backend/features/core/models/agent.py` — Г: `AgentSettingsModel.mode`, `AgentSettingsModel.max_turns`;
-  `backend/features/core/usage.py` — В: `OwnCap`, `ensure_llm_within_cap(own=)`, `llm_tokens_spent(operations=)` — свой потолок тем же днём и журналом, без второго подсчёта;
-  `backend/features/ops/job_outcome.py` — Д: имя задачи черновика в `KINDS` — строкой пути функции;
-  `backend/migrations/versions/75242c2ed7ba_agent_autopilot.py` — Г: две колонки настроек после `3924977db911`;
-  `backend/workers/agent_jobs.py` — В, новый (из заготовки `cc68357`): задача `draft_answer`, `queue_draft`, имя и номер задачи, итог потолка и ключа; Г: автопилот после записи — только готовому черновику и где разрешён, уведомление — если письмо не ушло; Д: `after_parse` — агент на этапе пишет — поставить задачу;
-  `backend/workers/jobs.py` — Д, путь соседней сессии, поверх #209: после разбора ответа (`_parse_reply`) — импорт и вызов `agent_jobs.after_parse` (+2; файл у предела 500 строк); сбой постановки черновика в `agent_jobs.after_parse` пишется в журнал и не роняет задачу разбора (ревью соседней сессии);
-  `backend/config/llm.py` — В: `AGENT_DAILY_TOKEN_CAP` (свой дневной потолок черновиков; не задан — `AGENT_CAP_SHARE` 30 % общего; 0 — своего нет; пустое значение в `.env` — «не задан»);
-  `backend/config/outreach.py` — Г: выключатель сервера `OUTREACH_AGENT_AUTOPILOT` (по умолчанию выкл.);
-  `.env.example` — Г: `OUTREACH_AGENT_AUTOPILOT=0`; В: `AGENT_DAILY_TOKEN_CAP=` рядом с `LLM_DAILY_TOKEN_CAP`;
-  `backend/api/agent/routes.py` — В: `Decider.of(author)` в маршрутах «отправить» и «отклонить»; Г: включить автопилот — только где этап и сервер разрешают (409), версию в автопилоте, в том числе правку без режима поверх него, сохраняет только право send (403, по итоговому режиму), `autopilot_allowed` этапа;
-  `backend/api/agent/schemas.py` — Г: `mode`, `max_turns` в теле настроек — `| None = None`, не присланное (нет в `model_fields_set`) — из текущей версии этапа, явный `null` — 422; `AgentStageView.autopilot_allowed`;
-  `backend/api/errors.py` — В: `UnknownDraftReplyError` → 404, `DraftUnavailableError` → 503, `DraftRefusedError` → 409; Г: `AutopilotOffError` → 409;
-  `backend/api/threads/routes.py` — В: черновики и `agent_writes` в переписке; `POST /api/threads/{id}/replies/{reply}/draft` (`?force=true`); сведение с #206: `one_thread` отдаёт и ящик переписки (`mail`), и черновики; ответ из переписки — `Decider.of`;
-  `backend/api/threads/schemas.py` — В: `ThreadView.drafts`, `ThreadView.agent_writes`; `ThreadView.of(detail, files, mail, *, drafts, agent_writes)` — `mail` третьим позиционным, как у #206;
-  `frontend/src/api/agent.ts` — Г: `mode?`, `max_turns?` в `AgentSettingsBody` (в ответе есть всегда, в теле — по желанию);
-  `frontend/src/agent/agentDraft.ts` — Г: режим и предел — в `draftOf`, `bodyOf`, `sameDraft`: экран отдаёт их обратно как пришли;
-  `tests/test_agent_drafting.py` — Г: подмена реестра в тестах — и в модуле реестра;
-  `tests/test_api_outreach.py` — В: таблица прав маршрутов переписки: «написать заново» — право send;
-  `.secrets.baseline` — Г: хэш ревизии `75242c2ed7ba` (ложное срабатывание);
+- **shared_changes:** части «А», «Б», «В» — общий код и общий экран агента переписки всех этапов; каждый файл полным путём один раз, через «;» — что делает каждая часть:
+  `backend/features/agent/drafts.py` — А: `stale` и `StaleDraftError` (409 «черновик устарел»: после ответа черновика в переписке есть новое письмо собеседника или наше письмо), `_refuse_as_is` (у `escalated` «как есть» закрыт и правкой прежним текстом), `reject_reasons`;
+  `backend/features/agent/stages.py` — А: `AgentStage.title`, `lead`, `reject_reasons`, общий список `REJECT_REASONS`; имена и пояснения у строк доноров и рекламодателей;
+  `backend/api/agent/routes.py` — А: у этапа в `GET /api/agent/settings` имя, пояснение, сторона цены и почему автопилот не действует (`autopilot.refusal` один раз на этап);
+  `backend/api/agent/schemas.py` — А: `AgentStageView.title`, `lead`, `price_side`, `autopilot_refusal`; `DraftCard.verdict`, `attempts` (`_judged`);
+  `backend/api/threads/routes.py` — А: причины отклонения этапа в переписке (`agent_reasons` рядом с ящиком переписки, черновиками и `agent_writes`);
+  `backend/api/threads/schemas.py` — А: `ThreadView.agent_reasons` (именованным, как `drafts` и `agent_writes`);
+  `frontend/src/agent/AgentDraftBanner.tsx` — Б, новый: плашка последнего черновика переписки (готов — янтарём, отдан человеку — розой без «как есть», «ответ не нужен» — строкой с «Ответить всё же»), решения, причина отклонения из списка этапа или словами, подсказка у поля ответа; тип переписки — из `frontend/src/api/thread.ts` (там он в main);
+  `frontend/src/threads/ThreadPage.tsx` — Б: импорт и одна строка над `AnswerBox` — под строкой «Ждёт человека» ответа лида продаж (1.1b); место — соседней сессии, ревью её;
+  `frontend/src/api/agent.ts` — Б: типы черновика (`DraftCard`, `DraftStatus`, `ThreadAgent`), `sendDraft`, `rejectDraft`; этап экрана настроек — строка реестра с `title`, `lead`, `price_side`; В: у этапа экрана `autopilot_allowed` и `autopilot_refusal`;
+  `frontend/src/agent/AgentPage.tsx` — Б: этапы, пояснения и подпись предела цены — из ответа сервера (реестра); В: под строкой «Действует версия …» предупреждение «Автопилот выбран, но письма сами не уходят» со словами сервера;
+  `frontend/src/agent/useAgentSave.ts` — Б: этап — строка реестра;
+  `frontend/src/components/StageSwitch.tsx` — Б: список этапов параметром (по умолчанию — доноры и рекламодатели; экран писем не тронут);
   `delivery/complexity-snapshot.json` — снимок ратчета;
-  тесты частей — Б: `tests/test_agent_guarding.py`, `tests/test_agent_cleaning.py`; В: `tests/test_agent_thread.py`, `tests/test_agent_cap.py`; Г: `tests/test_agent_autopilot.py`, `frontend/src/agent/agentDraft.test.ts`; Д: `tests/test_agent_after_parse.py`. согласовано: с сессией outreach-donors — «общий код объявляй, ревью моё» (06.10); объединённый PR частей Б–Д с потолком черновиков — ревью в этом PR (07.10) (ревью общего кода — соседняя сессия outreach-donors: «общий код объявляй, ревью моё», 06.10)
+  тесты частей — А: `tests/test_agent_approval.py`; Б: `frontend/src/agent/AgentDraftBanner.test.tsx` (новый), `frontend/src/agent/AgentPage.test.tsx`; В: `frontend/src/agent/AgentPage.test.tsx`. согласовано: с сессией outreach-donors — одобрение 5.1 с условием 409 «черновик устарел» (07.10); объединённый PR частей А–В — ревью в этом PR (07.10) (ревью общего кода и `ThreadPage.tsx` — соседняя сессия d6: «5.1 одобрен — обязательно 409 „черновик устарел“ на сервере», 07.10 ~14:55; предупреждение об автопилоте — её просьба)
 
 ## Что в PR
 
-- **Б — судья этапа** (`Guard` → `Verdict`): `allow` — готов, `block` — причины словами писателю и правка, до `max_rewrites`; не сошлось — `escalated` с историей попыток; `escalate` — сразу. **Отказ закрыт**: исключение, таймаут, `block` без причины — человеку, никогда не «готов». **Очистка переписки** одной общей функцией; что убрано — брифу и в `meta`.
-- **В — задача черновика** своим модулем (имя и номер — в нём, без `shared/queue.py`); **«написать заново»** под правом send, отказ словами, «всё же написать» поверх пропуска брифа; **переписка** отдаёт черновики и пишет ли агент — рядом с ящиком переписки и следующей добивкой (#206). **Свой дневной потолок черновиков** (`AGENT_DAILY_TOKEN_CAP`, не задан — 30 % общего): выбран — отказ словами, черновик не пишется, модель не зовётся; разбор ответов доноров и прочие операции модели не встают.
-- **Г — автопилот**: механизм из заготовки `110d89c`, три ключа выключены (флаг этапа, выключатель сервера, режим), границы механические, отправка путём решения человека; сохранение настроек без режима и предела их не сбрасывает, право send — по итоговому режиму, 409 — только при включении.
-- **Д — постановка черновика после разбора** — только где агент на этапе пишет; экран задач называет задачу черновика словами.
+- **А — устаревший черновик не уходит.** Черновик написан на один ответ собеседника (`based_on` — `reply_id`). Если
+  после него в переписке есть новое письмо собеседника (ответ или отписка; автоответчик и отказ доставки не в счёт)
+  или наше письмо (на этот ответ или позже, или ушедшее позже него), «Подходит · отправить» и «Отправить правку» —
+  409 «черновик устарел» словами; автопилот отдаёт такой черновик человеку с причиной. **«Как есть» у отданного
+  человеку закрыт и правкой прежним текстом.** **Реестр этапов знает, как этап выглядит на экране** (имя, пояснение,
+  сторона цены, причины отклонения, сводка судьи) и **почему автопилот этапа не действует** (`autopilot_refusal`).
+- **Б — плашка черновика агента** над полем ответа того письма, на которое черновик написан: «Подходит · отправить»,
+  «Править» → «Отправить правку», «Отклонить» с причиной (список этапа или «другое» словами); отданный человеку — с
+  причиной, без «Подходит»; «ответ не нужен» — строкой с «Ответить всё же». Отказ сервера — словами (в том числе 409
+  «черновик устарел»). Подсказка у поля ответа; ручной ответ не запрещён. **Экран настроек агента** строит
+  переключатель этапов, пояснения и подпись предела по реестру сервера.
+- **В — предупреждение об автопилоте:** этап, где автопилот выбрали раньше, а теперь его не пускает выключатель
+  сервера или код этапа, не выглядит работающим автопилотом — экран говорит, что письма сами не уходят, и почему.
 
 ## Размер
 
-Против А3: **файлов 34, net 1889 (+1940/−51)** — четыре части одним PR (Б 7 / 460, В 15 / 571, Г 16 / 791, Д 4 / 67) —
+Против Д: **файлов 15, net 1251 (+1314/−63)** — три части одним PR (А 7 / 416, Б 8 / 779, В 3 / 56) —
 `delivery_check --diff-base`, строка `breakers:` (без `delivery/` и `.github/workflows/`). Предел 25 файлов и 800 строк
-превышен: части объединены одним PR по слову владельца, вейвер на размер — за координатором. Голова миграций —
-75242c2ed7ba (одна голова).
+превышен по строкам: части объединены одним PR по слову владельца, вейвер на размер — за координатором. Миграций нет;
+голова — `75242c2ed7ba` (голова шва).
 
 ## Оракулы
 
-- **shape-oracles:** cqg-deployed — ruff и формат, mypy strict, `scripts/gates.py`, ратчет сложности, import-linter, хуки pre-commit, подпись необратимого, `alembic heads`
-- **behavior-oracles:** tests-present — `tests/test_agent_guarding.py`, `tests/test_agent_cleaning.py`, `tests/test_agent_thread.py`, `tests/test_agent_cap.py`, `tests/test_agent_autopilot.py`, `tests/test_agent_after_parse.py` на настоящей базе дерева, vitest `frontend/src/agent/agentDraft.test.ts`; соседи — агент, переписка, ответы, письма (`tests/test_agent_*`, `test_thread_*`, `test_api_outreach`, `test_api_replies`, `test_replies_*`, `test_reply_*`, `test_api_letters*`, `test_letter_*`, `test_letters_*`) и `test_schema`, `test_prune`, `test_prune_test_traces`, `test_migrations_match_models`, `test_parse_requeue`, `test_job_outcome`, `test_llm_cap`
+- **shape-oracles:** cqg-deployed — ruff и формат, mypy strict, `scripts/gates.py`, ратчет сложности, import-linter, ESLint (и ратчет предупреждений), Prettier, `tsc -b`, длина файлов, jscpd, гейт сложности (python + ts), хуки pre-commit, подпись необратимого, `alembic heads`
+- **behavior-oracles:** tests-present — `tests/test_agent_approval.py` на настоящей базе дерева через маршруты; vitest `frontend/src/agent/AgentDraftBanner.test.tsx` (через настоящий экран переписки и `serve()`), `frontend/src/agent/AgentPage.test.tsx`; соседи — агент, переписка, ответы, письма (`tests/test_agent_*`, `test_thread_*`, `test_api_outreach`, `test_api_replies`, `test_replies_*`, `test_reply_*`, `test_api_letters*`, `test_letter_*`, `test_letters_*`) и `test_schema`, `test_prune`, `test_prune_test_traces`, `test_migrations_match_models`, `test_parse_requeue`, `test_job_outcome`, `test_llm_cap`; фронт — `src/agent`, `src/threads`, `src/api`, `src/letters`, `src/components`
 - **ci-oracles:** deployed — обязательные `check`, `web`, `docker`; quality — `gates` и `delivery`
-- **artifact_oracle:** n/a reason=сборка не меняется: модули в пакете `backend`, промпты — та же package-data `backend.features.agent`, ревизии — та же `alembic upgrade head` сервиса `migrate`
-- **runtime_paths:** none reason=черновики, решения, судья и автопилот судятся тестами на настоящей базе дерева с подставной моделью (`httpx.MockTransport`/писатель-подмена) и `NullTransport`; живой модели и живого письма нет — «заложено» в verify-report
-- **rule_enforcers:** `backend/features/agent/writer.py` (`checked`: адреса, метрики Ahrefs, длина, флаг сомнения) и `backend/features/agent/guarding.py` (судья этапа с петлёй правки, отказ закрыт); у доноров и рекламодателей судьи нет — как до шва
+- **artifact_oracle:** n/a reason=сборка та же: модули в пакете `backend`, новый модуль экрана в `frontend/src/agent`, миграций, промптов и зависимостей нет
+- **runtime_paths:** none reason=решения по черновику судятся тестами на настоящей базе дерева (почта — `NullTransport`), экран — тестами с записанными ответами и замером в браузере с подменой ответов сервера; живого сервера и живого письма нет — «заложено» в verify-report
+- **rule_enforcers:** `backend/features/agent/drafts.py` (`stale`, `_refuse_as_is`, `_undecided`) — проверка сервера перед путём ответа человека; схема `RejectDraftBody` — 422 без причины; экран держит то же (`frontend/src/agent/AgentDraftBanner.tsx`: без причины — неактивно, у отданного человеку — нет «как есть»); письма автопилота держит сервер (`backend/features/agent/autopilot.py`, `refusal`)
 - **stack-selftest:** external (`~/Documents/Prepare`) — вариант D: каноны лежат в корне
   ЛОКАЛЬНО и в коммит не идут (`.git/info/exclude`), поэтому в CI их физически нет и
   `stack_selftest.py` проверять нечего. §7.1 требует записать это, а не умолчать:
@@ -74,14 +68,16 @@
 - **irreversible_surfaces:** отправка писем донорам, и без человека в цепочке — добивки уходят по расписанию фоновым процессом; страница отписки без пропуска — нажатие постороннего пишет в стоп-лист, снимает письма с очереди и гасит сроки; публикация образов в публичный реестр при каждом слиянии в main; приём ответов вебхуком; трата юнитов Ahrefs и платных провайдеров; публичный репозиторий; автомерж по зелёному; **обход чужих живых сайтов нашим трафиком — чужие машины и наша репутация по IP, отозвать сделанные запросы нельзя**; **письма рекламодателям с доменов Этапа 2 — оффер незваным адресатам: первое уходит по нажатию человека, добивки по расписанию без человека, жалоба бьёт по репутации доменов Этапа 2 и не отзывается**; **копия базы вне машины — по расписанию и перед каждой выкаткой, без человека, дамп с перепиской и адресами уходит в стороннее хранилище (R2 или B2), тексты тревог — в Telegram; отправленное не отзывается**
 
 Четыре строки — `stack:`, `stack-selftest:`, `model_surface:` и `irreversible_surfaces:` — перенести дословно из
-STATUS main на момент PR. Строка `model_surface:` в main — пути через запятую (с 1.1b), переносится дословно. PR
-задевает её элемент `backend/config/llm.py` (настройка потолка, не пин модели) — в verify-report блок «Изменение
-поверхности модели». Новой поверхности необратимого PR не открывает: автопилот (Г) влит выключенным тремя ключами;
-до включения на любом этапе — дописать поверхность в `irreversible_surfaces:` и переподписать владельцем.
+STATUS main на момент PR. **К переподписи владельцем:** экран открывает людям отправку ответа, написанного моделью,
+живому собеседнику («Подходит · отправить») — поверхность «ответы модели живым людям» (с человеком в цепочке:
+отправляет человек). Строка `irreversible_surfaces:` в PR не тронута — дописывает и подписывает владелец до
+включения агента на проде.
 
 ## Чего в PR нет
 
-- Б: содержимого судьи продаж (детерминированные проверки, промпт судьи — 3.2a), каталога сигнатур инъекций, живых прогонов судьи (3.4).
-- В: экрана черновика (5.1).
-- Г: включения автопилота на каком-либо этапе, экрана переключателя, подписи новой поверхности необратимого.
-- Д: выноса `_settled` в общий модуль (заготовка) — после окна соседней сессии, если нужен.
+- Списка «ждут человека» на отдельном экране, «написать заново» на плашке, проверки «устарел» на экране (её делает
+  сервер), переключателя режима автопилота на экране.
+- Причин отклонения и строки этапа продаж в реестре — своим срезом (`title`, `lead`, свои `reject_reasons`).
+- Правки общего правила цвета заголовков `Alert` и рамки фокуса в тёмной теме (стили — путь соседней сессии;
+  находки переданы).
+- Замера с живым сервером.

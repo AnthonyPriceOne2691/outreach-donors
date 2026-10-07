@@ -24,7 +24,13 @@ from backend.features.agent.drafting import (
     announce,
     draft_answer,
 )
-from backend.features.agent.drafts import Decider, agent_writes, drafts_of, settle_sent
+from backend.features.agent.drafts import (
+    Decider,
+    agent_writes,
+    drafts_of,
+    reject_reasons,
+    settle_sent,
+)
 from backend.features.agent.writer import AgentWriter
 from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
@@ -70,6 +76,7 @@ async def one_thread(
         await thread_mail(session, detail.messages),
         drafts=drafts,
         agent_writes=await agent_writes(session, detail.row.stage),
+        agent_reasons=reject_reasons(detail.row.stage),
     )
 
 
