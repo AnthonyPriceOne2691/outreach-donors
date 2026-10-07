@@ -155,8 +155,8 @@ async def test_shadow_draft_is_not_sent_back_but_carries_the_verdict(
     [attempt] = draft.meta["attempts"]
     assert attempt["verdict"] == "allow"
     assert attempt["reasons"] == [
-        "shadow block: сумма 500 не из базы и не из письма собеседника — уберите её или "
-        "возьмите из фактов"
+        "shadow block: сумма 500 не из базы — суммы называем только из базы знаний, даже если "
+        "собеседник назвал свою: уберите её или возьмите из фактов"
     ]
     assert draft.meta["judge_mode"] == "shadow"
 

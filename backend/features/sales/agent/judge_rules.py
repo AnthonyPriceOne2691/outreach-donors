@@ -4,8 +4,10 @@
 правка без трат на модель. Каждое нарушение — словами для писателя: петля правки
 шва отдаёт их ему ключом `rewrite`, а человеку они видны в попытках черновика.
 
-- **Числа и суммы** — только из записей базы брифа или письма собеседника.
-  Цифры ссылок не в счёт: их проверяет правило ссылок.
+- **Числа и суммы** — числа только из записей базы брифа или письма собеседника,
+  а суммы с валютой — только из базы, даже если собеседник назвал свою (решение
+  владельца 07.10: сумма из письма — путь подтвердить чужую цену). Цифры ссылок
+  не в счёт: их проверяет правило ссылок.
 - **Ссылки и адреса** — только из белого списка настроек отправителя (сайт,
   созвон, Telegram). Адрес почты в черновике тоже ссылка: письмо уходит в ту же
   переписку, и чужой адрес в нём — путь увести лида или оплату.
@@ -58,16 +60,23 @@ def _named(channels: Iterable[str]) -> str:
 
 
 def foreign_numbers(draft: str, *, incoming: str, known: Iterable[str]) -> list[str]:
-    """Числа черновика, которых нет ни в записях базы, ни в письме собеседника."""
-    allowed = reading.numbers_in("\n".join((*known, incoming)))
+    """Числа черновика не из базы и не из письма собеседника; суммы — не из базы."""
+    base = "\n".join(known)
+    allowed = reading.numbers_in(base) | reading.numbers_in(incoming)
+    priced = reading.amounts_in(base)
     amounts = reading.amounts_in(draft)
     found = []
-    for value in sorted(reading.numbers_in(draft) - allowed):
-        what, it = ("сумма", "её") if value in amounts else ("число", "его")
-        found.append(
-            f"{what} {value:f} не из базы и не из письма собеседника — "
-            f"уберите {it} или возьмите из фактов"
-        )
+    for value in sorted(reading.numbers_in(draft)):
+        if value in amounts and value not in priced:
+            found.append(
+                f"сумма {value:f} не из базы — суммы называем только из базы знаний, даже если "
+                "собеседник назвал свою: уберите её или возьмите из фактов"
+            )
+        elif value not in amounts and value not in allowed:
+            found.append(
+                f"число {value:f} не из базы и не из письма собеседника — "
+                "уберите его или возьмите из фактов"
+            )
     return found
 
 

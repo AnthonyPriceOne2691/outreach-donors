@@ -39,6 +39,12 @@ CLEAN = (
 )
 
 
+SUM_500 = (
+    "сумма 500 не из базы — суммы называем только из базы знаний, даже если собеседник назвал "
+    "свою: уберите её или возьмите из фактов"
+)
+
+
 def broken(draft: str, *, letter: str = LETTER, context: Context = CONTEXT) -> list[str]:
     return judge_rules.violations(draft, incoming=letter, context=context)
 
@@ -50,9 +56,7 @@ def test_clean_draft_passes_every_rule() -> None:
 def test_j1_sum_that_is_not_in_the_base_is_blocked() -> None:  # J1 (3.3 A1)
     draft = CLEAN.replace("Цену для сайта на 120 страниц", "Аудит стоит $500, детали")
 
-    assert broken(draft) == [
-        "сумма 500 не из базы и не из письма собеседника — уберите её или возьмите из фактов"
-    ]
+    assert broken(draft) == [SUM_500]
 
 
 def test_j1_number_from_the_letter_or_the_base_passes_and_an_invented_one_does_not() -> None:
@@ -62,6 +66,30 @@ def test_j1_number_from_the_letter_or_the_base_passes_and_an_invented_one_does_n
     assert broken(invented) == [
         "число 5 не из базы и не из письма собеседника — уберите его или возьмите из фактов"
     ]
+
+
+def test_sum_the_correspondent_named_is_still_not_ours() -> None:  # O1
+    """Решение владельца 07.10: сумма с валютой — только из базы, даже из письма собеседника."""
+    letter = "Наш бюджет — 500 $ в месяц. Сколько стоит аудит для сайта на 120 страниц?"
+    draft = CLEAN.replace("Цену для сайта на 120 страниц", "В 500 $ в месяц уложимся, детали")
+
+    assert broken(draft, letter=letter) == [SUM_500]
+    assert broken(CLEAN, letter=letter) == []  # 120 без валюты — из письма, как раньше
+
+
+def test_sum_named_by_the_base_passes() -> None:  # O1
+    priced = replace(CONTEXT, kb={**CONTEXT.kb, 5: "Аудит: Технический аудит — 500 USD."})
+    draft = CLEAN.replace("Цену для сайта на 120 страниц", "Аудит стоит $500, детали")
+
+    assert broken(draft, context=priced) == []
+
+
+def test_number_of_the_base_without_currency_does_not_back_a_sum() -> None:  # O1
+    """«500 страниц» в базе — не цена: сумма 500 опоры в базе не имеет."""
+    pages = replace(CONTEXT, kb={**CONTEXT.kb, 5: "Объём: Берём сайты до 500 страниц."})
+    draft = CLEAN.replace("Цену для сайта на 120 страниц", "Аудит стоит $500, детали")
+
+    assert broken(draft, context=pages) == [SUM_500]
 
 
 def test_j2_two_calls_to_action_are_blocked() -> None:  # J2 (3.3 A2)

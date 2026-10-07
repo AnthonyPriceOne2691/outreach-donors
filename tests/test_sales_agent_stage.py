@@ -250,7 +250,7 @@ async def test_sum_not_in_the_base_goes_back_to_the_writer_and_comes_out_without
 
     assert outcome.status is DraftStatus.DRAFTED
     first, second = writer.seen
-    why = "сумма 500 не из базы и не из письма собеседника — уберите её или возьмите из фактов"
+    why = "сумма 500 не из базы — суммы называем только из базы знаний, даже если собеседник назвал свою: уберите её или возьмите из фактов"
     assert (first.corrections, second.corrections, second.previous) == ((), (why,), BAD)
     draft = await stored(session, reply_id)
     assert draft.body == GOOD
