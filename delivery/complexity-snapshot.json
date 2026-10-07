@@ -2182,8 +2182,8 @@
       "worst": "tracked_text_files:70"
     },
     "scripts/sales_injection_canary.py": {
-      "lines": 228,
-      "complexity": 12,
+      "lines": 223,
+      "complexity": 11,
       "worst": "load:89"
     },
     "scripts/sample_keywords.py": {

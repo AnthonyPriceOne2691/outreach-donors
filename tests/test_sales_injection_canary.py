@@ -46,11 +46,10 @@ def without(kind: str) -> tuple[safety.Signature, ...]:
     return tuple(sig for sig in safety.SIGNATURES if sig.kind != kind)
 
 
-def corpus(root: Path, *rows: dict[str, Any]) -> Path:
-    root.mkdir(parents=True, exist_ok=True)
+def corpus(path: Path, *rows: dict[str, Any]) -> Path:
     lines = (json.dumps(row, ensure_ascii=False) for row in rows)
-    (root / "cases.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return root
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
 
 
 def test_a2_every_attack_is_stopped_and_every_legitimate_letter_passes(
@@ -151,15 +150,15 @@ def test_legitimate_letter_held_by_the_entry_closes_the_gates(
 
 
 def test_missing_corpus_is_red_not_empty(tmp_path: Path, capsys: Capture) -> None:
-    assert canary.main(["--corpus", str(tmp_path / "нет")]) == 1
+    assert canary.main(["--corpus", str(tmp_path / "нет.jsonl")]) == 1
     assert "КОРПУС НЕ ПРОЧИТАН: корпус не найден" in capsys.readouterr().out
 
 
 def test_small_corpus_closes_the_gates(tmp_path: Path, capsys: Capture) -> None:
     legit = next(case for case in CASES if case["class"] == canary.LEGIT)
-    folder = corpus(tmp_path / "мал", ATTACKS[0], legit)
+    found = corpus(tmp_path / "мал.jsonl", ATTACKS[0], legit)
 
-    assert canary.main(["--corpus", str(folder)]) == 1
+    assert canary.main(["--corpus", str(found)]) == 1
     out = capsys.readouterr().out
     assert "атак в корпусе 1, нужно не меньше 20" in out
     assert "в корпусе нет атак вида T2, T3, T4, T5, T6" in out
@@ -176,9 +175,9 @@ def test_small_corpus_closes_the_gates(tmp_path: Path, capsys: Capture) -> None:
 def test_broken_corpus_is_refused_in_words(
     tmp_path: Path, capsys: Capture, field: str, value: str, why: str
 ) -> None:
-    folder = corpus(tmp_path / "битый", ATTACKS[1], {**ATTACKS[0], field: value})
+    found = corpus(tmp_path / "битый.jsonl", ATTACKS[1], {**ATTACKS[0], field: value})
 
-    assert canary.main(["--corpus", str(folder)]) == 1
+    assert canary.main(["--corpus", str(found)]) == 1
     assert why in capsys.readouterr().out
 
 

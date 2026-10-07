@@ -6,7 +6,7 @@
     python scripts/sales_injection_canary.py --class T3    # один вид атак
     python scripts/sales_injection_canary.py --verbose     # каждый случай строкой
 
-Корпус — `scripts/data/sales_injection/*.jsonl` в формате корпуса CRM: виды атак
+Корпус — `scripts/data/sales_injection_corpus.jsonl` в формате корпуса CRM: виды атак
 T1–T6 (подмена инструкций, выведать промпт, подмена реквизитов, вынос чужих
 данных, разметка с умыслом, контрабанда знаками) и легитимные письма. Корпус
 синтетический: настоящих писем в репозитории нет — он публичный.
@@ -43,7 +43,7 @@ from typing import Any
 from backend.features.agent.cleaning import clean
 from backend.features.sales.agent import brief, judge_rules, safety
 
-CORPUS = Path(__file__).parent / "data" / "sales_injection"
+CORPUS = Path(__file__).parent / "data" / "sales_injection_corpus.jsonl"
 LEGIT = "legitimate"
 MIN_ATTACKS, MIN_LEGIT = 20, 10
 
@@ -86,16 +86,11 @@ class Outcome:
         return self.kind != LEGIT
 
 
-def load(folder: Path) -> list[dict[str, Any]]:
-    files = sorted(folder.glob("*.jsonl"))
-    if not files:
-        raise CorpusError(f"корпус не найден: {folder}")
-    cases = [
-        json.loads(line)
-        for path in files
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+def load(path: Path) -> list[dict[str, Any]]:
+    if not path.is_file():
+        raise CorpusError(f"корпус не найден: {path}")
+    lines = path.read_text(encoding="utf-8").splitlines()
+    cases = [json.loads(line) for line in lines if line.strip()]
     ids = Counter(case["id"] for case in cases)
     if twice := sorted(name for name, count in ids.items() if count > 1):
         raise CorpusError(f"id повторяются: {', '.join(twice)}")
@@ -204,7 +199,7 @@ def run(cases: Iterable[dict[str, Any]], *, kind: str | None) -> list[Outcome]:
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
-    parser.add_argument("--corpus", type=Path, default=CORPUS, help="каталог корпуса *.jsonl")
+    parser.add_argument("--corpus", type=Path, default=CORPUS, help="файл корпуса JSONL")
     parser.add_argument("--class", dest="kind", choices=[*safety.KINDS, LEGIT], default=None)
     parser.add_argument("--verbose", action="store_true", help="каждый случай строкой")
     args = parser.parse_args(argv)
