@@ -11,7 +11,7 @@ import random
 from datetime import timedelta
 
 import pytest
-from backend.features.core.domain import MessageStatus, ReplyKind
+from backend.features.core.domain import GONE_STATUSES, MessageStatus, ReplyKind
 from backend.features.core.models.outreach import MessageModel
 from backend.features.sales import funnel, handoff
 from backend.features.sales.funnel import Funnel, Period, Step
@@ -133,6 +133,21 @@ async def test_letter_on_its_way_is_sent_but_neither_delivered_nor_bounced(
     total = await _total(session)
 
     assert (total.queued, total.sent, total.delivered, total.bounced) == (0, 1, 0, 0)
+
+
+async def test_letter_whose_outcome_is_unknown_is_not_sent_yet(
+    session: AsyncSession, rows: Rows
+) -> None:
+    """«Отправляется» — платформа приняла не наверняка: «ушло» у воронки — то же, что у всей
+    почты (`GONE_STATUSES`), а не своя копия."""
+    hypothesis = await rows.hypothesis("исход неизвестен")
+    lead = await rows.lead(hypothesis, "maybe@zeta.example.test")
+    await rows.letter(lead, step=0, status=MessageStatus.SENDING, days_ago=1, sent=False)
+
+    total = await _total(session)
+
+    assert funnel.GONE is GONE_STATUSES
+    assert (total.queued, total.sent) == (0, 0)
 
 
 # --- очередь ---------------------------------------------------------------------------------------

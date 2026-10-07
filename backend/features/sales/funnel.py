@@ -42,7 +42,7 @@ from enum import StrEnum
 from sqlalchemy import ColumnElement, Subquery, and_, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.core.domain import MessageStatus
+from backend.features.core.domain import GONE_STATUSES, MessageStatus
 from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.letters.attempts import ANSWERS
 from backend.features.sales.handoff import handed_off_rule
@@ -52,8 +52,9 @@ from backend.features.sales.models import (
     SalesThreadModel,
 )
 
-#: Письмо ушло: отказ доставки — тоже ушедшее письмо, просто не дошедшее.
-GONE = (MessageStatus.SENT, MessageStatus.DELIVERED, MessageStatus.BOUNCED)
+#: Письмо ушло — одно определение почты (`core/domain.GONE_STATUSES`): отказ доставки —
+#: тоже ушедшее письмо, «отправляется» — ещё нет.
+GONE = GONE_STATUSES
 
 
 class Step(StrEnum):

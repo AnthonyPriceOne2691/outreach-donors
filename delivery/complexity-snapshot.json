@@ -1747,9 +1747,9 @@
       "worst": "reasons:64"
     },
     "backend/features/sales/funnel.py": {
-      "lines": 247,
+      "lines": 248,
       "complexity": 5,
-      "worst": "counts:186"
+      "worst": "counts:187"
     },
     "backend/features/sales/geo.py": {
       "lines": 396,
