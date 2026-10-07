@@ -321,6 +321,13 @@ jobs:
               angles.load_prompt(name)
           from backend.features.agent import writer
           writer.load_prompt()
+          # Судья, переписывание и разбор ответа читают промпт при импорте:
+          # без файла в колесе падает уже импорт.
+          from backend.features.donors import publisher_judge
+          from backend.features.letters import rewrite
+          from backend.features.replies import extract
+          for prompt in (publisher_judge.SYSTEM, publisher_judge.ARBITER_SYSTEM, rewrite.SYSTEM, extract.SYSTEM):
+              assert prompt, "пустой промпт"
           print("шаблоны писем и промпты читаются из", backend.__file__)
           EOF
 
