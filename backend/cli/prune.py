@@ -6,7 +6,8 @@
 
     outreach prune --runs 18,19,20 --replies 1
     outreach prune --runs 18,19,20 --replies 1 --yes
-    outreach prune --test-traces          # следы проверки на настоящих донорах, по доменам
+    outreach prune --test-traces          # следы проверки на настоящих донорах, по доменам,
+                                          # и проба продаж на свой ящик
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from backend.config import storage
 from backend.config.startup_checks import check_storage
 from backend.features.outreach.own_inboxes import DomainTrace, InboxTrace
 from backend.features.runs.prune import PrunePlan, PruneRefusedError, apply_prune, plan_prune
+from backend.features.sales.trials import TrialTrace
 
 EXIT_OK = 0
 EXIT_REFUSED = 2
@@ -55,13 +57,14 @@ def add_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-ar
         "--probes",
         action="store_true",
         help="липовые доноры и пробные рекламодатели (outreach probe-donor, probe-advertiser) "
-        "целиком — с письмами, перепиской и ответами",
+        "целиком — с письмами, перепиской и ответами; домен, который держит лид продаж, остаётся",
     )
     parser.add_argument(
         "--test-traces",
         action="store_true",
         help="следы проверки на настоящих доменах: свой ящик из предохранителя в карточке, "
-        "письма на него, переписка с ответами и цена из них; донор остаётся",
+        "письма на него, переписка с ответами и цена из них; донор остаётся. И проба продаж: "
+        "лид со своим ящиком с диалогом, письмами, ответами и передачей — сделка в Kommo остаётся",
     )
     parser.add_argument(
         "--yes", action="store_true", help="удалить: одной транзакцией, с записью в журнал"
@@ -81,8 +84,12 @@ def _print_plan(plan: PrunePlan, *, done: bool) -> None:
             f"перепиской ({probes.threads}) и ответами ({probes.replies}); "
             f"рассылок без них не останется: {len(probes.campaigns)}"
         )
+        for host, why in probes.kept.items():
+            print(f"  оставлен {host}: {why}")
     if plan.test_traces is not None:
         _print_test_traces(plan.test_traces, done=done)
+    if plan.sales_trials is not None and plan.sales_trials.leads:
+        _print_trials(plan.sales_trials, done=done)
 
 
 def _print_test_traces(trace: InboxTrace, *, done: bool) -> None:
@@ -105,6 +112,30 @@ def _print_test_traces(trace: InboxTrace, *, done: bool) -> None:
         f"рассылок без них не останется: {len(trace.campaigns)}"
     )
     print("Донор и решение по нему, обходы, кандидаты и рекламодатели остаются.")
+
+
+def _print_trials(trace: TrialTrace, *, done: bool) -> None:
+    """Проба продаж — по лидам, с номерами сделок Kommo: в Kommo они остаются."""
+    print("Проба продаж — лиды со своим ящиком:")
+    for lead in trace.leads:
+        print(
+            f"  лид №{lead.lead_id} {lead.email} ({lead.host}): диалогов {lead.threads}, "
+            f"писем {lead.letters}, ответов {lead.replies}"
+        )
+        for deal in lead.deals:
+            print(
+                f"    сделка Kommo №{deal} остаётся в Kommo — удалить её может только человек, "
+                "по этому номеру"
+            )
+    verb = "Удалено" if done else "Уйдёт"
+    print(
+        f"{verb}: лидов {len(trace.leads)}, диалогов {len(trace.threads)}, писем "
+        f"{len(trace.letters)}, ответов {len(trace.replies)}, передач {len(trace.handoffs)}; "
+        f"рассылок без них не останется: {len(trace.campaigns)}"
+    )
+    if trace.deals:
+        numbers = ", ".join(f"№{deal}" for deal in trace.deals)
+        print(f"Сделки в Kommo чистка не трогает: {numbers} — удалить их может только человек.")
 
 
 def _domain_words(item: DomainTrace) -> list[str]:

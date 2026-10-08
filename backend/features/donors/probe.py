@@ -19,6 +19,11 @@
 
 Тот же домен в зоне и тот же свой ящик — у пробного рекламодателя Этапа 2
 (`crawl/probe_advertiser.py`): чистка `--probes` уносит и его — по зоне домена.
+
+**Домен, который держит лид продаж, чистка не трогает** — то же правило, что у основной
+чистки (`runs/prune.py`, `sales/domain_hold.py`): лид ссылается на домен без каскада, и
+удаление упало бы целиком. Такой домен назван в плане словами — «домен держит лид продаж
+№N — его убирает `prune --test-traces`»: пробу продаж целиком убирает только она.
 """
 
 from __future__ import annotations
@@ -52,6 +57,7 @@ from backend.features.core.models.run import RunCandidateModel, RunModel
 from backend.features.letters.sendgrid import allowed_recipient
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.thresholds import ThresholdsRepository
+from backend.features.sales.domain_hold import held, holds_domain
 
 #: Зарезервированная зона: домен в ней не бывает настоящим сайтом.
 PROBE_ZONE = ".invalid"
@@ -239,6 +245,8 @@ class ProbeTrace:
     replies: int = 0
     #: Рассылки, где только липовые письма и переписка: без них они пусты.
     campaigns: list[int] = field(default_factory=list)
+    #: Липовые домены, которые держит лид продаж: чистка их не трогает — домен → почему.
+    kept: dict[str, str] = field(default_factory=dict)
 
     def as_details(self) -> dict[str, Any]:
         return {
@@ -249,6 +257,7 @@ class ProbeTrace:
             "переписок": self.threads,
             "ответов": self.replies,
             "рассылки": self.campaigns,
+            "оставлено": self.kept,
         }
 
 
@@ -257,10 +266,12 @@ async def _count(session: AsyncSession, statement: Select[tuple[int]]) -> int:
 
 
 async def probe_trace(session: AsyncSession) -> ProbeTrace:
-    """Липовые доноры и всё, что за ними тянется. Ничего не меняет."""
+    """Липовые доноры и всё, что за ними тянется. Ничего не меняет. Домен, который
+    держит лид продаж, — не в плане, а в оставленных, со словами."""
     trace = ProbeTrace()
+    trace.kept = await held(session, probe_domain())
     trace.domains = list(
-        (await session.scalars(select(DomainModel.id).where(probe_domain()))).all()
+        (await session.scalars(select(DomainModel.id).where(probe_domain(), ~holds_domain()))).all()
     )
     for run in await session.scalars(select(RunModel).order_by(RunModel.id)):
         hosts = (run.candidates or {}).get("hosts") or []
@@ -311,16 +322,16 @@ async def remove_probes(session: AsyncSession, trace: ProbeTrace) -> None:
 
     Письма — первыми: на домен они ссылаются без каскада, и база не дала бы
     удалить домен с письмами. Переписка, ответы, адреса и строка пробного
-    рекламодателя уходят с доменом каскадом. Зона проверяется и здесь, в самом
-    запросе: настоящий домен этим путём не удаляется, что бы ни лежало в плане.
+    рекламодателя уходят с доменом каскадом. Зона и лид продаж проверяются и здесь,
+    в самом запросе: настоящий домен и домен лида этим путём не удаляются, что бы ни
+    лежало в плане.
     """
     if not trace.domains:
         return
-    probes = select(DomainModel.id).where(DomainModel.id.in_(trace.domains), probe_domain())
+    gone = (DomainModel.id.in_(trace.domains), probe_domain(), ~holds_domain())
+    probes = select(DomainModel.id).where(*gone)
     await session.execute(delete(MessageModel).where(MessageModel.domain_id.in_(probes)))
-    await session.execute(
-        delete(DomainModel).where(DomainModel.id.in_(trace.domains), probe_domain())
-    )
+    await session.execute(delete(DomainModel).where(*gone))
     if trace.campaigns:
         await session.execute(
             delete(CampaignModel).where(CampaignModel.id.in_(trace.campaigns), emptied_campaign())

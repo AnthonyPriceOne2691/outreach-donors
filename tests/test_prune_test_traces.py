@@ -737,7 +737,7 @@ async def test_an_empty_trace_removes_nothing(session: AsyncSession) -> None:
 # --- схема -------------------------------------------------------------------------------------
 
 #: Откуда чистка следов удаляет сама. Каскад добавит то, что уходит вместе с ними.
-_REMOVED = frozenset({"replies", "messages", "threads", "contacts", "campaigns"})
+_REMOVED = frozenset({"replies", "messages", "threads", "contacts", "campaigns", "sales_leads"})
 
 #: Ссылка на удаляемое → что с ней при чистке следов (`outreach/own_inboxes.py`).
 REVIEWED = {
@@ -757,6 +757,10 @@ REVIEWED = {
     "agent_drafts.sent_message_id → messages SET NULL": "черновик уходит раньше — с ответом",
     "sales_draft_notices.draft_id → agent_drafts CASCADE": "сообщение о черновике — с черновиком",
     "sales_leads.referred_from_thread_id → threads SET NULL": "лид остаётся, теряет ссылку",
+    # Проба продаж (`sales/trials.py`): лида держат связь диалога и передача — они уходят
+    # с диалогом пробы раньше лида; лид с новым диалогом вне плана остаётся.
+    "sales_threads.lead_id → sales_leads RESTRICT": "связь уходит с диалогом пробы раньше лида",
+    "sales_handoffs.lead_id → sales_leads RESTRICT": "передача — с диалогом; номер сделки в плане",
 }
 
 
