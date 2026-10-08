@@ -607,9 +607,9 @@
       "worst": "—"
     },
     "backend/config/llm.py": {
-      "lines": 103,
+      "lines": 114,
       "complexity": 2,
-      "worst": "_unset_if_empty:75"
+      "worst": "_unset_if_empty:80"
     },
     "backend/config/observability.py": {
       "lines": 21,
@@ -712,7 +712,7 @@
       "worst": "reject_draft:242"
     },
     "backend/features/agent/guarding.py": {
-      "lines": 135,
+      "lines": 132,
       "complexity": 8,
       "worst": "compose:58"
     },
@@ -952,9 +952,9 @@
       "worst": "check_connected:107"
     },
     "backend/features/core/usage.py": {
-      "lines": 199,
+      "lines": 212,
       "complexity": 10,
-      "worst": "ensure_llm_within_cap:156"
+      "worst": "ensure_llm_within_cap:169"
     },
     "backend/features/core/window.py": {
       "lines": 172,
@@ -1322,9 +1322,9 @@
       "worst": "sender_domain:50"
     },
     "backend/features/letters/mailbox.py": {
-      "lines": 224,
+      "lines": 253,
       "complexity": 4,
-      "worst": "_silence:120"
+      "worst": "_silence:129"
     },
     "backend/features/letters/masking.py": {
       "lines": 111,
