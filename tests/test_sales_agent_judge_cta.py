@@ -18,17 +18,22 @@
 from __future__ import annotations
 
 import copy
+import json
 from typing import Any
 
 import pytest
+from backend.features.agent import drafting
 from backend.features.agent.stages import GuardInput, VerdictKind
 from backend.features.core.domain import Stage
 from backend.features.sales.agent import facts, judge, judge_cta, parts
 from scripts import eval_sales_judge as ev
+from sqlalchemy.ext.asyncio import AsyncSession
+from tests import test_sales_agent_brief as brief_world
 from tests.test_sales_agent_situation import Plug, llm
+from tests.test_sales_agent_stage import GOOD, INFORM, Writer, lead_replied, sales_on
 from tests.test_sales_judge_eval import ANSWERS, Capture, model
 
-__all__ = ["llm", "model"]  # фикстуры подставной модели — отсюда их видит pytest
+__all__ = ["llm", "model", "sales_on"]  # фикстуры — отсюда их видит pytest
 
 CASES = {case["id"]: case for case in ev.load(ev.SYNTHETIC)}
 CALL = "https://call.agency.example/slot"
@@ -288,3 +293,27 @@ def test_the_judge_version_moved_with_the_rule() -> None:
     """Калибровка и прогон версии сравнивают черновики по версии судьи: правило меняет его
     вердикт — версия другая, чем у замеров v4."""
     assert judge.PROMPT_VERSION == "sales-judge-v5"
+
+
+@pytest.mark.usefixtures("sales_on")
+async def test_on_the_combat_path_the_judge_sees_the_sender_channels(
+    session: AsyncSession, llm: Plug
+) -> None:
+    """Боевой путь, как у eval: бриф кладёт ссылки отправителя строками `[cta …]` и `[link …]`,
+    судья читает их назад — и в запросе модели призыв и ссылки стоят в `sender`, а та же ссылка —
+    в черновике. Каналы модель видит; не хватало ей только опоры на них в ответе."""
+    reply_id = await lead_replied(session)
+    plugged = llm(situation=[INFORM], judge=[_opinion()])
+
+    await drafting.draft_answer(session, Writer(GOOD), reply_id)
+
+    [sent] = plugged.sent["judge"]
+    user = sent["messages"][1]["content"]
+    sender = json.loads(user.split("sender:\n", 1)[1].split("\n", 1)[0])
+    assert sender["cta"] == {"channel": "call", "link": brief_world.CALL}
+    assert sender["links"] == {
+        "website": brief_world.SITE,
+        "call": brief_world.CALL,
+        "telegram": "@sales_desk_chat",
+    }
+    assert brief_world.CALL in user.split("<<<DRAFT", 1)[1].split("DRAFT>>>", 1)[0]
