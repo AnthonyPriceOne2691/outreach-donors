@@ -7,6 +7,10 @@
 ОТПРАВЛЕНА» в журнале, тоже по смене состояния. **Telegram не принял** — следующий проход
 скажет ещё раз.
 
+**Дребезг.** «Тревога» — сразу, «прошло» — когда тревоги нет `QUIET_PASSES` проходов подряд:
+тревога, которая мигает через проход (ящик на часовом потолке добивок), — одно «тревога», а не
+сообщение на каждом проходе. Вернулась раньше — счёт сначала, и ни одного сообщения.
+
 **Сказанное переживает перезапуск.** Код тревоги и её заголовок лежат хэшем в Redis
 (`TOLD_KEY`; reaper и так ходит в Redis за живостью задач): тревога, кончившаяся за выкаткой
 процесса сторожа, получает своё «прошло», а действующая не приходит второй раз. Redis не
@@ -29,6 +33,10 @@ from backend.features.ops.alarms import Alarm
 from backend.shared.alerts import send_alert
 
 logger = logging.getLogger(__name__)
+
+#: Сколько проходов подряд тревоги нет, прежде чем сказать «прошло». Проход сторожа — раз
+#: в десять минут (`workers/reaper.WATCHDOG_INTERVAL_SEC`): «прошло» — после 10–20 минут тишины.
+QUIET_PASSES = 2
 
 #: Где сказанное ждёт следующий процесс сторожа: хэш «код тревоги → заголовок».
 TOLD_KEY = "outreach:watch:told"
@@ -53,22 +61,26 @@ class Feed:
     """Тревоги, о которых уже сказано: код → заголовок; в Redis — зеркало для перезапуска."""
 
     told: dict[str, str] = field(default_factory=dict)
+    #: Сколько проходов подряд сказанной тревоги нет (в памяти: перезапуск начинает счёт заново).
+    quiet: dict[str, int] = field(default_factory=dict)
     #: Прочитано ли сказанное прежним процессом. До того зеркало не пишется: затёрло бы его.
     recalled: bool = False
     #: Память разошлась с Redis (запись не удалась или ещё не читали) — дописать.
     unsaved: bool = False
 
     async def tell(self, found: Sequence[Alarm]) -> None:
-        """Сказать о новых тревогах и о прошедших — по разнице с прошлым проходом."""
+        """Сказать о новых тревогах сразу и о прошедших — после `QUIET_PASSES` проходов без них."""
         self._recall()
         now = {alarm.code: alarm for alarm in found}
         for code, alarm in now.items():
+            self.quiet.pop(code, None)
             if code not in self.told and await _said(f"тревога: {alarm.title}. {alarm.detail}"):
                 self.told[code] = alarm.title
                 self._save()
         for code in [code for code in self.told if code not in now]:
-            if await _said(f"прошло: {self.told[code]}"):
-                del self.told[code]
+            self.quiet[code] = self.quiet.get(code, 0) + 1
+            if self.quiet[code] >= QUIET_PASSES and await _said(f"прошло: {self.told[code]}"):
+                del self.told[code], self.quiet[code]
                 self._save()
 
     def _recall(self) -> None:

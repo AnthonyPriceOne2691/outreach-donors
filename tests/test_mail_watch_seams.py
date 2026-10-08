@@ -7,11 +7,12 @@
   него, правила сторожа тишины (доноры) и `GET /api/watchdog` целы — правка PR «общее»;
 - сказанное лентой — хэшем в Redis: «прошло» о тревоге, кончившейся за перезапуском, приходит,
   действующая не повторяется; Redis не ответил — память процесса и строка журнала — правка PR
-  «общее».
+  «общее»;
+- дребезг: «тревога» — сразу, «прошло» — после двух проходов подряд без неё; мигающая тревога —
+  одно сообщение — правка PR «общее».
 
 Что не так — `xfail(strict=True)` с причиной и правкой для PR «общее»:
 
-- дребезг: тревога, которая то есть, то нет, — сообщение на каждом проходе;
 - проход сторожа говорит с провайдерами и Telegram при открытой транзакции («idle in
   transaction» на время сетевых вызовов).
 
@@ -294,10 +295,13 @@ async def test_the_end_of_an_alarm_told_before_a_restart_is_still_told(
     telegram: list[str], told_redis: FakeRedis
 ) -> None:
     """Выкатка между тревогой и её концом: новый процесс знает, что о тревоге сказано
-    (хранилище сказанного — Redis; тест получает его подделку)."""
+    (хранилище сказанного — Redis; тест получает его подделку). «Прошло» — как всегда, после
+    двух проходов без тревоги (дребезг)."""
     await alarm_feed.Feed().tell([QUIET])
 
-    await alarm_feed.Feed().tell([])  # процесс перезапущен, тревоги больше нет
+    restarted = alarm_feed.Feed()  # процесс перезапущен, тревоги больше нет
+    for _ in range(alarm_feed.QUIET_PASSES):
+        await restarted.tell([])
 
     assert telegram == ["тревога: Ящик x молчит. ждут его", "прошло: Ящик x молчит"]
     assert told_redis.hashes == {}
@@ -363,13 +367,6 @@ async def test_what_the_previous_process_said_is_read_once_redis_answers(
     assert told_redis.hashes == {alarm_feed.TOLD_KEY: {QUIET.code: QUIET.title}}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "общий код ops/alarm_feed.Feed.tell: нет гистерезиса — тревога, которая то есть, то "
-        "нет, даёт сообщение на каждом проходе; правка — PR «общее» (ревью стыков R1, A6)"
-    ),
-)
 async def test_a_flapping_alarm_is_told_once_and_its_end_once_it_holds(
     telegram: list[str],
 ) -> None:

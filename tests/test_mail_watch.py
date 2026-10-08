@@ -2,8 +2,9 @@
 
 Ящик молчит, очередь есть — отправить некому, все ящики на паузе: тревоги у этапа со
 сторожем в политике (у продаж; модуль подставной), у доноров — как было. Тревога
-уходит один раз — при появлении и при уходе; бот не настроен — громкая строка журнала,
-тоже один раз; Telegram не принял — слово повторится следующим проходом.
+уходит один раз — при появлении и при уходе (после двух проходов без неё); бот не
+настроен — громкая строка журнала, тоже один раз; Telegram не принял — слово повторится
+следующим проходом.
 """
 
 from __future__ import annotations
@@ -171,3 +172,28 @@ async def test_a_refused_alarm_is_said_again_next_pass(monkeypatch: pytest.Monke
     await feed.tell([QUIET])
 
     assert (first, feed.told) == ({}, {QUIET.code: QUIET.title})
+
+
+async def test_a_refused_end_is_said_again_next_pass(monkeypatch: pytest.MonkeyPatch) -> None:
+    """«Прошло» не принято — следующий проход скажет его снова, счёт тишины не сбрасывается."""
+    said: list[str] = []
+    answers = iter([True, False, True])
+
+    async def telegram(text: str) -> bool:
+        said.append(text)
+        return next(answers)
+
+    monkeypatch.setattr(alerts_cfg, "TELEGRAM_BOT_TOKEN", "made-up-token")
+    monkeypatch.setattr(alerts_cfg, "TELEGRAM_CHAT_ID", "made-up-chat")
+    monkeypatch.setattr(alarm_feed, "send_alert", telegram)
+    feed = alarm_feed.Feed()
+
+    for state in ([QUIET], [], [], []):
+        await feed.tell(state)
+
+    assert said == [
+        "тревога: Ящик x молчит. ждут его",
+        "прошло: Ящик x молчит",
+        "прошло: Ящик x молчит",
+    ]
+    assert (feed.told, feed.quiet) == ({}, {})  # о прошедшей тревоге лента не помнит ничего
