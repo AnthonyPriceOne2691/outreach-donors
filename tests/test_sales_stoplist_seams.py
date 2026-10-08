@@ -12,22 +12,29 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Callable
+from datetime import timedelta
 
 import pytest
 from backend.features.core.domain import MessageStatus, Stage, SuppressionReason
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import MessageModel
+from backend.features.letters import followups
 from backend.features.letters.sending import Sending, SuppressedError
 from backend.features.sales import queue
 from backend.features.sales.models import SalesLeadModel, SalesStoplistModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests import test_sales_send_world as w
+from tests import test_sales_stage_bridge as bridge
 from tests.test_sales_send import _seen, _transports
+from tests.test_sales_stage_mail import NOW, _donor_chain
 
 #: Лид пишет с личного домена, а его компания — другой сайт: домен адреса — свой.
 EMAIL = "ivan@gamma.example.test"
 COMPANY = "acme.example.test"
+#: Донор соседней цепочки прохода (`test_sales_stage_mail._donor_chain`).
+DONOR_HOST = "donor-b.example.test"
+DONOR_EMAIL = f"editor@{DONOR_HOST}"
 
 Row = Callable[[SalesLeadModel], object]
 
@@ -112,3 +119,25 @@ async def test_sending_holds_a_letter_whose_lead_was_stopped_after_assembly(
     assert _seen(source) == []
     await session.refresh(letter)
     assert letter.status is MessageStatus.QUEUED
+
+
+async def test_sales_stop_rows_do_not_hold_the_donor_chain(
+    session: AsyncSession, filled_legal: None
+) -> None:
+    """«Отписка доноров не тронута» и обратно: строка общего стоп-листа этапа продаж и стоп-лист
+    продаж на адрес и домен донора — правила продаж; добивка донору уходит (мутант «строка
+    любого этапа держит» в общем `sending._check_suppression` убит)."""
+    donor = await _donor_chain(session, due=NOW - timedelta(days=1))
+    session.add_all(
+        [
+            SuppressionModel(email=DONOR_EMAIL, reason=SuppressionReason.MANUAL, stage=Stage.SALES),
+            SalesStoplistModel(host=DONOR_HOST, created_by="тест"),
+        ]
+    )
+    await session.flush()
+
+    report = await followups.send_due(session, transport=bridge._transports(), limit=5, now=NOW)
+
+    assert (report.sent, report.stopped) == (1, 0)
+    await session.refresh(donor)
+    assert donor.next_action_at is None
