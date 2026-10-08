@@ -26,7 +26,9 @@
 - `followup` — текст добивки: шаг цепочки того же набора и языка, что у первого письма,
   подстановки лида, подпись и адрес. Тему даёт первое письмо — у шаблона добивки её нет;
 - `policy` — политика почты продаж (`policy.sales_policy`): окно получателя, мягкие
-  сигналы ящика, сторож.
+  сигналы ящика, сторож;
+- `threads_to` — переписки лидов с этим адресом: по ним стоп-лист снимает письма продаж
+  адресу (`letters/stoplist.stop_pending`) — строки `contacts` у них нет.
 
 **Отказ — только словами почты** (договор моста): «писать больше нельзя» (лид снят,
 передан, в стоп-листе) — `LeadStoppedError`, наследник стоп-листа: цепочка кончается;
@@ -268,6 +270,18 @@ async def followup(session: AsyncSession, thread_id: int | None, step: int) -> S
     if problem is not None:  # письма ещё нет — «пока нельзя», а не поломка модуля
         raise SalesNotConnectedError(what, problem, words="не собрана")
     return SalesFollowup(body=body)
+
+
+async def threads_to(session: AsyncSession, email: str) -> list[int]:
+    """Переписки продаж, чей лид — этот адрес (`core/stages.sales_threads_to`): письма в них
+    уходят адресу лида (`recipient`), и стоп-лист снимает их по этим перепискам."""
+    found = await session.scalars(
+        select(SalesThreadModel.thread_id)
+        .join(SalesLeadModel, SalesLeadModel.id == SalesThreadModel.lead_id)
+        .where(func.lower(SalesLeadModel.email) == email.strip().lower())
+        .order_by(SalesThreadModel.thread_id)
+    )
+    return list(found)
 
 
 async def policy(session: AsyncSession) -> MailPolicy:

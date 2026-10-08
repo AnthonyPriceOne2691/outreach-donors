@@ -44,12 +44,16 @@
 общих правил: окно получателя (4.3). У доноров и рекламодателей — нынешнее
 поведение (`CURRENT`), у продаж — ответ модуля продаж тем же мостом
 (`SalesMail.policy`), а не вторым реестром; поломка модуля и здесь — «не подключены».
+
+**Переписки адресата** (`sales_threads_to`) — стоп-листу: письма продаж уходят адресу лида без
+строки `contacts`, и снять назначенное адресу (`letters/stoplist.stop_pending`) без вопроса модулю
+их не найти.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Protocol, assert_never
 
@@ -204,6 +208,9 @@ class SalesMail(Protocol):
     async def policy(self, session: AsyncSession) -> MailPolicy:
         """Политика почты для писем продаж (`mail_policy`): окно получателя."""
 
+    async def threads_to(self, session: AsyncSession, email: str) -> Sequence[int]:
+        """Переписки продаж, чьи письма уходят на этот адрес: лид с ним (`sales_threads_to`)."""
+
 
 @dataclass(slots=True)
 class _Registry:
@@ -313,6 +320,27 @@ async def sales_connected(session: AsyncSession) -> bool:
     except SalesNotConnectedError as exc:
         logger.info("мост продаж: проход без продаж — %s", exc, extra={"why": str(exc)})
         return False
+
+
+async def sales_threads_to(session: AsyncSession, email: str) -> list[int]:
+    """Переписки продаж, чьи письма уходят на этот адрес, — стоп-листу, снять назначенное ему.
+
+    Модуль не подключён — писем продаж нет, снимать нечего. Поломка модуля — пусто и строка в
+    журнал, как у «подключены ли»: стоп-лист почты из-за модуля продаж не встаёт, а письмо продаж
+    адресу, закрытому для продаж, откажет проверка перед отправкой (`SalesMail.check`)."""
+    if _SALES.load is None:
+        return []
+    try:
+        found = await _asked(
+            session,
+            "Переписки продаж адресата стоп-листа",
+            lambda mail: mail.threads_to(session, email),
+            SalesNotConnectedError,
+        )
+    except SalesNotConnectedError as exc:
+        logger.info("мост продаж: письма продаж адресата не сняты — %s", exc)
+        return []
+    return list(found)
 
 
 async def sales_followup(session: AsyncSession, thread_id: int | None, step: int) -> SalesFollowup:
