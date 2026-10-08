@@ -245,3 +245,62 @@ async def test_the_batch_says_how_many_letters_are_really_left(
     report = await send_queue(session, _transports(), stage=Stage.SALES, limit=2)
 
     assert (report.sent, report.left) == (2, 3)
+
+
+# --- обработка ошибок модуля: «пока нельзя» и отказ одному письму --------------------------
+
+
+async def test_a_followup_whose_chain_became_incomplete_waits_and_is_no_module_failure(
+    session: AsyncSession, world: w.World, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Первое письмо ушло, затем первую добивку набора выключили: добивка «пока нельзя» —
+    срок на час, причина словами цепочки, без «ошибки модуля продаж» с трассой."""
+    source, [first] = await _first_sent(session, world)
+    off = chain_text.step_template(step=2, language="en", body=w.FOLLOW_BODY[2], active=False)
+    await chain.save(session, off, hypothesis_id=None, author="тест", author_id=None)
+
+    with caplog.at_level(logging.INFO):
+        report = await followups.send_due(session, transport=source, limit=5, now=FIRST_DUE)
+
+    assert (report.sent, report.postponed) == (0, 1)
+    await session.refresh(first)
+    assert first.next_action_at == FIRST_DUE + followups.POSTPONE
+    assert "нет первой добивки" in caplog.text
+    assert "ошибка модуля продаж" not in caplog.text
+
+
+async def _unlink(session: AsyncSession, letter: MessageModel) -> None:
+    """Связь диалога с лидом пропала — письмо продаж без лида."""
+    link = await session.get(SalesThreadModel, letter.thread_id)
+    assert link is not None
+    await session.delete(link)
+    await session.flush()
+
+
+async def test_a_sales_letter_without_its_lead_is_refused_alone_and_the_batch_goes_on(
+    session: AsyncSession, world: w.World
+) -> None:
+    """Письмо продаж, у которого нет лида, — отказ этому письму словами: пачка его считает и
+    отправляет остальные."""
+    jane, _ = await _queued(session, world, JANE, OLGA)
+    await _unlink(session, jane)
+    source = _transports()
+
+    report = await send_queue(session, source, stage=Stage.SALES)
+
+    assert (report.sent, sum(report.refused.values()), report.stopped) == (1, 1, None)
+    assert [outgoing.to for outgoing in _seen(source)] == [OLGA]
+
+
+async def test_a_followup_in_a_thread_without_a_sales_lead_waits_and_is_no_module_failure(
+    session: AsyncSession, world: w.World, caplog: pytest.LogCaptureFixture
+) -> None:
+    source, [first] = await _first_sent(session, world)
+    await _unlink(session, first)
+
+    with caplog.at_level(logging.INFO):
+        report = await followups.send_due(session, transport=source, limit=5, now=FIRST_DUE)
+
+    assert (report.sent, report.postponed) == (0, 1)
+    assert "у переписки нет лида продаж" in caplog.text
+    assert "ошибка модуля продаж" not in caplog.text
