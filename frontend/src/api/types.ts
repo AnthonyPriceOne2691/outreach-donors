@@ -608,6 +608,8 @@ export interface LettersView {
   /** Где кончились адресаты: пустая очередь при «всем написали» и при
    *  «ни у кого нет адреса» выглядит одинаково. Ступени у этапов свои. */
   funnel: Record<string, number>;
+  /** Сколько писем берёт одна пачка «Отправить очередь»: число называет сервер. */
+  batch_max: number;
 }
 
 export interface BuildLettersRequest {

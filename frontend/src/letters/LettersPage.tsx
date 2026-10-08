@@ -403,6 +403,7 @@ export function LettersPage() {
         <SendQueue
           stage={stage}
           count={letters.length}
+          batchMax={data.batch_max}
           blocked={data.blocked_by.length > 0}
           onFinished={() => void refresh()}
         />

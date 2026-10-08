@@ -98,6 +98,19 @@ describe('отправка очереди пачкой', () => {
     ).toBeInTheDocument();
   });
 
+  it('очередь длиннее пачки — окно называет потолок, который назвал сервер', async () => {
+    open({ batch_max: 1 });
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Отправить очередь · 2' }));
+    const dialog = await screen.findByRole('dialog');
+
+    expect(
+      within(dialog).getByText(/^В очереди 2 письма; одна пачка берёт до 1, остальное — следующей/),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Отправить 1' })).toBeInTheDocument();
+  });
+
   it('отмена ничего не отправляет', async () => {
     const recorded = open();
     const user = userEvent.setup();

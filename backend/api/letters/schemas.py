@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from backend.config import outreach as cfg
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.letters import compose, template, unknown_outcome
+from backend.features.letters.batch import BATCH_MAX
 from backend.features.letters.chain import MAX_STEPS, cadence
 from backend.features.letters.draft import Draft, default_draft
 from backend.features.letters.repository import QueuedLetter
@@ -219,6 +220,10 @@ class LettersView(BaseModel):
     transport: Transport
     corridor: Corridor
     funnel: dict[str, int]
+    #: Сколько писем берёт одна пачка «Отправить очередь» (`batch.BATCH_MAX`). Отдаёт
+    #: сервер: окно подтверждения называет его, когда очередь длиннее пачки, а копия
+    #: числа во фронте разошлась бы с пачкой при первой правке.
+    batch_max: int = BATCH_MAX
 
 
 class BuildRequestBody(BaseModel):

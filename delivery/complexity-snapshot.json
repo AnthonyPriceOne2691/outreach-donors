@@ -192,9 +192,9 @@
       "worst": "build:91"
     },
     "backend/api/letters/schemas.py": {
-      "lines": 333,
+      "lines": 338,
       "complexity": 5,
-      "worst": "followups_for:88"
+      "worst": "followups_for:89"
     },
     "backend/api/main.py": {
       "lines": 13,

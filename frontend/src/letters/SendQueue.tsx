@@ -16,6 +16,11 @@
  * отказа нет — два одинаковых текста на экране читались бы двумя отказами.
  * Ошибка прежнего нажатия гаснет, когда окно закрывают и открывают снова.
  *
+ * **Очередь длиннее пачки — окно так и говорит**: «в очереди N; одна пачка
+ * берёт до M, остальное — следующей», и кнопка окна называет то, что уйдёт
+ * этим нажатием (M), а не всю очередь. Потолок M называет сервер (`batch_max`):
+ * копия числа здесь разошлась бы с пачкой при первой его правке.
+ *
  * **Итог — словами под кнопкой**, из отчёта задачи: сколько ушло, что не ушло
  * и почему, сколько осталось. Номер задачи переживает перезагрузку страницы.
  */
@@ -51,12 +56,15 @@ interface Props {
    *  этап ещё не ведёт (409), и называет причину в итоге пачки. */
   stage: Stage;
   count: number;
+  /** Сколько писем берёт одна пачка — число сервера из ответа, который дал `count`.
+   *  Нет — окно говорит без потолка: он неизвестен. */
+  batchMax?: number;
   /** Почта не подключена или не заполнены обязательные поля письма. */
   blocked: boolean;
   onFinished: () => void;
 }
 
-export function SendQueue({ stage, count, blocked, onFinished }: Props) {
+export function SendQueue({ stage, count, batchMax, blocked, onFinished }: Props) {
   const [opened, setOpened] = useState(false);
   const [jobId, setJobId] = useState<string | null>(() => remembered(keyOf(stage)));
   useEffect(() => setJobId(remembered(keyOf(stage))), [stage]);
@@ -79,7 +87,13 @@ export function SendQueue({ stage, count, blocked, onFinished }: Props) {
     setOpened(open);
   };
 
-  const letters = plural(count, 'письмо', 'письма', 'писем');
+  // Пачка берёт не больше потолка сервера: длинная очередь уходит несколькими нажатиями.
+  const cap = batchMax !== undefined && count > batchMax ? batchMax : null;
+  const letters = `${formatNumber(count)} ${plural(count, 'письмо', 'письма', 'писем')}`;
+  const queued =
+    cap === null
+      ? `В очереди ${letters}: каждое`
+      : `В очереди ${letters}; одна пачка берёт до ${formatNumber(cap)}, остальное — следующей. Каждое`;
   return (
     <Stack gap={6}>
       <Group>
@@ -98,9 +112,9 @@ export function SendQueue({ stage, count, blocked, onFinished }: Props) {
       <Modal opened={opened} onClose={() => toggle(false)} title="Отправить всю очередь?">
         <Stack gap="sm">
           <Text size="sm">
-            В очереди {formatNumber(count)} {letters}: каждое уйдёт тем же путём, что по одному, —
-            стоп-листы, решение по адресату, предохранитель. Сколько уйдёт сегодня, решает дневной
-            лимит ящиков; остальное останется в очереди до завтра.
+            {queued} уйдёт тем же путём, что по одному, — стоп-листы, решение по адресату,
+            предохранитель. Сколько уйдёт сегодня, решает дневной лимит ящиков; остальное останется
+            в очереди до завтра.
           </Text>
           <Text size="sm" c="dimmed">
             Отправленное письмо не отзывается.
@@ -115,7 +129,7 @@ export function SendQueue({ stage, count, blocked, onFinished }: Props) {
               Отмена
             </Button>
             <Button color="lagoon" loading={start.isPending} onClick={() => start.mutate()}>
-              Отправить {formatNumber(count)}
+              Отправить {formatNumber(cap ?? count)}
             </Button>
           </Group>
         </Stack>
