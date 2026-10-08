@@ -388,6 +388,35 @@ def test_commands_are_registered_in_the_console() -> None:
         build_parser().parse_args(["sales-handoff-close", "17"])
 
 
+async def test_deal_number_that_is_not_a_number_is_refused(
+    session: AsyncSession, capsys: pytest.CaptureFixture[str]
+) -> None:
+    row = await _in_state(session, "zero", HandoffKommo.FAILED)
+
+    assert await cli.run_close(session, row.id, "сделка есть", 0) == cli.EXIT_REFUSED
+
+    assert "№0 — не номер сделки" in capsys.readouterr().out
+    assert (await reread(session, row.id)).kommo is HandoffKommo.FAILED
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["sales-handoff-retry", "987655"],
+        ["sales-handoff-close", "987655", "--note", "сделка есть"],
+    ],
+)
+def test_decisions_run_through_main_and_refuse_a_missing_handoff(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], argv: list[str]
+) -> None:
+    monkeypatch.setattr(storage, "DSN", TEST_DSN)
+    monkeypatch.setattr("backend.cli.main.setup_logging", lambda: None)
+
+    assert main(argv) == cli.EXIT_REFUSED
+
+    assert "передачи №987655 нет" in capsys.readouterr().out
+
+
 def test_list_runs_through_main_on_a_clean_base(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
