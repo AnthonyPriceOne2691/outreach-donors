@@ -138,6 +138,29 @@ describe('очередь форм: колонки и страницы', () => {
     expect(screen.queryByRole('columnheader', { name: 'Действия' })).not.toBeInTheDocument();
   });
 
+  it('длинный домен донора переносится по швам, а не посреди слова', async () => {
+    // Замечание 06.10.2026: в колонке «Донор» длинный домен рвался там, где
+    // кончилось место, — «analysis.example.te / st». Остальные колонки «Донор»
+    // переносят его по швам с того же дня, «Формы» оставались в стороне.
+    const host = 'gambling-news-and-analysis.example.test';
+    await openForms(
+      {
+        'GET /api/contacts/forms?page=1': {
+          body: { ...QUEUE, rows: [{ ...QUEUE.rows[0], host }] },
+        },
+      },
+      ADMIN,
+      '/forms',
+      host,
+    );
+
+    const name = screen.getByRole('link', { name: host });
+    // Имя то же: его копируют и ищут по странице, шов — место переноса, а не знак.
+    expect(name).toHaveTextContent(host);
+    expect(name.querySelectorAll('wbr')).toHaveLength(2);
+    expect(name).toHaveClass('cellName');
+  });
+
   it('одна страница — переключателя нет вовсе', async () => {
     await openForms();
 
