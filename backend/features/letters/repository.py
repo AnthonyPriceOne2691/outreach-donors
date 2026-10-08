@@ -162,13 +162,30 @@ class LetterRepository:
         пачка, и уходили они с любого свободного ящика — первым письмом вне
         своей переписки. У них свой путь и свой ящик (`mailbox.py`).
         """
-        statement = self._letters().where(
-            MessageModel.status == MessageStatus.QUEUED, MessageModel.step == FIRST_STEP
-        )
-        if stage is not None:
-            statement = statement.where(CampaignModel.stage == stage)
+        statement = self._waiting(self._letters(), stage)
         rows = await self._session.execute(statement.order_by(MessageModel.id).limit(limit))
         return [self._queued_letter(row) for row in rows.all()]
+
+    async def queued_count(self, *, stage: Stage) -> int:
+        """Сколько писем этапа ждёт в очереди — всех, без потолка экрана и пачки.
+
+        Отбор тот же, что у `queued`. Итог пачки «осталось в очереди» считался
+        длиной `queued` с потолком пачки и при тысяче писем говорил «осталось 200».
+        """
+        counted = (
+            select(func.count())
+            .select_from(MessageModel)
+            .join(CampaignModel, CampaignModel.id == MessageModel.campaign_id)
+        )
+        return int(await self._session.scalar(self._waiting(counted, stage)) or 0)
+
+    @staticmethod
+    def _waiting(statement: Select[Any], stage: Stage | None) -> Select[Any]:
+        """Отбор очереди: первые письма «в очереди» — все или одного этапа."""
+        statement = statement.where(
+            MessageModel.status == MessageStatus.QUEUED, MessageModel.step == FIRST_STEP
+        )
+        return statement if stage is None else statement.where(CampaignModel.stage == stage)
 
     async def letter(self, message_id: int) -> QueuedLetter:
         rows = await self._session.execute(self._letters().where(MessageModel.id == message_id))

@@ -16,8 +16,9 @@ from typing import Any
 import pytest
 from backend.features.core.domain import MessageStatus, Stage, UserRole
 from backend.features.core.models.access import UserModel
+from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
-from backend.features.core.models.outreach import MessageModel
+from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.letters import batch
 from backend.features.letters.sending import SendError, SuppressedError
 from backend.features.letters.transport import NullTransport, Outgoing, TransportError
@@ -79,6 +80,51 @@ class TestBatch:
         assert "лимит" in report.stopped
         await session.refresh(letters[2])
         assert letters[2].status is MessageStatus.QUEUED
+
+    async def test_the_rest_beyond_the_cap_is_counted_in_full(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        """Пачка берёт до потолка (`limit`, на бою `BATCH_MAX`), а «осталось в очереди» —
+        вся очередь этапа: пять писем, потолок два — ушло два, осталось три, а не «два»."""
+        await _queue(session, 5)
+
+        report = await batch.send_queue(session, NullTransport(), stage=Stage.DONORS, limit=2)
+
+        assert (report.sent, report.stopped, report.left) == (2, None, 3)
+
+    async def test_the_rest_is_what_the_next_batch_of_the_stage_takes(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        """«Осталось» — первые письма этапа: оффер рекламодателю и добивка донора, которые
+        тоже ждут в очереди, следующая пачка доноров не возьмёт, и в счёт они не идут."""
+        letters = await _queue(session, 3)
+        domain = DomainModel(host="offer.example.test")
+        offer = CampaignModel(stage=Stage.ADVERTISERS, name="Оффер", status="running")
+        session.add_all([domain, offer])
+        await session.flush()
+        last = letters[-1]
+        session.add_all(
+            [
+                MessageModel(
+                    campaign_id=offer.id,
+                    domain_id=domain.id,
+                    status=MessageStatus.QUEUED,
+                    idempotency_key="made-up:offer:0",
+                ),
+                MessageModel(
+                    campaign_id=last.campaign_id,
+                    domain_id=last.domain_id,
+                    step=1,
+                    status=MessageStatus.QUEUED,
+                    idempotency_key="made-up:followup:1",
+                ),
+            ]
+        )
+        await session.commit()
+
+        report = await batch.send_queue(session, NullTransport(), stage=Stage.DONORS, limit=1)
+
+        assert (report.sent, report.left) == (1, 2)
 
     async def test_one_refusal_does_not_stop_the_others(
         self, session: AsyncSession, filled_legal: None
