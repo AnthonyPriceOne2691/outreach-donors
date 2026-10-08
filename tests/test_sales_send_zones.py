@@ -72,6 +72,20 @@ async def test_policy_of_sales_comes_from_the_settings_through_the_bridge(
     assert found.watch is True
 
 
+async def test_watch_of_sales_is_off_while_sales_are_not_connected(
+    session: AsyncSession, world: w.World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Выключенные продажи молчат по выключателю: сторож почты продаж не поднимает «ящик молчит»
+    и «отправить некому» (ревью соседней сессии). Окно и мягкие сигналы — прежние."""
+    monkeypatch.setattr(sales_cfg, "ENABLED", False)
+
+    found = await stages.mail_policy(session, Stage.SALES, "Письмо продаж")
+
+    assert found.watch is False
+    assert found.window == WEEKDAYS_9_17
+    assert found.soft is not None
+
+
 @pytest.mark.parametrize(
     ("lead", "goes"),
     [

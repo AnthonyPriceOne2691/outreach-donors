@@ -34,7 +34,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
 from sqlalchemy import func, or_, select
@@ -220,6 +220,11 @@ async def followup(session: AsyncSession, thread_id: int | None, step: int) -> S
     return SalesFollowup(body=body)
 
 
-async def policy(_session: AsyncSession) -> MailPolicy:
-    """Политика почты продаж (`core/stages.mail_policy`): окно, мягкие сигналы, сторож — из настроек."""
-    return sales_policy()
+async def policy(session: AsyncSession) -> MailPolicy:
+    """Политика почты продаж (`core/stages.mail_policy`): окно, мягкие сигналы, сторож — из настроек.
+
+    Сторож — только у подключённых продаж: выключенные продажи с ушедшими письмами и ящиками
+    дали бы ложное «ящик молчит» или «отправить некому» — молчат они по выключателю.
+    """
+    found = sales_policy()
+    return replace(found, watch=False) if await connection.missing(session) else found
