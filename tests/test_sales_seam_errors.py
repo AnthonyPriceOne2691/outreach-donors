@@ -72,11 +72,6 @@ def _started(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) 
 # --- C1, C2: строка при старте ---------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="общий код: старт процесса не говорит о потолках модели и черновиков — правка в "
-    "отчёте R3, C2",
-)
 @pytest.mark.parametrize(
     ("general", "own", "named"),
     [(0, None, "LLM_DAILY_TOKEN_CAP"), (GENERAL, OWN, "AGENT_DAILY_TOKEN_CAP")],
@@ -95,11 +90,6 @@ def test_c2_start_says_in_words_what_caps_the_drafts(
     assert named in _started(monkeypatch, caplog)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="общий код: старт процесса не говорит, что агент продаж включён — правка в отчёте "
-    "R3, C1",
-)
 @pytest.mark.usefixtures("sales_on")
 def test_c1_start_says_in_words_that_the_sales_agent_is_on(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture

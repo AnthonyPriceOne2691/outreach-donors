@@ -18,6 +18,7 @@ import sys
 from rq import Worker
 
 from backend.config.startup_checks import check_storage
+from backend.features.agent.guarding import said_at_start
 from backend.shared.logs import setup_logging
 from backend.shared.queue import QUEUE_NAME, SALES_QUEUE_NAME, connection
 
@@ -34,6 +35,9 @@ def main(argv: list[str] | None = None) -> None:
     name = queue_of(sys.argv[1:] if argv is None else argv)
     setup_logging()
     check_storage()
+    # Черновики агента и расход модели воркер ведёт задачами: что включено и чем
+    # ограничено — словами в журнал при старте, а не только в `.env`.
+    said_at_start()
     # С планировщиком: без него повторы задач с паузой (`queue.RETRY_INTERVALS`)
     # копятся отложенными и не срабатывают никогда. Планировщик держит замок
     # на свою очередь: у `runs` и у `sales` он у каждой свой.

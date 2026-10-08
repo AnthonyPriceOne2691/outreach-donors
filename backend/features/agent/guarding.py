@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import llm as llm_cfg
 from backend.features.agent.stages import (
+    AGENT_STAGES,
     AgentStage,
     GuardInput,
     Verdict,
@@ -36,6 +37,7 @@ from backend.features.agent.stages import (
 )
 from backend.features.agent.writer import Request, Written
 from backend.features.core import usage
+from backend.features.core.domain import Stage
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +104,57 @@ def drafts_cap() -> usage.OwnCap:
     Общий 0 («потолка нет») при не заданном своём — потолка нет и у черновиков."""
     own = usage.share_cap(llm_cfg.AGENT_DAILY_TOKEN_CAP, llm_cfg.AGENT_CAP_SHARE)
     return usage.OwnCap("черновиков агента", agent_operations(), own, "AGENT_DAILY_TOKEN_CAP")
+
+
+def said_at_start() -> list[str]:
+    """Что процесс, который пишет черновики агента и тратит модель, говорит при старте.
+
+    Словами и с именами настроек: на каких этапах агент ведёт переписку и включён ли агент
+    продаж — в журнал `info`; потолок, который черновиков не держит, — `warning`. Без этой
+    строки и выключенный агент продаж, и «потолка нет ни у чего» на сервере видно только по
+    коду и `.env`. Возвращает сказанное.
+    """
+    general, own = llm_cfg.DAILY_TOKEN_CAP, llm_cfg.AGENT_DAILY_TOKEN_CAP
+    registry = _registry_said()
+    logger.info("%s", registry, extra={"stages": [stage.value for stage in AGENT_STAGES]})
+    cap = _cap_said(general, own)
+    if cap is None:
+        return [registry]
+    logger.warning("%s", cap, extra={"general_cap": general, "own_cap": own})
+    return [registry, cap]
+
+
+def _registry_said() -> str:
+    stages = ", ".join(f"«{stage.value}»" for stage in AGENT_STAGES)
+    sales = "включён" if Stage.SALES in AGENT_STAGES else "выключен"
+    return f"агент переписки ведёт этапы {stages}; агент продаж {sales} (SALES_AGENT_ENABLED)"
+
+
+def _cap_said(general: int, own: int | None) -> str | None:
+    """Потолок, который черновиков не держит: общего нет, своего нет или он выше доли.
+    `None` — черновики в своём потолке не больше доли общего."""
+    if not general:
+        spent = (
+            "судья и разбор ответов тратят без предела, черновики агента — до своего потолка "
+            f"{own} (AGENT_DAILY_TOKEN_CAP)"
+            if own
+            else "черновики агента, судья и разбор ответов тратят без предела"
+        )
+        return f"потолка расхода на модель за день нет (LLM_DAILY_TOKEN_CAP=0): {spent}"
+    if own == 0:
+        return (
+            "своего потолка черновиков нет (AGENT_DAILY_TOKEN_CAP=0): черновики могут выбрать "
+            f"весь общий {general} (LLM_DAILY_TOKEN_CAP) — разбору ответов и судье не останется"
+        )
+    if own is None or own <= usage.share_cap(None, llm_cfg.AGENT_CAP_SHARE):
+        return None
+    named = f"свой потолок черновиков {own} (AGENT_DAILY_TOKEN_CAP)"
+    if own > general:
+        return f"{named} больше общего {general} (LLM_DAILY_TOKEN_CAP) — он ничего не ограничивает"
+    return (
+        f"{named} больше доли {round(llm_cfg.AGENT_CAP_SHARE * 100)} % общего {general} "
+        "(LLM_DAILY_TOKEN_CAP): черновики могут выбрать день разбору ответов и судье"
+    )
 
 
 async def judged(stage: AgentStage, check: GuardInput) -> Verdict:
