@@ -84,18 +84,12 @@ def _signed(private: Any, payload: bytes) -> dict[str, str]:
     }
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "общий код: вебхук событий не читает sg_event_id — повтор пачки платформой (доставка "
-        "«хотя бы один раз») удваивает строки журнала здоровья ящика продаж и снижает его "
-        "лимит раньше времени; правка — PR «общее» (api/events/routes.py, letters/events.py, "
-        "outreach/health.py + миграция)"
-    ),
-)
 async def test_events_batch_repeated_by_the_platform_counts_soft_signals_once(
     client: AsyncClient, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Повтор пачки — те же события по номеру платформы (`sg_event_id`), а не новые сигналы:
+    без отсева два `deferred` и повтор давали четыре строки и снижали лимит ящика продаж.
+    Условия правки по одному — `tests/test_delivery_events_repeat.py`."""
     monkeypatch.setattr(stages._SALES, "load", None)
     found = FakeSalesMail(rules=MailPolicy(soft=SoftSignals(), watch=True))
     stages.register_sales(lambda: found)
