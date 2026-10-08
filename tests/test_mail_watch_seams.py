@@ -1,10 +1,13 @@
 """Ревью стыков (A6, A8): сторож почты 4.5b, лента тревог и проход сторожа в процессе разбора.
 
 Сторож — общий код (`ops/mail_watch.py`, `ops/alarm_feed.py`, `workers/reaper.py`). Что держится —
-зелёные тесты с мутантом; что не так — `xfail(strict=True)` с причиной и правкой для PR
-«общее» (сами правки здесь не делаются):
+зелёные тесты с мутантом:
 
-- `_of_stage`: ошибка базы роняет весь проход сторожа и `GET /api/watchdog` (500);
+- ошибка базы у этапа — тревога «сторож этапа не досчитал» (своя точка сохранения): этапы после
+  него, правила сторожа тишины (доноры) и `GET /api/watchdog` целы — правка PR «общее».
+
+Что не так — `xfail(strict=True)` с причиной и правкой для PR «общее»:
+
 - `Feed.told` живёт в памяти процесса: «прошло» о тревоге, кончившейся за перезапуском, не
   приходит никогда;
 - дребезг: тревога, которая то есть, то нет, — сообщение на каждом проходе;
@@ -18,13 +21,13 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
 from backend.config import storage
 from backend.features.core import stages
-from backend.features.core.domain import MessageStatus, Stage, UserRole
+from backend.features.core.domain import MessageStatus, SenderStatus, Stage, UserRole
 from backend.features.core.models.outreach import SenderModel, SendingDomainModel
 from backend.features.core.stages import MailPolicy
 from backend.features.ops import alarm_feed, mail_watch, silence
@@ -122,24 +125,20 @@ async def test_an_open_domain_of_its_direction_spent_for_today_is_no_alarm(
 # --- _of_stage: ошибка базы — тревога, а не падение ------------------------------------------
 
 
-def _break_the_quiet_check(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Запрос проверки «ящик молчит» падает в базе — как упавший запрос сторожа."""
+def _break_the_quiet_check(monkeypatch: pytest.MonkeyPatch, only: Stage | None = None) -> None:
+    """Запрос проверки «ящик молчит» падает в базе — как упавший запрос сторожа; `only` —
+    только у ящиков этого этапа (остальные проверяются как есть)."""
+    quiet = mail_watch._quiet
 
-    async def broken(session: AsyncSession, _box: SenderModel, _now: object) -> Alarm | None:
+    async def broken(session: AsyncSession, box: SenderModel, now: datetime) -> Alarm | None:
+        if only is not None and box.stage is not only:
+            return await quiet(session, box, now)
         await session.execute(text("SELECT 1 FROM made_up_table_of_the_watch"))
         return None
 
     monkeypatch.setattr(mail_watch, "_quiet", broken)
 
 
-_WATCH_FALLS = (
-    "общий код ops/mail_watch.alarms: ошибка базы в `_of_stage` не поймана и без точки "
-    "сохранения — падает весь проход сторожа (Telegram молчит обо всём) и GET /api/watchdog "
-    "отвечает 500; правка — PR «общее» (ревью стыков R1, A6)"
-)
-
-
-@pytest.mark.xfail(strict=True, reason=_WATCH_FALLS)
 async def test_a_base_error_of_one_stage_is_an_alarm_and_the_watch_goes_on(
     session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -153,7 +152,47 @@ async def test_a_base_error_of_one_stage_is_an_alarm_and_the_watch_goes_on(
     assert await session.scalar(select(1)) == 1  # транзакция сторожа цела
 
 
-@pytest.mark.xfail(strict=True, reason=_WATCH_FALLS)
+async def test_the_stages_after_a_broken_one_are_still_watched(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Сторож у всех этапов; запрос падает у доноров (их проверяют первыми) — у доноров
+    тревога «не досчитал», продажи после них проверены как обычно."""
+
+    async def everyone_watched(_session: AsyncSession, _stage: Stage, _what: str) -> MailPolicy:
+        return MailPolicy(watch=True)
+
+    monkeypatch.setattr(stages, "mail_policy", everyone_watched)
+    await sender(session, "anna@mail-donors.example.test", Stage.DONORS)
+    paused = await sender(session, BOX, Stage.SALES)
+    paused.status = SenderStatus.PAUSED
+    _break_the_quiet_check(monkeypatch, only=Stage.DONORS)
+
+    codes = [alarm.code for alarm in await mail_watch.alarms(session, NOW)]
+
+    assert codes == ["watch-failed:donors", "all-paused:sales"]
+
+
+async def test_a_broken_stage_keeps_the_donor_alarms(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Сторож почты продаж упал в базе — правила сторожа тишины (доставка доноров) целы."""
+    await _letter(
+        session,
+        Stage.DONORS,
+        None,
+        7,
+        status=MessageStatus.SENT,
+        sent_at=NOW - timedelta(hours=8),
+        provider_message_id="sg-made-up-71",
+    )
+    await _queued_with_box(session)
+    _break_the_quiet_check(monkeypatch)
+
+    codes = {alarm.code for alarm in await silence.alarms(session, now=NOW)}
+
+    assert {"delivery-silence", "watch-failed:sales"} <= codes
+
+
 async def test_the_watchdog_screen_survives_a_base_error_of_the_mail_watch(
     session: AsyncSession,
     client: AsyncClient,
