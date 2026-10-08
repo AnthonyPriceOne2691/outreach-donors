@@ -62,7 +62,7 @@ import type { Corridor, LetterDraft, LetterStage, LettersView, QueuedLetter } fr
 import { useSession } from '../auth/AuthProvider';
 import { Metric } from '../components/Metric';
 import { StageSwitch } from '../components/StageSwitch';
-import { formatPercent, plural } from '../format';
+import { formatNumber, formatPercent, plural } from '../format';
 import { LetterDraftEditor, draftOf, sameDraft } from './LetterDraftEditor';
 import { LetterPreview, toneOf } from './LetterPreview';
 import { mailTile } from './mailTile';
@@ -402,7 +402,8 @@ export function LettersPage() {
       {data !== undefined && can('send') && !stale ? (
         <SendQueue
           stage={stage}
-          count={letters.length}
+          count={data.queued_total}
+          batchMax={data.batch_max}
           blocked={data.blocked_by.length > 0}
           onFinished={() => void refresh()}
         />
@@ -490,7 +491,9 @@ function QueueControls({
           без пояснения подпись и число сидели на 10 px ниже соседних (замер
           26.09.2026), на телефоне так же стояли «Ещё не писали» и «Почта». */}
       <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="sm">
-        <Metric title="В очереди" value={letters.length} />
+        {/* Вся очередь этапа — тем же счётом, что кнопка пачки, а не длина списка: список
+            экрана обрезан потолком, и рядом стояли бы «В очереди 200» и «Отправить очередь · 1 000». */}
+        <Metric title="В очереди" value={formatNumber(view.queued_total)} />
         <Metric
           title="Вне коридора"
           value={offCorridor}

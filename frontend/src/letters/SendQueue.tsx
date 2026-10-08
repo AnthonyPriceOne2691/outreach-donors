@@ -10,11 +10,22 @@
  * **Подтверждение — с числом и с тем, что ограничит отправку.** Пачку не
  * отзовёшь: окно говорит, сколько писем и почему уйдут не все, до нажатия.
  *
+ * **Отказ сервера — в том же окне, где нажали**, и только там. Окно после
+ * отказа остаётся открытым с прежней кнопкой: отказ уведомлением внизу экрана
+ * человек не видел и жал «Отправить» снова (ревью стыков). Второго места для
+ * отказа нет — два одинаковых текста на экране читались бы двумя отказами.
+ * Ошибка прежнего нажатия гаснет, когда окно закрывают и открывают снова.
+ *
+ * **Очередь длиннее пачки — окно так и говорит**: «в очереди N; одна пачка
+ * берёт до M, остальное — следующей», и кнопка окна называет то, что уйдёт
+ * этим нажатием (M), а не всю очередь. Потолок M называет сервер (`batch_max`):
+ * копия числа здесь разошлась бы с пачкой при первой его правке.
+ *
  * **Итог — словами под кнопкой**, из отчёта задачи: сколько ушло, что не ушло
  * и почему, сколько осталось. Номер задачи переживает перезагрузку страницы.
  */
 
-import { Button, Group, Modal, Stack, Text } from '@mantine/core';
+import { Alert, Button, Group, Modal, Stack, Text } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMutation } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
@@ -41,16 +52,20 @@ export function batchLine(report: Record<string, unknown>): string {
 }
 
 interface Props {
-  /** Этап очереди — любой, и продажи тоже: сервер отказывает словами, если почта
-   *  этап ещё не ведёт (409), и называет причину в итоге пачки. */
+  /** Этап очереди — любой, и продажи тоже: их письма почта отправляет через мост продаж.
+   *  Продажи не подключены — сервер отказывает словами (409), а отключились по ходу
+   *  пачки — причина в её итоге. */
   stage: Stage;
   count: number;
+  /** Сколько писем берёт одна пачка — число сервера из ответа, который дал `count`.
+   *  Нет — окно говорит без потолка: он неизвестен. */
+  batchMax?: number;
   /** Почта не подключена или не заполнены обязательные поля письма. */
   blocked: boolean;
   onFinished: () => void;
 }
 
-export function SendQueue({ stage, count, blocked, onFinished }: Props) {
+export function SendQueue({ stage, count, batchMax, blocked, onFinished }: Props) {
   const [opened, setOpened] = useState(false);
   const [jobId, setJobId] = useState<string | null>(() => remembered(keyOf(stage)));
   useEffect(() => setJobId(remembered(keyOf(stage))), [stage]);
@@ -66,11 +81,22 @@ export function SendQueue({ stage, count, blocked, onFinished }: Props) {
         color: 'green',
       });
     },
-    onError: (failure) =>
-      notifications.show({ title: 'Не отправили', message: refusalOf(failure), color: 'red' }),
   });
+  // Окно открывается и закрывается без отказа прежнего нажатия. Пока запрос идёт, окно
+  // не закрывается: уведомления об отказе нет, и отказ после закрытия не увидели бы нигде.
+  const toggle = (open: boolean) => {
+    if (start.isPending) return;
+    start.reset();
+    setOpened(open);
+  };
 
-  const letters = plural(count, 'письмо', 'письма', 'писем');
+  // Пачка берёт не больше потолка сервера: длинная очередь уходит несколькими нажатиями.
+  const cap = batchMax !== undefined && count > batchMax ? batchMax : null;
+  const letters = `${formatNumber(count)} ${plural(count, 'письмо', 'письма', 'писем')}`;
+  const queued =
+    cap === null
+      ? `В очереди ${letters}: каждое`
+      : `В очереди ${letters}; одна пачка берёт до ${formatNumber(cap)}, остальное — следующей. Каждое`;
   return (
     <Stack gap={6}>
       <Group>
@@ -78,7 +104,7 @@ export function SendQueue({ stage, count, blocked, onFinished }: Props) {
           color="lagoon"
           className="press"
           disabled={count === 0 || blocked}
-          onClick={() => setOpened(true)}
+          onClick={() => toggle(true)}
         >
           Отправить очередь · {formatNumber(count)}
         </Button>
@@ -86,22 +112,27 @@ export function SendQueue({ stage, count, blocked, onFinished }: Props) {
       {jobId !== null ? (
         <JobLine jobId={jobId} onFinished={onFinished} describe={batchLine} />
       ) : null}
-      <Modal opened={opened} onClose={() => setOpened(false)} title="Отправить всю очередь?">
+      <Modal opened={opened} onClose={() => toggle(false)} title="Отправить всю очередь?">
         <Stack gap="sm">
           <Text size="sm">
-            В очереди {formatNumber(count)} {letters}: каждое уйдёт тем же путём, что по одному, —
-            стоп-листы, решение по адресату, предохранитель. Сколько уйдёт сегодня, решает дневной
-            лимит ящиков; остальное останется в очереди до завтра.
+            {queued} уйдёт тем же путём, что по одному, — стоп-листы, решение по адресату,
+            предохранитель. Сколько уйдёт сегодня, решает дневной лимит ящиков; остальное останется
+            в очереди до завтра.
           </Text>
           <Text size="sm" c="dimmed">
             Отправленное письмо не отзывается.
           </Text>
+          {start.isError ? (
+            <Alert color="red" title="Не отправили">
+              {refusalOf(start.error)}
+            </Alert>
+          ) : null}
           <Group justify="flex-end">
-            <Button variant="default" onClick={() => setOpened(false)}>
+            <Button variant="default" disabled={start.isPending} onClick={() => toggle(false)}>
               Отмена
             </Button>
             <Button color="lagoon" loading={start.isPending} onClick={() => start.mutate()}>
-              Отправить {formatNumber(count)}
+              Отправить {formatNumber(cap ?? count)}
             </Button>
           </Group>
         </Stack>

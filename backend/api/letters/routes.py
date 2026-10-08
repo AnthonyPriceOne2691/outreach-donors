@@ -48,7 +48,7 @@ from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.outreach import CampaignModel
 from backend.features.core.stages import check_connected
-from backend.features.letters import compose, draft, review, unknown_outcome
+from backend.features.letters import batch, compose, draft, review, unknown_outcome
 from backend.features.letters.building import run_scope
 from backend.features.letters.repository import LetterRepository, QueuedLetter
 from backend.features.letters.sending import Sending
@@ -79,6 +79,8 @@ async def queue(
     return LettersView(
         stage=stage,
         letters=[QueuedLetterCard.of(row) for row in await repository.queued(stage=stage)],
+        queued_total=await repository.queued_count(stage=stage),
+        batch_max=batch.BATCH_MAX,
         letter_default=LetterDraftView.of(draft.default_draft(stage)),
         blocked_by=compose.missing_settings(),
         transport=Transport.current(stage.value),
@@ -244,21 +246,26 @@ async def send_queue(
     Каждое письмо идёт тем же путём, что одно (`letters/batch.py`), и
     в журнал пишется так же — по письму, с тем, кто нажал.
     """
-    # Этап, который почта ещё не ведёт, — отказ словами до счёта и до задачи.
+    # Продажи, не подключённые к почте (ответ моста `core/stages`), — отказ словами (409)
+    # до счёта и до задачи.
     await check_connected(session, body.stage, "Очередь писем не отправлена")
-    waiting = len(await LetterRepository(session).queued(stage=body.stage))
+    waiting = await LetterRepository(session).queued_count(stage=body.stage)
     if waiting == 0:
         raise HTTPException(
             status.HTTP_409_CONFLICT, "В очереди этого этапа писем нет — отправлять нечего"
         )
     job = runs_queue().enqueue(SEND_QUEUE_JOB, body.stage.value, author.id)
+    # Пачка берёт не больше своего потолка: то же число, что «Отправить N» в окне, —
+    # и потолок отсюда же, откуда его берёт экран писем (`batch_max`).
+    taken = min(waiting, batch.BATCH_MAX)
     logger.info(
-        "письма: %s поставил отправку очереди этапа %s — писем %s",
+        "письма: %s поставил отправку очереди этапа %s — в очереди %s, пачка берёт %s",
         author.email,
         body.stage.value,
         waiting,
+        taken,
     )
-    return SendQueueQueued(job_id=str(job.id), queued=waiting)
+    return SendQueueQueued(job_id=str(job.id), queued=taken)
 
 
 @router.get("/unknown", response_model=UnknownLettersView, summary="Письма с неизвестным исходом")

@@ -228,14 +228,6 @@ async def admin_token(
 # --- сверх списка: пачка берёт до потолка, а «осталось» считает тем же потолком ------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "общий код letters/batch.send_queue: `report.left` считается `queued(limit=limit)` — "
-        "«осталось в очереди» не больше потолка пачки (200), а вкладка продаж зовёт пачку на "
-        "всю очередь; правка — PR «общее» (ревью стыков R1, находка к F1)"
-    ),
-)
 async def test_the_batch_says_how_many_letters_are_really_left(
     session: AsyncSession, world: w.World
 ) -> None:

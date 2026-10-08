@@ -87,6 +87,7 @@ class BatchReport:
     refused: Counter[str] = field(default_factory=Counter)
     #: Почему пачка остановилась раньше конца очереди; `None` — дошла до конца.
     stopped: str | None = None
+    #: Сколько писем этапа осталось в очереди — всех, без потолка пачки.
     left: int = 0
 
     def as_dict(self) -> dict[str, Any]:
@@ -126,7 +127,8 @@ async def send_queue(
         if stop is not None:
             report.stopped = stop
             break
-    report.left = len(await repository.queued(stage=stage, limit=limit))
+    # Вся очередь этапа, а не её первые `limit`: остальное возьмёт следующая пачка.
+    report.left = await repository.queued_count(stage=stage)
     logger.info(
         "письма: пачка этапа %s — ушло %s, не ушло %s, осталось %s",
         stage.value,
@@ -144,8 +146,9 @@ async def _send_one(
     try:
         await sending.send(letter_id, author_id=author_id)
     except (NoSenderError, SalesNotConnectedError) as exc:
-        # Лимит ящиков или этап, который почта ещё не ведёт: следующее письмо упрётся
-        # в то же — пачка встаёт с причиной словами, а не «связь с почтой оборвалась».
+        # Лимит ящиков или продажи, не подключённые к почте (ответ моста `core/stages`):
+        # следующее письмо упрётся в то же — пачка встаёт с причиной словами, а не
+        # «связь с почтой оборвалась».
         logger.info("письма: пачка встала на письме №%s — %s", letter_id, exc)
         return str(exc)
     except SendError as exc:

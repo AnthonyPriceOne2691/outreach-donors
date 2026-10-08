@@ -187,12 +187,12 @@
       "worst": "—"
     },
     "backend/api/letters/routes.py": {
-      "lines": 291,
+      "lines": 298,
       "complexity": 5,
-      "worst": "build:91"
+      "worst": "build:93"
     },
     "backend/api/letters/schemas.py": {
-      "lines": 333,
+      "lines": 342,
       "complexity": 5,
       "worst": "followups_for:88"
     },
@@ -1272,9 +1272,9 @@
       "worst": "next_address_note:100"
     },
     "backend/features/letters/batch.py": {
-      "lines": 165,
+      "lines": 168,
       "complexity": 4,
-      "worst": "why:101"
+      "worst": "why:102"
     },
     "backend/features/letters/building.py": {
       "lines": 421,
@@ -1352,7 +1352,7 @@
       "worst": "message_id_from:121"
     },
     "backend/features/letters/repository.py": {
-      "lines": 265,
+      "lines": 282,
       "complexity": 5,
       "worst": "funnel:70"
     },

@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -29,7 +30,7 @@ from backend.features.core.models.access import UserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, SenderModel
-from backend.features.letters import compose, template
+from backend.features.letters import batch, compose, template
 from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -238,6 +239,38 @@ class TestQueue:
         corridor = response.json()["corridor"]
         assert corridor["min"] == outreach_cfg.UNIQUENESS_TARGET_MIN
         assert corridor["max"] == outreach_cfg.UNIQUENESS_TARGET_MAX
+
+    async def test_the_whole_stage_queue_is_counted_beyond_the_list(
+        self, client: AsyncClient, admin_token: str, session: AsyncSession, letter: MessageModel
+    ) -> None:
+        """Список на экране — только начало очереди, а кнопка пачки называет очередь целиком:
+        201 письмо в очереди — в списке 200, всего 201."""
+        session.add_all(
+            MessageModel(
+                campaign_id=letter.campaign_id,
+                domain_id=letter.domain_id,
+                status=MessageStatus.QUEUED,
+                subject="Made-up subject",
+                body="Made-up body",
+                idempotency_key=f"made-up:long-queue:{number}:0",
+            )
+            for number in range(200)
+        )
+        await session.commit()
+
+        view = (await client.get("/api/letters", headers=bearer(admin_token))).json()
+
+        assert (len(view["letters"]), view["queued_total"]) == (200, 201)
+
+    async def test_the_batch_cap_comes_from_the_server(
+        self, client: AsyncClient, admin_token: str
+    ) -> None:
+        """Окно «Отправить всю очередь» называет потолок пачки — тот, с которым пачка
+        и идёт (`send_queue` задачи — с умолчанием `limit`), а не копию числа во фронте."""
+        response = await client.get("/api/letters", headers=bearer(admin_token))
+
+        taken = inspect.signature(batch.send_queue).parameters["limit"].default
+        assert response.json()["batch_max"] == taken
 
     async def test_funnel_says_where_donors_ran_out(
         self, client: AsyncClient, admin_token: str, letter: MessageModel
