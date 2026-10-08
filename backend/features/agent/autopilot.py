@@ -133,7 +133,12 @@ async def run(session: AsyncSession, sending: Sending, draft_id: int) -> Autopil
             why = f"исход отправки неизвестен — письмо, возможно, ушло: {exc}"
         except (SendError, ForbiddenContentError, TransportError, DraftDecisionError) as exc:
             # Отказ пути отправки — не сбой задачи: черновик уходит человеку.
-            logger.warning("автопилот: черновик №%s не отправлен — %s", draft_id, exc)
+            logger.warning(
+                "автопилот: черновик №%s не отправлен — %s",
+                draft_id,
+                exc,
+                extra={"draft": draft_id, "why": str(exc)},
+            )
             why = f"отправка отказала: {exc}"
         else:
             await session.commit()

@@ -164,11 +164,19 @@ async def judged(stage: AgentStage, check: GuardInput) -> Verdict:
         async with asyncio.timeout(stage.guard_timeout_s):
             verdict = await stage.guard(check)
     except TimeoutError:
-        logger.warning("агент: судья не ответил за %s с — черновик человеку", stage.guard_timeout_s)
-        return Verdict(VerdictKind.ESCALATE, (f"судья не ответил за {stage.guard_timeout_s:g} с",))
+        why = f"судья не ответил за {stage.guard_timeout_s:g} с"
+        logger.warning(
+            "агент: судья не ответил за %s с — черновик человеку",
+            stage.guard_timeout_s,
+            extra={"attempt": check.attempt, "why": why},
+        )
+        return Verdict(VerdictKind.ESCALATE, (why,))
     except Exception as exc:
-        logger.exception("агент: судья упал — черновик человеку")
-        return Verdict(VerdictKind.ESCALATE, (f"судья не смог проверить: {type(exc).__name__}",))
+        why = f"судья не смог проверить: {type(exc).__name__}"
+        logger.exception(
+            "агент: судья упал — черновик человеку", extra={"attempt": check.attempt, "why": why}
+        )
+        return Verdict(VerdictKind.ESCALATE, (why,))
     if verdict.kind is VerdictKind.BLOCK and not verdict.reasons:
         return replace(verdict, kind=VerdictKind.ESCALATE, reasons=("судья вернул без причины",))
     return verdict

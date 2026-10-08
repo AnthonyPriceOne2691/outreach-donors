@@ -69,13 +69,18 @@ def queue_draft(reply_id: int, *, queue: Callable[[], Queue] | None = None) -> N
             **with_retries(),
         )
     except DuplicateJobError:
-        logger.info("черновик ответа №%s уже в очереди — второй не ставлю", reply_id)
+        logger.info(
+            "черновик ответа №%s уже в очереди — второй не ставлю",
+            reply_id,
+            extra={"reply": reply_id},
+        )
     except RedisError as exc:
         logger.warning(
             "черновик ответа №%s не поставлен — очередь недоступна (%s); "
             "его можно попросить кнопкой в переписке",
             reply_id,
             exc,
+            extra={"reply": reply_id, "why": str(exc)},
         )
 
 
@@ -93,11 +98,12 @@ async def after_parse(
     try:
         if await drafting.wants_draft(session, reply_id):
             queue_draft(reply_id, queue=queue)
-    except Exception:
+    except Exception as exc:
         logger.warning(
             "ответ №%s разобран, а черновик не поставлен — его можно попросить кнопкой в переписке",
             reply_id,
             exc_info=True,
+            extra={"reply": reply_id, "why": str(exc) or type(exc).__name__},
         )
 
 
@@ -161,5 +167,10 @@ def draft_answer(reply_id: int) -> dict[str, Any]:
     except (DraftUnavailableError, LlmCapExceededError) as exc:
         if isinstance(exc, DraftUnavailableError) and not exc.permanent:
             raise
-        logger.warning("черновик ответа №%s не написан: %s", reply_id, exc)
+        logger.warning(
+            "черновик ответа №%s не написан: %s",
+            reply_id,
+            exc,
+            extra={"reply": reply_id, "why": str(exc)},
+        )
         return {"reply": reply_id, "error": str(exc), "permanent": True}
