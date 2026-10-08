@@ -1,53 +1,89 @@
-# Eval smoke — this shipment
+# Eval smoke — агент продаж одним PR (3.2a, 3.5, 3.4, 3.6)
 
-Derived from spec acceptance (S1–S16 — срез 4.6b, F1–F8 — срез 5.4). Run during verify. Поставка — модуль продаж
-на мосту почты (очередь продаж, отправка цепочки, вкладка «Очередь писем») и воронка продаж, одним PR на голове
-стопки (main с мостом, окнами и лимитами; Ф2; 5.3). Живых писем, задач и вызовов модели нет: транспорт — записывающий
-и `NullTransport`, модель — подставная.
+Примеры Spec одного PR → тесты. Модель ситуации и судьи — подставной HTTP (`httpx.MockTransport`), писатель —
+подставной, Bot API — подставной; всё, что уходит в базу, — на настоящей базе дерева. Живой модели нет.
 
-- [x] S1 — лид EN → письмо EN с подписью и адресом блоком в конце, `List-Unsubscribe`, тема без «Re:», с ящика продаж:
-      `tests/test_sales_queue.py::test_a1_en_lead_gets_an_en_first_letter_signed_by_the_settings`,
-      `tests/test_sales_send.py::test_a1_letter_goes_to_the_lead_from_the_sales_box_with_list_unsubscribe`.
-- [x] S2 — нет физического адреса → письма нет; стёрли после сборки → не уходит:
-      `test_a2_without_a_physical_address_nothing_is_built`, `test_a2_address_removed_after_assembly_stops_the_letter`.
-- [x] S3 — два лида одной компании → два письма с разными ключами, пачка отправляет оба:
-      `test_a3_two_leads_of_one_company_get_two_letters_with_their_own_keys`, `test_a3_batch_of_sales_sends_both_leads_of_one_company`.
-- [x] S4 — вне коридора 15–25% → в очередь не встаёт и не уходит:
-      `test_a4_letter_outside_the_corridor_is_not_queued`, `test_a4_first_letter_outside_the_corridor_does_not_go`.
-- [x] S5 — коммерческих текстов нет: `scripts/gates.py --commits` (public-repo по файлам и сообщениям коммитов) — 0;
-      grep добавленных строк и сообщений — verify-report.
-- [x] S6 — добивки в той же переписке, с темой и `In-Reply-To` первого письма, с того же ящика; ключи с контактом:
-      `test_followups_go_in_the_same_thread_with_the_first_subject`, `test_last_followup_ends_the_chain`,
-      `test_two_leads_of_one_company_get_their_own_followups`.
-- [x] S7 — политика продаж мостом из настроек: `test_policy_of_sales_comes_from_the_settings_through_the_bridge`;
-      мутанты P1 (нынешняя политика), P2 (без окна) убиты.
-- [x] S8 — пояс лида, затем страны; без пояса — ждёт словами: `test_window_counts_the_zone_of_the_lead_then_of_his_country[…]` (3),
-      `test_lead_without_a_zone_waits_and_the_reason_is_said`; мутанты Z1 (пояса не отданы), Z2 (без пояса лида) убиты.
-- [x] S9 — суббота: первое письмо ждёт в очереди, добивка — с открытием окна в понедельник плюс сдвиг:
-      `test_first_letter_on_saturday_waits_in_the_queue`, `test_followup_due_on_saturday_goes_at_the_opening_plus_shift`.
-- [x] S10 — передан точкой входа 5.3 → добивка не уходит, второму лиду компании — уходит:
-      `test_lead_handed_off_by_the_handoff_entry_gets_no_more_letters`; мутанты H1 (отправка не спрашивает шов),
-      H2 (передача без явной связи) убиты.
-- [x] S11 — договор моста: пять вопросов почты не коммитят и не откатывают сессию: `test_module_answers_neither_commit_nor_roll_back[…]` (5);
-      мутанты C2, C3 убиты.
-- [x] S12 — несобираемая добивка — отложена словами, без «ошибки модуля»: `test_followup_that_cannot_be_built_waits_and_is_not_a_module_failure`;
-      мутант C1 (прежний `NotReadyError`) убит.
-- [x] S13 — общая кнопка пачки с этапом `sales`, число — первые письма всех гипотез: vitest `QueuePane.test.tsx` (12),
-      `test_followup_stuck_in_the_queue_is_not_in_the_number_of_the_batch`; мутанты B1–B4, Q1, Q2 убиты.
-- [x] S14 — «пишите другому» в диалоге сборки → новый лид: `test_referral_in_a_dialog_of_the_queue_finds_its_lead_by_the_link`;
-      мутант R1 (только адрес контакта) убит.
-- [x] S15 — 1.1b: срок цел, вслух — только без модуля: `TestFollowup::test_a4_deadline_is_kept_and_said_aloud_while_donors_go_on[модуля нет]`, `[модуль есть]`.
-- [x] S16 — причина без второго «ждёт»: `test_sales_reason_does_not_say_waits_twice`; мутант W1 убит.
-- [x] F1 — 3 письма одному лиду → «отправлено» = 1: `tests/test_sales_funnel.py::test_a1_three_letters_to_one_lead_are_one_sent_lead`.
-- [x] F2 — автоответ — не ответ: `test_a2_out_of_office_is_not_an_answer`, `test_a2_out_of_office_then_a_person_is_one_answer`.
-- [x] F3 — отказ — в «отказ»: `test_a3_bounced_letter_is_bounced_not_delivered`, `test_a3_a_later_bounce_outweighs_an_earlier_delivery`.
-- [x] F4 — числа экрана = запрос к базе: `tests/test_sales_funnel_api.py::test_a4_screen_numbers_match_a_query_to_the_base`,
-      `test_a4_numbers_of_the_whole_period_in_words`.
-- [x] F5 — «отправляется» — не «отправлено», «ушло» — общее: `test_letter_whose_outcome_is_unknown_is_not_sent_yet`; мутант G1 убит.
-- [x] F6 — «передан» — условием шва цепочки: `test_handed_off_by_the_rule_that_stops_the_chain`.
-- [x] F7 — период по первому письму, полуинтервал, разрез без дыр: `test_period_is_by_the_first_letter_of_the_lead`,
-      `test_period_takes_its_start_and_leaves_its_end`, `test_adjacent_periods_split_every_step_without_gaps_or_double_counting`.
-- [x] F8 — вкладка «Воронка»: vitest `FunnelPane.test.tsx` (14) — на узком окне период столбиком, отказ сервера словами.
-- [ ] Живьём на голове PR — не мерено: стенд не поднимался при переносе. Вкладки «Очередь писем» и «Воронка» мерены
-      на образцах до переноса (обе темы, 1440 и 390, клавиатура); кнопка пачки на вкладке очереди теперь общая —
-      её замер на 390 — «заложено».
+## 3.2 — ситуация → ход → черновик
+
+- [x] **A1** вопрос о цене при «цены не называем» — ход `price`, без сумм, ссылка на созвон, подпись персоной —
+  `tests/test_sales_agent_brief.py::test_a1_price_question_with_no_prices_named_gets_the_call_link_and_no_sum`,
+  `tests/test_sales_agent_facts.py::test_price_move_takes_the_policy_and_the_call_link`.
+- [x] **A2** «спасибо, получил» и автоответ — без ответа, флаг модели не читается —
+  `tests/test_sales_agent_situation.py::test_a2_*`, `tests/test_sales_agent_brief.py::test_a2_thanks_needs_no_reply_and_gives_no_facts`;
+  путём шва — `skipped`, писатель не звался, расход только ситуации —
+  `tests/test_sales_agent_stage.py::test_thanks_costs_only_the_situation`.
+- [x] **A3** не-JSON ситуации — `parse_failed`, человеку —
+  `tests/test_sales_agent_situation.py::test_a3_unreadable_answer_is_parse_failed`,
+  `tests/test_sales_agent_brief.py::test_a3_unreadable_situation_goes_to_a_human`.
+- [x] **A6** обещали кейс — факт кейса и прежняя отсрочка строкой; повтор отсрочки — `block` —
+  `tests/test_sales_agent_brief.py::test_a6_promised_case_comes_as_a_fact_with_our_earlier_deferral`,
+  `tests/test_sales_agent_judge_rules.py::test_deferral_already_said_in_the_thread_is_not_repeated`.
+- [x] **A7** язык письма в `meta` — `tests/test_sales_agent_brief.py::test_a7_language_of_the_letter_is_in_meta`.
+
+## 3.3 — судья
+
+- [x] **J1** сумма не из базы — `block`; путём шва правка доходит до писателя —
+  `tests/test_sales_agent_judge_rules.py::test_j1_*`,
+  `tests/test_sales_agent_stage.py::test_sum_not_in_the_base_goes_back_to_the_writer_and_comes_out_without_it`.
+- [x] **J2** два призыва — `tests/test_sales_agent_judge_rules.py::test_j2_two_calls_to_action_are_blocked`.
+- [x] **J3** чужая ссылка или адрес — `tests/test_sales_agent_judge_rules.py::test_j3_*`.
+- [x] **J4** язык черновика — `tests/test_sales_agent_judge_rules.py::test_j4_draft_not_in_the_letters_language_is_blocked`.
+- [x] Не смог проверить — человеку; три правки — человеку с историей —
+  `tests/test_sales_agent_judge.py::test_judge_that_could_not_check_does_not_pass`,
+  `tests/test_sales_agent_stage.py::test_judge_that_could_not_check_hands_the_draft_to_a_human`,
+  `tests/test_sales_agent_stage.py::test_three_failed_rewrites_go_to_a_human_with_the_attempts`.
+
+## 3.4 — волна В3б
+
+- [x] **A1** eval судьи: доли и ворота — `tests/test_sales_judge_eval.py::test_a1_*`.
+- [x] **A2** канарейка — `tests/test_sales_injection_canary.py` (атаки не прошли, легитимные прошли).
+- [x] **A3** порча — eval красный, обратный прогон файлом —
+  `tests/test_sales_judge_eval.py::test_a3_spoiled_prompts_turn_the_eval_red_and_the_reverse_run_is_written`.
+- [x] **M1–M3** режим судьи — `tests/test_sales_agent_judge_mode.py`.
+- [x] **E1** набора нет — `tests/test_sales_judge_eval.py` (метка `E1`); **E2** атака путём шва —
+  `tests/test_sales_injection_canary.py::test_attack_from_the_corpus_gets_no_draft_and_no_model`.
+- [x] **W1** волна В3б — `tests/test_contour_waves.py::test_agent_prompt_brings_wave_v3b`,
+  `tests/test_contour_waves.py::test_reverse_run_without_the_agent_prompt_detector_v3b_is_silent`.
+- [x] **O1** сумма с валютой из письма — `tests/test_sales_agent_judge_rules.py` (метка `O1`); **O2** инъекция в
+  прежнем письме — `tests/test_sales_agent_safety.py` (метка `O2`).
+- [x] **C1** отправитель и строгая схема —
+  `tests/test_sales_agent_judge.py::test_the_judge_sees_the_sender_and_answers_by_a_strict_schema`; **C2** один
+  повтор — `tests/test_sales_agent_judge.py` (метка `C2`).
+
+## 3.5 — решения и весть
+
+- [x] **A1** новый черновик — сообщение со ссылкой и строка «отправлено» —
+  `tests/test_sales_draft_notify.py::test_a1_new_draft_is_announced_with_a_link_and_a_sent_row`.
+- [x] **A2** Telegram недоступен — 3 попытки, тревога, черновик цел —
+  `tests/test_sales_draft_notify.py::test_a2_telegram_down_three_attempts_then_ops_alert_and_the_draft_stays`.
+- [x] **A3** отклонить без причины из списка — 422 словами —
+  `tests/test_sales_draft_decisions.py::test_a3_discard_without_a_listed_reason_is_422_in_words` (5 случаев),
+  `::test_a3_discard_with_a_listed_reason_keeps_its_kind_in_the_draft_and_journal` (3 случая).
+- [x] **A4** «как есть» у отданного человеку — 409 —
+  `tests/test_sales_draft_decisions.py::test_a4_send_as_is_of_an_escalated_sales_draft_is_409_in_words`.
+
+## 3.6 — прогон версии
+
+- [x] **A1** хуже по ложному молчанию — exit 1 с разбором — `tests/test_sales_replay.py` (метка `A1`).
+- [x] **A2** набора нет — exit 1 «набор не найден» — `tests/test_sales_replay.py` (метка `A2`).
+
+## Стыки переноса
+
+- [x] **T1** тумблер `SALES_AGENT_ENABLED`: выключен — строки продаж в реестре нет, включён — есть, и потолок
+  черновиков считает её операции — `tests/test_sales_agent_stage.py::test_sales_joins_the_registry_only_when_switched_on`
+  (чистый процесс, оба положения), `::test_sales_agent_switch_is_off_by_default`.
+- [x] **K1** свой потолок черновиков останавливает ситуацию и считает её расход —
+  `tests/test_sales_agent_stage.py::test_drafts_cap_stops_the_situation_and_counts_its_spend`.
+- [x] **P1** причина пунктом списка и «другое: …» — вид в черновике и журнале; у доноров свои слова — без вида —
+  `tests/test_sales_draft_decisions.py::test_a3_discard_with_a_listed_reason_keeps_its_kind_in_the_draft_and_journal`,
+  `tests/test_agent_decisions.py::test_reason_kind_is_the_listed_reason_and_donors_may_use_own_words`;
+  плашке — список продаж в переписке — `tests/test_sales_draft_decisions.py::test_thread_offers_the_sales_reasons_to_the_banner`.
+- [x] **Q1** весть — в очередь продаж — `tests/test_sales_draft_notify.py::test_notice_goes_to_the_sales_queue_and_its_worker`.
+- [x] **R1** прогон в `shadow` — ворота закрыты, как в `enforce` —
+  `tests/test_sales_replay.py::test_shadow_judge_of_the_stage_does_not_blind_the_gate`.
+
+## Не замерено
+
+- [ ] Живая модель: ситуация, черновик, судья на наборах владельца; канарейка на модели; прогон версии с ключом —
+  шаг координатора по слову владельца. Числа калибровки судьи на синтетике (части 3.4) — в verify-report.
+- [ ] Живой Telegram (бот продаж в группе, `SALES_APP_URL`) — после включения агента продаж.
