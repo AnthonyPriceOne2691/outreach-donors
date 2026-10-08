@@ -119,6 +119,10 @@ describe('отправка очереди пачкой', () => {
     open({ letters: shown, queued_total: 1000, batch_max: 200 });
     const user = userEvent.setup();
 
+    // Плитка «В очереди» — тот же счёт всей очереди, что на кнопке, а не длина списка (200).
+    const tile = (await screen.findByText('В очереди')).parentElement as HTMLElement;
+    expect(within(tile).getByText(/^1\s000$/)).toBeInTheDocument();
+
     await user.click(
       await screen.findByRole('button', { name: `Отправить очередь · ${formatNumber(1000)}` }),
     );
