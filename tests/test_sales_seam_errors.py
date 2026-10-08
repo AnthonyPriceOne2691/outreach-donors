@@ -174,8 +174,9 @@ def test_g2_the_suite_cannot_reach_the_redis_of_the_settings() -> None:
     configured = redis.Redis.from_url(_Storage().redis_url).connection_pool.connection_kwargs
     try:
         client = shared_queue.connection()
-    except RedisError:
-        return  # страховка набора: соединение из настроек в тесте — отказ
+    except RedisError as exc:  # страховка набора: соединение из настроек в тесте — отказ
+        logging.getLogger(__name__).info("очередь в тесте отказана", extra={"why": str(exc)})
+        return
     reached = client.connection_pool.connection_kwargs
     assert [reached.get(key) for key in ("host", "port", "db")] != [
         configured.get(key) for key in ("host", "port", "db")
