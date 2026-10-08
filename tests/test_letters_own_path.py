@@ -21,7 +21,12 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from backend.features.core.domain import MessageStatus, Stage, UserRole
 from backend.features.core.models.access import UserModel
-from backend.features.core.models.outreach import MessageModel, ReplyModel, SenderModel
+from backend.features.core.models.outreach import (
+    MessageModel,
+    ReplyModel,
+    SenderModel,
+    SendingDomainModel,
+)
 from backend.features.letters import answers, batch, mailbox
 from backend.features.letters.answers import AnswerRefusedError
 from backend.features.letters.chain import ANSWER_STEP, MAX_STEPS
@@ -56,6 +61,9 @@ DUE = FIRST_SENT + timedelta(days=3)
 #: Второй ящик того же этапа — свободнее ящика переписки.
 SPARE = "outreach2@mail.example.test"
 PARKED = "доля отказов 12% — парковка"
+#: Домен ящика переписки и причина его паузы (`sending_domains`).
+BOX_DOMAIN = BOX.split("@", 1)[1]
+COMPLAINT = "жалоба на спам"
 
 
 @pytest.fixture
@@ -91,6 +99,20 @@ async def _refused_answer(
     answered = await answer(session, talk, reply, transport=Refusing())
     assert (answered.status, answered.sender_id) == (MessageStatus.QUEUED, None)
     return answered, reply
+
+
+async def _pause_domain(session: AsyncSession) -> SendingDomainModel:
+    """Домен ящика переписки — на паузу за жалобу; сам ящик включён."""
+    row = SendingDomainModel(
+        domain=BOX_DOMAIN,
+        stage=Stage.DONORS,
+        daily_limit=40,
+        paused_at=NOW,
+        pause_reason=COMPLAINT,
+    )
+    session.add(row)
+    await session.commit()
+    return row
 
 
 async def _box(session: AsyncSession, email: str) -> SenderModel:
@@ -263,6 +285,47 @@ class TestWhenTheThreadBoxCannotWrite:
         assert transport.seen == []
         assert await LetterRepository(session).queued(stage=Stage.DONORS) == []
 
+    async def test_followup_waits_while_its_box_domain_is_paused(
+        self, session: AsyncSession, talk: Conversation, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Пауза домена держит и добивку: ящик включён, а домен на паузе за жалобу —
+        добивка ждёт, а не уходит с другого ящика; паузу сняли — уходит со своего."""
+        row = await _pause_domain(session)
+        transport = Recording()
+
+        with caplog.at_level(logging.WARNING, logger="backend.features.letters.followups"):
+            report = await send_due(session, transport=transport, limit=5, now=DUE)
+
+        assert (report.sent, report.postponed) == (0, 1)
+        assert transport.seen == []
+        assert f"Домен {BOX_DOMAIN} на паузе ({COMPLAINT})" in caplog.text
+
+        row.paused_at, row.pause_reason = None, None
+        await session.commit()
+        again = await send_due(session, transport=transport, limit=5, now=DUE + timedelta(hours=1))
+
+        assert again.sent == 1
+        assert [out.from_email for out in transport.seen] == [BOX]
+
+    async def test_answer_while_its_box_domain_is_paused_is_refused_with_the_reason(
+        self, session: AsyncSession, talk: Conversation
+    ) -> None:
+        reply = await human_reply(session, talk)
+        await _pause_domain(session)
+        transport = Recording()
+
+        with pytest.raises(NoSenderError, match=f"Домен {BOX_DOMAIN} на паузе \\({COMPLAINT}\\)"):
+            await answers.answer_reply(
+                session,
+                Sending(session, transport),
+                thread_id=talk.thread.id,
+                reply_id=reply.id,
+                body="Thanks!",
+                author_id=None,
+            )
+
+        assert transport.seen == []
+
     async def test_deleted_box_the_followup_waits_and_the_answer_is_refused(
         self, session: AsyncSession, talk: Conversation, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -321,6 +384,20 @@ class TestTheCardSaysItBeforeTheClick:
         assert (mail.mailbox, mail.next_step) == (BOX, 1)
         assert mail.waiting == refused.refusal
         assert f"Ящик {BOX} сейчас не пишет (выключен: {PARKED})" in mail.waiting
+
+    async def test_paused_domain_of_the_box_waits_in_the_words_of_the_refusal(
+        self, session: AsyncSession, talk: Conversation
+    ) -> None:
+        await _pause_domain(session)
+
+        mail = await mailbox.thread_mail(session, [talk.first])
+        refused = await mailbox.choose(
+            session, talk.first, stage=Stage.DONORS, thread_sender_id=talk.sender.id, now=NOW
+        )
+
+        assert mail is not None
+        assert mail.waiting == refused.refusal
+        assert f"Домен {BOX_DOMAIN} на паузе ({COMPLAINT})" in mail.waiting
 
     async def test_deleted_box_is_named_gone(
         self, session: AsyncSession, talk: Conversation
