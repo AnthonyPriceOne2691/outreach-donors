@@ -100,10 +100,7 @@ async def compose(
 def drafts_cap() -> usage.OwnCap:
     """Свой дневной потолок черновиков агента: настройка, не задана — доля общего.
     Общий 0 («потолка нет») при не заданном своём — потолка нет и у черновиков."""
-    own = llm_cfg.AGENT_DAILY_TOKEN_CAP
-    if own is None:
-        general = llm_cfg.DAILY_TOKEN_CAP
-        own = max(1, int(general * llm_cfg.AGENT_CAP_SHARE)) if general else 0
+    own = usage.share_cap(llm_cfg.AGENT_DAILY_TOKEN_CAP, llm_cfg.AGENT_CAP_SHARE)
     return usage.OwnCap("черновиков агента", agent_operations(), own, "AGENT_DAILY_TOKEN_CAP")
 
 
