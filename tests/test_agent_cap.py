@@ -77,3 +77,32 @@ async def test_drafts_cap_is_the_setting_or_a_share_of_the_general_one(
             await usage.ensure_llm_within_cap(session, own=guarding.drafts_cap())
     else:
         await usage.ensure_llm_within_cap(session, own=guarding.drafts_cap())
+
+
+@pytest.mark.parametrize(
+    ("own", "general", "expected"),
+    [
+        (None, 10_000, 2_000),  # не задан — доля общего
+        (None, 3, 1),  # доля меньше токена — хотя бы один, а не «потолка нет»
+        (None, 0, 0),  # общий «потолка нет» — нет и у части
+        (500, 10_000, 500),  # задан — как есть
+        (0, 10_000, 0),  # задан 0 — своего потолка нет, общий проверяется всё равно
+    ],
+)
+def test_share_cap_is_the_setting_or_a_share_of_the_general_one(
+    monkeypatch: pytest.MonkeyPatch, own: int | None, general: int, expected: int
+) -> None:
+    """Одно правило своих потолков — у черновиков агента и у вызовов модели продаж."""
+    monkeypatch.setattr(llm_cfg, "DAILY_TOKEN_CAP", general)
+
+    assert usage.share_cap(own, llm_cfg.SALES_CAP_SHARE) == expected
+
+
+@pytest.mark.parametrize(("raw", "parsed"), [("", None), ("1200", 1200), ("0", 0)])
+def test_empty_sales_cap_in_env_is_unset_not_a_parse_error(
+    monkeypatch: pytest.MonkeyPatch, raw: str, parsed: int | None
+) -> None:
+    """Пустое `SALES_DAILY_TOKEN_CAP=` в `.env` — «не задан» (доля общего), как у агента."""
+    monkeypatch.setenv("SALES_DAILY_TOKEN_CAP", raw)
+
+    assert llm_cfg._Llm().sales_daily_token_cap == parsed

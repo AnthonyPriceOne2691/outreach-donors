@@ -69,8 +69,13 @@ class _Llm(DomainSettings):
     agent_daily_token_cap: int | None = Field(
         default=None, ge=0, validation_alias="AGENT_DAILY_TOKEN_CAP"
     )
+    # Свой дневной потолок вызовов модели продаж вне агента — вид ответа лида и сборка
+    # писем очереди — тоже внутри общего. Не задан — доля общего (`SALES_CAP_SHARE`).
+    sales_daily_token_cap: int | None = Field(
+        default=None, ge=0, validation_alias="SALES_DAILY_TOKEN_CAP"
+    )
 
-    @field_validator("agent_daily_token_cap", mode="before")
+    @field_validator("agent_daily_token_cap", "sales_daily_token_cap", mode="before")
     @classmethod
     def _unset_if_empty(cls, value: object) -> object:
         """Пустое значение в `.env` — «не задан», а не ошибка разбора числа."""
@@ -100,3 +105,9 @@ AGENT_DAILY_TOKEN_CAP: int | None = _s.agent_daily_token_cap
 #: прогона, письма и ключи встали бы до завтра; черновик же подождёт завтра или
 #: кнопки «написать заново».
 AGENT_CAP_SHARE = 0.3
+SALES_DAILY_TOKEN_CAP: int | None = _s.sales_daily_token_cap
+#: Доля общего дневного потолка у вызовов модели продаж вне агента, когда свой не
+#: задан. Ответы лидов и сборка писем на сотни лидов выбрали бы день целиком, и разбор
+#: цен доноров встал бы до завтра (решение Anthony 08.10.2026). Вместе с долей
+#: черновиков — половина общего; вторая половина — разбору цен, судье, письмам и ключам.
+SALES_CAP_SHARE = 0.2

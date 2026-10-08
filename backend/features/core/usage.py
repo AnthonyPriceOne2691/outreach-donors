@@ -132,6 +132,19 @@ class OwnCap:
     setting: str
 
 
+def share_cap(own: int | None, share: float) -> int:
+    """Сколько токенов в день у своего потолка части: настройка — как есть, не задана —
+    доля общего. Общий 0 («потолка нет») при не заданной своей — потолка нет и у части.
+
+    Одно правило на все части (черновики агента, вызовы модели продаж): своя доля не
+    съедает день у разбора цен доноров, судьи прогона, писем и ключей.
+    """
+    if own is not None:
+        return own
+    general = llm_cfg.DAILY_TOKEN_CAP
+    return max(1, int(general * share)) if general else 0
+
+
 async def llm_tokens_spent(
     session: AsyncSession,
     *,
