@@ -6,7 +6,8 @@
 - **ящик молчит:** письма переписки ждут его дольше `QUIET_MINUTES` (срок уже
   открыл окно получателя), а с ящика за это время не ушло ничего;
 - **отправить некому:** первые письма этапа в очереди, а писать нечем — ни одного
-  включённого ящика на домене без паузы и выдержки;
+  включённого ящика на домене, открытом для этапа (правило фильтра отправки: без паузы,
+  выдержки и строки за другим направлением);
 - **все на паузе:** у направления ни одного пишущего ящика.
 
 Модуль продаж не ответил о политике — тоже тревога, и проход идёт дальше (договор моста).
@@ -31,6 +32,7 @@ from backend.features.core.models.outreach import (
 )
 from backend.features.letters.chain import CHAINABLE, FIRST_STEP, MAX_STEPS
 from backend.features.ops.alarms import Alarm
+from backend.features.outreach import limits
 
 logger = logging.getLogger(__name__)
 
@@ -75,32 +77,32 @@ async def _of_stage(session: AsyncSession, stage: Stage, now: datetime) -> list[
             MessageModel.step == FIRST_STEP,
         )
     )
-    if queued and not await _able(session, writing, now):
+    if queued and not await _able(session, stage, writing, now):
         found.append(
             Alarm(
                 code=f"nobody-to-send:{stage.value}",
                 title=f"Очередь «{stage.value}» есть — отправить некому",
                 detail=(
-                    f"В очереди {queued} первых писем, а пишущего ящика на домене без паузы "
-                    "и выдержки нет. Включить ящик или домен на экране «Домены рассылки»"
+                    f"В очереди {queued} первых писем, а пишущего ящика на открытом домене нет: "
+                    "ящики выключены или домен на паузе, на выдержке, записан за другим "
+                    "направлением. Что с доменом — на экране «Домены рассылки»"
                 ),
             )
         )
     return found
 
 
-async def _able(session: AsyncSession, writing: list[SenderModel], now: datetime) -> bool:
-    """Есть ли пишущий ящик на домене без паузы и выдержки (лимиты дня — не поломка)."""
+async def _able(
+    session: AsyncSession, stage: Stage, writing: list[SenderModel], now: datetime
+) -> bool:
+    """Есть ли пишущий ящик на домене, открытом для этапа: правило фильтра отправки
+    (`limits.domain_shut` — чужое направление, пауза, выдержка; лимиты дня — не поломка)."""
     rows = await session.scalars(
         select(SendingDomainModel).where(
             SendingDomainModel.domain.in_([box.domain for box in writing])
         )
     )
-    shut = {
-        row.domain
-        for row in rows
-        if row.paused_at is not None or (row.young_until is not None and now < row.young_until)
-    }
+    shut = {row.domain for row in rows if limits.domain_shut(row, stage, now) is not None}
     return any(box.domain not in shut for box in writing)
 
 

@@ -9,8 +9,10 @@
   приходит никогда;
 - дребезг: тревога, которая то есть, то нет, — сообщение на каждом проходе;
 - проход сторожа говорит с провайдерами и Telegram при открытой транзакции («idle in
-  transaction» на время сетевых вызовов);
-- `_able`: строка домена за другим направлением — «писать некому», а тревоги нет.
+  transaction» на время сетевых вызовов).
+
+`_able` (A8) — правило фильтра отправки: пауза, выдержка и строка домена за другим
+направлением — «писать некому» (PR «общее»: экран доменов и ящиков).
 """
 
 from __future__ import annotations
@@ -70,7 +72,7 @@ async def _queued_with_box(session: AsyncSession) -> SenderModel:
     return box
 
 
-# --- _able: выдержка держится, чужая строка домена — нет ---------------------------------------
+# --- _able: выдержка и чужая строка домена — писать некому ------------------------------------
 
 
 async def test_a_young_domain_leaves_nobody_to_send(session: AsyncSession) -> None:
@@ -88,21 +90,33 @@ async def test_a_young_domain_leaves_nobody_to_send(session: AsyncSession) -> No
     assert codes == ["nobody-to-send:sales"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "общий код ops/mail_watch._able: строка `sending_domains` за другим направлением "
-        "(`limits.DOMAIN_ELSEWHERE`) отсеивает ящик при отправке, а сторож считает его "
-        "пишущим; правка — PR «общее» (ревью стыков R1, A8)"
-    ),
-)
 async def test_a_domain_of_another_direction_leaves_nobody_to_send(session: AsyncSession) -> None:
+    """Строка домена за другим направлением отсеивает ящик при отправке
+    (`limits.DOMAIN_ELSEWHERE`) — и сторож считает его непишущим: правило одно."""
     box = await _queued_with_box(session)
     session.add(SendingDomainModel(domain=box.domain, stage=Stage.DONORS, daily_limit=5))
 
     codes = [alarm.code for alarm in await mail_watch.alarms(session, NOW)]
 
     assert codes == ["nobody-to-send:sales"]
+
+
+async def test_an_open_domain_of_its_direction_spent_for_today_is_no_alarm(
+    session: AsyncSession,
+) -> None:
+    """Строка своего направления, выдержка прошла, лимит дня выбран — домен открыт: лимиты
+    дня — не поломка, тревоги нет (мутант «любая строка закрывает домен» убит)."""
+    box = await _queued_with_box(session)
+    session.add(
+        SendingDomainModel(
+            domain=box.domain, stage=Stage.SALES, daily_limit=1, young_until=NOW - timedelta(days=1)
+        )
+    )
+    await _letter(
+        session, Stage.SALES, box, 1, status=MessageStatus.SENT, sent_at=NOW - timedelta(minutes=5)
+    )
+
+    assert await mail_watch.alarms(session, NOW) == []
 
 
 # --- _of_stage: ошибка базы — тревога, а не падение ------------------------------------------
