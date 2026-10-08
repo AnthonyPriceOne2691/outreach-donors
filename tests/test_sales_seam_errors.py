@@ -26,6 +26,7 @@ from typing import Any
 
 import pytest
 import redis
+from backend.api.errors import QUEUE_DOWN
 from backend.config import llm as llm_cfg
 from backend.config.storage import _Storage
 from backend.features.core.domain import UserRole
@@ -125,12 +126,6 @@ class _Down:
         raise RedisConnectionError("Error 61 connecting to localhost:6389. Connection refused.")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=RedisError,
-    reason="общий код: недоступная очередь задач в маршруте — «голая» 500 (api/errors.py не "
-    "знает RedisError) — правка в отчёте R3, G1",
-)
 async def test_g1_sales_queue_build_with_the_job_queue_down_is_503_in_words(
     session: AsyncSession,
     world: w.World,
@@ -146,7 +141,7 @@ async def test_g1_sales_queue_build_with_the_job_queue_down_is_503_in_words(
     )
 
     assert response.status_code == 503, response.text
-    assert "очередь" in response.json()["detail"].lower()
+    assert response.json() == {"detail": QUEUE_DOWN}  # адрес и номер ошибки redis-py — в журнал
 
 
 # --- G2: Redis в тестах ------------------------------------------------------------------------

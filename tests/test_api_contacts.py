@@ -27,6 +27,7 @@ from typing import Any
 
 import httpx
 import pytest
+from backend.api import errors as api_errors
 from backend.config import contacts as contacts_cfg
 from backend.features.contacts import mx
 from backend.features.contacts import repository as contacts_repository
@@ -52,6 +53,7 @@ from backend.shared.queue import CONTACTS_JOB
 from backend.workers import jobs
 from fastapi import FastAPI
 from httpx import AsyncClient
+from redis.exceptions import ConnectionError as RedisConnectionError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tests.conftest import bearer
@@ -221,6 +223,34 @@ class TestOneDonor:
         assert response.json() == {"job_id": "job-адрес", "pending": 1}
         assert queue.calls == [(CONTACTS_JOB, (1, False, False, waiting.id))]
         assert queue.remembered == []
+
+    async def test_job_queue_down_is_503_in_words_and_its_address_stays_in_the_log(
+        self,
+        client: AsyncClient,
+        operator_token: str,
+        queue: FakeQueue,
+        waiting: DonorModel,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Очередь задач лежит — 503 словами, как у каждого маршрута с постановкой задачи
+        (`api/errors.py`), а не «голая» пятисотка; адрес и номер ошибки redis-py — полем
+        журнала, не в ответе."""
+        refused = "Error 61 connecting to localhost:6389. Connection refused."
+
+        def down(*_args: object, **_kwargs: object) -> object:
+            raise RedisConnectionError(refused)
+
+        monkeypatch.setattr(queue, "enqueue", down)
+
+        with caplog.at_level(logging.WARNING, logger=api_errors.__name__):
+            response = await client.post(
+                f"/api/contacts/donors/{waiting.id}", headers=bearer(operator_token)
+            )
+
+        assert (response.status_code, response.json()) == (503, {"detail": api_errors.QUEUE_DOWN})
+        [said] = [record for record in caplog.records if record.name == api_errors.__name__]
+        assert vars(said)["error"] == refused
 
     async def test_what_the_route_queues_the_job_accepts(
         self, client: AsyncClient, operator_token: str, queue: FakeQueue, waiting: DonorModel

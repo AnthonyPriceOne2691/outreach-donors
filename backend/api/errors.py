@@ -12,8 +12,11 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
+from redis.exceptions import RedisError
 
 from backend.features.access.administration import (
     LastAdminError,
@@ -70,6 +73,8 @@ from backend.features.sales.intake import IntakeError, UnknownHypothesisError
 from backend.features.sales.kb import KbError, KbKeyTakenError, UnknownKbEntryError
 from backend.features.sales.sender import SenderSettingsError
 from backend.features.sales.sheet import SheetError, SheetUnavailableError
+
+logger = logging.getLogger(__name__)
 
 #: Отказ → код ответа. Порядок в словаре значения не имеет: FastAPI
 #: выбирает обработчик по точному типу и его предкам.
@@ -203,6 +208,21 @@ def _handler(code: int):  # type: ignore[no-untyped-def]
     return handle
 
 
+#: Очередь задач (Redis) не ответила маршруту, который ставит задачу: прогон, пачка писем,
+#: поиск адресов, рассмотрение, лид из ответа, сборка очереди продаж.
+QUEUE_DOWN = "Очередь задач недоступна — задача не поставлена, повторите позже"
+
+
+async def _queue_down(_: Request, exc: Exception) -> JSONResponse:
+    """503 словами вместо «голой» пятисотки. Текст redis-py (адрес и номер ошибки) —
+    только в журнал полем: человеку он не поможет, а адрес очереди наружу не нужен."""
+    logger.warning("очередь задач недоступна — задача не поставлена", extra={"error": str(exc)})
+    return JSONResponse({"detail": QUEUE_DOWN}, status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+
 def install(app: FastAPI) -> None:
     for error, code in STATUSES.items():
         app.add_exception_handler(error, _handler(code))
+    # Маршруты, которые отвечают о недоступной очереди сами (вебхук ответов — 503 со своей
+    # причиной, поиск после перевода рекламодателей — успех перевода), ловят её до этого.
+    app.add_exception_handler(RedisError, _queue_down)
