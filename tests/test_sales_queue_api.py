@@ -33,7 +33,9 @@ from backend.features.sales.handoff import lead_of
 from backend.features.sales.models import SalesThreadModel
 from backend.shared.queue import QUEUE_NAME, SALES_QUEUE_NAME
 from fastapi import FastAPI
-from httpx import AsyncClient
+from httpx import AsyncClient, Response
+from rq.exceptions import DuplicateJobError
+from rq.job import JobStatus
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests import test_sales_send_world as w
@@ -62,15 +64,41 @@ async def world(session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> w.Wor
     return await w.world(session, monkeypatch)
 
 
+class _Job:
+    """Задача rq, какой её видит сборка: статус и удаление следа."""
+
+    def __init__(self, job_id: str) -> None:
+        self.id = job_id
+        self.status = JobStatus.QUEUED
+        self.deleted = False
+
+    def get_status(self) -> JobStatus:
+        return self.status
+
+    def delete(self) -> None:
+        self.deleted = True
+
+
 class _Jobs:
-    """Очередь задач: запоминает, что поставили."""
+    """Очередь задач с правилами rq 2.12, что нужны сборке: задача по номеру; при `unique=True`
+    занятый номер — `DuplicateJobError`, а след задачи лежит, пока его не удалят."""
 
     def __init__(self) -> None:
         self.enqueued: list[tuple[tuple[object, ...], dict[str, object]]] = []
+        self.known: dict[str, _Job] = {}
 
-    def enqueue(self, *args: object, **kwargs: object) -> object:
+    def fetch_job(self, job_id: str) -> _Job | None:
+        found = self.known.get(job_id)
+        return None if found is None or found.deleted else found
+
+    def enqueue(self, *args: object, **kwargs: object) -> _Job:
+        job_id = str(kwargs.get("job_id", "job-7"))
+        taken = self.known.get(job_id)
+        if kwargs.get("unique") and taken is not None and not taken.deleted:
+            raise DuplicateJobError(f"Job with ID '{job_id}' already exists")
         self.enqueued.append((args, kwargs))
-        return type("Job", (), {"id": "job-7"})()
+        self.known[job_id] = _Job(job_id)
+        return self.known[job_id]
 
 
 @pytest.fixture
@@ -203,7 +231,7 @@ async def test_build_goes_to_the_job_queue_and_into_the_journal(
     )
 
     assert response.status_code == 200, response.text
-    assert response.json() == {"job_id": "job-7"}
+    assert response.json() == {"job_id": sales_queue_api.build_job_id(world.hypothesis_id)}
     [(args, _)] = jobs.enqueued
     assert args == (queue_jobs.QUEUE_JOB, world.hypothesis_id, 17)
     journal = await session.scalar(
@@ -222,6 +250,92 @@ def test_build_goes_to_the_sales_queue_not_the_common_one() -> None:
     держат воркер доноров, а сборка не ждёт за прогоном. Очередь — настоящая `rq.Queue`,
     Redis не трогается: соединение открывается только командой."""
     assert sales_queue_api.sales_queue().name == SALES_QUEUE_NAME != QUEUE_NAME
+
+
+async def _build(client: AsyncClient, headers: dict[str, str], hypothesis_id: int) -> Response:
+    return await client.post(
+        QUEUE, json={"hypothesis_id": hypothesis_id, "limit": 5}, headers=headers
+    )
+
+
+async def test_second_build_while_the_first_runs_is_refused_in_words(
+    session: AsyncSession,
+    world: w.World,
+    client: AsyncClient,
+    headers: dict[str, str],
+    jobs: _Jobs,
+) -> None:
+    """Двойное «Собрать» — одна сборка: вторая собрала бы те же письма и потратила модель дважды."""
+    await session.commit()
+
+    first = await _build(client, headers, world.hypothesis_id)
+    second = await _build(client, headers, world.hypothesis_id)
+
+    assert first.status_code == 200, first.text
+    assert (second.status_code, second.json()["detail"]) == (409, sales_queue_api.BUILD_RUNNING)
+    assert len(jobs.enqueued) == 1
+
+
+@pytest.mark.parametrize("ended", [JobStatus.FINISHED, JobStatus.FAILED, JobStatus.CANCELED])
+async def test_build_after_the_previous_one_ended_goes_again(
+    session: AsyncSession,
+    world: w.World,
+    client: AsyncClient,
+    headers: dict[str, str],
+    jobs: _Jobs,
+    ended: JobStatus,
+) -> None:
+    """След готовой задачи лежит неделю (`result_ttl`): по одному номеру с `unique=True` новая
+    сборка гипотезы неделю получала бы 409 — закончившаяся убирается, новая ставится."""
+    await session.commit()
+    await _build(client, headers, world.hypothesis_id)
+    previous = jobs.known[sales_queue_api.build_job_id(world.hypothesis_id)]
+    previous.status = ended
+
+    again = await _build(client, headers, world.hypothesis_id)
+
+    assert again.status_code == 200, again.text
+    assert previous.deleted
+    assert len(jobs.enqueued) == 2
+
+
+@pytest.mark.parametrize("waits", [JobStatus.STARTED, JobStatus.DEFERRED, JobStatus.SCHEDULED])
+async def test_build_waiting_for_a_retry_still_counts_as_running(
+    session: AsyncSession,
+    world: w.World,
+    client: AsyncClient,
+    headers: dict[str, str],
+    jobs: _Jobs,
+    waits: JobStatus,
+) -> None:
+    """Идёт, ждёт зависимости или повтора после сбоя — сборка ещё не кончилась: вторую не ставим."""
+    await session.commit()
+    await _build(client, headers, world.hypothesis_id)
+    jobs.known[sales_queue_api.build_job_id(world.hypothesis_id)].status = waits
+
+    second = await _build(client, headers, world.hypothesis_id)
+
+    assert second.status_code == 409
+    assert len(jobs.enqueued) == 1
+
+
+async def test_two_clicks_racing_past_the_check_still_build_once(
+    session: AsyncSession,
+    world: w.World,
+    client: AsyncClient,
+    headers: dict[str, str],
+    jobs: _Jobs,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Оба нажатия прошли проверку, а поставить успел один — второму `unique=True` отвечает 409."""
+    await session.commit()
+    monkeypatch.setattr(jobs, "fetch_job", lambda _job_id: None)
+
+    first = await _build(client, headers, world.hypothesis_id)
+    second = await _build(client, headers, world.hypothesis_id)
+
+    assert (first.status_code, second.status_code) == (200, 409)
+    assert len(jobs.enqueued) == 1
 
 
 async def test_build_refuses_with_409_before_the_job_queue(
