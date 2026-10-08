@@ -16,6 +16,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy import (
     Enum as SQLEnum,
@@ -33,6 +34,9 @@ from backend.features.core.domain import (
 )
 from backend.features.core.models._mixins import TimestampedMixin
 from backend.shared.database.base import Base
+
+#: Длина номера события почтовой платформы в журнале здоровья ящика (`sg_event_id`).
+EVENT_ID_LENGTH = 100
 
 
 def _enum(e: type) -> SQLEnum:
@@ -120,8 +124,21 @@ class SenderHealthModel(Base):
     kind: Mapped[str] = mapped_column(String(32), nullable=False)
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     detail: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    #: Номер события у платформы — у строки, которую пишет само событие (сигнал, жалоба).
+    #: Пусто — событие без номера и производные строки (`limit_cut`, `paused`).
+    event_id: Mapped[str | None] = mapped_column(String(EVENT_ID_LENGTH), nullable=True)
 
-    __table_args__ = (Index("idx_sender_health_sender_at", "sender_id", "at"),)
+    __table_args__ = (
+        Index("idx_sender_health_sender_at", "sender_id", "at"),
+        # Платформа доставляет пачку событий «хотя бы один раз»: повтор события — та же
+        # строка, а не вторая. Гонку двух доставок одной пачки держит база, а не код.
+        Index(
+            "uq_sender_health_event",
+            "event_id",
+            unique=True,
+            postgresql_where=text("event_id IS NOT NULL"),
+        ),
+    )
 
 
 class CampaignModel(TimestampedMixin, Base):

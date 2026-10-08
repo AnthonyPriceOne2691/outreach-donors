@@ -8,6 +8,12 @@
 не ниже порога от окна целиком — `senders.disable` с причиной словами. У этапа без политики
 и у продаж, пока модуль не ответил о ней (договор моста), — прежнее правило парковки
 (`letters/events._park_if_burning`).
+
+Повтор события — не второй сигнал: платформа доставляет пачку «хотя бы один раз» и шлёт её
+снова на любой не-2xx. Строка самого события несёт его номер у платформы (`event_id`):
+событие, уже лежащее в журнале, слышано — ни второй строки, ни второго вердикта. Гонку двух
+доставок одной пачки держит уникальный индекс: вставка проигравшей падает в своей точке
+сохранения, а не роняет вебхук — иначе платформа повторила бы всю пачку, с событиями доноров.
 """
 
 from __future__ import annotations
@@ -19,6 +25,7 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from sqlalchemy import ColumnElement, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core import stages
@@ -36,6 +43,8 @@ SOFT_KINDS = ("deferred", "blocked")
 #: События, после которых ящик судится по окну последних писем.
 JUDGED = frozenset({"bounce", "dropped", "blocked", "spamreport"})
 DAY = timedelta(days=1)
+#: Уникальный индекс номера события (`SenderHealthModel`): его отказ — «событие уже записано».
+EVENT_INDEX = "uq_sender_health_event"
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,33 +67,110 @@ class Heard:
     paused: str | None = None
 
 
-def _note(session: AsyncSession, sender: SenderModel, kind: str, detail: str, at: datetime) -> None:
-    session.add(SenderHealthModel(sender_id=sender.id, kind=kind, detail=detail[:256], at=at))
+def _note(
+    session: AsyncSession,
+    sender: SenderModel,
+    kind: str,
+    detail: str,
+    at: datetime,
+    event_id: str | None = None,
+) -> None:
+    session.add(
+        SenderHealthModel(
+            sender_id=sender.id, kind=kind, detail=detail[:256], at=at, event_id=event_id
+        )
+    )
 
 
 async def listen(
     session: AsyncSession, box_id: int, event: DeliveryEvent, moment: datetime
 ) -> Heard:
-    """Событие доставки письма с ящика `box_id` — глазами политики его этапа."""
+    """Событие доставки письма с ящика `box_id` — глазами политики его этапа.
+
+    Ящик без политики (доноры) выходит раньше журнала — прежним правилом. Событие, которое
+    журнал уже знает по номеру, слышано сразу, до записи: повтор пачки не судит ящик дважды."""
     sender = await session.get(SenderModel, box_id)
     rules = None if sender is None else await _rules(session, sender)
     if sender is None or rules is None:
         return Heard(ruled=False)
-    kind, at = event.kind, event.at or moment
-    signal = _signal(kind, event.soft)
-    if signal is not None:
-        _note(session, sender, signal, event.reason or signal, at)
-        if await _soft_today(session, sender.id, at) == rules.events:
-            cut = f"лимит снижен на сутки: {rules.events} мягких отказа"
-            _note(session, sender, "limit_cut", cut, at)
-    if kind == "spamreport":
-        _note(session, sender, "complaint", "жалоба на спам", at)
-    why = await _verdict(session, sender, rules, at) if kind in JUDGED and sender.enabled else None
+    if await _known(session, event.event_id):
+        return Heard(ruled=True)
+    at = event.at or moment
+    if not await _noted(session, sender, rules, event, at):
+        return Heard(ruled=True)
+    judged = event.kind in JUDGED and sender.enabled
+    why = await _verdict(session, sender, rules, at) if judged else None
     if why is None:
         return Heard(ruled=True)
     disable(sender, why, now=at)
     _note(session, sender, "paused", why, at)
     return Heard(ruled=True, paused=sender.email)
+
+
+async def _known(session: AsyncSession, event_id: str | None) -> bool:
+    """Журнал уже знает событие с этим номером: платформа повторила пачку."""
+    if event_id is None:
+        return False
+    found = await session.scalar(
+        select(SenderHealthModel.id).where(SenderHealthModel.event_id == event_id)
+    )
+    return found is not None
+
+
+async def _noted(
+    session: AsyncSession,
+    sender: SenderModel,
+    rules: SoftSignals,
+    event: DeliveryEvent,
+    at: datetime,
+) -> bool:
+    """Строки самого события: мягкий сигнал (и снижение лимита на сутки) или жалоба.
+    `False` — строку события только что записала другая доставка той же пачки."""
+    row = _row(event)
+    if row is None:
+        return True
+    kind, detail = row
+    if not await _written(session, sender, kind, detail, at, event.event_id):
+        return False
+    if kind in SOFT_KINDS and await _soft_today(session, sender.id, at) == rules.events:
+        cut = f"лимит снижен на сутки: {rules.events} мягких отказа"
+        _note(session, sender, "limit_cut", cut, at)
+    return True
+
+
+def _row(event: DeliveryEvent) -> tuple[str, str] | None:
+    """Строка журнала самого события — вид и подробность: мягкий сигнал или жалоба."""
+    signal = _signal(event.kind, event.soft)
+    if signal is not None:
+        return signal, event.reason or signal
+    return ("complaint", "жалоба на спам") if event.kind == "spamreport" else None
+
+
+async def _written(
+    session: AsyncSession,
+    sender: SenderModel,
+    kind: str,
+    detail: str,
+    at: datetime,
+    event_id: str | None,
+) -> bool:
+    """Записать строку события. С номером — в своей точке сохранения: вставку, которую
+    отверг уникальный индекс (ту же пачку только что записала другая доставка), откатывает
+    она одна — транзакция вебхука жива, остальные события пачки идут дальше. Такой отказ —
+    `False`; любой другой отказ базы — как был, исключением."""
+    if event_id is None:
+        _note(session, sender, kind, detail, at)
+        return True
+    try:
+        async with session.begin_nested():
+            _note(session, sender, kind, detail, at, event_id)
+            await session.flush()
+    except IntegrityError as exc:
+        if EVENT_INDEX not in str(exc.orig):
+            raise
+        logger.info("сигналы ящика: событие %s уже записала другая доставка пачки", event_id)
+        return False
+    return True
 
 
 async def _rules(session: AsyncSession, sender: SenderModel) -> SoftSignals | None:

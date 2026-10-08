@@ -29,6 +29,7 @@ from backend.api.deps import db_session
 from backend.api.events.schemas import Taken
 from backend.config import outreach as cfg
 from backend.features.core.domain import Stage
+from backend.features.core.models.outreach import EVENT_ID_LENGTH
 from backend.features.letters.events import DeliveryEvent, apply_events
 from backend.shared.webhook_signature import SignatureError, verify_any
 
@@ -115,7 +116,16 @@ def _one(row: Any) -> DeliveryEvent | None:
         reason=_reason(row),
         soft=str(row.get("type") or "").strip().lower() == SOFT_BOUNCE,
         at=_moment(row.get("timestamp")),
+        event_id=_event_id(row.get("sg_event_id")),
     )
+
+
+def _event_id(raw: Any) -> str | None:
+    """Номер события у платформы: по нему журнал здоровья ящика узнаёт повтор пачки.
+    Нет, не строка, пустой или длиннее колонки журнала — `None`, и событие идёт, как шло
+    без номера: без отсева повтора, но и без отказа всей пачке."""
+    text = raw.strip() if isinstance(raw, str) else ""
+    return text if 0 < len(text) <= EVENT_ID_LENGTH else None
 
 
 def _number(raw: Any) -> int | None:

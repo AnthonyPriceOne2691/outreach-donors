@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager
@@ -38,6 +39,7 @@ from backend.features.core.stages import MailPolicy
 from backend.features.letters.events import DeliveryEvent
 from backend.features.outreach import health
 from backend.features.outreach.health import Heard, SoftSignals
+from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy import Connection, event, select, text
 from sqlalchemy.exc import IntegrityError
@@ -201,13 +203,21 @@ async def _two_boxes(factory: async_sessionmaker[AsyncSession]) -> tuple[int, in
         return found
 
 
+@pytest.fixture
+def bare_app(jwt_secret: None) -> FastAPI:
+    """Приложение без подмены базы: сессию на запрос гонка даёт свою. Собирается до теста:
+    сборка пересобирает корневой логгер, и записи теста иначе прошли бы мимо `caplog`."""
+    return create_app()
+
+
 async def test_3_two_deliveries_of_one_batch_at_once_answer_200_and_write_once(
-    key: Any, jwt_secret: None, monkeypatch: pytest.MonkeyPatch
+    key: Any, bare_app: FastAPI, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Платформа не дождалась 200 и прислала ту же пачку, пока первая доставка шла. Обе прошли
     проверку «уже в журнале» — чужой незафиксированной строки не видно, — и вставка проигравшей
     падает на уникальном индексе. Её откатывает своя точка сохранения: событие слышано, пачка
     идёт дальше (события продаж за ним и событие донора), ответ — 200, а не 500 на всю пачку."""
+    caplog.set_level(logging.INFO, logger=health.__name__)
     async with committed_sessions() as factory:
         box, letter, donor_letter = await _two_boxes(factory)
         _meet_after_the_check(monkeypatch, "sg-3-1")
@@ -218,13 +228,18 @@ async def test_3_two_deliveries_of_one_batch_at_once_answer_200_and_write_once(
             async with factory() as session:
                 yield session
 
-        app = create_app()
-        app.dependency_overrides[deps.db_session] = per_request
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        bare_app.dependency_overrides[deps.db_session] = per_request
+        async with AsyncClient(
+            transport=ASGITransport(app=bare_app), base_url="http://test"
+        ) as client:
             answers = await asyncio.gather(*(_deliver(client, key, batch) for _ in range(2)))
 
         assert [answer.status_code for answer in answers] == [200, 200], [a.text for a in answers]
         assert sorted(answer.json()["bounced"] for answer in answers) == [0, 1]
+        refused = [r.getMessage() for r in caplog.records if "другая доставка" in r.getMessage()]
+        assert refused == ["сигналы ящика: событие sg-3-1 уже записала другая доставка пачки"], (
+            "гонки не было: проигравшая не дошла до уникального индекса"
+        )
         async with factory() as session:
             assert await _rows(session, box) == [
                 *(("deferred", f"sg-3-{n}") for n in (1, 2, 3)),
