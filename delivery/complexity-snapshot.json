@@ -737,9 +737,9 @@
       "worst": "—"
     },
     "backend/features/ahrefs/client.py": {
-      "lines": 337,
+      "lines": 368,
       "complexity": 12,
-      "worst": "_request:221"
+      "worst": "_request:223"
     },
     "backend/features/ahrefs/units.py": {
       "lines": 233,
