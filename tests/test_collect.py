@@ -31,9 +31,17 @@ class Fake:
     """Провайдер-заглушка. Считает запросы по ступеням — по ним видно,
     что дорогие вызовы делаются только для дошедших доменов."""
 
-    def __init__(self, metrics: dict[str, dict[str, Any]], countries: dict[str, list[dict]]):
+    def __init__(
+        self,
+        metrics: dict[str, dict[str, Any]],
+        countries: dict[str, list[dict]],
+        *,
+        refusal: int = 500,
+    ):
         self.metrics = metrics
         self.countries = countries
+        #: Код ответа по странам для домена, которого нет в `countries`.
+        self.refusal = refusal
         self.calls: list[str] = []
         self.by_country_hosts: list[str] = []
 
@@ -50,7 +58,7 @@ class Fake:
         self.calls.append("country")
         self.by_country_hosts.append(host)
         if host not in self.countries:
-            return httpx.Response(500)
+            return httpx.Response(self.refusal)
         return httpx.Response(200, json={"metrics": self.countries[host]}, headers=COST)
 
 
@@ -208,10 +216,15 @@ class TestVerdicts:
 
 
 class TestPartialFailure:
-    async def test_country_failure_keeps_paid_metrics(self) -> None:
+    @pytest.mark.parametrize("refusal", [500, 402, 410, 301, 501])
+    async def test_country_failure_keeps_paid_metrics(self, refusal: int) -> None:
         """Метрики за 18 юнитов уже оплачены. Потеряв их из-за сбоя на третьей
-        ступени, мы заплатим за них второй раз при повторном прогоне."""
-        fake = Fake({"good.com": GOOD}, {})  # страны отвечают 500
+        ступени, мы заплатим за них второй раз при повторном прогоне.
+
+        Сбой — любой отказ: 500 после повторов и коды вне обоих списков клиента
+        (402, 410, переадресация, 501). До 08.10.2026 вторые уходили голым
+        `HTTPStatusError` мимо `except AhrefsError` и роняли сбор целиком."""
+        fake = Fake({"good.com": GOOD}, {}, refusal=refusal)  # страны отказывают
         results = await _run(fake, ["good.com"])
 
         assert results[0].status is DonorStatus.UNCHECKED

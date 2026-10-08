@@ -9,11 +9,13 @@ DR спрашивается только у «куплено» и «спорно
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
+import httpx
 import pytest
-from backend.features.ahrefs.client import AhrefsError, Response
+from backend.features.ahrefs.client import AhrefsClient, AhrefsError, Response
 from backend.features.ahrefs.units import UnitsCost
 from backend.features.core.domain import CrawlOutcome, StopReason, Verdict
 from backend.features.core.models.advertiser import CandidateModel
@@ -228,6 +230,29 @@ class TestJudgeRun:
         big = rows["marketplace.com"]
         assert big.verdict is Verdict.BOUGHT
         assert big.dr_checked_at is None, "отказ — не ответ: следующий пересчёт спросит снова"
+        assert "DR не проверен" in (big.reasons or [])[-1]
+
+    @pytest.mark.parametrize("status", [402, 410, 301, 501])
+    async def test_status_outside_both_client_lists_is_the_same_refusal(
+        self, session: AsyncSession, status: int
+    ) -> None:
+        """Код вне обоих списков клиента уходил голым `HTTPStatusError` мимо
+        `except AhrefsError` и ронял пересчёт кандидатов целиком. Клиент
+        настоящий, связка — как у задачи обхода."""
+        run_id = await _run(session)
+        http = httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda r: httpx.Response(status)),
+            base_url="https://ahrefs.example.test",
+        )
+        client = AhrefsClient(api_key="k", http=http)
+
+        await judge_run(session, run_id, ratings=functools.partial(ahrefs_ratings, client))
+        await session.commit()
+        await client.aclose()
+
+        big = (await _rows(session))["marketplace.com"]
+        assert big.verdict is Verdict.BOUGHT
+        assert big.dr_checked_at is None
         assert "DR не проверен" in (big.reasons or [])[-1]
 
     async def test_no_source_of_ratings_changes_nothing_silently(

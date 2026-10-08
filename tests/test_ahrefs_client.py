@@ -193,6 +193,56 @@ class TestFailuresAreVisible:
 
         assert not caught.value.permanent
 
+    @pytest.mark.parametrize(
+        ("status", "permanent"), [(402, True), (410, True), (301, True), (501, False)]
+    )
+    async def test_status_outside_both_lists_is_a_refusal_in_words(
+        self, status: int, permanent: bool
+    ) -> None:
+        """Код вне обоих списков уходил из `raise_for_status()` голым
+        `HTTPStatusError` — мимо всех `except AhrefsError`: сбор стран и DR
+        кандидатов падали целиком. 3xx и 4xx повтором не лечатся (переадресацию
+        никто не настраивал — сменился адрес API), 5xx вне списка повторов —
+        сбой провайдера: прогон стоит продолжить позже."""
+        attempts = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            attempts["n"] += 1
+            return httpx.Response(status, text='{"error":"report is not in the plan"}')
+
+        with pytest.raises(AhrefsError, match=f"by_country: Ahrefs ответил {status}") as caught:
+            await _client(handler).metrics_by_country("example.com", "2026-09-01")
+
+        assert caught.value.permanent is permanent
+        assert "report is not in the plan" in str(caught.value)
+        assert attempts["n"] == 1, "код вне списка повторов не повторяется"
+
+    async def test_redirect_says_where_it_leads(self) -> None:
+        """Переадресацию клиент не проходит: ответ — отказ, и в нём сказано,
+        куда сменился адрес. Тело у переадресации обычно пустое — вместо него
+        слова кода, а не пустое место после двоеточия."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(301, headers={"location": "https://api.example.test/v4/"})
+
+        with pytest.raises(AhrefsError) as caught:
+            await _client(handler).metrics_by_country("example.com", "2026-09-01")
+
+        assert str(caught.value) == (
+            "by_country: Ahrefs ответил 301 — переадресация на https://api.example.test/v4/: "
+            "Moved Permanently"
+        )
+        assert caught.value.permanent
+
+    @pytest.mark.parametrize("status", [402, 410, 301, 501])
+    async def test_quota_status_outside_both_lists_is_a_refusal_too(self, status: int) -> None:
+        """У остатка квоты этой дыры не было: `raise_for_status()` там внутри
+        `except httpx.HTTPError`, а `HTTPStatusError` — его подкласс. Держим."""
+        handler = lambda r: httpx.Response(status)  # noqa: E731
+
+        with pytest.raises(AhrefsError, match="Остаток квоты недоступен"):
+            await _client(handler).limits_and_usage()
+
     async def test_genuinely_empty_answer_is_not_an_error(self) -> None:
         """А пустой список — законный ответ: провайдер просто ничего не знает."""
         handler = lambda r: httpx.Response(200, json={"metrics": []}, headers=COST_HEADERS)  # noqa: E731
