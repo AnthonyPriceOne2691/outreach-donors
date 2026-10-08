@@ -187,7 +187,7 @@
       "worst": "—"
     },
     "backend/api/letters/routes.py": {
-      "lines": 291,
+      "lines": 292,
       "complexity": 5,
       "worst": "build:91"
     },
@@ -1272,7 +1272,7 @@
       "worst": "next_address_note:100"
     },
     "backend/features/letters/batch.py": {
-      "lines": 167,
+      "lines": 168,
       "complexity": 4,
       "worst": "why:102"
     },

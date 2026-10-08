@@ -146,8 +146,9 @@ async def _send_one(
     try:
         await sending.send(letter_id, author_id=author_id)
     except (NoSenderError, SalesNotConnectedError) as exc:
-        # Лимит ящиков или этап, который почта ещё не ведёт: следующее письмо упрётся
-        # в то же — пачка встаёт с причиной словами, а не «связь с почтой оборвалась».
+        # Лимит ящиков или продажи, не подключённые к почте (ответ моста `core/stages`):
+        # следующее письмо упрётся в то же — пачка встаёт с причиной словами, а не
+        # «связь с почтой оборвалась».
         logger.info("письма: пачка встала на письме №%s — %s", letter_id, exc)
         return str(exc)
     except SendError as exc:

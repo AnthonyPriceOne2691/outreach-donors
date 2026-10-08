@@ -244,7 +244,8 @@ async def send_queue(
     Каждое письмо идёт тем же путём, что одно (`letters/batch.py`), и
     в журнал пишется так же — по письму, с тем, кто нажал.
     """
-    # Этап, который почта ещё не ведёт, — отказ словами до счёта и до задачи.
+    # Продажи, не подключённые к почте (ответ моста `core/stages`), — отказ словами (409)
+    # до счёта и до задачи.
     await check_connected(session, body.stage, "Очередь писем не отправлена")
     waiting = len(await LetterRepository(session).queued(stage=body.stage))
     if waiting == 0:
