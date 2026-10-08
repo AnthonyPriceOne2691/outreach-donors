@@ -221,3 +221,27 @@ async def admin_token(
 ) -> str:
     await make_user("admin@sales-seams.example.test", role=UserRole.ADMIN)
     return await sign_in("admin@sales-seams.example.test")
+
+
+# --- сверх списка: пачка берёт до потолка, а «осталось» считает тем же потолком ------------
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "общий код letters/batch.send_queue: `report.left` считается `queued(limit=limit)` — "
+        "«осталось в очереди» не больше потолка пачки (200), а вкладка продаж зовёт пачку на "
+        "всю очередь; правка — PR «общее» (ревью стыков R1, находка к F1)"
+    ),
+)
+async def test_the_batch_says_how_many_letters_are_really_left(
+    session: AsyncSession, world: w.World
+) -> None:
+    """Потолок пачки — `limit` (на бою `BATCH_MAX` = 200): пять писем, потолок два — ушло два,
+    осталось три, а не «два»."""
+    emails = [f"lead{number}@acme.example.test" for number in range(5)]
+    await _queued(session, world, *emails)
+
+    report = await send_queue(session, _transports(), stage=Stage.SALES, limit=2)
+
+    assert (report.sent, report.left) == (2, 3)
