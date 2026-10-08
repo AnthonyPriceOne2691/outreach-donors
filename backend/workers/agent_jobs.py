@@ -6,16 +6,22 @@
 
 Имя задачи и её номер живут здесь, а не в `shared/queue.py`: задачам агента
 свой модуль, и общий файл очереди не правится ради одной строки.
+
+Очередь черновика — та, чей воркер разобрал ответ: разбор цены доноров и
+рекламодателей ставит его в общую (`runs`), разбор ответа лида продаж — в свою
+(`sales`, `worker-sales`, `workers/sales_jobs.py`).
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from dataclasses import replace
 from typing import Any
 
 from redis.exceptions import RedisError
+from rq import Queue
 from rq.exceptions import DuplicateJobError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -43,16 +49,19 @@ def draft_job_id(reply_id: int) -> str:
     return f"draft-reply-{reply_id}"
 
 
-def queue_draft(reply_id: int) -> None:
-    """Поставить черновик ответа — одну задачу на ответ.
+def queue_draft(reply_id: int, *, queue: Callable[[], Queue] | None = None) -> None:
+    """Поставить черновик ответа — одну задачу на ответ — в очередь `queue`: по умолчанию
+    общую (`runs`). Разбор ответа лида продаж ставит его в свою (`sales`): в общей черновик
+    лиду ждал бы часовой прогон доноров, как ждал бы сам ответ.
 
     Не встала — не беда: черновик человек попросит кнопкой в переписке.
     Поэтому сбой очереди пишется в лог, а разбор, который её ставит, остаётся
     сделанным. Есть ли агенту что писать, решает сама задача
     (`drafting.draft_answer`): ставить её дёшево, а пропуск она называет.
     """
+    put = runs_queue if queue is None else queue  # общая — именем модуля на час вызова
     try:
-        runs_queue().enqueue(
+        put().enqueue(
             DRAFT_JOB,
             reply_id,
             job_id=draft_job_id(reply_id),
@@ -70,9 +79,12 @@ def queue_draft(reply_id: int) -> None:
         )
 
 
-async def after_parse(session: AsyncSession, reply_id: int) -> None:
+async def after_parse(
+    session: AsyncSession, reply_id: int, *, queue: Callable[[], Queue] | None = None
+) -> None:
     """Черновик — задачей сразу после разбора ответа: агенту нужна разобранная цена.
     Где агент на этапе не пишет (`drafting.wants_draft`), очередь не трогается.
+    `queue` — очередь задачи черновика (`queue_draft`): по умолчанию общая.
 
     Разбор к этому месту уже закоммичен: сбой постановки черновика — любой, и запрос
     `wants_draft` к базе тоже, — не роняет задачу разбора и не уводит её на повтор
@@ -80,7 +92,7 @@ async def after_parse(session: AsyncSession, reply_id: int) -> None:
     тогда не поставлен — его можно попросить кнопкой в переписке."""
     try:
         if await drafting.wants_draft(session, reply_id):
-            queue_draft(reply_id)
+            queue_draft(reply_id, queue=queue)
     except Exception:
         logger.warning(
             "ответ №%s разобран, а черновик не поставлен — его можно попросить кнопкой в переписке",
