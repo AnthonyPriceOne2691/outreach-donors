@@ -8,6 +8,8 @@
 - «хочет говорить» — без черновика: лида передают телемаркетологу (решение ждёт владельца);
   другие пути и уверенность ниже порога — без черновика;
 - агент продаж выключен тумблером или не настроен — ни задачи, ни вызова модели;
+- лиду, которому не пишут (у телемаркетолога, снят, в стоп-листе), черновика нет — то же
+  правило, что у отправки (`mail.unwritable`), а почему — словами в снимке ответа;
 - сбой постановки задачу ответа не роняет: вид записан, черновик попросят кнопкой.
 
 Очереди — подставные во всех модулях, где их берут; Redis из настроек — закрытый порт:
@@ -24,14 +26,16 @@ import pytest
 from backend.config import outreach as outreach_cfg
 from backend.config import storage
 from backend.features.agent.settings import AgentSettingsRepository
-from backend.features.core.domain import Stage
+from backend.features.core.domain import ReplyKind, Stage
 from backend.features.core.models.outreach import ReplyModel
 from backend.features.replies.pipeline import Inbox
 from backend.features.sales.agent import parts
+from backend.features.sales.models import LeadStatus, SalesHandoffModel, SalesStoplistModel
 from backend.features.sales.reply_kind import KindFound, SalesKind
 from backend.shared import queue as shared_queue
 from backend.workers import agent_jobs, jobs, sales_jobs
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from tests import test_sales_send_world as w
 from tests.test_parse_requeue import UniqueQueue
 from tests.test_sales_agent_situation import Plug, llm
 from tests.test_sales_agent_stage import sales_on
@@ -44,12 +48,14 @@ from tests.test_sales_reply_routing import (
     sales_letter,
 )
 from tests.test_sales_seam_agent import sales_off
+from tests.test_sales_send import JANE, _first_sent, _lead_of
 
 __all__ = ["llm", "sales_off", "sales_on"]  # фикстуры — отсюда их видит pytest
 
 QUESTION = KindFound(SalesKind.QUESTION, 0.93, quote="What does the audit include?")
 
 Answered = Callable[..., Awaitable[tuple[int, dict[str, Any]]]]
+Asked = Callable[[str], Awaitable[tuple[int, dict[str, Any]]]]
 
 
 class Queues:
@@ -200,3 +206,81 @@ async def test_a_failure_to_queue_the_draft_does_not_fail_the_reply_job(
         "queue-down": f"черновик ответа №{reply_id} не поставлен — очередь недоступна",
     }
     assert said[trouble] in caplog.text
+
+
+# --- лиду, которому не пишут, черновика нет ---------------------------------------------------
+
+
+@pytest.fixture
+def asked(session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> Asked:
+    """Подключённые продажи: первое письмо ушло лиду общей отправкой, лид задал вопрос, задача
+    продаж разбирает ответ — на базе теста. `how` — что с лидом к этому часу."""
+    monkeypatch.setattr(sales_jobs, "create_async_engine", lambda _dsn: _Closable())
+    monkeypatch.setattr(
+        sales_jobs,
+        "async_sessionmaker",
+        lambda _engine, **_kw: async_sessionmaker(bind=session.bind, expire_on_commit=False),
+    )
+    monkeypatch.setattr(sales_jobs, "KindClient", lambda: FakeClassifier(QUESTION))
+
+    async def lead_asked(how: str) -> tuple[int, dict[str, Any]]:
+        world = await w.world(session, monkeypatch)
+        _, [first] = await _first_sent(session, world)
+        lead = await _lead_of(session, first)
+        if how == "handed-off":
+            session.add(SalesHandoffModel(thread_id=first.thread_id, lead_id=lead.id))
+        elif how == "removed":
+            lead.status = LeadStatus.REJECTED
+        elif how == "stop-list":
+            session.add(SalesStoplistModel(email=lead.email))
+        reply = ReplyModel(
+            thread_id=first.thread_id,
+            message_id=first.id,
+            kind=ReplyKind.HUMAN,
+            raw_body=QUESTION.quote or "",
+            from_email=lead.email,
+            subject=f"Re: {first.subject}",
+            inbound_message_id="<in-7@acme.example.test>",
+        )
+        session.add(reply)
+        await AgentSettingsRepository(session).save(Stage.SALES, parts.DEFAULTS, author="тест")
+        await session.commit()
+        return reply.id, await sales_jobs.handle(reply.id)
+
+    return lead_asked
+
+
+@pytest.mark.usefixtures("sales_on")
+@pytest.mark.parametrize(
+    ("how", "why"),
+    [
+        ("handed-off", f"лид {JANE} у телемаркетолога — письма продаж ему не идут"),
+        ("removed", f"лида {JANE} сняли (сейчас «rejected») — писать ему нельзя"),
+        ("stop-list", f"лиду {JANE} писать нельзя: в ручном стоп-листе продаж"),
+    ],
+    ids=["handed-off", "removed", "stop-list"],
+)
+async def test_a_lead_that_must_not_be_written_gets_no_draft_and_the_reason_in_words(
+    session: AsyncSession, queues: Queues, asked: Asked, how: str, why: str
+) -> None:
+    """Отправку такого черновика отбил бы `mail._writable`, а модель заплатила бы за письмо,
+    которое не уйдёт. Правило то же (`mail.unwritable`); путь прежний — ответ ждёт человека."""
+    reply_id, report = await asked(how)
+
+    reason = f"задал вопрос: {why}; черновика агента нет — решает человек"
+    assert (report["route"], report["waits"], report["reason"]) == ("agent", True, reason)
+    assert queues.drafts() == {"runs": [], "sales": []}
+    reply = await session.get(ReplyModel, reply_id)
+    assert reply is not None
+    await session.refresh(reply)
+    assert (reply.model_parse or {}).get("reason") == reason
+
+
+@pytest.mark.usefixtures("sales_on")
+async def test_a_lead_that_may_be_written_gets_the_draft_as_before(
+    queues: Queues, asked: Asked
+) -> None:
+    reply_id, report = await asked("writable")
+
+    assert report["reason"] == "задал вопрос: ответит агент; пока — человек"
+    assert queues.drafts() == {"runs": [], "sales": [reply_id]}

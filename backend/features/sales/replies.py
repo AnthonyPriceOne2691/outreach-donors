@@ -25,7 +25,10 @@
 
 **Вопрос и интерес — черновик агента продаж** (`DRAFTED`): задача ответа ставит его после
 записи вида своей очередью (`workers/sales_jobs.py`), если агент продаж включён тумблером
-(`SALES_AGENT_ENABLED`) и настроен. Иначе ответ ждёт человека, как ждал.
+(`SALES_AGENT_ENABLED`) и настроен. Иначе ответ ждёт человека, как ждал. Лиду, которому не
+пишут (снят, у телемаркетолога, в стоп-листе — `mail.unwritable`, то же правило, что у
+отправки), черновика нет: модель не платит за письмо, которое не уйдёт, а почему черновика
+нет — словами в снимке ответа.
 
 **«Пишите другому»** заводит лида той же компании (`referral.py`) и закрывает
 диалог. Проверка адресов не настроена — лида заводит человек: вид уже назван
@@ -56,6 +59,7 @@ from backend.features.core.models.outreach import ReplyModel, ThreadModel
 from backend.features.replies import outcome
 from backend.features.replies.repository import ReplyRepository
 from backend.features.sales import handoff, ooo
+from backend.features.sales.mail import linked, unwritable
 from backend.features.sales.referral import Referred, refer
 from backend.features.sales.reply_kind import (
     OPERATION,
@@ -103,7 +107,7 @@ SETTLED = frozenset({Route.CLOSED, Route.REFERRAL, Route.UNSUBSCRIBE})
 #: «Хочет говорить» — без черновика: лида передают телемаркетологу (`pass_on`); решение ждёт
 #: подтверждения владельца, и черновик там — `Route.HANDOFF` в этот набор, одной строкой.
 #: Отправить такой черновик не даст отдельное правило: лиду, переданному телемаркетологу,
-#: письма продаж не идут (`mail._writable`) — при смене решения его решают вместе.
+#: письма продаж не идут (`mail.unwritable`) — при смене решения его решают вместе.
 DRAFTED = frozenset({Route.AGENT})
 
 #: Вид словами — для причины в карточке.
@@ -191,12 +195,14 @@ class Handled:
     unanswered: Unanswered | None = None
     #: Диалог, лида которого передать телемаркетологу после записи ответа (`pass_on`).
     handoff_thread: int | None = None
+    #: Почему черновика агента нет, хотя путь его даёт: лиду не пишут (`mail.unwritable`).
+    no_draft: str | None = None
 
     @property
     def drafted(self) -> bool:
-        """Положен ли ответу черновик агента по его пути (`DRAFTED`). Включён ли агент
-        продаж и настроен ли — решает шов (`drafting.wants_draft`)."""
-        return self.route in DRAFTED
+        """Положен ли ответу черновик агента по его пути (`DRAFTED`) и лиду (`no_draft`).
+        Включён ли агент продаж и настроен ли — решает шов (`drafting.wants_draft`)."""
+        return self.route in DRAFTED and self.no_draft is None
 
     @property
     def as_report(self) -> dict[str, object]:
@@ -268,6 +274,7 @@ class SalesReplies:
         if found.tokens:
             usage.record(self._session, operation=OPERATION, units=found.tokens)
         decision = await self._follow(reply, found, decide(found, self._threshold))
+        decision, no_draft = await self._no_draft(reply, found, decision)
         reply.model_parse = self._record(snapshot(found, model=self._classifier.model), decision)
         reply.confidence = found.confidence
         logger.info(
@@ -282,7 +289,23 @@ class SalesReplies:
             reason=decision.reason,
             tokens=found.tokens,
             handoff_thread=reply.thread_id if decision.route is Route.HANDOFF else None,
+            no_draft=no_draft,
         )
+
+    async def _no_draft(
+        self, reply: ReplyModel, found: KindFound, decision: Decision
+    ) -> tuple[Decision, str | None]:
+        """Путь даёт черновик агента, а лиду диалога не пишут — то же правило, что у отправки
+        (`mail.unwritable`): черновика нет, почему — словами в причине ответа. Диалог без лида
+        продаж правило не судит."""
+        if decision.route not in DRAFTED:
+            return decision, None
+        dialog = await linked(self._session, reply.thread_id)
+        why = None if dialog is None else await unwritable(self._session, dialog)
+        if why is None:
+            return decision, None
+        reason = f"{KIND_WORDS[found.kind]}: {why}; черновика агента нет — решает человек"
+        return replace(decision, reason=reason), why
 
     async def pass_on(self, handled: Handled) -> Handled:
         """Передать лида, если ответ «хочет говорить», — после коммита снимка ответа.

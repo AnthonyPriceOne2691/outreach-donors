@@ -235,8 +235,8 @@ async def test_not_connected_sales_refuse_the_answer_in_words_and_store_nothing(
 @pytest.mark.parametrize(
     ("how", "words"),
     [
-        ("handed-off", f"Лид {JANE} передан телемаркетологу — письма продаж ему больше не идут"),
-        ("stop-list", f"Лиду {JANE} писать нельзя: в ручном стоп-листе продаж"),
+        ("handed-off", f"лид {JANE} у телемаркетолога — письма продаж ему не идут"),
+        ("stop-list", f"лиду {JANE} писать нельзя: в ручном стоп-листе продаж"),
     ],
     ids=["handed-off", "stop-list"],
 )
