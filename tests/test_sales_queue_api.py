@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from backend.api.sales import queue as sales_queue_api
 from backend.api.sales.queue import SalesQueueBody, SalesQueueView
 from backend.cli.sales_queue import run_sales_queue
 from backend.config import sales as sales_cfg
@@ -30,6 +31,7 @@ from backend.features.ops import job_outcome
 from backend.features.sales import chain, queue, queue_jobs, sender
 from backend.features.sales.handoff import lead_of
 from backend.features.sales.models import SalesThreadModel
+from backend.shared.queue import QUEUE_NAME, SALES_QUEUE_NAME
 from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -74,7 +76,7 @@ class _Jobs:
 @pytest.fixture
 def jobs(monkeypatch: pytest.MonkeyPatch) -> _Jobs:
     found = _Jobs()
-    monkeypatch.setattr("backend.api.sales.queue.runs_queue", lambda: found)
+    monkeypatch.setattr("backend.api.sales.queue.sales_queue", lambda: found)
     return found
 
 
@@ -213,6 +215,13 @@ async def test_build_goes_to_the_job_queue_and_into_the_journal(
         "гипотеза": "Выдуманная гипотеза",
         "писем": 17,
     }
+
+
+def test_build_goes_to_the_sales_queue_not_the_common_one() -> None:
+    """Сборка — в очередь продаж (`worker-sales`): модель на каждое письмо — минуты, и они не
+    держат воркер доноров, а сборка не ждёт за прогоном. Очередь — настоящая `rq.Queue`,
+    Redis не трогается: соединение открывается только командой."""
+    assert sales_queue_api.sales_queue().name == SALES_QUEUE_NAME != QUEUE_NAME
 
 
 async def test_build_refuses_with_409_before_the_job_queue(

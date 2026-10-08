@@ -4,7 +4,8 @@
 (тем же правилом, каким откажет отправка), цепочка гипотезы на каждом языке, сколько лидов
 ещё без письма и сколько писем ждёт отправки — у гипотезы и у продаж целиком (пачка берёт
 очередь этапа, а не гипотезы). `POST /sales/queue` — поставить сборку в
-очередь задач (`sales/queue_jobs.py`): модель на каждое письмо — минуты, а не запрос.
+очередь задач (`sales/queue_jobs.py`): модель на каждое письмо — минуты, а не запрос. Очередь —
+продаж (`worker-sales`), а не общая: минуты модели не держат воркер доноров, а сборка не ждёт за прогоном.
 Отказ подключения — до очереди задач, 409 словами: человек видит его у кнопки, а не в итоге
 задачи через минуты.
 
@@ -26,7 +27,7 @@ from backend.features.core.models.access import UserModel
 from backend.features.sales import chain, connection, queue
 from backend.features.sales.models import SalesHypothesisModel
 from backend.features.sales.queue_jobs import QUEUE_JOB
-from backend.shared.queue import runs_queue, with_retries
+from backend.shared.queue import sales_queue, with_retries
 
 #: Без префикса и меток: роутер входит в роутер раздела (`routes.py`) — как цепочка.
 router = APIRouter()
@@ -97,7 +98,7 @@ async def build_queue(
     """Поставить сборку в очередь задач. Ничего не отправляет."""
     await chain.known(session, body.hypothesis_id)
     await connection.check(session, queue.WHAT)
-    job = runs_queue().enqueue(QUEUE_JOB, body.hypothesis_id, body.limit, **with_retries())
+    job = sales_queue().enqueue(QUEUE_JOB, body.hypothesis_id, body.limit, **with_retries())
     hypothesis = await session.get(SalesHypothesisModel, body.hypothesis_id)
     await AccessRepository(session).record(
         AuditAction.RUN_STARTED,
