@@ -10,7 +10,6 @@ from pydantic import BaseModel, Field
 from backend.config import outreach as cfg
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.letters import compose, template, unknown_outcome
-from backend.features.letters.batch import BATCH_MAX
 from backend.features.letters.chain import MAX_STEPS, cadence
 from backend.features.letters.draft import Draft, default_draft
 from backend.features.letters.repository import QueuedLetter
@@ -225,8 +224,9 @@ class LettersView(BaseModel):
     queued_total: int
     #: Сколько писем берёт одна пачка «Отправить очередь» (`batch.BATCH_MAX`). Отдаёт
     #: сервер: окно подтверждения называет его, когда очередь длиннее пачки, а копия
-    #: числа во фронте разошлась бы с пачкой при первой правке.
-    batch_max: int = BATCH_MAX
+    #: числа во фронте разошлась бы с пачкой при первой правке. Ставит маршрут — из того
+    #: же места, что и число в ответе пачки (`SendQueueQueued.queued`).
+    batch_max: int
 
 
 class BuildRequestBody(BaseModel):
@@ -267,7 +267,8 @@ class SendQueueQueued(BaseModel):
     """Пачка ушла в очередь задач: письма уходят по одному, минутами."""
 
     job_id: str
-    #: Сколько писем ждёт в очереди этапа. Уйдёт не больше, чем позволит
+    #: Сколько писем возьмёт пачка: очередь этапа, но не больше потолка пачки, — то же
+    #: число, что «Отправить N» в окне подтверждения. Уйдёт не больше, чем позволит
     #: дневной лимит ящиков, — итог скажет строка задачи.
     queued: int
 

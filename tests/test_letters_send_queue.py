@@ -20,6 +20,7 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.letters import batch
+from backend.features.letters.repository import LetterRepository
 from backend.features.letters.sending import SendError, SuppressedError
 from backend.features.letters.transport import NullTransport, Outgoing, TransportError
 from backend.shared.queue import SEND_QUEUE_JOB
@@ -253,6 +254,73 @@ class TestTheRoute:
         assert path == SEND_QUEUE_JOB
         bound = inspect.signature(send_jobs.send_letter_queue).bind(*args)
         assert bound.arguments == {"stage": "donors", "author_id": user.id}
+
+    async def test_the_notice_names_what_the_window_names(
+        self,
+        client: AsyncClient,
+        session: AsyncSession,
+        filled_legal: None,
+        queue: FakeQueue,
+        make_user: MakeUser,
+        sign_in: SignIn,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """«Пачка ушла: писем N» — то же N, что «Отправить N» в окне: очередь этапа, но не
+        больше потолка пачки. Потолок у окна и у ответа пачки — одно число: подменённый,
+        он виден обоим."""
+        monkeypatch.setattr(batch, "BATCH_MAX", 3)
+        await _queue(session, 5)
+        await make_user("отправитель@site.com", role=UserRole.ADMIN)
+        token = await sign_in("отправитель@site.com")
+
+        view = (await client.get("/api/letters", headers=bearer(token))).json()
+        response = await client.post(
+            "/api/letters/send-queue", json={"stage": "donors"}, headers=bearer(token)
+        )
+
+        assert (view["queued_total"], view["batch_max"]) == (5, 3)
+        assert response.json()["queued"] == min(view["queued_total"], view["batch_max"]) == 3
+
+    async def test_a_queue_longer_than_the_list_is_named_whole(
+        self,
+        client: AsyncClient,
+        session: AsyncSession,
+        filled_legal: None,
+        queue: FakeQueue,
+        make_user: MakeUser,
+        sign_in: SignIn,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Очередь длиннее списка на экране, но не длиннее пачки: ответ пачки называет всю
+        очередь — тем же счётом, что окно (`queued_count`), а не длиной списка."""
+        shown = inspect.signature(LetterRepository.queued).parameters["limit"].default
+        monkeypatch.setattr(batch, "BATCH_MAX", shown + 5)
+        domain = DomainModel(host="long-queue.example.test")
+        campaign = CampaignModel(stage=Stage.DONORS, name="Длинная очередь", status="running")
+        session.add_all([domain, campaign])
+        await session.flush()
+        session.add_all(
+            MessageModel(
+                campaign_id=campaign.id,
+                domain_id=domain.id,
+                status=MessageStatus.QUEUED,
+                subject="Made-up subject",
+                body="Made-up body",
+                idempotency_key=f"made-up:long-queue:{number}:0",
+            )
+            for number in range(shown + 1)
+        )
+        await session.commit()
+        await make_user("отправитель@site.com", role=UserRole.ADMIN)
+        token = await sign_in("отправитель@site.com")
+
+        view = (await client.get("/api/letters", headers=bearer(token))).json()
+        response = await client.post(
+            "/api/letters/send-queue", json={"stage": "donors"}, headers=bearer(token)
+        )
+
+        assert (len(view["letters"]), view["queued_total"]) == (shown, shown + 1)
+        assert response.json()["queued"] == view["queued_total"]
 
     async def test_empty_queue_is_refused_in_words(
         self,

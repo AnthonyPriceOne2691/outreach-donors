@@ -187,14 +187,14 @@
       "worst": "—"
     },
     "backend/api/letters/routes.py": {
-      "lines": 293,
+      "lines": 298,
       "complexity": 5,
-      "worst": "build:92"
+      "worst": "build:93"
     },
     "backend/api/letters/schemas.py": {
-      "lines": 341,
+      "lines": 342,
       "complexity": 5,
-      "worst": "followups_for:89"
+      "worst": "followups_for:88"
     },
     "backend/api/main.py": {
       "lines": 13,
