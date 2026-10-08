@@ -206,6 +206,7 @@ class SalesReplies:
         verifier: Callable[[], EmailVerifier] | None = None,
         threshold: float | None = None,
         now: datetime | None = None,
+        last_try: bool = False,
     ) -> None:
         self._session = session
         self._repo = ReplyRepository(session)
@@ -214,6 +215,8 @@ class SalesReplies:
         self._verifier = verifier
         self._threshold = cfg.REPLY_CONFIDENCE if threshold is None else threshold
         self._now = now
+        #: Последняя попытка задачи очереди: повтора после временного отказа модели не будет.
+        self._last_try = last_try
 
     def _moment(self) -> datetime:
         return self._now or datetime.now(UTC)
@@ -358,9 +361,16 @@ class SalesReplies:
         """Модель не ответила: вида нет, ответ ждёт человека с причиной.
 
         Это записка, а не снимок вида: `kind` пуст, и следующая попытка —
-        повтор задачи или ручная постановка — разберёт ответ заново.
+        повтор задачи или ручная постановка — разберёт ответ заново. Повтор
+        записка обещает, только если он будет: на последней попытке задачи —
+        «повторы кончились».
         """
-        then = "разберите вручную" if missing.permanent else "задача попробует ещё раз"
+        if missing.permanent:
+            then = "разберите вручную"
+        elif self._last_try:
+            then = "повторы кончились — разберите вручную"
+        else:
+            then = "задача попробует ещё раз"
         reason = f"{missing.reason} — {then}"
         decision = Decision(Route.MANUAL, True, reason)
         note = {"kind": None, "refusal": missing.reason, "prompt_version": PROMPT_VERSION}

@@ -9,7 +9,8 @@
 к ответу (ответ ждёт человека с причиной), а временный отказ поднимается
 исключением: очередь повторит задачу (`queue.RETRY_INTERVALS`), и удачная
 попытка запишет вид поверх записки. Постоянный отказ (ключ, права) —
-итог с причиной: повтор его не исправит.
+итог с причиной: повтор его не исправит. На последней попытке записка
+говорит «повторы кончились — разберите вручную»: обещанного повтора не будет.
 
 **Передача лида — после коммита ответа.** «Хочет говорить» передаётся телемаркетологу
 (`SalesReplies.pass_on` → `handoff.start`) уже после записи вида: передача коммитит
@@ -66,7 +67,13 @@ def sales_reply(reply_id: int) -> dict[str, Any]:
 
 
 async def handle(reply_id: int) -> dict[str, Any]:
-    """Тело задачи: свой движок базы на свой цикл событий (как у `jobs.py`)."""
+    """Тело задачи: свой движок базы на свой цикл событий (как у `jobs.py`).
+
+    Последняя ли попытка — до разбора: записка об отказе модели не обещает повтор, которого
+    не будет. Повторов не осталось (rq: `retries_left` ноль или пусто) или задача запущена
+    не из очереди (консоль, тест) — повторять некому, это последняя попытка."""
+    job = get_current_job()
+    last_try = job is None or not job.retries_left
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     classifier = KindClient()
@@ -75,7 +82,9 @@ async def handle(reply_id: int) -> dict[str, Any]:
     http = httpx.AsyncClient()
     try:
         async with factory() as session:
-            sales = SalesReplies(session, classifier, verifier=lambda: build_verifier(http))
+            sales = SalesReplies(
+                session, classifier, verifier=lambda: build_verifier(http), last_try=last_try
+            )
             handled = await sales.handle(reply_id)
             await session.commit()
             handled = await sales.pass_on(handled)
@@ -89,7 +98,6 @@ async def handle(reply_id: int) -> dict[str, Any]:
         return handled.as_report
     if missing.permanent:
         return {**handled.as_report, "error": missing.reason, "permanent": True}
-    job = get_current_job()
     if job is not None:
         remember_job_error(job.id, missing.reason)
     raise ModelUnavailableError(f"ответ №{reply_id}: {missing.reason}")
