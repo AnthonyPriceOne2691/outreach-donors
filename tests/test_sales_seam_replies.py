@@ -48,8 +48,9 @@ from tests.test_sales_reply_routing import (
 )
 from tests.test_sales_soft_signals import _box, _journal
 from tests.test_sales_stage_bridge import FakeSalesMail
+from tests.test_sales_switch import sales_switched_on
 
-__all__ = ["queues", "secret"]  # подставные очереди вебхука и подпись адреса ответа — 2.1
+__all__ = ["queues", "sales_switched_on", "secret"]  # очереди вебхука, продажи, подпись (2.1)
 
 
 # --- B1: вебхук ----------------------------------------------------------------------------

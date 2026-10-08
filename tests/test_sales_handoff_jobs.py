@@ -28,7 +28,10 @@ from backend.workers import health, reaper, ticker
 from redis.exceptions import ConnectionError as RedisConnectionError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tests.test_sales_handoff_rows import sales_dialog
+from tests.test_sales_switch import sales_switched_on
 from tests.test_sales_telegram import PERSONAL, TOKEN, Recorder, ok
+
+__all__ = ["sales_switched_on"]  # продажи включены: путь вида ответа и передачи лида
 
 ROOT = Path(__file__).resolve().parents[1]
 

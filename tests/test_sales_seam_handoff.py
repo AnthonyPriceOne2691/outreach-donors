@@ -33,9 +33,10 @@ from tests.test_sales_handoff import (
     sent,
 )
 from tests.test_sales_handoff_rows import Dialog, answer, sales_dialog
+from tests.test_sales_switch import sales_switched_on
 from tests.test_sales_telegram import PERSONAL, TOKEN, Recorder
 
-__all__ = ["alerts", "api", "http"]  # оснастка передачи: тревоги, бот продаж, клиент httpx
+__all__ = ["alerts", "api", "http", "sales_switched_on"]  # оснастка передачи; продажи включены
 
 
 class _Killed(BaseException):

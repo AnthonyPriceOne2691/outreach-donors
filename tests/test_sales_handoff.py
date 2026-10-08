@@ -43,7 +43,10 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.test_sales_handoff_rows import Dialog, answer, sales_dialog
+from tests.test_sales_switch import sales_switched_on
 from tests.test_sales_telegram import GROUP, PERSONAL, TOKEN, Recorder, ok, refused
+
+__all__ = ["sales_switched_on"]  # продажи включены: путь вида ответа и передачи лида
 
 NOW = datetime(2026, 10, 15, 11, 23, 17, tzinfo=UTC)
 APP = "https://app.example.test"
