@@ -86,6 +86,9 @@ class TestDecisions:
         )
 
         assert (missing.status_code, blank.status_code) == (422, 422)
+        # Словами ядра, а не списком полей проверки: правило одно у экрана и API.
+        no_reason = "Отклонить черновик можно только с причиной"
+        assert (missing.json()["detail"], blank.json()["detail"]) == (no_reason, no_reason)
         assert rejected.status_code == 200, rejected.text
         shown = rejected.json()
         assert (shown["status"], shown["reject_reason"]) == ("rejected", "тон не тот")

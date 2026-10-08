@@ -100,11 +100,6 @@ def test_c1_start_says_in_words_that_the_sales_agent_is_on(
 # --- G1: отказ словами -----------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="общий код: api/agent/schemas.RejectDraftBody отказывает без причины проверкой поля "
-    "(английский список), а не словами ядра — правка в отчёте R3, G1",
-)
 @pytest.mark.parametrize("body", [{}, {"reason": "   "}], ids=["no-reason", "blank-reason"])
 async def test_g1_reject_without_a_reason_is_422_in_words(
     client: AsyncClient, make_user: MakeUser, sign_in: SignIn, body: dict[str, str]
