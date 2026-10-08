@@ -1,4 +1,4 @@
-"""Лид, гипотеза, стоп-лист, база знаний, отправитель, цепочка писем, передача лида — свои таблицы.
+"""Лид, гипотеза, стоп-лист, база знаний, отправитель, цепочка писем, диалог и передача — таблицы модуля.
 
 **Лид — своя таблица, а не колонки `contacts`.** Имя, должность и компания —
 сущность продаж; донорская таблица адресов о них не знает. Почтовые сущности
@@ -310,6 +310,48 @@ class SalesChainTemplateModel(TimestampedMixin, Base):
         CheckConstraint(
             "(step = 1) = (subject IS NOT NULL)", name="ck_sales_chain_templates_subject"
         ),
+    )
+
+
+#: Ширина версии цепочки: `chain-` и двенадцать знаков отпечатка (`chain.version_of`).
+VERSION_LENGTH = 32
+
+
+class SalesThreadModel(TimestampedMixin, Base):
+    """Диалог продаж и его лид: кому письмо, каким набором цепочки и какой её версией.
+
+    **Связь явная, а не поиском по домену и адресу.** Строки `contacts` у диалога продаж
+    нет — адрес лида живёт у лида (решение 01.10), и два лида одной компании — два
+    диалога одного домена: по домену их не различить. Заводит связь сборка очереди
+    продаж (`sales/queue.py`); по ней отправка находит адрес лида, добивка — набор и
+    язык цепочки первого письма (шаги наборов не смешиваются), передача — лида.
+
+    **Один диалог на лида** (ключ `lead_id`): второе первое письмо тому же человеку —
+    жалоба на спам. Диалог уходит только липовым (чистка аутрича) — связь с ним
+    каскадом; лида и гипотезу с диалогом удалить нельзя.
+    """
+
+    __tablename__ = "sales_threads"
+
+    thread_id: Mapped[int] = mapped_column(
+        ForeignKey("threads.id", ondelete="CASCADE"), primary_key=True, autoincrement=False
+    )
+    lead_id: Mapped[int] = mapped_column(
+        ForeignKey("sales_leads.id", ondelete="RESTRICT"), nullable=False
+    )
+    #: Набор цепочки первого письма: гипотеза или общий (пусто) — добивки берут его же.
+    chain_hypothesis_id: Mapped[int | None] = mapped_column(
+        ForeignKey("sales_hypotheses.id", ondelete="RESTRICT"), nullable=True
+    )
+    #: Язык цепочки — код, как у шаблонов: `ru`, `en`.
+    language: Mapped[str] = mapped_column(String(LANGUAGE_LENGTH), nullable=False)
+    #: Версия цепочки, которой написано первое письмо: по ней калибровка узнаёт текст.
+    chain_version: Mapped[str] = mapped_column(String(VERSION_LENGTH), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("lead_id", name="uq_sales_threads_lead"),
+        # Без индекса проверка запрета на удаление гипотезы читала бы всю таблицу.
+        Index("idx_sales_threads_chain_hypothesis", "chain_hypothesis_id"),
     )
 
 

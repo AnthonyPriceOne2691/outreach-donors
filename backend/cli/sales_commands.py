@@ -14,11 +14,12 @@ import argparse
 from collections.abc import Callable, Coroutine
 from typing import Any
 
-from backend.cli import sales, sales_telegram
+from backend.cli import sales, sales_queue, sales_telegram
 from backend.features.core.stages import SalesNotConnectedError
 
-#: Этап продаж: почта его ещё не ведёт (`core/stages.py`). Код — свой, как у
-#: каждого вида отказа в `main.py`: скрипт различает его кодом, человек — текстом.
+#: Этап продаж там, где почта его не ведёт или продажи не подключены (`core/stages.py`).
+#: Код — свой, как у каждого вида отказа в `main.py`: скрипт различает его кодом,
+#: человек — текстом.
 EXIT_NOT_CONNECTED = 9
 
 #: Отказ → код выхода и подпись; вливается в перечень отказов `main.py`.
@@ -34,6 +35,7 @@ COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] = 
     "sales-clean": sales.cmd_sales_clean,
     "sales-kb-load": sales.cmd_sales_kb_load,
     "sales-chain-load": sales.cmd_sales_chain_load,
+    "sales-queue": sales_queue.cmd_sales_queue,
     "sales-telegram-chat-id": sales_telegram.cmd_sales_telegram_chat_id,
 }
 
@@ -44,6 +46,7 @@ KEPT_ON_INTERRUPT: dict[str, str] = {
     "sales-clean": "Записанные партии остались в базе; повторный проход продолжит с лидов `new`.",
     "sales-kb-load": "База знаний пишется одной транзакцией: в базе ничего не осталось.",
     "sales-chain-load": "Цепочка писем пишется одной транзакцией: в базе ничего не осталось.",
+    "sales-queue": "Письма, собранные до прерывания, остались в очереди; повтор продолжит с остальных.",
     "sales-telegram-chat-id": "Команда только читает: в базе и в Telegram ничего не изменилось.",
 }
 
@@ -51,4 +54,5 @@ KEPT_ON_INTERRUPT: dict[str, str] = {
 def add_parsers(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     """Разбор аргументов всех команд продаж."""
     sales.add_parser(sub)
+    sales_queue.add_parser(sub)
     sales_telegram.add_parser(sub)

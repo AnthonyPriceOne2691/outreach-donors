@@ -39,6 +39,7 @@ import { Metric } from '../components/Metric';
 import { useTyped } from '../donors/useTyped';
 import { formatNumber } from '../format';
 import { ChainPane } from './ChainPane';
+import { FunnelPane } from './FunnelPane';
 import { HypothesesTable } from './HypothesesTable';
 import { useKb } from './kbData';
 import { KbPane } from './KbPane';
@@ -53,6 +54,7 @@ import {
 import type { LeadFilters, SalesTab } from './leadFilters';
 import { LeadsPane, pageBack, useLeads } from './LeadsPane';
 import { Pending } from './Pending';
+import { QueuePane } from './QueuePane';
 import { SenderPane } from './SenderPane';
 
 export const HYPOTHESES_QUERY_KEY = ['sales', 'hypotheses'] as const;
@@ -211,6 +213,8 @@ export function SalesPage() {
     kb: () => <KbPane />,
     sender: () => <SenderPane />,
     chain: () => <ChainPane hypotheses={known} />,
+    queue: () => <QueuePane hypotheses={known} />,
+    funnel: () => <FunnelPane hypotheses={known} />,
   };
 
   return (

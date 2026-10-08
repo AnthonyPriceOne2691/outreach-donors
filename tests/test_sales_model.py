@@ -36,6 +36,7 @@ JOURNAL = ROOT / "backend/migrations/versions/1f7b0ee634c2_sales_leads_imported_
 DEPENDENTS = (
     ROOT / "backend/migrations/versions/723e3ddab31f_sales_chain_templates.py",
     ROOT / "backend/migrations/versions/a9e76c0eb5b0_sales_handoffs.py",
+    ROOT / "backend/migrations/versions/fa927869a835_sales_threads.py",
 )
 TABLES = ("sales_hypotheses", "sales_leads")
 TYPES = ("sales_lead_source", "sales_lead_status")

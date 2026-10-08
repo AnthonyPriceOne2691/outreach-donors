@@ -283,17 +283,18 @@ def step_template(
     return StepTemplate(number, code, title, _canonical(zones), zones, bool(active))
 
 
-def _squashed(text: str) -> str:
+def squashed(text: str) -> str:
+    """Текст без различий в пробелах и регистре — для сверки с настройками отправителя."""
     return " ".join(text.split()).casefold()
 
 
 def unsigned(new: StepTemplate, found: Sender) -> None:
     """Подпись и адрес из настроек отправителя в тексте не повторяются: их допишет сборка,
     и в письме они встали бы дважды."""
-    body = _squashed(new.body)
+    body = squashed(new.body)
     for name, words in (("signature", "подпись"), ("physical_address", "физический адрес")):
         value = found.values.get(name)
-        if value and _squashed(value) in body:
+        if value and squashed(value) in body:
             raise ChainError(
                 f"в тексте — {words} из настроек отправителя: сборка допишет это сама, "
                 "и в письме оно встало бы дважды; уберите из шаблона"

@@ -137,6 +137,11 @@ async def test_dialogs_show_a_sales_thread_with_its_own_state_and_reason(
     assert incoming["lead"] is False
 
 
+def test_sales_reason_does_not_say_waits_twice() -> None:
+    """Карточка ответа пишет «Ждёт человека: {причина}.» — причина без второго «ждёт»."""
+    assert "ждёт" not in SALES_WAITING.lower()
+
+
 # --- отбор прогона ---------------------------------------------------------------------------
 
 

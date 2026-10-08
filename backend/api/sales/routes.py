@@ -16,8 +16,9 @@
 параметров — те же, что в адресе. Логика чтения — `features/sales/browse.py`.
 
 **База знаний и отправитель** (срез 3.1) — своим модулем `kb.py`, **цепочка писем**
-(срез 4.6) — модулем `chain.py`; их маршруты входят в этот же роутер: у раздела один
-префикс и одно право.
+(срез 4.6) — модулем `chain.py`, **очередь писем** (срез 4.6b) — модулем `queue.py`,
+**воронка** (срез 5.4) — модулем `funnel.py`; их маршруты входят в этот же роутер: у раздела
+один префикс и одно право.
 """
 
 from __future__ import annotations
@@ -33,7 +34,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
 from backend.api.sales import chain as chain_routes
+from backend.api.sales import funnel as funnel_routes
 from backend.api.sales import kb as kb_routes
+from backend.api.sales import queue as queue_routes
 from backend.api.sales.schemas import HypothesesView, HypothesisCard, IntakeView, LeadsView
 from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
@@ -163,3 +166,5 @@ async def list_leads(
 
 router.include_router(kb_routes.router)
 router.include_router(chain_routes.router)
+router.include_router(queue_routes.router)
+router.include_router(funnel_routes.router)

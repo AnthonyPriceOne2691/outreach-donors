@@ -35,8 +35,8 @@ Telegram: ссылка на сделку нужна в сообщении. Со�
 Захват задачи, умершей посреди работы, переходит к следующей через
 `HANDOFF_CLAIM_SEC`.
 
-**Цепочка писем этому человеку** — шов `handed_off(session, lead_id)`: цепочки
-продаж ещё нет (4.6b), её сборка обязана спросить его — заложено.
+**Цепочка писем этому человеку** — шов `handed_off(session, lead_id)`: его спрашивают
+сборка очереди продаж и отправка (4.6b) — переданному лиду письма и добивки не идут.
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from redis.exceptions import RedisError
-from sqlalchemy import exists, func, or_, select, update
+from sqlalchemy import ColumnElement, Exists, exists, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -69,6 +69,7 @@ from backend.features.sales.models import (
     SalesHandoffModel,
     SalesHypothesisModel,
     SalesLeadModel,
+    SalesThreadModel,
 )
 from backend.features.sales.telegram import SalesBot, TelegramError
 from backend.shared.alerts import send_alert
@@ -156,13 +157,22 @@ async def start(
 
 
 async def lead_of(session: AsyncSession, thread_id: int) -> SalesLeadModel:
-    """Лид продаж диалога: тот же домен и тот же человек — ссылкой на адрес или почтой.
+    """Лид продаж диалога: по явной связи, а без неё — тот же домен и тот же человек.
 
-    Прямой связи диалога с лидом нет; лид и диалог ссылаются на общие `domains`
-    и `contacts`, а ссылка лида на адрес обнуляется, когда адрес удаляют у доноров, —
-    тогда человека узнаём по почте. Отсеянные лиды не в счёт: им не писали. Ноль или
-    больше одного — громкий отказ с номерами: угадывать, кому передавать, нельзя.
+    Диалог, начатый сборкой продаж, знает своего лида явно (`sales_threads`, 4.6b): адреса
+    `contacts` у него нет, и два лида одной компании — два диалога одного домена. Лиду по
+    связи писали, даже если позже его отсеяли, — передаётся он. Диалог без связи (начатый
+    до сборки продаж) — по домену и адресу: ссылкой на `contacts` или почтой; отсеянные
+    не в счёт — им не писали. Ноль или больше одного — громкий отказ с номерами:
+    угадывать, кому передавать, нельзя.
     """
+    linked = await session.scalar(
+        select(SalesLeadModel)
+        .join(SalesThreadModel, SalesThreadModel.lead_id == SalesLeadModel.id)
+        .where(SalesThreadModel.thread_id == thread_id)
+    )
+    if linked is not None:
+        return linked
     thread = await session.get(ThreadModel, thread_id)
     if thread is None:
         raise HandoffError(f"диалога №{thread_id} нет — передавать нечего")
@@ -200,10 +210,15 @@ async def lead_of(session: AsyncSession, thread_id: int) -> SalesLeadModel:
     return leads[0]
 
 
+def handed_off_rule(lead_id: ColumnElement[int] | int) -> Exists:
+    """Передан ли лид — условием запроса: передача заведена. Одно правило у шва цепочки
+    (`handed_off`) и у воронки (`funnel.py`): переданный, которому не пишут, — он же «передан»."""
+    return exists().where(SalesHandoffModel.lead_id == lead_id)
+
+
 async def handed_off(session: AsyncSession, lead_id: int) -> bool:
     """Передан ли лид телемаркетологу. Шов цепочки продаж (4.6b): переданному — не писать."""
-    found = await session.scalar(select(exists().where(SalesHandoffModel.lead_id == lead_id)))
-    return bool(found)
+    return bool(await session.scalar(select(handed_off_rule(lead_id))))
 
 
 async def _handoff_of(session: AsyncSession, thread_id: int, lead_id: int) -> SalesHandoffModel:

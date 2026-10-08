@@ -1,5 +1,6 @@
 /**
- * Продажи: гипотезы, лиды, загрузка базы, база знаний, отправитель и цепочка писем.
+ * Продажи: гипотезы, лиды, загрузка базы, база знаний, отправитель, цепочка писем,
+ * очередь писем и воронка.
  *
  * Списки — обычным `request`. Загрузка — файлом или ссылкой на Google-таблицу
  * формой `multipart/form-data` (контракт сервера 1.3c): байты файла уходят как
@@ -30,9 +31,13 @@ import type {
   LeadField,
   LeadState,
   LeadsView,
+  SalesFunnelView,
+  SalesQueueBody,
+  SalesQueueView,
   SenderBody,
   SenderView,
 } from './salesTypes';
+import type { BuildQueued } from './types';
 
 /** Фильтры под колонками и страница. Размера страницы здесь нет: его называет
  *  сервер и возвращает в ответе (`limit`). Имена — те же, что в адресе экрана. */
@@ -175,4 +180,32 @@ export function saveChainStep(body: ChainStepBody): Promise<ChainStepCard> {
 /** Письмо глазами адресата: выдуманные значения, подпись и адрес из настроек. Без записи. */
 export function previewChainStep(body: ChainPreviewBody): Promise<ChainPreviewView> {
   return request<ChainPreviewView>('/sales/chain/preview', { method: 'POST', body });
+}
+
+/** Очередь писем продаж гипотезы: подключены ли продажи, цепочки, сколько ждёт. */
+export function readSalesQueue(hypothesis: number): Promise<SalesQueueView> {
+  return request<SalesQueueView>(`/sales/queue?hypothesis=${hypothesis}`);
+}
+
+/** Поставить сборку очереди в очередь задач. Ничего не отправляет. */
+export function buildSalesQueue(body: SalesQueueBody): Promise<BuildQueued> {
+  return request<BuildQueued>('/sales/queue', { method: 'POST', body });
+}
+
+/** Запрос воронки: гипотеза и период — моменты ISO с поясом, `until` не включая.
+ *  Незаданное условие в адрес не пишется: без него — все гипотезы и всё время. */
+export interface FunnelQuery {
+  hypothesis?: number;
+  since?: string;
+  until?: string;
+}
+
+/** Воронка продаж: лиды на каждом шаге по гипотезам и итог — за период. Без записи. */
+export function readSalesFunnel(query: FunnelQuery): Promise<SalesFunnelView> {
+  const params = new URLSearchParams();
+  if (query.hypothesis !== undefined) params.set('hypothesis', String(query.hypothesis));
+  if (query.since !== undefined) params.set('since', query.since);
+  if (query.until !== undefined) params.set('until', query.until);
+  const search = params.toString();
+  return request<SalesFunnelView>(search === '' ? '/sales/funnel' : `/sales/funnel?${search}`);
 }

@@ -1,460 +1,594 @@
-# Verify-report — срез 5.3 `sales-handoff` (черновик; перенос на main 07.10)
+# Verify report
 
-**Поставка:** срез `sales-handoff` (модуль «Продажи», 5.3) — передача лида телемаркетологу: сделка в Kommo, сообщение
-в Telegram, запасной путь, повторы. Одним PR под постоянный вейвер владельца для модульных срезов продаж (строку
-`waivers:` пишет координатор).
+**Поставка:** модуль «Продажи» одним PR — срез 4.6b, модульная часть (очередь продаж и отправка цепочки: диалог с лидом,
+подключение, письмо, сборка, API, консоль, вкладка «Очередь писем»; модуль отвечает мосту почты по его договору) и
+срез 5.4 (воронка продаж по гипотезам и периоду). Обе части перенесены на голову стопки: main с мостом почты (договор
+#211/#216), окнами получателя и лимитами (#219); разбор ответов продаж (Ф2); передача лида (5.3).
 
-**Date:** 2026-10-07
-**Verifier:** process:ci — обязательные `check`, `web`, `docker`, на PR ещё `gates` и `delivery`; покрытие — необязательные `coverage` и `diff-coverage` (#199); до пуша — локальные прогоны ниже; общие точки — на ревью соседней сессии outreach-donors
-**asserts_reviewed_by:** deferred reason=214 утверждений, 213 без ссылки на пример спеки ждут подписи человека: тесты примеров названы `test_a1_…`–`test_a6_…` строчными, дайджест их не связывает; подписывает владелец при ревью, дайджест в конце
+**Date:** 2026-10-08
+**Verifier:** process:ci (на PR); до пуша — локальные прогоны ниже
+**asserts_reviewed_by:** deferred reason=утверждения тестов частей без ссылки на пример спеки в теле (пример назван именем теста, id S/F — в спеке); подписывает ревьюер или владелец при ревью, дайджест — в конце отчёта
 **CI run:** нет — снимается на PR
-**Commit:** ветка `sales/5.3-handoff-0710` на main `9ee3d9e` (1.1b целиком), голова `4705e52`; все прогоны ниже — на `4705e52`
+**Commit:** `9235098` — голова PR (голова части 5.4), ветка `sales/4.6b-5.4-0710` (не запушена); база PR — голова стопки
+словами выше. Головы частей: 4.6b `3daa0ae` (восемь коммитов), 5.4 `9235098` (двенадцать). Перенос — cherry-pick по
+порядку, конфликты по смыслу; временные копии Ф2 из ветки 5.4 не перенесены.
 
-Дерево `sales-n`. Перенос: `sales/5.3-handoff` (`3199b64` на `05d75d9`) → `sales/5.3-handoff-main` (`70776fe` на
-`1fd24ca`, утро 07.10) → `sales/5.3-handoff-0710` (`4705e52` на `9ee3d9e`, вечер 07.10) — cherry-pick'ом по порядку.
-Логи вечернего переноса — `logs/main-0710b/`, утреннего — `logs/main-0710/`, 06.10 — `logs/`.
+## Shape oracles (на головах частей)
 
-## Перенос на main 07.10, вечер (`9ee3d9e`) — конфликты и как разрешены
-
-| Файл | Конфликт | Решение |
+| Проверка | 4.6b `3daa0ae` | 5.4 `9235098` (голова PR) |
 |---|---|---|
-| `backend/cli/sales_commands.py` | 1.1b добавил `FAILURES` и `EXIT_NOT_CONNECTED` (отказ этапу продаж в общих командах) на место импортов | обе стороны: импорт `sales, sales_telegram` и `SalesNotConnectedError`, `FAILURES` 1.1b не тронут; команда — в `COMMANDS`, `KEPT_ON_INTERRUPT`, `add_parsers` |
-| `.secrets.baseline` | соседние записи | сторона main + `detect-secrets scan --baseline .secrets.baseline`; итог против main: +запись `a9e76c0eb5b0`, `tests/conftest.py` 380 → 391 |
-| `delivery/complexity-snapshot.json` | соседние записи | сторона main + `scripts/complexity.py --update` |
-| миграция `a9e76c0eb5b0` | без конфликта, но на старой голове | `Revises`/`down_revision` → `39e342cb2b21` (значение `sales` типа этапа); `alembic heads` — одна голова |
-| `tests/test_sales_handoff_rows.py` | без конфликта, по смыслу (стык с 1.1b) | диалог тестов — рассылка `Stage.SALES` вместо `Stage.ADVERTISERS` (`4705e52`); передача этап не читает |
+| `mypy backend` (strict; модуль `sales/mail.py` сверяется с протоколом `SalesMail` вместе с `policy`) | 0 (411 файлов) | 0 (413) |
+| `ruff check` / `ruff format --check` | 0 / 0 | 0 / 0 |
+| `scripts/gates.py --commits <база части>` (public-repo — и по сообщениям коммитов) | 0 (696 файлов, 8 сообщений) | 0 (702 файла, 12 сообщений); против базы PR — 0 (20 сообщений) |
+| `lint-imports` (4 контракта, `mail-does-not-know-sales` — kept) | 0 | 0 |
+| `scripts/complexity.py` (ратчет) | 0 (429 файлов) | 0 (432) |
+| гейт дублей jscpd | 0 (55 пар = снимок) | 0 (55) |
+| `alembic heads` (одна) | `fa927869a835` | `fa927869a835` |
+| шаг образа (`docker_step_local.py`) | 0 | 0 |
+| `tsc --noEmit` / ESLint / Prettier (раздел продаж и его клиент) | 0 / 0 / 0 | 0 / 0 / 0 |
+| хуки pre-commit на коммитах | Passed — коммиты с конфликтами шли через `git commit`; перенесённые без конфликтов — `pre-commit run --from-ref … --to-ref …` по их файлам | Passed — так же |
+| `pre-commit run --all-files` | — | 27 хуков Passed, правок нет, 52 с — 0 (нагрузка 5,1; чужих полных прогонов не было — дождался конца чужого `pytest --cov`) |
 
-`core/models/__init__.py`, `tests/test_schema.py`, `tests/conftest.py`, `tests/test_prune_test_traces.py` смержились без
-конфликта: main их с `1fd24ca` не менял (кроме реестра — тесты, не `REVIEWED`); строка второго реестра на месте.
-`git range-diff 1fd24ca..70776fe origin/main..4705e52~1`: коммиты 3–10 равны, T1 и T2 — разрешения выше и сообщения
-под новую базу.
+## Behavior oracles
 
-**Стык с 1.1b.** Передача этап не читает; «ответ продаж» берёт тем же правилом, что main для `Stage.SALES`
-(`ReplyKind.HUMAN` — `outreach/threads.py::_answered`, `review_of`). Пробник на базе (не коммитился): диалог продаж с
-ответом человека до передачи — `sales_pending` (`review_of`: ждёт, «ответ продаж ждёт разбора: продажи к почте ещё не
-подключены»), передача — `done/sent`, после — снова `sales_pending`, `reviewed_at` пуст. На `sales_pending` передача
-срабатывать не должна: это любой неразобранный ответ человека в треде продаж, а передача — только «хочет говорить»
-(2.2, 3.2). Нового пути нет.
-
-## Перенос на main 07.10, утро (`1fd24ca`) — конфликты и как разрешены
-
-| Файл | Конфликт | Решение |
+| Проверка | 4.6b `3daa0ae` | 5.4 `9235098` |
 |---|---|---|
-| `backend/features/sales/models.py` | #180 добавил `SalesChainTemplateModel` на то же место | оба блока: цепочка, затем передача; заголовок модуля — обе таблицы; импорты `BigInteger` и `SmallInteger` |
-| `backend/features/core/models/__init__.py` | экспорт `SalesChainTemplateModel` | оба экспорта по алфавиту |
-| `tests/test_schema.py` | `sales_chain_templates` в перечне | обе таблицы |
-| `tests/test_sales_model.py` | #180 ввёл `DEPENDENTS` и обход зависимых ревизий; 5.3 — своя `HANDOFFS` | один кортеж `DEPENDENTS` из двух ревизий по порядку миграций (`723e3ddab31f`, `a9e76c0eb5b0`), обход — из main |
-| `backend/cli/main.py` | #180 вынес команды продаж в `backend/cli/sales_commands.py` | сторона main (файл не тронут); команда — в `COMMANDS`, `KEPT_ON_INTERRUPT` и `add_parsers` перечня |
-| `tests/test_sales_telegram.py` | склейка соседних тестов (T2/T3) | оба теста; проверка подписи прерывания добавлена |
-| `delivery/complexity-snapshot.json` | соседние записи | сторона main + `scripts/complexity.py --update` на каждом коммите с конфликтом |
-| `.secrets.baseline` | запись ревизии `ad4a79bc6000` рядом | сторона main + `detect-secrets scan --baseline .secrets.baseline`; итог: +запись `a9e76c0eb5b0`, `tests/conftest.py` 380 → 391 |
-| миграция `a9e76c0eb5b0` | без конфликта, но на старой голове | `Revises`/`down_revision` → `cbc5aadf4fc2`; `alembic heads` — одна голова |
-| второй реестр чистки (#192) | без конфликта, но тест красный | строка `sales_handoffs.thread_id → threads CASCADE` в `tests/test_prune_test_traces.py::REVIEWED` |
+| тесты части и соседей (все `tests/test_sales_*`, `test_letters*`, `test_followups`, `test_sending_limits`, `test_api_outreach`, `test_overview`, `test_schema`, `test_prune*`, `test_migrations_match_models`, окно, сторож, учётки, исход задачи, консоль, сторож прохода, входящие, передача) | 74 файла, 1567 passed — 0 | в полном прогоне |
+| полный pytest `--cov=backend`, явный список `tests/` (264 файла) | — | **5348 passed за 8:42 — 0** (нагрузка на старте 3,9; чужих `pytest --cov` не было) |
+| vitest `--maxWorkers=2 --reporter=dot src/sales src/letters` | 12 файлов, 139 — 0 | 13 файлов, 153 — 0 |
+| diff-coverage `STRICT=1` против базы (отчёт полного прогона) | — | 0: 21 изменённый файл, наименьшее — `sales/referral.py` 87,9 %, `replies/outcome.py` 92,2 %, `sales/mail.py` 94,7 %, прочие ≥ 97 % |
 
-`git range-diff 05d75d9..3199b64 origin/main..HEAD`: коммиты 5, 6, 8, 9, 10 — равны (`=`); 1, 2, 3, 4, 7 — разрешения
-выше и контекст снимка сложности.
+**Полный pytest — честно о порядке.** Первый полный прогон стартовал на прежней голове 5.4 (нагрузка 3,9, чужих
+`--cov` нет) и был остановлен мной на 52 %: (1) пока он шёл, я запустил в том же дереве один точечный тест, а сеанс
+pytest пересоздаёт схему базы дерева при старте (`tests/conftest.py::_schema`) — полный прогон мог сломаться не по
+коду; (2) после его старта нашёлся стык с пачкой базы (число на кнопке), и код менялся. Полный прогон, который дошёл
+до конца, — один: на коде с обеими доводками (`494e24c` до перестановки коммитов), 5348 passed. Затем две доводки 4.6b
+переставлены в свою часть до 5.4 cherry-pick'ом; дерево головы `9235098` совпадает с проверенным байт в байт (хэш
+дерева `93d13899478e`), поэтому результат относится к голове PR; diff-coverage снят на том же коммите, что и
+покрытие.
 
-## Красный прогон
+**Красный прогон новых тестов** (на коде до своей правки): `test_followup_that_cannot_be_built_waits_and_is_not_a_module_failure`
+— 1 failed («ошибка модуля продаж» в журнале); `test_letter_whose_outcome_is_unknown_is_not_sent_yet` — 1 failed (своя
+копия «ушло»); `test_followup_stuck_in_the_queue_is_not_in_the_number_of_the_batch` — `(2, 2) != (1, 1)`;
+`test_referral_in_a_dialog_of_the_queue_finds_its_lead_by_the_link` — «лид исходного диалога не найден — завести
+лида … руками»; тесты окна и поясов (`test_sales_send_zones.py`) — красные без `policy` и `zones` (мутанты P1, Z1 —
+состояние до правки переноса); `test_sales_reason_does_not_say_waits_twice` — красный на прежней причине (W1).
 
-Новое при переносе (`logs/main-0710/`):
+**Мутанты переписанных при переносе мест — 18 из 18 убиты** (правка в файл, прогон тестов, откат, sha256 сверен):
 
-| Что | Прогон | Итог |
+| # | Мутант | Чем убит |
 |---|---|---|
-| второй реестр чистки без строки передачи | `tests/test_prune_test_traces.py::test_every_reference_to_what_the_trace_cleanup_deletes_is_decided` | `не разобраны: ['sales_handoffs.thread_id → threads CASCADE']`, 1 failed, exit 1 — `red-prune-test-traces.txt` |
-| перечень без подписи прерывания команды | `tests/test_sales_telegram.py::test_command_is_registered_in_the_console` | `KeyError: 'sales-telegram-chat-id'`, 1 failed, exit 1 — `red-cli-kept.txt` |
+| P1 | `policy` модуля — нынешняя политика (ни окна, ни сигналов, ни сторожа) | `test_sales_send_zones.py` |
+| P2 | `policy` без окна | `test_sales_send_zones.py` |
+| Z1 | пояса получателя почте не отданы | `test_sales_send.py` (письма ждут «пояс неизвестен»), `test_sales_send_zones.py` |
+| Z2 | пояс лида не отдан — только страны | `test_window_counts_the_zone_of_the_lead_then_of_his_country[пояс лида раньше страны]` |
+| C1 | несобираемая добивка — `NotReadyError`, как до переноса | `test_followup_that_cannot_be_built_waits_and_is_not_a_module_failure` |
+| C2 | «подключены ли» коммитит внутри ответа моста | `test_module_answers_neither_commit_nor_roll_back[connected]` |
+| C3 | проверка письма откатывает сессию внутри ответа | `test_module_answers_neither_commit_nor_roll_back[check]` |
+| H1 | отправка не спрашивает шов `handed_off` | `test_lead_handed_off_by_the_handoff_entry_gets_no_more_letters` |
+| H2 | передача ищет лида без явной связи | то же (точка входа 5.3 по диалогу без `contacts`) |
+| B1 | пачка вкладки — этапом доноров | vitest «уходит этапом продаж после подтверждения…» |
+| B2 | число на кнопке — письма гипотезы, а не этапа | vitest (5 тестов) |
+| B3 | кнопка пачки открыта при неподключённых продажах | vitest «не подключены: … кнопки закрыты» |
+| B4 | кнопка пачки без права отправки | vitest «без права на отправку кнопки пачки нет» |
+| W1 | причина ответа продаж снова с «ждёт» | `test_sales_reason_does_not_say_waits_twice` |
+| G1 | воронка считает «отправляется» ушедшим | `test_letter_whose_outcome_is_unknown_is_not_sent_yet` |
+| Q1 | число на кнопке — все письма этапа в очереди, и добивки | `test_followup_stuck_in_the_queue_is_not_in_the_number_of_the_batch` |
+| Q2 | «писем гипотезы в очереди» — и добивки | то же |
+| R1 | лид исходного диалога — только по адресу контакта (как в 2.3a) | `test_referral_in_a_dialog_of_the_queue_finds_its_lead_by_the_link` |
 
-06.10 (база `05d75d9`, код среза при переносе не менялся): T1 без модели — `ImportError` (exit 2); модель без
-миграции — 6 failed, 4 errors (`relation "sales_handoffs" does not exist`); T2, T3, T4 — `ImportError` (exit 2);
-гонка — `assert 1 == 2`. Логи — `logs/red-*.txt`.
+Мутанты неизменённого кода частей — прежние таблицы частей: 4.6b — 22 из 22 на ветке-образце и 8 из 8 на разрезе
+(адрес из `contacts`, ключ без контакта, письмо без физического адреса, добивка с темой, продажи без своей учётки,
+сроки без подключения, регистрация в мосту, пересборка ушедшего письма и др.); 5.4 — 22 из 23 убиты, один
+эквивалентный (отказ в признаке доставки).
 
-## Мутанты
+## Исполнение рисковых путей
 
-19 из 19 убиты на базе `05d75d9` (`logs/mutants.txt`): обязательные — вторая сделка на повторе (A2), тишина при отказе
-Kommo (A3), повтор записи после `KommoUnconfirmedError`, токен в тексте ошибки, копия в группу при выключенной
-настройке; ещё 14 — по правилам среза. При переносе код среза не менялся, кроме регистрации команды в перечне;
-мутанты заново не гонялись — новая проверка подписи прерывания показана красным прогоном выше.
+На голове `9235098`, at=2026-10-07T21:38Z, без базы и Redis:
 
-## Проверки (голова `4705e52`)
+- Задача сборки очереди продаж — импорт строкой пути, как берёт воркер: `backend.features.sales.queue_jobs.build_sales_queue`
+  → функция `build_sales_queue`, имя задачи на экране задач — «сборка очереди продаж»; exit 0. Ставится в общую
+  очередь `runs` прежнего воркера (`api/sales/queue.py`), не в очередь `sales` Ф2.
+- Модуль продаж подключён к мосту в процессе, который грузит модели (как API, воркер и консоль): `sales_registered()`
+  — `True`, у модуля `mail` есть все пять ответов протокола (`recipient`, `check`, `connected`, `followup`, `policy`);
+  exit 0.
+- Консоль: `outreach sales-queue --help` — exit 0; без `--hypothesis` — отказ разбора, exit 2 (до базы).
+- Compose и образ против базы не тронуты (`docker-compose.yml`, `docker-compose.prod.yml`, `Dockerfile` — диффа нет).
+- Цикл миграции `sales_threads` (вниз и вверх) — тестом на базе дерева
+  (`tests/test_sales_send_model.py::test_downgrade_drops_the_table_and_upgrade_runs_again`, в полном прогоне).
+- Сам воркер и живая задача не поднимались: общий Redis — воркер забрал бы чужие задачи. Живых писем нет.
 
-| Проверка | exit | Итог |
-|---|---|---|
-| полный `pytest -q --cov=backend --cov-report=json:coverage.json` (нагрузка 5,7 на старте, прогонов с покрытием нет — `pgrep -f "[p]ytest.*--cov"` пуст) | 0 | 4847 passed за 653 с (`logs/main-0710b/full-pytest.txt`); `coverage.json.head` = `4705e52` |
-| `check_diff_coverage.sh` как джоба `diff-coverage` (`STRICT=1 MIN_PCT=70 LINT_PY_SRC=backend LINT_BE_DIR=. LINT_COV_PKG=backend LINT_COV_FILE=coverage.json BASE=origin/main`) | 0 | 11 изменённых файлов — 100 %, `backend/workers/reaper.py` — 98,2 % (непокрыта строка `if __name__`) (`diff-coverage.txt`) |
-| тесты среза и соседей: `tests/test_sales_*.py` (вкл. `test_sales_stage_*` 1.1b), `test_prune.py`, `test_prune_test_traces.py`, `test_schema.py`, `test_migrations_match_models.py`, `test_reaper.py`, `test_workers_health.py`, `test_followups.py`, `test_cli_main.py`, `test_alerts.py`, `test_replies_rules.py`, `test_thread_answer.py`, `test_thread_replied.py` | 0 | 1003 passed за 48 с (`logs/main-0710b/slice-and-neighbours-pytest.txt`) |
-| `pre-commit run --from-ref origin/main --to-ref HEAD` | 0 | 22 хука, 25 с (`pre-commit-files.txt`); на коммитах T1, T2 и `4705e52` хуки шли при коммите |
-| ruff check / ruff format --check | 0 / 0 | чисто / 736 файлов |
-| `mypy backend/` | 0 | 383 файла |
-| `scripts/gates.py --commits origin/main` / `scripts/complexity.py` / `lint-imports` | 0 / 0 / 0 | 635 файлов и 11 сообщений коммитов (public-repo) / 399 файлов, снимок совпадает / 4 kept |
-| `alembic heads` | 0 | одна голова `a9e76c0eb5b0` (на `39e342cb2b21`) |
-| `check_irreversible_signature.sh` | 0 | подпись сходится — строка main не тронута |
-| `check_complexity_gate.sh` / `check_jscpd_gate.sh` / `BASE=origin/main check_baseline_ratchet.sh` | 0 / 0 / 0 | OK; clone-пар 38 при снимке 55; 15 снимков |
-| `detect-secrets-hook --baseline .secrets.baseline` на изменённых файлах | 0 | baseline актуален |
-| шаг образа локально: `docker_step_local.py <дерево>` + `outreach --help` | 0 / 0 | 1 шаг (шаблоны писем и промпты читаются); команда в списке (`docker-step-local.txt`) |
-| `contour_waves.py --base origin/main` — клон с черновиками, четыре строки STATUS из main `9ee3d9e` | 0 | нарушений нет («Согласовано» — заглушка координатора) |
-| `delivery_check.py --require-ci --diff-base origin/main` — тот же клон | 1 | 1 error — `net loc_diff 3315 > 800` (до `waivers:`), 5 warnings — ниже (`delivery-check-clone.txt`) |
-| vitest | — | фронт не тронут — не гонялся |
-| grep добавленных строк и сообщений коммитов | — | имена закрытых документов, слова о клиенте, имена людей, числа с разрядами, лимиты — 0 совпадений |
+## Живой прогон
+
+При переносе стенд не поднимался. Вкладки «Очередь писем» и «Воронка» мерены живьём на образцах до переноса (обе
+темы, 1440 и 390, клавиатура, контраст — все точки в норме; находки исправлены). После переноса на вкладке очереди
+кнопка пачки — общая кнопка почты (подпись короче: «Отправить очередь · N»); её замер на 390 px на этой вкладке —
+«заложено».
+
+## Product oracles
+
+Нет: продукт меряется на живых письмах продаж, а их до переподписи и ключей нет.
 
 ## Ревью рисковых мест
 
-Классы, поднятые диффом (`delivery_risk.risky_classes` от `origin/main`): деньги (`счёт`), безопасность (`secret`),
-транзакция БД (`commit`, `rollback`, `session.begin_nested`), производительность (`json.loads`), интеграция (`httpx`,
-`webhook`), новый модуль.
-
-- **деньги** — риска нет, потому что денег в срезе нет: «счёт» — из «не в счёт» в докстроке `handoff.lead_of`
-  (отсеянные лиды не считаются); сумм, цен и платежей передача не знает.
-- **безопасность** — токен бота продаж (`SALES_TELEGRAM_BOT_TOKEN`) живёт только в адресе Bot API: свой фильтр
-  журнала httpx `_HideSalesToken` в `backend/features/sales/telegram.py`, тексты `TelegramError` — без адреса и без
-  текста httpx (`from None`); тесты `test_httpx_log_line_hides_the_token`,
-  `test_a4_token_from_network_error_stays_out_of_error_and_alert`, мутант M4. Адрес лида в тревоги эксплуатации не
-  уходит (`handoff_kommo.headline` — только номера лида и диалога). В Kommo уходят имя, почта, компания и письмо лида —
-  это новая поверхность необратимого (в строке продаж, которую владелец подписал в #220). `secret` в диффе — `# pragma:
-  allowlist secret` у выдуманного `TOKEN` тестов и `hashed_secret` номера ревизии `a9e76c0eb5b0` в `.secrets.baseline`
-  (ложное срабатывание, как у соседних миграций). Сети в тестах нет: автофикстура `_no_real_sales_bot` чистит токен и
-  номера чатов набора.
-- **транзакция БД** — `handoff.start` коммитит сессию и только потом ставит задачу (задача, взятая до коммита, не
-  увидела бы строку): вызывающий получает свою транзакцию закоммиченной — сказано в docstring; разбор ответа продаж
-  поэтому зовёт её после коммита снимка ответа (`SalesReplies.pass_on`, стык ниже). `handoff_kommo.write` коммитит номер сделки сразу после ответа Kommo: смерть задачи до примечания и
-  Telegram не заведёт вторую сделку на повторе. Захват `claimed_at` — условный `UPDATE` с коммитом (`_claim`),
-  снимается в конце `process` и после сбоя (`_release_after_failure`: `session.rollback()`, снятие захвата, `commit`;
-  тест `test_claim_after_database_failure_is_released_after_rollback`). `session.begin_nested()` — только в тестах
-  ограничений базы (`tests/test_sales_handoff_table.py`). Опасно: ответ пришёл во время идущей задачи и очередь в тот же
-  миг недоступна — итог идущей задачи затирает срок прохода, передача ждёт следующего ответа (нужны два отказа разом;
-  записано в находках, не чинил).
-- **производительность** — `json.loads` — только в тестах (тела запросов подставного Bot API). Проход повторов — один
-  запрос раз в `HANDOFF_PASS_SEC` (5 мин); индекса по `due_at` нет — таблица растёт на единицы строк в день.
-- **интеграция** — Kommo через клиент 5.2 (`create_complex_lead`, примечание, поиск контакта), Telegram — свой
-  `SalesBot` поверх `httpx.AsyncClient`: три попытки с паузами 2 и 5 с, 429 — пауза Telegram до 30 с, 400/401/403/404 —
-  сразу отказ с советом; 409 (`webhook` у бота) — отказ с советом `deleteWebhook` (`test_webhook_on_the_bot_is_named`).
-  Запись в Kommo после потерянного ответа не повторяется вслепую (поиск контакта до и после, иначе `unconfirmed` —
-  человеку), мутант M3. Живых вызовов не было: Kommo — `KommoFixture`, Telegram — `httpx.MockTransport`.
-- **новый модуль** — `handoff.py`, `handoff_kommo.py`, `handoff_text.py` (чистые функции текста), `handoff_jobs.py`
-  (задача и проход), `telegram.py`, команда `backend/cli/sales_telegram.py`, миграция `a9e76c0eb5b0_sales_handoffs`;
-  покрытие изменённого — в таблице проверок.
-
-## Стык с разбором ответов Ф2 (в этом PR)
-
-Два коммита поверх 5.3. «Хочет говорить» больше не пишет в журнал «передача ждёт своего среза»: `SalesReplies.handle`
-запоминает диалог (`Handled.handoff_thread`), задача ответа коммитит снимок вида и только потом зовёт
-`SalesReplies.pass_on` → `handoff.start` — внешнее (Kommo, Telegram) идёт задачей передачи уже после записи ответа.
-Отказ передачи разбор не роняет: исключение — в журнал с номером ответа и диалога, ответ ждёт человека по снимку,
-заведённую строку передачи повторит её проход. Удачная передача снимает с ответа ожидание человека тем же снимком,
-по которому его ждут (`waits: false`, причина «хочет говорить: передан телемаркетологу»); поля решения человека
-(`reviewed_*`) не трогаются. Тесты — `tests/test_sales_reply_handoff.py` (15; на коде без стыка красные 13 и 2):
-передача после коммита снимка, отказ передачи — ответ разобран, другие виды — передача не зовётся, снятие ожидания.
-На голове 5.3 со стыком — тесты передачи, бота, Kommo и разбора ответов продаж 302 passed; mypy, ратчет, ruff — 0.
+- **Безопасность — кому и чьей учёткой.** Адрес — лида по явной связи (не `contacts`); без своего ключа учётки продаж
+  письмо не уходит. Мост отказывает до выбора учётки этапа. Держат прежние мутанты 4.6b (M1, M5) и контракт
+  `mail-does-not-know-sales`.
+- **Договор моста.** Модуль отвечает в точке сохранения моста: ни `commit`, ни `rollback` внутри ответа (C2, C3);
+  отказ — только словами почты, добивка — «пока нельзя» (C1). Нарушение договора не роняет проход добивок, пачку и
+  кнопку, но молча становится «не подключены» с трассой в журнале — поэтому договор держат тесты со стороны модуля.
+- **Окно получателя.** Модуль отдаёт пояса лида и страны (Z1, Z2) и окно из настроек продаж (P1, P2). Пояса нет —
+  письмо ждёт словами, не теряется; добивка вне окна — открытие окна плюс сдвиг, не «час».
+- **Пачка.** Одна кнопка на экране — общая, этап `sales` (B1); число на ней — первые письма всех гипотез, как берёт
+  пачка базы (Q1, Q2); добивка, застрявшая без своего ящика, уходит только проходом добивок со своего ящика и с
+  `In-Reply-To`.
+- **Транзакции БД.** Сборка фиксирует каждое письмо отдельно, пересборка — только письма ещё в очереди (прежний M10);
+  передача 5.3 и «пишите другому» коммитят в разборе ответа, а не в ответе моста.
+- **Стыки с Ф2 и 5.3.** «Пишите другому» в диалоге сборки — лид по связи (R1); передача — лид по связи (H2); переданному
+  лиду письма не идут (H1). Провода «хочет говорить» → передача в базе нет — см. находки.
+- **Сторож почты продаж (4.5b).** С регистрацией модуля политика продаж включает сторож (`watch=True`) — см. находки.
+- **Необратимое.** PR открывает письма продаж живым людям: первые — по нажатию (пачкой или по одному), добивки — без
+  человека. Предохранители: подключение (выключатель, своя учётка, отписка, «Отправитель»), коридор, повторная сверка,
+  стоп-листы, передача, окно получателя, лимиты доменов и направления (#219). Строка `irreversible_surfaces:` — к
+  переподписи владельцем до первой отправки продаж.
+- **Интеграция.** Новых внешних вызовов нет: модель — прежним клиентом доноров, почта — общим транспортом этапа,
+  Telegram и Kommo не тронуты; воронка только читает базу.
+- **Деньги.** Риска нет, потому что денег PR не двигает: маячок подняли слова «счёт» (подсчёт воронки — `features/sales/funnel.py`, «двойной счёт» в тесте разреза периода) и «балансировщик» (общий выбор ящика `sender_rules.pick`); цен, платежей и счетов в диффе нет. Расход на модель — прежний: сборка зовёт общий клиент модели на каждое письмо под потолком расхода (`usage.ensure_llm_within_cap` до каждого письма, тест потолка части 4.6b); воронка модель не зовёт.
+- **Производительность.** Счётчики вкладки — четыре запроса `count`; воронка — один запрос пути по письмам продаж
+  (индекс `messages.thread_id`); на тысячах лидов — материализовать путь (не нужно для MVP).
 
 ## Предохранитель
 
-`delivery_check --require-ci --diff-base origin/main` в клоне с черновиками и четырьмя строками STATUS из main
-`9ee3d9e` (`logs/main-0710b/delivery-check-clone.txt`): `breakers: files=25 net_loc=3315 (+3329/-14), excluded=1`
-(исключён `delivery/complexity-snapshot.json`) при пределах 25 и 800 — **единственная ошибка: `net loc_diff 3315 > 800`**;
-файлов — ровно на пределе (25). Без строки `waivers:` так и задумано. Против main всего 26 файлов, +3367/−22.
+`delivery_check --require-ci --diff-base <база>` в клоне с черновиками в `delivery/active/` (четыре строки — из STATUS
+базы): **`breakers: files=54 net_loc=6497 (+6534/-37), excluded=1`** — две ошибки предохранителя (54 > 25, 6497 > 800)
+до строки вейвера; предупреждения — необратимое без названия отправки продаж (к переподписи владельцем),
+`asserts_reviewed_by` deferred, нет `@given` и блока `agent-permissions` (общее для проекта); exit 1 только по
+предохранителю. `contour_waves --base <база>` в том же клоне — нарушений нет, exit 0; подпись необратимого
+(`check_irreversible_signature.sh`) — сходится, строка не тронута, exit 0.
 
-Модульный срез продаж — одним PR под постоянный вейвер владельца; строку `waivers:` пишет координатор. Общая часть —
-**256 строк** (+246/−10) в 13 файлах при пределе ~300: миграция `a9e76c0eb5b0` (+78), `backend/cli/sales_telegram.py`
-(+68), `backend/config/sales.py` (+39/−1), `.env.example` (+12), `backend/workers/reaper.py` (+11/−4), `.secrets.baseline`
-(+11/−2), `tests/conftest.py` (+11), `tests/test_reaper.py` (+6/−2), `backend/cli/sales_commands.py` (+4/−1),
-`backend/features/core/models/__init__.py` (+2), `tests/test_schema.py` (+2), `tests/test_prune.py` (+1),
-`tests/test_prune_test_traces.py` (+1). Код и настройки среза — 1393 добавленных строки (из них `.env.example` и
-`.secrets.baseline` — 23), тесты — 1936.
+| Часть | files | net (+/−) | из них общая часть (вне масок продаж) |
+|---|---|---|---|
+| 4.6b (голова `3daa0ae`) | 44 | 4346 (+4380/−34) | 14 файлов, 318 (+326/−8) |
+| 5.4 (голова `9235098`) | 17 | 2151 (+2161/−10) | 5 файлов, 177 (+181/−4) |
+| весь PR | 54 | 6497 (+6534/−37) | 16 файлов, 495 (+503/−8) |
 
-## Предупреждения delivery_check, разобранные
+Модульные срезы продаж — постоянный вейвер владельца; части объединены одним PR его словом 07.10; строку `waivers:`
+вписывает координатор. Длина файлов — в пределе 500 (`sales/queue.py` 410, `sales/handoff.py` 456, `sales/models.py`
+431, `sales/cleaning.py` 493 — как в базе).
 
-Дословно (клон, голова `4705e52`, четыре строки STATUS из main `9ee3d9e`):
+## Spec coverage gaps
 
-```
-ERROR: circuit breaker: net loc_diff 3315 > 800 — split the PR or add a human waiver line to STATUS (§3.4)
-breakers: files=25 net_loc=3315 (+3329/-14), excluded=1 (delivery/|knowledge/|scripts/lint/|scripts/merge_guard.sh|scripts/delivery_|scripts/okf_|.claude/|docs/canon/|.pre-commit-config.yaml|.github/workflows/|.gitlab-ci.yml|package-lock.json|npm-shrinkwrap.json|yarn.lock|pnpm-lock.yaml|bun.lockb|poetry.lock|uv.lock|Pipfile.lock|Cargo.lock|go.sum|Gemfile.lock|composer.lock|Podfile.lock), limits={'max_files_touched': 25, 'max_loc_diff': 800, 'max_runtime_paths': 1, 'max_unsigned_irreversible': 0}
-WARNING: class M: human_ok_spec deferred — ещё никем не подписано (§2.2b); долг закрывается до handoff
-WARNING: необратимое без человека: `irreversible_surfaces:` не называет отправка наружу (§3.4a) — детектор видит это в коде. Либо назови, либо объясни в той же строке, почему это не необратимо
-WARNING: class M: asserts_reviewed_by deferred — ещё никем не подписано (§2.2b); долг закрывается до handoff
-WARNING: class M: ни одного реляционного оракула (§6.5) — не найдено ни `@given` (hypothesis), ни `fc.property` (fast-check). Инвариант, round-trip, идемпотентность, метаморфное отношение или differential: в них нет ожидаемого значения, поэтому в них нельзя спрятать неверное ожидание. Один инвариант обычно ловит больше десяти тестов-значений, потому что раннер перебирает входы, о которых автор не думал. Проверь заодно, что mutation-гейт у тебя не пропускается: иначе слабое свойство (`assert result is not None`) пройдёт
-WARNING: CONSTITUTION.md: нет блока `agent-permissions` (§4.5 / A.1) — контур контролирует выход и молчит про действия агента
-delivery_check: 1 error(s), 5 warning(s)
-```
+- S5 (A5) — гейтом `public-repo` и grep, не тестом.
+- Живьём на голове PR — ничего: стенд не поднимался; замер общей кнопки пачки на вкладке очереди на 390 px — заложено.
+- Сдвиг открытия окна проверен одним зерном генератора (как в тестах 4.3).
 
-- «human_ok_spec deferred» — «да» владельца на Spec 5.3 вписывает координатор (`yes at=… by=human:…`).
-- «asserts_reviewed_by deferred» — 214 утверждений ждут подписи человека (дайджест ниже).
-- «`irreversible_surfaces:` не называет отправка наружу» — строка main, подписана владельцем (объединённая строка
-  продаж — в #220); предупреждение останется: детектор ищет пункт ровно «отправка наружу».
-- «Ни одного реляционного оракула» — hypothesis и fast-check не в зависимостях проекта; идемпотентность `start`
-  (повтор триггера — одна передача) — примерами A2 и мутантами M1, M13.
-- «Нет блока `agent-permissions`» в CONSTITUTION — было до среза.
-- С четырьмя строками из STATUS main на `1fd24ca` (как они стоят в черновике) — шестое предупреждение:
-  «`model_surface`: 6 из 6 элементов не совпадают»; строки вписывает координатор из STATUS main на момент PR.
+## Находки (общий код — не чинил)
 
-## Проверка волн
+1. **Сторож почты продаж при выключенных продажах** (`backend/features/ops/mail_watch.py` + политика модуля): сторож
+   смотрит `policy.watch`, а не «подключены». Продажи выключили после писем — добивки ждут, и «ящик молчит» /
+   «отправить некому» поднимутся тревогой. Предложение — решение владельца: `watch` только у подключённых продаж
+   (одна строка в `sales/mail.policy`) или правило в сторожа.
+2. **Провод «хочет говорить» → `handoff.start`** в разборе ответа продаж: в базе стоит пометка
+   (`backend/features/sales/replies.py`, `mark_for_handoff`). Передача и остановка цепочки по ней сработают, когда
+   провод 5.3 ↔ Ф2 будет в main.
+3. **Отказ общей пачки без перечня**: `backend/features/core/stages.py::check_connected` отказывает «продажи к почте ещё
+   не подключены» без того, чего не хватает (модуль знает: `connection.missing`). Перечень говорит вкладка очереди.
+4. **Устаревшие слова «почта продажи ещё не ведёт»** в общих местах: `backend/api/errors.py:113`,
+   `backend/api/letters/routes.py:247`, `backend/features/replies/stage_rules.py:5`, `backend/api/threads/schemas.py:180`,
+   `frontend/src/threads/ThreadPage.tsx:175`, фикстура `frontend/src/threads/ThreadPageSales.test.tsx:18`.
+5. **Сеанс pytest пересоздаёт схему базы дерева** (`tests/conftest.py::_schema`): два прогона в одном дереве ломают
+   друг друга; урок процесса.
+6. Прежние находки 4.6b — в силе, не перепроверял: признак «своя учётка» — имя переменной ключа; `UnknownHypothesisError`
+   не «повтор не поможет»; карточка диалога продаж без `contacts` может не показать адрес собеседника; отписка лида
+   закрывает домен компании для всех этапов. Находка «застрявшая добивка уходит пачкой» закрыта базой (пачка — только
+   первые письма).
 
-Клон с черновиками 5.3 в `delivery/active/` (голова `4705e52`, четыре строки STATUS из main `9ee3d9e`): exit 0,
-«нарушений нет»; волны В3б, В3в, В4, В2 — «пока волну судит человек». Зелёное держится на строке «Согласовано:
-(координатор)» — без слова «Согласовано» проверка красная («shared_changes без «согласовано: …»», exit 1; проверено
-утром на `70776fe`, `logs/main-0710/contour-waves-clone.txt`). **До PR заглушку заменяет координатор настоящим
-согласием.** В дереве (STATUS в `delivery/active/` — чужой среза) проверка красная по построению.
+## Verdict
 
-## Не замерено живьём
-
-- Kommo и Telegram — только `KommoFixture` и `httpx.MockTransport`; сети не было.
-- Задача в настоящей очереди и третий цикл процесса разбора — воркеры локально не поднимались (общий Redis);
-  проводка — тестами с подменой сессии и очереди.
-- Отставание поиска Kommo от записи (риск в decisions) — не замерено: доступа нет.
+Готово к ревью. До слияния — у координатора: четыре строки из STATUS main дословно, строка вейвера на размер,
+перенос на main после слияния Ф2 и 5.3 (`rebase --onto`), переподпись необратимого владельцем до первой отправки
+продаж.
 
 ## Assertion digest (ревью ожиданий, не кода)
 
-База: `origin/main` · сгенерировано `assert_digest.sh`
+База: голова стопки (словами в начале отчёта) · сгенерировано `assert_digest.sh`
 
-Новых/изменённых утверждений: **214**, из них без ссылки на пример спеки:
-**213**. Вопрос к каждому непривязанному один: **откуда взято ожидаемое
+Новых/изменённых утверждений: **358**, из них без ссылки на пример спеки:
+**284**. Вопрос к каждому непривязанному один: **откуда взято ожидаемое
 значение — из спеки или придумано под реализацию?**
 
 ```
--	assert started == [
-T3	assert row is not None
--	assert queued == [row.id]
--	assert list(kommo.leads) == [9301]
--	assert (deal.draft.email, deal.draft.site, deal.draft.title) == (
--	assert deal.draft.hypothesis == "гипотеза acme.example.test"
--	assert deal.draft.name == "Иван Примеров"
--	assert "Давайте созвонимся во вторник после обеда." in note
--	assert f"{APP}/threads/{dialog.thread.id}" in note
--	assert "ГЕО: de" in note
--	assert message.count("\n") == 2
--	assert sent(api) == [(PERSONAL, message), (GROUP, message)]
--	assert (row.kommo, row.telegram, row.kommo_lead_id) == (
--	assert (row.notified_link, row.notified_at, row.due_at, row.claimed_at) == (
--	assert row.noted_reply_id == dialog.reply.id
--	assert alerts == []
--	assert await handoff.handed_off(session, dialog.lead.id) is True
--	assert await handoff.handed_off(session, dialog.lead.id) is False
--	assert queued == [row.id]
--	assert list(kommo.leads) == [9301], "вторая сделка на повторе"
--	assert len(notes) == 2
--	assert "аудит ссылок" in notes[1]
--	assert len(api.seen) == 2, "новый лид не новый: телемаркетологу второй раз не пишем"
--	assert (row.kommo, row.noted_reply_id) == (HandoffKommo.DONE, later.id)
--	assert row.kommo is HandoffKommo.DONE, "итог прошлой задачи — «записано»"
--	assert len(kommo.leads[9301].notes) == 2
--	assert len(kommo.leads) == 1
--	assert again.id == row.id
--	assert queued == []
--	assert len(kommo.leads[9301].notes) == 1
--	assert len(api.seen) == 2
--	assert (
--	assert sent(api) == [(PERSONAL, message), (GROUP, message)], "тишина при отказе Kommo"
--	assert (row.kommo, row.telegram, row.kommo_lead_id, row.attempts) == (
--	assert row.due_at == NOW + timedelta(seconds=cfg.HANDOFF_RETRY_SEC)
--	assert row.last_error is not None
--	assert "HTTP 503" in row.last_error
--	assert "Kommo не ответил" in alert
--	assert f"диалог №{dialog.thread.id}" in alert
--	assert "ivan@" not in alert, "адрес лида не уходит в чат эксплуатации"
--	assert list(kommo.leads) == [9301]
--	assert sent(api)[2:] == [(PERSONAL, deal_message), (GROUP, deal_message)]
--	assert len(api.seen) == 4, "повтор без сделки не шлёт ту же ссылку второй раз"
--	assert (row.kommo, row.attempts, row.due_at) == (HandoffKommo.DONE, 3, None)
--	assert len(alerts) == 2, "тревога — на входе в повтор и на выходе, не на каждом круге"
--	assert "заведена" in alerts[1]
--	assert (row.kommo, row.kommo_lead_id) == (HandoffKommo.RETRY, 9301)
--	assert len(api.seen) == 2, "сделка есть — ссылка на неё уже у телемаркетолога"
--	assert len(kommo.leads[9301].notes) == 2
--	assert (await reread(session, row.id)).kommo is HandoffKommo.DONE
--	assert kommo.writes == 1, "повтор записи после KommoUnconfirmedError"
--	assert len(kommo.leads) == 1
--	assert (row.kommo, row.kommo_lead_id, row.due_at) == (HandoffKommo.UNCONFIRMED, None, None)
--	assert queued == [], "неподтверждённую запись не трогает и новый ответ"
--	assert sent(api) == [(PERSONAL, message), (GROUP, message)]
--	assert "проверить в Kommo руками" in alert
--	assert kommo.writes == 1
--	assert row.kommo is HandoffKommo.RETRY
--	assert row.last_error is not None
--	assert "запись не дошла" in row.last_error
--	assert kommo.writes == 1
--	assert row.kommo is HandoffKommo.UNCONFIRMED
--	assert (kommo.searches, kommo.writes, row.kommo) == (2, 1, HandoffKommo.UNCONFIRMED)
--	assert kommo.notes_tried == 1
--	assert (row.kommo, row.noted_reply_id) == (HandoffKommo.DONE, dialog.reply.id)
--	assert row.last_error is not None
--	assert "примечание" in row.last_error
--	assert len(alerts) == 1
--	assert (row.kommo, row.due_at) == (HandoffKommo.FAILED, None)
--	assert sent(api)[0] == (PERSONAL, message)
--	assert "ключ Kommo отклонён" in alert
--	assert queued == [row.id], "новый ответ — новая попытка: ключ могли починить"
--	assert [chat for chat, _ in sent(api)] == [PERSONAL, PERSONAL, PERSONAL]
--	assert (row.kommo, row.telegram, row.notified_link) == (
--	assert "не доставлено" in alert
--	assert "HTTP 503" in alert
--	assert row.telegram is HandoffTelegram.UNDELIVERED
--	assert row.last_error is not None
--	assert TOKEN not in row.last_error
--	assert all(TOKEN not in alert for alert in alerts)
--	assert [chat for chat, _ in sent(api)] == [PERSONAL]
--	assert row.telegram is HandoffTelegram.SENT
--	assert [chat for chat, _ in sent(api)] == [PERSONAL]
--	assert row.last_error is not None
--	assert "SALES_TELEGRAM_GROUP_CHAT_ID" in row.last_error
--	assert row.telegram is HandoffTelegram.SENT
--	assert "копия в группу" in alert
--	assert sent(api) == [(PERSONAL, dialog_line(dialog)), (GROUP, dialog_line(dialog))]
--	assert (row.kommo, row.telegram, row.kommo_lead_id, row.attempts) == (
--	assert alerts == []
--	assert queued == []
--	assert (row.kommo, row.kommo_lead_id) == (HandoffKommo.DONE, 9301)
--	assert sent(api)[-1] == (GROUP, f"{HEAD}Ссылка на сделку в коммо: {DEAL}")
--	assert sent(api)[0][1].endswith(f"диалог №{dialog.thread.id} (SALES_APP_URL не задан)")
--	assert caught.value.permanent is True
--	assert row.lead_id == dialog.lead.id
--	assert row.lead_id == dialog.lead.id
--	assert getattr(caught.value, "permanent", False) is False
--	assert (await reread(session, row.id)).telegram is HandoffTelegram.SENT
--	assert (await reread(session, row.id)).claimed_at is None
--	assert row.due_at == NOW + timedelta(seconds=cfg.HANDOFF_RETRY_SEC)
--	assert "не поставлена" in caplog.text
--	assert await handoff.due(session, now=later) == [row.id]
--	assert sorted(taken) == sorted([rows["retry"].id, rows["forgotten"].id])
--	assert pushed.due_at == NOW + timedelta(seconds=cfg.HANDOFF_RETRY_SEC)
--	assert await handoff.due(session, now=NOW) == [], "взятое проходом не берётся вторым кругом"
--	assert (row.kommo, row.kommo_lead_id, row.noted_reply_id) == (HandoffKommo.DONE, 9301, None)
--	assert kommo.leads[9301].notes == {}
--	assert sent(api)[0] == (PERSONAL, f"{HEAD}Ссылка на сделку в коммо: {DEAL}")
--	assert (kommo.writes, row.kommo) == (1, HandoffKommo.UNCONFIRMED)
--	assert row.last_error is not None
--	assert "поиск после записи не ответил" in row.last_error
--	assert calls == [(handoff.HANDOFF_JOB, 4127, ["result_ttl", "retry"])]
--	assert handoff.HANDOFF_JOB == "backend.features.sales.handoff_jobs.hand_off_lead"
--	assert broken.calls == ["rollback", "execute", "commit"]
--	assert "захват передачи не снят" in caplog.text
--	assert handoff_jobs.connected_kommo(http) is None
--	assert isinstance(handoff_jobs.connected_kommo(http), KommoLive)
--	assert kommo is not None
--	assert kommo.lead_url(9301) == ""
--	assert outcome == {
--	assert json.loads(request.content)["text"].endswith(f"{APP}/threads/{dialog.thread.id}")
--	assert outcome["kommo"] == HandoffKommo.FAILED.value
--	assert outcome["telegram"] == "sent"
--	assert "SALES_KOMMO_PIPELINE_ID" in alert_text
--	assert outcome == {
--	assert remembered == [
--	assert handoff_jobs.hand_off_lead(31) == {"handoff": 31}
--	assert queued == [row.id]
--	assert pushed is not None
--	assert pushed.due_at is not None
--	assert pushed.due_at > datetime.now(UTC) + timedelta(seconds=cfg.HANDOFF_RETRY_SEC - 60)
--	assert "не поставлен" in caplog.text
--	assert queued == []
--	assert (cfg.HANDOFF_PASS_SEC, "Повтор передачи лидов продаж") in started
--	assert isinstance(http, httpx.AsyncClient)
--	assert loop.time() < deadline, "циклы разбора не дошли до условия"
--	assert not loops.done(), "исключение прохода передачи вышло из циклов разбора"
--	assert calls["sweep"] >= 2
--	assert calls["watch"] >= 2
--	assert calls["handoffs"] >= 2
--	assert beats["Разбор мёртвых прогонов"]["failures"] == 0
--	assert beats["Сторож тишины"]["failures"] == 0
--	assert beats[HANDOFF_LOOP]["failures"] >= 2
--	assert sorted(tried) == sorted(ids), "отказ очереди на первой передаче остановил вторую"
--	assert called == []
--	assert caplog.text.count("повтор передачи лида не поставлен") == 2
--	assert reaper.retry_handoffs is handoff_jobs.retry_pass
--	assert len(tried) == 2
--	assert called == []
--	assert _beats(tmp_path)[HANDOFF_LOOP]["failures"] == 0
--	assert health.beat_problems(tmp_path) == []
--	assert await connection.run_sync(_present) == SCHEMA
--	assert down == set()
--	assert up == SCHEMA
--	assert row is not None
--	assert (row.kommo, row.telegram, row.attempts) == (
--	assert row.kommo_lead_id is None
--	assert await session.scalar(select(SalesHandoffModel.id)) is None
--	assert "_no_real_sales_bot" in request.fixturenames
--	assert chats == ("", "", "")
--	assert [getattr(empty, field) for _, field, _, _ in SETTINGS] == [d for *_, d, _ in SETTINGS]
--	assert [getattr(filled, field) for _, field, _, _ in SETTINGS] == [v for *_, v in SETTINGS]
--	assert len(api.seen) == 1
--	assert str(api.seen[0].url) == f"https://api.telegram.org/bot{TOKEN}/sendMessage"
--	assert (body["chat_id"], body["text"]) == (PERSONAL, "Новый лид\nЭмейл Рассылка\nСсылка")
--	assert pauses == []
--	assert len(api.seen) == 3
--	assert pauses == [2.0, 5.0]
--	assert caught.value.permanent is False
--	assert "HTTP 503" in str(caught.value)
--	assert "3 попытки" in str(caught.value)
--	assert len(api.seen) == 3
--	assert pauses == [2.0, 5.0]
--	assert len(api.seen) == 1
--	assert pauses == []
--	assert caught.value.permanent is True
--	assert advice in str(caught.value)
--	assert TOKEN not in str(caught.value)
--	assert TOKEN not in str(caught.value)
--	assert "ConnectError" in str(caught.value)
--	assert caught.value.__cause__ is None
--	assert caught.value.__suppress_context__ is True
--	assert pauses == [3.0]
--	assert pauses == []
--	assert len(api.seen) == 1
--	assert caught.value.permanent is False
--	assert caught.value.permanent is True
--	assert pauses == []
--	assert api.seen == []
--	assert caught.value.permanent is True
--	assert api.seen == []
--	assert "sendMessage" in log, "строка httpx о запросе должна быть — иначе проверять нечего"
--	assert TOKEN not in log
--	assert telegram.HIDDEN in log
--	assert len(api.seen) == 1
--	assert str(api.seen[0].url).endswith("/getUpdates")
--	assert found == [
--	assert await cli.cmd_sales_telegram_chat_id(None) == cli.EXIT_OK
--	assert "583920471\tprivate\tТест Тестов" in out
--	assert "-1009384756102\tsupergroup\tВыдуманная группа" in out
--	assert "SALES_TELEGRAM_CHAT_ID" in out
--	assert await cli.cmd_sales_telegram_chat_id(None) == cli.EXIT_NOBODY
--	assert "Start" in capsys.readouterr().out
--	assert await cli.cmd_sales_telegram_chat_id(None) == cli.EXIT_NOT_CONFIGURED
--	assert "SALES_TELEGRAM_BOT_TOKEN" in capsys.readouterr().err
--	assert api.seen == []
--	assert await cli.cmd_sales_telegram_chat_id(None) == cli.EXIT_REFUSED
--	assert "HTTP 401" in err
--	assert TOKEN not in err
--	assert "sales-telegram-chat-id" in _COMMANDS
--	assert build_parser().parse_args(["sales-telegram-chat-id"]).command == "sales-telegram-chat-id"
--	assert "ничего не изменилось" in _KEPT_ON_INTERRUPT["sales-telegram-chat-id"]
--	assert isinstance(http, httpx.AsyncClient)
+A4	expect(tile('В очереди')).toEqual(['В очереди', '3', 'ещё ничего не ушло']);
+A4	expect(tile('Отправлено')).toEqual(['Отправлено', '14', 'лидов, не писем']);
+A4	expect(tile('Доставлено')).toEqual(['Доставлено', '12', '85,7% от отправленных']);
+A4	expect(tile('Отказ')).toEqual(['Отказ', '2', '14,3% от отправленных']);
+A4	expect(tile('Ответ')).toEqual(['Ответ', '4', '28,6% от отправленных']);
+A4	expect(tile('Лид передан')).toEqual(['Лид передан', '1', '25% от ответивших']);
+A4	expect(texts).toEqual([
+-	await waitFor(() => expect(calls(recorded, `${FUNNEL}?hypothesis=8`)).toHaveLength(1));
+-	await waitFor(() => expect(tile('Отправлено')[1]).toBe('1'), SCREEN_WAIT);
+-	expect(screen.queryByRole('table', { name: 'Воронка по гипотезам' })).toBeNull();
+-	expect(tile('Лид передан')).toEqual(['Лид передан', '0', 'нет ответивших']);
+-	await waitFor(() => expect(calls(recorded, `${FUNNEL}?${since}`)).toHaveLength(1));
+-	await waitFor(() => expect(calls(recorded, `${FUNNEL}?${from}`)).toHaveLength(1));
+-	expect(
+-	expect(recorded.calls.length).toBe(before);
+-	await waitFor(() => expect(calls(recorded, `${FUNNEL}?${asked}`)).toHaveLength(1));
+-	expect(recorded.calls.slice(before).map((call) => call.path)).toEqual([`${FUNNEL}?${asked}`]);
+-	expect(
+-	expect(tile('Доставлено')).toEqual(['Доставлено', '0', 'нет отправленных']);
+-	expect(period).toHaveAttribute('data-orientation', 'vertical');
+-	expect(period).toHaveAttribute('data-full-width');
+-	expect(alert).toHaveTextContent('гипотезы №8 нет — обновите список гипотез');
+-	expect(alert).toHaveTextContent('гипотезы №5 нет — обновите список гипотез');
+-	expect(funnelQuery(NO_FUNNEL_FILTERS, NOW)).toEqual({});
+-	expect(funnelQuery({ ...NO_FUNNEL_FILTERS, period: 'month', hypothesis: 5 }, NOW)).toEqual({
+-	expect(funnelQuery({ ...custom, from: '2026-10-01', to: '2026-10-07' }, NOW)).toEqual({
+-	expect(funnelQuery({ ...custom, to: '2026-10-07' }, NOW)).toEqual({
+-	expect(periodProblem({ ...custom, from: '2026-10-07', to: '2026-10-07' })).toBeNull();
+-	expect(periodProblem({ ...custom, from: '2026-10-08', to: '2026-10-07' })).toBe(
+-	expect(stepHint(FIRST, 'handed_off')).toBe('25% от ответивших');
+-	expect(stepHint(counts({ answered: 3 }), 'answered')).toBe('нет отправленных');
+-	expect(screen.getByText('продажи подключены')).toBeInTheDocument();
+-	expect(
+-	expect(
+-	expect(screen.getByRole('button', { name: 'Собрать очередь' })).toBeEnabled();
+-	expect(screen.getByRole('button', { name: 'Отправить очередь · 7' })).toBeEnabled();
+-	expect(
+-	expect(screen.getByRole('button', { name: 'Собрать очередь' })).toBeDisabled();
+-	expect(screen.getByRole('button', { name: 'Отправить очередь · 7' })).toBeDisabled();
+-	await waitFor(() => expect(calls(recorded, 'POST', QUEUE)).toHaveLength(1), SCREEN_WAIT);
+-	expect(calls(recorded, 'POST', QUEUE)[0]?.body).toEqual({ hypothesis_id: 5, limit: 17 });
+-	expect(
+-	() => expect(calls(recorded, 'GET', `${QUEUE}?hypothesis=5`).length).toBeGreaterThan(1),
+-	expect(alert).toHaveTextContent(refusal);
+-	expect(screen.getByRole('button', { name: 'Собрать очередь' })).toBeDisabled();
+-	expect(
+-	() => expect(calls(recorded, 'GET', `${QUEUE}?hypothesis=8`)).toHaveLength(1),
+-	expect(await screen.findByText('11', {}, SCREEN_WAIT)).toBeInTheDocument();
+-	expect(
+-	expect(
+-	expect(within(dialog).getByText(/В очереди 7 писем/)).toBeTruthy();
+-	expect(calls(recorded, 'POST', '/api/letters/send-queue')[0]?.body).toEqual({
+-	expect(
+-	expect(await screen.findByText(refusal, {}, SCREEN_WAIT)).toBeInTheDocument();
+-	expect(calls(recorded, 'POST', '/api/letters/send-queue')).toEqual([]);
+-	expect(screen.getByRole('button', { name: 'Собрать очередь' })).toBeEnabled();
+-	expect(screen.queryByRole('button', { name: /Отправить очередь/ })).not.toBeInTheDocument();
+-	expect(
+A1	assert (letters, total.sent, total.delivered) == (3, 1, 1)
+A2	assert (total.sent, total.answered) == (1, answered)
+A2	assert (await _total(session)).answered == 1
+A3	assert (total.sent, total.delivered, total.bounced) == (2, 1, 1)
+A3	assert await funnel.leads(session, Step.BOUNCED, ALL) == [gone.lead_id]
+A3	assert await funnel.leads(session, Step.DELIVERED, ALL) == [reached.lead_id]
+A3	assert (total.sent, total.delivered, total.bounced) == (1, 0, 1)
+-	assert (total.queued, total.sent, total.delivered, total.bounced) == (0, 1, 0, 0)
+-	assert funnel.GONE is GONE_STATUSES
+-	assert (total.queued, total.sent) == (0, 0)
+-	assert (total.queued, total.sent) == (1, 1)
+-	assert await funnel.leads(session, Step.QUEUED, ALL) == [waiting.lead_id]
+-	assert await funnel.leads(session, Step.SENT, ALL) == [written.lead_id]
+-	assert await funnel.leads(session, Step.QUEUED, week) == [fresh.lead_id]
+-	assert (await _total(session)).queued == 2
+-	assert (found.sent, found.delivered, found.answered) == (1, 1, 1)
+-	assert await funnel.leads(session, Step.SENT, week) == [inside.lead_id]
+-	assert await funnel.leads(session, Step.SENT, before) == [earlier.lead_id]
+-	assert await funnel.leads(session, Step.SENT, period) == [at_start.lead_id]
+-	assert await funnel.leads(session, Step.SENT, after) == [at_end.lead_id]
+-	assert await funnel.leads(session, Step.SENT, week) == [lead.lead_id]
+-	assert (total.queued, total.sent, total.delivered, total.bounced, total.answered) == (
+-	assert (total.answered, total.handed_off) == (2, 1)
+-	assert await funnel.leads(session, Step.HANDED_OFF, ALL) == [warm.lead_id]
+-	assert await handoff.handed_off(session, warm.lead_id) is True
+-	assert await handoff.handed_off(session, cold.lead_id) is False
+-	assert [(row.hypothesis_id, row.name) for row in found.rows] == [
+-	assert [row.funnel for row in found.rows] == [
+-	assert found.total == Funnel(queued=1, sent=2, delivered=1, bounced=1)
+-	assert [row.hypothesis_id for row in narrowed.rows] == [second]
+-	assert narrowed.total == Funnel(queued=1)
+-	assert (await _total(session)).sent == 1
+-	assert len(await funnel.leads(session, step, ALL)) == getattr(total, step.value), step
+-	assert total == Funnel(queued=1, sent=3, delivered=1, bounced=1, answered=1, handed_off=1)
+-	assert whole == await _total(session)
+-	assert before + after == whole, f"разрез {days} сут. назад"
+-	assert whole.delivered + whole.bounced <= whole.sent
+-	assert max(whole.answered, whole.handed_off) <= whole.sent
+-	assert min(whole.sent, whole.queued, whole.answered) > 0
+A4	assert response.status_code == 200, response.text
+A4	assert list(shown) == wanted
+A4	assert shown == {of: expected.get(of, _zero()) for of in wanted}
+A4	assert body["total"] == {step: sum(row[step] for row in shown.values()) for step in STEPS}
+A4	assert all(shown[first][step] > 0 for step in STEPS)
+A4	assert rows[first] == {
+A4	assert rows[second] == {
+A4	assert body["total"]["sent"] == 7
+-	assert (body["hypothesis_id"], body["until"]) == (first, None)
+-	assert datetime.fromisoformat(body["since"]) == since
+-	assert (response.status_code, response.json()["detail"]) == (422, EMPTY_PERIOD)
+-	assert response.status_code == 422
+-	assert (response.status_code, response.json()["detail"]) == (
+-	assert (response.status_code, response.json()["detail"]) == (403, NO_RIGHT)
+-	assert found is not None, f"в salesTypes.ts нет интерфейса {name}"
+-	assert _screen_fields("SalesFunnelView") == set(SalesFunnelView.model_fields)
+-	assert _screen_fields("FunnelRow") == set(FunnelRow.model_fields)
+-	assert _screen_fields("FunnelCounts") == set(FunnelCounts.model_fields) == set(STEPS)
+-	assert in_app == {("GET", FUNNEL)}
+-	assert seen == []
+-	assert (report.sent, report.postponed) == (0, 1)
+-	assert first.next_action_at == FIRST_DUE + followups.POSTPONE
+-	assert f"Добивка шага 1 в переписке №{first.thread_id}: не собрана — " in caplog.text
+-	assert "подстановка без значения" in caplog.text
+-	assert "ошибка модуля продаж" not in caplog.text
+T3	assert found is not None
+A1	assert (report.prepared, report.refreshed, report.off_corridor) == (1, 0, 0)
+A1	assert report.tokens_spent == 37
+A1	assert letter.status is MessageStatus.QUEUED
+A1	assert letter.step == 0
+A1	assert letter.subject == "A made-up question for Example Test Co"
+A1	assert not letter.subject.lower().startswith(("re:", "fwd:", "fw:"))
+A1	assert letter.body is not None
+A1	assert letter.body.endswith(f"Made-up test offer: nothing real is sold here.{SIGNED}")
+A1	assert letter.body.count(w.SIGNATURE) == 1
+A1	assert letter.uniqueness_pct is not None
+A1	assert in_corridor(letter.uniqueness_pct)
+A1	assert letter.idempotency_key == f"sales:acme.example.test:{JANE}:0"
+A1	assert letter.contact_id is None
+A1	assert letter.domain_id == jane.domain_id
+A1	assert [about.host for about in rewriter.seen] == ["acme.example.test"]
+A1	assert (link.lead_id, link.chain_hypothesis_id, link.language, link.chain_version) == (
+A1	assert thread is not None
+A1	assert campaign is not None
+A1	assert thread.contact_id is None
+A1	assert (campaign.stage, campaign.name, campaign.followup_days) == (
+-	assert letter.subject == "Выдуманный вопрос для Бета"
+-	assert letter.body is not None
+-	assert "Выдуманное тестовое предложение" in letter.body
+-	assert (await _link(session, letter)).language == "ru"
+-	assert letter.contact_id is None
+-	assert (await _link(session, letter)).lead_id == jane.id
+A2	assert str(refused.value).startswith(
+A2	assert (campaigns, await _letters(session)) == (0, [])
+A3	assert report.prepared == 2
+A3	assert [letter.idempotency_key for letter in letters] == [
+A3	assert len({letter.thread_id for letter in letters}) == 2
+A3	assert len({letter.domain_id for letter in letters}) == 1
+A4	assert (report.prepared, report.off_corridor) == (0, 1)
+A4	assert report.waiting == Counter({queue.OFF_CORRIDOR: 1})
+A4	assert await _letters(session) == []
+A4	assert await session.scalar(select(func.count()).select_from(SalesThreadModel)) == 0
+-	assert report.prepared == 0
+-	assert report.waiting == Counter(
+-	assert report.prepared == 1
+-	assert report.waiting == Counter({"цепочка на языке ru задана не целиком": 1})
+-	assert letter.idempotency_key.endswith(f"{JANE}:0")
+-	assert (report.prepared, sum(report.waiting.values())) == (0, 0)
+-	assert letter.subject == "A made-up question for Example Test Co"
+-	assert (await _link(session, letter)).chain_hypothesis_id == world.hypothesis_id
+-	assert (report.prepared, report.refreshed) == (0, 0)
+-	assert report.waiting == Counter({queue.UP_TO_DATE: 1})
+-	assert len(await _letters(session)) == 1
+-	assert (report.prepared, report.refreshed) == (0, 1)
+-	assert after.id == before.id
+-	assert after.body is not None
+-	assert after.body.endswith(f"\n\nMira Testova\nAnother Made-up Agency\n\n{w.ADDRESS}")
+-	assert report.refreshed == 1
+-	assert letter.subject == "Another made-up question"
+-	assert (await _link(session, letter)).chain_version == common.version
+-	assert (report.prepared, report.refreshed) == (0, 0)
+-	assert report.waiting == Counter({queue.SENT_MEANWHILE: 1})
+-	assert tuple(stored.one()) == sent
+-	assert report.prepared == 0
+-	assert count == 1
+-	assert problem.startswith("подпись из настроек отправителя стоит и в тексте письма")
+-	assert (report.prepared, report.waiting) == (1, Counter({queue.NO_LANGUAGE: 1}))
+-	assert (report.prepared, report.tokens_spent, len(rewriter.seen)) == (2, 74, 2)
+-	assert report.stopped is not None
+-	assert report.stopped.startswith("потолок расхода на модель за день достигнут: 74 из 53")
+-	assert len(await _letters(session)) == 2
+-	assert code == 0
+-	assert "новых писем: 1, собрано заново: 0" in out
+-	assert f"ждут — {queue.NO_LANGUAGE}: 1" in out
+-	assert "Ничего не отправлено" in out
+-	assert code == EXIT_NO_HYPOTHESIS
+-	assert "Гипотезы «Нет такой» нет" in capsys.readouterr().out
+-	assert code == 5
+-	assert "Гипотезы «Нет такой гипотезы» нет" in capsys.readouterr().out
+-	assert response.status_code == 200, response.text
+-	assert (body["connected"], body["missing"], body["unwritten"], body["queued"]) == (
+-	assert (body["stage_queued"], body["limit_max"]) == (3, 200)
+-	assert [item["language"] for item in body["chains"]] == ["ru", "en"]
+-	assert body["chains"][1] == {
+-	assert first is not None
+-	assert stuck.postponed == 1
+-	assert (body["queued"], body["stage_queued"]) == (1, 1)
+-	assert (report.sent, report.left) == (1, 0)
+-	assert body["connected"] is False
+-	assert body["missing"] == [
+-	assert [item["missing"] for item in body["chains"]] == [
+-	assert (response.status_code, response.json()["detail"]) == (
+-	assert response.status_code == 200, response.text
+-	assert response.json() == {"job_id": "job-7"}
+-	assert args == (queue_jobs.QUEUE_JOB, world.hypothesis_id, 17)
+-	assert journal is not None
+-	assert journal.details == {
+-	assert response.status_code == 409
+-	assert response.json()["detail"] == (
+-	assert jobs.enqueued == []
+-	assert response.status_code == 422
+-	assert jobs.enqueued == []
+-	assert (response.status_code, response.json()["detail"]) == (403, NO_RIGHT)
+-	assert found is not None, f"в salesTypes.ts нет интерфейса {name}"
+-	assert _screen_fields("SalesQueueView") == set(SalesQueueView.model_fields)
+-	assert _screen_fields("SalesQueueBody") == set(SalesQueueBody.model_fields)
+-	assert _screen_fields("SalesQueueReport") == set(queue.QueueReport(campaign_id=1).as_dict())
+-	assert in_app == {("GET", QUEUE), ("POST", QUEUE)}
+-	assert job_outcome.KINDS[queue_jobs.QUEUE_JOB] == "сборка очереди продаж"
+-	assert result == {
+-	assert seen == [(5, 10)]
+-	assert (result["campaign_id"], result["prepared"]) == (3, 2)
+L63	assert len(seen) == 2
+L63	assert seen[0] == seen[1] == {"модель": RewriteClient, "hypothesis_id": hypothesis, "limit": 17}
+-	assert [lead.id for lead in found] == [jane.id, olga.id]
+-	assert set(letters) == {None}
+-	assert thread is not None
+-	assert thread.contact_id is None  # строки `contacts` у диалога продаж нет
+-	assert referred.lead_id is not None, referred.words
+-	assert new is not None
+-	assert (new.source, new.status) == (LeadSource.REFERRAL, LeadStatus.READY)
+-	assert (new.hypothesis_id, new.domain_id) == (origin.hypothesis_id, origin.domain_id)
+-	assert (new.referred_from_thread_id, new.timezone) == (thread.id, origin.timezone)
+-	assert thread.status is ThreadStatus.CLOSED
+A1	assert source.asked == ["sales"]
+A1	assert outcome.sender_email == w.SALES_BOX
+A1	assert (outgoing.to, outgoing.from_email, outgoing.from_name) == (
+A1	assert outgoing.from_name != outreach_cfg.SENDER_NAME
+A1	assert outgoing.subject == "A made-up question for Example Test Co"
+A1	assert outgoing.body.endswith(SIGNED)
+A1	assert outgoing.unsubscribe_url.startswith("https://unsub.example.test/u/u")
+A1	assert outgoing.in_reply_to is None
+A1	assert letter.status is MessageStatus.SENT
+A1	assert letter.sender_id == world.sales_box.id
+A1	assert letter.next_action_at == w.NOW + timedelta(days=3)
+-	assert [outgoing.to for outgoing in _seen(source)] == [JANE]
+-	assert source.asked == []
+-	assert (letter.status, letter.sender_id) == (MessageStatus.QUEUED, None)
+A2	assert str(refused.value).startswith(
+A2	assert source.asked == []
+A2	assert letter.status is MessageStatus.QUEUED
+-	assert _seen(source) == []
+-	assert letter.status is MessageStatus.QUEUED
+A4	assert link is not None
+A4	assert found is not None
+-	assert letter.status is MessageStatus.QUEUED
+A3	assert (report.sent, dict(report.refused), report.stopped, report.left) == (2, {}, None, 0)
+A3	assert sorted(outgoing.to for outgoing in _seen(source)) == [JANE, OLGA]
+A3	assert len({letter.idempotency_key for letter in letters}) == 2
+-	assert (report.sent, dict(report.refused)) == (1, {"стоп-лист": 1})
+-	assert [outgoing.to for outgoing in _seen(source)] == [OLGA]
+-	assert (report.sent, report.waiting, report.postponed) == (1, 0, 0)
+-	assert outgoing.subject == first.subject
+-	assert outgoing.in_reply_to == first.internet_message_id
+-	assert (outgoing.to, outgoing.from_email) == (JANE, w.SALES_BOX)
+-	assert outgoing.body == f"A made-up first reminder for Jane.{SIGNED}"
+-	assert step is not None
+-	assert step.thread_id == first.thread_id
+-	assert step.idempotency_key == f"sales:acme.example.test:{JANE}:1"
+-	assert step.next_action_at == FIRST_DUE + timedelta(days=5)
+-	assert report.sent == 1
+-	assert last.body == f"A made-up last reminder about Example Test Co.{SIGNED}"
+-	assert step is not None
+-	assert step.idempotency_key == f"sales:acme.example.test:{JANE}:2"
+-	assert step.next_action_at is None
+-	assert report.sent == 2
+-	assert list(keys) == [f"sales:acme.example.test:{JANE}:1", f"sales:acme.example.test:{OLGA}:1"]
+-	assert (report.sent, report.stopped) == (0, 1)
+-	assert len(_seen(source)) == 1
+-	assert step is not None
+-	assert step.status is MessageStatus.STOPPED
+-	assert first.next_action_at is None
+-	assert (report.sent, report.waiting) == (0, 1)
+-	assert first.next_action_at == w.NOW + timedelta(days=3)
+-	assert _seen(source)[-1].body == f"A made-up first reminder for Jane.{SIGNED}"
+-	assert (first_try.postponed, second_try.sent) == (1, 1)
+-	assert _seen(source)[-1].body.endswith(
+-	assert response.status_code == 200, response.text
+-	assert response.json()["sender_email"] == w.SALES_BOX
+-	assert response.status_code == 409
+-	assert response.json()["detail"] == (
+-	assert response.status_code == 200, response.text
+-	assert response.json()["queued"] == 2
+-	assert [args[1] for args in jobs.enqueued] == ["sales"]
+-	assert SenderModel.__tablename__ == "senders"
+-	assert await connection.run_sync(_down_and_up) == (False, True)
+-	assert found is not None
+-	assert (found.lead_id, found.chain_hypothesis_id, found.language, found.chain_version) == (
+-	assert await session.scalar(select(SalesThreadModel.thread_id)) is None
+-	assert said == [
+-	assert await connection.missing(session) == []
+-	assert await mail.connected(session) is True
+-	assert await stages.sales_connected(session) is True
+-	assert str(refused.value) == (
+-	assert len(said) == 1
+-	assert said[0].startswith(words)
+-	assert await connection.missing(session) == [f"не задан физический адрес — {sender.WHERE}"]
+-	assert [letter.template_step(step) for step in (0, 1, 2)] == [1, 2, 3]
+-	assert body == f"Hello Jane,\n\nA made-up text.\n\n{w.SIGNATURE}\n\n{w.ADDRESS}"
+-	assert letter.problem(body, _sender()) is None
+-	assert problem is not None
+-	assert words in problem
+-	assert letter.problem(body, _sender(physical_address=None)) == (
+-	assert letter.lacking(steps, values) == ["{{company}}"]
+-	assert letter.lacking(steps, values | {"company": "Acme"}) == []
+-	assert jane == "sales:acme.example.test:jane@acme.example.test:0"
+-	assert jane != olga
+-	assert MessageModel.__table__.c.idempotency_key.type.length == letter.KEY_LENGTH
+-	assert await mail.stopped_by(session, jane, "acme.example.test", now=w.NOW) == (
+-	assert await mail.stopped_by(session, olga, "beta.example.test", now=w.NOW) == (
+-	assert await mail.stopped_by(session, ivan, "gamma.example.test", now=w.NOW) == (
+-	assert await mail.stopped_by(session, petr, "delta.example.test", now=w.NOW) is None
+-	assert await mail.stopped_by(session, jane, "acme.example.test", now=w.NOW) is None
+-	assert stages._SALES.load is not None
+-	assert stages._SALES.load() is mail
+-	assert second.status is status
+-	assert found.window == WEEKDAYS_9_17
+-	assert found.soft is not None
+-	assert found.soft.complaints == sales_cfg.COMPLAINT_PAUSE
+-	assert found.watch is True
+-	assert [outgoing.to for outgoing in _seen(source)] == ([JANE] if goes else [])
+-	assert _seen(source) == []
+-	assert (letter.status, letter.sender_id) == (MessageStatus.QUEUED, None)
+-	assert "вне окна получателя (пн–пт 09:00–17:00 по его часам)" in str(late.value)
+-	assert "уйдёт не раньше пн 19.10 09:" in str(late.value)
+-	assert _seen(source) == []
+-	assert (letter.status, letter.sender_id) == (MessageStatus.QUEUED, None)
+-	assert (report.sent, report.postponed) == (0, 1)
+-	assert first.next_action_at == MONDAY_NINE + shift
+-	assert later.sent == 1
+-	assert _seen(source)[-1].in_reply_to == first.internet_message_id
+-	assert jane.thread_id is not None
+-	assert (report.sent, report.stopped) == (1, 1)
+-	assert [outgoing.to for outgoing in _seen(source)] == [JANE, OLGA, OLGA]
+-	assert jane.next_action_at is None
+-	assert str(refused.value).startswith(f"Письмо №{world.letter.id}: {SALES_NOT_CONNECTED} — ")
+-	assert detail.startswith(f"Письмо №{world.letter.id}: {SALES_NOT_CONNECTED} — ")
+-	assert report.stopped is not None
+-	assert report.stopped.startswith(f"Письмо №{world.letter.id}: {SALES_NOT_CONNECTED} — ")
+-	assert (SALES_NOT_CONNECTED in caplog.text) is not registered
+-	assert "ждёт" not in SALES_WAITING.lower()
 ```
 
-Привязаны к примерам: **T3**. Остальные 213 — нет.
+Привязаны к примерам: **A1 A2 A3 A4 L63 T3**. Остальные 284 — нет.
 
 Читать нужно **только строки с `-` в первой колонке**: их ожидание
 ничем не подписано. Подпись: `asserts_reviewed_by: human:… at=…`.
 
-asserts_without_example: 213
+asserts_without_example: 284
 
 ## Проверки на голове PR
 
-Ветка перенесена на main `9eca0c6`; голова кода `92c12b6`, проверки — по одному разу. pytest (2418 passed), diff-coverage, pre-commit и фронт прошли на голове ветки поверх головы #220 (`2bfd3fb`, дерево main `b57bc30`); после переноса на main `9eca0c6` (#222 — Этапы 1–2, файлов среза не задевает) и правки очереди передачи по ревью (`31654cc`: 4 новых теста, на старом коде красные) заново — тесты передачи, бота, Kommo, разбора ответов продаж, процесса разбора, здоровья воркеров, очереди, схемы и чистки (424 passed), mypy, `lint-imports` и быстрые проверки таблицы. Полный pytest PR — в CI.
+Ветка перенесена на main `b7280d3`; голова кода `428e680`, проверки — по одному разу. pytest (2127 passed), diff-coverage, pre-commit и фронт прошли на голове ветки поверх головы #221 (`1434886` — её дерево и есть main после сквоша, код среза тот же); после них — правки «сборка — в очередь продаж» (`6b226de`: тесты API очереди продаж, отправки и исхода задач — 59 passed) и «сторож почты продаж — только у подключённых продаж» по ревью (`ee11ef4`: тесты окна, договора, моста и сторожа почты — 84 passed), обе на старом коде красные; после переноса на main — быстрые проверки таблицы и pre-push проекта. Полный pytest на голове ветки у агента — 5348 passed; полный pytest PR — в CI.
 Числа выше — прогоны агента на его ветке (тот же код среза).
 
 | Проверка | Итог | exit |
 |---|---|---|
-| `alembic heads` | a9e76c0eb5b0 (head) | 0 |
-| ратчет сложности | Ратчет сложности: 421 файлов, расхождений со снимком нет. | 0 |
-| pytest среза и соседей с покрытием | 2418 passed in 447.31s (0:07:27) | 0 |
+| `alembic heads` | fa927869a835 (head) | 0 |
+| ратчет сложности | Ратчет сложности: 432 файлов, расхождений со снимком нет. | 0 |
+| pytest среза и соседей с покрытием | 2127 passed in 188.43s (0:03:08) | 0 |
 | `STRICT=1 check_diff_coverage.sh` (BASE — main) | покрытие изменённых файлов ≥ 70 % | 0 |
 | `pre-commit run --all-files` | ни одного Failed | 0 |
 | `check_baseline_ratchet.sh` | baseline-ratchet: OK (15 снимков сверено с origin/main) | 0 |
 | `check_irreversible_signature.sh` | подпись строки необратимого сошлась | 0 |
 | `contour_waves --base origin/main` | ниже, дословно | 0 |
-| `delivery_check --require-ci --diff-base origin/main` | `breakers: files=29 net_loc=3674 (+3712/-38)` | 0 |
-| `assert_digest.sh` | `asserts_without_example: 248` | 0 |
+| `delivery_check --require-ci --diff-base origin/main` | `breakers: files=54 net_loc=6526 (+6563/-37)` | 0 |
+| `assert_digest.sh` | `asserts_without_example: 288` | 0 |
 | `tsc` / `eslint` / `prettier` | чисто | 0 / 0 / 0 |
-| vitest раздела (`--maxWorkers=2`) | см. лог | — |
+| vitest раздела (`--maxWorkers=2`) | Tests  254 passed (254) | 0 |
 
-Дословно (`delivery_check --require-ci --diff-base origin/main`, голова `a354cae`):
+Дословно (`delivery_check --require-ci --diff-base origin/main`, голова `fbd4aa2`):
 
 ```
-breakers: files=29 net_loc=3674 (+3712/-38), excluded=9 (delivery/|knowledge/|scripts/lint/|scripts/merge_guard.sh|scripts/delivery_|scripts/okf_|.claude/|docs/canon/|.pre-commit-config.yaml|.github/workflows/|.gitlab-ci.yml|package-lock.json|npm-shrinkwrap.json|yarn.lock|pnpm-lock.yaml|bun.lockb|poetry.lock|uv.lock|Pipfile.lock|Cargo.lock|go.sum|Gemfile.lock|composer.lock|Podfile.lock), limits={'max_files_touched': 29, 'max_loc_diff': 3674, 'max_runtime_paths': 1, 'max_unsigned_irreversible': 0}
+breakers: files=54 net_loc=6526 (+6563/-37), excluded=9 (delivery/|knowledge/|scripts/lint/|scripts/merge_guard.sh|scripts/delivery_|scripts/okf_|.claude/|docs/canon/|.pre-commit-config.yaml|.github/workflows/|.gitlab-ci.yml|package-lock.json|npm-shrinkwrap.json|yarn.lock|pnpm-lock.yaml|bun.lockb|poetry.lock|uv.lock|Pipfile.lock|Cargo.lock|go.sum|Gemfile.lock|composer.lock|Podfile.lock), limits={'max_files_touched': 54, 'max_loc_diff': 6526, 'max_runtime_paths': 1, 'max_unsigned_irreversible': 0}
 WARNING: необратимое без человека: `irreversible_surfaces:` не называет отправка наружу (§3.4a) — детектор видит это в коде. Либо назови, либо объясни в той же строке, почему это не необратимо
 WARNING: class M: asserts_reviewed_by deferred — ещё никем не подписано (§2.2b); долг закрывается до handoff
 WARNING: class M: ни одного реляционного оракула (§6.5) — не найдено ни `@given` (hypothesis), ни `fc.property` (fast-check). Инвариант, round-trip, идемпотентность, метаморфное отношение или differential: в них нет ожидаемого значения, поэтому в них нельзя спрятать неверное ожидание. Один инвариант обычно ловит больше десяти тестов-значений, потому что раннер перебирает входы, о которых автор не думал. Проверь заодно, что mutation-гейт у тебя не пропускается: иначе слабое свойство (`assert result is not None`) пройдёт
@@ -462,12 +596,12 @@ WARNING: CONSTITUTION.md: нет блока `agent-permissions` (§4.5 / A.1) �
 delivery_check: 0 error(s), 4 warning(s)
 ```
 
-Дословно (`contour_waves --base origin/main`, голова `a354cae`):
+Дословно (`contour_waves --base origin/main`, голова `fbd4aa2`):
 
 ```
 contour-waves: CI — нарушение красное
 волны: В0 deployed · В1 deployed · В3а deployed · В3б pending · В3в pending · В4 pending · В2 pending · В-обн deployed
-в дереве продаж: 33 файл(ов)
+в дереве продаж: 39 файл(ов)
 ○ В3б: промпт агента и судьи назовёт срез агента — пока волну судит человек
 ○ В3в: промпт судьи сегмента назовёт его срез — пока волну судит человек
 ○ В4: маркер автоотправки назовёт срез В4 — пока волну судит человек

@@ -130,6 +130,16 @@ async def resolve(session: AsyncSession, *, hypothesis_id: int | None, language:
     return Chain(code, None, await _active(session, None, code))
 
 
+async def of_set(session: AsyncSession, hypothesis_id: int | None, language: str) -> Chain:
+    """Цепочка набора на языке как есть — без выбора между своей и общей.
+
+    Добивка берёт набор и язык первого письма (`sales_threads`): переключи гипотезу на
+    свою цепочку между письмами — `resolve` подложил бы к первому письму общего набора
+    добивку своего, а шаги наборов не смешиваются."""
+    code = language_code(language)
+    return Chain(code, hypothesis_id, await _active(session, hypothesis_id, code))
+
+
 async def set_version(session: AsyncSession, hypothesis_id: int | None, language: str) -> str:
     """Версия цепочки набора на языке — её пишет журнал до и после правки."""
     return version_of((await _active(session, hypothesis_id, language)).values())

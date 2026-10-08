@@ -3,7 +3,7 @@
 Каждая ветка почты, где этап решает путь, обязана отказать продажам словами или
 вести их своим путём, а не увести путём доноров. С 4.6b отправка и проход добивок
 ведут продажи ответами модуля продаж, когда он подключён к мосту
-(`tests/test_sales_stage_bridge.py`); здесь — мир, где продажи не подключены, и пути
+(`tests/test_sales_stage_bridge.py`, `tests/test_sales_send.py`); здесь — мир, где продажи не подключены, и пути
 доноров, которые продажи не ведут вовсе: их письма собирает модуль продаж.
 Проверяется на базе, где путь доноров дал бы результат: домен письма продаж —
 принятый донор с адресом, ящики есть у обоих этапов. Отказ здесь виден по тому,
@@ -255,7 +255,8 @@ class TestSending:
         with pytest.raises(SalesNotConnectedError) as refused:
             await Sending(session, source, now=NOW).send(world.letter.id)
 
-        assert str(refused.value) == f"Письмо №{world.letter.id}: {SALES_NOT_CONNECTED}"
+        # Модуль продаж подключён к мосту: отказ называет, чего не хватает (`sales/connection.py`).
+        assert str(refused.value).startswith(f"Письмо №{world.letter.id}: {SALES_NOT_CONNECTED} — ")
         assert source.asked == []
         await session.refresh(world.letter)
         assert world.letter.status is MessageStatus.QUEUED
@@ -278,7 +279,8 @@ class TestSending:
         )
 
         assert response.status_code == 409
-        assert response.json()["detail"] == f"Письмо №{world.letter.id}: {SALES_NOT_CONNECTED}"
+        detail = response.json()["detail"]
+        assert detail.startswith(f"Письмо №{world.letter.id}: {SALES_NOT_CONNECTED} — ")
 
 
 # --- очередь этапа пачкой ---------------------------------------------------------------------
@@ -293,7 +295,9 @@ class TestSendQueue:
 
         report = await batch.send_queue(session, NullTransport(), stage=Stage.SALES)
 
-        assert report.stopped == f"Письмо №{world.letter.id}: {SALES_NOT_CONNECTED}"
+        # Модуль продаж подключён к мосту: отказ называет, чего не хватает (`sales/connection.py`).
+        assert report.stopped is not None
+        assert report.stopped.startswith(f"Письмо №{world.letter.id}: {SALES_NOT_CONNECTED} — ")
         assert (report.sent, dict(report.refused), report.left) == (0, {}, 1)
 
     @pytest.mark.parametrize("letters", [0, 1])
@@ -472,11 +476,21 @@ async def _donor_chain(session: AsyncSession, due: datetime) -> MessageModel:
 
 
 class TestFollowup:
+    @pytest.mark.parametrize("registered", [False, True], ids=["модуля нет", "модуль есть"])
     async def test_a4_deadline_is_kept_and_said_aloud_while_donors_go_on(
-        self, session: AsyncSession, filled_legal: None, caplog: pytest.LogCaptureFixture
+        self,
+        session: AsyncSession,
+        filled_legal: None,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+        registered: bool,
     ) -> None:
         """Добивка продаж подошла раньше донорской: захват по сроку взял бы её
-        первой, погасил срок и потерял на шаблоне."""
+        первой, погасил срок и потерял на шаблоне. Модуль продаж к мосту не подключён —
+        проход говорит это вслух; подключён (4.6b), а продажи выключены — срок так же цел,
+        а журнал молчит: чего не хватает, говорит вкладка «Очередь писем»."""
+        if not registered:
+            monkeypatch.setattr(stages._SALES, "load", None)
         due = NOW - timedelta(days=2)
         world = await sales_world(session, status=MessageStatus.SENT, due=due)
         donor = await _donor_chain(session, due=NOW - timedelta(days=1))
@@ -490,7 +504,7 @@ class TestFollowup:
         await session.refresh(donor)
         assert world.letter.next_action_at == due
         assert donor.next_action_at is None  # её добивка ушла, срок следующей — у добивки
-        assert SALES_NOT_CONNECTED in caplog.text
+        assert (SALES_NOT_CONNECTED in caplog.text) is not registered
         followups_of_sales = await session.scalar(
             select(func.count())
             .select_from(MessageModel)
