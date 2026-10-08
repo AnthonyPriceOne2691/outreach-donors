@@ -18,6 +18,7 @@ import { useMediaQuery } from '@mantine/hooks';
 import { IconChevronDown } from '@tabler/icons-react';
 import { useState } from 'react';
 
+import { STAGE_TITLES } from '../api/senders';
 import type { DomainLimit, StagedSender as Mailbox } from '../api/senders';
 import type { Stage } from '../api/stages';
 import { THREAD_STAGE_NOTES } from '../api/stages';
@@ -30,17 +31,46 @@ export interface DomainGroup {
   stage: Stage;
   boxes: Mailbox[];
   enabled: boolean;
+  /** Чем строка домена закрывает его для направления (`domainShut`); `null` — открыт. */
+  shut: string | null;
   sentToday: number;
   allowance: number;
   /** Лимит домена целиком (`sending_domains`); нет строки — у домена лимита нет. */
   limit: DomainLimit | undefined;
 }
 
-/** Лимит домена словами: счёт первых писем, выдержка, пауза. */
-export function limitLine(limit: DomainLimit): string {
+/**
+ * Чем строка домена закрывает его для направления ящиков — правило фильтра отправки
+ * (`outreach/limits.domain_shut`): чужое направление, пауза, выдержка. `null` — открыт:
+ * строки нет или она его. Выбранный лимит дня не закрывает — завтра домен пишет снова.
+ */
+export function domainShut(
+  limit: DomainLimit | undefined,
+  stage: Stage,
+  now: Date = new Date(),
+): string | null {
+  if (limit === undefined) return null;
+  // Коротко: «домен записан за другим направлением» на 375 px обрезался; за каким —
+  // называет строка лимита.
+  if (limit.stage !== stage) return 'домен другого направления';
+  if (limit.paused_at !== null) return 'домен на паузе';
+  if (limit.young_until !== null && new Date(limit.young_until) > now) return 'домен на выдержке';
+  return null;
+}
+
+/** Значок состояния: пишет — мята, закрыт строкой домена — янтарь, выключен — серый. */
+function stateOf(group: DomainGroup): { label: string; color: string } {
+  if (!group.enabled) return { label: 'выключен', color: 'gray' };
+  if (group.shut !== null) return { label: group.shut, color: 'yellow' };
+  return { label: 'отправляет', color: 'green' };
+}
+
+/** Лимит домена словами: счёт первых писем, чужое направление, выдержка, пауза. */
+export function limitLine(limit: DomainLimit, stage: Stage): string {
   const parts = [
     `лимит домена: ${formatNumber(limit.sent_today)} из ${formatNumber(limit.daily_limit)} первых писем сегодня`,
   ];
+  if (limit.stage !== stage) parts.push(`записан за направлением «${STAGE_TITLES[limit.stage]}»`);
   if (limit.young_until !== null && new Date(limit.young_until) > new Date()) {
     parts.push(`на выдержке до ${formatDate(limit.young_until)}`);
   }
@@ -61,6 +91,7 @@ export function SenderCard({ group, busy, onSwitch }: Props) {
   const warmupDay = Math.max(...group.boxes.map((box) => box.warmup_day));
   const warming = group.enabled && group.boxes.some((box) => !box.warmup_finished);
   const paused = group.boxes.find((box) => box.pause_reason !== null)?.pause_reason ?? null;
+  const state = stateOf(group);
 
   // На телефоне кнопка уходит под карточку: рядом с ней имя домена
   // рвалось на «mail-» и остаток.
@@ -128,8 +159,10 @@ export function SenderCard({ group, busy, onSwitch }: Props) {
           </Group>
 
           <Group gap="xs" wrap="wrap" align="center">
-            <Badge variant="light" color={group.enabled ? 'green' : 'gray'}>
-              {group.enabled ? 'отправляет' : 'выключен'}
+            {/* Включённый домен, закрытый строкой домена, не пишет: фильтр отправки
+                отсеивает его ящики — зелёное «отправляет» здесь врало бы. */}
+            <Badge variant="light" color={state.color} style={{ maxWidth: '100%' }}>
+              {state.label}
             </Badge>
             {THREAD_STAGE_NOTES[group.stage] !== '' && (
               <Badge variant="outline" color="gray">
@@ -149,7 +182,7 @@ export function SenderCard({ group, busy, onSwitch }: Props) {
               </Badge>
             )}
             <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
-              {group.boxes.length} ящ. · {group.sentToday} из {group.allowance} сегодня
+              {group.boxes.length} ящ. · {group.sentToday} из {group.allowance} первых писем сегодня
             </Text>
           </Group>
 
@@ -160,7 +193,7 @@ export function SenderCard({ group, busy, onSwitch }: Props) {
           )}
           {group.limit !== undefined && (
             <Text size="xs" c="dimmed">
-              {limitLine(group.limit)}
+              {limitLine(group.limit, group.stage)}
             </Text>
           )}
 
@@ -171,7 +204,7 @@ export function SenderCard({ group, busy, onSwitch }: Props) {
             <Meter
               spent={group.sentToday}
               cap={group.allowance}
-              label={`Отправлено сегодня ${group.sentToday} из ${group.allowance}`}
+              label={`Первых писем сегодня: ${group.sentToday} из ${group.allowance}`}
             />
           </Box>
 
@@ -188,7 +221,7 @@ export function SenderCard({ group, busy, onSwitch }: Props) {
               </Text>
               <Group gap="xs" wrap="wrap">
                 <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
-                  {box.sent_today} / {box.warmup_allowance} писем сегодня
+                  {box.sent_today} / {box.warmup_allowance} первых писем сегодня
                 </Text>
                 {!box.warmup_finished && (
                   <Badge variant="light" color="lagoon" size="sm">

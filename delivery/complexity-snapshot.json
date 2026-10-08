@@ -332,14 +332,14 @@
       "worst": "—"
     },
     "backend/api/senders/routes.py": {
-      "lines": 105,
+      "lines": 111,
       "complexity": 6,
-      "worst": "all_senders:36"
+      "worst": "all_senders:37"
     },
     "backend/api/senders/schemas.py": {
-      "lines": 101,
+      "lines": 103,
       "complexity": 2,
-      "worst": "of:41"
+      "worst": "of:43"
     },
     "backend/api/settings/__init__.py": {
       "lines": 1,
@@ -1437,9 +1437,9 @@
       "worst": "_outcome:124"
     },
     "backend/features/ops/mail_watch.py": {
-      "lines": 132,
+      "lines": 134,
       "complexity": 8,
-      "worst": "_of_stage:57"
+      "worst": "_of_stage:59"
     },
     "backend/features/ops/overview.py": {
       "lines": 272,
@@ -1462,7 +1462,7 @@
       "worst": "listen:85"
     },
     "backend/features/outreach/limits.py": {
-      "lines": 102,
+      "lines": 113,
       "complexity": 13,
       "worst": "screen:45"
     },

@@ -78,18 +78,29 @@ def screen(
     return Screened(fit=tuple(fit), refused=refused)
 
 
-def _domain_refusal(
-    row: SendingDomainModel | None, stage: Stage, sent: int, now: datetime
-) -> str | None:
-    """Почему домен сегодня не пишет — или `None`, если пишет."""
-    if row is None:
-        return None
+def domain_shut(row: SendingDomainModel, stage: Stage, now: datetime) -> str | None:
+    """Чем домен закрыт для этапа помимо дневного счёта — или `None`, если открыт.
+
+    Чужое направление, пауза, выдержка — одно правило у фильтра отправки и у сторожа
+    почты (`ops/mail_watch._able`): закрытый домен — поломка, исчерпанный на сегодня — нет.
+    """
     if row.stage is not stage:
         return f"{DOMAIN_ELSEWHERE}: {row.domain} — {row.stage.value}"
     if row.paused_at is not None:
         return f"{DOMAIN_PAUSED}: {row.domain} — {row.pause_reason or 'без причины'}"
     if row.young_until is not None and now < row.young_until:
         return f"{DOMAIN_YOUNG}: {row.domain} — до {row.young_until:%d.%m %H:%M} UTC"
+    return None
+
+
+def _domain_refusal(
+    row: SendingDomainModel | None, stage: Stage, sent: int, now: datetime
+) -> str | None:
+    """Почему домен сегодня не пишет — или `None`, если пишет."""
+    if row is None:
+        return None
+    if (shut := domain_shut(row, stage, now)) is not None:
+        return shut
     if sent >= row.daily_limit:
         return f"{DOMAIN_SPENT}: {row.domain} — {sent} из {row.daily_limit}"
     return None
