@@ -20,27 +20,39 @@ import { disableSender, enableSender } from '../api/outreach';
 import { STAGE_TITLES, listSendersByStage } from '../api/senders';
 import type { DirectionLimit, DomainLimit, StagedSender } from '../api/senders';
 import type { Stage } from '../api/stages';
-import { formatNumber } from '../format';
-import { SenderCard as DomainCard } from './SenderCard';
+import { formatNumber, plural } from '../format';
+import { SenderCard as DomainCard, domainShut } from './SenderCard';
 import type { DomainGroup } from './SenderCard';
 
 const SENDERS_QUERY_KEY = ['senders'] as const;
 const STAGES = Object.keys(STAGE_TITLES) as Stage[];
+
+/** Почему писать нечем: все выключены — или включённые закрыты строкой домена. */
+const ALL_OFF =
+  'Все домены выключены. Новые письма не уйдут, пока хотя бы один не включат — и он начнёт с начала разгона.';
+const ALL_SHUT =
+  'Включённые домены закрыты: на паузе, на выдержке или записаны за другим направлением — что именно, сказано на карточке домена. Новые письма не уйдут, пока хотя бы один не откроется.';
 
 function groupByDomain(senders: StagedSender[], limits: DomainLimit[]): DomainGroup[] {
   const groups = new Map<string, StagedSender[]>();
   for (const sender of senders) {
     groups.set(sender.domain, [...(groups.get(sender.domain) ?? []), sender]);
   }
-  return [...groups.entries()].map(([domain, boxes]) => ({
-    domain,
-    stage: boxes[0]?.stage ?? 'donors',
-    boxes,
-    enabled: boxes.some((box) => box.enabled),
-    sentToday: boxes.reduce((sum, box) => sum + box.sent_today, 0),
-    allowance: boxes.reduce((sum, box) => sum + box.warmup_allowance, 0),
-    limit: limits.find((limit) => limit.domain === domain),
-  }));
+  const now = new Date();
+  return [...groups.entries()].map(([domain, boxes]) => {
+    const stage = boxes[0]?.stage ?? 'donors';
+    const limit = limits.find((row) => row.domain === domain);
+    return {
+      domain,
+      stage,
+      boxes,
+      enabled: boxes.some((box) => box.enabled),
+      shut: domainShut(limit, stage, now),
+      sentToday: boxes.reduce((sum, box) => sum + box.sent_today, 0),
+      allowance: boxes.reduce((sum, box) => sum + box.warmup_allowance, 0),
+      limit,
+    };
+  });
 }
 
 /** Лимит направления словами; `null` — своего лимита у направления нет. */
@@ -86,7 +98,9 @@ export function SendersPage() {
   }
 
   const groups = groupByDomain(data?.senders ?? [], data?.domains ?? []);
-  const enabledDomains = groups.filter((group) => group.enabled).length;
+  // Пишет домен, у которого включён ящик и который строка домена не закрыла: тот же
+  // отбор, что у фильтра отправки, — иначе «могут» считал бы и тех, кого фильтр отсеет.
+  const writing = groups.filter((group) => group.enabled && group.shut === null).length;
   // Разделы по этапу — только когда этапов больше одного: у одних доноров экран прежний.
   const sections = STAGES.map((stage) => ({
     stage,
@@ -104,14 +118,14 @@ export function SendersPage() {
             получает новых писем, но начатые цепочки не рвутся: письмо, отправленное вчера, ждёт
             ответа.
           </Text>
-          {enabledDomains === 0 ? (
+          {writing === 0 ? (
             <Alert color="yellow" title="Отправлять нечем">
-              Все домены выключены. Новые письма не уйдут, пока хотя бы один не включат — и он
-              начнёт с начала разгона.
+              {groups.some((group) => group.enabled) ? ALL_SHUT : ALL_OFF}
             </Alert>
           ) : (
             <Text size="sm">
-              Отправлять могут <b>{enabledDomains}</b> из {groups.length} доменов.
+              Отправлять могут <b>{writing}</b> из {groups.length}{' '}
+              {plural(groups.length, 'домена', 'доменов', 'доменов')}.
             </Text>
           )}
         </Stack>
