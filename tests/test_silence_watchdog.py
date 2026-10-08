@@ -307,6 +307,6 @@ class TestProviderAnswersWithAPage:
     async def test_the_pass_keeps_the_other_alarms(self, session: AsyncSession) -> None:
         await _letter(session, status=MessageStatus.SENT, sent_at=NOW - timedelta(hours=8))
 
-        found = await silence_module.report(session, now=NOW)
+        found = await silence_module.with_providers(await alarms(session, now=NOW))
 
         assert {"provider-unreachable", "delivery-silence"} <= _codes(found)

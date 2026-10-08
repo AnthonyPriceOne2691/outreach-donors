@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
@@ -305,19 +306,20 @@ async def _cap_reached(session: AsyncSession) -> Alarm | None:
     )
 
 
-async def report(session: AsyncSession, *, now: datetime | None = None) -> list[Alarm]:
-    """Проход сторожа для фонового процесса: посчитать и сказать в лог.
+async def with_providers(found: Sequence[Alarm]) -> list[Alarm]:
+    """Сетевая часть прохода сторожа для фонового процесса: опрос провайдеров и строки
+    журнала. Без сессии намеренно: зовётся после того, как тревоги базы посчитаны и сессия
+    закрыта (`workers/reaper.watch`), — иначе соединение висело бы «idle in transaction» на
+    время чужих ответов.
 
-    Здесь проверяются и провайдеры — в фоне это уместно: проход идёт
-    раз в несколько минут, и два бесплатных запроса ничего не стоят.
+    Провайдеры проверяются здесь — в фоне это уместно: проход идёт раз в несколько минут,
+    и два бесплатных запроса ничего не стоят.
     """
-    found = await alarms(session, now=now)
     unreachable = await probe_providers()
-    if unreachable is not None:
-        found = [unreachable, *found]
-    if not found:
+    told = list(found) if unreachable is None else [unreachable, *found]
+    if not told:
         logger.info("сторож тишины: тихо и правильно")
-        return found
-    for alarm in found:
+        return told
+    for alarm in told:
         logger.warning("сторож тишины: %s — %s", alarm.title, alarm.detail)
-    return found
+    return told
