@@ -19,6 +19,12 @@
 эксплуатации другим ботом (`shared/alerts.send_alert`), как у передачи лида.
 Черновик от исхода не зависит: он уже в базе, сообщение о нём — только весть.
 
+**Бот без токена — одна сводная тревога, а не тревога на каждый черновик** (решение
+владельца по ревью стыков): без токена не уходит ни одно сообщение, и чат эксплуатации
+утонул бы в одинаковых строках. Тревога — в общей ленте (`ops/alarm_feed.py`) проходом
+продаж процесса разбора (`handoff_jobs.retry_pass`): одна, с числом черновиков, которые ждут
+человека без сообщения; «прошло» — когда токен задан (`watch_token`).
+
 **Одна версия — одно сообщение.** Строка журнала — версия черновика (`written_at`):
 повтор задачи о той же версии второй раз не пишет, «написать заново» — новая версия
 и новое сообщение. Решённый черновик не объявляется: человек им уже занялся.
@@ -36,7 +42,7 @@ from typing import Any
 import httpx
 from redis.exceptions import RedisError
 from rq import get_current_job
-from sqlalchemy import select
+from sqlalchemy import exists, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -47,6 +53,8 @@ from backend.features.core.domain import DraftStatus, Stage
 from backend.features.core.models.agent import AgentDraftModel, AgentSettingsModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.outreach import ReplyModel, ThreadModel
+from backend.features.ops.alarm_feed import Feed
+from backend.features.ops.alarms import Alarm
 from backend.features.runs.failures import described
 from backend.features.sales.models import NoticeStatus, SalesDraftNoticeModel
 from backend.features.sales.telegram import SalesBot, TelegramError
@@ -69,6 +77,11 @@ MAX_QUOTE = 300
 _SAID = {"allow": "пропустил", "block": "не пропустил", "escalate": "отдал человеку"}
 
 Alert = Callable[[str], Awaitable[object]]
+
+#: Сводная тревога «бот продаж без токена» — код в ленте тревог.
+BOT_ALARM = "sales-bot-unset"
+#: Что о ней уже сказано человеку — лента процесса разбора, по смене состояния.
+BOT_FEED = Feed()
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,7 +125,11 @@ def queue_notice(draft_id: int) -> None:
 
 
 async def notify(session: AsyncSession, draft_id: int, bot: SalesBot, *, alert: Alert) -> Noticed:
-    """Сообщить группе продаж о черновике — одной строкой журнала на версию черновика."""
+    """Сообщить группе продаж о черновике — одной строкой журнала на версию черновика.
+
+    Окно двойной отправки принято владельцем: Telegram принял, а журнал не записался — повтор
+    задачи пошлёт сообщение ещё раз. Без токена бота — без своей тревоги: сводная (`watch_token`).
+    """
     found = await _found(session, draft_id)
     if found is None:
         return Noticed(draft_id, skipped="черновика нет — сообщать не о чем")
@@ -126,7 +143,7 @@ async def notify(session: AsyncSession, draft_id: int, bot: SalesBot, *, alert: 
     status = NoticeStatus.SENT if error is None else NoticeStatus.UNDELIVERED
     await _journal(session, found, status, text, error)
     await session.commit()
-    if error is not None:
+    if error is not None and cfg.TELEGRAM_BOT_TOKEN:
         await alert(
             f"продажи: сообщение о черновике №{draft_id} не доставлено в группу продаж — "
             f"{error}. Черновик цел: {thread_link(found.thread_id)}"
@@ -268,6 +285,54 @@ async def _journal(
             set_={**values, "updated_at": datetime.now(UTC)},
         )
     )
+
+
+async def token_alarm(session: AsyncSession, *, keep: bool = False) -> Alarm | None:
+    """Бот продаж без токена — тревога с числом черновиков, которые ждут человека без сообщения.
+
+    Токен задан — тревоги нет. Без токена и без ждущих черновиков — нет, если о ней ещё не
+    сказано (`keep`): сказанная держится, пока токен не задан, а не пока ждут черновики."""
+    if cfg.TELEGRAM_BOT_TOKEN:
+        return None
+    waiting = await unannounced(session)
+    if not waiting and not keep:
+        return None
+    return Alarm(
+        code=BOT_ALARM,
+        title="Бот продаж без токена",
+        detail=(
+            f"Черновиков агента продаж ждут человека без сообщения в группе продаж: {waiting}. "
+            "Задать SALES_TELEGRAM_BOT_TOKEN — о новых черновиках сообщения пойдут, прежние "
+            "видны в переписке"
+        ),
+    )
+
+
+async def watch_token(session: AsyncSession, feed: Feed | None = None) -> Alarm | None:
+    """Проход сторожа бота продаж: тревога «без токена» — в ленту, по смене состояния."""
+    told = BOT_FEED if feed is None else feed
+    found = await token_alarm(session, keep=BOT_ALARM in told.told)
+    await told.tell([found] if found is not None else [])
+    return found
+
+
+async def unannounced(session: AsyncSession) -> int:
+    """Черновики продаж, которые ждут человека, а о нынешней их версии группе не сообщено."""
+    announced = exists().where(
+        SalesDraftNoticeModel.draft_id == AgentDraftModel.id,
+        SalesDraftNoticeModel.written_at == AgentDraftModel.updated_at,
+        SalesDraftNoticeModel.status == NoticeStatus.SENT.value,
+    )
+    found = await session.scalar(
+        select(func.count(AgentDraftModel.id))
+        .join(AgentSettingsModel, AgentSettingsModel.id == AgentDraftModel.settings_id)
+        .where(
+            AgentSettingsModel.stage == Stage.SALES,
+            AgentDraftModel.status.in_(WAITING),
+            ~announced,
+        )
+    )
+    return int(found or 0)
 
 
 def _http() -> httpx.AsyncClient:
