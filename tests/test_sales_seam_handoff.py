@@ -18,6 +18,7 @@ from backend.config import sales as cfg
 from backend.features.sales import handoff
 from backend.features.sales.kommo import CreatedLead, KommoFixture, NewLead
 from backend.features.sales.models import HandoffKommo, HandoffTelegram
+from backend.features.sales.telegram import SalesBot, TelegramError
 from redis.exceptions import ConnectionError as RedisConnectionError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tests.test_sales_handoff import (
@@ -32,7 +33,7 @@ from tests.test_sales_handoff import (
     sent,
 )
 from tests.test_sales_handoff_rows import Dialog, answer, sales_dialog
-from tests.test_sales_telegram import TOKEN, Recorder
+from tests.test_sales_telegram import PERSONAL, TOKEN, Recorder
 
 __all__ = ["alerts", "api", "http"]  # оснастка передачи: тревоги, бот продаж, клиент httpx
 
@@ -194,6 +195,10 @@ async def test_bot_token_with_a_control_character_is_undelivered_in_words(
     [alert] = alerts
     assert "не доставлено" in alert
     assert TOKEN[10:] not in alert
+    with pytest.raises(TelegramError) as caught:
+        await SalesBot(http).send(PERSONAL, "проверка")
+    assert caught.value.permanent is True, "повтор такой адрес не соберёт"
+    assert "попытк" not in str(caught.value), "без трёх попыток впустую"
 
 
 # --- D4: гонка ответа и идущей задачи ----------------------------------------------------------
