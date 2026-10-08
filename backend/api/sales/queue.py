@@ -7,7 +7,8 @@
 очередь задач (`sales/queue_jobs.py`): модель на каждое письмо — минуты, а не запрос. Очередь —
 продаж (`worker-sales`), а не общая: минуты модели не держат воркер доноров, а сборка не ждёт за прогоном.
 Отказ подключения — до очереди задач, 409 словами: человек видит его у кнопки, а не в итоге
-задачи через минуты.
+задачи через минуты. Сборка гипотезы — одна за раз: второе «Собрать», пока первая идёт или ждёт
+повтора, — 409 словами (вторая собрала бы те же письма и потратила модель дважды).
 
 Отправляет очередь не этот раздел: письма продаж уходят общей отправкой — пачкой
 (`POST /letters/send-queue` с этапом `sales`) или по одному, под правом отправки.
@@ -15,8 +16,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
+from rq import Queue
+from rq.exceptions import DuplicateJobError
+from rq.job import Job, JobStatus
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
@@ -35,6 +39,35 @@ router = APIRouter()
 _seller = Depends(needs(Permission.SALES))
 #: Писем за одну сборку: больше — модель часами, а очередь пачкой всё равно идёт днями.
 LIMIT_MAX = 200
+#: Сборка ещё идёт или ждёт повтора — вторую не ставим.
+_RUNNING = frozenset({JobStatus.QUEUED, JobStatus.STARTED, JobStatus.DEFERRED, JobStatus.SCHEDULED})
+BUILD_RUNNING = (
+    "Сборка очереди этой гипотезы уже идёт — дождитесь её итога: вторая собрала бы те же письма "
+    "и потратила модель дважды"
+)
+
+
+def build_job_id(hypothesis_id: int) -> str:
+    """Номер задачи сборки — от гипотезы: одна сборка гипотезы за раз."""
+    return f"sales-queue-{hypothesis_id}"
+
+
+def _build_once(jobs: Queue, hypothesis_id: int, limit: int) -> Job:
+    """Поставить сборку гипотезы, если её сборка не идёт.
+
+    Готовая задача лежит в Redis весь `result_ttl` (неделю), поэтому один `unique=True` с постоянным
+    номером отказывал бы и после неё: закончившуюся или упавшую сборку убираем и ставим заново.
+    `unique=True` остаётся на гонку двух нажатий между проверкой и постановкой.
+    """
+    job_id = build_job_id(hypothesis_id)
+    previous = jobs.fetch_job(job_id)
+    if previous is not None:
+        if previous.get_status() in _RUNNING:
+            raise DuplicateJobError(job_id)
+        previous.delete()
+    return jobs.enqueue(
+        QUEUE_JOB, hypothesis_id, limit, job_id=job_id, unique=True, **with_retries()
+    )
 
 
 class SalesQueueView(BaseModel):
@@ -98,7 +131,10 @@ async def build_queue(
     """Поставить сборку в очередь задач. Ничего не отправляет."""
     await chain.known(session, body.hypothesis_id)
     await connection.check(session, queue.WHAT)
-    job = sales_queue().enqueue(QUEUE_JOB, body.hypothesis_id, body.limit, **with_retries())
+    try:
+        job = _build_once(sales_queue(), body.hypothesis_id, body.limit)
+    except DuplicateJobError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, BUILD_RUNNING) from exc
     hypothesis = await session.get(SalesHypothesisModel, body.hypothesis_id)
     await AccessRepository(session).record(
         AuditAction.RUN_STARTED,
