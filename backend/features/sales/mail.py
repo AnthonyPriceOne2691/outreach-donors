@@ -21,7 +21,8 @@
 - `connected` — подключены ли продажи: проход добивок берёт их сроки только тогда, иначе
   срок цел и проход называет его вслух;
 - `answer` — ответ лиду в переписке до заведения письма: продажи подключены, у переписки
-  есть лид, ему можно писать; текст — с подписью и адресом из «Отправителя» в конце;
+  есть лид, ему можно писать; текст — с подписью и адресом из «Отправителя» в конце, и
+  метрик Ahrefs в нём нет;
 - `followup` — текст добивки: шаг цепочки того же набора и языка, что у первого письма,
   подстановки лида, подпись и адрес. Тему даёт первое письмо — у шаблона добивки её нет;
 - `policy` — политика почты продаж (`policy.sales_policy`): окно получателя, мягкие
@@ -56,7 +57,7 @@ from backend.features.core.stages import (
     SalesFollowup,
     SalesNotConnectedError,
 )
-from backend.features.letters import compose
+from backend.features.letters import compose, guards
 from backend.features.letters.chain import ANSWER_STEP, FIRST_STEP
 from backend.features.letters.sending import NotReadyError, SendError, SuppressedError
 from backend.features.letters.uniqueness import corridor_verdict
@@ -223,13 +224,22 @@ async def check(session: AsyncSession, message: MessageModel) -> None:
 async def answer(session: AsyncSession, thread_id: int, body: str, what: str) -> str:
     """Ответ лиду в переписке до заведения письма (`stages.answer_text`): продажи подключены,
     у переписки есть лид, ему можно писать; текст — с подписью и физическим адресом из
-    «Отправителя» в конце (`letter.answered`). Цепочка не нужна: ответ — не её шаг."""
+    «Отправителя» в конце (`letter.answered`). Цепочка не нужна: ответ — не её шаг.
+
+    Метрики Ahrefs проверяются в итоговом тексте, как у сборки очереди — в собранном письме:
+    подпись и адрес из настроек — тоже текст письма, а текст ответа почта проверила до них."""
     found = await connection.check(session, what)
     dialog = await linked(session, thread_id)
     if dialog is None:
         raise SendError(f"{what}: у переписки нет лида продаж — её начала не сборка очереди продаж")
     await _writable(session, dialog, what)
     text = letter.answered(body, found)
+    if (leak := guards.metrics_leak(text)) is not None:
+        raise NotReadyError(
+            f"{what} не уходит: в ответе с подписью и адресом из настроек метрики Ahrefs "
+            f"({leak}) — правила Ahrefs это запрещают; уберите их из текста ответа или из "
+            "подписи и адреса на экране «Продажи» → «Отправитель»"
+        )
     problem = letter.answer_problem(text, found)
     if problem is not None:
         raise NotReadyError(f"{what} не уходит: {problem}")

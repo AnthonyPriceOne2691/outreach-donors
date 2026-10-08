@@ -8,6 +8,8 @@
   (`sales/mail.recipient`);
 - не подключены — отказ словами с тем, чего не хватает; лиду писать нельзя — отказ словами;
   письма ответа в базе нет ни в том, ни в другом случае;
+- метрики Ahrefs проверяются в итоговом тексте — с подписью и адресом из настроек, как у
+  сборки очереди: подпись с метрикой — отказ словами, письма нет;
 - перед отправкой модуль проверяет ответ ещё раз (`sales/mail.check`): блок настроек в конце
   и нынешний; подпись в тексте ответа — не отказ, в отличие от письма цепочки;
 - у доноров и рекламодателей путь прежний: текст как написан, модуль продаж не спрошен.
@@ -279,6 +281,22 @@ async def test_a_broken_sales_module_refuses_the_answer_in_words_and_stores_noth
         "выдуманная поломка модуля: answer"
     )
     assert await _answers(session, world.reply.id) == 0
+
+
+async def test_metrics_in_the_signature_stop_the_answer_in_words_and_store_nothing(
+    session: AsyncSession, answered: Answered
+) -> None:
+    """Текст ответа почта проверила до подписи; подпись и адрес из настроек — тоже текст письма:
+    метрики Ahrefs ищутся в итоговом тексте, как у сборки очереди — в собранном письме."""
+    await w.settings(session, signature="Mira Testova\nMade-up Test Agency, an Ahrefs partner")
+
+    with pytest.raises(NotReadyError, match="метрики Ahrefs") as refused:
+        await answered.answer(session)
+
+    assert str(refused.value).startswith(f"Ответ в переписке №{answered.first.thread_id} не уходит")
+    assert "уберите их из текста ответа или из подписи и адреса" in str(refused.value)
+    assert await _answers(session, answered.reply.id) == 0
+    assert len(_seen(answered.source)) == 1  # только первое письмо
 
 
 # --- перед отправкой — проверка ещё раз ---------------------------------------------------------
