@@ -82,8 +82,10 @@ export function SendQueue({ stage, count, batchMax, blocked, onFinished }: Props
       });
     },
   });
-  // Окно открывается и закрывается без отказа прежнего нажатия.
+  // Окно открывается и закрывается без отказа прежнего нажатия. Пока запрос идёт, окно
+  // не закрывается: уведомления об отказе нет, и отказ после закрытия не увидели бы нигде.
   const toggle = (open: boolean) => {
+    if (start.isPending) return;
     start.reset();
     setOpened(open);
   };
@@ -126,7 +128,7 @@ export function SendQueue({ stage, count, batchMax, blocked, onFinished }: Props
             </Alert>
           ) : null}
           <Group justify="flex-end">
-            <Button variant="default" onClick={() => toggle(false)}>
+            <Button variant="default" disabled={start.isPending} onClick={() => toggle(false)}>
               Отмена
             </Button>
             <Button color="lagoon" loading={start.isPending} onClick={() => start.mutate()}>

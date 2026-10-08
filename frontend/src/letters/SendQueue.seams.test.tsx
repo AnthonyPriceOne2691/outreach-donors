@@ -15,7 +15,7 @@
 
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { formatNumber } from '../format';
 import { renderWith } from '../test/render';
@@ -68,6 +68,29 @@ describe('отказ пачке (F1)', () => {
     const again = await screen.findByRole('dialog');
     expect(within(again).getByRole('button', { name: 'Отправить 2' })).toBeEnabled();
     expect(screen.queryByText(REFUSAL)).not.toBeInTheDocument();
+  });
+
+  it('пока запрос идёт, окно не закрывается — отказ увидят в окне', async () => {
+    let answer: (response: Response) => void = () => undefined;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      () => new Promise<Response>((resolve) => (answer = resolve)),
+    );
+    renderWith(<SendQueue stage="sales" count={2} blocked={false} onFinished={() => undefined} />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Отправить очередь · 2' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Отправить 2' }));
+    expect(within(dialog).getByRole('button', { name: 'Отмена' })).toBeDisabled();
+    await user.keyboard('{Escape}');
+    answer(
+      new Response(JSON.stringify({ detail: REFUSAL }), {
+        status: 409,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    expect(await within(screen.getByRole('dialog')).findByText(REFUSAL)).toBeInTheDocument();
   });
 });
 
