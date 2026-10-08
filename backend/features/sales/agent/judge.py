@@ -15,10 +15,13 @@
    персону, ссылки, призыв и ход: призыв и ссылки из настроек — не утверждения.
    Самооценка модели только добавляет нарушения: утверждение без опоры или со
    ссылкой на запись, которой в брифе нет, — нарушение; тон, не подтверждённый
-   `true`, — тоже. Одно исключение — кодом: утверждение внутри «голого» призыва
-   (`judge_cta.py`: предложение со ссылкой призыва из настроек, без цены, сроков,
-   гарантий и похвалы себе) опору имеет — настройки отправителя, и черновик оно не
-   задерживает. Отказ модели — `escalate` со словами; неразобранный ответ —
+   `true`, — тоже. Два исключения — кодом, и черновик они не задерживают:
+   утверждение внутри «голого» призыва (`judge_cta.py`: предложение со ссылкой
+   призыва из настроек, без цены, сроков, гарантий и похвалы себе) опирается на
+   настройки отправителя, а внутри предложения о собеседнике (`judge_theirs.py`:
+   «спасибо, что рассказали про ваш магазин на 2000 товаров» — ни слова о нас,
+   деньгах и сроках, числа и слова — из его письма) — на его письмо. Обещаний
+   исключения не трогают. Отказ модели — `escalate` со словами; неразобранный ответ —
    один повтор, и только второй неразобранный — `escalate`: судья, который не смог
    проверить, не пропускает, и причина видна человеку.
 
@@ -45,7 +48,14 @@ from backend.config import llm as llm_cfg
 from backend.config import sales as sales_cfg
 from backend.config.sales import SalesJudgeMode
 from backend.features.agent.stages import GuardInput, Verdict, VerdictKind
-from backend.features.sales.agent import calling, facts, judge_cta, judge_rules, reading
+from backend.features.sales.agent import (
+    calling,
+    facts,
+    judge_cta,
+    judge_rules,
+    judge_theirs,
+    reading,
+)
 from backend.features.sales.agent.facts import Context
 from backend.shared.llm import Refusal
 
@@ -54,8 +64,9 @@ logger = logging.getLogger(__name__)
 TOPIC = "судья черновика продаж"
 PROMPT = Path(__file__).with_name("prompts") / "judge.md"
 #: Меняется при каждой правке промпта или правила, меняющего вердикт модели: калибровка
-#: сравнивает версии. v5 — утверждение внутри голого призыва не в счёт (`judge_cta.py`).
-PROMPT_VERSION = "sales-judge-v5"
+#: сравнивает версии. v5 — утверждение внутри голого призыва не в счёт (`judge_cta.py`);
+#: v6 — и внутри предложения о собеседнике (`judge_theirs.py`), промпт тот же.
+PROMPT_VERSION = "sales-judge-v6"
 #: Сколько раз спросить судью-модель, если её ответ не разобран: битый ответ — не вердикт,
 #: но и не повод звать модель без конца.
 ATTEMPTS = 2
@@ -136,10 +147,22 @@ def _ids(raw: object) -> list[int]:
     return found
 
 
-def _claim(item: Mapping[str, Any], known: Mapping[int, str], cta: str | None) -> str | None:
-    quote = " ".join(str(item.get("quote") or "").split())[:MAX_QUOTE]
+def _set_aside(quote: str, cta: str | None, theirs: tuple[str, ...]) -> str | None:
+    """Почему утверждение не в счёт — его опора не запись базы. `None` — в счёт."""
     if cta is not None and judge_cta.inside(quote, cta):
-        logger.info("%s: утверждение внутри призыва не в счёт", TOPIC, extra={"quote": quote})
+        return "утверждение внутри призыва не в счёт"
+    if any(judge_cta.inside(quote, sentence) for sentence in theirs):
+        return "утверждение о собеседнике не в счёт"
+    return None
+
+
+def _claim(
+    item: Mapping[str, Any], known: Mapping[int, str], cta: str | None, theirs: tuple[str, ...]
+) -> str | None:
+    quote = " ".join(str(item.get("quote") or "").split())[:MAX_QUOTE]
+    aside = _set_aside(quote, cta, theirs)
+    if aside is not None:
+        logger.info("%s: %s", TOPIC, aside, extra={"quote": quote})
         return None
     ids = _ids(item.get("kb"))
     if not ids:
@@ -185,10 +208,17 @@ def _shaped(raw: object) -> tuple[list[Any], list[Any], Mapping[str, Any]] | Non
     return raw["claims"], raw["promises"], raw["tone"]
 
 
-def parse(content: str, *, known: Mapping[int, str], cta: str | None = None) -> list[str] | None:
+def parse(
+    content: str,
+    *,
+    known: Mapping[int, str],
+    cta: str | None = None,
+    theirs: tuple[str, ...] = (),
+) -> list[str] | None:
     """Ответ судьи-модели → нарушения словами. `None` — ответ не разобран.
 
-    `cta` — голый призыв черновика (`judge_cta.bare`): утверждение внутри него не в счёт."""
+    `cta` — голый призыв черновика (`judge_cta.bare`), `theirs` — предложения черновика о
+    собеседнике (`judge_theirs.about_them`): утверждение внутри них не в счёт."""
     try:
         raw = json.loads(content)
     except ValueError:
@@ -199,7 +229,7 @@ def parse(content: str, *, known: Mapping[int, str], cta: str | None = None) -> 
         return None
     claims, promises, tone = shaped
     return [
-        *(found for item in claims if (found := _claim(item, known, cta)) is not None),
+        *(found for item in claims if (found := _claim(item, known, cta, theirs)) is not None),
         *(f"обещание вне базы: «{' '.join(text.split())}» — уберите его" for text in promises),
         *_tone(tone),
     ]
@@ -219,6 +249,7 @@ async def _model(check: GuardInput, context: Context, prompt: Path) -> Verdict:
     проверить — человеку."""
     tokens = 0
     cta = judge_cta.bare(check.draft, context)
+    theirs = judge_theirs.about_them(check.draft, check.incoming)
     for attempt in range(1, ATTEMPTS + 1):
         answer = await calling.ask(
             prompt=prompt,
@@ -231,7 +262,7 @@ async def _model(check: GuardInput, context: Context, prompt: Path) -> Verdict:
             why = f"судья-модель не проверила черновик: {answer}"
             return Verdict(VerdictKind.ESCALATE, (why,), tokens=tokens)
         tokens += answer.tokens
-        found = parse(answer.content, known=context.kb, cta=cta)
+        found = parse(answer.content, known=context.kb, cta=cta, theirs=theirs)
         if found is not None:
             kind = VerdictKind.BLOCK if found else VerdictKind.ALLOW
             return Verdict(kind, tuple(found), tokens=tokens)
