@@ -131,7 +131,10 @@ async def test_g1_reject_without_a_reason_is_422_in_words(
 
 
 class _Down:
-    """Очередь задач, у которой лежит Redis."""
+    """Очередь задач, у которой лежит Redis: и проверка идущей сборки, и постановка."""
+
+    def fetch_job(self, _job_id: str) -> object:
+        raise RedisConnectionError("Error 61 connecting to localhost:6389. Connection refused.")
 
     def enqueue(self, *_args: object, **_kwargs: object) -> object:
         raise RedisConnectionError("Error 61 connecting to localhost:6389. Connection refused.")
