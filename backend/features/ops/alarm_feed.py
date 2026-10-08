@@ -21,7 +21,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 from redis import Redis
@@ -72,11 +72,19 @@ class Feed:
         """Сказать о новых тревогах сразу и о прошедших — после `QUIET_PASSES` проходов без них."""
         self._recall()
         now = {alarm.code: alarm for alarm in found}
+        await self._new(now)
+        await self._gone(now)
+
+    async def _new(self, now: Mapping[str, Alarm]) -> None:
+        """Новая тревога — сразу; действующая начинает счёт тишины заново."""
         for code, alarm in now.items():
             self.quiet.pop(code, None)
             if code not in self.told and await _said(f"тревога: {alarm.title}. {alarm.detail}"):
                 self.told[code] = alarm.title
                 self._save()
+
+    async def _gone(self, now: Mapping[str, Alarm]) -> None:
+        """Прошедшая — когда её нет `QUIET_PASSES` проходов подряд."""
         for code in [code for code in self.told if code not in now]:
             self.quiet[code] = self.quiet.get(code, 0) + 1
             if self.quiet[code] >= QUIET_PASSES and await _said(f"прошло: {self.told[code]}"):

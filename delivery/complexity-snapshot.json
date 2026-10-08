@@ -1422,9 +1422,9 @@
       "worst": "—"
     },
     "backend/features/ops/alarm_feed.py": {
-      "lines": 43,
-      "complexity": 8,
-      "worst": "tell:28"
+      "lines": 151,
+      "complexity": 5,
+      "worst": "_gone:86"
     },
     "backend/features/ops/alarms.py": {
       "lines": 16,
@@ -1437,9 +1437,9 @@
       "worst": "_outcome:124"
     },
     "backend/features/ops/mail_watch.py": {
-      "lines": 134,
+      "lines": 165,
       "complexity": 8,
-      "worst": "_of_stage:59"
+      "worst": "_of_stage:90"
     },
     "backend/features/ops/overview.py": {
       "lines": 272,
@@ -1447,9 +1447,9 @@
       "worst": "_letters:243"
     },
     "backend/features/ops/silence.py": {
-      "lines": 324,
+      "lines": 326,
       "complexity": 7,
-      "worst": "_crawl_blocked:248"
+      "worst": "_crawl_blocked:249"
     },
     "backend/features/outreach/__init__.py": {
       "lines": 2,
@@ -2137,7 +2137,7 @@
       "worst": "main:33"
     },
     "backend/workers/reaper.py": {
-      "lines": 153,
+      "lines": 158,
       "complexity": 4,
       "worst": "_told:103"
     },
