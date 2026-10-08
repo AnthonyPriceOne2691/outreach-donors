@@ -8,9 +8,10 @@
 
 1. дубль — адрес уже у лида продаж, в этом же файле или раньше;
 2. ручной стоп-лист продаж — клиенты и партнёры;
-3. отписка где угодно — общие `suppressions`: строки без этапа и отписки
+3. отписка где угодно — общие `suppressions`: строки без этапа, этапа продаж и отписки
    с жалобами любого этапа (приём ответов пишет отписку с этапом кампании,
-   `replies/pipeline.py`; человек отписывается от нас, а не от рассылки);
+   `replies/pipeline.py`; человек отписывается от нас, а не от рассылки) — то же правило,
+   что у сборки и отправки (`mail.stopped_by`);
 4. домен в работе у доноров или рекламодателей — идущий диалог (диалог
    продаж — не другое направление: у компании бывает несколько лидов);
 5. годность адреса — общий `contacts/quality.rejection_reason` целиком
@@ -253,10 +254,12 @@ def _chunks(values: Sequence[Any]) -> Iterator[Sequence[Any]]:
 
 
 def _unsub(column: Any, chunk: Sequence[Any], moment: datetime) -> Any:
-    """Строки общего стоп-листа, которые держат продажи: без этапа — любые,
-    с этапом — только те, где человек сам просил не писать."""
+    """Строки общего стоп-листа, которые держат продажи: без этапа и этапа продаж — любые,
+    другого этапа — только те, где человек сам просил не писать (как `mail.stopped_by`)."""
     anywhere = or_(
-        SuppressionModel.stage.is_(None), SuppressionModel.reason.in_(ASKED_NOT_TO_WRITE)
+        SuppressionModel.stage.is_(None),
+        SuppressionModel.stage == Stage.SALES,
+        SuppressionModel.reason.in_(ASKED_NOT_TO_WRITE),
     )
     return select(column).where(anywhere, SuppressionModel.in_force(moment), column.in_(chunk))
 

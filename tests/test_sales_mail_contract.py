@@ -17,6 +17,7 @@ from backend.features.core import stages
 from backend.features.core.domain import Stage
 from backend.features.core.models.outreach import MessageModel
 from backend.features.letters import followups
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests import test_sales_send_world as w
 from tests.test_sales_send import FIRST_DUE, _first_sent, _lead_of, _queued
@@ -62,6 +63,39 @@ def _spy(seen: list[str], name: str, real: Callable[[], Awaitable[None]]) -> obj
         await real()
 
     return spy
+
+
+#: Запрос, который меняет базу. Точка сохранения моста — не запись: её ставит и снимает мост.
+_WRITES = ("INSERT", "UPDATE", "DELETE", "MERGE", "TRUNCATE")
+
+
+@pytest.mark.parametrize("ask", sorted(ASKS))
+async def test_module_answers_write_nothing_to_the_base(
+    session: AsyncSession, world: w.World, ask: str
+) -> None:
+    """Ревью стыков (A1): «внутри ответа ничего не сохраняет» — не только без `commit`. Правка
+    строки или новая строка в ответе ушла бы в базу с фиксацией почты, которой о ней не
+    сказали. Мутанты «модуль правит лида», «модуль добавляет строку стоп-листа», «модуль
+    шлёт UPDATE» — каждый вопрос почты: запрос записи пойман на соединении."""
+    [letter] = await _queued(session, world)
+    await session.flush()
+    link = (await session.connection()).sync_connection
+    assert link is not None
+    sent: list[str] = []
+
+    def seen(*args: object) -> None:
+        sent.append(str(args[2]))
+
+    event.listen(link, "before_cursor_execute", seen)
+    try:
+        await ASKS[ask](session, letter)
+    finally:
+        event.remove(link, "before_cursor_execute", seen)
+
+    writes = [sql for sql in sent if sql.lstrip().upper().startswith(_WRITES)]
+    assert writes == []
+    assert [*session.new, *session.dirty, *session.deleted] == []
+    assert any(sql.lstrip().upper().startswith("SELECT") for sql in sent)
 
 
 async def test_followup_that_cannot_be_built_waits_and_is_not_a_module_failure(

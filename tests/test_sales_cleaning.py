@@ -268,6 +268,7 @@ async def test_a2_domain_in_a_running_dialog_of_another_direction_is_busy(
         (SuppressionReason.UNSUBSCRIBED, Stage.DONORS, None, True),  # отписка через ответ
         (SuppressionReason.COMPLAINED, Stage.ADVERTISERS, None, True),  # жалоба любого этапа
         (SuppressionReason.MANUAL, None, None, True),  # без этапа — любая причина
+        (SuppressionReason.MANUAL, Stage.SALES, None, True),  # этапа продаж — как у письма (E1)
         (SuppressionReason.MANUAL, Stage.DONORS, None, False),  # правило чужого направления
         (SuppressionReason.SUPPLIER, Stage.ADVERTISERS, None, False),
         (SuppressionReason.UNSUBSCRIBED, None, NOW - timedelta(days=1), False),  # срок вышел

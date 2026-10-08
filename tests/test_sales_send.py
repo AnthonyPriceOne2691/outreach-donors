@@ -159,12 +159,13 @@ async def test_a2_address_removed_after_assembly_stops_the_letter(
 async def test_incomplete_chain_of_the_letter_set_holds_the_letter(
     session: AsyncSession, world: w.World
 ) -> None:
-    """Цепочку набора первого письма выключили — добивок не будет: первое не уходит."""
+    """Цепочку набора первого письма выключили — добивок не будет: первое не уходит. Отказ —
+    письму, а не этапу: пачка его считает и идёт дальше (`test_sales_mail_seams.py`, A3)."""
     [letter] = await _queued(session, world)
     off = chain_text.step_template(step=3, language="en", body=w.FOLLOW_BODY[3], active=False)
     await chain.save(session, off, hypothesis_id=None, author="тест", author_id=None)
 
-    with pytest.raises(SalesNotConnectedError, match="нет второй добивки"):
+    with pytest.raises(NotReadyError, match="нет второй добивки"):
         await Sending(session, _transports(), now=w.NOW).send(letter.id)
 
 
