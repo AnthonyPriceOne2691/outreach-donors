@@ -12,6 +12,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
+import { formatNumber } from '../format';
 import { ADMIN, NO_STUCK_LETTERS, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
@@ -40,6 +41,8 @@ const VIEW = {
   transport: { name: 'sendgrid', real: true, problem: null },
   corridor: { min: 0.15, max: 0.25 },
   funnel: { подходящих: 2, 'с адресом': 2, 'ещё не писали': 0 },
+  queued_total: 2,
+  batch_max: 200,
 };
 
 const DONE = {
@@ -109,6 +112,24 @@ describe('отправка очереди пачкой', () => {
       within(dialog).getByText(/^В очереди 2 письма; одна пачка берёт до 1, остальное — следующей/),
     ).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: 'Отправить 1' })).toBeInTheDocument();
+  });
+
+  it('кнопка называет всю очередь этапа, а не список экрана: в списке 200, всего 1 000', async () => {
+    const shown = Array.from({ length: 200 }, (_, at) => letter(at + 1, `d${at + 1}.example.test`));
+    open({ letters: shown, queued_total: 1000, batch_max: 200 });
+    const user = userEvent.setup();
+
+    await user.click(
+      await screen.findByRole('button', { name: `Отправить очередь · ${formatNumber(1000)}` }),
+    );
+    const dialog = await screen.findByRole('dialog');
+
+    expect(
+      within(dialog).getByText(
+        /^В очереди 1\s000 писем; одна пачка берёт до 200, остальное — следующей/,
+      ),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Отправить 200' })).toBeInTheDocument();
   });
 
   it('отмена ничего не отправляет', async () => {

@@ -240,6 +240,28 @@ class TestQueue:
         assert corridor["min"] == outreach_cfg.UNIQUENESS_TARGET_MIN
         assert corridor["max"] == outreach_cfg.UNIQUENESS_TARGET_MAX
 
+    async def test_the_whole_stage_queue_is_counted_beyond_the_list(
+        self, client: AsyncClient, admin_token: str, session: AsyncSession, letter: MessageModel
+    ) -> None:
+        """Список на экране — только начало очереди, а кнопка пачки называет очередь целиком:
+        201 письмо в очереди — в списке 200, всего 201."""
+        session.add_all(
+            MessageModel(
+                campaign_id=letter.campaign_id,
+                domain_id=letter.domain_id,
+                status=MessageStatus.QUEUED,
+                subject="Made-up subject",
+                body="Made-up body",
+                idempotency_key=f"made-up:long-queue:{number}:0",
+            )
+            for number in range(200)
+        )
+        await session.commit()
+
+        view = (await client.get("/api/letters", headers=bearer(admin_token))).json()
+
+        assert (len(view["letters"]), view["queued_total"]) == (200, 201)
+
     async def test_the_batch_cap_comes_from_the_server(
         self, client: AsyncClient, admin_token: str
     ) -> None:

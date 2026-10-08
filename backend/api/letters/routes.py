@@ -79,6 +79,7 @@ async def queue(
     return LettersView(
         stage=stage,
         letters=[QueuedLetterCard.of(row) for row in await repository.queued(stage=stage)],
+        queued_total=await repository.queued_count(stage=stage),
         letter_default=LetterDraftView.of(draft.default_draft(stage)),
         blocked_by=compose.missing_settings(),
         transport=Transport.current(stage.value),
