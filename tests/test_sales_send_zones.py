@@ -92,7 +92,7 @@ async def test_window_counts_the_zone_of_the_lead_then_of_his_country(
     if goes:
         await sending.send(letter.id)
     else:
-        with pytest.raises(OutsideWindowError, match="уйдёт не раньше пн 12.10 09:"):
+        with pytest.raises(OutsideWindowError, match=r"уйдёт не раньше пн 12\.10 09:"):
             await sending.send(letter.id)
 
     assert [outgoing.to for outgoing in _seen(source)] == ([JANE] if goes else [])
