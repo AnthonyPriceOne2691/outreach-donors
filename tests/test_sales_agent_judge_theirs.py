@@ -92,10 +92,15 @@ async def test_a_sentence_about_the_correspondent_does_not_block(llm: Plug, name
 
 #: Предложение вместо благодарности черновика: письмо случая или своё — и что в нём не о
 #: собеседнике. Правила кодом все эти черновики пропускают к модели (числа — из базы или
-#: письма), и она цитирует предложение целиком без опоры: держит только правило v6.
+#: письма), и она цитирует предложение целиком без опоры: держит только правило v6, и в
+#: каждом предложении — одна его проверка («we», «нас» — слова самого письма).
 NOT_THEIRS = {
     "en-our": ("good-letter-number-en", None, "Thank you for the details about our 3 stores."),
-    "en-we-from-the-letter": ("good-letter-number-en", None, "Thank you, we run 3 online stores."),
+    "en-we-from-the-letter": (
+        "good-letter-number-en",
+        None,
+        "Thank you for the details: we run 3 online stores.",
+    ),
     "en-number-from-the-base": (
         "good-letter-number-en",
         None,
@@ -116,7 +121,7 @@ NOT_THEIRS = {
     "ru-we-from-the-letter": (
         "good-restate-ru",
         None,
-        "Спасибо, у нас интернет-магазин на 2000 товаров.",
+        "Спасибо, что рассказали: у нас интернет-магазин на 2000 товаров.",
     ),
     "ru-number-from-the-base": (
         "good-restate-ru",
