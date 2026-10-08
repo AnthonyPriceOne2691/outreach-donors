@@ -50,7 +50,9 @@ export function domainShut(
   now: Date = new Date(),
 ): string | null {
   if (limit === undefined) return null;
-  if (limit.stage !== stage) return 'домен записан за другим направлением';
+  // Коротко: «домен записан за другим направлением» на 375 px обрезался; за каким —
+  // называет строка лимита.
+  if (limit.stage !== stage) return 'домен другого направления';
   if (limit.paused_at !== null) return 'домен на паузе';
   if (limit.young_until !== null && new Date(limit.young_until) > now) return 'домен на выдержке';
   return null;
