@@ -160,8 +160,8 @@ async def test_queue_refusal_of_any_kind_after_the_row_is_left_to_the_pass(
     with caplog.at_level(logging.ERROR, logger="backend.features.sales.handoff"):
         row = await handoff.start(session, dialog.thread.id, enqueue=refuse, now=lambda: NOW)
 
-    assert "задача передачи лида не поставлена" in caplog.text
-    assert "адрес очереди не разобран" in caplog.text
+    [record] = [r for r in caplog.records if "задача передачи лида не поставлена" in r.message]
+    assert getattr(record, "error", None) == "ValueError: адрес очереди не разобран"
     later = NOW + timedelta(seconds=cfg.HANDOFF_RETRY_SEC + 7)
     assert await handoff.due(session, now=later) == [row.id]
 

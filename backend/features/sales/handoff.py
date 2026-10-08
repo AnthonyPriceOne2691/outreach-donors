@@ -46,7 +46,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from redis.exceptions import RedisError
 from sqlalchemy import ColumnElement, Exists, exists, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
@@ -58,6 +57,7 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.outreach import MessageModel, ReplyModel, ThreadModel
 from backend.features.replies.quoting import written_by_hand
+from backend.features.runs.failures import described
 from backend.features.sales import handoff_kommo
 from backend.features.sales import handoff_text as wording
 from backend.features.sales.handoff_text import Card
@@ -135,8 +135,10 @@ async def start(
 ) -> SalesHandoffModel:
     """Передать лида диалога телемаркетологу. Идемпотентно; коммитит сессию.
 
-    Очередь недоступна — не отказ: строка ждёт прохода по расписанию (`due`),
-    срок которого ставится здесь же.
+    Задача не встала — не отказ, чем бы ни отказала очередь (Redis лежит, адрес очереди
+    не разобран): строка уже закоммичена и ждёт прохода по расписанию (`due`), срок
+    которого ставится здесь же. Исключение вызывающему значило бы «передачи нет», и разбор
+    ответа оставил бы ответ ждать человека при живой передаче (ревью стыков, B5).
     """
     lead = await lead_of(session, thread_id)
     row = await _handoff_of(session, thread_id, lead.id)
@@ -147,11 +149,10 @@ async def start(
     await session.commit()
     try:
         enqueue(row.id)
-    except RedisError as exc:
-        logger.error(  # noqa: TRY400 — трассировка Redis ничего не добавит к причине
-            "продажи: задача передачи лида не поставлена — очередь недоступна; "
-            "её возьмёт проход по расписанию",
-            extra={"handoff_id": row.id, "thread_id": thread_id, "error": str(exc)},
+    except Exception as exc:  # noqa: BLE001 — строка закоммичена, её возьмёт проход повторов
+        logger.error(  # noqa: TRY400 — трассировка очереди ничего не добавит к причине
+            "продажи: задача передачи лида не поставлена — её возьмёт проход по расписанию",
+            extra={"handoff_id": row.id, "thread_id": thread_id, "error": described(exc)},
         )
     return row
 
