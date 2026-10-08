@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
+import sys
 from dataclasses import replace
 from pathlib import Path
 from types import ModuleType
@@ -113,3 +115,22 @@ async def test_drafts_migration_goes_down_and_up(session: AsyncSession) -> None:
 
     assert (down, up) == (False, True)
     assert statuses == ["drafted", "skipped", "escalated", "sent", "rejected"]
+
+
+def test_the_common_agent_seam_loads_only_the_parts_of_the_sales_agent() -> None:
+    """Общий шов агента — его грузят воркер доноров и API — берёт от агента продаж только `parts`:
+    константы, пин и настройки. Бриф, судья и сообщения о черновиках — лениво, первым вопросом:
+    сломанный модуль агента продаж не должен ронять общий воркер (ревью соседней сессии к #224).
+    Чистый интерпретатор — то, что грузит импорт шва, а не то, что успели загрузить тесты."""
+    code = (
+        "import sys, backend.features.agent.stages; "
+        "print(sorted(m for m in sys.modules if m.startswith('backend.features.sales.agent')))"
+    )
+    root = Path(__file__).resolve().parents[1]
+    done = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True, cwd=root
+    )
+    loaded = done.stdout.strip()
+    assert loaded == "['backend.features.sales.agent', 'backend.features.sales.agent.parts']", (
+        loaded + done.stderr
+    )
