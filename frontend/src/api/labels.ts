@@ -262,6 +262,7 @@ const OPERATION_TITLES: Record<string, string> = {
   contacts_search: 'поиск адресов',
   sales_verify: 'проверка адресов продаж',
   sales_reply_kind: 'разбор ответов продаж',
+  sales_letter_rewrite: 'переписывание писем продаж',
   sales_situation: 'ситуация писем продаж',
   sales_draft: 'черновики продаж',
   sales_judge: 'судья черновиков продаж',

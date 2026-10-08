@@ -58,6 +58,7 @@ from backend.features.sales.models import (
     SalesThreadModel,
 )
 from backend.features.sales.sender import Sender
+from backend.features.sales.usage_cap import LETTER_REWRITE, sales_cap
 
 logger = logging.getLogger(__name__)
 
@@ -192,9 +193,10 @@ async def _leads(session: AsyncSession, hypothesis_id: int, after: int) -> list[
 
 
 async def _within_cap(session: AsyncSession, report: QueueReport) -> bool:
-    """Потолок расхода на модель — до каждого письма, как у доноров."""
+    """Потолок расхода на модель — до каждого письма, как у доноров; кроме общего — свой
+    у вызовов модели продаж (`usage_cap.sales_cap`)."""
     try:
-        await usage.ensure_llm_within_cap(session, run_id=None)
+        await usage.ensure_llm_within_cap(session, run_id=None, own=sales_cap())
     except usage.LlmCapExceededError as exc:
         report.stopped = str(exc)
         logger.warning("продажи: сборка остановлена", extra={"reason": str(exc)})
@@ -265,7 +267,7 @@ async def _prepare(
         rendered, Personalization(host=row.host, country=row.lead.country or "—")
     )
     if rewritten.tokens_spent:
-        usage.record(session, operation="letter_rewrite", units=rewritten.tokens_spent)
+        usage.record(session, operation=LETTER_REWRITE, units=rewritten.tokens_spent)
         report.tokens_spent += rewritten.tokens_spent
     assembled = compose.assemble(rendered, rewritten.zones)
     guards.assert_no_metrics(f"{assembled.subject}\n{assembled.body}")

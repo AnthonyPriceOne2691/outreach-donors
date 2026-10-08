@@ -460,6 +460,8 @@ async def test_spend_cap_of_the_model_stops_the_build_before_the_next_letter(
     """Потолок расхода на модель — до каждого письма, как у доноров: собранное остаётся,
     следующее письмо модели не стоит, отчёт называет остановку словами потолка."""
     monkeypatch.setattr(llm_cfg, "DAILY_TOKEN_CAP", 53)  # выдуманный потолок, 37 токенов на письмо
+    # Свой потолок продаж (доля общего) — свой тест в `test_sales_usage_cap.py`; здесь — общий.
+    monkeypatch.setattr(llm_cfg, "SALES_DAILY_TOKEN_CAP", 0)
     for name in ("one", "two", "three"):
         await w.lead(session, world.hypothesis_id, f"{name}@{name}.example.test")
     rewriter = w.CorridorRewriter()

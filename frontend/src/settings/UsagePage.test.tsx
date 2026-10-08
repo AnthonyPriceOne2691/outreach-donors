@@ -100,6 +100,13 @@ describe('расход', () => {
     expect(operationTitle('sales_reply_kind')).toBe('разбор ответов продаж');
   });
 
+  it('переписывание писем продаж названо словами и отдельно от писем доноров', () => {
+    // Операция сервера `sales_letter_rewrite` (`OPERATION_PROVIDERS`): свой потолок продаж
+    // считает её отдельно от `letter_rewrite` доноров.
+    expect(operationTitle('sales_letter_rewrite')).toBe('переписывание писем продаж');
+    expect(operationTitle('letter_rewrite')).toBe('переписывание писем');
+  });
+
   it('расход агента продаж назван словами, а не кодом', () => {
     // Операции сервера агента продаж (`OPERATION_PROVIDERS`, срез продаж 3.2a).
     expect(operationTitle('sales_situation')).toBe('ситуация писем продаж');

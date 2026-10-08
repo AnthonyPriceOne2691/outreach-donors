@@ -62,6 +62,7 @@ from backend.features.sales.reply_kind import (
     snapshot,
 )
 from backend.features.sales.unsubscribe import close_address
+from backend.features.sales.usage_cap import sales_cap
 from backend.features.sales.verifier import EmailVerifier
 
 logger = logging.getLogger(__name__)
@@ -222,8 +223,9 @@ class SalesReplies:
         return self._now or datetime.now(UTC)
 
     async def handle(self, reply_id: int) -> Handled:
-        """Разобрать вид ответа и повести его по пути. Потолок модели — исключение
-        `LlmCapExceededError`: задача ставит себя на завтра (`workers/sales_jobs.py`)."""
+        """Разобрать вид ответа и повести его по пути. Потолок модели — общий или свой у
+        продаж (`usage_cap.sales_cap`) — исключение `LlmCapExceededError`: задача ставит себя
+        на завтра (`workers/sales_jobs.py`)."""
         reply = await self._session.get(ReplyModel, reply_id)
         if reply is None:
             logger.warning("продажи: ответа нет — задаче нечего делать", extra={"reply": reply_id})
@@ -241,7 +243,7 @@ class SalesReplies:
             case _:
                 pass
 
-        await usage.ensure_llm_within_cap(self._session)
+        await usage.ensure_llm_within_cap(self._session, own=sales_cap())
         found = await self._classifier.classify(text=reply.raw_body, subject=reply.subject or "")
         if isinstance(found, Unanswered):
             return self._unanswered(reply, found)

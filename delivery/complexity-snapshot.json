@@ -952,9 +952,9 @@
       "worst": "check_connected:107"
     },
     "backend/features/core/usage.py": {
-      "lines": 212,
+      "lines": 215,
       "complexity": 10,
-      "worst": "ensure_llm_within_cap:169"
+      "worst": "ensure_llm_within_cap:172"
     },
     "backend/features/core/window.py": {
       "lines": 172,
@@ -1927,9 +1927,9 @@
       "worst": "zones_of:35"
     },
     "backend/features/sales/queue.py": {
-      "lines": 411,
+      "lines": 413,
       "complexity": 9,
-      "worst": "_prepare:244"
+      "worst": "_prepare:246"
     },
     "backend/features/sales/queue_jobs.py": {
       "lines": 66,
@@ -1942,9 +1942,9 @@
       "worst": "refer:80"
     },
     "backend/features/sales/replies.py": {
-      "lines": 438,
+      "lines": 440,
       "complexity": 10,
-      "worst": "handle:224"
+      "worst": "handle:225"
     },
     "backend/features/sales/reply_kind.py": {
       "lines": 273,
@@ -1975,6 +1975,11 @@
       "lines": 55,
       "complexity": 5,
       "worst": "close_address:43"
+    },
+    "backend/features/sales/usage_cap.py": {
+      "lines": 31,
+      "complexity": 1,
+      "worst": "sales_cap:27"
     },
     "backend/features/sales/verifier.py": {
       "lines": 231,
