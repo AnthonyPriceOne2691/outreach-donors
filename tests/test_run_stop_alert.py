@@ -41,6 +41,11 @@ from tests.test_execute_run import GOOD, FakeSerp, _ahrefs, _deps, _flaky_ahrefs
 
 TOKEN = "123456:run-alert-test-token"
 
+#: Отказ Ahrefs по коду — словами, как его видит человек. До 08.10.2026 сырой
+#: ответ («batch_metrics: 403 forbidden») уходил в чат и на экран общими
+#: словами: «техническая ошибка (AhrefsError)».
+REFUSED = "batch_metrics: Ahrefs ответил 403: forbidden"
+
 
 @pytest.fixture
 def telegram(monkeypatch: pytest.MonkeyPatch) -> list[str]:
@@ -161,9 +166,7 @@ async def test_refusal_mid_run_is_told_once(
 
     assert run.status is RunStatus.STOPPED
     assert result["refused"]
-    assert telegram == [
-        f"outreach-donors: прогон №{run.id} остановлен: техническая ошибка (AhrefsError)"
-    ]
+    assert telegram == [f"outreach-donors: прогон №{run.id} остановлен: {REFUSED}"]
 
 
 async def test_refusal_before_the_run_is_told_once(
@@ -188,6 +191,33 @@ async def test_refusal_before_the_run_is_told_once(
     assert telegram == [
         f"outreach-donors: прогон №{run.id} остановлен: SERP_LOGIN пуст — выдачу покупать не на что"
     ]
+
+
+async def test_a_refused_key_on_the_quota_stops_the_run_at_once(
+    session: AsyncSession, provider: dict[str, Any], telegram: list[str]
+) -> None:
+    """Ключ отозван: остаток отвечает 401 — прогон закрыт первой же попыткой, и человек
+    узнаёт причину. До 08.10.2026 такой прогон шёл «сбой, будет продолжен» до конца
+    продолжений, а в чат не приходило ничего."""
+
+    def revoked(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, text="invalid api key")
+
+    provider["ahrefs"] = lambda: AhrefsClient(
+        api_key="made-up-key",  # pragma: allowlist secret
+        http=httpx.AsyncClient(transport=httpx.MockTransport(revoked), base_url="https://api.test"),
+    )
+    run = await _queued_run(session)
+
+    result = await jobs._search(run.id)
+    await session.refresh(run)
+
+    assert run.status is RunStatus.STOPPED
+    assert result["refused"]
+    assert len(telegram) == 1
+    assert telegram[0].endswith(
+        "Причина: Остаток квоты недоступен: Ahrefs ответил 401: invalid api key"
+    )
 
 
 async def test_retries_are_silent_and_the_burial_is_told_once(
@@ -247,7 +277,7 @@ async def test_console_run_is_told_too(session: AsyncSession, telegram: list[str
         await execute_run(deps, RunRequest(["crm"], "us", defaults(), settings.id))
 
     assert len(telegram) == 1
-    assert telegram[0].endswith("остановлен: техническая ошибка (AhrefsError)")
+    assert telegram[0].endswith(f"остановлен: {REFUSED}")
 
 
 async def test_a_failing_alert_does_not_hide_the_stop(
@@ -274,4 +304,4 @@ async def test_a_failing_alert_does_not_hide_the_stop(
 
     assert result["refused"]
     assert run.status is RunStatus.STOPPED
-    assert run.stats["причина"] == "остановлен: техническая ошибка (AhrefsError)"
+    assert run.stats["причина"] == f"остановлен: {REFUSED}"

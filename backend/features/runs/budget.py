@@ -21,7 +21,15 @@ class CapExceededError(RuntimeError):
 
 
 class QuotaUnavailableError(RuntimeError):
-    """Остаток узнать не удалось. Тратить вслепую нельзя."""
+    """Остаток узнать не удалось. Тратить вслепую нельзя.
+
+    `permanent` — от причины (`runs/failures.is_permanent`): отказ по ключу или
+    правам повтор не исправит, сеть и 5xx — исправят.
+    """
+
+    def __init__(self, message: str, *, permanent: bool = False) -> None:
+        super().__init__(message)
+        self.permanent = permanent
 
 
 async def units_left(client: AhrefsClient, *, cap: int | None = None, claimed: int = 0) -> int:
@@ -46,10 +54,15 @@ async def units_left(client: AhrefsClient, *, cap: int | None = None, claimed: i
     try:
         quota = Quota.from_payload(await client.limits_and_usage())
     except (AhrefsError, OSError) as exc:
+        # Причина — в тексте и в признаке. До 08.10.2026 не было ни того, ни
+        # другого: «остаток неизвестен» читался одинаково для сетевой минуты и
+        # для отозванного ключа, и прогон с отозванным ключом шёл «сбой, будет
+        # продолжен» до конца продолжений, хотя повтор его не исправит.
         raise QuotaUnavailableError(
             "Не удалось узнать остаток юнитов у Ahrefs. Прогон не запускается: "
             "тратить, не зная остатка, значит рисковать лимитом соседней системы "
-            "на том же ключе."
+            f"на том же ключе. Причина: {exc}",
+            permanent=getattr(exc, "permanent", False),  # у OSError признака нет
         ) from exc
 
     logger.info(

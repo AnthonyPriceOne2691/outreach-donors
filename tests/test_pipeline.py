@@ -15,6 +15,7 @@ from backend.features.runs.budget import (
     QuotaUnavailableError,
     units_left,
 )
+from backend.features.runs.failures import is_permanent
 from backend.features.runs.planning import Candidates, gather_candidates, plan_run
 from backend.features.runs.report import RunReport
 from backend.features.serp.protocol import SerpResult
@@ -257,6 +258,37 @@ class TestQuota:
         http = httpx.AsyncClient(transport=httpx.MockTransport(page), base_url="https://api.test")
         with pytest.raises(QuotaUnavailableError, match="соседней системы"):
             await units_left(AhrefsClient(api_key="k", http=http))
+
+    async def test_a_refused_key_stops_the_run_for_good_and_says_why(self) -> None:
+        """Ключ отозван (401) — повтор не поможет: признак у отказа, причина в тексте.
+        До 08.10.2026 прогон с таким ключом шёл «сбой, будет продолжен» до конца
+        продолжений и не говорил, почему."""
+
+        def refused(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(401, text="invalid api key")
+
+        http = httpx.AsyncClient(
+            transport=httpx.MockTransport(refused), base_url="https://api.test"
+        )
+        key = "made-up-key"  # pragma: allowlist secret
+        with pytest.raises(QuotaUnavailableError) as caught:
+            await units_left(AhrefsClient(api_key=key, http=http))
+
+        assert is_permanent(caught.value)
+        assert str(caught.value).endswith(
+            "Причина: Остаток квоты недоступен: Ahrefs ответил 401: invalid api key"
+        )
+        assert key not in str(caught.value)
+
+    async def test_a_provider_failure_on_the_quota_leaves_the_run_to_continue(self) -> None:
+        """5xx на остатке — сбой провайдера: прогон продолжат позже, а не закроют."""
+        with pytest.raises(QuotaUnavailableError) as caught:
+            await units_left(_quota_client(None))
+
+        assert not is_permanent(caught.value)
+        assert str(caught.value).endswith(
+            "Причина: Остаток квоты недоступен: Ahrefs ответил 500: oops"
+        )
 
 
 def _quota_client(payload: dict | None) -> AhrefsClient:

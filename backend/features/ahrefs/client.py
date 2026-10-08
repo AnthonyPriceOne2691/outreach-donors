@@ -35,9 +35,8 @@ logger = logging.getLogger(__name__)
 
 # Повторяем на этих статусах: провайдер занят или сломался на своей стороне.
 RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
-# На этих повторять бессмысленно — ключ, права или сам запрос.
-FATAL_STATUSES = frozenset({400, 401, 403, 404, 422})
-# Прочие коды — `_raise_for_status`: 3xx и 4xx постоянные, 5xx нет.
+# Прочие коды не повторяются — `_raise_for_status`: 3xx и 4xx постоянные
+# (ключ, права, сам запрос, сменился адрес API), 5xx нет.
 
 MAX_ATTEMPTS = 4
 BACKOFF_BASE_SEC = 2.0
@@ -50,8 +49,9 @@ class AhrefsError(RuntimeError):
     """Запрос не удался. `permanent` — повтор не поможет: ключ, права,
     неверный запрос, переадресация (сменился адрес API), непонятная форма
     ответа. Без признака — повторы запроса кончились на временном сбое,
-    провайдер ответил 5xx вне списка повторов или вместо данных пришла
-    страница (ответ не JSON), и прогон стоит продолжить позже."""
+    провайдер ответил 5xx вне списка повторов (остаток квоты без повторов —
+    ещё и 429 или 5xx из списка) или вместо данных пришла страница (ответ
+    не JSON), и прогон стоит продолжить позже."""
 
     def __init__(self, message: str, *, permanent: bool = False) -> None:
         super().__init__(message)
@@ -185,18 +185,21 @@ class AhrefsClient:
         знает только про наши траты, а ключ общий с соседней
         системой: сосед в нашу таблицу не пишет и не должен.
         """
+        what = "Остаток квоты недоступен"
         try:
             response = await self._http.get("/v3/subscription-info/limits-and-usage")
-            response.raise_for_status()
         except httpx.HTTPError as exc:
             # Наружу идёт один тип ошибки: вызывающему важно не «что сломалось»,
             # а «остаток неизвестен, тратить нельзя». Несобранный запрос — без
             # цепочки причин: в тексте исключения заголовок с ключом.
-            error = AhrefsError(
-                f"Остаток квоты недоступен: {reason_of(exc)}", permanent=unsent(exc)
-            )
+            error = AhrefsError(f"{what}: {reason_of(exc)}", permanent=unsent(exc))
             raise error from None if unsent(exc) else exc
-        payload = _json(response, "Остаток квоты недоступен")
+        # Отказ по коду — теми же словами и с тем же признаком, что у платных
+        # запросов. До 08.10.2026 здесь был `raise_for_status()` внутри `except`
+        # выше: текст — repr исключения httpx без тела ответа, а `permanent`
+        # не ставился никогда, и для отозванного ключа тоже.
+        _raise_for_status(response, what)
+        payload = _json(response, what)
         data = payload.get("limits_and_usage") if isinstance(payload, dict) else None
         if not isinstance(data, dict):
             raise AhrefsError("Ahrefs не вернул остаток квоты")
@@ -257,10 +260,6 @@ class AhrefsClient:
                 # запросов не делали.
                 self.on_usage(operation, cost)
 
-            if response.status_code in FATAL_STATUSES:
-                raise AhrefsError(
-                    f"{operation}: {response.status_code} {response.text[:200]}", permanent=True
-                )
             if response.status_code in RETRY_STATUSES:
                 # Текст провайдера кладётся в ошибку СРАЗУ. Без него исход
                 # «не удалось за N попыток» одинаков для перегрузки и для
@@ -294,22 +293,29 @@ class AhrefsClient:
 
 
 def _raise_for_status(response: httpx.Response, operation: str) -> None:
-    """Код ответа вне обоих списков — `AhrefsError` словами, а не исключение httpx.
+    """Код ответа не 2xx — `AhrefsError` словами, а не исключение httpx.
 
     До 08.10.2026 здесь стоял `raise_for_status()` httpx, и его голый
     `HTTPStatusError` проходил мимо всех `except AhrefsError`: 402, 410 или
     переадресация роняли сбор стран целиком вместо «страны не получены»
-    и пересчёт кандидатов вместо «DR не проверен».
+    и пересчёт кандидатов вместо «DR не проверен». А отказ по ключу, правам
+    или запросу (400, 401, 403, 404, 422) шёл своей веткой сырым ответом —
+    «batch_metrics: 403 forbidden», — и экран прогонов показывал вместо него
+    «техническая ошибка (AhrefsError)»: причину он берёт как есть, только
+    если она написана по-русски (`runs/reasons.py`).
 
     Постоянны 3xx и 4xx: переадресацию никто не настраивал — клиент за ней
-    не ходит, значит, сменился адрес API, — а отказ по запросу повтор не
-    исправит. 5xx вне списка повторов — сбой на стороне провайдера, прогон
-    стоит продолжить позже. Текст собран из ответа — код, куда переадресация,
+    не ходит, значит, сменился адрес API, — а отказ по ключу, правам или
+    запросу повтор не исправит. Не постоянны 5xx — сбой на стороне
+    провайдера, прогон стоит продолжить позже, — и 429: частоту лечит время.
+    Коды повторов сюда приносит только остаток квоты: платный запрос
+    повторяет их сам. Текст собран из ответа — код, куда переадресация,
     начало тела (пустое — словами кода); заголовков запроса, а с ними ключа,
     в нём нет.
     """
     if response.is_success:
         return
+    status = response.status_code
     moved = (
         f" — переадресация на {response.headers['location']}"
         if response.has_redirect_location
@@ -317,8 +323,8 @@ def _raise_for_status(response: httpx.Response, operation: str) -> None:
     )
     said = response.text[:200].strip() or response.reason_phrase
     raise AhrefsError(
-        f"{operation}: Ahrefs ответил {response.status_code}{moved}: {said}",
-        permanent=response.status_code < 500,
+        f"{operation}: Ahrefs ответил {status}{moved}: {said}",
+        permanent=status < 500 and status not in RETRY_STATUSES,
     )
 
 

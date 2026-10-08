@@ -737,9 +737,9 @@
       "worst": "—"
     },
     "backend/features/ahrefs/client.py": {
-      "lines": 368,
-      "complexity": 12,
-      "worst": "_request:223"
+      "lines": 374,
+      "complexity": 11,
+      "worst": "_request:226"
     },
     "backend/features/ahrefs/units.py": {
       "lines": 233,
@@ -1637,9 +1637,9 @@
       "worst": "_hosts:137"
     },
     "backend/features/runs/budget.py": {
-      "lines": 72,
+      "lines": 85,
       "complexity": 4,
-      "worst": "units_left:27"
+      "worst": "units_left:35"
     },
     "backend/features/runs/estimate.py": {
       "lines": 131,

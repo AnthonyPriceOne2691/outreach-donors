@@ -52,6 +52,7 @@ import { fetchForms, formFilled, formGaveUp } from '../api/contacts';
 import type { FormCard } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { PageSwitch, usePageParam } from '../components/PageSwitch';
+import { Seams } from '../components/Seams';
 import { formatCompact, formatDate } from '../format';
 
 const FORMS_QUERY_KEY = ['forms'] as const;
@@ -215,7 +216,9 @@ export function FormsPage() {
                             ссылка в верхних строках стоит на бирюзовом углу
                             полотна, и замер дал 4,30 : 1 при норме 4,5
                             (25.09.2026). Что это ссылка, говорит подчёркивание
-                            под курсором. */}
+                            под курсором. Длинный домен переносится по швам
+                            (`Seams`), как в колонке «Донор» других таблиц:
+                            «где угодно» рвало его посреди слова. */}
                         <Anchor
                           href={`https://${row.host}`}
                           target="_blank"
@@ -225,7 +228,7 @@ export function FormsPage() {
                           underline="hover"
                           className="cellName"
                         >
-                          {row.host}
+                          <Seams text={row.host} />
                         </Anchor>
                       </Table.Td>
                       <Table.Td>
