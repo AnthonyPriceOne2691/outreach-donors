@@ -24,6 +24,7 @@ from backend.features.donors.verdict import Thresholds
 from backend.features.review.candidates import RunReview
 from backend.features.runs.exclusions import ExclusionReason, Exclusions
 from backend.features.runs.pipeline import RunDeps, RunRequest, execute_run
+from backend.features.runs.reasons import readable
 from backend.features.runs.repository import RunRepository
 from backend.features.serp.protocol import SerpResult
 from backend.shared.logs import current_run_id
@@ -615,8 +616,11 @@ class TestTransientFailureIsRetriedNotBuried:
         assert caught.value.permanent, "403 повтором не лечится"
         run = (await session.execute(select(RunModel))).scalar_one()
         assert run.status is RunStatus.STOPPED
-        # Сырой ответ провайдера — не слова для человека: общие слова и класс.
-        assert run.stats["причина"] == "остановлен: техническая ошибка (AhrefsError)"
+        # До 08.10.2026 отказ по коду был сырым ответом провайдера, и экран
+        # показывал «техническая ошибка (AhrefsError)». Теперь — словами.
+        reason = run.stats["причина"]
+        assert reason == "остановлен: batch_metrics: Ahrefs ответил 403: forbidden"
+        assert readable(reason) == reason, "на экране — как записано"
         assert "403" in run.stats["failure"]
 
     async def test_failed_attempts_keep_what_the_run_already_has(

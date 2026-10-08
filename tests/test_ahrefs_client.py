@@ -14,6 +14,7 @@ from backend.features.ahrefs.client import (
     _retry_delay,
 )
 from backend.features.ahrefs.units import MAX_BATCH_TARGETS, UnitsCost
+from backend.features.runs.reasons import explained
 
 COST_HEADERS = {
     "x-api-units-cost-total-actual": "55",
@@ -26,8 +27,14 @@ COST_HEADERS = {
 PAGE = "<!doctype html><html><body>Service temporarily unavailable</body></html>"
 
 
-def _client(handler: Any, **kwargs: Any) -> AhrefsClient:
-    http = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.test")
+#: Выдуманное значение ключа: его не должно быть в тексте отказа.
+KEY = "leaky-value-123"
+
+
+def _client(handler: Any, headers: dict[str, str] | None = None, **kwargs: Any) -> AhrefsClient:
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="https://api.test", headers=headers
+    )
     return AhrefsClient(api_key="k", http=http, **kwargs)
 
 
@@ -234,14 +241,70 @@ class TestFailuresAreVisible:
         )
         assert caught.value.permanent
 
-    @pytest.mark.parametrize("status", [402, 410, 301, 501])
-    async def test_quota_status_outside_both_lists_is_a_refusal_too(self, status: int) -> None:
-        """У остатка квоты этой дыры не было: `raise_for_status()` там внутри
-        `except httpx.HTTPError`, а `HTTPStatusError` — его подкласс. Держим."""
-        handler = lambda r: httpx.Response(status)  # noqa: E731
+    @pytest.mark.parametrize("status", [400, 401, 403, 404, 422])
+    async def test_refusal_by_key_rights_or_request_is_in_words(self, status: int) -> None:
+        """Отказ по ключу, правам или запросу шёл своей веткой сырым ответом —
+        «by_country: 403 forbidden», — и экран прогонов показывал вместо него
+        «техническая ошибка (AhrefsError)»: причину он берёт как есть, только
+        если она написана по-русски. Теперь слова те же, что у любого кода
+        вне повторов; попытка по-прежнему одна, отказ постоянный."""
+        attempts = {"n": 0}
 
-        with pytest.raises(AhrefsError, match="Остаток квоты недоступен"):
+        def handler(request: httpx.Request) -> httpx.Response:
+            attempts["n"] += 1
+            return httpx.Response(status, text="forbidden", headers=COST_HEADERS)
+
+        with pytest.raises(AhrefsError) as caught:
+            await _client(handler, headers={"Authorization": f"Bearer {KEY}"}).metrics_by_country(
+                "site.example.test", "2026-09-01"
+            )
+
+        assert str(caught.value) == f"by_country: Ahrefs ответил {status}: forbidden"
+        assert caught.value.permanent
+        assert attempts["n"] == 1, "повтор отказа не исправит, а юниты спишет"
+        assert explained(caught.value) == str(caught.value), "на экране — словами"
+        assert KEY not in str(caught.value)
+
+    @pytest.mark.parametrize(
+        ("status", "permanent"),
+        [
+            (403, True),
+            (402, True),
+            (410, True),
+            (301, True),
+            (429, False),
+            (503, False),
+            (501, False),
+        ],
+    )
+    async def test_quota_refusal_by_status_is_in_words(self, status: int, permanent: bool) -> None:
+        """Отказ остатку по коду был repr исключения httpx без тела ответа —
+        «HTTPStatusError("Client error '403 Forbidden' for url …")», — и ни разу
+        не постоянным, даже для отозванного ключа. Теперь как у платных
+        запросов: код и начало тела словами; 3xx и 4xx постоянны, 429 и 5xx —
+        нет: повторов у остатка нет, частоту и сбой провайдера лечит время."""
+        handler = lambda r: httpx.Response(status, text='{"error":"key is revoked"}')  # noqa: E731
+
+        with pytest.raises(AhrefsError) as caught:
             await _client(handler).limits_and_usage()
+
+        assert str(caught.value) == (
+            f'Остаток квоты недоступен: Ahrefs ответил {status}: {{"error":"key is revoked"}}'
+        )
+        assert caught.value.permanent is permanent
+
+    async def test_quota_network_failure_is_a_refusal_that_may_pass(self) -> None:
+        """Сеть — не код ответа, и здесь всё как было: «остаток недоступен»
+        с причиной словами httpx, без признака постоянства, причина в цепочке."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("connection refused", request=request)
+
+        with pytest.raises(AhrefsError, match="Остаток квоты недоступен: ConnectError") as caught:
+            await _client(handler).limits_and_usage()
+
+        assert not caught.value.permanent
+        assert isinstance(caught.value.__cause__, httpx.ConnectError)
 
     async def test_genuinely_empty_answer_is_not_an_error(self) -> None:
         """А пустой список — законный ответ: провайдер просто ничего не знает."""

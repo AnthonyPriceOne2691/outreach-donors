@@ -41,6 +41,11 @@ from tests.test_execute_run import GOOD, FakeSerp, _ahrefs, _deps, _flaky_ahrefs
 
 TOKEN = "123456:run-alert-test-token"
 
+#: Отказ Ahrefs по коду — словами, как его видит человек. До 08.10.2026 сырой
+#: ответ («batch_metrics: 403 forbidden») уходил в чат и на экран общими
+#: словами: «техническая ошибка (AhrefsError)».
+REFUSED = "batch_metrics: Ahrefs ответил 403: forbidden"
+
 
 @pytest.fixture
 def telegram(monkeypatch: pytest.MonkeyPatch) -> list[str]:
@@ -161,9 +166,7 @@ async def test_refusal_mid_run_is_told_once(
 
     assert run.status is RunStatus.STOPPED
     assert result["refused"]
-    assert telegram == [
-        f"outreach-donors: прогон №{run.id} остановлен: техническая ошибка (AhrefsError)"
-    ]
+    assert telegram == [f"outreach-donors: прогон №{run.id} остановлен: {REFUSED}"]
 
 
 async def test_refusal_before_the_run_is_told_once(
@@ -247,7 +250,7 @@ async def test_console_run_is_told_too(session: AsyncSession, telegram: list[str
         await execute_run(deps, RunRequest(["crm"], "us", defaults(), settings.id))
 
     assert len(telegram) == 1
-    assert telegram[0].endswith("остановлен: техническая ошибка (AhrefsError)")
+    assert telegram[0].endswith(f"остановлен: {REFUSED}")
 
 
 async def test_a_failing_alert_does_not_hide_the_stop(
@@ -274,4 +277,4 @@ async def test_a_failing_alert_does_not_hide_the_stop(
 
     assert result["refused"]
     assert run.status is RunStatus.STOPPED
-    assert run.stats["причина"] == "остановлен: техническая ошибка (AhrefsError)"
+    assert run.stats["причина"] == f"остановлен: {REFUSED}"
