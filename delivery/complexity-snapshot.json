@@ -1942,9 +1942,9 @@
       "worst": "refer:80"
     },
     "backend/features/sales/replies.py": {
-      "lines": 456,
+      "lines": 458,
       "complexity": 10,
-      "worst": "handle:241"
+      "worst": "handle:243"
     },
     "backend/features/sales/reply_kind.py": {
       "lines": 273,
