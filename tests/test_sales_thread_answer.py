@@ -19,17 +19,22 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 
 import pytest
 from backend.config import sales as sales_cfg
+from backend.features.agent.drafts import Decider, send_draft
+from backend.features.agent.settings import AgentSettingsRepository
 from backend.features.core import stages
-from backend.features.core.domain import MessageStatus, ReplyKind, Stage
+from backend.features.core.domain import DraftStatus, MessageStatus, ReplyKind, Stage
+from backend.features.core.models.agent import AgentDraftModel
 from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.core.stages import SALES_NOT_CONNECTED, SalesNotConnectedError
 from backend.features.letters.answers import answer_key, answer_reply
 from backend.features.letters.chain import ANSWER_STEP
 from backend.features.letters.sending import NotReadyError, Sending, SendOutcome
 from backend.features.sales import chain
+from backend.features.sales.agent import parts
 from backend.features.sales.mail import LeadStoppedError
 from backend.features.sales.models import (
     SalesChainTemplateModel,
@@ -42,12 +47,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tests import test_sales_send_world as w
 from tests.test_mail_accounts import _ByStage
 from tests.test_replies_inbox import sent
+from tests.test_sales_agent_stage import sales_on
 from tests.test_sales_send import JANE, SIGNED, _first_sent, _seen
 from tests.test_sales_stage_bridge import FakeSalesMail, _transports, fake, unregistered
 from tests.test_sales_stage_mail import NOW, sales_world
 from tests.test_thread_answer import Recording, conversation
 
-__all__ = ["conversation", "fake", "sent", "unregistered"]  # фикстуры — их видит pytest
+__all__ = ["conversation", "fake", "sales_on", "sent", "unregistered"]  # фикстуры — их видит pytest
 
 TEXT = "Thanks for the question. The audit covers the pages that bring you search traffic."
 
@@ -83,6 +89,7 @@ async def answered(session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> An
         from_email=JANE,
         subject=f"Re: {first.subject}",
         inbound_message_id="<in-1@acme.example.test>",
+        created_at=w.NOW + timedelta(hours=1),  # после первого письма: черновик не устарел
     )
     session.add(reply)
     await session.flush()
@@ -157,6 +164,51 @@ async def test_the_answer_does_not_need_a_full_chain(
     await answered.answer(session)
 
     assert [out.to for out in _seen(answered.source)] == [JANE, JANE]
+
+
+@pytest.mark.usefixtures("sales_on")
+async def test_send_as_is_of_a_sales_draft_answers_the_lead_and_the_draft_is_sent_as_is(
+    session: AsyncSession, answered: Answered
+) -> None:
+    """«Подходит · отправить»: черновик агента продаж уходит ответом лиду в том же треде — с
+    подписью и адресом из настроек, а черновик закрыт «как есть»: блок, дописанный при
+    отправке, — не правка человека (калибровка считает правки по тексту черновика)."""
+    repository = AgentSettingsRepository(session)
+    await repository.save(Stage.SALES, parts.DEFAULTS, author="тест")
+    settings = await repository.current(Stage.SALES)
+    assert settings is not None
+    draft = AgentDraftModel(
+        reply_id=answered.reply.id,
+        settings_id=settings.id,
+        status=DraftStatus.DRAFTED,
+        body=TEXT,
+        model="made-up-model",
+        prompt_version="made-up-prompt-v1",
+    )
+    session.add(draft)
+    await session.flush()
+
+    sent_out = await send_draft(
+        session,
+        Sending(session, answered.source, now=w.NOW),
+        draft.id,
+        body=None,
+        by=Decider(name="desk@sales.example.test"),
+    )
+
+    out = _seen(answered.source)[-1]
+    assert (out.to, out.in_reply_to, out.body) == (
+        JANE,
+        answered.reply.inbound_message_id,
+        f"{TEXT}{SIGNED}",
+    )
+    await session.refresh(draft)
+    assert (draft.status, draft.edited, draft.final_body, draft.sent_message_id) == (
+        DraftStatus.SENT,
+        False,
+        TEXT,
+        sent_out.message_id,
+    )
 
 
 # --- нельзя — отказ словами до заведения письма ------------------------------------------------
