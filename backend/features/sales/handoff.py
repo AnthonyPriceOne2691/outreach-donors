@@ -40,6 +40,10 @@ Telegram: ссылка на сделку нужна в сообщении. Со�
 
 **Цепочка писем этому человеку** — шов `handed_off(session, lead_id)`: его спрашивают
 сборка очереди продаж и отправка (4.6b) — переданному лиду письма и добивки не идут.
+
+**Продажи выключены (`SALES_ENABLED`) — передача стоит** (решение владельца по ревью
+стыков): `start` отказывает словами, задача в Kommo и Telegram не ходит, проход повторов
+ничего не берёт. Заведённые строки ждут как есть — после включения проход берёт их сам.
 """
 
 from __future__ import annotations
@@ -87,6 +91,9 @@ MESSAGE_JOB = "backend.features.sales.handoff_jobs.resend_lead_message"
 
 #: Сколько передач проход берёт за круг: лидов единицы в день, круг короткий.
 PASS_LIMIT = 50
+
+#: Почему передача стоит, когда продажи выключены.
+SWITCHED_OFF = "продажи выключены (SALES_ENABLED) — передача ждёт включения"
 
 #: Kommo ждёт записи — задаче есть что делать.
 _KOMMO_WORK = handoff_kommo.WORK
@@ -149,7 +156,11 @@ async def start(
     не разобран): строка уже закоммичена и ждёт прохода по расписанию (`due`), срок
     которого ставится здесь же. Исключение вызывающему значило бы «передачи нет», и разбор
     ответа оставил бы ответ ждать человека при живой передаче (ревью стыков, B5).
+
+    Продажи выключены — отказ словами, строки нет: передача не начинается.
     """
+    if not cfg.ENABLED:
+        raise HandoffError(f"передача диалога №{thread_id} не начата: {SWITCHED_OFF}")
     lead = await lead_of(session, thread_id)
     row = await _handoff_of(session, thread_id, lead.id)
     latest = await latest_reply(session, thread_id)
@@ -280,11 +291,17 @@ async def process(
 ) -> dict[str, object]:
     """Задача передачи: Kommo, затем Telegram. Внешние отказы — состояния и тревоги,
     а не исключения; исключение — только чужой сбой (база, ошибка кода): захват
-    снимается, и очередь повторит задачу.
+    снимается, и очередь повторит задачу. Продажи выключены — ни Kommo, ни Telegram:
+    строка не захвачена и ждёт как есть, после включения её возьмёт проход.
 
     `kommo=False` — повтор только сообщения: запись в Kommo задача не открывает. Иначе
     отказавшая передача (`failed`, ответ не отмечен) повторяла бы запись на каждом
     повторе сообщения, а её повтор — следующий ответ лида."""
+    if not cfg.ENABLED:
+        logger.info(
+            "продажи: выключены — передача ждёт включения", extra={"handoff_id": handoff_id}
+        )
+        return {"handoff": handoff_id, "skipped": SWITCHED_OFF}
     row = await _claim(session, handoff_id, deps.now())
     try:
         card = await _card(session, row)
@@ -338,7 +355,10 @@ async def due(session: AsyncSession, *, now: datetime, limit: int = PASS_LIMIT) 
 
     Срок взятых сдвигается сразу: следующий круг их не возьмёт, пока поставленная
     задача не отработала, а потерянная — возьмёт снова через `HANDOFF_RETRY_SEC`.
+    Продажи выключены — не берётся ничего и сроки не трогаются: строки ждут включения.
     """
+    if not cfg.ENABLED:
+        return []
     work = or_(
         SalesHandoffModel.kommo.in_(_KOMMO_WORK),
         SalesHandoffModel.telegram == HandoffTelegram.PENDING,

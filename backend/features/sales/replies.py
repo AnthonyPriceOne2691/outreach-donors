@@ -37,6 +37,13 @@
 **Задача не верит, что её поставили по делу.** Задача живёт в очереди дольше
 кода и может прийти ко второму ответу, к удалённому, к уже разобранному или
 решённому человеком: каждый такой случай — итог словами, а не платный вызов.
+
+**Продажи выключены (`SALES_ENABLED`) — ни модели, ни передачи** (решение владельца по
+ревью стыков). Приём ответ принимает, как всегда; задача модель не зовёт — ни ради вида,
+ни ради отписки словами (это тоже вид от модели), — и ответ ждёт человека словами
+`SWITCHED_OFF`. Записка, а не снимок вида: задача, поставленная после включения, разберёт
+ответ заново.
+Что правила приёма решили без модели (автоответ, отписка правилами), идёт как шло.
 """
 
 from __future__ import annotations
@@ -121,6 +128,9 @@ KIND_WORDS: dict[SalesKind, str] = {
     SalesKind.UNSUBSCRIBE: "просит не писать",
     SalesKind.PARSE_FAILED: "вид ответа не разобран",
 }
+
+#: Почему ответ ждёт человека, когда продажи выключены: модель не звалась.
+SWITCHED_OFF = "продажи выключены (SALES_ENABLED) — ответ ждёт человека"
 
 #: Чем кончился путь «хочет говорить», когда передача заведена, — словами.
 HANDED_OVER = "передан телемаркетологу"
@@ -258,14 +268,9 @@ class SalesReplies:
         if skipped is not None:
             logger.info("продажи: ответ не взят", extra={"reply": reply_id, "why": skipped})
             return Handled(reply_id, skipped=skipped)
-        match reply.kind:
-            case ReplyKind.AUTO_REPLY:
-                return await self._out_of_office(reply)
-            case ReplyKind.UNSUBSCRIBE:
-                closed = await close_address(self._session, reply)
-                return Handled(reply.id, kind=reply.kind.value, reason=closed.words)
-            case _:
-                pass
+        done = await self._without_model(reply)
+        if done is not None:
+            return done
 
         await usage.ensure_llm_within_cap(self._session, own=sales_cap())
         found = await self._classifier.classify(text=reply.raw_body, subject=reply.subject or "")
@@ -399,6 +404,29 @@ class SalesReplies:
         if not outcome.to_sales_queue(reply.kind, stage):
             return f"вид «{reply.kind.value}» решают правила приёма"
         return None
+
+    async def _without_model(self, reply: ReplyModel) -> Handled | None:
+        """Что решается без модели: автоответ и отписка — как их узнали правила приёма;
+        выключенные продажи — ответ ждёт человека. `None` — вид называет модель."""
+        match reply.kind:
+            case ReplyKind.AUTO_REPLY:
+                return await self._out_of_office(reply)
+            case ReplyKind.UNSUBSCRIBE:
+                closed = await close_address(self._session, reply)
+                return Handled(reply.id, kind=reply.kind.value, reason=closed.words)
+            case _:
+                pass
+        return None if cfg.ENABLED else self._switched_off(reply)
+
+    def _switched_off(self, reply: ReplyModel) -> Handled:
+        """Продажи выключены: модель не зовётся, ответ ждёт человека словами. Записка, а не
+        снимок вида (`kind` пуст): задача, поставленная после включения, разберёт его заново."""
+        decision = Decision(Route.MANUAL, True, SWITCHED_OFF)
+        reply.model_parse = self._record({"stage": Stage.SALES.value, "kind": None}, decision)
+        logger.info(
+            "продажи: выключены — вид ответа не разобран, ждёт человека", extra={"reply": reply.id}
+        )
+        return Handled(reply.id, route=Route.MANUAL.value, waits=True, reason=SWITCHED_OFF)
 
     def _unanswered(self, reply: ReplyModel, missing: Unanswered) -> Handled:
         """Модель не ответила: вида нет, ответ ждёт человека с причиной.
