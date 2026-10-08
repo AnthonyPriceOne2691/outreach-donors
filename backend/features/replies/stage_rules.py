@@ -18,6 +18,13 @@ from typing import Literal, assert_never
 from backend.features.core.domain import Stage
 from backend.features.core.stages import SalesNotConnectedError
 
+#: Почему цену из ответа лида продаж не подтверждают — и при подключённых продажах.
+SALES_PRICE_WORDS = "ответ лида продаж разбирает модуль продаж — цены площадки в нём нет"
+#: Почему ответ лида продаж не берут лидом рекламодателя.
+SALES_LEAD_WORDS = (
+    "ответ лида продаж ведёт модуль продаж (передача телемаркетологу), а не лиды рекламодателей"
+)
+
 
 def price_confirmable(stage: Stage | None, reply_id: int) -> bool:
     """Ложится ли подтверждённая цена ответа в карточку донора.
@@ -32,7 +39,9 @@ def price_confirmable(stage: Stage | None, reply_id: int) -> bool:
         case Stage.ADVERTISERS:
             return False
         case Stage.SALES:
-            raise SalesNotConnectedError(f"Цена из ответа №{reply_id} не подтверждена")
+            raise SalesNotConnectedError(
+                f"Цена из ответа №{reply_id} не подтверждена", words=SALES_PRICE_WORDS
+            )
         case _:
             assert_never(stage)
 
@@ -48,7 +57,7 @@ def lead_stage(
     """
     match stage:
         case Stage.SALES:
-            raise SalesNotConnectedError(f"Ответ №{reply_id} лидом не взят")
+            raise SalesNotConnectedError(f"Ответ №{reply_id} лидом не взят", words=SALES_LEAD_WORDS)
         case Stage.DONORS | Stage.ADVERTISERS | None:
             return stage
         case _:

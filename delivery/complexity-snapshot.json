@@ -1597,9 +1597,9 @@
       "worst": "robot:53"
     },
     "backend/features/replies/stage_rules.py": {
-      "lines": 56,
+      "lines": 65,
       "complexity": 5,
-      "worst": "price_confirmable:22"
+      "worst": "price_confirmable:29"
     },
     "backend/features/replies/unbound.py": {
       "lines": 143,

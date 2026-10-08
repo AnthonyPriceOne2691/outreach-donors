@@ -16,7 +16,8 @@ import { ADMIN, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 
-const REASON = 'ответ продаж ждёт разбора: продажи к почте ещё не подключены';
+// Причина ожидания — словами сервера: вид ответа ещё не разобран (`replies/outcome.SALES_WAITING`).
+const REASON = 'вид ответа продаж ещё не разобран — задача в очереди продаж';
 
 const VIEW = {
   card: {

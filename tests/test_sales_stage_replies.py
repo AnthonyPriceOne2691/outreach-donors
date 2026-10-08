@@ -1,9 +1,10 @@
 """Этап продаж в общей почте, ответы — срез 1.1b, часть «б».
 
 Ответ лида продаж приходит туда же, куда ответы доноров и рекламодателей.
-Почта продажи ещё не ведёт, и ответ не должен стать ни «лидом рекламодателя»,
-ни ценой донора: его сохраняют, цепочку останавливают, и он ждёт человека
-с причиной словами. Домен лида в этих тестах заодно принятый донор — тот
+Его вид и путь разбирает модуль продаж, и ответ не должен стать ни «лидом
+рекламодателя», ни ценой донора: его сохраняют, цепочку останавливают, и он ждёт
+человека с причиной словами; цену и лид из него почта не берёт — отказ словами,
+что ответ лида ведёт модуль продаж (а не «продажи не подключены»). Домен лида в этих тестах заодно принятый донор — тот
 случай, где донорский разбор положил бы сумму из ответа в его карточку.
 """
 
@@ -17,7 +18,7 @@ from backend.config import outreach as outreach_cfg
 from backend.features.core.domain import MessageStatus, ReplyKind, Stage, ThreadStatus
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.outreach import MessageModel, ReplyModel
-from backend.features.core.stages import SALES_NOT_CONNECTED, SalesNotConnectedError
+from backend.features.core.stages import SalesNotConnectedError
 from backend.features.letters import reply_to
 from backend.features.outreach.threads import Review, ThreadState, review_of, summarize
 from backend.features.replies import outcome
@@ -34,6 +35,12 @@ from tests.test_sales_stage_mail import LEAD, NOW, admin_token, sales_world
 __all__ = ["admin_token"]  # фикстура общая с частью «а»
 
 SECRET = "s" * 32
+#: Отказы почты ответу лида продаж — словами о модуле продаж, а не «не подключены»: так и
+#: при подключённых продажах.
+NO_PRICE = "ответ лида продаж разбирает модуль продаж — цены площадки в нём нет"
+NO_LEAD = (
+    "ответ лида продаж ведёт модуль продаж (передача телемаркетологу), а не лиды рекламодателей"
+)
 SALES_BOX = "sales@mail-sales.example.test"
 #: Уверенная цена — то, что донорский путь положил бы в карточку донора.
 PRICE = Extracted(price_white=Decimal("300"), currency="USD", confidence=0.99)
@@ -122,7 +129,7 @@ async def test_webhook_repeat_does_not_hand_it_to_the_model(session: AsyncSessio
 async def test_price_confirmation_is_refused_before_any_write(session: AsyncSession) -> None:
     world = await sales_world(session, status=MessageStatus.SENT)
 
-    with pytest.raises(SalesNotConnectedError, match=SALES_NOT_CONNECTED):
+    with pytest.raises(SalesNotConnectedError, match=NO_PRICE):
         await ReplyRepository(session).confirm(
             world.reply,
             by="operator@sales-stage.example.test",
@@ -148,8 +155,8 @@ async def test_screen_confirmation_gets_409_and_the_donor_card_stays_empty(
     )
 
     assert response.status_code == 409
-    assert response.json()["detail"] == (
-        f"Цена из ответа №{world.reply.id} не подтверждена: {SALES_NOT_CONNECTED}"
+    assert (
+        response.json()["detail"] == f"Цена из ответа №{world.reply.id} не подтверждена: {NO_PRICE}"
     )
     assert await _donor_price(session) is None
 
@@ -167,7 +174,7 @@ async def test_sales_answer_is_not_taken_as_an_advertiser_lead(
     response = await client.post(f"/api/replies/{world.reply.id}/lead", headers=bearer(admin_token))
 
     assert response.status_code == 409
-    assert SALES_NOT_CONNECTED in response.json()["detail"]
+    assert response.json()["detail"] == f"Ответ №{world.reply.id} лидом не взят: {NO_LEAD}"
     assert world.reply.reviewed_at is None
 
 
