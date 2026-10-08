@@ -12,14 +12,14 @@
 - **builder:** agent:claude
 - **verifier:** process:ci — обязательные джобы `check`, `web` и `docker`, на PR ещё `gates` и `delivery`; ревью общих точек — соседняя сессия outreach-donors, строка необратимого — из main, подписана владельцем в #220
 - **human_ok_spec:** yes at=2026-10-07 by=human:anthony («да» на Spec срезов продаж 07.10; план фаз 01.10 — Spec 5.3, примеры A1–A6)
-- **waivers:** max_loc_diff=3587 max_files_touched=29 reason=модульный срез продаж 5.3 и стык с разбором ответов Ф2 одним PR — постоянный вейвер владельца 05.10, объединение PR — решение владельца 07.10; общая часть 262 строки в 14 файлах (миграция, реестр моделей, test_schema, conftest, reaper.py и тесты, оба реестра чистки, перечень консоли продаж, команда бота, конфиг продаж, .env.example, .secrets.baseline, задача ответа продаж); из строк PR 2172 — тесты by=human:anthony
+- **waivers:** max_loc_diff=3674 max_files_touched=29 reason=модульный срез продаж 5.3 и стык с разбором ответов Ф2 одним PR — постоянный вейвер владельца 05.10, объединение PR — решение владельца 07.10; общая часть 271 строка в 14 файлах (миграция, реестр моделей, test_schema, conftest, reaper.py и тесты, оба реестра чистки, перечень консоли продаж, команда бота, конфиг продаж, .env.example, .secrets.baseline, задача ответа продаж); из строк PR 2246 — тесты by=human:anthony
 - **new_dependency:** none (httpx, rq, redis — уже в зависимостях)
-- **shared_changes:** срез трогает 14 файлов вне масок `SALES_PATHS`, 262 строки (+252/−10); каждый — полным путём:
+- **shared_changes:** срез трогает 14 файлов вне масок `SALES_PATHS`, 271 строка (+261/−10); каждый — полным путём:
   `backend/migrations/versions/a9e76c0eb5b0_sales_handoffs.py` — таблица `sales_handoffs` и типы `sales_handoff_kommo`, `sales_handoff_telegram`; после головы main `39e342cb2b21` (значение `sales` типа этапа, 1.1b); перед слиянием — на тогдашнюю голову (перецепляет координатор);
   `backend/features/core/models/__init__.py` — экспорт `SalesHandoffModel`;
   `backend/config/sales.py` — `SALES_TELEGRAM_BOT_TOKEN`, `SALES_TELEGRAM_CHAT_ID`, `SALES_TELEGRAM_GROUP_CHAT_ID`, `SALES_TELEGRAM_GROUP_COPY`, `SALES_APP_URL`, константы `TELEGRAM_TIMEOUT_SEC`, `HANDOFF_RETRY_SEC`, `HANDOFF_PASS_SEC`, `HANDOFF_CLAIM_SEC` (модуль конфига продаж);
   `.env.example` — пять переменных `SALES_TELEGRAM_*` и `SALES_APP_URL`, пустые, копия в группу `true`;
-  `backend/workers/reaper.py` — третий цикл `every(HANDOFF_PASS_SEC, retry_handoffs, name="Повтор передачи лидов продаж")`, импорт из `backend/features/sales/handoff_jobs.py`, `_both` → `_loops`;
+  `backend/workers/reaper.py` — третий цикл `every(HANDOFF_PASS_SEC, retry_handoffs, name="Повтор передачи лидов продаж")`; `retry_handoffs` импортирует модуль продаж (`backend/features/sales/handoff_jobs.py`) внутри прохода — сбой импорта ловит `every` своего цикла, разбор прогонов и сторож идут (по ревью соседней сессии); `_both` → `_loops`;
   `backend/workers/sales_jobs.py` — стык с Ф2: после `session.commit()` снимка ответа — `sales.pass_on(handled)` (передача лида «хочет говорить» после записи ответа, её отказ задачу не роняет) и абзац docstring;
   `backend/cli/sales_telegram.py` — команда `outreach sales-telegram-chat-id`;
   `backend/cli/sales_commands.py` — эта команда в `COMMANDS`, подпись прерывания в `KEPT_ON_INTERRUPT` («команда только читает»), разбор доводов в `add_parsers`; рядом с `FAILURES` и `EXIT_NOT_CONNECTED` 1.1b, их не трогает; `backend/cli/main.py` не тронут;
@@ -60,7 +60,9 @@ main. T2 — бот продаж: три попытки, отказы с сов�
 Задача передачи — в модуле продаж (`handoff_jobs.py`), проход повторов — третьим циклом процесса разбора; доводка
 тестами (мутанты M14–M19). Стык с Ф2 — два коммита: «хочет говорить» передаёт лида после коммита снимка ответа
 (`SalesReplies.pass_on` → `handoff.start`; отказ передачи разбор не роняет), удачная передача снимает с ответа
-ожидание человека тем же снимком (`waits: false`, причина «хочет говорить: передан телемаркетологу»).
+ожидание человека тем же снимком (`waits: false`, причина «хочет говорить: передан телемаркетологу»). По ревью
+соседней сессии задача передачи стоит в очереди продаж (`worker-sales`), а не в общей: общий воркер держит прогон
+доноров до часа, а «хочет говорить» — самое срочное у продаж.
 
 ## Чего в срезе нет
 
