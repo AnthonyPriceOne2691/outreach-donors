@@ -3,7 +3,10 @@
 Решения общие для всех этапов и проверяются сервером, а не только экраном:
 
 - **отклонить — только с причиной**: причина — датасет докрутки агента, и
-  «отклонено» без неё ничего не объясняет;
+  «отклонено» без неё ничего не объясняет. Вид причины — пункт списка этапа
+  (`AgentStage.reject_reasons`) или «другое» — ложится рядом (`reject_kind`):
+  калибровка считает отклонения по виду, не читая слов. У этапа со строгим
+  списком (продажи) причина своими словами без «другое: …» не принимается;
 - **«как есть» у `escalated` закрыто**: агент, бриф или судья отдали ответ
   человеку, и их текст без правки наружу не уходит;
 - **отправка — путём ответа человека** (`letters/answers.answer_reply`):
@@ -27,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.features.access.repository import AccessRepository
 from backend.features.agent.drafting import DECIDED
 from backend.features.agent.settings import AgentSettingsRepository
-from backend.features.agent.stages import AGENT_STAGES
+from backend.features.agent.stages import AGENT_STAGES, OTHER_REASON
 from backend.features.core.domain import AuditAction, DraftStatus, MessageStatus, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.agent import AgentDraftModel, AgentSettingsModel
@@ -51,6 +54,11 @@ class UnknownDraftError(LookupError):
 
 class DraftDecisionError(RuntimeError):
     """Решение по черновику невозможно: уже решён, «как есть» закрыто, текста нет."""
+
+
+class DraftReasonError(ValueError):
+    """Причина отклонения не годится: её нет, или у этапа со строгим списком её нет
+    в списке, или «другое» без слов. Это запрос, а не состояние черновика (422)."""
 
 
 class StaleDraftError(DraftDecisionError):
@@ -234,15 +242,46 @@ async def settle_sent(
 async def reject_draft(
     session: AsyncSession, draft_id: int, *, reason: str, by: Decider
 ) -> AgentDraftModel:
-    """Отклонить черновик — с причиной словами."""
+    """Отклонить черновик — с причиной словами; вид причины — пункт списка этапа.
+
+    У этапа со строгим списком (`AgentStage.strict_reasons`) причина — только пункт
+    списка или «другое: …» словами: иначе `DraftReasonError` (422), черновик цел.
+    """
     why = reason.strip()
     if not why:
-        raise DraftDecisionError("Отклонить черновик можно только с причиной")
+        raise DraftReasonError("Отклонить черновик можно только с причиной")
     draft = _undecided((await one(session, draft_id)).draft)
+    stage = await session.scalar(
+        select(AgentSettingsModel.stage).where(AgentSettingsModel.id == draft.settings_id)
+    )
+    parts = None if stage is None else AGENT_STAGES.get(stage)
+    kind = _kind(why, () if parts is None else parts.reject_reasons)
+    if kind is None and parts is not None and parts.strict_reasons:
+        raise DraftReasonError(_unlisted(why, parts.reject_reasons))
     draft.status = DraftStatus.REJECTED
     draft.reject_reason = why
+    draft.reject_kind = kind
     await _decided(session, draft, by, "отклонён")
     return draft
+
+
+def _kind(reason: str, listed: Sequence[str]) -> str | None:
+    """Вид причины: пункт списка этапа — он сам, «другое: …» со словами — «другое»;
+    иначе вида нет (причина своими словами у этапа без строгого списка)."""
+    if reason in listed:
+        return reason
+    head, colon, said = reason.partition(":")
+    return OTHER_REASON if colon and head.strip() == OTHER_REASON and said.strip() else None
+
+
+def _unlisted(reason: str, listed: Sequence[str]) -> str:
+    """Почему причина не принята — словами, со списком этапа."""
+    if reason.partition(":")[0].strip() == OTHER_REASON:
+        return f"Причина «{OTHER_REASON}» — только со словами: «{OTHER_REASON}: что не так»"
+    return (
+        "Отклонить черновик этого этапа можно только с причиной из списка: "
+        f"{'; '.join(listed)} — или «{OTHER_REASON}: …» своими словами"
+    )
 
 
 def _refuse_as_is(draft: AgentDraftModel, body: str | None) -> None:
@@ -287,6 +326,7 @@ async def _decided(session: AsyncSession, draft: AgentDraftModel, by: Decider, w
             "ответ": draft.reply_id,
             "письмо": draft.sent_message_id,
             "причина": draft.reject_reason,
+            "вид причины": draft.reject_kind,
             "кто": by.name,
         },
     )

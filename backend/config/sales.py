@@ -6,6 +6,12 @@
 и команды консоли. Выключатель читают срезы, которые приносят работу
 продаж; первой — проверка ключей продаж на старте.
 
+**Агент переписки на этапе продаж — своим тумблером, тоже выключен**
+(`SALES_AGENT_ENABLED`): без него строки продаж нет в реестре этапов агента
+(`agent/stages.AGENT_STAGES`) — черновиков ответов лидам модель не пишет, судья
+не зовётся, в группу продаж о черновиках не пишется, экран настроек агента этапа
+продаж не показывает. Включает владелец, когда агент замерен на наборе.
+
 **Проверяльщик адресов по умолчанию выдуманный (`fixture`).** Живой стоит
 денег с ключа, общего с соседней системой, и на него переключает человек:
 `SALES_VERIFIER_PROVIDER=live`. Ключ — тот же `CONTACTS_HUNTER_API_KEY`,
@@ -28,19 +34,43 @@
 **Ссылка на диалог** собирается от `SALES_APP_URL` — адреса сервиса, который
 открывает телемаркетолог: до подключения Kommo и при его сбое она заменяет
 ссылку на сделку.
+
+**Судья черновика продаж по умолчанию режет (`enforce`)** — в отличие от судьи
+площадки (`JUDGE_MODE`, наблюдение по умолчанию): черновик продаж читает живой
+человек, и выдуманная цена в нём дороже правки. `shadow` — для замера судьи на
+живых черновиках: вердикт ложится в журнал и в попытки черновика, но черновик
+не задерживает. Судья, который не смог проверить, отдаёт черновик человеку
+в обоих режимах.
+
+**Наборы eval судьи — вне репозитория** (он публичный): каталоги
+`SALES_JUDGE_GOLDEN_DIR` (опора на базу) и `SALES_STYLE_GOLDEN_DIR` (стиль),
+файлы и хэши — в манифестах `scripts/data/sales_*_golden.manifest.json`.
 """
 
 from __future__ import annotations
 
 from datetime import time
+from enum import StrEnum
 
 from pydantic import Field
 
 from backend.config._base import DomainSettings
 
 
+class SalesJudgeMode(StrEnum):
+    """Что судья черновика продаж делает со своим вердиктом.
+
+    ENFORCE — нарушения возвращают черновик писателю на правку, не сошлось — человеку.
+    SHADOW — вердикт пишется в журнал и в попытки черновика, но черновик не задерживает.
+    """
+
+    SHADOW = "shadow"
+    ENFORCE = "enforce"
+
+
 class _Sales(DomainSettings):
     enabled: bool = Field(default=False, validation_alias="SALES_ENABLED")
+    agent_enabled: bool = Field(default=False, validation_alias="SALES_AGENT_ENABLED")
     # `fixture` — вердикты по правилам из адреса, без сети и денег;
     # `live` — Hunter Email Verifier тем же ключом, что ступень 3 поиска.
     verifier_provider: str = Field(default="fixture", validation_alias="SALES_VERIFIER_PROVIDER")
@@ -86,6 +116,17 @@ class _Sales(DomainSettings):
     # Адрес сервиса для ссылки на диалог: `https://…` без косой черты в конце.
     app_url: str = Field(default="", validation_alias="SALES_APP_URL")
 
+    # Судья черновика агента продаж: режим (`enforce` — режет, `shadow` — замер) и
+    # каталоги наборов его eval вне репозитория.
+    judge_mode: SalesJudgeMode = Field(
+        default=SalesJudgeMode.ENFORCE, validation_alias="SALES_JUDGE_MODE"
+    )
+    judge_golden_dir: str = Field(default="", validation_alias="SALES_JUDGE_GOLDEN_DIR")
+    style_golden_dir: str = Field(default="", validation_alias="SALES_STYLE_GOLDEN_DIR")
+    # Каталог набора для прогона агента на накопленных ответах (`scripts/sales_replay.py`):
+    # набор из настоящих писем живёт вне репозитория; пусто — не задан.
+    replay_dir: str = Field(default="", validation_alias="SALES_REPLAY_DIR")
+
 
 def _days(text: str) -> frozenset[int]:
     """«1-5» или «1,3,5» → дни недели с нуля (0 — понедельник), как `date.weekday()`."""
@@ -117,6 +158,8 @@ def _hours(text: str) -> tuple[time, time]:
 _s = _Sales()
 
 ENABLED: bool = _s.enabled
+#: Строка продаж в реестре этапов агента переписки (`agent/stages.SALES_STAGE`).
+AGENT_ENABLED: bool = _s.agent_enabled
 VERIFIER_PROVIDER: str = _s.verifier_provider
 
 KOMMO_PROVIDER: str = _s.kommo_provider
@@ -136,6 +179,10 @@ REPLY_CONFIDENCE: float = _s.reply_confidence
 GOLDEN_DIR: str = _s.golden_dir.strip()
 #: На сколько дней автоответ переносит следующий шаг продаж, если даты в нём нет.
 OOO_DELAY_DAYS: int = _s.ooo_delay_days
+JUDGE_MODE: SalesJudgeMode = _s.judge_mode
+JUDGE_GOLDEN_DIR: str = _s.judge_golden_dir.strip()
+STYLE_GOLDEN_DIR: str = _s.style_golden_dir.strip()
+REPLAY_DIR: str = _s.replay_dir.strip()
 
 #: Не больше стольких запросов в секунду. Предел Kommo из его документации —
 #: семь в секунду с одного IP для любой интеграции; чаще — 429, а частые 429

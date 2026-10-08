@@ -413,6 +413,7 @@ async def _store(
         "decided_by": None,
         "decided_at": None,
         "reject_reason": None,
+        "reject_kind": None,
         "sent_message_id": None,
     }
     upsert = (

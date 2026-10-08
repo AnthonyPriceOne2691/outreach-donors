@@ -173,8 +173,9 @@ def _migration(name: str) -> ModuleType:
 
 
 def _tables(connection: Connection) -> tuple[bool, bool]:
-    """Откат настроек и снова вперёд. Черновики ссылаются на версию настроек
-    и откатываются первыми — как откатил бы alembic по цепочке."""
+    """Откат настроек и снова вперёд. Черновики ссылаются на версию настроек,
+    а журнал сообщений продаж — на черновик: они откатываются первыми — как
+    откатил бы alembic по цепочке."""
 
     def exists() -> bool:
         found = connection.execute(text("SELECT to_regclass('agent_settings')")).scalar()
@@ -182,12 +183,15 @@ def _tables(connection: Connection) -> tuple[bool, bool]:
 
     settings = _migration("d7da62eb8165_agent_settings.py")
     drafts = _migration("7ccbaf6d840a_agent_drafts.py")
+    notices = _migration("d64e2cd71614_sales_draft_notices.py")
     with Operations.context(MigrationContext.configure(connection)):
+        notices.downgrade()
         drafts.downgrade()
         settings.downgrade()
         down = exists()
         settings.upgrade()
         drafts.upgrade()
+        notices.upgrade()
     return down, exists()
 
 

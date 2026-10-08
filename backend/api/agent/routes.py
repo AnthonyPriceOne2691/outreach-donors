@@ -163,7 +163,7 @@ async def reject_draft(
     author: UserModel = _sender,
     session: AsyncSession = Depends(db_session),
 ) -> DraftDetail:
-    """Причина обязательна: без неё схема отвечает 422."""
+    """Причина обязательна, у этапа со строгим списком — из него: иначе 422 словами."""
     await drafts.reject_draft(session, draft_id, reason=body.reason, by=Decider.of(author))
     await session.commit()
     return DraftDetail.of(await drafts.one(session, draft_id))

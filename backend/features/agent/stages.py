@@ -3,8 +3,9 @@
 Механизм один на все этапы: кому черновик положен, запись, петля правки,
 решения человека, автопилот. Этап даёт свои части — с чего начать настройки,
 на чьей он стороне цены, промпт, модель и операцию расхода, бриф до письма,
-судью, крючок уведомления и предел правок. Новый этап — строка реестра
-`AGENT_STAGES`, а не ветка `if stage is …` в механизме.
+судью, крючок уведомления, предел правок и причины отклонения черновика.
+Новый этап — строка реестра `AGENT_STAGES`, а не ветка `if stage is …`
+в механизме.
 
 **Бриф — до письма** (`brief`): этап смотрит на переписку и говорит, что агенту
 знать (факты строками), не писать ли вовсе (skip двух видов), что запомнить
@@ -33,9 +34,11 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import llm as llm_cfg
+from backend.config import sales as sales_cfg
 from backend.features.agent.settings import AgentSettings, UnknownAgentStageError, defaults
 from backend.features.agent.writer import PROMPT_PATH, PROMPT_VERSION, Turn
 from backend.features.core.domain import DraftStatus, Stage
+from backend.features.sales.agent import parts as sales
 
 
 class PriceSide(StrEnum):
@@ -132,6 +135,10 @@ class DraftNotice:
     reason: str | None
 
 
+#: Причина «другое»: экран шлёт её со словами человека — «другое: …». Без слов
+#: она ничего не объясняет, и у этапа со строгим списком её не примут.
+OTHER_REASON = "другое"
+
 BriefHook = Callable[[AsyncSession, Conversation], Awaitable[Brief]]
 Guard = Callable[[GuardInput], Awaitable[Verdict]]
 OnDraft = Callable[[DraftNotice], Awaitable[None]]
@@ -172,6 +179,10 @@ class AgentStage:
     guard: Guard | None = None
     #: Операция расхода судьи; `None` — расход судьи идёт операцией черновика.
     guard_operation: str | None = None
+    #: Операция расхода брифа, если бриф сам зовёт модель (ситуация письма у
+    #: продаж): её, как черновик и судью, считает свой потолок черновиков.
+    #: Бриф проверяет потолок до вызова сам — шов проверяет его перед писателем.
+    brief_operation: str | None = None
     #: Сколько секунд ждать судью: дольше — `escalate`, как при его ошибке.
     guard_timeout_s: float = 60.0
     on_draft: OnDraft | None = None
@@ -185,7 +196,39 @@ class AgentStage:
     lead: str = ""
     #: За что человек отклоняет черновик этапа (`REJECT_REASONS` — общий список).
     reject_reasons: tuple[str, ...] = REJECT_REASONS
+    #: Только из списка: причина отклонения — пункт `reject_reasons` или
+    #: «другое: …» словами, иначе отказ словами (`agent/drafts.reject_draft`, 422).
+    #: Калибровка этапа считает отклонения по виду (`agent_drafts.reject_kind`),
+    #: не читая слов. У первых двух этапов причина — по-прежнему любыми словами.
+    strict_reasons: bool = False
 
+
+#: Продажи: свой промпт и пин, бриф (ситуация → ход → факты), судья (правила
+#: кодом, затем модель), сообщение о черновике в группу продаж и строгий список
+#: причин отклонения — частями модуля продаж (`features/sales/agent/parts.py`).
+#: Строка собрана всегда — её берут прогон версии на накопленных ответах и тесты, —
+#: а в реестр встаёт только по тумблеру `SALES_AGENT_ENABLED`: по умолчанию он
+#: выключен, и агент продаж не пишет ни одного черновика, пока владелец его не
+#: включит. Автопилот — решение владельца, не здесь.
+SALES_STAGE = AgentStage(
+    defaults=sales.DEFAULTS,
+    price=PriceSide.SELL,
+    prompt=sales.PROMPT,
+    prompt_version=sales.PROMPT_VERSION,
+    model=sales.MODEL,
+    usage_operation=sales.DRAFT_OPERATION,
+    autopilot=False,
+    brief=sales.brief,
+    guard=sales.guard,
+    guard_operation=sales.JUDGE_OPERATION,
+    brief_operation=sales.SITUATION_OPERATION,
+    on_draft=sales.on_draft,
+    max_rewrites=sales.MAX_REWRITES,
+    title=sales.TITLE,
+    lead=sales.LEAD,
+    reject_reasons=sales.REJECT_REASONS,
+    strict_reasons=True,
+)
 
 #: Этапы, на которых агент ведёт переписку. Явным реестром, а не всем
 #: `Stage`: новый этап не получает агента молча — без умолчаний и стороны
@@ -204,17 +247,18 @@ AGENT_STAGES: Mapping[Stage, AgentStage] = MappingProxyType(
             title="Рекламодателям",
             lead="Рекламодателям мы продаём размещение: агент отвечает на вопросы и держит цену.",
         ),
+        **({Stage.SALES: SALES_STAGE} if sales_cfg.AGENT_ENABLED else {}),
     }
 )
 
 
 def agent_operations() -> frozenset[str]:
-    """Операции расхода агента всех этапов реестра — черновики и судьи: их
-    считает свой дневной потолок черновиков (`guarding.drafts_cap`)."""
+    """Операции расхода агента всех этапов реестра — черновики, судьи и брифы с
+    моделью: их считает свой дневной потолок черновиков (`guarding.drafts_cap`)."""
     found = {
         op
         for parts in AGENT_STAGES.values()
-        for op in (parts.usage_operation, parts.guard_operation)
+        for op in (parts.usage_operation, parts.guard_operation, parts.brief_operation)
     }
     return frozenset(op for op in found if op)
 

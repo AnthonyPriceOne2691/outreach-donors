@@ -114,12 +114,17 @@ class AgentDraftModel(TimestampedMixin, Base):
     tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     #: Решение: что ушло, правили ли текст агента, кто и когда решил
-    #: (`autopilot` — без человека), почему отклонён, каким письмом ушёл.
+    #: (`autopilot` — без человека), почему отклонён (словами и видом),
+    #: каким письмом ушёл.
     final_body: Mapped[str | None] = mapped_column(Text, nullable=True)
     edited: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     decided_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reject_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Вид причины — пункт списка этапа (`AgentStage.reject_reasons`) или «другое»:
+    #: по нему калибровка считает отклонения, не читая слов. Пусто — причина
+    #: своими словами у этапа без строгого списка.
+    reject_kind: Mapped[str | None] = mapped_column(Text, nullable=True)
     sent_message_id: Mapped[int | None] = mapped_column(
         ForeignKey("messages.id", ondelete="SET NULL"), nullable=True
     )

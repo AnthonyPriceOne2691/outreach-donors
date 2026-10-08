@@ -199,6 +199,7 @@ class DraftDetail(DraftCard):
     final_body: str | None
     edited: bool | None
     reject_reason: str | None
+    reject_kind: str | None
     sent_message_id: int | None
 
     @classmethod
@@ -213,6 +214,7 @@ class DraftDetail(DraftCard):
             final_body=draft.final_body,
             edited=draft.edited,
             reject_reason=draft.reject_reason,
+            reject_kind=draft.reject_kind,
             sent_message_id=draft.sent_message_id,
         )
 
@@ -224,6 +226,11 @@ class SendDraftBody(BaseModel):
 
 
 class RejectDraftBody(BaseModel):
-    """Отклонить можно только с причиной: без неё — 422 словами."""
+    """Отклонить можно только с причиной: без неё — 422 словами.
+
+    У этапа со строгим списком (`AgentStage.strict_reasons`, продажи) причина —
+    пункт списка или «другое: …» словами; иначе 422 словами со списком. Проверяет
+    ядро (`agent/drafts.reject_draft`): правило одно и для экрана, и для API.
+    """
 
     reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]

@@ -37,7 +37,7 @@
       "worst": "save_agent_settings:79"
     },
     "backend/api/agent/schemas.py": {
-      "lines": 230,
+      "lines": 237,
       "complexity": 6,
       "worst": "to_settings:58"
     },
@@ -117,9 +117,9 @@
       "worst": "of:161"
     },
     "backend/api/errors.py": {
-      "lines": 206,
+      "lines": 208,
       "complexity": 3,
-      "worst": "handle:192"
+      "worst": "handle:194"
     },
     "backend/api/events/__init__.py": {
       "lines": 1,
@@ -607,9 +607,9 @@
       "worst": "—"
     },
     "backend/config/llm.py": {
-      "lines": 91,
+      "lines": 103,
       "complexity": 2,
-      "worst": "_unset_if_empty:66"
+      "worst": "_unset_if_empty:75"
     },
     "backend/config/observability.py": {
       "lines": 21,
@@ -622,9 +622,9 @@
       "worst": "_own_account:203"
     },
     "backend/config/sales.py": {
-      "lines": 164,
+      "lines": 211,
       "complexity": 6,
-      "worst": "_days:90"
+      "worst": "_days:131"
     },
     "backend/config/serp.py": {
       "lines": 56,
@@ -702,14 +702,14 @@
       "worst": "clean:57"
     },
     "backend/features/agent/drafting.py": {
-      "lines": 430,
+      "lines": 431,
       "complexity": 9,
       "worst": "draft_answer:138"
     },
     "backend/features/agent/drafts.py": {
-      "lines": 293,
+      "lines": 333,
       "complexity": 7,
-      "worst": "_refuse_as_is:248"
+      "worst": "reject_draft:242"
     },
     "backend/features/agent/guarding.py": {
       "lines": 135,
@@ -722,9 +722,9 @@
       "worst": "save:154"
     },
     "backend/features/agent/stages.py": {
-      "lines": 228,
+      "lines": 272,
       "complexity": 4,
-      "worst": "agent_operations:211"
+      "worst": "agent_operations:255"
     },
     "backend/features/agent/writer.py": {
       "lines": 263,
@@ -882,7 +882,7 @@
       "worst": "—"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 68,
+      "lines": 70,
       "complexity": 0,
       "worst": "—"
     },
@@ -907,7 +907,7 @@
       "worst": "in_force:123"
     },
     "backend/features/core/models/agent.py": {
-      "lines": 131,
+      "lines": 136,
       "complexity": 0,
       "worst": "—"
     },
@@ -952,9 +952,9 @@
       "worst": "check_connected:107"
     },
     "backend/features/core/usage.py": {
-      "lines": 194,
+      "lines": 199,
       "complexity": 10,
-      "worst": "ensure_llm_within_cap:151"
+      "worst": "ensure_llm_within_cap:156"
     },
     "backend/features/core/window.py": {
       "lines": 172,
@@ -1711,6 +1711,86 @@
       "complexity": 1,
       "worst": "_mail:25"
     },
+    "backend/features/sales/agent/__init__.py": {
+      "lines": 20,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/features/sales/agent/brief.py": {
+      "lines": 174,
+      "complexity": 8,
+      "worst": "brief:141"
+    },
+    "backend/features/sales/agent/calling.py": {
+      "lines": 106,
+      "complexity": 3,
+      "worst": "payload:57"
+    },
+    "backend/features/sales/agent/facts.py": {
+      "lines": 248,
+      "complexity": 8,
+      "worst": "_of_kind:114"
+    },
+    "backend/features/sales/agent/judge.py": {
+      "lines": 266,
+      "complexity": 7,
+      "worst": "_ids:123"
+    },
+    "backend/features/sales/agent/judge_rules.py": {
+      "lines": 182,
+      "complexity": 6,
+      "worst": "foreign_numbers:62"
+    },
+    "backend/features/sales/agent/moves.py": {
+      "lines": 172,
+      "complexity": 7,
+      "worst": "_move:105"
+    },
+    "backend/features/sales/agent/notify.py": {
+      "lines": 306,
+      "complexity": 7,
+      "worst": "notify:114"
+    },
+    "backend/features/sales/agent/parts.py": {
+      "lines": 110,
+      "complexity": 1,
+      "worst": "brief:91"
+    },
+    "backend/features/sales/agent/reading.py": {
+      "lines": 131,
+      "complexity": 5,
+      "worst": "language_of:89"
+    },
+    "backend/features/sales/agent/replay.py": {
+      "lines": 408,
+      "complexity": 7,
+      "worst": "run:273"
+    },
+    "backend/features/sales/agent/replay_drafts.py": {
+      "lines": 137,
+      "complexity": 10,
+      "worst": "decided:81"
+    },
+    "backend/features/sales/agent/replay_gate.py": {
+      "lines": 289,
+      "complexity": 8,
+      "worst": "worse_cases:241"
+    },
+    "backend/features/sales/agent/replay_sets.py": {
+      "lines": 244,
+      "complexity": 13,
+      "worst": "_spec:68"
+    },
+    "backend/features/sales/agent/safety.py": {
+      "lines": 245,
+      "complexity": 5,
+      "worst": "mixed_words:220"
+    },
+    "backend/features/sales/agent/situation.py": {
+      "lines": 255,
+      "complexity": 10,
+      "worst": "parse:191"
+    },
     "backend/features/sales/browse.py": {
       "lines": 184,
       "complexity": 6,
@@ -1822,9 +1902,9 @@
       "worst": "check:180"
     },
     "backend/features/sales/models.py": {
-      "lines": 432,
+      "lines": 470,
       "complexity": 2,
-      "worst": "_enum:75"
+      "worst": "_enum:76"
     },
     "backend/features/sales/ooo.py": {
       "lines": 149,
@@ -2077,9 +2157,9 @@
       "worst": "compare:185"
     },
     "scripts/contour_waves.py": {
-      "lines": 484,
+      "lines": 490,
       "complexity": 14,
-      "worst": "collect:397"
+      "worst": "collect:403"
     },
     "scripts/eval_judge.py": {
       "lines": 170,
@@ -2090,6 +2170,11 @@
       "lines": 163,
       "complexity": 16,
       "worst": "report:116"
+    },
+    "scripts/eval_sales_judge.py": {
+      "lines": 473,
+      "complexity": 16,
+      "worst": "report:323"
     },
     "scripts/eval_sales_reply.py": {
       "lines": 236,
@@ -2115,6 +2200,16 @@
       "lines": 186,
       "complexity": 8,
       "worst": "tracked_text_files:70"
+    },
+    "scripts/sales_injection_canary.py": {
+      "lines": 223,
+      "complexity": 11,
+      "worst": "load:89"
+    },
+    "scripts/sales_replay.py": {
+      "lines": 238,
+      "complexity": 11,
+      "worst": "execute:113"
     },
     "scripts/sample_keywords.py": {
       "lines": 145,

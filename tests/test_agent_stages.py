@@ -24,6 +24,7 @@ from backend.features.core.domain import Stage
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.migration_helpers import load_migration
 from tests.test_agent_writer import Model, _request, _write
 
 _DRAFT = {"body": "Thanks!", "needs_human": False, "reason": ""}
@@ -92,10 +93,14 @@ def _drafts_table(connection: Connection) -> tuple[bool, bool, list[str]]:
         return connection.execute(text("SELECT to_regclass('agent_drafts')")).scalar() is not None
 
     migration = _drafts_migration()
+    # Журнал сообщений продаж ссылается на черновик — снимается первым, как по цепочке.
+    notices = load_migration("d64e2cd71614_sales_draft_notices.py")
     with Operations.context(MigrationContext.configure(connection)):
+        notices.downgrade()
         migration.downgrade()
         down = exists()
         migration.upgrade()
+        notices.upgrade()
     statuses = connection.execute(
         text("SELECT unnest(enum_range(NULL::draftstatus))::text")
     ).scalars()

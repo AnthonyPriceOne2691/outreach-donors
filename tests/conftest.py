@@ -52,6 +52,7 @@ from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.outreach import SenderModel
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from redis.exceptions import RedisError
 from sqlalchemy import make_url, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import (
@@ -302,6 +303,19 @@ def _no_real_sales_bot(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("backend.config.sales.TELEGRAM_BOT_TOKEN", "")
     monkeypatch.setattr("backend.config.sales.TELEGRAM_CHAT_ID", "")
     monkeypatch.setattr("backend.config.sales.TELEGRAM_GROUP_CHAT_ID", "")
+
+
+@pytest.fixture(autouse=True)
+def _no_sales_notice_in_a_real_queue(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Сообщение о черновике продаж из теста не встаёт в очередь из настроек: Redis
+    по умолчанию — общий, и чужой воркер отправил бы его своим ботом по своей базе.
+    Крючок шва видит «очередь недоступна» и пишет строку в журнал; тесты сообщения
+    подставляют свою очередь (`tests/test_sales_draft_notify.py`)."""
+
+    def refused() -> object:
+        raise RedisError("тесты не ставят сообщения о черновиках продаж в настоящую очередь")
+
+    monkeypatch.setattr("backend.features.sales.agent.notify.sales_queue", refused)
 
 
 @pytest.fixture

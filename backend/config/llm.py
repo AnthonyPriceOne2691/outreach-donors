@@ -40,6 +40,15 @@ class _Llm(DomainSettings):
     # зависит, позвонят ли человеку и закроют ли его адрес, — та же, что у
     # разбора цены, пока замер на наборе не скажет, что дешёвая не хуже.
     sales_classify_model: str = Field(default="gpt-5", validation_alias="LLM_SALES_CLASSIFY_MODEL")
+    # Модели агента продаж (`features/sales/agent/`), по одной на вызов: черновик —
+    # сильная, письмо живому человеку, как у агента переписки; ситуация письма и
+    # судья черновика — дешёвая: метка и строгая форма, а не текст. Не замерено —
+    # меряет прогон на накопленных ответах (`scripts/sales_replay.py`).
+    sales_draft_model: str = Field(default="gpt-5", validation_alias="LLM_SALES_DRAFT_MODEL")
+    sales_situation_model: str = Field(
+        default="gpt-5-mini", validation_alias="LLM_SALES_SITUATION_MODEL"
+    )
+    sales_judge_model: str = Field(default="gpt-5-mini", validation_alias="LLM_SALES_JUDGE_MODEL")
     timeout_s: float = Field(default=180.0, validation_alias="LLM_TIMEOUT_S")
     # Фраз за один вызов. Больше — растёт доля почти одинаковых, а ответ
     # обрывается на середине токенного лимита.
@@ -76,6 +85,9 @@ JUDGE_MODEL: str = _s.judge_model
 LETTERS_MODEL: str = _s.letters_model
 AGENT_MODEL: str = _s.agent_model
 SALES_CLASSIFY_MODEL: str = _s.sales_classify_model
+SALES_DRAFT_MODEL: str = _s.sales_draft_model.strip()
+SALES_SITUATION_MODEL: str = _s.sales_situation_model.strip()
+SALES_JUDGE_MODEL: str = _s.sales_judge_model.strip()
 TIMEOUT_S: float = _s.timeout_s
 MAX_PHRASES_PER_CALL: int = _s.max_phrases_per_call
 ANGLE_BUFFER: int = _s.angle_buffer

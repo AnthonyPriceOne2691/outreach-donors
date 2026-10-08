@@ -401,6 +401,11 @@ jobs:
               assert prompt, "пустой промпт"
           from backend.features.sales import reply_kind
           reply_kind.load_prompt()
+          from backend.features.sales.agent import judge, moves, parts, situation
+          writer.load_prompt(parts.PROMPT)  # черновик продаж: в реестре — только по тумблеру
+          writer.load_prompt(situation.PROMPT)
+          writer.load_prompt(judge.PROMPT)
+          moves.table()  # таблица ходов продаж: данными, проверяется при чтении
           print("шаблоны писем и промпты читаются из", backend.__file__)
           EOF
 

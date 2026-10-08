@@ -120,7 +120,8 @@ DETECTORS: dict[str, Detector] = {
                              "в sales/ есть файл промпта"),
     "sales-llm": Detector("text", r"\bbackend\.shared\.llm\b|\bfrom\s+backend\.shared\s+import\s[^\n]*\bllm\b",
                           "sales/ импортирует клиент модели"),
-    "sales-agent-prompt": Detector("later", "", "промпт агента и судьи назовёт срез агента"),
+    "sales-agent-prompt": Detector("tree", r"^backend/features/sales/agent/prompts/[^/]+\.md$",
+                                   "в sales/agent/ есть промпт агента или судьи"),
     "sales-segment-prompt": Detector("later", "", "промпт судьи сегмента назовёт его срез"),
     "sales-autosend": Detector("later", "", "маркер автоотправки назовёт срез В4"),
     "sales-thresholds": Detector("later", "", "файл порогов агента назовёт срез агента"),
@@ -144,6 +145,10 @@ def forbids_sales(config: str) -> bool:
     return any("backend.features.sales" in parser.get(name, "forbidden_modules", fallback="").split()
                for name in contracts)  # fmt: skip
 
+
+#: Детекторы промптов: у развёрнутой волны с таким триггером каждый промпт, который
+#: видит детектор, назван в model_surface STATUS.
+PROMPT_DETECTORS = ("sales-prompt", "sales-agent-prompt")
 
 #: Что ещё обязано лежать в дереве у развёрнутой волны: (где, чем узнать, о чём сказать).
 EVIDENCE = {
@@ -267,14 +272,15 @@ def fires(name: str, tree: Tree) -> bool:
 
 
 def judge(waves: list[Wave], tree: Tree) -> list[Finding]:
-    """Волна нарушена, когда её предел наступил, а она не развёрнута и не записана."""
+    """Волна нарушена, когда её предел наступил, а она не развёрнута и не записана.
+    Одна находка двух волн (промпт, не названный ни для В3а, ни для В3б) — один раз."""
     found: list[Finding] = []
     for wave in waves:
         if wave.state == "pending":
             found += _pending(wave, tree)
         elif wave.state == "deployed":
             found += _evidence(wave, tree)
-    return found
+    return list(dict.fromkeys(found))
 
 
 def _pending(wave: Wave, tree: Tree) -> list[Finding]:
@@ -300,11 +306,11 @@ def _evidence(wave: Wave, tree: Tree) -> list[Finding]:
     texts = [t for p, t in tree.texts.items() if p.startswith(where)]
     if holds and not any(holds(t) for t in texts):
         found.append(bad("rule", name=wave.name, what=what))
-    if "sales-prompt" in wave.triggers:
+    surfaces, _ = declared_surfaces(tree.texts.get(STATUS, ""), "model_surface")
+    for name in (t for t in wave.triggers if t in PROMPT_DETECTORS):
         # «Назван» — покрыт элементом первой строки поля: путём от корня, каталогом
         # или маской; имя файла и `<!-- … -->` не в счёт (определение — в реестре).
-        surfaces, _ = declared_surfaces(tree.texts.get(STATUS, ""), "model_surface")
-        prompts = [p for p in tree.sales if re.search(DETECTORS["sales-prompt"].pattern, p)]
+        prompts = [p for p in tree.sales if re.search(DETECTORS[name].pattern, p)]
         found += [
             bad("prompt", file=PurePosixPath(p).name)
             for p in prompts

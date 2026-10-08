@@ -23,7 +23,7 @@
 | В0 | ① delivery модуля: непреложное и проверка волн | `sales-code` | `this-pr` | deployed | `delivery/CONSTITUTION.md` (раздел «Продажи»), `scripts/contour_waves.py`, `tests/test_contour_waves.py` |
 | В1 | ② граница модуля + ④ гейт мержа | `sales-code` | `sales-in-base` | deployed | контракт `mail-does-not-know-sales` в `.importlinter` и правило того же имени в `.dependency-cruiser.cjs`; обратный прогон — `tests/test_sales_boundary.py`; числа гейтов — ниже, «В1: что видит каждый гейт» |
 | В3а | ⑤ разбор ответов | `sales-prompt`, `sales-llm` | `this-pr` | deployed | промпт файлом `backend/features/sales/prompts/reply_kind.md` (версия и пин — в `model_surface` STATUS); eval `scripts/eval_sales_reply.py` на синтетике `scripts/data/sales_reply_synthetic.jsonl`; внешний набор вне репозитория — манифест `scripts/data/sales_reply_golden.manifest.json`; порча промпта и ворота — `tests/test_sales_reply_eval.py`; живой прогон и пороги — по слову владельца, числа — в verify-report среза 2.2 |
-| В3б | ⑤ агент и судья | `sales-agent-prompt` | `this-pr` | pending | — |
+| В3б | ⑤ агент и судья | `sales-agent-prompt` | `this-pr` | deployed | eval судьи `scripts/eval_sales_judge.py` (пороги параметрами, порча `--spoil`, обратный прогон `--out`), манифесты наборов вне репозитория `scripts/data/sales_judge_golden.manifest.json` и `scripts/data/sales_style_golden.manifest.json`, синтетика `scripts/data/sales_judge_synthetic.jsonl`, канарейка инъекций `scripts/sales_injection_canary.py` с корпусом `scripts/data/sales_injection_corpus.jsonl`, тесты `tests/test_sales_judge_eval.py` и `tests/test_sales_injection_canary.py`; промпты и пины — в `model_surface`; живые числа — прогон координатора по слову владельца (verify-report среза `sales-v3b`) |
 | В3в | ⑤ судья сегмента | `sales-segment-prompt` | `this-pr` | pending | — |
 | В4 | ⑥ минимум эксплуатации | `sales-autosend` | `this-pr` | pending | — |
 | В2 | ③ понятия продаж с `implementation:` | `manual` | `sales-thresholds` | pending | — |
@@ -38,10 +38,11 @@
   в дереве PR.
 - `sales-prompt` — файл `backend/features/sales/**/prompts/*.md`.
 - `sales-llm` — `.py` продаж импортирует клиент модели `backend.shared.llm`.
-- `sales-agent-prompt`, `sales-segment-prompt`, `sales-autosend`,
-  `sales-thresholds` — имя файла или маркер назовёт срез, который их приносит;
-  до тех пор волну судит человек, и проверка печатает это при каждом прогоне
-  с кодом продаж.
+- `sales-agent-prompt` — файл `backend/features/sales/agent/prompts/*.md`:
+  промпт агента продаж или его судьи (назван срезом `sales-v3b`).
+- `sales-segment-prompt`, `sales-autosend`, `sales-thresholds` — имя файла или
+  маркер назовёт срез, который их приносит; до тех пор волну судит человек, и
+  проверка печатает это при каждом прогоне с кодом продаж.
 - `manual` — решает человек: например, что инварианты продаж застыли (В2).
 - `canon-ahead` — канон рядом (`~/Documents/Prepare`) ушёл вперёд от записи
   в `delivery/STACK-ACCEPTANCE.md`; видно только на pre-push, в CI канона нет.
@@ -51,9 +52,10 @@
 - Пути из колонки «Доказательство» существуют.
 - В1 — в `.importlinter` есть контракт с `backend.features.sales`.
 - В2 — у понятий `okf/` есть `implementation:` в `backend/features/sales`.
-- Волна с триггером `sales-prompt` — каждый промпт продаж назван
-  в `model_surface` STATUS. «Назван» значит одно: промпт покрыт элементом
-  первой строки поля — путём от корня, каталогом или маской
+- Волна с триггером `sales-prompt` или `sales-agent-prompt` — каждый промпт,
+  который видит её детектор, назван в `model_surface` STATUS. «Назван» значит
+  одно: промпт покрыт элементом первой строки поля — путём от корня, каталогом
+  или маской
   (`backend/features/sales/prompts/reply_kind.md`, `backend/features/sales/prompts/`,
   `backend/features/sales/prompts/*.md`). Голое имя файла не в счёт, путь из
   `<!-- … -->` не в счёт, строки поля ниже первой не читаются. Поле разбирают
