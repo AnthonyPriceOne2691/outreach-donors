@@ -31,7 +31,7 @@ from backend.features.core.stages import (
     SalesFollowup,
     SalesNotConnectedError,
 )
-from backend.features.letters import batch, followups
+from backend.features.letters import batch, followups, stoplist
 from backend.features.letters.building import followup_key, idempotency_key
 from backend.features.letters.sending import NoSenderError, SendError, Sending, SuppressedError
 from backend.features.letters.transport import MaybeSentError, Outgoing
@@ -67,6 +67,8 @@ class FakeSalesMail:
     #: Политика почты продаж (Ф4, 4.3) и пояса получателя: по умолчанию окна нет.
     rules: MailPolicy = CURRENT
     zones: tuple[str | None, ...] = ()
+    #: Переписки продаж адресата стоп-листа (`threads_to`), которые назовёт модуль.
+    threads: tuple[int, ...] = ()
 
     async def _maybe_break(self, session: AsyncSession, answer: str) -> None:
         if answer != self.broken:
@@ -111,6 +113,11 @@ class FakeSalesMail:
     async def policy(self, session: AsyncSession) -> MailPolicy:
         await self._maybe_break(session, "policy")
         return self.rules
+
+    async def threads_to(self, session: AsyncSession, email: str) -> tuple[int, ...]:
+        self.asked.append(f"threads_to {email}")
+        await self._maybe_break(session, "threads_to")
+        return self.threads
 
 
 @pytest.fixture
@@ -395,6 +402,45 @@ async def test_a_broken_sales_module_is_said_in_words_and_the_letter_waits(
     assert _seen(source) == []
     await session.refresh(world.letter)
     assert (world.letter.status, world.letter.sender_id) == (MessageStatus.QUEUED, None)
+
+
+async def test_stop_list_takes_the_sales_threads_the_module_names(
+    session: AsyncSession, fake: FakeSalesMail
+) -> None:
+    """Письмо продаж уходит адресу лида, а не строке `contacts`: стоп-лист снимает назначенное
+    адресу и в переписках, которые назвал модуль продаж."""
+    world = await sales_world(session, status=MessageStatus.SENT, due=NOW + timedelta(days=1))
+    fake.threads = (world.thread.id,)
+
+    stopped = await stoplist.stop_pending(session, email=LEAD_EMAIL)
+    await session.flush()
+
+    assert (stopped, fake.asked) == (1, [f"threads_to {LEAD_EMAIL}"])
+    await session.refresh(world.letter)
+    assert world.letter.next_action_at is None
+
+
+@pytest.mark.parametrize("broken_by", ["runtime", "database"])
+async def test_a_broken_sales_module_does_not_stop_the_stop_list(
+    session: AsyncSession,
+    fake: FakeSalesMail,
+    caplog: pytest.LogCaptureFixture,
+    broken_by: str,
+) -> None:
+    """Стоп-лист общий: поломка модуля продаж его не роняет — снимается то, что находят строки
+    `contacts`, причина — в журнале; упавший запрос модуля не ломает транзакцию почты."""
+    fake.broken, fake.broken_by = "threads_to", broken_by
+    donor = await _donor_chain(session, due=NOW + timedelta(days=1))
+    email = "editor@donor-b.example.test"
+
+    with caplog.at_level(logging.INFO, logger=stages.__name__):
+        stopped = await stoplist.stop_pending(session, email=email)
+    await session.flush()  # транзакция почты цела: упавший запрос модуля откатила его точка
+
+    assert (stopped, fake.asked) == (1, [f"threads_to {email}"])
+    await session.refresh(donor)
+    assert donor.next_action_at is None
+    assert "письма продаж адресата не сняты" in caplog.text
 
 
 async def test_queue_send_with_a_broken_module_is_refused_in_words(
