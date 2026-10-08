@@ -1837,9 +1837,9 @@
       "worst": "_by_name:351"
     },
     "backend/features/sales/handoff.py": {
-      "lines": 461,
+      "lines": 480,
       "complexity": 11,
-      "worst": "_card:368"
+      "worst": "_card:387"
     },
     "backend/features/sales/handoff_jobs.py": {
       "lines": 151,
@@ -1937,9 +1937,9 @@
       "worst": "refer:80"
     },
     "backend/features/sales/replies.py": {
-      "lines": 393,
+      "lines": 428,
       "complexity": 10,
-      "worst": "handle:217"
+      "worst": "handle:221"
     },
     "backend/features/sales/reply_kind.py": {
       "lines": 273,
@@ -1962,9 +1962,9 @@
       "worst": "read_entries:63"
     },
     "backend/features/sales/telegram.py": {
-      "lines": 240,
+      "lines": 249,
       "complexity": 13,
-      "worst": "_chat_of:229"
+      "worst": "_chat_of:238"
     },
     "backend/features/sales/unsubscribe.py": {
       "lines": 55,
