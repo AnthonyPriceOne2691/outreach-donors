@@ -1732,9 +1732,9 @@
       "worst": "_by_name:351"
     },
     "backend/features/sales/handoff.py": {
-      "lines": 442,
+      "lines": 446,
       "complexity": 11,
-      "worst": "_card:349"
+      "worst": "_card:353"
     },
     "backend/features/sales/handoff_jobs.py": {
       "lines": 151,
@@ -2002,9 +2002,9 @@
       "worst": "main:33"
     },
     "backend/workers/reaper.py": {
-      "lines": 144,
+      "lines": 153,
       "complexity": 4,
-      "worst": "_told:102"
+      "worst": "_told:103"
     },
     "backend/workers/sales_jobs.py": {
       "lines": 108,
