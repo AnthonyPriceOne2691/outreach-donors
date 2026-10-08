@@ -5,8 +5,8 @@ API решений один на все этапы (`/api/agent/drafts/{id}/…`
 пункт списка или «другое: …» словами; своими словами без «другое» и «другое» без
 слов — 422 словами со списком, черновик не тронут. Вид причины — пункт списка или
 «другое» — ложится в черновик и в журнал. «Как есть» у отданного человеку — 409
-словами. Ответ продаж почта ещё не ведёт: правка упирается в 409 «продажи к почте
-ещё не подключены», и черновик остаётся ждать.
+словами. Ответ продаж уходит мостом почты к модулю продаж; продажи не подключены —
+правка упирается в 409 словами, чего не хватает, письма нет, и черновик остаётся ждать.
 
 Черновик пишется настоящим путём шва по переписке продаж (строка продаж в реестре —
 фикстурой `sales_on`, как тумблером); модель — подставной HTTP.
@@ -210,15 +210,16 @@ async def test_a4_send_as_is_of_an_escalated_sales_draft_is_409_in_words(  # A4
     assert await _decisions(session) == []
 
 
-async def test_edited_sales_answer_waits_for_the_mail_of_sales_and_the_draft_stays(
+async def test_edited_sales_answer_waits_while_sales_are_not_connected_and_the_draft_stays(
     client: AsyncClient,
     make_user: MakeUser,
     sign_in: SignIn,
     session: AsyncSession,
     llm: Plug,
 ) -> None:
-    """Точка 5.1: исполнитель отправки шва — ответ в переписке, а его почта продаж
-    ещё не ведёт. Отказ словами, письма нет, черновик ждёт."""
+    """Точка 5.1: исполнитель отправки шва — ответ в переписке, он идёт мостом почты к модулю
+    продаж. Продажи не подключены (в мире теста — ни выключателя, ни учётки): отказ словами,
+    чего не хватает, письма нет, черновик ждёт."""
     draft = await _draft(session, llm, judge=UNCHECKED)
     headers = await _admin(make_user, sign_in)
 
@@ -228,7 +229,9 @@ async def test_edited_sales_answer_waits_for_the_mail_of_sales_and_the_draft_sta
     )
 
     assert edited.status_code == 409, edited.text
-    assert edited.json()["detail"].endswith("продажи к почте ещё не подключены")
+    detail = edited.json()["detail"]
+    assert detail.startswith("Ответ в переписке №"), detail
+    assert ": продажи к почте ещё не подключены — продажи выключены: SALES_ENABLED" in detail
     await _undecided(session, draft, DraftStatus.ESCALATED)
     answers = await session.scalar(
         select(func.count(MessageModel.id)).where(MessageModel.answers_reply_id == draft.reply_id)

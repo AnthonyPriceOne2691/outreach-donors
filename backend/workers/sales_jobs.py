@@ -17,6 +17,12 @@
 сама и ставит задачу Kommo и Telegram, а её отказ задачу ответа не роняет. Удачная
 передача снимает с ответа ожидание человека (снимок: «передан телемаркетологу»).
 
+**Черновик агента продаж — после пути.** Вопрос и интерес (путь «ответит агент»,
+`replies.DRAFTED`) получают черновик задачей той же очереди (`sales`): в общей он ждал
+бы часовой прогон доноров. Ставит его шов (`agent_jobs.after_parse`) после записи вида
+и передачи лида: положен ли черновик — тумблер `SALES_AGENT_ENABLED` и настройки агента
+продаж, — а сбой постановки задачу ответа не роняет: черновик попросят кнопкой.
+
 **Потолок расхода на модель — «не сегодня».** Задача ставит себя на начало
 следующих суток UTC, как разбор цены (`jobs._parse_or_postpone`).
 """
@@ -46,6 +52,7 @@ from backend.shared.queue import (
     sales_queue,
     with_retries,
 )
+from backend.workers import agent_jobs
 from backend.workers.jobs import next_utc_day
 
 logger = logging.getLogger(__name__)
@@ -88,6 +95,8 @@ async def handle(reply_id: int) -> dict[str, Any]:
             handled = await sales.handle(reply_id)
             await session.commit()
             handled = await sales.pass_on(handled)
+            if handled.drafted:  # вопрос, интерес — черновик агента своей очередью
+                await agent_jobs.after_parse(session, reply_id, queue=sales_queue)
     finally:
         await classifier.aclose()
         await http.aclose()

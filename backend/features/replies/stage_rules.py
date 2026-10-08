@@ -1,10 +1,10 @@
 """Правила этапа для записей человека по ответу: подтвердить цену, взять лид.
 
 Ответ лида продаж приходит в тот же тред и в те же записи, что ответы доноров и
-рекламодателей (`ReplyRepository.confirm`, `ReplyRepository.take_lead`). Продажи
-почта ещё не ведёт (`core/stages.py`): цена из ответа лида не ложится ни в ответ,
-ни в карточку донора, а лидом рекламодателя он не становится. Отказ — словами,
-до любой записи.
+рекламодателей (`ReplyRepository.confirm`, `ReplyRepository.take_lead`). Его вид и
+путь разбирает модуль продаж (`features/sales/replies.py`), а не разбор цены: цена
+из ответа лида не ложится ни в ответ, ни в карточку донора, а лидом рекламодателя
+он не становится. Отказ — словами, до любой записи.
 
 Этап здесь разбирается целиком (`match` с `assert_never`): следующий новый этап —
 ошибка mypy в этом файле, а не тихий путь доноров. Своим модулем, а не в
@@ -17,6 +17,13 @@ from typing import Literal, assert_never
 
 from backend.features.core.domain import Stage
 from backend.features.core.stages import SalesNotConnectedError
+
+#: Почему цену из ответа лида продаж не подтверждают — и при подключённых продажах.
+SALES_PRICE_WORDS = "ответ лида продаж разбирает модуль продаж — цены площадки в нём нет"
+#: Почему ответ лида продаж не берут лидом рекламодателя.
+SALES_LEAD_WORDS = (
+    "ответ лида продаж ведёт модуль продаж (передача телемаркетологу), а не лиды рекламодателей"
+)
 
 
 def price_confirmable(stage: Stage | None, reply_id: int) -> bool:
@@ -32,7 +39,9 @@ def price_confirmable(stage: Stage | None, reply_id: int) -> bool:
         case Stage.ADVERTISERS:
             return False
         case Stage.SALES:
-            raise SalesNotConnectedError(f"Цена из ответа №{reply_id} не подтверждена")
+            raise SalesNotConnectedError(
+                f"Цена из ответа №{reply_id} не подтверждена", words=SALES_PRICE_WORDS
+            )
         case _:
             assert_never(stage)
 
@@ -48,7 +57,7 @@ def lead_stage(
     """
     match stage:
         case Stage.SALES:
-            raise SalesNotConnectedError(f"Ответ №{reply_id} лидом не взят")
+            raise SalesNotConnectedError(f"Ответ №{reply_id} лидом не взят", words=SALES_LEAD_WORDS)
         case Stage.DONORS | Stage.ADVERTISERS | None:
             return stage
         case _:

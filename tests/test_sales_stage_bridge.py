@@ -46,6 +46,8 @@ from tests.test_sales_stage_mail import LEAD, NOW, _donor_chain, sales_world, se
 LEAD_EMAIL = "jane@lead.example.test"
 SENDER_NAME = "Made-up Sales Sender"
 SALES_BOX = "sales@mail-sales.example.test"
+#: Что подставной модуль дописывает к ответу лиду в переписке (у настоящего — подпись и адрес).
+ANSWER_TAIL = "\n\nMade-up sales signature block"
 
 
 @dataclass
@@ -93,6 +95,11 @@ class FakeSalesMail:
     async def connected(self, session: AsyncSession) -> bool:
         await self._maybe_break(session, "connected")
         return self.connected_now
+
+    async def answer(self, session: AsyncSession, thread_id: int, body: str, _what: str) -> str:
+        self.asked.append(f"answer {thread_id}")
+        await self._maybe_break(session, "answer")
+        return f"{body}{ANSWER_TAIL}"
 
     async def followup(
         self, session: AsyncSession, thread_id: int | None, step: int
@@ -474,7 +481,8 @@ async def test_an_odd_refusal_of_the_module_postpones_the_followup_and_donors_go
 # --- свои изменения почты: их сбой — не ошибка модуля -------------------------------------
 
 
-#: Пять вопросов почты к мосту о письме продаж (политика этапа — окно 4.3).
+#: Шесть вопросов почты к мосту о письме продаж (политика этапа — окно 4.3; ответ лиду в
+#: переписке — до заведения письма).
 _ASKS: dict[str, Callable[[AsyncSession, MessageModel], Awaitable[object]]] = {
     "connected": lambda session, letter: stages.sales_connected(session),
     "recipient": lambda session, letter: stages.recipient(
@@ -483,6 +491,9 @@ _ASKS: dict[str, Callable[[AsyncSession, MessageModel], Awaitable[object]]] = {
     "check": stages.check_sales,
     "followup": lambda session, letter: stages.sales_followup(session, letter.thread_id, 1),
     "policy": lambda session, letter: stages.mail_policy(session, Stage.SALES, "Политика"),
+    "answer": lambda session, letter: stages.answer_text(
+        session, Stage.SALES, letter.thread_id or 0, "Thanks.", "Ответ"
+    ),
 }
 
 

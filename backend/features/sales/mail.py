@@ -9,15 +9,18 @@
 
 - `recipient` — кому и от чьего имени, до выбора учётки этапа: подключены ли продажи
   (`connection.py`), адрес лида по явной связи диалога (`sales_threads`), имя в From
-  из «Отправителя», готова ли цепочка набора, которым написано первое письмо; пояса
-  получателя для окна (`policy.zones_of`: лида, его страны);
+  из «Отправителя», готова ли цепочка набора, которым написано первое письмо (ответу в
+  переписке — нет: он не шаг цепочки); пояса получателя для окна (`policy.zones_of`:
+  лида, его страны);
 - `check` — ветка продаж проверки перед отправкой (вместо отказа 1.1b в
   `sending._check_review`): лид не снят, не передан телемаркетологу
   (`handoff.handed_off` — переданному цепочка не идёт), не в стоп-листе; первое письмо —
   в коридоре отличия; подпись и адрес на месте, подстановок без значения нет
-  (`letter.problem`);
+  (`letter.problem`, у ответа в переписке — `letter.answer_problem`);
 - `connected` — подключены ли продажи: проход добивок берёт их сроки только тогда, иначе
   срок цел и проход называет его вслух;
+- `answer` — ответ лиду в переписке до заведения письма: продажи подключены, у переписки
+  есть лид, ему можно писать; текст — с подписью и адресом из «Отправителя» в конце;
 - `followup` — текст добивки: шаг цепочки того же набора и языка, что у первого письма,
   подстановки лида, подпись и адрес. Тему даёт первое письмо — у шаблона добивки её нет;
 - `policy` — политика почты продаж (`policy.sales_policy`): окно получателя, мягкие
@@ -53,7 +56,7 @@ from backend.features.core.stages import (
     SalesNotConnectedError,
 )
 from backend.features.letters import compose
-from backend.features.letters.chain import FIRST_STEP
+from backend.features.letters.chain import ANSWER_STEP, FIRST_STEP
 from backend.features.letters.sending import NotReadyError, SendError, SuppressedError
 from backend.features.letters.uniqueness import corridor_verdict
 from backend.features.sales import chain, connection, handoff, letter, sender
@@ -115,7 +118,8 @@ async def recipient(session: AsyncSession, message: MessageModel, what: str) -> 
 
     Неполная цепочка — отказ этому письму, а не этапу (`NotReadyError`): цепочка своя у набора
     письма (гипотеза и язык), и письма других наборов уходят — пачка считает это письмо и идёт
-    дальше (`letters/batch.py`), как на стоп-листе одного лида."""
+    дальше (`letters/batch.py`), как на стоп-листе одного лида. Ответу лиду в переписке
+    (`ANSWER_STEP`) цепочка не нужна: он не её шаг."""
     found = await connection.check(session, what)
     dialog = await linked(session, message.thread_id)
     if dialog is None:
@@ -123,11 +127,12 @@ async def recipient(session: AsyncSession, message: MessageModel, what: str) -> 
             f"{what}: у письма продаж нет лида — его собрала не сборка очереди продаж. "
             "Письмо стоит убрать из очереди"
         )
-    link = dialog.link
-    try:
-        (await chain.of_set(session, link.chain_hypothesis_id, link.language)).check_ready()
-    except chain.ChainNotReadyError as exc:
-        raise NotReadyError(f"{what} не уходит: {exc}") from exc
+    if message.step < ANSWER_STEP:
+        link = dialog.link
+        try:
+            (await chain.of_set(session, link.chain_hypothesis_id, link.language)).check_ready()
+        except chain.ChainNotReadyError as exc:
+            raise NotReadyError(f"{what} не уходит: {exc}") from exc
     return Recipient(
         Stage.SALES, dialog.lead.email, found.values["sender_name"], zones=zones_of(dialog.lead)
     )
@@ -171,13 +176,14 @@ async def stopped_by(
     return None if reason is None else f"стоп-лист, причина «{reason.value}»"
 
 
-async def _writable(session: AsyncSession, dialog: Linked, number: int) -> None:
-    """Лиду ещё можно писать: не снят, не передан, не в стоп-листе."""
+async def _writable(session: AsyncSession, dialog: Linked, number: int | None) -> None:
+    """Лиду ещё можно писать: не снят, не передан, не в стоп-листе. `number` — письмо
+    цепочки, после сборки которого лида могли снять; у ответа в переписке его нет."""
     lead = dialog.lead
     if lead.status is not LeadStatus.READY:
+        after = "" if number is None else f" после сборки письма №{number}"
         raise LeadStoppedError(
-            f"Лида {lead.email} сняли после сборки письма №{number} (сейчас «{lead.status.value}») "
-            "— писать ему нельзя"
+            f"Лида {lead.email} сняли{after} (сейчас «{lead.status.value}») — писать ему нельзя"
         )
     if await handoff.handed_off(session, lead.id):
         raise LeadStoppedError(
@@ -189,12 +195,14 @@ async def _writable(session: AsyncSession, dialog: Linked, number: int) -> None:
 
 
 async def check(session: AsyncSession, message: MessageModel) -> None:
-    """Проверка письма продаж перед отправкой — ветка продаж `sending._check_review`."""
+    """Проверка письма продаж перед отправкой — ветка продаж `sending._check_review`. Ответ
+    лиду в переписке (`ANSWER_STEP`) — не шаг цепочки: подпись в его тексте не отказ."""
     what = f"Письмо №{message.id}"
     dialog = await linked(session, message.thread_id)
     if dialog is None:
         raise SendError(f"{what}: у письма продаж нет лида — письмо стоит убрать из очереди")
-    await _writable(session, dialog, message.id)
+    answer = message.step >= ANSWER_STEP
+    await _writable(session, dialog, None if answer else message.id)
     if message.step == FIRST_STEP:
         verdict = corridor_verdict(message.uniqueness_pct or 0.0)
         if verdict is not None:
@@ -202,9 +210,26 @@ async def check(session: AsyncSession, message: MessageModel) -> None:
                 f"{what} не уходит: {verdict} — письмо продаж уходит только в коридоре, "
                 "соберите очередь заново"
             )
-    problem = letter.problem(message.body or "", await sender.read(session))
+    rule = letter.answer_problem if answer else letter.problem
+    problem = rule(message.body or "", await sender.read(session))
     if problem is not None:
         raise NotReadyError(f"{what} не уходит: {problem}")
+
+
+async def answer(session: AsyncSession, thread_id: int, body: str, what: str) -> str:
+    """Ответ лиду в переписке до заведения письма (`stages.answer_text`): продажи подключены,
+    у переписки есть лид, ему можно писать; текст — с подписью и физическим адресом из
+    «Отправителя» в конце (`letter.answered`). Цепочка не нужна: ответ — не её шаг."""
+    found = await connection.check(session, what)
+    dialog = await linked(session, thread_id)
+    if dialog is None:
+        raise SendError(f"{what}: у переписки нет лида продаж — её начала не сборка очереди продаж")
+    await _writable(session, dialog, None)
+    text = letter.answered(body, found)
+    problem = letter.answer_problem(text, found)
+    if problem is not None:
+        raise NotReadyError(f"{what} не уходит: {problem}")
+    return text
 
 
 async def connected(session: AsyncSession) -> bool:

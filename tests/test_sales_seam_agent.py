@@ -8,17 +8,19 @@
 - **G3**: модуль продаж подключён к мосту почты в каждом процессе, где почта может спросить о
   письме продаж: API, воркер, воркер продаж, добивки, сторож, консоль;
 - **C4**: бот продаж без токена — Telegram не зовётся ни разу, строка «не доставлено» с
-  названием настройки, одна тревога, черновик цел.
+  названием настройки, одна тревога, черновик цел;
+- **C1, тумблер включён**: ответ лида с видом «вопрос» или «интересуется» (путь «ответит
+  агент») получает задачу черновика агента — её ставит задача продаж (`workers/sales_jobs.py`,
+  PR «общее: ответ агента продаж»; очередь и пути — `tests/test_sales_reply_draft.py`);
+- **ответ лиду из переписки** (`letters/answers.py`) идёт мостом к модулю продаж, когда
+  продажи подключены: черновик агента продаж уходит как есть и с правкой (тот же PR;
+  настоящий модуль — `tests/test_sales_thread_answer.py`).
 
 Чего нет — в общем коде, и тест помечен `xfail(strict=True)`: правку делает PR «общее»,
 её точный текст — в отчёте ревью (R3):
 
-- **C1**: ответ лида с видом «вопрос» или «интересуется» (путь «ответит агент») черновика
-  агента не получает — задача продаж (`workers/sales_jobs.py`) его не ставит;
 - **C5**: автопилот (`agent/autopilot.run`) не ловит `MaybeSentError` — задача падает,
-  черновик остаётся «готов», человек о нём не узнаёт;
-- **ответ лиду из переписки** (`letters/answers.py`) отказывает продажам всегда, даже
-  подключённым: черновик агента продаж не уходит ни как есть, ни с правкой.
+  черновик остаётся «готов», человек о нём не узнаёт.
 """
 
 from __future__ import annotations
@@ -38,7 +40,6 @@ from backend.features.core.domain import DraftStatus, MessageStatus, Stage, User
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.agent import AgentDraftModel
 from backend.features.core.models.outreach import MessageModel, ReplyModel
-from backend.features.core.stages import SalesNotConnectedError
 from backend.features.letters.answers import answer_reply
 from backend.features.letters.sending import Sending
 from backend.features.letters.transport import MaybeSentError, NullTransport, Outgoing
@@ -78,7 +79,14 @@ from tests.test_sales_reply_routing import (
     _incoming,
     sales_letter,
 )
-from tests.test_sales_stage_bridge import LEAD_EMAIL, _seen, _transports, fake, unregistered
+from tests.test_sales_stage_bridge import (
+    ANSWER_TAIL,
+    LEAD_EMAIL,
+    _seen,
+    _transports,
+    fake,
+    unregistered,
+)
 from tests.test_sales_stage_mail import NOW, sales_world
 
 __all__ = [  # фикстуры — отсюда их видит pytest
@@ -230,14 +238,9 @@ async def test_c4_bot_without_a_token_calls_nobody_alerts_once_and_the_draft_sta
     assert (draft.status, draft.body) == (DraftStatus.DRAFTED, GOOD)
 
 
-# --- C1: черновик после вида ответа лида — общий код ----------------------------------------
+# --- C1: черновик после вида ответа лида ------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="общий код: workers/sales_jobs.handle не ставит черновик агента после вида ответа "
-    "(путь «ответит агент») — правка в отчёте R3, C1",
-)
 @pytest.mark.usefixtures("sales_on")
 async def test_c1_switched_on_a_lead_question_gets_a_draft_job_after_its_kind(
     session: AsyncSession, monkeypatch: pytest.MonkeyPatch
@@ -309,30 +312,26 @@ async def test_c5_unknown_outcome_of_the_autopilot_letter_goes_to_a_human(
     assert answer.status is MessageStatus.SENDING  # не в очередь: второго письма не будет
 
 
-# --- ответ лиду из переписки — общий код -------------------------------------------------------
+# --- ответ лиду из переписки ----------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=SalesNotConnectedError,
-    reason="общий код: letters/answers._context отказывает продажам всегда (mail_stage), даже "
-    "подключённым, — черновик агента продаж не уходит; правка в отчёте R3",
-)
 @pytest.mark.usefixtures("filled_legal", "fake")
 async def test_answer_to_a_lead_goes_through_the_bridge_when_sales_are_connected(
     session: AsyncSession,
 ) -> None:
     world = await sales_world(session, status=MessageStatus.SENT)
     transports = _transports()
+    body = "Thank you. I can walk you through it on a short call."
 
     await answer_reply(
         session,
         Sending(session, transports, now=NOW),
         thread_id=world.thread.id,
         reply_id=world.reply.id,
-        body="Thank you. I can walk you through it on a short call.",
+        body=body,
         author_id=None,
     )
 
     [letter] = _seen(transports)
     assert letter.to == LEAD_EMAIL
+    assert letter.body == f"{body}{ANSWER_TAIL}"  # текст ответа — тот, что отдал модуль
