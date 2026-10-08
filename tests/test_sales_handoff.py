@@ -471,12 +471,14 @@ async def test_refused_kommo_is_failed_with_alert_and_dialog_link(
     assert queued == [row.id], "новый ответ — новая попытка: ключ могли починить"
 
 
-# --- A4: Telegram недоступен — три попытки, тревога, «не доставлено» -----------------------
+# --- A4: Telegram недоступен — три попытки, «не доставлено», повтор проходом ---------------
 
 
-async def test_a4_telegram_down_three_attempts_ops_alert_undelivered(
+async def test_a4_telegram_down_three_attempts_then_undelivered_until_the_pass(
     session: AsyncSession, http: httpx.AsyncClient, api: Recorder, alerts: Alerts
 ) -> None:
+    """Три попытки бота за задачу, затем «не доставлено» и повтор прохода через паузу.
+    Тревога — после последней попытки прохода (`test_sales_handoff_message_retry.py`)."""
     api.answers = [refused(503, "Service Unavailable")]
     dialog = await sales_dialog(session)
 
@@ -488,9 +490,10 @@ async def test_a4_telegram_down_three_attempts_ops_alert_undelivered(
         HandoffTelegram.UNDELIVERED,
         None,
     )
-    [alert] = alerts
-    assert "не доставлено" in alert
-    assert "HTTP 503" in alert
+    assert (row.telegram_tries, row.telegram_due_at) == (1, NOW + timedelta(minutes=5))
+    assert row.last_error is not None
+    assert "HTTP 503" in row.last_error
+    assert alerts == [], "тревога — после последней попытки, а не на первой"
 
 
 async def test_a4_token_from_network_error_stays_out_of_error_and_alert(

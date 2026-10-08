@@ -368,16 +368,16 @@ class HandoffKommo(StrEnum):
     RETRY = "retry"  # Kommo не ответил после повторов — проход по расписанию повторит
     UNCONFIRMED = "unconfirmed"  # запись ушла, ответ потерян, поиск не решил — смотрит человек
     FAILED = "failed"  # Kommo отказал: ключ, права, форма ответа — повтор не поможет
-    DONE = "done"  # сделка есть, последнее письмо легло примечанием
+    DONE = "done"  # сделка есть, последнее письмо легло примечанием, — или закрыл человек
     OFF = "off"  # Kommo не подключён (fixture): телемаркетологу — ссылка на диалог
 
 
 class HandoffTelegram(StrEnum):
-    """Дошло ли сообщение телемаркетологу."""
+    """Дошло ли сообщение телемаркетологу. Повтор по расписанию — `telegram_due_at`."""
 
     PENDING = "pending"  # ещё не отправляли
     SENT = "sent"  # Telegram принял; ссылка — в `notified_link`
-    UNDELIVERED = "undelivered"  # три попытки не прошли — тревога эксплуатации ушла
+    UNDELIVERED = "undelivered"  # не ушло: ждёт повтора прохода или повторов больше нет
 
 
 class SalesHandoffModel(TimestampedMixin, Base):
@@ -424,6 +424,14 @@ class SalesHandoffModel(TimestampedMixin, Base):
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     #: Задача взялась за передачу: вторая ждёт. Старше срока — задача умерла.
     claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Сколько раз подряд сообщение о лиде — личное или копия в группу — не ушло из-за сети,
+    #: 5xx или 429 (`handoff_telegram.py`). Ушло, отказ постоянный или попытки кончились — ноль.
+    telegram_tries: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, default=0, server_default="0"
+    )
+    #: Не раньше чего проход повторит сообщение, которое не ушло. Пусто — повторять нечего.
+    #: `undelivered` со сроком — ждёт личное сообщение, `sent` со сроком — копия в группу.
+    telegram_due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("thread_id", name="uq_sales_handoffs_thread"),
