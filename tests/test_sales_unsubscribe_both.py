@@ -280,6 +280,22 @@ async def test_stop_list_entry_by_hand_unschedules_the_sales_letter_of_that_lead
     assert (jane.status, jane.next_action_at is not None) == (MessageStatus.SENT, True)
 
 
+async def test_stop_list_finds_the_letter_of_a_lead_written_with_capitals(
+    session: AsyncSession, world: w.World
+) -> None:
+    """Лид из «пишите другому» хранит адрес так, как его написали в ответе: стоп-лист находит
+    его письмо без оглядки на регистр."""
+    [letter] = await _queued(session, world, "Olga.Smith@acme.example.test")
+
+    await stoplist.add(
+        session, "olga.smith@acme.example.test", reason=SuppressionReason.MANUAL, author="тест"
+    )
+    await session.flush()
+
+    await _fresh(session, letter)
+    assert letter.status is MessageStatus.STOPPED
+
+
 async def test_stop_pending_without_the_sales_module_finds_what_contacts_find(
     session: AsyncSession, world: w.World, monkeypatch: pytest.MonkeyPatch
 ) -> None:
