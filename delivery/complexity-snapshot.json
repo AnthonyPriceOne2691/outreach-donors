@@ -1422,9 +1422,9 @@
       "worst": "—"
     },
     "backend/features/ops/alarm_feed.py": {
-      "lines": 151,
+      "lines": 179,
       "complexity": 5,
-      "worst": "_gone:86"
+      "worst": "_gone:104"
     },
     "backend/features/ops/alarms.py": {
       "lines": 16,
