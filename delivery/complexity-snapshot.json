@@ -127,9 +127,9 @@
       "worst": "—"
     },
     "backend/api/events/routes.py": {
-      "lines": 145,
+      "lines": 155,
       "complexity": 7,
-      "worst": "take_events:48"
+      "worst": "take_events:49"
     },
     "backend/api/events/schemas.py": {
       "lines": 21,
@@ -937,9 +937,9 @@
       "worst": "_enum:18"
     },
     "backend/features/core/models/outreach.py": {
-      "lines": 367,
+      "lines": 384,
       "complexity": 2,
-      "worst": "_enum:38"
+      "worst": "_enum:42"
     },
     "backend/features/core/models/run.py": {
       "lines": 141,
@@ -1297,9 +1297,9 @@
       "worst": "to_text:84"
     },
     "backend/features/letters/events.py": {
-      "lines": 301,
+      "lines": 305,
       "complexity": 10,
-      "worst": "apply_events:134"
+      "worst": "apply_events:138"
     },
     "backend/features/letters/followups.py": {
       "lines": 500,
@@ -1457,9 +1457,9 @@
       "worst": "—"
     },
     "backend/features/outreach/health.py": {
-      "lines": 163,
-      "complexity": 12,
-      "worst": "listen:65"
+      "lines": 249,
+      "complexity": 10,
+      "worst": "listen:85"
     },
     "backend/features/outreach/limits.py": {
       "lines": 102,
