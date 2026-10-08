@@ -221,6 +221,39 @@ describe('очередь писем', () => {
     expect(screen.getByText('Наружу письмо не уйдёт')).toBeInTheDocument();
   });
 
+  it('предпросмотр говорит о почте фактом, словами плитки, а не обещанием', async () => {
+    await openLetters();
+
+    // До 08.10.2026 здесь стояло «Отправка заработает после подключения на
+    // рабочем сервере» — неправда на рабочем сервере с выключенной почтой.
+    const alert = screen.getByText('Наружу письмо не уйдёт').closest('[role="alert"]')!;
+    expect(alert).toHaveTextContent(
+      'Проверочная почта: письма собираются и правятся, но наружу не уходят. ' +
+        '«Отправить» пометит письмо отправленным, но адресат его не получит.',
+    );
+    expect(screen.queryByText(/рабочем сервере/)).toBeNull();
+  });
+
+  it('не собравшаяся почта — не «проверочная», и «пометит отправленным» не сказано', async () => {
+    // Такая отправка отказывает, и письмо остаётся в очереди.
+    await openLetters({
+      transport: { name: '—', real: false, problem: 'OUTREACH_SENDGRID_API_KEY не задан' },
+    });
+
+    const alert = screen.getByText('Наружу письмо не уйдёт').closest('[role="alert"]')!;
+    expect(alert).toHaveTextContent(
+      'Почта не подключилась: письма собираются и правятся, но наружу не уходят.',
+    );
+    expect(alert).not.toHaveTextContent(/пометит|Проверочная/);
+  });
+
+  it('настоящая почта — в предпросмотре о ней ни слова', async () => {
+    await openLetters({ transport: { name: 'sendgrid', real: true, problem: null } });
+
+    expect(screen.queryByText('Наружу письмо не уйдёт')).toBeNull();
+    expect(screen.queryByText(/наружу не уходят/)).toBeNull();
+  });
+
   it('незаполненная обязательная настройка блокирует кнопку', async () => {
     await openLetters({ blocked_by: ['OUTREACH_SENDER_NAME'] });
 

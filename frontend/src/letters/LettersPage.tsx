@@ -714,7 +714,7 @@ function Queue({
             letter={selected}
             corridor={view.corridor}
             blockedBy={view.blocked_by}
-            transportIsReal={view.transport.real}
+            transport={view.transport}
             canSend={canSend}
             busy={busy}
             onSend={() => onSend(selected.id)}

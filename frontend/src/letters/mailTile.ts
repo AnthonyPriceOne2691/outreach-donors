@@ -37,3 +37,15 @@ export function mailLine(transport: LetterTransport): string | null {
   const which = transport.problem === null ? 'Проверочная почта' : 'Почта не подключилась';
   return `${which}: письма собираются и правятся, но наружу не уходят.`;
 }
+
+/** Та же почта в предпросмотре письма, над «Отправить»: фраза `mailLine` и что
+ *  станет с этим письмом по нажатию; `null` — почта настоящая. До 08.10.2026 там
+ *  стояло обещание «Отправка заработает после подключения на рабочем сервере».
+ *  Проверочная почта письмо примет и пометит отправленным; не собравшаяся
+ *  настоящая откажет, и письмо останется в очереди — «пометит» о ней было бы
+ *  неправдой. */
+export function mailSendNote(transport: LetterTransport): string | null {
+  const line = mailLine(transport);
+  if (line === null || transport.problem !== null) return line;
+  return `${line} «Отправить» пометит письмо отправленным, но адресат его не получит.`;
+}

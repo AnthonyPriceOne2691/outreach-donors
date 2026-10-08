@@ -37,16 +37,17 @@ import {
 } from '@mantine/core';
 import { useEffect, useRef, useState } from 'react';
 
-import type { Corridor, QueuedLetter } from '../api/types';
+import type { Corridor, LetterTransport, QueuedLetter } from '../api/types';
 import { readable, restored, uniquenessText } from './letterText';
+import { mailSendNote } from './mailTile';
 
 export interface LetterPreviewProps {
   letter: QueuedLetter;
   corridor: Corridor;
   /** Чем заблокирована отправка. Непусто — кнопка не нажимается. */
   blockedBy: string[];
-  /** Уходит ли письмо на самом деле. */
-  transportIsReal: boolean;
+  /** Почта экрана: уходит ли письмо на самом деле, а нет — почему (`mailTile`). */
+  transport: LetterTransport;
   canSend: boolean;
   busy: boolean;
   onSend: () => void;
@@ -75,7 +76,7 @@ export function LetterPreview({
   letter,
   corridor,
   blockedBy,
-  transportIsReal,
+  transport,
   canSend,
   busy,
   onSend,
@@ -107,6 +108,7 @@ export function LetterPreview({
   const followup = letter.followups.find((step) => `step${step.step}` === tab) ?? null;
 
   const blocked = blockedBy.length > 0;
+  const mail = mailSendNote(transport);
   const shown = readable(letter.body);
   const title = readable(letter.subject);
   const next = followup === null ? null : readable(followup.body);
@@ -196,10 +198,12 @@ export function LetterPreview({
           </Stack>
         )}
 
-        {!transportIsReal && followup === null ? (
+        {/* Словами плитки «Почта» и главной (`mailTile`) — факт, а не обещание
+            «заработает на рабочем сервере»: на рабочем сервере с выключенной
+            почтой оно было бы неправдой. */}
+        {mail !== null && followup === null ? (
           <Alert color="yellow" title="Наружу письмо не уйдёт">
-            Почта ещё не подключена: письмо будет помечено отправленным, но адресат его не получит.
-            Отправка заработает после подключения на рабочем сервере.
+            {mail}
           </Alert>
         ) : null}
 

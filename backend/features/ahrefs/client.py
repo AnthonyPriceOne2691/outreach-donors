@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 # На этих повторять бессмысленно — ключ, права или сам запрос.
 FATAL_STATUSES = frozenset({400, 401, 403, 404, 422})
+# Прочие коды — `_raise_for_status`: 3xx и 4xx постоянные, 5xx нет.
 
 MAX_ATTEMPTS = 4
 BACKOFF_BASE_SEC = 2.0
@@ -47,9 +48,10 @@ MAX_BACKOFF_SEC = 60.0
 
 class AhrefsError(RuntimeError):
     """Запрос не удался. `permanent` — повтор не поможет: ключ, права,
-    неверный запрос, непонятная форма ответа. Без признака — повторы запроса
-    кончились на временном сбое или вместо данных пришла страница (ответ
-    не JSON), и прогон стоит продолжить позже."""
+    неверный запрос, переадресация (сменился адрес API), непонятная форма
+    ответа. Без признака — повторы запроса кончились на временном сбое,
+    провайдер ответил 5xx вне списка повторов или вместо данных пришла
+    страница (ответ не JSON), и прогон стоит продолжить позже."""
 
     def __init__(self, message: str, *, permanent: bool = False) -> None:
         super().__init__(message)
@@ -283,12 +285,41 @@ class AhrefsClient:
                 await asyncio.sleep(delay)
                 continue
 
-            response.raise_for_status()
+            _raise_for_status(response, operation)
             return Response(rows=_rows(_json(response, operation), operation), cost=cost)
 
         raise AhrefsError(
             f"{operation}: не удалось за {MAX_ATTEMPTS} попыток — {last_error}"
         ) from last_error
+
+
+def _raise_for_status(response: httpx.Response, operation: str) -> None:
+    """Код ответа вне обоих списков — `AhrefsError` словами, а не исключение httpx.
+
+    До 08.10.2026 здесь стоял `raise_for_status()` httpx, и его голый
+    `HTTPStatusError` проходил мимо всех `except AhrefsError`: 402, 410 или
+    переадресация роняли сбор стран целиком вместо «страны не получены»
+    и пересчёт кандидатов вместо «DR не проверен».
+
+    Постоянны 3xx и 4xx: переадресацию никто не настраивал — клиент за ней
+    не ходит, значит, сменился адрес API, — а отказ по запросу повтор не
+    исправит. 5xx вне списка повторов — сбой на стороне провайдера, прогон
+    стоит продолжить позже. Текст собран из ответа — код, куда переадресация,
+    начало тела (пустое — словами кода); заголовков запроса, а с ними ключа,
+    в нём нет.
+    """
+    if response.is_success:
+        return
+    moved = (
+        f" — переадресация на {response.headers['location']}"
+        if response.has_redirect_location
+        else ""
+    )
+    said = response.text[:200].strip() or response.reason_phrase
+    raise AhrefsError(
+        f"{operation}: Ahrefs ответил {response.status_code}{moved}: {said}",
+        permanent=response.status_code < 500,
+    )
 
 
 def _json(response: httpx.Response, what: str) -> Any:
