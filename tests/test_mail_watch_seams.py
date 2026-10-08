@@ -4,12 +4,13 @@
 зелёные тесты с мутантом:
 
 - ошибка базы у этапа — тревога «сторож этапа не досчитал» (своя точка сохранения): этапы после
-  него, правила сторожа тишины (доноры) и `GET /api/watchdog` целы — правка PR «общее».
+  него, правила сторожа тишины (доноры) и `GET /api/watchdog` целы — правка PR «общее»;
+- сказанное лентой — хэшем в Redis: «прошло» о тревоге, кончившейся за перезапуском, приходит,
+  действующая не повторяется; Redis не ответил — память процесса и строка журнала — правка PR
+  «общее».
 
 Что не так — `xfail(strict=True)` с причиной и правкой для PR «общее»:
 
-- `Feed.told` живёт в памяти процесса: «прошло» о тревоге, кончившейся за перезапуском, не
-  приходит никогда;
 - дребезг: тревога, которая то есть, то нет, — сообщение на каждом проходе;
 - проход сторожа говорит с провайдерами и Telegram при открытой транзакции («idle in
   transaction» на время сетевых вызовов).
@@ -20,6 +21,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
 from typing import Any
@@ -34,6 +36,7 @@ from backend.features.ops import alarm_feed, mail_watch, silence
 from backend.features.ops.alarms import Alarm
 from backend.workers import reaper
 from httpx import AsyncClient
+from redis.exceptions import ConnectionError as RedisConnectionError
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import TEST_DSN, bearer
@@ -225,24 +228,139 @@ async def admin_token(
 # --- лента тревог: перезапуск и дребезг ---------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "общий код ops/alarm_feed.Feed: сказанное помнит процесс — тревога, кончившаяся за "
-        "перезапуском reaper, остаётся в Telegram без «прошло»; правка — PR «общее» (ревью "
-        "стыков R1, A6)"
-    ),
-)
+class FakeRedis:
+    """Redis сказанного: хэши в памяти теста — переживают «перезапуск» (новый `Feed()`);
+    `down` — Redis не отвечает ни на чтение, ни на запись; `fails` — не ответит на столько
+    ближайших обращений."""
+
+    def __init__(self) -> None:
+        self.hashes: dict[str, dict[str, str]] = {}
+        self.down = False
+        self.fails = 0
+
+    def __enter__(self) -> FakeRedis:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
+
+    def hgetall(self, key: str) -> dict[bytes, bytes]:
+        self.answer()
+        return {code.encode(): title.encode() for code, title in self.hashes.get(key, {}).items()}
+
+    def pipeline(self) -> FakePipeline:
+        return FakePipeline(self)
+
+    def answer(self) -> None:
+        if self.down or self.fails > 0:
+            self.fails = max(self.fails - 1, 0)
+            raise RedisConnectionError("выдуманный Redis не отвечает")
+
+
+class FakePipeline:
+    """Транзакция Redis: команды копятся и применяются вместе на `execute`."""
+
+    def __init__(self, redis: FakeRedis) -> None:
+        self.redis = redis
+        self.commands: list[Callable[[], object]] = []
+
+    def __enter__(self) -> FakePipeline:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
+
+    def delete(self, key: str) -> None:
+        self.commands.append(lambda: self.redis.hashes.pop(key, None))
+
+    def hset(self, key: str, *, mapping: dict[str, str]) -> None:
+        self.commands.append(lambda: self.redis.hashes.setdefault(key, {}).update(mapping))
+
+    def execute(self) -> None:
+        self.redis.answer()
+        for command in self.commands:
+            command()
+
+
+@pytest.fixture
+def told_redis(monkeypatch: pytest.MonkeyPatch) -> FakeRedis:
+    """Redis сказанного — подделкой (вместо щита `tests/conftest.py`)."""
+    redis = FakeRedis()
+    monkeypatch.setattr(alarm_feed, "connection", lambda: redis)
+    return redis
+
+
 async def test_the_end_of_an_alarm_told_before_a_restart_is_still_told(
-    telegram: list[str],
+    telegram: list[str], told_redis: FakeRedis
 ) -> None:
     """Выкатка между тревогой и её концом: новый процесс знает, что о тревоге сказано
-    (хранилище сказанного — выбор правки; внешнее — тест получит его подделку)."""
+    (хранилище сказанного — Redis; тест получает его подделку)."""
     await alarm_feed.Feed().tell([QUIET])
 
     await alarm_feed.Feed().tell([])  # процесс перезапущен, тревоги больше нет
 
     assert telegram == ["тревога: Ящик x молчит. ждут его", "прошло: Ящик x молчит"]
+    assert told_redis.hashes == {}
+
+
+async def test_an_alarm_told_before_a_restart_is_not_told_again(
+    telegram: list[str], told_redis: FakeRedis
+) -> None:
+    await alarm_feed.Feed().tell([QUIET])
+
+    await alarm_feed.Feed().tell([QUIET])  # процесс перезапущен, тревога держится
+
+    assert telegram == ["тревога: Ящик x молчит. ждут его"]
+    assert told_redis.hashes == {alarm_feed.TOLD_KEY: {QUIET.code: QUIET.title}}
+
+
+async def test_without_redis_the_feed_remembers_its_own_process(
+    telegram: list[str], caplog: pytest.LogCaptureFixture
+) -> None:
+    """Redis не отвечает (щит `tests/conftest.py`) — строка журнала и память процесса."""
+    feed = alarm_feed.Feed()
+
+    with caplog.at_level(logging.WARNING, logger=alarm_feed.__name__):
+        for state in ([QUIET], [QUIET], [], [], []):
+            await feed.tell(state)
+
+    assert telegram == ["тревога: Ящик x молчит. ждут его", "прошло: Ящик x молчит"]
+    assert "сказанное из Redis не прочитано" in caplog.text
+
+
+async def test_what_was_said_while_redis_blinked_reaches_it_next_pass(
+    telegram: list[str], told_redis: FakeRedis
+) -> None:
+    """Redis лёг на проходе с тревогой — следующий проход дописывает её в Redis, и
+    процесс после перезапуска знает о ней."""
+    feed = alarm_feed.Feed()
+    told_redis.down = True
+    await feed.tell([QUIET])
+    told_redis.down = False
+    await feed.tell([QUIET])
+
+    restarted = alarm_feed.Feed()
+    for _ in range(2):
+        await restarted.tell([])  # тревоги больше нет
+
+    assert telegram == ["тревога: Ящик x молчит. ждут его", "прошло: Ящик x молчит"]
+
+
+async def test_what_the_previous_process_said_is_read_once_redis_answers(
+    telegram: list[str], told_redis: FakeRedis
+) -> None:
+    """Новый процесс: Redis не ответил на чтение в начале прохода — сказанное прежним
+    читается следующим проходом и до того не затирается записью своего."""
+    old = Alarm(code="quiet-box:y", title="Ящик y молчит", detail="ждут и его")
+    told_redis.hashes[alarm_feed.TOLD_KEY] = {old.code: old.title}
+    told_redis.fails = 1
+    feed = alarm_feed.Feed()
+
+    for _ in range(3):
+        await feed.tell([QUIET])
+
+    assert telegram == ["тревога: Ящик x молчит. ждут его", "прошло: Ящик y молчит"]
+    assert told_redis.hashes == {alarm_feed.TOLD_KEY: {QUIET.code: QUIET.title}}
 
 
 @pytest.mark.xfail(
