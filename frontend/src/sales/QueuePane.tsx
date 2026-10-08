@@ -43,9 +43,6 @@ import { SendQueue } from '../letters/SendQueue';
 import { remember, remembered } from '../storage';
 import { buildJobKey, QUEUE_QUERY_KEY, queueLine, useSalesQueue } from './queueData';
 
-/** Заголовок плашки — чернилами, смысл несёт подложка: янтарный заголовок на янтарной
- *  подложке намерился ниже нормы (замер 05.10.2026, вкладка «Отправитель»). */
-const INK_TITLE = { title: { color: 'var(--ink)' } };
 /** Писем за раз, пока человек не поправил: как у сборки писем доноров. */
 const DEFAULT_LIMIT = 50;
 
@@ -63,7 +60,7 @@ function Connection({ view }: { view: SalesQueueView }) {
     );
   }
   return (
-    <Alert color="yellow" title="Продажи к почте не подключены" styles={INK_TITLE} mx="md">
+    <Alert color="yellow" title="Продажи к почте не подключены" mx="md">
       <Text size="sm">Письма не соберутся и не уйдут, пока не исправлено:</Text>
       <List size="sm" mt={4} spacing={4}>
         {view.missing.map((why) => (

@@ -15,10 +15,6 @@ import { Alert, Badge, Group, Stack, Text } from '@mantine/core';
 import { chainPlaceholderTitle, ZONE_KINDS } from '../api/salesLabels';
 import type { ChainPreviewView, ZoneCard } from '../api/salesTypes';
 
-/** Заголовок плашки — чернилами, как у готовности «Отправителя»: янтарный
- *  заголовок на янтарной подложке намерился 4,30 : 1 при норме 4,5. */
-const INK_TITLE = { title: { color: 'var(--ink)' } };
-
 function Zone({ zone }: { zone: ZoneCard }) {
   return (
     <Stack gap={4} className="chainZone">
@@ -71,7 +67,7 @@ export function ChainLetter({ letter }: { letter: ChainPreviewView }) {
       <FromSettings text={letter.signature} absent="Подпись не задана" />
       <FromSettings text={letter.address} absent="Физический адрес не задан" />
       {letter.missing.length > 0 && (
-        <Alert color="yellow" title="Отправка продаж не готова" styles={INK_TITLE}>
+        <Alert color="yellow" title="Отправка продаж не готова">
           {letter.missing.join('; ')} — без этого письмо продаж не уходит.
         </Alert>
       )}
