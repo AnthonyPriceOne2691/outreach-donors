@@ -228,12 +228,13 @@ async def admin_token(
 class FakeRedis:
     """Redis сказанного: хэши в памяти теста — переживают «перезапуск» (новый `Feed()`);
     значение байтами отдаётся как есть; `down` — Redis не отвечает ни на чтение, ни на запись;
-    `fails` — не ответит на столько ближайших обращений."""
+    `fails` — не ответит на столько ближайших обращений; `writes` — сколько было попыток записи."""
 
     def __init__(self) -> None:
         self.hashes: dict[str, dict[str, str | bytes]] = {}
         self.down = False
         self.fails = 0
+        self.writes = 0
 
     def __enter__(self) -> FakeRedis:
         return self
@@ -274,6 +275,7 @@ class FakePipeline:
         self.commands.append(lambda: self.redis.hashes.setdefault(key, {}).update(mapping))
 
     def execute(self) -> None:
+        self.redis.writes += 1
         self.redis.answer()
         for command in self.commands:
             command()

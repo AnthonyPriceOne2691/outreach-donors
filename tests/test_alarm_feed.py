@@ -5,6 +5,7 @@
   сторожа перезапущен — у нового канала свой пустой хэш сказанного, и действующая тревога
   приходит туда один раз, а не молчит, пока не кончится и не вернётся.
 - Значение в хэше не UTF-8 (чужая запись) — проход сторожа не падает.
+- Запись в Redis не удалась — до конца прохода лента Redis не ждёт; дописывает следующий проход.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ from __future__ import annotations
 import pytest
 from backend.config import alerts as alerts_cfg
 from backend.features.ops import alarm_feed
+from backend.features.ops.alarms import Alarm
 from tests.test_mail_watch_seams import QUIET, FakeRedis
 
 TOLD = "тревога: Ящик x молчит. ждут его"
@@ -85,3 +87,23 @@ async def test_a_foreign_value_in_the_hash_does_not_stop_the_watch(
         await feed.tell([])
 
     assert channels == [("журнал", "прошло: \ufffdB\ufffd")]
+
+
+async def test_after_a_failed_write_the_pass_does_not_wait_for_redis_again(
+    channels: list[tuple[str, str]], told_redis: FakeRedis
+) -> None:
+    """Redis завис после чтения: первая запись прохода ждёт таймаута и не удаётся — остальные
+    слова того же прохода Redis не ждут (каждое ждало бы ещё 5 с); дописывает следующий проход."""
+    other = Alarm(code="quiet-box:y", title="Ящик y молчит", detail="ждут и его")
+    feed = alarm_feed.Feed()
+    await feed.tell([])  # сказанное прежним процессом прочитано: пусто
+    told_redis.down = True
+    await feed.tell([QUIET, other])
+    tries = told_redis.writes
+    told_redis.down = False
+    await feed.tell([QUIET, other])
+
+    assert tries == 1
+    assert told_redis.hashes == {
+        alarm_feed.told_key(): {QUIET.code: QUIET.title, other.code: other.title}
+    }

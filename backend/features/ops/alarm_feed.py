@@ -82,9 +82,12 @@ class Feed:
     recalled: bool = False
     #: Память разошлась с Redis (запись не удалась или ещё не читали) — дописать.
     unsaved: bool = False
+    #: Запись в этом проходе не удалась — до его конца Redis не ждём: дописывает следующий проход.
+    stalled: bool = False
 
     async def tell(self, found: Sequence[Alarm]) -> None:
         """Сказать о новых тревогах сразу и о прошедших — после `QUIET_PASSES` проходов без них."""
+        self.stalled = False
         self._recall()
         now = {alarm.code: alarm for alarm in found}
         await self._new(now)
@@ -119,8 +122,11 @@ class Feed:
             self._save()
 
     def _save(self) -> None:
-        """Зеркало памяти — в Redis. Не записалось — дописать в начале следующего прохода."""
-        self.unsaved = not (self.recalled and _stored_as(self.told))
+        """Зеркало памяти — в Redis. Не записалось — до конца прохода больше не пробовать
+        (зависший Redis держал бы по таймауту каждое слово), дописать в начале следующего."""
+        self.unsaved = True
+        if self.recalled and not self.stalled:
+            self.unsaved = self.stalled = not _stored_as(self.told)
 
 
 def _stored() -> dict[str, str] | None:
