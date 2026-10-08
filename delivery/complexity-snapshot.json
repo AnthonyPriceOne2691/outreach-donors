@@ -117,9 +117,9 @@
       "worst": "of:161"
     },
     "backend/api/errors.py": {
-      "lines": 208,
+      "lines": 209,
       "complexity": 3,
-      "worst": "handle:194"
+      "worst": "handle:195"
     },
     "backend/api/events/__init__.py": {
       "lines": 1,
@@ -382,9 +382,9 @@
       "worst": "redraft:136"
     },
     "backend/api/threads/schemas.py": {
-      "lines": 289,
+      "lines": 290,
       "complexity": 4,
-      "worst": "of:268"
+      "worst": "of:269"
     },
     "backend/api/unsubscribe/__init__.py": {
       "lines": 1,
@@ -947,9 +947,9 @@
       "worst": "_enum:27"
     },
     "backend/features/core/stages.py": {
-      "lines": 311,
+      "lines": 338,
       "complexity": 5,
-      "worst": "check_connected:107"
+      "worst": "check_connected:111"
     },
     "backend/features/core/usage.py": {
       "lines": 215,
@@ -1262,9 +1262,9 @@
       "worst": "—"
     },
     "backend/features/letters/answers.py": {
-      "lines": 213,
+      "lines": 219,
       "complexity": 4,
-      "worst": "subject_for:78"
+      "worst": "subject_for:83"
     },
     "backend/features/letters/attempts.py": {
       "lines": 224,
@@ -1897,14 +1897,14 @@
       "worst": "wanted_email:122"
     },
     "backend/features/sales/letter.py": {
-      "lines": 101,
+      "lines": 128,
       "complexity": 7,
-      "worst": "problem:76"
+      "worst": "problem:81"
     },
     "backend/features/sales/mail.py": {
-      "lines": 242,
-      "complexity": 7,
-      "worst": "check:191"
+      "lines": 267,
+      "complexity": 9,
+      "worst": "check:197"
     },
     "backend/features/sales/models.py": {
       "lines": 470,
@@ -1942,9 +1942,9 @@
       "worst": "refer:80"
     },
     "backend/features/sales/replies.py": {
-      "lines": 440,
+      "lines": 456,
       "complexity": 10,
-      "worst": "handle:225"
+      "worst": "handle:241"
     },
     "backend/features/sales/reply_kind.py": {
       "lines": 273,
@@ -2102,9 +2102,9 @@
       "worst": "—"
     },
     "backend/workers/agent_jobs.py": {
-      "lines": 154,
+      "lines": 166,
       "complexity": 4,
-      "worst": "_autopilot:117"
+      "worst": "queue_draft:52"
     },
     "backend/workers/crawl_jobs.py": {
       "lines": 270,
@@ -2142,9 +2142,9 @@
       "worst": "_told:103"
     },
     "backend/workers/sales_jobs.py": {
-      "lines": 116,
-      "complexity": 5,
-      "worst": "handle:69"
+      "lines": 125,
+      "complexity": 6,
+      "worst": "handle:76"
     },
     "backend/workers/send_jobs.py": {
       "lines": 42,
