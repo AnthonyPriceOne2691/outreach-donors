@@ -158,17 +158,11 @@ def test_llm_cap_in_the_job_entry_puts_the_answer_on_the_next_utc_day(
     }
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "общий код: задача продаж (workers/sales_jobs.py) не говорит модулю, что попытка "
-        "последняя, — после исчерпанных повторов очереди ответ навсегда ждёт со словами "
-        "«задача попробует ещё раз»; правка — PR «общее» (sales_jobs.py и replies.py)"
-    ),
-)
 async def test_last_retry_of_a_model_refusal_tells_the_human_to_sort_by_hand(
     session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Последняя попытка очереди (`retries_left == 0`) после временного отказа модели: повтора
+    больше не будет, и записка не обещает его — «повторы кончились — разберите вручную»."""
     reply = await _sales_reply(session, "Сколько стоит аудит?")
     await session.commit()
     _job_body_on_test_base(
@@ -185,6 +179,45 @@ async def test_last_retry_of_a_model_refusal_tells_the_human_to_sort_by_hand(
     reason = str(review_of(reply, Stage.SALES).reason)
     assert "попробует ещё раз" not in reason, "повторов больше не будет"
     assert "разберите вручную" in reason
+
+
+def _job(retries_left: int | None) -> object:
+    """Задача rq глазами `handle`: номер и сколько повторов осталось."""
+    return type("Job", (), {"id": "sales-try", "retries_left": retries_left})()
+
+
+@pytest.mark.parametrize(
+    ("job", "then"),
+    [
+        pytest.param(_job(2), "задача попробует ещё раз", id="повтор впереди"),
+        pytest.param(_job(0), "повторы кончились — разберите вручную", id="повторы исчерпаны"),
+        pytest.param(_job(None), "повторы кончились — разберите вручную", id="без повторов"),
+        pytest.param(None, "повторы кончились — разберите вручную", id="не из очереди"),
+    ],
+)
+async def test_refusal_note_tells_whether_the_queue_tries_again(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch, job: object, then: str
+) -> None:
+    """Записка об отказе модели говорит правду о повторе. Впереди повтор очереди — «задача
+    попробует ещё раз». Повторы исчерпаны, задача поставлена без них или запущена не из очереди
+    (консоль, тест: `get_current_job()` пуст) — повторять некому, ответ ждёт человека со словами
+    «повторы кончились — разберите вручную». Причина попытки — у задачи, если она есть."""
+    reply = await _sales_reply(session, "Сколько стоит аудит?")
+    await session.commit()
+    _job_body_on_test_base(
+        monkeypatch, session, FakeClassifier(Unanswered("модель не ответила: сеть", False))
+    )
+    remembered: list[tuple[str, str]] = []
+    monkeypatch.setattr(sales_jobs, "get_current_job", lambda: job)
+    monkeypatch.setattr(sales_jobs, "remember_job_error", lambda i, t: remembered.append((i, t)))
+
+    with pytest.raises(sales_jobs.ModelUnavailableError, match="модель не ответила: сеть"):
+        await sales_jobs.handle(reply.id)
+
+    await session.refresh(reply)
+    review = review_of(reply, Stage.SALES)
+    assert (review.waiting, review.reason) == (True, f"модель не ответила: сеть — {then}")
+    assert remembered == ([] if job is None else [("sales-try", "модель не ответила: сеть")])
 
 
 # --- B6: автоответ -------------------------------------------------------------------------

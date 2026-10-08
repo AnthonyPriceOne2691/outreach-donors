@@ -443,7 +443,7 @@ async def test_a7_job_raises_for_the_queue_retry_after_saving_the_note(
     _job_body_on_test_base(
         monkeypatch, session, FakeClassifier(Unanswered("модель не ответила: сеть", False))
     )
-    job = type("Job", (), {"id": "j-1"})()
+    job = type("Job", (), {"id": "j-1", "retries_left": 2})()  # повтор очереди впереди
     monkeypatch.setattr(sales_jobs, "get_current_job", lambda: job)
     monkeypatch.setattr(sales_jobs, "remember_job_error", lambda i, t: remembered.append((i, t)))
 
