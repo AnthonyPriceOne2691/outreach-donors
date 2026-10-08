@@ -46,7 +46,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from redis.exceptions import RedisError
 from sqlalchemy import ColumnElement, Exists, exists, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
@@ -58,6 +57,7 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.outreach import MessageModel, ReplyModel, ThreadModel
 from backend.features.replies.quoting import written_by_hand
+from backend.features.runs.failures import described
 from backend.features.sales import handoff_kommo
 from backend.features.sales import handoff_text as wording
 from backend.features.sales.handoff_text import Card
@@ -135,8 +135,10 @@ async def start(
 ) -> SalesHandoffModel:
     """Передать лида диалога телемаркетологу. Идемпотентно; коммитит сессию.
 
-    Очередь недоступна — не отказ: строка ждёт прохода по расписанию (`due`),
-    срок которого ставится здесь же.
+    Задача не встала — не отказ, чем бы ни отказала очередь (Redis лежит, адрес очереди
+    не разобран): строка уже закоммичена и ждёт прохода по расписанию (`due`), срок
+    которого ставится здесь же. Исключение вызывающему значило бы «передачи нет», и разбор
+    ответа оставил бы ответ ждать человека при живой передаче (ревью стыков, B5).
     """
     lead = await lead_of(session, thread_id)
     row = await _handoff_of(session, thread_id, lead.id)
@@ -147,11 +149,10 @@ async def start(
     await session.commit()
     try:
         enqueue(row.id)
-    except RedisError as exc:
-        logger.error(  # noqa: TRY400 — трассировка Redis ничего не добавит к причине
-            "продажи: задача передачи лида не поставлена — очередь недоступна; "
-            "её возьмёт проход по расписанию",
-            extra={"handoff_id": row.id, "thread_id": thread_id, "error": str(exc)},
+    except Exception as exc:  # noqa: BLE001 — строка закоммичена, её возьмёт проход повторов
+        logger.error(  # noqa: TRY400 — трассировка очереди ничего не добавит к причине
+            "продажи: задача передачи лида не поставлена — её возьмёт проход по расписанию",
+            extra={"handoff_id": row.id, "thread_id": thread_id, "error": described(exc)},
         )
     return row
 
@@ -275,11 +276,11 @@ async def process(session: AsyncSession, handoff_id: int, deps: Deps) -> dict[st
         _reopen(row, card.reply_id)
         await handoff_kommo.write(session, row, card, deps.kommo, deps.alert)
         await _telegram_step(row, card, deps)
+        meanwhile = await _answered_meanwhile(session, row, card.reply_id)
     except Exception:
         await _release_after_failure(session, handoff_id)
         raise
-    retry = row.kommo is HandoffKommo.RETRY
-    row.due_at = deps.now() + timedelta(seconds=cfg.HANDOFF_RETRY_SEC) if retry else None
+    row.due_at = _due_after(row, deps.now(), meanwhile=meanwhile)
     row.claimed_at = None
     await session.commit()
     outcome: dict[str, object] = {
@@ -290,6 +291,24 @@ async def process(session: AsyncSession, handoff_id: int, deps: Deps) -> dict[st
     }
     logger.info("продажи: передача лида", extra=outcome)
     return outcome
+
+
+async def _answered_meanwhile(
+    session: AsyncSession, row: SalesHandoffModel, seen: int | None
+) -> bool:
+    """Ответ новее того, с которым задача начала, — пришёл, пока она шла. Его задачу триггер
+    мог не поставить (очередь лежала — «два отказа разом», находка 5.3), а итог этой задачи
+    затёр бы срок прохода, и ответ ждал бы следующего ответа лида. Запись снова открыта."""
+    latest = await _latest_reply(session, row.thread_id)
+    return latest is not None and latest.id != seen and _reopen(row, latest.id)
+
+
+def _due_after(row: SalesHandoffModel, now: datetime, *, meanwhile: bool) -> datetime | None:
+    """Срок прохода после задачи: Kommo не ответил — через паузу повтора; пришёл ответ во
+    время задачи — сразу; иначе работы нет."""
+    if row.kommo is HandoffKommo.RETRY:
+        return now + timedelta(seconds=cfg.HANDOFF_RETRY_SEC)
+    return now if meanwhile else None
 
 
 async def due(session: AsyncSession, *, now: datetime, limit: int = PASS_LIMIT) -> list[int]:

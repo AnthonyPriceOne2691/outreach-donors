@@ -23,10 +23,11 @@ from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.outreach.threads import ThreadState, review_of, summarize
 from backend.features.sales import handoff
 from backend.features.sales.models import LeadStatus, SalesHandoffModel
-from backend.features.sales.replies import HANDED_OVER, Route, SalesReplies
+from backend.features.sales.replies import HANDED_OVER, Handled, Route, SalesReplies
 from backend.features.sales.reply_kind import KindFound, SalesKind
 from backend.workers import sales_jobs
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tests.test_sales_handoff_rows import Dialog, sales_dialog
 from tests.test_sales_reply_routing import FakeClassifier, _Closable
@@ -37,8 +38,8 @@ AT = datetime(2026, 10, 14, 10, 23, tzinfo=UTC)
 #: «Давайте созвонимся» — вид, который передаёт лида (текст ответа — `sales_dialog`).
 TALK = KindFound(SalesKind.WANTS_TO_TALK, 0.93, quote="Давайте созвонимся во вторник")
 
-#: Причина ответа «хочет говорить» до передачи и после неё — словами снимка.
-WAITS_FOR_CALL = "хочет говорить: передать лида на созвон; пока — человек"
+#: Причина ответа «хочет говорить» после передачи и при её отказе — словами снимка.
+NOT_HANDED = "хочет говорить: передать лида не вышло — "
 HANDED = f"хочет говорить: {HANDED_OVER}"
 
 
@@ -87,7 +88,7 @@ def _job_on_test_base(
 
 
 def _queue_down(_handoff_id: int) -> None:
-    # Не `RedisError` (её `start` гасит сам): отказ после записи строки передачи.
+    # Не `RedisError`: отказ постановки другого рода — уже после записи строки передачи.
     raise RuntimeError("задача передачи не поставлена")
 
 
@@ -147,22 +148,26 @@ async def test_handed_over_answer_no_longer_waits_for_a_human(
     assert await _state(session, dialog, reply) is ThreadState.REPLIED
 
 
-async def test_handoff_that_fails_after_its_row_keeps_the_answer_and_waits_for_the_retry_pass(
+async def test_handoff_whose_job_was_not_queued_is_still_handed_over_by_the_retry_pass(
     monkeypatch: pytest.MonkeyPatch, session: AsyncSession, caplog: pytest.LogCaptureFixture
 ) -> None:
+    """Строка передачи закоммичена, а задача не встала (отказ очереди любого рода, не только
+    `RedisError`): передачу доведёт проход повторов — как при лежащем Redis. Ответ человека
+    не ждёт: иначе человек написал бы лиду, которому через несколько минут позвонят.
+    Ревью стыков (B5): раньше такой отказ оставлял ответ ждать со словами «пока — человек»."""
     dialog = await sales_dialog(session)
     start = partial(handoff.start, enqueue=_queue_down, now=lambda: AT)
     _job_on_test_base(monkeypatch, session, TALK, start, [])
 
-    with caplog.at_level(logging.ERROR, logger="backend.features.sales.replies"):
+    with caplog.at_level(logging.ERROR, logger="backend.features.sales.handoff"):
         report = await sales_jobs.handle(dialog.reply.id)
 
     assert (report["kind"], report["route"]) == ("wants_to_talk", "handoff"), "задача не упала"
-    assert "передача лида не заведена" in caplog.text
+    assert "задача передачи лида не поставлена" in caplog.text
     reply = await _reread(session, dialog)
     assert (reply.model_parse or {})["kind"] == "wants_to_talk", "разбор ответа записан"
     review = review_of(reply, Stage.SALES)
-    assert (review.waiting, review.reason) == (True, WAITS_FOR_CALL), "ответ ждёт человека"
+    assert (review.waiting, review.reason) == (False, HANDED), "ответ человека не ждёт"
     row = await session.scalar(
         select(SalesHandoffModel).where(SalesHandoffModel.thread_id == dialog.thread.id)
     )
@@ -185,10 +190,42 @@ async def test_handoff_refused_before_its_row_leaves_the_answer_sorted_and_waiti
     assert report["route"] == "handoff", "задача не упала"
     assert "нет лида продаж" in caplog.text, "почему передачи нет — в журнале"
     reply = await _reread(session, dialog)
-    assert (reply.model_parse or {})["kind"] == "wants_to_talk"
+    snap = reply.model_parse or {}
+    assert snap["kind"] == "wants_to_talk"
+    # Ревью стыков (B5): почему передачи нет — и в снимке ответа, а не только в журнале:
+    # человеку на экране видно, что чинить, а не просто «пока — человек».
+    why = (
+        f"у диалога №{dialog.thread.id} нет лида продаж: ни ссылкой на адрес, "
+        "ни почтой на его домене"
+    )
+    assert snap["handoff_error"] == why
     review = review_of(reply, Stage.SALES)
-    assert (review.waiting, review.reason) == (True, WAITS_FOR_CALL), "ответ ждёт человека"
+    assert (review.waiting, review.reason) == (True, f"{NOT_HANDED}{why}; решает человек")
+    assert report["reason"] == review.reason
     assert await session.scalar(select(SalesHandoffModel.id)) is None
+
+
+async def test_reason_that_cannot_reach_the_snapshot_stays_in_the_log(
+    session: AsyncSession, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Передача упала вместе с базой: сессия задачи не годится и для записи причины —
+    ответ остаётся со снимком разбора, причина — в журнале, задача не падает."""
+
+    class Broken:
+        async def get(self, *_args: object, **_kwargs: object) -> None:
+            raise OperationalError("SELECT replies", {}, Exception("база недоступна"))
+
+    async def refuse(_session: AsyncSession, _thread_id: int) -> None:
+        raise OperationalError("INSERT sales_handoffs", {}, Exception("база недоступна"))
+
+    sales = SalesReplies(Broken(), FakeClassifier(TALK), hand_over=refuse)  # type: ignore[arg-type]
+    handled = Handled(5, kind="wants_to_talk", route="handoff", waits=True, handoff_thread=7)
+
+    with caplog.at_level(logging.ERROR, logger="backend.features.sales.replies"):
+        after = await sales.pass_on(handled)
+
+    assert after == handled
+    assert "в снимок ответа не записать" in caplog.text
 
 
 @pytest.mark.parametrize(

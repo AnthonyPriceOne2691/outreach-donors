@@ -164,6 +164,15 @@ class SalesBot:
         url = f"{alerts_cfg.TELEGRAM_API}/bot{cfg.TELEGRAM_BOT_TOKEN}/{method}"
         try:
             response = await self._http.post(url, json=payload, timeout=cfg.TELEGRAM_TIMEOUT_SEC)
+        except httpx.InvalidURL:
+            # Не `HTTPError`: адрес не собрать — в токене или адресе Bot API непечатный знак.
+            # Мимо отказов бота задача падала бы по кругу прохода без «не доставлено» и
+            # тревоги. Текст httpx не берём: он о позиции знака в адресе с токеном.
+            raise TelegramError(
+                "адрес Bot API не собрать — непечатный знак (табуляция, перевод строки) "
+                "в SALES_TELEGRAM_BOT_TOKEN или ALERT_TELEGRAM_API: заменить значение",
+                permanent=True,
+            ) from None
         except httpx.HTTPError as exc:
             # Только тип: в тексте исключения httpx адрес, а в адресе — токен.
             raise TelegramError(

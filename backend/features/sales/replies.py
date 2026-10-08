@@ -20,7 +20,8 @@
 
 **«Хочет говорить» — передача лида телемаркетологу** (`handoff.start`, срез 5.3) —
 только после записи ответа (`pass_on`): передача коммитит сама и ставит задачу,
-которая идёт в Kommo и Telegram. Её отказ разбор не роняет: вид уже записан.
+которая идёт в Kommo и Telegram. Её отказ разбор не роняет: вид уже записан, ответ
+ждёт человека, а почему передачи нет — словами в снимке ответа.
 
 **«Пишите другому»** заводит лида той же компании (`referral.py`) и закрывает
 диалог. Проверка адресов не настроена — лида заводит человек: вид уже назван
@@ -40,6 +41,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Protocol, assert_never
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import sales as cfg
@@ -105,6 +107,8 @@ KIND_WORDS: dict[SalesKind, str] = {
 
 #: Чем кончился путь «хочет говорить», когда передача заведена, — словами.
 HANDED_OVER = "передан телемаркетологу"
+#: И когда передачи нет — дальше в причине словами, почему (`_not_handed_over`).
+NOT_HANDED_OVER = "передать лида не вышло"
 
 #: Что дальше по пути — словами.
 ROUTE_WORDS: dict[Route, str] = {
@@ -275,12 +279,12 @@ class SalesReplies:
             return handled
         try:
             await self._hand_over(self._session, handled.handoff_thread)
-        except Exception:
+        except Exception as exc:
             logger.exception(
                 "продажи: передача лида не заведена — ответ разобран и ждёт человека",
                 extra={"reply": handled.reply_id, "thread_id": handled.handoff_thread},
             )
-            return handled
+            return await self._not_handed_over(handled, exc)
         settled = f"{KIND_WORDS[SalesKind.WANTS_TO_TALK]}: {HANDED_OVER}"
         reply = await self._session.get(ReplyModel, handled.reply_id)
         if reply is not None:
@@ -291,6 +295,37 @@ class SalesReplies:
             extra={"reply": handled.reply_id, "thread_id": handled.handoff_thread},
         )
         return replace(handled, waits=False, reason=settled)
+
+    async def _not_handed_over(self, handled: Handled, exc: Exception) -> Handled:
+        """Передачи нет: ответ ждёт человека, а почему — словами в снимке ответа, а не только
+        в журнале (ревью стыков, B5): на экране видно, что чинить — разобрать лидов-дублей,
+        завести лида. Отказ передачи (`HandoffError`) говорит сам; чужой сбой — тип и журнал.
+        Сессия после сбоя базы не годится и для этой записи — тогда причина только в журнале.
+        """
+        why = (
+            str(exc)
+            if isinstance(exc, handoff.HandoffError)
+            else f"сбой ({type(exc).__name__}), подробности — в журнале задачи"
+        )
+        words = KIND_WORDS[SalesKind.WANTS_TO_TALK]
+        reason = f"{words}: {NOT_HANDED_OVER} — {why}; решает человек"
+        try:
+            reply = await self._session.get(ReplyModel, handled.reply_id)
+            if reply is None:
+                return handled
+            reply.model_parse = {
+                **(reply.model_parse or {}),
+                "reason": reason,
+                "handoff_error": why,
+            }
+            await self._session.commit()
+        except SQLAlchemyError:
+            logger.exception(
+                "продажи: почему передачи нет — в снимок ответа не записать, причина в журнале",
+                extra={"reply": handled.reply_id},
+            )
+            return handled
+        return replace(handled, reason=reason)
 
     async def _out_of_office(self, reply: ReplyModel) -> Handled:
         """Автоответ: цепочка идёт, следующий шаг — не раньше возвращения."""
