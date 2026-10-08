@@ -9,8 +9,9 @@
  * что заголовок уведомления (`theme.ts`, `Notification`): заголовок чернилами, смысл несёт
  * подложка. После правки темы копии `INK_TITLE` в продажах убираются.
  *
- * Тема — общий код: тест помечен `it.fails` (как `xfail(strict=True)`); правка — PR «общее»
- * (ревью стыков R1, F2). Каскад jsdom не считает — проверяется стиль, который ставит тема.
+ * Правка — в теме (`theme.ts`, `Alert`) для плашки любого цвета. Каскад jsdom не считает —
+ * проверяется стиль, который ставит тема; число — замером `scripts/ui_contrast.py` (экран
+ * `letters-off`, обе темы).
  */
 
 import { Alert } from '@mantine/core';
@@ -25,10 +26,20 @@ function titleOf(container: HTMLElement): HTMLElement {
 }
 
 describe('жёлтая плашка (F2)', () => {
-  it.fails('заголовок — чернилами темы, а не янтарём на янтаре', () => {
+  it('заголовок — чернилами темы, а не янтарём на янтаре', () => {
     const { container } = renderWith(
       <Alert color="yellow" title="Отправлять нечем">
         Все домены выключены.
+      </Alert>,
+    );
+
+    expect(titleOf(container).style.color).toBe('var(--ink)');
+  });
+
+  it.each(['green', 'red', 'blue'])('у плашки цвета %s — те же чернила темы', (color) => {
+    const { container } = renderWith(
+      <Alert color={color} title="Заголовок плашки">
+        Пояснение.
       </Alert>,
     );
 

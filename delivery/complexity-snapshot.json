@@ -2237,9 +2237,9 @@
       "worst": "main:127"
     },
     "scripts/ui_screens.py": {
-      "lines": 424,
+      "lines": 439,
       "complexity": 2,
-      "worst": "open_reason:21"
+      "worst": "open_reason:25"
     },
     "scripts/ui_screens_donors.py": {
       "lines": 177,
