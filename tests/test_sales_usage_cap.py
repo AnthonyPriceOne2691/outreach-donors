@@ -129,7 +129,7 @@ async def test_the_queue_build_stops_in_words_of_the_sales_cap_and_spends_under_
 
 
 def test_the_sales_cap_counts_exactly_the_model_calls_of_sales_outside_the_agent() -> None:
-    assert usage_cap.OPERATIONS == {"sales_reply_kind", "sales_letter_rewrite"}
+    assert {"sales_reply_kind", "sales_letter_rewrite"} == usage_cap.OPERATIONS
     for operation in usage_cap.OPERATIONS:
         assert OPERATION_PROVIDERS[operation] is UsageProvider.LLM
     # Черновик, ситуацию и судью агента продаж держит потолок черновиков, а не этот.
