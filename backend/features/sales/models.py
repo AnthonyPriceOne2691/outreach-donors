@@ -1,4 +1,4 @@
-"""Лид, гипотеза, стоп-лист, база знаний, отправитель и цепочка писем продаж — свои таблицы модуля.
+"""Лид, гипотеза, стоп-лист, база знаний, отправитель, цепочка писем, передача лида — свои таблицы.
 
 **Лид — своя таблица, а не колонки `contacts`.** Имя, должность и компания —
 сущность продаж; донорская таблица адресов о них не знает. Почтовые сущности
@@ -19,6 +19,7 @@ from datetime import datetime
 from enum import StrEnum
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -309,4 +310,80 @@ class SalesChainTemplateModel(TimestampedMixin, Base):
         CheckConstraint(
             "(step = 1) = (subject IS NOT NULL)", name="ck_sales_chain_templates_subject"
         ),
+    )
+
+
+class HandoffKommo(StrEnum):
+    """Что с записью в Kommo по последнему письму диалога (срез 5.3).
+
+    Состояние Kommo и состояние Telegram — две колонки, а не одна: «Kommo
+    повторяем, телемаркетологу уже ушла ссылка на диалог» и «сделка есть,
+    сообщение не доставлено» — обычные исходы, и одно значение их не вместит.
+    """
+
+    PENDING = "pending"  # есть что записать: сделка или примечание с новым письмом
+    RETRY = "retry"  # Kommo не ответил после повторов — проход по расписанию повторит
+    UNCONFIRMED = "unconfirmed"  # запись ушла, ответ потерян, поиск не решил — смотрит человек
+    FAILED = "failed"  # Kommo отказал: ключ, права, форма ответа — повтор не поможет
+    DONE = "done"  # сделка есть, последнее письмо легло примечанием
+    OFF = "off"  # Kommo не подключён (fixture): телемаркетологу — ссылка на диалог
+
+
+class HandoffTelegram(StrEnum):
+    """Дошло ли сообщение телемаркетологу."""
+
+    PENDING = "pending"  # ещё не отправляли
+    SENT = "sent"  # Telegram принял; ссылка — в `notified_link`
+    UNDELIVERED = "undelivered"  # три попытки не прошли — тревога эксплуатации ушла
+
+
+class SalesHandoffModel(TimestampedMixin, Base):
+    """Передача лида продаж телемаркетологу: сделка в Kommo и сообщение в Telegram.
+
+    **Ключ — диалог.** Следующий ответ того же человека — не вторая передача,
+    а примечание к той же сделке; номер сделки живёт здесь.
+
+    **Что держит строку.** Диалог уходит только липовым (чистка аутрича
+    удаляет пробную переписку) — передача уходит с ним каскадом. Лида с
+    передачей удалить нельзя: номер сделки в чужой CRM терять нельзя.
+    """
+
+    __tablename__ = "sales_handoffs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    thread_id: Mapped[int] = mapped_column(
+        ForeignKey("threads.id", ondelete="CASCADE"), nullable=False
+    )
+    lead_id: Mapped[int] = mapped_column(
+        ForeignKey("sales_leads.id", ondelete="RESTRICT"), nullable=False
+    )
+    #: Номер сделки в Kommo. Пусто — сделки нет: Kommo не подключён или не ответил.
+    kommo_lead_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    kommo: Mapped[HandoffKommo] = mapped_column(
+        _enum(HandoffKommo, "sales_handoff_kommo"), nullable=False, default=HandoffKommo.PENDING
+    )
+    telegram: Mapped[HandoffTelegram] = mapped_column(
+        _enum(HandoffTelegram, "sales_handoff_telegram"),
+        nullable=False,
+        default=HandoffTelegram.PENDING,
+    )
+    #: Сколько раз задача бралась за запись в Kommo.
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    #: Последний сбой словами — Kommo, Telegram или копия в группу; без адресов и ключей.
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Ответ, который уже лёг примечанием в Kommo. Номер, а не ссылка: ответы
+    #: удаляет чистка пробных писем, а история передачи должна остаться.
+    noted_reply_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: Ссылка из последнего доставленного сообщения: другая ссылка — новое сообщение.
+    notified_link: Mapped[str | None] = mapped_column(Text, nullable=True)
+    notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Когда проходу по расписанию пора взяться за передачу. Пусто — делать нечего.
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Задача взялась за передачу: вторая ждёт. Старше срока — задача умерла.
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("thread_id", name="uq_sales_handoffs_thread"),
+        # Без индекса проверка запрета на удаление лида читала бы всю таблицу.
+        Index("idx_sales_handoffs_lead", "lead_id"),
     )

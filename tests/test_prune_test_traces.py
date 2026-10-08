@@ -746,6 +746,7 @@ REVIEWED = {
     "replies.message_id → messages SET NULL": "ответ на письмо своему ящику уходит раньше письма",
     "messages.thread_id → threads CASCADE": "письма переписки со своим ящиком уходят раньше неё",
     "replies.thread_id → threads CASCADE": "ответы переписки со своим ящиком уходят раньше неё",
+    "sales_handoffs.thread_id → threads CASCADE": "передача переписки со своим ящиком — след проверки",
     "messages.campaign_id → campaigns CASCADE": "рассылка уходит только пустой",
     "threads.campaign_id → campaigns CASCADE": "рассылка уходит только пустой",
     "messages.contact_id → contacts SET NULL": "письма своему ящику уходят раньше адреса",

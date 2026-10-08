@@ -30,9 +30,13 @@ from tests.conftest import make_donor
 ROOT = Path(__file__).resolve().parent.parent
 MIGRATION = ROOT / "backend/migrations/versions/715bbf374195_sales_hypotheses_and_leads.py"
 JOURNAL = ROOT / "backend/migrations/versions/1f7b0ee634c2_sales_leads_imported_audit_action.py"
-#: Поздние миграции, чьи таблицы ссылаются на таблицы этой: откат идёт с них, как у
-#: `alembic downgrade`, — иначе `DROP TABLE sales_hypotheses` упирается в чужой ключ.
-DEPENDENTS = (ROOT / "backend/migrations/versions/723e3ddab31f_sales_chain_templates.py",)
+#: Поздние миграции, чьи таблицы ссылаются на таблицы этой, — в порядке миграций: откат
+#: идёт с последней, как у `alembic downgrade`, — иначе `DROP TABLE` гипотез и лидов
+#: упирается в чужой ключ (цепочка писем 4.6a → гипотеза, передача лида 5.3 → лид).
+DEPENDENTS = (
+    ROOT / "backend/migrations/versions/723e3ddab31f_sales_chain_templates.py",
+    ROOT / "backend/migrations/versions/a9e76c0eb5b0_sales_handoffs.py",
+)
 TABLES = ("sales_hypotheses", "sales_leads")
 TYPES = ("sales_lead_source", "sales_lead_status")
 SHARED = "sales@shared.example"

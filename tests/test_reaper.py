@@ -90,7 +90,7 @@ async def test_watch_reports_silence_and_tells_the_feed(monkeypatch: pytest.Monk
     assert (len(seen), told) == (1, [["тревога"]])
 
 
-def test_main_runs_both_loops(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_main_runs_all_loops(monkeypatch: pytest.MonkeyPatch) -> None:
     started: list[str] = []
 
     async def every(_interval: float, _work: Any, *, name: str) -> None:
@@ -101,4 +101,8 @@ def test_main_runs_both_loops(monkeypatch: pytest.MonkeyPatch) -> None:
 
     reaper.main()
 
-    assert started == ["Разбор мёртвых прогонов", "Сторож тишины"]
+    assert started == [
+        "Разбор мёртвых прогонов",
+        "Сторож тишины",
+        "Повтор передачи лидов продаж",
+    ]

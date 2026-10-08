@@ -293,6 +293,17 @@ def _no_real_kommo(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("backend.config.sales.KOMMO_TOKEN", "")
 
 
+@pytest.fixture(autouse=True)
+def _no_real_sales_bot(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Тесты не пишут телемаркетологу и в группу продаж, даже если в `.env`
+    разработчика лежат живой бот и номера чатов: сообщение о лиде живому
+    человеку не отзывается. Тесты бота задают свой токен и подставной
+    транспорт (`tests/test_sales_telegram.py`)."""
+    monkeypatch.setattr("backend.config.sales.TELEGRAM_BOT_TOKEN", "")
+    monkeypatch.setattr("backend.config.sales.TELEGRAM_CHAT_ID", "")
+    monkeypatch.setattr("backend.config.sales.TELEGRAM_GROUP_CHAT_ID", "")
+
+
 @pytest.fixture
 def jwt_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     """Секрет подписи. Без него приложение не собирается — и это проверяется

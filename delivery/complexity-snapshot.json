@@ -527,9 +527,14 @@
       "worst": "_mapping:362"
     },
     "backend/cli/sales_commands.py": {
-      "lines": 52,
+      "lines": 55,
       "complexity": 1,
-      "worst": "add_parsers:49"
+      "worst": "add_parsers:51"
+    },
+    "backend/cli/sales_telegram.py": {
+      "lines": 69,
+      "complexity": 5,
+      "worst": "cmd_sales_telegram_chat_id:34"
     },
     "backend/cli/senders_admin.py": {
       "lines": 134,
@@ -602,9 +607,9 @@
       "worst": "_own_account:203"
     },
     "backend/config/sales.py": {
-      "lines": 126,
+      "lines": 164,
       "complexity": 6,
-      "worst": "_days:70"
+      "worst": "_days:90"
     },
     "backend/config/serp.py": {
       "lines": 56,
@@ -862,7 +867,7 @@
       "worst": "—"
     },
     "backend/features/core/models/__init__.py": {
-      "lines": 64,
+      "lines": 66,
       "complexity": 0,
       "worst": "—"
     },
@@ -1726,6 +1731,26 @@
       "complexity": 4,
       "worst": "_by_name:351"
     },
+    "backend/features/sales/handoff.py": {
+      "lines": 446,
+      "complexity": 11,
+      "worst": "_card:353"
+    },
+    "backend/features/sales/handoff_jobs.py": {
+      "lines": 151,
+      "complexity": 4,
+      "worst": "hand_off_lead:110"
+    },
+    "backend/features/sales/handoff_kommo.py": {
+      "lines": 154,
+      "complexity": 9,
+      "worst": "write:42"
+    },
+    "backend/features/sales/handoff_text.py": {
+      "lines": 108,
+      "complexity": 8,
+      "worst": "note:90"
+    },
     "backend/features/sales/hypotheses.py": {
       "lines": 68,
       "complexity": 6,
@@ -1762,9 +1787,9 @@
       "worst": "wanted_email:122"
     },
     "backend/features/sales/models.py": {
-      "lines": 313,
+      "lines": 390,
       "complexity": 2,
-      "worst": "_enum:74"
+      "worst": "_enum:75"
     },
     "backend/features/sales/ooo.py": {
       "lines": 149,
@@ -1787,9 +1812,9 @@
       "worst": "refer:66"
     },
     "backend/features/sales/replies.py": {
-      "lines": 361,
-      "complexity": 9,
-      "worst": "handle:219"
+      "lines": 393,
+      "complexity": 10,
+      "worst": "handle:217"
     },
     "backend/features/sales/reply_kind.py": {
       "lines": 273,
@@ -1810,6 +1835,11 @@
       "lines": 136,
       "complexity": 10,
       "worst": "read_entries:63"
+    },
+    "backend/features/sales/telegram.py": {
+      "lines": 240,
+      "complexity": 13,
+      "worst": "_chat_of:229"
     },
     "backend/features/sales/unsubscribe.py": {
       "lines": 55,
@@ -1972,14 +2002,14 @@
       "worst": "main:33"
     },
     "backend/workers/reaper.py": {
-      "lines": 137,
+      "lines": 153,
       "complexity": 4,
-      "worst": "_told:96"
+      "worst": "_told:103"
     },
     "backend/workers/sales_jobs.py": {
-      "lines": 102,
+      "lines": 108,
       "complexity": 4,
-      "worst": "handle:63"
+      "worst": "handle:68"
     },
     "backend/workers/send_jobs.py": {
       "lines": 42,

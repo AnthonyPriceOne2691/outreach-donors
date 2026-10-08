@@ -10,6 +10,12 @@
 (`features/runs/lifecycle`), здесь только проводка: сессия, очередь,
 интервал и то, что процесс не должен падать целиком из-за одного
 неудачного прохода.
+
+Третий цикл — повтор передачи лидов продаж (`features/sales/handoff_jobs.retry_pass`):
+передачи, которые Kommo не принял, и задачи, потерянные очередью. Своего
+контейнера ему не заводим — ему, как и сторожу, нужна сессия раз в несколько минут.
+Модуль продаж цикл импортирует сам, при первом проходе: сбой его импорта — сбой
+этого цикла (его ловит `every`), а разбор прогонов и сторож идут своим чередом.
 """
 
 from __future__ import annotations
@@ -19,6 +25,7 @@ import logging
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from backend.config import sales as sales_cfg
 from backend.config import storage
 from backend.config.startup_checks import check_storage
 from backend.features.crawl.lifecycle import recover as recover_crawls
@@ -117,19 +124,28 @@ async def watch() -> None:
         await engine.dispose()
 
 
-async def _both() -> None:
-    """Два прохода с разными интервалами в одном процессе. Падение
-    одного не должно останавливать другой — этим занимается `every`."""
+async def retry_handoffs() -> None:
+    """Проход повторов передачи лидов продаж. Импорт модуля продаж — здесь, а не при
+    загрузке процесса: упадёт он — упадёт этот цикл, а не весь разбор."""
+    from backend.features.sales.handoff_jobs import retry_pass  # noqa: PLC0415 — лениво
+
+    await retry_pass()
+
+
+async def _loops() -> None:
+    """Проходы с разными интервалами в одном процессе. Падение
+    одного не должно останавливать другие — этим занимается `every`."""
     await asyncio.gather(
         every(POLL_INTERVAL_SEC, sweep, name="Разбор мёртвых прогонов"),
         every(WATCHDOG_INTERVAL_SEC, watch, name="Сторож тишины"),
+        every(sales_cfg.HANDOFF_PASS_SEC, retry_handoffs, name="Повтор передачи лидов продаж"),
     )
 
 
 def main() -> None:
     setup_logging()
     check_storage()
-    asyncio.run(_both())
+    asyncio.run(_loops())
 
 
 if __name__ == "__main__":
