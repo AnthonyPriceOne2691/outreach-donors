@@ -55,6 +55,9 @@ OPERATION_PROVIDERS = {
     "agent_draft": UsageProvider.LLM,
     # Вид ответа лида продаж: единица — токен.
     "sales_reply_kind": UsageProvider.LLM,
+    # Переписывание письма очереди продаж: единица — токен. Своя операция, а не
+    # `letter_rewrite` доноров: её считает свой потолок продаж (`sales/usage_cap.py`).
+    "sales_letter_rewrite": UsageProvider.LLM,
     # Агент продаж: черновик ответа лиду, ситуация его письма и судья
     # черновика — каждый вызов своей операцией, единица — токен.
     "sales_draft": UsageProvider.LLM,
