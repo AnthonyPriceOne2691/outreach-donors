@@ -188,6 +188,24 @@ def test_a1_below_the_threshold_is_red(
     assert f"ВОРОТА ЗАКРЫТЫ: {closed}" in printed
 
 
+def test_a_held_good_draft_is_printed_with_its_whole_reason(model: Any, capsys: Capture) -> None:
+    """Причина задержки хорошего черновика — целиком: по обрезанной на 120 знаках не понять,
+    за что задержан черновик (так было с `good-close-ru` в живом замере)."""
+    quotes = ("Понимаем, хорошего вам дня.", "Отдел продаж")
+    held = {**ALLOW, "claims": [{"quote": quote, "kb": []} for quote in quotes]}
+    model(changed("good-close-ru", "judge", held))
+
+    ev.main([])
+
+    reasons = "; ".join(
+        f"утверждение без опоры на базу: «{quote}» — уберите его или возьмите из фактов"
+        for quote in quotes
+    )
+    assert len(reasons) > 120
+    [line] = [line for line in capsys.readouterr().out.splitlines() if "!! good-close-ru" in line]
+    assert line.endswith(f"block: {reasons}")
+
+
 def test_thresholds_are_parameters(model: Any, capsys: Capture) -> None:
     model(changed("price-words-ru", "judge", ALLOW))
 
