@@ -59,7 +59,7 @@ def queue_draft(reply_id: int, *, queue: Callable[[], Queue] | None = None) -> N
     сделанным. Есть ли агенту что писать, решает сама задача
     (`drafting.draft_answer`): ставить её дёшево, а пропуск она называет.
     """
-    put = runs_queue if queue is None else queue  # общая — именем модуля на час вызова
+    put = runs_queue if queue is None else queue  # общая — по имени модуля на момент вызова
     try:
         put().enqueue(
             DRAFT_JOB,
