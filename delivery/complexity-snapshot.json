@@ -1812,9 +1812,9 @@
       "worst": "zones_of:197"
     },
     "backend/features/sales/cleaning.py": {
-      "lines": 494,
+      "lines": 497,
       "complexity": 8,
-      "worst": "_clean_batch:377"
+      "worst": "_clean_batch:380"
     },
     "backend/features/sales/columns.py": {
       "lines": 80,
@@ -1897,9 +1897,9 @@
       "worst": "problem:76"
     },
     "backend/features/sales/mail.py": {
-      "lines": 231,
+      "lines": 242,
       "complexity": 7,
-      "worst": "check:180"
+      "worst": "check:191"
     },
     "backend/features/sales/models.py": {
       "lines": 470,
