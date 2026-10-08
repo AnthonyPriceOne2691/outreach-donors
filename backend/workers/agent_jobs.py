@@ -103,7 +103,7 @@ async def after_parse(
             "ответ №%s разобран, а черновик не поставлен — его можно попросить кнопкой в переписке",
             reply_id,
             exc_info=True,
-            extra={"reply": reply_id, "why": str(exc) or type(exc).__name__},
+            extra={"reply": reply_id, "why": str(exc)},
         )
 
 

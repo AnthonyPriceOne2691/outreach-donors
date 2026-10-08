@@ -248,14 +248,15 @@ async def _asked[T](
     except passes:
         raise
     except Exception as exc:
+        why = str(exc) or type(exc).__name__
         logger.warning(
             "мост продаж: %s — ошибка модуля продаж: %s",
             what,
             exc,
             exc_info=True,
-            extra={"why": str(exc) or type(exc).__name__},
+            extra={"why": why},
         )
-        raise SalesNotConnectedError(what, str(exc) or type(exc).__name__) from exc
+        raise SalesNotConnectedError(what, why) from exc
 
 
 async def recipient(
