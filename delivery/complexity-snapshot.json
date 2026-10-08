@@ -1732,9 +1732,14 @@
       "worst": "_of_kind:114"
     },
     "backend/features/sales/agent/judge.py": {
-      "lines": 266,
+      "lines": 276,
       "complexity": 7,
-      "worst": "_ids:123"
+      "worst": "_ids:127"
+    },
+    "backend/features/sales/agent/judge_cta.py": {
+      "lines": 103,
+      "complexity": 9,
+      "worst": "bare:75"
     },
     "backend/features/sales/agent/judge_rules.py": {
       "lines": 182,
