@@ -149,7 +149,7 @@ export function SenderCard({ group, busy, onSwitch }: Props) {
               </Badge>
             )}
             <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
-              {group.boxes.length} ящ. · {group.sentToday} из {group.allowance} сегодня
+              {group.boxes.length} ящ. · {group.sentToday} из {group.allowance} первых писем сегодня
             </Text>
           </Group>
 
@@ -171,7 +171,7 @@ export function SenderCard({ group, busy, onSwitch }: Props) {
             <Meter
               spent={group.sentToday}
               cap={group.allowance}
-              label={`Отправлено сегодня ${group.sentToday} из ${group.allowance}`}
+              label={`Первых писем сегодня: ${group.sentToday} из ${group.allowance}`}
             />
           </Box>
 
@@ -188,7 +188,7 @@ export function SenderCard({ group, busy, onSwitch }: Props) {
               </Text>
               <Group gap="xs" wrap="wrap">
                 <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
-                  {box.sent_today} / {box.warmup_allowance} писем сегодня
+                  {box.sent_today} / {box.warmup_allowance} первых писем сегодня
                 </Text>
                 {!box.warmup_finished && (
                   <Badge variant="light" color="lagoon" size="sm">

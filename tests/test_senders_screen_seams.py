@@ -3,8 +3,9 @@
 Кап ящика и разгон считают только первые письма (`outreach/repository.sent_today(first_only=True)`,
 решение 21.09.2026: у добивок свой часовой потолок), и лимиты домена и направления на том же
 экране — тоже. Карточка ящика считала все письма: ящик с выбранным капом и добивками
-показывал «25 из 20», а ящик, которому ещё можно писать, — «20 из 20». Экран — общий код
-(`api/senders/routes.py`): `xfail(strict=True)` с правкой для PR «общее».
+показывал «25 из 20», а ящик, которому ещё можно писать, — «20 из 20». Правка — PR «общее»
+(экран доменов и ящиков): карточка в списке и в ответах «включить» и «выключить» считает
+первые письма.
 """
 
 from __future__ import annotations
@@ -42,14 +43,6 @@ async def _followup_sent_today(session: AsyncSession, box: SenderModel) -> None:
     await session.commit()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "общий код api/senders/routes.py: карточка ящика (`SenderCard.sent_today`) считает все "
-        "письма, а кап, разгон и лимиты домена — только первые; правка — PR «общее» (ревью "
-        "стыков R1, A7)"
-    ),
-)
 async def test_the_box_card_counts_what_its_cap_counts(
     client: AsyncClient, session: AsyncSession, admin_token: str
 ) -> None:
@@ -61,6 +54,22 @@ async def test_the_box_card_counts_what_its_cap_counts(
 
     [card] = response.json()["senders"]
     assert (card["sent_today"], card["warmup_allowance"]) == (2, 20)
+
+
+@pytest.mark.parametrize("action", ["enable", "disable"])
+async def test_the_switched_box_card_counts_what_its_cap_counts(
+    client: AsyncClient, session: AsyncSession, admin_token: str, action: str
+) -> None:
+    """Карточка из ответа «включить» и «выключить» — тот же счёт, что в списке."""
+    box = await make_sender(session, "b@mail-seams.example.test")
+    await _sent_letters(session, box, count=3)
+    await _followup_sent_today(session, box)
+
+    response = await client.post(
+        f"/api/senders/{box.id}/{action}", json={"reason": "проверка"}, headers=bearer(admin_token)
+    )
+
+    assert response.json()["sent_today"] == 3
 
 
 @pytest.fixture
