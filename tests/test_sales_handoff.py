@@ -36,7 +36,9 @@ from backend.features.sales.models import (
     SalesLeadModel,
 )
 from backend.features.sales.telegram import SalesBot
+from backend.shared.queue import QUEUE_NAME, SALES_QUEUE_NAME
 from redis.exceptions import ConnectionError as RedisConnectionError
+from rq import Queue
 from sqlalchemy import select, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -813,20 +815,30 @@ async def test_search_after_lost_answer_that_fails_is_left_to_a_human(
     assert "поиск после записи не ответил" in row.last_error
 
 
-async def test_handoff_job_goes_to_the_common_queue_with_retries(
+async def test_handoff_job_goes_to_the_sales_queue_with_retries(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Передача — в очередь продаж (`worker-sales`), а не в общую: общий воркер держит прогон
+    доноров до часа, а лид, который хочет говорить, ждать за ним не должен. Очередь —
+    настоящая `rq.Queue` из `shared/queue.py`, Redis не трогается: перехвачена только постановка."""
     calls: list[tuple[object, ...]] = []
+    made = handoff.sales_queue
 
-    class Queue:
-        def enqueue(self, job: str, *args: object, **kwargs: object) -> None:
-            calls.append((job, *args, sorted(kwargs)))
+    def sales_queue() -> Queue:
+        found = made()
 
-    monkeypatch.setattr(handoff, "runs_queue", Queue)
+        def enqueue(job: str, *args: object, **kwargs: object) -> None:
+            calls.append((found.name, job, *args, sorted(kwargs)))
+
+        monkeypatch.setattr(found, "enqueue", enqueue)
+        return found
+
+    monkeypatch.setattr(handoff, "sales_queue", sales_queue)
 
     handoff.enqueue_handoff(4127)
 
-    assert calls == [(handoff.HANDOFF_JOB, 4127, ["result_ttl", "retry"])]
+    assert calls == [(SALES_QUEUE_NAME, handoff.HANDOFF_JOB, 4127, ["result_ttl", "retry"])]
+    assert SALES_QUEUE_NAME != QUEUE_NAME
     assert handoff.HANDOFF_JOB == "backend.features.sales.handoff_jobs.hand_off_lead"
 
 

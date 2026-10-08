@@ -14,6 +14,8 @@
 Третий цикл — повтор передачи лидов продаж (`features/sales/handoff_jobs.retry_pass`):
 передачи, которые Kommo не принял, и задачи, потерянные очередью. Своего
 контейнера ему не заводим — ему, как и сторожу, нужна сессия раз в несколько минут.
+Модуль продаж цикл импортирует сам, при первом проходе: сбой его импорта — сбой
+этого цикла (его ловит `every`), а разбор прогонов и сторож идут своим чередом.
 """
 
 from __future__ import annotations
@@ -31,7 +33,6 @@ from backend.features.ops.alarm_feed import Feed
 from backend.features.ops.silence import report as silence_report
 from backend.features.runs.lifecycle import Recovery, recover
 from backend.features.runs.repository import RunRepository
-from backend.features.sales.handoff_jobs import retry_pass as retry_handoffs
 from backend.shared.logs import setup_logging
 from backend.shared.queue import RUN_JOB, enqueue_crawl, job_alive, job_failure, runs_queue
 from backend.workers.ticker import every
@@ -121,6 +122,14 @@ async def watch() -> None:
             await FEED.tell(await silence_report(session))
     finally:
         await engine.dispose()
+
+
+async def retry_handoffs() -> None:
+    """Проход повторов передачи лидов продаж. Импорт модуля продаж — здесь, а не при
+    загрузке процесса: упадёт он — упадёт этот цикл, а не весь разбор."""
+    from backend.features.sales.handoff_jobs import retry_pass  # noqa: PLC0415 — лениво
+
+    await retry_pass()
 
 
 async def _loops() -> None:

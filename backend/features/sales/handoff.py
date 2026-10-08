@@ -72,7 +72,7 @@ from backend.features.sales.models import (
 )
 from backend.features.sales.telegram import SalesBot, TelegramError
 from backend.shared.alerts import send_alert
-from backend.shared.queue import runs_queue, with_retries
+from backend.shared.queue import sales_queue, with_retries
 
 logger = logging.getLogger(__name__)
 
@@ -117,8 +117,12 @@ class Deps:
 
 
 def enqueue_handoff(handoff_id: int) -> None:
-    """Поставить задачу передачи в общую очередь; сеть и база — повтор очереди."""
-    runs_queue().enqueue(HANDOFF_JOB, handoff_id, **with_retries())
+    """Поставить задачу передачи в очередь продаж (`worker-sales`); сеть и база — повтор очереди.
+
+    Не в общую: общий воркер держит прогон доноров до часа, а лид, который хочет говорить, —
+    самое срочное у продаж; и сеть Kommo и Telegram — не в процессе доноров.
+    """
+    sales_queue().enqueue(HANDOFF_JOB, handoff_id, **with_retries())
 
 
 async def start(

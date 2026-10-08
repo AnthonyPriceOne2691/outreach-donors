@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
+import sys
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -27,6 +29,8 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tests.test_sales_handoff_rows import sales_dialog
 from tests.test_sales_telegram import PERSONAL, TOKEN, Recorder, ok
+
+ROOT = Path(__file__).resolve().parents[1]
 
 APP = "https://app.example.test"
 
@@ -406,6 +410,65 @@ async def test_pass_builds_no_provider_and_survives_redis_down_on_every_handoff(
     assert caplog.text.count("повтор передачи лида не поставлен") == 2
 
 
+async def test_reaper_handoff_loop_is_the_sales_retry_pass(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Цикл передачи в процессе разбора — это проход повторов модуля продаж, и только он."""
+    called: list[str] = []
+
+    async def retry_pass() -> None:
+        called.append("pass")
+
+    monkeypatch.setattr(handoff_jobs, "retry_pass", retry_pass)
+
+    await reaper.retry_handoffs()
+
+    assert called == ["pass"]
+
+
+def test_reaper_does_not_load_the_sales_handoff_module_at_start() -> None:
+    """Модуль передачи (и за ним клиенты Kommo и бота) грузится первым проходом цикла, а не
+    импортом процесса разбора: сломанный импорт продаж не должен мешать процессу подняться."""
+    code = (
+        "import sys, backend.workers.reaper; "
+        "print('backend.features.sales.handoff_jobs' in sys.modules)"
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True, cwd=ROOT
+    )
+    assert done.stdout.strip() == "False", done.stderr
+
+
+async def test_broken_sales_module_import_does_not_stop_the_other_reaper_loops(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Импорт модуля продаж падает на каждом круге — разбор прогонов и сторож тишины идут
+    своим чередом: сбой импорта — сбой одного цикла, его ловит `every`."""
+    calls = {"sweep": 0, "watch": 0}
+
+    def counting(name: str) -> Callable[[], Awaitable[None]]:
+        async def work() -> None:
+            calls[name] += 1
+
+        return work
+
+    monkeypatch.setitem(sys.modules, "backend.features.sales.handoff_jobs", None)
+    with pytest.raises(ImportError):
+        await reaper.retry_handoffs()
+    monkeypatch.setattr(ticker, "BEATS_DIR", tmp_path)
+    monkeypatch.setattr(reaper, "sweep", counting("sweep"))
+    monkeypatch.setattr(reaper, "watch", counting("watch"))
+    monkeypatch.setattr(reaper, "POLL_INTERVAL_SEC", 0.01)
+    monkeypatch.setattr(reaper, "WATCHDOG_INTERVAL_SEC", 0.01)
+    monkeypatch.setattr(cfg, "HANDOFF_PASS_SEC", 0.01)
+
+    loops = asyncio.create_task(reaper._loops())
+    await _until(lambda: min(calls.values()) >= 2 or loops.done())
+
+    assert not loops.done(), "сбой импорта модуля продаж вышел из циклов разбора"
+    loops.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await loops
+
+
 async def test_reaper_stays_healthy_after_such_a_pass(
     session: AsyncSession,
     wired: Recorder,
@@ -414,7 +477,6 @@ async def test_reaper_stays_healthy_after_such_a_pass(
 ) -> None:
     """Kommo и Telegram недоступны, Redis не отвечает — отметка цикла передачи без
     неудач, у процесса разбора проблем нет: недоступный провайдер — повтор позже."""
-    assert reaper.retry_handoffs is handoff_jobs.retry_pass
     await _due_handoffs(session, 2)
     called = _forbid_providers(monkeypatch)
     tried: list[int] = []
