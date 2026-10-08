@@ -339,7 +339,7 @@ async def test_an_alarm_told_before_a_restart_is_not_told_again(
     await alarm_feed.Feed().tell([QUIET])  # процесс перезапущен, тревога держится
 
     assert telegram == ["тревога: Ящик x молчит. ждут его"]
-    assert told_redis.hashes == {alarm_feed.TOLD_KEY: {QUIET.code: QUIET.title}}
+    assert told_redis.hashes == {alarm_feed.told_key(): {QUIET.code: QUIET.title}}
 
 
 async def test_without_redis_the_feed_remembers_its_own_process(
@@ -383,7 +383,7 @@ async def test_what_the_previous_process_said_is_read_once_redis_answers(
     """Новый процесс: Redis не ответил на чтение в начале прохода — сказанное прежним
     читается следующим проходом и до того не затирается записью своего."""
     old = Alarm(code="quiet-box:y", title="Ящик y молчит", detail="ждут и его")
-    told_redis.hashes[alarm_feed.TOLD_KEY] = {old.code: old.title}
+    told_redis.hashes[alarm_feed.told_key()] = {old.code: old.title}
     told_redis.fails = 1
     feed = alarm_feed.Feed()
 
@@ -391,7 +391,7 @@ async def test_what_the_previous_process_said_is_read_once_redis_answers(
         await feed.tell([QUIET])
 
     assert telegram == ["тревога: Ящик x молчит. ждут его", "прошло: Ящик y молчит"]
-    assert told_redis.hashes == {alarm_feed.TOLD_KEY: {QUIET.code: QUIET.title}}
+    assert told_redis.hashes == {alarm_feed.told_key(): {QUIET.code: QUIET.title}}
 
 
 async def test_a_flapping_alarm_is_told_once_and_its_end_once_it_holds(

@@ -16,6 +16,10 @@
 процесса сторожа, получает своё «прошло», а действующая не приходит второй раз. Redis не
 ответил — строка журнала и память процесса, как до хранилища: прочитать сказанное прежним
 процессом лента попробует следующим проходом, записать своё — тоже.
+
+**Сказанное — по каналу.** Строка журнала — не сообщение в Telegram: у журнала и у каждого чата
+свой хэш (`told_key`). Владелец задал бота или сменил чат и перезапустил процесс — новый канал
+пуст, и действующие тревоги приходят туда один раз: включение бота — сводка «что сломано сейчас».
 """
 
 from __future__ import annotations
@@ -38,8 +42,12 @@ logger = logging.getLogger(__name__)
 #: в десять минут (`workers/reaper.WATCHDOG_INTERVAL_SEC`): «прошло» — после 10–20 минут тишины.
 QUIET_PASSES = 2
 
-#: Где сказанное ждёт следующий процесс сторожа: хэш «код тревоги → заголовок».
+#: Где сказанное ждёт следующий процесс сторожа: хэш «код тревоги → заголовок» на канал —
+#: `outreach:watch:told:<чат Telegram>`, пока бот не задан — `…:journal` (`told_key`).
 TOLD_KEY = "outreach:watch:told"
+
+#: Канал, пока бот не задан: слово ленты — громкая строка журнала (`shared/alerts.py`).
+JOURNAL = "journal"
 
 #: Сколько ждать Redis. Сторож живёт в одном процессе с разбором прогонов, клиент Redis
 #: синхронный: зависший Redis не должен держать и их.
@@ -54,6 +62,13 @@ def connection() -> Redis:
         socket_connect_timeout=REDIS_TIMEOUT_SEC,
         socket_timeout=REDIS_TIMEOUT_SEC,
     )
+
+
+def told_key() -> str:
+    """Хэш сказанного для канала этого процесса: чат Telegram — или журнал, пока бот не задан.
+    Канал — из настроек процесса: смена бота или чата идёт перезапуском, и новый канал начинает
+    с пустого хэша."""
+    return f"{TOLD_KEY}:{alerts_cfg.TELEGRAM_CHAT_ID if _bot_set() else JOURNAL}"
 
 
 @dataclass
@@ -112,7 +127,7 @@ def _stored() -> dict[str, str] | None:
     """Сказанное из Redis. `None` — Redis не ответил (строка журнала)."""
     try:
         with connection() as redis:
-            raw = redis.hgetall(TOLD_KEY)
+            raw = redis.hgetall(told_key())
     except RedisError as exc:
         logger.warning(
             "лента тревог: сказанное из Redis не прочитано (%s) — помню только этот процесс, "
@@ -127,10 +142,11 @@ def _stored() -> dict[str, str] | None:
 def _stored_as(told: dict[str, str]) -> bool:
     """Записать сказанное целиком (одной транзакцией Redis). `False` — не записалось."""
     try:
+        key = told_key()
         with connection() as redis, redis.pipeline() as pipe:
-            pipe.delete(TOLD_KEY)
+            pipe.delete(key)
             if told:
-                pipe.hset(TOLD_KEY, mapping=told)
+                pipe.hset(key, mapping=told)
             pipe.execute()
     except RedisError as exc:
         logger.warning(
@@ -147,4 +163,8 @@ def _text(raw: object) -> str:
 async def _said(text: str) -> bool:
     """Ушло ли слово: в Telegram — или громкой строкой журнала, если бот не настроен."""
     sent = await send_alert(text)
-    return sent or not (alerts_cfg.TELEGRAM_BOT_TOKEN and alerts_cfg.TELEGRAM_CHAT_ID)
+    return sent or not _bot_set()
+
+
+def _bot_set() -> bool:
+    return bool(alerts_cfg.TELEGRAM_BOT_TOKEN and alerts_cfg.TELEGRAM_CHAT_ID)

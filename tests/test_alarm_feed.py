@@ -1,0 +1,71 @@
+"""Лента тревог сторожа (`ops/alarm_feed.py`): сказанное — по каналу (ревью #234).
+
+Сказанное строкой журнала — не сказанное в Telegram. Бот задан позже или сменён чат, процесс
+сторожа перезапущен — у нового канала свой пустой хэш сказанного, и действующая тревога приходит
+туда один раз, а не молчит, пока не кончится и не вернётся.
+"""
+
+from __future__ import annotations
+
+import pytest
+from backend.config import alerts as alerts_cfg
+from backend.features.ops import alarm_feed
+from tests.test_mail_watch_seams import QUIET, FakeRedis
+
+TOLD = "тревога: Ящик x молчит. ждут его"
+
+
+@pytest.fixture
+def told_redis(monkeypatch: pytest.MonkeyPatch) -> FakeRedis:
+    """Redis сказанного — подделкой (вместо щита `tests/conftest.py`)."""
+    redis = FakeRedis()
+    monkeypatch.setattr(alarm_feed, "connection", lambda: redis)
+    return redis
+
+
+@pytest.fixture
+def channels(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
+    """Куда ушли слова ленты: («журнал» или чат Telegram, текст). Как настоящий `send_alert`:
+    бот не задан — строка журнала и `False`; задан — Telegram принял."""
+    said: list[tuple[str, str]] = []
+
+    async def send(text: str) -> bool:
+        if alerts_cfg.TELEGRAM_BOT_TOKEN and alerts_cfg.TELEGRAM_CHAT_ID:
+            said.append((alerts_cfg.TELEGRAM_CHAT_ID, text))
+            return True
+        said.append(("журнал", text))
+        return False
+
+    monkeypatch.setattr(alarm_feed, "send_alert", send)
+    return said
+
+
+def _bot(monkeypatch: pytest.MonkeyPatch, chat: str) -> None:
+    """Владелец задал бота (или сменил чат); процесс сторожа перезапускается после этого."""
+    monkeypatch.setattr(alerts_cfg, "TELEGRAM_BOT_TOKEN", "made-up-token")
+    monkeypatch.setattr(alerts_cfg, "TELEGRAM_CHAT_ID", chat)
+
+
+async def test_a_bot_set_up_later_gets_the_active_alarm_once(
+    channels: list[tuple[str, str]], told_redis: FakeRedis, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await alarm_feed.Feed().tell([QUIET])  # бот не задан — строка журнала
+    _bot(monkeypatch, "made-up-chat-1")
+
+    for _ in range(2):  # перезапуск с ботом, затем ещё один
+        await alarm_feed.Feed().tell([QUIET])
+
+    assert channels == [("журнал", TOLD), ("made-up-chat-1", TOLD)]
+
+
+async def test_a_new_chat_gets_the_active_alarm_once(
+    channels: list[tuple[str, str]], told_redis: FakeRedis, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _bot(monkeypatch, "made-up-chat-1")
+    await alarm_feed.Feed().tell([QUIET])
+    _bot(monkeypatch, "made-up-chat-2")
+
+    for _ in range(2):  # перезапуск с новым чатом, затем ещё один
+        await alarm_feed.Feed().tell([QUIET])
+
+    assert channels == [("made-up-chat-1", TOLD), ("made-up-chat-2", TOLD)]
