@@ -1,8 +1,10 @@
-"""Лента тревог сторожа (`ops/alarm_feed.py`): сказанное — по каналу (ревью #234).
+"""Лента тревог сторожа (`ops/alarm_feed.py`): сказанное — по каналу, чужое и зависшее в Redis
+(ревью #234).
 
-Сказанное строкой журнала — не сказанное в Telegram. Бот задан позже или сменён чат, процесс
-сторожа перезапущен — у нового канала свой пустой хэш сказанного, и действующая тревога приходит
-туда один раз, а не молчит, пока не кончится и не вернётся.
+- Сказанное строкой журнала — не сказанное в Telegram. Бот задан позже или сменён чат, процесс
+  сторожа перезапущен — у нового канала свой пустой хэш сказанного, и действующая тревога
+  приходит туда один раз, а не молчит, пока не кончится и не вернётся.
+- Значение в хэше не UTF-8 (чужая запись) — проход сторожа не падает.
 """
 
 from __future__ import annotations
@@ -69,3 +71,17 @@ async def test_a_new_chat_gets_the_active_alarm_once(
         await alarm_feed.Feed().tell([QUIET])
 
     assert channels == [("made-up-chat-1", TOLD), ("made-up-chat-2", TOLD)]
+
+
+async def test_a_foreign_value_in_the_hash_does_not_stop_the_watch(
+    channels: list[tuple[str, str]], told_redis: FakeRedis
+) -> None:
+    """Заголовок в хэше не UTF-8 — знаки с заменой, а не `UnicodeDecodeError` (это не
+    `RedisError`, и он ронял бы каждый проход сторожа вместе с тревогами доноров)."""
+    told_redis.hashes[alarm_feed.told_key()] = {QUIET.code: b"\xd0B\xff"}
+    feed = alarm_feed.Feed()
+
+    for _ in range(alarm_feed.QUIET_PASSES):
+        await feed.tell([])
+
+    assert channels == [("журнал", "прошло: \ufffdB\ufffd")]

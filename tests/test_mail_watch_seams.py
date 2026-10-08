@@ -227,11 +227,11 @@ async def admin_token(
 
 class FakeRedis:
     """Redis сказанного: хэши в памяти теста — переживают «перезапуск» (новый `Feed()`);
-    `down` — Redis не отвечает ни на чтение, ни на запись; `fails` — не ответит на столько
-    ближайших обращений."""
+    значение байтами отдаётся как есть; `down` — Redis не отвечает ни на чтение, ни на запись;
+    `fails` — не ответит на столько ближайших обращений."""
 
     def __init__(self) -> None:
-        self.hashes: dict[str, dict[str, str]] = {}
+        self.hashes: dict[str, dict[str, str | bytes]] = {}
         self.down = False
         self.fails = 0
 
@@ -243,7 +243,7 @@ class FakeRedis:
 
     def hgetall(self, key: str) -> dict[bytes, bytes]:
         self.answer()
-        return {code.encode(): title.encode() for code, title in self.hashes.get(key, {}).items()}
+        return {_raw(code): _raw(title) for code, title in self.hashes.get(key, {}).items()}
 
     def pipeline(self) -> FakePipeline:
         return FakePipeline(self)
@@ -277,6 +277,10 @@ class FakePipeline:
         self.redis.answer()
         for command in self.commands:
             command()
+
+
+def _raw(value: str | bytes) -> bytes:
+    return value if isinstance(value, bytes) else value.encode()
 
 
 #: Настоящая `connection` ленты: щит `tests/conftest.py` подменяет её на время каждого теста,

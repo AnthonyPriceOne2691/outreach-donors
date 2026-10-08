@@ -157,7 +157,9 @@ def _stored_as(told: dict[str, str]) -> bool:
 
 
 def _text(raw: object) -> str:
-    return raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
+    """Строка из ответа Redis. Чужое значение не UTF-8 — со знаками замены: `UnicodeDecodeError`
+    не `RedisError` и ронял бы каждый проход сторожа."""
+    return raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else str(raw)
 
 
 async def _said(text: str) -> bool:
