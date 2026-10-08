@@ -1902,9 +1902,9 @@
       "worst": "problem:81"
     },
     "backend/features/sales/mail.py": {
-      "lines": 267,
-      "complexity": 9,
-      "worst": "check:197"
+      "lines": 281,
+      "complexity": 8,
+      "worst": "check:203"
     },
     "backend/features/sales/models.py": {
       "lines": 470,
@@ -1942,9 +1942,9 @@
       "worst": "refer:80"
     },
     "backend/features/sales/replies.py": {
-      "lines": 458,
+      "lines": 481,
       "complexity": 10,
-      "worst": "handle:243"
+      "worst": "handle:249"
     },
     "backend/features/sales/reply_kind.py": {
       "lines": 273,
