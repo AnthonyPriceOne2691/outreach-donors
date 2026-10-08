@@ -87,7 +87,11 @@ async def _personal(row: SalesHandoffModel, link: str, words: str, deps: Deps) -
         await deps.bot.send(cfg.TELEGRAM_CHAT_ID, words)
     except TelegramError as exc:
         row.telegram = HandoffTelegram.UNDELIVERED
-        await _not_delivered(row, exc, deps, PERSONAL, prefix="Telegram", told=told)
+        then = await _not_delivered(row, exc, deps, PERSONAL, prefix="Telegram", told=told)
+        logger.warning(
+            "продажи: сообщение телемаркетологу не доставлено",
+            extra={"handoff_id": row.id, "error": str(exc), "then": then},
+        )
         return False
     row.telegram, row.notified_link, row.notified_at = HandoffTelegram.SENT, link, deps.now()
     _settled(row)
@@ -111,7 +115,13 @@ async def _group_copy(row: SalesHandoffModel, words: str, deps: Deps) -> None:
     try:
         await deps.bot.send(cfg.TELEGRAM_GROUP_CHAT_ID, words)
     except TelegramError as exc:
-        await _not_delivered(row, exc, deps, GROUP, prefix="Telegram, копия в группу", told=False)
+        then = await _not_delivered(
+            row, exc, deps, GROUP, prefix="Telegram, копия в группу", told=False
+        )
+        logger.warning(
+            "продажи: копия в группу не доставлена",
+            extra={"handoff_id": row.id, "error": str(exc), "then": then},
+        )
         return
     _settled(row)
 
@@ -124,18 +134,16 @@ async def _not_delivered(
     *,
     prefix: str,
     told: bool,
-) -> None:
+) -> str:
     """Не ушло. Временный отказ — повтор проходом, а после последней попытки — тревога;
     постоянный — тревога сразу и без повтора. `told` — итог об этом сообщении уже сказан:
-    молча и без новой серии повторов."""
-    said = {"handoff_id": row.id, "what": what, "error": str(exc)}
+    молча и без новой серии повторов. Возвращает, что решено, — для строки журнала."""
     if exc.permanent or told:
         _settled(row)
         row.last_error = f"{prefix}: {exc}"
-        logger.warning("продажи: сообщение о лиде не доставлено — без повтора", extra=said)
         if not told:
             await deps.alert(f"{headline(row)}: {what} — {exc}")
-        return
+        return "без повтора"
     row.telegram_tries += 1
     tries = row.telegram_tries
     if tries < MESSAGE_TRIES:
@@ -145,21 +153,14 @@ async def _not_delivered(
             f"{prefix}: {exc}; повтор не раньше {due:%d.%m %H:%M} UTC "
             f"(попытка {tries} из {MESSAGE_TRIES})"
         )
-        logger.warning(
-            "продажи: сообщение о лиде не доставлено — повторим по расписанию",
-            extra={**said, "tries": tries, "due_at": due.isoformat()},
-        )
-        return
+        return f"повтор не раньше {due.isoformat()}, попытка {tries} из {MESSAGE_TRIES}"
     _settled(row)
     row.last_error = f"{prefix}: {exc}; попыток — {tries}, повторов больше нет"
-    logger.warning(
-        "продажи: сообщение о лиде не доставлено — попытки кончились",
-        extra={**said, "tries": tries},
-    )
     await deps.alert(
         f"{headline(row)}: {what} за {tries} попыток — повторов больше нет, передать лида "
         f"телемаркетологу руками: {exc}"
     )
+    return f"попытки кончились ({tries})"
 
 
 def _settled(row: SalesHandoffModel) -> None:
