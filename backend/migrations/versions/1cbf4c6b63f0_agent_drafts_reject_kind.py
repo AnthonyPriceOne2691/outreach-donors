@@ -1,7 +1,7 @@
 """агент переписки: вид причины отклонения черновика
 
 Revision ID: 1cbf4c6b63f0
-Revises: a9e76c0eb5b0
+Revises: fa927869a835
 Create Date: 2026-10-07 15:30:00.000000
 
 У этапа свой список причин отклонения черновика (`AgentStage.reject_reasons`, у
@@ -19,7 +19,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "1cbf4c6b63f0"
-down_revision: Union[str, Sequence[str], None] = "a9e76c0eb5b0"
+down_revision: Union[str, Sequence[str], None] = "fa927869a835"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
