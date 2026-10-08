@@ -280,6 +280,34 @@ class FakePipeline:
             command()
 
 
+#: Настоящая `connection` ленты: щит `tests/conftest.py` подменяет её на время каждого теста,
+#: а модуль тестов собирается раньше.
+REAL_CONNECTION = alarm_feed.connection
+
+
+def test_the_feed_waits_for_redis_no_longer_than_its_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Клиент Redis ленты — с таймаутами: клиент синхронный, а сторож делит процесс с разбором
+    прогонов — зависший Redis держал бы и его (замер на зависшем Redis — 5 с и строка журнала)."""
+    asked: dict[str, object] = {}
+
+    class Recorder:
+        @staticmethod
+        def from_url(url: str, **options: object) -> str:
+            asked.update(url=url, **options)
+            return "клиент"
+
+    monkeypatch.setattr(alarm_feed, "Redis", Recorder)
+
+    assert REAL_CONNECTION() == "клиент"
+    assert asked == {
+        "url": storage.REDIS_URL,
+        "socket_connect_timeout": alarm_feed.REDIS_TIMEOUT_SEC,
+        "socket_timeout": alarm_feed.REDIS_TIMEOUT_SEC,
+    }
+
+
 @pytest.fixture
 def told_redis(monkeypatch: pytest.MonkeyPatch) -> FakeRedis:
     """Redis сказанного — подделкой (вместо щита `tests/conftest.py`)."""
@@ -330,13 +358,15 @@ async def test_without_redis_the_feed_remembers_its_own_process(
 
 
 async def test_what_was_said_while_redis_blinked_reaches_it_next_pass(
-    telegram: list[str], told_redis: FakeRedis
+    telegram: list[str], told_redis: FakeRedis, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Redis лёг на проходе с тревогой — следующий проход дописывает её в Redis, и
-    процесс после перезапуска знает о ней."""
+    """Redis лёг на проходе с тревогой — запись не удалась (строка журнала), следующий
+    проход дописывает тревогу в Redis, и процесс после перезапуска знает о ней."""
     feed = alarm_feed.Feed()
+    await feed.tell([])  # сказанное прежним процессом прочитано: пусто
     told_redis.down = True
-    await feed.tell([QUIET])
+    with caplog.at_level(logging.WARNING, logger=alarm_feed.__name__):
+        await feed.tell([QUIET])
     told_redis.down = False
     await feed.tell([QUIET])
 
@@ -345,6 +375,7 @@ async def test_what_was_said_while_redis_blinked_reaches_it_next_pass(
         await restarted.tell([])  # тревоги больше нет
 
     assert telegram == ["тревога: Ящик x молчит. ждут его", "прошло: Ящик x молчит"]
+    assert "сказанное в Redis не записано" in caplog.text
 
 
 async def test_what_the_previous_process_said_is_read_once_redis_answers(
