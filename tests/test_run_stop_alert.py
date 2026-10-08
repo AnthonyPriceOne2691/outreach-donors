@@ -193,6 +193,33 @@ async def test_refusal_before_the_run_is_told_once(
     ]
 
 
+async def test_a_refused_key_on_the_quota_stops_the_run_at_once(
+    session: AsyncSession, provider: dict[str, Any], telegram: list[str]
+) -> None:
+    """Ключ отозван: остаток отвечает 401 — прогон закрыт первой же попыткой, и человек
+    узнаёт причину. До 08.10.2026 такой прогон шёл «сбой, будет продолжен» до конца
+    продолжений, а в чат не приходило ничего."""
+
+    def revoked(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, text="invalid api key")
+
+    provider["ahrefs"] = lambda: AhrefsClient(
+        api_key="made-up-key",  # pragma: allowlist secret
+        http=httpx.AsyncClient(transport=httpx.MockTransport(revoked), base_url="https://api.test"),
+    )
+    run = await _queued_run(session)
+
+    result = await jobs._search(run.id)
+    await session.refresh(run)
+
+    assert run.status is RunStatus.STOPPED
+    assert result["refused"]
+    assert len(telegram) == 1
+    assert telegram[0].endswith(
+        "Причина: Остаток квоты недоступен: Ahrefs ответил 401: invalid api key"
+    )
+
+
 async def test_retries_are_silent_and_the_burial_is_told_once(
     session: AsyncSession, provider: dict[str, Any], telegram: list[str]
 ) -> None:
