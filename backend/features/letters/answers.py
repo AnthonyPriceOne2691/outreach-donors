@@ -22,6 +22,11 @@
 Метрик Ahrefs в ответе быть не может, как в любом нашем письме
 (`guards.assert_no_metrics`): текст пишет человек, и «у сайта DR 45» —
 ровно то, что он написал бы, отвечая на вопрос о площадке.
+
+**Ответ лиду продаж** — тот же путь, а о лиде почта спрашивает мост к модулю
+продаж (`core/stages.answer_text`) до заведения письма: продажи не подключены —
+отказ словами, чего не хватает, и ответ в очереди не остаётся; текст уходит с
+подписью и физическим адресом из настроек отправителя продаж, адрес — лида.
 """
 
 from __future__ import annotations
@@ -40,7 +45,7 @@ from backend.features.core.models.outreach import (
     ReplyModel,
     ThreadModel,
 )
-from backend.features.core.stages import mail_stage
+from backend.features.core.stages import answer_text
 from backend.features.letters import guards
 from backend.features.letters.chain import ANSWER_STEP, FIRST_STEP
 from backend.features.letters.sending import SendError, Sending, SendOutcome
@@ -108,6 +113,9 @@ async def answer_reply(
     # Ahrefs наружу не уходят ни в каком письме, и ответ — не исключение.
     guards.assert_no_metrics(text)
     found = await _context(session, thread_id=thread_id, reply_id=reply_id)
+    # До заведения письма: отказ продажам после него оставил бы ответ в очереди.
+    what = f"Ответ в переписке №{thread_id}"
+    text = await answer_text(session, found.stage, thread_id, text, what)
     sender_id = await _thread_sender(session, thread_id)
     message = await _materialize(session, found, text)
     await session.commit()
@@ -139,8 +147,6 @@ async def _context(session: AsyncSession, *, thread_id: int, reply_id: int) -> _
             f"Ответ №{reply_id} — не письмо человека ({reply.kind.value}): автоответчику, "
             "отказу доставки и отписке не отвечают"
         )
-    # До заведения письма: отказ отправки продажам оставил бы ответ в очереди.
-    mail_stage(stage, f"Ответ в переписке №{thread_id}")
     return _Context(reply=reply, thread=thread, stage=stage, host=host)
 
 
