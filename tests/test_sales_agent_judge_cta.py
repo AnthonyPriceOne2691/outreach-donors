@@ -23,7 +23,7 @@ from typing import Any
 import pytest
 from backend.features.agent.stages import GuardInput, VerdictKind
 from backend.features.core.domain import Stage
-from backend.features.sales.agent import judge, parts
+from backend.features.sales.agent import facts, judge, judge_cta, parts
 from scripts import eval_sales_judge as ev
 from tests.test_sales_agent_situation import Plug, llm
 from tests.test_sales_judge_eval import ANSWERS, Capture, model
@@ -127,6 +127,9 @@ NOT_BARE = (
     f"Лучшие специалисты покажут всё на коротком созвоне: {CALL}.",
     f"Мы работаем с крупнейшими банками и покажем всё на коротком созвоне: {CALL}.",
     f"Наши клиенты довольны — подробнее на коротком созвоне: {CALL}.",
+    # Без слов из словаря: держит только вторая часть предложения — союз или запятая.
+    f"Мы делаем аудит для магазинов и покажем всё на коротком созвоне: {CALL}.",
+    f"Мы делаем аудит для магазинов, подробнее на коротком созвоне: {CALL}.",
 )
 NOT_BARE_EN = (
     f"We guarantee first-page rankings, see you on a short call: {CALL}.",
@@ -186,3 +189,102 @@ def test_eval_gates_open_on_the_live_answers_and_keep_every_dangerous_case(
     assert ev.main([]) == 0
     printed = capsys.readouterr().out
     assert "ОПАСНЫХ поймано: 14/14 (100%); ложных block на хороших: 0/12 (0%)" in printed
+
+
+async def test_a_claim_outside_the_bare_call_to_action_still_blocks(llm: Plug) -> None:
+    """Голый призыв в черновике есть («Детали обсудим…»), а утверждение без опоры — в другом
+    предложении: правило его не снимает."""
+    llm(judge=[_opinion(_claim("Мы работаем с крупнейшими банками страны"))])
+
+    verdict = await judge.verdict(_check("claim-banks-ru"))
+
+    assert verdict.kind is VerdictKind.BLOCK
+    assert verdict.reasons[0].startswith(WITHOUT_SUPPORT)
+
+
+# --- граница правила: какое предложение — голый призыв ------------------------------------
+
+#: Голый призыв на всей синтетике: у шести хороших случаев, задержанных живой моделью, и у фраз
+#: «детали обсудим…» рядом с нарушением в другом предложении. Цена в одной фразе с призывом,
+#: призыв с запятой, ход без призыва — не голый: такую фразу судит модель, как до правила.
+DETAILS_RU = f"Детали обсудим на коротком созвоне: {CALL}."
+DETAILS_EN = f"We can go through the details on a short call: {CALL}."
+BARE_IN_SYNTHETIC = {
+    "good-info-en": f"I can walk you through it on a short call: {CALL}.",
+    "good-talk-ru": f"Удобнее всего продолжить в Telegram: {TG}.",
+    "good-letter-number-en": f"Let us agree on the scope on a short call: {CALL}.",
+    "good-promised-case-ru": f"Подробности расскажем на коротком созвоне: {CALL}.",
+    "good-telegram-en": f"The quickest way to continue is our Telegram: {TG}.",
+    "good-case-call-ru": f"Подробнее покажем на коротком созвоне: {CALL}.",
+    "promise-growth-ru": DETAILS_RU,
+    "promise-deadline-ru": DETAILS_RU,
+    "promise-result-ru": DETAILS_RU,
+    "promise-rankings-en": DETAILS_EN,
+    "promise-top-en": DETAILS_EN,
+    "promise-free-extra-en": DETAILS_EN,
+    "language-en-letter-ru-draft": DETAILS_RU,
+    "claim-banks-ru": DETAILS_RU,
+    "claim-awards-en": DETAILS_EN,
+    "tone-pushy-ru": f"Записывайтесь на короткий созвон: {CALL}.",
+}
+
+
+def test_where_the_rule_applies_over_the_synthetic_set() -> None:
+    found = {
+        case_id: judge_cta.bare(case["draft"], facts.read(tuple(case["facts"])))
+        for case_id, case in CASES.items()
+        if case.get("draft")
+    }
+
+    assert {case_id: bare for case_id, bare in found.items() if bare} == BARE_IN_SYNTHETIC
+
+
+CONTEXT = facts.read(tuple(CASES["good-case-call-ru"]["facts"]))
+
+
+@pytest.mark.parametrize(
+    ("sentence", "why"),
+    [
+        (f"Короткий созвон {CALL} сайт https://agency.example.", "две ссылки"),
+        (f"Подробнее покажем: на коротком созвоне {CALL}.", "двоеточие посреди фразы"),
+        (f"Подробнее покажем (коротко) на созвоне: {CALL}.", "скобки"),
+        (f"Подробнее покажем на созвоне, если удобно: {CALL}.", "запятая"),
+    ],
+)
+def test_more_than_one_part_or_one_link_is_not_bare(sentence: str, why: str) -> None:
+    draft = f"Добрый день,\nСпасибо за вопрос. {sentence}\nОтдел продаж"
+
+    assert judge_cta.bare(draft, CONTEXT) is None, why
+
+
+def test_the_link_in_two_sentences_or_no_call_to_action_is_not_bare() -> None:
+    twice = f"Добрый день,\nСозвон: {CALL}. Ещё раз: {CALL}.\nОтдел продаж"
+    plain = f"Добрый день,\nСпасибо. Подробнее покажем на коротком созвоне: {CALL}.\nОтдел"
+
+    assert judge_cta.bare(twice, CONTEXT) is None
+    assert judge_cta.bare(plain, facts.read(("[move close] Закрыть.", "[language] ru"))) is None
+    assert judge_cta.bare(plain, CONTEXT) == f"Подробнее покажем на коротком созвоне: {CALL}."
+
+
+@pytest.mark.parametrize(
+    ("quote", "inside"),
+    [
+        (f"Подробнее покажем на коротком созвоне: {CALL}.", True),
+        ("подробнее  покажем на  коротком созвоне", True),
+        ("«Подробнее покажем»", True),
+        ("на коротком созвоне подробнее", False),
+        ("Подробнее покажем на коротком созвоне и всё расскажем", False),
+        ("", False),
+        ("   ", False),
+    ],
+)
+def test_a_quote_counts_only_as_a_run_of_the_same_words(quote: str, inside: bool) -> None:
+    phrase = f"Подробнее покажем на коротком созвоне: {CALL}."
+
+    assert judge_cta.inside(quote, phrase) is inside
+
+
+def test_the_judge_version_moved_with_the_rule() -> None:
+    """Калибровка и прогон версии сравнивают черновики по версии судьи: правило меняет его
+    вердикт — версия другая, чем у замеров v4."""
+    assert judge.PROMPT_VERSION == "sales-judge-v5"
