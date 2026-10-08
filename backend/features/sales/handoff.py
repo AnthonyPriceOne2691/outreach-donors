@@ -276,11 +276,11 @@ async def process(session: AsyncSession, handoff_id: int, deps: Deps) -> dict[st
         _reopen(row, card.reply_id)
         await handoff_kommo.write(session, row, card, deps.kommo, deps.alert)
         await _telegram_step(row, card, deps)
+        meanwhile = await _answered_meanwhile(session, row, card.reply_id)
     except Exception:
         await _release_after_failure(session, handoff_id)
         raise
-    retry = row.kommo is HandoffKommo.RETRY
-    row.due_at = deps.now() + timedelta(seconds=cfg.HANDOFF_RETRY_SEC) if retry else None
+    row.due_at = _due_after(row, deps.now(), meanwhile=meanwhile)
     row.claimed_at = None
     await session.commit()
     outcome: dict[str, object] = {
@@ -291,6 +291,24 @@ async def process(session: AsyncSession, handoff_id: int, deps: Deps) -> dict[st
     }
     logger.info("продажи: передача лида", extra=outcome)
     return outcome
+
+
+async def _answered_meanwhile(
+    session: AsyncSession, row: SalesHandoffModel, seen: int | None
+) -> bool:
+    """Ответ новее того, с которым задача начала, — пришёл, пока она шла. Его задачу триггер
+    мог не поставить (очередь лежала — «два отказа разом», находка 5.3), а итог этой задачи
+    затёр бы срок прохода, и ответ ждал бы следующего ответа лида. Запись снова открыта."""
+    latest = await _latest_reply(session, row.thread_id)
+    return latest is not None and latest.id != seen and _reopen(row, latest.id)
+
+
+def _due_after(row: SalesHandoffModel, now: datetime, *, meanwhile: bool) -> datetime | None:
+    """Срок прохода после задачи: Kommo не ответил — через паузу повтора; пришёл ответ во
+    время задачи — сразу; иначе работы нет."""
+    if row.kommo is HandoffKommo.RETRY:
+        return now + timedelta(seconds=cfg.HANDOFF_RETRY_SEC)
+    return now if meanwhile else None
 
 
 async def due(session: AsyncSession, *, now: datetime, limit: int = PASS_LIMIT) -> list[int]:
