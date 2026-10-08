@@ -117,7 +117,7 @@
       "worst": "of:161"
     },
     "backend/api/errors.py": {
-      "lines": 229,
+      "lines": 232,
       "complexity": 3,
       "worst": "handle:200"
     },

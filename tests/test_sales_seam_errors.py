@@ -24,7 +24,6 @@ from typing import Any
 
 import pytest
 import redis
-from backend.api.errors import QUEUE_DOWN
 from backend.config import llm as llm_cfg
 from backend.config.storage import _Storage
 from backend.features.core.domain import UserRole
@@ -139,7 +138,8 @@ async def test_g1_sales_queue_build_with_the_job_queue_down_is_503_in_words(
     )
 
     assert response.status_code == 503, response.text
-    assert response.json() == {"detail": QUEUE_DOWN}  # адрес и номер ошибки redis-py — в журнал
+    # Без утверждения о задаче; адрес и номер ошибки redis-py — в журнал, не в ответ.
+    assert response.json() == {"detail": "Очередь задач недоступна — повторите позже"}
 
 
 # --- G2: Redis в тестах ------------------------------------------------------------------------

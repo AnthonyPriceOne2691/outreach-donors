@@ -11,12 +11,16 @@ from backend.features.core.models.access import UserModel
 from backend.features.ops.job_outcome import JobOutcome
 from fastapi import FastAPI
 from httpx import AsyncClient
+from redis.exceptions import ConnectionError as RedisConnectionError
 from tests.conftest import bearer
 
 MakeUser = Callable[..., Awaitable[UserModel]]
 SignIn = Callable[..., Awaitable[str]]
 
 AT = datetime(2026, 9, 24, 12, 0, tzinfo=UTC)
+#: Очередь не ответила маршруту — слова без утверждения о задаче: при сбое чтения она уже
+#: стоит, а при сбое постановки Redis мог выполнить команду, не успев ответить.
+QUEUE_DOWN = "Очередь задач недоступна — повторите позже"
 
 
 @pytest.fixture
@@ -74,3 +78,23 @@ def test_route_table_is_complete(api_app: FastAPI) -> None:
         for method in methods
     }
     assert in_app == {("GET", "/api/jobs/{job_id}")}
+
+
+async def test_job_outcome_read_with_the_queue_down_is_503_without_a_claim_about_the_job(
+    client: AsyncClient, make_user: MakeUser, sign_in: SignIn, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Экран следит за уже поставленной задачей, а Redis мигнул: ответ — 503 без «задача не
+    поставлена», иначе человек запустил бы её второй раз (у прогона — вторая трата). Сам
+    `job_outcome` такой сбой ловит и отвечает «очередь не отвечает»; здесь сбой чтения доходит
+    до API — так его видит общий обработчик у любого маршрута чтения без своей ловушки."""
+    await make_user("оператор@site.com", role=UserRole.OPERATOR)
+    token = await sign_in("оператор@site.com")
+
+    def down(_job_id: str) -> JobOutcome | None:
+        raise RedisConnectionError("Error 61 connecting to localhost:6389. Connection refused.")
+
+    monkeypatch.setattr("backend.api.jobs.routes.job_outcome", down)
+
+    response = await client.get("/api/jobs/run-42", headers=bearer(token))
+
+    assert (response.status_code, response.json()) == (503, {"detail": QUEUE_DOWN})

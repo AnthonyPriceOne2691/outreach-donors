@@ -233,9 +233,9 @@ class TestOneDonor:
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Очередь задач лежит — 503 словами, как у каждого маршрута с постановкой задачи
-        (`api/errors.py`), а не «голая» пятисотка; адрес и номер ошибки redis-py — полем
-        журнала, не в ответе."""
+        """Очередь задач лежит — 503 словами, как у каждого маршрута, которому не ответила
+        очередь (`api/errors.py`), а не «голая» пятисотка; адрес и номер ошибки redis-py —
+        полем журнала, не в ответе."""
         refused = "Error 61 connecting to localhost:6389. Connection refused."
 
         def down(*_args: object, **_kwargs: object) -> object:
@@ -248,7 +248,10 @@ class TestOneDonor:
                 f"/api/contacts/donors/{waiting.id}", headers=bearer(operator_token)
             )
 
-        assert (response.status_code, response.json()) == (503, {"detail": api_errors.QUEUE_DOWN})
+        assert (response.status_code, response.json()) == (
+            503,
+            {"detail": "Очередь задач недоступна — повторите позже"},
+        )
         [said] = [record for record in caplog.records if record.name == api_errors.__name__]
         assert vars(said)["error"] == refused
 
