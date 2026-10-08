@@ -15,8 +15,8 @@
 не знает.
 
 **Без модели — то, что вид уже решили правила приёма**: автоответ переносит
-следующий шаг (`ooo.py`), отписка закрывает адрес во всех направлениях
-(`unsubscribe.py`).
+следующий шаг (`ooo.py`), отписка закрывает адрес во всех направлениях — а если
+ответил не лид, и адрес лида (`unsubscribe.py`).
 
 **«Хочет говорить» — передача лида телемаркетологу** (`handoff.start`, срез 5.3) —
 только после записи ответа (`pass_on`): передача коммитит сама и ставит задачу,
@@ -449,7 +449,7 @@ class SalesReplies:
                 return Decision(Route.REFERRAL, referred.waits, f"{words}: {referred.words}")
             case Route.UNSUBSCRIBE:
                 closed = await close_address(self._session, reply)
-                return Decision(Route.UNSUBSCRIBE, closed.email is None, f"{words}: {closed.words}")
+                return Decision(Route.UNSUBSCRIBE, not closed.emails, f"{words}: {closed.words}")
             case Route.HANDOFF | Route.AGENT | Route.MANUAL:
                 pass
             case _:
