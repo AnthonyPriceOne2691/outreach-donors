@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -307,6 +308,22 @@ class TestProviderAnswersWithAPage:
     async def test_the_pass_keeps_the_other_alarms(self, session: AsyncSession) -> None:
         await _letter(session, status=MessageStatus.SENT, sent_at=NOW - timedelta(hours=8))
 
-        found = await silence_module.report(session, now=NOW)
+        found = await silence_module.with_providers(await alarms(session, now=NOW))
 
         assert {"provider-unreachable", "delivery-silence"} <= _codes(found)
+
+
+async def test_a_quiet_pass_says_so_in_the_journal(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Тревог нет и провайдеры отвечают — строка «тихо и правильно», а не молчание журнала."""
+
+    async def everyone_answers() -> None:
+        return None
+
+    monkeypatch.setattr(silence_module, "probe_providers", everyone_answers)
+
+    with caplog.at_level(logging.INFO, logger=silence_module.__name__):
+        assert await silence_module.with_providers([]) == []
+
+    assert "тихо и правильно" in caplog.text

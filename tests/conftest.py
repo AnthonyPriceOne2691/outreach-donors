@@ -453,3 +453,17 @@ async def make_sender(session: AsyncSession, email: str, *, cap: int = 20) -> Se
     session.add(sender)
     await session.flush()
     return sender
+
+
+@pytest.fixture(autouse=True)
+def _no_watch_memory_in_a_real_redis(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Сказанное лентой тревог сторожа (`ops/alarm_feed.py`) из теста не читается из Redis
+    из настроек и не пишется туда: Redis по умолчанию — общий, и reaper разработчика принял
+    бы тревоги теста за свои и сказал бы о них «прошло» в свой чат. Лента видит «Redis
+    недоступен» и помнит память процесса; тесты перезапуска подставляют свой Redis
+    (`tests/test_mail_watch_seams.py`)."""
+
+    def refused() -> object:
+        raise RedisError("тесты не пишут сказанное сторожем в настоящий Redis")
+
+    monkeypatch.setattr("backend.features.ops.alarm_feed.connection", refused)

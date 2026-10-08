@@ -11,6 +11,8 @@
 - **все на паузе:** у направления ни одного пишущего ящика.
 
 Модуль продаж не ответил о политике — тоже тревога, и проход идёт дальше (договор моста).
+Запрос сторожа упал в базе — тревога «сторож этапа не досчитал»: проверка этапа идёт в своей
+точке сохранения, и остальные этапы и правила сторожа тишины проверяются как обычно.
 Тревоги уходят в Telegram по смене состояния (`alarm_feed.py`).
 """
 
@@ -20,6 +22,7 @@ import logging
 from datetime import datetime, timedelta
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core import stages
@@ -41,7 +44,9 @@ QUIET_MINUTES = 15
 
 
 async def alarms(session: AsyncSession, now: datetime) -> list[Alarm]:
-    """Тревоги почты этапов со сторожем в политике."""
+    """Тревоги почты этапов со сторожем в политике. Несохранённое вызывающего сбрасывается до
+    проверок: его сбой всплывает как есть, а не тревогой «сторож этапа не досчитал»."""
+    await session.flush()
     found: list[Alarm] = []
     for stage in Stage:
         try:
@@ -52,8 +57,34 @@ async def alarms(session: AsyncSession, now: datetime) -> list[Alarm]:
             found.append(Alarm(code=f"no-policy:{stage.value}", title=title, detail=str(exc)))
             continue
         if policy.watch:
-            found += await _of_stage(session, stage, now)
+            found += await _counted(session, stage, now)
     return found
+
+
+async def _counted(session: AsyncSession, stage: Stage, now: datetime) -> list[Alarm]:
+    """Тревоги этапа — или одна, «сторож этапа не досчитал»: запрос упал в базе. Этап считается
+    в своей точке сохранения — упавший запрос не прерывает транзакцию сторожа, и остальные
+    этапы и правила идут дальше; трасса — в журнале, причина — в тревоге."""
+    try:
+        async with session.begin_nested():
+            return await _of_stage(session, stage, now)
+    except SQLAlchemyError as exc:
+        logger.warning("сторож почты «%s»: запрос упал в базе", stage.value, exc_info=True)
+        return [_not_counted(stage, exc)]
+
+
+def _not_counted(stage: Stage, exc: SQLAlchemyError) -> Alarm:
+    """Тревога «сторож этапа не досчитал» — с первой строкой ошибки базы (SQL — в журнале)."""
+    lines = str(exc).strip().splitlines()
+    reason = lines[0] if lines else type(exc).__name__
+    return Alarm(
+        code=f"watch-failed:{stage.value}",
+        title=f"Сторож почты «{stage.value}» не досчитал",
+        detail=(
+            f"Запрос сторожа упал в базе: {reason}. Остальные этапы и правила сторож проверил; "
+            "трасса — в журнале"
+        ),
+    )
 
 
 async def _of_stage(session: AsyncSession, stage: Stage, now: datetime) -> list[Alarm]:

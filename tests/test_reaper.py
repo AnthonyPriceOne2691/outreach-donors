@@ -14,6 +14,7 @@ from backend.config import storage
 from backend.features.core.domain import CrawlStatus
 from backend.features.core.models.crawl import CrawlRunModel
 from backend.features.crawl.repository import queue_crawl
+from backend.features.ops import silence
 from backend.workers import reaper
 from sqlalchemy import text
 from tests.conftest import TEST_DSN
@@ -71,23 +72,29 @@ def test_silent_queue_is_not_a_crash(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def test_watch_reports_silence_and_tells_the_feed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Тревоги базы — одной сессией, к ним — опрос провайдеров, итог — ленте тревог.
+    Что сеть идёт после закрытия сессии — `tests/test_mail_watch_seams.py`."""
     seen: list[object] = []
     told: list[object] = []
 
-    async def report(session: object) -> list[str]:
+    async def alarms(session: object) -> list[str]:
         seen.append(session)
-        return ["тревога"]
+        return ["тревога базы"]
+
+    async def with_providers(found: list[str]) -> list[str]:
+        return ["провайдер молчит", *found]
 
     async def tell(found: object) -> None:
         told.append(found)
 
-    monkeypatch.setattr(reaper, "silence_report", report)
+    monkeypatch.setattr(silence, "alarms", alarms)
+    monkeypatch.setattr(silence, "with_providers", with_providers)
     monkeypatch.setattr(reaper.FEED, "tell", tell)
 
     async with committed_sessions():
         await reaper.watch()
 
-    assert (len(seen), told) == (1, [["тревога"]])
+    assert (len(seen), told) == (1, [["провайдер молчит", "тревога базы"]])
 
 
 def test_main_runs_all_loops(monkeypatch: pytest.MonkeyPatch) -> None:

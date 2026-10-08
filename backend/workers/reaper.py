@@ -29,8 +29,8 @@ from backend.config import sales as sales_cfg
 from backend.config import storage
 from backend.config.startup_checks import check_storage
 from backend.features.crawl.lifecycle import recover as recover_crawls
+from backend.features.ops import silence
 from backend.features.ops.alarm_feed import Feed
-from backend.features.ops.silence import report as silence_report
 from backend.features.runs.lifecycle import Recovery, recover
 from backend.features.runs.repository import RunRepository
 from backend.shared.logs import setup_logging
@@ -114,14 +114,19 @@ async def watch() -> None:
     Отдельный процесс ради одного запроса к базе — это ещё один
     контейнер, который однажды не поднимется, и тогда молчать будет
     уже сам сторож.
+
+    Сессия — только на чтение тревог. Опрос провайдеров и лента тревог
+    (Telegram, Redis) идут после её закрытия: при открытой транзакции
+    соединение висело бы «idle in transaction» на время чужих ответов.
     """
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with factory() as session:
-            await FEED.tell(await silence_report(session))
+            found = await silence.alarms(session)
     finally:
         await engine.dispose()
+    await FEED.tell(await silence.with_providers(found))
 
 
 async def retry_handoffs() -> None:
