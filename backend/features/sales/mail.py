@@ -25,10 +25,12 @@
 
 **Отказ — только словами почты** (договор моста): «писать больше нельзя» (лид снят,
 передан, в стоп-листе) — `LeadStoppedError`, наследник стоп-листа: цепочка кончается;
-«письмо не то» — `NotReadyError`: письмо стоит в очереди с причиной; «пока нельзя»
-(продажи не подключены, цепочка неполна, добивка не собирается) — `SalesNotConnectedError`:
-срок добивки возвращается. Другое исключение мост считает поломкой модуля. Ответы читают
-базу и ничего не сохраняют: мост спрашивает модуль в своей точке сохранения.
+«письмо не то» — `NotReadyError`: письмо стоит в очереди с причиной, пачка идёт дальше (и
+первое письмо, чья цепочка набора неполна: письма других наборов уходят); «пока нельзя»
+(продажи не подключены, цепочка добивки неполна, добивка не собирается) —
+`SalesNotConnectedError`: пачка встаёт, срок добивки возвращается. Другое исключение мост
+считает поломкой модуля. Ответы читают базу и ничего не сохраняют: мост спрашивает модуль в
+своей точке сохранения.
 """
 
 from __future__ import annotations
@@ -98,7 +100,8 @@ async def linked(session: AsyncSession, thread_id: int | None) -> Linked | None:
 
 
 async def _ready_chain(session: AsyncSession, link: SalesThreadModel, what: str) -> chain.Chain:
-    """Цепочка набора первого письма — полная; неполная — «пока нельзя» с её словами."""
+    """Цепочка набора первого письма для добивки — полная; неполная — «пока нельзя» с её
+    словами: срок добивки возвращается."""
     found = await chain.of_set(session, link.chain_hypothesis_id, link.language)
     try:
         found.check_ready()
@@ -108,7 +111,11 @@ async def _ready_chain(session: AsyncSession, link: SalesThreadModel, what: str)
 
 
 async def recipient(session: AsyncSession, message: MessageModel, what: str) -> Recipient:
-    """Адрес лида и имя отправителя — если продажи подключены и цепочка письма полна."""
+    """Адрес лида и имя отправителя — если продажи подключены и цепочка письма полна.
+
+    Неполная цепочка — отказ этому письму, а не этапу (`NotReadyError`): цепочка своя у набора
+    письма (гипотеза и язык), и письма других наборов уходят — пачка считает это письмо и идёт
+    дальше (`letters/batch.py`), как на стоп-листе одного лида."""
     found = await connection.check(session, what)
     dialog = await linked(session, message.thread_id)
     if dialog is None:
@@ -116,7 +123,11 @@ async def recipient(session: AsyncSession, message: MessageModel, what: str) -> 
             f"{what}: у письма продаж нет лида — его собрала не сборка очереди продаж. "
             "Письмо стоит убрать из очереди"
         )
-    await _ready_chain(session, dialog.link, what)
+    link = dialog.link
+    try:
+        (await chain.of_set(session, link.chain_hypothesis_id, link.language)).check_ready()
+    except chain.ChainNotReadyError as exc:
+        raise NotReadyError(f"{what} не уходит: {exc}") from exc
     return Recipient(
         Stage.SALES, dialog.lead.email, found.values["sender_name"], zones=zones_of(dialog.lead)
     )
