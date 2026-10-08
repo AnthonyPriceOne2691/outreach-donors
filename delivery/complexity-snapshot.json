@@ -37,14 +37,14 @@
       "worst": "save_agent_settings:79"
     },
     "backend/api/agent/schemas.py": {
-      "lines": 237,
+      "lines": 239,
       "complexity": 6,
       "worst": "to_settings:58"
     },
     "backend/api/app.py": {
-      "lines": 92,
+      "lines": 96,
       "complexity": 1,
-      "worst": "create_app:45"
+      "worst": "create_app:46"
     },
     "backend/api/auth/__init__.py": {
       "lines": 1,
@@ -117,9 +117,9 @@
       "worst": "of:161"
     },
     "backend/api/errors.py": {
-      "lines": 209,
+      "lines": 232,
       "complexity": 3,
-      "worst": "handle:195"
+      "worst": "handle:200"
     },
     "backend/api/events/__init__.py": {
       "lines": 1,
@@ -692,8 +692,8 @@
       "worst": "—"
     },
     "backend/features/agent/autopilot.py": {
-      "lines": 194,
-      "complexity": 12,
+      "lines": 206,
+      "complexity": 13,
       "worst": "run:106"
     },
     "backend/features/agent/cleaning.py": {
@@ -702,7 +702,7 @@
       "worst": "clean:57"
     },
     "backend/features/agent/drafting.py": {
-      "lines": 431,
+      "lines": 433,
       "complexity": 9,
       "worst": "draft_answer:138"
     },
@@ -712,9 +712,9 @@
       "worst": "reject_draft:242"
     },
     "backend/features/agent/guarding.py": {
-      "lines": 132,
+      "lines": 193,
       "complexity": 8,
-      "worst": "compose:58"
+      "worst": "compose:60"
     },
     "backend/features/agent/settings.py": {
       "lines": 189,
@@ -727,7 +727,7 @@
       "worst": "agent_operations:255"
     },
     "backend/features/agent/writer.py": {
-      "lines": 263,
+      "lines": 265,
       "complexity": 9,
       "worst": "checked:197"
     },
@@ -947,7 +947,7 @@
       "worst": "_enum:27"
     },
     "backend/features/core/stages.py": {
-      "lines": 338,
+      "lines": 345,
       "complexity": 5,
       "worst": "check_connected:111"
     },
@@ -2102,7 +2102,7 @@
       "worst": "—"
     },
     "backend/workers/agent_jobs.py": {
-      "lines": 166,
+      "lines": 177,
       "complexity": 4,
       "worst": "queue_draft:52"
     },
@@ -2132,9 +2132,9 @@
       "worst": "_search_contacts:315"
     },
     "backend/workers/main.py": {
-      "lines": 45,
+      "lines": 49,
       "complexity": 2,
-      "worst": "main:33"
+      "worst": "main:34"
     },
     "backend/workers/reaper.py": {
       "lines": 158,

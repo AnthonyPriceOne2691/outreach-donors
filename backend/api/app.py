@@ -37,6 +37,7 @@ from backend.api.unsubscribe import routes as unsubscribe_routes
 from backend.api.users import routes as users_routes
 from backend.api.watchdog import routes as watchdog_routes
 from backend.config.startup_checks import check_access, check_storage
+from backend.features.agent.guarding import said_at_start
 from backend.shared.logs import setup_logging
 
 API_PREFIX = "/api"
@@ -50,6 +51,9 @@ def create_app() -> FastAPI:
     setup_logging()
     check_storage()
     check_access()
+    # «Написать заново» пишет черновик агента в запросе: что включено и чем ограничен
+    # расход — словами в журнал при старте.
+    said_at_start()
 
     app = FastAPI(
         title="outreach-donors",

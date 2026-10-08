@@ -43,6 +43,8 @@ SignIn = Callable[..., Awaitable[str]]
 ALLOW = {"claims": [], "promises": [], "tone": {"ok": True, "problem": ""}}
 #: Судья-модель ответила не по форме — черновик отдан человеку с текстом.
 UNCHECKED = "Всё хорошо."
+#: Причины нет или она пустая — отказ словами ядра (`drafts.reject_draft`), а не проверкой поля.
+NO_REASON = "Отклонить черновик можно только с причиной"
 LISTED = "Отклонить черновик этого этапа можно только с причиной из списка: "
 OTHER_WITHOUT_WORDS = "Причина «другое» — только со словами"
 REJECT_KIND_REVISION = "1cbf4c6b63f0_agent_drafts_reject_kind.py"
@@ -82,8 +84,8 @@ async def _undecided(session: AsyncSession, draft: AgentDraftModel, status: Draf
 @pytest.mark.parametrize(
     ("body", "words", "status"),
     [
-        ({}, None, 422),
-        ({"reason": "   "}, None, 422),
+        ({}, NO_REASON, 422),
+        ({"reason": "   "}, NO_REASON, 422),
         ({"reason": "плохо"}, LISTED, 422),
         ({"reason": "другое"}, OTHER_WITHOUT_WORDS, 422),
         ({"reason": "другое:   "}, OTHER_WITHOUT_WORDS, 422),
@@ -97,7 +99,7 @@ async def test_a3_discard_without_a_listed_reason_is_422_in_words(  # A3
     session: AsyncSession,
     llm: Plug,
     body: dict[str, str],
-    words: str | None,
+    words: str,
     status: int,
 ) -> None:
     draft = await _draft(session, llm)
@@ -106,12 +108,11 @@ async def test_a3_discard_without_a_listed_reason_is_422_in_words(  # A3
     refused = await client.post(f"/api/agent/drafts/{draft.id}/reject", json=body, headers=headers)
 
     assert refused.status_code == status, refused.text
-    if words is not None:
-        detail = refused.json()["detail"]
-        assert detail.startswith(words)
-        if words == LISTED:
-            assert all(reason in detail for reason in parts.REJECT_REASONS)
-            assert "«другое: …» своими словами" in detail
+    detail = refused.json()["detail"]
+    assert detail.startswith(words)
+    if words == LISTED:
+        assert all(reason in detail for reason in parts.REJECT_REASONS)
+        assert "«другое: …» своими словами" in detail
     await _undecided(session, draft, DraftStatus.DRAFTED)
     assert await _decisions(session) == []
 

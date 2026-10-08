@@ -14,13 +14,9 @@
   PR «общее: ответ агента продаж»; очередь и пути — `tests/test_sales_reply_draft.py`);
 - **ответ лиду из переписки** (`letters/answers.py`) идёт мостом к модулю продаж, когда
   продажи подключены: черновик агента продаж уходит как есть и с правкой (тот же PR;
-  настоящий модуль — `tests/test_sales_thread_answer.py`).
-
-Чего нет — в общем коде, и тест помечен `xfail(strict=True)`: правку делает PR «общее»,
-её точный текст — в отчёте ревью (R3):
-
-- **C5**: автопилот (`agent/autopilot.run`) не ловит `MaybeSentError` — задача падает,
-  черновик остаётся «готов», человек о нём не узнаёт.
+  настоящий модуль — `tests/test_sales_thread_answer.py`);
+- **C5**: автопилот (`agent/autopilot.run`) при «исход неизвестен» (`MaybeSentError`) отдаёт
+  черновик человеку с причиной, задача не падает, второго письма нет.
 """
 
 from __future__ import annotations
@@ -285,12 +281,6 @@ class Lost(NullTransport):
         )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=MaybeSentError,
-    reason="общий код: agent/autopilot.run не ловит MaybeSentError — задача падает, черновик "
-    "остаётся «готов» без вести человеку; правка в отчёте R3, C5",
-)
 @pytest.mark.usefixtures("allowed")
 async def test_c5_unknown_outcome_of_the_autopilot_letter_goes_to_a_human(
     session: AsyncSession, reply: ReplyModel, sent: MessageModel

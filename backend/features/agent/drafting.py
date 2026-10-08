@@ -201,7 +201,9 @@ async def announce(outcome: DraftOutcome) -> None:
         await stage.on_draft(notice)
     except Exception:
         logger.exception(
-            "агент: уведомление о черновике №%s не ушло — черновик цел", notice.draft_id
+            "агент: уведомление о черновике №%s не ушло — черновик цел",
+            notice.draft_id,
+            extra={"draft": notice.draft_id, "reply": notice.reply_id},
         )
 
 

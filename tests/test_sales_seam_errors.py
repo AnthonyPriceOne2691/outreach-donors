@@ -1,21 +1,19 @@
 """Наблюдаемость и отказы на стыках агента и продаж — ревью стыков 08.10, C1, C2, G1, G2.
 
-Все тесты здесь — пробелы общего кода, помечены `xfail(strict=True)`: правку делает PR «общее»,
-её точный текст — в отчёте ревью (R3). Правка сделана — тест проходит, `strict` красит набор,
-и пометку снимают вместе с правкой.
+Все тесты здесь — пробелы общего кода, найденные ревью; правка общего кода их закрыла, и тесты
+держат их закрытыми.
 
 - **C1, C2 — строка при старте.** Процесс, который пишет черновики агента и тратит модель,
   говорит при старте словами: включён ли агент продаж (`SALES_AGENT_ENABLED`), есть ли общий
-  дневной потолок модели (`LLM_DAILY_TOKEN_CAP`, на рабочем сервере сейчас 0 — потолка нет, и
-  у черновиков тоже), и не больше ли свой потолок черновиков (`AGENT_DAILY_TOKEN_CAP`) доли
-  общего, ради которой он заведён.
+  дневной потолок модели (`LLM_DAILY_TOKEN_CAP`, 0 — потолка нет, и у черновиков тоже), и не
+  больше ли свой потолок черновиков (`AGENT_DAILY_TOKEN_CAP`) доли общего, ради которой он
+  заведён (`agent/guarding.said_at_start`).
 - **G1 — отказ словами.** «Отклонить черновик» без причины — 422 словами, а не списком полей
   проверки на английском; сборка очереди продаж при недоступной очереди задач — 503 словами,
   а не «голая» 500.
 - **G2 — Redis в тестах.** Набор тестов не может дотянуться до Redis из настроек: по умолчанию
   это общий Redis машины, и задача, поставленная тестом без подставной очереди, ушла бы чужому
-  воркеру. Сейчас каждый тест подменяет очередь сам (аудит набора агента и продаж — чисто), но
-  общей страховки нет.
+  воркеру. Страховка — `tests/conftest.py::_no_real_redis` (закрытый порт).
 """
 
 from __future__ import annotations
@@ -72,11 +70,6 @@ def _started(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) 
 # --- C1, C2: строка при старте ---------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="общий код: старт процесса не говорит о потолках модели и черновиков — правка в "
-    "отчёте R3, C2",
-)
 @pytest.mark.parametrize(
     ("general", "own", "named"),
     [(0, None, "LLM_DAILY_TOKEN_CAP"), (GENERAL, OWN, "AGENT_DAILY_TOKEN_CAP")],
@@ -95,11 +88,6 @@ def test_c2_start_says_in_words_what_caps_the_drafts(
     assert named in _started(monkeypatch, caplog)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="общий код: старт процесса не говорит, что агент продаж включён — правка в отчёте "
-    "R3, C1",
-)
 @pytest.mark.usefixtures("sales_on")
 def test_c1_start_says_in_words_that_the_sales_agent_is_on(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
@@ -110,11 +98,6 @@ def test_c1_start_says_in_words_that_the_sales_agent_is_on(
 # --- G1: отказ словами -----------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="общий код: api/agent/schemas.RejectDraftBody отказывает без причины проверкой поля "
-    "(английский список), а не словами ядра — правка в отчёте R3, G1",
-)
 @pytest.mark.parametrize("body", [{}, {"reason": "   "}], ids=["no-reason", "blank-reason"])
 async def test_g1_reject_without_a_reason_is_422_in_words(
     client: AsyncClient, make_user: MakeUser, sign_in: SignIn, body: dict[str, str]
@@ -140,12 +123,6 @@ class _Down:
         raise RedisConnectionError("Error 61 connecting to localhost:6389. Connection refused.")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=RedisError,
-    reason="общий код: недоступная очередь задач в маршруте — «голая» 500 (api/errors.py не "
-    "знает RedisError) — правка в отчёте R3, G1",
-)
 async def test_g1_sales_queue_build_with_the_job_queue_down_is_503_in_words(
     session: AsyncSession,
     world: w.World,
@@ -161,17 +138,13 @@ async def test_g1_sales_queue_build_with_the_job_queue_down_is_503_in_words(
     )
 
     assert response.status_code == 503, response.text
-    assert "очередь" in response.json()["detail"].lower()
+    # Без утверждения о задаче; адрес и номер ошибки redis-py — в журнал, не в ответ.
+    assert response.json() == {"detail": "Очередь задач недоступна — повторите позже"}
 
 
 # --- G2: Redis в тестах ------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="общий код: tests/conftest.py не отгораживает набор от Redis из настроек (общий Redis "
-    "машины) — правка в отчёте R3, G2",
-)
 def test_g2_the_suite_cannot_reach_the_redis_of_the_settings() -> None:
     """Без сети: клиент redis-py соединяется только командой, адрес читается из пула."""
     configured = redis.Redis.from_url(_Storage().redis_url).connection_pool.connection_kwargs

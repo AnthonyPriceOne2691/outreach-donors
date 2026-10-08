@@ -178,8 +178,8 @@ def parse_form(content: str) -> Written | None:
     """
     try:
         raw = json.loads(content)
-    except ValueError:
-        logger.warning("%s: ответ модели не JSON", TOPIC)
+    except ValueError as exc:
+        logger.warning("%s: ответ модели не JSON", TOPIC, extra={"why": str(exc)})
         return None
     if not isinstance(raw, dict):
         return None
@@ -202,7 +202,9 @@ def checked(found: Written, labels: dict[str, str], *, tokens: int) -> Written:
         body = masking.restore(found.body, labels)
     except masking.UnmaskError as exc:
         # Выдуманная моделью метка: черновик — человеку, с причиной.
-        logger.warning("агент: метка в черновике не восстановлена — %s", exc)
+        logger.warning(
+            "агент: метка в черновике не восстановлена — %s", exc, extra={"why": str(exc)}
+        )
         body, needs_human = found.body, True
         reasons.append(str(exc))
     leak = guards.metrics_leak(body)

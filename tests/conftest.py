@@ -318,6 +318,15 @@ def _no_sales_notice_in_a_real_queue(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("backend.features.sales.agent.notify.sales_queue", refused)
 
 
+@pytest.fixture(autouse=True)
+def _no_real_redis(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Набор не ходит в Redis из настроек: по умолчанию это общий Redis машины, и задача из
+    теста без подставной очереди ушла бы чужому воркеру, а «есть ли воркеры» на экране
+    прогонов зависело бы от того, что на машине запущено. Закрытый порт — отказ сразу;
+    объекты очереди `rq` собираются без сети, как и были. Тесты очереди подставляют свою."""
+    monkeypatch.setattr("backend.config.storage.REDIS_URL", "redis://127.0.0.1:1/0")
+
+
 @pytest.fixture
 def jwt_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     """Секрет подписи. Без него приложение не собирается — и это проверяется

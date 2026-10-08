@@ -231,6 +231,8 @@ class RejectDraftBody(BaseModel):
     У этапа со строгим списком (`AgentStage.strict_reasons`, продажи) причина —
     пункт списка или «другое: …» словами; иначе 422 словами со списком. Проверяет
     ядро (`agent/drafts.reject_draft`): правило одно и для экрана, и для API.
+    Пустую и пропущенную причину схема поэтому пропускает: отказ — словами ядра,
+    а не списком полей проверки по-английски.
     """
 
-    reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
+    reason: Annotated[str, StringConstraints(strip_whitespace=True, max_length=2000)] = ""
