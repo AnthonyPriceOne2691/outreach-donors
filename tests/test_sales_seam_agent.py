@@ -285,12 +285,6 @@ class Lost(NullTransport):
         )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=MaybeSentError,
-    reason="общий код: agent/autopilot.run не ловит MaybeSentError — задача падает, черновик "
-    "остаётся «готов» без вести человеку; правка в отчёте R3, C5",
-)
 @pytest.mark.usefixtures("allowed")
 async def test_c5_unknown_outcome_of_the_autopilot_letter_goes_to_a_human(
     session: AsyncSession, reply: ReplyModel, sent: MessageModel

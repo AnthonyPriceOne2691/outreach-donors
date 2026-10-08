@@ -48,7 +48,7 @@ from backend.features.core.models.outreach import (
 )
 from backend.features.letters.guards import ForbiddenContentError
 from backend.features.letters.sending import SendError, Sending
-from backend.features.letters.transport import TransportError
+from backend.features.letters.transport import MaybeSentError, TransportError
 from backend.features.outreach.threads import review_of
 from backend.features.replies.money import amounts_in
 
@@ -124,6 +124,13 @@ async def run(session: AsyncSession, sending: Sending, draft_id: int) -> Autopil
             sent = await drafts.send_draft(
                 session, sending, draft_id, body=None, by=Decider(name=BY_AUTOPILOT)
             )
+        except MaybeSentError as exc:
+            # Письмо, возможно, ушло: второго не будет (ответ «отправляется», черновик
+            # устарел), исход решает человек по блоку «Исход неизвестен».
+            logger.warning(
+                "автопилот: исход письма неизвестен", extra={"draft": draft_id, "why": str(exc)}
+            )
+            why = f"исход отправки неизвестен — письмо, возможно, ушло: {exc}"
         except (SendError, ForbiddenContentError, TransportError, DraftDecisionError) as exc:
             # Отказ пути отправки — не сбой задачи: черновик уходит человеку.
             logger.warning("автопилот: черновик №%s не отправлен — %s", draft_id, exc)
