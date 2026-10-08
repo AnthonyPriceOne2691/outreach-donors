@@ -9,6 +9,8 @@ interface AnswerProps {
   answered: boolean;
   busy: boolean;
   onSend: (text: string) => void;
+  /** Ответ лиду продаж: подпись и физический адрес дописывает сервер (модуль продаж). */
+  signed?: boolean;
 }
 
 /** С какого ящика уйдёт ответ — у самого поля, а не карточкой внизу переписки.
@@ -18,6 +20,11 @@ const FROM_HINT =
   'Уйдёт сразу — с того же ящика, что вёл переписку, и веткой к этому письму: смена ' +
   'отправителя посреди разговора уводит письма в спам.';
 
+/** Ответ лиду продаж: блок настроек «Отправителя» модуль продаж дописывает в конец сам —
+ *  написанная в тексте подпись ушла бы второй. */
+const SIGNED_HINT =
+  ' Подпись и физический адрес из настроек «Отправителя» допишутся сами — в тексте их не нужно.';
+
 /**
  * Ответ собеседнику — письмом из системы, а не из своей почты: тем ящиком,
  * что начал переписку, веткой к его письму. Уходит сразу по «Отправить».
@@ -26,7 +33,7 @@ const FROM_HINT =
  * «Подтвердить» и «Не продаёт размещения» читалась третьей кнопкой формы
  * цены, а не отдельным действием.
  */
-export function AnswerBox({ answered, busy, onSend }: AnswerProps) {
+export function AnswerBox({ answered, busy, onSend, signed = false }: AnswerProps) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
   return (
@@ -40,7 +47,7 @@ export function AnswerBox({ answered, busy, onSend }: AnswerProps) {
         <Stack gap="xs">
           <Textarea
             aria-label="Текст ответа"
-            description={FROM_HINT}
+            description={signed ? FROM_HINT + SIGNED_HINT : FROM_HINT}
             autosize
             minRows={4}
             value={text}
