@@ -23,6 +23,7 @@ import { formatNumber, plural } from '../format';
 import { SenderCard as DomainCard, domainShut } from './SenderCard';
 import type { DomainGroup } from './SenderCard';
 import { notify } from '../notices';
+import { PageHead } from '../components/PageHead';
 
 const SENDERS_QUERY_KEY = ['senders'] as const;
 const STAGES = Object.keys(STAGE_TITLES) as Stage[];
@@ -112,12 +113,10 @@ export function SendersPage() {
     <Stack gap="lg">
       <Card className="glassPanel" p="xl">
         <Stack gap="sm">
-          <Title order={3}>Домены рассылки</Title>
-          <Text size="sm" c="dimmed" maw={640}>
-            Репутация живёт у домена, поэтому включают и выключают домен целиком. Выключенный не
-            получает новых писем, но начатые цепочки не рвутся: письмо, отправленное вчера, ждёт
-            ответа.
-          </Text>
+          <PageHead
+            title="Домены рассылки"
+            hint="Репутация живёт у домена, поэтому включают и выключают домен целиком. Выключенный не получает новых писем, но начатые цепочки не рвутся: письмо, отправленное вчера, ждёт ответа."
+          />
           {writing === 0 ? (
             <Alert color="yellow" title="Отправлять нечем">
               {groups.some((group) => group.enabled) ? ALL_SHUT : ALL_OFF}
