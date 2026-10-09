@@ -3,22 +3,23 @@ import {
   Badge,
   Button,
   Card,
-  NavLink,
-  Notification,
-  SegmentedControl,
-  Switch,
-  Text,
+  Checkbox,
   createTheme,
   Input,
   Modal,
+  NavLink,
+  Notification,
   NumberInput,
-  PasswordInput,
   Paper,
+  PasswordInput,
+  rem,
+  SegmentedControl,
   Select,
+  Switch,
   TagsInput,
+  Text,
   Textarea,
   TextInput,
-  rem,
 } from '@mantine/core';
 
 /**
@@ -118,6 +119,10 @@ export const theme = createTheme({
     // читается как ярлык, по-русски — как ошибка вёрстки: «НЕ СМЕНИЛ
     // РАЗОВЫЙ ПАРОЛЬ» кричит громче самого заголовка экрана.
     Badge: Badge.extend({ defaultProps: { radius: 'xl', tt: 'none' } }),
+    // Флажок — квадратом со скруглением, а не кругом: при радиусе темы `lg` (20 px)
+    // флажок в 20 px становился кругом и читался как выбор одного варианта из
+    // нескольких (аудит экранов 09.10.2026: «Прогоны рассылки», «Обход доноров»).
+    Checkbox: Checkbox.extend({ defaultProps: { radius: 'xs' } }),
     Card: Card.extend({ defaultProps: { radius: 'xl', withBorder: false } }),
     Paper: Paper.extend({ defaultProps: { radius: 'xl' } }),
     // Цвет `Text` у Mantine — `color: var(--text-color)` без запасного

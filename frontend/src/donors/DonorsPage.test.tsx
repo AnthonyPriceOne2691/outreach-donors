@@ -210,7 +210,7 @@ describe('доноры: таблица', () => {
     expect(listCalls(recorded)).toEqual([
       '/api/donors?status=suitable&min_dr=30&has_contact=false&limit=20&offset=20',
     ]);
-    expect(screen.getByRole('textbox', { name: 'Вердикт' })).toHaveValue('подходит · 40');
+    expect(screen.getByRole('textbox', { name: 'Вердикт' })).toHaveValue('подходит');
     expect(screen.getByRole('textbox', { name: 'DR не ниже' })).toHaveValue('30');
     expect(screen.getByRole('textbox', { name: 'Адреса' })).toHaveValue('без адреса');
     expect(screen.getByText('найдено 25 из 45')).toBeInTheDocument();

@@ -236,9 +236,12 @@ export function SelectionPage() {
 
       <Card className="glassPanel" p="md">
         <Stack gap="sm">
+          {/* По содержимому, а не во всю ширину: `Stack` растягивает и `inline-flex`
+              (аудит экранов 09.10.2026). */}
           <SegmentedControl
             orientation={narrow ? 'vertical' : 'horizontal'}
             fullWidth={narrow}
+            style={narrow ? undefined : { alignSelf: 'flex-start' }}
             aria-label="Вкладки отбора"
             value={filters.tab}
             onChange={(value) => {

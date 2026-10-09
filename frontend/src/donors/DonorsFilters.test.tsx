@@ -75,7 +75,7 @@ describe('доноры: фильтры трафика, страны и данн�
     expect(screen.getByRole('textbox', { name: 'Трафик не ниже' })).toHaveValue('1 000 000');
     // В поле страны — название: по нему ищут; счётчик — в списке.
     expect(screen.getByRole('textbox', { name: 'Гео' })).toHaveValue('США');
-    expect(screen.getByRole('textbox', { name: 'Данные' })).toHaveValue('в сроке · 1');
+    expect(screen.getByRole('textbox', { name: 'Данные' })).toHaveValue('в сроке');
     expect(screen.getByText('найдено 1 из 3')).toBeInTheDocument();
   });
 

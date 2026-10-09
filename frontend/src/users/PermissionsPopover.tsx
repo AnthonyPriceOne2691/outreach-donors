@@ -17,7 +17,11 @@ import { useState } from 'react';
 import { PERMISSION_TITLES } from '../api/labels';
 import type { Permission, UserCard } from '../api/types';
 
-const ACTIONS: Permission[] = ['view', 'run', 'settings', 'send', 'users'];
+/** Все права — из одного списка с их словами (`PERMISSION_TITLES`). До 09.10.2026 здесь
+ *  стояли пять из восьми: «подтверждать цены», «домены рассылки» и «раздел продаж»
+ *  нельзя было ни выдать, ни снять, хотя сервер принимает исключение по любому праву,
+ *  а экран отказа отправляет именно к админу (аудит экранов 09.10.2026). */
+const ACTIONS = Object.keys(PERMISSION_TITLES) as Permission[];
 
 function title(permission: Permission): string {
   const words = PERMISSION_TITLES[permission];
