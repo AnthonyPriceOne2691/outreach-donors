@@ -14,13 +14,15 @@
   лида, его страны);
 - `check` — ветка продаж проверки перед отправкой (вместо отказа 1.1b в
   `sending._check_review`): лид не снят, не передан телемаркетологу
-  (`handoff.handed_off` — переданному цепочка не идёт), не в стоп-листе; первое письмо —
+  (`handoff.handed_off` — переданному цепочка не идёт), не в стоп-листе (`unwritable` —
+  то же правило решает, писать ли агенту черновик ответа лида); первое письмо —
   в коридоре отличия; подпись и адрес на месте, подстановок без значения нет
   (`letter.problem`, у ответа в переписке — `letter.answer_problem`);
 - `connected` — подключены ли продажи: проход добивок берёт их сроки только тогда, иначе
   срок цел и проход называет его вслух;
 - `answer` — ответ лиду в переписке до заведения письма: продажи подключены, у переписки
-  есть лид, ему можно писать; текст — с подписью и адресом из «Отправителя» в конце;
+  есть лид, ему можно писать; текст — с подписью и адресом из «Отправителя» в конце, и
+  метрик Ahrefs в нём нет;
 - `followup` — текст добивки: шаг цепочки того же набора и языка, что у первого письма,
   подстановки лида, подпись и адрес. Тему даёт первое письмо — у шаблона добивки её нет;
 - `policy` — политика почты продаж (`policy.sales_policy`): окно получателя, мягкие
@@ -55,7 +57,7 @@ from backend.features.core.stages import (
     SalesFollowup,
     SalesNotConnectedError,
 )
-from backend.features.letters import compose
+from backend.features.letters import compose, guards
 from backend.features.letters.chain import ANSWER_STEP, FIRST_STEP
 from backend.features.letters.sending import NotReadyError, SendError, SuppressedError
 from backend.features.letters.uniqueness import corridor_verdict
@@ -176,22 +178,26 @@ async def stopped_by(
     return None if reason is None else f"стоп-лист, причина «{reason.value}»"
 
 
-async def _writable(session: AsyncSession, dialog: Linked, number: int | None) -> None:
-    """Лиду ещё можно писать: не снят, не передан, не в стоп-листе. `number` — письмо
-    цепочки, после сборки которого лида могли снять; у ответа в переписке его нет."""
+async def unwritable(session: AsyncSession, dialog: Linked) -> str | None:
+    """Почему лиду диалога писать нельзя — словами; `None` — можно: не снят, не передан
+    телемаркетологу, не в стоп-листе. Одно правило у отправки письма и ответа (`_writable`)
+    и у черновика агента (`replies.py`): лиду, которому не пишут, черновик не пишется —
+    модель не платит за письмо, которое не уйдёт."""
     lead = dialog.lead
     if lead.status is not LeadStatus.READY:
-        after = "" if number is None else f" после сборки письма №{number}"
-        raise LeadStoppedError(
-            f"Лида {lead.email} сняли{after} (сейчас «{lead.status.value}») — писать ему нельзя"
-        )
+        return f"лида {lead.email} сняли (сейчас «{lead.status.value}») — писать ему нельзя"
     if await handoff.handed_off(session, lead.id):
-        raise LeadStoppedError(
-            f"Лид {lead.email} передан телемаркетологу — письма продаж ему больше не идут, "
-            "цепочка остановлена"
-        )
+        return f"лид {lead.email} у телемаркетолога — письма продаж ему не идут"
     if (why := await stopped_by(session, lead, dialog.host)) is not None:
-        raise LeadStoppedError(f"Лиду {lead.email} писать нельзя: {why}")
+        return f"лиду {lead.email} писать нельзя: {why}"
+    return None
+
+
+async def _writable(session: AsyncSession, dialog: Linked, what: str) -> None:
+    """Лиду ещё можно писать (`unwritable`) — или отказ, как стоп-лист: цепочка кончается."""
+    why = await unwritable(session, dialog)
+    if why is not None:
+        raise LeadStoppedError(f"{what}: {why}")
 
 
 async def check(session: AsyncSession, message: MessageModel) -> None:
@@ -201,8 +207,7 @@ async def check(session: AsyncSession, message: MessageModel) -> None:
     dialog = await linked(session, message.thread_id)
     if dialog is None:
         raise SendError(f"{what}: у письма продаж нет лида — письмо стоит убрать из очереди")
-    answer = message.step >= ANSWER_STEP
-    await _writable(session, dialog, None if answer else message.id)
+    await _writable(session, dialog, what)
     if message.step == FIRST_STEP:
         verdict = corridor_verdict(message.uniqueness_pct or 0.0)
         if verdict is not None:
@@ -210,7 +215,7 @@ async def check(session: AsyncSession, message: MessageModel) -> None:
                 f"{what} не уходит: {verdict} — письмо продаж уходит только в коридоре, "
                 "соберите очередь заново"
             )
-    rule = letter.answer_problem if answer else letter.problem
+    rule = letter.answer_problem if message.step >= ANSWER_STEP else letter.problem
     problem = rule(message.body or "", await sender.read(session))
     if problem is not None:
         raise NotReadyError(f"{what} не уходит: {problem}")
@@ -219,13 +224,22 @@ async def check(session: AsyncSession, message: MessageModel) -> None:
 async def answer(session: AsyncSession, thread_id: int, body: str, what: str) -> str:
     """Ответ лиду в переписке до заведения письма (`stages.answer_text`): продажи подключены,
     у переписки есть лид, ему можно писать; текст — с подписью и физическим адресом из
-    «Отправителя» в конце (`letter.answered`). Цепочка не нужна: ответ — не её шаг."""
+    «Отправителя» в конце (`letter.answered`). Цепочка не нужна: ответ — не её шаг.
+
+    Метрики Ahrefs проверяются в итоговом тексте, как у сборки очереди — в собранном письме:
+    подпись и адрес из настроек — тоже текст письма, а текст ответа почта проверила до них."""
     found = await connection.check(session, what)
     dialog = await linked(session, thread_id)
     if dialog is None:
         raise SendError(f"{what}: у переписки нет лида продаж — её начала не сборка очереди продаж")
-    await _writable(session, dialog, None)
+    await _writable(session, dialog, what)
     text = letter.answered(body, found)
+    if (leak := guards.metrics_leak(text)) is not None:
+        raise NotReadyError(
+            f"{what} не уходит: в ответе с подписью и адресом из настроек метрики Ahrefs "
+            f"({leak}) — правила Ahrefs это запрещают; уберите их из текста ответа или из "
+            "подписи и адреса на экране «Продажи» → «Отправитель»"
+        )
     problem = letter.answer_problem(text, found)
     if problem is not None:
         raise NotReadyError(f"{what} не уходит: {problem}")
