@@ -98,6 +98,19 @@ const COLUMNS: { title: string; width: string }[] = [
  *  целиком. */
 export const TABLE_MIN_WIDTH = 1166;
 
+/** «Пороги» в пикселях — на столько уже таблица без этой колонки. */
+const THRESHOLDS_PX = 184;
+
+/** Колонки вкладки. **У принятых колонки «Пороги» нет**: вердикт порогов у них один —
+ *  «подходит», по определению вкладки, и 184 px одного и того же слова в каждой строке
+ *  держали ширину, которой не хватало домену и судье (аудит экранов 09.10.2026).
+ *  Запас делится между оставшимися колонками по их ширинам. */
+function columnsOn(tab: SelectionFilters['tab']): typeof COLUMNS {
+  return thresholdsOn(tab).length > 0
+    ? COLUMNS
+    : COLUMNS.filter((column) => column.title !== 'Пороги');
+}
+
 /** Значение «не сужать» у всех фильтров строки — одним словом, как у доноров. */
 const ALL = 'all';
 
@@ -205,10 +218,10 @@ function FilterRow({ filters, search, onSearch, onFilter }: FilterRowProps) {
           />
         </Group>
       </Table.Th>
-      <Table.Th>
-        {/* У принятых вердикт порогов один — «подходит», по определению
-            вкладки: выбирать не из чего, и поля нет. */}
-        {thresholds.length > 0 && (
+      {/* У принятых вердикт порогов один — «подходит», по определению вкладки:
+          колонки нет вовсе (`columnsOn`). */}
+      {thresholds.length > 0 && (
+        <Table.Th>
           <ColumnFilter
             label="Вердикт порогов"
             width={FIELD.thresholds}
@@ -217,8 +230,8 @@ function FilterRow({ filters, search, onSearch, onFilter }: FilterRowProps) {
             titleOf={(value) => SELECTION_THRESHOLDS[value]}
             onChange={(value) => onFilter({ thresholds: value })}
           />
-        )}
-      </Table.Th>
+        </Table.Th>
+      )}
       <Table.Th>
         <ColumnFilter
           label="Кто вынес вердикт"
@@ -256,10 +269,10 @@ function FilterRow({ filters, search, onSearch, onFilter }: FilterRowProps) {
 
 /** Одна строка на всю ширину: пусто или отказ. Фильтры над ней остаются —
  *  поправить условие можно тут же, не возвращаясь. */
-function WholeRow({ children }: { children: ReactNode }) {
+function WholeRow({ children, span }: { children: ReactNode; span: number }) {
   return (
     <Table.Tr className="wholeRow">
-      <Table.Td colSpan={COLUMNS.length}>{children}</Table.Td>
+      <Table.Td colSpan={span}>{children}</Table.Td>
     </Table.Tr>
   );
 }
@@ -288,8 +301,14 @@ export function SelectionTable({
   onReset,
   ...filters
 }: Props) {
+  const columns = columnsOn(filters.filters.tab);
+  const withThresholds = columns.length === COLUMNS.length;
   return (
-    <Table.ScrollContainer minWidth={TABLE_MIN_WIDTH} type="native" className="scrollSlim">
+    <Table.ScrollContainer
+      minWidth={TABLE_MIN_WIDTH - (withThresholds ? 0 : THRESHOLDS_PX)}
+      type="native"
+      className="scrollSlim"
+    >
       <Table
         className="dataTable filteredTable selectionTable allCentered"
         layout="fixed"
@@ -297,13 +316,13 @@ export function SelectionTable({
         horizontalSpacing="xs"
       >
         <colgroup>
-          {COLUMNS.map((column) => (
+          {columns.map((column) => (
             <col key={column.title} style={{ width: column.width }} />
           ))}
         </colgroup>
         <Table.Thead>
           <Table.Tr>
-            {COLUMNS.map((column) => (
+            {columns.map((column) => (
               <Table.Th key={column.title}>{column.title}</Table.Th>
             ))}
           </Table.Tr>
@@ -315,14 +334,14 @@ export function SelectionTable({
           aria-busy={stale || undefined}
         >
           {refusal !== null && (
-            <WholeRow>
+            <WholeRow span={columns.length}>
               <Alert color="red" title="Отбор не загрузился">
                 {refusal}
               </Alert>
             </WholeRow>
           )}
           {refusal === null && empty !== null && (
-            <WholeRow>
+            <WholeRow span={columns.length}>
               <Stack gap={6} align="flex-start" py="sm">
                 <Text size="sm" fw={500}>
                   {empty.title}
@@ -343,6 +362,7 @@ export function SelectionTable({
               <SelectionRow
                 key={row.domain_id}
                 row={row}
+                withThresholds={withThresholds}
                 mayDecide={mayDecide}
                 busy={stale || deciding === row.domain_id}
                 onDecide={onDecide}
