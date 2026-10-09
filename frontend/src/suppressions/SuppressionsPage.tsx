@@ -30,6 +30,12 @@
  * **Таблица — с шириной колонок по самому длинному и прокруткой на узком
  * окне**: на телефоне в карточке без прокрутки значок причины ужимался до
  * «отписа…», а колонки правее не было видно вовсе (аудит 25.09.2026).
+ *
+ * **Одна карточка, запись — в окне, поиск — над таблицей** (аудит 09.10.2026): три
+ * карточки и десяток строк пояснений стояли ради пустого списка, форма заведения
+ * занимала экран всегда, хотя заводят редко, а поиска не было — при том что сюда
+ * приходят с вопросом «почему не ушло письмо», а список поставщиков — сотни строк.
+ * Числа в шапке — только не нулём: «Всего 0» и «Список пуст» говорили одно и то же.
  */
 
 import {
@@ -40,13 +46,13 @@ import {
   Group,
   Loader,
   Modal,
+  SegmentedControl,
   Select,
   Stack,
   Table,
   Text,
   Textarea,
   TextInput,
-  Title,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -102,6 +108,82 @@ const COLUMNS: { title: string; width?: string }[] = [
 const ACTIONS_WIDTH = '6rem';
 const TABLE_MIN_WIDTH = 920;
 
+interface TableProps {
+  rows: StopEntry[];
+  mayChange: boolean;
+  onRemove: (row: StopEntry) => void;
+}
+
+/** Записи списка. Поля карточки вместе с полем ячейки — те же 32 px, что у шапки:
+ *  текст начинается с одного места. */
+function StopTable({ rows, mayChange, onRemove }: TableProps) {
+  return (
+    <Table.ScrollContainer minWidth={TABLE_MIN_WIDTH} type="native" className="scrollSlim">
+      <Table
+        className="dataTable fixedTable bleedTable"
+        layout="fixed"
+        tabularNums
+        verticalSpacing="sm"
+        horizontalSpacing="md"
+      >
+        <colgroup>
+          {COLUMNS.map((column) => (
+            <col key={column.title} style={column.width ? { width: column.width } : undefined} />
+          ))}
+          {mayChange ? <col style={{ width: ACTIONS_WIDTH }} /> : null}
+        </colgroup>
+        <Table.Thead>
+          <Table.Tr>
+            {COLUMNS.map((column) => (
+              <Table.Th key={column.title}>{column.title}</Table.Th>
+            ))}
+            {mayChange ? <Table.Th /> : null}
+          </Table.Tr>
+        </Table.Thead>
+        <Table.Tbody>
+          {rows.map((row) => (
+            <Table.Tr key={row.id}>
+              <Table.Td className="cellName">
+                <Seams text={row.host ?? row.email ?? ''} />
+              </Table.Td>
+              <Table.Td>
+                <Badge color={row.donor_decision ? 'red' : 'gray'} variant="light">
+                  {SUPPRESSION_REASON_TITLES[row.reason]}
+                </Badge>
+              </Table.Td>
+              <Table.Td className="wrapCell cellName">{row.created_by ?? '—'}</Table.Td>
+              <Table.Td>{when(row.created_at)}</Table.Td>
+              <Table.Td>
+                {row.expires_at === null ? (
+                  <Text size="sm">навсегда</Text>
+                ) : row.expired ? (
+                  <Badge color="gray" variant="outline">
+                    истёк {when(row.expires_at)}
+                  </Badge>
+                ) : (
+                  <Text size="sm">до {when(row.expires_at)}</Text>
+                )}
+              </Table.Td>
+              {mayChange ? (
+                <Table.Td>
+                  <Button
+                    variant="subtle"
+                    size="compact-sm"
+                    className="press"
+                    onClick={() => onRemove(row)}
+                  >
+                    Снять
+                  </Button>
+                </Table.Td>
+              ) : null}
+            </Table.Tr>
+          ))}
+        </Table.Tbody>
+      </Table>
+    </Table.ScrollContainer>
+  );
+}
+
 export function SuppressionsPage() {
   const { can } = useSession();
   const queryClient = useQueryClient();
@@ -110,6 +192,9 @@ export function SuppressionsPage() {
   const [term, setTerm] = useState<Term>('forever');
   const [removing, setRemoving] = useState<StopEntry | null>(null);
   const [why, setWhy] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [search, setSearch] = useState('');
+  const [shownReason, setShownReason] = useState<string>('all');
 
   const { data, isLoading, error } = useQuery({
     queryKey: STOP_LIST_QUERY_KEY,
@@ -121,6 +206,7 @@ export function SuppressionsPage() {
     onSuccess: async (row) => {
       await queryClient.invalidateQueries({ queryKey: STOP_LIST_QUERY_KEY });
       setTarget('');
+      setAdding(false);
       notifications.show({
         message: `${row.host ?? row.email} в стоп-листе — письма сняты с очереди`,
         color: 'green',
@@ -154,154 +240,145 @@ export function SuppressionsPage() {
     );
   }
 
-  const rows = data?.rows ?? [];
+  const all = data?.rows ?? [];
   const mayChange = can('send');
   const needsWhy = removing?.donor_decision === true;
+  // Поиск и причина — по уже пришедшим строкам: список приходит целиком.
+  const needle = search.trim().toLowerCase();
+  const rows = all.filter(
+    (row) =>
+      (shownReason === 'all' || row.reason === shownReason) &&
+      (needle === '' || (row.host ?? row.email ?? '').toLowerCase().includes(needle)),
+  );
+  const reasons = [...new Set(all.map((row) => row.reason))];
+  const facts = [
+    data?.total ? `всего ${data.total}` : null,
+    data?.donor_decisions ? `по решению адресата ${data.donor_decisions}` : null,
+    data?.expired ? `истекли и больше не держат ${data.expired}` : null,
+  ].filter((fact) => fact !== null);
 
   return (
     <Stack gap="lg">
       <Card className="glassPanel" p="xl">
-        <Stack gap="sm">
-          <PageHead
-            title="Стоп-лист"
-            hint="Кому мы не пишем ни на одном этапе. Проверяется дважды: при отборе доменов — домен из списка в прогон не идёт и юнитов на него не тратится, — и перед каждой отправкой, так что письмо адресату из списка не уйдёт, даже если его собрали раньше."
-          />
-          <Text size="sm">
-            Всего записей <b>{data?.total ?? 0}</b>, из них по решению адресата{' '}
-            <b>{data?.donor_decisions ?? 0}</b>
-            {data?.expired ? (
-              <>
-                , истекли и больше не держат <b>{data.expired}</b>
-              </>
+        <Stack gap="md">
+          <Group justify="space-between" gap="sm">
+            <Group gap="sm" align="baseline">
+              <PageHead
+                title="Стоп-лист"
+                hint="Кому мы не пишем ни на одном этапе. Проверяется дважды: при отборе доменов — домен из списка в прогон не идёт и юнитов на него не тратится, — и перед каждой отправкой, так что письмо адресату из списка не уйдёт, даже если его собрали раньше."
+              />
+              {facts.length > 0 && <Text size="sm">{facts.join(' · ')}</Text>}
+            </Group>
+            {mayChange ? (
+              <Button className="press" onClick={() => setAdding(true)}>
+                Добавить…
+              </Button>
             ) : null}
-            .
-          </Text>
+          </Group>
+
+          {all.length === 0 ? (
+            <Text size="sm" c="dimmed">
+              Список пуст. Сюда попадают те, кто отписался или пожаловался, и те, кого внесли
+              руками.
+            </Text>
+          ) : (
+            <>
+              <Group gap="sm">
+                <TextInput
+                  size="xs"
+                  placeholder="Домен или адрес"
+                  aria-label="Поиск по домену или адресу"
+                  value={search}
+                  onChange={(event) => setSearch(event.currentTarget.value)}
+                  w="20rem"
+                />
+                <Select
+                  size="xs"
+                  aria-label="Причина записи"
+                  allowDeselect={false}
+                  value={shownReason}
+                  onChange={(value) => setShownReason(value ?? 'all')}
+                  data={[
+                    { value: 'all', label: 'все причины' },
+                    ...reasons.map((value) => ({
+                      value,
+                      label: SUPPRESSION_REASON_TITLES[value],
+                    })),
+                  ]}
+                  w="10rem"
+                />
+              </Group>
+              {rows.length === 0 ? (
+                <Text size="sm" c="dimmed">
+                  Под поиск ничего не попало — в стоп-листе такого адреса нет.
+                </Text>
+              ) : (
+                <StopTable
+                  rows={rows}
+                  mayChange={mayChange}
+                  onRemove={(row) => {
+                    setRemoving(row);
+                    setWhy('');
+                  }}
+                />
+              )}
+            </>
+          )}
         </Stack>
       </Card>
 
-      {mayChange ? (
-        <Card className="glassPanel" p="xl">
-          <Stack gap="sm">
-            <Title order={4}>Завести запись</Title>
-            <Text size="sm" c="dimmed" maw={680}>
-              Домен закрывает сайт целиком, адрес — один ящик. Домен, которого ещё нет в базе,
-              заводится вместе с записью: список поставщиков приходит раньше первого прогона.
-            </Text>
-            <Group align="flex-end" gap="sm">
-              <TextInput
-                label="Домен или адрес"
-                placeholder="site.com или editor@site.com"
-                value={target}
-                onChange={(event) => setTarget(event.currentTarget.value)}
-                w={320}
-              />
-              <Select
-                label="Причина"
-                data={HAND_REASONS}
-                value={reason}
-                onChange={(picked) => setReason((picked ?? 'manual') as SuppressionReason)}
-                allowDeselect={false}
-                w={200}
-              />
-              <Select
-                label="Держит"
-                data={TERMS.map((item) => ({ value: item.value, label: item.label }))}
-                value={term}
-                onChange={(picked) => setTerm((picked ?? 'forever') as Term)}
-                allowDeselect={false}
-                w={170}
-              />
-              <Button
-                onClick={() => add.mutate()}
-                loading={add.isPending}
-                disabled={target.trim().length < 3}
-              >
-                Больше не писать
-              </Button>
-            </Group>
-          </Stack>
-        </Card>
-      ) : null}
-
-      {/* Поля карточки с таблицей — вместе с полем ячейки те же 32 px, что
-          у панелей выше: текст соседних карточек начинается с одного места. */}
-      <Card className="glassPanel" p={rows.length === 0 ? 'xl' : 'md'}>
-        {rows.length === 0 ? (
+      <Modal opened={adding} onClose={() => setAdding(false)} title="Больше не писать">
+        <Stack gap="sm">
           <Text size="sm" c="dimmed">
-            Список пуст. Сюда попадают те, кто отписался или пожаловался, и те, кого внесли руками.
+            Домен закрывает сайт целиком, адрес — один ящик. Домен, которого ещё нет в базе,
+            заводится вместе с записью: список поставщиков приходит раньше первого прогона.
           </Text>
-        ) : (
-          <Table.ScrollContainer minWidth={TABLE_MIN_WIDTH} type="native" className="scrollSlim">
-            <Table
-              className="dataTable fixedTable"
-              layout="fixed"
-              tabularNums
-              verticalSpacing="sm"
-              horizontalSpacing="md"
+          <TextInput
+            label="Домен или адрес"
+            placeholder="site.com или editor@site.com"
+            value={target}
+            onChange={(event) => setTarget(event.currentTarget.value)}
+            data-autofocus
+          />
+          {/* Два значения — переключателем, а не списком в 200 px (аудит 09.10.2026). */}
+          <Stack gap={4}>
+            <Text size="sm" fw={500}>
+              Причина
+            </Text>
+            <SegmentedControl
+              aria-label="Причина"
+              data={HAND_REASONS}
+              value={reason}
+              onChange={(picked) => setReason(picked as SuppressionReason)}
+              style={{ alignSelf: 'flex-start' }}
+            />
+          </Stack>
+          <Stack gap={4}>
+            <Text size="sm" fw={500}>
+              Держит
+            </Text>
+            <SegmentedControl
+              aria-label="Держит"
+              data={TERMS.map((item) => ({ value: item.value, label: item.label }))}
+              value={term}
+              onChange={(picked) => setTerm(picked as Term)}
+              style={{ alignSelf: 'flex-start' }}
+            />
+          </Stack>
+          <Group justify="flex-end" gap="sm">
+            <Button variant="default" onClick={() => setAdding(false)}>
+              Отмена
+            </Button>
+            <Button
+              onClick={() => add.mutate()}
+              loading={add.isPending}
+              disabled={target.trim().length < 3}
             >
-              <colgroup>
-                {COLUMNS.map((column) => (
-                  <col
-                    key={column.title}
-                    style={column.width ? { width: column.width } : undefined}
-                  />
-                ))}
-                {mayChange ? <col style={{ width: ACTIONS_WIDTH }} /> : null}
-              </colgroup>
-              <Table.Thead>
-                <Table.Tr>
-                  {COLUMNS.map((column) => (
-                    <Table.Th key={column.title}>{column.title}</Table.Th>
-                  ))}
-                  {mayChange ? <Table.Th /> : null}
-                </Table.Tr>
-              </Table.Thead>
-              <Table.Tbody>
-                {rows.map((row) => (
-                  <Table.Tr key={row.id}>
-                    <Table.Td className="cellName">
-                      <Seams text={row.host ?? row.email ?? ''} />
-                    </Table.Td>
-                    <Table.Td>
-                      <Badge color={row.donor_decision ? 'red' : 'gray'} variant="light">
-                        {SUPPRESSION_REASON_TITLES[row.reason]}
-                      </Badge>
-                    </Table.Td>
-                    <Table.Td className="wrapCell cellName">{row.created_by ?? '—'}</Table.Td>
-                    <Table.Td>{when(row.created_at)}</Table.Td>
-                    <Table.Td>
-                      {row.expires_at === null ? (
-                        <Text size="sm">навсегда</Text>
-                      ) : row.expired ? (
-                        <Badge color="gray" variant="outline">
-                          истёк {when(row.expires_at)}
-                        </Badge>
-                      ) : (
-                        <Text size="sm">до {when(row.expires_at)}</Text>
-                      )}
-                    </Table.Td>
-                    {mayChange ? (
-                      <Table.Td>
-                        <Button
-                          variant="subtle"
-                          size="compact-sm"
-                          className="press"
-                          onClick={() => {
-                            setRemoving(row);
-                            setWhy('');
-                          }}
-                        >
-                          Снять
-                        </Button>
-                      </Table.Td>
-                    ) : null}
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-          </Table.ScrollContainer>
-        )}
-      </Card>
+              Больше не писать
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
 
       <Modal
         opened={removing !== null}
