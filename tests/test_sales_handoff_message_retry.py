@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 import httpx
 import pytest
 from backend.config import sales as cfg
-from backend.features.sales import handoff, handoff_jobs, handoff_telegram
+from backend.features.sales import handoff, handoff_jobs, telegram_series
 from backend.features.sales.kommo import CreatedLead, KommoAuthError, KommoFixture, NewLead
 from backend.features.sales.models import HandoffKommo, HandoffTelegram, SalesHandoffModel
 from backend.shared.queue import SALES_QUEUE_NAME
@@ -133,7 +133,7 @@ async def test_last_try_is_an_alert_in_words_and_the_retries_end(
         assert at is not None
         row = await resend(session, row.id, http, alerts, at)
 
-    assert len(api.seen) == handoff_telegram.MESSAGE_TRIES * 3
+    assert len(api.seen) == telegram_series.MESSAGE_TRIES * 3
     assert (row.telegram, row.telegram_due_at) == (HandoffTelegram.UNDELIVERED, None)
     [alert] = alerts
     assert "сообщение телемаркетологу не доставлено за 5 попыток" in alert
@@ -222,9 +222,9 @@ async def test_our_pause_is_kept_when_telegram_asks_less(
 
 
 def test_pause_grows_and_never_undercuts_telegram() -> None:
-    assert [handoff_telegram.pause_after(n, None) for n in (1, 2, 3, 4)] == [300, 600, 1200, 2400]
-    assert handoff_telegram.pause_after(2, 4000.0) == 4000
-    assert handoff_telegram.pause_after(2, 7.0) == 600
+    assert [telegram_series.pause_after(n, None) for n in (1, 2, 3, 4)] == [300, 600, 1200, 2400]
+    assert telegram_series.pause_after(2, 4000.0) == 4000
+    assert telegram_series.pause_after(2, 7.0) == 600
 
 
 # --- постоянный отказ — без повтора, тревога сразу --------------------------------------------

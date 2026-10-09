@@ -6,11 +6,8 @@
 
 **Не ушло — повтор проходом по расписанию.** Бот сам пробует трижды за задачу
 (`telegram.py`): это мигнувшая сеть. Не прошло из-за сети, 5xx или 429 — передача ждёт
-повтора прохода (`telegram_due_at`, `handoff.message_due`): пауза растёт вдвое от
-`FIRST_PAUSE_SEC`, у 429 — не меньше паузы, которую назвал Telegram. Попыток — задача
-и повторы — `MESSAGE_TRIES`; после последней — тревога словами, повторов больше нет.
-Постоянный отказ (нет токена или чата, чат не найден, бот заблокирован, непечатный знак
-в токене) не повторяется: повтор его не изменит, тревога — сразу.
+повтора прохода (`telegram_due_at`, `handoff.message_due`). Серия — паузы, попытки, итог
+и постоянный отказ — одно правило с сообщением о черновике агента: `telegram_series.py`.
 
 **Что ждёт повтора — видно по состоянию.** `undelivered` со сроком — личное сообщение,
 `sent` со сроком — копия в группу: личное уже ушло. Раньше срока сообщение не уходит, даже
@@ -19,8 +16,8 @@
 
 **Итог сказан — дальше молча.** `undelivered` без срока — попытки кончились или отказ
 постоянный, тревога ушла. Задача, пришедшая по другому поводу (повтор Kommo, новый ответ
-лида), пробует сообщение ещё раз, как и раньше, но при отказе тревоги не повторяет и новой
-серии повторов не заводит: попыток по расписанию — конечное число.
+лида), пробует сообщение ещё раз, но при отказе тревоги не повторяет и новой серии повторов
+не заводит (`telegram_series.after_failure`, `told`).
 
 **Двойная отправка возможна в одном окне:** Telegram принял сообщение, а строка передачи
 не записалась (задача умерла до коммита) — повтор пошлёт его ещё раз. Дубль сообщения
@@ -30,7 +27,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from backend.config import sales as cfg
@@ -39,25 +35,16 @@ from backend.features.sales.handoff_kommo import headline
 from backend.features.sales.handoff_text import Card
 from backend.features.sales.models import HandoffTelegram, SalesHandoffModel
 from backend.features.sales.telegram import TelegramError
+from backend.features.sales.telegram_series import MESSAGE_TRIES, after_failure
 
 if TYPE_CHECKING:
     from backend.features.sales.handoff import Deps
 
 logger = logging.getLogger(__name__)
 
-#: Сколько раз одно сообщение пробуют доставить: задача, затем повторы прохода.
-MESSAGE_TRIES = 5
-#: Пауза перед первым повтором прохода; каждая следующая вдвое дольше: 5, 10, 20, 40 мин.
-FIRST_PAUSE_SEC = 5 * 60
-
 #: Что не ушло — словами тревоги.
 PERSONAL = "сообщение телемаркетологу не доставлено"
 GROUP = "копия в группу продаж не доставлена"
-
-
-def pause_after(tries: int, asked: float | None) -> float:
-    """Пауза перед повтором после `tries` неудач: растёт вдвое; у 429 — не меньше паузы Telegram."""
-    return max(float(FIRST_PAUSE_SEC << (tries - 1)), asked or 0.0)
 
 
 async def step(row: SalesHandoffModel, card: Card, deps: Deps) -> None:
@@ -135,32 +122,25 @@ async def _not_delivered(
     prefix: str,
     told: bool,
 ) -> str:
-    """Не ушло. Временный отказ — повтор проходом, а после последней попытки — тревога;
-    постоянный — тревога сразу и без повтора. `told` — итог об этом сообщении уже сказан:
-    молча и без новой серии повторов. Возвращает, что решено, — для строки журнала."""
-    if exc.permanent or told:
-        _settled(row)
-        row.last_error = f"{prefix}: {exc}"
-        if not told:
-            await deps.alert(f"{headline(row)}: {what} — {exc}")
-        return "без повтора"
-    row.telegram_tries += 1
-    tries = row.telegram_tries
-    if tries < MESSAGE_TRIES:
-        due = deps.now() + timedelta(seconds=pause_after(tries, exc.retry_after))
-        row.telegram_due_at = due
-        row.last_error = (
-            f"{prefix}: {exc}; повтор не раньше {due:%d.%m %H:%M} UTC "
-            f"(попытка {tries} из {MESSAGE_TRIES})"
+    """Не ушло — серия повторов (`telegram_series.after_failure`): временный отказ — повтор
+    проходом, а после последней попытки — тревога; постоянный — тревога сразу и без повтора.
+    `told` — итог об этом сообщении уже сказан: молча и без новой серии повторов. Возвращает,
+    что решено, — для строки журнала."""
+    failed = after_failure(row.telegram_tries, exc, deps.now(), told=told)
+    row.telegram_tries, row.telegram_due_at = failed.tries, failed.due_at
+    row.last_error = f"{prefix}: {failed.error(exc)}"
+    if failed.due_at is not None:
+        then = failed.due_at.isoformat()
+        return f"повтор не раньше {then}, попытка {failed.tries} из {MESSAGE_TRIES}"
+    if failed.spent is not None:
+        await deps.alert(
+            f"{headline(row)}: {what} за {failed.spent} попыток — повторов больше нет, передать "
+            f"лида телемаркетологу руками: {exc}"
         )
-        return f"повтор не раньше {due.isoformat()}, попытка {tries} из {MESSAGE_TRIES}"
-    _settled(row)
-    row.last_error = f"{prefix}: {exc}; попыток — {tries}, повторов больше нет"
-    await deps.alert(
-        f"{headline(row)}: {what} за {tries} попыток — повторов больше нет, передать лида "
-        f"телемаркетологу руками: {exc}"
-    )
-    return f"попытки кончились ({tries})"
+        return f"попытки кончились ({failed.spent})"
+    if failed.alarm:
+        await deps.alert(f"{headline(row)}: {what} — {exc}")
+    return "без повтора"
 
 
 def _settled(row: SalesHandoffModel) -> None:
