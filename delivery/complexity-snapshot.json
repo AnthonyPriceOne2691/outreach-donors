@@ -547,9 +547,9 @@
       "worst": "add_parsers:60"
     },
     "backend/cli/sales_handoffs.py": {
-      "lines": 164,
+      "lines": 165,
       "complexity": 4,
-      "worst": "_line:63"
+      "worst": "_line:64"
     },
     "backend/cli/sales_queue.py": {
       "lines": 71,
@@ -962,9 +962,9 @@
       "worst": "_enum:27"
     },
     "backend/features/core/stages.py": {
-      "lines": 345,
+      "lines": 373,
       "complexity": 5,
-      "worst": "check_connected:111"
+      "worst": "check_connected:115"
     },
     "backend/features/core/usage.py": {
       "lines": 215,
@@ -1902,19 +1902,19 @@
       "worst": "_by_name:351"
     },
     "backend/features/sales/handoff.py": {
-      "lines": 481,
+      "lines": 497,
       "complexity": 11,
-      "worst": "_card:440"
+      "worst": "_card:456"
     },
     "backend/features/sales/handoff_console.py": {
-      "lines": 257,
+      "lines": 267,
       "complexity": 8,
-      "worst": "close:166"
+      "worst": "close:176"
     },
     "backend/features/sales/handoff_jobs.py": {
-      "lines": 203,
+      "lines": 204,
       "complexity": 5,
-      "worst": "_queue_again:176"
+      "worst": "_queue_again:177"
     },
     "backend/features/sales/handoff_kommo.py": {
       "lines": 154,
@@ -1922,7 +1922,7 @@
       "worst": "write:42"
     },
     "backend/features/sales/handoff_telegram.py": {
-      "lines": 168,
+      "lines": 169,
       "complexity": 9,
       "worst": "step:63"
     },
@@ -1972,9 +1972,9 @@
       "worst": "problem:81"
     },
     "backend/features/sales/mail.py": {
-      "lines": 281,
+      "lines": 295,
       "complexity": 8,
-      "worst": "check:203"
+      "worst": "check:205"
     },
     "backend/features/sales/models.py": {
       "lines": 478,
@@ -2012,9 +2012,9 @@
       "worst": "refer:80"
     },
     "backend/features/sales/replies.py": {
-      "lines": 481,
-      "complexity": 10,
-      "worst": "handle:249"
+      "lines": 509,
+      "complexity": 8,
+      "worst": "handle:259"
     },
     "backend/features/sales/reply_kind.py": {
       "lines": 273,
