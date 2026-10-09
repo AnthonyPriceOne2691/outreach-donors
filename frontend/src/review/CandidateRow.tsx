@@ -14,12 +14,14 @@
  * больше нигде нет — решение человека или дверь на сайте.
  *
  * **Колонки «Нашёлся по ключам» нет, если прогон этого не хранит** — вместо
- * столбца прочерков пояснение стоит наверху экрана.
+ * столбца прочерков пояснение стоит наверху экрана. **Колонки «Донор ответил»
+ * нет, пока на экране никто не ответил** — и ярус стоит разделителем над группой,
+ * а не значком в строке (аудит экранов 09.10.2026: строка в 110–140 px).
  */
 
 import { Anchor, Badge, Button, Checkbox, Group, Stack, Table, Text, Tooltip } from '@mantine/core';
 
-import { CONTACT_STATUSES, countryTitle, REVIEW_TIERS } from '../api/labels';
+import { CONTACT_STATUSES, countryTitle } from '../api/labels';
 import type { ReviewCandidate, ReviewDecision } from '../api/types';
 import { JudgeVerdict, SellerAnswer } from '../components/JudgeVerdict';
 import { Seams } from '../components/Seams';
@@ -30,6 +32,8 @@ interface Props {
   mayDecide: boolean;
   /** Хранит ли прогон, по каким ключам нашёлся домен: нет — нет и колонки. */
   withKeywords: boolean;
+  /** Ответил ли кто-нибудь из очереди: нет — нет и колонки ответа. */
+  withAnswers: boolean;
   busy: boolean;
   checked: boolean;
   onCheck: (checked: boolean) => void;
@@ -169,8 +173,7 @@ function Decision({ row, mayDecide, busy, onDecide }: Props) {
 }
 
 export function CandidateRow(props: Props) {
-  const { row, mayDecide, withKeywords, busy, checked, onCheck } = props;
-  const tier = REVIEW_TIERS[row.tier];
+  const { row, mayDecide, withKeywords, withAnswers, busy, checked, onCheck } = props;
   return (
     <Table.Tr>
       {mayDecide && (
@@ -192,16 +195,13 @@ export function CandidateRow(props: Props) {
         </Table.Td>
       )}
       <Table.Td>
-        <Stack gap={6} align="center">
-          <Badge variant="dot" color={tier.color}>
-            {tier.title}
-          </Badge>
-          <JudgeVerdict machine={row.machine} />
-        </Stack>
+        <JudgeVerdict machine={row.machine} />
       </Table.Td>
-      <Table.Td>
-        <SellerAnswer seller={row.seller} />
-      </Table.Td>
+      {withAnswers && (
+        <Table.Td>
+          <SellerAnswer seller={row.seller} />
+        </Table.Td>
+      )}
       <Table.Td>
         <Decision {...props} />
       </Table.Td>

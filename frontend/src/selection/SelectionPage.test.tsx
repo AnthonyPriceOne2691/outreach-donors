@@ -145,7 +145,9 @@ describe('экран отбора', () => {
     expect(row.getByText('«Kaffee online kaufen»')).toBeInTheDocument();
     // Признак главной — словами, а не меткой сервера `cart:/warenkorb`.
     expect(row.getByText('главная: ссылка на корзину')).toBeInTheDocument();
-    expect(row.getByRole('link', { name: 'страница' })).toHaveAttribute(
+    // Цитата сама ведёт на страницу, где её нашли (09.10.2026): отдельной строки
+    // «страница» нет.
+    expect(row.getByRole('link', { name: '«Kaffee online kaufen»' })).toHaveAttribute(
       'href',
       'https://brand.test/ratgeber',
     );

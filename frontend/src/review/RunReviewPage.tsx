@@ -42,7 +42,7 @@ import {
 import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
 
@@ -57,6 +57,7 @@ import { BackLink, backTo } from '../components/BackLink';
 import { Metric } from '../components/Metric';
 import { PageHead } from '../components/PageHead';
 import { CandidateRow } from './CandidateRow';
+import { BulkBar, TierRow } from './QueueParts';
 
 const STATUSES = Object.keys(REVIEW_DECISIONS) as ReviewDecision[];
 
@@ -89,6 +90,9 @@ const WIDTH = {
 /** Уже этого таблица не сжимается и уезжает в прокрутку: колонкам — их
  *  ширины, домену — не меньше двухсот тридцати (строка метрик под ним). */
 const MIN_WIDTH = { withKeywords: 1188, withoutKeywords: 998 } as const;
+
+/** «Донор ответил» в пикселях — на столько уже таблица без этой колонки. */
+const SELLER_PX = 160;
 
 /** Ответ вместе с тем, о чём спрашивали: пока идёт новая вкладка, видна
  *  прежняя, и пустой экран должен говорить про ту вкладку, строки которой
@@ -267,6 +271,14 @@ export function RunReviewPage() {
   // Строки не той вкладки, что выбрана, — ждут замены: решать по ним нельзя.
   const stale = review.isPlaceholderData;
   const withKeywords = view.keywords !== null;
+  // Колонки «Донор ответил» нет, пока никто из очереди не ответил: столбец «не отвечал»
+  // в каждой строке держал 160 px (правило: колонка, которой нечего показать, не рисуется).
+  const withAnswers = view.rows.some((row) => row.seller.answer !== null);
+  const columns = (mayDecide ? 1 : 0) + 2 + (withKeywords ? 1 : 0) + (withAnswers ? 1 : 0) + 1;
+  // Сколько строк в каждом ярусе — для разделителей групп: ярус стоит над группой
+  // один раз, а не значком в каждой строке.
+  const perTier = new Map<string, number>();
+  for (const row of view.rows) perTier.set(row.tier, (perTier.get(row.tier) ?? 0) + 1);
   const rows = view.rows.slice(0, shownCount);
   const rest = view.rows.length - rows.length;
   const allPicked = rows.length > 0 && rows.every((row) => picked.has(row.candidate_id));
@@ -320,55 +332,18 @@ export function RunReviewPage() {
               label: `${REVIEW_DECISIONS[value].title} — ${view.counts[value]}`,
             }))}
           />
-          {/* Ряд под вкладками — только когда в нём что-то есть: пустой ряд
-              добавлял под вкладками «Приняты» и «Отклонены» лишний отступ. */}
-          {(status === 'pending' || bulkShown) && (
-            <Group justify="space-between" align="center">
-              {status === 'pending' ? (
-                <Switch
-                  label={`Показать сомнительные (скрыто ${view.hidden})`}
-                  checked={showDoubtful}
-                  onChange={(event) => {
-                    setPicked(new Set());
-                    setShownCount(PAGE);
-                    setShowDoubtful(event.currentTarget.checked);
-                  }}
-                />
-              ) : (
-                <span />
-              )}
-              {bulkShown && (
-                <Group gap="sm">
-                  <Text size="sm">Выбрано: {picked.size}</Text>
-                  {status === 'pending' ? (
-                    <>
-                      <Button
-                        color="green"
-                        loading={decide.isPending}
-                        onClick={() => bulk('accepted')}
-                      >
-                        Принять выбранные
-                      </Button>
-                      <Button
-                        variant="default"
-                        loading={decide.isPending}
-                        onClick={() => bulk('rejected')}
-                      >
-                        Отклонить выбранные
-                      </Button>
-                    </>
-                  ) : (
-                    <Button
-                      variant="default"
-                      loading={decide.isPending}
-                      onClick={() => bulk('pending')}
-                    >
-                      Вернуть выбранные
-                    </Button>
-                  )}
-                </Group>
-              )}
-            </Group>
+          {/* Ряд под вкладками — только на «Предложенных»: на «Приняты» и
+              «Отклонены» пустой ряд добавлял лишний отступ. */}
+          {status === 'pending' && (
+            <Switch
+              label={`Показать сомнительные (скрыто ${view.hidden})`}
+              checked={showDoubtful}
+              onChange={(event) => {
+                setPicked(new Set());
+                setShownCount(PAGE);
+                setShowDoubtful(event.currentTarget.checked);
+              }}
+            />
           )}
         </Stack>
       </Card>
@@ -385,7 +360,10 @@ export function RunReviewPage() {
           </Text>
         ) : (
           <Table.ScrollContainer
-            minWidth={withKeywords ? MIN_WIDTH.withKeywords : MIN_WIDTH.withoutKeywords}
+            minWidth={
+              (withKeywords ? MIN_WIDTH.withKeywords : MIN_WIDTH.withoutKeywords) -
+              (withAnswers ? 0 : SELLER_PX)
+            }
             type="native"
             className="scrollSlim"
           >
@@ -400,7 +378,7 @@ export function RunReviewPage() {
                 <col />
                 {withKeywords && <col style={{ width: WIDTH.keywords }} />}
                 <col style={{ width: WIDTH.judge }} />
-                <col style={{ width: WIDTH.seller }} />
+                {withAnswers && <col style={{ width: WIDTH.seller }} />}
                 <col style={{ width: WIDTH.decision }} />
               </colgroup>
               <Table.Thead>
@@ -424,22 +402,30 @@ export function RunReviewPage() {
                   <Table.Th>Домен</Table.Th>
                   {withKeywords && <Table.Th>Нашёлся по ключам</Table.Th>}
                   <Table.Th>Судья</Table.Th>
-                  <Table.Th>Донор ответил</Table.Th>
+                  {withAnswers && <Table.Th>Донор ответил</Table.Th>}
                   <Table.Th>Решение</Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
-                {rows.map((row) => (
-                  <CandidateRow
-                    key={row.candidate_id}
-                    row={row}
-                    mayDecide={mayDecide}
-                    withKeywords={withKeywords}
-                    busy={busy}
-                    checked={picked.has(row.candidate_id)}
-                    onCheck={(on) => toggle(row.candidate_id, on)}
-                    onDecide={(decision) => decide.mutate({ ids: [row.candidate_id], decision })}
-                  />
+                {rows.map((row, at) => (
+                  <Fragment key={row.candidate_id}>
+                    {/* Ярус — разделителем над своей группой: очередь сервер отдаёт
+                        по ярусам, и значок «посмотреть» в каждой строке повторял
+                        совет судьи рядом (аудит экранов 09.10.2026). */}
+                    {rows[at - 1]?.tier !== row.tier && (
+                      <TierRow tier={row.tier} count={perTier.get(row.tier) ?? 0} span={columns} />
+                    )}
+                    <CandidateRow
+                      row={row}
+                      mayDecide={mayDecide}
+                      withKeywords={withKeywords}
+                      withAnswers={withAnswers}
+                      busy={busy}
+                      checked={picked.has(row.candidate_id)}
+                      onCheck={(on) => toggle(row.candidate_id, on)}
+                      onDecide={(decision) => decide.mutate({ ids: [row.candidate_id], decision })}
+                    />
+                  </Fragment>
                 ))}
               </Table.Tbody>
             </Table>
@@ -456,6 +442,19 @@ export function RunReviewPage() {
           </Group>
         )}
       </Card>
+
+      {/* Решение пачкой — панелью, закреплённой внизу окна, пока есть отметки:
+          над таблицей кнопки стояли в трёх тысячах пикселей от строк, отмеченных
+          внизу очереди (аудит экранов 09.10.2026). */}
+      {bulkShown && (
+        <BulkBar
+          count={picked.size}
+          status={status}
+          busy={decide.isPending}
+          onDecide={bulk}
+          onClear={() => setPicked(new Set())}
+        />
+      )}
 
       {/* Отдача ключей — для следующего прогона, поэтому под очередью.
           Прогон, который её не хранит, сказал об этом наверху. */}
