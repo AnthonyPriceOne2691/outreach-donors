@@ -3,7 +3,16 @@
  * (`agentDraft.ts`), правка закрыта без права «настройки».
  */
 
-import { Alert, Button, Group, NumberInput, Stack, Switch, Textarea } from '@mantine/core';
+import {
+  Alert,
+  Button,
+  Group,
+  NumberInput,
+  SimpleGrid,
+  Stack,
+  Switch,
+  Textarea,
+} from '@mantine/core';
 
 import { InfoHint } from '../components/InfoHint';
 import { SaveVersionButton } from '../components/SaveVersionButton';
@@ -83,37 +92,46 @@ export function AgentForm({
         disabled={!canEdit}
         onChange={(event) => onEdit({ enabled: event.currentTarget.checked })}
       />
-      {text(GOAL)}
-      {text(TONE)}
-      {text(POINTS)}
-      {/* Поле — по цене, а не 288 px под три-четыре цифры; пояснение — в «i»
-          (аудит экранов 09.10.2026). Подпись — не `<label>`: в ней кнопка подсказки,
-          имя полю — `aria-label`, как у порогов. */}
-      <NumberInput
-        labelProps={{ labelElement: 'div' }}
-        label={
-          <Group component="span" gap={4} wrap="nowrap">
-            {priceLabel}
-            <InfoHint name={`Что значит «${priceLabel}»`} width={260}>
-              Пусто — предела нет, и цену агент не обещает: её называет человек.
-            </InfoHint>
-          </Group>
-        }
-        aria-label={priceLabel}
-        placeholder="без предела"
-        w="9rem"
-        min={0}
-        max={LIMITS.price}
-        clampBehavior="none"
-        decimalScale={2}
-        allowNegative={false}
-        thousandSeparator=" "
-        disabled={!canEdit}
-        value={draft.price}
-        error={refusals.price}
-        onChange={(value) => onEdit({ price: typeof value === 'number' ? value : '' })}
-      />
-      {text(STOP_TOPICS)}
+      {/* Две колонки на широком окне: слева — что агент делает (цель, тон, предел цены),
+          справа — чем ведёт разговор и что отдаёт человеку. Пять полей во всю ширину
+          (~1 150 px) стояли столбиком, «Тон» в одну строку растягивался на всю панель,
+          а «Сохранить» на 1440 × 900 уходила ниже края окна (аудит экранов 09.10.2026). */}
+      <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg" verticalSpacing="md">
+        <Stack gap="md">
+          {text(GOAL)}
+          {text(TONE)}
+          {/* Поле — по цене, а не 288 px под три-четыре цифры; пояснение — в «i».
+              Подпись — не `<label>`: в ней кнопка подсказки, имя полю — `aria-label`. */}
+          <NumberInput
+            labelProps={{ labelElement: 'div' }}
+            label={
+              <Group component="span" gap={4} wrap="nowrap">
+                {priceLabel}
+                <InfoHint name={`Что значит «${priceLabel}»`} width={260}>
+                  Пусто — предела нет, и цену агент не обещает: её называет человек.
+                </InfoHint>
+              </Group>
+            }
+            aria-label={priceLabel}
+            placeholder="без предела"
+            w="9rem"
+            min={0}
+            max={LIMITS.price}
+            clampBehavior="none"
+            decimalScale={2}
+            allowNegative={false}
+            thousandSeparator=" "
+            disabled={!canEdit}
+            value={draft.price}
+            error={refusals.price}
+            onChange={(value) => onEdit({ price: typeof value === 'number' ? value : '' })}
+          />
+        </Stack>
+        <Stack gap="md">
+          {text(POINTS)}
+          {text(STOP_TOPICS)}
+        </Stack>
+      </SimpleGrid>
 
       {!canEdit && (
         <Alert color="yellow" title="Править настройки агента не разрешено">
