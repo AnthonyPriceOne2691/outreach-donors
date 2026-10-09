@@ -16,7 +16,7 @@
  * экран строкой реестра, без правки здесь.
  */
 
-import { Alert, Badge, Card, Group, Loader, Stack, Text, Title } from '@mantine/core';
+import { Alert, Badge, Card, Group, Loader, Stack, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
@@ -24,6 +24,7 @@ import { fetchAgentSettings } from '../api/agent';
 import type { AgentStageView } from '../api/agent';
 import { refusalOf } from '../api/client';
 import { useSession } from '../auth/AuthProvider';
+import { PageHead } from '../components/PageHead';
 import { StageSwitch } from '../components/StageSwitch';
 import { formatDateTime } from '../format';
 import { AgentForm } from './AgentForm';
@@ -167,12 +168,10 @@ export function AgentPage() {
         <Stack gap="md">
           {/* Заголовок стоит при любой загрузке и любом отказе, как у писем;
               переключатель — с ответом сервера: этапы знает его реестр. */}
-          <Title order={3}>Агент переписки</Title>
-          <Text size="sm" c="dimmed" maw={680}>
-            Агент готовит черновик ответа собеседнику по этим настройкам, человек правит его и
-            отправляет. Сохранение заводит новую версию: черновик объясняется той, по которой
-            написан.
-          </Text>
+          <PageHead
+            title="Агент переписки"
+            hint="Агент готовит черновик ответа собеседнику по этим настройкам, человек правит его и отправляет. Сохранение заводит новую версию: черновик объясняется той, по которой написан."
+          />
           {view !== undefined && (
             <StageSwitch
               label="Этап"

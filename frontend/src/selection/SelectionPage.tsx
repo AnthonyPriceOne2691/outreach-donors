@@ -31,16 +31,7 @@
  * и страница — в адресе (`selectionFilters.ts`).
  */
 
-import {
-  Alert,
-  Card,
-  Loader,
-  SegmentedControl,
-  SimpleGrid,
-  Stack,
-  Text,
-  Title,
-} from '@mantine/core';
+import { Alert, Card, Loader, SegmentedControl, SimpleGrid, Stack, Text } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -53,6 +44,7 @@ import { decideSite, listSelection } from '../api/selection';
 import type { HumanIntent, JudgeDecider, SelectionCard, SelectionView } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { Metric } from '../components/Metric';
+import { PageHead } from '../components/PageHead';
 import { PageSwitch } from '../components/PageSwitch';
 import { useTyped } from '../donors/useTyped';
 import { formatNumber } from '../format';
@@ -94,27 +86,18 @@ function Summary({ data }: { data: SelectionView }) {
   return (
     <Card className="glassPanel" p="xl">
       <Stack gap="md">
-        <Stack gap={6}>
-          <Title order={3}>Отбор</Title>
-          <Text size="sm" c="dimmed" maw={720}>
-            Каждый домен лежит ровно на одной вкладке. Отклонённый — не прошёл пороги или судья
-            решил, что это не площадка; у каждого отказа названы автор и основание. Решение человека
-            сильнее судьи, но вердикт судьи не переписывает: по расхождению между ними видно, как
-            часто он ошибается.
-          </Text>
-        </Stack>
+        <PageHead
+          title="Отбор"
+          hint="Каждый домен лежит ровно на одной вкладке. Отклонённый — не прошёл пороги или судья решил, что это не площадка; у каждого отказа названы автор и основание. Решение человека сильнее судьи, но вердикт судьи не переписывает: по расхождению между ними видно, как часто он ошибается."
+        />
 
         {/* Плитки без пояснений: доля расхождений («—» до первого решения
-            человека) держала пустую строку под числом у всех шести плиток
-            и опускала их содержимое ниже середины (замечание 26.09.2026). */}
-        <SimpleGrid cols={{ base: 2, sm: 3, lg: 6 }} spacing="sm">
-          {SELECTION_TAB_KEYS.map((value) => (
-            <Metric
-              key={value}
-              title={SELECTION_TABS[value].title}
-              value={formatNumber(data.tabs[value])}
-            />
-          ))}
+            человека) держала пустую строку под числом у всех плиток и опускала
+            их содержимое ниже середины (замечание 26.09.2026). Плиток «Приняты /
+            К разбору / Отклонены» нет: те же числа стоят во вкладках строкой ниже
+            (аудит экранов 09.10.2026: каждое число — один раз, там, где по нему
+            действуют). */}
+        <SimpleGrid cols={{ base: 1, xs: 3 }} spacing="sm" maw={720}>
           <Metric title="Ответили доноры" value={formatNumber(data.answered)} />
           <Metric title="Смотрел человек" value={formatNumber(data.reviewed)} />
           <Metric

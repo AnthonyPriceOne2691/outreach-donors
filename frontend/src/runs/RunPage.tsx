@@ -46,6 +46,7 @@ import { useEffect, useState } from 'react';
 import { refusalOf } from '../api/client';
 import { countryTitle, languageTitle, presetTitle } from '../api/labels';
 import { Metric } from '../components/Metric';
+import { PageHead } from '../components/PageHead';
 import { usePageParam } from '../components/PageSwitch';
 import { buildPool, fetchMarketLanguages, fetchPresets } from '../api/keywords';
 import { ProvenKeywords } from './ProvenKeywords';
@@ -293,14 +294,10 @@ export function RunPage() {
     <Stack gap="lg">
       <Card className="glassPanel" p="xl">
         <Stack gap="md">
-          <Stack gap={6}>
-            <Title order={3}>Прогон</Title>
-            <Text size="sm" c="dimmed" maw={680}>
-              Стоимость называется до того, как её потратят: сначала смета, потом кнопка. Пока смета
-              не посчитана, запускать нечего — прогон без сверки с остатком это прямой путь к
-              выбранному месячному лимиту за один день.
-            </Text>
-          </Stack>
+          <PageHead
+            title="Прогон"
+            hint="Стоимость называется до того, как её потратят: сначала смета, потом кнопка. Пока смета не посчитана, запускать нечего — прогон без сверки с остатком это прямой путь к выбранному месячному лимиту за один день."
+          />
 
           <Stack gap="xs">
             {/* Переключатель и секция сборки — без общего промежутка: отступ

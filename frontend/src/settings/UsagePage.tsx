@@ -15,24 +15,14 @@
  * — подписью, как «подходящих 840» у плиток писем.
  */
 
-import {
-  Alert,
-  Badge,
-  Card,
-  Group,
-  Loader,
-  SimpleGrid,
-  Stack,
-  Table,
-  Text,
-  Title,
-} from '@mantine/core';
+import { Alert, Badge, Card, Group, Loader, SimpleGrid, Stack, Table, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 
 import { refusalOf } from '../api/client';
 import { operationTitle, USAGE_PROVIDERS, usageProvider } from '../api/labels';
 import { Meter } from '../components/Meter';
 import { Metric } from '../components/Metric';
+import { PageHead } from '../components/PageHead';
 import { fetchUsage } from '../api/settings';
 import { formatDate, formatNumber, formatUsd, plural } from '../format';
 
@@ -117,14 +107,10 @@ export function UsagePage() {
     <Stack gap="lg">
       <Card className="glassPanel" p="xl">
         <Stack gap="md">
-          <Stack gap={6}>
-            <Title order={3}>Расход</Title>
-            <Text size="sm" c="dimmed" maw={680}>
-              С {formatDate(data.since)} — лимиты месячные. Остаток спрашивается у провайдера, а не
-              считается по своей таблице: ключ Ahrefs общий с соседней системой, и её траты нам не
-              видны.
-            </Text>
-          </Stack>
+          <PageHead
+            title="Расход"
+            hint={`С ${formatDate(data.since)} — лимиты месячные. Остаток спрашивается у провайдера, а не считается по своей таблице: ключ Ahrefs общий с соседней системой, и её траты нам не видны.`}
+          />
 
           {/* Три числа, и путать их нельзя: остаток у провайдера включает
               траты соседней системы на общем ключе, а с нашим капом
@@ -173,19 +159,24 @@ export function UsagePage() {
                 : `на счету источника выдачи ${formatUsd(data.serp_left_usd)}`}
             </Text>
           </Group>
+
+          {/* Плитки — внутри шапки, как на «Отборе» и «Продажах»: на полотне они
+              стояли отдельным рядом и в тёмной теме читались провалами (аудит
+              экранов 09.10.2026). */}
+          <SimpleGrid cols={{ base: 2, sm: 3, lg: 5 }} spacing="sm">
+            {Object.entries(USAGE_PROVIDERS).map(([key, provider]) => {
+              const tile = tileOf(
+                key,
+                data.units_by_provider[key] ?? 0,
+                Number(data.amount_by_provider[key] ?? '0'),
+              );
+              return (
+                <Metric key={key} title={provider.title} value={tile.value} hint={tile.hint} />
+              );
+            })}
+          </SimpleGrid>
         </Stack>
       </Card>
-
-      <SimpleGrid cols={{ base: 2, sm: 3, lg: 5 }} spacing="sm">
-        {Object.entries(USAGE_PROVIDERS).map(([key, provider]) => {
-          const tile = tileOf(
-            key,
-            data.units_by_provider[key] ?? 0,
-            Number(data.amount_by_provider[key] ?? '0'),
-          );
-          return <Metric key={key} title={provider.title} value={tile.value} hint={tile.hint} />;
-        })}
-      </SimpleGrid>
 
       {/* Поля карточки с таблицей — вместе с полем ячейки те же 32 px, что
           у панели сверху: текст соседних карточек начинается с одного места. */}
