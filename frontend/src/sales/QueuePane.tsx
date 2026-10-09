@@ -61,7 +61,15 @@ function Connection({ view }: { view: SalesQueueView }) {
     );
   }
   return (
-    <Alert color="yellow" title="Продажи к почте не подключены" mx="md">
+    <Alert
+      color="yellow"
+      title="Продажи к почте не подключены"
+      mx="md"
+      // Имя настройки сервера — одно слово длиннее телефона (`OUTREACH_SALES_SENDGRID_API_KEY`):
+      // без переноса где угодно плашка растягивалась по нему и срезала строки справа на
+      // 21 px (снимок 390 px, 09.10.2026).
+      styles={{ message: { overflowWrap: 'anywhere' } }}
+    >
       <Text size="sm">Письма не соберутся и не уйдут, пока не исправлено:</Text>
       <List size="sm" mt={4} spacing={4}>
         {view.missing.map((why) => (

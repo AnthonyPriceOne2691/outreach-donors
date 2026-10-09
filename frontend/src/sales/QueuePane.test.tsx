@@ -169,6 +169,16 @@ describe('очередь писем продаж', () => {
     expect(screen.getByRole('button', { name: 'Отправить очередь · 7' })).toBeDisabled();
   });
 
+  it('не подключены: имя настройки длиннее телефона переносится — плашка не срезает строки (снимок 390 px, 09.10.2026)', async () => {
+    await openQueue({}, OFF);
+
+    const message = screen
+      .getByText('Продажи к почте не подключены')
+      .closest('.mantine-Alert-root')
+      ?.querySelector('.mantine-Alert-message');
+    expect(message?.getAttribute('style') ?? '').toMatch(/overflow-wrap: anywhere/);
+  });
+
   it('сборка уходит гипотезой и числом писем, итог задачи — словами, очередь перечитана', async () => {
     const recorded = await openQueue({
       [`POST ${QUEUE}`]: { body: { job_id: 'job-b' } },
