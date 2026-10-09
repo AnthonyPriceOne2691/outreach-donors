@@ -753,10 +753,20 @@ describe('продажи: гипотеза — одна на раздел, пе�
   });
 });
 
-/** Узкое окно — телефон: заглушку снимает `restoreAllMocks` после теста (`test/setup.ts`). */
-function phone() {
+/** Окно шириной `width` px: запросы `(max-width: …em)` и `(min-width: …em)` отвечают по ней,
+ *  а не по строке запроса — тест не знает, на какой ширине экран меняет раскладку.
+ *  Заглушку снимает `restoreAllMocks` после теста (`test/setup.ts`). */
+function windowOf(width: number) {
+  const fits = (query: string) => {
+    const max = /max-width:\s*([\d.]+)em/.exec(query);
+    const min = /min-width:\s*([\d.]+)em/.exec(query);
+    return (
+      (max === null || width <= Number(max[1]) * 16) &&
+      (min === null || width >= Number(min[1]) * 16)
+    );
+  };
   vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({
-    matches: query.includes('max-width: 36em'),
+    matches: fits(query),
     media: query,
     onchange: null,
     addListener: () => {},
@@ -781,8 +791,27 @@ async function listOf(field: HTMLElement): Promise<HTMLElement> {
 }
 
 describe('продажи: вкладки на телефоне — список «Раздел» (аудит 09.10.2026)', () => {
+  it.each([800, 1024])(
+    'окно %i px: семь вкладок не влезают в панель — тоже список, а не обрезанные вкладки',
+    async (width) => {
+      windowOf(width);
+      await openScreen();
+
+      expect(screen.queryByRole('radiogroup', { name: 'Вкладки продаж' })).toBeNull();
+      expect(screen.getByRole('textbox', { name: 'Раздел' })).toHaveValue('Лиды — 5');
+    },
+  );
+
+  it('широкое окно — вкладки рядом, списка нет', async () => {
+    windowOf(1440);
+    await openScreen();
+
+    expect(screen.getByRole('radiogroup', { name: 'Вкладки продаж' })).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Раздел' })).toBeNull();
+  });
+
   it('на узком окне вместо семи вкладок столбиком — список: рабочие, разделитель, настройки', async () => {
-    phone();
+    windowOf(390);
     await openScreen();
 
     expect(screen.queryByRole('radiogroup', { name: 'Вкладки продаж' })).toBeNull();
@@ -807,7 +836,7 @@ describe('продажи: вкладки на телефоне — список 
   });
 
   it('выбор в списке — смена вкладки, гипотеза раздела с ней', async () => {
-    phone();
+    windowOf(390);
     await openScreen(
       {
         [at('hypothesis=1')]: { body: view([IVAN, TWIN]) },

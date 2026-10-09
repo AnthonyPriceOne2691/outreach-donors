@@ -85,11 +85,14 @@ function tabLabel(key: SalesTab, count: number | undefined): string {
   return count === undefined ? SALES_TABS[key] : `${SALES_TABS[key]} — ${formatNumber(count)}`;
 }
 
-/** Вкладки раздела с числами. На узком окне — список «Раздел»: семь вкладок столбиком
- *  ставили таблицу на 204 px ниже (аудит экранов 09.10.2026), а в ряд резались до первых
- *  букв. В списке рабочие вкладки, черта и настройки — порядок тот же, что у вкладок. */
+/** Вкладки раздела с числами. Где они не влезают в панель — список «Раздел»: на телефоне
+ *  семь вкладок столбиком ставили таблицу на 204 px ниже (аудит экранов 09.10.2026), а на
+ *  800–1024 px вкладки в ряд срезались краем панели — «Воронка» и настройки были
+ *  недосягаемы. Вкладкам в ряд нужно 791 px, панели их столько — с окна в 1 062 px; список —
+ *  до 75em, с запасом на числа побольше. В списке рабочие вкладки, черта и настройки —
+ *  порядок тот же, что у вкладок. */
 function SalesTabs({ tab, counts, onTab }: TabsProps) {
-  const narrow = useMediaQuery('(max-width: 36em)');
+  const narrow = useMediaQuery('(max-width: 75em)');
   const pick = (value: string | null) => {
     const next = SALES_TAB_KEYS.find((key) => key === value);
     if (next !== undefined && next !== tab) onTab(next);
@@ -107,10 +110,12 @@ function SalesTabs({ tab, counts, onTab }: TabsProps) {
           ...SALES_TAB_KEYS.filter((key) => !SETTINGS_TABS.has(key)).map(item),
           { group: 'Настройки', items: settings.map(item) },
         ]}
-        // Все семь пунктов без прокрутки списка; рядом в ряд встаёт «Загрузить базу», и поле
-        // уже пункта «База знаний — 3» — список по содержимому, левым краем по полю.
+        // Все семь пунктов без прокрутки списка. На телефоне рядом в ряд встаёт «Загрузить
+        // базу», и поле уже пункта «База знаний — 3» — список по содержимому, левым краем по
+        // полю; на окне пошире поле — по значению, не шире 16rem, а не на весь ряд.
         maxDropdownHeight={360}
         comboboxProps={{ ...dropdownBelow, width: 'max-content' }}
+        maw="16rem"
         style={{ flex: '1 1 8rem' }}
       />
     );
