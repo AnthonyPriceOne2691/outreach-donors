@@ -835,6 +835,9 @@ describe('продажи: гипотезы', () => {
       '/sales?state=ready&hypothesis=1',
     );
     expect(row.getByText('5')).toBeInTheDocument();
+    // Число-ссылка — чернилами с подчёркиванием: бирюзовая на светлом стекле намерилась
+    // 4,25 : 1 при норме 4,5 (замер 09.10.2026), чернила держат норму на любом месте полотна.
+    expect(row.getByRole('link', { name: '1' })).toHaveClass('inkLink');
     // Список лидов на этой вкладке не спрашивается: таблицы лидов здесь нет.
     expect(screen.queryByText('ivan@acme.example.test')).not.toBeInTheDocument();
   });

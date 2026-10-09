@@ -37,8 +37,19 @@ function Count({ value, to }: { value: number; to: string }) {
       </Text>
     );
   }
+  // Чернилами с подчёркиванием (`inkLink`), а не бирюзой: бирюзовое число на светлом стекле
+  // намерилось 4,25 : 1 при норме 4,5 (замер 09.10.2026) — тот же урок, что у «Переписки»
+  // на экране писем 07.10.
   return (
-    <Anchor component={Link} to={to} size="sm" fw={500}>
+    <Anchor
+      component={Link}
+      to={to}
+      size="sm"
+      fw={500}
+      c="var(--ink)"
+      underline="always"
+      className="inkLink"
+    >
       {formatNumber(value)}
     </Anchor>
   );
