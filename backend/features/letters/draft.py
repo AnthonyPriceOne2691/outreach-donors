@@ -27,7 +27,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from backend.features.core.domain import Stage
-from backend.features.crawl.niche import LINKS
+from backend.features.crawl.niche import LINKS, WHOM
 from backend.features.letters import compose, guards
 from backend.features.letters.template import (
     HEADER_RE,
@@ -52,7 +52,12 @@ TITLES: dict[str, str] = {
 
 
 class LetterConflictError(ValueError):
-    """У рассылки уже свой текст письма, а прислан другой."""
+    """У рассылки уже свой текст письма или своя аудитория, а прислано другое.
+
+    Постоянный отказ: повтор задачи сборки его не исправит (`runs/failures.is_permanent`).
+    """
+
+    permanent = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +155,16 @@ def _check_values(checked: Template, stage: Stage, audience: str = LINKS) -> Non
         allowed = ", ".join(f"{{{{{name}}}}}" for name in sorted(known))
         raise TemplateError(f"Неизвестные подстановки: {names}. Есть только {allowed}")
     guards.assert_no_metrics(f"{checked.subject}\n{checked.body}")
+
+
+def assert_same_audience(*, campaign: str, stored: str, sent: str) -> None:
+    """Одноимённая рассылка переиспользуется — и письма другой аудитории легли бы в неё
+    со своим оффером и чужими добивками. Отказ словами — до постановки сборки."""
+    if stored != sent:
+        raise LetterConflictError(
+            f"Рассылка «{campaign}» уже идёт {WHOM.get(stored, stored)} — "
+            "для этих писем назовите новую"
+        )
 
 
 def assert_same(*, campaign: str, stored: str | None, sent: str) -> None:

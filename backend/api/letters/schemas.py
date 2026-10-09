@@ -201,7 +201,7 @@ class LetterDraftBody(BaseModel):
 Audience = Literal["links", "niche"]
 
 
-def _stage_two_only(stage: Stage, audience: str) -> None:
+def stage_two_only(stage: Stage, audience: str) -> None:
     """Бизнесы ниши — только Этап 2: им предлагают размещение, а донору — вопрос о цене."""
     if audience != LINKS and stage is not Stage.ADVERTISERS:
         raise ValueError(
@@ -274,7 +274,7 @@ class BuildRequestBody(BaseModel):
 
     @model_validator(mode="after")
     def _niche_is_stage_two(self) -> BuildRequestBody:
-        _stage_two_only(self.stage, self.audience)
+        stage_two_only(self.stage, self.audience)
         return self
 
 
@@ -294,7 +294,7 @@ class SendQueueBody(BaseModel):
 
     @model_validator(mode="after")
     def _niche_is_stage_two(self) -> SendQueueBody:
-        _stage_two_only(self.stage, self.audience)
+        stage_two_only(self.stage, self.audience)
         return self
 
 

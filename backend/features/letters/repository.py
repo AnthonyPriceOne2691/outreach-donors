@@ -30,7 +30,7 @@ from backend.features.core.stages import SALES_ELSEWHERE, SalesNotConnectedError
 from backend.features.crawl.niche import LINKS, NICHE
 from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.compose import FoundLink
-from backend.features.letters.draft import LetterConflictError
+from backend.features.letters.draft import assert_same_audience
 from backend.features.letters.funnel import AdvertiserFunnel, Funnel
 from backend.features.letters.niche_recipients import NicheRecipients
 from backend.features.letters.recipients import Candidate, Recipients, donor_geo_of
@@ -254,11 +254,7 @@ class LetterRepository:
         """
         found = await self.find_campaign(name=name, stage=stage)
         if found is not None:
-            if found.audience != audience:
-                raise LetterConflictError(
-                    f"Рассылка «{name}» уже идёт для другой аудитории ({found.audience}) — "
-                    "назовите новую"
-                )
+            assert_same_audience(campaign=name, stored=found.audience, sent=audience)
             return found
 
         created = CampaignModel(

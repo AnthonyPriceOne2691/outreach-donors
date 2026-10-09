@@ -269,8 +269,9 @@ async def niche_decide(
     author: UserModel = _reviewer,
     session: AsyncSession = Depends(db_session),
 ) -> NicheCard:
-    """«Пишем» открывает поиск адреса и письмо; «не пишем» запоминается."""
-    await niche.decide(session, advertiser_id, write=body.write, by=author.email)
+    """«Пишем» открывает поиск адреса и письмо; «не пишем» запоминается и снимает
+    собранные ему письма — из очереди и со сроков добивок."""
+    decided = await niche.decide(session, advertiser_id, write=body.write, by=author.email)
     row = await niche.row_of(session, advertiser_id)
     await AccessRepository(session).record(
         AuditAction.ADVERTISER_REVIEWED,
@@ -280,6 +281,7 @@ async def niche_decide(
             "рекламодатель": row.host,
             "источник": f"выдача прогона №{row.run_id}",
             "решение": "пишем" if body.write else "не пишем",
+            **({"снято писем": decided.stopped} if decided.stopped else {}),
         },
     )
     await session.commit()

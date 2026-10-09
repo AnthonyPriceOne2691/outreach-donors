@@ -145,7 +145,9 @@ class TestHumanDecision:
         await niche.collect(session, run_id)
         bookie = (await _advertisers(session))["bookie.example.test"]
 
-        decided = await niche.decide(session, bookie.id, write=False, by="anthony@site.test")
+        decided = (
+            await niche.decide(session, bookie.id, write=False, by="anthony@site.test")
+        ).advertiser
 
         assert decided.confirmed_by_human is False
         assert decided.decided_by == "anthony@site.test"

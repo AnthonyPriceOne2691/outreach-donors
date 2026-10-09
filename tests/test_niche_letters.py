@@ -34,6 +34,7 @@ from backend.features.core.models.run import RunModel
 from backend.features.crawl import niche
 from backend.features.donors.verdict import Thresholds
 from backend.features.letters import batch, compose, template, unknown_outcome
+from backend.features.letters.draft import LetterConflictError
 from backend.features.letters.niche_recipients import NicheRecipients
 from backend.features.letters.transport import NullTransport
 from backend.features.runs.repository import RunRepository
@@ -188,7 +189,9 @@ class TestBuild:
         await _business(session)
         await build_offers(session, campaign_name="Октябрь")
 
-        with pytest.raises(Exception, match="для другой аудитории"):
+        with pytest.raises(
+            LetterConflictError, match="уже идёт рекламодателям по найденной ссылке"
+        ):
             await build_offers(session, campaign_name="Октябрь", audience=niche.NICHE)
 
 
@@ -268,6 +271,42 @@ class TestScreen:
         assert "только на Этапе 2" in refused.text
         assert len(queue.kwargs) == 1
 
+    async def test_same_name_for_another_audience_is_refused_before_the_job(
+        self,
+        client: AsyncClient,
+        token: str,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+        filled_legal: None,
+    ) -> None:
+        """Одноимённая рассылка другой аудитории — 409 у формы: задача сборки отказала бы
+        через минуты, после повторов."""
+        await priced_donor(session, DONOR)
+        await _business(session)
+        await build_offers(session, campaign_name="Октябрь")
+        await session.commit()
+        queue = FakeQueue()
+        monkeypatch.setattr("backend.api.letters.routes.runs_queue", lambda: queue)
+
+        refused = await client.post(
+            "/api/letters/build",
+            json={"campaign": "Октябрь", "stage": "advertisers", "audience": "niche"},
+            headers=bearer(token),
+        )
+
+        assert refused.status_code == 409, refused.text
+        assert "назовите новую" in refused.json()["detail"]
+        assert queue.kwargs == []
+
+    @pytest.mark.parametrize("path", ["/api/letters", "/api/letters/unknown"])
+    async def test_niche_view_is_stage_two_only(
+        self, client: AsyncClient, token: str, path: str
+    ) -> None:
+        shown = await client.get(f"{path}?stage=donors&audience=niche", headers=bearer(token))
+
+        assert shown.status_code == 422
+        assert "только на Этапе 2" in shown.text
+
     async def test_edit_is_measured_against_the_niche_offer_until_it_is_gone(
         self, client: AsyncClient, token: str, session: AsyncSession, filled_legal: None
     ) -> None:
@@ -299,6 +338,60 @@ class TestScreen:
         assert edited.json()["uniqueness"] == 0.0
         assert gone.status_code == 409
         assert "больше не собрать" in gone.json()["detail"]
+
+
+class TestNotWritingAfterTheBuild:
+    """Отправка решение человека не перепроверяет: «не пишем» после сборки снимает письма."""
+
+    async def test_not_writing_stops_the_niche_letter_and_its_reminders(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        by_link, to_niche = await _both_queued(session)
+        advertiser = await session.scalar(
+            select(AdvertiserModel).where(AdvertiserModel.domain_id == to_niche.domain_id)
+        )
+        assert advertiser is not None
+        # Тот же домен — и в рассылке по ссылке: её письмо решает своё решение.
+        by_link.domain_id = to_niche.domain_id
+        await session.flush()
+
+        decided = await niche.decide(session, advertiser.id, write=False, by="anthony@site.test")
+
+        assert decided.stopped == 1
+        assert await _statuses(session, to_niche, by_link) == [
+            MessageStatus.STOPPED,
+            MessageStatus.QUEUED,
+        ]
+
+    async def test_not_writing_after_the_first_letter_clears_the_reminders(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        _, to_niche = await _both_queued(session)
+        to_niche.status = MessageStatus.SENT
+        to_niche.next_action_at = datetime.now(UTC) + timedelta(days=3)
+        await session.flush()
+        advertiser = await session.scalar(
+            select(AdvertiserModel).where(AdvertiserModel.domain_id == to_niche.domain_id)
+        )
+        assert advertiser is not None
+
+        decided = await niche.decide(session, advertiser.id, write=False, by="anthony@site.test")
+
+        await session.refresh(to_niche)
+        assert decided.stopped == 1
+        assert (to_niche.status, to_niche.next_action_at) == (MessageStatus.SENT, None)
+
+    async def test_writing_stops_nothing(self, session: AsyncSession, filled_legal: None) -> None:
+        _, to_niche = await _both_queued(session)
+        advertiser = await session.scalar(
+            select(AdvertiserModel).where(AdvertiserModel.domain_id == to_niche.domain_id)
+        )
+        assert advertiser is not None
+
+        decided = await niche.decide(session, advertiser.id, write=True, by="anthony@site.test")
+
+        assert decided.stopped == 0
+        assert await _statuses(session, to_niche) == [MessageStatus.QUEUED]
 
 
 async def _both_queued(session: AsyncSession) -> tuple[MessageModel, MessageModel]:

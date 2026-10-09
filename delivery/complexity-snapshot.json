@@ -17,7 +17,7 @@
       "worst": "—"
     },
     "backend/api/advertisers/routes.py": {
-      "lines": 301,
+      "lines": 303,
       "complexity": 4,
       "worst": "decide:108"
     },
@@ -187,9 +187,9 @@
       "worst": "—"
     },
     "backend/api/letters/routes.py": {
-      "lines": 331,
-      "complexity": 6,
-      "worst": "build:102"
+      "lines": 352,
+      "complexity": 5,
+      "worst": "build:104"
     },
     "backend/api/letters/schemas.py": {
       "lines": 377,
@@ -1052,9 +1052,9 @@
       "worst": "marker_reason:71"
     },
     "backend/features/crawl/niche.py": {
-      "lines": 232,
+      "lines": 279,
       "complexity": 7,
-      "worst": "collect:63"
+      "worst": "collect:68"
     },
     "backend/features/crawl/page_facts.py": {
       "lines": 221,
@@ -1302,9 +1302,9 @@
       "worst": "unset_reason:262"
     },
     "backend/features/letters/draft.py": {
-      "lines": 169,
+      "lines": 184,
       "complexity": 6,
-      "worst": "to_text:87"
+      "worst": "to_text:92"
     },
     "backend/features/letters/events.py": {
       "lines": 305,
@@ -1382,7 +1382,7 @@
       "worst": "message_id_from:121"
     },
     "backend/features/letters/repository.py": {
-      "lines": 326,
+      "lines": 322,
       "complexity": 6,
       "worst": "candidates:93"
     },

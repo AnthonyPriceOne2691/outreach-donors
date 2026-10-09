@@ -43,13 +43,14 @@ from backend.api.letters.schemas import (
     Transport,
     UnknownLetterCard,
     UnknownLettersView,
+    stage_two_only,
 )
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.outreach import CampaignModel
 from backend.features.core.stages import check_connected
-from backend.features.crawl.niche import NICHE
+from backend.features.crawl.niche import NICHE, WHOM
 from backend.features.letters import batch, compose, draft, review, unknown_outcome
 from backend.features.letters.building import run_scope
 from backend.features.letters.compose import NicheOffer
@@ -82,6 +83,7 @@ async def queue(
 ) -> LettersView:
     """Очередь этапа и аудитории: у бизнесов ниши свои письма, счёт для пачки, текст
     и воронка — «Отправить очередь · N» на их вкладке называет только их письма."""
+    _stage_two(stage, audience)
     repository = LetterRepository(session)
     queued = await repository.queued(stage=stage, audience=audience)
     return LettersView(
@@ -111,6 +113,7 @@ async def build(
     и не рядом с формой.
     """
     letter_template = await _checked_letter(body, session)
+    await _same_audience(body, session)
     # Прогоны — здесь, до очереди: разные страны и неоконченный поиск контактов
     # человек должен увидеть у формы, а не в отчёте задачи через минуты.
     scope = await run_scope(LetterRepository(session), body.run_ids, stage=body.stage)
@@ -139,11 +142,28 @@ async def build(
             "добивки, дней": body.followup_days or "по умолчанию",
             "текст письма": "поправлен" if letter_template else "по умолчанию",
             "прогоны": body.run_ids or "все принятые",
-            "кому": "бизнесам ниши" if body.audience == NICHE else "по найденным ссылкам",
+            "кому": WHOM[body.audience],
         },
     )
     await session.commit()
     return BuildQueued(job_id=str(job.id))
+
+
+def _stage_two(stage: Stage, audience: Audience) -> None:
+    """Бизнесы ниши — только Этап 2, как у сборки и пачки: тело проверяет схема, адрес — здесь."""
+    try:
+        stage_two_only(stage, audience)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from None
+
+
+async def _same_audience(body: BuildRequestBody, session: AsyncSession) -> None:
+    """Одноимённая рассылка другой аудитории — отказ у формы, а не в задаче через минуты."""
+    found = await LetterRepository(session).find_campaign(name=body.campaign, stage=body.stage)
+    if found is not None:
+        draft.assert_same_audience(
+            campaign=body.campaign, stored=found.audience, sent=body.audience
+        )
 
 
 async def _checked_letter(body: BuildRequestBody, session: AsyncSession) -> str | None:
@@ -309,6 +329,7 @@ async def unknown(
     """Письма этапа и аудитории, застрявшие в «отправляется»: связь с почтой оборвалась
     посреди передачи, и ушли ли они, неизвестно (`letters/unknown_outcome.py`). У каждой
     вкладки — свои: письмо бизнеса ниши решают там, откуда ушла его пачка."""
+    _stage_two(stage, audience)
     found = await unknown_outcome.stuck(session, stage=stage, audience=audience)
     return UnknownLettersView(stage=stage, letters=[UnknownLetterCard.of(row) for row in found])
 
