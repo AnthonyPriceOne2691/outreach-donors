@@ -22,7 +22,6 @@
  */
 
 import { Badge, Button, Card, Group, Radio, Stack, Text, TextInput, Textarea } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
@@ -35,6 +34,7 @@ import { answerReply, fetchThread } from '../api/outreach';
 import type { ThreadView } from '../api/thread';
 import type { SendResult } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
+import { notify } from '../notices';
 
 /** По этим черновикам ещё есть что решать. */
 const LIVE = new Set(['drafted', 'escalated', 'skipped']);
@@ -102,7 +102,7 @@ function useDecision(threadId: number, draft: DraftCard) {
     // Список диалогов тоже меняется: переписка перестаёт ждать человека.
     await queryClient.invalidateQueries({ queryKey: ['thread', String(threadId)] });
     await queryClient.invalidateQueries({ queryKey: ['threads'] });
-    notifications.show({ message, color });
+    notify({ message, color });
   }
   const send = useMutation({
     // Пропущенный черновик пуст: «Ответить всё же» — обычный ответ из
@@ -113,13 +113,13 @@ function useDecision(threadId: number, draft: DraftCard) {
         : sendDraft(draft.id, body),
     onSuccess: (sent) => settled(sentWords(sent), sent.real ? 'green' : 'yellow'),
     onError: (failure) =>
-      notifications.show({ title: 'Не отправили', message: refusalOf(failure), color: 'red' }),
+      notify({ title: 'Не отправили', message: refusalOf(failure), color: 'red' }),
   });
   const reject = useMutation({
     mutationFn: (reason: string) => rejectDraft(draft.id, reason),
     onSuccess: () => settled('Черновик отклонён, причина записана', 'green'),
     onError: (failure) =>
-      notifications.show({ title: 'Не отклонили', message: refusalOf(failure), color: 'red' }),
+      notify({ title: 'Не отклонили', message: refusalOf(failure), color: 'red' }),
   });
   return { send, reject, busy: send.isPending || reject.isPending };
 }

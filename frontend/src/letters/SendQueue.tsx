@@ -30,7 +30,6 @@
  */
 
 import { Alert, Button, Group, Modal, Stack, Text } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { useMutation } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 
@@ -41,6 +40,7 @@ import type { Stage } from '../api/stages';
 import { formatNumber, plural } from '../format';
 import { JobLine } from '../jobs/JobLine';
 import { remember, remembered } from '../storage';
+import { notify } from '../notices';
 
 /** Где помнится последняя пачка вкладки. «По ссылке» — прежний ключ этапа. */
 const keyOf = (stage: Stage, audience: LetterAudience) =>
@@ -94,7 +94,7 @@ export function SendQueue({
       setOpened(false);
       setJobId(queued.job_id);
       remember(keyOf(stage, audience), queued.job_id);
-      notifications.show({
+      notify({
         message: `Пачка ушла в очередь задач: писем ${formatNumber(queued.queued)}`,
         color: 'green',
       });

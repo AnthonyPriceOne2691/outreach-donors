@@ -42,7 +42,6 @@ import {
   Title,
 } from '@mantine/core';
 import { useDebouncedValue } from '@mantine/hooks';
-import { notifications } from '@mantine/notifications';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -57,6 +56,7 @@ import { useSession } from '../auth/AuthProvider';
 import { formatDateTime, formatNumber } from '../format';
 import { bodyOf, fieldRefusal, rangeText, THRESHOLD_KEYS, typed } from './thresholdDraft';
 import type { ThresholdDraft, ThresholdKey } from './thresholdDraft';
+import { notify } from '../notices';
 
 const THRESHOLDS_KEY = ['thresholds'] as const;
 
@@ -150,13 +150,13 @@ export function ThresholdsPage() {
     mutationFn: (sent: ThresholdsBody) => saveThresholds(sent),
     onSuccess: async (version) => {
       await queryClient.invalidateQueries({ queryKey: THRESHOLDS_KEY });
-      notifications.show({
+      notify({
         message: `Пороги сохранены как версия ${version.version}. Прошлые вердикты не переписаны.`,
         color: 'green',
       });
     },
     onError: (failure) =>
-      notifications.show({ title: 'Не сохранили', message: refusalOf(failure), color: 'red' }),
+      notify({ title: 'Не сохранили', message: refusalOf(failure), color: 'red' }),
   });
 
   // Отказ — раньше ожидания: черновик заводится от ответа, и без ответа

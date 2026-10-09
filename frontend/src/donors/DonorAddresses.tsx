@@ -46,7 +46,6 @@ import {
   TextInput,
   Title,
 } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { IconLock, IconTrash } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useState } from 'react';
@@ -61,6 +60,7 @@ import { useSession } from '../auth/AuthProvider';
 import { formatDate } from '../format';
 import { JobLine } from '../jobs/JobLine';
 import { CONTACTS_QUERY_KEY } from './PendingContacts';
+import { notify } from '../notices';
 
 /** Пока задача не кончилась, второй поиск не предлагается. */
 const ACTIVE: ReadonlySet<JobState> = new Set(['queued', 'running', 'retry_wait']);
@@ -305,7 +305,7 @@ function AddAddress({
     onSuccess: (card) => {
       setEmail('');
       onAdded(card);
-      notifications.show({ message: 'Адрес записан', color: 'green' });
+      notify({ message: 'Адрес записан', color: 'green' });
     },
   });
   return (
@@ -374,10 +374,10 @@ export function DonorAddresses({ donor }: { donor: DonorFullCard }) {
     onSuccess: (queued) => {
       remember(jobKey(donor.id), queued.job_id);
       setJobId(queued.job_id);
-      notifications.show({ message: 'Поиск адреса поставлен в очередь', color: 'green' });
+      notify({ message: 'Поиск адреса поставлен в очередь', color: 'green' });
     },
     onError: (failure) =>
-      notifications.show({ title: 'Не поставили', message: refusalOf(failure), color: 'red' }),
+      notify({ title: 'Не поставили', message: refusalOf(failure), color: 'red' }),
   });
 
   // Адрес вписали или удалили — карточка приходит в ответе целиком, а списку
@@ -396,10 +396,10 @@ export function DonorAddresses({ donor }: { donor: DonorFullCard }) {
     mutationFn: (contact: ContactCard) => removeDonorAddress(donor.id, contact.id),
     onSuccess: (card, contact) => {
       changed(card);
-      notifications.show({ message: `Адрес ${contact.email} удалён`, color: 'green' });
+      notify({ message: `Адрес ${contact.email} удалён`, color: 'green' });
     },
     onError: (failure) =>
-      notifications.show({ title: 'Не удалили', message: refusalOf(failure), color: 'red' }),
+      notify({ title: 'Не удалили', message: refusalOf(failure), color: 'red' }),
   });
 
   // Кончился поиск — перечитать карточку (адрес, исход, причина отказа),

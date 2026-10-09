@@ -25,7 +25,6 @@
  */
 
 import { Alert, Badge, Card, Group, Loader, Stack, Text, Title } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useLocation, useOutletContext, useParams } from 'react-router-dom';
@@ -45,6 +44,7 @@ import { ThreadFeed } from './ThreadFeed';
 import { ThreadMailLine, ThreadMailWaiting } from './ThreadMailLine';
 import type { ThreadOutlet } from './ThreadsScreen';
 import { activeReply, answerTarget } from './threadTimeline';
+import { notify } from '../notices';
 
 /** Диалога нет: номер негодный или такого нет в базе. */
 function NoSuchThread({ back, said }: { back: string | null; said: string }) {
@@ -99,13 +99,13 @@ export function ThreadPage() {
       await queryClient.invalidateQueries({ queryKey: ['thread', String(id)] });
       await queryClient.invalidateQueries({ queryKey: ['threads'] });
       if (result.seller_answer === 'declines') {
-        notifications.show({
+        notify({
           message: 'Отмечено: донор не продаёт размещения — домен уходит из отбора на год',
           color: 'green',
         });
         return;
       }
-      notifications.show({
+      notify({
         message: result.stored_price
           ? 'Цена подтверждена и записана в карточку донора'
           : 'Подтверждено. Цены в ответе нет — в карточку донора ничего не пошло',
@@ -113,7 +113,7 @@ export function ThreadPage() {
       });
     },
     onError: (failure) =>
-      notifications.show({ title: 'Не подтвердили', message: refusalOf(failure), color: 'red' }),
+      notify({ title: 'Не подтвердили', message: refusalOf(failure), color: 'red' }),
   });
 
   const lead = useMutation({
@@ -122,7 +122,7 @@ export function ThreadPage() {
       // Список тоже меняется: лид перестаёт ждать человека.
       await queryClient.invalidateQueries({ queryKey: ['thread', String(id)] });
       await queryClient.invalidateQueries({ queryKey: ['threads'] });
-      notifications.show({
+      notify({
         message:
           taken.handoff === 'queued'
             ? 'Лид взят в работу и передаётся в CRM'
@@ -130,8 +130,7 @@ export function ThreadPage() {
         color: 'green',
       });
     },
-    onError: (failure) =>
-      notifications.show({ title: 'Не взяли', message: refusalOf(failure), color: 'red' }),
+    onError: (failure) => notify({ title: 'Не взяли', message: refusalOf(failure), color: 'red' }),
   });
 
   const answer = useMutation({
@@ -147,7 +146,7 @@ export function ThreadPage() {
     onSuccess: async (sent) => {
       await queryClient.invalidateQueries({ queryKey: ['thread', String(id)] });
       await queryClient.invalidateQueries({ queryKey: ['threads'] });
-      notifications.show({
+      notify({
         message: sent.real
           ? `Ответ отправлен с ${sent.sender_email}`
           : 'Ответ записан, но не ушёл: почта выключена (транспорт null)',
@@ -155,14 +154,14 @@ export function ThreadPage() {
       });
     },
     onError: (failure) =>
-      notifications.show({ title: 'Не отправили', message: refusalOf(failure), color: 'red' }),
+      notify({ title: 'Не отправили', message: refusalOf(failure), color: 'red' }),
   });
 
   const handoff = useMutation({
     mutationFn: (replyId: number) => sendLead(replyId),
-    onSuccess: () => notifications.show({ message: 'Передача в CRM поставлена', color: 'green' }),
+    onSuccess: () => notify({ message: 'Передача в CRM поставлена', color: 'green' }),
     onError: (failure) =>
-      notifications.show({ title: 'Не передали', message: refusalOf(failure), color: 'red' }),
+      notify({ title: 'Не передали', message: refusalOf(failure), color: 'red' }),
   });
 
   if (id === null) {

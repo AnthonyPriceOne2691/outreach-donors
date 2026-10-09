@@ -36,7 +36,6 @@
 
 import { Alert, Badge, Button, Card, Grid, Group, Loader, Stack, Text, Title } from '@mantine/core';
 import { useMediaQuery, useReducedMotion } from '@mantine/hooks';
-import { notifications } from '@mantine/notifications';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RefObject } from 'react';
@@ -62,6 +61,7 @@ import { ABOUT, TARGETS, audienceOf, poolHint, stageOf, targetOf } from './targe
 import { UnknownOutcome } from './UnknownOutcome';
 import { remember, remembered } from '../storage';
 import { JobLine } from '../jobs/JobLine';
+import { notify } from '../notices';
 
 /** Уже этого очередь и письмо стоят друг под другом (граница `md` у сетки). */
 const ONE_COLUMN = '(max-width: 61.99em)';
@@ -195,13 +195,13 @@ export function LettersPage() {
       setBuildJobs((was) => ({ ...was, [target]: queued.job_id }));
       remember(jobKeyOf(target), queued.job_id);
       await refresh();
-      notifications.show({
+      notify({
         message: 'Сборка ушла в очередь задач: каждое письмо стоит вызова модели, это минуты',
         color: 'green',
       });
     },
     onError: (failure) =>
-      notifications.show({
+      notify({
         title: 'Не собрали',
         message: settingsInWords(refusalOf(failure)),
         color: 'red',
@@ -213,7 +213,7 @@ export function LettersPage() {
     onSuccess: async (result) => {
       setHeld(true);
       await refresh();
-      notifications.show({
+      notify({
         message: result.real
           ? `Письмо ушло с ящика ${result.sender_email}`
           : `Письмо помечено отправленным, но наружу НЕ ушло: транспорт не настроен`,
@@ -221,7 +221,7 @@ export function LettersPage() {
       });
     },
     onError: (failure) =>
-      notifications.show({
+      notify({
         title: 'Не отправили',
         message: settingsInWords(refusalOf(failure)),
         color: 'red',
@@ -232,13 +232,13 @@ export function LettersPage() {
     mutationFn: (id: number) => skipLetter(id),
     onSuccess: async () => {
       await refresh();
-      notifications.show({
+      notify({
         message: `Письмо убрано из очереди, этот ${ABOUT[target].who} в следующей сборке не появится`,
         color: 'yellow',
       });
     },
     onError: (failure) =>
-      notifications.show({
+      notify({
         title: 'Не убрали',
         message: settingsInWords(refusalOf(failure)),
         color: 'red',
@@ -250,7 +250,7 @@ export function LettersPage() {
       editLetter(id, { subject, body }),
     onSuccess: async (letter) => {
       await refresh();
-      notifications.show({
+      notify({
         message: `Сохранено, отличие от шаблона — ${
           data === undefined
             ? formatPercent(letter.uniqueness)
@@ -260,7 +260,7 @@ export function LettersPage() {
       });
     },
     onError: (failure) =>
-      notifications.show({
+      notify({
         title: 'Не сохранили',
         message: settingsInWords(refusalOf(failure)),
         color: 'red',

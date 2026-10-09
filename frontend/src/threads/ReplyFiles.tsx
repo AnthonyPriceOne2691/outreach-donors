@@ -19,7 +19,6 @@
  */
 
 import { Alert, Badge, Button, Divider, Group, Loader, Modal, Stack, Text } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { IconPaperclip } from '@tabler/icons-react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -29,6 +28,7 @@ import { saveFile } from '../api/donors';
 import type { ReplyFile } from '../api/files';
 import { downloadAttachment, fetchAttachmentText } from '../api/outreach';
 import { formatBytes, formatNumber } from '../format';
+import { notify } from '../notices';
 
 interface Props {
   replyId: number;
@@ -83,7 +83,7 @@ export function ReplyFiles({ replyId, files }: Props) {
     mutationFn: (file: ReplyFile) => downloadAttachment(replyId, file.id),
     onSuccess: (got, file) => saveFile(got, file.name),
     onError: (failure) =>
-      notifications.show({ title: 'Файл не скачался', message: refusalOf(failure), color: 'red' }),
+      notify({ title: 'Файл не скачался', message: refusalOf(failure), color: 'red' }),
   });
 
   if (files.length === 0) return null;

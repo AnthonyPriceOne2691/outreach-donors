@@ -25,7 +25,6 @@ import {
   Text,
 } from '@mantine/core';
 import { IconUserPlus } from '@tabler/icons-react';
-import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
@@ -39,6 +38,7 @@ import { formatDateTime } from '../format';
 import { CreateUserModal } from './CreateUserModal';
 import { OneTimePasswordModal } from './OneTimePasswordModal';
 import { PermissionsPopover } from './PermissionsPopover';
+import { notify } from '../notices';
 
 const USERS_QUERY_KEY = ['users'] as const;
 
@@ -64,10 +64,10 @@ export function UsersPage() {
       // Правка своих прав меняет то, что человек видит прямо сейчас,
       // — карточку себя надо перечитать, иначе меню останется прежним.
       if (updated.id === me?.id) await refresh();
-      notifications.show({ message: `Учётка ${updated.email} обновлена`, color: 'green' });
+      notify({ message: `Учётка ${updated.email} обновлена`, color: 'green' });
     },
     onError: (failure) =>
-      notifications.show({ title: 'Не изменили', message: refusalOf(failure), color: 'red' }),
+      notify({ title: 'Не изменили', message: refusalOf(failure), color: 'red' }),
   });
 
   const reset = useMutation({
@@ -77,7 +77,7 @@ export function UsersPage() {
       setIssued(result);
     },
     onError: (failure) =>
-      notifications.show({ title: 'Не сбросили', message: refusalOf(failure), color: 'red' }),
+      notify({ title: 'Не сбросили', message: refusalOf(failure), color: 'red' }),
   });
 
   if (isLoading) return <Loader aria-label="Загружаем учётки" m="md" />;

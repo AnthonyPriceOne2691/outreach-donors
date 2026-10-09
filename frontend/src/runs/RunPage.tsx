@@ -38,7 +38,6 @@ import {
   TagsInput,
   Title,
 } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { IconCalculator, IconPlayerPlay, IconSparkles } from '@tabler/icons-react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
@@ -66,6 +65,7 @@ import {
 } from './depth';
 import type { Depth } from './depth';
 import { Unfold } from './Unfold';
+import { notify } from '../notices';
 
 /** Набор углов, пока человек не выбрал другой, — тот же, что берёт сервер
  *  по умолчанию (`angles.DEFAULT_PRESET`). */
@@ -237,7 +237,7 @@ export function RunPage() {
       // их и правит до сметы. Смета и кап остаются последним рубежом.
       setKeywords(built.keywords.join('\n'));
       setForecast(null);
-      notifications.show({
+      notify({
         title: `Собрано ${keywordsTitle(built.keywords.length)}`,
         message:
           built.refusals.length > 0
@@ -247,7 +247,7 @@ export function RunPage() {
       });
     },
     onError: (failure) =>
-      notifications.show({
+      notify({
         title: 'Пул не собрался',
         message: refusalOf(failure),
         color: 'red',
@@ -261,7 +261,7 @@ export function RunPage() {
       setAskedFor(JSON.stringify(asked));
     },
     onError: (failure) =>
-      notifications.show({
+      notify({
         title: 'Смета не посчиталась',
         message: refusalOf(failure),
         color: 'red',
@@ -271,7 +271,7 @@ export function RunPage() {
   const launch = useMutation({
     mutationFn: () => startRun(body),
     onSuccess: async (queued) => {
-      notifications.show({ title: 'Прогон в очереди', message: queued.note, color: 'green' });
+      notify({ title: 'Прогон в очереди', message: queued.note, color: 'green' });
       setForecast(null);
       // Новый прогон встаёт первым на первой странице — туда и ведём, иначе
       // со второй страницы запуск выглядел бы как «ничего не случилось».
@@ -280,7 +280,7 @@ export function RunPage() {
       await queryClient.invalidateQueries({ queryKey: ['runs'] });
     },
     onError: (failure) =>
-      notifications.show({ title: 'Прогон не запущен', message: refusalOf(failure), color: 'red' }),
+      notify({ title: 'Прогон не запущен', message: refusalOf(failure), color: 'red' }),
   });
 
   // Смета устаревает, как только меняют ключи, страну, глубину или потолок:

@@ -29,7 +29,6 @@
  */
 
 import { Button, Card, Group, Loader, Stack, Text, Title } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
@@ -57,6 +56,7 @@ import { exportOutcome, exportPlan } from './exporting';
 import { usePendingContacts } from './PendingContacts';
 import { usePicks } from './picks';
 import { useTyped } from './useTyped';
+import { notify } from '../notices';
 
 /** Набранный поиск совпадает с адресом без пробелов по краям: пробел
  *  в конце — это ещё набор, а не новый фильтр. */
@@ -140,10 +140,10 @@ export function DonorsPage() {
       plan?.picked === true ? exportPicked([...picks.picked]) : exportDonors(queryOf(filters)),
     onSuccess: (file) => {
       saveFile(file, 'donors.csv');
-      notifications.show({ message: exportOutcome(exportCounts(file), plan?.picked === true) });
+      notify({ message: exportOutcome(exportCounts(file), plan?.picked === true) });
     },
     onError: (failure) =>
-      notifications.show({
+      notify({
         title: 'Выгрузка не удалась',
         message: refusalOf(failure),
         color: 'red',
