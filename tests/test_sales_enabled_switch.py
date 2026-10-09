@@ -17,8 +17,12 @@ from datetime import UTC, datetime, timedelta
 from functools import partial
 
 import pytest
+from backend.cli import sales_handoffs as console_cli
+from backend.cli.main import main
 from backend.config import sales as sales_cfg
+from backend.config import storage
 from backend.features.core.domain import ReplyKind
+from backend.features.core.models.access import AuditLogModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import ReplyModel
 from backend.features.replies import outcome
@@ -32,6 +36,7 @@ from backend.features.sales.reply_kind import KindFound, SalesKind
 from backend.workers import sales_jobs
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from tests.conftest import TEST_DSN
 from tests.test_sales_handoff_jobs import wired
 from tests.test_sales_handoff_rows import sales_dialog
 from tests.test_sales_reply_handoff import TALK, Start
@@ -245,3 +250,163 @@ async def test_switched_on_again_the_pass_takes_the_waiting_handoff(
     assert (outcome_of_job["kommo"], outcome_of_job["telegram"]) == ("off", "sent")
     [request] = wired.seen
     assert f"/threads/{row.thread_id}" in json.loads(request.content)["text"]
+
+
+# --- повтор сообщения о лиде и консоль передач -------------------------------------------------
+
+
+async def _message_waits(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> SalesHandoffModel:
+    """Сделка заведена, сообщение не ушло — ждёт повтора прохода (повтор только сообщения)."""
+    row = await _waiting(session, monkeypatch)
+    row.kommo, row.telegram = HandoffKommo.DONE, HandoffTelegram.UNDELIVERED
+    row.telegram_tries, row.telegram_due_at = 1, row.due_at
+    await session.commit()
+    return row
+
+
+def _queues(monkeypatch: pytest.MonkeyPatch) -> tuple[list[int], list[int]]:
+    """Очередь продаж — два списка: задачи передачи и повторы сообщения."""
+    handoffs: list[int] = []
+    messages: list[int] = []
+    monkeypatch.setattr(handoff_jobs, "enqueue_handoff", handoffs.append)
+    monkeypatch.setattr(handoff_jobs, "enqueue_message", messages.append)
+    return handoffs, messages
+
+
+async def test_switched_off_the_pass_queues_no_message_retry_and_keeps_its_terms(
+    session: AsyncSession, wired: Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Выключили, пока сообщение ждало повтора: проход его не ставит и сроков не двигает.
+    Включили — проход ставит повтор, как раньше. Мутант «`message_due` не смотрит на
+    выключатель» ставит задачу и сдвигает срок прохода."""
+    row = await _message_waits(session, monkeypatch)
+    due_at, message_at = row.due_at, row.telegram_due_at
+    handoffs, messages = _queues(monkeypatch)
+    _switch(monkeypatch, on=False)
+
+    await handoff_jobs.retry_pass()
+
+    assert (handoffs, messages, wired.seen) == ([], [], [])
+    kept = await session.get(SalesHandoffModel, row.id, populate_existing=True)
+    assert kept is not None
+    assert (kept.due_at, kept.telegram_due_at, kept.telegram_tries) == (due_at, message_at, 1)
+
+    _switch(monkeypatch, on=True)
+    await handoff_jobs.retry_pass()
+
+    assert (handoffs, messages) == ([], [row.id])
+
+
+async def test_switched_off_the_message_job_sends_nothing_and_leaves_the_row(
+    session: AsyncSession, wired: Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Задача повтора сообщения (`resend_lead_message` → `run_hand_off(kommo=False)`) при
+    выключенных продажах в Telegram не идёт и строку не трогает: ждёт включения, как
+    передача. Включили — сообщение уходит. Мутант «выключатель — только у задачи передачи»
+    шлёт сообщение и снимает срок повтора."""
+    row = await _message_waits(session, monkeypatch)
+    message_at = row.telegram_due_at
+    _switch(monkeypatch, on=False)
+
+    outcome_of_job = await handoff_jobs.run_hand_off(row.id, kommo=False)
+
+    assert outcome_of_job == {"handoff": row.id, "skipped": handoff.SWITCHED_OFF}
+    assert wired.seen == []
+    kept = await session.get(SalesHandoffModel, row.id, populate_existing=True)
+    assert kept is not None
+    assert (kept.telegram, kept.telegram_tries, kept.telegram_due_at, kept.claimed_at) == (
+        HandoffTelegram.UNDELIVERED,
+        1,
+        message_at,
+        None,
+    )
+
+    _switch(monkeypatch, on=True)
+    outcome_of_job = await handoff_jobs.run_hand_off(row.id, kommo=False)
+
+    assert outcome_of_job["telegram"] == "sent"
+    assert len(wired.seen) == 1
+
+
+async def _failed(session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> SalesHandoffModel:
+    """Kommo отказал — передача ждёт решения человека в консоли."""
+    row = await _waiting(session, monkeypatch)
+    row.kommo, row.telegram = HandoffKommo.FAILED, HandoffTelegram.SENT
+    row.due_at, row.last_error = None, "Kommo: ключ Kommo отклонён (HTTP 401)"
+    await session.commit()
+    return row
+
+
+async def _journal(session: AsyncSession, handoff_id: int) -> list[AuditLogModel]:
+    rows = await session.scalars(
+        select(AuditLogModel).where(AuditLogModel.target == f"sales_handoff:{handoff_id}")
+    )
+    return list(rows)
+
+
+async def test_switched_off_console_retry_is_refused_in_words_and_changes_nothing(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """«Повторить» при выключенных продажах: задача не пошла бы ни в Kommo, ни в Telegram —
+    отказ словами и код 2, состояние и журнал не тронуты. Включили — как было. Мутант
+    «консоль не смотрит на выключатель» переводит запись в `pending` и пишет журнал."""
+    row = await _failed(session, monkeypatch)
+    queued: list[int] = []
+    _switch(monkeypatch, on=False)
+
+    code = await console_cli.run_retry(session, row.id, enqueue=queued.append, now=NOW)
+
+    assert code == console_cli.EXIT_REFUSED == 2
+    assert (
+        f"продажи выключены (SALES_ENABLED) — передача №{row.id} не поставлена; "
+        "включите продажи и повторите"
+    ) in capsys.readouterr().out
+    kept = await session.get(SalesHandoffModel, row.id, populate_existing=True)
+    assert kept is not None
+    assert (kept.kommo, kept.due_at, queued) == (HandoffKommo.FAILED, None, [])
+    assert await _journal(session, row.id) == []
+
+    _switch(monkeypatch, on=True)
+    assert await console_cli.run_retry(session, row.id, enqueue=queued.append, now=NOW) == 0
+    assert queued == [row.id]
+    assert len(await _journal(session, row.id)) == 1
+
+
+def test_switched_off_console_retry_through_main_is_refused_with_code_2(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(storage, "DSN", TEST_DSN)
+    monkeypatch.setattr("backend.cli.main.setup_logging", lambda: None)
+    _switch(monkeypatch, on=False)
+
+    assert main(["sales-handoff-retry", "987655"]) == 2
+
+    assert (
+        "продажи выключены (SALES_ENABLED) — передача №987655 не поставлена; "
+        "включите продажи и повторите"
+    ) in capsys.readouterr().out
+
+
+async def test_switched_off_console_list_and_close_still_work(
+    session: AsyncSession,
+    wired: Recorder,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Список только читает, «закрыть руками» наружу ничего не шлёт — при выключенных продажах
+    оба работают. Мутанты «выключатель держит список» и «… держит закрытие» их роняют."""
+    row = await _failed(session, monkeypatch)
+    _switch(monkeypatch, on=False)
+
+    assert await console_cli.run_list(session) == console_cli.EXIT_OK
+    assert f"№{row.id} · лид №{row.lead_id}" in capsys.readouterr().out
+    code = await console_cli.run_close(session, row.id, "сделка есть, нашёл по почте", 9301)
+
+    assert code == console_cli.EXIT_OK
+    kept = await session.get(SalesHandoffModel, row.id, populate_existing=True)
+    assert kept is not None
+    assert (kept.kommo, kept.kommo_lead_id) == (HandoffKommo.DONE, 9301)
+    assert len(await _journal(session, row.id)) == 1
+    assert wired.seen == [], "закрытие руками в Telegram не ходит"

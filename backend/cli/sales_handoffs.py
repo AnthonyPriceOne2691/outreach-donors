@@ -25,7 +25,8 @@ from backend.features.sales.handoff import enqueue_handoff
 from backend.features.sales.handoff_console import ConsoleRefusalError, Waiting
 
 EXIT_OK = 0
-#: Решение не принято: передачи нет, она не ждёт человека или её держит задача.
+#: Решение не принято: передачи нет, она не ждёт человека, её держит задача или продажи
+#: выключены («повторить» — `SALES_ENABLED`).
 EXIT_REFUSED = 2
 
 
