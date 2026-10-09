@@ -214,6 +214,10 @@ html:root[data-mantine-color-scheme='light'] {
   --mantine-color-lagoon-light-color: var(--status-accent-ink);
   --mantine-color-lagoon-light: rgb(0 150 160 / 0.16);
   --mantine-color-lagoon-light-hover: rgb(0 150 160 / 0.24);
+
+  /* Наше письмо в ленте переписки (`threads/ThreadFeed`): тон акцента под
+     чернилами — тем же цветом, что подложка бирюзового значка, только тише. */
+  --bubble-ours: rgb(0 150 160 / 0.12);
 }
 
 html:root[data-mantine-color-scheme='dark'] {
@@ -259,6 +263,10 @@ html:root[data-mantine-color-scheme='dark'] {
   --status-rose-ink: oklch(81% 0.14 20);
   --status-sky-ink: oklch(84% 0.11 245);
   --status-plum-ink: oklch(84% 0.12 320);
+
+  /* Наше письмо в ленте переписки: на тёмном стекле тон акцента плотнее —
+     иначе пузырь не отличить от тихой подложки собеседника. */
+  --bubble-ours: rgb(0 150 160 / 0.22);
 
   /* Чернила Mantine на тёмной теме. Без этих строк «тихий» текст берёт
      серый пятой ступени: замерено 2.3 : 1 на пояснении под заголовком
@@ -1681,6 +1689,70 @@ html:root .mantine-Pill-root {
   margin: 0;
   padding: 0;
   overflow-wrap: anywhere;
+}
+
+/* --- Переписка лентой (threads/ThreadFeed) --------------------------------
+ * Как в мессенджере: наши письма справа, письма собеседника слева (замечание
+ * Anthony 08.10.2026: переписка полными карточками читалась простынёй).
+ * Пузырь — вложенный блок внутри стекла ленты: у собеседника тихая подложка,
+ * как у `glassQuiet`, у нас — тон акцента; текст в обоих — чернилами, смысл
+ * несёт подложка. Вместо «хвостика» подрезан угол со стороны говорящего:
+ * хвостик рисуют цветом фона под пузырём, а под стеклом фона нет — сквозь
+ * него было бы видно полотно. Приглушённый текст — на ступень ближе
+ * к чернилам, как во вложенном блоке: подложка пузыря светлее ленты. */
+.bubbleRow {
+  display: flex;
+}
+
+.bubbleRowOurs {
+  justify-content: flex-end;
+}
+
+.bubbleRowTheirs {
+  justify-content: flex-start;
+}
+
+.bubble {
+  min-width: 0;
+  max-width: min(78%, 720px);
+  padding: 10px 14px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 18px;
+  overflow-wrap: anywhere;
+  --mantine-color-dimmed: color-mix(in oklch, var(--ink-soft) 35%, var(--ink));
+}
+
+.bubbleTheirs {
+  background: var(--quiet-fill);
+  border-bottom-left-radius: 6px;
+}
+
+.bubbleOurs {
+  background: var(--bubble-ours);
+  border-bottom-right-radius: 6px;
+}
+
+/* Ответ, который разбирают под лентой: кромка чернилами акцента, без сдвига
+   раскладки — кромка у пузыря есть всегда, меняется только её цвет. */
+.bubbleActive {
+  border-color: var(--status-accent-ink);
+  box-shadow: 0 0 0 1px var(--status-accent-ink);
+}
+
+.bubbleText {
+  white-space: pre-wrap;
+}
+
+.bubbleMeta {
+  margin-top: 6px;
+}
+
+/* На телефоне пузырю нужна почти вся ширина: при 78 % длинное письмо
+   вставало столбиком в два-три слова. */
+@media (max-width: 47.99em) {
+  .bubble {
+    max-width: 92%;
+  }
 }
 
 /* --- Непривязанные ответы (threads/UnboundReplies) ------------------------

@@ -102,7 +102,10 @@ describe('карточка переписки', () => {
   it('адрес ответившего виден: он может отличаться от того, кому писали', async () => {
     await openThread();
 
-    expect(screen.getByText('от elena@donor.example.test')).toBeInTheDocument();
+    // Адрес ответившего — шапка его пузыря в ленте.
+    expect(
+      screen.getByRole('article', { name: 'Ответ elena@donor.example.test' }),
+    ).toBeInTheDocument();
   });
 
   it('подтверждение уходит на сервер с поправленной ценой', async () => {
@@ -365,6 +368,8 @@ describe('ответ рекламодателя', () => {
     );
     const user = userEvent.setup();
 
+    // Взятый лид не ждёт решения: его разбор под лентой открывает кнопка в пузыре.
+    await user.click(screen.getByRole('button', { name: 'Передача лида' }));
     await user.click(screen.getByRole('button', { name: 'Передать в CRM ещё раз' }));
 
     await waitFor(() =>
@@ -490,7 +495,7 @@ describe('ответ собеседнику', () => {
       ],
     });
 
-    expect(screen.getByText(/Ответили — письмо ниже/)).toBeInTheDocument();
+    expect(screen.getByText(/Ответили — наше письмо в ленте выше/)).toBeInTheDocument();
     expect(screen.getByText('наш ответ')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Ответить' })).not.toBeInTheDocument();
   });
@@ -529,5 +534,115 @@ describe('ящик переписки', () => {
     await openThread({ mail: null });
 
     expect(screen.queryByText(/^Пишет /)).not.toBeInTheDocument();
+  });
+});
+
+describe('лента переписки', () => {
+  // Замечание Anthony 08.10.2026 по первому настоящему ответу донора: переписка
+  // полными карточками читалась простынёй — цитата нашего письма, хвост подписи
+  // с трекинговыми ссылками, форма цены у каждого ответа.
+  const QUOTED = {
+    ...UNSURE,
+    raw_body:
+      'Guest post is 525 USD.\n\nBest regards,\nNellie\n\n' +
+      'On Thu, Oct 8, 2026 at 3:09 PM Alex <alex@mail.example.test> wrote:\n' +
+      '> Before I share anything, could you confirm the fee?\n',
+    fresh_body: 'Guest post is 525 USD.\n\nBest regards,\nNellie',
+  };
+
+  it('наши письма справа, письма собеседника слева', async () => {
+    await openThread();
+
+    const ours = screen.getByRole('article', { name: 'Наше письмо: первое письмо' });
+    const theirs = screen.getByRole('article', { name: 'Ответ elena@donor.example.test' });
+    expect(ours).toHaveClass('bubbleOurs');
+    expect(ours.parentElement).toHaveClass('bubbleRowOurs');
+    expect(theirs).toHaveClass('bubbleTheirs');
+    expect(theirs.parentElement).toHaveClass('bubbleRowTheirs');
+  });
+
+  it('в ответе — написанное человеком, цитата и подпись — по раскрытию', async () => {
+    await openThread({ incoming: [QUOTED] });
+    const user = userEvent.setup();
+
+    const reply = screen.getByRole('article', { name: 'Ответ elena@donor.example.test' });
+    expect(within(reply).getByText(/Guest post is 525 USD/)).toBeInTheDocument();
+    expect(within(reply).queryByText(/could you confirm the fee/)).not.toBeInTheDocument();
+
+    await user.click(within(reply).getByRole('button', { name: 'Показать цитату и подпись' }));
+
+    expect(within(reply).getByText(/could you confirm the fee/)).toBeInTheDocument();
+    await user.click(within(reply).getByRole('button', { name: 'Скрыть цитату и подпись' }));
+    expect(within(reply).queryByText(/could you confirm the fee/)).not.toBeInTheDocument();
+  });
+
+  it('отрезать нечего — кнопки цитаты нет', async () => {
+    await openThread();
+
+    expect(screen.queryByRole('button', { name: 'Показать цитату и подпись' })).toBeNull();
+  });
+
+  it('галочки — как в почте, отказ доставки — словами', async () => {
+    await openThread({
+      letters: [
+        LETTER,
+        { ...LETTER, id: 2, step: 1, status: 'sent', sent_at: '2026-09-21T10:00:00+00:00' },
+        { ...LETTER, id: 4, step: 2, status: 'bounced', sent_at: '2026-09-24T10:00:00+00:00' },
+      ],
+    });
+
+    const first = screen.getByRole('article', { name: 'Наше письмо: первое письмо' });
+    const second = screen.getByRole('article', { name: 'Наше письмо: добивка 1' });
+    const third = screen.getByRole('article', { name: 'Наше письмо: добивка 2' });
+    expect(within(first).getByLabelText('доставлено')).toBeInTheDocument();
+    expect(within(second).getByLabelText('принято платформой')).toBeInTheDocument();
+    expect(within(third).getByText('отказ доставки')).toBeInTheDocument();
+  });
+
+  it('письмо, которое ещё не ушло, — в конце ленты, а не над первым', async () => {
+    await openThread({
+      letters: [
+        LETTER,
+        { ...LETTER, id: 9, step: 100, status: 'queued', sent_at: null, answers_reply_id: 7 },
+      ],
+    });
+
+    const bubbles = screen.getAllByRole('article');
+    expect(bubbles.at(-1)).toHaveAccessibleName('Наше письмо: наш ответ');
+    expect(within(bubbles.at(-1) as HTMLElement).getByText('в очереди')).toBeInTheDocument();
+  });
+
+  it('форма цены — одна, под лентой, у ответа, который ждёт человека', async () => {
+    await openThread();
+
+    expect(screen.getAllByLabelText('Белая цена')).toHaveLength(1);
+    const reply = screen.getByRole('article', { name: 'Ответ elena@donor.example.test' });
+    expect(reply).toHaveClass('bubbleActive');
+    // Ждущий ответ свернуть нельзя: решение по нему ещё не принято.
+    expect(screen.queryByRole('button', { name: 'Свернуть' })).toBeNull();
+  });
+
+  it('разобранный ответ формы не держит — её открывает «Поправить цену» и закрывает «Свернуть»', async () => {
+    await openThread({
+      incoming: [
+        {
+          ...UNSURE,
+          needs_review: false,
+          confidence: 0.92,
+          reviewed_by: 'anna@parsingprices.com',
+          reviewed_at: '2026-09-19T12:00:00+00:00',
+        },
+      ],
+    });
+    const user = userEvent.setup();
+
+    expect(screen.queryByLabelText('Белая цена')).toBeNull();
+    expect(screen.getByText('подтвердил anna@parsingprices.com')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Поправить цену' }));
+
+    expect(screen.getByLabelText('Белая цена')).toHaveValue('250');
+    await user.click(screen.getByRole('button', { name: 'Свернуть' }));
+    expect(screen.queryByLabelText('Белая цена')).toBeNull();
   });
 });
