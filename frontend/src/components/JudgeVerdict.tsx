@@ -8,7 +8,10 @@
  * судья путает — и чинить систематически, а не по одному домену.
  *
  * **Цитата обязательна к показу.** Без неё вердикт нельзя проверить,
- * а проверка — то, ради чего человек смотрит очередь.
+ * а проверка — то, ради чего человек смотрит очередь. **В строке — две строки
+ * цитаты, целиком — в подсказке**, а сама цитата ведёт на страницу, где её нашли:
+ * цитата в четыре строки и отдельная строка «страница» растягивали строку очереди до
+ * 110–140 px, и экран прогона выходил в пять тысяч пикселей (аудит 09.10.2026).
  *
  * **Значки переносятся, а не режутся.** Ряд «не площадка · продаёт
  * размещение · арбитр» шире колонки судьи, и в одну строку он ужимал
@@ -68,16 +71,34 @@ export function JudgeVerdict({ machine }: { machine: MachineView }) {
         )}
       </Group>
       {machine.quote !== null ? (
-        <Text size="xs" fs="italic" ta="center" maw={260}>
-          «{machine.quote}»
-        </Text>
+        <Tooltip label={`«${machine.quote}»`} withArrow multiline w={360}>
+          {machine.source_url !== null ? (
+            <Anchor
+              href={machine.source_url}
+              target="_blank"
+              rel="noreferrer"
+              size="xs"
+              fs="italic"
+              ta="center"
+              maw={260}
+              lineClamp={2}
+              className="judgeQuote"
+            >
+              «{machine.quote}»
+            </Anchor>
+          ) : (
+            <Text size="xs" fs="italic" ta="center" maw={260} lineClamp={2} className="judgeQuote">
+              «{machine.quote}»
+            </Text>
+          )}
+        </Tooltip>
       ) : (
-        <Text size="xs" c="dimmed" ta="center" maw={260}>
+        <Text size="xs" c="dimmed" ta="center" maw={260} lineClamp={2}>
           {machine.reason}
         </Text>
       )}
       <Group gap={8} justify="center">
-        {machine.source_url !== null && (
+        {machine.quote === null && machine.source_url !== null && (
           <Anchor href={machine.source_url} target="_blank" rel="noreferrer" size="xs">
             страница
           </Anchor>

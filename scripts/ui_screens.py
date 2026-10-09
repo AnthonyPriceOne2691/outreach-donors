@@ -36,6 +36,16 @@ def open_reason(page):
     page.wait_for_timeout(400)
 
 
+def mark_first_row(page):
+    """Отметить первую строку очереди: панель решения по отмеченным появляется только
+    с отметкой. Строк нет — ничего не делать: точки панели печатаются «не найден»."""
+    box = page.locator("table tbody .mantine-Checkbox-input")
+    if box.count() == 0:
+        return
+    box.first.check()
+    page.wait_for_timeout(300)
+
+
 def open_judge_filter(page):
     """Открыть список «Кто вынес вердикт»: у слоя судьи в нём объяснение,
     и мерить надо его — мелкий приглушённый текст на плотном стекле."""
@@ -350,17 +360,19 @@ SCREENS: dict[str, dict] = {
             ("ключ, по которому нашёлся", "table tbody [data-found-by] p", NORM),
             ("«К прогонам»", "a.backLink", NORM),
             ("пояснение про ключи", "p:has-text('этот прогон не хранит')", NORM),
-            ("ярус очереди", "table tbody .mantine-Badge-root[data-variant='dot']", NORM),
+            # Ярус — разделителем над группой строк (09.10.2026), а не значком в строке.
+            ("ярус очереди", "table tbody tr.tierRow .mantine-Badge-label", NORM),
+            ("число в ярусе", "table tbody tr.tierRow p", NORM),
             ("совет судьи", "table tbody .mantine-Badge-root[data-variant='light']", NORM),
             ("тип сайта", "table tbody .mantine-Badge-root[data-variant='outline']", NORM),
-            (
-                "цитата судьи",
-                "table tbody p[style*='italic'], table tbody .mantine-Text-root[data-fs]",
-                NORM,
-            ),
+            # Цитата — двумя строками и ссылкой на страницу, где её нашли (09.10.2026).
+            ("цитата судьи", "table tbody .judgeQuote", NORM),
             ("кнопка «Принять»", "table tbody button:has-text('Принять')", BIG),
             ("кнопка «Отклонить»", "table tbody button:has-text('Отклонить')", BIG),
             ("флажок строки", "table tbody .mantine-Checkbox-input", BIG),
+            # Панель решения по отмеченным — у нижнего края окна, на плотном стекле.
+            ("«Выбрано» на панели", ".bulkBar p", NORM, mark_first_row),
+            ("«Принять выбранные»", ".bulkBar button:has-text('Принять выбранные')", BIG),
         ],
     },
     # Правка текста первого письма живёт на экране писем за раскрытием —
