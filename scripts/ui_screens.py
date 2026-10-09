@@ -362,20 +362,24 @@ SCREENS: dict[str, dict] = {
     # ему нечем. Кнопка «Вернуть исходный текст» меряется оживлённой:
     # подготовка правит зону, выключенная дала бы серое на сером.
     "letter-draft": {
+        # Текст первого письма — в окне (09.10.2026): поля мерятся на стекле окна.
+        # Эталон «число в поле формы» здесь не меряется — форма сборки под окном
+        # размыта подложкой; мелкий текст в поле сверяется с ним на «letters».
         "path": "/letters",
         "ready": ("button", "Текст первого письма"),
         "probes": [
-            ("кнопка раскрытия", "button[aria-expanded='true']", BIG),
-            ("значок «поправлен»", "button[aria-expanded] + .mantine-Badge-root", NORM),
-            ("пояснение блока", "[data-letter-draft] .mantine-Stack-root > p", NORM),
-            ("название зоны", "[data-letter-draft] .mantine-InputWrapper-label", NORM),
-            ("что сделает модель", "[data-letter-draft] .mantine-InputWrapper-description", NORM),
-            # Мелкий текст в поле замер занижает (см. шапку), поэтому рядом
-            # эталон: число в поле «Писем за раз» с тем же оформлением поля.
-            ("текст зоны «Приветствие»", "[data-letter-draft] textarea", NORM),
-            ("текст зоны «Вопросы»", "[data-letter-draft] textarea >> nth=3", NORM),
-            ("эталон: число в поле формы", ".mantine-NumberInput-input", NORM),
-            ("кнопка «Вернуть исходный»", "button:has-text('Вернуть исходный текст')", BIG),
+            ("значок «поправлен»", "[data-letter-draft] .mantine-Badge-root", NORM),
+            ("заголовок окна", "[role='dialog'] .mantine-Modal-title", BIG),
+            ("пояснение окна", "[role='dialog'] .mantine-Stack-root > p", NORM),
+            ("название зоны", "[role='dialog'] .mantine-InputWrapper-label", NORM),
+            ("что сделает модель", "[role='dialog'] .mantine-InputWrapper-description", NORM),
+            ("текст зоны «Приветствие»", "[role='dialog'] textarea", NORM),
+            ("текст зоны «Вопросы»", "[role='dialog'] textarea >> nth=3", NORM),
+            (
+                "кнопка «Вернуть исходный»",
+                "[role='dialog'] button:has-text('Вернуть исходный текст')",
+                BIG,
+            ),
         ],
     },
     # Жёлтая плашка общего экрана: сервер без настроек письма — «Отправка пока
@@ -411,12 +415,13 @@ def estimate(page):
 
 
 def open_letter_draft(page):
-    """Раскрыть правку текста письма и поправить зону.
+    """Открыть окно текста письма и поправить зону.
 
     Правка оживляет «Вернуть исходный текст» и переводит значок
     в «поправлен» — мерить надо то состояние, в котором на них смотрят.
     """
     page.get_by_role("button", name="Текст первого письма").click()
+    expect(page.get_by_role("dialog", name="Текст первого письма")).to_be_visible()
     # Приветствие — «Hi,», три знака в широкой рамке: вырезка почти целиком
     # фон, и в тёмной теме замер давал 1,9 : 1 полю, у которого те же стили,
     # что у «Вопросов» с 5,5 : 1. Меряется поле с фразой, а не с тремя знаками.

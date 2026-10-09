@@ -422,14 +422,18 @@ describe('текст первого письма', () => {
     );
     const user = userEvent.setup();
 
-    const toggle = screen.getByRole('button', { name: 'Текст первого письма' });
-    expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    await user.click(toggle);
-    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    // Текст — в окне (замечание 09.10.2026): правка остаётся и после «Готово».
+    expect(screen.queryByRole('dialog', { name: 'Текст первого письма' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Текст первого письма' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Текст первого письма' });
 
-    const terms = screen.getByLabelText('Условия');
+    const terms = within(dialog).getByLabelText('Условия');
     await user.clear(terms);
     await user.type(terms, 'We pay within 48 hours.');
+    await user.click(within(dialog).getByRole('button', { name: 'Готово' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Текст первого письма' })).toBeNull(),
+    );
     expect(screen.getByText('поправлен')).toBeInTheDocument();
 
     await user.type(screen.getByLabelText('Кампания'), 'Май');
@@ -451,9 +455,10 @@ describe('текст первого письма', () => {
     const user = userEvent.setup();
 
     await user.click(screen.getByRole('button', { name: 'Текст первого письма' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Текст первого письма' });
 
-    expect(screen.getAllByText('Переписывает модель под каждого донора')).toHaveLength(2);
-    expect(screen.getAllByText('Уходит как есть, модель не видит')).toHaveLength(2);
+    expect(within(dialog).getAllByText('Переписывает модель под каждого донора')).toHaveLength(2);
+    expect(within(dialog).getAllByText('Уходит как есть, модель не видит')).toHaveLength(2);
   });
 
   it('исходный текст возвращается одной кнопкой', async () => {
@@ -461,14 +466,15 @@ describe('текст первого письма', () => {
     const user = userEvent.setup();
 
     await user.click(screen.getByRole('button', { name: 'Текст первого письма' }));
-    const reset = screen.getByRole('button', { name: 'Вернуть исходный текст' });
+    const dialog = await screen.findByRole('dialog', { name: 'Текст первого письма' });
+    const reset = within(dialog).getByRole('button', { name: 'Вернуть исходный текст' });
     expect(reset).toBeDisabled();
 
-    await user.type(screen.getByLabelText('Условия'), ' Always.');
+    await user.type(within(dialog).getByLabelText('Условия'), ' Always.');
     expect(reset).toBeEnabled();
     await user.click(reset);
 
-    expect(screen.getByLabelText('Условия')).toHaveValue('We pay promptly.');
+    expect(within(dialog).getByLabelText('Условия')).toHaveValue('We pay promptly.');
     expect(screen.getByText('по умолчанию')).toBeInTheDocument();
   });
 });

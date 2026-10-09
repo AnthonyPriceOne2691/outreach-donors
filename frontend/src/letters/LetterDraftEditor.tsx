@@ -14,11 +14,16 @@
  * **Нетронутый текст не отправляется.** Тогда у новой рассылки — текст
  * по умолчанию, у найденной — её собственный, и одноимённая рассылка
  * дополняется, а не упирается в «у неё уже свой текст».
+ *
+ * **Текст — в окне, а не простынёй вниз** (замечание Anthony 09.10.2026): раскрытые
+ * зоны отодвигали форму сборки на экран вниз. На странице — кнопка и отметка
+ * «поправлен / по умолчанию»; правка живёт в состоянии формы и закрытием окна
+ * не теряется.
  */
 
-import { Badge, Button, Group, Stack, Text, TextInput, Textarea } from '@mantine/core';
-import { IconChevronDown } from '@tabler/icons-react';
-import { useId, useState } from 'react';
+import { Badge, Button, Group, Modal, Stack, Text, TextInput, Textarea } from '@mantine/core';
+import { IconPencil } from '@tabler/icons-react';
+import { useState } from 'react';
 
 import type { LetterDraft, LetterDraftView, LetterStage } from '../api/types';
 
@@ -66,36 +71,20 @@ const HINTS: Record<LetterStage, { placeholders: string; rewrite: string }> = {
 
 export function LetterDraftEditor({ fallback, value, onChange, stage = 'donors' }: Props) {
   const [open, setOpen] = useState(false);
-  const bodyId = useId();
   const edited = !sameDraft(value, draftOf(fallback));
 
   const setZone = (name: string, text: string) =>
     onChange({ ...value, zones: { ...value.zones, [name]: text } });
 
   return (
-    // Без подложки `glassQuiet`: поле на стекле само полупрозрачное, и поле
-    // во вложенном блоке — второй слой того же рецепта. Фон светлел, и текст
-    // в поле темной темы намерился на 4,18 : 1 при 5,67 у такого же поля
-    // формы, лежащего прямо на карточке (замер 23.09.2026).
     <Stack gap="sm" data-letter-draft>
       <Group gap="sm">
-        {/* `aria-expanded` и `aria-controls`: без них тест не отличит
-            раскрытое от свёрнутого, а программа чтения — тоже. */}
         <Button
           variant="subtle"
           className="press"
-          aria-expanded={open}
-          aria-controls={bodyId}
-          rightSection={
-            <IconChevronDown
-              size={16}
-              style={{
-                transform: open ? 'rotate(180deg)' : 'none',
-                transition: 'transform 200ms cubic-bezier(0.32, 0.72, 0, 1)',
-              }}
-            />
-          }
-          onClick={() => setOpen((was) => !was)}
+          aria-haspopup="dialog"
+          leftSection={<IconPencil size={16} aria-hidden />}
+          onClick={() => setOpen(true)}
         >
           Текст первого письма
         </Button>
@@ -104,11 +93,12 @@ export function LetterDraftEditor({ fallback, value, onChange, stage = 'donors' 
         </Badge>
       </Group>
 
-      {/* Свёрнутое не отрисовывается, а не прячется атрибутом: `hidden`
-          у компонентов Mantine перебивается их собственным `display`. */}
-      {open ? (
-        <Stack gap="sm" id={bodyId}>
-          <Text size="sm" c="dimmed" maw={680}>
+      {/* Поля — прямо на стекле окна, без вложенной подложки: поле во вложенном
+          блоке — второй слой того же рецепта, фон светлел, и текст в поле тёмной
+          темы намерился на 4,18 : 1 при 5,67 у поля прямо на карточке (23.09.2026). */}
+      <Modal opened={open} onClose={() => setOpen(false)} title="Текст первого письма" size="lg">
+        <Stack gap="sm">
+          <Text size="sm" c="dimmed">
             Текст закрепляется за рассылкой при её создании и дальше не меняется. Подстановки:{' '}
             {HINTS[stage].placeholders}
           </Text>
@@ -126,12 +116,12 @@ export function LetterDraftEditor({ fallback, value, onChange, stage = 'donors' 
               }
               autosize
               minRows={1}
-              maxRows={12}
+              maxRows={8}
               value={value.zones[zone.name] ?? ''}
               onChange={(event) => setZone(zone.name, event.currentTarget.value)}
             />
           ))}
-          <Group>
+          <Group justify="space-between" mt="xs">
             <Button
               variant="subtle"
               className="press"
@@ -140,9 +130,12 @@ export function LetterDraftEditor({ fallback, value, onChange, stage = 'donors' 
             >
               Вернуть исходный текст
             </Button>
+            <Button className="press" onClick={() => setOpen(false)}>
+              Готово
+            </Button>
           </Group>
         </Stack>
-      ) : null}
+      </Modal>
     </Stack>
   );
 }

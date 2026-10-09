@@ -11,7 +11,8 @@
  *
  * **Возвращает туда, откуда пришли.** Список держит страницу и фильтры
  * в адресе и отдаёт их сюда в состоянии перехода (`state.from`); пришли
- * не из списка — ведёт на его начало.
+ * не из списка — ведёт на его начало. И на то же место списка: переход
+ * просит его вернуть (`state.place`, `ScrollMemory`), как «назад» браузера.
  */
 
 import { Button } from '@mantine/core';
@@ -39,6 +40,7 @@ export function BackLink({ to, children }: Props) {
     <Button
       component={Link}
       to={to}
+      state={{ place: true }}
       variant="subtle"
       size="compact-sm"
       className="press backLink"

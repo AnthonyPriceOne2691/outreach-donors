@@ -15,6 +15,7 @@ import { AuthProvider } from './auth/AuthProvider';
 import { ChangePasswordPage } from './auth/ChangePasswordPage';
 import { LoginPage } from './auth/LoginPage';
 import { RequireAccess } from './auth/RequireAccess';
+import { ScrollMemory } from './components/ScrollMemory';
 import { Backdrop } from './layout/Backdrop';
 import { NotFoundPage } from './layout/NotFoundPage';
 import { OverviewPage } from './layout/OverviewPage';
@@ -240,6 +241,8 @@ export function App() {
         <Notifications position="bottom-right" />
         <AuthProvider>
           <BrowserRouter>
+            {/* Возврат к списку — на то же место (замечание 09.10.2026). */}
+            <ScrollMemory />
             <AppRoutes />
           </BrowserRouter>
         </AuthProvider>
