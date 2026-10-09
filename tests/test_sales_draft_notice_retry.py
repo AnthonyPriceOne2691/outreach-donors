@@ -388,7 +388,7 @@ async def test_switched_off_no_retries_and_rows_wait(
     assert await notify_retry.due(session, now=later) == [(row.id, tries)]
 
 
-# --- проход: тем же кругом, после повторов передачи -----------------------------------------------
+# --- проход: тем же кругом, после повторов передачи; сторож бота — после них ----------------------
 
 
 async def _three_due(
@@ -431,6 +431,24 @@ async def test_retry_pass_queues_notice_retries_after_handoff_retries(
     order, expected = await _three_due(session, llm, monkeypatch)
 
     await handoff_jobs.retry_pass()
+
+    assert order == expected
+
+
+async def test_bot_watch_goes_after_the_retries_and_does_not_hold_them(
+    session: AsyncSession, llm: Plug, wired: list[float], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Сторож бота продаж (сводная тревога «без токена») идёт тем же кругом после постановки
+    повторов: его сбой не держит ни повтор передачи, ни повторы сообщений."""
+    order, expected = await _three_due(session, llm, monkeypatch)
+
+    async def broken(_session: AsyncSession) -> None:
+        raise RuntimeError("лента тревог не ответила")
+
+    monkeypatch.setattr(handoff_jobs, "watch_token", broken)
+
+    with pytest.raises(RuntimeError, match="лента тревог не ответила"):
+        await handoff_jobs.retry_pass()
 
     assert order == expected
 
