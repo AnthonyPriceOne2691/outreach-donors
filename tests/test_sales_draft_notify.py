@@ -32,6 +32,7 @@ from backend.features.core.models.outreach import ReplyModel
 from backend.features.sales import telegram
 from backend.features.sales.agent import notify, parts
 from backend.features.sales.models import NoticeStatus, SalesDraftNoticeModel
+from backend.features.sales.telegram import SalesBot
 from backend.shared import queue as shared_queue
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError
@@ -250,10 +251,10 @@ async def test_escalated_draft_says_who_held_it_and_why(
     )
 
 
-# --- A2: Telegram недоступен → 3 попытки, тревога, черновик цел ---------------------------
+# --- A2: Telegram недоступен → 3 попытки, повтор проходом, черновик цел --------------------
 
 
-async def test_a2_telegram_down_three_attempts_then_ops_alert_and_the_draft_stays(
+async def test_a2_telegram_down_three_attempts_then_a_pass_retry_and_the_draft_stays(
     session: AsyncSession,
     llm: Plug,
     monkeypatch: pytest.MonkeyPatch,
@@ -261,6 +262,9 @@ async def test_a2_telegram_down_three_attempts_then_ops_alert_and_the_draft_stay
     wired: list[float],
     alerts: list[str],
 ) -> None:
+    """Не ушло из-за 5xx: строка «не доставлено» со сроком повтора прохода (решение владельца —
+    та же серия, что у сообщения о лиде); до последней попытки тревоги нет
+    (`test_sales_draft_notice_retry.py`)."""
     api = plug(monkeypatch, BotApi(down()))
     outcome = await drafted(session, llm, Writer(GOOD))
     assert outcome.draft_id is not None
@@ -273,14 +277,14 @@ async def test_a2_telegram_down_three_attempts_then_ops_alert_and_the_draft_stay
     assert len(api.seen) == 3
     assert wired == [2.0, 5.0]
     [row] = await journal(session)
-    assert row.status == NoticeStatus.UNDELIVERED
+    assert (row.status, row.tries) == (NoticeStatus.UNDELIVERED, 1)
+    assert row.due_at is not None
     assert row.error is not None
     assert row.error.startswith("не доставлено за 3 попытки: Telegram отказал (HTTP 503")
+    assert row.error.endswith("(попытка 1 из 5)")
     assert report["status"] == "undelivered"
-    [alert] = alerts
-    assert alert.startswith(f"продажи: сообщение о черновике №{outcome.draft_id} не доставлено")
-    assert f"Черновик цел: {APP}/threads/" in alert
-    assert TOKEN not in alert + row.error
+    assert alerts == [], "до последней попытки тревоги нет"
+    assert TOKEN not in row.error
     draft = await session.get(AgentDraftModel, outcome.draft_id)
     assert draft is not None
     await session.refresh(draft)
@@ -306,7 +310,8 @@ async def test_network_failure_is_retried_too_and_nothing_leaks_the_token(
     assert row.status == NoticeStatus.UNDELIVERED
     assert row.error is not None
     assert "ConnectError" in row.error
-    assert TOKEN not in row.error + alerts[0]
+    assert TOKEN not in row.error
+    assert (alerts, row.tries) == ([], 1), "сеть — повтор проходом, тревоги ещё нет"
 
 
 async def test_group_not_set_is_undelivered_with_its_setting_named(
@@ -331,7 +336,7 @@ async def test_group_not_set_is_undelivered_with_its_setting_named(
     assert "SALES_TELEGRAM_GROUP_CHAT_ID" in alerts[0]
 
 
-async def test_undelivered_version_is_tried_again_and_its_row_becomes_sent(
+async def test_undelivered_version_is_tried_again_by_the_pass_and_its_row_becomes_sent(
     session: AsyncSession,
     llm: Plug,
     monkeypatch: pytest.MonkeyPatch,
@@ -339,17 +344,28 @@ async def test_undelivered_version_is_tried_again_and_its_row_becomes_sent(
     wired: list[float],
     alerts: list[str],
 ) -> None:
+    """Вторая задача о той же версии не перебивает срок повтора: повторяет проход."""
     plug(monkeypatch, BotApi(down()))
     outcome = await drafted(session, llm, Writer(GOOD))
     assert outcome.draft_id is not None
     await notify.run_notice(outcome.draft_id)
-    plug(monkeypatch, BotApi(ok()))
+    api = plug(monkeypatch, BotApi(ok()))
 
-    await notify.run_notice(outcome.draft_id)
-
+    again = await notify.run_notice(outcome.draft_id)
     [row] = await journal(session)
-    assert (row.status, row.error) == (NoticeStatus.SENT, None)
-    assert len(alerts) == 1
+    retried = await notify.notify(
+        session,
+        outcome.draft_id,
+        SalesBot(api.client()),
+        alert=notify.send_alert,
+        retry=notify.Retry(version=row.written_at, tries=row.tries),
+    )
+
+    assert again["skipped"] == "сообщение об этой версии ждёт повтора прохода по расписанию"
+    assert retried.status is NoticeStatus.SENT
+    await session.refresh(row)
+    assert (row.status, row.error, row.tries, row.due_at) == (NoticeStatus.SENT, None, 0, None)
+    assert (len(api.seen), alerts) == (1, [])
 
 
 # --- одна версия — одно сообщение -------------------------------------------------------

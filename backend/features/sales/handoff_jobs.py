@@ -21,8 +21,9 @@
 один процесс, который однажды не поднимется. Он ставит две задачи: передачу, где ждёт
 Kommo (`due`), и повтор сообщения, где ждёт только Telegram (`message_due`). Продажи
 выключены (`SALES_ENABLED`) — не ставит ни одной, а обе задачи никуда не ходят. Тем же
-кругом — сторож бота продаж: сводная тревога «без токена» в общую ленту
-(`agent/notify.watch_token`).
+кругом, после них, — повтор сообщения о черновике агента продаж (`agent/notify_retry.py`).
+Сторож бота продаж — тем же кругом, после постановки повторов: сводная тревога «без токена»
+в общую ленту (`agent/notify.watch_token`); его сбой повторов не держит.
 """
 
 from __future__ import annotations
@@ -41,7 +42,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from backend.config import storage
 from backend.config.startup_checks import ConfigError, check_storage
 from backend.features.runs.failures import described, is_permanent
-from backend.features.sales.agent.notify import watch_token
+from backend.features.sales.agent import notify_retry
+from backend.features.sales.agent.notify import queue_resend, watch_token
 from backend.features.sales.handoff import (
     Deps,
     due,
@@ -65,6 +67,11 @@ from backend.shared.logs import setup_logging
 from backend.shared.queue import remember_job_error
 
 logger = logging.getLogger(__name__)
+
+#: Что пишет проход, когда очередь не приняла задачу: срок уже сдвинут, возьмёт следующий круг.
+_REFUSED_HANDOFF = "продажи: повтор передачи лида не поставлен — очередь недоступна"
+_REFUSED_MESSAGE = "продажи: повтор сообщения о лиде не поставлен — очередь недоступна"
+_REFUSED_NOTICE = "продажи: повтор сообщения о черновике не поставлен — очередь недоступна"
 
 
 def _http() -> httpx.AsyncClient:
@@ -155,10 +162,10 @@ def _job(
 
 async def retry_pass() -> None:
     """Один круг повторов: передачи, которым пора, — в очередь; где ждёт только сообщение
-    в Telegram — его повтор. Очередь не ответила — строка в журнал: срок уже сдвинут,
-    передачу возьмёт следующий круг через срок. Kommo и Telegram зовёт задача очереди,
-    а не разбор: их сбой — повтор позже, а не мёртвый сервис. Сторож бота продаж — после
-    очереди: его сбой повторов не держит.
+    в Telegram — его повтор; затем повторы сообщений о черновиках агента продаж. Очередь не
+    ответила — строка в журнал: срок уже сдвинут, передачу возьмёт следующий круг через срок.
+    Kommo и Telegram зовёт задача очереди, а не разбор: их сбой — повтор позже, а не мёртвый
+    сервис. Сторож бота продаж — после очереди: его сбой повторов не держит.
     """
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -167,37 +174,36 @@ async def retry_pass() -> None:
             now = datetime.now(UTC)
             ids = await due(session, now=now)
             messages = await message_due(session, now=now)
-        _queue_again(ids, messages)
+            notices = await notify_retry.due(session, now=now)
+        _queue_again(ids, messages, notices)
         async with factory() as session:
             await watch_token(session)
     finally:
         await engine.dispose()
 
 
-def _queue_again(ids: list[int], messages: list[int]) -> None:
-    """Передачи, которым пора, и повторы сообщения — в очередь; очередь не ответила — строка
-    в журнал."""
+def _queue_again(ids: list[int], messages: list[int], notices: list[tuple[int, int]]) -> None:
+    """Взятое проходом — в очередь продаж: передачи, повторы сообщения о лиде, затем повторы
+    сообщения о черновике. Очередь не ответила — строка в журнал, срок уже сдвинут."""
     for handoff_id in ids:
-        _put(
-            enqueue_handoff,
-            handoff_id,
-            "продажи: повтор передачи лида не поставлен — очередь недоступна",
-        )
+        _put(enqueue_handoff, (handoff_id,), _REFUSED_HANDOFF, "handoff_id")
     for handoff_id in messages:
-        _put(
-            enqueue_message,
-            handoff_id,
-            "продажи: повтор сообщения о лиде не поставлен — очередь недоступна",
+        _put(enqueue_message, (handoff_id,), _REFUSED_MESSAGE, "handoff_id")
+    for notice in notices:
+        _put(queue_resend, notice, _REFUSED_NOTICE, "notice_id")
+    if any((ids, messages, notices)):
+        logger.info(
+            "продажи: повтор передачи лидов",
+            extra={"handoffs": ids, "messages": messages, "notices": notices},
         )
-    if ids or messages:
-        logger.info("продажи: повтор передачи лидов", extra={"handoffs": ids, "messages": messages})
 
 
-def _put(enqueue: Callable[[int], object], handoff_id: int, refused: str) -> None:
-    """Поставить задачу; очередь не ответила — строка `refused` в журнал, срок уже сдвинут."""
+def _put(enqueue: Callable[..., object], args: tuple[int, ...], refused: str, key: str) -> None:
+    """Поставить задачу; очередь не ответила — строка `refused` в журнал с номером под `key`,
+    срок уже сдвинут."""
     try:
-        enqueue(handoff_id)
+        enqueue(*args)
     except RedisError as exc:
         logger.error(  # noqa: TRY400 — трассировка Redis ничего не добавит к причине
-            refused, extra={"handoff_id": handoff_id, "error": str(exc)}
+            refused, extra={key: args[0], "error": str(exc)}
         )

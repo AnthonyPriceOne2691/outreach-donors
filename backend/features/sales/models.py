@@ -445,7 +445,7 @@ class NoticeStatus(StrEnum):
     `RejectionReason`: новый исход — строка здесь, а не миграция типа."""
 
     SENT = "sent"  # Telegram принял сообщение
-    UNDELIVERED = "undelivered"  # не доставлено за попытки бота — ушла тревога эксплуатации
+    UNDELIVERED = "undelivered"  # не ушло: ждёт повтора прохода (`due_at`) или повторов больше нет
 
 
 class SalesDraftNoticeModel(TimestampedMixin, Base):
@@ -471,6 +471,11 @@ class SalesDraftNoticeModel(TimestampedMixin, Base):
     text: Mapped[str] = mapped_column(Text, nullable=False)
     #: Почему не доставлено — словами бота, без токена.
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Сколько раз подряд сообщение об этой версии не ушло из-за сети, 5xx или 429
+    #: (`telegram_series.py`). Ушло, отказ постоянный или попытки кончились — ноль.
+    tries: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0, server_default="0")
+    #: Не раньше чего проход повторит сообщение (`agent/notify_retry.py`). Пусто — повторять нечего.
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("draft_id", "written_at", name="uq_sales_draft_notices_version"),
