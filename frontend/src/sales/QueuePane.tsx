@@ -190,6 +190,7 @@ function HypothesisQueue({ hypothesis }: { hypothesis: number }) {
           <SendQueue
             stage="sales"
             count={view.stage_queued}
+            batchMax={view.batch_max}
             blocked={!view.connected}
             onFinished={() => void client.invalidateQueries({ queryKey: QUEUE_QUERY_KEY })}
           />

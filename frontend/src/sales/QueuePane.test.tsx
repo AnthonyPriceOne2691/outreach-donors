@@ -55,6 +55,7 @@ const READY: SalesQueueView = {
   queued: 2,
   stage_queued: 7,
   limit_max: 200,
+  batch_max: 200,
 };
 
 const OFF: SalesQueueView = {
@@ -274,6 +275,20 @@ describe('пачка продаж', () => {
     expect(
       await screen.findByText('Ушло 5, стоп-лист — 2, осталось в очереди 0.', {}, SCREEN_WAIT),
     ).toBeInTheDocument();
+  });
+
+  it('очередь этапа длиннее пачки — окно называет потолок, который назвал сервер', async () => {
+    await openQueue({}, { ...READY, stage_queued: 7, batch_max: 5 });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Отправить очередь · 7' }));
+    const dialog = await screen.findByRole('dialog');
+
+    // Пачка берёт не больше потолка сервера: окно не обещает всю очередь этапа одним нажатием.
+    expect(
+      within(dialog).getByText(/^В очереди 7 писем; одна пачка берёт до 5, остальное — следующей/),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'Отправить 5' })).toBeInTheDocument();
   });
 
   it('отказ сервера — словами', async () => {

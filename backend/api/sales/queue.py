@@ -28,6 +28,7 @@ from backend.api.sales.chain_schemas import ChainState
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
+from backend.features.letters import batch
 from backend.features.sales import chain, connection, queue
 from backend.features.sales.models import SalesHypothesisModel
 from backend.features.sales.queue_jobs import QUEUE_JOB
@@ -87,6 +88,9 @@ class SalesQueueView(BaseModel):
     stage_queued: int
     #: Больше писем за одну сборку сервер не примет — граница поля на экране.
     limit_max: int
+    #: Больше писем одна пачка не возьмёт — окно подтверждения называет этот потолок, а не всю
+    #: очередь этапа (тот же `batch_max`, что у экрана писем).
+    batch_max: int
 
 
 class SalesQueueBody(BaseModel):
@@ -121,6 +125,7 @@ async def read_queue(
         queued=found.queued,
         stage_queued=found.stage_queued,
         limit_max=LIMIT_MAX,
+        batch_max=batch.BATCH_MAX,
     )
 
 

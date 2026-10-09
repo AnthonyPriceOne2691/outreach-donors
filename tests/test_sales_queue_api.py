@@ -24,7 +24,7 @@ from backend.features.core.models.access import AuditLogModel, UserModel
 from backend.features.core.models.outreach import MessageModel
 from backend.features.core.stages import SALES_NOT_CONNECTED, SalesNotConnectedError
 from backend.features.letters import followups
-from backend.features.letters.batch import send_queue
+from backend.features.letters.batch import BATCH_MAX, send_queue
 from backend.features.letters.rewrite import RewriteClient
 from backend.features.letters.sending import Sending
 from backend.features.ops import job_outcome
@@ -136,6 +136,8 @@ async def test_queue_shows_connected_sales_chains_and_what_waits(
     )
     # Пачка берёт очередь этапа целиком: кнопка называет письма всех гипотез.
     assert (body["stage_queued"], body["limit_max"]) == (3, 200)
+    # Потолок пачки — тот же, что у экрана писем: окно подтверждения называет его.
+    assert body["batch_max"] == BATCH_MAX
     assert [item["language"] for item in body["chains"]] == ["ru", "en"]
     # Та же форма, что у экрана цепочки: экран продаж читает её одним типом.
     assert body["chains"][1] == {
