@@ -31,6 +31,8 @@ from typing import assert_never
 from backend.config import outreach as cfg
 from backend.features.core.domain import Stage
 from backend.features.core.stages import SALES_ELSEWHERE, SalesNotConnectedError
+from backend.features.crawl.niche import LINKS as LINKS_AUDIENCE
+from backend.features.crawl.niche import NICHE as NICHE_AUDIENCE
 from backend.features.letters.uniqueness import words
 
 #: Заголовок зоны: `[имя] вид`.
@@ -121,6 +123,10 @@ FIRST = Spec(zones=REQUIRED_ZONES, corridor=True)
 ADVERTISER = Spec(
     zones=REQUIRED_ZONES, corridor=True, verbatim=("donor_host", "page_url", "anchor")
 )
+
+#: Оффер бизнесу ниши из выдачи (`crawl/niche.py`): ссылки, которую «мы
+#: видели», у него нет, и дословно доходят пример нашей площадки и тема.
+NICHE = Spec(zones=REQUIRED_ZONES, corridor=True, verbatim=("example_host", "niche"))
 
 #: Добивка: шаблон целиком, модель не участвует (решение 21.09.2026).
 FOLLOWUP = Spec(zones=FOLLOWUP_ZONES, corridor=False)
@@ -344,6 +350,7 @@ DEFAULT_PATH = TEMPLATES / "price_request.txt"
 #: не упоминаются, про площадку говорится только то, что видел обход, —
 #: страница и анкор.
 ADVERTISER_PATH = TEMPLATES / "advertiser_offer.txt"
+NICHE_PATH = TEMPLATES / "advertiser_niche.txt"
 
 
 def default() -> Template:
@@ -368,11 +375,14 @@ class FirstLetter:
     spec: Spec
     #: Пишется ли письмо под найденную ссылку — площадку, страницу и анкор.
     link: bool
+    #: Пишется ли письмо бизнесу ниши — под пример нашей площадки и тему.
+    niche: bool = False
 
 
-def first_letter(stage: Stage) -> FirstLetter:
-    """Первое письмо этапа. Этап письма — этап рассылки, и перепутать их
-    значит отправить рекламодателю вопрос о цене его же размещения.
+def first_letter(stage: Stage, audience: str = LINKS_AUDIENCE) -> FirstLetter:
+    """Первое письмо этапа, а на Этапе 2 — и аудитории. Этап письма — этап
+    рассылки, и перепутать их значит отправить рекламодателю вопрос о цене его
+    же размещения. Бизнесу ниши — свой оффер: «вашего размещения» у него нет.
 
     Разбор целиком, а не словарём: этап без письма — отказ словами здесь,
     а не `KeyError` где-то ниже; следующий новый этап — ошибка mypy. Первое
@@ -381,6 +391,8 @@ def first_letter(stage: Stage) -> FirstLetter:
     match stage:
         case Stage.DONORS:
             return FirstLetter(DEFAULT_PATH, FIRST, link=False)
+        case Stage.ADVERTISERS if audience == NICHE_AUDIENCE:
+            return FirstLetter(NICHE_PATH, NICHE, link=False, niche=True)
         case Stage.ADVERTISERS:
             return FirstLetter(ADVERTISER_PATH, ADVERTISER, link=True)
         case Stage.SALES:
@@ -391,32 +403,36 @@ def first_letter(stage: Stage) -> FirstLetter:
             assert_never(stage)
 
 
-def spec_for(stage: Stage) -> Spec:
+def spec_for(stage: Stage, audience: str = LINKS_AUDIENCE) -> Spec:
     """Требования к первому письму этапа."""
-    return first_letter(stage).spec
+    return first_letter(stage, audience).spec
 
 
-def for_stage(stage: Stage) -> Template:
+def for_stage(stage: Stage, audience: str = LINKS_AUDIENCE) -> Template:
     """Первое письмо этапа по умолчанию."""
-    found = first_letter(stage)
+    found = first_letter(stage, audience)
     return load(found.path, found.spec)
 
 
-def of_campaign(stage: Stage, stored: str | None) -> Template:
+def of_campaign(stage: Stage, stored: str | None, audience: str = LINKS_AUDIENCE) -> Template:
     """Текст первого письма рассылки: утверждённый при её создании или умолчание этапа.
 
-    Сохранённый текст разбирается требованиями своего этапа: оффер
-    рекламодателю без найденной ссылки не должен собраться, откуда бы
-    он ни пришёл.
+    Сохранённый текст разбирается требованиями своего этапа и аудитории:
+    оффер рекламодателю без найденной ссылки не должен собраться, откуда бы
+    он ни пришёл, а оффер бизнесу ниши — без примера площадки и темы.
     """
-    return parse(stored, spec_for(stage)) if stored else for_stage(stage)
+    return parse(stored, spec_for(stage, audience)) if stored else for_stage(stage, audience)
 
 
-def _followup_prefix(stage: Stage) -> str | None:
+def _followup_prefix(stage: Stage, audience: str = LINKS_AUDIENCE) -> str | None:
     """Имена файлов добивок этапа: `<префикс>_<шаг>.txt`. `None` — файлов нет."""
     match stage:
         case Stage.DONORS:
             return "followup"
+        case Stage.ADVERTISERS if audience == NICHE_AUDIENCE:
+            # Бизнесу ниши — свои добивки: напомнить о «вашем размещении» ему
+            # нельзя, его мы не видели.
+            return "advertiser_niche_followup"
         case Stage.ADVERTISERS:
             return "advertiser_followup"
         case Stage.SALES:  # цепочка продаж — в базе (`sales_chain_templates`), не файлами
@@ -431,16 +447,17 @@ def _followup_prefix(stage: Stage) -> str | None:
 CHAINED: tuple[Stage, ...] = tuple(s for s in Stage if _followup_prefix(s) is not None)
 
 
-def followup(step: int, stage: Stage = Stage.DONORS) -> Template:
+def followup(step: int, stage: Stage = Stage.DONORS, audience: str = LINKS_AUDIENCE) -> Template:
     """Шаблон добивки. Шаг 1 — первое напоминание, 2 — последнее.
 
     Шаблоны лежат файлами рядом с первым письмом, а не строками в базе:
     текст добивки один на всю рассылку, правится редко и должен
     проходить ревью кодом. У этапов добивки свои: донору напоминают
-    о вопросе про цену, рекламодателю — об оффере. Добивки продаж — шаблонами
-    из базы: их текст собирает модуль продаж (`followups.compose_letter`).
+    о вопросе про цену, рекламодателю — об оффере, бизнесу ниши — о своём
+    оффере, без «вашего размещения». Добивки продаж — шаблонами из базы: их
+    текст собирает модуль продаж (`followups.compose_letter`).
     """
-    prefix = _followup_prefix(stage)
+    prefix = _followup_prefix(stage, audience)
     if prefix is None:
         raise SalesNotConnectedError(f"Добивка шага {step} файлом", words=SALES_ELSEWHERE)
     path = TEMPLATES / f"{prefix}_{step}.txt"

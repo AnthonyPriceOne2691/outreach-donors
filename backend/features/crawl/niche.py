@@ -29,7 +29,7 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
-from backend.features.core.models.donor import DonorModel
+from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.run import RunModel
 
 #: Источник рекламодателя: найден по ссылке на нашем доноре или в выдаче.
@@ -212,3 +212,20 @@ async def waiting(session: AsyncSession) -> int:
         .where(_niche(), AdvertiserModel.decided_at.is_(None))
     )
     return int(count or 0)
+
+
+async def niche_funnel(session: AsyncSession) -> dict[str, int]:
+    """Воронка бизнесов ниши для отчёта сборки писем: где они кончились."""
+    base = select(func.count()).select_from(AdvertiserModel).where(_niche())
+    has_contact = (
+        select(ContactModel.id).where(ContactModel.domain_id == AdvertiserModel.domain_id).exists()
+    )
+    write = AdvertiserModel.confirmed_by_human.is_(True)
+    return {
+        "бизнесов ниши": int(await session.scalar(base) or 0),
+        "ждут решения": int(
+            await session.scalar(base.where(AdvertiserModel.decided_at.is_(None))) or 0
+        ),
+        "решено «пишем»": int(await session.scalar(base.where(write)) or 0),
+        "из них с адресом": int(await session.scalar(base.where(write, has_contact)) or 0),
+    }

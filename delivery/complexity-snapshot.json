@@ -187,14 +187,14 @@
       "worst": "—"
     },
     "backend/api/letters/routes.py": {
-      "lines": 298,
-      "complexity": 5,
-      "worst": "build:93"
+      "lines": 331,
+      "complexity": 6,
+      "worst": "build:102"
     },
     "backend/api/letters/schemas.py": {
-      "lines": 342,
+      "lines": 377,
       "complexity": 5,
-      "worst": "followups_for:88"
+      "worst": "followups_for:91"
     },
     "backend/api/main.py": {
       "lines": 13,
@@ -947,7 +947,7 @@
       "worst": "—"
     },
     "backend/features/core/models/outreach.py": {
-      "lines": 384,
+      "lines": 391,
       "complexity": 2,
       "worst": "_enum:42"
     },
@@ -1052,7 +1052,7 @@
       "worst": "marker_reason:71"
     },
     "backend/features/crawl/niche.py": {
-      "lines": 215,
+      "lines": 232,
       "complexity": 7,
       "worst": "collect:63"
     },
@@ -1282,14 +1282,14 @@
       "worst": "next_address_note:100"
     },
     "backend/features/letters/batch.py": {
-      "lines": 168,
+      "lines": 179,
       "complexity": 4,
-      "worst": "why:102"
+      "worst": "why:109"
     },
     "backend/features/letters/building.py": {
-      "lines": 421,
+      "lines": 429,
       "complexity": 7,
-      "worst": "build:247"
+      "worst": "build:251"
     },
     "backend/features/letters/chain.py": {
       "lines": 68,
@@ -1297,14 +1297,14 @@
       "worst": "kind_of:34"
     },
     "backend/features/letters/compose.py": {
-      "lines": 271,
+      "lines": 305,
       "complexity": 4,
-      "worst": "unset_reason:228"
+      "worst": "unset_reason:262"
     },
     "backend/features/letters/draft.py": {
-      "lines": 161,
+      "lines": 169,
       "complexity": 6,
-      "worst": "to_text:84"
+      "worst": "to_text:87"
     },
     "backend/features/letters/events.py": {
       "lines": 305,
@@ -1341,6 +1341,16 @@
       "complexity": 5,
       "worst": "unmask:60"
     },
+    "backend/features/letters/niche_recipients.py": {
+      "lines": 168,
+      "complexity": 8,
+      "worst": "_offers_of:150"
+    },
+    "backend/features/letters/offer_addresses.py": {
+      "lines": 35,
+      "complexity": 1,
+      "worst": "advertiser_addresses:20"
+    },
     "backend/features/letters/optout.py": {
       "lines": 88,
       "complexity": 3,
@@ -1362,9 +1372,9 @@
       "worst": "letter_for:71"
     },
     "backend/features/letters/recipients.py": {
-      "lines": 491,
+      "lines": 486,
       "complexity": 5,
-      "worst": "_why_not:310"
+      "worst": "_why_not:313"
     },
     "backend/features/letters/reply_to.py": {
       "lines": 153,
@@ -1372,12 +1382,12 @@
       "worst": "message_id_from:121"
     },
     "backend/features/letters/repository.py": {
-      "lines": 282,
-      "complexity": 5,
-      "worst": "funnel:70"
+      "lines": 326,
+      "complexity": 6,
+      "worst": "candidates:93"
     },
     "backend/features/letters/review.py": {
-      "lines": 95,
+      "lines": 96,
       "complexity": 3,
       "worst": "edit:54"
     },
@@ -1407,9 +1417,9 @@
       "worst": "remove:158"
     },
     "backend/features/letters/template.py": {
-      "lines": 453,
+      "lines": 470,
       "complexity": 9,
-      "worst": "_check_zones:237"
+      "worst": "_check_zones:243"
     },
     "backend/features/letters/transport.py": {
       "lines": 187,
@@ -1427,9 +1437,9 @@
       "worst": "difference:48"
     },
     "backend/features/letters/unknown_outcome.py": {
-      "lines": 388,
+      "lines": 398,
       "complexity": 6,
-      "worst": "_back:305"
+      "worst": "_back:315"
     },
     "backend/features/letters/unsubscribe.py": {
       "lines": 98,
@@ -2177,9 +2187,9 @@
       "worst": "worker_problems:75"
     },
     "backend/workers/jobs.py": {
-      "lines": 500,
+      "lines": 478,
       "complexity": 6,
-      "worst": "_search_contacts:315"
+      "worst": "_search_contacts:293"
     },
     "backend/workers/main.py": {
       "lines": 49,
@@ -2197,9 +2207,9 @@
       "worst": "handle:76"
     },
     "backend/workers/send_jobs.py": {
-      "lines": 42,
+      "lines": 48,
       "complexity": 1,
-      "worst": "send_letter_queue:26"
+      "worst": "send_letter_queue:27"
     },
     "backend/workers/ticker.py": {
       "lines": 69,

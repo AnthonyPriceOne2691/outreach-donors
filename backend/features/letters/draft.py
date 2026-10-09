@@ -17,6 +17,8 @@
 **Правка идёт требованиями своего этапа.** Оффер рекламодателю разбирается
 как оффер: найденная ссылка обязана остаться в неизменяемой зоне, и её
 подстановки известны только ему — в письме донору `{{anchor}}` опечатка.
+Оффер бизнесу ниши — требованиями своей аудитории: пример площадки и тема
+дословно, а найденной ссылки у него нет.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from backend.features.core.domain import Stage
+from backend.features.crawl.niche import LINKS
 from backend.features.letters import compose, guards
 from backend.features.letters.template import (
     HEADER_RE,
@@ -77,17 +80,19 @@ class Draft:
         )
 
 
-def default_draft(stage: Stage = Stage.DONORS) -> Draft:
-    return Draft.of(for_stage(stage))
+def default_draft(stage: Stage = Stage.DONORS, audience: str = LINKS) -> Draft:
+    return Draft.of(for_stage(stage, audience))
 
 
-def to_text(subject: str, zones: Mapping[str, str], stage: Stage = Stage.DONORS) -> str:
+def to_text(
+    subject: str, zones: Mapping[str, str], stage: Stage = Stage.DONORS, audience: str = LINKS
+) -> str:
     """Черновик с экрана — в текст шаблона, проверенный как файл.
 
     Порядок и вид зон берутся у умолчания этапа: экран правит содержимое,
     а не устройство письма.
     """
-    like = for_stage(stage)
+    like = for_stage(stage, audience)
     unknown = sorted(set(zones) - {z.name for z in like.zones})
     if unknown:
         raise TemplateError(
@@ -105,8 +110,8 @@ def to_text(subject: str, zones: Mapping[str, str], stage: Stage = Stage.DONORS)
         lines += [f"[{zone.name}] {zone.kind.value}", text, ""]
     text = "\n".join(lines)
 
-    checked = parse(text, spec_for(stage))
-    _check_values(checked, stage)
+    checked = parse(text, spec_for(stage, audience))
+    _check_values(checked, stage, audience)
     return text
 
 
@@ -129,13 +134,16 @@ def _check_lines(zone: str, text: str) -> None:
             )
 
 
-#: Ссылка для проверки подстановок: значения не важны, важны имена.
+#: Ссылка и оффер ниши для проверки подстановок: значения не важны, важны имена.
 _PROBE_LINK = compose.FoundLink(donor_host="", page_url="", anchor="")
+_PROBE_NICHE = compose.NicheOffer(example_host="", niche="")
 
 
-def _check_values(checked: Template, stage: Stage) -> None:
-    link = _PROBE_LINK if first_letter(stage).link else None
-    known = set(compose.values_for(host="", link=link))
+def _check_values(checked: Template, stage: Stage, audience: str = LINKS) -> None:
+    letter = first_letter(stage, audience)
+    link = _PROBE_LINK if letter.link else None
+    niche = _PROBE_NICHE if letter.niche else None
+    known = set(compose.values_for(host="", link=link, niche=niche))
     unknown = sorted(checked.placeholders() - known)
     if unknown:
         names = ", ".join(f"{{{{{name}}}}}" for name in unknown)

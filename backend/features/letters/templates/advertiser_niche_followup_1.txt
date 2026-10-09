@@ -1,0 +1,15 @@
+# Первая добивка бизнесу ниши (аудитория `niche`). ТЕКСТ ВЫДУМАН — боевой
+# приходит со стороны задачи. Про «ваше размещение» здесь ни слова: его мы
+# не видели (см. advertiser_niche.txt).
+
+subject: Following up on sponsored articles
+
+[greeting] fixed
+Hi again,
+
+[reminder] fixed
+Just following up on my note from last week about sponsored articles on sites in your field. If promoting your products that way is of interest, a one-line reply with what you would like to promote is enough for me to come back with suitable sites and prices.
+
+[signature] fixed
+Best regards,
+{{sender_name}}

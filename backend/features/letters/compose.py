@@ -96,6 +96,22 @@ class FoundLink:
 
 
 @dataclass(frozen=True, slots=True)
+class NicheOffer:
+    """Оффер бизнесу ниши из выдачи (`crawl/niche.py`): ссылки, которую «мы
+    видели», нет — есть пример нашей площадки и тема, по которой бизнес нашёлся.
+
+    Все три значения стоят в неизменяемой зоне (`template.NICHE`).
+    """
+
+    example_host: str
+    #: Тема: ключи, по которым бизнес нашёлся в выдаче прогона.
+    niche: str
+    #: Страна аудитории (ISO-2) — страна прогона. Пусто — фразы про
+    #: аудиторию в письме нет.
+    donor_geo: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class Rendered:
     """Шаблон с подставленными значениями, ещё без уникализации."""
 
@@ -126,7 +142,11 @@ _PROBE_DOMAIN_ID = 0
 
 
 def values_for(
-    *, host: str, domain_id: int | None = None, link: FoundLink | None = None
+    *,
+    host: str,
+    domain_id: int | None = None,
+    link: FoundLink | None = None,
+    niche: NicheOffer | None = None,
 ) -> dict[str, str]:
     """Значения подстановок.
 
@@ -161,9 +181,23 @@ def values_for(
             # нет, а оффер без страны звучал «куда-то». Фраза целиком, чтобы при
             # неизвестном гео в письме не оставалось дыры (решение Anthony 04.10).
             "donor_country": country,
-            "donor_audience": f"Its readers are mostly in {country}. " if country else "",
+            "donor_audience": _audience(country),
+        }
+    if niche is not None:
+        # Бизнес ниши: вместо найденной ссылки — пример площадки и тема.
+        country = country_name_en(niche.donor_geo)
+        values |= {
+            "example_host": niche.example_host,
+            "niche": niche.niche,
+            "donor_country": country,
+            "donor_audience": _audience(country),
         }
     return values
+
+
+def _audience(country: str) -> str:
+    """Фраза про аудиторию целиком — без дыры в тексте, когда страна неизвестна."""
+    return f"Its readers are mostly in {country}. " if country else ""
 
 
 def missing(values: dict[str, str]) -> list[str]:

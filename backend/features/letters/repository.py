@@ -27,9 +27,12 @@ from backend.features.core.models.outreach import (
 )
 from backend.features.core.models.run import RunCandidateModel, RunModel
 from backend.features.core.stages import SALES_ELSEWHERE, SalesNotConnectedError
+from backend.features.crawl.niche import LINKS, NICHE
 from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.compose import FoundLink
+from backend.features.letters.draft import LetterConflictError
 from backend.features.letters.funnel import AdvertiserFunnel, Funnel
+from backend.features.letters.niche_recipients import NicheRecipients
 from backend.features.letters.recipients import Candidate, Recipients, donor_geo_of
 
 
@@ -50,6 +53,9 @@ class QueuedLetter:
     #: Нынешняя лучшая ссылка рекламодателя. Пусто у донора — и у
     #: рекламодателя, которого сняли после сборки письма.
     link: FoundLink | None = None
+    #: Аудитория рассылки Этапа 2: у бизнеса ниши ссылки нет по природе, и
+    #: правка его письма меряется от оффера ниши (`niche_recipients`).
+    audience: str = LINKS
 
 
 class UnknownLetterError(ValueError):
@@ -85,14 +91,22 @@ class LetterRepository:
                 assert_never(stage)
 
     async def candidates(
-        self, stage: Stage, *, limit: int, run_ids: Sequence[int] = ()
+        self,
+        stage: Stage,
+        *,
+        limit: int,
+        run_ids: Sequence[int] = (),
+        audience: str = LINKS,
     ) -> list[Candidate]:
-        """Кому писать, по одному адресу на адресата этапа. У рекламодателей
-        прогонов нет: их находит обход (`building.run_scope`)."""
+        """Кому писать, по одному адресу на адресата этапа (и аудитории Этапа 2). У
+        рекламодателей прогонов нет: их находит обход (`building.run_scope`); бизнесы
+        ниши — свой отбор (`niche_recipients`): решение человека и пример площадки."""
         recipients = Recipients(self._session)
         match stage:
             case Stage.DONORS:
                 return await recipients.donor_candidates(limit=limit, run_ids=run_ids)
+            case Stage.ADVERTISERS if audience == NICHE:
+                return await NicheRecipients(self._session).niche_candidates(limit=limit)
             case Stage.ADVERTISERS:
                 return await recipients.advertiser_candidates(limit=limit)
             case Stage.SALES:
@@ -101,6 +115,14 @@ class LetterRepository:
                 )
             case _:
                 assert_never(stage)
+
+    async def funnel_report(
+        self, stage: Stage, *, run_ids: Sequence[int] = (), audience: str = LINKS
+    ) -> dict[str, int]:
+        """Воронка для отчёта сборки. У бизнесов ниши своя: решение человека и адрес."""
+        if stage is Stage.ADVERTISERS and audience == NICHE:
+            return await NicheRecipients(self._session).niche_report()
+        return (await self.funnel(stage, run_ids=run_ids)).as_report()
 
     # --- очередь ---
 
@@ -113,6 +135,7 @@ class LetterRepository:
                 CampaignModel.name,
                 CampaignModel.followup_days,
                 CampaignModel.stage,
+                CampaignModel.audience,
                 AdvertiserModel.best_donor_host,
                 AdvertiserModel.best_page_url,
                 AdvertiserModel.best_anchor,
@@ -132,7 +155,9 @@ class LetterRepository:
 
     @staticmethod
     def _queued_letter(row: Any) -> QueuedLetter:
-        message, host, email, campaign, days, stage, donor_host, page_url, anchor, geo = row
+        message, host, email, campaign, days, stage, audience, donor_host, page_url, anchor, geo = (
+            row
+        )
         link = (
             FoundLink(donor_host=donor_host, page_url=page_url, anchor=anchor, donor_geo=geo)
             if donor_host and page_url and anchor
@@ -146,28 +171,32 @@ class LetterRepository:
             followup_days=days,
             stage=stage,
             link=link,
+            audience=audience,
         )
 
-    async def queued(self, *, stage: Stage | None = None, limit: int = 200) -> list[QueuedLetter]:
-        """Что ждёт отправки — всё или одного этапа.
+    async def queued(
+        self, *, stage: Stage | None = None, audience: str | None = None, limit: int = 200
+    ) -> list[QueuedLetter]:
+        """Что ждёт отправки — всё или одного этапа и аудитории.
 
         Только очередь: отправленное живёт в диалогах, и смешивать их
         в одном списке значит потерять смысл экрана — здесь то, по чему
-        человек принимает решение прямо сейчас. Этапы разводятся по той же
-        причине: оффер рекламодателю и вопрос донору о цене читаются
-        разными глазами.
+        человек принимает решение прямо сейчас. Этапы и аудитории разводятся
+        по той же причине: оффер по найденной ссылке, оффер бизнесу ниши
+        и вопрос донору о цене читаются разными глазами.
 
         **Только первые письма** (находка ревью 07.10.2026). Добивка и ответ,
         которые отказ почты вернул «в очередь», стояли здесь же: их брала
         пачка, и уходили они с любого свободного ящика — первым письмом вне
         своей переписки. У них свой путь и свой ящик (`mailbox.py`).
         """
-        statement = self._waiting(self._letters(), stage)
+        statement = self._waiting(self._letters(), stage, audience)
         rows = await self._session.execute(statement.order_by(MessageModel.id).limit(limit))
         return [self._queued_letter(row) for row in rows.all()]
 
-    async def queued_count(self, *, stage: Stage) -> int:
-        """Сколько писем этапа ждёт в очереди — всех, без потолка экрана и пачки.
+    async def queued_count(self, *, stage: Stage, audience: str | None = None) -> int:
+        """Сколько писем этапа (и аудитории) ждёт в очереди — всех, без потолка экрана
+        и пачки. Аудитория не названа — все письма этапа.
 
         Отбор тот же, что у `queued`. Итог пачки «осталось в очереди» считался
         длиной `queued` с потолком пачки и при тысяче писем говорил «осталось 200».
@@ -177,15 +206,23 @@ class LetterRepository:
             .select_from(MessageModel)
             .join(CampaignModel, CampaignModel.id == MessageModel.campaign_id)
         )
-        return int(await self._session.scalar(self._waiting(counted, stage)) or 0)
+        waiting = self._waiting(counted, stage, audience)
+        return int(await self._session.scalar(waiting) or 0)
 
     @staticmethod
-    def _waiting(statement: Select[Any], stage: Stage | None) -> Select[Any]:
-        """Отбор очереди: первые письма «в очереди» — все или одного этапа."""
+    def _waiting(
+        statement: Select[Any], stage: Stage | None, audience: str | None = None
+    ) -> Select[Any]:
+        """Отбор очереди: первые письма «в очереди» — все, одного этапа или одной
+        аудитории этапа (`campaigns.audience`)."""
         statement = statement.where(
             MessageModel.status == MessageStatus.QUEUED, MessageModel.step == FIRST_STEP
         )
-        return statement if stage is None else statement.where(CampaignModel.stage == stage)
+        if stage is not None:
+            statement = statement.where(CampaignModel.stage == stage)
+        if audience is not None:
+            statement = statement.where(CampaignModel.audience == audience)
+        return statement
 
     async def letter(self, message_id: int) -> QueuedLetter:
         rows = await self._session.execute(self._letters().where(MessageModel.id == message_id))
@@ -204,6 +241,7 @@ class LetterRepository:
         run_id: int | None = None,
         followup_days: Sequence[int] = (),
         letter_template: str | None = None,
+        audience: str = LINKS,
     ) -> CampaignModel:
         """Кампания по имени. Одноимённая переиспользуется: повторный запуск
         сборки дополняет очередь, а не заводит вторую такую же.
@@ -216,6 +254,11 @@ class LetterRepository:
         """
         found = await self.find_campaign(name=name, stage=stage)
         if found is not None:
+            if found.audience != audience:
+                raise LetterConflictError(
+                    f"Рассылка «{name}» уже идёт для другой аудитории ({found.audience}) — "
+                    "назовите новую"
+                )
             return found
 
         created = CampaignModel(
@@ -225,6 +268,7 @@ class LetterRepository:
             status="draft",
             followup_days=list(followup_days) or None,
             letter_template=letter_template,
+            audience=audience,
         )
         self._session.add(created)
         await self._session.flush()

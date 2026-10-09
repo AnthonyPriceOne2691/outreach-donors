@@ -160,19 +160,29 @@ def _stuck_letter(row: Any) -> StuckLetter:
 
 
 async def stuck(
-    session: AsyncSession, *, stage: Stage, now: datetime | None = None, limit: int = STUCK_LIMIT
+    session: AsyncSession,
+    *,
+    stage: Stage,
+    audience: str | None = None,
+    now: datetime | None = None,
+    limit: int = STUCK_LIMIT,
 ) -> list[StuckLetter]:
-    """Письма этапа, висящие в «отправляется» дольше `STUCK_AFTER`, старые первыми."""
+    """Письма этапа, висящие в «отправляется» дольше `STUCK_AFTER`, старые первыми.
+
+    `audience` — только рассылок этой аудитории (`campaigns.audience`): письмо
+    бизнеса ниши, на котором встала его пачка, ждёт решения на его вкладке, а не
+    среди писем по найденной ссылке. Не названа — все письма этапа.
+    """
     edge = (now or datetime.now(UTC)) - STUCK_AFTER
+    statement = _letters().where(
+        MessageModel.status == MessageStatus.SENDING,
+        CampaignModel.stage == stage,
+        MessageModel.updated_at <= edge,
+    )
+    if audience is not None:
+        statement = statement.where(CampaignModel.audience == audience)
     rows = await session.execute(
-        _letters()
-        .where(
-            MessageModel.status == MessageStatus.SENDING,
-            CampaignModel.stage == stage,
-            MessageModel.updated_at <= edge,
-        )
-        .order_by(MessageModel.updated_at, MessageModel.id)
-        .limit(limit)
+        statement.order_by(MessageModel.updated_at, MessageModel.id).limit(limit)
     )
     return [_stuck_letter(row) for row in rows.all()]
 

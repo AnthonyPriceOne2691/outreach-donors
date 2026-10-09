@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from datetime import UTC, datetime, time, timedelta
 from typing import Any, assert_never
 
@@ -227,33 +227,13 @@ async def _mark(run_id: int, reason: str, failed: BaseException, *, stop: bool) 
         await engine.dispose()
 
 
-async def _build_letters(
-    campaign: str,
-    country: str,
-    niche: Sequence[str],
-    limit: int,
-    followup_days: Sequence[int],
-    letter_template: str | None,
-    run_ids: Sequence[int],
-    stage: Stage,
-) -> dict[str, Any]:
+async def _build_letters(request: BuildRequest) -> dict[str, Any]:
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     rewriter = RewriteClient()
     try:
         async with factory() as session:
-            report = await QueueBuilder(session, rewriter).build(
-                BuildRequest(
-                    campaign_name=campaign,
-                    stage=stage,
-                    country=country,
-                    niche=tuple(niche),
-                    limit=limit,
-                    followup_days=tuple(followup_days),
-                    letter_template=letter_template,
-                    run_ids=tuple(run_ids),
-                )
-            )
+            report = await QueueBuilder(session, rewriter).build(request)
             await session.commit()
             return {
                 "prepared": report.prepared,
@@ -269,17 +249,7 @@ async def _build_letters(
         await engine.dispose()
 
 
-def build_letter_queue(
-    campaign: str,
-    country: str = "us",
-    *,
-    niche: Sequence[str] = (),
-    limit: int = 50,
-    followup_days: Sequence[int] = (),
-    letter_template: str | None = None,
-    run_ids: Sequence[int] = (),
-    stage: str = Stage.DONORS.value,
-) -> dict[str, Any]:
+def build_letter_queue(campaign: str, country: str = "us", **options: Any) -> dict[str, Any]:
     """Собрать очередь писем. Ничего не отправляет.
 
     В очередь задач вынесено потому же, почему и прогон: каждое письмо
@@ -291,21 +261,29 @@ def build_letter_queue(
 
     Этап приходит строкой, а не перечислением: задача живёт в очереди
     дольше версии кода, и строка переживает выкатку, а снимок чужого
-    класса — не обязательно. Задача, поставленная до этапов, — Этап 1.
+    класса — не обязательно. Задача, поставленная до этапов, — Этап 1;
+    до аудиторий — рассылка по найденным ссылкам.
+
+    Остальное — ключами с умолчаниями (`niche`, `limit`, `followup_days`,
+    `letter_template`, `run_ids`, `stage`, `audience`): задача старше кода
+    передаёт их так же, и новый ключ её не ломает.
     """
     setup_logging()
     check_storage()
     return _settled(
         lambda: asyncio.run(
             _build_letters(
-                campaign,
-                country,
-                niche,
-                limit,
-                followup_days,
-                letter_template,
-                run_ids,
-                Stage(stage),
+                BuildRequest(
+                    campaign_name=campaign,
+                    stage=Stage(options.get("stage", Stage.DONORS.value)),
+                    country=country,
+                    niche=tuple(options.get("niche", ())),
+                    limit=int(options.get("limit", 50)),
+                    followup_days=tuple(options.get("followup_days", ())),
+                    letter_template=options.get("letter_template"),
+                    run_ids=tuple(options.get("run_ids", ())),
+                    audience=str(options.get("audience", "links")),
+                )
             )
         ),
         what="сборка писем",

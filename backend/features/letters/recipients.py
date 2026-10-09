@@ -46,8 +46,9 @@ from backend.features.core.models.outreach import MessageModel
 from backend.features.core.models.run import RunCandidateModel
 from backend.features.letters import attempts
 from backend.features.letters.chain import FIRST_STEP
-from backend.features.letters.compose import FoundLink
+from backend.features.letters.compose import FoundLink, NicheOffer
 from backend.features.letters.funnel import AdvertiserFunnel, Funnel
+from backend.features.letters.offer_addresses import advertiser_addresses
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +62,8 @@ class Candidate:
     dr: int | None
     #: Найденная ссылка — только у рекламодателя: под неё пишется письмо.
     link: FoundLink | None = None
+    #: Оффер бизнесу ниши (`letters/niche_recipients.py`) — вместо ссылки.
+    niche: NicheOffer | None = None
     #: Номер попытки: больше единицы — прежние письма не дошли, и это
     #: письмо уходит на следующий адрес (`attempts.py`). Едет в ключ письма.
     attempt: int = 1
@@ -441,22 +444,14 @@ class Recipients:
         они кончатся на сомнительных, а не на случайных.
         """
         inner = (
-            select(
-                DomainModel.id.label("domain_id"),
-                DomainModel.host.label("host"),
-                ContactModel.id.label("contact_id"),
-                ContactModel.email.label("email"),
+            advertiser_addresses(
                 AdvertiserModel.points.label("points"),
                 AdvertiserModel.donors.label("donors"),
                 AdvertiserModel.best_donor_host.label("donor_host"),
                 AdvertiserModel.best_page_url.label("page_url"),
                 AdvertiserModel.best_anchor.label("anchor"),
                 donor_geo_of(AdvertiserModel.best_donor_host).label("donor_geo"),
-                attempts.attempt_number(DomainModel.id, Stage.ADVERTISERS).label("attempt"),
             )
-            .join(AdvertiserModel, AdvertiserModel.domain_id == DomainModel.id)
-            .join(ContactModel, ContactModel.domain_id == DomainModel.id)
-            .where(attempts.fresh(ContactModel))
             .distinct(DomainModel.id)
             .order_by(DomainModel.id, *preferred_first())
         )

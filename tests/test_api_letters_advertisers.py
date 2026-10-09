@@ -260,7 +260,7 @@ class TestTheJob:
         )
 
         report = await jobs._build_letters(
-            "Сентябрь", "za", (), 10, (), None, (), Stage.ADVERTISERS
+            BuildRequest(campaign_name="Сентябрь", stage=Stage.ADVERTISERS, country="za", limit=10)
         )
 
         assert report["prepared"] == 1
@@ -272,11 +272,12 @@ class TestTheJob:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Задача живёт в очереди дольше версии кода: поставленная до этапов
-        приходит без него и остаётся Этапом 1."""
-        seen: list[Stage] = []
+        приходит без него и остаётся Этапом 1, до аудиторий — рассылкой по
+        найденным ссылкам."""
+        seen: list[BuildRequest] = []
 
-        async def build(*args: object) -> dict[str, Any]:
-            seen.append(args[-1])  # type: ignore[arg-type]
+        async def build(request: BuildRequest) -> dict[str, Any]:
+            seen.append(request)
             return {}
 
         monkeypatch.setattr(jobs, "_build_letters", build)
@@ -284,8 +285,13 @@ class TestTheJob:
 
         jobs.build_letter_queue("Май")
         jobs.build_letter_queue("Сентябрь", stage="advertisers")
+        jobs.build_letter_queue("Октябрь", stage="advertisers", audience="niche")
 
-        assert seen == [Stage.DONORS, Stage.ADVERTISERS]
+        assert [(r.stage, r.audience) for r in seen] == [
+            (Stage.DONORS, "links"),
+            (Stage.ADVERTISERS, "links"),
+            (Stage.ADVERTISERS, "niche"),
+        ]
 
 
 class TestTheLeadInDialogs:

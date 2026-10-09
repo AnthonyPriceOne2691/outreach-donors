@@ -229,7 +229,7 @@ class Chain:
         с площадкой, которую пересчёт обхода успел сменить, давали добивку
         отдельной веткой — о другом, чем письмо, на которое она ссылается.
         """
-        stage = await self._stage(claimed.campaign_id)
+        stage, audience = await self._stage_and_audience(claimed.campaign_id)
         if stage is Stage.SALES:  # шаг цепочки из базы — ответ модуля продаж (`stages.SalesMail`)
             body = (
                 await stages.sales_followup(self._session, claimed.thread_id, claimed.step)
@@ -237,7 +237,7 @@ class Chain:
             letter = compose.Letter(subject="", body=body, plain_body=body)
         else:
             rendered = compose.render(
-                template.followup(claimed.step, stage),
+                template.followup(claimed.step, stage, audience),
                 compose.values_for(host=claimed.host, domain_id=claimed.domain_id),
             )
             letter = compose.assemble(rendered, {})
@@ -257,7 +257,7 @@ class Chain:
         первой и не вставилась бы в базу. У продаж в ключе ещё и контакт —
         два лида одной компании, — и он берётся из ключа предыдущего письма.
         """
-        stage = await self._stage(claimed.campaign_id)
+        stage, _ = await self._stage_and_audience(claimed.campaign_id)
         existing = await self._session.scalar(
             select(MessageModel).where(
                 MessageModel.thread_id == claimed.thread_id,
@@ -323,11 +323,11 @@ class Chain:
             raise FollowupError(f"У домена №{domain_id} нет имени — добивку некому адресовать")
         return str(host)
 
-    async def _stage(self, campaign_id: int) -> Stage:
+    async def _stage_and_audience(self, campaign_id: int) -> tuple[Stage, str]:
         campaign = await self._session.get(CampaignModel, campaign_id)
         if campaign is None:
             raise FollowupError(f"Рассылки №{campaign_id} нет — добивка осиротела")
-        return campaign.stage
+        return campaign.stage, campaign.audience
 
     async def _first_subject(self, thread_id: int | None) -> str | None:
         """Тема первого письма переписки — та, с которой оно ушло."""

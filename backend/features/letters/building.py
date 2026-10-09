@@ -51,6 +51,7 @@ from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.core.models.run import RunModel
 from backend.features.core.stages import mail_stage
+from backend.features.crawl.niche import LINKS
 from backend.features.letters import compose, guards
 from backend.features.letters.recipients import Candidate
 from backend.features.letters.repository import LetterRepository
@@ -128,6 +129,9 @@ class BuildRequest:
     #: Прогоны, из принятых доноров которых собирается рассылка. Пусто —
     #: все принятые (командная строка, тесты); экран шлёт прогоны всегда.
     run_ids: tuple[int, ...] = ()
+    #: Кому рассылка Этапа 2: `links` — рекламодателям по найденной ссылке,
+    #: `niche` — бизнесам ниши из выдачи (свой оффер и свои добивки).
+    audience: str = LINKS
 
 
 class LetterScopeError(ValueError):
@@ -254,6 +258,7 @@ class QueueBuilder:
         campaign = await self._repo.campaign(
             name=request.campaign_name,
             stage=request.stage,
+            audience=request.audience,
             run_id=request.run_id,
             followup_days=request.followup_days,
             letter_template=request.letter_template,
@@ -270,9 +275,9 @@ class QueueBuilder:
         # письмо уже считается (`_not_written`).
         await self._session.commit()
         report = BuildReport(campaign_id=campaign.id)
-        report.funnel = (
-            await self._repo.funnel(request.stage, run_ids=request.run_ids)
-        ).as_report()
+        report.funnel = await self._repo.funnel_report(
+            request.stage, run_ids=request.run_ids, audience=request.audience
+        )
         report.blocked_by = compose.missing_settings()
         if report.blocked_by:
             logger.warning(
@@ -281,7 +286,7 @@ class QueueBuilder:
             )
 
         candidates = await self._repo.candidates(
-            request.stage, limit=request.limit, run_ids=request.run_ids
+            request.stage, limit=request.limit, run_ids=request.run_ids, audience=request.audience
         )
         for candidate in candidates:
             if self._bad_address(candidate, report):
@@ -315,8 +320,8 @@ class QueueBuilder:
         ни из файла.
         """
         if campaign.letter_template:
-            return of_campaign(campaign.stage, campaign.letter_template)
-        return self._template or for_stage(campaign.stage)
+            return of_campaign(campaign.stage, campaign.letter_template, campaign.audience)
+        return self._template or for_stage(campaign.stage, campaign.audience)
 
     async def _within_cap(self, request: BuildRequest, report: BuildReport) -> bool:
         """Потолок расхода на модель — до каждого письма. Достигнут — сборка
@@ -362,7 +367,10 @@ class QueueBuilder:
         rendered = compose.render(
             letter_template,
             compose.values_for(
-                host=candidate.host, domain_id=candidate.domain_id, link=candidate.link
+                host=candidate.host,
+                domain_id=candidate.domain_id,
+                link=candidate.link,
+                niche=candidate.niche,
             ),
         )
         rewritten = await self._rewriter.rewrite(

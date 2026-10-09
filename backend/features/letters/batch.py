@@ -23,6 +23,12 @@ Anthony выбрал пачку — «вся очередь» (06.10.2026): пи
 
 **Две пачки разом не отправят письмо дважды**: захват письма в `Sending`
 отдаёт второй отказ «уже не в очереди», и он попадает в итог словами.
+
+**Пачка — одной аудитории этапа** (`campaigns.audience`). У Этапа 2 их две:
+рекламодатели по найденной ссылке и бизнесы ниши из выдачи — у каждой своя
+вкладка, своя очередь и своя кнопка. Нажатие на одной вкладке письма другой
+не отправляет и в «осталось» их не считает. Без аудитории — по ссылке: так
+шла пачка до бизнесов ниши, и у доноров и продаж других аудиторий нет.
 """
 
 from __future__ import annotations
@@ -36,6 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import Stage
 from backend.features.core.stages import SalesNotConnectedError
+from backend.features.crawl.niche import LINKS
 from backend.features.letters.repository import LetterRepository
 from backend.features.letters.sending import (
     NoSenderError,
@@ -116,10 +123,12 @@ async def send_queue(
     stage: Stage,
     author_id: int | None = None,
     limit: int = BATCH_MAX,
+    audience: str = LINKS,
 ) -> BatchReport:
-    """Отправить очередь этапа по одному письму, пока у ящиков есть лимит."""
+    """Отправить очередь этапа и аудитории по одному письму, пока у ящиков есть лимит."""
     repository = LetterRepository(session)
-    ids = [row.message.id for row in await repository.queued(stage=stage, limit=limit)]
+    queued = await repository.queued(stage=stage, audience=audience, limit=limit)
+    ids = [row.message.id for row in queued]
     sending = Sending(session, transports)
     report = BatchReport()
     for letter_id in ids:
@@ -127,11 +136,13 @@ async def send_queue(
         if stop is not None:
             report.stopped = stop
             break
-    # Вся очередь этапа, а не её первые `limit`: остальное возьмёт следующая пачка.
-    report.left = await repository.queued_count(stage=stage)
+    # Вся очередь этапа и аудитории, а не её первые `limit`: остальное возьмёт следующая
+    # пачка той же вкладки.
+    report.left = await repository.queued_count(stage=stage, audience=audience)
     logger.info(
-        "письма: пачка этапа %s — ушло %s, не ушло %s, осталось %s",
+        "письма: пачка этапа %s (%s) — ушло %s, не ушло %s, осталось %s",
         stage.value,
+        audience,
         report.sent,
         sum(report.refused.values()),
         report.left,

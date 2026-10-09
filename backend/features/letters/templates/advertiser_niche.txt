@@ -1,0 +1,45 @@
+# Оффер бизнесу ниши из выдачи прогона. Этап 2, аудитория `niche`.
+#
+# ТЕКСТ ВЫДУМАН. Боевой приходит со стороны задачи — как у оффера по
+# найденной ссылке и у письма донору. Здесь важен не текст, а зоны и границы.
+#
+# Кому: сайту, который сам продаёт в нише прогона (судья: «продаёт своё»;
+# `crawl/niche.py`). Его ссылки на наших донорах мы НЕ видели — поэтому ни
+# «вашего размещения», ни страницы с анкором в письме нет и быть не может.
+# Предлагаем другое: статью со ссылкой на сайтах его темы, которые мы ведём.
+#
+# ЧЕГО В ЭТОМ ПИСЬМЕ БЫТЬ НЕ ДОЛЖНО — как и в оффере по ссылке:
+# 1. Цены — ни нашей, ни донора: цену называет человек в переписке.
+# 2. Метрик Ahrefs — правило самого Ahrefs, нарушение бьёт по ключу.
+# 3. Обещаний про площадку сверх того, что мы о ней знаем: тема и страна
+#    аудитории — да, остальное — догадка.
+#
+# Подстановки:
+#   {{example_host}}   — пример нашей площадки: принятый донор того же
+#                        прогона со свежей ценой
+#   {{niche}}          — тема: ключи, по которым бизнес нашёлся в выдаче
+#   {{donor_audience}} — фраза про аудиторию с точкой и пробелом, пустая,
+#                        когда страна неизвестна
+# Все три стоят в неизменяемой зоне `offer` (`template.NICHE`): модель их не
+# видит и выбросить не может.
+
+subject: Sponsored articles on {{niche}} sites
+
+[greeting] rewrite
+Hello there,
+
+[opening] rewrite
+I arrange sponsored articles on publisher sites for a living, and your site came up while I was looking at who sells in this space.
+
+[offer] fixed
+We place articles with a link on sites that cover {{niche}}, such as {{example_host}}. {{donor_audience}}A placement like that puts your brand in front of readers who are already looking for what you sell.
+
+[ask] rewrite
+Would it make sense to talk? If you tell me which products or pages you want to promote, I will come back with a short list of suitable sites and what a placement on each would cost.
+
+[terms] fixed
+No commitment and no retainer: you approve each placement before it is bought, you get the live URL, and you pay per article.
+
+[signature] fixed
+Best regards,
+{{sender_name}}

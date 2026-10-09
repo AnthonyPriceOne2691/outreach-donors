@@ -59,6 +59,7 @@ def edit(
     body: str,
     template: Template | None = None,
     link: compose.FoundLink | None = None,
+    niche: compose.NicheOffer | None = None,
 ) -> Reviewed:
     """Заменить текст письма руками и пересчитать отличие.
 
@@ -78,7 +79,7 @@ def edit(
 
     plain = compose.render(
         template or default(),
-        compose.values_for(host=host, domain_id=message.domain_id, link=link),
+        compose.values_for(host=host, domain_id=message.domain_id, link=link, niche=niche),
     ).body
     uniqueness = difference(plain, text)
 
