@@ -53,8 +53,9 @@ export function CreateUserModal({ opened, onClose, onCreated }: Props) {
             label="Роль"
             allowDeselect={false}
             data={[
-              { value: 'operator', label: 'Оператор — база и прогоны' },
-              { value: 'admin', label: 'Админ — ещё и учётки' },
+              // Права ролей — как на сервере (`access/permissions.py`, ROLE_PERMISSIONS).
+              { value: 'operator', label: 'Оператор — база, прогоны, пороги, цены, продажи' },
+              { value: 'admin', label: 'Админ — всё: ещё письма, домены рассылки, учётки' },
             ]}
             {...form.getInputProps('role')}
           />

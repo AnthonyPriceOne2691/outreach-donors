@@ -64,30 +64,36 @@ import type { Picks } from './picks';
  *  отдаётся всё, что не нужно остальным. Остальные — по самому длинному,
  *  что в колонке бывает, замеренному шрифтом экрана (холстом по живому
  *  элементу, 26.09.2026), плюс поля ячейки, поля и стрелки списка:
- *  - вердикт — поле «не проверен · 1 225» (116 px текста);
+ *  - вердикт — значок и поле «не проверен» без числа (09.10.2026);
  *  - DR — подсказка «не ниже» (48);
  *  - трафик — порог «1 000 000 000» (84): миллиарды бывают, у крупнейшего
  *    сайта базы пять;
  *  - гео — строка «Саудовская Аравия · 62%» (173); в поле — только название,
  *    счётчик — в списке: по названию в поле ищут;
  *  - адреса — число и значок «предел запросов» (140);
- *  - данные — поле «не проверялись · 1 225» (135). */
+ *  - данные — значок и поле «не проверялись» без числа.
+ *
+ *  **Счётчики — только в пунктах списка, в поле — название**, как у «Гео». До
+ *  09.10.2026 поле показывало «не проверялись · 1 225», и колонки «Вердикт» и
+ *  «Данные» держали 176 и 196 px ради закрытого поля, а в ячейках — короткий
+ *  значок. Домену оставалось ~170 px из 1 161: домены переносились, один — посреди
+ *  слова, строки шли разной высоты (аудит экранов 09.10.2026). */
 const COLUMNS: { title: string; width?: string }[] = [
   { title: 'Отметка', width: '2.5rem' },
   { title: 'Донор' },
-  { title: 'Вердикт', width: '11rem' },
+  { title: 'Вердикт', width: '8.75rem' },
   { title: 'DR', width: '6rem' },
   { title: 'Трафик', width: '8rem' },
   { title: 'Гео', width: '12.25rem' },
   { title: 'Адреса', width: '10rem' },
-  { title: 'Данные', width: '12.25rem' },
+  { title: 'Данные', width: '9.75rem' },
 ];
 
 /** Уже этого таблица не сжимается и уезжает в прокрутку: остальным
- *  колонкам — их ширины (992 px), домену — сто шестьдесят, чтобы поместилась
+ *  колонкам — их ширины (912 px), домену — сто шестьдесят, чтобы поместилась
  *  подсказка «Домен или причина». На 1440 px таблица шире (1161) — прокрутки
  *  нет; на 1280 и уже — есть. */
-export const TABLE_MIN_WIDTH = 1152;
+export const TABLE_MIN_WIDTH = 1072;
 
 /** Стрелка списка в поле фильтра — уже умолчания (28 px): на 1440 px шесть
  *  пикселей на поле — это место, которого не хватало колонке домена. */
@@ -196,15 +202,21 @@ function FilterRow({
             onFilter({ status: STATUSES.find((status) => status === value) ?? null })
           }
           data={[
-            { value: 'all', label: counted('все', all) },
-            ...STATUSES.map((status) => ({
-              value: status,
-              label: counted(
-                DONOR_STATUSES[status].title,
-                facets === null ? undefined : (facets.counts[status] ?? 0),
-              ),
-            })),
+            { value: 'all', label: 'все' },
+            ...STATUSES.map((status) => ({ value: status, label: DONOR_STATUSES[status].title })),
           ]}
+          renderOption={({ option }) => (
+            <span>
+              {counted(
+                option.label,
+                option.value === 'all'
+                  ? all
+                  : facets === null
+                    ? undefined
+                    : (facets.counts[option.value] ?? 0),
+              )}
+            </span>
+          )}
         />
       </Table.Th>
       <Table.Th>
@@ -282,15 +294,21 @@ function FilterRow({
             onFilter({ freshness: FRESHNESS.find((state) => state === value) ?? null })
           }
           data={[
-            { value: 'all', label: counted('все', all) },
-            ...FRESHNESS.map((state) => ({
-              value: state,
-              label: counted(
-                DONOR_FRESHNESS[state].title,
-                facets === null ? undefined : (facets.freshness[state] ?? 0),
-              ),
-            })),
+            { value: 'all', label: 'все' },
+            ...FRESHNESS.map((state) => ({ value: state, label: DONOR_FRESHNESS[state].title })),
           ]}
+          renderOption={({ option }) => (
+            <span>
+              {counted(
+                option.label,
+                option.value === 'all'
+                  ? all
+                  : facets === null
+                    ? undefined
+                    : (facets.freshness[option.value as DonorFreshness] ?? 0),
+              )}
+            </span>
+          )}
         />
       </Table.Th>
     </Table.Tr>

@@ -304,11 +304,12 @@ export function RunPage() {
                 секции растёт вместе с её высотой, иначе поле ключей
                 сдвигалось бы на десять пикселей рывком в первом кадре. */}
             <div>
+              {/* По содержимому: два слова на 1 140 px во всю ширину читались полосой,
+                  а не выбором (аудит экранов 09.10.2026). На телефоне и так помещается. */}
               <SegmentedControl
                 value={source}
                 onChange={(value) => setSource(value as 'manual' | 'model')}
                 disabled={!canRun}
-                fullWidth
                 data={[
                   { label: 'Свои ключи', value: 'manual' },
                   { label: 'Собрать моделью', value: 'model' },

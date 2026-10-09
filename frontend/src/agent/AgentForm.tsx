@@ -5,6 +5,7 @@
 
 import { Alert, Button, Group, NumberInput, Stack, Switch, Textarea } from '@mantine/core';
 
+import { InfoHint } from '../components/InfoHint';
 import { SaveVersionButton } from '../components/SaveVersionButton';
 import { LIMITS } from './agentDraft';
 import type { AgentDraft, DraftField } from './agentDraft';
@@ -85,10 +86,22 @@ export function AgentForm({
       {text(GOAL)}
       {text(TONE)}
       {text(POINTS)}
+      {/* Поле — по цене, а не 288 px под три-четыре цифры; пояснение — в «i»
+          (аудит экранов 09.10.2026). Подпись — не `<label>`: в ней кнопка подсказки,
+          имя полю — `aria-label`, как у порогов. */}
       <NumberInput
-        label={priceLabel}
-        description="Пусто — предела нет, и цену агент не обещает: её называет человек"
-        w="18rem"
+        labelProps={{ labelElement: 'div' }}
+        label={
+          <Group component="span" gap={4} wrap="nowrap">
+            {priceLabel}
+            <InfoHint name={`Что значит «${priceLabel}»`} width={260}>
+              Пусто — предела нет, и цену агент не обещает: её называет человек.
+            </InfoHint>
+          </Group>
+        }
+        aria-label={priceLabel}
+        placeholder="без предела"
+        w="9rem"
         min={0}
         max={LIMITS.price}
         clampBehavior="none"

@@ -79,9 +79,43 @@ describe('учётки', () => {
     const user = userEvent.setup();
 
     await user.click(screen.getByLabelText('Учётка оператор@site.com включена'));
+    // Отключение — с подтверждением, и в нём сказано, что будет (аудит 09.10.2026).
+    const ask = await screen.findByRole('dialog', { name: /^Отключить/, hidden: true });
+    expect(within(ask).getByText(/перестанет пускать сразу/)).toBeInTheDocument();
+    expect(patches(recorded.calls)).toHaveLength(0);
+    await user.click(within(ask).getByRole('button', { name: 'Отключить', hidden: true }));
 
     await waitFor(() => expect(patches(recorded.calls)).toHaveLength(1));
     expect(patches(recorded.calls)[0]?.body).toEqual({ is_active: false });
+  });
+
+  it('отмена в подтверждении ничего не отправляет', async () => {
+    const recorded = await openUsers();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByLabelText('Учётка оператор@site.com включена'));
+    const ask = await screen.findByRole('dialog', { name: /^Отключить/, hidden: true });
+    await user.click(within(ask).getByRole('button', { name: 'Отмена', hidden: true }));
+
+    expect(patches(recorded.calls)).toHaveLength(0);
+    expect(screen.getByLabelText('Учётка оператор@site.com включена')).toBeChecked();
+  });
+
+  it('в правах — все восемь, а не пять: продажи, домены и цены тоже выдаются', async () => {
+    await openUsers();
+    const user = userEvent.setup();
+
+    const row = screen.getByText('оператор@site.com').closest('tr');
+    await user.click(within(row as HTMLElement).getByRole('button', { name: /Права/ }));
+
+    for (const name of [
+      'Подтверждать цены',
+      'Домены рассылки',
+      'Раздел продаж',
+      'Заводить учётки',
+    ]) {
+      expect(await screen.findByLabelText(name)).toBeInTheDocument();
+    }
   });
 
   it('отказ сервера показывается целиком', async () => {
@@ -97,6 +131,8 @@ describe('учётки', () => {
     const user = userEvent.setup();
 
     await user.click(screen.getByLabelText('Учётка админ@site.com включена'));
+    const ask = await screen.findByRole('dialog', { name: /^Отключить/, hidden: true });
+    await user.click(within(ask).getByRole('button', { name: 'Отключить', hidden: true }));
 
     expect(await screen.findByText(/Попросите другого админа/)).toBeInTheDocument();
   });
@@ -129,6 +165,9 @@ describe('учётки', () => {
 
     const row = screen.getByText('оператор@site.com').closest('tr');
     await user.click(within(row as HTMLElement).getByRole('button', { name: 'Сбросить пароль' }));
+    const ask = await screen.findByRole('dialog', { name: /^Сбросить пароль/, hidden: true });
+    expect(within(ask).getByText(/новый разовый покажется один раз/)).toBeInTheDocument();
+    await user.click(within(ask).getByRole('button', { name: 'Сбросить', hidden: true }));
 
     expect(await screen.findByText('QwErTy12QwErTy34')).toBeInTheDocument();
   });

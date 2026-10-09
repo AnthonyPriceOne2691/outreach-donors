@@ -34,6 +34,7 @@ import { refusalOf } from '../api/client';
 import type { AccessPatch, OneTimePassword, Role, UserCard } from '../api/types';
 import { listUsers, patchUser, resetPassword } from '../api/users';
 import { useSession } from '../auth/AuthProvider';
+import { ConfirmPopover } from '../components/ConfirmPopover';
 import { formatDateTime } from '../format';
 import { CreateUserModal } from './CreateUserModal';
 import { OneTimePasswordModal } from './OneTimePasswordModal';
@@ -90,20 +91,30 @@ export function UsersPage() {
   }
 
   const rows = (users ?? []).map((user: UserCard) => (
-    <Table.Tr key={user.id} opacity={user.is_active ? 1 : 0.55}>
+    // Отключённая — значком, а не прозрачностью строки: на 0,55 текст падал ниже нормы
+    // контраста (аудит экранов 09.10.2026).
+    <Table.Tr key={user.id}>
       <Table.Td>
         <Text fw={user.id === me?.id ? 600 : 400}>{user.email}</Text>
-        {user.must_change_password && (
-          <Badge size="xs" color="yellow">
-            не сменил разовый пароль
-          </Badge>
-        )}
+        <Group gap={6}>
+          {!user.is_active && (
+            <Badge size="xs" color="gray">
+              отключена
+            </Badge>
+          )}
+          {user.must_change_password && (
+            <Badge size="xs" color="yellow">
+              не сменил разовый пароль
+            </Badge>
+          )}
+        </Group>
       </Table.Td>
       <Table.Td>
         <Group justify="center">
+          {/* По слову «оператор», а не 140 px под одно слово. */}
           <Select
             size="xs"
-            w={140}
+            w="7.5rem"
             allowDeselect={false}
             aria-label={`Роль ${user.email}`}
             value={user.role}
@@ -128,13 +139,26 @@ export function UsersPage() {
       </Table.Td>
       <Table.Td>
         <Group justify="center">
-          <Switch
-            aria-label={`Учётка ${user.email} включена`}
-            checked={user.is_active}
-            onChange={(event) =>
-              change.mutate({ id: user.id, patch: { is_active: event.currentTarget.checked } })
-            }
-          />
+          {/* Отключение — с подтверждением: учётка перестаёт пускать сразу. Включение —
+              без: вернуть доступ промахом нельзя навредить. */}
+          <ConfirmPopover
+            message={`Отключить ${user.email}? Учётка перестанет пускать сразу, даже с непросроченным пропуском.`}
+            confirm="Отключить"
+            danger
+            onConfirm={() => change.mutate({ id: user.id, patch: { is_active: false } })}
+          >
+            {(ask) => (
+              <Switch
+                aria-label={`Учётка ${user.email} включена`}
+                checked={user.is_active}
+                onChange={(event) =>
+                  event.currentTarget.checked
+                    ? change.mutate({ id: user.id, patch: { is_active: true } })
+                    : ask()
+                }
+              />
+            )}
+          </ConfirmPopover>
         </Group>
       </Table.Td>
       <Table.Td>
@@ -143,15 +167,24 @@ export function UsersPage() {
         </Text>
       </Table.Td>
       <Table.Td>
-        <Button
-          size="compact-sm"
-          variant="default"
-          className="press"
-          loading={reset.isPending && reset.variables === user.id}
-          onClick={() => reset.mutate(user.id)}
+        <ConfirmPopover
+          message={`Сбросить пароль ${user.email}? Старый перестанет действовать, новый разовый покажется один раз.`}
+          confirm="Сбросить"
+          danger
+          onConfirm={() => reset.mutate(user.id)}
         >
-          Сбросить пароль
-        </Button>
+          {(ask) => (
+            <Button
+              size="compact-sm"
+              variant="default"
+              className="press"
+              loading={reset.isPending && reset.variables === user.id}
+              onClick={ask}
+            >
+              Сбросить пароль
+            </Button>
+          )}
+        </ConfirmPopover>
       </Table.Td>
     </Table.Tr>
   ));
@@ -190,7 +223,7 @@ export function UsersPage() {
                 <Table.Th>Права</Table.Th>
                 <Table.Th>Включена</Table.Th>
                 <Table.Th>Последний вход</Table.Th>
-                <Table.Th />
+                <Table.Th>Действия</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>{rows}</Table.Tbody>

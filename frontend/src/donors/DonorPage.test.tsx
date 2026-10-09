@@ -261,7 +261,7 @@ describe('карточка донора: возврат к списку', () => 
     expect(back).toHaveAttribute('href', '/donors?status=suitable&page=2');
     await user.click(back);
 
-    expect(await screen.findByRole('textbox', { name: 'Вердикт' })).toHaveValue('подходит · 25');
+    expect(await screen.findByRole('textbox', { name: 'Вердикт' })).toHaveValue('подходит');
     const lists = recorded.calls.filter((call) => call.path.startsWith('/api/donors?'));
     expect(new Set(lists.map((call) => call.path))).toEqual(
       new Set(['/api/donors?status=suitable&limit=20&offset=20']),

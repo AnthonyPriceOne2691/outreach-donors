@@ -59,32 +59,42 @@ import type { ThresholdDraft, ThresholdKey } from './thresholdDraft';
 
 const THRESHOLDS_KEY = ['thresholds'] as const;
 
-/** Поля порогов: подпись и что порог делает с базой. */
-const FIELDS: Record<ThresholdKey, { label: string; description: string }> = {
-  min_dr: { label: 'DR не ниже', description: 'первая ступень отбора, 2 юнита на домен' },
-  min_org_traffic: { label: 'Органический трафик', description: 'убирает 19% доменов' },
-  min_refdomains: { label: 'Реф. доменов', description: 'поверх двух других почти не отсекает' },
-  min_keywords: { label: 'Ключей в органике', description: 'убирает ещё 25%' },
+/** Поля порогов: подпись и что порог значит — в подсказке «i» рядом с границами.
+ *
+ *  До 09.10.2026 смысл стоял строкой под полем, и в ней были вшитые доли — «убирает
+ *  19% доменов», «убирает ещё 25%»: замер одного дня, который не пересчитывался ни от
+ *  порога, ни от базы и при другом пороге врал (аудит экранов 09.10.2026). Что станет с
+ *  базой при новых порогах, говорит карточка ниже — числом с сервера. */
+const FIELDS: Record<ThresholdKey, { label: string; hint: string }> = {
+  min_dr: { label: 'DR не ниже', hint: 'Первая ступень отбора: 2 юнита Ahrefs на домен.' },
+  min_org_traffic: {
+    label: 'Органический трафик',
+    hint: 'Органический трафик сайта в месяц по Ahrefs.',
+  },
+  min_refdomains: { label: 'Реф. доменов', hint: 'Сколько сайтов ссылаются на донора.' },
+  min_keywords: { label: 'Ключей в органике', hint: 'Сколько ключей сайта в органической выдаче.' },
 };
 
-/** Ширина поля — по самой длинной подписи: «Органический трафик» со значком —
- *  180 px шрифтом экрана (замер 28.09.2026). Самому длинному числу,
- *  «10 000 000» со стрелками и полями, хватает 115 px — ширину держит
- *  подпись: уже — она переносилась бы, и поле вставало бы ниже соседей.
- *  Пояснение — в две строки, их место держит `fieldRow`. */
-const FIELD_WIDTH = '12.5rem';
+/** **Поле — по числу**: самому длинному, «10 000 000» со стрелками и полями, хватает
+ *  115 px (замер 28.09.2026). До 09.10.2026 поле стояло во всю колонку подписи —
+ *  200 px под «20», то самое «поле больше своего значения» (замечание Anthony
+ *  09.10.2026). Колонка — по своей подписи: подпись не переносится (`nowrap`), и
+ *  соседние поля стоят на одной высоте. */
+const INPUT_WIDTH = '7.5rem';
 
 /** Колонки истории. Первая — номер со значком «действует» (124 px шрифтом
- *  экрана, замер 25.09.2026), последняя — остаток: в ней адрес автора и
- *  время. Числа — по шесть знаков с разрядами, заголовок «Реф. домены» —
- *  85 px. Плюс 32 px полей ячейки. */
+ *  экрана, замер 25.09.2026), последняя — адрес автора и время. Числа — по шесть
+ *  знаков с разрядами, заголовок «Реф. домены» — 85 px. Плюс 32 px полей ячейки.
+ *  **Ширина задана у всех**, и запас панели делится между ними пропорционально: до
+ *  09.10.2026 «Кто и когда» была остатком и забирала ~570 px, числа жались к левой
+ *  половине, а между «Ключи» и датой зиял провал (аудит экранов 09.10.2026). */
 const COLUMNS: { title: string; width?: string }[] = [
   { title: 'Версия', width: '11rem' },
   { title: 'DR', width: '5rem' },
   { title: 'Трафик', width: '7.5rem' },
   { title: 'Реф. домены', width: '8rem' },
   { title: 'Ключи', width: '7rem' },
-  { title: 'Кто и когда' },
+  { title: 'Кто и когда', width: '17rem' },
 ];
 const TABLE_MIN_WIDTH = 880;
 
@@ -185,18 +195,17 @@ export function ThresholdsPage() {
               return (
                 <NumberInput
                   key={key}
-                  w={FIELD_WIDTH}
                   labelProps={{ labelElement: 'div' }}
                   label={
                     <Group component="span" gap={4} wrap="nowrap">
                       {field.label}
-                      <InfoHint name={`Допустимые значения: ${field.label}`}>
-                        Допустимо: целое число {rangeText(range)}
+                      <InfoHint name={`Допустимые значения: ${field.label}`} width={260}>
+                        {field.hint} Допустимо: целое число {rangeText(range)}
                       </InfoHint>
                     </Group>
                   }
                   aria-label={field.label}
-                  description={field.description}
+                  styles={{ wrapper: { width: INPUT_WIDTH } }}
                   min={range.min}
                   max={range.max}
                   // Число за границей не подменяется молча краем диапазона:
@@ -331,7 +340,9 @@ export function ThresholdsPage() {
                 <Table.Tr key={version.version}>
                   <Table.Td>
                     <Group gap="xs" wrap="nowrap">
-                      <Text fw={500}>№{version.version}</Text>
+                      <Text size="sm" fw={500}>
+                        №{version.version}
+                      </Text>
                       {version.version === data.current?.version && (
                         <Badge variant="light" color="green">
                           действует

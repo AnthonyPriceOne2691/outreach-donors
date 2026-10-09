@@ -310,9 +310,12 @@ export function RunReviewPage() {
 
       <Card className="glassPanel" p="xl">
         <Stack gap="md">
+          {/* По содержимому, а не во всю ширину: `Stack` растягивает и `inline-flex`
+              (аудит экранов 09.10.2026). */}
           <SegmentedControl
             orientation={narrow ? 'vertical' : 'horizontal'}
             fullWidth={narrow}
+            style={narrow ? undefined : { alignSelf: 'flex-start' }}
             value={status}
             onChange={(value) => switchTo(value as ReviewDecision)}
             data={STATUSES.map((value) => ({
