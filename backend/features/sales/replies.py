@@ -5,9 +5,9 @@
 `queue.SALES_REPLY_JOB` — своей очередью и своим воркером, а не очередью
 прогонов: часовой прогон доноров держал бы ответ лида до часа.
 
-**Вид называет модель, путь решает код** (урок соседней системы: «нужен ли
-ответ» решает код). Таблица путей — `ROUTES`; ниже порога уверенности
-(`SALES_REPLY_CONFIDENCE`) — ручная очередь продаж, какой бы вид ни назвали.
+**Вид называет модель, путь решает код** (`reply_routes.py`): таблица путей и порог
+уверенности (`SALES_REPLY_CONFIDENCE`) — ниже него ручная очередь продаж, какой бы вид ни
+назвали.
 
 **Ждёт ли ответ человека — производное, как у доноров.** Задача кладёт
 в снимок ответа (`model_parse`) вид, путь, «ждёт ли» и причину словами;
@@ -15,8 +15,8 @@
 не знает.
 
 **Без модели — то, что вид уже решили правила приёма**: автоответ переносит
-следующий шаг (`ooo.py`), отписка закрывает адрес во всех направлениях
-(`unsubscribe.py`).
+следующий шаг (`ooo.py`), отписка закрывает адрес во всех направлениях — а если
+ответил не лид, и адрес лида (`unsubscribe.py`).
 
 **«Хочет говорить» — передача лида телемаркетологу** (`handoff.start`, срез 5.3) —
 только после записи ответа (`pass_on`): передача коммитит сама и ставит задачу,
@@ -37,6 +37,13 @@
 **Задача не верит, что её поставили по делу.** Задача живёт в очереди дольше
 кода и может прийти ко второму ответу, к удалённому, к уже разобранному или
 решённому человеком: каждый такой случай — итог словами, а не платный вызов.
+
+**Продажи выключены (`SALES_ENABLED`) — ни модели, ни передачи** (решение владельца по
+ревью стыков). Приём ответ принимает, как всегда; задача модель не зовёт — ни ради вида,
+ни ради отписки словами (это тоже вид от модели), — и ответ ждёт человека словами
+`SWITCHED_OFF`. Записка, а не снимок вида: задача, поставленная после включения, разберёт
+ответ заново.
+Что правила приёма решили без модели (автоответ, отписка правилами), идёт как шло.
 """
 
 from __future__ import annotations
@@ -45,7 +52,6 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from enum import StrEnum
 from typing import Any, Protocol, assert_never
 
 from sqlalchemy.exc import SQLAlchemyError
@@ -69,99 +75,20 @@ from backend.features.sales.reply_kind import (
     Unanswered,
     snapshot,
 )
+from backend.features.sales.reply_routes import DRAFTED, KIND_WORDS, Decision, Route, decide
 from backend.features.sales.unsubscribe import close_address
 from backend.features.sales.usage_cap import sales_cap
 from backend.features.sales.verifier import EmailVerifier
 
 logger = logging.getLogger(__name__)
 
-
-class Route(StrEnum):
-    """Куда ответ уходит после вида."""
-
-    HANDOFF = "handoff"  # хочет говорить — передача лида на созвон
-    AGENT = "agent"  # вопрос, интерес — ответит агент; пока — человек
-    REFERRAL = "referral"  # назвал другого — новый лид
-    CLOSED = "closed"  # не интересно, не сейчас — диалог закрыт
-    UNSUBSCRIBE = "unsubscribe"  # просит не писать — адрес закрыт
-    MANUAL = "manual"  # вид не разобран, ниже порога, модель не ответила
-
-
-#: Путь вида при уверенности не ниже порога.
-ROUTES: dict[SalesKind, Route] = {
-    SalesKind.WANTS_TO_TALK: Route.HANDOFF,
-    SalesKind.QUESTION: Route.AGENT,
-    SalesKind.INTERESTED: Route.AGENT,
-    SalesKind.REFERRAL: Route.REFERRAL,
-    SalesKind.NOT_INTERESTED: Route.CLOSED,
-    SalesKind.NOT_NOW: Route.CLOSED,
-    SalesKind.UNSUBSCRIBE: Route.UNSUBSCRIBE,
-    SalesKind.PARSE_FAILED: Route.MANUAL,
-}
-
-#: Пути, после которых ответ человека не ждёт (если путь удался — `_follow`).
-SETTLED = frozenset({Route.CLOSED, Route.REFERRAL, Route.UNSUBSCRIBE})
-
-#: Пути, после которых агент продаж готовит черновик ответа (`workers/sales_jobs.py`), если
-#: он включён тумблером `SALES_AGENT_ENABLED` и настроен: «ответит агент» — вопрос и интерес.
-#: «Хочет говорить» — без черновика: лида передают телемаркетологу (`pass_on`); решение ждёт
-#: подтверждения владельца, и черновик там — `Route.HANDOFF` в этот набор, одной строкой.
-#: Отправить такой черновик не даст отдельное правило: лиду, переданному телемаркетологу,
-#: письма продаж не идут (`mail.unwritable`) — при смене решения его решают вместе.
-DRAFTED = frozenset({Route.AGENT})
-
-#: Вид словами — для причины в карточке.
-KIND_WORDS: dict[SalesKind, str] = {
-    SalesKind.WANTS_TO_TALK: "хочет говорить",
-    SalesKind.QUESTION: "задал вопрос",
-    SalesKind.INTERESTED: "интересуется",
-    SalesKind.REFERRAL: "назвал другого человека",
-    SalesKind.NOT_INTERESTED: "не интересно",
-    SalesKind.NOT_NOW: "не сейчас",
-    SalesKind.UNSUBSCRIBE: "просит не писать",
-    SalesKind.PARSE_FAILED: "вид ответа не разобран",
-}
+#: Почему ответ ждёт человека, когда продажи выключены: модель не звалась.
+SWITCHED_OFF = "продажи выключены (SALES_ENABLED) — ответ ждёт человека"
 
 #: Чем кончился путь «хочет говорить», когда передача заведена, — словами.
 HANDED_OVER = "передан телемаркетологу"
 #: И когда передачи нет — дальше в причине словами, почему (`_not_handed_over`).
 NOT_HANDED_OVER = "передать лида не вышло"
-
-#: Что дальше по пути — словами.
-ROUTE_WORDS: dict[Route, str] = {
-    Route.HANDOFF: "передать лида на созвон; пока — человек",
-    Route.AGENT: "ответит агент; пока — человек",
-    Route.REFERRAL: "новый лид на названный адрес",
-    Route.CLOSED: "диалог закрыт",
-    Route.UNSUBSCRIBE: "адрес закрыт во всех направлениях",
-    Route.MANUAL: "решает человек",
-}
-
-
-@dataclass(frozen=True, slots=True)
-class Decision:
-    """Путь ответа, ждёт ли он человека и почему — словами."""
-
-    route: Route
-    waits: bool
-    reason: str
-
-
-def _percent(share: float) -> int:
-    return round(share * 100)
-
-
-def decide(found: KindFound, threshold: float) -> Decision:
-    """Путь по виду — решение кода, без базы. Ниже порога — человек."""
-    words = KIND_WORDS[found.kind]
-    notes = "".join(f"; {note}" for note in found.notes)
-    if found.kind is SalesKind.PARSE_FAILED:
-        return Decision(Route.MANUAL, True, f"{words}{notes} — {ROUTE_WORDS[Route.MANUAL]}")
-    if found.confidence < threshold:
-        level = f"уверенность {_percent(found.confidence)}% ниже порога {_percent(threshold)}%"
-        return Decision(Route.MANUAL, True, f"модель: {words}, {level}{notes} — решает человек")
-    route = ROUTES[found.kind]
-    return Decision(route, route not in SETTLED, f"{words}: {ROUTE_WORDS[route]}")
 
 
 class KindClassifier(Protocol):
@@ -258,14 +185,9 @@ class SalesReplies:
         if skipped is not None:
             logger.info("продажи: ответ не взят", extra={"reply": reply_id, "why": skipped})
             return Handled(reply_id, skipped=skipped)
-        match reply.kind:
-            case ReplyKind.AUTO_REPLY:
-                return await self._out_of_office(reply)
-            case ReplyKind.UNSUBSCRIBE:
-                closed = await close_address(self._session, reply)
-                return Handled(reply.id, kind=reply.kind.value, reason=closed.words)
-            case _:
-                pass
+        done = await self._without_model(reply)
+        if done is not None:
+            return done
 
         await usage.ensure_llm_within_cap(self._session, own=sales_cap())
         found = await self._classifier.classify(text=reply.raw_body, subject=reply.subject or "")
@@ -400,6 +322,29 @@ class SalesReplies:
             return f"вид «{reply.kind.value}» решают правила приёма"
         return None
 
+    async def _without_model(self, reply: ReplyModel) -> Handled | None:
+        """Что решается без модели: автоответ и отписка — как их узнали правила приёма;
+        выключенные продажи — ответ ждёт человека. `None` — вид называет модель."""
+        match reply.kind:
+            case ReplyKind.AUTO_REPLY:
+                return await self._out_of_office(reply)
+            case ReplyKind.UNSUBSCRIBE:
+                closed = await close_address(self._session, reply)
+                return Handled(reply.id, kind=reply.kind.value, reason=closed.words)
+            case _:
+                pass
+        return None if cfg.ENABLED else self._switched_off(reply)
+
+    def _switched_off(self, reply: ReplyModel) -> Handled:
+        """Продажи выключены: модель не зовётся, ответ ждёт человека словами. Записка, а не
+        снимок вида (`kind` пуст): задача, поставленная после включения, разберёт его заново."""
+        decision = Decision(Route.MANUAL, True, SWITCHED_OFF)
+        reply.model_parse = self._record({"stage": Stage.SALES.value, "kind": None}, decision)
+        logger.info(
+            "продажи: выключены — вид ответа не разобран, ждёт человека", extra={"reply": reply.id}
+        )
+        return Handled(reply.id, route=Route.MANUAL.value, waits=True, reason=SWITCHED_OFF)
+
     def _unanswered(self, reply: ReplyModel, missing: Unanswered) -> Handled:
         """Модель не ответила: вида нет, ответ ждёт человека с причиной.
 
@@ -449,7 +394,7 @@ class SalesReplies:
                 return Decision(Route.REFERRAL, referred.waits, f"{words}: {referred.words}")
             case Route.UNSUBSCRIBE:
                 closed = await close_address(self._session, reply)
-                return Decision(Route.UNSUBSCRIBE, closed.email is None, f"{words}: {closed.words}")
+                return Decision(Route.UNSUBSCRIBE, not closed.emails, f"{words}: {closed.words}")
             case Route.HANDOFF | Route.AGENT | Route.MANUAL:
                 pass
             case _:

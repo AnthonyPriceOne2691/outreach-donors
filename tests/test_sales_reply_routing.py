@@ -49,6 +49,9 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tests.test_parse_requeue import UniqueQueue
+from tests.test_sales_switch import sales_switched_on
+
+__all__ = ["sales_switched_on"]  # продажи включены: путь вида ответа и передачи лида
 
 ROOT = Path(__file__).resolve().parent.parent
 NOW = datetime(2026, 10, 6, 12, 0, tzinfo=UTC)

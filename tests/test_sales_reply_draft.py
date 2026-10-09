@@ -49,8 +49,14 @@ from tests.test_sales_reply_routing import (
 )
 from tests.test_sales_seam_agent import sales_off
 from tests.test_sales_send import JANE, _first_sent, _lead_of
+from tests.test_sales_switch import sales_switched_on
 
-__all__ = ["llm", "sales_off", "sales_on"]  # фикстуры — отсюда их видит pytest
+__all__ = [  # фикстуры — отсюда их видит pytest
+    "llm",
+    "sales_off",
+    "sales_on",
+    "sales_switched_on",  # продажи включены (SALES_ENABLED): задача ответа зовёт модель
+]
 
 QUESTION = KindFound(SalesKind.QUESTION, 0.93, quote="What does the audit include?")
 

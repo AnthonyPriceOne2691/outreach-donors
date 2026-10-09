@@ -26,9 +26,12 @@ Telegram: ссылка на сделку нужна в сообщении. Со�
 - Kommo не подключён (`Deps.kommo is None`: на проде `fixture`) → `off`: тот же путь,
   но вместо ссылки на сделку — ссылка на диалог (A6).
 
-**Telegram — бизнес-событие** (`telegram.py`): три попытки, затем `undelivered`
-и тревога эксплуатации другим ботом (A4). Копия в группу — после личного сообщения,
-если включена настройкой (A5); её недоставка — тревога, а не «не доставлено».
+**Telegram — бизнес-событие** (`handoff_telegram.py`): бот пробует трижды за задачу,
+затем `undelivered`, и сообщение, не ушедшее из-за сети, 5xx или 429, повторяет проход по
+расписанию с растущей паузой; после последней попытки и при постоянном отказе — тревога
+эксплуатации другим ботом (A4). Копия в группу — после личного сообщения, если включена
+настройкой (A5); её недоставка — тревога, а не «не доставлено». Повтор только сообщения —
+своя задача (`MESSAGE_JOB`): Kommo она не трогает.
 
 **Две задачи на одну передачу разом не работают:** задача захватывает строку
 (`claimed_at`); вторая получает `HandoffBusyError`, и очередь повторит её позже.
@@ -37,6 +40,10 @@ Telegram: ссылка на сделку нужна в сообщении. Со�
 
 **Цепочка писем этому человеку** — шов `handed_off(session, lead_id)`: его спрашивают
 сборка очереди продаж и отправка (4.6b) — переданному лиду письма и добивки не идут.
+
+**Продажи выключены (`SALES_ENABLED`) — передача стоит:** `start` отказывает словами, задачи
+(и повтор сообщения) и проход в Kommo и Telegram не ходят; строки ждут, после включения их
+берёт проход.
 """
 
 from __future__ import annotations
@@ -50,6 +57,7 @@ from sqlalchemy import ColumnElement, Exists, exists, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import InstrumentedAttribute
 
 from backend.config import sales as cfg
 from backend.features.core.domain import ReplyKind
@@ -58,8 +66,7 @@ from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.outreach import MessageModel, ReplyModel, ThreadModel
 from backend.features.replies.quoting import written_by_hand
 from backend.features.runs.failures import described
-from backend.features.sales import handoff_kommo
-from backend.features.sales import handoff_text as wording
+from backend.features.sales import handoff_kommo, handoff_telegram
 from backend.features.sales.handoff_text import Card
 from backend.features.sales.kommo import KommoClient
 from backend.features.sales.models import (
@@ -71,7 +78,7 @@ from backend.features.sales.models import (
     SalesLeadModel,
     SalesThreadModel,
 )
-from backend.features.sales.telegram import SalesBot, TelegramError
+from backend.features.sales.telegram import SalesBot
 from backend.shared.alerts import send_alert
 from backend.shared.queue import sales_queue, with_retries
 
@@ -79,9 +86,14 @@ logger = logging.getLogger(__name__)
 
 #: Путь задачи строкой: очередь импортирует её в воркере (`shared/queue.py`).
 HANDOFF_JOB = "backend.features.sales.handoff_jobs.hand_off_lead"
+#: Повтор только сообщения в Telegram: Kommo задача не трогает.
+MESSAGE_JOB = "backend.features.sales.handoff_jobs.resend_lead_message"
 
 #: Сколько передач проход берёт за круг: лидов единицы в день, круг короткий.
 PASS_LIMIT = 50
+
+#: Почему передача стоит: продажи выключены.
+SWITCHED_OFF = "продажи выключены (SALES_ENABLED) — передача ждёт включения"
 
 #: Kommo ждёт записи — задаче есть что делать.
 _KOMMO_WORK = handoff_kommo.WORK
@@ -126,6 +138,11 @@ def enqueue_handoff(handoff_id: int) -> None:
     sales_queue().enqueue(HANDOFF_JOB, handoff_id, **with_retries())
 
 
+def enqueue_message(handoff_id: int) -> None:
+    """Поставить повтор сообщения о лиде в очередь продаж: только Telegram, без Kommo."""
+    sales_queue().enqueue(MESSAGE_JOB, handoff_id, **with_retries())
+
+
 async def start(
     session: AsyncSession,
     thread_id: int,
@@ -140,9 +157,11 @@ async def start(
     которого ставится здесь же. Исключение вызывающему значило бы «передачи нет», и разбор
     ответа оставил бы ответ ждать человека при живой передаче (ревью стыков, B5).
     """
+    if not cfg.ENABLED:
+        raise HandoffError(f"передача диалога №{thread_id} не начата: {SWITCHED_OFF}")
     lead = await lead_of(session, thread_id)
     row = await _handoff_of(session, thread_id, lead.id)
-    latest = await _latest_reply(session, thread_id)
+    latest = await latest_reply(session, thread_id)
     if not _reopen(row, latest.id if latest else None):
         return row
     row.due_at = now() + timedelta(seconds=cfg.HANDOFF_RETRY_SEC)
@@ -254,7 +273,8 @@ def _reopen(row: SalesHandoffModel, latest_reply_id: int | None) -> bool:
     return row.kommo in _KOMMO_WORK or row.telegram is HandoffTelegram.PENDING
 
 
-async def _latest_reply(session: AsyncSession, thread_id: int) -> ReplyModel | None:
+async def latest_reply(session: AsyncSession, thread_id: int) -> ReplyModel | None:
+    """Последний ответ человека в диалоге: по нему задача решает, есть ли что записать."""
     found: ReplyModel | None = await session.scalar(
         select(ReplyModel)
         .where(ReplyModel.thread_id == thread_id, ReplyModel.kind == ReplyKind.HUMAN)
@@ -264,18 +284,28 @@ async def _latest_reply(session: AsyncSession, thread_id: int) -> ReplyModel | N
     return found
 
 
-async def process(session: AsyncSession, handoff_id: int, deps: Deps) -> dict[str, object]:
+async def process(
+    session: AsyncSession, handoff_id: int, deps: Deps, *, kommo: bool = True
+) -> dict[str, object]:
     """Задача передачи: Kommo, затем Telegram. Внешние отказы — состояния и тревоги,
     а не исключения; исключение — только чужой сбой (база, ошибка кода): захват
-    снимается, и очередь повторит задачу."""
+    снимается, и очередь повторит задачу.
+
+    `kommo=False` — повтор только сообщения: запись в Kommo задача не открывает. Иначе
+    отказавшая передача (`failed`, ответ не отмечен) повторяла бы запись на каждом
+    повторе сообщения, а её повтор — следующий ответ лида."""
+    if not cfg.ENABLED:
+        logger.info("продажи: выключены — передача ждёт", extra={"handoff_id": handoff_id})
+        return {"handoff": handoff_id, "skipped": SWITCHED_OFF}
     row = await _claim(session, handoff_id, deps.now())
     try:
         card = await _card(session, row)
-        # Работу задача выводит сама из последнего ответа, а не только из состояния:
-        # ответ, пришедший во время прошлой задачи, её итог мог перезаписать.
-        _reopen(row, card.reply_id)
-        await handoff_kommo.write(session, row, card, deps.kommo, deps.alert)
-        await _telegram_step(row, card, deps)
+        if kommo:
+            # Работу задача выводит сама из последнего ответа, а не только из состояния:
+            # ответ, пришедший во время прошлой задачи, её итог мог перезаписать.
+            _reopen(row, card.reply_id)
+            await handoff_kommo.write(session, row, card, deps.kommo, deps.alert)
+        await handoff_telegram.step(row, card, deps)
         meanwhile = await _answered_meanwhile(session, row, card.reply_id)
     except Exception:
         await _release_after_failure(session, handoff_id)
@@ -299,16 +329,20 @@ async def _answered_meanwhile(
     """Ответ новее того, с которым задача начала, — пришёл, пока она шла. Его задачу триггер
     мог не поставить (очередь лежала — «два отказа разом», находка 5.3), а итог этой задачи
     затёр бы срок прохода, и ответ ждал бы следующего ответа лида. Запись снова открыта."""
-    latest = await _latest_reply(session, row.thread_id)
+    latest = await latest_reply(session, row.thread_id)
     return latest is not None and latest.id != seen and _reopen(row, latest.id)
 
 
 def _due_after(row: SalesHandoffModel, now: datetime, *, meanwhile: bool) -> datetime | None:
-    """Срок прохода после задачи: Kommo не ответил — через паузу повтора; пришёл ответ во
-    время задачи — сразу; иначе работы нет."""
+    """Срок прохода после задачи — ближайшее из дел: Kommo не ответил — через паузу повтора;
+    сообщение ждёт повтора — его срок; пришёл ответ во время задачи или запись в Kommo ждёт,
+    а задача её не делала (повтор сообщения) — сразу; иначе работы нет."""
+    due = [] if row.telegram_due_at is None else [row.telegram_due_at]
     if row.kommo is HandoffKommo.RETRY:
-        return now + timedelta(seconds=cfg.HANDOFF_RETRY_SEC)
-    return now if meanwhile else None
+        due.append(now + timedelta(seconds=cfg.HANDOFF_RETRY_SEC))
+    if meanwhile or row.kommo is HandoffKommo.PENDING:
+        due.append(now)
+    return min(due, default=None)
 
 
 async def due(session: AsyncSession, *, now: datetime, limit: int = PASS_LIMIT) -> list[int]:
@@ -317,19 +351,54 @@ async def due(session: AsyncSession, *, now: datetime, limit: int = PASS_LIMIT) 
     Срок взятых сдвигается сразу: следующий круг их не возьмёт, пока поставленная
     задача не отработала, а потерянная — возьмёт снова через `HANDOFF_RETRY_SEC`.
     """
+    if not cfg.ENABLED:
+        return []
+    work = or_(
+        SalesHandoffModel.kommo.in_(_KOMMO_WORK),
+        SalesHandoffModel.telegram == HandoffTelegram.PENDING,
+    )
+    return await _take(
+        session, now, limit, work, SalesHandoffModel.due_at <= now, by=SalesHandoffModel.due_at
+    )
+
+
+async def message_due(
+    session: AsyncSession, *, now: datetime, limit: int = PASS_LIMIT
+) -> list[int]:
+    """Передачи, где ждёт повтора только сообщение в Telegram: Kommo своё сделал. Их задача —
+    `MESSAGE_JOB`. Срок прохода взятых сдвигается сразу, как у `due`; срок самого сообщения —
+    нет: по нему задача узнаёт, что пора."""
+    if not cfg.ENABLED:
+        return []
+    return await _take(
+        session,
+        now,
+        limit,
+        SalesHandoffModel.telegram_due_at <= now,
+        SalesHandoffModel.kommo.not_in(_KOMMO_WORK),
+        SalesHandoffModel.telegram != HandoffTelegram.PENDING,
+        or_(SalesHandoffModel.due_at.is_(None), SalesHandoffModel.due_at <= now),
+        by=SalesHandoffModel.telegram_due_at,
+    )
+
+
+async def _take(
+    session: AsyncSession,
+    now: datetime,
+    limit: int,
+    *rules: ColumnElement[bool],
+    by: InstrumentedAttribute[datetime | None],
+) -> list[int]:
+    """Взять проходу передачи по правилам — не занятые живой задачей — и сдвинуть их срок."""
     stale = now - timedelta(seconds=cfg.HANDOFF_CLAIM_SEC)
     ids = list(
         await session.scalars(
             select(SalesHandoffModel.id)
             .where(
-                or_(
-                    SalesHandoffModel.kommo.in_(_KOMMO_WORK),
-                    SalesHandoffModel.telegram == HandoffTelegram.PENDING,
-                ),
-                SalesHandoffModel.due_at <= now,
+                *rules,
                 or_(SalesHandoffModel.claimed_at.is_(None), SalesHandoffModel.claimed_at < stale),
             )
-            .order_by(SalesHandoffModel.due_at)
+            .order_by(by)
             .limit(limit)
             .with_for_update(skip_locked=True)
         )
@@ -394,7 +463,7 @@ async def _card(session: AsyncSession, row: SalesHandoffModel) -> Card:
         .execution_options(populate_existing=True)
     )
     lead, hypothesis, host = found.one()._tuple()
-    reply = await _latest_reply(session, row.thread_id)
+    reply = await latest_reply(session, row.thread_id)
     sent, first = (
         await session.execute(
             select(func.count(), func.min(MessageModel.sent_at)).where(
@@ -425,55 +494,3 @@ async def _card(session: AsyncSession, row: SalesHandoffModel) -> Card:
         replies=int(replies or 0),
         first_sent_at=first,
     )
-
-
-async def _telegram_step(row: SalesHandoffModel, card: Card, deps: Deps) -> None:
-    """Сообщение телемаркетологу — когда появилась ссылка, которой он ещё не получал."""
-    deal = None
-    if deps.kommo is not None and row.kommo_lead_id is not None:
-        deal = deps.kommo.lead_url(row.kommo_lead_id)
-    link = deal or wording.dialog_link(card.thread_id)
-    if row.notified_link == link:
-        return
-    words = wording.message(deal, card.thread_id, row.kommo)
-    before = row.telegram
-    try:
-        await deps.bot.send(cfg.TELEGRAM_CHAT_ID, words)
-    except TelegramError as exc:
-        row.telegram, row.last_error = HandoffTelegram.UNDELIVERED, f"Telegram: {exc}"
-        logger.warning(
-            "продажи: сообщение телемаркетологу не доставлено",
-            extra={"handoff_id": row.id, "error": str(exc)},
-        )
-        if before is not HandoffTelegram.UNDELIVERED:
-            await deps.alert(
-                f"{handoff_kommo.headline(row)}: сообщение телемаркетологу не доставлено — {exc}"
-            )
-        return
-    row.telegram, row.notified_link, row.notified_at = HandoffTelegram.SENT, link, deps.now()
-    await _group_copy(row, words, deps)
-
-
-async def _group_copy(row: SalesHandoffModel, words: str, deps: Deps) -> None:
-    """Копия в группу продаж (A5). Недоставка — тревога, а не «не доставлено»:
-    телемаркетолог сообщение получил."""
-    if not cfg.TELEGRAM_GROUP_COPY:
-        return
-    if not cfg.TELEGRAM_GROUP_CHAT_ID:
-        row.last_error = (
-            "копия в группу включена (SALES_TELEGRAM_GROUP_COPY), а "
-            "SALES_TELEGRAM_GROUP_CHAT_ID пуст — копия не ушла"
-        )
-        logger.warning("продажи: копия в группу не ушла — чат группы не задан")
-        return
-    try:
-        await deps.bot.send(cfg.TELEGRAM_GROUP_CHAT_ID, words)
-    except TelegramError as exc:
-        row.last_error = f"Telegram, копия в группу: {exc}"
-        logger.warning(
-            "продажи: копия в группу не доставлена",
-            extra={"handoff_id": row.id, "error": str(exc)},
-        )
-        await deps.alert(
-            f"{handoff_kommo.headline(row)}: копия в группу продаж не доставлена — {exc}"
-        )

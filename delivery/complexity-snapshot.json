@@ -542,9 +542,14 @@
       "worst": "_mapping:362"
     },
     "backend/cli/sales_commands.py": {
-      "lines": 59,
+      "lines": 66,
       "complexity": 1,
-      "worst": "add_parsers:54"
+      "worst": "add_parsers:60"
+    },
+    "backend/cli/sales_handoffs.py": {
+      "lines": 165,
+      "complexity": 4,
+      "worst": "_line:64"
     },
     "backend/cli/sales_queue.py": {
       "lines": 71,
@@ -957,9 +962,9 @@
       "worst": "_enum:27"
     },
     "backend/features/core/stages.py": {
-      "lines": 345,
+      "lines": 373,
       "complexity": 5,
-      "worst": "check_connected:111"
+      "worst": "check_connected:115"
     },
     "backend/features/core/usage.py": {
       "lines": 215,
@@ -1412,9 +1417,9 @@
       "worst": "record_sent:77"
     },
     "backend/features/letters/stoplist.py": {
-      "lines": 310,
+      "lines": 319,
       "complexity": 7,
-      "worst": "remove:158"
+      "worst": "remove:159"
     },
     "backend/features/letters/template.py": {
       "lines": 470,
@@ -1802,9 +1807,14 @@
       "worst": "_move:105"
     },
     "backend/features/sales/agent/notify.py": {
-      "lines": 371,
+      "lines": 494,
       "complexity": 8,
-      "worst": "notify:127"
+      "worst": "notify:158"
+    },
+    "backend/features/sales/agent/notify_retry.py": {
+      "lines": 156,
+      "complexity": 5,
+      "worst": "due:72"
     },
     "backend/features/sales/agent/parts.py": {
       "lines": 110,
@@ -1897,19 +1907,29 @@
       "worst": "_by_name:351"
     },
     "backend/features/sales/handoff.py": {
-      "lines": 480,
+      "lines": 497,
       "complexity": 11,
-      "worst": "_card:387"
+      "worst": "_card:456"
+    },
+    "backend/features/sales/handoff_console.py": {
+      "lines": 267,
+      "complexity": 8,
+      "worst": "close:176"
     },
     "backend/features/sales/handoff_jobs.py": {
-      "lines": 161,
-      "complexity": 4,
-      "worst": "hand_off_lead:112"
+      "lines": 210,
+      "complexity": 5,
+      "worst": "_queue_again:185"
     },
     "backend/features/sales/handoff_kommo.py": {
       "lines": 154,
       "complexity": 9,
       "worst": "write:42"
+    },
+    "backend/features/sales/handoff_telegram.py": {
+      "lines": 149,
+      "complexity": 9,
+      "worst": "step:50"
     },
     "backend/features/sales/handoff_text.py": {
       "lines": 108,
@@ -1957,12 +1977,12 @@
       "worst": "problem:81"
     },
     "backend/features/sales/mail.py": {
-      "lines": 281,
+      "lines": 295,
       "complexity": 8,
-      "worst": "check:203"
+      "worst": "check:205"
     },
     "backend/features/sales/models.py": {
-      "lines": 470,
+      "lines": 483,
       "complexity": 2,
       "worst": "_enum:76"
     },
@@ -1997,14 +2017,19 @@
       "worst": "refer:80"
     },
     "backend/features/sales/replies.py": {
-      "lines": 481,
-      "complexity": 10,
-      "worst": "handle:249"
+      "lines": 426,
+      "complexity": 8,
+      "worst": "handle:176"
     },
     "backend/features/sales/reply_kind.py": {
       "lines": 273,
       "complexity": 9,
       "worst": "temper:207"
+    },
+    "backend/features/sales/reply_routes.py": {
+      "lines": 98,
+      "complexity": 4,
+      "worst": "decide:87"
     },
     "backend/features/sales/sender.py": {
       "lines": 182,
@@ -2022,9 +2047,14 @@
       "worst": "read_entries:63"
     },
     "backend/features/sales/telegram.py": {
-      "lines": 249,
+      "lines": 250,
       "complexity": 13,
-      "worst": "_chat_of:238"
+      "worst": "_chat_of:239"
+    },
+    "backend/features/sales/telegram_series.py": {
+      "lines": 71,
+      "complexity": 4,
+      "worst": "after_failure:61"
     },
     "backend/features/sales/trials.py": {
       "lines": 267,
@@ -2032,9 +2062,9 @@
       "worst": "trial_trace:100"
     },
     "backend/features/sales/unsubscribe.py": {
-      "lines": 55,
-      "complexity": 5,
-      "worst": "close_address:43"
+      "lines": 98,
+      "complexity": 6,
+      "worst": "close_address:61"
     },
     "backend/features/sales/usage_cap.py": {
       "lines": 31,

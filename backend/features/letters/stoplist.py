@@ -29,9 +29,10 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import or_, select
+from sqlalchemy import ColumnElement, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.features.core import stages
 from backend.features.core.domain import (
     MessageStatus,
     Stage,
@@ -195,6 +196,10 @@ async def stop_pending(
     не в очереди, а сроком у уже отправленного письма: пока срок цел,
     адресат остаётся в планах. Видно это стало бы только отказом
     в момент отправки — то есть человеку, а не в базе.
+
+    Адресат по адресу — строка `contacts` у доноров и рекламодателей; у писем
+    продаж её нет, адрес живёт у лида. Их переписки называет модуль продаж
+    через мост (`stages.sales_threads_to`): почта продажи не импортирует.
     """
     statement = select(MessageModel).where(
         or_(
@@ -205,9 +210,13 @@ async def stop_pending(
     if domain_id is not None:
         statement = statement.where(MessageModel.domain_id == domain_id)
     else:
-        statement = statement.where(
-            MessageModel.contact_id.in_(select(ContactModel.id).where(ContactModel.email == email))
+        addressed: ColumnElement[bool] = MessageModel.contact_id.in_(
+            select(ContactModel.id).where(ContactModel.email == email)
         )
+        sales = await stages.sales_threads_to(session, email) if email else []
+        if sales:
+            addressed = or_(addressed, MessageModel.thread_id.in_(sales))
+        statement = statement.where(addressed)
 
     found = await session.execute(statement)
     stopped = 0

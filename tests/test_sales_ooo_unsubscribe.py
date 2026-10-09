@@ -40,8 +40,9 @@ from tests.test_sales_reply_routing import (
     sales_letter,
     secret,
 )
+from tests.test_sales_switch import sales_switched_on
 
-__all__ = ["secret"]  # подпись адреса ответа — фикстура 2.1
+__all__ = ["sales_switched_on", "secret"]  # продажи включены; подпись адреса ответа (2.1)
 
 
 async def _answer(

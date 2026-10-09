@@ -27,6 +27,9 @@ from backend.features.sales.telegram import SalesBot
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tests.test_sales_draft_notify import GROUP, TOKEN, BotApi, ok
 from tests.test_sales_handoff_rows import sales_dialog
+from tests.test_sales_switch import sales_switched_on
+
+__all__ = ["sales_switched_on"]  # продажи включены (SALES_ENABLED): при выключенных сообщения нет
 
 ALARM = "тревога: Бот продаж без токена."
 

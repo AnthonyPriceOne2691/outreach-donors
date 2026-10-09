@@ -85,6 +85,7 @@ from tests.test_sales_stage_bridge import (
     unregistered,
 )
 from tests.test_sales_stage_mail import NOW, sales_world
+from tests.test_sales_switch import sales_switched_on
 
 __all__ = [  # фикстуры — отсюда их видит pytest
     "alerts",
@@ -95,6 +96,7 @@ __all__ = [  # фикстуры — отсюда их видит pytest
     "queue",
     "reply",
     "sales_on",
+    "sales_switched_on",  # продажи включены (SALES_ENABLED): задача ответа зовёт модель
     "sent",
     "unregistered",
     "wired",

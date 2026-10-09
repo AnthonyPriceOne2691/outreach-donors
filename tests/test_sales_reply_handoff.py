@@ -31,6 +31,9 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tests.test_sales_handoff_rows import Dialog, sales_dialog
 from tests.test_sales_reply_routing import FakeClassifier, _Closable
+from tests.test_sales_switch import sales_switched_on
+
+__all__ = ["sales_switched_on"]  # продажи включены: путь вида ответа и передачи лида
 
 #: Когда передача заведена — некруглое, заведомо выдуманное время.
 AT = datetime(2026, 10, 14, 10, 23, tzinfo=UTC)

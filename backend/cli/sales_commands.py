@@ -14,7 +14,7 @@ import argparse
 from collections.abc import Callable, Coroutine
 from typing import Any
 
-from backend.cli import sales, sales_queue, sales_telegram
+from backend.cli import sales, sales_handoffs, sales_queue, sales_telegram
 from backend.features.core.stages import SalesNotConnectedError
 
 #: Этап продаж там, где почта его не ведёт или продажи не подключены (`core/stages.py`).
@@ -37,6 +37,9 @@ COMMANDS: dict[str, Callable[[argparse.Namespace], Coroutine[Any, Any, int]]] = 
     "sales-chain-load": sales.cmd_sales_chain_load,
     "sales-queue": sales_queue.cmd_sales_queue,
     "sales-telegram-chat-id": sales_telegram.cmd_sales_telegram_chat_id,
+    "sales-handoffs": sales_handoffs.cmd_sales_handoffs,
+    "sales-handoff-retry": sales_handoffs.cmd_sales_handoff_retry,
+    "sales-handoff-close": sales_handoffs.cmd_sales_handoff_close,
 }
 
 #: Что осталось в базе после прерывания — словами, на команду.
@@ -48,6 +51,9 @@ KEPT_ON_INTERRUPT: dict[str, str] = {
     "sales-chain-load": "Цепочка писем пишется одной транзакцией: в базе ничего не осталось.",
     "sales-queue": "Письма, собранные до прерывания, остались в очереди; повтор продолжит с остальных.",
     "sales-telegram-chat-id": "Команда только читает: в базе и в Telegram ничего не изменилось.",
+    "sales-handoffs": "Команда только читает: в базе ничего не изменилось.",
+    "sales-handoff-retry": "Решение пишется одной транзакцией с журналом: не дописано — не изменилось.",
+    "sales-handoff-close": "Решение пишется одной транзакцией с журналом: не дописано — не изменилось.",
 }
 
 
@@ -56,3 +62,4 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-a
     sales.add_parser(sub)
     sales_queue.add_parser(sub)
     sales_telegram.add_parser(sub)
+    sales_handoffs.add_parser(sub)
