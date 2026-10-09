@@ -292,13 +292,9 @@ async def test_refusals_are_permanent_in_words_without_repeats(
     [
         (httpx.Response(429, headers={"Retry-After": "7"}), "шлюз Kommo не принял запрос (HTTP 429, просит подождать 7 с) — повторим позже", 7.0),
         (httpx.Response(429), "шлюз Kommo не принял запрос (HTTP 429) — повторим позже", None),
-        (httpx.Response(503, headers={"Retry-After": "41"}), "шлюз Kommo не принял запрос (HTTP 503, просит подождать 41 с) — повторим позже", 41.0),
-        (httpx.Response(500, json={"success": False, "error": "kommo down"}), "шлюз Kommo не принял запрос (HTTP 500) — повторим позже", None),
-        (httpx.Response(502, text="<html>bad gateway</html>"), "шлюз Kommo не принял запрос (HTTP 502) — повторим позже", None),
-        (httpx.Response(504), "шлюз Kommo не принял запрос (HTTP 504) — повторим позже", None),
     ],
 )  # fmt: skip
-async def test_429_and_5xx_are_temporary_and_left_to_the_pass(
+async def test_429_is_temporary_and_left_to_the_pass(
     reply: httpx.Response, words: str, asked: float | None
 ) -> None:
     """Повтор — проходом передачи, а не внутри запроса: попытка одна."""
@@ -310,6 +306,29 @@ async def test_429_and_5xx_are_temporary_and_left_to_the_pass(
     assert str(refused.value) == words
     assert refused.value.retry_after == asked
     assert not is_permanent(refused.value)
+    assert len(script.requests) == 1
+
+
+@pytest.mark.parametrize(
+    ("reply", "words"),
+    [
+        (httpx.Response(503, headers={"Retry-After": "41"}), "шлюз Kommo ответил HTTP 503 уже после отправки — сделка могла создаться: проверить в Kommo руками; повтор вслепую завёл бы вторую"),
+        (httpx.Response(500, json={"success": False, "error": "kommo down"}), "шлюз Kommo ответил HTTP 500: kommo down уже после отправки — сделка могла создаться: проверить в Kommo руками; повтор вслепую завёл бы вторую"),
+        (httpx.Response(502, text="<html>bad gateway</html>"), "шлюз Kommo ответил HTTP 502 уже после отправки — сделка могла создаться: проверить в Kommo руками; повтор вслепую завёл бы вторую"),
+        (httpx.Response(504), "шлюз Kommo ответил HTTP 504 уже после отправки — сделка могла создаться: проверить в Kommo руками; повтор вслепую завёл бы вторую"),
+    ],
+)  # fmt: skip
+async def test_5xx_is_unconfirmed_until_the_agency_says_nothing_was_made(
+    reply: httpx.Response, words: str
+) -> None:
+    """Запрос дошёл, и шлюз мог завести сделку до сбоя: повтор вслепую завёл бы вторую,
+    а дубль в чужой CRM не отзывается. Решает человек консолью."""
+    script = Script(reply)
+
+    with pytest.raises(KommoUnconfirmedError) as refused:
+        await _gateway(script, lambda client: client.create_complex_lead(LEAD))
+
+    assert str(refused.value) == words
     assert len(script.requests) == 1
 
 

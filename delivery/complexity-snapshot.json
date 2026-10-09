@@ -1962,9 +1962,9 @@
       "worst": "build_kommo:182"
     },
     "backend/features/sales/kommo_gateway.py": {
-      "lines": 254,
+      "lines": 264,
       "complexity": 7,
-      "worst": "_created:198"
+      "worst": "_created:208"
     },
     "backend/features/sales/kommo_live.py": {
       "lines": 343,

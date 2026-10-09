@@ -18,8 +18,11 @@
 передачи по расписанию, а не внутри запроса: поиска, которым прямой путь проверяет
 дошедшую запись, у шлюза нет, и лишняя попытка — лишний шанс завести вторую сделку.
 - `success: true` с номером сделки — сделка; `warnings` шлюза — полем журнала.
-- 429, 5xx, обрыв до отправки — `KommoUnavailableError` (пауза `Retry-After`, если шлюз
-  её назвал): повторит проход.
+- 429, обрыв до отправки — `KommoUnavailableError` (пауза `Retry-After`, если шлюз её
+  назвал): повторит проход.
+- 5xx — запрос дошёл, и шлюз мог завести сделку до своего сбоя: повтора нет, решает человек
+  (`unconfirmed`), пока агентство не подтвердит, что 5xx значит «ничего не создано», или не
+  примет ключ от дублей. Дубль сделки в чужой CRM не отзывается, а лидов — единицы в день.
 - Ушло, а ответ потерян, или ответ без номера сделки — сделка могла создаться: повтора
   нет, решает человек (`unconfirmed`).
 - 400 и 422, `success: false` — отказ словами шлюза; 401 и 403 — отказ ключа
@@ -48,6 +51,7 @@ from backend.features.sales.kommo_types import (
     KommoContact,
     KommoFormatError,
     KommoRefusedError,
+    KommoUnconfirmedError,
     NewLead,
     lead_url,
     wanted_email,
@@ -93,6 +97,10 @@ _REFUSED = (
 _NOT_MADE = (
     "шлюз Kommo не завёл сделку (HTTP {code}, success: false{said}) — повтор не поможет: "
     "проверить воронку, этап, источник, тег и поля лида"
+)
+_SERVER = (
+    "шлюз Kommo ответил HTTP {code}{said} уже после отправки — сделка могла создаться: "
+    "проверить в Kommo руками; повтор вслепую завёл бы вторую"
 )
 _ELSE = (
     "шлюз Kommo ответил HTTP {code}{said} — повтор не поможет: проверить адрес "
@@ -186,6 +194,8 @@ class KommoGateway:
         code = response.status_code
         if httpx.codes.is_success(code):
             return
+        if httpx.codes.is_server_error(code):
+            raise KommoUnconfirmedError(_SERVER.format(code=code, said=self._said(response)))
         if (busy := temporary(response, PEER)) is not None:
             raise busy
         said = self._said(response)

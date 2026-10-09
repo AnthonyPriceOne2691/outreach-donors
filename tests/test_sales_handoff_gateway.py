@@ -205,6 +205,8 @@ async def test_the_next_answer_makes_no_second_deal_and_tells_the_telemarketer(
     [
         httpx.ReadTimeout("timed out"),
         httpx.Response(200, json={"success": True}),
+        httpx.Response(503),
+        httpx.Response(500, json={"success": False, "error": "kommo down"}),
     ],
 )
 async def test_a_lost_answer_is_unconfirmed_and_never_makes_a_second_deal(
@@ -249,7 +251,7 @@ async def test_a_busy_gateway_is_retried_by_the_pass_and_the_deal_is_made_once(
     gateway: tuple[Script, KommoGateway],
 ) -> None:
     script, client = gateway
-    script.replies = [httpx.Response(503, headers={"Retry-After": "41"}), _made(9341)]
+    script.replies = [httpx.Response(429, headers={"Retry-After": "41"}), _made(9341)]
     dialog = await sales_dialog(session)
 
     row = await hand_off(session, dialog, work(http, alerts, client))
@@ -259,7 +261,7 @@ async def test_a_busy_gateway_is_retried_by_the_pass_and_the_deal_is_made_once(
     line = dialog_line(dialog, " — сделка в Kommo не создана, повторяем")
     assert sent(api) == [(PERSONAL, line), (GROUP, line)]
     [alert] = alerts
-    assert "шлюз Kommo не принял запрос (HTTP 503, просит подождать 41 с)" in alert
+    assert "шлюз Kommo не принял запрос (HTTP 429, просит подождать 41 с)" in alert
 
     later = NOW + timedelta(seconds=cfg.HANDOFF_RETRY_SEC + 17)
     assert await handoff.due(session, now=later) == [row.id]
