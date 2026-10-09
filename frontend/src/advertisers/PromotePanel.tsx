@@ -32,6 +32,7 @@ import type { ContactsSource } from '../donors/PendingContacts';
 import { usePendingContacts } from '../donors/PendingContacts';
 import { formatNumber } from '../format';
 import { notify } from '../notices';
+import { InfoHint } from '../components/InfoHint';
 
 const PROMOTION_QUERY_KEY = ['advertisers-promotion'] as const;
 
@@ -58,6 +59,11 @@ export function promotedLine(result: PromoteResult): string {
     result.pending > 0 ? `ищем адреса: ${formatNumber(result.pending)}` : 'адреса есть у всех';
   return `Перевод: ${parts.join(', ')}; ${tail}.`;
 }
+
+/** Как устроен перевод — в «i»: его читают один раз (аудит экранов 09.10.2026). */
+const PROMOTE_HINT =
+  'Перевод берёт «куплено» и тех, кому сказали «Пишем», — по одному рекламодателю на домен, под ' +
+  'его лучшую ссылку. Адреса им ищутся сами, той же лестницей, что донорам.';
 
 export function PromotePanel() {
   const { can } = useSession();
@@ -91,11 +97,14 @@ export function PromotePanel() {
   return (
     <Card className="glassPanel" p="xl">
       <Stack gap="sm">
-        <Title order={4}>К письму</Title>
-        <Text size="sm" c="dimmed" maw={720}>
-          Перевод берёт «куплено» и тех, кому сказали «Пишем», — по одному рекламодателю на домен,
-          под его лучшую ссылку. Адреса им ищутся сами, той же лестницей, что донорам. Офферы
-          собираются в{' '}
+        <Group gap="xs">
+          <Title order={4}>К письму</Title>
+          <InfoHint name="Как устроен перевод к письму" width={360}>
+            {PROMOTE_HINT}
+          </InfoHint>
+        </Group>
+        <Text size="sm" c="dimmed">
+          Офферы собираются в{' '}
           <Anchor component={Link} to="/letters">
             «Письмах»
           </Anchor>{' '}

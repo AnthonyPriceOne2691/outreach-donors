@@ -14,6 +14,7 @@ import { refusalOf } from '../api/client';
 import type { NicheCard } from '../api/niche';
 import { useSession } from '../auth/AuthProvider';
 import { useNicheCollect, useNicheQueue } from './useNiche';
+import { InfoHint } from '../components/InfoHint';
 
 function whereFrom(card: NicheCard): string {
   const run = card.run_id === null ? 'прогон удалён' : `прогон №${card.run_id}`;
@@ -114,12 +115,14 @@ export function NicheQueue() {
     <Card className="glass" p="xl">
       <Stack gap="md">
         <Stack gap={6}>
-          <Title order={4}>Бизнесы ниши из выдачи</Title>
-          <Text size="sm" c="dimmed" maw={680}>
-            Сайты, которые сами продают в нише прогона: не доноры, а кандидаты в рекламодатели. Пока
-            не решили «пишем», адрес им не ищут и писем не пишут.
-            {data !== undefined && ` Ждут решения: ${data.waiting}.`}
-          </Text>
+          <Group gap="xs">
+            <Title order={4}>Бизнесы ниши из выдачи</Title>
+            <InfoHint name="Что такое бизнесы ниши" width={340}>
+              Сайты, которые сами продают в нише прогона: не доноры, а кандидаты в рекламодатели.
+              Пока не решили «пишем», адрес им не ищут и писем не пишут.
+            </InfoHint>
+          </Group>
+          {data !== undefined && <Text size="sm">{`Ждут решения: ${data.waiting}.`}</Text>}
         </Stack>
         {error ? (
           <Text size="sm" c="red">
