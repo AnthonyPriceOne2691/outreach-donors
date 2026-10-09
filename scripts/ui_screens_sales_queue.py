@@ -24,7 +24,7 @@ def queue_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
     ready = ("heading", "Продажи")
     path = "/sales?tab=queue"
     connected = [
-        ("пояснение над очередью", ".glassPanel .mantine-SegmentedControl-root + div p", norm),
+        ("пояснение над очередью", ".salesTabs + div p", norm),
         ("подпись поля гипотезы", "label:text-is('Гипотеза')", norm),
         ("значок «подключены»", ".mantine-Badge-label:text-is('продажи подключены')", norm),
         ("слова подключения", ".queueConnected", norm),

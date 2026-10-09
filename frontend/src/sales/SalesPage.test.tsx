@@ -477,6 +477,54 @@ describe('продажи: сводка — только на «Лидах» (а�
   });
 });
 
+/** Вкладка, у которой свой запрос отказал: ждать — заголовок её отказа. */
+const REFUSED = { status: 503, body: { detail: 'выдуманный отказ теста' } };
+const OTHER_TABS: [string, Record<string, Answer>, string][] = [
+  ['kb', {}, 'Что увидит агент'],
+  ['sender', { 'GET /api/sales/sender': REFUSED }, 'Отправитель не загрузился'],
+  ['chain', { 'GET /api/sales/chain': REFUSED }, 'Цепочка писем не загрузилась'],
+  ['queue', { 'GET /api/sales/queue?hypothesis=1': REFUSED }, 'Очередь писем не загрузилась'],
+  ['funnel', { 'GET /api/sales/funnel': REFUSED }, 'Воронка не загрузилась'],
+];
+
+describe('продажи: «Загрузить базу» — в строке вкладок «Лидов» и «Гипотез» (аудит 09.10.2026)', () => {
+  it.each([
+    ['/sales', 'ivan@acme.example.test'],
+    ['/sales?tab=hypotheses', 'редакции и блоги'],
+  ])('%s: кнопка рядом с вкладками, одна', async (path, ready) => {
+    await openScreen({}, { path, ready });
+
+    // Соседи в одной строке, а не кнопка в шапке над вкладками.
+    const tabs = screen.getByRole('radiogroup', { name: 'Вкладки продаж' });
+    const upload = screen.getByRole('link', { name: 'Загрузить базу' });
+    expect(upload.parentElement).toBe(tabs.parentElement);
+    expect(upload).toHaveAttribute('href', '/sales/import');
+  });
+
+  it.each(OTHER_TABS)(
+    'вкладка %s: кнопки нет — главная кнопка вкладки одна',
+    async (tab, routes, ready) => {
+      await openScreen(routes, { path: `/sales?tab=${tab}`, ready });
+
+      expect(screen.queryByRole('link', { name: 'Загрузить базу' })).toBeNull();
+    },
+  );
+
+  it('лидов нет вовсе — кнопка одна, в строке вкладок, а пустая таблица зовёт к ней словами', async () => {
+    const none = { ...HYPOTHESES, rows: HYPOTHESES.rows.map((row) => ({ ...row, total: 0 })) };
+    await openScreen(
+      {
+        'GET /api/sales/hypotheses': { body: none },
+        [LEADS]: { body: view([], { states: { new: 0, ready: 0, rejected: 0 } }) },
+      },
+      { ready: 'Лидов пока нет.' },
+    );
+
+    expect(screen.getAllByRole('link', { name: 'Загрузить базу' })).toHaveLength(1);
+    expect(screen.getByText(/Загрузите базу/)).toBeInTheDocument();
+  });
+});
+
 describe('продажи: гипотезы', () => {
   it('вкладка показывает гипотезы со счётчиками, числа ведут к лидам', async () => {
     await openScreen({}, { path: '/sales?tab=hypotheses', ready: 'редакции и блоги' });

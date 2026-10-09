@@ -55,21 +55,21 @@ const sameSearch = (draft: string, committed: string) => draft.trim() === commit
 /** Заголовок раздела и «i»: что за раздел, читают раз, а не на каждом заходе. */
 function SalesTitle() {
   return (
-    <Group justify="space-between" align="center" gap="sm" wrap="wrap" px="md">
-      <Group gap="xs" wrap="nowrap">
-        <Title order={3}>Продажи</Title>
-        <InfoHint name="Откуда лиды и как их чистят" width={340}>
-          Лиды попадают сюда из файла или Google-таблицы, проходят очистку — дубли, стоп-листы,
-          почта домена, проверка адреса — и готовыми уходят в письма. У каждого отсеянного названа
-          причина: кодом, по которому фильтр, и словами, что именно нашлось.
-        </InfoHint>
-      </Group>
-      <Button component={Link} to="/sales/import" className="press">
-        Загрузить базу
-      </Button>
+    <Group gap="xs" wrap="nowrap" px="md">
+      <Title order={3}>Продажи</Title>
+      <InfoHint name="Откуда лиды и как их чистят" width={340}>
+        Лиды попадают сюда из файла или Google-таблицы, проходят очистку — дубли, стоп-листы, почта
+        домена, проверка адреса — и готовыми уходят в письма. У каждого отсеянного названа причина:
+        кодом, по которому фильтр, и словами, что именно нашлось.
+      </InfoHint>
     </Group>
   );
 }
+
+/** Вкладки, где загрузка базы — дело вкладки: лиды из неё и берутся, гипотезе её грузят.
+ *  На остальных кнопка спорила с главной кнопкой вкладки — до трёх залитых кнопок разом
+ *  (аудит экранов 09.10.2026). */
+const UPLOAD_TABS: ReadonlySet<SalesTab> = new Set(['leads', 'hypotheses']);
 
 interface TabsProps {
   tab: SalesTab;
@@ -179,11 +179,18 @@ export function SalesPage() {
     <Card className="glassPanel" p="md">
       <Stack gap="sm">
         <SalesTitle />
-        <SalesTabs
-          tab={filters.tab}
-          counts={{ leads: total, hypotheses: known.length, kb: kb.data?.total }}
-          onTab={reset}
-        />
+        <Group justify="space-between" align="center" gap="sm" wrap="wrap" className="salesTabs">
+          <SalesTabs
+            tab={filters.tab}
+            counts={{ leads: total, hypotheses: known.length, kb: kb.data?.total }}
+            onTab={reset}
+          />
+          {UPLOAD_TABS.has(filters.tab) && (
+            <Button component={Link} to="/sales/import" className="press">
+              Загрузить базу
+            </Button>
+          )}
+        </Group>
         {bodies[filters.tab]()}
       </Stack>
     </Card>

@@ -30,8 +30,6 @@ import {
   Text,
   TextInput,
 } from '@mantine/core';
-import { Link } from 'react-router-dom';
-
 import { countryTitle } from '../api/labels';
 import { LEAD_STATES, leadReasonTitle } from '../api/salesLabels';
 import type { HypothesisCard, LeadCard, LeadState } from '../api/salesTypes';
@@ -261,30 +259,15 @@ function LeadRow({ row }: { row: LeadCard }) {
   );
 }
 
-/** Что предложить у пустой таблицы: сбросить фильтры — или загрузить базу,
- *  если лидов нет вовсе. */
+/** Что предложить у пустой таблицы: сбросить фильтры. Лидов нет вовсе — «Загрузить
+ *  базу» уже стоит в строке вкладок, вторая такая же кнопка читалась бы другим действием. */
 function EmptyAction({ action, onReset }: { action: Emptiness['action']; onReset: () => void }) {
-  if (action === 'reset') {
-    return (
-      <Button variant="subtle" size="compact-sm" className="press" onClick={onReset}>
-        Сбросить фильтры
-      </Button>
-    );
-  }
-  if (action === 'import') {
-    return (
-      <Button
-        component={Link}
-        to="/sales/import"
-        variant="light"
-        size="compact-sm"
-        className="press"
-      >
-        Загрузить базу
-      </Button>
-    );
-  }
-  return null;
+  if (action !== 'reset') return null;
+  return (
+    <Button variant="subtle" size="compact-sm" className="press" onClick={onReset}>
+      Сбросить фильтры
+    </Button>
+  );
 }
 
 /** Строка во всю ширину: почему пусто и что сделать. */

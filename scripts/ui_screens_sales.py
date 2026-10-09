@@ -299,7 +299,7 @@ def kb_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
     """Вкладки «База знаний» и «Отправитель»: список, окна, форма — на 1440 и 390."""
     ready = ("heading", "Продажи")
     kb_list = [
-        ("пояснение над таблицей", ".glassPanel .mantine-SegmentedControl-root + div p", norm),
+        ("пояснение над таблицей", ".salesTabs + div p", norm),
         ("версия базы", ".kbVersion", norm),
         ("кнопка «Что увидит агент»", "button:has-text('Что увидит агент')", big),
         ("кнопка «Добавить запись»", "button:has-text('Добавить запись')", big),
@@ -415,7 +415,7 @@ def chain_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
     ready = ("heading", "Продажи")
     card = "section.glassQuiet"
     chain_list = [
-        ("пояснение над цепочками", ".glassPanel .mantine-SegmentedControl-root + div p", norm),
+        ("пояснение над цепочками", ".salesTabs + div p", norm),
         ("подпись поля набора", "label:text-is('Набор')", norm),
         ("язык цепочки", f"{card} h5", norm),
         ("значок цепочки", f"{card} h5 + .mantine-Badge-root .mantine-Badge-label", norm),
