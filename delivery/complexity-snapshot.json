@@ -712,7 +712,7 @@
       "worst": "reject_draft:242"
     },
     "backend/features/agent/guarding.py": {
-      "lines": 193,
+      "lines": 241,
       "complexity": 8,
       "worst": "compose:60"
     },
@@ -737,7 +737,7 @@
       "worst": "—"
     },
     "backend/features/ahrefs/client.py": {
-      "lines": 374,
+      "lines": 379,
       "complexity": 11,
       "worst": "_request:226"
     },
@@ -1432,9 +1432,9 @@
       "worst": "—"
     },
     "backend/features/ops/job_outcome.py": {
-      "lines": 184,
+      "lines": 189,
       "complexity": 10,
-      "worst": "_outcome:124"
+      "worst": "_outcome:129"
     },
     "backend/features/ops/mail_watch.py": {
       "lines": 165,
