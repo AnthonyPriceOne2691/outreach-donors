@@ -23,7 +23,6 @@ import {
   Switch,
   Table,
   Text,
-  Title,
 } from '@mantine/core';
 import { IconUserPlus } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
@@ -35,6 +34,7 @@ import type { AccessPatch, OneTimePassword, Role, UserCard } from '../api/types'
 import { listUsers, patchUser, resetPassword } from '../api/users';
 import { useSession } from '../auth/AuthProvider';
 import { ConfirmPopover } from '../components/ConfirmPopover';
+import { PageHead } from '../components/PageHead';
 import { formatDateTime } from '../format';
 import { CreateUserModal } from './CreateUserModal';
 import { OneTimePasswordModal } from './OneTimePasswordModal';
@@ -193,13 +193,10 @@ export function UsersPage() {
     <Stack gap="lg">
       <Card className="glassPanel" p="xl">
         <Group justify="space-between" align="flex-start">
-          <Stack gap={6}>
-            <Title order={3}>Учётки</Title>
-            <Text size="sm" c="dimmed" maw={560}>
-              Учётки не удаляются: вместе с ней ушла бы история действий. Отключённая учётка
-              перестаёт пускать сразу, даже с непросроченным пропуском.
-            </Text>
-          </Stack>
+          <PageHead
+            title="Учётки"
+            hint="Учётки не удаляются: вместе с ней ушла бы история действий. Отключённая учётка перестаёт пускать сразу, даже с непросроченным пропуском."
+          />
           <Button
             className="press"
             variant="gradient"

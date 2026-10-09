@@ -51,6 +51,7 @@ import { fetchThresholds, previewThresholds, saveThresholds } from '../api/setti
 import type { ThresholdsBody } from '../api/types';
 import { InfoHint } from '../components/InfoHint';
 import { Metric } from '../components/Metric';
+import { PageHead } from '../components/PageHead';
 import { SaveVersionButton } from '../components/SaveVersionButton';
 import { useSession } from '../auth/AuthProvider';
 import { formatDateTime, formatNumber } from '../format';
@@ -177,13 +178,10 @@ export function ThresholdsPage() {
     <Stack gap="lg">
       <Card className="glassPanel" p="xl">
         <Stack gap="md">
-          <Stack gap={6}>
-            <Title order={3}>Пороги отбора</Title>
-            <Text size="sm" c="dimmed" maw={680}>
-              Сохранение заводит новую версию, а не правит старую: вердикты прошлых прогонов должны
-              оставаться объяснимыми. Ниже — что станет с базой, если применить новые пороги.
-            </Text>
-          </Stack>
+          <PageHead
+            title="Пороги отбора"
+            hint="Сохранение заводит новую версию, а не правит старую: вердикты прошлых прогонов должны оставаться объяснимыми. Ниже — что станет с базой, если применить новые пороги."
+          />
 
           {/* Подпись — не `<label>`: в ней кнопка подсказки, а кнопка внутри
               подписи поля — вложенный элемент формы, и её имя вошло бы в имя
