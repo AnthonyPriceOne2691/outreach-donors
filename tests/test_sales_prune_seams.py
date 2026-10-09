@@ -7,6 +7,8 @@
 - `--probes` держит то же правило, что основная чистка (`runs/prune.py`): липовый домен,
   который держит лид продаж, не удаляется и не роняет чистку (было — `IntegrityError`),
   а называется словами: «домен держит лид продаж №N — его убирает `prune --test-traces`»;
+  лид с чужим адресом — не проба, и слова говорят, что удалить его может только человек
+  (решение владельца);
 - пробу продаж — лид с адресом своего ящика, диалог, письма, ответы, передачу — целиком
   убирает только `--test-traces`. Номер сделки Kommo — в плане и в журнале; сделку в Kommo
   чистка не трогает: удалить её может только человек, по номеру из плана.
@@ -102,6 +104,14 @@ def _kept(lead_id: int) -> str:
     return f"домен держит лид продаж №{lead_id} — его убирает `prune --test-traces`"
 
 
+def _foreign(lead_id: int) -> str:
+    return (
+        f"домен держит лид продаж №{lead_id} с чужим адресом — не проба своего ящика, "
+        "`prune --test-traces` его не уберёт: удалить лида может только человек, тогда домен "
+        "уйдёт с `prune --probes`"
+    )
+
+
 def _args(*flags: str) -> object:
     return build_parser().parse_args(["prune", *flags])
 
@@ -121,14 +131,14 @@ async def test_probe_cleanup_keeps_a_fake_domain_held_by_a_sales_lead(
 
     assert plan.probes is not None
     assert plan.probes.domains == []
-    assert plan.probes.kept == {FAKE: _kept(handoff.lead_id)}
+    assert plan.probes.kept == {FAKE: _foreign(handoff.lead_id)}
     assert await _left(session) == (1, 1, 1, [DEAL])
     journal = await session.scalar(
         select(AuditLogModel).where(AuditLogModel.action == AuditAction.DATA_PRUNED)
     )
     assert journal is not None
     assert journal.details is not None
-    assert journal.details["оставлено"] == {FAKE: _kept(handoff.lead_id)}
+    assert journal.details["оставлено"] == {FAKE: _foreign(handoff.lead_id)}
 
 
 async def test_probe_cleanup_prints_the_held_domain_and_its_lead(
@@ -141,7 +151,7 @@ async def test_probe_cleanup_prints_the_held_domain_and_its_lead(
     out = capsys.readouterr().out
     assert code == 0
     assert "Липовые домены: 0" in out
-    assert f"оставлен {FAKE}: {_kept(handoff.lead_id)}" in out
+    assert f"оставлен {FAKE}: {_foreign(handoff.lead_id)}" in out
 
 
 async def test_donor_probe_next_to_a_held_domain_goes_as_before(
@@ -158,7 +168,7 @@ async def test_donor_probe_next_to_a_held_domain_goes_as_before(
     assert plan.probes is not None
     assert plan.probes.domains == [probe.domain_id]
     assert plan.probes.runs == [probe.run_id]
-    assert plan.probes.kept == {FAKE: _kept(handoff.lead_id)}
+    assert plan.probes.kept == {FAKE: _foreign(handoff.lead_id)}
     hosts = list(
         await session.scalars(select(DomainModel.host).where(DomainModel.host.like("%.invalid")))
     )
@@ -181,6 +191,26 @@ async def test_lead_that_came_after_the_plan_keeps_its_fake_domain(
     await apply_prune(session, plan, author="тест")
 
     assert await session.get(DomainModel, late.id) is not None
+
+
+async def test_foreign_lead_is_not_a_trial_and_the_words_say_who_removes_it(
+    session: AsyncSession, world: w.World
+) -> None:
+    """Лид с чужим адресом на липовом домене — не проба: `--test-traces` его не берёт, и
+    слова плана `--probes` не отсылают к нему, а говорят, что удалить лида может только
+    человек. Проба на том же домене названа своими словами."""
+    foreign = await _trial(session, world, f"jane@{FAKE}", send=False)
+    trial = await _trial(session, world, MINE, host=FAKE, send=False)
+
+    traces = await plan_prune(session, run_ids=[], test_traces=True)
+    probes = await plan_prune(session, run_ids=[], probes=True)
+
+    assert traces.sales_trials is not None
+    assert [lead.lead_id for lead in traces.sales_trials.leads] == [trial.lead_id]
+    assert probes.probes is not None
+    assert probes.probes.kept == {
+        FAKE: _kept(trial.lead_id) + "; " + _foreign(foreign.lead_id).removeprefix("домен ")
+    }
 
 
 # --- `--test-traces`: проба продаж целиком, номер сделки — в плане и журнале ------------------
@@ -336,4 +366,10 @@ def test_words_name_every_lead_that_holds_the_domain() -> None:
     assert kept_words([3]) == "домен держит лид продаж №3 — его убирает `prune --test-traces`"
     assert kept_words([3, 7]) == (
         "домен держат лиды продаж №3, №7 — их убирает `prune --test-traces`"
+    )
+    assert kept_words([], [5]) == _foreign(5)
+    assert kept_words([], [5, 6]) == (
+        "домен держат лиды продаж №5, №6 с чужими адресами — не пробы своего ящика, "
+        "`prune --test-traces` их не уберёт: удалить лидов может только человек, тогда домен "
+        "уйдёт с `prune --probes`"
     )

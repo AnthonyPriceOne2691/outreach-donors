@@ -1872,9 +1872,9 @@
       "worst": "reasons:64"
     },
     "backend/features/sales/domain_hold.py": {
-      "lines": 47,
-      "complexity": 3,
-      "worst": "kept_words:27"
+      "lines": 81,
+      "complexity": 5,
+      "worst": "kept_words:41"
     },
     "backend/features/sales/funnel.py": {
       "lines": 248,
@@ -2017,9 +2017,9 @@
       "worst": "_chat_of:238"
     },
     "backend/features/sales/trials.py": {
-      "lines": 268,
+      "lines": 267,
       "complexity": 8,
-      "worst": "trial_trace:104"
+      "worst": "trial_trace:100"
     },
     "backend/features/sales/unsubscribe.py": {
       "lines": 55,

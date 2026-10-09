@@ -24,7 +24,7 @@ from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy import ColumnElement, Row, Select, delete, exists, func, or_, select
+from sqlalchemy import ColumnElement, Row, Select, delete, exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
@@ -37,6 +37,7 @@ from backend.features.core.models.outreach import (
 )
 from backend.features.donors.probe import emptied_campaign
 from backend.features.outreach.own_inboxes import OwnInboxes
+from backend.features.sales.domain_hold import own_lead
 from backend.features.sales.models import SalesHandoffModel, SalesLeadModel, SalesThreadModel
 
 
@@ -85,11 +86,6 @@ class TrialTrace:
         }
 
 
-def _own(inboxes: OwnInboxes) -> ColumnElement[bool]:
-    """Лид со своим ящиком: адрес из предохранителя."""
-    return func.lower(func.trim(SalesLeadModel.email)).in_(inboxes.addresses)
-
-
 def _dialog_of(
     column: InstrumentedAttribute[int] | InstrumentedAttribute[int | None],
     leads: Select[tuple[int]],
@@ -108,7 +104,7 @@ async def trial_trace(session: AsyncSession, inboxes: OwnInboxes) -> TrialTrace:
         await session.execute(
             select(SalesLeadModel.id, SalesLeadModel.email, DomainModel.host)
             .join(DomainModel, DomainModel.id == SalesLeadModel.domain_id)
-            .where(_own(inboxes))
+            .where(own_lead(inboxes.addresses))
             .order_by(SalesLeadModel.id)
         )
     ).all()
@@ -235,7 +231,10 @@ async def remove_trials(session: AsyncSession, trace: TrialTrace) -> None:
     """
     if not trace.leads:
         return
-    mine = (SalesLeadModel.id.in_([lead.lead_id for lead in trace.leads]), _own(trace.inboxes))
+    mine = (
+        SalesLeadModel.id.in_([lead.lead_id for lead in trace.leads]),
+        own_lead(trace.inboxes.addresses),
+    )
     own = select(SalesLeadModel.id).where(*mine)
     letters = select(MessageModel.id).where(_dialog_of(MessageModel.thread_id, own))
     await session.execute(
