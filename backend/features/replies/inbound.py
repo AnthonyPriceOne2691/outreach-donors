@@ -18,6 +18,7 @@ import re
 from dataclasses import dataclass, field
 
 from backend.config import outreach as cfg
+from backend.features.replies.attachment_text import extension_of
 
 logger = logging.getLogger(__name__)
 
@@ -66,14 +67,10 @@ class Attachment:
 
     @property
     def extension(self) -> str:
-        """Расширение так, как его поймёт система, которая файл откроет.
-
-        Точки и пробелы в конце Windows отбрасывает: «прайс.exe.» у неё
-        запускается как «.exe», и проверка по буквальному имени его пропустила бы.
-        """
-        tail = self.name.strip().rstrip(". ").lower()
-        _, dot, extension = tail.rpartition(".")
-        return f".{extension}" if dot else ""
+        """Расширение так, как его поймёт система, которая файл откроет
+        (`attachment_text.extension_of`): одна мера и у отказа опасному
+        файлу, и у чтения текста из него."""
+        return extension_of(self.name)
 
     @property
     def dangerous(self) -> bool:
@@ -101,6 +98,19 @@ def storable(value: str) -> str:
 
 
 @dataclass(frozen=True, slots=True)
+class AttachedText:
+    """Текст, прочитанный из вложения (`attachment_text`), и имя файла.
+
+    Едет к модели отдельным блоком после написанного человеком, а не внутри
+    письма: цитату отрезают по строке «>» и по шапке «… wrote:», а такие
+    строки бывают и в прайсе — цена ушла бы вместе с «цитатой».
+    """
+
+    name: str
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
 class Incoming:
     """Разобранное входящее письмо."""
 
@@ -120,6 +130,9 @@ class Incoming:
     #: Служебные заголовки: по ним узнаётся автоответчик и отказ доставки.
     headers: dict[str, str] = field(default_factory=dict)
     attachments: tuple[Attachment, ...] = ()
+    #: Тексты вложений — у ответа, который идёт в разбор цены (`parse_input`).
+    #: При приёме пусто: файлы читаются не в вебхуке, а перед моделью.
+    attached: tuple[AttachedText, ...] = ()
 
     def header(self, name: str) -> str:
         """Заголовок без оглядки на регистр: почта пишет их как хочет."""

@@ -4,7 +4,8 @@
 от предыдущего, и ни один не молчит о своём исходе.
 
     повтор? → привязка → чем был ответ → запись → последствия
-    ... и отдельно, задачей очереди: разбор цены
+    ... и отдельно, задачей очереди: разбор цены — по тексту письма
+        и текстам его файлов (`parse_input`)
 
 **Повтор проверяется первым.** Провайдер доставляет события «хотя бы
 один раз»; без этой проверки повтор дал бы второй ответ, второй разбор
@@ -57,6 +58,7 @@ from backend.features.replies import extract as extract_mod
 from backend.features.replies.attachments import ReplyFiles
 from backend.features.replies.extract import ExtractClient, Extracted
 from backend.features.replies.inbound import Incoming
+from backend.features.replies.parse_input import parse_input
 from backend.features.replies.repository import Addressee, ReplyRepository
 from backend.features.replies.unbound import explain
 
@@ -360,7 +362,8 @@ class Parser:
         # на начало следующих суток UTC (`workers/jobs._parse_or_postpone`) —
         # ответ не теряется и не судится без модели.
         await usage.ensure_llm_within_cap(self._session)
-        found = await self._extractor.extract(_as_incoming(reply))
+        incoming = await parse_input(self._session, reply, now=self._now)
+        found = await self._extractor.extract(incoming)
         if found.tokens_spent:
             usage.record(self._session, operation="reply_parse", units=found.tokens_spent)
         _write_back(reply, found)
@@ -479,20 +482,3 @@ def _write_back(reply: ReplyModel, found: Extracted) -> None:
     reply.payment_methods = list(found.payment_methods) or None
     reply.confidence = found.confidence
     _write_back_placement(reply, found)
-
-
-def _as_incoming(reply: ReplyModel) -> Incoming:
-    """Сохранённый ответ обратно во входящее письмо — ровно настолько,
-    насколько это нужно разбору: текст и тема.
-
-    Разбирается то, что лежит в базе, а не то, что пришло в вебхуке:
-    между приёмом и разбором проходит время, и единственный текст,
-    за который мы отвечаем, — сохранённый.
-    """
-    return Incoming(
-        message_id=reply.inbound_message_id or "",
-        to=(),
-        from_email=reply.from_email or "",
-        subject=reply.subject or "",
-        text=reply.raw_body,
-    )

@@ -43,11 +43,12 @@ PINNED: list[tuple[str, ModuleType, str, str]] = [
         "SYSTEM",
         "1a9724df15ff294148cea9c582858bbf4a79ffed7097dab8c240b801d43899ef",  # pragma: allowlist secret
     ),
+    # Разбор ответа — правленый после переноса: v7 (09.10.2026), тексты вложений.
     (
         "extract",
         extract,
         "SYSTEM",
-        "4d62659c7f86596b85f09ae048b23dc0ab6e8fec4213011ff9794e7e0fe1d29e",  # pragma: allowlist secret
+        "24973b2e879e404d9548298c11a5310345af05eb50d7958dc9c138d068a97970",  # pragma: allowlist secret
     ),
 ]
 

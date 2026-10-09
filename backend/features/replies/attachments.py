@@ -16,20 +16,29 @@
 **Опасные файлы не хранятся вовсе** — исполняемым файлам и скриптам
 в прайсе делать нечего. Проверки антивирусом здесь нет, и это открытый
 вопрос: отдаётся файл только на скачивание, никогда — на показ.
+
+**Показывается текст, прочитанный из файла** (`attachment_text`), — данные,
+а не разметка. Читается он один раз: перед разбором цены или первым показом
+ответа, принятого раньше, — и ложится к вложению: экран показывает человеку
+ровно то, что видела модель.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import undefer
+from sqlalchemy.sql.base import ExecutableOption
 
 from backend.features.core.models.attachment import ReplyAttachmentModel
-from backend.features.replies.inbound import MAX_ATTACHMENTS, Attachment
+from backend.features.replies.attachment_text import read_text
+from backend.features.replies.inbound import MAX_ATTACHMENTS, AttachedText, Attachment
 
 logger = logging.getLogger(__name__)
 
@@ -164,21 +173,76 @@ class ReplyFiles:
         return found
 
     async def file(self, reply_id: int, attachment_id: int) -> tuple[ReplyAttachmentModel, bytes]:
-        """Вложение вместе с файлом.
+        """Вложение вместе с файлом."""
+        row = await self._one(reply_id, attachment_id, undefer(ReplyAttachmentModel.data))
+        if row.data is None:
+            raise _not_kept(row)
+        return row, row.data
 
-        Номер ответа сверяется: вложение чужого ответа по подобранному
-        номеру — тоже «нет такого».
+    async def texts(self, reply_id: int, *, now: datetime) -> list[AttachedText]:
+        """Тексты сохранённых файлов ответа, по порядку в письме, — для разбора цены.
+
+        Не читанный файл читается здесь же, и прочитанное ложится к нему:
+        повтор разбора и показ на экране второй раз его не читают.
         """
+        rows = (
+            await self._session.scalars(
+                select(ReplyAttachmentModel)
+                .options(undefer(ReplyAttachmentModel.text))
+                .where(ReplyAttachmentModel.reply_id == reply_id)
+                .where(ReplyAttachmentModel.accepted.is_(True))
+                .order_by(ReplyAttachmentModel.id)
+            )
+        ).all()
+        for row in rows:
+            if row.text_read_at is None:
+                await self._read(row, now)
+        return [AttachedText(name=row.name, text=row.text) for row in rows if row.text]
+
+    async def text_of(
+        self, reply_id: int, attachment_id: int, *, now: datetime
+    ) -> ReplyAttachmentModel:
+        """Вложение с прочитанным текстом — для экрана.
+
+        Файл ответа, принятого раньше, чем файлы начали читаться, читается
+        здесь, по первому показу. Отказы — те же, что у файла: чужое или
+        неизвестное — «нет такого», не сохранённое — почему.
+        """
+        row = await self._one(reply_id, attachment_id, undefer(ReplyAttachmentModel.text))
+        if not row.accepted:
+            raise _not_kept(row)
+        if row.text_read_at is None:
+            await self._read(row, now)
+        return row
+
+    async def _one(
+        self, reply_id: int, attachment_id: int, *options: ExecutableOption
+    ) -> ReplyAttachmentModel:
+        """Вложение этого ответа. Номер ответа сверяется: вложение чужого ответа
+        по подобранному номеру — тоже «нет такого»."""
         row = await self._session.scalar(
             select(ReplyAttachmentModel)
-            .options(undefer(ReplyAttachmentModel.data))
+            .options(*options)
             .where(ReplyAttachmentModel.id == attachment_id)
             .where(ReplyAttachmentModel.reply_id == reply_id)
         )
         if row is None:
             raise UnknownAttachmentError(f"У ответа №{reply_id} нет вложения №{attachment_id}")
-        if row.data is None:
-            raise AttachmentNotKeptError(
-                f"Файл «{row.name}» не сохранён: {row.reason or 'причина не записана'}"
-            )
-        return row, row.data
+        return row
+
+    async def _read(self, row: ReplyAttachmentModel, now: datetime) -> None:
+        """Прочитать файл и записать к нему текст. Файл берётся отдельным
+        запросом: строка его не держит, а мегабайты нужны только здесь."""
+        data = await self._session.scalar(
+            select(ReplyAttachmentModel.data).where(ReplyAttachmentModel.id == row.id)
+        )
+        # Чтение идёт отдельным процессом с потолком времени (`attachment_text`);
+        # поток здесь только ждёт его, не занимая цикл событий.
+        found = await asyncio.to_thread(read_text, row.name, row.content_type, data or b"")
+        row.text, row.text_note, row.text_read_at = found.text, found.note, now
+
+
+def _not_kept(row: ReplyAttachmentModel) -> AttachmentNotKeptError:
+    return AttachmentNotKeptError(
+        f"Файл «{row.name}» не сохранён: {row.reason or 'причина не записана'}"
+    )
