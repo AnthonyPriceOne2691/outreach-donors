@@ -143,7 +143,7 @@ describe('стоп-лист', () => {
 
     expect(screen.getByText('donor.example.test')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Снять' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Больше не писать' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Добавить…' })).not.toBeInTheDocument();
   });
 
   it('новая запись уходит доменом или адресом', async () => {
@@ -152,8 +152,11 @@ describe('стоп-лист', () => {
     });
     const user = userEvent.setup();
 
-    await user.type(screen.getByLabelText('Домен или адрес'), 'supplier.example.test');
-    await user.click(screen.getByRole('button', { name: 'Больше не писать' }));
+    // Заводят в окне по кнопке: форма не занимает экран, пока ею не пользуются.
+    await user.click(screen.getByRole('button', { name: 'Добавить…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Больше не писать' });
+    await user.type(within(dialog).getByLabelText('Домен или адрес'), 'supplier.example.test');
+    await user.click(within(dialog).getByRole('button', { name: 'Больше не писать' }));
 
     await screen.findByText(/сняты с очереди/);
     const sent = recorded.calls.filter((call: Call) => call.method === 'POST');
@@ -170,18 +173,29 @@ describe('стоп-лист', () => {
     });
     const user = userEvent.setup();
 
-    await user.type(screen.getByLabelText('Домен или адрес'), 'vendor.example.test');
-    // Выпадающий список Mantine в jsdom остаётся `display: none` — раскладки
-    // здесь нет, и без `hidden` его пункты не видны запросу. Клик по самому
-    // пункту при этом настоящий, и проверяется именно он.
-    await user.click(screen.getByRole('textbox', { name: 'Держит' }));
-    await user.click(await screen.findByRole('option', { name: '12 месяцев', hidden: true }));
-    await user.click(screen.getByRole('button', { name: 'Больше не писать' }));
+    await user.click(screen.getByRole('button', { name: 'Добавить…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Больше не писать' });
+    await user.type(within(dialog).getByLabelText('Домен или адрес'), 'vendor.example.test');
+    // Два значения — переключателем (09.10.2026), а не выпадающим списком.
+    await user.click(within(dialog).getByRole('radio', { name: '12 месяцев' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Больше не писать' }));
 
     await screen.findAllByText(/сняты с очереди/);
     const sent = recorded.calls.filter((call: Call) => call.method === 'POST');
     const body = sent[0]?.body as { expires_at: string | null };
     expect(body.expires_at).not.toBeNull();
+  });
+
+  it('поиск и причина сужают список, не спрашивая сервер', async () => {
+    const recorded = await openStopList();
+    const user = userEvent.setup();
+    const before = recorded.calls.length;
+
+    await user.type(screen.getByLabelText('Поиск по домену или адресу'), 'was.');
+
+    expect(screen.getByText('was.example.test')).toBeInTheDocument();
+    expect(screen.queryByText('donor.example.test')).not.toBeInTheDocument();
+    expect(recorded.calls).toHaveLength(before);
   });
 
   it('истёкшая запись остаётся на экране и названа истёкшей', async () => {
