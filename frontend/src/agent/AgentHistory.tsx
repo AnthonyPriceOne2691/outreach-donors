@@ -4,9 +4,16 @@
  * Список, а не таблица: у версии одна строка смысла — включён ли, предел
  * цены, сколько доводов и тем, — и колонки чисел без сравнения по ним
  * читались бы отчётом, которого здесь нет.
+ *
+ * **Свёрнут в «Версии · N»** (аудит экранов 09.10.2026): действующая версия
+ * названа строкой наверху экрана, а прежние нужны, когда разбираются, что
+ * стояло раньше, — не при каждом заходе. Версий нет — карточки нет: что этап
+ * не настроен, сказано строкой наверху, второй абзац о том же был лишним.
  */
 
-import { Badge, Card, Group, Stack, Text, Title } from '@mantine/core';
+import { Badge, Button, Card, Collapse, Group, Stack, Text } from '@mantine/core';
+import { IconChevronDown } from '@tabler/icons-react';
+import { useId, useState } from 'react';
 
 import type { AgentSettingsBody, AgentStageView } from '../api/agent';
 import { formatDateTime, formatUsd } from '../format';
@@ -31,18 +38,34 @@ function summaryOf(settings: AgentSettingsBody, limitWord: string): string {
 }
 
 export function AgentHistory({ view, limitWord }: HistoryProps) {
+  const [open, setOpen] = useState(false);
+  const listId = useId();
+  if (view.history.length === 0) return null;
   return (
-    <Card className="glass" p="xl">
-      <Title order={5} mb="sm">
-        Версии
-      </Title>
-      {view.history.length === 0 ? (
-        <Text size="sm" c="dimmed">
-          Версий ещё нет — агент на этом этапе не пишет. Первая появится здесь после сохранения,
-          вместе с автором и датой.
-        </Text>
-      ) : (
-        <Stack gap="xs">
+    <Card className="glass" px="xl" py="md">
+      <Group>
+        <Button
+          variant="subtle"
+          size="compact-md"
+          px={6}
+          leftSection={
+            <IconChevronDown
+              size={16}
+              style={{
+                transform: open ? 'rotate(180deg)' : 'none',
+                transition: 'transform 200ms cubic-bezier(0.32, 0.72, 0, 1)',
+              }}
+            />
+          }
+          aria-expanded={open}
+          aria-controls={listId}
+          onClick={() => setOpen((was) => !was)}
+        >
+          Версии · {view.history.length}
+        </Button>
+      </Group>
+      <Collapse id={listId} in={open} transitionDuration={220} transitionTimingFunction="ease">
+        <Stack gap="xs" mt="sm">
           {view.history.map(({ version, settings, created_by: author, created_at: at }) => (
             <Group key={version} justify="space-between" gap="xs" className="agentVersion">
               <Group gap="xs">
@@ -60,7 +83,7 @@ export function AgentHistory({ view, limitWord }: HistoryProps) {
             </Group>
           ))}
         </Stack>
-      )}
+      </Collapse>
     </Card>
   );
 }

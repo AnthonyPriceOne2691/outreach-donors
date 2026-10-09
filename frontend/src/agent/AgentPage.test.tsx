@@ -89,7 +89,7 @@ async function openAgent(
   });
   renderWith(<AppRoutes />, '/agent');
   // Заголовок стоит и до ответа сервера — ждём того, что рисуется по ответу.
-  await screen.findByRole('heading', { name: 'Версии' });
+  await screen.findByLabelText('Цель разговора');
   return recorded;
 }
 
@@ -102,7 +102,8 @@ describe('агент переписки', () => {
     expect(screen.getByLabelText('Доводы и вопросы')).toHaveValue(
       'Спросить цену\nПопросить скидку',
     );
-    expect(screen.getByText(/Версий ещё нет/)).toBeInTheDocument();
+    // Что этап не настроен, сказано строкой наверху — пустой карточки версий нет.
+    expect(screen.queryByRole('button', { name: /^Версии/ })).not.toBeInTheDocument();
     // Умолчания сохраняют и без правки: с них агент начинает писать.
     expect(screen.getByRole('button', { name: /Сохранить новой версией/ })).toBeEnabled();
   });
@@ -220,7 +221,13 @@ describe('агент переписки', () => {
 
     expect(screen.getByText('Править настройки агента не разрешено')).toBeInTheDocument();
     expect(screen.getByLabelText('Цель разговора')).toBeDisabled();
-    expect(screen.getByText('№2')).toBeInTheDocument();
+    // Прежние версии — по нажатию: действующая названа строкой наверху.
+    const versions = screen.getByRole('button', { name: /^Версии · / });
+    expect(versions).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.setup().click(versions);
+    expect(versions).toHaveAttribute('aria-expanded', 'true');
+    // Раскрытие идёт кадром анимации: ждём, пока станет видно.
+    await waitFor(() => expect(screen.getByText('№2')).toBeVisible());
   });
 
   it('отказ сервера на чтении — причина словами', async () => {
