@@ -8,9 +8,10 @@
  * своего перечня; пусто и отказ названы словами.
  */
 
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { useLocation } from 'react-router-dom';
+import { describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
 import type { HypothesesView, KbView, LeadCard, LeadsView } from '../api/salesTypes';
@@ -116,6 +117,16 @@ function at(query: string): string {
   return `${LEADS}?${query}`;
 }
 
+/** Где сейчас экран: адрес целиком — по нему видно, что живёт в адресе, а что нет. */
+function Where() {
+  const location = useLocation();
+  return <output data-testid="where">{`${location.pathname}${location.search}`}</output>;
+}
+
+function where(): string {
+  return screen.getByTestId('where').textContent ?? '';
+}
+
 async function openScreen(
   routes: Record<string, Answer> = {},
   { path = '/sales', ready = 'ivan@acme.example.test', who = ADMIN } = {},
@@ -128,7 +139,13 @@ async function openScreen(
     'GET /api/sales/kb': { body: KB },
     ...routes,
   });
-  renderWith(<AppRoutes />, path);
+  renderWith(
+    <>
+      <AppRoutes />
+      <Where />
+    </>,
+    path,
+  );
   await screen.findByText(ready, {}, SCREEN_WAIT);
   return recorded;
 }
@@ -202,7 +219,8 @@ describe('продажи: лиды', () => {
     const twin = within(rowOf('twin@acme.example.test'));
     expect(twin.getByText('отклонён')).toBeInTheDocument();
     expect(twin.getByText('дубль')).toBeInTheDocument();
-    expect(twin.getByText('дубль: адрес уже у лида №1')).toBeInTheDocument();
+    // Слова очистки — за «!» (аудит 09.10.2026): проверяет их тест ниже.
+    expect(twin.getByRole('button', { name: 'Что сказала очистка' })).toBeInTheDocument();
   });
 
   it('адрес и домен лида переносятся по швам, а не посреди слова', async () => {
@@ -396,7 +414,7 @@ describe('продажи: лиды', () => {
     expect(screen.queryByText('Под фильтр ничего не попало.')).toBeNull();
   });
 
-  it('отказ сервера на новом фильтре — строкой в таблице; фильтры стоят', async () => {
+  it('отказ сервера на новом фильтре — словами под шапкой таблицы; фильтры стоят', async () => {
     await openScreen({
       [at('state=ready')]: {
         status: 500,
@@ -426,6 +444,416 @@ describe('продажи: лиды', () => {
   });
 });
 
+/** Плитка сводки: число и куда ведёт. Плитка-ссылка — сама `a`, подпись и число — её строки. */
+function tile(title: string): { value: string; href: string | null } {
+  const label = screen.getByText(title, { selector: '.metricTitle' });
+  const card = label.closest('.metricTile');
+  if (card === null) throw new Error(`плитки «${title}» нет`);
+  return { value: card.children[1]?.textContent ?? '', href: card.getAttribute('href') };
+}
+
+describe('продажи: сводка — только на «Лидах» (аудит 09.10.2026)', () => {
+  it('на «Лидах» три плитки — новые, готовы, отклонены, — каждая ссылкой в свой фильтр', async () => {
+    await openScreen();
+
+    expect(tile('Новые')).toEqual({ value: '2', href: '/sales?state=new' });
+    expect(tile('Готовы')).toEqual({ value: '1', href: '/sales?state=ready' });
+    expect(tile('Отклонены')).toEqual({ value: '2', href: '/sales?state=rejected' });
+    // «Лидов» и «Гипотез» — числа вкладок, плитками они повторяли бы их.
+    expect(document.querySelectorAll('.metricTile')).toHaveLength(3);
+  });
+
+  it('гипотеза в адресе — плитки считают её лидов и ведут в её фильтр', async () => {
+    const both: HypothesesView = {
+      ...HYPOTHESES,
+      rows: HYPOTHESES.rows.map((row) =>
+        row.id === 2 ? { ...row, leads: { new: 3, ready: 4, rejected: 0 }, total: 7 } : row,
+      ),
+    };
+    await openScreen(
+      {
+        'GET /api/sales/hypotheses': { body: both },
+        [at('hypothesis=1')]: { body: view([IVAN, TWIN]) },
+      },
+      { path: '/sales?hypothesis=1' },
+    );
+
+    expect(tile('Новые')).toEqual({ value: '2', href: '/sales?state=new&hypothesis=1' });
+    expect(tile('Готовы')).toEqual({ value: '1', href: '/sales?state=ready&hypothesis=1' });
+  });
+
+  it('на других вкладках плиток сводки нет; пояснение раздела — в «i» у заголовка', async () => {
+    await openScreen({}, { path: '/sales?tab=hypotheses', ready: 'редакции и блоги' });
+    const user = userEvent.setup();
+
+    expect(document.querySelectorAll('.metricTile')).toHaveLength(0);
+    expect(screen.queryByText(/Лиды попадают сюда/)).toBeNull();
+
+    await user.hover(screen.getByRole('button', { name: 'Как устроен экран «Продажи»' }));
+
+    expect(await screen.findByText(/Лиды попадают сюда/, {}, SCREEN_WAIT)).toBeInTheDocument();
+  });
+});
+
+/** Вкладка, у которой свой запрос отказал: ждать — заголовок её отказа. */
+const REFUSED = { status: 503, body: { detail: 'выдуманный отказ теста' } };
+const OTHER_TABS: [string, Record<string, Answer>, string][] = [
+  ['kb', {}, 'Что увидит агент'],
+  ['sender', { 'GET /api/sales/sender': REFUSED }, 'Отправитель не загрузился'],
+  ['chain', { 'GET /api/sales/chain': REFUSED }, 'Цепочка писем не загрузилась'],
+  ['queue', { 'GET /api/sales/queue?hypothesis=1': REFUSED }, 'Очередь писем не загрузилась'],
+  ['funnel', { 'GET /api/sales/funnel': REFUSED }, 'Воронка не загрузилась'],
+];
+
+describe('продажи: «Загрузить базу» — в строке вкладок «Лидов» и «Гипотез» (аудит 09.10.2026)', () => {
+  it.each([
+    ['/sales', 'ivan@acme.example.test'],
+    ['/sales?tab=hypotheses', 'редакции и блоги'],
+  ])('%s: кнопка рядом с вкладками, одна', async (path, ready) => {
+    await openScreen({}, { path, ready });
+
+    // Соседи в одной строке, а не кнопка в шапке над вкладками.
+    const tabs = screen.getByRole('radiogroup', { name: 'Вкладки продаж' });
+    const upload = screen.getByRole('link', { name: 'Загрузить базу' });
+    expect(upload.parentElement).toBe(tabs.parentElement);
+    expect(upload).toHaveAttribute('href', '/sales/import');
+  });
+
+  it.each(OTHER_TABS)(
+    'вкладка %s: кнопки нет — главная кнопка вкладки одна',
+    async (tab, routes, ready) => {
+      await openScreen(routes, { path: `/sales?tab=${tab}`, ready });
+
+      expect(screen.queryByRole('link', { name: 'Загрузить базу' })).toBeNull();
+    },
+  );
+
+  it('лидов нет вовсе — кнопка одна, в строке вкладок, а пустая таблица зовёт к ней словами', async () => {
+    const none = { ...HYPOTHESES, rows: HYPOTHESES.rows.map((row) => ({ ...row, total: 0 })) };
+    await openScreen(
+      {
+        'GET /api/sales/hypotheses': { body: none },
+        [LEADS]: { body: view([], { states: { new: 0, ready: 0, rejected: 0 } }) },
+      },
+      { ready: 'Лидов пока нет.' },
+    );
+
+    expect(screen.getAllByRole('link', { name: 'Загрузить базу' })).toHaveLength(1);
+    expect(screen.getByText(/Загрузите базу/)).toBeInTheDocument();
+  });
+});
+
+describe('продажи: текст лида не вылезает из ячеек (аудит 09.10.2026)', () => {
+  it('размеры: фильтр причины — 9rem, компания — по левому краю, как имя (аудит 09.10.2026)', async () => {
+    await openScreen();
+
+    const reason = screen.getByRole('textbox', { name: 'Причина отказа' });
+    expect(reason.closest('.mantine-InputWrapper-root')?.getAttribute('style')).toMatch(
+      /(^|;)\s*width: 9rem/,
+    );
+    expect(screen.getByRole('columnheader', { name: 'Компания' })).toHaveStyle({
+      textAlign: 'left',
+    });
+    expect(within(rowOf('ivan@acme.example.test')).getByText('Acme').closest('td')).toHaveStyle({
+      textAlign: 'left',
+    });
+  });
+
+  it('слова очистки — за «!»: в ячейке значок причины, слова целиком — по нажатию', async () => {
+    await openScreen();
+    const user = userEvent.setup();
+
+    const twin = within(rowOf('twin@acme.example.test'));
+    expect(twin.getByText('дубль')).toBeInTheDocument();
+    expect(twin.queryByText('дубль: адрес уже у лида №1')).toBeNull();
+
+    await user.click(twin.getByRole('button', { name: 'Что сказала очистка' }));
+
+    const told = await screen.findByRole('dialog', { name: 'Что сказала очистка' }, SCREEN_WAIT);
+    expect(told).toHaveTextContent('дубль: адрес уже у лида №1');
+  });
+
+  it('«!» — только у лида, о котором очистка что-то сказала; «проверка не выполнена» — тоже за ним', async () => {
+    const unchecked: LeadCard = {
+      ...IVAN,
+      id: 4,
+      email: 'unchecked@beta.example.test',
+      cleaning_note: 'проверка не выполнена: сервис проверки не ответил',
+    };
+    await openScreen({ [LEADS]: { body: view([IVAN, unchecked]) } });
+
+    const fresh = within(rowOf('ivan@acme.example.test'));
+    expect(fresh.queryByRole('button', { name: 'Что сказала очистка' })).toBeNull();
+    const waiting = within(rowOf('unchecked@beta.example.test'));
+    expect(waiting.getByRole('button', { name: 'Что сказала очистка' })).toBeInTheDocument();
+    expect(waiting.queryByText(/проверка не выполнена/)).toBeNull();
+  });
+
+  it('компания и гипотеза переносятся по словам; пояс — одной строкой, целиком в подсказке', async () => {
+    const zone = 'America/Argentina/ComodRivadavia';
+    const company = 'International Association of Independent Online Publishers';
+    await openScreen({ [LEADS]: { body: view([{ ...IVAN, timezone: zone, company }]) } });
+
+    const row = within(rowOf('ivan@acme.example.test'));
+    expect(row.getByText(company).closest('td')).toHaveClass('wrapCell');
+    expect(row.getByText('сайты EN').closest('td')).toHaveClass('wrapCell');
+    const belt = row.getByText(zone);
+    expect(belt).toHaveAttribute('title', zone);
+    expect(belt).toHaveAttribute('data-line-clamp');
+  });
+});
+
+describe('продажи: пустая таблица на телефоне (аудит 09.10.2026)', () => {
+  it('лидов нет вовсе — ни плиток, ни шапки с фильтрами: только объяснение, не в таблице', async () => {
+    const none = { ...HYPOTHESES, rows: HYPOTHESES.rows.map((row) => ({ ...row, total: 0 })) };
+    await openScreen(
+      {
+        'GET /api/sales/hypotheses': { body: none },
+        [LEADS]: { body: view([], { states: { new: 0, ready: 0, rejected: 0 } }) },
+      },
+      { ready: 'Лидов пока нет.' },
+    );
+
+    expect(screen.getByText('Лидов пока нет.').closest('table')).toBeNull();
+    expect(screen.queryByRole('columnheader', { name: 'Лид' })).toBeNull();
+    expect(
+      screen.queryByRole('textbox', { name: 'Поиск по адресу, имени или компании' }),
+    ).toBeNull();
+    expect(document.querySelectorAll('.metricTile')).toHaveLength(0);
+  });
+
+  it('под фильтром пусто — объяснение под таблицей, а не строкой шириной в таблицу; фильтры стоят', async () => {
+    await openScreen(
+      { [at('hypothesis=2')]: { body: view([]) } },
+      { path: '/sales?hypothesis=2', ready: 'Под фильтр ничего не попало.' },
+    );
+
+    // Строка во всю ширину таблицы в 1 224 px на телефоне уезжала в прокрутку и читалась обрубком.
+    expect(screen.getByText('Под фильтр ничего не попало.').closest('table')).toBeNull();
+    const head = screen.getByRole('columnheader', { name: 'Причина' }).closest('thead');
+    if (head === null) throw new Error('шапки таблицы нет');
+    expect(within(head).getByRole('textbox', { name: 'Гипотеза' })).toHaveValue('сервисы RU');
+    expect(screen.getByRole('button', { name: 'Сбросить фильтры' })).toBeInTheDocument();
+  });
+});
+
+/** Полночь суток `daysAgo` назад по часам браузера — моментом ISO, как шлёт воронка. */
+function midnightAgo(daysAgo: number): string {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysAgo).toISOString();
+}
+
+describe('продажи: гипотеза — одна на раздел, период воронки — в адресе (аудит 09.10.2026)', () => {
+  it('гипотеза переживает смену вкладки: цепочка, очередь, воронка и лиды — с ней', async () => {
+    const recorded = await openScreen(
+      {
+        [at('hypothesis=1')]: { body: view([IVAN, TWIN]) },
+        'GET /api/sales/chain?hypothesis=1': REFUSED,
+        'GET /api/sales/queue?hypothesis=1': REFUSED,
+        'GET /api/sales/funnel?hypothesis=1': REFUSED,
+      },
+      { path: '/sales?hypothesis=1' },
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('radio', { name: 'Цепочка писем' }));
+    await screen.findByText('Цепочка писем не загрузилась', {}, SCREEN_WAIT);
+    expect(screen.getByRole('textbox', { name: 'Набор' })).toHaveValue('сайты EN');
+
+    await user.click(screen.getByRole('radio', { name: 'Очередь писем' }));
+    await screen.findByText('Очередь писем не загрузилась', {}, SCREEN_WAIT);
+    expect(screen.getByRole('textbox', { name: 'Гипотеза' })).toHaveValue('сайты EN');
+
+    await user.click(screen.getByRole('radio', { name: 'Воронка' }));
+    await screen.findByText('Воронка не загрузилась', {}, SCREEN_WAIT);
+    expect(screen.getByRole('textbox', { name: 'Гипотеза' })).toHaveValue('сайты EN');
+    expect(where()).toBe('/sales?tab=funnel&hypothesis=1');
+
+    await user.click(screen.getByRole('radio', { name: 'Лиды — 5' }));
+    await waitFor(() => expect(asked(recorded).at(-1)).toBe('hypothesis=1'), SCREEN_WAIT);
+    expect(screen.getByRole('textbox', { name: 'Гипотеза' })).toHaveValue('сайты EN');
+  });
+
+  it('гипотеза из адреса — после перезагрузки на любой вкладке, выбор пишется в адрес', async () => {
+    await openScreen(
+      {
+        'GET /api/sales/queue?hypothesis=2': REFUSED,
+        'GET /api/sales/queue?hypothesis=1': REFUSED,
+      },
+      { path: '/sales?tab=queue&hypothesis=2', ready: 'Очередь писем не загрузилась' },
+    );
+
+    expect(screen.getByRole('textbox', { name: 'Гипотеза' })).toHaveValue('сервисы RU');
+
+    await choose('Гипотеза', 'сайты EN');
+
+    await waitFor(() => expect(where()).toBe('/sales?tab=queue&hypothesis=1'), SCREEN_WAIT);
+  });
+
+  it('«Сбросить фильтры» на лидах снимает и гипотезу: пусто было из-за неё', async () => {
+    await openScreen(
+      { [at('hypothesis=2')]: { body: view([]) } },
+      { path: '/sales?hypothesis=2', ready: 'Под фильтр ничего не попало.' },
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Сбросить фильтры' }));
+
+    await waitFor(() => expect(where()).toBe('/sales'), SCREEN_WAIT);
+  });
+
+  it('период воронки — в адресе: читается после перезагрузки и пишется выбором', async () => {
+    const week = new URLSearchParams({ since: midnightAgo(6) }).toString();
+    const month = new URLSearchParams({ since: midnightAgo(29) }).toString();
+    const recorded = await openScreen(
+      {
+        [`GET /api/sales/funnel?${week}`]: REFUSED,
+        [`GET /api/sales/funnel?${month}`]: REFUSED,
+      },
+      { path: '/sales?tab=funnel&period=week', ready: 'Воронка не загрузилась' },
+    );
+    const user = userEvent.setup();
+
+    expect(screen.getByRole('radio', { name: '7 дней' })).toBeChecked();
+
+    await user.click(screen.getByRole('radio', { name: '30 дней' }));
+
+    await waitFor(() => expect(where()).toBe('/sales?tab=funnel&period=month'), SCREEN_WAIT);
+    expect(recorded.calls.map((call) => call.path)).toContain(`/api/sales/funnel?${month}`);
+  });
+
+  it('свои даты — в адресе днями; негодный день из адреса не сужает', async () => {
+    const period = (last: number) =>
+      new URLSearchParams({
+        since: new Date(2026, 9, 1).toISOString(),
+        until: new Date(2026, 9, last + 1).toISOString(),
+      }).toString();
+    await openScreen(
+      {
+        [`GET /api/sales/funnel?${period(5)}`]: REFUSED,
+        [`GET /api/sales/funnel?${period(7)}`]: REFUSED,
+      },
+      {
+        path: '/sales?tab=funnel&period=custom&from=2026-10-01&to=2026-10-05',
+        ready: 'Воронка не загрузилась',
+      },
+    );
+
+    expect(screen.getByLabelText('Первый день')).toHaveValue('2026-10-01');
+
+    fireEvent.change(screen.getByLabelText(/Последний день/), { target: { value: '2026-10-07' } });
+
+    await waitFor(
+      () => expect(where()).toBe('/sales?tab=funnel&period=custom&from=2026-10-01&to=2026-10-07'),
+      SCREEN_WAIT,
+    );
+    // Адрес — чужой ввод: «не день» читается как «без границы», а не отказом сервера.
+    expect(readLeadFilters(new URLSearchParams('tab=funnel&period=custom&from=1e3')).from).toBe('');
+    expect(readLeadFilters(new URLSearchParams('tab=funnel&period=year')).period).toBe('all');
+  });
+});
+
+/** Окно шириной `width` px: запросы `(max-width: …em)` и `(min-width: …em)` отвечают по ней,
+ *  а не по строке запроса — тест не знает, на какой ширине экран меняет раскладку.
+ *  Заглушку снимает `restoreAllMocks` после теста (`test/setup.ts`). */
+function windowOf(width: number) {
+  const fits = (query: string) => {
+    const max = /max-width:\s*([\d.]+)em/.exec(query);
+    const min = /min-width:\s*([\d.]+)em/.exec(query);
+    return (
+      (max === null || width <= Number(max[1]) * 16) &&
+      (min === null || width >= Number(min[1]) * 16)
+    );
+  };
+  vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({
+    matches: fits(query),
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  }));
+}
+
+/** Открытый список поля: пункты и подписи групп — из его собственного списка. */
+async function listOf(field: HTMLElement): Promise<HTMLElement> {
+  const user = userEvent.setup();
+  await user.click(field);
+  const listId = field.getAttribute('aria-controls');
+  if (listId === null) throw new Error('у поля нет списка');
+  return waitFor(() => {
+    const found = document.getElementById(listId);
+    if (found === null) throw new Error('список ещё не открыт');
+    return found;
+  }, SCREEN_WAIT);
+}
+
+describe('продажи: вкладки на телефоне — список «Раздел» (аудит 09.10.2026)', () => {
+  it.each([800, 1024])(
+    'окно %i px: семь вкладок не влезают в панель — тоже список, а не обрезанные вкладки',
+    async (width) => {
+      windowOf(width);
+      await openScreen();
+
+      expect(screen.queryByRole('radiogroup', { name: 'Вкладки продаж' })).toBeNull();
+      expect(screen.getByRole('textbox', { name: 'Раздел' })).toHaveValue('Лиды — 5');
+    },
+  );
+
+  it('широкое окно — вкладки рядом, списка нет', async () => {
+    windowOf(1440);
+    await openScreen();
+
+    expect(screen.getByRole('radiogroup', { name: 'Вкладки продаж' })).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Раздел' })).toBeNull();
+  });
+
+  it('на узком окне вместо семи вкладок столбиком — список: рабочие, разделитель, настройки', async () => {
+    windowOf(390);
+    await openScreen();
+
+    expect(screen.queryByRole('radiogroup', { name: 'Вкладки продаж' })).toBeNull();
+    const field = screen.getByRole('textbox', { name: 'Раздел' });
+    expect(field).toHaveValue('Лиды — 5');
+
+    const list = await listOf(field);
+    const options = within(list)
+      .getAllByRole('option', { hidden: true })
+      .map((option) => option.textContent);
+    expect(options).toEqual([
+      'Лиды — 5',
+      'Гипотезы — 2',
+      'Цепочка писем',
+      'Очередь писем',
+      'Воронка',
+      'База знаний — 3',
+      'Отправитель',
+    ]);
+    // Настройки — своей группой под чертой: то, из чего и от чьего имени пишет агент.
+    expect(within(list).getByText('Настройки')).toBeInTheDocument();
+  });
+
+  it('выбор в списке — смена вкладки, гипотеза раздела с ней', async () => {
+    windowOf(390);
+    await openScreen(
+      {
+        [at('hypothesis=1')]: { body: view([IVAN, TWIN]) },
+        'GET /api/sales/funnel?hypothesis=1': REFUSED,
+      },
+      { path: '/sales?hypothesis=1' },
+    );
+    const user = userEvent.setup();
+
+    const list = await listOf(screen.getByRole('textbox', { name: 'Раздел' }));
+    await user.click(within(list).getByRole('option', { name: 'Воронка', hidden: true }));
+
+    expect(await screen.findByText('Воронка не загрузилась', {}, SCREEN_WAIT)).toBeInTheDocument();
+    expect(where()).toBe('/sales?tab=funnel&hypothesis=1');
+  });
+});
+
 describe('продажи: гипотезы', () => {
   it('вкладка показывает гипотезы со счётчиками, числа ведут к лидам', async () => {
     await openScreen({}, { path: '/sales?tab=hypotheses', ready: 'редакции и блоги' });
@@ -436,6 +864,9 @@ describe('продажи: гипотезы', () => {
       '/sales?state=ready&hypothesis=1',
     );
     expect(row.getByText('5')).toBeInTheDocument();
+    // Число-ссылка — чернилами с подчёркиванием: бирюзовая на светлом стекле намерилась
+    // 4,25 : 1 при норме 4,5 (замер 09.10.2026), чернила держат норму на любом месте полотна.
+    expect(row.getByRole('link', { name: '1' })).toHaveClass('inkLink');
     // Список лидов на этой вкладке не спрашивается: таблицы лидов здесь нет.
     expect(screen.queryByText('ivan@acme.example.test')).not.toBeInTheDocument();
   });

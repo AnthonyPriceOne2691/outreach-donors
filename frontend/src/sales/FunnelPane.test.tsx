@@ -124,6 +124,27 @@ function midnightAgo(daysAgo: number): string {
 }
 
 describe('воронка продаж', () => {
+  it('пояснения — одной строкой и в «i»: определения шагов — у подписи плитки (аудит 09.10.2026)', async () => {
+    await openFunnel();
+    const user = userEvent.setup();
+
+    expect(screen.getByText(/^Лиды на каждом шаге/)).toBeInTheDocument();
+    expect(screen.queryByText(/Считаем лидов, а не письма/)).toBeNull();
+    expect(screen.queryByText(/автоответ ответом не считается/)).toBeNull();
+
+    await user.hover(screen.getByRole('button', { name: 'Что значит «Ответ»' }));
+    expect(
+      await screen.findByText(/автоответ ответом не считается/, {}, SCREEN_WAIT),
+    ).toBeInTheDocument();
+
+    await user.hover(screen.getByRole('button', { name: 'Как считается воронка' }));
+    expect(
+      await screen.findByText(/Считаем лидов, а не письма/, {}, SCREEN_WAIT),
+    ).toBeInTheDocument();
+    // Определения — у трёх шагов, у которых они есть; остальные плитки без «i».
+    expect(screen.getAllByRole('button', { name: /^Что значит/ })).toHaveLength(3);
+  });
+
   it('плитки — числа сервера, доли — от своей основы словами', async () => {
     // A4, вторая половина: экран показывает числа ответа сервера как есть.
     await openFunnel();

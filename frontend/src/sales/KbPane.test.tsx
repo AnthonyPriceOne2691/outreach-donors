@@ -83,6 +83,27 @@ function calls(recorded: Recorded, method: string, path: string): Call[] {
 }
 
 describe('база знаний: список', () => {
+  it('колонка правки — «Кто и когда»: в ней и автор, и время (аудит 09.10.2026)', async () => {
+    await openKb();
+
+    expect(screen.getByRole('columnheader', { name: 'Кто и когда' })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'Правил' })).toBeNull();
+  });
+
+  it('вступление — одной строкой, что с выключенными записями — в «i» (аудит 09.10.2026)', async () => {
+    await openKb();
+    const user = userEvent.setup();
+
+    expect(screen.getByText('Агент пишет только из включённых записей.')).toBeInTheDocument();
+    expect(screen.queryByText(/Выключенная остаётся в списке/)).toBeNull();
+
+    await user.hover(screen.getByRole('button', { name: 'Что агент видит из базы' }));
+
+    expect(
+      await screen.findByText(/Выключенная остаётся в списке/, {}, SCREEN_WAIT),
+    ).toBeInTheDocument();
+  });
+
   it('строка называет запись, вид, язык, теги и кто правил; над таблицей — версия', async () => {
     await openKb();
 

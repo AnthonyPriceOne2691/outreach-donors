@@ -34,9 +34,10 @@ from typing import Any
 
 from playwright.sync_api import expect
 from ui_screens_sales_funnel import funnel_prepare, funnel_screens
+from ui_screens_sales_hints import SECTION_FIELD, hint_probe, note_probes, section_probes
 from ui_screens_sales_queue import queue_screens
 
-#: Узкое окно — телефон: вкладки встают столбиком, таблицы уезжают в прокрутку.
+#: Узкое окно — телефон: вместо вкладок список «Раздел», таблицы уезжают в прокрутку.
 PHONE = {"width": 390, "height": 844}
 
 ROWS = (
@@ -92,7 +93,6 @@ def sales_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
     """Экраны и точки. `norm` — норма обычного текста, `big` — крупного."""
     leads_probes = [
         ("заголовок экрана", "h3:text-is('Продажи')", big),
-        ("пояснение под ним", ".glassPanel p.mantine-Text-root", norm),
         ("кнопка «Загрузить базу»", "a:has-text('Загрузить базу')", big),
         ("подпись плитки", ".metricTile p:nth-child(1)", norm),
         ("число в плитке", ".metricTile p:nth-child(2)", big),
@@ -121,7 +121,6 @@ def sales_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         ("страна в строке", ".leadsTable tbody td:nth-child(4) p", norm),
         ("значок состояния", ".leadsTable tbody td:nth-child(5) .mantine-Badge-label", norm),
         ("значок причины", ".leadsTable tbody td:nth-child(6) .mantine-Badge-label", norm),
-        ("слова очистки", ".leadsTable tbody .leadNote", norm),
         (
             "номер другой страницы",
             "nav[aria-label='Страницы лидов'] button:not([aria-current]) "
@@ -134,14 +133,18 @@ def sales_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
             norm,
         ),
         ("пункт меню", "nav a", norm),
+        # Пояснение раздела — в «i» у заголовка (аудит 09.10.2026), а не абзацем под ним;
+        # слова очистки — за «!» лида, по нажатию.
+        hint_probe("пояснение раздела", "Как устроен экран «Продажи»", norm),
+        *note_probes(norm),
     ]
     return {
-        # Лиды — сводка плитками, вкладки, таблица с фильтрами под колонками. Мерится
-        # то, по чему решают: состояние, причина и слова очистки. Значок причины и
+        # Лиды — плитки состояний, вкладки, таблица с фильтрами под колонками. Мерится
+        # то, по чему решают: состояние, причина и слова очистки за «!». Значок причины и
         # слова есть только у отклонённых: на базе без очистки точки честно
         # «не найдены», как и страницы — без двадцати одного лида.
         "sales": {"path": "/sales", "ready": ("heading", "Продажи"), "probes": leads_probes},
-        # Тот же экран на телефоне: вкладки столбиком, таблица в прокрутке.
+        # Тот же экран на телефоне: вместо вкладок — список «Раздел», таблица в прокрутке.
         "sales-phone": {
             "path": "/sales",
             "ready": ("heading", "Продажи"),
@@ -150,13 +153,15 @@ def sales_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("заголовок экрана", "h3:text-is('Продажи')", big),
                 ("подпись плитки", ".metricTile p:nth-child(1)", norm),
                 ("число в плитке", ".metricTile p:nth-child(2)", big),
-                ("выбранная вкладка", ".glassPanel .mantine-SegmentedControl-innerLabel", norm),
+                (*SECTION_FIELD, norm),
                 ("адрес лида", ".leadsTable tbody .leadEmail", norm),
                 (
                     "значок состояния",
                     ".leadsTable tbody td:nth-child(5) .mantine-Badge-label",
                     norm,
                 ),
+                hint_probe("пояснение раздела", "Как устроен экран «Продажи»", norm),
+                *section_probes(norm),
             ],
         },
         # Гипотезы: имя, описание, счётчики-ссылки и нули без ссылки.
@@ -296,7 +301,7 @@ def kb_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
     """Вкладки «База знаний» и «Отправитель»: список, окна, форма — на 1440 и 390."""
     ready = ("heading", "Продажи")
     kb_list = [
-        ("пояснение над таблицей", ".glassPanel .mantine-SegmentedControl-root + div p", norm),
+        ("пояснение над таблицей", ".salesTabs + div p", norm),
         ("версия базы", ".kbVersion", norm),
         ("кнопка «Что увидит агент»", "button:has-text('Что увидит агент')", big),
         ("кнопка «Добавить запись»", "button:has-text('Добавить запись')", big),
@@ -310,6 +315,7 @@ def kb_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         ("кто правил", ".kbTable tbody td:nth-child(5) p:nth-child(1)", norm),
         ("когда правил", ".kbTable tbody td:nth-child(5) p:nth-child(2)", norm),
         ("кнопка «Править»", ".kbTable tbody button:has-text('Править')", norm),
+        hint_probe("что агент видит", "Что агент видит из базы", norm),
     ]
     dialog = ".mantine-Modal-content"
     sender = [
@@ -328,7 +334,7 @@ def kb_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
             "path": "/sales?tab=kb",
             "ready": ready,
             "viewport": PHONE,
-            "probes": [kb_list[1], kb_list[3], kb_list[4], kb_list[6], kb_list[7]],
+            "probes": [kb_list[1], kb_list[3], (*SECTION_FIELD, norm), kb_list[6], kb_list[7]],
         },
         "sales-kb-entry": {
             "path": "/sales?tab=kb",
@@ -412,7 +418,7 @@ def chain_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
     ready = ("heading", "Продажи")
     card = "section.glassQuiet"
     chain_list = [
-        ("пояснение над цепочками", ".glassPanel .mantine-SegmentedControl-root + div p", norm),
+        ("пояснение над цепочками", ".salesTabs + div p", norm),
         ("подпись поля набора", "label:text-is('Набор')", norm),
         ("язык цепочки", f"{card} h5", norm),
         ("значок цепочки", f"{card} h5 + .mantine-Badge-root .mantine-Badge-label", norm),
@@ -426,6 +432,7 @@ def chain_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         ("кто и когда правил", ".chainWho", norm),
         ("кнопка «Править»", ".chainStep button:has-text('Править')", norm),
         ("кнопка «Задать»", ".chainStep button:has-text('Задать')", norm),
+        hint_probe("тексты и чья цепочка", "Где живут тексты и чья цепочка действует", norm),
     ]
     dialog = ".mantine-Modal-content"
     return {

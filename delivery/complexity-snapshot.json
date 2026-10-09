@@ -2312,19 +2312,24 @@
       "worst": "unbound_probes:32"
     },
     "scripts/ui_screens_sales.py": {
-      "lines": 482,
+      "lines": 489,
       "complexity": 1,
-      "worst": "pick_hypothesis:60"
+      "worst": "pick_hypothesis:61"
     },
     "scripts/ui_screens_sales_funnel.py": {
-      "lines": 84,
+      "lines": 91,
       "complexity": 1,
-      "worst": "reversed_dates:19"
+      "worst": "reversed_dates:23"
+    },
+    "scripts/ui_screens_sales_hints.py": {
+      "lines": 69,
+      "complexity": 1,
+      "worst": "open_hint:19"
     },
     "scripts/ui_screens_sales_queue.py": {
-      "lines": 61,
+      "lines": 66,
       "complexity": 1,
-      "worst": "queue_screens:22"
+      "worst": "queue_screens:24"
     }
   }
 }

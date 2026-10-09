@@ -8,14 +8,16 @@
 серое на сером), пачка — общая кнопка почты с пояснением вкладки; не подключены — плашка со списком того, чего не хватает, а кнопки
 выключены и не меряются. Какое состояние на стенде, решает его окружение
 (`SALES_ENABLED`, своя учётка продаж, ссылка отписки) и «Отправитель» в базе стенда.
-Значение поля «Писем за раз» не меряется: короткое число в широком поле — малая доля
-вырезки (тот же класс, что у значения поля в `ui_screens.py`); стиль поля тот же, что у
-полей вкладки «Отправитель», где значение меряется длинной строкой.
+Значение поля «Писем за раз» не меряется: короткое число в поле — малая доля вырезки
+(тот же класс, что у значения поля в `ui_screens.py`); стиль поля тот же, что у полей
+вкладки «Отправитель», где значение меряется длинной строкой. Пояснение поля — в «i».
 """
 
 from typing import Any
 
-#: Узкое окно — телефон: вкладки встают столбиком, плитки — в колонку.
+from ui_screens_sales_hints import hint_probe
+
+#: Узкое окно — телефон: вместо вкладок список «Раздел», плитки — в колонку.
 PHONE = {"width": 390, "height": 844}
 
 
@@ -24,7 +26,7 @@ def queue_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
     ready = ("heading", "Продажи")
     path = "/sales?tab=queue"
     connected = [
-        ("пояснение над очередью", ".glassPanel .mantine-SegmentedControl-root + div p", norm),
+        ("пояснение над очередью", ".salesTabs + div p", norm),
         ("подпись поля гипотезы", "label:text-is('Гипотеза')", norm),
         ("значок «подключены»", ".mantine-Badge-label:text-is('продажи подключены')", norm),
         ("слова подключения", ".queueConnected", norm),
@@ -32,11 +34,14 @@ def queue_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         ("состояние цепочки", ".queueChain", norm),
         ("подпись плитки", ".metricTile p:nth-child(1)", norm),
         ("число в плитке", ".metricTile p:nth-child(2)", big),
-        ("подпись поля числа писем", "label:text-is('Писем за раз')", norm),
-        ("пояснение поля", ".mantine-InputWrapper-description", norm),
+        ("подпись поля числа писем", ".mantine-InputWrapper-label:has-text('Писем за раз')", norm),
         ("кнопка «Собрать очередь»", "button:has-text('Собрать очередь')", big),
         ("кнопка пачки", "button:has-text('Отправить очередь')", big),
         ("пояснение пачки", "p:has-text('Пачка берёт очередь продаж')", norm),
+        # Вступление — одной строкой, как уходят письма — в «i». «i» поля «Писем за раз» не
+        # меряется: одна короткая строка в подсказке в 280 px — среднее 4,45 при ядре буквы
+        # 16,21, у шапки раздела тем же способом 4,32 и 16,25 (09.10.2026): цвета те же.
+        hint_probe("как уходят письма", "Как уходят письма продаж", norm),
     ]
     return {
         "sales-queue": {"path": path, "ready": ready, "probes": connected},
@@ -44,7 +49,7 @@ def queue_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
             "path": path,
             "ready": ready,
             "viewport": PHONE,
-            "probes": [*connected[2:8], *connected[10:13]],
+            "probes": [*connected[2:8], *connected[9:12]],
         },
         "sales-queue-off": {
             "path": path,

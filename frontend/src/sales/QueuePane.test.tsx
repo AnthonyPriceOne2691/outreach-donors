@@ -115,6 +115,42 @@ function calls(recorded: Recorded, method: string, path: string): Call[] {
 }
 
 describe('очередь писем продаж', () => {
+  it('«Писем за раз» — поле по числу, а не 180 px (аудит 09.10.2026)', async () => {
+    await openQueue();
+
+    // Поле — по числу, колонка — по подписи: подпись с «i» в одну строку.
+    const field = screen.getByRole('textbox', { name: 'Писем за раз' });
+    expect(field.closest('.mantine-Input-wrapper')?.getAttribute('style')).toMatch(
+      /(^|;)\s*width: 6\.5rem/,
+    );
+    expect(field.closest('.mantine-InputWrapper-root')?.getAttribute('style') ?? '').not.toMatch(
+      /(^|;)\s*width:/,
+    );
+    // Пояснение — в «i» у подписи, как у «За раз» на «Письмах»: строкой под полем оно
+    // раздувало поле до своей ширины.
+    expect(screen.queryByText(/Каждое стоит вызова модели/)).toBeNull();
+    await userEvent
+      .setup()
+      .hover(screen.getByRole('button', { name: 'Что значит «Писем за раз»' }));
+    expect(
+      await screen.findByText('Каждое стоит вызова модели.', {}, SCREEN_WAIT),
+    ).toBeInTheDocument();
+  });
+
+  it('вступление — одной строкой, как уходят письма — в «i» (аудит 09.10.2026)', async () => {
+    await openQueue();
+    const user = userEvent.setup();
+
+    expect(screen.getByText(/^Сборка пишет первые письма/)).toBeInTheDocument();
+    expect(screen.queryByText(/Уходят письма общей отправкой/)).toBeNull();
+
+    await user.hover(screen.getByRole('button', { name: 'Как уходят письма продаж' }));
+
+    expect(
+      await screen.findByText(/Уходят письма общей отправкой/, {}, SCREEN_WAIT),
+    ).toBeInTheDocument();
+  });
+
   it('подключены: цепочки и числа словами сервера, кнопки открыты', async () => {
     await openQueue();
 
@@ -144,6 +180,16 @@ describe('очередь писем продаж', () => {
     ).toEqual(OFF.missing);
     expect(screen.getByRole('button', { name: 'Собрать очередь' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Отправить очередь · 7' })).toBeDisabled();
+  });
+
+  it('не подключены: имя настройки длиннее телефона переносится — плашка не срезает строки (снимок 390 px, 09.10.2026)', async () => {
+    await openQueue({}, OFF);
+
+    const message = screen
+      .getByText('Продажи к почте не подключены')
+      .closest('.mantine-Alert-root')
+      ?.querySelector('.mantine-Alert-message');
+    expect(message?.getAttribute('style') ?? '').toMatch(/overflow-wrap: anywhere/);
   });
 
   it('сборка уходит гипотезой и числом писем, итог задачи — словами, очередь перечитана', async () => {

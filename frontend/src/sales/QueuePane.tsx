@@ -36,6 +36,8 @@ import { buildSalesQueue } from '../api/sales';
 import { chainLanguageTitle } from '../api/salesLabels';
 import type { ChainState, HypothesisCard, SalesQueueView } from '../api/salesTypes';
 import { useSession } from '../auth/AuthProvider';
+import { HintLabel } from '../components/HintLabel';
+import { InfoHint } from '../components/InfoHint';
 import { Metric } from '../components/Metric';
 import { formatNumber } from '../format';
 import { JobLine } from '../jobs/JobLine';
@@ -60,7 +62,15 @@ function Connection({ view }: { view: SalesQueueView }) {
     );
   }
   return (
-    <Alert color="yellow" title="Продажи к почте не подключены" mx="md">
+    <Alert
+      color="yellow"
+      title="Продажи к почте не подключены"
+      mx="md"
+      // Имя настройки сервера — одно слово длиннее телефона (`OUTREACH_SALES_SENDGRID_API_KEY`):
+      // без переноса где угодно плашка растягивалась по нему и срезала строки справа на
+      // 21 px (снимок 390 px, 09.10.2026).
+      styles={{ message: { overflowWrap: 'anywhere' } }}
+    >
       <Text size="sm">Письма не соберутся и не уйдут, пока не исправлено:</Text>
       <List size="sm" mt={4} spacing={4}>
         {view.missing.map((why) => (
@@ -116,15 +126,20 @@ function BuildQueue({ view }: { view: SalesQueueView }) {
   return (
     <Stack gap={6} px="md">
       <Group align="flex-end" gap="md" wrap="wrap">
+        {/* Пояснение — в «i» у подписи (`HintLabel`), как у «За раз» на «Письмах»: строка
+            под полем раздувала его до своей ширины. Подпись — не `<label>`: в ней кнопка. */}
         <NumberInput
-          label="Писем за раз"
-          description="Каждое стоит вызова модели"
+          label={<HintLabel label="Писем за раз" hint="Каждое стоит вызова модели." />}
+          labelProps={{ labelElement: 'div' }}
+          aria-label="Писем за раз"
           value={limit}
           min={1}
           max={view.limit_max}
           clampBehavior="strict"
           allowDecimal={false}
-          w={180}
+          // Поле — по числу (до трёх знаков), а не 180 px; колонка — по подписи: «Писем за раз»
+          // с «i» в 6,5rem вставала в две строки (аудит экранов 09.10.2026, как у порогов).
+          styles={{ wrapper: { width: '6.5rem' } }}
           onChange={(value) => setLimit(typeof value === 'number' ? value : DEFAULT_LIMIT)}
         />
         <Button
@@ -200,8 +215,15 @@ function HypothesisQueue({ hypothesis }: { hypothesis: number }) {
   );
 }
 
-export function QueuePane({ hypotheses }: { hypotheses: HypothesisCard[] }) {
-  const [chosen, setChosen] = useState<number | null>(hypotheses[0]?.id ?? null);
+interface PaneProps {
+  hypotheses: HypothesisCard[];
+  /** Гипотеза раздела из адреса; не выбрана — первая: сборка идёт по одной гипотезе. */
+  hypothesis: number | null;
+  onHypothesis: (hypothesis: number) => void;
+}
+
+export function QueuePane({ hypotheses, hypothesis, onHypothesis }: PaneProps) {
+  const chosen = hypothesis ?? hypotheses[0]?.id ?? null;
   if (chosen === null) {
     return (
       <Text size="sm" c="dimmed" px="md">
@@ -212,18 +234,24 @@ export function QueuePane({ hypotheses }: { hypotheses: HypothesisCard[] }) {
   return (
     <Stack gap="md">
       <Group justify="space-between" align="flex-end" wrap="wrap" gap="md" px="md">
-        <Text size="sm" style={{ flex: '1 1 20rem', minWidth: 0 }}>
-          Сборка пишет первые письма лидам гипотезы, которые готовы к письмам, и ничего не
-          отправляет. Уходят письма общей отправкой — пачкой или по одному; добивки идут сами, в той
-          же переписке.
-        </Text>
+        {/* Вступление — одной строкой, остальное — в «i» (аудит экранов 09.10.2026). */}
+        <Group gap={4} wrap="nowrap" align="flex-start" style={{ flex: '1 1 20rem', minWidth: 0 }}>
+          <Text size="sm">
+            Сборка пишет первые письма лидам гипотезы, которые готовы к письмам, и ничего не
+            отправляет.
+          </Text>
+          <InfoHint name="Как уходят письма продаж" width={340}>
+            Уходят письма общей отправкой — пачкой или по одному; добивки идут сами, в той же
+            переписке.
+          </InfoHint>
+        </Group>
         <Select
           label="Гипотеза"
           allowDeselect={false}
           data={hypotheses.map((row) => ({ value: String(row.id), label: row.name }))}
           value={String(chosen)}
           onChange={(value) => {
-            if (value !== null) setChosen(Number(value));
+            if (value !== null) onHypothesis(Number(value));
           }}
           w={{ base: '100%', xs: 280 }}
         />

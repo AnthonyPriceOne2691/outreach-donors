@@ -8,20 +8,24 @@
  *
  * **Отказ назван дважды**: значком с причиной (по нему фильтруют) и словами
  * очистки (`cleaning_note`) — что именно нашлось: «дубль: адрес уже у лида №1».
- * Значок причины — `light`, как и значок состояния: у контурного красный текст
- * на светлом стекле намерился 4,23 : 1 при норме 4,5 (мастер, 04.10.2026).
- * Лид, оставшийся новым из-за несработавшей проверки, несёт те же слова:
- * «проверка не выполнена: …» — иначе он неотличим от ещё не очищенного.
+ * Слова — за «!», целиком по нажатию (`LeadNote`, аудит экранов 09.10.2026): в
+ * ячейке без переноса они вылезали за её края. Значок причины — `light`, как и
+ * значок состояния: у контурного красный текст на светлом стекле намерился
+ * 4,23 : 1 при норме 4,5 (мастер, 04.10.2026). Лид, оставшийся новым из-за
+ * несработавшей проверки, несёт «!» с теми же словами: «проверка не выполнена: …» —
+ * иначе он неотличим от ещё не очищенного.
  *
- * **Ширины колонок — по самому длинному, что в них бывает**; строка не
- * переносится, узкому окну — прокрутка (`FixedTable`). Первая колонка слева —
- * в ней имя.
+ * **Ширины колонок — по самому длинному, что в них бывает**; узкому окну —
+ * прокрутка (`FixedTable`). Строка не переносится, кроме колонок с текстом без
+ * предела длины — компании и гипотезы (`wrapCell`); пояс — одной строкой, целиком
+ * в подсказке по наведению. Первая колонка слева — в ней имя.
  */
 
 import {
   Alert,
   Anchor,
   Badge,
+  Box,
   Button,
   Group,
   Select,
@@ -30,8 +34,6 @@ import {
   Text,
   TextInput,
 } from '@mantine/core';
-import { Link } from 'react-router-dom';
-
 import { countryTitle } from '../api/labels';
 import { LEAD_STATES, leadReasonTitle } from '../api/salesLabels';
 import type { HypothesisCard, LeadCard, LeadState } from '../api/salesTypes';
@@ -41,28 +43,34 @@ import { FixedTable } from './FixedTable';
 import type { Column } from './FixedTable';
 import { LEAD_STATE_KEYS, reasonOn } from './leadFilters';
 import type { Emptiness, LeadFilters } from './leadFilters';
+import { LeadNote, NOTE_SLOT } from './LeadNote';
 
 /** Ширины полей фильтра — по самому длинному значению: «отклонён» — узкое поле,
  *  причина «домен в работе у другого направления» не влезает ни в какое разумное
- *  поле, поэтому её список — по содержимому (`WIDE_LIST`), а поле — по колонке. */
+ *  поле, поэтому её список — по содержимому (`WIDE_LIST`), а поле — по короткой. */
 const FIELD = {
   search: '12rem',
   hypothesis: '9rem',
   state: '7.5rem',
-  reason: '15rem',
+  // Поле — по короткой причине, длинная читается в списке (аудит экранов 09.10.2026).
+  reason: '9rem',
 } as const;
 
 const COLUMNS: Column[] = [
   { title: 'Лид', width: '17rem' },
-  { title: 'Компания', width: '13rem' },
+  // Имя и домен компании — по левому краю, как имя лида (аудит экранов 09.10.2026).
+  { title: 'Компания', width: '13rem', start: true },
   { title: 'Гипотеза', width: '10rem' },
   { title: 'Страна', width: '9rem' },
   { title: 'Состояние', width: '8rem' },
-  { title: 'Причина', width: '17rem' },
+  // Самая длинная причина значком и «!» рядом: «домен в работе у другого направления» —
+  // 258 px значка, 2 зазора и 28 «!», с полями ячейки 308 px (замер в браузере,
+  // 09.10.2026). В 17rem не влезал и один значок: 278 px при 272.
+  { title: 'Причина', width: '19.5rem' },
 ];
 
-/** Уже этого таблица не сжимается и уезжает в прокрутку: сумма ширин (74rem). */
-export const TABLE_MIN_WIDTH = 1184;
+/** Уже этого таблица не сжимается и уезжает в прокрутку: сумма ширин (76,5rem). */
+export const TABLE_MIN_WIDTH = 1224;
 
 const ALL = 'all';
 
@@ -179,25 +187,25 @@ function StateBadge({ state }: { state: LeadState }) {
   );
 }
 
-/** Что очистка сказала о лиде: причина значком и словами, или вердикт проверки. */
+/** Что очистка сказала о лиде: причина значком и «!» со словами, или вердикт проверки. */
 function Outcome({ row }: { row: LeadCard }) {
+  const rejected = row.rejection_reason !== null;
   const note =
-    row.cleaning_note !== null ? (
-      <Text size="xs" c="dimmed" className="leadNote">
-        {row.cleaning_note}
-      </Text>
-    ) : null;
+    row.cleaning_note !== null ? <LeadNote note={row.cleaning_note} rejected={rejected} /> : null;
   if (row.rejection_reason !== null) {
     return (
-      <Stack gap={4} align="center">
-        <Badge variant="light" color="red">
+      // Зазор — 2 px: у «!» своё поле вокруг значка, на глаз между ними 7 px.
+      <Group gap={2} justify="center" wrap="nowrap">
+        <Badge variant="light" color="red" style={{ flexShrink: 0 }}>
           {leadReasonTitle(row.rejection_reason)}
         </Badge>
-        {note}
-      </Stack>
+        {/* Место под «!» держится и без слов — пустым местом, а не спрятанным значком:
+            пустой «!» учил бы нажимать и ничего не находить. */}
+        {note ?? <Box w={NOTE_SLOT} style={{ flexShrink: 0 }} aria-hidden="true" />}
+      </Group>
     );
   }
-  if (note !== null) return note;
+  if (note !== null) return <Group justify="center">{note}</Group>;
   if (row.verification_status !== null) {
     return (
       <Text size="xs" c="dimmed">
@@ -228,7 +236,7 @@ function LeadRow({ row }: { row: LeadCard }) {
           </Text>
         )}
       </Table.Td>
-      <Table.Td>
+      <Table.Td className="wrapCell" ta="left">
         {row.company !== null && <Text size="sm">{row.company}</Text>}
         <Anchor
           href={`https://${row.host}`}
@@ -240,13 +248,15 @@ function LeadRow({ row }: { row: LeadCard }) {
           <Seams text={row.host} />
         </Anchor>
       </Table.Td>
-      <Table.Td>
+      <Table.Td className="wrapCell">
         <Text size="sm">{row.hypothesis}</Text>
       </Table.Td>
       <Table.Td>
         <Text size="sm">{countryTitle(row.country)}</Text>
+        {/* «America/Argentina/ComodRivadavia» шире колонки: одной строкой с многоточием,
+            целиком — в подсказке по наведению. */}
         {row.timezone !== null && (
-          <Text size="xs" c="dimmed">
+          <Text size="xs" c="dimmed" lineClamp={1} title={row.timezone}>
             {row.timezone}
           </Text>
         )}
@@ -261,34 +271,19 @@ function LeadRow({ row }: { row: LeadCard }) {
   );
 }
 
-/** Что предложить у пустой таблицы: сбросить фильтры — или загрузить базу,
- *  если лидов нет вовсе. */
+/** Что предложить у пустой таблицы: сбросить фильтры. Лидов нет вовсе — «Загрузить
+ *  базу» уже стоит в строке вкладок, вторая такая же кнопка читалась бы другим действием. */
 function EmptyAction({ action, onReset }: { action: Emptiness['action']; onReset: () => void }) {
-  if (action === 'reset') {
-    return (
-      <Button variant="subtle" size="compact-sm" className="press" onClick={onReset}>
-        Сбросить фильтры
-      </Button>
-    );
-  }
-  if (action === 'import') {
-    return (
-      <Button
-        component={Link}
-        to="/sales/import"
-        variant="light"
-        size="compact-sm"
-        className="press"
-      >
-        Загрузить базу
-      </Button>
-    );
-  }
-  return null;
+  if (action !== 'reset') return null;
+  return (
+    <Button variant="subtle" size="compact-sm" className="press" onClick={onReset}>
+      Сбросить фильтры
+    </Button>
+  );
 }
 
-/** Строка во всю ширину: почему пусто и что сделать. */
-function Empty({ empty, onReset }: { empty: Emptiness; onReset: () => void }) {
+/** Почему пусто и что сделать — под шапкой таблицы или вместо неё, если лидов нет вовсе. */
+export function LeadsEmpty({ empty, onReset }: { empty: Emptiness; onReset: () => void }) {
   const { title, detail, action } = empty;
   return (
     <Stack gap={6} align="flex-start" py="sm">
@@ -312,7 +307,7 @@ interface Props extends FilterRowProps {
   onReset: () => void;
 }
 
-/** Отказ сервера словами — и до первого ответа, и строкой вместо строк. */
+/** Отказ сервера словами — и до первого ответа, и под шапкой таблицы вместо строк. */
 export function LeadsRefused({ refusal }: { refusal: string }) {
   return (
     <Alert color="red" title="Лиды не загрузились">
@@ -324,7 +319,7 @@ export function LeadsRefused({ refusal }: { refusal: string }) {
 /** Что встаёт вместо строк: отказ сервера — или объяснение пустоты. */
 function fillerOf(refusal: string | null, empty: Emptiness | null, onReset: () => void) {
   if (refusal !== null) return <LeadsRefused refusal={refusal} />;
-  return empty === null ? undefined : <Empty empty={empty} onReset={onReset} />;
+  return empty === null ? undefined : <LeadsEmpty empty={empty} onReset={onReset} />;
 }
 
 export function LeadsTable({ rows, stale, empty, refusal, onReset, ...filters }: Props) {

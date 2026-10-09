@@ -1,5 +1,5 @@
 /**
- * Вкладка, фильтры лидов и страница — в адресе раздела «Продажи».
+ * Вкладка, фильтры лидов, гипотеза раздела и период воронки — в адресе раздела «Продажи».
  *
  * **Адрес, а не состояние компонента** — как у отбора и доноров. Человек
  * обновляет вкладку браузера, возвращается «назад», присылает ссылку коллеге —
@@ -16,29 +16,39 @@
  * **Причина — только у отклонённых.** С состоянием «новый» или «готов» причина
  * не нашла бы ничего по определению: такое сочетание из адреса читается как
  * «без причины», и из адреса оно уходит.
+ *
+ * **Гипотеза — одна на раздел** (аудит экранов 09.10.2026): лиды, цепочка, очередь
+ * и воронка смотрят на одну `?hypothesis=`, и смена вкладки её не теряет — до того
+ * у цепочки, очереди и воронки она жила в состоянии вкладки и пропадала при уходе
+ * с неё. Остальные фильтры — своей вкладки: у лидов — состояние, причина, поиск
+ * и страница, у воронки — период и свои даты (`?period=custom&from=…&to=…`).
  */
 
 import type { LeadsQuery } from '../api/sales';
 import { LEAD_STATES, leadReasonTitle } from '../api/salesLabels';
 import type { LeadState } from '../api/salesTypes';
 import { formatNumber } from '../format';
+import { PERIOD_KEYS } from './funnelData';
+import type { PeriodKey } from './funnelData';
 
 export type SalesTab = 'leads' | 'hypotheses' | 'kb' | 'sender' | 'chain' | 'queue' | 'funnel';
 
-/** Вкладки раздела. Лиды первыми: с ними работают, гипотезы — сводка; база
- *  знаний и отправитель — то, из чего и от чьего имени пишет агент (срез 3.1);
- *  цепочка — тексты писем, которые уходят лидам (срез 4.6); очередь — сборка
- *  писем из лидов и отправка пачкой (срез 4.6b); воронка — сколько лидов на каждом шаге
- *  от очереди до передачи (срез 5.4). */
+/** Вкладки раздела: сначала рабочие — по пути лида: кто (лиды, гипотезы), что ему уходит
+ *  (цепочка писем, срез 4.6), сборка и отправка пачкой (очередь, 4.6b), что вышло (воронка,
+ *  5.4); затем настройки — из чего и от чьего имени пишет агент (база знаний и
+ *  отправитель, 3.1). Порядок один у вкладок и у списка «Раздел» на телефоне. */
 export const SALES_TABS: Record<SalesTab, string> = {
   leads: 'Лиды',
   hypotheses: 'Гипотезы',
-  kb: 'База знаний',
-  sender: 'Отправитель',
   chain: 'Цепочка писем',
   queue: 'Очередь писем',
   funnel: 'Воронка',
+  kb: 'База знаний',
+  sender: 'Отправитель',
 };
+
+/** Настройки раздела — в списке «Раздел» своей группой под чертой. */
+export const SETTINGS_TABS: ReadonlySet<SalesTab> = new Set(['kb', 'sender']);
 
 export const SALES_TAB_KEYS = Object.keys(SALES_TABS) as SalesTab[];
 export const LEAD_STATE_KEYS = Object.keys(LEAD_STATES) as LeadState[];
@@ -50,9 +60,13 @@ export interface LeadFilters {
   state: LeadState | null;
   /** Код причины отказа — значение из ответа сервера. */
   reason: string | null;
-  /** Номер гипотезы. */
+  /** Номер гипотезы — один на раздел: его видят все вкладки, где выбирают гипотезу. */
   hypothesis: number | null;
   page: number;
+  /** Период воронки и свои даты (`YYYY-MM-DD`, пусто — без границы). */
+  period: PeriodKey;
+  from: string;
+  to: string;
 }
 
 export const NO_LEAD_FILTERS: LeadFilters = {
@@ -62,10 +76,20 @@ export const NO_LEAD_FILTERS: LeadFilters = {
   reason: null,
   hypothesis: null,
   page: 1,
+  period: 'all',
+  from: '',
+  to: '',
 };
 
 /** Форма кода причины — как пишет очистка (`duplicate`, `no_mail`). */
 const REASON_CODE = /^[a-z_]{1,32}$/;
+
+/** Форма дня — как у поля даты. Сам день проверяет воронка: не дата — сказано под полем. */
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+function dayOf(raw: string | null): string {
+  return raw !== null && DAY.test(raw) ? raw : '';
+}
 
 function known<T extends string>(choices: readonly T[], raw: string | null): T | null {
   return choices.find((choice) => choice === raw) ?? null;
@@ -98,6 +122,9 @@ export function readLeadFilters(params: URLSearchParams): LeadFilters {
     reason: reason !== null && REASON_CODE.test(reason) ? reason : null,
     hypothesis: numberOf(params.get('hypothesis'), 9_999_999),
     page: numberOf(params.get('page'), 1_000_000) ?? 1,
+    period: known(PERIOD_KEYS, params.get('period')) ?? 'all',
+    from: dayOf(params.get('from')),
+    to: dayOf(params.get('to')),
   });
 }
 
@@ -114,18 +141,30 @@ export function queryOf(filters: LeadFilters): LeadsQuery {
 }
 
 /** Фильтры → адрес. Умолчания не пишутся: первая вкладка без `tab`, первая
- *  страница без `page`. На других вкладках фильтры лидов ничего не значат
- *  и в адрес не идут — как у диалогов. */
+ *  страница без `page`, всё время без `period`. На других вкладках фильтры лидов
+ *  ничего не значат и в адрес не идут — как у диалогов; гипотеза идёт везде. */
 export function writeLeadFilters(filters: LeadFilters): URLSearchParams {
   const params = new URLSearchParams();
-  if (filters.tab !== 'leads') {
-    params.set('tab', filters.tab);
+  if (filters.tab === 'leads') {
+    for (const [key, value] of Object.entries(queryOf(filters))) {
+      params.set(key, String(value));
+    }
     return params;
   }
-  for (const [key, value] of Object.entries(queryOf(filters))) {
-    params.set(key, String(value));
+  params.set('tab', filters.tab);
+  if (filters.hypothesis !== null) params.set('hypothesis', String(filters.hypothesis));
+  if (filters.tab === 'funnel' && filters.period !== 'all') {
+    params.set('period', filters.period);
+    if (filters.period === 'custom' && filters.from !== '') params.set('from', filters.from);
+    if (filters.period === 'custom' && filters.to !== '') params.set('to', filters.to);
   }
   return params;
+}
+
+/** Лиды под фильтром — адресом экрана лидов, тем же, что пишет он сам. По нему ведут
+ *  числа гипотез и плитки сводки: число — вход в список, где с ним работают. */
+export function leadsLink(hypothesis: number | null, state: LeadState | null): string {
+  return `/sales?${writeLeadFilters({ ...NO_LEAD_FILTERS, state, hypothesis }).toString()}`;
 }
 
 /** Сужает ли что-нибудь, кроме вкладки и страницы. */
@@ -155,13 +194,14 @@ export function conditionsOf(
 export interface Emptiness {
   title: string;
   detail: string;
-  /** Что предложить: сбросить фильтры — или загрузить базу, если лидов нет вовсе. */
-  action: 'reset' | 'import' | null;
+  /** Что предложить кнопкой: сбросить фильтры. Загрузка базы — кнопкой в строке
+   *  вкладок, а не второй такой же под таблицей: одно действие — одна кнопка. */
+  action: 'reset' | null;
 }
 
 /**
  * Почему таблица пуста — словами. Три случая читаются по-разному: лидов нет
- * вовсе — звать загрузку; пусто под сочетанием условий — условия названы;
+ * вовсе — звать загрузку словами; пусто под сочетанием условий — условия названы;
  * пуста страница за концом — сказано, сколько всего.
  */
 export function emptinessOf(
@@ -176,7 +216,7 @@ export function emptinessOf(
       detail:
         'Загрузите базу — файл CSV или Google-таблицу: мастер покажет, что получится, до записи.' +
         (resettable ? ' Фильтры тут ни при чём.' : ''),
-      action: 'import',
+      action: null,
     };
   }
   const conditions = conditionsOf(filters, hypothesisName);

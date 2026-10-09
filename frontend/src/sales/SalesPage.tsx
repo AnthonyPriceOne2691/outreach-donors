@@ -6,26 +6,20 @@
  * словами и даёт по ним сузить таблицу. Очистка идёт командой, здесь виден её
  * след: сколько готово к письмам, сколько и почему отсеяно.
  *
- * **Сводка — по всем лидам, таблица — под фильтрами** (как у отбора). Плитки
- * считаются по гипотезам: один запрос даёт и вкладку гипотез, и числа сверху,
- * и список для фильтра. Фильтры, вкладка и страница живут в адресе
- * (`leadFilters.ts`): `?state=rejected&reason=duplicate` переживает перезагрузку.
+ * **Шапка — одной строкой**: заголовок и «i» с пояснением раздела (аудит экранов
+ * 09.10.2026: пять плиток и абзац висели над всеми вкладками). Плитки сводки — на
+ * вкладке лидов (`LeadsPane`), числа лидов и гипотез — на вкладках. Считается всё
+ * по гипотезам: один запрос даёт и вкладку гипотез, и числа, и список для фильтра.
+ * Вкладка, фильтры и страница лидов, гипотеза раздела и период воронки живут в адресе
+ * (`leadFilters.ts`): `?state=rejected&reason=duplicate` переживает перезагрузку, а
+ * `?hypothesis=` — ещё и смену вкладки.
  *
  * **Смена фильтра — не перезагрузка.** Прежние строки стоят приглушёнными,
- * пока едут новые; отказ сервера на новом фильтре встаёт строкой в таблицу,
- * а сводка и фильтры остаются — условие поправляют тут же.
+ * пока едут новые; отказ сервера на новом фильтре встаёт под шапкой таблицы,
+ * а плитки и фильтры остаются — условие поправляют тут же.
  */
 
-import {
-  Button,
-  Card,
-  Group,
-  SegmentedControl,
-  SimpleGrid,
-  Stack,
-  Text,
-  Title,
-} from '@mantine/core';
+import { Box, Button, Card, Group, SegmentedControl, Select, Stack } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo } from 'react';
@@ -33,22 +27,21 @@ import type { ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
 import { listHypotheses } from '../api/sales';
-import { LEAD_STATES } from '../api/salesLabels';
-import type { HypothesisCard, LeadState } from '../api/salesTypes';
-import { Metric } from '../components/Metric';
+import { PageHead } from '../components/PageHead';
 import { useTyped } from '../donors/useTyped';
 import { formatNumber } from '../format';
+import { dropdownBelow } from '../theme';
 import { ChainPane } from './ChainPane';
 import { FunnelPane } from './FunnelPane';
 import { HypothesesTable } from './HypothesesTable';
 import { useKb } from './kbData';
 import { KbPane } from './KbPane';
 import {
-  LEAD_STATE_KEYS,
   NO_LEAD_FILTERS,
   readLeadFilters,
   SALES_TAB_KEYS,
   SALES_TABS,
+  SETTINGS_TABS,
   writeLeadFilters,
 } from './leadFilters';
 import type { LeadFilters, SalesTab } from './leadFilters';
@@ -62,56 +55,23 @@ export const HYPOTHESES_QUERY_KEY = ['sales', 'hypotheses'] as const;
 /** Набранный поиск совпадает с адресом без пробелов по краям. */
 const sameSearch = (draft: string, committed: string) => draft.trim() === committed;
 
-/** Плитки сводки: состояние → подпись. Порядок — порядок пути лида. */
-const TILES: Record<LeadState, string> = { new: 'Новые', ready: 'Готовы', rejected: 'Отклонены' };
-
-type Totals = Record<LeadState, number> & { total: number };
-
-/** Сводка по всем гипотезам — она же числа вкладок и плиток. */
-function summarize(rows: HypothesisCard[]): Totals {
-  const totals: Totals = { new: 0, ready: 0, rejected: 0, total: 0 };
-  for (const row of rows) {
-    for (const state of LEAD_STATE_KEYS) totals[state] += row.leads[state];
-    totals.total += row.total;
-  }
-  return totals;
-}
-
-function Summary({ totals, hypotheses }: { totals: Totals; hypotheses: number }) {
+/** Шапка раздела — общей шапкой экранов (`components/PageHead`): заголовок и «i» — как
+ *  устроен раздел, это читают раз, а не на каждом заходе. Поле — кромка текста таблиц. */
+function SalesTitle() {
   return (
-    <Card className="glassPanel" p="xl">
-      <Stack gap="md">
-        <Group justify="space-between" align="flex-start" wrap="wrap" gap="md">
-          {/* Основа в 20rem: на телефоне кнопка уходит под текст, а не сжимает его
-              в узкую колонку (снимок 390 px, 04.10.2026). */}
-          <Stack gap={6} style={{ flex: '1 1 20rem', minWidth: 0 }}>
-            <Title order={3}>Продажи</Title>
-            <Text size="sm" c="dimmed" maw={720}>
-              Лиды попадают сюда из файла или Google-таблицы, проходят очистку — дубли, стоп-листы,
-              почта домена, проверка адреса — и готовыми уходят в письма. У каждого отсеянного
-              названа причина: кодом, по которому фильтр, и словами, что именно нашлось.
-            </Text>
-          </Stack>
-          <Button component={Link} to="/sales/import" className="press">
-            Загрузить базу
-          </Button>
-        </Group>
-        <SimpleGrid cols={{ base: 2, sm: 3, lg: 5 }} spacing="sm">
-          <Metric title="Лидов" value={formatNumber(totals.total)} />
-          {LEAD_STATE_KEYS.map((state) => (
-            <Metric
-              key={state}
-              title={TILES[state]}
-              value={formatNumber(totals[state])}
-              color={state === 'ready' && totals.ready > 0 ? LEAD_STATES.ready.color : undefined}
-            />
-          ))}
-          <Metric title="Гипотез" value={formatNumber(hypotheses)} />
-        </SimpleGrid>
-      </Stack>
-    </Card>
+    <Box px="md">
+      <PageHead
+        title="Продажи"
+        hint="Лиды попадают сюда из файла или Google-таблицы, проходят очистку — дубли, стоп-листы, почта домена, проверка адреса — и готовыми уходят в письма. У каждого отсеянного названа причина: кодом, по которому фильтр, и словами, что именно нашлось."
+      />
+    </Box>
   );
 }
+
+/** Вкладки, где загрузка базы — дело вкладки: лиды из неё и берутся, гипотезе её грузят.
+ *  На остальных кнопка спорила с главной кнопкой вкладки — до трёх залитых кнопок разом
+ *  (аудит экранов 09.10.2026). */
+const UPLOAD_TABS: ReadonlySet<SalesTab> = new Set(['leads', 'hypotheses']);
 
 interface TabsProps {
   tab: SalesTab;
@@ -125,21 +85,47 @@ function tabLabel(key: SalesTab, count: number | undefined): string {
   return count === undefined ? SALES_TABS[key] : `${SALES_TABS[key]} — ${formatNumber(count)}`;
 }
 
-/** Вкладки раздела с числами. На узком окне — столбиком: вкладки с числами
- *  в ряд резались до первых букв. */
+/** Вкладки раздела с числами. Где они не влезают в панель — список «Раздел»: на телефоне
+ *  семь вкладок столбиком ставили таблицу на 204 px ниже (аудит экранов 09.10.2026), а на
+ *  800–1024 px вкладки в ряд срезались краем панели — «Воронка» и настройки были
+ *  недосягаемы. Вкладкам в ряд нужно 791 px, панели их столько — с окна в 1 062 px; список —
+ *  до 75em, с запасом на числа побольше. В списке рабочие вкладки, черта и настройки —
+ *  порядок тот же, что у вкладок. */
 function SalesTabs({ tab, counts, onTab }: TabsProps) {
-  const narrow = useMediaQuery('(max-width: 36em)');
+  const narrow = useMediaQuery('(max-width: 75em)');
+  const pick = (value: string | null) => {
+    const next = SALES_TAB_KEYS.find((key) => key === value);
+    if (next !== undefined && next !== tab) onTab(next);
+  };
+  const item = (key: SalesTab) => ({ value: key, label: tabLabel(key, counts[key]) });
+  if (narrow) {
+    const settings = SALES_TAB_KEYS.filter((key) => SETTINGS_TABS.has(key));
+    return (
+      <Select
+        aria-label="Раздел"
+        allowDeselect={false}
+        value={tab}
+        onChange={pick}
+        data={[
+          ...SALES_TAB_KEYS.filter((key) => !SETTINGS_TABS.has(key)).map(item),
+          { group: 'Настройки', items: settings.map(item) },
+        ]}
+        // Все семь пунктов без прокрутки списка. На телефоне рядом в ряд встаёт «Загрузить
+        // базу», и поле уже пункта «База знаний — 3» — список по содержимому, левым краем по
+        // полю; на окне пошире поле — по значению, не шире 16rem, а не на весь ряд.
+        maxDropdownHeight={360}
+        comboboxProps={{ ...dropdownBelow, width: 'max-content' }}
+        maw="16rem"
+        style={{ flex: '1 1 8rem' }}
+      />
+    );
+  }
   return (
     <SegmentedControl
-      orientation={narrow ? 'vertical' : 'horizontal'}
-      fullWidth={narrow}
       aria-label="Вкладки продаж"
       value={tab}
-      onChange={(value) => {
-        const next = SALES_TAB_KEYS.find((key) => key === value);
-        if (next !== undefined && next !== tab) onTab(next);
-      }}
-      data={SALES_TAB_KEYS.map((key) => ({ value: key, label: tabLabel(key, counts[key]) }))}
+      onChange={pick}
+      data={SALES_TAB_KEYS.map(item)}
     />
   );
 }
@@ -187,50 +173,68 @@ export function SalesPage() {
   if (hypotheses.data === undefined) return <Pending error={hypotheses.error} />;
 
   const known = hypotheses.data.rows;
-  const totals = summarize(known);
-  // Другая вкладка и «Сбросить фильтры» — чистый адрес: набранный поиск уходит с ним.
-  const reset = (tab: SalesTab) => {
+  const total = known.reduce((sum, row) => sum + row.total, 0);
+  // Гипотеза, которой нет в списке (старая ссылка), вкладкам с выбором — «не выбрана»:
+  // поле выбора её не покажет, а запрос ушёл бы в пустоту. Лиды называют её номером.
+  const chosen = known.some((row) => row.id === filters.hypothesis) ? filters.hypothesis : null;
+  const pick = (hypothesis: number | null) => apply({ hypothesis });
+  // Другая вкладка — чистый адрес, кроме гипотезы: она одна на раздел (аудит экранов
+  // 09.10.2026). «Сбросить фильтры» снимает и её: пусто могло быть из-за неё.
+  // Набранный поиск уходит вместе с адресом.
+  const go = (next: LeadFilters) => {
     setSearch('');
-    setParams(writeLeadFilters({ ...NO_LEAD_FILTERS, tab }), { replace: true });
+    setParams(writeLeadFilters(next), { replace: true });
   };
+  const switchTab = (tab: SalesTab) =>
+    go({ ...NO_LEAD_FILTERS, tab, hypothesis: filters.hypothesis });
 
   // Вкладка → её содержимое: таблицей, а не цепочкой условий.
   const bodies: Record<SalesTab, () => ReactNode> = {
     leads: () => (
       <LeadsPane
         leads={leads}
-        total={totals.total}
+        total={total}
         filters={filters}
         search={search}
         onSearch={setSearch}
         onFilter={apply}
         hypotheses={known}
         onTurn={turn}
-        onReset={() => reset('leads')}
+        onReset={() => go(NO_LEAD_FILTERS)}
       />
     ),
     hypotheses: () => <HypothesesTable rows={known} />,
     kb: () => <KbPane />,
     sender: () => <SenderPane />,
-    chain: () => <ChainPane hypotheses={known} />,
-    queue: () => <QueuePane hypotheses={known} />,
-    funnel: () => <FunnelPane hypotheses={known} />,
+    chain: () => <ChainPane hypotheses={known} owner={chosen} onOwner={pick} />,
+    queue: () => <QueuePane hypotheses={known} hypothesis={chosen} onHypothesis={pick} />,
+    funnel: () => (
+      <FunnelPane
+        hypotheses={known}
+        filters={{ hypothesis: chosen, period: filters.period, from: filters.from, to: filters.to }}
+        onChange={apply}
+      />
+    ),
   };
 
   return (
-    <Stack gap="lg">
-      <Summary totals={totals} hypotheses={known.length} />
-
-      <Card className="glassPanel" p="md">
-        <Stack gap="sm">
+    <Card className="glassPanel" p="md">
+      <Stack gap="sm">
+        <SalesTitle />
+        <Group justify="space-between" align="center" gap="sm" wrap="wrap" className="salesTabs">
           <SalesTabs
             tab={filters.tab}
-            counts={{ leads: totals.total, hypotheses: known.length, kb: kb.data?.total }}
-            onTab={reset}
+            counts={{ leads: total, hypotheses: known.length, kb: kb.data?.total }}
+            onTab={switchTab}
           />
-          {bodies[filters.tab]()}
-        </Stack>
-      </Card>
-    </Stack>
+          {UPLOAD_TABS.has(filters.tab) && (
+            <Button component={Link} to="/sales/import" className="press">
+              Загрузить базу
+            </Button>
+          )}
+        </Group>
+        {bodies[filters.tab]()}
+      </Stack>
+    </Card>
   );
 }

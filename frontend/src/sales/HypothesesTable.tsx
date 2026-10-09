@@ -12,11 +12,11 @@
 import { Anchor, Stack, Table, Text } from '@mantine/core';
 import { Link } from 'react-router-dom';
 
-import type { HypothesisCard, LeadState } from '../api/salesTypes';
+import type { HypothesisCard } from '../api/salesTypes';
 import { formatDate, formatNumber } from '../format';
 import { FixedTable } from './FixedTable';
 import type { Column } from './FixedTable';
-import { LEAD_STATE_KEYS, NO_LEAD_FILTERS, writeLeadFilters } from './leadFilters';
+import { LEAD_STATE_KEYS, leadsLink } from './leadFilters';
 
 const COLUMNS: Column[] = [
   { title: 'Гипотеза', width: '20rem' },
@@ -29,11 +29,6 @@ const COLUMNS: Column[] = [
 
 export const HYPOTHESES_MIN_WIDTH = 912;
 
-/** Ссылка на лидов под фильтром — адресом экрана лидов, тем же, что пишет он сам. */
-function leadsAt(hypothesis: number, state: LeadState | null): string {
-  return `/sales?${writeLeadFilters({ ...NO_LEAD_FILTERS, state, hypothesis }).toString()}`;
-}
-
 function Count({ value, to }: { value: number; to: string }) {
   if (value === 0) {
     return (
@@ -42,8 +37,19 @@ function Count({ value, to }: { value: number; to: string }) {
       </Text>
     );
   }
+  // Чернилами с подчёркиванием (`inkLink`), а не бирюзой: бирюзовое число на светлом стекле
+  // намерилось 4,25 : 1 при норме 4,5 (замер 09.10.2026) — тот же урок, что у «Переписки»
+  // на экране писем 07.10.
   return (
-    <Anchor component={Link} to={to} size="sm" fw={500}>
+    <Anchor
+      component={Link}
+      to={to}
+      size="sm"
+      fw={500}
+      c="var(--ink)"
+      underline="always"
+      className="inkLink"
+    >
       {formatNumber(value)}
     </Anchor>
   );
@@ -64,11 +70,11 @@ function HypothesisRow({ row }: { row: HypothesisCard }) {
       </Table.Td>
       {LEAD_STATE_KEYS.map((state) => (
         <Table.Td key={state}>
-          <Count value={row.leads[state]} to={leadsAt(row.id, state)} />
+          <Count value={row.leads[state]} to={leadsLink(row.id, state)} />
         </Table.Td>
       ))}
       <Table.Td>
-        <Count value={row.total} to={leadsAt(row.id, null)} />
+        <Count value={row.total} to={leadsLink(row.id, null)} />
       </Table.Td>
       <Table.Td>
         <Text size="sm">{formatDate(row.created_at)}</Text>
