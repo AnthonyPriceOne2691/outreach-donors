@@ -387,9 +387,9 @@
       "worst": "redraft:141"
     },
     "backend/api/threads/schemas.py": {
-      "lines": 379,
+      "lines": 382,
       "complexity": 4,
-      "worst": "of:356"
+      "worst": "of:359"
     },
     "backend/api/unsubscribe/__init__.py": {
       "lines": 1,
@@ -1347,14 +1347,14 @@
       "worst": "unsubscribe_domain:43"
     },
     "backend/features/letters/outgoing_files.py": {
-      "lines": 306,
+      "lines": 311,
       "complexity": 7,
-      "worst": "clean_name:118"
+      "worst": "clean_name:123"
     },
     "backend/features/letters/outgoing_store.py": {
-      "lines": 246,
+      "lines": 261,
       "complexity": 4,
-      "worst": "_all_named:227"
+      "worst": "_all_named:242"
     },
     "backend/features/letters/probe.py": {
       "lines": 111,
@@ -2187,9 +2187,9 @@
       "worst": "main:34"
     },
     "backend/workers/reaper.py": {
-      "lines": 158,
+      "lines": 191,
       "complexity": 4,
-      "worst": "_told:103"
+      "worst": "_told:113"
     },
     "backend/workers/sales_jobs.py": {
       "lines": 125,
