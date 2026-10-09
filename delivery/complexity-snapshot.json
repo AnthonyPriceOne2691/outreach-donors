@@ -1907,14 +1907,14 @@
       "worst": "_by_name:351"
     },
     "backend/features/sales/handoff.py": {
-      "lines": 497,
+      "lines": 499,
       "complexity": 11,
-      "worst": "_card:456"
+      "worst": "_card:458"
     },
     "backend/features/sales/handoff_console.py": {
-      "lines": 269,
+      "lines": 270,
       "complexity": 8,
-      "worst": "close:178"
+      "worst": "close:179"
     },
     "backend/features/sales/handoff_jobs.py": {
       "lines": 212,
