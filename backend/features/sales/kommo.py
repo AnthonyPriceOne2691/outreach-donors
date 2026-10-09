@@ -204,7 +204,7 @@ def _direct(http: httpx.AsyncClient) -> KommoLive:
 
 
 def _through_gateway(http: httpx.AsyncClient) -> KommoGateway:
-    """`live` через шлюз агентства — задан `SALES_KOMMO_GATEWAY_URL`. Адрес в журнал не идёт."""
+    """`live` через шлюз агентства — задан `SALES_KOMMO_GATEWAY_URL`. Адреса в этой строке нет."""
     account = _gateway_account()
     logger.info(
         "продажи: Kommo — live через шлюз агентства",
@@ -243,7 +243,7 @@ def _live_account() -> KommoAccount:
 
 def _gateway_account() -> GatewayAccount:
     """Учётка шлюза из настроек. Чего-то нет или оно негодно — `ConfigError` словами;
-    ни адрес шлюза, ни ключ не печатаются никогда."""
+    ни адрес шлюза, ни ключ в словах отказа не печатаются."""
     given = {
         "SALES_KOMMO_GATEWAY_KEY": cfg.KOMMO_GATEWAY_KEY,
         "SALES_KOMMO_SOURCE": cfg.KOMMO_SOURCE,
@@ -271,8 +271,8 @@ def _gateway_account() -> GatewayAccount:
     )
 
 
-#: Адрес шлюза негоден — слова отказа. Значения в них нет: адрес шлюза — не наш, и место
-#: ему — в `.env`, а не в журнале и тревоге.
+#: Адрес шлюза негоден — слова отказа. Значения в них нет: слова уходят в журнал и в тревогу
+#: владельцу, а адрес шлюза — не наш, его место — `.env`.
 _BAD_GATEWAY_URL = (
     "SALES_KOMMO_GATEWAY_URL — нужен полный адрес шлюза https://…: имя, почта и письмо лида "
     "и ключ уходят только шифрованным каналом"
