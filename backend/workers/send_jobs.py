@@ -18,24 +18,30 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from backend.config import storage
 from backend.config.startup_checks import check_storage
 from backend.features.core.domain import Stage
+from backend.features.crawl.niche import LINKS
 from backend.features.letters.batch import send_queue
 from backend.features.letters.transport_factory import Transports, in_use
 from backend.shared.logs import setup_logging
 
 
-def send_letter_queue(stage: str, author_id: int | None = None) -> dict[str, Any]:
-    """Отправить очередь этапа. Этап строкой: задача живёт дольше версии кода."""
+def send_letter_queue(
+    stage: str, author_id: int | None = None, audience: str = LINKS
+) -> dict[str, Any]:
+    """Отправить очередь этапа и аудитории. Этап строкой: задача живёт дольше версии
+    кода. Задача, поставленная до аудиторий, приходит без неё — и шлёт письма по ссылке."""
     setup_logging()
     check_storage()
-    return asyncio.run(_send(Stage(stage), author_id))
+    return asyncio.run(_send(Stage(stage), author_id, audience))
 
 
-async def _send(stage: Stage, author_id: int | None) -> dict[str, Any]:
+async def _send(stage: Stage, author_id: int | None, audience: str = LINKS) -> dict[str, Any]:
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with factory() as session, in_use(Transports()) as transports:
-            report = await send_queue(session, transports, stage=stage, author_id=author_id)
+            report = await send_queue(
+                session, transports, stage=stage, author_id=author_id, audience=audience
+            )
             return report.as_dict()
     finally:
         await engine.dispose()

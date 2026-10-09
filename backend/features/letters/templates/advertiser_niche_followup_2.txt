@@ -1,0 +1,14 @@
+# Последняя добивка бизнесу ниши (аудитория `niche`). ТЕКСТ ВЫДУМАН —
+# боевой приходит со стороны задачи.
+
+subject: Last note on sponsored articles
+
+[greeting] fixed
+Hi,
+
+[reminder] fixed
+This is my last note on sponsored articles in your field, so I will not keep filling your inbox. If it becomes relevant later, just reply to this thread and I will pick it up from here.
+
+[signature] fixed
+Best regards,
+{{sender_name}}

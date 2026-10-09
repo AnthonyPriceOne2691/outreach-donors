@@ -13,7 +13,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
-import { ADMIN, OPERATOR, PROMOTE_ROUTES, TOKEN_KEY } from '../test/fixtures';
+import { ADMIN, CRAWL_ROUTES, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import type { Call } from '../test/server';
 import { serve } from '../test/server';
@@ -45,29 +45,12 @@ const QUEUE = {
   counts: { bought: 6, pending: 1, skipped: 14, blocked: 12 },
 };
 
-/** Панели над очередью и под ней: доноров для обхода нет, обходов не было,
- *  переводить некого. */
-const CRAWL_ROUTES = {
-  ...PROMOTE_ROUTES,
-  'GET /api/crawls/targets': {
-    body: {
-      donors: [],
-      no_price: 0,
-      stale_price: 0,
-      supplier: 0,
-      notes: ['Подходящих доноров в базе нет: сначала прогон Этапа 1.'],
-      max_pages: 1000,
-      workers: 4,
-    },
-  },
-  'GET /api/crawls': { body: { rows: [], active: 0, workers: 4 } },
-};
-
 async function openScreen(routes: Record<string, unknown> = {}, who: unknown = ADMIN) {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   const recorded = serve({
     ...CRAWL_ROUTES,
     'GET /api/auth/me': { body: who },
+    'GET /api/advertisers/niche': { body: { rows: [], waiting: 0 } },
     'GET /api/advertisers': { body: QUEUE },
     ...(routes as Record<string, never>),
   });
@@ -162,6 +145,7 @@ describe('ручная проверка рекламодателей', () => {
     serve({
       ...CRAWL_ROUTES,
       'GET /api/auth/me': { body: ADMIN },
+      'GET /api/advertisers/niche': { body: { rows: [], waiting: 0 } },
       'GET /api/advertisers': { body: { rows: [], waiting: 0, counts: {} } },
     });
     renderWith(<AppRoutes />, '/advertisers');
@@ -178,6 +162,7 @@ describe('числа и текст сходятся', () => {
     serve({
       ...CRAWL_ROUTES,
       'GET /api/auth/me': { body: ADMIN },
+      'GET /api/advertisers/niche': { body: { rows: [], waiting: 0 } },
       'GET /api/advertisers': { body: { ...QUEUE, rows: [], waiting: 0 } },
       'GET /api/advertisers?include_decided=true': { body: { ...QUEUE, rows: [DECIDED] } },
     });
@@ -241,6 +226,7 @@ describe('слова при числах', () => {
     serve({
       ...CRAWL_ROUTES,
       'GET /api/auth/me': { body: ADMIN },
+      'GET /api/advertisers/niche': { body: { rows: [], waiting: 0 } },
       'GET /api/advertisers': {
         body: { ...QUEUE, rows: [{ ...CANDIDATE, links: 1, pages: 1 }] },
       },

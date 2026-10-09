@@ -47,6 +47,7 @@ from backend.features.contacts.manual import (
 from backend.features.contacts.repository import SearchRefusedError
 from backend.features.core.stages import SalesNotConnectedError
 from backend.features.core.usage import LlmCapExceededError
+from backend.features.crawl.niche import UnknownNicheAdvertiserError, UnknownNicheRunError
 from backend.features.donors.export import PickRefusedError
 from backend.features.donors.manual_price import DonorRefusedError, ManualPriceError
 from backend.features.donors.standing import UnknownDonorError
@@ -93,6 +94,9 @@ STATUSES: dict[type[Exception], int] = {
     UnknownDonorError: status.HTTP_404_NOT_FOUND,
     UnknownRunError: status.HTTP_404_NOT_FOUND,
     UnknownThreadError: status.HTTP_404_NOT_FOUND,
+    # Бизнес ниши или прогон, из которого собирать, — не найдены.
+    UnknownNicheAdvertiserError: status.HTTP_404_NOT_FOUND,
+    UnknownNicheRunError: status.HTTP_404_NOT_FOUND,
     UnknownLetterError: status.HTTP_404_NOT_FOUND,
     UnknownReplyError: status.HTTP_404_NOT_FOUND,
     # Вложение ответа: нет такого у этого ответа — или есть, но файл не

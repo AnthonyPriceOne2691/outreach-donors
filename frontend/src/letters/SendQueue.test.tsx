@@ -162,6 +162,59 @@ describe('отправка очереди пачкой', () => {
   });
 });
 
+describe('пачка вкладки: у бизнесов ниши и рекламодателей — своя', () => {
+  /** Что ушло на сервер нажатиями «Отправить N» — по порядку. */
+  const sent = (recorded: { calls: { path: string; body: unknown }[] }) =>
+    recorded.calls.filter((call) => call.path === '/api/letters/send-queue').map((c) => c.body);
+
+  it('«Бизнесам ниши» шлёт только письма ниши, «Рекламодателям» — только по ссылке', async () => {
+    const niche = {
+      ...VIEW,
+      stage: 'advertisers',
+      audience: 'niche',
+      letters: [letter(31, 'bookie.example.test')],
+      queued_total: 1,
+    };
+    const links = { ...VIEW, stage: 'advertisers', letters: [letter(21, 'brand.example.test')] };
+    const recorded = open(
+      {},
+      {
+        'GET /api/letters?stage=advertisers&audience=niche': { body: niche },
+        'GET /api/letters?stage=advertisers': { body: { ...links, queued_total: 3 } },
+        'POST /api/letters/send-queue': { body: { job_id: 'job-q', queued: 1 } },
+        'GET /api/jobs/job-q': { body: DONE },
+      },
+    );
+    const user = userEvent.setup();
+    await screen.findByRole('button', { name: 'Отправить очередь · 2' });
+
+    // Окно вкладки ниши называет её очередь, и на сервер уходит её аудитория.
+    await user.click(screen.getByRole('radio', { name: 'Бизнесам ниши' }));
+    await user.click(await screen.findByRole('button', { name: 'Отправить очередь · 1' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/^В очереди 1 письмо: каждое/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Отправить 1' }));
+    await waitFor(() =>
+      expect(sent(recorded)).toEqual([{ stage: 'advertisers', audience: 'niche' }]),
+    );
+    expect(localStorage.getItem('letters:last-send-queue:advertisers:niche')).toBe('job-q');
+
+    // «Рекламодателям» — прежний запрос без аудитории, и своя последняя пачка.
+    await user.click(screen.getByRole('radio', { name: 'Рекламодателям' }));
+    await user.click(await screen.findByRole('button', { name: 'Отправить очередь · 3' }));
+    await user.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Отправить 3' }),
+    );
+    await waitFor(() => expect(sent(recorded)).toHaveLength(2));
+    expect(sent(recorded)[1]).toEqual({ stage: 'advertisers' });
+    expect(
+      recorded.calls.some(
+        (call) => call.path === '/api/letters/unknown?stage=advertisers&audience=niche',
+      ),
+    ).toBe(true);
+  });
+});
+
 describe('итог пачки словами', () => {
   it('называет, почему пачка остановилась', () => {
     expect(batchLine({ sent: 20, refused: {}, stopped: 'Сегодня писать некому', left: 5 })).toBe(

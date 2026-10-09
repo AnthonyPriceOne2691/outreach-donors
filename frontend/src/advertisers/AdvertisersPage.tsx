@@ -60,6 +60,7 @@ import { ColumnsHead } from '../components/ColumnsHead';
 import { Seams } from '../components/Seams';
 import { CrawlPanel } from './CrawlPanel';
 import { LinkAnchor } from './LinkAnchor';
+import { NicheQueue } from './NicheQueue';
 import { PromotePanel } from './PromotePanel';
 
 const QUERY_KEY = ['advertisers'] as const;
@@ -362,6 +363,7 @@ export function AdvertisersPage() {
         )}
       </Card>
       <PromotePanel />
+      <NicheQueue />
     </Stack>
   );
 }

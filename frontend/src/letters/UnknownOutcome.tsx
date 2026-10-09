@@ -17,6 +17,9 @@
  *
  * **Без права на отправку список виден, кнопок нет**: решение — это разрешение
  * отправить письмо, которое, возможно, уже ушло.
+ *
+ * **Список — вкладки** (этап и аудитория): письмо бизнеса ниши, на котором встала
+ * его пачка, решают на вкладке «Бизнесам ниши», а не среди писем по ссылке.
  */
 
 import {
@@ -38,6 +41,7 @@ import { Link } from 'react-router-dom';
 
 import { refusalOf } from '../api/client';
 import { listUnknownLetters, resolveLetter } from '../api/letters';
+import type { LetterAudience } from '../api/letters';
 import type { LetterStage } from '../api/types';
 import type { ResolveOutcome, UnknownLetter } from '../api/unknownOutcome';
 import { Seams } from '../components/Seams';
@@ -54,15 +58,17 @@ interface Choice {
 
 interface Props {
   stage: LetterStage;
+  /** Аудитория Этапа 2; нет — по найденной ссылке, как до аудиторий. */
+  audience?: LetterAudience;
   canSend: boolean;
 }
 
-export function UnknownOutcome({ stage, canSend }: Props) {
+export function UnknownOutcome({ stage, audience = 'links', canSend }: Props) {
   const queryClient = useQueryClient();
   const [choice, setChoice] = useState<Choice | null>(null);
   const { data, error } = useQuery({
-    queryKey: ['letters', 'unknown', stage],
-    queryFn: () => listUnknownLetters(stage),
+    queryKey: ['letters', 'unknown', stage, audience],
+    queryFn: () => listUnknownLetters(stage, audience),
     refetchInterval: REFRESH_MS,
   });
 

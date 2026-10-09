@@ -166,6 +166,13 @@ class CampaignModel(TimestampedMixin, Base):
     # а не правкой к умолчанию: шаблон в коде поменяют, а письма идущей
     # рассылки должны оставаться утверждённым текстом.
     letter_template: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Кому рассылка Этапа 2: `links` — рекламодателям, найденным по ссылке на
+    #: нашем доноре, `niche` — бизнесам ниши из выдачи (`crawl/niche.py`). От
+    #: аудитории зависят и оффер, и добивки: бизнесу ниши нельзя писать «ваше
+    #: размещение, которое я видел» — размещения у него нет.
+    audience: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="links", server_default="links"
+    )
 
     messages: Mapped[list[MessageModel]] = relationship("MessageModel", back_populates="campaign")
 

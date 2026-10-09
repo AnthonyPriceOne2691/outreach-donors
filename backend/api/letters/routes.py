@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
 from backend.api.letters.schemas import (
+    Audience,
     BuildQueued,
     BuildRequestBody,
     Corridor,
@@ -42,14 +43,18 @@ from backend.api.letters.schemas import (
     Transport,
     UnknownLetterCard,
     UnknownLettersView,
+    stage_two_only,
 )
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.outreach import CampaignModel
 from backend.features.core.stages import check_connected
+from backend.features.crawl.niche import LINKS, NICHE, WHOM
 from backend.features.letters import batch, compose, draft, review, unknown_outcome
 from backend.features.letters.building import run_scope
+from backend.features.letters.compose import NicheOffer
+from backend.features.letters.niche_recipients import NicheRecipients
 from backend.features.letters.repository import LetterRepository, QueuedLetter
 from backend.features.letters.sending import Sending
 from backend.features.letters.template import Template, of_campaign
@@ -72,21 +77,34 @@ _STAGE_TITLES = {Stage.DONORS: "доноры", Stage.ADVERTISERS: "реклам�
 @router.get("", response_model=LettersView, summary="Очередь писем этапа")
 async def queue(
     stage: Stage = Stage.DONORS,
+    audience: Audience = "links",
     _: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> LettersView:
+    """Очередь этапа и аудитории: у бизнесов ниши свои письма, счёт для пачки, текст
+    и воронка — «Отправить очередь · N» на их вкладке называет только их письма."""
+    _stage_two(stage, audience)
     repository = LetterRepository(session)
+    queued = await repository.queued(stage=stage, audience=audience)
     return LettersView(
         stage=stage,
-        letters=[QueuedLetterCard.of(row) for row in await repository.queued(stage=stage)],
-        queued_total=await repository.queued_count(stage=stage),
+        audience=audience,
+        letters=[QueuedLetterCard.of(row) for row in queued],
+        queued_total=await repository.queued_count(stage=stage, audience=audience),
         batch_max=batch.BATCH_MAX,
-        letter_default=LetterDraftView.of(draft.default_draft(stage)),
+        letter_default=LetterDraftView.of(draft.default_draft(stage, audience)),
         blocked_by=compose.missing_settings(),
         transport=Transport.current(stage.value),
         corridor=Corridor(),
-        funnel=(await repository.funnel(stage)).as_report(),
+        funnel=await repository.funnel_report(stage, audience=audience),
     )
+
+
+def _audience_of(audience: str) -> dict[str, str]:
+    """Аудитория в доводах задачи — только не «по ссылке»: задачу по ссылке тогда
+    понимает и воркер прежней версии, если её поставили в секунды выкатки (замечание
+    ревью продаж к P3, 09.10.2026). Задача без аудитории и так — по ссылке."""
+    return {} if audience == LINKS else {"audience": audience}
 
 
 @router.post("/build", response_model=BuildQueued, summary="Собрать очередь")
@@ -102,6 +120,7 @@ async def build(
     и не рядом с формой.
     """
     letter_template = await _checked_letter(body, session)
+    await _same_audience(body, session)
     # Прогоны — здесь, до очереди: разные страны и неоконченный поиск контактов
     # человек должен увидеть у формы, а не в отчёте задачи через минуты.
     scope = await run_scope(LetterRepository(session), body.run_ids, stage=body.stage)
@@ -115,6 +134,7 @@ async def build(
         letter_template=letter_template,
         run_ids=body.run_ids,
         stage=body.stage.value,
+        **_audience_of(body.audience),
         **with_retries(),
     )
     await AccessRepository(session).record(
@@ -129,17 +149,35 @@ async def build(
             "добивки, дней": body.followup_days or "по умолчанию",
             "текст письма": "поправлен" if letter_template else "по умолчанию",
             "прогоны": body.run_ids or "все принятые",
+            "кому": WHOM[body.audience],
         },
     )
     await session.commit()
     return BuildQueued(job_id=str(job.id))
 
 
+def _stage_two(stage: Stage, audience: Audience) -> None:
+    """Бизнесы ниши — только Этап 2, как у сборки и пачки: тело проверяет схема, адрес — здесь."""
+    try:
+        stage_two_only(stage, audience)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from None
+
+
+async def _same_audience(body: BuildRequestBody, session: AsyncSession) -> None:
+    """Одноимённая рассылка другой аудитории — отказ у формы, а не в задаче через минуты."""
+    found = await LetterRepository(session).find_campaign(name=body.campaign, stage=body.stage)
+    if found is not None:
+        draft.assert_same_audience(
+            campaign=body.campaign, stored=found.audience, sent=body.audience
+        )
+
+
 async def _checked_letter(body: BuildRequestBody, session: AsyncSession) -> str | None:
     """Текст письма с экрана — проверенный, или `None`, если его не правили."""
     if body.letter is None:
         return None
-    text = draft.to_text(body.letter.subject, body.letter.zones, body.stage)
+    text = draft.to_text(body.letter.subject, body.letter.zones, body.stage, body.audience)
     found = await LetterRepository(session).find_campaign(name=body.campaign, stage=body.stage)
     if found is not None:
         draft.assert_same(campaign=body.campaign, stored=found.letter_template, sent=text)
@@ -156,12 +194,14 @@ async def edit(
     """Заменить текст руками. Отличие пересчитывается, запреты те же."""
     repository = LetterRepository(session)
     row = await repository.letter(letter_id)
+    niche = await _niche_offer(row, session)
     review.edit(
         row.message,
         host=row.host,
         subject=body.subject,
         body=body.body,
         template=await _letter_template(row, session),
+        niche=niche,
         link=row.link,
     )
     await AccessRepository(session).record(
@@ -182,13 +222,26 @@ async def _letter_template(row: QueuedLetter, session: AsyncSession) -> Template
     рекламодателя, которого сняли после сборки, ссылки больше нет —
     мерить не от чего, и письмо стоит убрать, а не править.
     """
-    if row.stage is Stage.ADVERTISERS and row.link is None:
+    if row.stage is Stage.ADVERTISERS and row.audience != NICHE and row.link is None:
         raise review.NotEditableError(
             f"Рекламодателя {row.host} сняли после сборки письма: править его незачем, "
             "письмо стоит убрать из очереди"
         )
     campaign = await session.get(CampaignModel, row.message.campaign_id)
-    return of_campaign(row.stage, campaign.letter_template if campaign else None)
+    return of_campaign(row.stage, campaign.letter_template if campaign else None, row.audience)
+
+
+async def _niche_offer(row: QueuedLetter, session: AsyncSession) -> NicheOffer | None:
+    """Оффер бизнесу ниши сейчас. Собрать его больше нельзя — письмо убрать."""
+    if row.stage is not Stage.ADVERTISERS or row.audience != NICHE:
+        return None
+    offer = await NicheRecipients(session).offer_of(row.message.domain_id)
+    if offer is None:
+        raise review.NotEditableError(
+            f"Бизнесу ниши {row.host} письмо больше не собрать — нет площадки со свежей ценой "
+            "или его сняли: письмо стоит убрать из очереди"
+        )
+    return offer
 
 
 @router.post("/{letter_id}/skip", response_model=QueuedLetterCard, summary="Не писать этому донору")
@@ -245,23 +298,30 @@ async def send_queue(
     читал человек (`docs/WEB_LAYER.md`). Для запуска Anthony выбрал пачку.
     Каждое письмо идёт тем же путём, что одно (`letters/batch.py`), и
     в журнал пишется так же — по письму, с тем, кто нажал.
+
+    Пачка — одной аудитории (`body.audience`): кнопка на вкладке «Бизнесам ниши»
+    отправляет только их письма, на «Рекламодателям» — только письма по найденной
+    ссылке. Без аудитории — по ссылке, как до бизнесов ниши.
     """
     # Продажи, не подключённые к почте (ответ моста `core/stages`), — отказ словами (409)
     # до счёта и до задачи.
     await check_connected(session, body.stage, "Очередь писем не отправлена")
-    waiting = await LetterRepository(session).queued_count(stage=body.stage)
+    waiting = await LetterRepository(session).queued_count(stage=body.stage, audience=body.audience)
     if waiting == 0:
         raise HTTPException(
             status.HTTP_409_CONFLICT, "В очереди этого этапа писем нет — отправлять нечего"
         )
-    job = runs_queue().enqueue(SEND_QUEUE_JOB, body.stage.value, author.id)
+    job = runs_queue().enqueue(
+        SEND_QUEUE_JOB, body.stage.value, author.id, **_audience_of(body.audience)
+    )
     # Пачка берёт не больше своего потолка: то же число, что «Отправить N» в окне, —
     # и потолок отсюда же, откуда его берёт экран писем (`batch_max`).
     taken = min(waiting, batch.BATCH_MAX)
     logger.info(
-        "письма: %s поставил отправку очереди этапа %s — в очереди %s, пачка берёт %s",
+        "письма: %s поставил отправку очереди этапа %s (%s) — в очереди %s, пачка берёт %s",
         author.email,
         body.stage.value,
+        body.audience,
         waiting,
         taken,
     )
@@ -271,12 +331,15 @@ async def send_queue(
 @router.get("/unknown", response_model=UnknownLettersView, summary="Письма с неизвестным исходом")
 async def unknown(
     stage: Stage = Stage.DONORS,
+    audience: Audience = "links",
     _: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> UnknownLettersView:
-    """Письма этапа, застрявшие в «отправляется»: связь с почтой оборвалась
-    посреди передачи, и ушли ли они, неизвестно (`letters/unknown_outcome.py`)."""
-    found = await unknown_outcome.stuck(session, stage=stage)
+    """Письма этапа и аудитории, застрявшие в «отправляется»: связь с почтой оборвалась
+    посреди передачи, и ушли ли они, неизвестно (`letters/unknown_outcome.py`). У каждой
+    вкладки — свои: письмо бизнеса ниши решают там, откуда ушла его пачка."""
+    _stage_two(stage, audience)
+    found = await unknown_outcome.stuck(session, stage=stage, audience=audience)
     return UnknownLettersView(stage=stage, letters=[UnknownLetterCard.of(row) for row in found])
 
 

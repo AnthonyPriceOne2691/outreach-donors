@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from backend.config import outreach as cfg
 from backend.features.core.domain import MessageStatus, Stage
+from backend.features.crawl.niche import LINKS
 from backend.features.letters import compose, template, unknown_outcome
 from backend.features.letters.chain import MAX_STEPS, cadence
 from backend.features.letters.draft import Draft, default_draft
@@ -65,6 +67,7 @@ class QueuedLetterCard(BaseModel):
                 row.followup_days,
                 domain_id=row.message.domain_id,
                 stage=row.stage,
+                audience=row.audience,
                 subject=row.message.subject,
             ),
         )
@@ -91,6 +94,7 @@ def followups_for(
     *,
     domain_id: int | None = None,
     stage: Stage = Stage.DONORS,
+    audience: str = LINKS,
     subject: str | None = None,
 ) -> list[FollowupCard]:
     """Добивки адресата: шаблон шага этапа с его подстановками.
@@ -109,7 +113,7 @@ def followups_for(
     for step in range(1, MAX_STEPS):
         letter = compose.assemble(
             compose.render(
-                template.followup(step, stage),
+                template.followup(step, stage, audience),
                 compose.values_for(host=host, domain_id=domain_id),
             ),
             {},
@@ -193,6 +197,18 @@ class LetterDraftBody(BaseModel):
     zones: dict[str, str]
 
 
+#: Аудитория рассылки Этапа 2 (`campaigns.audience`).
+Audience = Literal["links", "niche"]
+
+
+def stage_two_only(stage: Stage, audience: str) -> None:
+    """Бизнесы ниши — только Этап 2: им предлагают размещение, а донору — вопрос о цене."""
+    if audience != LINKS and stage is not Stage.ADVERTISERS:
+        raise ValueError(
+            "Бизнесам ниши пишут только на Этапе 2: им предлагают размещение, а не спрашивают цену"
+        )
+
+
 class LettersView(BaseModel):
     """Экран писем целиком.
 
@@ -204,6 +220,8 @@ class LettersView(BaseModel):
 
     #: Чья это очередь: доноров (вопрос о цене) или рекламодателей (оффер).
     stage: Stage = Stage.DONORS
+    #: Аудитория Этапа 2, для которой показаны текст по умолчанию и воронка.
+    audience: Audience = "links"
     letters: list[QueuedLetterCard]
     #: Сроки добивок по умолчанию — для формы создания рассылки.
     #: Отдаёт сервер, а не хранит фронт: второй экземпляр чисел
@@ -219,8 +237,9 @@ class LettersView(BaseModel):
     transport: Transport
     corridor: Corridor
     funnel: dict[str, int]
-    #: Сколько писем этапа ждёт в очереди — всех. Список `letters` — только начало очереди
-    #: (`LetterRepository.queued` с потолком), а кнопка пачки называет очередь целиком.
+    #: Сколько писем этапа и аудитории ждёт в очереди — всех. Список `letters` — только
+    #: начало очереди (`LetterRepository.queued` с потолком), а кнопка пачки называет
+    #: очередь целиком.
     queued_total: int
     #: Сколько писем берёт одна пачка «Отправить очередь» (`batch.BATCH_MAX`). Отдаёт
     #: сервер: окно подтверждения называет его, когда очередь длиннее пачки, а копия
@@ -249,6 +268,14 @@ class BuildRequestBody(BaseModel):
     #: Прогоны, из принятых доноров которых собирается рассылка. Страна
     #: письма берётся из них. Пусто — все принятые доноры базы.
     run_ids: list[int] = Field(default_factory=list, max_length=50)
+    #: Кому рассылка Этапа 2: `links` — рекламодателям по найденной ссылке,
+    #: `niche` — бизнесам ниши из выдачи (свой оффер и свои добивки).
+    audience: Audience = "links"
+
+    @model_validator(mode="after")
+    def _niche_is_stage_two(self) -> BuildRequestBody:
+        stage_two_only(self.stage, self.audience)
+        return self
 
 
 class BuildQueued(BaseModel):
@@ -258,9 +285,17 @@ class BuildQueued(BaseModel):
 
 
 class SendQueueBody(BaseModel):
-    """Какую очередь отправить пачкой."""
+    """Какую очередь отправить пачкой: этап и, на Этапе 2, аудиторию."""
 
     stage: Stage = Stage.DONORS
+    #: Чьи письма: по найденной ссылке или бизнесов ниши. Пачка одной аудитории
+    #: письма другой не берёт; без аудитории — по ссылке, как до бизнесов ниши.
+    audience: Audience = "links"
+
+    @model_validator(mode="after")
+    def _niche_is_stage_two(self) -> SendQueueBody:
+        stage_two_only(self.stage, self.audience)
+        return self
 
 
 class SendQueueQueued(BaseModel):
