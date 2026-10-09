@@ -8,7 +8,8 @@
 - **G3**: модуль продаж подключён к мосту почты в каждом процессе, где почта может спросить о
   письме продаж: API, воркер, воркер продаж, добивки, сторож, консоль;
 - **C4**: бот продаж без токена — Telegram не зовётся ни разу, строка «не доставлено» с
-  названием настройки, одна тревога, черновик цел;
+  названием настройки, своей тревоги у черновика нет (сводная — `test_sales_bot_token_alarm.py`),
+  черновик цел;
 - **C1, тумблер включён**: ответ лида с видом «вопрос» или «интересуется» (путь «ответит
   агент») получает задачу черновика агента — её ставит задача продаж (`workers/sales_jobs.py`,
   PR «общее: ответ агента продаж»; очередь и пути — `tests/test_sales_reply_draft.py`);
@@ -209,7 +210,7 @@ def test_g3_every_process_has_the_sales_module_on_the_mail_bridge(module: str) -
 
 
 @pytest.mark.usefixtures("sales_on", "queue")
-async def test_c4_bot_without_a_token_calls_nobody_alerts_once_and_the_draft_stays(
+async def test_c4_bot_without_a_token_calls_nobody_and_the_draft_stays_without_its_own_alert(
     session: AsyncSession,
     llm: Plug,
     monkeypatch: pytest.MonkeyPatch,
@@ -227,8 +228,7 @@ async def test_c4_bot_without_a_token_calls_nobody_alerts_once_and_the_draft_sta
     [row] = await journal(session)
     assert row.status == NoticeStatus.UNDELIVERED
     assert "SALES_TELEGRAM_BOT_TOKEN" in (row.error or "")
-    [alert] = alerts
-    assert "SALES_TELEGRAM_BOT_TOKEN" in alert
+    assert alerts == [], "тревога без токена — одна сводная, а не на каждый черновик"
     draft = await session.get(AgentDraftModel, outcome.draft_id)
     assert draft is not None
     assert (draft.status, draft.body) == (DraftStatus.DRAFTED, GOOD)

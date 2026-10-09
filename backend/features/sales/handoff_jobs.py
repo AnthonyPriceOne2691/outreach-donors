@@ -17,7 +17,8 @@
 
 **Проход повторов** живёт третьим циклом процесса разбора мёртвых
 (`workers/reaper.py`): новый контейнер ради одного запроса раз в пять минут — ещё
-один процесс, который однажды не поднимется.
+один процесс, который однажды не поднимется. Тем же кругом — сторож бота продаж:
+сводная тревога «без токена» в общую ленту (`agent/notify.watch_token`).
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from backend.config import storage
 from backend.config.startup_checks import ConfigError, check_storage
 from backend.features.runs.failures import described, is_permanent
+from backend.features.sales.agent.notify import watch_token
 from backend.features.sales.handoff import Deps, due, enqueue_handoff, process
 from backend.features.sales.kommo import (
     FIXTURE,
@@ -130,14 +132,22 @@ async def retry_pass() -> None:
     """Один круг повторов: передачи, которым пора, — в очередь. Очередь не ответила —
     строка в журнал: срок уже сдвинут, передачу возьмёт следующий круг через срок.
     Kommo и Telegram зовёт задача очереди, а не разбор: их сбой — повтор позже, а не мёртвый сервис.
+    Сторож бота продаж — после очереди: его сбой повторов передачи не держит.
     """
     engine = create_async_engine(storage.DSN)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with factory() as session:
             ids = await due(session, now=datetime.now(UTC))
+        _queue_again(ids)
+        async with factory() as session:
+            await watch_token(session)
     finally:
         await engine.dispose()
+
+
+def _queue_again(ids: list[int]) -> None:
+    """Передачи, которым пора, — в очередь; очередь не ответила — строка в журнал."""
     for handoff_id in ids:
         try:
             enqueue_handoff(handoff_id)

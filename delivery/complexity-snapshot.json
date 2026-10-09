@@ -1752,9 +1752,9 @@
       "worst": "_move:105"
     },
     "backend/features/sales/agent/notify.py": {
-      "lines": 306,
-      "complexity": 7,
-      "worst": "notify:114"
+      "lines": 371,
+      "complexity": 8,
+      "worst": "notify:127"
     },
     "backend/features/sales/agent/parts.py": {
       "lines": 110,
@@ -1847,9 +1847,9 @@
       "worst": "_card:387"
     },
     "backend/features/sales/handoff_jobs.py": {
-      "lines": 151,
+      "lines": 161,
       "complexity": 4,
-      "worst": "hand_off_lead:110"
+      "worst": "hand_off_lead:112"
     },
     "backend/features/sales/handoff_kommo.py": {
       "lines": 154,
