@@ -596,6 +596,8 @@ REVIEWED = {
     "runs.settings_id → run_settings NO ACTION": "версия уходит, только если не ссылаются",
     "messages.answers_reply_id → replies SET NULL": "ответ, на который ответили, не уходит",
     "reply_attachments.reply_id → replies CASCADE": "вложения пробного ответа уходят с ним",
+    "outgoing_attachments.message_id → messages CASCADE": "файлы липового письма уходят с ним",
+    "outgoing_attachments.thread_id → threads CASCADE": "уходит только липовая переписка",
     "agent_drafts.reply_id → replies CASCADE": "черновик пробного ответа уходит с ним",
     "sales_draft_notices.draft_id → agent_drafts CASCADE": "сообщение о черновике — с черновиком",
     "replies.message_id → messages SET NULL": "уходят только липовые письма — с ответами",
