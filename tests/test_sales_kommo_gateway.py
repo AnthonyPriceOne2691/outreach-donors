@@ -85,6 +85,15 @@ def _failed(status: int, error: str, **extra: Any) -> httpx.Response:
     return httpx.Response(status, json={"success": False, "error": error, **extra})
 
 
+#: Журнал клиента шлюза; строки httpx о запросе — не его.
+GATEWAY_LOG = "backend.features.sales.kommo_gateway"
+
+
+def _logged(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    """Строки журнала клиента шлюза: другие логгеры набора могли поднять свои уровни."""
+    return [record for record in caplog.records if record.name == GATEWAY_LOG]
+
+
 # --- тело запроса: только то, что знаем -------------------------------------------------------
 
 
@@ -200,13 +209,13 @@ async def test_success_gives_the_deal_number_and_its_link(
 ) -> None:
     script = Script(_made(9341, contact_id=77031))
 
-    with caplog.at_level(logging.INFO, logger="backend.features.sales.kommo_gateway"):
+    with caplog.at_level(logging.INFO, logger=GATEWAY_LOG):
         created = await _gateway(script, lambda client: client.create_complex_lead(LEAD))
 
     assert created == CreatedLead(
         id=9341, url=DEAL, contact_id=77031, company_id=None, contact_found=False
     )
-    [record] = caplog.records
+    [record] = _logged(caplog)
     assert (record.levelno, record.getMessage()) == (logging.INFO, "kommo: шлюз завёл сделку")
     assert (record.lead_id, record.warnings) == (9341, [])  # type: ignore[attr-defined]
 
@@ -217,11 +226,11 @@ async def test_gateway_warnings_go_to_the_log_as_a_field(
     told = ["контакт склеен с №5823", {"field": "site", "warning": f"трим {KEY}"}]
     script = Script(_made(9341, contact_id=None, warnings=told))
 
-    with caplog.at_level(logging.INFO, logger="backend.features.sales.kommo_gateway"):
+    with caplog.at_level(logging.INFO, logger=GATEWAY_LOG):
         created = await _gateway(script, lambda client: client.create_complex_lead(LEAD))
 
     assert (created.id, created.contact_id) == (9341, None)
-    [record] = caplog.records
+    [record] = _logged(caplog)
     assert record.levelno == logging.WARNING
     assert record.getMessage() == "kommo: шлюз завёл сделку с предупреждениями"
     assert record.warnings == [  # type: ignore[attr-defined]
@@ -235,11 +244,11 @@ async def test_a_single_warning_and_a_flood_of_them_are_kept_short(
 ) -> None:
     script = Script(_made(warnings="один"), _made(warnings=["x" * 400] * 17))
 
-    with caplog.at_level(logging.INFO, logger="backend.features.sales.kommo_gateway"):
+    with caplog.at_level(logging.INFO, logger=GATEWAY_LOG):
         await _gateway(script, lambda client: client.create_complex_lead(LEAD))
         await _gateway(script, lambda client: client.create_complex_lead(LEAD))
 
-    one, flood = (record.warnings for record in caplog.records)  # type: ignore[attr-defined]
+    one, flood = (record.warnings for record in _logged(caplog))  # type: ignore[attr-defined]
     assert one == ["один"]
     assert (len(flood), {len(item) for item in flood}) == (10, {300})
 
