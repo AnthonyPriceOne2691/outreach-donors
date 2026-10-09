@@ -38,7 +38,6 @@ import {
   Switch,
   Table,
   Text,
-  Title,
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
@@ -56,6 +55,7 @@ import type { AccuracyView, ReviewDecision, ReviewView } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { BackLink, backTo } from '../components/BackLink';
 import { Metric } from '../components/Metric';
+import { PageHead } from '../components/PageHead';
 import { CandidateRow } from './CandidateRow';
 
 const STATUSES = Object.keys(REVIEW_DECISIONS) as ReviewDecision[];
@@ -136,11 +136,21 @@ function JudgeScore({ accuracy }: { accuracy: AccuracyView }) {
 
 /** Верх экрана: возврат, заголовок, пояснение. Стоит и пока очередь едет —
  *  номер прогона известен из адреса. */
-function Head({ back, title, children }: { back: string; title: string; children?: ReactNode }) {
+function Head({
+  back,
+  title,
+  hint,
+  children,
+}: {
+  back: string;
+  title: string;
+  hint?: string;
+  children?: ReactNode;
+}) {
   return (
     <Stack gap={6}>
       <BackLink to={back}>К прогонам</BackLink>
-      <Title order={3}>{title}</Title>
+      <PageHead title={title} {...(hint === undefined ? {} : { hint })} />
       {children}
     </Stack>
   );
@@ -275,11 +285,14 @@ export function RunReviewPage() {
     <Stack gap="lg">
       <Card className="glassPanel" p="xl">
         <Stack gap="md">
-          <Head back={back} title={title}>
-            <Text size="sm" c="dimmed" maw={720}>
-              {countryTitle(view.run.country)}, ключей {view.run.keywords}. Годные по порогам ждут
-              решения: контакты ищутся и письма собираются только принятым. Судья сортирует очередь
-              и подсказывает, но не решает; сомнительные скрыты, а не выброшены.
+          {/* Под заголовком — факты прогона; как устроен экран — в «i» (аудит 09.10.2026). */}
+          <Head
+            back={back}
+            title={title}
+            hint="Годные по порогам ждут решения: контакты ищутся и письма собираются только принятым. Судья сортирует очередь и подсказывает, но не решает; сомнительные скрыты, а не выброшены."
+          >
+            <Text size="sm">
+              {countryTitle(view.run.country)}, ключей {view.run.keywords}
             </Text>
             {/* Пояснение там, где его видно, а не под полусотней строк: без
                 него пропавшая колонка читалась бы как поломка. */}

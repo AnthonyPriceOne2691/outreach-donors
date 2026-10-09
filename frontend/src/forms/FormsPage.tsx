@@ -41,7 +41,6 @@ import {
   Table,
   Text,
   TextInput,
-  Title,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -51,6 +50,7 @@ import { refusalOf } from '../api/client';
 import { fetchForms, formFilled, formGaveUp } from '../api/contacts';
 import type { FormCard } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
+import { PageHead } from '../components/PageHead';
 import { PageSwitch, usePageParam } from '../components/PageSwitch';
 import { Seams } from '../components/Seams';
 import { formatCompact, formatDate } from '../format';
@@ -145,12 +145,10 @@ export function FormsPage() {
     <Stack gap="lg">
       <Card className="glassPanel" p="xl">
         <Stack gap="sm">
-          <Title order={3}>Формы</Title>
-          <Text size="sm" c="dimmed" maw={680}>
-            У этих доноров есть контактная форма и нет почты. Лестница дошла до них и остановилась:
-            дальше нужны руки. Заполнили и получили адрес — впишите его, и донор пойдёт в очередь
-            писем обычным порядком.
-          </Text>
+          <PageHead
+            title="Формы"
+            hint="У этих доноров есть контактная форма и нет почты. Лестница дошла до них и остановилась: дальше нужны руки. Заполнили и получили адрес — впишите его, и донор пойдёт в очередь писем обычным порядком."
+          />
           <Text size="sm">
             В очереди <b>{data?.total ?? 0}</b>. Потолок на месяц: <b>{data?.monthly_left ?? 0}</b>{' '}
             из {data?.monthly_cap ?? 0} осталось.

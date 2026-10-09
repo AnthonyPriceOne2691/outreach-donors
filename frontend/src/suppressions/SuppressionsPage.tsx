@@ -57,6 +57,7 @@ import { addSuppression, listSuppressions, removeSuppression } from '../api/outr
 import { SUPPRESSION_REASON_TITLES } from '../api/labels';
 import type { StopEntry, SuppressionReason } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
+import { PageHead } from '../components/PageHead';
 import { Seams } from '../components/Seams';
 import { formatDate } from '../format';
 
@@ -161,12 +162,10 @@ export function SuppressionsPage() {
     <Stack gap="lg">
       <Card className="glassPanel" p="xl">
         <Stack gap="sm">
-          <Title order={3}>Стоп-лист</Title>
-          <Text size="sm" c="dimmed" maw={680}>
-            Кому мы не пишем ни на одном этапе. Проверяется дважды: при отборе доменов — домен из
-            списка в прогон не идёт и юнитов на него не тратится, — и перед каждой отправкой, так
-            что письмо адресату из списка не уйдёт, даже если его собрали раньше.
-          </Text>
+          <PageHead
+            title="Стоп-лист"
+            hint="Кому мы не пишем ни на одном этапе. Проверяется дважды: при отборе доменов — домен из списка в прогон не идёт и юнитов на него не тратится, — и перед каждой отправкой, так что письмо адресату из списка не уйдёт, даже если его собрали раньше."
+          />
           <Text size="sm">
             Всего записей <b>{data?.total ?? 0}</b>, из них по решению адресата{' '}
             <b>{data?.donor_decisions ?? 0}</b>
