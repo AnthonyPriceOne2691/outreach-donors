@@ -391,9 +391,12 @@ async def test_switched_off_no_retries_and_rows_wait(
 # --- проход: тем же кругом, после повторов передачи -----------------------------------------------
 
 
-async def test_retry_pass_queues_notice_retries_after_handoff_retries(
-    session: AsyncSession, llm: Plug, wired: list[float], monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def _three_due(
+    session: AsyncSession, llm: Plug, monkeypatch: pytest.MonkeyPatch
+) -> tuple[list[tuple[str, int]], list[tuple[str, int]]]:
+    """Проходу пора: передаче (Kommo не ответил), сообщению о лиде и сообщению о черновике.
+    Очередь — список; проход работает в транзакции теста. Возвращает список постановок и
+    ожидаемый порядок."""
     api, alarms = BotApi(down()), Alarms()
     notice = await first(session, llm, api, alarms, at=datetime.now(UTC) - timedelta(hours=1))
     rows = {}
@@ -412,17 +415,24 @@ async def test_retry_pass_queues_notice_retries_after_handoff_retries(
     order: list[tuple[str, int]] = []
     monkeypatch.setattr(handoff_jobs, "enqueue_handoff", lambda n: order.append(("handoff", n)))
     monkeypatch.setattr(handoff_jobs, "enqueue_message", lambda n: order.append(("message", n)))
-    monkeypatch.setattr(handoff_jobs, "queue_resend", lambda n, t: order.append(("notice", n)))
+    monkeypatch.setattr(handoff_jobs, "queue_resend", lambda n, _t: order.append(("notice", n)))
     monkeypatch.setattr(handoff_jobs, "create_async_engine", lambda _dsn: _Closable())
     monkeypatch.setattr(
         handoff_jobs,
         "async_sessionmaker",
         lambda _engine, **_kw: async_sessionmaker(bind=session.bind, expire_on_commit=False),
     )
+    return order, [("handoff", kommo.id), ("message", message.id), ("notice", notice.id)]
+
+
+async def test_retry_pass_queues_notice_retries_after_handoff_retries(
+    session: AsyncSession, llm: Plug, wired: list[float], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    order, expected = await _three_due(session, llm, monkeypatch)
 
     await handoff_jobs.retry_pass()
 
-    assert order == [("handoff", kommo.id), ("message", message.id), ("notice", notice.id)]
+    assert order == expected
 
 
 # --- задача очереди и ревизия ------------------------------------------------------------------
