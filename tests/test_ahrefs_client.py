@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 from backend.features.ahrefs.client import (
+    MAX_ATTEMPTS,
     MAX_BACKOFF_SEC,
     AhrefsClient,
     AhrefsError,
@@ -15,6 +16,7 @@ from backend.features.ahrefs.client import (
 )
 from backend.features.ahrefs.units import MAX_BATCH_TARGETS, UnitsCost
 from backend.features.runs.reasons import explained
+from backend.shared.net.retry import reason_of
 
 COST_HEADERS = {
     "x-api-units-cost-total-actual": "55",
@@ -148,6 +150,39 @@ class TestRetries:
 
         with pytest.raises(AhrefsError, match="units limit reached"):
             await _client(handler).metrics_by_country("example.com", "2026-09-01")
+
+    async def test_exhausted_retries_name_the_operation_once(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Имя операции — в начале строки один раз, а не ещё раз в хвосте."""
+        monkeypatch.setattr("backend.features.ahrefs.client.asyncio.sleep", _no_sleep)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(503, text="overloaded")
+
+        with pytest.raises(AhrefsError) as caught:
+            await _client(handler).metrics_by_country("example.com", "2026-09-01")
+
+        text = str(caught.value)
+        operation = text.split(":", 1)[0]
+        assert text == f"{operation}: не удалось, попыток: {MAX_ATTEMPTS} — 503 overloaded"
+
+    async def test_exhausted_network_retries_say_why_in_words(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """У тайм-аута httpx текст пустой: причина — словами `reason_of`, а не пустой хвост."""
+        monkeypatch.setattr("backend.features.ahrefs.client.asyncio.sleep", _no_sleep)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ReadTimeout("", request=request)
+
+        with pytest.raises(AhrefsError) as caught:
+            await _client(handler).metrics_by_country("example.com", "2026-09-01")
+
+        assert str(caught.value).endswith(
+            f"попыток: {MAX_ATTEMPTS} — {reason_of(httpx.ReadTimeout(''))}"
+        )
+        assert isinstance(caught.value.__cause__, httpx.ReadTimeout)
 
     def test_retry_after_is_honoured_but_capped(self) -> None:
         """Провайдеру верим, но не безоговорочно: «подождите час» не должно

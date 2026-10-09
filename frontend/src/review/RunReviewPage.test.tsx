@@ -116,6 +116,17 @@ async function openReview(routes: Record<string, unknown> = {}, who = ADMIN) {
 }
 
 describe('рассмотрение прогона', () => {
+  it('длинный домен кандидата переносится по швам, а не посреди слова', async () => {
+    // Запись UI_RULES 08.10.2026: колонка «Домен» рассмотрения оставалась без швов.
+    const host = 'gambling-news-and-analysis.example.test';
+    await openReview({ [PENDING]: { body: { ...VIEW, rows: [...VIEW.rows, card(77, host)] } } });
+
+    const name = screen.getByRole('link', { name: host });
+    expect(name).toHaveTextContent(host);
+    expect(name.querySelectorAll('wbr')).toHaveLength(2);
+    expect(name).toHaveClass('cellName');
+  });
+
   it('у каждого кандидата ярлык судьи, и «не смотрел» — тоже ярлык', async () => {
     await openReview();
 

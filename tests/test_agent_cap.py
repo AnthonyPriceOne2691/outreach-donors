@@ -132,12 +132,17 @@ def test_empty_sales_cap_in_env_is_unset_not_a_parse_error(
 @pytest.mark.parametrize(
     ("general", "own", "warned"),
     [
-        (0, None, NO_GENERAL + "черновики агента, судья и разбор ответов тратят без предела"),
+        (
+            0,
+            None,
+            NO_GENERAL + "черновики агента, вызовы модели продаж, судья и разбор ответов тратят "
+            "без предела",
+        ),
         (
             0,
             83,
-            NO_GENERAL + "судья и разбор ответов тратят без предела, черновики агента — до своего "
-            "потолка 83 (AGENT_DAILY_TOKEN_CAP)",
+            NO_GENERAL + "вызовы модели продаж, судья и разбор ответов тратят без предела, "
+            "черновики агента — до своего потолка 83 (AGENT_DAILY_TOKEN_CAP)",
         ),
         (5_437, None, None),  # не задан — доля общего, 1631
         (5_437, 1_631, None),  # ровно доля
@@ -145,7 +150,7 @@ def test_empty_sales_cap_in_env_is_unset_not_a_parse_error(
             5_437,
             1_632,
             "свой потолок черновиков 1632 (AGENT_DAILY_TOKEN_CAP) больше доли 30 % общего 5437 "
-            "(LLM_DAILY_TOKEN_CAP): черновики могут выбрать день разбору ответов и судье",
+            "(LLM_DAILY_TOKEN_CAP): черновики агента могут выбрать день разбору ответов и судье",
         ),
         (
             5_437,
@@ -156,8 +161,8 @@ def test_empty_sales_cap_in_env_is_unset_not_a_parse_error(
         (
             5_437,
             0,
-            "своего потолка черновиков нет (AGENT_DAILY_TOKEN_CAP=0): черновики могут выбрать весь "
-            "общий 5437 (LLM_DAILY_TOKEN_CAP) — разбору ответов и судье не останется",
+            "своего потолка черновиков нет (AGENT_DAILY_TOKEN_CAP=0): черновики агента могут выбрать "
+            "весь общий 5437 (LLM_DAILY_TOKEN_CAP) — разбору ответов и судье не останется",
         ),
     ],
     ids=[
@@ -179,6 +184,7 @@ def test_start_says_in_words_which_cap_does_not_hold_the_drafts(
 ) -> None:
     monkeypatch.setattr(llm_cfg, "DAILY_TOKEN_CAP", general)
     monkeypatch.setattr(llm_cfg, "AGENT_DAILY_TOKEN_CAP", own)
+    monkeypatch.setattr(llm_cfg, "SALES_DAILY_TOKEN_CAP", None)
     monkeypatch.setattr(guarding, "AGENT_STAGES", WITHOUT_SALES)
 
     with caplog.at_level(logging.INFO, logger=guarding.__name__):
@@ -206,9 +212,68 @@ def test_start_names_the_agent_stages_and_the_sales_switch(
 ) -> None:
     monkeypatch.setattr(llm_cfg, "DAILY_TOKEN_CAP", 5_437)
     monkeypatch.setattr(llm_cfg, "AGENT_DAILY_TOKEN_CAP", None)
+    monkeypatch.setattr(llm_cfg, "SALES_DAILY_TOKEN_CAP", None)
     monkeypatch.setattr(guarding, "AGENT_STAGES", registry)
 
     assert guarding.said_at_start() == [said]
+
+
+@pytest.mark.parametrize(
+    ("general", "agent", "sales", "warned"),
+    [
+        (5_437, None, None, []),
+        (5_437, None, 1_087, []),  # ровно доля 20 % общего
+        (
+            5_437,
+            None,
+            1_088,
+            [
+                "свой потолок вызовов модели продаж 1088 (SALES_DAILY_TOKEN_CAP) больше доли 20 % "
+                "общего 5437 (LLM_DAILY_TOKEN_CAP): вызовы модели продаж могут выбрать день "
+                "разбору ответов, судье и черновикам"
+            ],
+        ),
+        (
+            5_437,
+            0,
+            0,
+            [
+                "своего потолка черновиков нет (AGENT_DAILY_TOKEN_CAP=0): черновики агента могут "
+                "выбрать весь общий 5437 (LLM_DAILY_TOKEN_CAP) — разбору ответов и судье не "
+                "останется",
+                "своего потолка вызовов модели продаж нет (SALES_DAILY_TOKEN_CAP=0): вызовы модели "
+                "продаж могут выбрать весь общий 5437 (LLM_DAILY_TOKEN_CAP) — разбору ответов, "
+                "судье и черновикам не останется",
+            ],
+        ),
+        (
+            0,
+            83,
+            50,
+            [
+                NO_GENERAL + "судья и разбор ответов тратят без предела, черновики агента — до "
+                "своего потолка 83 (AGENT_DAILY_TOKEN_CAP), вызовы модели продаж — до своего "
+                "потолка 50 (SALES_DAILY_TOKEN_CAP)"
+            ],
+        ),
+    ],
+    ids=["shares", "sales-at-share", "sales-above-share", "both-own-0", "no-general-both-own"],
+)
+def test_start_says_which_cap_does_not_hold_the_sales_calls(
+    monkeypatch: pytest.MonkeyPatch,
+    general: int,
+    agent: int | None,
+    sales: int | None,
+    warned: list[str],
+) -> None:
+    """Потолок продаж (`SALES_DAILY_TOKEN_CAP`) — тем же правилом доли, что у черновиков:
+    вид ответа лида и сборка очереди продаж выбрали бы общий день целиком."""
+    monkeypatch.setattr(llm_cfg, "DAILY_TOKEN_CAP", general)
+    monkeypatch.setattr(llm_cfg, "AGENT_DAILY_TOKEN_CAP", agent)
+    monkeypatch.setattr(llm_cfg, "SALES_DAILY_TOKEN_CAP", sales)
+    monkeypatch.setattr(guarding, "AGENT_STAGES", WITHOUT_SALES)
+
+    assert guarding.said_at_start() == [OFF, *warned]
 
 
 @pytest.mark.usefixtures("jwt_secret")

@@ -17,6 +17,7 @@ import { Anchor, Badge, Button, Group, Stack, Table, Text } from '@mantine/core'
 import { DONOR_STATUSES, HUMAN_INTENTS, NOT_REACHED, SELECTION_HUMAN } from '../api/labels';
 import type { HumanIntent, SelectionCard } from '../api/types';
 import { JudgeVerdict, SellerAnswer } from '../components/JudgeVerdict';
+import { Seams } from '../components/Seams';
 
 interface Props {
   row: SelectionCard;
@@ -88,8 +89,14 @@ export function SelectionRow(props: Props) {
   return (
     <Table.Tr>
       <Table.Td>
-        <Anchor href={`https://${row.host}`} target="_blank" rel="noreferrer" fw={500}>
-          {row.host}
+        <Anchor
+          href={`https://${row.host}`}
+          target="_blank"
+          rel="noreferrer"
+          fw={500}
+          className="cellName"
+        >
+          <Seams text={row.host} />
         </Anchor>
         {row.dr !== null && (
           <Text size="xs" c="dimmed">

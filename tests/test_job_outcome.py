@@ -7,13 +7,14 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from backend.features.ops import job_outcome as module
-from backend.features.ops.job_outcome import job_outcome
+from backend.features.ops.job_outcome import SILENT, job_outcome
 from backend.shared.queue import (
     CRAWL_JOB,
     CRAWL_QUEUE_NAME,
@@ -133,6 +134,23 @@ def test_unknown_job_and_silent_queue_are_different(fetched: dict[str, Any]) -> 
     outcome = job_outcome("job-1", redis=object())  # type: ignore[arg-type]
     assert outcome is not None
     assert (outcome.state, outcome.title) == ("unknown", "очередь не отвечает")
+
+
+def test_silent_queue_does_not_show_its_address(
+    fetched: dict[str, Any], caplog: pytest.LogCaptureFixture
+) -> None:
+    """Текст redis-py несёт адрес и порт очереди: на экран — слова, сам текст — в журнал полем."""
+    raw = "Error 111 connecting to redis:6379. Connection refused."
+    fetched["job"] = RedisConnectionError(raw)
+
+    with caplog.at_level(logging.WARNING, logger="backend.features.ops.job_outcome"):
+        outcome = job_outcome("job-1", redis=object())  # type: ignore[arg-type]
+
+    assert outcome is not None
+    assert outcome.error == SILENT
+    assert "6379" not in outcome.error
+    assert [getattr(record, "error", None) for record in caplog.records] == [raw]
+    assert all("6379" not in record.getMessage() for record in caplog.records)
 
 
 class _Scheduled:

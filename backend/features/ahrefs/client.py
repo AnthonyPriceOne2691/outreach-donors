@@ -225,6 +225,9 @@ class AhrefsClient:
 
     async def _request(self, method: str, path: str, *, operation: str, **kwargs: Any) -> Response:
         last_error: Exception | None = None
+        #: Что сказала последняя неудачная попытка — без имени операции: оно
+        #: стоит в начале итоговой строки один раз.
+        last_reason = ""
 
         for attempt in range(1, MAX_ATTEMPTS + 1):
             await self._limiter.acquire()
@@ -235,13 +238,13 @@ class AhrefsClient:
                     # Не собран у нас — повтор соберёт так же, а текст
                     # исключения несёт заголовок с ключом.
                     raise AhrefsError(f"{operation}: {reason_of(exc)}", permanent=True) from None
-                last_error = exc
+                last_error, last_reason = exc, reason_of(exc)
                 logger.debug(
                     "Ahrefs %s: сетевая ошибка на попытке %s из %s — %s",
                     operation,
                     attempt,
                     MAX_ATTEMPTS,
-                    reason_of(exc),
+                    last_reason,
                 )
                 if attempt == MAX_ATTEMPTS:
                     break
@@ -262,14 +265,13 @@ class AhrefsClient:
 
             if response.status_code in RETRY_STATUSES:
                 # Текст провайдера кладётся в ошибку СРАЗУ. Без него исход
-                # «не удалось за N попыток» одинаков для перегрузки и для
+                # «не удалось, попыток: N» одинаков для перегрузки и для
                 # исчерпанных юнитов, а это разные вещи: первое пройдёт
                 # само, второе не пройдёт никогда. 429 здесь по-прежнему
                 # повторяется — гадать по коду мы не беремся, — но
                 # человек увидит, что именно сказал Ahrefs.
-                last_error = AhrefsError(
-                    f"{operation}: {response.status_code} {response.text[:200]}"
-                )
+                last_reason = f"{response.status_code} {response.text[:200]}"
+                last_error = AhrefsError(f"{operation}: {last_reason}")
                 if attempt == MAX_ATTEMPTS:
                     break
                 delay = _retry_delay(attempt, response)
@@ -287,8 +289,11 @@ class AhrefsClient:
             _raise_for_status(response, operation)
             return Response(rows=_rows(_json(response, operation), operation), cost=cost)
 
+        # Имя операции — один раз: до 09.10.2026 хвост брался из `last_error`,
+        # который сам начинается с него («batch_metrics: не удалось за 4 попыток —
+        # batch_metrics: 503»), а у сетевой ошибки httpx бывал пустым.
         raise AhrefsError(
-            f"{operation}: не удалось за {MAX_ATTEMPTS} попыток — {last_error}"
+            f"{operation}: не удалось, попыток: {MAX_ATTEMPTS} — {last_reason}"
         ) from last_error
 
 

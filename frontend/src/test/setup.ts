@@ -1,9 +1,39 @@
 import '@testing-library/jest-dom/vitest';
 
 import { notifications } from '@mantine/notifications';
+import { configure } from '@testing-library/react';
 import { afterEach, vi } from 'vitest';
 
 import { misses } from './server';
+
+// `findBy…` и `waitFor` ждали секунду — у полного прогона под нагрузкой (pre-push рядом со
+// сборкой, два дерева разом) экран не успевал, и тест падал не по делу. Три секунды — с
+// запасом, но меньше потолка теста (5 с): упавший тест по-прежнему говорит, чего не дождался.
+configure({ asyncUtilTimeout: 3000 });
+
+/**
+ * jsdom не знает ссылок на объекты (`URL.createObjectURL`). Скачивание (`api/donors.saveFile`)
+ * убирает ссылку таймером через секунду — под нагрузкой уже после теста, который подставлял
+ * свои заглушки и снял их: «revokeObjectURL is not a function» вне теста роняло прогон целиком.
+ * Ровные заглушки стоят всегда; тест подставляет свои и снимает — эти возвращаются после него.
+ */
+function objectUrls(): void {
+  if (typeof URL.createObjectURL !== 'function') {
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      writable: true,
+      value: () => 'blob:test',
+    });
+  }
+  if (typeof URL.revokeObjectURL !== 'function') {
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      writable: true,
+      value: () => undefined,
+    });
+  }
+}
+objectUrls();
 
 // Хранилище и заглушка сети чистятся между тестами: иначе пропуск,
 // оставленный одним тестом, пускает следующий, и порядок запуска
@@ -11,6 +41,8 @@ import { misses } from './server';
 afterEach(() => {
   localStorage.clear();
   vi.restoreAllMocks();
+  // Хуки «после» идут в обратном порядке: этот — после хуков файла, снявших свои заглушки.
+  objectUrls();
   // Уведомления Mantine живут в общем хранилище модуля: сверх пяти видимых
   // новые ждут в очереди, и уведомление теста, идущего после болтливых
   // соседей, не показывалось вовсе — тест падал от порядка запуска.

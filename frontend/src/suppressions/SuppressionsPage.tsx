@@ -57,6 +57,7 @@ import { addSuppression, listSuppressions, removeSuppression } from '../api/outr
 import { SUPPRESSION_REASON_TITLES } from '../api/labels';
 import type { StopEntry, SuppressionReason } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
+import { Seams } from '../components/Seams';
 import { formatDate } from '../format';
 
 const STOP_LIST_QUERY_KEY = ['suppressions'] as const;
@@ -259,7 +260,9 @@ export function SuppressionsPage() {
               <Table.Tbody>
                 {rows.map((row) => (
                   <Table.Tr key={row.id}>
-                    <Table.Td className="cellName">{row.host ?? row.email}</Table.Td>
+                    <Table.Td className="cellName">
+                      <Seams text={row.host ?? row.email ?? ''} />
+                    </Table.Td>
                     <Table.Td>
                       <Badge color={row.donor_decision ? 'red' : 'gray'} variant="light">
                         {SUPPRESSION_REASON_TITLES[row.reason]}

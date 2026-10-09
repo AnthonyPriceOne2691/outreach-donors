@@ -75,6 +75,11 @@ TITLES = {
     "unknown": "очередь не отвечает",
 }
 
+#: Очередь не ответила о задаче — причина словами. Без утверждения о самой задаче: она
+#: могла и встать, и идти. Текст redis-py (адрес и порт очереди) на экран не выходит —
+#: только в журнал полем, как у 503 маршрутов (`api/errors._queue_down`).
+SILENT = "что с задачей, сейчас не узнать — посмотрите позже"
+
 
 @dataclass(frozen=True, slots=True)
 class JobOutcome:
@@ -105,8 +110,8 @@ def job_outcome(job_id: str, redis: Redis | None = None) -> JobOutcome | None:
         logger.info("задачи %s в очереди нет — итог истёк или номер чужой", job_id)
         return None
     except RedisError as exc:
-        logger.warning("очередь не ответила о задаче %s: %s", job_id, exc)
-        return JobOutcome(job_id=job_id, kind="задача", state="unknown", error=str(exc))
+        logger.warning("очередь не ответила о задаче %s", job_id, extra={"error": str(exc)})
+        return JobOutcome(job_id=job_id, kind="задача", state="unknown", error=SILENT)
 
 
 #: Статус очереди → исход. «finished» уточняется отчётом: причина вместо
