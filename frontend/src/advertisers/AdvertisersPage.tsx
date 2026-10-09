@@ -73,15 +73,17 @@ const VERDICTS: Record<CandidateCard['verdict'], { label: string; color: string 
   blocked: { label: 'кому не пишем', color: 'gray' },
 };
 
-/** Колонки слева направо. Ширина первой — остаток: в ней рекламодатель.
- *  «За что» и «Ссылка» — текст, он переносится; остальные — по самому
- *  длинному шрифтом экрана (25.09.2026): кнопки «Пишем» и «Не пишем» с
- *  зазором — около 154 px. Плюс 32 px полей ячейки и запас. */
+/** Колонки слева направо. **Остаток — «За что»**: в ней причины скоринга, по строке
+ *  на причину, и в 15rem они переносились, а «+2» вставало на свою строку — строка
+ *  таблицы росла до 130–160 px, пока «Кому ссылается» держала ~300 px под короткий
+ *  домен (аудит экранов 09.10.2026). Домену — 13rem, он переносится по швам; «Ссылка» —
+ *  текст; остальные — по самому длинному шрифтом экрана (25.09.2026): кнопки «Пишем» и
+ *  «Не пишем» с зазором — около 154 px. Плюс 32 px полей ячейки и запас. */
 const COLUMNS: Column[] = [
-  { title: 'Кому ссылается' },
+  { title: 'Кому ссылается', width: '13rem' },
   { title: 'Донор', width: '11rem' },
   { title: 'Балл', width: '4.75rem' },
-  { title: 'За что', width: '15rem' },
+  { title: 'За что' },
   { title: 'Ссылка', width: '12rem' },
 ];
 const ACTIONS_WIDTH = '12.5rem';
@@ -334,9 +336,13 @@ export function AdvertisersPage() {
                     </Table.Td>
                     {mayDecide ? (
                       <Table.Td>
+                        {/* Обе кнопки — одного веса: экран меряет ошибки скоринга, и
+                            залитая «Пишем» в каждой строке подталкивала соглашаться
+                            с ним (аудит экранов 09.10.2026). */}
                         <Group gap="xs" justify="center" wrap="nowrap">
                           <Button
                             size="compact-sm"
+                            variant="light"
                             className="press"
                             loading={decide.isPending && decide.variables?.row.id === row.id}
                             onClick={() => decide.mutate({ row, confirmed: true })}
@@ -345,8 +351,7 @@ export function AdvertisersPage() {
                           </Button>
                           <Button
                             size="compact-sm"
-                            variant="subtle"
-                            color="gray"
+                            variant="default"
                             className="press"
                             onClick={() => decide.mutate({ row, confirmed: false })}
                           >
