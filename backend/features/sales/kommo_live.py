@@ -9,8 +9,9 @@
 Ответ без номера сделки — не «успех без ссылки», а сделка, которая могла
 создаться: громкий `KommoFormatError`, без повтора (A4).
 
-**Частота — не больше `KOMMO_RATE_PER_SEC` запросов в секунду** (`Pace`): Kommo
-считает их по IP, на превышение отвечает 429, а на частые 429 закрывает доступ (403).
+**Частота — не больше `KOMMO_RATE_PER_SEC` запросов в секунду** (`Pace`, общий со
+шлюзом — `kommo_wire.py`): Kommo считает их по IP, на превышение отвечает 429, а на
+частые 429 закрывает доступ (403).
 
 **Повторы — своим циклом поверх общих `delay_for` и `RETRY_STATUSES`**
 (`shared/net/retry.py`), а не общим `with_retries`, по трём причинам Kommo:
@@ -22,18 +23,14 @@
 только когда соединения не было или Kommo ответил 429/5xx; ушла и ответ
 потерян — `KommoUnconfirmedError` без повтора (урок отправки писем).
 
-**Ключа нет ни в адресе, ни в тексте ошибок, ни в журнале.** Он едет заголовком.
-Текст ошибок httpx несёт адрес запроса, а `LocalProtocolError` — значение
-заголовка целиком, то есть ключ; поэтому наружу идут свои исключения с одним
-типом ошибки и `from None` (урок вебхука лидов, #160).
+**Ключа нет ни в адресе, ни в тексте ошибок, ни в журнале.** Он едет заголовком,
+а обрыв связи называется своими словами с одним типом ошибки httpx (`kommo_wire.unreached`).
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import time
-from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
@@ -41,19 +38,28 @@ import httpx
 from backend.config import sales as cfg
 from backend.features.sales.kommo_types import (
     DOMAIN,
+    FULL,
     LIVE,
     CreatedLead,
     KommoAccount,
     KommoAuthError,
     KommoContact,
-    KommoError,
     KommoFormatError,
     KommoRefusedError,
-    KommoUnavailableError,
-    KommoUnconfirmedError,
     NewLead,
     lead_url,
     wanted_email,
+)
+from backend.features.sales.kommo_wire import (
+    NOT_SENT,
+    Pace,
+    Peer,
+    asked_wait,
+    body_of,
+    glimpse,
+    number_of,
+    temporary,
+    unreached,
 )
 from backend.shared.net.retry import MAX_DELAY_SEC, RETRY_STATUSES, delay_for
 
@@ -69,40 +75,10 @@ ATTEMPTS = 3
 #: а не `asyncio.sleep` всего процесса (как `shared/net/retry._sleep`).
 _sleep = asyncio.sleep
 
-#: Обрывы, при которых запрос точно не ушёл: соединения не было. Только их
-#: повторяем у записи — повтор дошедшей завёл бы в CRM вторую сделку.
-_NOT_SENT = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
-
-
-class Pace:
-    """Не чаще одного запроса в 1/N секунды — значит, не больше N в любую секунду.
-
-    Ровный шаг, а не окно: у передачи лида запросов два-три, пачка разом не
-    нужна, а шаг держит частоту и на повторах. Счёт — в памяти клиента: Kommo
-    считает по IP, но лидов единицы в день, и общий счётчик на процесс не
-    окупил бы своей сложности.
-    """
-
-    def __init__(
-        self,
-        per_second: float,
-        *,
-        clock: Callable[[], float] = time.monotonic,
-        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
-    ) -> None:
-        self._gap = 1.0 / per_second
-        self._clock = clock
-        self._sleep = sleep
-        self._next = float("-inf")
-
-    async def wait(self) -> None:
-        now = self._clock()
-        start = max(now, self._next)
-        # Место занимается до сна: запрос, пришедший, пока предыдущий ждёт,
-        # встаёт за ним, а не рядом.
-        self._next = start + self._gap
-        if start > now:
-            await self._sleep(start - now)
+#: Как прямой путь называется в словах обрыва связи.
+KOMMO = Peer(
+    who="Kommo", whose="Kommo", to="Kommo", settings="SALES_KOMMO_TOKEN и SALES_KOMMO_SUBDOMAIN"
+)
 
 
 class KommoLive:
@@ -110,6 +86,7 @@ class KommoLive:
     поменяется, и молчать об этом нельзя."""
 
     name = LIVE
+    can = FULL
 
     def __init__(
         self, http: httpx.AsyncClient, account: KommoAccount, *, pace: Pace | None = None
@@ -129,11 +106,11 @@ class KommoLive:
         response = await self._send("GET", "/contacts", params={"query": wanted})
         if response.status_code == httpx.codes.NO_CONTENT:
             return None  # так Kommo отвечает на пустой поиск
-        contacts = _embedded(_body(response), "contacts")
+        contacts = _embedded(body_of(response), "contacts")
         if contacts is None:
             raise KommoFormatError(
                 f"Kommo ответил HTTP {response.status_code} без списка контактов: "
-                f"{_glimpse(response)} — формат поменялся, читать лог, не гадать"
+                f"{glimpse(response.text)} — формат поменялся, читать лог, не гадать"
             )
         return _same_email(contacts, wanted)
 
@@ -185,7 +162,7 @@ class KommoLive:
                 )
             except httpx.HTTPError as exc:
                 if attempt == ATTEMPTS or not _resendable(exc, method):
-                    raise _unreached(exc, method) from None
+                    raise unreached(exc, method, KOMMO) from None
                 pause, why = delay_for(attempt - 1), type(exc).__name__
             else:
                 wait = None if attempt == ATTEMPTS else _pause(response, attempt - 1)
@@ -221,7 +198,7 @@ def _resendable(exc: httpx.HTTPError, method: str) -> bool:
     Чтение — всегда. Запись — только если она точно не ушла."""
     if isinstance(exc, httpx.LocalProtocolError):
         return False
-    return method == "GET" or isinstance(exc, _NOT_SENT)
+    return method == "GET" or isinstance(exc, NOT_SENT)
 
 
 def _pause(response: httpx.Response, attempt: int) -> float | None:
@@ -229,29 +206,10 @@ def _pause(response: httpx.Response, attempt: int) -> float | None:
     просит ждать дольше потолка (тогда отказ называет величину)."""
     if response.status_code not in RETRY_STATUSES:
         return None
-    asked = _asked_wait(response)
+    asked = asked_wait(response)
     if asked is None:
         return delay_for(attempt)
     return asked if asked <= MAX_DELAY_SEC else None
-
-
-def _unreached(exc: httpx.HTTPError, method: str) -> KommoError:
-    """Ответа нет. Наружу — только тип ошибки: в тексте httpx адрес запроса,
-    а у `LocalProtocolError` — значение заголовка, то есть ключ."""
-    kind = type(exc).__name__
-    if isinstance(exc, httpx.LocalProtocolError):
-        return KommoRefusedError(
-            f"запрос к Kommo не собран ({kind}) — проверить SALES_KOMMO_TOKEN "
-            "и SALES_KOMMO_SUBDOMAIN; повтор не поможет"
-        )
-    if method != "GET" and not isinstance(exc, _NOT_SENT):
-        return KommoUnconfirmedError(
-            f"ответ Kommo потерян после отправки ({kind}) — запись могла создаться; "
-            "проверить в Kommo руками: повтор вслепую завёл бы вторую"
-        )
-    return KommoUnavailableError(
-        f"Kommo не ответил: связь оборвалась ({kind}) — в CRM ничего не записано, повторим позже"
-    )
 
 
 #: Отказы со своими словами: что случилось и что делать человеку.
@@ -283,32 +241,15 @@ def _judge(response: httpx.Response) -> None:
     code = response.status_code
     if httpx.codes.is_success(code):
         return
-    if code == httpx.codes.TOO_MANY_REQUESTS or httpx.codes.is_server_error(code):
-        asked = _asked_wait(response)
-        wait = f", просит подождать {asked:g} с" if asked is not None else ""
-        raise KommoUnavailableError(
-            f"Kommo не принял запрос (HTTP {code}{wait}) — повторим позже", retry_after=asked
-        )
+    if (busy := temporary(response, KOMMO)) is not None:
+        raise busy
     kind, words = _REFUSALS.get(code, (KommoRefusedError, _REFUSED))
     raise kind(words.format(code=code, said=_said(response)))
 
 
-def _asked_wait(response: httpx.Response) -> float | None:
-    """Сколько просит подождать Kommo: заголовок `Retry-After` в секундах или поле
-    `retry_after` тела — свою паузу на 429 Kommo кладёт в тело."""
-    header = (response.headers.get("Retry-After") or "").strip()
-    if header.isdecimal():
-        return float(header)
-    body = _body(response)
-    value = body.get("retry_after") if isinstance(body, dict) else None
-    if isinstance(value, int | float) and not isinstance(value, bool) and value >= 0:
-        return float(value)
-    return None
-
-
 def _said(response: httpx.Response) -> str:
     """Что сказал Kommo об отказе: `detail` и ошибки проверки полей — для человека."""
-    body = _body(response)
+    body = body_of(response)
     if not isinstance(body, dict):
         return ""
     parts = [str(body.get("detail") or body.get("title") or ""), *_invalid_fields(body)]
@@ -325,27 +266,6 @@ def _invalid_fields(body: dict[str, Any]) -> list[str]:
             if isinstance(error, dict):
                 found.append(f"{error.get('path')}: {error.get('detail')}")
     return found
-
-
-def _body(response: httpx.Response) -> Any:
-    """Тело как JSON; не JSON — `None`, судит вызывающий по коду и форме."""
-    try:
-        return response.json()
-    except ValueError:
-        # Не JSON — исход, а не потеря: вызывающий назовёт его словами.
-        logger.debug("kommo: ответ не JSON", extra={"status": response.status_code})
-        return None
-
-
-def _glimpse(response: httpx.Response) -> str:
-    return repr(response.text[:120])
-
-
-def _number_of(value: object) -> int | None:
-    """Номер сущности Kommo: целое больше нуля. `True` — тоже int, но не номер."""
-    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
-        return value
-    return None
 
 
 def _embedded(body: Any, key: str) -> list[dict[str, Any]] | None:
@@ -383,7 +303,7 @@ def _same_email(contacts: list[dict[str, Any]], wanted: str) -> KommoContact | N
 
 
 def _contact_of(item: dict[str, Any]) -> KommoContact:
-    number = _number_of(item.get("id"))
+    number = number_of(item.get("id"))
     if number is None:
         raise KommoFormatError(
             f"у контакта в ответе Kommo нет номера: {str(item)[:120]!r} — формат поменялся, "
@@ -398,25 +318,25 @@ def _created(response: httpx.Response) -> tuple[int, int | None, int | None]:
     Ответ без номера сделки — не «успех без ссылки»: сделка могла создаться,
     а ссылки для человека нет. Громко и без повтора: повтор вслепую завёл бы
     вторую (A4)."""
-    body = _body(response)
+    body = body_of(response)
     rows = body if isinstance(body, list) and len(body) == 1 else [None]
     row = rows[0] if isinstance(rows[0], dict) else {}
-    number = _number_of(row.get("id"))
+    number = number_of(row.get("id"))
     if number is None:
         raise KommoFormatError(
-            f"Kommo ответил HTTP {response.status_code} без номера сделки: {_glimpse(response)} — "
+            f"Kommo ответил HTTP {response.status_code} без номера сделки: {glimpse(response.text)} — "
             "сделка могла создаться, но ссылку не собрать; проверить в Kommo руками: "
             "повтор вслепую завёл бы вторую"
         )
-    return number, _number_of(row.get("contact_id")), _number_of(row.get("company_id"))
+    return number, number_of(row.get("contact_id")), number_of(row.get("company_id"))
 
 
 def _note_number(response: httpx.Response) -> int:
-    notes = _embedded(_body(response), "notes") or []
-    number = _number_of(notes[0].get("id")) if len(notes) == 1 else None
+    notes = _embedded(body_of(response), "notes") or []
+    number = number_of(notes[0].get("id")) if len(notes) == 1 else None
     if number is None:
         raise KommoFormatError(
             f"Kommo ответил HTTP {response.status_code} без номера примечания: "
-            f"{_glimpse(response)} — примечание могло записаться; проверить в Kommo руками"
+            f"{glimpse(response.text)} — примечание могло записаться; проверить в Kommo руками"
         )
     return number

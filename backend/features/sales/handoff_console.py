@@ -26,9 +26,9 @@
 `user_updated`, как у решения по письму с неизвестным исходом
 (`letters/unknown_outcome.py`); что сделано, говорит поле «действие». Чтение не пишется.
 
-**Ключи — никуда.** Ключ Kommo и токен бота продаж не уходят ни в вывод, ни в журнал,
-ни в слова отказа: всё, что приходит из строки передачи или от человека, проходит
-`clean`.
+**Ключи — никуда.** Ключ Kommo, ключ шлюза агентства и токен бота продаж не уходят ни
+в вывод, ни в журнал, ни в слова отказа: всё, что приходит из строки передачи или от
+человека, проходит `clean`.
 """
 
 from __future__ import annotations
@@ -59,7 +59,7 @@ logger = logging.getLogger(__name__)
 #: Где Kommo решает человек.
 WAITING = (HandoffKommo.UNCONFIRMED, HandoffKommo.FAILED)
 
-#: Чем заменяется ключ Kommo во всём, что печатается и пишется в журнал.
+#: Чем заменяется ключ Kommo (и ключ шлюза) во всём, что печатается и пишется в журнал.
 HIDDEN_KOMMO = "<ключ Kommo>"
 
 #: Состояние Kommo — словами.
@@ -112,9 +112,11 @@ class Waiting:
 
 
 def clean(text: str) -> str:
-    """Текст без ключа Kommo и токена бота продаж."""
+    """Текст без ключа Kommo, ключа шлюза и токена бота продаж."""
     text = telegram.hidden(text)
-    return text.replace(cfg.KOMMO_TOKEN, HIDDEN_KOMMO) if cfg.KOMMO_TOKEN else text
+    for key in (cfg.KOMMO_TOKEN, cfg.KOMMO_GATEWAY_KEY):
+        text = text.replace(key, HIDDEN_KOMMO) if key else text
+    return text
 
 
 async def waiting(session: AsyncSession) -> list[Waiting]:

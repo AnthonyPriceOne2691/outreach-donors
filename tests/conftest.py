@@ -289,9 +289,11 @@ def _no_real_kommo(monkeypatch: pytest.MonkeyPatch) -> None:
     """Тесты не пишут в настоящий Kommo, даже если в `.env` разработчика лежат
     живой режим и ключ: сделка в чужой CRM — побочный эффект, который не
     отзывается. Живой клиент тесты собирают сами, с подставным транспортом
-    (`tests/test_sales_kommo.py`)."""
+    (`tests/test_sales_kommo.py`, шлюз — `tests/test_sales_kommo_gateway.py`)."""
     monkeypatch.setattr("backend.config.sales.KOMMO_PROVIDER", "fixture")
     monkeypatch.setattr("backend.config.sales.KOMMO_TOKEN", "")
+    for name in ("KOMMO_GATEWAY_URL", "KOMMO_GATEWAY_KEY"):
+        monkeypatch.setattr(f"backend.config.sales.{name}", "")
 
 
 @pytest.fixture(autouse=True)

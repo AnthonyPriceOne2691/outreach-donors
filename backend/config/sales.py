@@ -20,7 +20,9 @@
 **Kommo по умолчанию тоже выдуманный (`fixture`).** Живой пишет сделки
 в чужую CRM, и отозвать записанное нельзя: на `live` переключает человек,
 а без поддомена, ключа, воронки, этапа или ответственного клиент не
-собирается (`features/sales/kommo.build_kommo`).
+собирается (`features/sales/kommo.build_kommo`). Задан адрес шлюза агентства
+(`SALES_KOMMO_GATEWAY_URL`) — `live` идёт через шлюз, а не в API v4 напрямую: тогда
+нужны ключ шлюза, источник, тег, воронка, этап и поддомен (ссылка на сделку).
 
 **Окно отправки — рабочие часы получателя по его часам** (Ф4, 4.3): дни «1-5» или «1,3,5»
 (1 — понедельник), часы «09:00-17:00»; разбор при старте — опечатка не ждёт первого письма.
@@ -86,6 +88,12 @@ class _Sales(DomainSettings):
     kommo_responsible_user_id: str = Field(
         default="", validation_alias="SALES_KOMMO_RESPONSIBLE_USER_ID"
     )
+    # Шлюз агентства вместо API v4: адрес и ключ (секрет: в `.env`), значение поля
+    # источника и тег сделки и контакта. Адрес пуст — `live` идёт в API v4 напрямую.
+    kommo_gateway_url: str = Field(default="", validation_alias="SALES_KOMMO_GATEWAY_URL")
+    kommo_gateway_key: str = Field(default="", validation_alias="SALES_KOMMO_GATEWAY_KEY")
+    kommo_source: str = Field(default="", validation_alias="SALES_KOMMO_SOURCE")
+    kommo_tag: str = Field(default="", validation_alias="SALES_KOMMO_TAG")
     send_days: str = Field(default="1-5", validation_alias="SALES_SEND_DAYS")
     send_hours: str = Field(default="09:00-17:00", validation_alias="SALES_SEND_HOURS")
     # На сколько минут от открытия окна расходятся письма, ждавшие его.
@@ -168,6 +176,11 @@ KOMMO_TOKEN: str = _s.kommo_token.strip()
 KOMMO_PIPELINE_ID: str = _s.kommo_pipeline_id.strip()
 KOMMO_STATUS_ID: str = _s.kommo_status_id.strip()
 KOMMO_RESPONSIBLE_USER_ID: str = _s.kommo_responsible_user_id.strip()
+#: Адрес шлюза агентства: задан — `live` идёт через шлюз (`features/sales/kommo_gateway.py`).
+KOMMO_GATEWAY_URL: str = _s.kommo_gateway_url.strip()
+KOMMO_GATEWAY_KEY: str = _s.kommo_gateway_key.strip()
+KOMMO_SOURCE: str = _s.kommo_source.strip()
+KOMMO_TAG: str = _s.kommo_tag.strip()
 
 SEND_DAYS: frozenset[int] = _days(_s.send_days)
 SEND_OPENS, SEND_CLOSES = _hours(_s.send_hours)
