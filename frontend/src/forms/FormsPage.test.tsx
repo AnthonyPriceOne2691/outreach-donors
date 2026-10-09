@@ -108,6 +108,10 @@ describe('ручная очередь форм', () => {
     const user = userEvent.setup();
 
     await user.click(screen.getByRole('button', { name: 'Не вышло' }));
+    // Закрывает насовсем — с подтверждением у кнопки (09.10.2026); до него ничего не ушло.
+    const ask = await screen.findByRole('dialog', { name: /^Закрыть .* без адреса/, hidden: true });
+    expect(recorded.calls.some((call: Call) => call.path.endsWith('/give-up'))).toBe(false);
+    await user.click(within(ask).getByRole('button', { name: 'Закрыть', hidden: true }));
 
     await screen.findByText(/закрыт без адреса/);
     expect(recorded.calls.some((call: Call) => call.path.endsWith('/give-up'))).toBe(true);

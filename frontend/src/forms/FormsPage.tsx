@@ -50,6 +50,7 @@ import { refusalOf } from '../api/client';
 import { fetchForms, formFilled, formGaveUp } from '../api/contacts';
 import type { FormCard } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
+import { ConfirmPopover } from '../components/ConfirmPopover';
 import { PageHead } from '../components/PageHead';
 import { PageSwitch, usePageParam } from '../components/PageSwitch';
 import { Seams } from '../components/Seams';
@@ -248,19 +249,30 @@ export function FormsPage() {
                             >
                               Вписать адрес
                             </Button>
-                            <Button
-                              size="compact-sm"
-                              variant="subtle"
-                              color="gray"
-                              className="press"
-                              disabled={isPlaceholderData}
-                              loading={
-                                giveUp.isPending && giveUp.variables?.donor_id === row.donor_id
-                              }
-                              onClick={() => giveUp.mutate(row)}
+                            {/* Закрывает строку насовсем — с подтверждением у кнопки: стоит
+                                вплотную к «Вписать адрес», и промах стоил донора (аудит
+                                экранов 09.10.2026). */}
+                            <ConfirmPopover
+                              message={`Закрыть ${row.host} без адреса? Донор уйдёт из очереди форм, письма ему не будет.`}
+                              confirm="Закрыть"
+                              onConfirm={() => giveUp.mutate(row)}
                             >
-                              Не вышло
-                            </Button>
+                              {(ask) => (
+                                <Button
+                                  size="compact-sm"
+                                  variant="subtle"
+                                  color="gray"
+                                  className="press"
+                                  disabled={isPlaceholderData}
+                                  loading={
+                                    giveUp.isPending && giveUp.variables?.donor_id === row.donor_id
+                                  }
+                                  onClick={ask}
+                                >
+                                  Не вышло
+                                </Button>
+                              )}
+                            </ConfirmPopover>
                           </Group>
                         </Table.Td>
                       ) : null}
