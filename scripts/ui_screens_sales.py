@@ -34,6 +34,7 @@ from typing import Any
 
 from playwright.sync_api import expect
 from ui_screens_sales_funnel import funnel_prepare, funnel_screens
+from ui_screens_sales_hints import hint_probe
 from ui_screens_sales_queue import queue_screens
 
 #: Узкое окно — телефон: вкладки встают столбиком, таблицы уезжают в прокрутку.
@@ -92,7 +93,6 @@ def sales_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
     """Экраны и точки. `norm` — норма обычного текста, `big` — крупного."""
     leads_probes = [
         ("заголовок экрана", "h3:text-is('Продажи')", big),
-        ("пояснение под ним", ".glassPanel p.mantine-Text-root", norm),
         ("кнопка «Загрузить базу»", "a:has-text('Загрузить базу')", big),
         ("подпись плитки", ".metricTile p:nth-child(1)", norm),
         ("число в плитке", ".metricTile p:nth-child(2)", big),
@@ -134,9 +134,11 @@ def sales_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
             norm,
         ),
         ("пункт меню", "nav a", norm),
+        # Пояснение раздела — в «i» у заголовка (аудит 09.10.2026), а не абзацем под ним.
+        hint_probe("пояснение раздела", "Откуда лиды и как их чистят", norm),
     ]
     return {
-        # Лиды — сводка плитками, вкладки, таблица с фильтрами под колонками. Мерится
+        # Лиды — плитки состояний, вкладки, таблица с фильтрами под колонками. Мерится
         # то, по чему решают: состояние, причина и слова очистки. Значок причины и
         # слова есть только у отклонённых: на базе без очистки точки честно
         # «не найдены», как и страницы — без двадцати одного лида.
@@ -157,6 +159,7 @@ def sales_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                     ".leadsTable tbody td:nth-child(5) .mantine-Badge-label",
                     norm,
                 ),
+                hint_probe("пояснение раздела", "Откуда лиды и как их чистят", norm),
             ],
         },
         # Гипотезы: имя, описание, счётчики-ссылки и нули без ссылки.

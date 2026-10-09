@@ -426,6 +426,57 @@ describe('продажи: лиды', () => {
   });
 });
 
+/** Плитка сводки: число и куда ведёт. Плитка-ссылка — сама `a`, подпись и число — её строки. */
+function tile(title: string): { value: string; href: string | null } {
+  const label = screen.getByText(title, { selector: '.metricTitle' });
+  const card = label.closest('.metricTile');
+  if (card === null) throw new Error(`плитки «${title}» нет`);
+  return { value: card.children[1]?.textContent ?? '', href: card.getAttribute('href') };
+}
+
+describe('продажи: сводка — только на «Лидах» (аудит 09.10.2026)', () => {
+  it('на «Лидах» три плитки — новые, готовы, отклонены, — каждая ссылкой в свой фильтр', async () => {
+    await openScreen();
+
+    expect(tile('Новые')).toEqual({ value: '2', href: '/sales?state=new' });
+    expect(tile('Готовы')).toEqual({ value: '1', href: '/sales?state=ready' });
+    expect(tile('Отклонены')).toEqual({ value: '2', href: '/sales?state=rejected' });
+    // «Лидов» и «Гипотез» — числа вкладок, плитками они повторяли бы их.
+    expect(document.querySelectorAll('.metricTile')).toHaveLength(3);
+  });
+
+  it('гипотеза в адресе — плитки считают её лидов и ведут в её фильтр', async () => {
+    const both: HypothesesView = {
+      ...HYPOTHESES,
+      rows: HYPOTHESES.rows.map((row) =>
+        row.id === 2 ? { ...row, leads: { new: 3, ready: 4, rejected: 0 }, total: 7 } : row,
+      ),
+    };
+    await openScreen(
+      {
+        'GET /api/sales/hypotheses': { body: both },
+        [at('hypothesis=1')]: { body: view([IVAN, TWIN]) },
+      },
+      { path: '/sales?hypothesis=1' },
+    );
+
+    expect(tile('Новые')).toEqual({ value: '2', href: '/sales?state=new&hypothesis=1' });
+    expect(tile('Готовы')).toEqual({ value: '1', href: '/sales?state=ready&hypothesis=1' });
+  });
+
+  it('на других вкладках плиток сводки нет; пояснение раздела — в «i» у заголовка', async () => {
+    await openScreen({}, { path: '/sales?tab=hypotheses', ready: 'редакции и блоги' });
+    const user = userEvent.setup();
+
+    expect(document.querySelectorAll('.metricTile')).toHaveLength(0);
+    expect(screen.queryByText(/Лиды попадают сюда/)).toBeNull();
+
+    await user.hover(screen.getByRole('button', { name: 'Откуда лиды и как их чистят' }));
+
+    expect(await screen.findByText(/Лиды попадают сюда/, {}, SCREEN_WAIT)).toBeInTheDocument();
+  });
+});
+
 describe('продажи: гипотезы', () => {
   it('вкладка показывает гипотезы со счётчиками, числа ведут к лидам', async () => {
     await openScreen({}, { path: '/sales?tab=hypotheses', ready: 'редакции и блоги' });

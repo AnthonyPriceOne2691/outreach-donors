@@ -128,6 +128,12 @@ export function writeLeadFilters(filters: LeadFilters): URLSearchParams {
   return params;
 }
 
+/** Лиды под фильтром — адресом экрана лидов, тем же, что пишет он сам. По нему ведут
+ *  числа гипотез и плитки сводки: число — вход в список, где с ним работают. */
+export function leadsLink(hypothesis: number | null, state: LeadState | null): string {
+  return `/sales?${writeLeadFilters({ ...NO_LEAD_FILTERS, state, hypothesis }).toString()}`;
+}
+
 /** Сужает ли что-нибудь, кроме вкладки и страницы. */
 export function isLeadFiltered(filters: LeadFilters): boolean {
   const fit = fitted(filters);
