@@ -154,7 +154,10 @@ describe('экран отбора', () => {
   });
 
   it('у отказа порогов видны оба числа', async () => {
-    await openScreen();
+    // Отказ порогов — на «Отклонённых»: у принятых колонки «Пороги» нет (09.10.2026).
+    await openScreen({ [REJECTED]: { body: view([WEAK, CUT]) } });
+    await userEvent.setup().click(screen.getByText('Отклонены — 3'));
+    await screen.findByText('weak.test');
 
     expect(
       within(rowOf('weak.test')).getByText('органический трафик 100 ниже 500'),
@@ -164,9 +167,18 @@ describe('экран отбора', () => {
   it('отрезанный до Ahrefs домен виден и назван', async () => {
     // Во включённом судье донором он не становится; без этой строки
     // отклонённый исчезал бы без следа.
-    await openScreen();
+    await openScreen({ [REJECTED]: { body: view([WEAK, CUT]) } });
+    await userEvent.setup().click(screen.getByText('Отклонены — 3'));
+    await screen.findByText('cut.test');
 
     expect(within(rowOf('cut.test')).getByText('до Ahrefs не дошёл')).toBeInTheDocument();
+  });
+
+  it('у принятых колонки «Пороги» нет: там у всех одно и то же «подходит»', async () => {
+    await openScreen();
+
+    expect(screen.queryByRole('columnheader', { name: 'Пороги' })).not.toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Судья' })).toBeInTheDocument();
   });
 
   it('сводка показывает сходимость по слоям судьи', async () => {

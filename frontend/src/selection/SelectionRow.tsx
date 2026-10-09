@@ -21,6 +21,8 @@ import { Seams } from '../components/Seams';
 
 interface Props {
   row: SelectionCard;
+  /** Есть ли на вкладке колонка «Пороги»: у принятых её нет. */
+  withThresholds: boolean;
   mayDecide: boolean;
   busy: boolean;
   onDecide: (row: SelectionCard, intent: HumanIntent | null) => void;
@@ -85,7 +87,7 @@ function Human({ row, mayDecide, busy, onDecide }: Props) {
 }
 
 export function SelectionRow(props: Props) {
-  const { row } = props;
+  const { row, withThresholds } = props;
   return (
     <Table.Tr>
       <Table.Td>
@@ -104,9 +106,11 @@ export function SelectionRow(props: Props) {
           </Text>
         )}
       </Table.Td>
-      <Table.Td>
-        <Thresholds row={row} />
-      </Table.Td>
+      {withThresholds && (
+        <Table.Td>
+          <Thresholds row={row} />
+        </Table.Td>
+      )}
       <Table.Td>
         <JudgeVerdict machine={row.machine} />
       </Table.Td>
