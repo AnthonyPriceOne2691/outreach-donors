@@ -60,6 +60,7 @@ import { buildLetters, editLetter, listLetters, sendLetter, skipLetter } from '.
 import { mailSettingsList, settingsInWords } from '../api/labels';
 import type { Corridor, LetterDraft, LettersView, QueuedLetter } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
+import { HintLabel } from '../components/HintLabel';
 import { Metric } from '../components/Metric';
 import { StageSwitch } from '../components/StageSwitch';
 import { formatNumber, formatPercent } from '../format';
@@ -320,7 +321,13 @@ export function LettersPage() {
               followups={followups}
               onFollowups={setFollowups}
               building={build.isPending}
-              canBuild={campaign.trim() !== '' && (stage !== 'donors' || runIds.length > 0)}
+              buildBlocked={
+                campaign.trim() === ''
+                  ? 'Назовите кампанию'
+                  : stage === 'donors' && runIds.length === 0
+                    ? 'Отметьте прогоны рассылки'
+                    : null
+              }
               onBuild={() => build.mutate()}
               buildJob={buildJob}
               onBuildFinished={() => void refresh()}
@@ -384,7 +391,8 @@ interface ControlsProps {
   followups: (number | null)[];
   onFollowups: Dispatch<SetStateAction<(number | null)[]>>;
   building: boolean;
-  canBuild: boolean;
+  /** Чего не хватает для сборки — словами у кнопки; `null` — собрать можно. */
+  buildBlocked: string | null;
   onBuild: () => void;
   buildJob: string | null;
   onBuildFinished: () => void;
@@ -408,7 +416,7 @@ function QueueControls({
   followups,
   onFollowups,
   building,
-  canBuild,
+  buildBlocked,
   onBuild,
   buildJob,
   onBuildFinished,
@@ -474,70 +482,103 @@ function QueueControls({
         </Alert>
       ) : null}
 
+      {/* Порядок формы — порядок решения: кампания и числа, прогоны, текст первого
+          письма, и кнопка — последней (аудит экранов 09.10.2026: «Собрать очередь»
+          стояла посреди формы, обязательные прогоны и текст — под ней, а выключенная
+          кнопка не говорила, чего не хватает). Поля — по значению, пояснения — в «i». */}
       {canSend ? (
-        // `fieldRow` резервирует место под пояснение: «Кампания» с пояснением
-        // в две строки стояла на 14 px выше «Писем за раз» (аудит 25.09.2026).
-        <Group align="flex-end" gap="sm" className="fieldRow">
-          <TextInput
-            label="Кампания"
-            description="Одноимённая дополняется, а не заводится второй раз"
-            placeholder={ABOUT[target].placeholder}
-            value={campaign}
-            w={280}
-            onChange={(event) => onCampaign(event.currentTarget.value)}
-          />
-          <NumberInput
-            label="Писем за раз"
-            description="Каждое стоит вызова модели"
-            value={limit}
-            min={1}
-            max={500}
-            w={180}
-            onChange={(value) => onLimit(typeof value === 'number' ? value : 50)}
-          />
-          {defaultDays.map((fallback, index) => (
-            <NumberInput
-              key={index}
-              label={`Добивка ${index + 1}, дней`}
-              description={index === 0 ? 'после первого письма' : 'после предыдущей'}
-              value={followups[index] ?? fallback}
-              min={0}
-              max={90}
-              w={150}
-              onChange={(value) =>
-                onFollowups((was) =>
-                  was.map((old, at) =>
-                    at === index ? (typeof value === 'number' ? value : null) : old,
-                  ),
-                )
+        <Stack gap="sm">
+          <Group align="flex-end" gap="sm">
+            <TextInput
+              labelProps={{ labelElement: 'div' }}
+              label={
+                <HintLabel
+                  label="Кампания"
+                  hint="Одноимённая дополняется, а не заводится второй раз."
+                />
               }
+              aria-label="Кампания"
+              placeholder={ABOUT[target].placeholder}
+              value={campaign}
+              w={280}
+              onChange={(event) => onCampaign(event.currentTarget.value)}
             />
-          ))}
-          <Button
-            color="lagoon"
-            className="press"
-            loading={building}
-            disabled={!canBuild}
-            onClick={onBuild}
-          >
-            Собрать очередь
-          </Button>
-        </Group>
+            <NumberInput
+              labelProps={{ labelElement: 'div' }}
+              label={
+                <HintLabel
+                  label="За раз"
+                  hint="Писем за одну сборку. Каждое стоит вызова модели."
+                />
+              }
+              aria-label="Писем за раз"
+              value={limit}
+              min={1}
+              max={500}
+              w="6.5rem"
+              onChange={(value) => onLimit(typeof value === 'number' ? value : 50)}
+            />
+            {defaultDays.map((fallback, index) => (
+              <NumberInput
+                key={index}
+                labelProps={{ labelElement: 'div' }}
+                label={
+                  <HintLabel
+                    label={`Добивка ${index + 1}`}
+                    hint={
+                      index === 0
+                        ? 'Через сколько дней после первого письма.'
+                        : 'Через сколько дней после предыдущей добивки.'
+                    }
+                  />
+                }
+                aria-label={`Добивка ${index + 1}, дней`}
+                suffix=" дн."
+                value={followups[index] ?? fallback}
+                min={0}
+                max={90}
+                w="7rem"
+                onChange={(value) =>
+                  onFollowups((was) =>
+                    was.map((old, at) =>
+                      at === index ? (typeof value === 'number' ? value : null) : old,
+                    ),
+                  )
+                }
+              />
+            ))}
+          </Group>
+
+          {target === 'donors' ? <RunPicker value={runIds} onChange={onRunIds} /> : null}
+
+          <LetterDraftEditor
+            key={target}
+            target={target}
+            fallback={letterDefault}
+            value={letterEdit ?? draftOf(letterDefault)}
+            onChange={onLetterEdit}
+          />
+
+          <Group gap="sm">
+            <Button
+              color="lagoon"
+              className="press"
+              loading={building}
+              disabled={buildBlocked !== null}
+              onClick={onBuild}
+            >
+              Собрать очередь
+            </Button>
+            {buildBlocked !== null && (
+              <Text size="sm" c="dimmed">
+                {buildBlocked}
+              </Text>
+            )}
+          </Group>
+        </Stack>
       ) : null}
 
       {buildJob !== null ? <JobLine jobId={buildJob} onFinished={onBuildFinished} /> : null}
-
-      {canSend && target === 'donors' ? <RunPicker value={runIds} onChange={onRunIds} /> : null}
-
-      {canSend ? (
-        <LetterDraftEditor
-          key={target}
-          target={target}
-          fallback={letterDefault}
-          value={letterEdit ?? draftOf(letterDefault)}
-          onChange={onLetterEdit}
-        />
-      ) : null}
     </Stack>
   );
 }
