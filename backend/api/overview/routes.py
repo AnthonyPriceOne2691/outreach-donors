@@ -4,6 +4,9 @@
 экранах по отдельности. К провайдерам главная не ходит — остаток у них
 спрашивают экран расхода и сторож тишины, а сводку открывают чаще всего,
 и каждый раз платить за неё запросом наружу незачем.
+
+Числа у пунктов меню — отдельным ответом (`/overview/work`): меню спрашивает
+их с каждого экрана раз в минуту, и считать ради них всю сводку незачем.
 """
 
 from __future__ import annotations
@@ -13,10 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
 from backend.api.letters.schemas import Transport
-from backend.api.overview.schemas import OverviewView
+from backend.api.overview.schemas import OverviewView, WorkView
 from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
-from backend.features.ops.overview import overview
+from backend.features.ops.overview import overview, work
 
 router = APIRouter(prefix="/overview", tags=["главная"])
 
@@ -29,3 +32,13 @@ async def summary(
     session: AsyncSession = Depends(db_session),
 ) -> OverviewView:
     return OverviewView.of(await overview(session), transport=Transport.current())
+
+
+@router.get(
+    "/work", response_model=WorkView, summary="Сколько ждёт человека — числа у пунктов меню"
+)
+async def menu_work(
+    _: UserModel = _viewer,
+    session: AsyncSession = Depends(db_session),
+) -> WorkView:
+    return WorkView.of(await work(session))

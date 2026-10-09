@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from backend.api.letters.schemas import Transport
 from backend.api.runs.schemas import RunCard
 from backend.features.core.domain import Stage
-from backend.features.ops.overview import DonorCounts, LetterCounts, Overview, Waiting
+from backend.features.ops.overview import DonorCounts, LetterCounts, Overview, Waiting, Work
 
 
 class DonorsCard(BaseModel):
@@ -111,4 +111,19 @@ class OverviewView(BaseModel):
             serp_usd=overview.serp_usd,
             transport=transport,
             unbound_replies=overview.unbound_replies,
+        )
+
+
+class WorkView(BaseModel):
+    """Числа у пунктов меню: сколько в разделе ждёт человека."""
+
+    run: int
+    threads: int
+    forms: int
+    advertisers: int
+
+    @classmethod
+    def of(cls, work: Work) -> WorkView:
+        return cls(
+            run=work.run, threads=work.threads, forms=work.forms, advertisers=work.advertisers
         )

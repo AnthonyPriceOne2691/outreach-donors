@@ -65,6 +65,13 @@ _ANSWERED = frozenset(
     }
 )
 
+#: Диалог ждёт человека: разобрать цену, взять лида. То же множество, что у списка
+#: «Диалогов» (`frontend/src/threads/useThreadList.ts`, `WAITS_FOR_PERSON`): число
+#: у пункта меню и «Ждут человека: N» на экране диалогов — одно число.
+WAITS_FOR_PERSON = frozenset(
+    {ThreadState.NEEDS_REVIEW, ThreadState.LEAD, ThreadState.SALES_PENDING}
+)
+
 
 @dataclass(frozen=True, slots=True)
 class DonorCounts:
@@ -141,6 +148,23 @@ class Overview:
     unbound_replies: int
 
 
+@dataclass(frozen=True, slots=True)
+class Work:
+    """Числа у пунктов меню: сколько в разделе ждёт человека (аудит экранов 09.10.2026).
+
+    Только «Ждут человека», без воронки, писем и расхода: меню спрашивает числа
+    с каждого экрана раз в минуту, а сводку целиком — только «Обзор».
+    """
+
+    #: «Прогон» — доменов ждут решения в очередях прогонов («Рассмотреть домены»).
+    run: int
+    #: «Диалоги» — диалогов ждут человека (`WAITS_FOR_PERSON`).
+    threads: int
+    forms: int
+    #: «Рекламодатели» — спорных на ручной проверке.
+    advertisers: int
+
+
 async def overview(session: AsyncSession, *, now: datetime | None = None) -> Overview:
     """Собрать главную. Каждое число — правилом своего экрана."""
     moment = now or datetime.now(UTC)
@@ -167,6 +191,17 @@ async def overview(session: AsyncSession, *, now: datetime | None = None) -> Ove
         ahrefs_cap=ahrefs_cfg.UNITS_CAP,
         serp_usd=spending.amount_by_provider.get(UsageProvider.SERP, Decimal(0)),
         unbound_replies=await unbound.total(session),
+    )
+
+
+async def work(session: AsyncSession) -> Work:
+    """Числа меню — теми же правилами, что «Ждут человека» на главной."""
+    threads = await OutreachRepository(session).threads()
+    return Work(
+        run=(await standing.waiting(session)).domains,
+        threads=sum(1 for row in threads if row.summary.state in WAITS_FOR_PERSON),
+        forms=await forms.total(session),
+        advertisers=await advertiser_review.waiting(session),
     )
 
 

@@ -36,7 +36,7 @@ from backend.features.core.models.outreach import (
 )
 from backend.features.core.models.run import RunCandidateModel, RunModel
 from backend.features.letters.chain import ANSWER_STEP
-from backend.features.ops.overview import overview
+from backend.features.ops.overview import overview, work
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.thresholds import defaults
 from fastapi import FastAPI
@@ -51,6 +51,7 @@ NOW = datetime.now(UTC)
 
 ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("GET", "/api/overview", None, "view"),
+    ("GET", "/api/overview/work", None, "view"),
 ]
 
 
@@ -269,6 +270,58 @@ class TestWaiting:
 
         assert view.waiting.prices == 1
         assert view.donors.replied == 2
+
+
+class TestMenuWork:
+    """Числа у пунктов меню — правилами «Ждут человека», а не своими (аудит экранов 09.10.2026)."""
+
+    async def _answered(self, session: AsyncSession, stage: Stage, host: str, **reply: Any) -> None:
+        campaign = await _campaign(session, stage)
+        domain = await make_donor(session, host)
+        thread = await _thread(session, campaign, domain)
+        await _letter(session, campaign, domain, MessageStatus.DELIVERED, thread=thread)
+        session.add(ReplyModel(thread_id=thread.id, raw_body="Ответ.", **reply))
+
+    async def test_menu_counts_what_the_overview_says_waits(self, session: AsyncSession) -> None:
+        run = await _run(session)
+        pending = await make_donor(session, "pending.example.test", review=None)
+        session.add(RunCandidateModel(run_id=run.id, domain_id=pending.id, status="pending"))
+        human = {"kind": ReplyKind.HUMAN}
+        await self._answered(
+            session, Stage.DONORS, "unsure.example.test", **human, price_white=300, confidence=0.4
+        )
+        await self._answered(
+            session, Stage.DONORS, "sure.example.test", **human, price_white=250, confidence=0.95
+        )
+        await self._answered(session, Stage.ADVERTISERS, "lead.example.test", **human)
+        await self._answered(
+            session, Stage.ADVERTISERS, "taken.example.test", **human, reviewed_at=NOW
+        )
+        await session.flush()
+
+        menu = await work(session)
+        waiting = (await overview(session)).waiting
+
+        assert menu.run == waiting.review == 1
+        # Цена, которую подтверждает человек, и невзятый лид; цена и взятый лид — не работа.
+        assert menu.threads == waiting.prices + waiting.leads == 2
+        assert (menu.forms, menu.advertisers) == (waiting.forms, waiting.advertisers)
+
+    async def test_sales_lead_waiting_counts_like_the_threads_screen(
+        self, session: AsyncSession
+    ) -> None:
+        """«Ждут человека» на «Диалогах» считает и ответ лида продаж — меню тоже."""
+        await self._answered(session, Stage.SALES, "client.example.test", kind=ReplyKind.HUMAN)
+        await session.flush()
+
+        assert (await work(session)).threads == 1
+
+    async def test_menu_answer_has_the_four_numbers(
+        self, client: AsyncClient, operator_token: str
+    ) -> None:
+        response = await client.get("/api/overview/work", headers=bearer(operator_token))
+
+        assert response.json() == {"run": 0, "threads": 0, "forms": 0, "advertisers": 0}
 
 
 class TestLettersAndSpending:

@@ -517,13 +517,19 @@ html:root[data-mantine-color-scheme='light'] .glassSolid {
    причины у истории прогонов открывался под таблицей, в семистах
    пикселях от своего «!», и тем же страдал поповер прав на экране учёток
    (замерено 25.09.2026 по координатам в браузере; тесты в jsdom
-   раскладки не видят). Кромка стрелки — та же, что у окна. */
-.mantine-Popover-dropdown.glassSolid {
+   раскладки не видят). Кромка стрелки — та же, что у окна.
+
+   Признак всплывающего — `data-position`: его ставит выпадающему любой
+   компонент Mantine на основе Popover (Popover, Menu…). До 09.10.2026 правило
+   стояло на имени `.mantine-Popover-dropdown`, а у меню имя своё
+   (`mantine-Menu-dropdown`) — меню у почты в шапке открывалось ниже края
+   окна, в 958 px от верха при `top: 58.5px`. */
+.glassSolid[data-position] {
   position: absolute;
   --popover-border-color: var(--glass-edge);
 }
 
-.mantine-Popover-dropdown.glassSolid[data-fixed] {
+.glassSolid[data-position][data-fixed] {
   position: fixed;
 }
 
