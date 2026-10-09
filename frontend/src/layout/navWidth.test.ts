@@ -9,7 +9,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { FALLBACK_WIDTH, navbarWidth } from './navWidth';
+import { COUNT_ROOM, FALLBACK_WIDTH, navbarWidth } from './navWidth';
 
 /** Холст, у которого каждая буква шириной 8 px. */
 function measureByLength() {
@@ -37,6 +37,14 @@ describe('ширина боковой колонки', () => {
     const admin = navbarWidth(['Обзор', 'Рекламодатели', 'Домены рассылки']);
     const operator = navbarWidth(['Обзор', 'Рекламодатели']);
     expect(operator).toBeLessThan(admin);
+  });
+
+  it('пункту, у которого бывает число ждущей работы, — место под число всегда', () => {
+    measureByLength();
+    // «Рекламодатели» — 104 px и место под число: шире «Доменов рассылки» (120).
+    expect(navbarWidth(['Рекламодатели', 'Домены рассылки'], ['Рекламодатели'])).toBe(
+      104 + COUNT_ROOM + 2 * (24 + 12),
+    );
   });
 
   it('не уже, чем нужно переключателю тем', () => {

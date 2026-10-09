@@ -46,6 +46,16 @@ export interface Recorded {
  */
 export const misses: string[] = [];
 
+/**
+ * Запросы рамы, а не экрана: числа у пунктов меню (`layout/work.ts`) спрашивает
+ * каждая страница. Тест экрана о них не думает — ответ «ничего не ждёт» записан
+ * за него и в `calls` не попадает: проверки «что ушло на сервер» считают запросы
+ * экрана. Тест рамы записывает свой ответ — и видит его в `calls`.
+ */
+const FRAME_ROUTES: Record<string, Route> = {
+  'GET /api/overview/work': { body: { run: 0, threads: 0, forms: 0, advertisers: 0 } },
+};
+
 export function serve(routes: Record<string, Route>): Recorded {
   const recorded: Recorded = { calls: [] };
 
@@ -61,9 +71,10 @@ export function serve(routes: Record<string, Route>): Recorded {
         body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
         token: headers['Authorization'] ?? null,
       };
-      recorded.calls.push(call);
+      const own = routes[`${method} ${path}`];
+      const route = own ?? FRAME_ROUTES[`${method} ${path}`];
+      if (own !== undefined || route === undefined) recorded.calls.push(call);
 
-      const route = routes[`${method} ${path}`];
       if (route === undefined) {
         const miss = `Ответ на «${method} ${path}» не записан. Записаны: ${Object.keys(routes).join(', ')}`;
         misses.push(miss);

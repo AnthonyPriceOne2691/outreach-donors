@@ -207,12 +207,12 @@
       "worst": "—"
     },
     "backend/api/overview/routes.py": {
-      "lines": 32,
+      "lines": 45,
       "complexity": 1,
-      "worst": "summary:27"
+      "worst": "summary:30"
     },
     "backend/api/overview/schemas.py": {
-      "lines": 115,
+      "lines": 130,
       "complexity": 3,
       "worst": "of:103"
     },
@@ -1477,9 +1477,9 @@
       "worst": "_of_stage:90"
     },
     "backend/features/ops/overview.py": {
-      "lines": 272,
+      "lines": 307,
       "complexity": 5,
-      "worst": "_letters:243"
+      "worst": "_letters:278"
     },
     "backend/features/ops/silence.py": {
       "lines": 326,

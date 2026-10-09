@@ -35,17 +35,28 @@ const MIN_WIDTH = 170;
 /** Холста нет (тесты в jsdom) — прежняя ширина. */
 export const FALLBACK_WIDTH = 232;
 
-export function navbarWidth(labels: readonly string[]): number {
-  const widest = widestLabel(labels);
+/** Место под число ждущей работы справа от подписи (`layout/work.ts`): значок
+ *  на три цифры — 38–40 px, и зазор 9–11 до подписи. Замерено в браузере у
+ *  «Рекламодателей», самого длинного пункта с числом: при 40 px трёхзначное
+ *  вставало в 3 px от подписи, четырёхзначное наезжало на неё. Поэтому больше
+ *  999 значок не показывает: «999+» — 47 px, в 2 px от подписи, но не на ней.
+ *  Держится у такого пункта всегда, а не когда число пришло: иначе колонка
+ *  дёргалась бы с ответом. */
+export const COUNT_ROOM = 48;
+
+/** `counted` — подписи пунктов, у которых бывает число ждущей работы. */
+export function navbarWidth(labels: readonly string[], counted: readonly string[] = []): number {
+  const widest = widestLabel(labels, counted);
   if (widest === null) return FALLBACK_WIDTH;
   // Вверх, а не до ближайшего: подпись, которой не хватило доли пикселя,
   // обрезается многоточием целиком.
   return Math.max(MIN_WIDTH, Math.ceil(widest) + 2 * (TEXT_INSET + NAV_PADDING));
 }
 
-function widestLabel(labels: readonly string[]): number | null {
+function widestLabel(labels: readonly string[], counted: readonly string[]): number | null {
   const context = document.createElement('canvas').getContext('2d');
   if (context === null || labels.length === 0) return null;
   context.font = LABEL_FONT;
-  return Math.max(...labels.map((label) => context.measureText(label).width));
+  const room = (label: string) => (counted.includes(label) ? COUNT_ROOM : 0);
+  return Math.max(...labels.map((label) => context.measureText(label).width + room(label)));
 }

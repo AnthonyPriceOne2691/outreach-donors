@@ -1,5 +1,5 @@
 /**
- * Обзор: кто вошёл, что молчит, где мы и что ждёт человека.
+ * Обзор: что молчит, где мы и что ждёт человека.
  *
  * Главная отвечает числами, а не описанием разделов (замечание 25.09.2026):
  * карта сервиса из шести плиток-пояснений читалась один раз, а открывают
@@ -13,11 +13,9 @@ import {
   Alert,
   Anchor,
   Badge,
-  Button,
   Card,
   Group,
   Loader,
-  Popover,
   SimpleGrid,
   Stack,
   Text,
@@ -28,7 +26,7 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
 import { refusalOf } from '../api/client';
-import { countryTitle, permissionTitle, RUN_STATUSES } from '../api/labels';
+import { countryTitle, RUN_STATUSES } from '../api/labels';
 import { fetchOverview } from '../api/overview';
 import { fetchWatchdog } from '../api/settings';
 import type {
@@ -41,6 +39,7 @@ import type {
 } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { Meter } from '../components/Meter';
+import { PageHead } from '../components/PageHead';
 import { Metric } from '../components/Metric';
 import { formatDateTime, formatNumber, formatShare, formatUsd, plural } from '../format';
 import { mailLine } from '../letters/mailTile';
@@ -452,43 +451,20 @@ function Dashboard() {
   );
 }
 
+/** Подсказка «i» у заголовка — как читать экран. */
+const OVERVIEW_HINT =
+  'Сверху — работа, которая ждёт человека: те же числа стоят у пунктов меню. Ниже — воронка доноров, письма и расход. Каждое число посчитано тем же правилом, что на экране раздела.';
+
 export function OverviewPage() {
-  const { user, can } = useSession();
+  const { can } = useSession();
 
   return (
     <Stack gap="lg">
-      {/* Шапка — одной строкой: кто вошёл, его права — во всплывающем окне по числу,
-          «Сменить пароль» — рядом. До 09.10.2026 карточка с шестью значками прав
-          занимала 165 px на 1440 и ~330 на телефоне, и «Ждут человека» стояло вторым
-          (аудит экранов 09.10.2026). */}
+      {/* Шапка — одним заголовком. Кто вошёл, его права и «Сменить пароль» — в меню
+          у почты в шапке рамы, на любом экране (`AccountMenu`); до 09.10.2026 они
+          стояли здесь строкой над «Ждут человека» (аудит экранов 09.10.2026). */}
       <Card className="glassPanel" px="xl" py="lg">
-        <Group gap="md" justify="space-between">
-          <Title order={3}>Обзор</Title>
-          <Group gap="sm">
-            <Text size="sm">
-              Вошли как <b>{user?.email}</b>
-            </Text>
-            <Popover position="bottom-end" withArrow shadow="md" radius="lg">
-              <Popover.Target>
-                <Button variant="subtle" size="compact-sm">
-                  Права ({user?.permissions.length ?? 0})
-                </Button>
-              </Popover.Target>
-              <Popover.Dropdown className="glassSolid" aria-label="Доступные действия">
-                <Group gap="xs" maw={320}>
-                  {user?.permissions.map((permission) => (
-                    <Badge key={permission} variant="light">
-                      {permissionTitle(permission)}
-                    </Badge>
-                  ))}
-                </Group>
-              </Popover.Dropdown>
-            </Popover>
-            <Anchor component={Link} to="/password" size="sm">
-              Сменить пароль
-            </Anchor>
-          </Group>
-        </Group>
+        <PageHead title="Обзор" hint={OVERVIEW_HINT} />
       </Card>
 
       <Watchdog />
