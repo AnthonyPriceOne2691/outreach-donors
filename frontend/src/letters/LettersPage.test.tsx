@@ -126,8 +126,8 @@ async function openLetters(
   });
   renderWith(<AppRoutes />, '/letters');
   await screen.findByRole('heading', { name: 'Письма' });
-  // Заголовок стоит и до прихода очереди — ждём саму очередь.
-  await screen.findByText('В очереди');
+  // Заголовок стоит и до прихода очереди — ждём саму очередь: её шапку.
+  await screen.findByRole('heading', { name: 'Очередь' });
   return recorded;
 }
 
@@ -393,8 +393,8 @@ describe('очередь писем', () => {
   it('коридор берётся с сервера, а не из числа на фронте', async () => {
     await openLetters({ corridor: { min: 0.1, max: 0.4 } });
 
-    const tile = screen.getByText('Вне коридора').closest('div');
-    expect(within(tile as HTMLElement).getByText('коридор 10–40%')).toBeInTheDocument();
+    // Вне коридора — значком в шапке очереди, с коридором сервера (09.10.2026).
+    expect(screen.getByText(/вне коридора \d+ · коридор 10–40%/)).toBeInTheDocument();
   });
 });
 
@@ -894,10 +894,10 @@ describe('отказ транспорта словами', () => {
   });
 });
 
-describe('плитка «Почта» словами', () => {
-  /** Плитка целиком: подпись, значение и пояснение. */
+describe('почта словами', () => {
+  /** Почта целиком: подпись, значок и пояснение — строкой фактов (09.10.2026). */
   function mailTileOnScreen(): HTMLElement {
-    return screen.getByText('Почта').closest('.metricTile') as HTMLElement;
+    return screen.getByText('Почта').parentElement as HTMLElement;
   }
 
   it('настоящая почта — имя платформы, а не код транспорта', async () => {

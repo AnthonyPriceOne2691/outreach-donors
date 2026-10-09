@@ -119,9 +119,10 @@ describe('отправка очереди пачкой', () => {
     open({ letters: shown, queued_total: 1000, batch_max: 200 });
     const user = userEvent.setup();
 
-    // Плитка «В очереди» — тот же счёт всей очереди, что на кнопке, а не длина списка (200).
-    const tile = (await screen.findByText('В очереди')).parentElement as HTMLElement;
-    expect(within(tile).getByText(/^1\s000$/)).toBeInTheDocument();
+    // Шапка очереди — тот же счёт всей очереди, что на кнопке, а не длина списка (200).
+    const head = (await screen.findByRole('heading', { name: 'Очередь' }))
+      .parentElement as HTMLElement;
+    expect(within(head).getByText(/^1\s000$/)).toBeInTheDocument();
 
     await user.click(
       await screen.findByRole('button', { name: `Отправить очередь · ${formatNumber(1000)}` }),
@@ -157,7 +158,7 @@ describe('отправка очереди пачкой', () => {
   it('без права на отправку кнопки нет', async () => {
     open({}, {}, OPERATOR);
 
-    await screen.findByText('В очереди');
+    await screen.findByRole('heading', { name: 'Очередь' });
     expect(screen.queryByRole('button', { name: /Отправить очередь/ })).not.toBeInTheDocument();
   });
 });

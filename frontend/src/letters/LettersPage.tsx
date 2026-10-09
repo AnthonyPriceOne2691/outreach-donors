@@ -43,7 +43,6 @@ import {
   Group,
   Loader,
   NumberInput,
-  SimpleGrid,
   Stack,
   Text,
   TextInput,
@@ -61,14 +60,14 @@ import { mailSettingsList, settingsInWords } from '../api/labels';
 import type { Corridor, LetterDraft, LettersView, QueuedLetter } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { HintLabel } from '../components/HintLabel';
-import { Metric } from '../components/Metric';
 import { StageSwitch } from '../components/StageSwitch';
 import { formatNumber, formatPercent } from '../format';
 import { LetterDraftEditor, draftOf, sameDraft } from './LetterDraftEditor';
 import { LetterPreview, toneOf } from './LetterPreview';
 import { mailTile } from './mailTile';
-import { corridorText, uniquenessText } from './letterText';
+import { uniquenessText } from './letterText';
 import { RunPicker } from './RunPicker';
+import { QueueHead } from './QueueHead';
 import { SendQueue } from './SendQueue';
 import type { LetterTarget } from './targets';
 import { ABOUT, TARGETS, audienceOf, emptyQueueText, poolHint, stageOf, targetOf } from './targets';
@@ -313,7 +312,6 @@ export function LettersPage() {
               target={target}
               stale={stale}
               canSend={can('send')}
-              letters={letters}
               campaign={campaign}
               onCampaign={setCampaign}
               limit={limit}
@@ -346,14 +344,23 @@ export function LettersPage() {
 
       {/* Пачка — вкладки: на «Бизнесам ниши» уходят только их письма, на «Рекламодателям» —
           только письма по найденной ссылке; число на кнопке — очередь этой вкладки. */}
-      {data !== undefined && can('send') && !stale ? (
-        <SendQueue
-          stage={stage}
-          audience={audienceOf(target)}
-          count={data.queued_total}
-          batchMax={data.batch_max}
-          blocked={data.blocked_by.length > 0}
-          onFinished={() => void refresh()}
+      {data !== undefined ? (
+        <QueueHead
+          total={data.queued_total}
+          letters={letters}
+          corridor={data.corridor}
+          send={
+            can('send') && !stale ? (
+              <SendQueue
+                stage={stage}
+                audience={audienceOf(target)}
+                count={data.queued_total}
+                batchMax={data.batch_max}
+                blocked={data.blocked_by.length > 0}
+                onFinished={() => void refresh()}
+              />
+            ) : null
+          }
         />
       ) : null}
 
@@ -383,7 +390,6 @@ interface ControlsProps {
   /** Показана очередь прежнего этапа, пока идёт новая. */
   stale: boolean;
   canSend: boolean;
-  letters: QueuedLetter[];
   campaign: string;
   onCampaign: (value: string) => void;
   limit: number;
@@ -408,7 +414,6 @@ function QueueControls({
   target,
   stale,
   canSend,
-  letters,
   campaign,
   onCampaign,
   limit,
@@ -425,7 +430,6 @@ function QueueControls({
   letterEdit,
   onLetterEdit,
 }: ControlsProps) {
-  const offCorridor = letters.filter((letter) => letter.verdict !== null).length;
   const mail = mailTile(view.transport);
   const defaultDays = view.followup_default;
   const letterDefault = view.letter_default;
@@ -435,36 +439,25 @@ function QueueControls({
     // донорам, поправленный под переключателем «Рекламодателям», сервер
     // бы не принял, а человек не понял бы, откуда он взялся.
     <Stack gap="md" className="staleRows" data-stale={stale || undefined} inert={stale}>
-      {/* Плитки — прямые дети сетки: так они подсетка её ряда, и числа стоят
-          на одной линии. В колонках `Grid` подсетки не было — у «В очереди»
-          без пояснения подпись и число сидели на 10 px ниже соседних (замер
-          26.09.2026), на телефоне так же стояли «Ещё не писали» и «Почта». */}
-      <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="sm">
-        {/* Вся очередь этапа — тем же счётом, что кнопка пачки, а не длина списка: список
-            экрана обрезан потолком, и рядом стояли бы «В очереди 200» и «Отправить очередь · 1 000». */}
-        <Metric title="В очереди" value={formatNumber(view.queued_total)} />
-        <Metric
-          title="Вне коридора"
-          value={offCorridor}
-          hint={`коридор ${corridorText(view.corridor)}`}
-          color={offCorridor > 0 ? 'yellow' : undefined}
-        />
-        <Metric
-          title="Ещё не писали"
-          value={view.funnel['ещё не писали'] ?? 0}
-          hint={poolHint(view.funnel, target)}
-        />
-        <Metric
-          title="Почта"
-          value={
-            // Слова переносятся по слогам: на телефоне «подключена» шире
-            // плитки и вылезала за её край (на 17 px при 390, аудит 25.09).
-            <span className="tileWords">{mail.value}</span>
-          }
-          hint={mail.hint}
-          color={view.transport.real ? undefined : 'yellow'}
-        />
-      </SimpleGrid>
+      {/* Факты этапа — строкой, а не четырьмя плитками по ~105 px под «0 / 0 / 0 /
+          SendGrid» (аудит экранов 09.10.2026): «В очереди» и «Вне коридора» — в шапке
+          самой очереди (`QueueHead`), где по ним действуют; почта — значком, янтарём,
+          только когда письма не уходят. */}
+      <Group gap="md" align="center">
+        <Group gap={6} align="center">
+          <Text size="sm">Почта</Text>
+          <Badge variant="light" color={view.transport.real ? 'green' : 'yellow'}>
+            {mail.value}
+          </Badge>
+          <Text size="sm" c="dimmed">
+            {mail.hint}
+          </Text>
+        </Group>
+        <Text size="sm">
+          Ещё не писали <b>{formatNumber(view.funnel['ещё не писали'] ?? 0)}</b> ·{' '}
+          {poolHint(view.funnel, target)}
+        </Text>
+      </Group>
 
       {view.blocked_by.length > 0 ? (
         <Alert color="yellow" title="Отправка пока не подключена">
