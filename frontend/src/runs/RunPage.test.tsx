@@ -11,6 +11,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
+import { countryTitle } from '../api/labels';
 import { ADMIN, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
@@ -681,6 +682,42 @@ describe('глубина выдачи', () => {
     await user.click(screen.getByRole('textbox', { name: 'Глубина выдачи' }));
     await user.click(await screen.findByRole('option', { name: title, hidden: true }));
   }
+
+  // Аудит экранов 09.10.2026, второй круг: страну и глубину меняют редко, а
+  // выбирали заново на каждом прогоне — форма открывается на прошлом выборе.
+  it('страна и глубина — прошлый выбор этого браузера', async () => {
+    localStorage.setItem('outreach.run.last-choice', JSON.stringify({ country: 'de', depth: 30 }));
+    await openRun({ 'GET /api/keywords/yield?country=de': { body: [] } });
+
+    expect(screen.getByRole('textbox', { name: 'Глубина выдачи' })).toHaveValue('30 результатов');
+    // Список стран приходит с сервера: до него у выбора нет подписи.
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: 'Страна выдачи' })).toHaveValue(
+        countryTitle('de'),
+      ),
+    );
+  });
+
+  it('выбор глубины запоминается; негодное в памяти — прежнее умолчание', async () => {
+    localStorage.setItem(
+      'outreach.run.last-choice',
+      JSON.stringify({ country: 'Germany', depth: 7 }),
+    );
+    await openRun();
+    const user = userEvent.setup();
+    expect(screen.getByRole('textbox', { name: 'Глубина выдачи' })).toHaveValue('10 результатов');
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: 'Страна выдачи' })).toHaveValue(
+        countryTitle('us'),
+      ),
+    );
+
+    await pickDepth(user, '50 результатов');
+
+    expect(JSON.parse(localStorage.getItem('outreach.run.last-choice') ?? '{}')).toMatchObject({
+      depth: 50,
+    });
+  });
 
   it('по умолчанию 10 результатов, и в списке ровно пять глубин', async () => {
     await openRun();

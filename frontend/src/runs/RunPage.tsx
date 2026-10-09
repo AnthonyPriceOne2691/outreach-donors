@@ -64,6 +64,7 @@ import {
   RESULTS_PER_PAGE,
 } from './depth';
 import type { Depth } from './depth';
+import { isCountry, isDepth, useLastChoice } from './lastChoice';
 import { Unfold } from './Unfold';
 import { notify } from '../notices';
 
@@ -151,8 +152,8 @@ function Estimate({ forecast }: { forecast: Forecast }) {
 export function RunPage() {
   const { can } = useSession();
   const [keywords, setKeywords] = useState('');
-  const [country, setCountry] = useState('us');
-  const [depth, setDepth] = useState<Depth>(DEFAULT_DEPTH);
+  const [country, setCountry] = useLastChoice('country', 'us', isCountry);
+  const [depth, setDepth] = useLastChoice<Depth>('depth', DEFAULT_DEPTH, isDepth);
   const [cap, setCap] = useState<number | ''>('');
   const [forecast, setForecast] = useState<Forecast | null>(null);
   // О чём спрашивали смету: ключи, страна, глубина и потолок одной строкой.
