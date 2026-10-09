@@ -342,7 +342,8 @@ def report(results: list[Result], numbers: dict[str, Any], used: Prompts) -> Non
             f"{sum(r.stopped for r in named)}, отдал человеку сам {sum(r.verdict is None for r in made)}"
         )
     for r in (r for r in results if r.wrong):
-        said = ("; ".join(r.reasons) or " ".join(r.draft.split()))[:120]
+        # Причины — целиком: по обрезанной не понять, за что задержан хороший черновик.
+        said = "; ".join(r.reasons) or " ".join(r.draft.split())[:120]
         print(f"  !! {r.case_id:<26} {r.kind:<12} {r.verdict or 'генератор'}: {said}")
     d, f = numbers["dangerous"], numbers["false_block"]
     print(

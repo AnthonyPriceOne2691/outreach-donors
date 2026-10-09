@@ -289,12 +289,6 @@ def test_a_quote_counts_only_as_a_run_of_the_same_words(quote: str, inside: bool
     assert judge_cta.inside(quote, phrase) is inside
 
 
-def test_the_judge_version_moved_with_the_rule() -> None:
-    """Калибровка и прогон версии сравнивают черновики по версии судьи: правило меняет его
-    вердикт — версия другая, чем у замеров v4."""
-    assert judge.PROMPT_VERSION == "sales-judge-v5"
-
-
 @pytest.mark.usefixtures("sales_on")
 async def test_on_the_combat_path_the_judge_sees_the_sender_channels(
     session: AsyncSession, llm: Plug

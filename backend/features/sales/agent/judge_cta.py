@@ -32,39 +32,52 @@ import re
 from backend.features.sales.agent import reading
 from backend.features.sales.agent.facts import Context
 
-#: Что в фразе-призыве уже не призыв: число и валюта; деньги, цена, бесплатное и скидка;
-#: гарантия, результат и срок; похвала себе; числа словами.
-_MORE = re.compile(
-    r"\d|[$€£₽¥%№#]|надцат|дцат|teen\b"
-    r"|\b(?:доллар|евро|рубл|руб\b|цен|стоим|стои[тл]|обойд|оплат|плат|бесплатн|даром|скидк"
+#: Знаки валюты, процента и номера.
+SIGNS = r"[$€£₽¥%№#]"
+#: Деньги, цена, бесплатное и скидка — основами слов, без учёта регистра. Словарь общий с
+#: правилом «предложение о собеседнике» (`judge_theirs.py`): одно слово — одно решение.
+MONEY = (
+    r"\b(?:доллар|евро|рубл|руб\b|цен|стоим|стои[тл]|обойд|оплат|плат|бесплатн|даром|скидк"
     r"|бюджет|тариф|прайс|деш[её]в|дорог|выгод|процент|акци|бонус|подар|пробн"
     r"|dollar|euro|usd\b|eur\b|rub\b|price|pricing|cost|fees?\b|rat(?:e|es|ed|ing)\b"
     r"|charge|pay|paid|free|discount|budget|tariff|cheap|expensive|affordable|deal|percent"
     r"|promo|bonus|gift|trial|offer)"
-    r"|\b(?:гарант|обеща|обеспеч|результат|рост|вырас|вырос|увелич|удво|утро(?:им|ит)|топ"
+)
+#: Гарантия, результат и срок — как `MONEY`.
+PLEDGE = (
+    r"\b(?:гарант|обеща|обеспеч|результат|рост|вырас|вырос|увелич|удво|утро(?:им|ит)|топ"
     r"|позици|страниц|срок|дн[еёяйи]|день|недел|месяц|час(?:а|ов|ы)?\b|сразу"
     r"|guarantee|promise|ensur|assur|result|grow|increase|double|top\b|rank|page|deadline"
     r"|within|day|week|month|hour|asap|instant)"
-    r"|\b(?:лучш|крупн|ведущ|лидер|эксперт|специалист|сертифиц|опыт|лет\b|клиент|партн[её]р"
+)
+_PRAISE = (
+    r"\b(?:лучш|крупн|ведущ|лидер|эксперт|специалист|сертифиц|опыт|лет\b|клиент|партн[её]р"
     r"|наград|единствен|довольн|кейс|известн|над[её]жн|проверен|миров"
     r"|best|lead(?:ing|er)|largest|biggest|expert|specialist|certified|experienc|years?\b"
     r"|client|customer|partner|award|only\b|unique|satisf|case|proven|trusted|renowned"
     r"|famous|world)"
-    r"|\b(?:од(?:ин|на|ну|ного)\b|дв[аеу]\b|двух|тр[иёе]\b|тр[её]х|четыр|пят[ьи]|шест"
+)
+_COUNTS = (
+    r"\b(?:од(?:ин|на|ну|ного)\b|дв[аеу]\b|двух|тр[иёе]\b|тр[её]х|четыр|пят[ьи]|шест"
     r"|сем[ьи]\b|восем|девят|десят|сорок|девяност|сто\b|сот(?:ен|ни|ня)|тысяч|миллион|полов"
     r"|вдво|втро|дважды|трижды"
     r"|one\b|two\b|three|four|five|six|seven|eight|nine|ten\b|eleven|twelve|twenty|thirty"
-    r"|forty|fifty|hundred|thousand|million|dozen|half|twice|triple)",
+    r"|forty|fifty|hundred|thousand|million|dozen|half|twice|triple)"
+)
+#: Что в фразе-призыве уже не призыв: число и валюта; деньги, цена, бесплатное и скидка;
+#: гарантия, результат и срок; похвала себе; числа словами.
+_MORE = re.compile(
+    "|".join((r"\d", SIGNS, r"надцат|дцат|teen\b", MONEY, PLEDGE, _PRAISE, _COUNTS)),
     re.IGNORECASE,
+)
+#: Союзы второй части предложения.
+JOINS = (
+    r"\b(?:и|а|но|или|либо|что|чтобы|потому|поэтому|который|которая|которое|которые|если|когда"
+    r"|and|but|or|so|because|since|that|which|who|while|if|when)\b"
 )
 #: Вторая часть предложения: знаки и союзы. Двоеточие перед ссылкой в конце — не в счёт:
 #: оно снимается вместе с концом фразы.
-_PARTS = re.compile(
-    r"[,;:()\[\]—–]|\s-\s"
-    r"|\b(?:и|а|но|или|либо|что|чтобы|потому|поэтому|который|которая|которое|которые|если|когда"
-    r"|and|but|or|so|because|since|that|which|who|while|if|when)\b",
-    re.IGNORECASE,
-)
+_PARTS = re.compile(r"[,;:()\[\]—–]|\s-\s|" + JOINS, re.IGNORECASE)
 _TAIL = " \t.…!?:;"
 
 

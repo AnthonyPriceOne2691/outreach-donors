@@ -1732,19 +1732,24 @@
       "worst": "_of_kind:114"
     },
     "backend/features/sales/agent/judge.py": {
-      "lines": 276,
+      "lines": 307,
       "complexity": 7,
-      "worst": "_ids:127"
+      "worst": "_ids:138"
     },
     "backend/features/sales/agent/judge_cta.py": {
-      "lines": 103,
+      "lines": 116,
       "complexity": 9,
-      "worst": "bare:75"
+      "worst": "bare:88"
     },
     "backend/features/sales/agent/judge_rules.py": {
       "lines": 182,
       "complexity": 6,
       "worst": "foreign_numbers:62"
+    },
+    "backend/features/sales/agent/judge_theirs.py": {
+      "lines": 152,
+      "complexity": 8,
+      "worst": "_theirs:134"
     },
     "backend/features/sales/agent/moves.py": {
       "lines": 172,
@@ -2182,7 +2187,7 @@
       "worst": "report:116"
     },
     "scripts/eval_sales_judge.py": {
-      "lines": 473,
+      "lines": 474,
       "complexity": 16,
       "worst": "report:323"
     },
