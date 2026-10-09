@@ -38,7 +38,9 @@
 
 Отдельно — следы проверки на настоящих доменах (`--test-traces`): всё, что
 адресовано своим ящикам из предохранителя, — с перепиской, ответами и ценой
-из них (`outreach/own_inboxes.py`). Домен и донор при этом остаются.
+из них (`outreach/own_inboxes.py`). Домен и донор при этом остаются. Туда же —
+проба продаж: лид со своим ящиком, его диалог, письма, ответы и передача
+(`sales/trials.py`); номер сделки Kommo — в плане и журнале, сделка в Kommo остаётся.
 
 Правила оставления проверяются дважды: планом — чтобы показать человеку, что
 останется и почему, — и самим удалением, условиями в том же запросе. Между
@@ -77,7 +79,8 @@ from backend.features.outreach.own_inboxes import (
     remove_inbox_trace,
 )
 from backend.features.runs.repository import RunRepository
-from backend.features.sales.models import SalesLeadModel
+from backend.features.sales.domain_hold import holds_domain
+from backend.features.sales.trials import TrialTrace, remove_trials, trial_trace
 
 #: Причины оставить домен — в порядке проверки. Домен считается по первой
 #: подошедшей: одна строка отчёта на домен, а не сумма пересечений.
@@ -125,6 +128,8 @@ class PrunePlan:
     probes: ProbeTrace | None = None
     #: Следы проверки на настоящих доменах (`--test-traces`). `None` — не просили.
     test_traces: InboxTrace | None = None
+    #: Проба продаж на свой ящик — с `--test-traces`. `None` — не просили.
+    sales_trials: TrialTrace | None = None
 
     def as_details(self) -> dict[str, Any]:
         """Запись в журнал действий: из неё потом видно, что и почему ушло."""
@@ -139,6 +144,7 @@ class PrunePlan:
             "без номера прогона": self.detached,
             **(self.probes.as_details() if self.probes is not None else {}),
             **(self.test_traces.as_details() if self.test_traces is not None else {}),
+            **(self.sales_trials.as_details() if self.sales_trials is not None else {}),
         }
 
 
@@ -195,8 +201,9 @@ def _history() -> ColumnElement[bool]:
 
 
 def _sales_lead() -> ColumnElement[bool]:
-    """Лид продаж на этом домене: ссылка без каскада — база удалить не даст."""
-    return exists().where(SalesLeadModel.domain_id == DomainModel.id)
+    """Лид продаж на этом домене: ссылка без каскада — база удалить не даст. Правило одно
+    с чисткой липовых доноров (`donors/probe.py`)."""
+    return holds_domain()
 
 
 def _held() -> ColumnElement[bool]:
@@ -382,6 +389,7 @@ async def plan_prune(
     plan = PrunePlan()
     if test_traces:
         plan.test_traces = await _test_traces(session)
+        plan.sales_trials = await trial_trace(session, plan.test_traces.inboxes)
     if probes:
         plan.probes = await probe_trace(session)
         run_ids = sorted({*run_ids, *plan.probes.runs})
@@ -410,6 +418,8 @@ async def apply_prune(session: AsyncSession, plan: PrunePlan, *, author: str) ->
         )
     if plan.test_traces is not None:
         await remove_inbox_trace(session, plan.test_traces)
+    if plan.sales_trials is not None:
+        await remove_trials(session, plan.sales_trials)
     if plan.runs:
         # Расход, рассылки и рекламодатели остаются: номер прогона гасит внешний
         # ключ, но запрос явный — чтобы поведение не зависело от того, как когда-то

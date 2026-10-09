@@ -522,9 +522,9 @@
       "worst": "run_probe_donor:40"
     },
     "backend/cli/prune.py": {
-      "lines": 193,
+      "lines": 224,
       "complexity": 9,
-      "worst": "_print_runs:129"
+      "worst": "_print_runs:160"
     },
     "backend/cli/review_queue.py": {
       "lines": 56,
@@ -1182,9 +1182,9 @@
       "worst": "put_price:25"
     },
     "backend/features/donors/probe.py": {
-      "lines": 328,
+      "lines": 339,
       "complexity": 8,
-      "worst": "checked_email:94"
+      "worst": "checked_email:100"
     },
     "backend/features/donors/publisher_judge.py": {
       "lines": 439,
@@ -1672,9 +1672,9 @@
       "worst": "gather_candidates:236"
     },
     "backend/features/runs/prune.py": {
-      "lines": 466,
+      "lines": 476,
       "complexity": 11,
-      "worst": "_replies:341"
+      "worst": "_replies:348"
     },
     "backend/features/runs/reasons.py": {
       "lines": 110,
@@ -1836,6 +1836,11 @@
       "complexity": 4,
       "worst": "reasons:64"
     },
+    "backend/features/sales/domain_hold.py": {
+      "lines": 47,
+      "complexity": 3,
+      "worst": "kept_words:27"
+    },
     "backend/features/sales/funnel.py": {
       "lines": 248,
       "complexity": 5,
@@ -1975,6 +1980,11 @@
       "lines": 249,
       "complexity": 13,
       "worst": "_chat_of:238"
+    },
+    "backend/features/sales/trials.py": {
+      "lines": 268,
+      "complexity": 8,
+      "worst": "trial_trace:104"
     },
     "backend/features/sales/unsubscribe.py": {
       "lines": 55,
