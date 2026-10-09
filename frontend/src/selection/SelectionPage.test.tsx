@@ -122,6 +122,16 @@ function rowOf(host: string): HTMLElement {
 }
 
 describe('экран отбора', () => {
+  it('на телефоне строка — карточкой: решение человека под доменом', async () => {
+    await openScreen();
+
+    const decide = screen.getAllByRole('button', { name: 'Площадка' })[0]!.closest('td')!;
+    expect(decide).toHaveClass('cellDecide');
+    expect(decide).toHaveAttribute('data-label', 'Человек');
+    expect(decide.closest('.phoneCards')).not.toBeNull();
+    expect(decide.closest('tr')!.querySelector('td[data-label="Судья"]')).not.toBeNull();
+  });
+
   it('длинный домен переносится по швам, а не посреди слова', async () => {
     // Запись UI_RULES 08.10.2026: колонка «Домен» «Отбора» оставалась без швов.
     const host = 'gambling-news-and-analysis.example.test';

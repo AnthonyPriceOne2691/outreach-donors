@@ -107,17 +107,17 @@ export function SelectionRow(props: Props) {
         )}
       </Table.Td>
       {withThresholds && (
-        <Table.Td>
+        <Table.Td data-label="Пороги">
           <Thresholds row={row} />
         </Table.Td>
       )}
-      <Table.Td>
+      <Table.Td data-label="Судья">
         <JudgeVerdict machine={row.machine} />
       </Table.Td>
-      <Table.Td>
+      <Table.Td data-label="Донор ответил">
         <SellerAnswer seller={row.seller} />
       </Table.Td>
-      <Table.Td>
+      <Table.Td className="cellDecide" data-label="Человек">
         <Human {...props} />
       </Table.Td>
     </Table.Tr>

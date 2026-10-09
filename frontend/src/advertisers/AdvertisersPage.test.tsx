@@ -60,6 +60,22 @@ async function openScreen(routes: Record<string, unknown> = {}, who: unknown = A
 }
 
 describe('ручная проверка рекламодателей', () => {
+  it('на телефоне строка — карточкой: «Пишем» и «Не пишем» под доменом', async () => {
+    await openScreen();
+
+    // Кнопки решения стояли последней колонкой — на телефоне за краем экрана.
+    const decide = screen.getByRole('button', { name: 'Пишем' }).closest('td')!;
+    expect(decide).toHaveClass('cellDecide');
+    expect(decide.closest('.phoneCards')).not.toBeNull();
+    const labels = [...decide.closest('tr')!.querySelectorAll('td[data-label]')];
+    expect(labels.map((cell) => cell.getAttribute('data-label'))).toEqual([
+      'Донор',
+      'Балл',
+      'За что',
+      'Ссылка',
+    ]);
+  });
+
   it('показывает, из чего сложился балл', async () => {
     await openScreen();
 

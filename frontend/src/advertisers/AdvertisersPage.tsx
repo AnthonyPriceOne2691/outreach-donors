@@ -261,7 +261,11 @@ export function AdvertisersPage() {
             onShowDecided={includeDecided ? null : () => setIncludeDecided(true)}
           />
         ) : (
-          <Table.ScrollContainer minWidth={TABLE_MIN_WIDTH} type="native" className="scrollSlim">
+          <Table.ScrollContainer
+            minWidth={TABLE_MIN_WIDTH}
+            type="native"
+            className="scrollSlim phoneCards"
+          >
             <Table
               className="dataTable fixedTable"
               layout="fixed"
@@ -293,10 +297,10 @@ export function AdvertisersPage() {
                         </Text>
                       ) : null}
                     </Table.Td>
-                    <Table.Td className="wrapCell cellName">
+                    <Table.Td className="wrapCell cellName" data-label="Донор">
                       <Seams text={row.donor_host} />
                     </Table.Td>
-                    <Table.Td>
+                    <Table.Td data-label="Балл">
                       <Badge variant="light" color={VERDICTS[row.verdict].color}>
                         {row.points}
                       </Badge>
@@ -304,7 +308,7 @@ export function AdvertisersPage() {
                     {/* Причины — строками по центру, как всё в колонке, без
                         маркеров списка: маркеры стояли у левого края, а текст
                         посередине, и строки читались оторванными от них. */}
-                    <Table.Td className="wrapCell">
+                    <Table.Td className="wrapCell" data-label="За что">
                       <Stack gap={2}>
                         {row.reasons.map((reason) => (
                           <Text key={reason} size="xs">
@@ -319,7 +323,7 @@ export function AdvertisersPage() {
                         </Text>
                       </Stack>
                     </Table.Td>
-                    <Table.Td className="wrapCell">
+                    <Table.Td className="wrapCell" data-label="Ссылка">
                       {row.best_page_url ? (
                         <Anchor href={row.best_page_url} target="_blank" rel="noreferrer" size="sm">
                           страница
@@ -335,7 +339,7 @@ export function AdvertisersPage() {
                       ) : null}
                     </Table.Td>
                     {mayDecide ? (
-                      <Table.Td>
+                      <Table.Td className="cellDecide">
                         {/* Обе кнопки — одного веса: экран меряет ошибки скоринга, и
                             залитая «Пишем» в каждой строке подталкивала соглашаться
                             с ним (аудит экранов 09.10.2026). */}

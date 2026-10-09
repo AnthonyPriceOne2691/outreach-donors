@@ -69,6 +69,22 @@ function page(count: number, { from = 1, total = count, number = 1 } = {}) {
 }
 
 describe('ручная очередь форм', () => {
+  it('на телефоне строка — карточкой: решение под доменом, у значений подписи', async () => {
+    await openForms();
+
+    // Вид карточками задают стили уже 48em (`phoneCards`); тест держит разметку, на
+    // которую они опираются: ячейка решения помечена, у значений — подписи колонок.
+    const decide = screen.getByRole('button', { name: 'Вписать адрес' }).closest('td')!;
+    expect(decide).toHaveClass('cellDecide');
+    expect(decide.closest('.phoneCards')).not.toBeNull();
+    const labels = [...decide.closest('tr')!.querySelectorAll('td[data-label]')];
+    expect(labels.map((cell) => cell.getAttribute('data-label'))).toEqual([
+      'DR',
+      'Трафик',
+      'Искали',
+    ]);
+  });
+
   it('остаток месячного потолка виден числом', async () => {
     await openForms();
 

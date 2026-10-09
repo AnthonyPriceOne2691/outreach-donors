@@ -368,7 +368,7 @@ export function RunReviewPage() {
               (withAnswers ? 0 : SELLER_PX)
             }
             type="native"
-            className="scrollSlim"
+            className="scrollSlim phoneCards"
           >
             <Table
               className={mayDecide ? 'dataTable pickFirst reviewTable' : 'dataTable reviewTable'}

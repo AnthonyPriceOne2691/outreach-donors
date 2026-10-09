@@ -221,7 +221,7 @@ function FilterRow({ filters, search, onSearch, onFilter }: FilterRowProps) {
       {/* У принятых вердикт порогов один — «подходит», по определению вкладки:
           колонки нет вовсе (`columnsOn`). */}
       {thresholds.length > 0 && (
-        <Table.Th>
+        <Table.Th data-label="Пороги">
           <ColumnFilter
             label="Вердикт порогов"
             width={FIELD.thresholds}
@@ -232,7 +232,7 @@ function FilterRow({ filters, search, onSearch, onFilter }: FilterRowProps) {
           />
         </Table.Th>
       )}
-      <Table.Th>
+      <Table.Th data-label="Судья">
         <ColumnFilter
           label="Кто вынес вердикт"
           width={FIELD.judge}
@@ -243,7 +243,7 @@ function FilterRow({ filters, search, onSearch, onFilter }: FilterRowProps) {
           renderOption={judgeOption}
         />
       </Table.Th>
-      <Table.Th>
+      <Table.Th data-label="Донор ответил">
         <ColumnFilter
           label="Ответ донора"
           width={FIELD.answer}
@@ -253,7 +253,7 @@ function FilterRow({ filters, search, onSearch, onFilter }: FilterRowProps) {
           onChange={(value) => onFilter({ answer: value })}
         />
       </Table.Th>
-      <Table.Th>
+      <Table.Th data-label="Человек">
         <ColumnFilter
           label="Решение человека"
           width={FIELD.human}
@@ -307,7 +307,7 @@ export function SelectionTable({
     <Table.ScrollContainer
       minWidth={TABLE_MIN_WIDTH - (withThresholds ? 0 : THRESHOLDS_PX)}
       type="native"
-      className="scrollSlim"
+      className="scrollSlim phoneCards"
     >
       <Table
         className="dataTable filteredTable selectionTable allCentered"

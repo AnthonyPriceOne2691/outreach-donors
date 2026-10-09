@@ -1628,6 +1628,160 @@ html:root .mantine-Pill-root {
   font-weight: 400;
 }
 
+/* --- Таблица карточками на телефоне (`phoneCards`) -----------------------
+ * Аудит экранов 09.10.2026: на телефоне таблицы «Отбора», «Рассмотрения»,
+ * «Форм» и «Рекламодателей» прокручивались вбок («Отбор» — 982 px в окне
+ * 316 px), а кнопки решения стояли последней колонкой — за краем экрана.
+ * Уже 48em строка складывается в карточку: имя — первым, ячейка решения
+ * (`cellDecide`) — сразу под ним, остальное — ниже, с подписью колонки над
+ * значением (`data-label` у ячейки). Строка подписей прячется — подписи
+ * у значений; строка фильтров остаётся, поля — во всю ширину. У таблицы с
+ * отметкой первой колонкой (`pickFirst`) отметка и имя — в одну строку, и
+ * «выбрать все» остаётся в шапке. `phoneCardsRow` — короткие значения
+ * (DR, трафик, дата) встают в одну строку, а не столбиком. Ширина таблицы
+ * «не меньше N» на телефоне снимается: прокручивать больше нечего. */
+@media (max-width: 47.99em) {
+  .phoneCards.mantine-TableScrollContainer-scrollContainer {
+    --table-min-width: 0px !important;
+  }
+
+  .phoneCards table,
+  .phoneCards thead,
+  .phoneCards tbody {
+    display: block;
+    width: 100%;
+  }
+
+  .phoneCards colgroup,
+  .phoneCards thead > tr:not(.filterRow) {
+    display: none;
+  }
+
+  .phoneCards table.pickFirst thead > tr:first-child {
+    display: flex;
+  }
+
+  .phoneCards table.pickFirst thead > tr:first-child > th:not(:first-child) {
+    display: none;
+  }
+
+  .phoneCards thead > tr.filterRow {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .phoneCards thead > tr.filterRow > th {
+    display: block;
+    padding-inline: 0;
+  }
+
+  .phoneCards thead > tr.filterRow > th:empty {
+    display: none;
+  }
+
+  /* Фильтр колонки без своей колонки над ним — с подписью слева от поля, а
+     поля — с края, как значения в карточках. */
+  .phoneCards thead > tr.filterRow > th[data-label] {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .phoneCards thead > tr.filterRow > th[data-label]::before {
+    content: attr(data-label);
+    font-size: var(--mantine-font-size-sm);
+    color: var(--mantine-color-dimmed);
+  }
+
+  .phoneCards thead > tr.filterRow .mantine-Group-root {
+    --group-justify: flex-start !important;
+  }
+
+  /* Поля фильтров — одной ширины: по значению они разной, и в столбик их
+     левые края стояли лесенкой. */
+  .phoneCards thead > tr.filterRow > th[data-label] .mantine-Select-root {
+    width: 11rem !important;
+  }
+
+  .phoneCards tbody > tr {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 12px;
+    row-gap: 8px;
+    padding-block: 12px;
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .phoneCards tbody > tr:last-child {
+    border-bottom: 0;
+  }
+
+  .phoneCards tbody > tr > td {
+    grid-column: 1 / -1;
+    order: 2;
+    padding: 0;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: none !important;
+    text-align: start !important;
+    white-space: normal !important;
+  }
+
+  .phoneCards tbody > tr > td:first-child {
+    order: 0;
+  }
+
+  .phoneCards tbody > tr > td.cellDecide {
+    order: 1;
+  }
+
+  .phoneCards table.pickFirst tbody > tr > td:first-child {
+    grid-column: 1;
+  }
+
+  .phoneCards table.pickFirst tbody > tr > td:nth-child(2) {
+    grid-column: 2;
+    order: 0;
+  }
+
+  .phoneCardsRow tbody > tr {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .phoneCardsRow tbody > tr > td:not(:first-child, .cellDecide) {
+    grid-column: auto;
+  }
+
+  /* Строка во всю ширину — ярус, пусто, отказ — остаётся строкой. */
+  .phoneCards tbody > tr.tierRow,
+  .phoneCards tbody > tr.wholeRow {
+    display: block;
+  }
+
+  .phoneCards tbody > tr > td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 2px;
+    font-size: var(--mantine-font-size-xs);
+    color: var(--mantine-color-dimmed);
+  }
+
+  /* В колонке содержимое стояло по центру; в карточке оно читается с края. */
+  .phoneCards tbody td .mantine-Group-root {
+    --group-justify: flex-start !important;
+  }
+
+  .phoneCards tbody td .mantine-Stack-root {
+    --stack-align: flex-start !important;
+  }
+
+  .phoneCards tbody td .mantine-Text-root {
+    text-align: start !important;
+  }
+}
+
 /* Слова в числе плитки («не подключена») переносятся по слогам: плитка на
    телефоне уже самого длинного слова, и оно вылезало за её край. */
 .tileWords {

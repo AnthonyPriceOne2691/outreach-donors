@@ -190,19 +190,19 @@ export function CandidateRow(props: Props) {
         <Site row={row} />
       </Table.Td>
       {withKeywords && (
-        <Table.Td>
+        <Table.Td data-label="Нашёлся по ключам">
           <FoundBy keywords={row.found_by} />
         </Table.Td>
       )}
-      <Table.Td>
+      <Table.Td data-label="Судья">
         <JudgeVerdict machine={row.machine} />
       </Table.Td>
       {withAnswers && (
-        <Table.Td>
+        <Table.Td data-label="Донор ответил">
           <SellerAnswer seller={row.seller} />
         </Table.Td>
       )}
-      <Table.Td>
+      <Table.Td className="cellDecide">
         <Decision {...props} />
       </Table.Td>
     </Table.Tr>
