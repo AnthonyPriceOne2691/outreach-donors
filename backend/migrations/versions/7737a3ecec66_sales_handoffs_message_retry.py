@@ -1,7 +1,7 @@
 """продажи: повтор сообщения о лиде в Telegram по расписанию
 
 Revision ID: 7737a3ecec66
-Revises: 260e2efdd0c6
+Revises: 5d2c8e1a9f47
 Create Date: 2026-10-08 16:30:00.000000
 
 Сообщение телемаркетологу или копия в группу, не ушедшие из-за сети, 5xx или 429,
@@ -18,7 +18,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "7737a3ecec66"
-down_revision: Union[str, Sequence[str], None] = "260e2efdd0c6"
+down_revision: Union[str, Sequence[str], None] = "5d2c8e1a9f47"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
