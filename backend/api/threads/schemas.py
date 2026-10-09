@@ -18,6 +18,7 @@ from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.letters.mailbox import ThreadMail
 from backend.features.outreach.repository import ThreadDetail, ThreadRow
 from backend.features.outreach.threads import ThreadState, review_of
+from backend.features.replies.quoting import written_by_hand
 
 
 class ThreadCard(BaseModel):
@@ -154,6 +155,13 @@ class IncomingCard(BaseModel):
     id: int
     kind: ReplyKind
     raw_body: str
+    #: То, что написал человек, — без цитаты нашего письма и подписи
+    #: (`replies/quoting.written_by_hand`, то же правило, что у разбора цены).
+    #: Экран показывает его, а письмо целиком — по раскрытию: цитата нашего
+    #: же письма и хвост подписи с трекинговыми ссылками растягивали переписку
+    #: в простыню (первый настоящий ответ донора, 08.10.2026). Отрезать нечего —
+    #: здесь весь текст.
+    fresh_body: str
     received_at: datetime
     #: Адрес, с которого ответили. Может отличаться от того, кому писали:
     #: на общий ящик смотрит секретарь и пересылает письмо редактору.
@@ -201,6 +209,7 @@ class IncomingCard(BaseModel):
             id=reply.id,
             kind=reply.kind,
             raw_body=reply.raw_body,
+            fresh_body=written_by_hand(reply.raw_body),
             received_at=reply.created_at,
             from_email=reply.from_email,
             subject=reply.subject,

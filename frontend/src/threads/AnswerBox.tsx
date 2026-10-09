@@ -2,7 +2,7 @@
  * Ответ собеседнику из переписки (`POST /api/threads/{id}/answer`).
  */
 
-import { Button, Divider, Group, Stack, Text, Textarea } from '@mantine/core';
+import { Button, Group, Stack, Text, Textarea } from '@mantine/core';
 import { useState } from 'react';
 
 interface AnswerProps {
@@ -29,19 +29,19 @@ const SIGNED_HINT =
  * Ответ собеседнику — письмом из системы, а не из своей почты: тем ящиком,
  * что начал переписку, веткой к его письму. Уходит сразу по «Отправить».
  *
- * Отделён от решения по цене штриховой линией: «Ответить» вплотную под
- * «Подтвердить» и «Не продаёт размещения» читалась третьей кнопкой формы
- * цены, а не отдельным действием.
+ * Стоит своей карточкой под лентой, отдельно от разбора цены: «Ответить»
+ * вплотную под «Подтвердить» и «Не продаёт размещения» читалась третьей
+ * кнопкой формы цены, а не отдельным действием. Отвечает на последний ответ
+ * человека (`threadTimeline.answerTarget`).
  */
 export function AnswerBox({ answered, busy, onSend, signed = false }: AnswerProps) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
   return (
     <>
-      <Divider my="sm" variant="dashed" />
       {answered ? (
         <Text size="sm" c="dimmed">
-          Ответили — письмо ниже в переписке.
+          Ответили — наше письмо в ленте выше.
         </Text>
       ) : open ? (
         <Stack gap="xs">
