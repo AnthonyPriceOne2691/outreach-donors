@@ -31,9 +31,11 @@
  */
 
 import {
+  ActionIcon,
   Alert,
   Anchor,
   Badge,
+  Button,
   Card,
   Group,
   Loader,
@@ -43,7 +45,9 @@ import {
   Text,
   Title,
 } from '@mantine/core';
+import { IconArrowRight, IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
+import type { ReactNode } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 
 import { ApiError, refusalOf } from '../api/client';
@@ -58,6 +62,7 @@ import { Seams } from '../components/Seams';
 import { fetchDonor } from '../api/runs';
 import { DonorAddresses } from './DonorAddresses';
 import { DonorPrice } from './DonorPrice';
+import { neighboursOf } from './place';
 
 const when = formatDate;
 
@@ -139,10 +144,86 @@ function Standing({ donor }: { donor: DonorFullCard }) {
   );
 }
 
+/** Шаг к соседнему донору списка; соседа нет — кнопка стоит, но не нажимается. */
+function Step({
+  to,
+  state,
+  label,
+  children,
+}: {
+  to: number | null;
+  state: unknown;
+  label: string;
+  children: ReactNode;
+}) {
+  if (to === null) {
+    return (
+      <ActionIcon variant="subtle" disabled aria-label={label}>
+        {children}
+      </ActionIcon>
+    );
+  }
+  return (
+    <ActionIcon
+      component={Link}
+      to={`/donors/${to}`}
+      state={state}
+      variant="subtle"
+      aria-label={label}
+    >
+      {children}
+    </ActionIcon>
+  );
+}
+
+/** ‹ › к соседнему донору списка, из которого открыли карточку (`place.ts`). Пришли не
+ *  из списка — стрелок нет: соседей не у кого спросить. */
+function Neighbours({ id, state }: { id: number; state: unknown }) {
+  const { prev, next } = neighboursOf(state, id);
+  if (prev === null && next === null) return null;
+  return (
+    <Group gap={4}>
+      <Step to={prev} state={state} label="Предыдущий донор списка">
+        <IconChevronLeft size={18} />
+      </Step>
+      <Step to={next} state={state} label="Следующий донор списка">
+        <IconChevronRight size={18} />
+      </Step>
+    </Group>
+  );
+}
+
+/** «Открыть диалог →» — в новую переписку с донором; сколько их всего — рядом числом:
+ *  диалог — на адрес, и у сайта их бывает несколько (аудит экранов 09.10.2026). */
+function DialogLink({ threads }: { threads: number[] }) {
+  const [latest] = threads;
+  if (latest === undefined) return null;
+  return (
+    <Group gap="xs">
+      <Button
+        component={Link}
+        to={`/threads/${latest}`}
+        variant="light"
+        size="compact-sm"
+        className="press"
+        rightSection={<IconArrowRight size={16} />}
+      >
+        Открыть диалог
+      </Button>
+      {threads.length > 1 && (
+        <Text size="sm" c="dimmed">
+          диалогов: {threads.length}
+        </Text>
+      )}
+    </Group>
+  );
+}
+
 export function DonorPage() {
   const raw = useParams<{ id: string }>().id;
   const id = rowIdOf(raw);
-  const back = `/donors${backTo(useLocation().state)}`;
+  const state: unknown = useLocation().state;
+  const back = `/donors${backTo(state)}`;
   const { data, isLoading, error } = useQuery({
     queryKey: ['donor', String(id)],
     queryFn: () => fetchDonor(id ?? 0),
@@ -172,18 +253,24 @@ export function DonorPage() {
     <Stack gap="lg">
       <Card className="glassPanel" p="xl">
         <Stack gap={6}>
-          <BackLink to={back}>К списку</BackLink>
-          <Group gap="sm">
-            {/* Домен шире карточки на телефоне срезался её краем; теперь
-                переносится по точкам и дефисам (06.10.2026). */}
-            <Title order={3} className="cellName">
-              <Seams text={data.host} />
-            </Title>
-            {/* Исход поиска адреса — в разделе «Адреса», а не здесь:
-                один и тот же значок дважды читается как сбой. */}
-            <Badge variant="light" color={DONOR_STATUSES[data.status].color}>
-              {DONOR_STATUSES[data.status].title}
-            </Badge>
+          <Group justify="space-between" gap="sm">
+            <BackLink to={back}>К списку</BackLink>
+            <Neighbours id={data.id} state={state} />
+          </Group>
+          <Group justify="space-between" gap="sm">
+            <Group gap="sm">
+              {/* Домен шире карточки на телефоне срезался её краем; теперь
+                  переносится по точкам и дефисам (06.10.2026). */}
+              <Title order={3} className="cellName">
+                <Seams text={data.host} />
+              </Title>
+              {/* Исход поиска адреса — в разделе «Адреса», а не здесь:
+                  один и тот же значок дважды читается как сбой. */}
+              <Badge variant="light" color={DONOR_STATUSES[data.status].color}>
+                {DONOR_STATUSES[data.status].title}
+              </Badge>
+            </Group>
+            <DialogLink threads={data.threads} />
           </Group>
           <Standing donor={data} />
           {data.reject_reason !== null && (

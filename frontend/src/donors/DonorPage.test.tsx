@@ -46,6 +46,7 @@ const CARD: DonorFullCard = {
   letter_contact_id: null,
   letter_blocked: null,
   letter_note: null,
+  threads: [],
 };
 
 function job(state: JobCard['state'], title: string): JobCard {
@@ -106,6 +107,32 @@ describe('карточка донора: решение человека и фо
       'href',
       '/forms',
     );
+  });
+});
+
+describe('карточка донора: переходы', () => {
+  it('«Открыть диалог» ведёт в новую переписку, и сколько их всего — рядом', async () => {
+    await openCard({ ...CARD, threads: [12, 7] });
+
+    // Чтобы прочитать переписку донора, искали его в «Диалогах» (аудит экранов 09.10.2026).
+    expect(screen.getByRole('link', { name: 'Открыть диалог' })).toHaveAttribute(
+      'href',
+      '/threads/12',
+    );
+    expect(screen.getByText('диалогов: 2')).toBeInTheDocument();
+  });
+
+  it('писем донору не было — и ссылки на диалог нет', async () => {
+    await openCard({ ...CARD, threads: [] });
+
+    expect(screen.queryByRole('link', { name: 'Открыть диалог' })).not.toBeInTheDocument();
+  });
+
+  it('открыта не из списка — стрелок к соседям нет: соседей не у кого спросить', async () => {
+    await openCard();
+
+    expect(screen.queryByRole('link', { name: /донор списка/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /донор списка/ })).not.toBeInTheDocument();
   });
 });
 

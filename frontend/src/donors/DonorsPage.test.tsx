@@ -346,6 +346,7 @@ describe('доноры: таблица', () => {
           review_run: 18,
           letter_contact_id: null,
           letter_blocked: null,
+          threads: [],
         },
       },
     });
@@ -354,6 +355,15 @@ describe('доноры: таблица', () => {
     await user.click(screen.getByText('dr ниже порога'));
 
     expect(await screen.findByRole('heading', { name: 'weak.example.test' })).toBeInTheDocument();
+    // Карточку открыли из списка — ‹ › ведут к соседним строкам той же страницы.
+    expect(screen.getByRole('link', { name: 'Предыдущий донор списка' })).toHaveAttribute(
+      'href',
+      '/donors/1',
+    );
+    expect(screen.getByRole('link', { name: 'Следующий донор списка' })).toHaveAttribute(
+      'href',
+      '/donors/3',
+    );
   });
 });
 

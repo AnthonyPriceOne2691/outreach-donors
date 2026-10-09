@@ -59,6 +59,8 @@ import { formatCompact, formatNumber, formatShare } from '../format';
 import { FRESHNESS, totalOf, TRAFFIC_DIGITS } from './donorFilters';
 import type { DonorFilters, Emptiness } from './donorFilters';
 import type { Picks } from './picks';
+import { placeOf } from './place';
+import type { DonorPlace } from './place';
 
 /** Колонки слева направо. Ширина донора — остаток: в ней домен, и ей
  *  отдаётся всё, что не нужно остальным. Остальные — по самому длинному,
@@ -343,13 +345,13 @@ function AddressCell({ donor }: { donor: DonorRowCard }) {
 
 interface RowProps {
   donor: DonorRowCard;
-  from: string;
+  place: DonorPlace;
   picked: boolean;
   onPick: (id: number) => void;
   onOpen: (donor: DonorRowCard) => void;
 }
 
-function DonorRow({ donor, from, picked, onPick, onOpen }: RowProps) {
+function DonorRow({ donor, place, picked, onPick, onOpen }: RowProps) {
   // Слово считает сервер тем же условием, что фильтр «Данные»: данных
   // не было — «не проверялись», а не «пора обновить» — обновлять нечего.
   const fresh = DONOR_FRESHNESS[donor.freshness];
@@ -375,7 +377,7 @@ function DonorRow({ donor, from, picked, onPick, onOpen }: RowProps) {
         <Anchor
           component={Link}
           to={{ pathname: `/donors/${donor.id}` }}
-          state={{ from }}
+          state={place}
           fw={500}
           c="var(--ink)"
           underline="hover"
@@ -550,7 +552,7 @@ export function DonorsTable({
               <DonorRow
                 key={donor.id}
                 donor={donor}
-                from={from}
+                place={placeOf(from, rows)}
                 picked={picks.picked.has(donor.id)}
                 onPick={picks.toggle}
                 onOpen={onOpen}
