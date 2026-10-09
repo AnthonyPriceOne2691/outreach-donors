@@ -1,6 +1,7 @@
 /** Переписка целиком — ответ `GET /api/threads/{id}`.
  *  Отдельным файлом: `types.ts` упёрся в свой потолок. */
 
+import type { FileRules, OutgoingFile } from './files';
 import type { Corridor, IncomingCard, LetterCard, ThreadCard } from './types';
 
 /** Ящик переписки, пишет ли он и срок следующей добивки (`letters/mailbox.py`). */
@@ -22,4 +23,9 @@ export interface ThreadView {
   corridor: Corridor;
   /** Пусто — первое письмо ещё не уходило: ящик выберется при отправке. */
   mail: ThreadMail | null;
+  /** Файлы, загруженные к ответу, но ещё не ушедшие: скрепка восстанавливает их
+   *  после перезагрузки страницы. */
+  pending_files?: OutgoingFile[];
+  /** Правила файла к ответу — с сервера. */
+  file_rules?: FileRules;
 }
