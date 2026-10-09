@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -25,8 +26,10 @@ from alembic.operations import Operations
 from alembic.runtime.migration import MigrationContext
 from backend.config import sales as cfg
 from backend.features.agent import drafting
-from backend.features.core.domain import DraftStatus
+from backend.features.core.domain import DraftStatus, UserRole
+from backend.features.core.models.access import UserModel
 from backend.features.core.models.agent import AgentDraftModel
+from backend.features.core.models.outreach import ReplyModel
 from backend.features.sales import handoff, handoff_jobs
 from backend.features.sales.agent import notify, notify_retry
 from backend.features.sales.models import (
@@ -37,13 +40,16 @@ from backend.features.sales.models import (
 )
 from backend.features.sales.telegram import SalesBot
 from backend.shared import queue as shared_queue
+from httpx import AsyncClient
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from tests.conftest import bearer
 from tests.migration_helpers import load_migration
 from tests.test_sales_agent_situation import Plug, llm
-from tests.test_sales_agent_stage import GOOD, Writer, sales_on
+from tests.test_sales_agent_stage import GOOD, INFORM, Writer, lead_replied, sales_on
 from tests.test_sales_draft_notify import (
+    ALLOW,
     APP,
     IMPORTED_QUEUE,
     TOKEN,
@@ -68,6 +74,11 @@ __all__ = ["alerts", "llm", "pauses", "queue", "sales_on", "wired"]  # фикс�
 pytestmark = pytest.mark.usefixtures("sales_on", "switched_on", "queue")
 
 NOW = datetime(2026, 10, 15, 9, 41, 7, tzinfo=UTC)
+#: Строка журнала, когда продажи выключены: сообщения нет, попытка не потрачена.
+HELD = "не отправлено: продажи выключены (SALES_ENABLED)"
+
+MakeUser = Callable[..., Awaitable[UserModel]]
+SignIn = Callable[..., Awaitable[str]]
 MINUTE = timedelta(minutes=1)
 REVISION = "d2afdd4a00d0_sales_draft_notices_retry.py"
 
@@ -451,6 +462,150 @@ async def test_bot_watch_goes_after_the_retries_and_does_not_hold_them(
         await handoff_jobs.retry_pass()
 
     assert order == expected
+
+
+# --- продажи выключены: сообщения о черновике нет ------------------------------------------------
+
+
+class _ButtonWriter(Writer):
+    """Писатель кнопки «написать заново» на месте модели; маршрут закрывает его сам."""
+
+    def __init__(self) -> None:
+        super().__init__(GOOD)
+
+    async def aclose(self) -> None:
+        return None
+
+
+async def _no_message(session: AsyncSession, draft_id: int) -> tuple[SalesDraftNoticeModel, BotApi]:
+    """Задача сообщения о черновике при выключенных продажах — в минуту `NOW`."""
+    api, alarms = BotApi(ok()), Alarms()
+    held = await notify.notify(
+        session, draft_id, SalesBot(api.client()), alert=alarms, now=lambda: NOW
+    )
+    assert (api.seen, alarms) == ([], []), "Telegram при выключенных продажах не зовётся"
+    assert (held.status, held.error) == (NoticeStatus.UNDELIVERED, HELD)
+    [row] = await journal(session)
+    assert (row.status, row.error, row.tries, row.due_at) == (
+        NoticeStatus.UNDELIVERED,
+        HELD,
+        0,
+        NOW,
+    )
+    return row, api
+
+
+async def test_switched_off_the_button_writes_the_draft_and_its_message_waits(
+    session: AsyncSession,
+    llm: Plug,
+    wired: list[float],
+    queue: Queue,
+    client: AsyncClient,
+    make_user: MakeUser,
+    sign_in: SignIn,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """«Написать заново» при выключенных продажах: черновик пишется, как раньше (шов агента
+    выключатель продаж не читает), а сообщения нет — Telegram ни разу, строка «не отправлено»
+    со сроком, попытка не потрачена. Мутант «выключатель не держит сообщение» шлёт его."""
+    reply_id = await lead_replied(session)
+    llm(situation=[INFORM], judge=[ALLOW])
+    reply = await session.get(ReplyModel, reply_id)
+    assert reply is not None
+    path = f"/api/threads/{reply.thread_id}/replies/{reply_id}/draft"
+    await session.commit()
+    monkeypatch.setattr("backend.api.threads.routes.AgentWriter", _ButtonWriter)
+    monkeypatch.setattr(cfg, "ENABLED", False)
+    await make_user("admin@notice-off.example.test", role=UserRole.ADMIN)
+    headers = bearer(await sign_in("admin@notice-off.example.test"))
+
+    written = await client.post(path, headers=headers)
+
+    assert written.status_code == 200, written.text
+    assert written.json()["body"] == GOOD
+    [(job, (draft_id,))] = queue.jobs
+    assert job == notify.NOTICE_JOB
+    await _no_message(session, draft_id)
+
+
+@pytest.mark.parametrize("queued", ["after the switch-off", "before the switch-off"])
+async def test_switched_off_the_draft_job_sends_no_message_and_it_waits(
+    session: AsyncSession,
+    llm: Plug,
+    wired: list[float],
+    monkeypatch: pytest.MonkeyPatch,
+    queued: str,
+) -> None:
+    """Задача черновика, поставленная до выключения, пишет его после — а сообщения нет; и
+    задача сообщения, поставленная до выключения, тоже не шлёт."""
+    if queued == "after the switch-off":
+        monkeypatch.setattr(cfg, "ENABLED", False)
+    outcome = await drafted(session, llm, Writer(GOOD))
+    assert outcome.draft_id is not None
+    monkeypatch.setattr(cfg, "ENABLED", False)
+
+    await _no_message(session, outcome.draft_id)
+
+
+async def test_switched_on_again_the_pass_sends_the_waiting_message(
+    session: AsyncSession, llm: Plug, wired: list[float], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Включили — проход берёт строку «не отправлено» сам: черновик ждёт человека, версия та же.
+    Мутант «без срока повтора» оставляет её навсегда."""
+    monkeypatch.setattr(cfg, "ENABLED", False)
+    outcome = await drafted(session, llm, Writer(GOOD))
+    assert outcome.draft_id is not None
+    row, api = await _no_message(session, outcome.draft_id)
+    assert await notify_retry.due(session, now=NOW) == [], "выключены — проход не берёт"
+
+    monkeypatch.setattr(cfg, "ENABLED", True)
+    done = await again(session, row, api, Alarms(), NOW)
+
+    assert done["status"] == "sent"
+    assert len(api.seen) == 1
+    assert (row.status, row.error, row.tries, row.due_at) == (NoticeStatus.SENT, None, 0, None)
+
+
+async def test_draft_decided_before_switching_on_is_not_announced(
+    session: AsyncSession, llm: Plug, wired: list[float], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(cfg, "ENABLED", False)
+    outcome = await drafted(session, llm, Writer(GOOD))
+    assert outcome.draft_id is not None
+    row, api = await _no_message(session, outcome.draft_id)
+    draft = await session.get(AgentDraftModel, outcome.draft_id)
+    assert draft is not None
+    draft.status = DraftStatus.REJECTED
+    await session.commit()
+
+    monkeypatch.setattr(cfg, "ENABLED", True)
+    taken = await notify_retry.due(session, now=NOW + timedelta(hours=1))
+    done = await notify_retry.resend(session, row.id, 0, SalesBot(api.client()), alert=Alarms())
+
+    assert taken == []
+    assert done["skipped"] == "черновик в состоянии «rejected» — человека он не ждёт"
+    assert api.seen == []
+
+
+async def test_switched_off_a_message_whose_end_was_told_stays_as_it_is(
+    session: AsyncSession, llm: Plug, wired: list[float], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Итог сказан (отказ постоянный, тревога ушла): задача при выключенных продажах строку не
+    переписывает и новой серии не заводит — после включения проход её не берёт."""
+    api, alarms = BotApi(refused(400, "Bad Request: chat not found")), Alarms()
+    told = await first(session, llm, api, alarms)
+    error = told.error
+    monkeypatch.setattr(cfg, "ENABLED", False)
+
+    held = await notify.notify(
+        session, told.draft_id, SalesBot(api.client()), alert=alarms, now=lambda: NOW
+    )
+
+    assert held.skipped == HELD
+    await session.refresh(told)
+    assert (told.error, told.tries, told.due_at) == (error, 0, None)
+    monkeypatch.setattr(cfg, "ENABLED", True)
+    assert await notify_retry.due(session, now=NOW + timedelta(days=1)) == []
 
 
 # --- задача очереди и ревизия ------------------------------------------------------------------

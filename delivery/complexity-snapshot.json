@@ -1807,9 +1807,9 @@
       "worst": "_move:105"
     },
     "backend/features/sales/agent/notify.py": {
-      "lines": 468,
-      "complexity": 7,
-      "worst": "notify:151"
+      "lines": 494,
+      "complexity": 8,
+      "worst": "notify:158"
     },
     "backend/features/sales/agent/notify_retry.py": {
       "lines": 156,

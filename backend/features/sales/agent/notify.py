@@ -27,6 +27,10 @@
 продаж процесса разбора (`handoff_jobs.retry_pass`): одна, с числом черновиков, которые ждут
 человека без сообщения; «прошло» — когда токен задан (`watch_token`).
 
+**Продажи выключены (`SALES_ENABLED`) — сообщения нет** (решение владельца): Telegram не
+зовётся, строка журнала «не отправлено» со сроком повтора, попытка не тратится; после включения
+её берёт проход (`notify_retry.py`), если черновик ещё ждёт человека и версия та же.
+
 **Одна версия — одно сообщение.** Строка журнала — версия черновика (`written_at`):
 повтор задачи о той же версии второй раз не пишет, «написать заново» — новая версия
 и новое сообщение. Решённый черновик не объявляется: человек им уже занялся.
@@ -71,6 +75,9 @@ logger = logging.getLogger(__name__)
 NOTICE_JOB = "backend.features.sales.agent.notify.notify_draft"
 #: Повтор недоставленного сообщения проходом по расписанию (`notify_retry.py`).
 RESEND_JOB = "backend.features.sales.agent.notify_retry.resend_draft_notice"
+
+#: Сообщения нет: продажи выключены — строка журнала со сроком, попытка не потрачена.
+SALES_OFF = "не отправлено: продажи выключены (SALES_ENABLED)"
 
 #: О каких черновиках сообщаем: оба ждут человека.
 WAITING = (DraftStatus.DRAFTED, DraftStatus.ESCALATED)
@@ -174,6 +181,8 @@ async def notify(
     why = _silent(found) or _not_now(found, row, retry)
     if why is not None:
         return Noticed(draft_id, skipped=why)
+    if not cfg.ENABLED:
+        return await _held(session, found, row, now())
     text = message(found)
     failure = await _deliver(bot, draft_id, text)
     if failure is None:
@@ -189,6 +198,23 @@ async def notify(
     if failed.alarm and cfg.TELEGRAM_BOT_TOKEN:
         await alert(_alarm(found, failed, failure))
     return Noticed(draft_id, status=status, error=error)
+
+
+async def _held(
+    session: AsyncSession, found: _Found, row: SalesDraftNoticeModel | None, at: datetime
+) -> Noticed:
+    """Продажи выключены: Telegram не зовётся. Строка «не отправлено» со сроком `at` — попытка не
+    потрачена, после включения её возьмёт проход. Итог уже сказан — строка как есть: без серии."""
+    tries, told = _series(row)
+    if told:
+        return Noticed(found.draft.id, skipped=SALES_OFF)
+    status = NoticeStatus.UNDELIVERED
+    await _journal(session, found, status, message(found), SALES_OFF, tries=tries, due_at=at)
+    await session.commit()
+    logger.info(
+        "продажи: выключены — сообщение о черновике ждёт", extra={"draft_id": found.draft.id}
+    )
+    return Noticed(found.draft.id, status=status, error=SALES_OFF)
 
 
 def _alarm(found: _Found, failed: Failed, failure: TelegramError) -> str:

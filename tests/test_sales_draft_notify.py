@@ -44,8 +44,13 @@ from tests.test_sales_agent_situation import Plug, llm
 from tests.test_sales_agent_stage import BAD, GOOD, INFORM, Writer, lead_replied, sales_on
 from tests.test_sales_model import ROOT
 from tests.test_sales_stage_mail import LEAD
+from tests.test_sales_switch import sales_switched_on
 
-__all__ = ["llm", "sales_on"]  # фикстуры — отсюда их видит pytest
+__all__ = [  # фикстуры — отсюда их видит pytest
+    "llm",
+    "sales_on",
+    "sales_switched_on",  # продажи включены (SALES_ENABLED): при выключенных сообщения нет
+]
 
 pytestmark = pytest.mark.usefixtures("sales_on")
 
