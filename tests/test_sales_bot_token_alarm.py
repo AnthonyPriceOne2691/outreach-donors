@@ -3,8 +3,9 @@
 Решение владельца по ревью стыков (R3, C4): без токена бота продаж не уходит ни одно
 сообщение о черновике, и тревога на каждый черновик заваливала бы чат эксплуатации. Теперь —
 одна тревога в общей ленте (`ops/alarm_feed.Feed`, по смене состояния) с числом черновиков,
-которые ждут человека без сообщения; «прошло» — когда токен задан. Лента — проходом продаж
-процесса разбора (`handoff_jobs.retry_pass`).
+которые ждут человека без сообщения; «прошло» — когда токен задан, по правилу ленты: после
+`QUIET_PASSES` проходов без тревоги. Лента — проходом продаж процесса разбора
+(`handoff_jobs.retry_pass`).
 
 Черновики — строками базы (их путь шва — `test_sales_draft_notify.py`); бот продаж —
 настоящий поверх подставного Bot API; лента тревог говорит в список. Сети нет.
@@ -148,8 +149,11 @@ async def test_the_alarm_passes_once_the_token_is_set(
     await notify.watch_token(session, feed)
 
     monkeypatch.setattr(cfg, "TELEGRAM_BOT_TOKEN", TOKEN)
-    await notify.watch_token(session, feed)
+    for _ in range(alarm_feed.QUIET_PASSES - 1):
+        await notify.watch_token(session, feed)
+    assert [text.split(".")[0] for text in said] == ["тревога: Бот продаж без токена"]
 
+    await notify.watch_token(session, feed)
     assert [text.split(".")[0] for text in said] == [
         "тревога: Бот продаж без токена",
         "прошло: Бот продаж без токена",
@@ -167,7 +171,8 @@ async def test_the_alarm_stays_while_the_token_is_missing_though_nothing_waits(
 
     draft.status = DraftStatus.REJECTED
     await session.flush()
-    await notify.watch_token(session, feed)
+    for _ in range(alarm_feed.QUIET_PASSES + 1):
+        await notify.watch_token(session, feed)
 
     [told] = said
     assert told.startswith(ALARM)
