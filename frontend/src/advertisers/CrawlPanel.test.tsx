@@ -17,7 +17,7 @@ import type { CrawlRow } from '../api/crawls';
 import { ADMIN, NO_NICHE, OPERATOR, PROMOTE_ROUTES, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
-import { crawlState } from './CrawlPanel';
+import { crawlState } from './CrawlTable';
 import { enteredSummary } from './ManualDonor';
 
 function crawl(overrides: Partial<CrawlRow>): CrawlRow {
@@ -248,10 +248,11 @@ describe('донор, заведённый вручную', () => {
     const user = userEvent.setup();
 
     const toggle = await screen.findByRole('button', { name: 'Завести донора вручную' });
-    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    // Форма — в окне, а не раздвигает панель (аудит экранов 09.10.2026).
+    expect(toggle).toHaveAttribute('aria-haspopup', 'dialog');
     await user.click(toggle);
-    expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    const enter = screen.getByRole('button', { name: 'Завести донора' });
+    const dialog = await screen.findByRole('dialog', { name: 'Завести донора вручную' });
+    const enter = within(dialog).getByRole('button', { name: 'Завести донора' });
     expect(enter).toBeDisabled();
     await user.type(
       screen.getByRole('textbox', { name: 'Домен' }),
@@ -283,8 +284,10 @@ describe('донор, заведённый вручную', () => {
         },
       ],
     ]);
-    // Заведён — поля свёрнуты, а список «кого обходить» перечитан: донор в нём.
-    await waitFor(() => expect(screen.queryByRole('textbox', { name: 'Домен' })).toBeNull());
+    // Заведён — окно закрыто, а список «кого обходить» перечитан: донор в нём.
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Завести донора вручную' })).toBeNull(),
+    );
     await waitFor(() =>
       expect(recorded.calls.filter((call) => call.path === '/api/crawls/targets')).toHaveLength(2),
     );
@@ -297,7 +300,7 @@ describe('донор, заведённый вручную', () => {
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole('button', { name: 'Завести донора вручную' }));
-    await user.type(screen.getByRole('textbox', { name: 'Домен' }), 'example.com');
+    await user.type(await screen.findByRole('textbox', { name: 'Домен' }), 'example.com');
     await user.type(screen.getByRole('textbox', { name: 'Цена' }), '150{Enter}');
 
     expect(await screen.findByText(refusal)).toBeVisible();
@@ -329,6 +332,38 @@ describe('донор, заведённый вручную', () => {
     ],
   ])('что вышло — словами: %o', (entered, said) => {
     expect(plain(enteredSummary(entered))).toBe(said);
+  });
+});
+
+describe('панель в покое', () => {
+  it('обход не идёт — одной строкой, доноры и обходы по нажатию', async () => {
+    open({
+      'GET /api/crawls/targets': { body: { ...TARGETS, donors: [TARGETS.donors[0]] } },
+      'GET /api/crawls': { body: { rows: [], active: 0, workers: 4 } },
+    });
+    const user = userEvent.setup();
+
+    // Панель стояла над спорными рекламодателями целиком при каждом заходе.
+    const toggle = await screen.findByRole('button', { name: 'Доноры и обходы' });
+    expect(screen.getByText('можно обойти: 1')).toBeInTheDocument();
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('table')).toBeNull();
+
+    await user.click(toggle);
+
+    expect(await screen.findByRole('table')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Обойти отмеченных · 0' })).toBeInTheDocument();
+  });
+
+  it('обход идёт — раскрыта сама, и сколько идёт — у заголовка', async () => {
+    open();
+
+    expect(await screen.findByRole('table')).toBeInTheDocument();
+    expect(screen.getByText('идёт: 1')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Доноры и обходы' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
   });
 });
 
