@@ -54,6 +54,7 @@ from backend.features.sales.handoff import (
 )
 from backend.features.sales.kommo import (
     FIXTURE,
+    FULL,
     CreatedLead,
     KommoClient,
     KommoContact,
@@ -83,6 +84,7 @@ class _Misconfigured:
     """Kommo `live` с негодной настройкой: каждый вызов — отказ словами настройки."""
 
     name = "misconfigured"
+    can = FULL  # отказывает в каждом вызове: умения не важны
 
     def __init__(self, reason: str) -> None:
         self._reason = reason

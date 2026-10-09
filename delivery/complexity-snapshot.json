@@ -632,9 +632,9 @@
       "worst": "_own_account:203"
     },
     "backend/config/sales.py": {
-      "lines": 211,
+      "lines": 224,
       "complexity": 6,
-      "worst": "_days:131"
+      "worst": "_days:139"
     },
     "backend/config/serp.py": {
       "lines": 56,
@@ -1907,24 +1907,24 @@
       "worst": "_by_name:351"
     },
     "backend/features/sales/handoff.py": {
-      "lines": 497,
+      "lines": 499,
       "complexity": 11,
-      "worst": "_card:456"
+      "worst": "_card:458"
     },
     "backend/features/sales/handoff_console.py": {
-      "lines": 267,
+      "lines": 270,
       "complexity": 8,
-      "worst": "close:176"
+      "worst": "close:179"
     },
     "backend/features/sales/handoff_jobs.py": {
-      "lines": 210,
+      "lines": 212,
       "complexity": 5,
-      "worst": "_queue_again:185"
+      "worst": "_queue_again:187"
     },
     "backend/features/sales/handoff_kommo.py": {
-      "lines": 154,
+      "lines": 194,
       "complexity": 9,
-      "worst": "write:42"
+      "worst": "write:59"
     },
     "backend/features/sales/handoff_telegram.py": {
       "lines": 149,
@@ -1957,19 +1957,29 @@
       "worst": "_types_problem:95"
     },
     "backend/features/sales/kommo.py": {
-      "lines": 226,
+      "lines": 318,
+      "complexity": 5,
+      "worst": "build_kommo:182"
+    },
+    "backend/features/sales/kommo_gateway.py": {
+      "lines": 264,
       "complexity": 7,
-      "worst": "_live_account:182"
+      "worst": "_created:208"
     },
     "backend/features/sales/kommo_live.py": {
-      "lines": 423,
+      "lines": 343,
       "complexity": 9,
-      "worst": "_emails:360"
+      "worst": "_emails:280"
     },
     "backend/features/sales/kommo_types.py": {
-      "lines": 129,
+      "lines": 152,
       "complexity": 2,
-      "worst": "wanted_email:122"
+      "worst": "wanted_email:145"
+    },
+    "backend/features/sales/kommo_wire.py": {
+      "lines": 150,
+      "complexity": 7,
+      "worst": "asked_wait:117"
     },
     "backend/features/sales/letter.py": {
       "lines": 128,

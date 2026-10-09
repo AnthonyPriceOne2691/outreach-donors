@@ -4,12 +4,23 @@
 базу сразу после ответа Kommo, до следующего запроса: потерять его значит на повторе
 завести вторую. Отказ Kommo — не исключение, а состояние передачи и тревога владельцу
 при смене состояния: тот же отказ на каждом круге прохода тревогу не повторяет.
+
+**Чего клиент не умеет — по `KommoClient.can`, а не по его имени.** Шлюз агентства
+(`kommo_gateway.py`) умеет одно — завести сделку:
+- первое примечание (последнее письмо лида и сводка) едет в самой сделке (`NewLead.note`),
+  ответ сразу отмечен записанным — второго запроса за примечанием нет;
+- поиска контакта нет — потерянный ответ не проверить: сразу `unconfirmed`, решает человек;
+- примечания к заведённой сделке нет — следующий ответ лида уходит телемаркетологу
+  сообщением со ссылкой на ту же сделку: ссылка снова «не получена» (`notified_link`), и шаг
+  Telegram пошлёт её; в журнал передачи — «примечание в Kommo не поддержано шлюзом».
+  Второй сделки нет, передача не падает.
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,6 +43,12 @@ Alert = Callable[[str], Awaitable[bool]]
 
 #: Kommo ждёт записи — задаче есть что делать.
 WORK = (HandoffKommo.PENDING, HandoffKommo.RETRY)
+
+#: Что пишется в журнал передачи, когда новый ответ не лёг примечанием: метода нет у шлюза.
+NOT_NOTED = (
+    "примечание в Kommo не поддержано шлюзом — ответ лида уходит телемаркетологу сообщением "
+    "со ссылкой на ту же сделку"
+)
 
 
 def headline(row: SalesHandoffModel) -> str:
@@ -56,7 +73,7 @@ async def write(
     row.attempts += 1
     try:
         if row.kommo_lead_id is None:
-            row.kommo_lead_id = await _new_deal(kommo, card)
+            await _new_deal(kommo, row, card)
             # Номер сделки — в базу до следующего запроса: потерять его значит
             # на повторе завести вторую.
             await session.commit()
@@ -79,13 +96,19 @@ async def write(
         await alert(f"{headline(row)}: {done} после повтора, попыток — {row.attempts}")
 
 
-async def _new_deal(kommo: KommoClient, card: Card) -> int:
-    """Сделка с контактом и компанией. Ответ потерян — поиск решает, повторять ли."""
+async def _new_deal(kommo: KommoClient, row: SalesHandoffModel, card: Card) -> None:
+    """Сделка с контактом и компанией — номер в строку передачи. Клиент, который везёт
+    первое примечание в самой сделке, получает его в `NewLead.note`, и ответ отмечается
+    записанным вместе с номером. Ответ потерян — поиск решает, повторять ли."""
+    carried = kommo.can.note_in_lead and card.reply_id is not None
+    lead = replace(card.new_lead, note=wording.note(card)) if carried else card.new_lead
     known = await kommo.find_contact(card.email)
     try:
-        return (await kommo.create_complex_lead(card.new_lead)).id
+        row.kommo_lead_id = (await kommo.create_complex_lead(lead)).id
     except (KommoUnconfirmedError, KommoFormatError) as exc:
         raise await _after_lost_answer(kommo, card.email, known, exc) from None
+    if carried:
+        row.noted_reply_id = card.reply_id
 
 
 async def _after_lost_answer(
@@ -94,7 +117,10 @@ async def _after_lost_answer(
     """Запись могла дойти. Контакта с этой почтой не было ни до записи, ни после —
     не дошла: `retry`. Был до записи или есть после — не узнать, создалась ли
     сделка: `unconfirmed`, решает человек. Поиск Kommo может отставать от записи на
-    секунды; этот риск назван в решениях среза."""
+    секунды; этот риск назван в решениях среза. Поиска у клиента нет (шлюз) — проверить
+    нечем: `unconfirmed`."""
+    if not kommo.can.search:
+        return KommoUnconfirmedError(f"{exc}; поиском не проверить — контакты этот клиент не ищет")
     try:
         found = await kommo.find_contact(email)
     except KommoError as search:
@@ -118,6 +144,9 @@ async def _note(kommo: KommoClient, row: SalesHandoffModel, card: Card) -> str |
     (задвоило бы), возвращается предупреждение для тревоги."""
     if row.kommo_lead_id is None or card.reply_id in (None, row.noted_reply_id):
         return None
+    if not kommo.can.add_notes:
+        _told_instead(row, card)
+        return None
     try:
         await kommo.add_note(row.kommo_lead_id, wording.note(card))
     except (KommoUnconfirmedError, KommoFormatError) as exc:
@@ -129,6 +158,17 @@ async def _note(kommo: KommoClient, row: SalesHandoffModel, card: Card) -> str |
         return f"примечание к сделке №{row.kommo_lead_id} не подтверждено ({exc}) — повтора нет"
     row.noted_reply_id = card.reply_id
     return None
+
+
+def _told_instead(row: SalesHandoffModel, card: Card) -> None:
+    """Примечаний к заведённой сделке клиент не пишет (шлюз): ответ отмечен — задача его
+    не повторит, — а ссылка на ту же сделку снова «не получена», и шаг Telegram пошлёт
+    её телемаркетологу. Слова — в журнал передачи и в строку передачи."""
+    row.noted_reply_id, row.notified_link, row.last_error = card.reply_id, None, NOT_NOTED
+    logger.warning(
+        "продажи: примечание в Kommo не поддержано шлюзом — ответ лида уходит сообщением",
+        extra={"handoff_id": row.id, "kommo_lead_id": row.kommo_lead_id, "reply_id": card.reply_id},
+    )
 
 
 def _refusal_state(exc: KommoError) -> HandoffKommo:

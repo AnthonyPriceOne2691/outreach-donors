@@ -8,7 +8,14 @@
 ключа, воронки, этапа или ответственного — `ConfigError` при сборке клиента,
 до первого запроса (A5).
 
-Отсюда же берут всё остальное: словарь (`kommo_types.py`) и живой клиент
+**`live` через шлюз агентства** — тот же `live`, другой способ передачи: задан
+`SALES_KOMMO_GATEWAY_URL` — сделка уходит одним запросом шлюза (`kommo_gateway.py`),
+адреса нет — напрямую в API v4. Шлюзу нужны свой ключ, источник, тег, воронка, этап
+и поддомен (ссылка на сделку); ключ закрытой интеграции и ответственный — нет. Чего-то
+нет или оно негодно — тот же `ConfigError` до первого запроса. Чего шлюз не умеет,
+передача лида узнаёт по `KommoClient.can`.
+
+Отсюда же берут всё остальное: словарь (`kommo_types.py`) и живые клиенты
 переэкспортированы, чтобы передача лида знала один модуль.
 """
 
@@ -18,17 +25,21 @@ import logging
 import re
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
+from urllib.parse import urlsplit
 
 import httpx
 
 from backend.config import sales as cfg
 from backend.config.startup_checks import ConfigError
-from backend.features.sales.kommo_live import CHANNEL_TAG, KommoLive, Pace
+from backend.features.sales.kommo_gateway import GatewayAccount, KommoGateway
+from backend.features.sales.kommo_live import CHANNEL_TAG, KommoLive
 from backend.features.sales.kommo_types import (
     FIXTURE,
+    FULL,
     KNOWN,
     LIVE,
     CreatedLead,
+    KommoAbilities,
     KommoAccount,
     KommoAuthError,
     KommoContact,
@@ -41,14 +52,18 @@ from backend.features.sales.kommo_types import (
     lead_url,
     wanted_email,
 )
+from backend.features.sales.kommo_wire import Pace
 
 __all__ = [
     "CHANNEL_TAG",
     "FIXTURE",
+    "FULL",
     "KNOWN",
     "LIVE",
     "CreatedLead",
     "FixtureLead",
+    "GatewayAccount",
+    "KommoAbilities",
     "KommoAccount",
     "KommoAuthError",
     "KommoClient",
@@ -56,6 +71,7 @@ __all__ = [
     "KommoError",
     "KommoFixture",
     "KommoFormatError",
+    "KommoGateway",
     "KommoLive",
     "KommoRefusedError",
     "KommoUnavailableError",
@@ -74,6 +90,8 @@ class KommoClient(Protocol):
     """CRM для лидов. За интерфейсом, чтобы передача лида не знала, живая ли она."""
 
     name: str
+    #: Что клиент умеет помимо создания сделки: у шлюза агентства — меньше, чем у API v4.
+    can: KommoAbilities
 
     async def find_contact(self, email: str) -> KommoContact | None:
         """Контакт с ровно этой почтой; `None` — такого нет."""
@@ -107,6 +125,7 @@ class KommoFixture:
     лида видят, что ушло бы в CRM."""
 
     name = FIXTURE
+    can = FULL
     SUBDOMAIN = "fixture"
     FIRST_LEAD = 9301
     FIRST_CONTACT = 5711
@@ -167,16 +186,31 @@ def build_kommo(http: httpx.AsyncClient) -> KommoClient:
         logger.warning("продажи: Kommo — fixture, сделки выдуманные: в CRM ничего не уходит")
         return KommoFixture()
     if name == LIVE:
-        account = _live_account()
-        logger.info(
-            "продажи: Kommo — live",
-            extra={"subdomain": account.subdomain, "pipeline_id": account.pipeline_id},
-        )
-        return KommoLive(http, account)
+        return _through_gateway(http) if cfg.KOMMO_GATEWAY_URL else _direct(http)
     raise ConfigError(
         f"SALES_KOMMO_PROVIDER=«{cfg.KOMMO_PROVIDER}» — такого клиента Kommo нет. "
         f"Известные: {', '.join(KNOWN)}"
     )
+
+
+def _direct(http: httpx.AsyncClient) -> KommoLive:
+    """`live` напрямую в API v4 — адреса шлюза нет."""
+    account = _live_account()
+    logger.info(
+        "продажи: Kommo — live",
+        extra={"subdomain": account.subdomain, "pipeline_id": account.pipeline_id},
+    )
+    return KommoLive(http, account)
+
+
+def _through_gateway(http: httpx.AsyncClient) -> KommoGateway:
+    """`live` через шлюз агентства — задан `SALES_KOMMO_GATEWAY_URL`. Адреса в этой строке нет."""
+    account = _gateway_account()
+    logger.info(
+        "продажи: Kommo — live через шлюз агентства",
+        extra={"subdomain": account.subdomain, "pipeline_id": account.pipeline_id},
+    )
+    return KommoGateway(http, account)
 
 
 def _live_account() -> KommoAccount:
@@ -194,19 +228,8 @@ def _live_account() -> KommoAccount:
             f"SALES_KOMMO_PROVIDER=live, а не заданы: {', '.join(missing)}. "
             "Заполнить их или вернуть fixture — без них сделки в Kommo не заводятся"
         )
-    if not _SUBDOMAIN.fullmatch(cfg.KOMMO_SUBDOMAIN):
-        raise ConfigError(
-            f"SALES_KOMMO_SUBDOMAIN=«{cfg.KOMMO_SUBDOMAIN}» — нужен только поддомен: "
-            "acme из acme.kommo.com"
-        )
-    token = cfg.KOMMO_TOKEN
-    if not (token.isascii() and token.isprintable() and " " not in token):
-        # Заголовок — только ASCII без пробелов и переводов строки. Иначе httpx
-        # роняет LocalProtocolError или UnicodeEncodeError с ключом в тексте.
-        raise ConfigError(
-            "SALES_KOMMO_TOKEN с пробелом, переводом строки или знаком вне латиницы — "
-            "заголовок с ним не собрать; скопировать ключ закрытой интеграции заново"
-        )
+    _check_subdomain()
+    token = _header_key("SALES_KOMMO_TOKEN", cfg.KOMMO_TOKEN, "ключ закрытой интеграции")
     return KommoAccount(
         subdomain=cfg.KOMMO_SUBDOMAIN,
         token=token,
@@ -216,6 +239,75 @@ def _live_account() -> KommoAccount:
             "SALES_KOMMO_RESPONSIBLE_USER_ID", cfg.KOMMO_RESPONSIBLE_USER_ID
         ),
     )
+
+
+def _gateway_account() -> GatewayAccount:
+    """Учётка шлюза из настроек. Чего-то нет или оно негодно — `ConfigError` словами;
+    ни адрес шлюза, ни ключ в словах отказа не печатаются."""
+    given = {
+        "SALES_KOMMO_GATEWAY_KEY": cfg.KOMMO_GATEWAY_KEY,
+        "SALES_KOMMO_SOURCE": cfg.KOMMO_SOURCE,
+        "SALES_KOMMO_TAG": cfg.KOMMO_TAG,
+        "SALES_KOMMO_PIPELINE_ID": cfg.KOMMO_PIPELINE_ID,
+        "SALES_KOMMO_STATUS_ID": cfg.KOMMO_STATUS_ID,
+        "SALES_KOMMO_SUBDOMAIN": cfg.KOMMO_SUBDOMAIN,
+    }
+    if missing := [env for env, value in given.items() if not value]:
+        raise ConfigError(
+            "SALES_KOMMO_PROVIDER=live через шлюз (задан SALES_KOMMO_GATEWAY_URL), а не заданы: "
+            f"{', '.join(missing)}. Заполнить их, убрать адрес шлюза или вернуть fixture — "
+            "без них сделки в Kommo не заводятся"
+        )
+    url = _gateway_url(cfg.KOMMO_GATEWAY_URL)
+    _check_subdomain()
+    return GatewayAccount(
+        url=url,
+        key=_header_key("SALES_KOMMO_GATEWAY_KEY", cfg.KOMMO_GATEWAY_KEY, "ключ шлюза"),
+        subdomain=cfg.KOMMO_SUBDOMAIN,
+        pipeline_id=_setting_number("SALES_KOMMO_PIPELINE_ID", cfg.KOMMO_PIPELINE_ID),
+        status_id=_setting_number("SALES_KOMMO_STATUS_ID", cfg.KOMMO_STATUS_ID),
+        source=cfg.KOMMO_SOURCE,
+        tag=cfg.KOMMO_TAG,
+    )
+
+
+#: Адрес шлюза негоден — слова отказа. Значения в них нет: слова уходят в журнал и в тревогу
+#: владельцу, а адрес шлюза — не наш, его место — `.env`.
+_BAD_GATEWAY_URL = (
+    "SALES_KOMMO_GATEWAY_URL — нужен полный адрес шлюза https://…: имя, почта и письмо лида "
+    "и ключ уходят только шифрованным каналом"
+)
+
+
+def _gateway_url(raw: str) -> str:
+    """Адрес шлюза — полный, `https://` с хостом и без управляющих знаков."""
+    try:
+        url = urlsplit(raw)
+    except ValueError:
+        raise ConfigError(_BAD_GATEWAY_URL) from None
+    if url.scheme != "https" or not url.hostname or not raw.isprintable():
+        raise ConfigError(_BAD_GATEWAY_URL)
+    return raw
+
+
+def _check_subdomain() -> None:
+    """Поддомен аккаунта — для адреса API и ссылки на сделку."""
+    if not _SUBDOMAIN.fullmatch(cfg.KOMMO_SUBDOMAIN):
+        raise ConfigError(
+            f"SALES_KOMMO_SUBDOMAIN=«{cfg.KOMMO_SUBDOMAIN}» — нужен только поддомен: "
+            "acme из acme.kommo.com"
+        )
+
+
+def _header_key(env: str, key: str, what: str) -> str:
+    """Ключ для заголовка: только ASCII без пробелов и переводов строки. Иначе httpx
+    роняет LocalProtocolError или UnicodeEncodeError с ключом в тексте."""
+    if not (key.isascii() and key.isprintable() and " " not in key):
+        raise ConfigError(
+            f"{env} с пробелом, переводом строки или знаком вне латиницы — "
+            f"заголовок с ним не собрать; скопировать {what} заново"
+        )
+    return key
 
 
 def _setting_number(env: str, raw: str) -> int:
