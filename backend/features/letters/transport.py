@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from operator import attrgetter
 from typing import Protocol, runtime_checkable
 
 from backend.shared.demo import SUFFIX, is_demo_address
@@ -49,6 +50,19 @@ class MaybeSentError(RuntimeError):
     запишет его ушедшим, если письмо дошло до неё, а нет — решит человек
     (`unknown_outcome.py`).
     """
+
+
+@dataclass(frozen=True, slots=True)
+class OutgoingFile:
+    """Файл письма в том виде, в каком его берёт почта: имя, наш тип, байты.
+
+    Тип — из белого списка (`outgoing_files.py`), а не названный браузером:
+    транспорт кладёт его в письмо как есть и сам ничего не угадывает.
+    """
+
+    name: str
+    content_type: str
+    data: bytes
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +89,9 @@ class Outgoing:
     #: `List-Unsubscribe`. В тексте письма его больше нет (юридический блок
     #: снят 23.09.2026). Пусто — собрать его нечем, и заголовка не будет.
     unsubscribe_url: str = ""
+    #: Файлы письма. Бывают только у нашего ответа в переписке
+    #: (`answers.py`); первое письмо и добивки уходят без них.
+    attachments: tuple[OutgoingFile, ...] = ()
 
 
 class Transport(Protocol):
@@ -96,6 +113,11 @@ class Transport(Protocol):
     Крупные почты требуют их от массовых отправителей и учитывают
     в репутации: кнопка отписки в интерфейсе почты — это то, что донор
     нажмёт вместо «спам». Страница отписки эти `POST` принимает.
+
+    **И обязан класть `attachments` вложениями** — каждый файл целиком,
+    под своим именем и нашим типом, только на сохранение, а не на показ
+    в тексте письма. Файл, потерянный по дороге, — ответ без прайса, о
+    котором человек думает, что отправил его.
     """
 
     #: Как транспорт называется в логах и в журнале.
@@ -148,10 +170,17 @@ class NullTransport:
             )
 
         logger.warning(
-            "письма: письмо №%s НЕ отправлено — транспорт нулевой (кому %s, тема «%s», %s)",
+            "письма: письмо №%s НЕ отправлено — транспорт нулевой (кому %s, тема «%s», %s, "
+            "файлы: %s)",
             outgoing.message_id,
             outgoing.to,
             outgoing.subject,
             outgoing.internet_message_id,
+            named(outgoing.attachments),
         )
         return f"null-{outgoing.message_id}"
+
+
+def named(files: tuple[OutgoingFile, ...]) -> str:
+    """Файлы письма именами — для строки лога; нет файлов — «нет»."""
+    return ", ".join(map(attrgetter("name"), files)) or "нет"
