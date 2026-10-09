@@ -46,3 +46,23 @@ def note_probes(norm: float) -> list[tuple[Any, ...]]:
         ("заголовок слов очистки", f"{dropdown} p:first-child", norm, open_note),
         ("слова очистки", f"{dropdown} .leadNote", norm),
     ]
+
+
+#: Список «Раздел» вместо вкладок на телефоне (аудит экранов 09.10.2026): значение в поле.
+SECTION_FIELD = ("раздел в поле", "input[aria-label='Раздел']")
+
+
+def open_section(page: Any) -> None:
+    """Шаг перед точкой: список «Раздел» открыт — пункты и черта «Настройки» на виду."""
+    page.get_by_role("textbox", name="Раздел").click()
+    page.locator(".mantine-Select-groupLabel").first.wait_for()
+    page.wait_for_timeout(300)
+
+
+def section_probes(norm: float) -> list[tuple[Any, ...]]:
+    """Пункт открытого списка «Раздел» и подпись черты настроек — последними на экране."""
+    return [
+        ("пункт списка разделов", ".mantine-Select-option:not([data-combobox-selected])", norm,
+         open_section),
+        ("черта «Настройки»", ".mantine-Select-groupLabel", norm),
+    ]  # fmt: skip

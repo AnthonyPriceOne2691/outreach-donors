@@ -79,7 +79,7 @@ function Filters({
   problem: string | null;
   onChange: (patch: Partial<FunnelFilters>) => void;
 }) {
-  // На узком окне — столбиком во всю ширину, как вкладки раздела: в ряд «Свои даты»
+  // На узком окне — столбиком во всю ширину: в ряд «Свои даты»
   // уходили за край телефона (снимок 390 px, 07.10.2026).
   const narrow = useMediaQuery('(max-width: 36em)');
   return (

@@ -17,7 +17,7 @@ from typing import Any
 
 from ui_screens_sales_hints import hint_probe
 
-#: Узкое окно — телефон: вкладки встают столбиком, плитки — в колонку.
+#: Узкое окно — телефон: вместо вкладок список «Раздел», плитки — в колонку.
 PHONE = {"width": 390, "height": 844}
 
 

@@ -18,7 +18,7 @@
  * а плитки и фильтры остаются — условие поправляют тут же.
  */
 
-import { Button, Card, Group, SegmentedControl, Stack, Title } from '@mantine/core';
+import { Button, Card, Group, SegmentedControl, Select, Stack, Title } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo } from 'react';
@@ -29,6 +29,7 @@ import { listHypotheses } from '../api/sales';
 import { InfoHint } from '../components/InfoHint';
 import { useTyped } from '../donors/useTyped';
 import { formatNumber } from '../format';
+import { dropdownBelow } from '../theme';
 import { ChainPane } from './ChainPane';
 import { FunnelPane } from './FunnelPane';
 import { HypothesesTable } from './HypothesesTable';
@@ -39,6 +40,7 @@ import {
   readLeadFilters,
   SALES_TAB_KEYS,
   SALES_TABS,
+  SETTINGS_TABS,
   writeLeadFilters,
 } from './leadFilters';
 import type { LeadFilters, SalesTab } from './leadFilters';
@@ -83,21 +85,42 @@ function tabLabel(key: SalesTab, count: number | undefined): string {
   return count === undefined ? SALES_TABS[key] : `${SALES_TABS[key]} — ${formatNumber(count)}`;
 }
 
-/** Вкладки раздела с числами. На узком окне — столбиком: вкладки с числами
- *  в ряд резались до первых букв. */
+/** Вкладки раздела с числами. На узком окне — список «Раздел»: семь вкладок столбиком
+ *  ставили таблицу на 204 px ниже (аудит экранов 09.10.2026), а в ряд резались до первых
+ *  букв. В списке рабочие вкладки, черта и настройки — порядок тот же, что у вкладок. */
 function SalesTabs({ tab, counts, onTab }: TabsProps) {
   const narrow = useMediaQuery('(max-width: 36em)');
+  const pick = (value: string | null) => {
+    const next = SALES_TAB_KEYS.find((key) => key === value);
+    if (next !== undefined && next !== tab) onTab(next);
+  };
+  const item = (key: SalesTab) => ({ value: key, label: tabLabel(key, counts[key]) });
+  if (narrow) {
+    const settings = SALES_TAB_KEYS.filter((key) => SETTINGS_TABS.has(key));
+    return (
+      <Select
+        aria-label="Раздел"
+        allowDeselect={false}
+        value={tab}
+        onChange={pick}
+        data={[
+          ...SALES_TAB_KEYS.filter((key) => !SETTINGS_TABS.has(key)).map(item),
+          { group: 'Настройки', items: settings.map(item) },
+        ]}
+        // Все семь пунктов без прокрутки списка; рядом в ряд встаёт «Загрузить базу», и поле
+        // уже пункта «База знаний — 3» — список по содержимому, левым краем по полю.
+        maxDropdownHeight={360}
+        comboboxProps={{ ...dropdownBelow, width: 'max-content' }}
+        style={{ flex: '1 1 8rem' }}
+      />
+    );
+  }
   return (
     <SegmentedControl
-      orientation={narrow ? 'vertical' : 'horizontal'}
-      fullWidth={narrow}
       aria-label="Вкладки продаж"
       value={tab}
-      onChange={(value) => {
-        const next = SALES_TAB_KEYS.find((key) => key === value);
-        if (next !== undefined && next !== tab) onTab(next);
-      }}
-      data={SALES_TAB_KEYS.map((key) => ({ value: key, label: tabLabel(key, counts[key]) }))}
+      onChange={pick}
+      data={SALES_TAB_KEYS.map(item)}
     />
   );
 }

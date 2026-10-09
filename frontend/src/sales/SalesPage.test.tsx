@@ -11,7 +11,7 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useLocation } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
 import type { HypothesesView, KbView, LeadCard, LeadsView } from '../api/salesTypes';
@@ -735,6 +735,78 @@ describe('продажи: гипотеза — одна на раздел, пе�
     // Адрес — чужой ввод: «не день» читается как «без границы», а не отказом сервера.
     expect(readLeadFilters(new URLSearchParams('tab=funnel&period=custom&from=1e3')).from).toBe('');
     expect(readLeadFilters(new URLSearchParams('tab=funnel&period=year')).period).toBe('all');
+  });
+});
+
+/** Узкое окно — телефон: заглушку снимает `restoreAllMocks` после теста (`test/setup.ts`). */
+function phone() {
+  vi.spyOn(window, 'matchMedia').mockImplementation((query: string) => ({
+    matches: query.includes('max-width: 36em'),
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  }));
+}
+
+/** Открытый список поля: пункты и подписи групп — из его собственного списка. */
+async function listOf(field: HTMLElement): Promise<HTMLElement> {
+  const user = userEvent.setup();
+  await user.click(field);
+  const listId = field.getAttribute('aria-controls');
+  if (listId === null) throw new Error('у поля нет списка');
+  return waitFor(() => {
+    const found = document.getElementById(listId);
+    if (found === null) throw new Error('список ещё не открыт');
+    return found;
+  }, SCREEN_WAIT);
+}
+
+describe('продажи: вкладки на телефоне — список «Раздел» (аудит 09.10.2026)', () => {
+  it('на узком окне вместо семи вкладок столбиком — список: рабочие, разделитель, настройки', async () => {
+    phone();
+    await openScreen();
+
+    expect(screen.queryByRole('radiogroup', { name: 'Вкладки продаж' })).toBeNull();
+    const field = screen.getByRole('textbox', { name: 'Раздел' });
+    expect(field).toHaveValue('Лиды — 5');
+
+    const list = await listOf(field);
+    const options = within(list)
+      .getAllByRole('option', { hidden: true })
+      .map((option) => option.textContent);
+    expect(options).toEqual([
+      'Лиды — 5',
+      'Гипотезы — 2',
+      'Цепочка писем',
+      'Очередь писем',
+      'Воронка',
+      'База знаний — 3',
+      'Отправитель',
+    ]);
+    // Настройки — своей группой под чертой: то, из чего и от чьего имени пишет агент.
+    expect(within(list).getByText('Настройки')).toBeInTheDocument();
+  });
+
+  it('выбор в списке — смена вкладки, гипотеза раздела с ней', async () => {
+    phone();
+    await openScreen(
+      {
+        [at('hypothesis=1')]: { body: view([IVAN, TWIN]) },
+        'GET /api/sales/funnel?hypothesis=1': REFUSED,
+      },
+      { path: '/sales?hypothesis=1' },
+    );
+    const user = userEvent.setup();
+
+    const list = await listOf(screen.getByRole('textbox', { name: 'Раздел' }));
+    await user.click(within(list).getByRole('option', { name: 'Воронка', hidden: true }));
+
+    expect(await screen.findByText('Воронка не загрузилась', {}, SCREEN_WAIT)).toBeInTheDocument();
+    expect(where()).toBe('/sales?tab=funnel&hypothesis=1');
   });
 });
 
