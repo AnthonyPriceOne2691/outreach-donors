@@ -331,6 +331,27 @@ class TestThreads:
         assert row["state"] == "priced"
         assert row["price_white"] == "250.00"
 
+    async def test_list_is_every_thread_not_the_newest_two_hundred(
+        self,
+        client: AsyncClient,
+        operator_token: str,
+        thread: ThreadModel,
+        session: AsyncSession,
+    ) -> None:
+        """Диалог, заведённый первым, — в списке и при двухстах более новых: с двести
+        первого он выпадал, хотя главная его считала (аудит 09.10.2026)."""
+        session.add_all(
+            ThreadModel(domain_id=thread.domain_id, campaign_id=thread.campaign_id)
+            for _ in range(200)
+        )
+        await session.commit()
+
+        response = await client.get("/api/threads", headers=bearer(operator_token))
+
+        ids = [row["id"] for row in response.json()]
+        assert len(ids) == 201
+        assert ids[-1] == thread.id
+
     async def test_conversation_keeps_the_original_text(
         self, client: AsyncClient, operator_token: str, thread: ThreadModel
     ) -> None:

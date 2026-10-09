@@ -46,7 +46,7 @@ describe('состояние, которого экран ещё не знает
 
     renderWith(<AppRoutes />, '/threads');
 
-    const row = (await screen.findByText('fresh.example.test')).closest('tr')!;
+    const row = (await screen.findByText('fresh.example.test')).closest('a')!;
     expect(within(row).getByText(NEW_STATE)).toBeInTheDocument();
   });
 

@@ -25,6 +25,7 @@ import type { Permission } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { navbarWidth } from './navWidth';
 import { followScroll } from './shellLift';
+import { useSplit, workKey } from './split';
 import { ThemeToggle } from './ThemeToggle';
 
 interface Section {
@@ -60,6 +61,7 @@ export function Shell() {
   const { user, can, signOut } = useSession();
   const navigate = useNavigate();
   const location = useLocation();
+  const split = useSplit();
   const [opened, { toggle }] = useDisclosure();
   const sections = SECTIONS.filter(
     (section) => section.permission === undefined || can(section.permission),
@@ -159,11 +161,12 @@ export function Shell() {
 
       <AppShell.Main>
         {/* Ключ по пути: без него подъём играет один раз за жизнь рамы,
-            и переход между экранами выглядит подменой картинки. */}
+            и переход между экранами выглядит подменой картинки. У раздела со
+            списком рядом с записью — по разделу (`layout/split`). */}
         {/* Ширина рабочей области — одна на все экраны, а не своя у каждого:
             экраны шириной 1010, 1230 и 1420 пикселей подряд читаются как
             прыгающая рама. */}
-        <div className="riseIn workArea" key={location.pathname}>
+        <div className="riseIn workArea" key={workKey(location.pathname, split)}>
           <Outlet />
         </div>
       </AppShell.Main>

@@ -291,6 +291,9 @@ interface FeedProps {
   reviewable: (reply: IncomingCard) => boolean;
   sales: boolean;
   onPick: (replyId: number) => void;
+  /** Лента забирает остаток колонки высотой окна (переписка рядом со списком,
+   *  `ThreadsScreen`), а не растёт до своего потолка. */
+  fill?: boolean;
 }
 
 export function ThreadFeed({
@@ -301,6 +304,7 @@ export function ThreadFeed({
   reviewable,
   sales,
   onPick,
+  fill = false,
 }: FeedProps) {
   const viewport = useRef<HTMLDivElement>(null);
   const items = useMemo(() => feedOf(letters, incoming), [letters, incoming]);
@@ -311,6 +315,42 @@ export function ThreadFeed({
     if (node !== null) node.scrollTop = node.scrollHeight;
   }, [items.length]);
   if (items.length === 0) return null;
+  const bubbles = (
+    <Stack gap="sm" p="md" className="threadFeed" aria-label="Переписка">
+      {items.map((item) =>
+        item.kind === 'letter' ? (
+          <OurBubble key={`letter-${item.letter.id}`} letter={item.letter} corridor={corridor} />
+        ) : (
+          <Fragment key={`reply-${item.reply.id}`}>
+            <TheirBubble
+              reply={item.reply}
+              active={item.reply.id === activeId}
+              reviewable={reviewable(item.reply)}
+              sales={sales}
+              onPick={onPick}
+            />
+            {/* Черновик агента — сразу за ответом, на который он написан. */}
+            <AgentDraftBanner replyId={item.reply.id} />
+          </Fragment>
+        ),
+      )}
+    </Stack>
+  );
+  if (fill) {
+    return (
+      <Card className="glassPanel threadFeedFill" p={0}>
+        <ScrollArea
+          className="threadFeedScroll"
+          type="auto"
+          scrollbars="y"
+          offsetScrollbars
+          viewportRef={viewport}
+        >
+          {bubbles}
+        </ScrollArea>
+      </Card>
+    );
+  }
   return (
     <Card className="glassPanel" p={0}>
       <ScrollArea.Autosize
@@ -320,29 +360,7 @@ export function ThreadFeed({
         offsetScrollbars
         viewportRef={viewport}
       >
-        <Stack gap="sm" p="md" className="threadFeed" aria-label="Переписка">
-          {items.map((item) =>
-            item.kind === 'letter' ? (
-              <OurBubble
-                key={`letter-${item.letter.id}`}
-                letter={item.letter}
-                corridor={corridor}
-              />
-            ) : (
-              <Fragment key={`reply-${item.reply.id}`}>
-                <TheirBubble
-                  reply={item.reply}
-                  active={item.reply.id === activeId}
-                  reviewable={reviewable(item.reply)}
-                  sales={sales}
-                  onPick={onPick}
-                />
-                {/* Черновик агента — сразу за ответом, на который он написан. */}
-                <AgentDraftBanner replyId={item.reply.id} />
-              </Fragment>
-            ),
-          )}
-        </Stack>
+        {bubbles}
       </ScrollArea.Autosize>
     </Card>
   );

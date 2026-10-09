@@ -115,8 +115,13 @@ class OutreachRepository:
 
     # --- диалоги ---
 
-    async def threads(self, *, limit: int | None = 200) -> list[ThreadRow]:
-        """Диалоги, новые первыми. `None` — все: так их считает главная."""
+    async def threads(self) -> list[ThreadRow]:
+        """Все диалоги, новые первыми — и списку, и главной.
+
+        Список «Диалогов» до 09.10.2026 брал двести новых: с двести первого старый
+        диалог, в котором только что ответили, выпадал из списка, а главная его
+        считала и вела на пустой фильтр (аудит экранов 09.10.2026). Главная читает
+        все диалоги на каждый показ — списку столько же по силам."""
         rows = await self._session.execute(
             select(
                 ThreadModel,
@@ -130,7 +135,6 @@ class OutreachRepository:
             .outerjoin(ContactModel, ContactModel.id == ThreadModel.contact_id)
             .options(selectinload(ThreadModel.replies))
             .order_by(ThreadModel.id.desc())
-            .limit(limit)
         )
         found = rows.all()
         if not found:

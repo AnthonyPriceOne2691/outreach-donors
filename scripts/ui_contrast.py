@@ -281,7 +281,8 @@ def main(argv: list[str]) -> int:
         if wanted:
             # Экран-карточка открывается из списка: адрес у неё с номером,
             # а номер зависит от базы.
-            page.locator("table tbody tr", has_text=wanted).first.click()
+            # Строка таблицы — или строка списка (`[data-thread]`, «Диалоги» с 09.10.2026).
+            page.locator("table tbody tr, [data-thread]", has_text=wanted).first.click()
             page.wait_for_timeout(700)
 
         ok = run(page, "light", str(SHOTS / f"{screen}-light.png"), target["probes"], prepare)

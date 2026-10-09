@@ -30,7 +30,9 @@ export function versionTitle(code: string): string {
   return number === undefined ? 'версия без номера' : `версия ${number}`;
 }
 
-export function ParseCalibration() {
+/** `inherit` — цветом подсказки, в которой стоит строка (`ThreadsTitle`): приглушённый
+ *  тон на плотном стекле подсказки был бы на ступень бледнее её текста. */
+export function ParseCalibration({ inherit = false }: { inherit?: boolean }) {
   const { data } = useQuery({ queryKey: ['replies-calibration'], queryFn: fetchCalibration });
   const current = data?.versions[0];
   if (current === undefined) return null;
@@ -41,7 +43,7 @@ export function ParseCalibration() {
     .map(([field, count]) => `${FIELD_TITLES[field] ?? field} ${count}`);
 
   return (
-    <Text size="sm" c="dimmed">
+    <Text size="sm" c={inherit ? 'inherit' : 'dimmed'}>
       Разбор ответов ({versionTitle(current.version)}): человек подтвердил как есть {current.as_is}{' '}
       из {current.reviewed}, поправил {current.edited}
       {fixes.length > 0 ? ` — чаще всего ${fixes.join(', ')}` : ''}. Сами легли в базу{' '}
