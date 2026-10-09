@@ -21,7 +21,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterable, Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from types import MappingProxyType
 
 from sqlalchemy import delete, false, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,6 +42,20 @@ _File = OutgoingAttachmentModel
 
 class UnknownOutgoingFileError(LookupError):
     """Такого файла нет — в этой переписке или у этого письма."""
+
+
+@dataclass(frozen=True, slots=True)
+class ThreadFiles:
+    """Файлы переписки сведениями: у писем — по номеру письма, и ждущие ответа."""
+
+    letters: Mapping[int, Sequence[_File]]
+    #: Приложены к переписке и ещё ни с одним письмом не ушли: экран показывает их
+    #: у формы ответа и после перезагрузки страницы.
+    pending: Sequence[_File]
+
+
+#: Переписка без файлов.
+NO_FILES = ThreadFiles(letters=MappingProxyType({}), pending=())
 
 
 class OutgoingFileTakenError(RuntimeError):
@@ -145,19 +161,24 @@ class OutgoingFiles:
                 "не ушло. Приложите файл заново и отправьте ответ ещё раз"
             )
 
-    async def listed(self, message_ids: Iterable[int]) -> dict[int, list[_File]]:
-        """Сведения о файлах по письмам — без самих файлов, одним запросом."""
-        wanted = list(message_ids)
-        if not wanted:
-            return {}
+    async def of_thread(self, thread_id: int) -> ThreadFiles:
+        """Файлы переписки сведениями, без тел, одним запросом: приложенные к письмам —
+        по номерам писем, ещё ни с чем не ушедшие — отдельно.
+
+        Файл всегда лежит в переписке своего письма (`chosen`), поэтому выборка по
+        переписке находит и те, и другие.
+        """
         rows = await self._session.scalars(
-            select(_File).where(_File.message_id.in_(wanted)).order_by(_File.id)
+            select(_File).where(_File.thread_id == thread_id).order_by(_File.id)
         )
-        found: dict[int, list[_File]] = {}
+        letters: dict[int, list[_File]] = {}
+        pending: list[_File] = []
         for row in rows.all():
-            # Пустого номера письма здесь нет: выборка — по номерам писем.
-            found.setdefault(row.message_id or 0, []).append(row)
-        return found
+            if row.message_id is None:
+                pending.append(row)
+            else:
+                letters.setdefault(row.message_id, []).append(row)
+        return ThreadFiles(letters=letters, pending=pending)
 
     async def outgoing(self, message_id: int) -> Files:
         """Файлы письма для транспорта — с телами, по порядку приложения.

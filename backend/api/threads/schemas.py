@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
-from types import MappingProxyType
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -17,7 +16,9 @@ from backend.features.core.domain import MessageStatus, ReplyKind, Stage
 from backend.features.core.models.attachment import ReplyAttachmentModel
 from backend.features.core.models.outgoing_attachment import OutgoingAttachmentModel
 from backend.features.core.models.outreach import MessageModel, ReplyModel
+from backend.features.letters import outgoing_files
 from backend.features.letters.mailbox import ThreadMail
+from backend.features.letters.outgoing_store import NO_FILES, ThreadFiles
 from backend.features.outreach.repository import ThreadDetail, ThreadRow
 from backend.features.outreach.threads import ThreadState, review_of
 from backend.features.replies.quoting import written_by_hand
@@ -63,13 +64,11 @@ class ThreadCard(BaseModel):
         )
 
 
-#: Пустая карта файлов писем: переписка, где к письмам ничего не прикладывали.
-_NO_FILES: Mapping[int, Sequence[OutgoingAttachmentModel]] = MappingProxyType({})
-
-
 class LetterFileCard(BaseModel):
-    """Файл нашего письма: сведения без тела. Сам файл — отдельным запросом
-    (`GET /api/messages/{message_id}/attachments/{id}`), только на скачивание."""
+    """Файл к нашему письму: сведения без тела. У письма (`LetterCard.attachments`)
+    сам файл — отдельным запросом (`GET /api/messages/{message_id}/attachments/{id}`),
+    только на скачивание; ждущий ответа (`ThreadView.pending_files`) — тот, что
+    приложили к переписке и ещё ни с одним письмом не отправили."""
 
     id: int
     name: str
@@ -79,6 +78,30 @@ class LetterFileCard(BaseModel):
     @classmethod
     def of(cls, row: OutgoingAttachmentModel) -> LetterFileCard:
         return cls(id=row.id, name=row.name, size=row.size)
+
+
+class FileRulesCard(BaseModel):
+    """Правила файла к ответу — те же числа, что проверяет сервер
+    (`letters/outgoing_files.py`). Экран проверяет по ним файл до загрузки — файл
+    больше тела запроса отбил бы nginx страницей без слов — и задаёт `accept`
+    у кнопки, не держа второй копии чисел."""
+
+    #: Байт на файл.
+    max_file_bytes: int
+    #: Байт на все файлы одного письма вместе.
+    max_letter_bytes: int
+    max_files: int
+    #: Расширения без точки, в нижнем регистре.
+    extensions: list[str]
+
+    @classmethod
+    def current(cls) -> FileRulesCard:
+        return cls(
+            max_file_bytes=outgoing_files.MAX_FILE_BYTES,
+            max_letter_bytes=outgoing_files.MAX_LETTER_BYTES,
+            max_files=outgoing_files.MAX_FILES,
+            extensions=list(outgoing_files.EXTENSIONS),
+        )
 
 
 class OutgoingFileCard(BaseModel):
@@ -314,6 +337,11 @@ class ThreadView(BaseModel):
     agent_writes: bool = False
     #: За что отклоняют черновик на этапе переписки (`AgentStage.reject_reasons`).
     agent_reasons: list[str] = Field(default_factory=list)
+    #: Файлы, приложенные к переписке и ещё ни с одним письмом не ушедшие: по ним
+    #: экран восстанавливает скрепку у формы ответа после перезагрузки страницы.
+    pending_files: list[LetterFileCard] = Field(default_factory=list)
+    #: Правила файла к ответу — для проверки до загрузки и `accept` у кнопки.
+    file_rules: FileRulesCard = Field(default_factory=FileRulesCard.current)
 
     @classmethod
     def of(
@@ -325,11 +353,11 @@ class ThreadView(BaseModel):
         drafts: Sequence[ShownDraft] = (),
         agent_writes: bool = False,
         agent_reasons: Sequence[str] = (),
-        letter_files: Mapping[int, Sequence[OutgoingAttachmentModel]] = _NO_FILES,
+        outgoing: ThreadFiles = NO_FILES,
     ) -> ThreadView:
         return cls(
             card=ThreadCard.of(detail.row),
-            letters=[LetterCard.of(m, letter_files.get(m.id, ())) for m in detail.messages],
+            letters=[LetterCard.of(m, outgoing.letters.get(m.id, ())) for m in detail.messages],
             incoming=[
                 IncomingCard.of(r, detail.row.stage, files.get(r.id, ())) for r in detail.replies
             ],
@@ -337,4 +365,5 @@ class ThreadView(BaseModel):
             drafts=[DraftCard.of(shown) for shown in drafts],
             agent_writes=agent_writes,
             agent_reasons=list(agent_reasons),
+            pending_files=list(map(LetterFileCard.of, outgoing.pending)),
         )

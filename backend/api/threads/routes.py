@@ -79,8 +79,8 @@ async def one_thread(
         drafts=drafts,
         agent_writes=await agent_writes(session, detail.row.stage),
         agent_reasons=reject_reasons(detail.row.stage),
-        # Файлы наших писем — так же, одним запросом и без тел.
-        letter_files=await OutgoingFiles(session).listed(m.id for m in detail.messages),
+        # Файлы наших писем и ждущие ответа — так же, одним запросом и без тел.
+        outgoing=await OutgoingFiles(session).of_thread(thread_id),
     )
 
 

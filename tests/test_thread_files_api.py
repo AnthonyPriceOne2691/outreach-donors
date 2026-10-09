@@ -4,8 +4,8 @@
 ушедший — тот, кто смотрит переписку (`view`). Отказ — словами, с кодом по смыслу:
 файл не годится — 422, его нет — 404, он уже ушёл с письмом — 409.
 
-Отдельно — миграция на настоящей базе и потолки nginx: файл в предел сервера, отбитый
-прокси страницей, человек увидел бы как «сервер ответил 413» без единого слова.
+Отдельно — миграция на настоящей базе и потолок тела у nginx: файл в предел сервера,
+отбитый прокси страницей, человек увидел бы как «сервер ответил 413» без единого слова.
 """
 
 from __future__ import annotations
@@ -24,17 +24,20 @@ from backend.api.threads import routes as thread_routes
 from backend.features.core.domain import UserRole
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.outgoing_attachment import OutgoingAttachmentModel
-from backend.features.core.models.outreach import MessageModel, ReplyModel
+from backend.features.core.models.outreach import MessageModel, ReplyModel, ThreadModel
+from backend.features.letters import outgoing_files
 from backend.features.letters.outgoing_files import MAX_FILE_BYTES
+from backend.features.letters.outgoing_store import OutgoingFiles
 from fastapi import FastAPI
 from httpx import AsyncClient, Response
 from sqlalchemy import select, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncSession
-from tests.conftest import bearer
+from tests.conftest import bearer, make_donor
 from tests.test_outgoing_files import PDF
 from tests.test_replies_inbox import sent
 from tests.test_thread_answer import Recording, conversation
+from tests.thread_letters import Refusing
 
 __all__ = ["conversation", "sent"]  # фикстуры — отсюда их видит pytest
 
@@ -159,7 +162,7 @@ class TestUpload:
                 "«setup.exe»: такие файлы с письмом не уходят — можно PDF",
             ),
             ("price.pdf", b"MZ\x90\x00", "«price.pdf»: по содержимому это не PDF"),
-            ("big.pdf", PDF + b"0" * MAX_FILE_BYTES, "«big.pdf» больше предела 10 МБ на файл"),
+            ("big.pdf", PDF + b"0" * MAX_FILE_BYTES, "«big.pdf» больше предела 7 МБ на файл"),
         ],
     )
     async def test_refusal_is_422_in_words_and_nothing_is_kept(
@@ -314,6 +317,90 @@ class TestAnswerWithFiles:
         assert len(shown.json()["letters"]) == 1  # только первое письмо
 
 
+class TestWaitingFiles:
+    async def test_attached_file_waits_in_the_thread_until_the_answer_takes_it(
+        self,
+        client: AsyncClient,
+        admin: tuple[UserModel, dict[str, str]],
+        conversation: tuple[MessageModel, ReplyModel],
+        recording: Recording,
+    ) -> None:
+        """Приложенный и не ушедший файл виден в переписке — по нему экран восстановит
+        скрепку после перезагрузки; ушедший с ответом — уже у письма."""
+        first, _ = conversation
+        file_id = (await _upload(client, first.thread_id or 0, admin[1])).json()["id"]
+        card = {"id": file_id, "name": "Прайс 2026.pdf", "size": len(PDF)}
+
+        waiting = await client.get(f"/api/threads/{first.thread_id}", headers=admin[1])
+        await _answer(client, conversation, admin[1], [file_id])
+        sent_now = await client.get(f"/api/threads/{first.thread_id}", headers=admin[1])
+
+        assert waiting.json()["pending_files"] == [card]
+        assert sent_now.json()["pending_files"] == []
+        assert sent_now.json()["letters"][-1]["attachments"] == [card]
+
+    async def test_file_of_a_refused_answer_is_at_its_letter_not_waiting(
+        self,
+        client: AsyncClient,
+        admin: tuple[UserModel, dict[str, str]],
+        conversation: tuple[MessageModel, ReplyModel],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Почта не приняла ответ — файл приложен к письму в очереди и показан у него:
+        повтор ответа возьмёт его сам."""
+        monkeypatch.setattr(thread_routes, "Transports", Refusing)
+        first, _ = conversation
+        file_id = (await _upload(client, first.thread_id or 0, admin[1])).json()["id"]
+
+        refused = await _answer(client, conversation, admin[1], [file_id])
+        shown = (await client.get(f"/api/threads/{first.thread_id}", headers=admin[1])).json()
+
+        assert refused.status_code == 409
+        assert shown["pending_files"] == []
+        assert [letter["status"] for letter in shown["letters"]] == ["sent", "queued"]
+        assert [file["id"] for file in shown["letters"][-1]["attachments"]] == [file_id]
+
+    async def test_removed_file_and_file_of_another_thread_are_not_waiting(
+        self,
+        client: AsyncClient,
+        session: AsyncSession,
+        admin: tuple[UserModel, dict[str, str]],
+        conversation: tuple[MessageModel, ReplyModel],
+    ) -> None:
+        first, _ = conversation
+        thread_id = first.thread_id or 0
+        kept = (await _upload(client, thread_id, admin[1], name="kept.pdf")).json()["id"]
+        gone = (await _upload(client, thread_id, admin[1], name="gone.pdf")).json()["id"]
+        domain = await make_donor(session, "other.example.test")
+        other = ThreadModel(domain_id=domain.id, campaign_id=first.campaign_id)
+        session.add(other)
+        await session.flush()
+        await OutgoingFiles(session).keep(other.id, "stranger.pdf", PDF, by=None)
+        await session.commit()
+
+        await client.delete(f"/api/threads/{thread_id}/files/{gone}", headers=admin[1])
+        shown = await client.get(f"/api/threads/{thread_id}", headers=admin[1])
+
+        assert [file["id"] for file in shown.json()["pending_files"]] == [kept]
+
+
+async def test_thread_gives_the_file_rules_the_server_checks(
+    client: AsyncClient, viewer: dict[str, str], conversation: tuple[MessageModel, ReplyModel]
+) -> None:
+    """Экран проверяет файл до загрузки и задаёт `accept` у кнопки по тем же числам,
+    что проверяет сервер: второй их копии во фронте нет."""
+    first, _ = conversation
+
+    shown = await client.get(f"/api/threads/{first.thread_id}", headers=viewer)
+
+    assert shown.json()["file_rules"] == {
+        "max_file_bytes": outgoing_files.MAX_FILE_BYTES,
+        "max_letter_bytes": outgoing_files.MAX_LETTER_BYTES,
+        "max_files": outgoing_files.MAX_FILES,
+        "extensions": list(outgoing_files.EXTENSIONS),
+    }
+
+
 class TestDownload:
     async def test_file_of_our_letter_is_given_whole_and_only_as_a_download(
         self,
@@ -433,20 +520,37 @@ async def test_migration_goes_down_and_up(session: AsyncSession) -> None:
     assert await connection.run_sync(_tables) == ([], ["outgoing_attachments"])
 
 
-#: Место загрузки файла в обоих nginx: внутри (образ web) и прокси хоста.
-_FILES_LOCATION = re.compile(r"location\s+~\s+(\^/api/threads/\[0-9\]\+/files\$)\s*\{([^}]*)\}")
+#: Обвязка формы вокруг файла: граница и заголовки части с именем файла — с запасом.
+_MULTIPART = 64 * 1024
+_UPLOAD = "/api/threads/17/files"
+
+
+def _code(conf: str) -> str:
+    """Конфиг без комментариев: в них законны и слова, и числа."""
+    text = (ROOT / conf).read_text(encoding="utf-8")
+    return "\n".join(line.split("#", 1)[0] for line in text.splitlines())
+
+
+def _api_body_limit(code: str) -> int:
+    """Потолок тела у загрузки файла: свой у места `/api/`, если задан, иначе — сервера."""
+    api = re.search(r"location\s+/api/\s*\{([^}]*)\}", code)
+    assert api is not None
+    server = re.sub(r"location\s+[^{]+\{[^}]*\}", "", code)
+    found = re.search(r"client_max_body_size\s+(\d+)m;", api.group(1)) or re.search(
+        r"client_max_body_size\s+(\d+)m;", server
+    )
+    assert found is not None
+    return int(found.group(1)) * 1024 * 1024
 
 
 @pytest.mark.parametrize("conf", ["deploy/nginx.conf", "deploy/proxy/outreach.conf"])
-def test_nginx_lets_a_file_at_our_limit_through_to_the_server(conf: str) -> None:
-    """Потолок тела у места загрузки — не ниже нашего предела файла с запасом на разметку
-    формы, а само место ловит загрузку и не ловит соседние адреса переписки."""
-    found = _FILES_LOCATION.search((ROOT / conf).read_text(encoding="utf-8"))
-    assert found is not None, f"в {conf} нет места загрузки файла к ответу"
-    pattern, body = found.groups()
-    size = re.search(r"client_max_body_size\s+(\d+)m;", body)
-    assert size is not None
-    assert int(size.group(1)) * 1024 * 1024 >= MAX_FILE_BYTES + 64 * 1024
-    assert re.match(pattern, "/api/threads/17/files")
-    assert not re.match(pattern, "/api/threads/17/files/3")
-    assert not re.match(pattern, "/api/threads/17/answer")
+def test_a_file_at_our_limit_fits_the_api_body_limit_of_nginx(conf: str) -> None:
+    """Файл в наш предел с обвязкой формы проходит обычный потолок тела `/api/` (8 МБ)
+    и внутри, и у прокси хоста: своего места под загрузку не нужно, а файл больше
+    предела, но меньше потолка, получает отказ словами сервера. Места с регулярным
+    выражением, которое перехватило бы загрузку со своим потолком, нет."""
+    code = _code(conf)
+    regexes = re.findall(r"location\s+~\*?\s+(\S+)\s*\{", code)
+
+    assert _api_body_limit(code) > MAX_FILE_BYTES + _MULTIPART
+    assert [pattern for pattern in regexes if re.search(pattern, _UPLOAD)] == []

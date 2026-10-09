@@ -257,7 +257,7 @@ class TestRefusedBeforeTheLetter:
     ) -> None:
         """Размер берётся из строки: тела в предел файла, вместе — сверх предела письма."""
         first, reply = conversation
-        mb = 1024 * 1024
+        mb = 1_000_000
         rows = [
             OutgoingAttachmentModel(
                 thread_id=first.thread_id or 0,
@@ -266,11 +266,7 @@ class TestRefusedBeforeTheLetter:
                 size=size,
                 data=PDF,
             )
-            for name, size in (
-                ("a.pdf", 9 * mb + mb // 2),
-                ("b.pdf", 9 * mb + mb // 2),
-                ("c.pdf", 1536 * 1024),
-            )
+            for name, size in (("a.pdf", 3 * mb), ("b.pdf", 3 * mb), ("c.pdf", mb + mb // 2))
         ]
         session.add_all(rows)
         await session.commit()
@@ -278,8 +274,9 @@ class TestRefusedBeforeTheLetter:
         with pytest.raises(OutgoingFileError) as refused:
             await _answer(session, conversation, Recording(), [row.id for row in rows])
 
-        assert str(refused.value) == (
-            "Файлы письма вместе — 20,5 МБ, больше предела 20 МБ на письмо: уберите лишние"
+        assert str(refused.value).startswith(
+            "Файлы письма вместе — 7,5 МБ, больше предела 7 МБ на письмо: письмо вышло бы "
+            "больше 10 МБ"
         )
         assert await _answers(session, reply.id) == 0
 

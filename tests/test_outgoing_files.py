@@ -23,6 +23,7 @@ from backend.features.letters.outgoing_files import (
     MAX_FILES,
     MAX_LETTER_BYTES,
     MAX_NAME,
+    RECIPIENT_MAX_BYTES,
     OutgoingFileError,
     check,
     check_letter,
@@ -199,7 +200,9 @@ class TestSize:
             check("big.pdf", data)
 
         assert str(refused.value) == (
-            "«big.pdf» больше предела 10 МБ на файл — уменьшите его или пришлите ссылкой в тексте"
+            "«big.pdf» больше предела 7 МБ на файл: письмо вышло бы больше 10 МБ, а такие "
+            "отбивает сервер многих получателей, хотя платформа и примет — уменьшите файл "
+            "или дайте ссылку в тексте ответа"
         )
 
     def test_five_files_go_and_the_sixth_is_refused(self) -> None:
@@ -216,21 +219,28 @@ class TestSize:
         check_letter(3, MAX_LETTER_BYTES)
 
         with pytest.raises(OutgoingFileError) as refused:
-            check_letter(3, MAX_LETTER_BYTES + 512 * 1024)
+            check_letter(3, MAX_LETTER_BYTES + 500_000)
 
         assert str(refused.value) == (
-            "Файлы письма вместе — 20,5 МБ, больше предела 20 МБ на письмо: уберите лишние"
+            "Файлы письма вместе — 7,5 МБ, больше предела 7 МБ на письмо: письмо вышло бы "
+            "больше 10 МБ, а такие отбивает сервер многих получателей, хотя платформа и "
+            "примет — уберите лишние или дайте ссылку в тексте ответа"
         )
 
-    def test_our_letter_limit_is_under_the_platform_limit_after_encoding(self) -> None:
-        """Платформа считает письмо целиком: файлы в base64 (треть сверху) с переносом
-        строки каждые 76 знаков, текст ответа (до 4 байт на знак, тоже в base64),
-        заголовки письма и частей. Всё вместе обязано быть меньше её предела."""
+    def test_whole_letter_at_our_limit_is_under_ten_megabytes(self) -> None:
+        """Сервер получателя считает письмо целиком: файлы в base64 (треть сверху)
+        с переносом строки каждые 76 знаков, текст ответа — в худшем случае по 4 байта
+        на знак и quoted-printable («=XX» на байт и мягкий перенос), заголовки письма
+        и частей. При нашем пределе всё вместе меньше 10 МБ — умолчания Postfix
+        (10 240 000 байт) и многих Exchange, — и тем более меньше предела платформы."""
         files = math.ceil(MAX_LETTER_BYTES / 3) * 4 * 78 / 76
-        text = math.ceil(MAX_BODY * 4 / 3) * 4 * 78 / 76
-        headers = 16 * 1024 + MAX_FILES * 1024
+        text = MAX_BODY * 4 * 3 * 78 / 72
+        headers = 16 * 1024 + MAX_FILES * 2048
 
-        assert files + text + headers < sendgrid.MAX_MESSAGE_BYTES
+        letter = files + text + headers
+
+        assert letter < RECIPIENT_MAX_BYTES == 10_000_000
+        assert letter < sendgrid.MAX_MESSAGE_BYTES
 
 
 class TestName:
@@ -271,9 +281,10 @@ class TestName:
             clean_name(raw)
 
 
-def test_every_allowed_extension_is_named_in_the_refusal() -> None:
-    """Список в отказе и таблица типов — одно и то же: разойдись они, человек
-    искал бы тип, которого нет, или не знал бы о том, что есть."""
+def test_every_allowed_extension_is_named_in_the_refusal_and_given_to_the_screen() -> None:
+    """Список в отказе, расширения для экрана и таблица типов — одно и то же: разойдись
+    они, человек искал бы тип, которого нет, или не знал бы о том, что есть."""
     named = outgoing_files.ALLOWED.replace("(", "").replace(")", "").replace(",", "").split()
 
     assert sorted(extension.upper() for extension in outgoing_files._KINDS) == sorted(named)
+    assert tuple(outgoing_files._KINDS) == outgoing_files.EXTENSIONS
