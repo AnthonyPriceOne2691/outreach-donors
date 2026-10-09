@@ -7,7 +7,6 @@
  */
 
 import { ActionIcon, Button, Tooltip } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { IconDownload } from '@tabler/icons-react';
 import { useMutation } from '@tanstack/react-query';
 
@@ -15,6 +14,7 @@ import { refusalOf } from '../api/client';
 import { exportCounts, saveFile } from '../api/donors';
 import { exportLeads } from '../api/outreach';
 import { useSession } from '../auth/AuthProvider';
+import { notify } from '../notices';
 
 const TITLE = 'Выгрузить лиды';
 
@@ -26,7 +26,7 @@ export function LeadsExport({ compact = false }: { compact?: boolean }) {
       saveFile(file, 'leads.csv');
       const rows = exportCounts(file).rows;
       const truncated = file.headers.get('X-Export-Truncated') === '1';
-      notifications.show({
+      notify({
         message:
           rows === 0
             ? 'Лидов пока нет — файл пустой'
@@ -37,7 +37,7 @@ export function LeadsExport({ compact = false }: { compact?: boolean }) {
       });
     },
     onError: (failure) =>
-      notifications.show({
+      notify({
         title: 'Выгрузка не удалась',
         message: refusalOf(failure),
         color: 'red',

@@ -45,7 +45,6 @@ import {
   Text,
   Title,
 } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
@@ -62,6 +61,7 @@ import { CrawlPanel } from './CrawlPanel';
 import { LinkAnchor } from './LinkAnchor';
 import { NicheQueue } from './NicheQueue';
 import { PromotePanel } from './PromotePanel';
+import { notify } from '../notices';
 
 const QUERY_KEY = ['advertisers'] as const;
 
@@ -170,13 +170,13 @@ export function AdvertisersPage() {
       decideCandidate(row.id, confirmed, row.confirmed !== null),
     onSuccess: async (row) => {
       await queryClient.invalidateQueries({ queryKey: QUERY_KEY });
-      notifications.show({
+      notify({
         message: row.confirmed ? `${row.target_root}: пишем ему` : `${row.target_root}: не пишем`,
         color: 'green',
       });
     },
     onError: (failure) =>
-      notifications.show({ title: 'Не записали', message: refusalOf(failure), color: 'red' }),
+      notify({ title: 'Не записали', message: refusalOf(failure), color: 'red' }),
   });
 
   if (isLoading) return <Loader aria-label="Загружаем очередь проверки" m="md" />;

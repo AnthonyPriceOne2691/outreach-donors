@@ -54,7 +54,6 @@ import {
   Textarea,
   TextInput,
 } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
@@ -66,6 +65,7 @@ import { useSession } from '../auth/AuthProvider';
 import { PageHead } from '../components/PageHead';
 import { Seams } from '../components/Seams';
 import { formatDate } from '../format';
+import { notify } from '../notices';
 
 const STOP_LIST_QUERY_KEY = ['suppressions'] as const;
 
@@ -207,13 +207,12 @@ export function SuppressionsPage() {
       await queryClient.invalidateQueries({ queryKey: STOP_LIST_QUERY_KEY });
       setTarget('');
       setAdding(false);
-      notifications.show({
+      notify({
         message: `${row.host ?? row.email} в стоп-листе — письма сняты с очереди`,
         color: 'green',
       });
     },
-    onError: (failure) =>
-      notifications.show({ title: 'Не завели', message: refusalOf(failure), color: 'red' }),
+    onError: (failure) => notify({ title: 'Не завели', message: refusalOf(failure), color: 'red' }),
   });
 
   const take = useMutation({
@@ -222,13 +221,12 @@ export function SuppressionsPage() {
       await queryClient.invalidateQueries({ queryKey: STOP_LIST_QUERY_KEY });
       setRemoving(null);
       setWhy('');
-      notifications.show({
+      notify({
         message: `${row.host ?? row.email} снят со стоп-листа — новые письма ему снова уходят`,
         color: 'yellow',
       });
     },
-    onError: (failure) =>
-      notifications.show({ title: 'Не сняли', message: refusalOf(failure), color: 'red' }),
+    onError: (failure) => notify({ title: 'Не сняли', message: refusalOf(failure), color: 'red' }),
   });
 
   if (isLoading) return <Loader aria-label="Загружаем стоп-лист" m="md" />;

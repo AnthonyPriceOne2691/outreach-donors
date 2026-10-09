@@ -2,11 +2,11 @@
  * Данные карточки бизнесов ниши: очередь, решение человека, сбор из прогона.
  */
 
-import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { refusalOf } from '../api/client';
 import { collectNiche, decideNiche, fetchNiche } from '../api/niche';
+import { notify } from '../notices';
 
 const NICHE_KEY = ['advertisers-niche'] as const;
 
@@ -18,7 +18,7 @@ export function useNicheQueue() {
     mutationFn: ({ id, write }: { id: number; write: boolean }) => decideNiche(id, write),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: NICHE_KEY }),
     onError: (failure) =>
-      notifications.show({
+      notify({
         color: 'red',
         title: 'Не записали решение',
         message: refusalOf(failure),
@@ -34,12 +34,12 @@ export function useNicheCollect() {
     mutationFn: (runId: number) => collectNiche(runId),
     onSuccess: async (report) => {
       await queryClient.invalidateQueries({ queryKey: NICHE_KEY });
-      notifications.show({
+      notify({
         color: 'green',
         message: `Прогон №${report.run_id}: бизнесов ниши ${report.found}, новых ${report.added}.`,
       });
     },
     onError: (failure) =>
-      notifications.show({ color: 'red', title: 'Не собрали', message: refusalOf(failure) }),
+      notify({ color: 'red', title: 'Не собрали', message: refusalOf(failure) }),
   });
 }

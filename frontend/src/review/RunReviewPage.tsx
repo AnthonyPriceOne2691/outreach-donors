@@ -40,7 +40,6 @@ import {
   Text,
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
-import { notifications } from '@mantine/notifications';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Fragment, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -58,6 +57,7 @@ import { Metric } from '../components/Metric';
 import { PageHead } from '../components/PageHead';
 import { CandidateRow } from './CandidateRow';
 import { BulkBar, TierRow } from './QueueParts';
+import { notify } from '../notices';
 
 const STATUSES = Object.keys(REVIEW_DECISIONS) as ReviewDecision[];
 
@@ -213,7 +213,7 @@ export function RunReviewPage() {
       await queryClient.invalidateQueries({ queryKey: ['review', runId] });
       await queryClient.invalidateQueries({ queryKey: ['review-accuracy'] });
       await queryClient.invalidateQueries({ queryKey: ['runs'] });
-      notifications.show({
+      notify({
         color: 'green',
         message:
           decision === 'accepted'
@@ -222,7 +222,7 @@ export function RunReviewPage() {
       });
     },
     onError: (failure) =>
-      notifications.show({
+      notify({
         color: 'red',
         title: 'Решение не сохранено',
         message: refusalOf(failure),

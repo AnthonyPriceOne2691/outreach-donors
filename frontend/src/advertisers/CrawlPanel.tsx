@@ -42,7 +42,6 @@ import {
   Text,
   Title,
 } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { IconChevronDown } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
@@ -57,6 +56,7 @@ import { Seams } from '../components/Seams';
 import { Unfold } from '../runs/Unfold';
 import { CrawlState, TargetsTable, isActive } from './CrawlTable';
 import { ManualDonor } from './ManualDonor';
+import { notify } from '../notices';
 
 export const CRAWL_TARGETS_KEY = ['crawl-targets'] as const;
 export const CRAWLS_KEY = ['crawls'] as const;
@@ -161,10 +161,10 @@ function useStartCrawls(onQueued: () => void) {
       await queryClient.invalidateQueries({ queryKey: CRAWL_TARGETS_KEY });
       await queryClient.invalidateQueries({ queryKey: CRAWLS_KEY });
       const clean = done.failed.length === 0 && Object.keys(done.refused).length === 0;
-      notifications.show({ message: launchSummary(done), color: clean ? 'green' : 'yellow' });
+      notify({ message: launchSummary(done), color: clean ? 'green' : 'yellow' });
     },
     onError: (failure) =>
-      notifications.show({ title: 'Не поставили', message: refusalOf(failure), color: 'red' }),
+      notify({ title: 'Не поставили', message: refusalOf(failure), color: 'red' }),
   });
 }
 

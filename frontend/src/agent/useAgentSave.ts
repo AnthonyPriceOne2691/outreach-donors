@@ -2,12 +2,12 @@
  * Сохранение настроек агента: новая версия этапа и словами — что вышло.
  */
 
-import { notifications } from '@mantine/notifications';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { saveAgentSettings } from '../api/agent';
 import type { AgentSettingsBody } from '../api/agent';
 import { refusalOf } from '../api/client';
+import { notify } from '../notices';
 
 export const AGENT_KEY = ['agent-settings'] as const;
 
@@ -21,13 +21,13 @@ export function useAgentSave(onSaved: (stage: string) => void) {
     onSuccess: async (version, { stage }) => {
       onSaved(stage);
       await queryClient.invalidateQueries({ queryKey: AGENT_KEY });
-      notifications.show({
+      notify({
         color: 'green',
         message: `Настройки агента сохранены как версия ${version.version}.`,
       });
     },
     onError: (failure) =>
-      notifications.show({
+      notify({
         color: 'red',
         title: 'Настройки агента не сохранены',
         message: refusalOf(failure),

@@ -12,7 +12,6 @@
  */
 
 import { Alert, Card, Loader, Stack, Text, Title } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { refusalOf } from '../api/client';
@@ -23,6 +22,7 @@ import type { Stage } from '../api/stages';
 import { formatNumber, plural } from '../format';
 import { SenderCard as DomainCard, domainShut } from './SenderCard';
 import type { DomainGroup } from './SenderCard';
+import { notify } from '../notices';
 
 const SENDERS_QUERY_KEY = ['senders'] as const;
 const STAGES = Object.keys(STAGE_TITLES) as Stage[];
@@ -77,7 +77,7 @@ export function SendersPage() {
     },
     onSuccess: async ({ group, on }) => {
       await queryClient.invalidateQueries({ queryKey: SENDERS_QUERY_KEY });
-      notifications.show({
+      notify({
         message: on
           ? `${group.domain} включён — разгон начался заново`
           : `${group.domain} выключен, начатые цепочки не рвутся`,
@@ -85,7 +85,7 @@ export function SendersPage() {
       });
     },
     onError: (failure) =>
-      notifications.show({ title: 'Не переключили', message: refusalOf(failure), color: 'red' }),
+      notify({ title: 'Не переключили', message: refusalOf(failure), color: 'red' }),
   });
 
   if (isLoading) return <Loader aria-label="Загружаем домены рассылки" m="md" />;

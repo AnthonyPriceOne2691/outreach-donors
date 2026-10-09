@@ -6,7 +6,6 @@
  */
 
 import { Button, Group } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { IconPaperclip } from '@tabler/icons-react';
 import { useMutation } from '@tanstack/react-query';
 
@@ -15,6 +14,7 @@ import { saveFile } from '../api/donors';
 import type { OutgoingFile } from '../api/files';
 import { downloadLetterFile } from '../api/outreach';
 import { formatBytes } from '../format';
+import { notify } from '../notices';
 
 export function LetterFiles({
   messageId,
@@ -27,7 +27,7 @@ export function LetterFiles({
     mutationFn: (file: OutgoingFile) => downloadLetterFile(messageId, file.id),
     onSuccess: (got, file) => saveFile(got, file.name),
     onError: (failure) =>
-      notifications.show({ title: 'Файл не скачался', message: refusalOf(failure), color: 'red' }),
+      notify({ title: 'Файл не скачался', message: refusalOf(failure), color: 'red' }),
   });
   if (!files?.length) return null;
   return (

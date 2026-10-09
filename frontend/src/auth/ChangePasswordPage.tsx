@@ -19,7 +19,6 @@ import {
   Title,
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
-import { notifications } from '@mantine/notifications';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -27,6 +26,7 @@ import { changePassword } from '../api/auth';
 import { SERVICE_NAME } from '../brand';
 import { ACTIONS_GAP, FIELD_GAP } from '../components/formRhythm';
 import { useSession } from './AuthProvider';
+import { notify } from '../notices';
 
 const MIN_LENGTH = 10;
 
@@ -63,7 +63,7 @@ export function ChangePasswordPage() {
     try {
       await changePassword(current, next);
       await refresh();
-      notifications.show({ message: 'Пароль сменён', color: 'green' });
+      notify({ message: 'Пароль сменён', color: 'green' });
       void navigate('/', { replace: true });
     } catch (error) {
       setRefusal(error instanceof Error ? error.message : 'Сменить пароль не удалось');

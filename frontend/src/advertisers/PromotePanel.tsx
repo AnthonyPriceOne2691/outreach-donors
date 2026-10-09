@@ -15,7 +15,6 @@
  */
 
 import { Alert, Anchor, Badge, Button, Card, Group, Stack, Text, Title } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -32,6 +31,7 @@ import { useSession } from '../auth/AuthProvider';
 import type { ContactsSource } from '../donors/PendingContacts';
 import { usePendingContacts } from '../donors/PendingContacts';
 import { formatNumber } from '../format';
+import { notify } from '../notices';
 
 const PROMOTION_QUERY_KEY = ['advertisers-promotion'] as const;
 
@@ -73,10 +73,10 @@ export function PromotePanel() {
       if (result.contacts_job_id !== null) contacts.follow(result.contacts_job_id);
       await queryClient.invalidateQueries({ queryKey: PROMOTION_QUERY_KEY });
       await queryClient.invalidateQueries({ queryKey: ADVERTISER_CONTACTS.queryKey });
-      notifications.show({ message: promotedLine(result), color: 'green' });
+      notify({ message: promotedLine(result), color: 'green' });
     },
     onError: (failure) =>
-      notifications.show({ title: 'Не перевели', message: refusalOf(failure), color: 'red' }),
+      notify({ title: 'Не перевели', message: refusalOf(failure), color: 'red' }),
   });
 
   if (data === undefined) {
