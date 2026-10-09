@@ -36,6 +36,7 @@ from backend.features.donors.verdict import Thresholds
 from backend.features.letters import batch, compose, template, unknown_outcome
 from backend.features.letters.draft import LetterConflictError
 from backend.features.letters.niche_recipients import NicheRecipients
+from backend.features.letters.repository import LetterRepository
 from backend.features.letters.transport import NullTransport
 from backend.features.runs.repository import RunRepository
 from backend.shared.queue import SEND_QUEUE_JOB
@@ -472,6 +473,36 @@ class TestBatchOfOneAudience:
         ) == [by_link.id]
 
 
+class TestOnlyStageTwoIsSplit:
+    async def test_another_stage_counts_and_shows_its_whole_queue(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        """Аудитории делят очередь только у Этапа 2. Рассылка другого этапа с чужой
+        аудиторией (база её не запрещает) — в очереди своего этапа и в его «исходе
+        неизвестен»: иначе вкладка звала бы «Отправить очередь · N», а пачка отвечала
+        «ушло 0» (замечание ревью продаж, 09.10.2026)."""
+        _, to_niche = await _both_queued(session)
+        campaign = await session.get(CampaignModel, to_niche.campaign_id)
+        assert campaign is not None
+        campaign.stage = Stage.SALES
+        await session.flush()
+
+        waiting = await LetterRepository(session).queued_count(
+            stage=Stage.SALES, audience=niche.LINKS
+        )
+        to_niche.status = MessageStatus.SENDING
+        await session.flush()
+        stuck = await unknown_outcome.stuck(
+            session,
+            stage=Stage.SALES,
+            audience=niche.LINKS,
+            now=datetime.now(UTC) + timedelta(hours=1),
+        )
+
+        assert waiting == 1
+        assert [letter.message.id for letter in stuck] == [to_niche.id]
+
+
 class _Jobs:
     """Очередь задач, которая помнит доводы целиком — и позиционные, и ключами."""
 
@@ -528,6 +559,33 @@ class TestTheButtonOfTheNicheTab:
             "author_id": user.id,
             "audience": "niche",
         }
+
+    async def test_batch_by_link_is_understood_by_the_worker_before_audiences(
+        self,
+        client: AsyncClient,
+        session: AsyncSession,
+        filled_legal: None,
+        admin: tuple[UserModel, str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Пачка «Рекламодателям» — задача без аудитории: нажатую в секунды выкатки
+        возьмёт и воркер прежней версии, у которого аудитории ещё нет."""
+        user, token = admin
+        await _both_queued(session)
+        jobs = _Jobs()
+        monkeypatch.setattr("backend.api.letters.routes.runs_queue", lambda: jobs)
+
+        def before_audiences(stage: str, author_id: int | None = None) -> None:
+            """Задача пачки до бизнесов ниши (#237)."""
+
+        sent = await client.post(
+            "/api/letters/send-queue", json={"stage": "advertisers"}, headers=bearer(token)
+        )
+
+        assert sent.status_code == 200, sent.text
+        [(_, args, kwargs)] = jobs.calls
+        bound = inspect.signature(before_audiences).bind(*args, **kwargs)
+        assert bound.arguments == {"stage": "advertisers", "author_id": user.id}
 
     async def test_niche_batch_is_stage_two_only(
         self,

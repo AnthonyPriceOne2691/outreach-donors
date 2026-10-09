@@ -187,9 +187,9 @@
       "worst": "—"
     },
     "backend/api/letters/routes.py": {
-      "lines": 352,
+      "lines": 361,
       "complexity": 5,
-      "worst": "build:104"
+      "worst": "build:111"
     },
     "backend/api/letters/schemas.py": {
       "lines": 377,
@@ -1302,7 +1302,7 @@
       "worst": "unset_reason:262"
     },
     "backend/features/letters/draft.py": {
-      "lines": 184,
+      "lines": 195,
       "complexity": 6,
       "worst": "to_text:92"
     },
@@ -1382,7 +1382,7 @@
       "worst": "message_id_from:121"
     },
     "backend/features/letters/repository.py": {
-      "lines": 322,
+      "lines": 323,
       "complexity": 6,
       "worst": "candidates:93"
     },
@@ -1437,9 +1437,9 @@
       "worst": "difference:48"
     },
     "backend/features/letters/unknown_outcome.py": {
-      "lines": 398,
+      "lines": 401,
       "complexity": 6,
-      "worst": "_back:315"
+      "worst": "_back:318"
     },
     "backend/features/letters/unsubscribe.py": {
       "lines": 98,

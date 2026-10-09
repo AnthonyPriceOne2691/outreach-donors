@@ -661,8 +661,12 @@ describe('бизнесы ниши', () => {
     expect(screen.getByText(/пример нашей площадки той же темы/)).toBeInTheDocument();
     expect(localStorage.getItem('letters:stage')).toBe('niche');
     await user.click(screen.getByRole('button', { name: 'Текст первого письма' }));
-    expect(screen.getByText(/\{\{example_host\}\} — пример нашей площадки/)).toBeInTheDocument();
-    expect(screen.getByText('Переписывает модель под каждый бизнес')).toBeInTheDocument();
+    // Текст письма — в окне (#253): его содержимое появляется не сразу.
+    const dialog = await screen.findByRole('dialog', { name: 'Текст первого письма' });
+    expect(
+      within(dialog).getByText(/\{\{example_host\}\} — пример нашей площадки/),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText('Переписывает модель под каждый бизнес')).toBeInTheDocument();
   });
 
   it('сборка уходит с аудиторией и без прогонов', async () => {

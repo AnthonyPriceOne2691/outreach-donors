@@ -157,6 +157,17 @@ def _check_values(checked: Template, stage: Stage, audience: str = LINKS) -> Non
     guards.assert_no_metrics(f"{checked.subject}\n{checked.body}")
 
 
+def split_audience(stage: Stage | None, audience: str | None) -> str | None:
+    """Аудитория, по которой делится очередь этапа, — только у Этапа 2: у него их две
+    (по ссылке и бизнесам ниши), и пачка одной вкладки письма другой не берёт.
+
+    У остальных этапов аудитория одна, и отбор — этап целиком (`None`). Иначе продажи
+    держались бы на неявном «у их рассылок всегда links»: база это не держит, и рассылка
+    продаж с другой аудиторией осталась бы на вкладке «Отправить очередь · N», а пачка
+    отвечала бы «ушло 0» (замечание ревью продаж к P3, 09.10.2026)."""
+    return audience if stage is Stage.ADVERTISERS else None
+
+
 def assert_same_audience(*, campaign: str, stored: str, sent: str) -> None:
     """Одноимённая рассылка переиспользуется — и письма другой аудитории легли бы в неё
     со своим оффером и чужими добивками. Отказ словами — до постановки сборки."""

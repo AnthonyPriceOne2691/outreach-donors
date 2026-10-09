@@ -30,7 +30,7 @@ from backend.features.core.stages import SALES_ELSEWHERE, SalesNotConnectedError
 from backend.features.crawl.niche import LINKS, NICHE
 from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.compose import FoundLink
-from backend.features.letters.draft import assert_same_audience
+from backend.features.letters.draft import assert_same_audience, split_audience
 from backend.features.letters.funnel import AdvertiserFunnel, Funnel
 from backend.features.letters.niche_recipients import NicheRecipients
 from backend.features.letters.recipients import Candidate, Recipients, donor_geo_of
@@ -214,12 +214,13 @@ class LetterRepository:
         statement: Select[Any], stage: Stage | None, audience: str | None = None
     ) -> Select[Any]:
         """Отбор очереди: первые письма «в очереди» — все, одного этапа или одной
-        аудитории этапа (`campaigns.audience`)."""
+        аудитории Этапа 2 (`campaigns.audience`, `split_audience`)."""
         statement = statement.where(
             MessageModel.status == MessageStatus.QUEUED, MessageModel.step == FIRST_STEP
         )
         if stage is not None:
             statement = statement.where(CampaignModel.stage == stage)
+        audience = split_audience(stage, audience)
         if audience is not None:
             statement = statement.where(CampaignModel.audience == audience)
         return statement

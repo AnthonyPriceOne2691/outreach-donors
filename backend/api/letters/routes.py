@@ -50,7 +50,7 @@ from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.outreach import CampaignModel
 from backend.features.core.stages import check_connected
-from backend.features.crawl.niche import NICHE, WHOM
+from backend.features.crawl.niche import LINKS, NICHE, WHOM
 from backend.features.letters import batch, compose, draft, review, unknown_outcome
 from backend.features.letters.building import run_scope
 from backend.features.letters.compose import NicheOffer
@@ -100,6 +100,13 @@ async def queue(
     )
 
 
+def _audience_of(audience: str) -> dict[str, str]:
+    """Аудитория в доводах задачи — только не «по ссылке»: задачу по ссылке тогда
+    понимает и воркер прежней версии, если её поставили в секунды выкатки (замечание
+    ревью продаж к P3, 09.10.2026). Задача без аудитории и так — по ссылке."""
+    return {} if audience == LINKS else {"audience": audience}
+
+
 @router.post("/build", response_model=BuildQueued, summary="Собрать очередь")
 async def build(
     body: BuildRequestBody,
@@ -127,7 +134,7 @@ async def build(
         letter_template=letter_template,
         run_ids=body.run_ids,
         stage=body.stage.value,
-        audience=body.audience,
+        **_audience_of(body.audience),
         **with_retries(),
     )
     await AccessRepository(session).record(
@@ -304,7 +311,9 @@ async def send_queue(
         raise HTTPException(
             status.HTTP_409_CONFLICT, "В очереди этого этапа писем нет — отправлять нечего"
         )
-    job = runs_queue().enqueue(SEND_QUEUE_JOB, body.stage.value, author.id, audience=body.audience)
+    job = runs_queue().enqueue(
+        SEND_QUEUE_JOB, body.stage.value, author.id, **_audience_of(body.audience)
+    )
     # Пачка берёт не больше своего потолка: то же число, что «Отправить N» в окне, —
     # и потолок отсюда же, откуда его берёт экран писем (`batch_max`).
     taken = min(waiting, batch.BATCH_MAX)
