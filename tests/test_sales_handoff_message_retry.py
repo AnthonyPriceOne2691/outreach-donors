@@ -16,13 +16,18 @@ from datetime import datetime, timedelta
 
 import httpx
 import pytest
+from alembic.operations import Operations
+from alembic.runtime.migration import MigrationContext
 from backend.config import sales as cfg
 from backend.features.sales import handoff, handoff_jobs, telegram_series
 from backend.features.sales.kommo import CreatedLead, KommoAuthError, KommoFixture, NewLead
 from backend.features.sales.models import HandoffKommo, HandoffTelegram, SalesHandoffModel
 from backend.shared.queue import SALES_QUEUE_NAME
 from rq import Queue
+from sqlalchemy import text
+from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.migration_helpers import load_migration
 from tests.test_sales_handoff import (
     NOW,
     Alerts,
@@ -49,6 +54,8 @@ __all__ = [  # оснастка передачи и задачи
 ]
 
 DOWN = refused(503, "Service Unavailable")
+#: Ревизия счёта попыток и срока повтора сообщения о лиде.
+REVISION = "7737a3ecec66_sales_handoffs_message_retry.py"
 MINUTE = timedelta(minutes=1)
 HOUR = timedelta(hours=1)
 
@@ -473,3 +480,24 @@ def test_message_job_runs_the_core_without_kommo(
     assert handoff_jobs.resend_lead_message(31) == {"handoff": 31}
     assert handoff_jobs.hand_off_lead(32) == {"handoff": 32}
     assert seen == [(31, False), (32, True)]
+
+
+def _columns_down_and_up(connection: Connection) -> tuple[bool, bool]:
+    """Ревизия повтора сообщения о лиде вниз и вверх на соединении теста."""
+    migration = load_migration(REVISION)
+    present = (
+        "SELECT count(*) = 2 FROM information_schema.columns "
+        "WHERE table_name = 'sales_handoffs' AND column_name IN ('telegram_tries', 'telegram_due_at')"
+    )
+    with Operations.context(MigrationContext.configure(connection)):
+        migration.downgrade()
+        down = bool(connection.execute(text(present)).scalar())
+        migration.upgrade()
+    return down, bool(connection.execute(text(present)).scalar())
+
+
+async def test_message_retry_revision_goes_down_and_up(session: AsyncSession) -> None:
+    """Откат снимает обе колонки, подъём возвращает их: только добавление, без данных."""
+    connection = await session.connection()
+
+    assert await connection.run_sync(_columns_down_and_up) == (False, True)
