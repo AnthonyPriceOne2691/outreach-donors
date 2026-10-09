@@ -19,7 +19,11 @@
 FROM ghcr.io/astral-sh/uv:0.11.26 AS uv
 
 # --- зависимости питона ----------------------------------------------------
-FROM python:3.12-slim AS python-base
+# Базовые образы — официальные образы Docker с их зеркала в ECR Public, а не с
+# Docker Hub: анонимные скачивания с Hub делят лимит по IP со всеми машинами
+# GitHub, и 09.10.2026 «toomanyrequests» уронил сборку образа трижды подряд.
+# Образы те же: Docker сам выкладывает официальные образы в `docker/library`.
+FROM public.ecr.aws/docker/library/python:3.12-slim AS python-base
 
 # Окружение — отдельное, в /opt/venv. Не системный питон: `uv sync`
 # приводит окружение к lock-файлу точно, то есть удаляет всё, чего
@@ -82,7 +86,7 @@ CMD ["uvicorn", "backend.api.main:app", \
      "--proxy-headers", "--forwarded-allow-ips", "*"]
 
 # --- сборка фронта ---------------------------------------------------------
-FROM node:22-alpine AS web-build
+FROM public.ecr.aws/docker/library/node:22-alpine AS web-build
 
 WORKDIR /web
 
@@ -96,7 +100,7 @@ COPY frontend ./
 RUN npm run build
 
 # --- фронт под nginx -------------------------------------------------------
-FROM nginx:1.27-alpine AS web
+FROM public.ecr.aws/docker/library/nginx:1.27-alpine AS web
 
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
 COPY deploy/security-headers.conf /etc/nginx/snippets/security-headers.conf
