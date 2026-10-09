@@ -154,10 +154,14 @@ function excludedIn(run: { stats: Record<string, unknown> | null }): number {
 function HistoryRow({ run, from }: { run: RunCard; from: string }) {
   return (
     <Table.Tr>
+      {/* «№27 · США» — одной строкой, дата — второй: ячейка в три строки делала строку
+          истории выше соседних колонок (аудит экранов 09.10.2026). */}
       <Table.Td>
-        <Text fw={500}>№{run.id}</Text>
-        <Text size="xs" c="dimmed">
-          {countryTitle(run.country)}
+        <Text fw={500}>
+          №{run.id}{' '}
+          <Text span size="sm" fw={400} c="dimmed">
+            · {countryTitle(run.country)}
+          </Text>
         </Text>
         <Text size="xs" c="dimmed">
           {formatDateTime(run.started_at)}
@@ -165,7 +169,11 @@ function HistoryRow({ run, from }: { run: RunCard; from: string }) {
       </Table.Td>
       <Table.Td>
         <Stack gap={4} align="center">
+          {/* Место под «!» — с обеих сторон: держалось только справа, и значок
+              состояния стоял на ~16 px левее оси колонки, не под заголовком
+              (аудит экранов 09.10.2026). Слева — пустое место той же ширины. */}
           <Group justify="center" gap={4} wrap="nowrap">
+            <Box w={HINT_SLOT} style={{ flexShrink: 0 }} aria-hidden="true" />
             <Badge variant="light" color={RUN_STATUSES[run.status].color} style={{ flexShrink: 0 }}>
               {RUN_STATUSES[run.status].title}
             </Badge>
