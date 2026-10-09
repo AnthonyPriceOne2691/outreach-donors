@@ -21,7 +21,8 @@
  * **Шапка — две строки** (аудит экранов 09.10.2026, второй круг): домен, состояние
  * и ящик — первой, адрес и кампания — второй, плашка ящика — строкой под ними.
  * Шапка в 250 px и разбор цены в 317 сжимали ленту до 192 px — 21 % окна 1440 × 900,
- * а ради ленты диалог и открывают (жалоба Anthony 09.10.2026).
+ * а ради ленты диалог и открывают (жалоба Anthony 09.10.2026). Рядом со списком
+ * во второй строке — «Следующий ждущий →» (`NextWaiting`): разбирают подряд.
  */
 
 import { Alert, Badge, Card, Group, Loader, Stack, Text, Title } from '@mantine/core';
@@ -39,6 +40,7 @@ import { useSession } from '../auth/AuthProvider';
 import { BackLink, backTo } from '../components/BackLink';
 import { Seams } from '../components/Seams';
 import { AnswerBox } from './AnswerBox';
+import { NextWaiting } from './NextWaiting';
 import { ReplyDecision } from './ReplyDecision';
 import { ThreadFeed } from './ThreadFeed';
 import { ThreadMailLine, ThreadMailWaiting } from './ThreadMailLine';
@@ -217,10 +219,13 @@ export function ThreadPage() {
             </Group>
             <ThreadMailLine mail={data.mail} />
           </Group>
-          <Text size="sm" c="dimmed">
-            {data.card.contact_email ?? 'адрес не определён'} · кампания «{data.card.campaign}»
-            {stageNote ? ` · ${stageNote}` : ''}
-          </Text>
+          <Group gap="xs" justify="space-between" style={{ rowGap: 4 }}>
+            <Text size="sm" c="dimmed">
+              {data.card.contact_email ?? 'адрес не определён'} · кампания «{data.card.campaign}»
+              {stageNote ? ` · ${stageNote}` : ''}
+            </Text>
+            <NextWaiting current={data.card.id} split={split} />
+          </Group>
           <ThreadMailWaiting mail={data.mail} />
         </Stack>
       </Card>
