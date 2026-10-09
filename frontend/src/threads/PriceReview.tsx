@@ -18,12 +18,18 @@
  * **Причина — от сервера, если она не «уверенности не хватило».** Автоответ
  * с суммой модель не разбирала вовсе: объяснение про уверенность было бы
  * неправдой, и человек искал бы разбор, которого нет.
+ *
+ * **Форма — в две строки: причина и ряд полей с кнопками** (аудит экранов
+ * 09.10.2026, второй круг). Уверенность — в той же строке, что «подтверждает
+ * человек», подсказки полей — по слову: разбор в 317 px вместе с шапкой сжимал
+ * ленту переписки до 192 px из 792.
  */
 
 import { Alert, Badge, Button, Group, Stack, Text, TextInput } from '@mantine/core';
 import { useEffect, useState } from 'react';
 
 import type { IncomingCard } from '../api/types';
+import { InfoHint } from '../components/InfoHint';
 
 export interface PriceReviewProps {
   incoming: IncomingCard;
@@ -39,12 +45,44 @@ export interface PriceReviewProps {
   onDecline: () => void;
 }
 
+/** Почему цену подтверждает человек и что сделать — одной строкой. */
+function reviewWords(incoming: IncomingCard): string {
+  if (incoming.review_reason) {
+    return `— причина: ${incoming.review_reason}. Впишите цену из письма.`;
+  }
+  const sure =
+    incoming.confidence === null
+      ? ''
+      : ` уверенность разбора ${(incoming.confidence * 100).toFixed(0)}%:`;
+  return `—${sure} сверьте числа с письмом.`;
+}
+
 function clean(value: string): string | null {
   const trimmed = value.trim().replace(',', '.');
   return trimmed === '' ? null : trimmed;
 }
 
-export function PriceReview({ incoming, canReview, busy, onConfirm, onDecline }: PriceReviewProps) {
+/** Шапка формы: что разбираем и можно ли свернуть (`ReplyDecision`). */
+export interface PriceHeadProps {
+  /** «Разбор цены · ответ …, дата» — когда ответ уже не ждёт человека. */
+  heading: string;
+  /** Открыт кнопкой в пузыре — можно свернуть; `null` — ответ ждёт решения. */
+  onClose: (() => void) | null;
+}
+
+/** Белая и серая — слова агентства: без пояснения новичок их не различит. */
+const PRICE_WORDS =
+  'Белая — с пометкой «партнёрский материал», серая — без пометки. Валюта — как назвал донор.';
+
+export function PriceReview({
+  incoming,
+  canReview,
+  busy,
+  onConfirm,
+  onDecline,
+  heading,
+  onClose,
+}: PriceReviewProps & PriceHeadProps) {
   const [white, setWhite] = useState(incoming.price_white ?? '');
   const [grey, setGrey] = useState(incoming.price_grey ?? '');
   const [currency, setCurrency] = useState(incoming.currency ?? '');
@@ -58,74 +96,82 @@ export function PriceReview({ incoming, canReview, busy, onConfirm, onDecline }:
   }, [incoming.id, incoming.price_white, incoming.price_grey, incoming.currency]);
 
   return (
-    <Stack gap="sm" mt="sm">
-      {(incoming.confidence !== null || incoming.reviewed_by !== null) && (
-        <Group gap="sm">
-          {incoming.confidence !== null && (
-            <Text size="xs" c="dimmed">
-              уверенность разбора {(incoming.confidence * 100).toFixed(0)}%
+    <Stack gap="xs">
+      <Group gap="sm" justify="space-between" wrap="nowrap">
+        {/* Ждёт человека — плашка и есть заголовок: что случилось и что сделать.
+            Одним абзацем: рядом со списком переписка — колонка высотой окна. */}
+        {incoming.needs_review ? (
+          <Alert color="yellow" py={6} px="sm" style={{ flex: 1 }}>
+            <Text span size="sm" fw={600}>
+              Цену подтверждает человек
+            </Text>{' '}
+            <Text span size="sm">
+              {reviewWords(incoming)}
             </Text>
-          )}
-          {incoming.reviewed_by !== null && (
-            <Badge variant="light" color="green">
-              подтвердил {incoming.reviewed_by}
-            </Badge>
+          </Alert>
+        ) : (
+          <Group gap="sm">
+            <Text size="sm" fw={600}>
+              {heading}
+            </Text>
+            {incoming.confidence !== null && (
+              <Text size="xs" c="dimmed">
+                уверенность разбора {(incoming.confidence * 100).toFixed(0)}%
+              </Text>
+            )}
+            {incoming.reviewed_by !== null && (
+              <Badge variant="light" color="green">
+                подтвердил {incoming.reviewed_by}
+              </Badge>
+            )}
+            {incoming.placement === 'declines' && (
+              <Badge variant="light" color="gray">
+                донор: размещений не продаёт
+              </Badge>
+            )}
+          </Group>
+        )}
+        <Group gap={4} wrap="nowrap">
+          <InfoHint name="Белая и серая цена" width={280}>
+            {PRICE_WORDS}
+          </InfoHint>
+          {onClose !== null && (
+            <Button variant="subtle" size="compact-xs" onClick={onClose}>
+              Свернуть
+            </Button>
           )}
         </Group>
-      )}
+      </Group>
 
-      {incoming.placement === 'declines' && !incoming.needs_review && (
-        <Badge variant="light" color="gray">
-          донор: размещений не продаёт
-        </Badge>
-      )}
-
-      {/* Одним абзацем, без строки заголовка: рядом со списком переписка — колонка
-          высотой окна, и плашка в три строки уводила поля цены под край (09.10.2026). */}
-      {incoming.needs_review && (
-        <Alert color="yellow" py="xs" px="sm">
-          <Text span size="sm" fw={600}>
-            Цену подтверждает человек
-          </Text>{' '}
-          <Text span size="sm">
-            {incoming.review_reason
-              ? `— причина: ${incoming.review_reason}. Впишите цену из текста письма выше и подтвердите.`
-              : '— уверенности разбора не хватило, чтобы положить цену в карточку донора. Сверьте числа с текстом письма выше и подтвердите или поправьте.'}
-          </Text>
-        </Alert>
-      )}
-
-      {/* `fieldRow` резервирует место под пояснение: без него подписи
-          полей встают на разной высоте, и ряд «пляшет» — видно на снимке,
-          где «с пометкой «партнёрский материал»» занимает две строки. */}
-      <Group gap="sm" align="flex-end" className="fieldRow">
+      {/* Поля и решения — одним рядом, что такое белая и серая — в «i» над ним:
+          пояснение под каждым полем добавляло строку, и на 1280 ряд переносился
+          (09.10.2026). */}
+      <Group gap="xs" align="flex-end">
         <TextInput
           label="Белая цена"
-          description="с пометкой «партнёрский материал»"
           value={white}
-          w={170}
+          w={96}
           disabled={!canReview}
           onChange={(event) => setWhite(event.currentTarget.value)}
         />
         <TextInput
           label="Серая цена"
-          description="без пометки"
           value={grey}
-          w={170}
+          w={96}
           disabled={!canReview}
           onChange={(event) => setGrey(event.currentTarget.value)}
         />
         <TextInput
           label="Валюта"
-          description="как назвали"
           value={currency}
-          w={120}
+          w={72}
           disabled={!canReview}
           onChange={(event) => setCurrency(event.currentTarget.value)}
         />
         <Button
           color="lagoon"
           className="press"
+          px="md"
           loading={busy}
           disabled={!canReview}
           onClick={() =>
@@ -144,6 +190,7 @@ export function PriceReview({ incoming, canReview, busy, onConfirm, onDecline }:
         <Button
           variant="default"
           className="press"
+          px="md"
           disabled={!canReview || busy}
           onClick={onDecline}
         >
