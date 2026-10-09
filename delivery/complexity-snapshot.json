@@ -1492,7 +1492,7 @@
       "worst": "inbox_trace:229"
     },
     "backend/features/outreach/repository.py": {
-      "lines": 213,
+      "lines": 217,
       "complexity": 4,
       "worst": "sent_today:80"
     },
@@ -2277,7 +2277,7 @@
       "worst": "_select:46"
     },
     "scripts/ui_contrast.py": {
-      "lines": 301,
+      "lines": 302,
       "complexity": 9,
       "worst": "main:246"
     },
@@ -2287,7 +2287,7 @@
       "worst": "main:127"
     },
     "scripts/ui_screens.py": {
-      "lines": 452,
+      "lines": 458,
       "complexity": 2,
       "worst": "open_reason:25"
     },

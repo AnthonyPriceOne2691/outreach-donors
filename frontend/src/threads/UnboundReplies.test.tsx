@@ -127,8 +127,8 @@ describe('вкладка «Не привязаны»', () => {
 
     expect(await screen.findByText('Не привязаны — 2')).toBeInTheDocument();
     expect(screen.getByText('Диалоги — 1')).toBeInTheDocument();
-    // Вкладка диалогов — та же таблица, что и была.
-    expect(screen.getByRole('link', { name: 'digest-weekly.example.test' })).toBeInTheDocument();
+    // Вкладка диалогов — тот же список, что и был.
+    expect(screen.getByRole('link', { name: /digest-weekly\.example\.test/ })).toBeInTheDocument();
   });
 
   it('вкладка пишет себя в адрес, и в строке видно, от кого, куда и почему', async () => {
@@ -148,7 +148,7 @@ describe('вкладка «Не привязаны»', () => {
     expect(within(row).getByText(FOREIGN_REASON)).toBeInTheDocument();
     expect(within(rowOf('me@ours.example.test')).getByText(PROBE_REASON)).toBeInTheDocument();
     // Таблицы диалогов на этой вкладке нет — её не прячут, её не рисуют.
-    expect(screen.queryByRole('link', { name: 'digest-weekly.example.test' })).toBeNull();
+    expect(screen.queryByRole('link', { name: /digest-weekly\.example\.test/ })).toBeNull();
   });
 
   it('ссылка с вкладкой в адресе открывает её сразу', async () => {
@@ -230,7 +230,7 @@ describe('вкладка «Не привязаны»', () => {
 
     expect(screen.getByTestId('where')).toHaveTextContent(/^\/threads$/);
     expect(
-      await screen.findByRole('link', { name: 'digest-weekly.example.test' }),
+      await screen.findByRole('link', { name: /digest-weekly\.example\.test/ }),
     ).toBeInTheDocument();
   });
 

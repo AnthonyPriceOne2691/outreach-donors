@@ -12,13 +12,18 @@
  * **«К списку» — над заголовком, как у карточек донора и прогона**
  * (`BackLink`), и возвращает к списку с тем же фильтром. **Номер из адреса
  * проверяется до запроса** (`rowIdOf`): «abc» уходил бы на сервер как `NaN`.
+ *
+ * **На широком окне переписка — правой колонкой рядом со списком**
+ * (`ThreadsScreen`, с 09.10.2026): «К списку» там нет — список рядом, — а колонка
+ * высотой окна: лента забирает остаток и прокручивается внутри, разбор и ответ
+ * под ней всегда на виду. До этого на 1440 × 900 «Взять в работу» стояло ниже края.
  */
 
 import { Alert, Badge, Card, Group, Loader, Stack, Text, Title } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { useLocation, useParams } from 'react-router-dom';
+import { useLocation, useOutletContext, useParams } from 'react-router-dom';
 
 import { ApiError, refusalOf } from '../api/client';
 import { rowIdOf } from '../api/ids';
@@ -33,14 +38,15 @@ import { AnswerBox } from './AnswerBox';
 import { ReplyDecision } from './ReplyDecision';
 import { ThreadFeed } from './ThreadFeed';
 import { ThreadMailLine } from './ThreadMailLine';
+import type { ThreadOutlet } from './ThreadsScreen';
 import { activeReply, answerTarget } from './threadTimeline';
 
 /** Диалога нет: номер негодный или такого нет в базе. */
-function NoSuchThread({ back, said }: { back: string; said: string }) {
+function NoSuchThread({ back, said }: { back: string | null; said: string }) {
   return (
     <Card className="glassPanel" p="xl">
       <Stack gap={6}>
-        <BackLink to={back}>К списку</BackLink>
+        {back !== null && <BackLink to={back}>К списку</BackLink>}
         <Title order={3}>Такого диалога нет</Title>
         <Text size="sm" c="dimmed" maw={720}>
           {said} Все диалоги — в списке, переписка открывается щелчком по строке.
@@ -53,10 +59,14 @@ function NoSuchThread({ back, said }: { back: string; said: string }) {
 export function ThreadPage() {
   const raw = useParams<{ id: string }>().id;
   const id = rowIdOf(raw);
+  const location = useLocation();
+  // Правой колонкой рядом со списком — без «К списку»: список и так рядом.
+  const split = useOutletContext<ThreadOutlet | undefined>()?.split === true;
   // Откуда пришли: список с фильтром из адреса. «К списку» возвращает туда
   // же, а не на весь список — иначе фильтр с главной терялся бы на первом
-  // же открытом диалоге.
-  const back = `/threads${backTo(useLocation().state)}`;
+  // же открытом диалоге. Фильтр приходит в состоянии перехода или в самом
+  // адресе диалога (`/threads/42?state=…` — так его строит список рядом).
+  const back = split ? null : `/threads${backTo(location.state) || location.search}`;
   const { can } = useSession();
   const queryClient = useQueryClient();
   const { data, isLoading, error } = useQuery({
@@ -160,7 +170,7 @@ export function ThreadPage() {
   if (error) {
     return (
       <Stack gap="lg">
-        <BackLink to={back}>К списку</BackLink>
+        {back !== null && <BackLink to={back}>К списку</BackLink>}
         <Alert color="red" title="Переписка не загрузилась">
           {refusalOf(error)}
         </Alert>
@@ -186,10 +196,10 @@ export function ThreadPage() {
     (handoff.isPending && handoff.variables === replyId);
 
   return (
-    <Stack gap="md">
-      <Card className="glassPanel" p="xl">
+    <Stack gap="md" {...(split ? { className: 'threadPane' } : {})}>
+      <Card className="glassPanel threadHead" p={split ? 'lg' : 'xl'}>
         <Stack gap={6}>
-          <BackLink to={back}>К списку</BackLink>
+          {back !== null && <BackLink to={back}>К списку</BackLink>}
           <Group gap="sm">
             {/* Длинный домен переносится по швам: без переноса на телефоне
                 он уходил за край карточки и обрезался (06.10.2026). */}
@@ -216,6 +226,7 @@ export function ThreadPage() {
         reviewable={reviewable}
         sales={sales}
         onPick={setPicked}
+        fill={split}
       />
 
       {decided !== null && (

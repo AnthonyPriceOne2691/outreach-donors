@@ -148,7 +148,7 @@ async def overview(session: AsyncSession, *, now: datetime | None = None) -> Ove
     # Состояние выводится в питоне правилом `summarize`, поэтому грузятся
     # и письма. На тысячах диалогов запрос станет заметным — тогда счёт
     # переводить в SQL, сохранив правило одним местом.
-    threads = await OutreachRepository(session).threads(limit=None)
+    threads = await OutreachRepository(session).threads()
     spending = await SpendingRepository(session).since_month_start(now=moment)
     decisions = await standing.waiting(session)
     return Overview(

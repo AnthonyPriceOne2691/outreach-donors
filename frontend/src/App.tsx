@@ -33,7 +33,8 @@ import { SuppressionsPage } from './suppressions/SuppressionsPage';
 import { ThresholdsPage } from './settings/ThresholdsPage';
 import { UsagePage } from './settings/UsagePage';
 import { ThreadPage } from './threads/ThreadPage';
-import { ThreadsPage } from './threads/ThreadsPage';
+import { ThreadsIntro } from './threads/ThreadsIntro';
+import { ThreadsScreen } from './threads/ThreadsScreen';
 import { UsersPage } from './users/UsersPage';
 import { RunReviewPage } from './review/RunReviewPage';
 import { ImportWizard } from './sales/ImportWizard';
@@ -151,22 +152,19 @@ export function AppRoutes() {
             </RequireAccess>
           }
         />
+        {/* Раздел — один маршрут: на широком окне список стоит рядом с перепиской
+            и не пересоздаётся при выборе диалога (`threads/ThreadsScreen`). */}
         <Route
           path="/threads"
           element={
             <RequireAccess permission="view">
-              <ThreadsPage />
+              <ThreadsScreen />
             </RequireAccess>
           }
-        />
-        <Route
-          path="/threads/:id"
-          element={
-            <RequireAccess permission="view">
-              <ThreadPage />
-            </RequireAccess>
-          }
-        />
+        >
+          <Route index element={<ThreadsIntro />} />
+          <Route path=":id" element={<ThreadPage />} />
+        </Route>
         <Route
           path="/suppressions"
           element={

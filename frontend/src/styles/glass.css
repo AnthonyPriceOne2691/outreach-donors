@@ -1651,6 +1651,119 @@ html:root .mantine-Pill-root {
   }
 }
 
+/* --- «Диалоги» на широком окне (threads/ThreadsScreen) --------------------
+ * Список слева, переписка справа (замечание Anthony 09.10.2026: «много места
+ * пустого — справа сразу отображать диалог»). Обе колонки — высотой окна под
+ * шапкой рамы, страница не прокручивается: список листается внутри своей
+ * карточки, лента переписки — внутри своей, разбор и ответ под лентой всегда
+ * на виду. Ширина списка — как колонка списка у Material 3 и Fiori (320–400 px),
+ * остаток — переписке. Высота рядов — `minmax(0, 1fr)`: без неё ряд рос бы по
+ * содержимому, и лента не знала бы своей высоты. Совсем низкое окно — не меньше
+ * 32rem, и тогда прокручивается страница. */
+.threadsSplit {
+  display: grid;
+  grid-template-columns: clamp(20rem, 30%, 25rem) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: var(--mantine-spacing-lg);
+  height: calc(100dvh - var(--app-shell-header-offset, 0rem) - 2 * var(--app-shell-padding, 0rem));
+  min-height: 32rem;
+}
+
+.threadsSplitList {
+  min-height: 0;
+}
+
+.threadListColumn {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.threadListColumn > * {
+  flex-shrink: 0;
+}
+
+/* Строки — своей прокруткой; поле в пару пикселей держит кольцо фокуса и подъём
+   строки под курсором внутри края прокрутки, а не срезанными. */
+.threadListColumn > .threadListRows {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-inline: -4px;
+  padding: 3px 4px;
+}
+
+.threadRow {
+  flex-shrink: 0;
+  color: inherit;
+  text-decoration: none;
+  scroll-margin-block: 6px;
+}
+
+.threadRowWhen,
+.threadRowState {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.threadRowHost {
+  min-width: 0;
+}
+
+/* Фильтр состояния — по своему значению («лид — ждёт человека · 0»), а не половиной
+   строки; поиску — остаток, но не шире 20rem: поле во всю панель на узком окне —
+   то самое «поле больше своего значения» (замечание Anthony 09.10.2026). */
+.threadStateFilter {
+  flex: 0 0 11rem;
+}
+
+.threadSearch {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 20rem;
+}
+
+/* Узкое окно: строки — в потоке страницы, без своей прокрутки. */
+.threadListFlow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Колонка переписки: одна карточка внутри — переписка или заглушка. Не влезла
+   (разбор и раскрытый ответ выше окна) — прокручивается сама колонка. */
+.threadsSplitPane {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.threadsSplitPane > .threadsIntro {
+  margin-block: auto;
+}
+
+.threadPane {
+  height: 100%;
+  min-height: 0;
+}
+
+.threadPane > * {
+  flex-shrink: 0;
+}
+
+/* Лента забирает остаток колонки и прокручивается внутри; ниже 12rem не сжимается —
+   тогда прокручивается колонка. */
+.threadPane > .threadFeedFill {
+  flex: 1 1 auto;
+  min-height: 12rem;
+}
+
+.threadFeedScroll {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 /* --- Вложения в карточке ответа (threads/ReplyFiles) ---------------------
  * Список без маркеров и отступа браузера: у `ul` свои поля, и строки
  * вложений встали бы правее текста письма над ними. Длинное имя файла без

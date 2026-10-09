@@ -122,29 +122,33 @@ async function chooseState(option: string) {
   await user.click(await screen.findByRole('option', { name: option, hidden: true }));
 }
 
+/** Строки списка — их сайты, сверху вниз. */
 function hosts(): string[] {
-  return screen
-    .getAllByRole('row')
-    .map((row) => within(row).queryByRole('link')?.textContent ?? null)
-    .filter((host): host is string => host !== null);
+  return within(screen.getByRole('navigation', { name: 'Список диалогов' }))
+    .queryAllByRole('link')
+    .map((row) => row.querySelector('.threadRowHost')?.textContent ?? '');
+}
+
+/** Строка списка — ссылка на переписку — по сайту. */
+function rowOf(host: string): HTMLElement {
+  return screen.getByText(host).closest('a')!;
 }
 
 describe('диалоги', () => {
   it('показывает состояние и цену — деньгами, а не сырой строкой сервера', async () => {
     await openThreads();
 
-    const row = screen.getByText('digest-weekly.example.test').closest('tr')!;
+    const row = rowOf('digest-weekly.example.test');
     expect(within(row).getByText('цена получена')).toBeInTheDocument();
     // Разряды, запятая, знак валюты — и какая из цен какая.
-    expect(within(row).getByText('белая 1 250,00 €')).toBeInTheDocument();
-    expect(within(row).getByText('серая 180,00 €')).toBeInTheDocument();
+    expect(within(row).getByText('белая 1 250,00 € · серая 180,00 €')).toBeInTheDocument();
     expect(screen.queryByText(/1250\.00|180\.00/)).not.toBeInTheDocument();
   });
 
   it('одна серая цена так и названа, а валюта без знака — кодом', async () => {
     await openThreads();
 
-    const row = screen.getByText('tech-review.example.test').closest('tr')!;
+    const row = rowOf('tech-review.example.test');
     expect(within(row).getByText('серая 90,00 USDT')).toBeInTheDocument();
     expect(within(row).queryByText(/белая/)).not.toBeInTheDocument();
   });
@@ -232,17 +236,23 @@ describe('диалоги', () => {
     );
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole('link', { name: 'green-blog.example.test' }));
+    await user.click(await screen.findByRole('link', { name: /green-blog\.example\.test/ }));
     await user.click(await screen.findByRole('link', { name: 'К списку' }));
 
     expect(await screen.findByText('green-blog.example.test')).toBeInTheDocument();
     expect(screen.getByTestId('where')).toHaveTextContent('/threads?state=waiting');
   });
 
-  it('калибровка разбора видна рядом с диалогами', async () => {
+  it('калибровка разбора — в подсказке «i» у заголовка', async () => {
     // Какие поля человек правит чаще — тем и занимается следующая версия
-    // промпта. Приём соседней системы, работавший в бою.
+    // промпта. Приём соседней системы, работавший в бою. С 09.10.2026 — в «i»
+    // рядом с числом диалогов, а не строкой над таблицей (аудит экранов).
     await openThreads();
+    const user = userEvent.setup();
+
+    await user.hover(
+      await screen.findByRole('button', { name: 'Как считается состояние диалога' }),
+    );
 
     const line = await screen.findByText(
       /подтвердил как есть 7 из 10, поправил 3 — чаще всего белая цена 2, валюта 1/,
