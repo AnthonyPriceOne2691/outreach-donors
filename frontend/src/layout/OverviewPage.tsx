@@ -13,9 +13,11 @@ import {
   Alert,
   Anchor,
   Badge,
+  Button,
   Card,
   Group,
   Loader,
+  Popover,
   SimpleGrid,
   Stack,
   Text,
@@ -455,26 +457,38 @@ export function OverviewPage() {
 
   return (
     <Stack gap="lg">
-      <Card className="glassPanel" p="xl">
-        <Stack gap="sm">
+      {/* Шапка — одной строкой: кто вошёл, его права — во всплывающем окне по числу,
+          «Сменить пароль» — рядом. До 09.10.2026 карточка с шестью значками прав
+          занимала 165 px на 1440 и ~330 на телефоне, и «Ждут человека» стояло вторым
+          (аудит экранов 09.10.2026). */}
+      <Card className="glassPanel" px="xl" py="lg">
+        <Group gap="md" justify="space-between">
           <Title order={3}>Обзор</Title>
-          <Text>
-            Вошли как <b>{user?.email}</b>.{' '}
+          <Group gap="sm">
+            <Text size="sm">
+              Вошли как <b>{user?.email}</b>
+            </Text>
+            <Popover position="bottom-end" withArrow shadow="md" radius="lg">
+              <Popover.Target>
+                <Button variant="subtle" size="compact-sm">
+                  Права ({user?.permissions.length ?? 0})
+                </Button>
+              </Popover.Target>
+              <Popover.Dropdown className="glassSolid" aria-label="Доступные действия">
+                <Group gap="xs" maw={320}>
+                  {user?.permissions.map((permission) => (
+                    <Badge key={permission} variant="light">
+                      {permissionTitle(permission)}
+                    </Badge>
+                  ))}
+                </Group>
+              </Popover.Dropdown>
+            </Popover>
             <Anchor component={Link} to="/password" size="sm">
               Сменить пароль
             </Anchor>
-          </Text>
-          <Group gap="xs">
-            <Text size="sm" c="dimmed">
-              Доступные действия:
-            </Text>
-            {user?.permissions.map((permission) => (
-              <Badge key={permission} variant="light">
-                {permissionTitle(permission)}
-              </Badge>
-            ))}
           </Group>
-        </Stack>
+        </Group>
       </Card>
 
       <Watchdog />
