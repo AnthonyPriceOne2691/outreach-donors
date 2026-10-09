@@ -8,7 +8,7 @@
  * `ThreadsPage.test` и `ThreadPage.test`: там `matchMedia` по умолчанию узкий.
  */
 
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -90,13 +90,14 @@ afterEach(() => {
   if (narrow !== undefined) Object.defineProperty(window, 'matchMedia', narrow);
 });
 
-async function openWide(path: string) {
+async function openWide(path: string, threads = THREADS) {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   serve({
     'GET /api/auth/me': { body: ADMIN },
-    'GET /api/threads': { body: THREADS },
-    'GET /api/threads/1': { body: view(THREADS[0]!) },
-    'GET /api/threads/3': { body: view(THREADS[2]!) },
+    'GET /api/threads': { body: threads },
+    ...Object.fromEntries(
+      threads.map((card) => [`GET /api/threads/${card.id}`, { body: view(card) }]),
+    ),
     'GET /api/replies/unbound?page=1': { body: { rows: [], total: 0, page: 1, limit: 20 } },
   });
   renderWith(
@@ -176,6 +177,42 @@ describe('диалоги на широком окне: список и пере�
     (await list.findByRole('link', { current: 'page' })).focus();
     await user.keyboard('{ArrowDown}');
     expect(where()).toHaveTextContent('/threads/1');
+  });
+
+  it('«Следующий ждущий» — ниже открытого, после последнего — верхний, решённый ведёт к верхнему', async () => {
+    const user = userEvent.setup();
+    const lead = thread(4, 'price-desk.example.test', 'lead', '2026-09-16T10:00:00+00:00');
+    await openWide('/threads/3', [...THREADS, lead]);
+    const next = () => screen.findByRole('link', { name: /Следующий ждущий/ });
+
+    expect(await next()).toHaveAttribute('href', '/threads/4');
+    await user.click(await next());
+    expect(where()).toHaveTextContent('/threads/4');
+    expect(
+      await screen.findByRole('heading', { name: 'price-desk.example.test' }),
+    ).toBeInTheDocument();
+    await waitFor(async () => expect(await next()).toHaveAttribute('href', '/threads/3'));
+
+    await user.keyboard('j');
+    expect(where()).toHaveTextContent('/threads/1');
+    await waitFor(async () => expect(await next()).toHaveAttribute('href', '/threads/3'));
+  });
+
+  it('«Следующий ждущий» держит фильтр из адреса', async () => {
+    const lead = thread(4, 'price-desk.example.test', 'lead', '2026-09-16T10:00:00+00:00');
+    await openWide('/threads/1?state=lead', [...THREADS, lead]);
+    expect(await screen.findByRole('link', { name: /Следующий ждущий/ })).toHaveAttribute(
+      'href',
+      '/threads/4?state=lead',
+    );
+  });
+
+  it('единственный ждущий открыт — кнопки «Следующий ждущий» нет', async () => {
+    await openWide('/threads/3');
+    expect(
+      await screen.findByRole('heading', { name: 'tech-review.example.test' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Следующий ждущий/ })).not.toBeInTheDocument();
   });
 
   it('«Не привязаны» — на всю ширину: у ответа без письма переписки справа нет', async () => {
