@@ -489,7 +489,7 @@ describe('продажи: сводка — только на «Лидах» (а�
     expect(document.querySelectorAll('.metricTile')).toHaveLength(0);
     expect(screen.queryByText(/Лиды попадают сюда/)).toBeNull();
 
-    await user.hover(screen.getByRole('button', { name: 'Откуда лиды и как их чистят' }));
+    await user.hover(screen.getByRole('button', { name: 'Как устроен экран «Продажи»' }));
 
     expect(await screen.findByText(/Лиды попадают сюда/, {}, SCREEN_WAIT)).toBeInTheDocument();
   });

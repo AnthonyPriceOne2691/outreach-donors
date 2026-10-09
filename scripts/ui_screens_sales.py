@@ -135,7 +135,7 @@ def sales_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         ("пункт меню", "nav a", norm),
         # Пояснение раздела — в «i» у заголовка (аудит 09.10.2026), а не абзацем под ним;
         # слова очистки — за «!» лида, по нажатию.
-        hint_probe("пояснение раздела", "Откуда лиды и как их чистят", norm),
+        hint_probe("пояснение раздела", "Как устроен экран «Продажи»", norm),
         *note_probes(norm),
     ]
     return {
@@ -160,7 +160,7 @@ def sales_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                     ".leadsTable tbody td:nth-child(5) .mantine-Badge-label",
                     norm,
                 ),
-                hint_probe("пояснение раздела", "Откуда лиды и как их чистят", norm),
+                hint_probe("пояснение раздела", "Как устроен экран «Продажи»", norm),
                 *section_probes(norm),
             ],
         },

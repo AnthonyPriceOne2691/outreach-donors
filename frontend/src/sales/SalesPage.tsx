@@ -19,7 +19,7 @@
  * а плитки и фильтры остаются — условие поправляют тут же.
  */
 
-import { Button, Card, Group, SegmentedControl, Select, Stack, Title } from '@mantine/core';
+import { Box, Button, Card, Group, SegmentedControl, Select, Stack } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo } from 'react';
@@ -27,7 +27,7 @@ import type { ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
 import { listHypotheses } from '../api/sales';
-import { InfoHint } from '../components/InfoHint';
+import { PageHead } from '../components/PageHead';
 import { useTyped } from '../donors/useTyped';
 import { formatNumber } from '../format';
 import { dropdownBelow } from '../theme';
@@ -55,17 +55,16 @@ export const HYPOTHESES_QUERY_KEY = ['sales', 'hypotheses'] as const;
 /** Набранный поиск совпадает с адресом без пробелов по краям. */
 const sameSearch = (draft: string, committed: string) => draft.trim() === committed;
 
-/** Заголовок раздела и «i»: что за раздел, читают раз, а не на каждом заходе. */
+/** Шапка раздела — общей шапкой экранов (`components/PageHead`): заголовок и «i» — как
+ *  устроен раздел, это читают раз, а не на каждом заходе. Поле — кромка текста таблиц. */
 function SalesTitle() {
   return (
-    <Group gap="xs" wrap="nowrap" px="md">
-      <Title order={3}>Продажи</Title>
-      <InfoHint name="Откуда лиды и как их чистят" width={340}>
-        Лиды попадают сюда из файла или Google-таблицы, проходят очистку — дубли, стоп-листы, почта
-        домена, проверка адреса — и готовыми уходят в письма. У каждого отсеянного названа причина:
-        кодом, по которому фильтр, и словами, что именно нашлось.
-      </InfoHint>
-    </Group>
+    <Box px="md">
+      <PageHead
+        title="Продажи"
+        hint="Лиды попадают сюда из файла или Google-таблицы, проходят очистку — дубли, стоп-листы, почта домена, проверка адреса — и готовыми уходят в письма. У каждого отсеянного названа причина: кодом, по которому фильтр, и словами, что именно нашлось."
+      />
+    </Box>
   );
 }
 

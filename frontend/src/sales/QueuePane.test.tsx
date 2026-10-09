@@ -118,10 +118,23 @@ describe('очередь писем продаж', () => {
   it('«Писем за раз» — поле по числу, а не 180 px (аудит 09.10.2026)', async () => {
     await openQueue();
 
-    const wrapper = screen
-      .getByRole('textbox', { name: 'Писем за раз' })
-      .closest('.mantine-InputWrapper-root');
-    expect(wrapper?.getAttribute('style')).toMatch(/(^|;)\s*width: 6\.5rem/);
+    // Поле — по числу, колонка — по подписи: подпись с «i» в одну строку.
+    const field = screen.getByRole('textbox', { name: 'Писем за раз' });
+    expect(field.closest('.mantine-Input-wrapper')?.getAttribute('style')).toMatch(
+      /(^|;)\s*width: 6\.5rem/,
+    );
+    expect(field.closest('.mantine-InputWrapper-root')?.getAttribute('style') ?? '').not.toMatch(
+      /(^|;)\s*width:/,
+    );
+    // Пояснение — в «i» у подписи, как у «За раз» на «Письмах»: строкой под полем оно
+    // раздувало поле до своей ширины.
+    expect(screen.queryByText(/Каждое стоит вызова модели/)).toBeNull();
+    await userEvent
+      .setup()
+      .hover(screen.getByRole('button', { name: 'Что значит «Писем за раз»' }));
+    expect(
+      await screen.findByText('Каждое стоит вызова модели.', {}, SCREEN_WAIT),
+    ).toBeInTheDocument();
   });
 
   it('вступление — одной строкой, как уходят письма — в «i» (аудит 09.10.2026)', async () => {

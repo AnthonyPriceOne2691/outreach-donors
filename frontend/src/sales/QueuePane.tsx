@@ -36,6 +36,7 @@ import { buildSalesQueue } from '../api/sales';
 import { chainLanguageTitle } from '../api/salesLabels';
 import type { ChainState, HypothesisCard, SalesQueueView } from '../api/salesTypes';
 import { useSession } from '../auth/AuthProvider';
+import { HintLabel } from '../components/HintLabel';
 import { InfoHint } from '../components/InfoHint';
 import { Metric } from '../components/Metric';
 import { formatNumber } from '../format';
@@ -125,16 +126,20 @@ function BuildQueue({ view }: { view: SalesQueueView }) {
   return (
     <Stack gap={6} px="md">
       <Group align="flex-end" gap="md" wrap="wrap">
+        {/* Пояснение — в «i» у подписи (`HintLabel`), как у «За раз» на «Письмах»: строка
+            под полем раздувала его до своей ширины. Подпись — не `<label>`: в ней кнопка. */}
         <NumberInput
-          label="Писем за раз"
-          description="Каждое стоит вызова модели"
+          label={<HintLabel label="Писем за раз" hint="Каждое стоит вызова модели." />}
+          labelProps={{ labelElement: 'div' }}
+          aria-label="Писем за раз"
           value={limit}
           min={1}
           max={view.limit_max}
           clampBehavior="strict"
           allowDecimal={false}
-          // По числу и подписи, а не 180 px: число — до трёх знаков (аудит экранов 09.10.2026).
-          w="6.5rem"
+          // Поле — по числу (до трёх знаков), а не 180 px; колонка — по подписи: «Писем за раз»
+          // с «i» в 6,5rem вставала в две строки (аудит экранов 09.10.2026, как у порогов).
+          styles={{ wrapper: { width: '6.5rem' } }}
           onChange={(value) => setLimit(typeof value === 'number' ? value : DEFAULT_LIMIT)}
         />
         <Button
