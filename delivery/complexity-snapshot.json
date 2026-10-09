@@ -2327,7 +2327,7 @@
       "worst": "open_hint:19"
     },
     "scripts/ui_screens_sales_queue.py": {
-      "lines": 65,
+      "lines": 66,
       "complexity": 1,
       "worst": "queue_screens:24"
     }
