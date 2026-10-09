@@ -146,11 +146,19 @@ export function SalesPage() {
 
   const known = hypotheses.data.rows;
   const total = known.reduce((sum, row) => sum + row.total, 0);
-  // Другая вкладка и «Сбросить фильтры» — чистый адрес: набранный поиск уходит с ним.
-  const reset = (tab: SalesTab) => {
+  // Гипотеза, которой нет в списке (старая ссылка), вкладкам с выбором — «не выбрана»:
+  // поле выбора её не покажет, а запрос ушёл бы в пустоту. Лиды называют её номером.
+  const chosen = known.some((row) => row.id === filters.hypothesis) ? filters.hypothesis : null;
+  const pick = (hypothesis: number | null) => apply({ hypothesis });
+  // Другая вкладка — чистый адрес, кроме гипотезы: она одна на раздел (аудит экранов
+  // 09.10.2026). «Сбросить фильтры» снимает и её: пусто могло быть из-за неё.
+  // Набранный поиск уходит вместе с адресом.
+  const go = (next: LeadFilters) => {
     setSearch('');
-    setParams(writeLeadFilters({ ...NO_LEAD_FILTERS, tab }), { replace: true });
+    setParams(writeLeadFilters(next), { replace: true });
   };
+  const switchTab = (tab: SalesTab) =>
+    go({ ...NO_LEAD_FILTERS, tab, hypothesis: filters.hypothesis });
 
   // Вкладка → её содержимое: таблицей, а не цепочкой условий.
   const bodies: Record<SalesTab, () => ReactNode> = {
@@ -164,15 +172,21 @@ export function SalesPage() {
         onFilter={apply}
         hypotheses={known}
         onTurn={turn}
-        onReset={() => reset('leads')}
+        onReset={() => go(NO_LEAD_FILTERS)}
       />
     ),
     hypotheses: () => <HypothesesTable rows={known} />,
     kb: () => <KbPane />,
     sender: () => <SenderPane />,
-    chain: () => <ChainPane hypotheses={known} />,
-    queue: () => <QueuePane hypotheses={known} />,
-    funnel: () => <FunnelPane hypotheses={known} />,
+    chain: () => <ChainPane hypotheses={known} owner={chosen} onOwner={pick} />,
+    queue: () => <QueuePane hypotheses={known} hypothesis={chosen} onHypothesis={pick} />,
+    funnel: () => (
+      <FunnelPane
+        hypotheses={known}
+        filters={{ hypothesis: chosen, period: filters.period, from: filters.from, to: filters.to }}
+        onChange={apply}
+      />
+    ),
   };
 
   return (
@@ -183,7 +197,7 @@ export function SalesPage() {
           <SalesTabs
             tab={filters.tab}
             counts={{ leads: total, hypotheses: known.length, kb: kb.data?.total }}
-            onTab={reset}
+            onTab={switchTab}
           />
           {UPLOAD_TABS.has(filters.tab) && (
             <Button component={Link} to="/sales/import" className="press">

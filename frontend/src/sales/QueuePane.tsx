@@ -200,8 +200,15 @@ function HypothesisQueue({ hypothesis }: { hypothesis: number }) {
   );
 }
 
-export function QueuePane({ hypotheses }: { hypotheses: HypothesisCard[] }) {
-  const [chosen, setChosen] = useState<number | null>(hypotheses[0]?.id ?? null);
+interface PaneProps {
+  hypotheses: HypothesisCard[];
+  /** Гипотеза раздела из адреса; не выбрана — первая: сборка идёт по одной гипотезе. */
+  hypothesis: number | null;
+  onHypothesis: (hypothesis: number) => void;
+}
+
+export function QueuePane({ hypotheses, hypothesis, onHypothesis }: PaneProps) {
+  const chosen = hypothesis ?? hypotheses[0]?.id ?? null;
   if (chosen === null) {
     return (
       <Text size="sm" c="dimmed" px="md">
@@ -223,7 +230,7 @@ export function QueuePane({ hypotheses }: { hypotheses: HypothesisCard[] }) {
           data={hypotheses.map((row) => ({ value: String(row.id), label: row.name }))}
           value={String(chosen)}
           onChange={(value) => {
-            if (value !== null) setChosen(Number(value));
+            if (value !== null) onHypothesis(Number(value));
           }}
           w={{ base: '100%', xs: 280 }}
         />

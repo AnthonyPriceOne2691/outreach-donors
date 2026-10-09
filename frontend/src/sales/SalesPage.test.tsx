@@ -8,8 +8,9 @@
  * своего перечня; пусто и отказ названы словами.
  */
 
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useLocation } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
@@ -116,6 +117,16 @@ function at(query: string): string {
   return `${LEADS}?${query}`;
 }
 
+/** Где сейчас экран: адрес целиком — по нему видно, что живёт в адресе, а что нет. */
+function Where() {
+  const location = useLocation();
+  return <output data-testid="where">{`${location.pathname}${location.search}`}</output>;
+}
+
+function where(): string {
+  return screen.getByTestId('where').textContent ?? '';
+}
+
 async function openScreen(
   routes: Record<string, Answer> = {},
   { path = '/sales', ready = 'ivan@acme.example.test', who = ADMIN } = {},
@@ -128,7 +139,13 @@ async function openScreen(
     'GET /api/sales/kb': { body: KB },
     ...routes,
   });
-  renderWith(<AppRoutes />, path);
+  renderWith(
+    <>
+      <AppRoutes />
+      <Where />
+    </>,
+    path,
+  );
   await screen.findByText(ready, {}, SCREEN_WAIT);
   return recorded;
 }
@@ -602,6 +619,122 @@ describe('продажи: пустая таблица на телефоне (а�
     if (head === null) throw new Error('шапки таблицы нет');
     expect(within(head).getByRole('textbox', { name: 'Гипотеза' })).toHaveValue('сервисы RU');
     expect(screen.getByRole('button', { name: 'Сбросить фильтры' })).toBeInTheDocument();
+  });
+});
+
+/** Полночь суток `daysAgo` назад по часам браузера — моментом ISO, как шлёт воронка. */
+function midnightAgo(daysAgo: number): string {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysAgo).toISOString();
+}
+
+describe('продажи: гипотеза — одна на раздел, период воронки — в адресе (аудит 09.10.2026)', () => {
+  it('гипотеза переживает смену вкладки: цепочка, очередь, воронка и лиды — с ней', async () => {
+    const recorded = await openScreen(
+      {
+        [at('hypothesis=1')]: { body: view([IVAN, TWIN]) },
+        'GET /api/sales/chain?hypothesis=1': REFUSED,
+        'GET /api/sales/queue?hypothesis=1': REFUSED,
+        'GET /api/sales/funnel?hypothesis=1': REFUSED,
+      },
+      { path: '/sales?hypothesis=1' },
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('radio', { name: 'Цепочка писем' }));
+    await screen.findByText('Цепочка писем не загрузилась', {}, SCREEN_WAIT);
+    expect(screen.getByRole('textbox', { name: 'Набор' })).toHaveValue('сайты EN');
+
+    await user.click(screen.getByRole('radio', { name: 'Очередь писем' }));
+    await screen.findByText('Очередь писем не загрузилась', {}, SCREEN_WAIT);
+    expect(screen.getByRole('textbox', { name: 'Гипотеза' })).toHaveValue('сайты EN');
+
+    await user.click(screen.getByRole('radio', { name: 'Воронка' }));
+    await screen.findByText('Воронка не загрузилась', {}, SCREEN_WAIT);
+    expect(screen.getByRole('textbox', { name: 'Гипотеза' })).toHaveValue('сайты EN');
+    expect(where()).toBe('/sales?tab=funnel&hypothesis=1');
+
+    await user.click(screen.getByRole('radio', { name: 'Лиды — 5' }));
+    await waitFor(() => expect(asked(recorded).at(-1)).toBe('hypothesis=1'), SCREEN_WAIT);
+    expect(screen.getByRole('textbox', { name: 'Гипотеза' })).toHaveValue('сайты EN');
+  });
+
+  it('гипотеза из адреса — после перезагрузки на любой вкладке, выбор пишется в адрес', async () => {
+    await openScreen(
+      {
+        'GET /api/sales/queue?hypothesis=2': REFUSED,
+        'GET /api/sales/queue?hypothesis=1': REFUSED,
+      },
+      { path: '/sales?tab=queue&hypothesis=2', ready: 'Очередь писем не загрузилась' },
+    );
+
+    expect(screen.getByRole('textbox', { name: 'Гипотеза' })).toHaveValue('сервисы RU');
+
+    await choose('Гипотеза', 'сайты EN');
+
+    await waitFor(() => expect(where()).toBe('/sales?tab=queue&hypothesis=1'), SCREEN_WAIT);
+  });
+
+  it('«Сбросить фильтры» на лидах снимает и гипотезу: пусто было из-за неё', async () => {
+    await openScreen(
+      { [at('hypothesis=2')]: { body: view([]) } },
+      { path: '/sales?hypothesis=2', ready: 'Под фильтр ничего не попало.' },
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Сбросить фильтры' }));
+
+    await waitFor(() => expect(where()).toBe('/sales'), SCREEN_WAIT);
+  });
+
+  it('период воронки — в адресе: читается после перезагрузки и пишется выбором', async () => {
+    const week = new URLSearchParams({ since: midnightAgo(6) }).toString();
+    const month = new URLSearchParams({ since: midnightAgo(29) }).toString();
+    const recorded = await openScreen(
+      {
+        [`GET /api/sales/funnel?${week}`]: REFUSED,
+        [`GET /api/sales/funnel?${month}`]: REFUSED,
+      },
+      { path: '/sales?tab=funnel&period=week', ready: 'Воронка не загрузилась' },
+    );
+    const user = userEvent.setup();
+
+    expect(screen.getByRole('radio', { name: '7 дней' })).toBeChecked();
+
+    await user.click(screen.getByRole('radio', { name: '30 дней' }));
+
+    await waitFor(() => expect(where()).toBe('/sales?tab=funnel&period=month'), SCREEN_WAIT);
+    expect(recorded.calls.map((call) => call.path)).toContain(`/api/sales/funnel?${month}`);
+  });
+
+  it('свои даты — в адресе днями; негодный день из адреса не сужает', async () => {
+    const period = (last: number) =>
+      new URLSearchParams({
+        since: new Date(2026, 9, 1).toISOString(),
+        until: new Date(2026, 9, last + 1).toISOString(),
+      }).toString();
+    await openScreen(
+      {
+        [`GET /api/sales/funnel?${period(5)}`]: REFUSED,
+        [`GET /api/sales/funnel?${period(7)}`]: REFUSED,
+      },
+      {
+        path: '/sales?tab=funnel&period=custom&from=2026-10-01&to=2026-10-05',
+        ready: 'Воронка не загрузилась',
+      },
+    );
+
+    expect(screen.getByLabelText('Первый день')).toHaveValue('2026-10-01');
+
+    fireEvent.change(screen.getByLabelText(/Последний день/), { target: { value: '2026-10-07' } });
+
+    await waitFor(
+      () => expect(where()).toBe('/sales?tab=funnel&period=custom&from=2026-10-01&to=2026-10-07'),
+      SCREEN_WAIT,
+    );
+    // Адрес — чужой ввод: «не день» читается как «без границы», а не отказом сервера.
+    expect(readLeadFilters(new URLSearchParams('tab=funnel&period=custom&from=1e3')).from).toBe('');
+    expect(readLeadFilters(new URLSearchParams('tab=funnel&period=year')).period).toBe('all');
   });
 });
 

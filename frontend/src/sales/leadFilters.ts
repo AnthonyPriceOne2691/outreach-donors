@@ -1,5 +1,5 @@
 /**
- * Вкладка, фильтры лидов и страница — в адресе раздела «Продажи».
+ * Вкладка, фильтры лидов, гипотеза раздела и период воронки — в адресе раздела «Продажи».
  *
  * **Адрес, а не состояние компонента** — как у отбора и доноров. Человек
  * обновляет вкладку браузера, возвращается «назад», присылает ссылку коллеге —
@@ -16,12 +16,20 @@
  * **Причина — только у отклонённых.** С состоянием «новый» или «готов» причина
  * не нашла бы ничего по определению: такое сочетание из адреса читается как
  * «без причины», и из адреса оно уходит.
+ *
+ * **Гипотеза — одна на раздел** (аудит экранов 09.10.2026): лиды, цепочка, очередь
+ * и воронка смотрят на одну `?hypothesis=`, и смена вкладки её не теряет — до того
+ * у цепочки, очереди и воронки она жила в состоянии вкладки и пропадала при уходе
+ * с неё. Остальные фильтры — своей вкладки: у лидов — состояние, причина, поиск
+ * и страница, у воронки — период и свои даты (`?period=custom&from=…&to=…`).
  */
 
 import type { LeadsQuery } from '../api/sales';
 import { LEAD_STATES, leadReasonTitle } from '../api/salesLabels';
 import type { LeadState } from '../api/salesTypes';
 import { formatNumber } from '../format';
+import { PERIOD_KEYS } from './funnelData';
+import type { PeriodKey } from './funnelData';
 
 export type SalesTab = 'leads' | 'hypotheses' | 'kb' | 'sender' | 'chain' | 'queue' | 'funnel';
 
@@ -50,9 +58,13 @@ export interface LeadFilters {
   state: LeadState | null;
   /** Код причины отказа — значение из ответа сервера. */
   reason: string | null;
-  /** Номер гипотезы. */
+  /** Номер гипотезы — один на раздел: его видят все вкладки, где выбирают гипотезу. */
   hypothesis: number | null;
   page: number;
+  /** Период воронки и свои даты (`YYYY-MM-DD`, пусто — без границы). */
+  period: PeriodKey;
+  from: string;
+  to: string;
 }
 
 export const NO_LEAD_FILTERS: LeadFilters = {
@@ -62,10 +74,20 @@ export const NO_LEAD_FILTERS: LeadFilters = {
   reason: null,
   hypothesis: null,
   page: 1,
+  period: 'all',
+  from: '',
+  to: '',
 };
 
 /** Форма кода причины — как пишет очистка (`duplicate`, `no_mail`). */
 const REASON_CODE = /^[a-z_]{1,32}$/;
+
+/** Форма дня — как у поля даты. Сам день проверяет воронка: не дата — сказано под полем. */
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+function dayOf(raw: string | null): string {
+  return raw !== null && DAY.test(raw) ? raw : '';
+}
 
 function known<T extends string>(choices: readonly T[], raw: string | null): T | null {
   return choices.find((choice) => choice === raw) ?? null;
@@ -98,6 +120,9 @@ export function readLeadFilters(params: URLSearchParams): LeadFilters {
     reason: reason !== null && REASON_CODE.test(reason) ? reason : null,
     hypothesis: numberOf(params.get('hypothesis'), 9_999_999),
     page: numberOf(params.get('page'), 1_000_000) ?? 1,
+    period: known(PERIOD_KEYS, params.get('period')) ?? 'all',
+    from: dayOf(params.get('from')),
+    to: dayOf(params.get('to')),
   });
 }
 
@@ -114,16 +139,22 @@ export function queryOf(filters: LeadFilters): LeadsQuery {
 }
 
 /** Фильтры → адрес. Умолчания не пишутся: первая вкладка без `tab`, первая
- *  страница без `page`. На других вкладках фильтры лидов ничего не значат
- *  и в адрес не идут — как у диалогов. */
+ *  страница без `page`, всё время без `period`. На других вкладках фильтры лидов
+ *  ничего не значат и в адрес не идут — как у диалогов; гипотеза идёт везде. */
 export function writeLeadFilters(filters: LeadFilters): URLSearchParams {
   const params = new URLSearchParams();
-  if (filters.tab !== 'leads') {
-    params.set('tab', filters.tab);
+  if (filters.tab === 'leads') {
+    for (const [key, value] of Object.entries(queryOf(filters))) {
+      params.set(key, String(value));
+    }
     return params;
   }
-  for (const [key, value] of Object.entries(queryOf(filters))) {
-    params.set(key, String(value));
+  params.set('tab', filters.tab);
+  if (filters.hypothesis !== null) params.set('hypothesis', String(filters.hypothesis));
+  if (filters.tab === 'funnel' && filters.period !== 'all') {
+    params.set('period', filters.period);
+    if (filters.period === 'custom' && filters.from !== '') params.set('from', filters.from);
+    if (filters.period === 'custom' && filters.to !== '') params.set('to', filters.to);
   }
   return params;
 }

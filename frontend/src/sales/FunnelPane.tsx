@@ -12,7 +12,9 @@
  * в Kommo — воронка сервиса кончается передачей.
  *
  * **Смена фильтра — не перезагрузка.** Прежние числа стоят приглушёнными, пока едут новые;
- * негодные свои даты на сервер не уходят — что не так, сказано под полем.
+ * негодные свои даты на сервер не уходят — что не так, сказано под полем. Гипотеза и период
+ * живут в адресе раздела (`leadFilters.ts`): переживают перезагрузку, гипотеза — и смену
+ * вкладки.
  */
 
 import {
@@ -28,7 +30,6 @@ import {
   TextInput,
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
-import { useState } from 'react';
 
 import { refusalOf } from '../api/client';
 import type { FunnelCounts, FunnelRow, HypothesisCard, SalesFunnelView } from '../api/salesTypes';
@@ -38,7 +39,6 @@ import { FixedTable } from './FixedTable';
 import type { Column } from './FixedTable';
 import {
   funnelQuery,
-  NO_FUNNEL_FILTERS,
   PERIOD_KEYS,
   PERIODS,
   periodProblem,
@@ -226,8 +226,14 @@ function Empty({ filters }: { filters: FunnelFilters }) {
   );
 }
 
-export function FunnelPane({ hypotheses }: { hypotheses: HypothesisCard[] }) {
-  const [filters, setFilters] = useState<FunnelFilters>(NO_FUNNEL_FILTERS);
+interface PaneProps {
+  hypotheses: HypothesisCard[];
+  /** Гипотеза и период — из адреса раздела. */
+  filters: FunnelFilters;
+  onChange: (patch: Partial<FunnelFilters>) => void;
+}
+
+export function FunnelPane({ hypotheses, filters, onChange }: PaneProps) {
   const problem = periodProblem(filters);
   const funnel = useSalesFunnel(funnelQuery(filters, new Date()), problem === null);
   const view = funnel.data;
@@ -247,12 +253,7 @@ export function FunnelPane({ hypotheses }: { hypotheses: HypothesisCard[] }) {
         передан телемаркетологу. Считаем лидов, а не письма; период — по первому письму лида, и всё,
         что с ним было потом.
       </Text>
-      <Filters
-        filters={filters}
-        hypotheses={hypotheses}
-        problem={problem}
-        onChange={(patch) => setFilters((current) => ({ ...current, ...patch }))}
-      />
+      <Filters filters={filters} hypotheses={hypotheses} problem={problem} onChange={onChange} />
       {view === undefined ? (
         funnel.error ? (
           <Alert color="red" title="Воронка не загрузилась" mx="md">

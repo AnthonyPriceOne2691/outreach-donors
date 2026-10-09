@@ -9,7 +9,8 @@
  * **Набор — общий или гипотезы.** Своя цепочка гипотезы на языке заменяет общую
  * целиком, если у гипотезы есть хоть один включённый свой шаг; иначе действует
  * общая. Какая цепочка действует и полна ли она, называет сервер — экран не решает
- * сам: правило выбора одно, и живёт оно там, где по нему соберут письма.
+ * сам: правило выбора одно, и живёт оно там, где по нему соберут письма. Набор —
+ * гипотеза раздела из адреса (`?hypothesis=`): общий — гипотеза не выбрана.
  */
 
 import {
@@ -41,17 +42,19 @@ interface Props {
   hypotheses: HypothesisCard[];
 }
 
+interface OwnerProps extends Props {
+  /** Чей набор: гипотеза раздела или `null` — общий. */
+  owner: number | null;
+  onOwner: (owner: number | null) => void;
+}
+
 function setTitleOf(hypotheses: HypothesisCard[], owner: number | null): string {
   if (owner === null) return 'общий набор';
   const name = hypotheses.find((hypothesis) => hypothesis.id === owner)?.name;
   return `гипотеза «${name ?? `№${owner}`}»`;
 }
 
-function ChainHead({
-  hypotheses,
-  owner,
-  onOwner,
-}: Props & { owner: number | null; onOwner: (owner: number | null) => void }) {
+function ChainHead({ hypotheses, owner, onOwner }: OwnerProps) {
   const options = [
     { value: COMMON, label: 'Общий — для всех гипотез' },
     ...hypotheses.map((hypothesis) => ({ value: String(hypothesis.id), label: hypothesis.name })),
@@ -208,8 +211,7 @@ function ChainWaiting({ error }: { error: unknown }) {
   );
 }
 
-export function ChainPane({ hypotheses }: Props) {
-  const [owner, setOwner] = useState<number | null>(null);
+export function ChainPane({ hypotheses, owner, onOwner }: OwnerProps) {
   const [editing, setEditing] = useState<StepPlace | null>(null);
   const chain = useChain(owner);
   const view = chain.data;
@@ -219,7 +221,7 @@ export function ChainPane({ hypotheses }: Props) {
 
   return (
     <Stack gap="sm">
-      <ChainHead hypotheses={hypotheses} owner={owner} onOwner={setOwner} />
+      <ChainHead hypotheses={hypotheses} owner={owner} onOwner={onOwner} />
       {view === undefined ? (
         <ChainWaiting error={chain.error} />
       ) : (
