@@ -339,6 +339,32 @@ class TestThreads:
         assert "250 EUR" in body["incoming"][0]["raw_body"]
         assert body["incoming"][0]["price_white"] == "250.00"
 
+    async def test_reply_card_gives_what_the_person_wrote_apart_from_the_quote(
+        self,
+        client: AsyncClient,
+        operator_token: str,
+        thread: ThreadModel,
+        session: AsyncSession,
+    ) -> None:
+        """Свежая часть ответа — отдельно от цитаты нашего письма и подписи: экран
+        показывает её, а письмо целиком — по раскрытию. Отрезать нечего — весь текст."""
+        reply = (await session.execute(select(ReplyModel))).scalars().one()
+        plain = await client.get(f"/api/threads/{thread.id}", headers=bearer(operator_token))
+        reply.raw_body = (
+            "Guest post is 250 EUR.\n\nBest,\nAnna\n\n"
+            "On Thu, Oct 8, 2026 at 3:09 PM Alex <alex@mail.example.test> wrote:\n"
+            "> Hello, what is the fee per article?\n"
+        )
+        await session.commit()
+
+        quoted = await client.get(f"/api/threads/{thread.id}", headers=bearer(operator_token))
+
+        card = quoted.json()["incoming"][0]
+        assert card["fresh_body"] == "Guest post is 250 EUR.\n\nBest,\nAnna"
+        assert "what is the fee" in card["raw_body"]
+        first = plain.json()["incoming"][0]
+        assert first["fresh_body"] == first["raw_body"].strip()
+
     async def test_reply_card_lists_every_named_price(
         self,
         client: AsyncClient,
