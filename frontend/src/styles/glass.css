@@ -2169,3 +2169,17 @@ html:root .mantine-Pill-root {
   white-space: normal;
   overflow-wrap: anywhere;
 }
+
+/* Что модель сделает с зоной письма — пометкой в строке подписи (`LetterDraftEditor`):
+   отдельной строкой под подписью у четырёх зон из семи поля стояли «кучкой» (аудит
+   экранов 09.10.2026, второй круг). Описание поля, а не часть подписи: его слышит
+   экранный диктор, а подпись остаётся названием зоны. */
+.zoneKind {
+  display: inline-block;
+  margin: 0 0 0 8px;
+}
+
+.zoneRewrite {
+  color: var(--mantine-color-lagoon-text);
+  font-weight: 600;
+}

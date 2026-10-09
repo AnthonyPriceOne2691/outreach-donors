@@ -15,6 +15,7 @@ import {
 } from '@mantine/core';
 
 import { InfoHint } from '../components/InfoHint';
+import { FIELD_GAP } from '../components/formRhythm';
 import { SaveVersionButton } from '../components/SaveVersionButton';
 import { LIMITS } from './agentDraft';
 import type { AgentDraft, DraftField } from './agentDraft';
@@ -85,7 +86,7 @@ export function AgentForm({
     />
   );
   return (
-    <Stack gap="md">
+    <Stack gap={FIELD_GAP}>
       <Switch
         label="Агент готовит черновики ответов на этом этапе"
         checked={draft.enabled}
@@ -96,8 +97,8 @@ export function AgentForm({
           справа — чем ведёт разговор и что отдаёт человеку. Пять полей во всю ширину
           (~1 150 px) стояли столбиком, «Тон» в одну строку растягивался на всю панель,
           а «Сохранить» на 1440 × 900 уходила ниже края окна (аудит экранов 09.10.2026). */}
-      <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg" verticalSpacing="md">
-        <Stack gap="md">
+      <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl" verticalSpacing={FIELD_GAP}>
+        <Stack gap={FIELD_GAP}>
           {text(GOAL)}
           {text(TONE)}
           {/* Поле — по цене, а не 288 px под три-четыре цифры; пояснение — в «i».
@@ -127,7 +128,7 @@ export function AgentForm({
             onChange={(value) => onEdit({ price: typeof value === 'number' ? value : '' })}
           />
         </Stack>
-        <Stack gap="md">
+        <Stack gap={FIELD_GAP}>
           {text(POINTS)}
           {text(STOP_TOPICS)}
         </Stack>
