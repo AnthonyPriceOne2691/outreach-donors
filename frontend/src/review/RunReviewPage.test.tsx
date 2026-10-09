@@ -116,6 +116,15 @@ async function openReview(routes: Record<string, unknown> = {}, who = ADMIN) {
 }
 
 describe('рассмотрение прогона', () => {
+  it('на телефоне строка — карточкой: решение под доменом', async () => {
+    await openReview();
+
+    const decide = screen.getAllByRole('button', { name: 'Принять' })[0]!.closest('td')!;
+    expect(decide).toHaveClass('cellDecide');
+    expect(decide.closest('.phoneCards')).not.toBeNull();
+    expect(decide.closest('tr')!.querySelector('td[data-label="Судья"]')).not.toBeNull();
+  });
+
   it('длинный домен кандидата переносится по швам, а не посреди слова', async () => {
     // Запись UI_RULES 08.10.2026: колонка «Домен» рассмотрения оставалась без швов.
     const host = 'gambling-news-and-analysis.example.test';

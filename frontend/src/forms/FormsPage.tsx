@@ -176,7 +176,7 @@ export function FormsPage() {
             <Table.ScrollContainer
               minWidth={mayWork ? TABLE_MIN_WIDTH.withActions : TABLE_MIN_WIDTH.readOnly}
               type="native"
-              className="scrollSlim"
+              className="scrollSlim phoneCards phoneCardsRow"
             >
               <Table
                 className="dataTable fixedTable allCentered"
@@ -230,13 +230,13 @@ export function FormsPage() {
                           <Seams text={row.host} />
                         </Anchor>
                       </Table.Td>
-                      <Table.Td>
+                      <Table.Td data-label="DR">
                         <Badge variant="light">{row.dr ?? '—'}</Badge>
                       </Table.Td>
-                      <Table.Td>{formatCompact(row.org_traffic)}</Table.Td>
-                      <Table.Td>{formatDate(row.attempted_at)}</Table.Td>
+                      <Table.Td data-label="Трафик">{formatCompact(row.org_traffic)}</Table.Td>
+                      <Table.Td data-label="Искали">{formatDate(row.attempted_at)}</Table.Td>
                       {mayWork ? (
-                        <Table.Td>
+                        <Table.Td className="cellDecide">
                           <Group gap="xs" justify="center" wrap="nowrap">
                             <Button
                               size="compact-sm"
