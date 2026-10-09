@@ -35,6 +35,7 @@ import { Link } from 'react-router-dom';
 import { countryTitle } from '../api/labels';
 import { LEAD_STATES, leadReasonTitle } from '../api/salesLabels';
 import type { HypothesisCard, LeadCard, LeadState } from '../api/salesTypes';
+import { Seams } from '../components/Seams';
 import { dropdownBelow } from '../theme';
 import { FixedTable } from './FixedTable';
 import type { Column } from './FixedTable';
@@ -216,8 +217,10 @@ function LeadRow({ row }: { row: LeadCard }) {
   return (
     <Table.Tr>
       <Table.Td className="cellName">
+        {/* Адрес и домен — по швам (`components/Seams`), а не посреди слова: имя то же,
+            шов — место переноса без знака. */}
         <Text size="sm" fw={500} className="leadEmail">
-          {row.email}
+          <Seams text={row.email} />
         </Text>
         {who !== '' && (
           <Text size="xs" c="dimmed" className="leadWho">
@@ -234,7 +237,7 @@ function LeadRow({ row }: { row: LeadCard }) {
           size="xs"
           className="leadHost"
         >
-          {row.host}
+          <Seams text={row.host} />
         </Anchor>
       </Table.Td>
       <Table.Td>

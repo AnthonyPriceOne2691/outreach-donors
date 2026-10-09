@@ -205,6 +205,21 @@ describe('продажи: лиды', () => {
     expect(twin.getByText('дубль: адрес уже у лида №1')).toBeInTheDocument();
   });
 
+  it('адрес и домен лида переносятся по швам, а не посреди слова', async () => {
+    // Запись UI_RULES 09.10.2026: «Лиды» продаж оставались без швов.
+    const email = 'editor@gambling-news-and-analysis.example.test';
+    const host = 'gambling-news-and-analysis.example.test';
+    await openScreen({ [LEADS]: { body: view([{ ...IVAN, email, host }]) } }, { ready: email });
+
+    const address = screen.getByText(email);
+    expect(address).toHaveTextContent(email);
+    expect(address.querySelectorAll('wbr')).toHaveLength(2);
+    expect(address.closest('td')).toHaveClass('cellName');
+    // Имя ссылки — домен целиком: его копируют и ищут по странице, шов — место переноса.
+    const link = screen.getByRole('link', { name: host });
+    expect(link.querySelectorAll('wbr')).toHaveLength(2);
+  });
+
   it('сводка — по всем лидам, вкладки с числами, и дорога к загрузке', async () => {
     await openScreen();
 
