@@ -382,9 +382,9 @@
       "worst": "redraft:136"
     },
     "backend/api/threads/schemas.py": {
-      "lines": 290,
+      "lines": 299,
       "complexity": 4,
-      "worst": "of:269"
+      "worst": "of:278"
     },
     "backend/api/unsubscribe/__init__.py": {
       "lines": 1,
@@ -2237,7 +2237,7 @@
       "worst": "main:127"
     },
     "scripts/ui_screens.py": {
-      "lines": 439,
+      "lines": 447,
       "complexity": 2,
       "worst": "open_reason:25"
     },
