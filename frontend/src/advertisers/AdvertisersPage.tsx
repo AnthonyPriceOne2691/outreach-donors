@@ -43,7 +43,6 @@ import {
   Switch,
   Table,
   Text,
-  Title,
 } from '@mantine/core';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -56,6 +55,7 @@ import { useSession } from '../auth/AuthProvider';
 import { formatDate, formatNumber, plural } from '../format';
 import type { Column } from '../components/ColumnsHead';
 import { ColumnsHead } from '../components/ColumnsHead';
+import { PageHead } from '../components/PageHead';
 import { Seams } from '../components/Seams';
 import { CrawlPanel } from './CrawlPanel';
 import { LinkAnchor } from './LinkAnchor';
@@ -201,7 +201,9 @@ export function AdvertisersPage() {
       <CrawlPanel />
       <Card className="glassPanel" p="xl">
         <Stack gap="sm">
-          <Title order={3}>{LISTS[verdict].title}</Title>
+          {/* Как устроен список — в «i» у заголовка, а не абзацем над таблицей: его
+              читают один раз, а таблицу — каждый день (аудит экранов 09.10.2026). */}
+          <PageHead title={LISTS[verdict].title} hint={LISTS[verdict].lead} />
           <SegmentedControl
             aria-label="Какой список смотреть"
             value={verdict}
@@ -212,9 +214,6 @@ export function AdvertisersPage() {
             ]}
             style={{ alignSelf: 'flex-start' }}
           />
-          <Text size="sm" c="dimmed" maw={720}>
-            {LISTS[verdict].lead}
-          </Text>
           <Group gap="xs">
             {(['bought', 'pending', 'skipped', 'blocked'] as const).map((verdict) => (
               <Badge key={verdict} variant="light" color={VERDICTS[verdict].color}>
