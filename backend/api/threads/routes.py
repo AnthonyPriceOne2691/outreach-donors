@@ -4,7 +4,8 @@
 полученная в письме, — это то же содержимое базы, что и метрики донора.
 Ответ в переписке — письмо наружу, и право у него то же, что у отправки
 письма из очереди (`send`). Черновик агента — под тем же правом: его пишут,
-чтобы отправить, и он стоит денег модели.
+чтобы отправить, и он стоит денег модели. Файлы к ответу — своим модулем
+(`files.py`), под теми же правами.
 """
 
 from __future__ import annotations
@@ -37,6 +38,7 @@ from backend.features.core.models.access import UserModel
 from backend.features.core.models.outreach import ReplyModel
 from backend.features.letters.answers import answer_reply
 from backend.features.letters.mailbox import thread_mail
+from backend.features.letters.outgoing_store import OutgoingFiles
 from backend.features.letters.sending import Sending
 from backend.features.letters.transport_factory import Transports, in_use
 from backend.features.outreach.repository import OutreachRepository
@@ -77,6 +79,8 @@ async def one_thread(
         drafts=drafts,
         agent_writes=await agent_writes(session, detail.row.stage),
         agent_reasons=reject_reasons(detail.row.stage),
+        # Файлы наших писем — так же, одним запросом и без тел.
+        letter_files=await OutgoingFiles(session).listed(m.id for m in detail.messages),
     )
 
 
@@ -100,6 +104,7 @@ async def answer(
             reply_id=body.reply_id,
             body=body.body,
             author_id=author.id,
+            file_ids=body.file_ids,
         )
     # Ответ ушёл мимо кнопки черновика — черновик к нему всё равно закрыт:
     # иначе он висел бы «ждёт человека» над уже отвеченным письмом. Письмо к

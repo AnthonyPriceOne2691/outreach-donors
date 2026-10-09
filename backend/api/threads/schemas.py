@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
+from types import MappingProxyType
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -14,6 +15,7 @@ from backend.api.letters.schemas import Corridor
 from backend.features.agent.drafts import ShownDraft
 from backend.features.core.domain import MessageStatus, ReplyKind, Stage
 from backend.features.core.models.attachment import ReplyAttachmentModel
+from backend.features.core.models.outgoing_attachment import OutgoingAttachmentModel
 from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.letters.mailbox import ThreadMail
 from backend.features.outreach.repository import ThreadDetail, ThreadRow
@@ -61,6 +63,39 @@ class ThreadCard(BaseModel):
         )
 
 
+#: Пустая карта файлов писем: переписка, где к письмам ничего не прикладывали.
+_NO_FILES: Mapping[int, Sequence[OutgoingAttachmentModel]] = MappingProxyType({})
+
+
+class LetterFileCard(BaseModel):
+    """Файл нашего письма: сведения без тела. Сам файл — отдельным запросом
+    (`GET /api/messages/{message_id}/attachments/{id}`), только на скачивание."""
+
+    id: int
+    name: str
+    #: Байт.
+    size: int
+
+    @classmethod
+    def of(cls, row: OutgoingAttachmentModel) -> LetterFileCard:
+        return cls(id=row.id, name=row.name, size=row.size)
+
+
+class OutgoingFileCard(BaseModel):
+    """Файл, приложенный к будущему ответу: номер идёт в `file_ids` ответа."""
+
+    id: int
+    name: str
+    #: Байт.
+    size: int
+    #: Тип из нашего белого списка — не тот, что назвал браузер.
+    content_type: str
+
+    @classmethod
+    def of(cls, row: OutgoingAttachmentModel) -> OutgoingFileCard:
+        return cls(id=row.id, name=row.name, size=row.size, content_type=row.content_type)
+
+
 class LetterCard(BaseModel):
     """Наше письмо в переписке."""
 
@@ -79,9 +114,11 @@ class LetterCard(BaseModel):
     #: Номер входящего ответа, на который это письмо отвечает. Пусто —
     #: первое письмо или добивка (`letters/answers.py`).
     answers_reply_id: int | None = None
+    #: Файлы письма — сведениями, без тел. Бывают только у ответа.
+    attachments: list[LetterFileCard] = Field(default_factory=list)
 
     @classmethod
-    def of(cls, message: MessageModel) -> LetterCard:
+    def of(cls, message: MessageModel, files: Sequence[OutgoingAttachmentModel] = ()) -> LetterCard:
         return cls(
             id=message.id,
             step=message.step,
@@ -91,6 +128,7 @@ class LetterCard(BaseModel):
             sent_at=message.sent_at,
             uniqueness=message.uniqueness_pct,
             answers_reply_id=message.answers_reply_id,
+            attachments=list(map(LetterFileCard.of, files)),
         )
 
 
@@ -99,6 +137,9 @@ class AnswerBody(BaseModel):
 
     reply_id: int
     body: str = Field(min_length=1, max_length=20_000)
+    #: Файлы к ответу — номера из загрузки (`POST /api/threads/{id}/files`).
+    #: Пусто — ответ без файлов, как прежде.
+    file_ids: list[int] = Field(default_factory=list)
 
 
 class AttachmentCard(BaseModel):
@@ -284,10 +325,11 @@ class ThreadView(BaseModel):
         drafts: Sequence[ShownDraft] = (),
         agent_writes: bool = False,
         agent_reasons: Sequence[str] = (),
+        letter_files: Mapping[int, Sequence[OutgoingAttachmentModel]] = _NO_FILES,
     ) -> ThreadView:
         return cls(
             card=ThreadCard.of(detail.row),
-            letters=[LetterCard.of(m) for m in detail.messages],
+            letters=[LetterCard.of(m, letter_files.get(m.id, ())) for m in detail.messages],
             incoming=[
                 IncomingCard.of(r, detail.row.stage, files.get(r.id, ())) for r in detail.replies
             ],
