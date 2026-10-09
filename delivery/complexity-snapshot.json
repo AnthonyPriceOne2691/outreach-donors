@@ -227,12 +227,12 @@
       "worst": "_ascii_name:28"
     },
     "backend/api/replies/routes.py": {
-      "lines": 298,
+      "lines": 322,
       "complexity": 10,
-      "worst": "review:241"
+      "worst": "review:265"
     },
     "backend/api/replies/schemas.py": {
-      "lines": 149,
+      "lines": 160,
       "complexity": 4,
       "worst": "_declines_without_price:36"
     },
@@ -387,9 +387,9 @@
       "worst": "redraft:141"
     },
     "backend/api/threads/schemas.py": {
-      "lines": 370,
+      "lines": 379,
       "complexity": 4,
-      "worst": "of:347"
+      "worst": "of:356"
     },
     "backend/api/unsubscribe/__init__.py": {
       "lines": 1,
@@ -917,7 +917,7 @@
       "worst": "—"
     },
     "backend/features/core/models/attachment.py": {
-      "lines": 52,
+      "lines": 66,
       "complexity": 0,
       "worst": "—"
     },
@@ -1511,10 +1511,20 @@
       "complexity": 0,
       "worst": "—"
     },
-    "backend/features/replies/attachments.py": {
-      "lines": 185,
+    "backend/features/replies/attachment_formats.py": {
+      "lines": 474,
       "complexity": 7,
-      "worst": "keep:122"
+      "worst": "_pdf:139"
+    },
+    "backend/features/replies/attachment_text.py": {
+      "lines": 313,
+      "complexity": 8,
+      "worst": "kind_of:146"
+    },
+    "backend/features/replies/attachments.py": {
+      "lines": 249,
+      "complexity": 7,
+      "worst": "keep:131"
     },
     "backend/features/replies/binding.py": {
       "lines": 170,
@@ -1537,9 +1547,9 @@
       "worst": "_header_says:97"
     },
     "backend/features/replies/extract.py": {
-      "lines": 376,
+      "lines": 437,
       "complexity": 9,
-      "worst": "parse_form:264"
+      "worst": "parse_form:325"
     },
     "backend/features/replies/form_data.py": {
       "lines": 194,
@@ -1552,9 +1562,9 @@
       "worst": "text_from_html:175"
     },
     "backend/features/replies/inbound.py": {
-      "lines": 171,
+      "lines": 184,
       "complexity": 3,
-      "worst": "addresses_in:151"
+      "worst": "addresses_in:164"
     },
     "backend/features/replies/lead_handoff.py": {
       "lines": 264,
@@ -1581,15 +1591,20 @@
       "complexity": 7,
       "worst": "_answer_without_price:254"
     },
+    "backend/features/replies/parse_input.py": {
+      "lines": 40,
+      "complexity": 5,
+      "worst": "parse_input:25"
+    },
     "backend/features/replies/phrases.py": {
       "lines": 470,
       "complexity": 3,
       "worst": "compiled:456"
     },
     "backend/features/replies/pipeline.py": {
-      "lines": 499,
+      "lines": 485,
       "complexity": 8,
-      "worst": "_settle:221"
+      "worst": "_settle:223"
     },
     "backend/features/replies/quoting.py": {
       "lines": 187,
