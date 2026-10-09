@@ -278,7 +278,8 @@ async def test_rewritten_draft_does_not_retry_the_old_version(
     session: AsyncSession, llm: Plug, wired: list[float], queue: Queue
 ) -> None:
     """«Написать заново» — новая версия и своё сообщение (крючок шва); повтор прежней не идёт:
-    проход её не берёт, а задача, поставленная раньше, сверяет версию."""
+    проход её не берёт, а задача, поставленная раньше, сверяет версию — даже когда сообщение
+    о новой версии само ждёт повтора с тем же счётом."""
     api, alarms = BotApi(down()), Alarms()
     old = await first(session, llm, api, alarms)
     draft = await session.get(AgentDraftModel, old.draft_id)
@@ -286,20 +287,24 @@ async def test_rewritten_draft_does_not_retry_the_old_version(
     rewritten = await drafting.draft_answer(session, Writer(GOOD), draft.reply_id, again=True)
     await session.commit()
     await drafting.announce(rewritten)
+    assert [job for _, (job,) in queue.jobs][-1] == old.draft_id, "о новой версии — своя задача"
+    later = NOW + timedelta(hours=1)
+    bot = SalesBot(api.client())
+    await notify.notify(session, old.draft_id, bot, alert=alarms, now=lambda: later)
+    (new,) = [row for row in await journal(session) if row.id != old.id]
+    assert (new.tries, old.tries) == (1, 1)
     seen = len(api.seen)
 
-    taken = await notify_retry.due(session, now=NOW + timedelta(hours=1))
-    done = await notify_retry.resend(
-        session, old.id, old.tries, SalesBot(api.client()), alert=alarms
-    )
+    taken = await notify_retry.due(session, now=later)
+    done = await notify_retry.resend(session, old.id, old.tries, bot, alert=alarms)
 
     assert taken == []
-    assert (
-        done["skipped"]
-        == "черновик переписан — о новой версии своё сообщение, повтор прежней не идёт"
+    assert done["skipped"] == (
+        "черновик переписан — о новой версии своё сообщение, повтор прежней не идёт"
     )
     assert len(api.seen) == seen
-    assert [job for _, (job,) in queue.jobs][-1] == old.draft_id, "о новой версии — своя задача"
+    await session.refresh(new)
+    assert (new.tries, new.due_at) == (1, later + timedelta(minutes=5)), "срок новой не тронут"
 
 
 async def test_retry_already_made_by_another_task_is_not_repeated(
