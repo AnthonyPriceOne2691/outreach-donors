@@ -458,6 +458,9 @@ export interface DonorFullCard extends Omit<DonorRowCard, 'contacts'>, PriceOrig
   /** Что сказать рядом с адресом письма: прежние письма не дошли, и это уйдёт
    *  на следующий адрес. `null` — сказать нечего. */
   letter_note: string | null;
+  /** Переписки с донором на Этапе 1 — новая первой: «Открыть диалог →» ведёт в неё.
+   *  Пусто — писем донору ещё не было. */
+  threads: number[];
 }
 
 export interface ThresholdsBody {

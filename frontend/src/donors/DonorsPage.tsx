@@ -41,6 +41,7 @@ import type { DonorRowCard } from '../api/types';
 import { PageSwitch } from '../components/PageSwitch';
 import { formatNumber } from '../format';
 import { DonorsTable } from './DonorsTable';
+import { placeOf } from './place';
 import {
   emptinessOf,
   isFiltered,
@@ -156,7 +157,7 @@ export function DonorsPage() {
   const counts = data?.counts ?? null;
   const all = counts === null ? null : totalOf(counts);
   const open = (donor: DonorRowCard) =>
-    void navigate(`/donors/${donor.id}`, { state: { from: location.search } });
+    void navigate(`/donors/${donor.id}`, { state: placeOf(location.search, data?.rows ?? []) });
 
   return (
     <Card className="glassPanel" p="lg">

@@ -34,9 +34,10 @@ from backend.config import filters as filters_cfg
 from backend.features.contacts.manual import removal_refusals
 from backend.features.contacts.preference import preferred_first
 from backend.features.contacts.repository import search_refusal
-from backend.features.core.domain import ContactStatus, DonorStatus
+from backend.features.core.domain import ContactStatus, DonorStatus, Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
+from backend.features.core.models.outreach import CampaignModel, ThreadModel
 from backend.features.donors.manual_price import price_refusal
 from backend.features.donors.standing import UnknownDonorError, decided_in, is_donor
 from backend.features.letters.recipients import LetterAddress, Recipients
@@ -176,6 +177,10 @@ class DonorCard:
     letter: LetterAddress
     #: Какие адреса нельзя удалить: номер → почему (`contacts.manual`).
     removal: dict[int, str]
+    #: Переписки с донором на Этапе 1 — новая первой: карточка ведёт в неё
+    #: («Открыть диалог →», аудит экранов 09.10.2026). Диалог — на адрес, а
+    #: не на домен, поэтому их бывает несколько.
+    threads: Sequence[int]
 
     @property
     def fresh(self) -> bool:
@@ -356,7 +361,17 @@ class DonorBrowser:
             review_run=await decided_in(self._session, donor.domain_id, donor.review),
             letter=await Recipients(self._session).letter_address(donor.domain_id),
             removal=await removal_refusals(self._session, contacts),
+            threads=await self._threads(donor.domain_id),
         )
+
+    async def _threads(self, domain_id: int) -> list[int]:
+        found = await self._session.scalars(
+            select(ThreadModel.id)
+            .join(CampaignModel, CampaignModel.id == ThreadModel.campaign_id)
+            .where(ThreadModel.domain_id == domain_id, CampaignModel.stage == Stage.DONORS)
+            .order_by(ThreadModel.id.desc())
+        )
+        return list(found)
 
     async def _contact_counts(self, domain_ids: Sequence[int]) -> dict[int, int]:
         if not domain_ids:

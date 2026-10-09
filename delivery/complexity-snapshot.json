@@ -112,7 +112,7 @@
       "worst": "_file:111"
     },
     "backend/api/donors/schemas.py": {
-      "lines": 357,
+      "lines": 361,
       "complexity": 4,
       "worst": "of:161"
     },
@@ -1142,9 +1142,9 @@
       "worst": "backfill:203"
     },
     "backend/features/donors/browse.py": {
-      "lines": 370,
+      "lines": 385,
       "complexity": 7,
-      "worst": "picked:273"
+      "worst": "picked:278"
     },
     "backend/features/donors/collect.py": {
       "lines": 302,

@@ -107,4 +107,5 @@ export const CARD: DonorFullCard = {
   letter_contact_id: null,
   letter_blocked: null,
   letter_note: null,
+  threads: [],
 };

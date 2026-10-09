@@ -268,6 +268,9 @@ class DonorFullCard(BaseModel):
     #: Что сказать рядом с адресом письма: прежние письма не дошли, и это
     #: уйдёт на следующий адрес. Пусто — сказать нечего.
     letter_note: str | None = None
+    #: Переписки с донором на Этапе 1 — новая первой: из карточки — «Открыть
+    #: диалог →» в неё. Пусто — писем донору ещё не было.
+    threads: list[int] = Field(default_factory=list)
 
     @classmethod
     def of(cls, card: CardData) -> DonorFullCard:
@@ -310,6 +313,7 @@ class DonorFullCard(BaseModel):
             letter_contact_id=card.letter.contact_id,
             letter_blocked=card.letter.blocked,
             letter_note=card.letter.note,
+            threads=list(card.threads),
         )
 
 
