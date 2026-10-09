@@ -74,6 +74,21 @@ async function openStopList(routes: Record<string, unknown> = {}, who: unknown =
 }
 
 describe('стоп-лист', () => {
+  it('домен и адрес переносятся по швам, а не посреди слова', async () => {
+    // Запись UI_RULES 08.10.2026: «Кому не пишем» оставалось без швов.
+    await openStopList();
+
+    for (const [name, seams] of [
+      ['donor.example.test', 2],
+      ['sales@supplier.example.test', 2],
+    ] as const) {
+      const cell = screen.getByText(name);
+      expect(cell).toHaveTextContent(name);
+      expect(cell.querySelectorAll('wbr')).toHaveLength(seams);
+      expect(cell).toHaveClass('cellName');
+    }
+  });
+
   it('решение адресата видно в строке, а не в подсказке', async () => {
     await openStopList();
 

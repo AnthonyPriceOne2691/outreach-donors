@@ -22,6 +22,7 @@ import { Anchor, Badge, Button, Checkbox, Group, Stack, Table, Text, Tooltip } f
 import { CONTACT_STATUSES, countryTitle, REVIEW_TIERS } from '../api/labels';
 import type { ReviewCandidate, ReviewDecision } from '../api/types';
 import { JudgeVerdict, SellerAnswer } from '../components/JudgeVerdict';
+import { Seams } from '../components/Seams';
 import { formatCompact } from '../format';
 
 interface Props {
@@ -50,8 +51,14 @@ function Site({ row }: { row: ReviewCandidate }) {
   const note = sellsNote(row);
   return (
     <Stack gap={2}>
-      <Anchor href={`https://${row.host}`} target="_blank" rel="noreferrer" fw={500}>
-        {row.host}
+      <Anchor
+        href={`https://${row.host}`}
+        target="_blank"
+        rel="noreferrer"
+        fw={500}
+        className="cellName"
+      >
+        <Seams text={row.host} />
       </Anchor>
       <Text size="xs" c="dimmed">
         DR {row.dr ?? '—'} · трафик {formatCompact(row.org_traffic)}

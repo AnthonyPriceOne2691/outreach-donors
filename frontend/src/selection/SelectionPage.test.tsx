@@ -122,6 +122,20 @@ function rowOf(host: string): HTMLElement {
 }
 
 describe('экран отбора', () => {
+  it('длинный домен переносится по швам, а не посреди слова', async () => {
+    // Запись UI_RULES 08.10.2026: колонка «Домен» «Отбора» оставалась без швов.
+    const host = 'gambling-news-and-analysis.example.test';
+    await openScreen({
+      [ACCEPTED]: { body: view([BRAND, WEAK, CUT, { ...CUT, domain_id: 99, host }]) },
+    });
+
+    const name = screen.getByRole('link', { name: host });
+    // Имя то же: его копируют и ищут по странице, шов — место переноса, а не знак.
+    expect(name).toHaveTextContent(host);
+    expect(name.querySelectorAll('wbr')).toHaveLength(2);
+    expect(name).toHaveClass('cellName');
+  });
+
   it('у отказа судьи видны автор, цитата и главная', async () => {
     await openScreen();
 
