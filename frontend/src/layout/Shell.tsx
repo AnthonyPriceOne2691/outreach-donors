@@ -36,6 +36,8 @@ import type { Permission } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { formatNumber } from '../format';
 import { AccountMenu } from './AccountMenu';
+import { NAV_GROUPS, NavGroup } from './NavGroup';
+import type { NavGroupKey } from './NavGroup';
 import { navbarWidth } from './navWidth';
 import { followScroll } from './shellLift';
 import { useSplit, workKey } from './split';
@@ -46,28 +48,38 @@ import type { WorkSection } from './work';
 interface Section {
   path: string;
   title: string;
+  group: NavGroupKey;
   permission?: Permission;
   /** Какое число ждущей работы стоит у пункта. */
   work?: WorkSection;
 }
 
+/** Две группы — решение Anthony 09.10.2026 (аудит экранов, второй круг): пятнадцать
+ *  пунктов одним списком читались вперемешку — ежедневная работа рядом с тем, что
+ *  настраивают раз в неделю. Порядок внутри групп — прежний: к нему привыкли. */
 const SECTIONS: Section[] = [
-  { path: '/', title: 'Обзор' },
-  { path: '/run', title: 'Прогон', permission: 'view', work: 'run' },
-  { path: '/donors', title: 'Доноры', permission: 'view' },
-  { path: '/selection', title: 'Отбор', permission: 'view' },
-  { path: '/forms', title: 'Формы', permission: 'view', work: 'forms' },
-  { path: '/advertisers', title: 'Рекламодатели', permission: 'view', work: 'advertisers' },
+  { path: '/', title: 'Обзор', group: 'work' },
+  { path: '/run', title: 'Прогон', group: 'work', permission: 'view', work: 'run' },
+  { path: '/donors', title: 'Доноры', group: 'work', permission: 'view' },
+  { path: '/selection', title: 'Отбор', group: 'work', permission: 'view' },
+  { path: '/forms', title: 'Формы', group: 'work', permission: 'view', work: 'forms' },
+  {
+    path: '/advertisers',
+    title: 'Рекламодатели',
+    group: 'work',
+    permission: 'view',
+    work: 'advertisers',
+  },
   // Своё право, а не `view`: раздел снимается с учётки поимённо (решение владельца 01.10).
-  { path: '/sales', title: 'Продажи', permission: 'sales' },
-  { path: '/letters', title: 'Письма', permission: 'view' },
-  { path: '/threads', title: 'Диалоги', permission: 'view', work: 'threads' },
-  { path: '/suppressions', title: 'Стоп-лист', permission: 'view' },
-  { path: '/settings', title: 'Пороги', permission: 'view' },
-  { path: '/agent', title: 'Агент переписки', permission: 'view' },
-  { path: '/usage', title: 'Расход', permission: 'view' },
-  { path: '/senders', title: 'Домены рассылки', permission: 'senders' },
-  { path: '/users', title: 'Учётки', permission: 'users' },
+  { path: '/sales', title: 'Продажи', group: 'work', permission: 'sales' },
+  { path: '/letters', title: 'Письма', group: 'work', permission: 'view' },
+  { path: '/threads', title: 'Диалоги', group: 'work', permission: 'view', work: 'threads' },
+  { path: '/suppressions', title: 'Стоп-лист', group: 'settings', permission: 'view' },
+  { path: '/settings', title: 'Пороги', group: 'settings', permission: 'view' },
+  { path: '/agent', title: 'Агент переписки', group: 'settings', permission: 'view' },
+  { path: '/usage', title: 'Расход', group: 'settings', permission: 'view' },
+  { path: '/senders', title: 'Домены рассылки', group: 'settings', permission: 'senders' },
+  { path: '/users', title: 'Учётки', group: 'settings', permission: 'users' },
 ];
 
 /** Высота шапки. Одна на раму и на подъём колонки меню: разойдись они —
@@ -181,24 +193,37 @@ export function Shell() {
 
       <AppShell.Navbar p="sm">
         <Stack h="100%" justify="space-between" className="glassFrame navFrame" p="xs" gap="xs">
-          <Stack gap={4}>
-            {sections.map((section) => (
-              <NavLink
-                key={section.path}
-                label={section.title}
-                rightSection={
-                  section.work === undefined ? null : <WorkCount count={work?.[section.work]} />
-                }
-                className="glassSlot"
-                active={
-                  section.path === '/'
-                    ? location.pathname === '/'
-                    : location.pathname.startsWith(section.path)
-                }
-                variant="light"
-                onClick={() => void navigate(section.path)}
-              />
-            ))}
+          {/* Пункты — своей прокруткой, переключатель темы — внизу рамы всегда: с
+              подписями групп пятнадцать пунктов не помещались в колонку на 1280 × 800,
+              и переключатель уходил под край (аудит экранов 09.10.2026). */}
+          <Stack gap="md" className="navScroll">
+            {NAV_GROUPS.map((group) => {
+              const items = sections.filter((section) => section.group === group.key);
+              if (items.length === 0) return null;
+              return (
+                <NavGroup key={group.key} group={group}>
+                  {items.map((section) => (
+                    <NavLink
+                      key={section.path}
+                      label={section.title}
+                      rightSection={
+                        section.work === undefined ? null : (
+                          <WorkCount count={work?.[section.work]} />
+                        )
+                      }
+                      className="glassSlot"
+                      active={
+                        section.path === '/'
+                          ? location.pathname === '/'
+                          : location.pathname.startsWith(section.path)
+                      }
+                      variant="light"
+                      onClick={() => void navigate(section.path)}
+                    />
+                  ))}
+                </NavGroup>
+              );
+            })}
           </Stack>
 
           {/* Переключатель темы отделён линией: без неё он читается ещё

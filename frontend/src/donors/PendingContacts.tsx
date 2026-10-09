@@ -19,7 +19,6 @@
  */
 
 import { Alert, Button, Group, Text } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -30,6 +29,7 @@ import type { ContactsQueued, ContactsState } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { formatNumber } from '../format';
 import { JobLine, JobOutcome } from '../jobs/JobLine';
+import { notify } from '../notices';
 
 export const CONTACTS_QUERY_KEY = ['contacts-state'] as const;
 
@@ -91,13 +91,13 @@ export function usePendingContacts(source: ContactsSource = DONOR_CONTACTS): Pen
     onSuccess: async (queued) => {
       setJobId(queued.job_id);
       await queryClient.invalidateQueries({ queryKey: source.queryKey });
-      notifications.show({
+      notify({
         message: `Поиск поставлен в очередь. Ждут адреса: ${formatNumber(queued.pending)}.`,
         color: 'green',
       });
     },
     onError: (failure) =>
-      notifications.show({ title: 'Не поставили', message: refusalOf(failure), color: 'red' }),
+      notify({ title: 'Не поставили', message: refusalOf(failure), color: 'red' }),
   });
 
   // Кончилась задача — перечитать и число ждущих, и таблицу: у кого-то

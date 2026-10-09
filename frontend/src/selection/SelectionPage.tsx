@@ -33,7 +33,6 @@
 
 import { Alert, Card, Loader, SegmentedControl, SimpleGrid, Stack, Text } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
-import { notifications } from '@mantine/notifications';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -58,6 +57,7 @@ import {
 } from './selectionFilters';
 import type { SelectionFilters } from './selectionFilters';
 import { SelectionTable } from './SelectionTable';
+import { notify } from '../notices';
 
 const QUERY_KEY = ['selection'] as const;
 const DECIDERS = Object.keys(JUDGE_DECIDERS) as JudgeDecider[];
@@ -207,10 +207,10 @@ export function SelectionPage() {
     onSuccess: async (row) => {
       await queryClient.invalidateQueries({ queryKey: QUERY_KEY });
       const said = row.human.intent === null ? 'решение снято' : HUMAN_INTENTS[row.human.intent];
-      notifications.show({ message: `${row.host}: ${said}`, color: 'green' });
+      notify({ message: `${row.host}: ${said}`, color: 'green' });
     },
     onError: (failure) =>
-      notifications.show({ title: 'Не записали', message: refusalOf(failure), color: 'red' }),
+      notify({ title: 'Не записали', message: refusalOf(failure), color: 'red' }),
   });
 
   if (data === undefined) {

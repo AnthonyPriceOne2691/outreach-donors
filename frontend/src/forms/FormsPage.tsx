@@ -42,7 +42,6 @@ import {
   Text,
   TextInput,
 } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 
@@ -55,6 +54,7 @@ import { PageHead } from '../components/PageHead';
 import { PageSwitch, usePageParam } from '../components/PageSwitch';
 import { Seams } from '../components/Seams';
 import { formatCompact, formatDate } from '../format';
+import { notify } from '../notices';
 
 const FORMS_QUERY_KEY = ['forms'] as const;
 
@@ -108,21 +108,21 @@ export function FormsPage() {
     await queryClient.invalidateQueries({ queryKey: FORMS_QUERY_KEY });
     setFilling(null);
     setEmail('');
-    notifications.show({ message, color: 'green' });
+    notify({ message, color: 'green' });
   };
 
   const fill = useMutation({
     mutationFn: (row: FormCard) => formFilled(row.donor_id, email.trim()),
     onSuccess: (row) => done(`${row.host}: адрес записан, донор пойдёт в очередь писем`),
     onError: (failure) =>
-      notifications.show({ title: 'Не записали', message: refusalOf(failure), color: 'red' }),
+      notify({ title: 'Не записали', message: refusalOf(failure), color: 'red' }),
   });
 
   const giveUp = useMutation({
     mutationFn: (row: FormCard) => formGaveUp(row.donor_id, null),
     onSuccess: (row) => done(`${row.host} закрыт без адреса`),
     onError: (failure) =>
-      notifications.show({ title: 'Не закрыли', message: refusalOf(failure), color: 'red' }),
+      notify({ title: 'Не закрыли', message: refusalOf(failure), color: 'red' }),
   });
 
   if (isLoading) return <Loader aria-label="Загружаем очередь форм" m="md" />;

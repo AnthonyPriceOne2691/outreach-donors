@@ -15,7 +15,6 @@
  */
 
 import { Stack, Text, TextInput } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 
@@ -24,6 +23,7 @@ import { enterDonor } from '../api/runs';
 import { NEW_PRICE, PriceForm, priceBody, priceTyped } from '../donors/PriceForm';
 import type { PriceDraft } from '../donors/PriceForm';
 import { formatMoney } from '../format';
+import { notify } from '../notices';
 
 /** Что вышло — одной фразой, теми же словами, что у консоли. */
 export function enteredSummary(entered: EnteredDonor): string {
@@ -53,7 +53,7 @@ export function ManualDonor({
     onSuccess: (entered) => {
       setHost('');
       setDraft(NEW_PRICE);
-      notifications.show({
+      notify({
         message: enteredSummary(entered),
         color: entered.suitable ? 'green' : 'yellow',
       });

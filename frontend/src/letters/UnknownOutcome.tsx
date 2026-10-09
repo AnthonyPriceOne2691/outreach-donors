@@ -34,7 +34,6 @@ import {
   Text,
   Title,
 } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -46,6 +45,7 @@ import type { LetterStage } from '../api/types';
 import type { ResolveOutcome, UnknownLetter } from '../api/unknownOutcome';
 import { Seams } from '../components/Seams';
 import { formatDateTime, formatNumber } from '../format';
+import { notify } from '../notices';
 
 /** Раз в минуту: письмо встаёт сюда спустя минуты после обрыва, и экран,
  *  открытый всё это время, должен показать его без перезагрузки. */
@@ -75,12 +75,11 @@ export function UnknownOutcome({ stage, audience = 'links', canSend }: Props) {
   const resolve = useMutation({
     mutationFn: ({ letter, outcome }: Choice) => resolveLetter(letter.id, outcome),
     onSuccess: (done, { letter }) =>
-      notifications.show({
+      notify({
         message: `${letter.host}: ${done.said}`,
         color: done.status === 'sent' ? 'green' : 'yellow',
       }),
-    onError: (failure) =>
-      notifications.show({ title: 'Не решили', message: refusalOf(failure), color: 'red' }),
+    onError: (failure) => notify({ title: 'Не решили', message: refusalOf(failure), color: 'red' }),
     // Решение меняет и этот список, и очередь: вернувшееся письмо встаёт в неё.
     // Отказ — тоже повод освежить: письмо секундой раньше решило событие платформы.
     onSettled: async () => {

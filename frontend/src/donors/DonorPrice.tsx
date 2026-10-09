@@ -27,7 +27,6 @@
  */
 
 import { Button, Card, Stack, Text, Title } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
@@ -40,6 +39,7 @@ import { Unfold } from '../runs/Unfold';
 import { ReplyOffers } from '../threads/ReplyOffers';
 import { NEW_PRICE, PriceForm, priceBody, priceTyped } from './PriceForm';
 import type { PriceDraft } from './PriceForm';
+import { notify } from '../notices';
 
 /** Откуда последняя цена — одной строкой: «Вручную: кто · откуда цена» или
  *  «Из ответа донора». Источника нет — цена записана до 07.10.2026, когда её
@@ -68,7 +68,7 @@ function SetPrice({ donor }: { donor: DonorFullCard }) {
       // его не берёт: это сказано, как у панели и консоли, — янтарём.
       const suitable = card.status === 'suitable';
       const money = formatMoney(card.last_price, card.last_price_currency);
-      notifications.show({
+      notify({
         message: suitable
           ? `Цена записана: ${money}.`
           : `Цена записана: ${money}. По порогам отбора донор не годен — обход Этапа 2 его не возьмёт.`,
