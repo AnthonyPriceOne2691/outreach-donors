@@ -9,7 +9,8 @@
  * **Лиды, а не письма.** Цепочка из трёх писем одному человеку — один отправленный лид.
  * Период — по первому письму лида: кто получил его в период, и всё, что с ним было потом.
  * Открытий и кликов нет: пиксель вредит доставляемости. MQL и SQL ставит телемаркетолог
- * в Kommo — воронка сервиса кончается передачей.
+ * в Kommo — воронка сервиса кончается передачей. На экране это одной строкой и в «i»,
+ * определения шагов — «i» у подписи плитки (аудит экранов 09.10.2026).
  *
  * **Смена фильтра — не перезагрузка.** Прежние числа стоят приглушёнными, пока едут новые;
  * негодные свои даты на сервер не уходят — что не так, сказано под полем. Гипотеза и период
@@ -33,6 +34,7 @@ import { useMediaQuery } from '@mantine/hooks';
 
 import { refusalOf } from '../api/client';
 import type { FunnelCounts, FunnelRow, HypothesisCard, SalesFunnelView } from '../api/salesTypes';
+import { InfoHint } from '../components/InfoHint';
 import { Metric } from '../components/Metric';
 import { formatNumber } from '../format';
 import { FixedTable } from './FixedTable';
@@ -57,6 +59,14 @@ const COLUMNS: Column[] = [
 ];
 
 export const FUNNEL_MIN_WIDTH = 1008;
+
+/** Что считает шаг — правилом сервера (`features/sales/funnel.py`), «i» у подписи плитки.
+ *  До аудита экранов 09.10.2026 — абзацем под плитками. */
+const STEP_INFO: Partial<Record<keyof FunnelCounts, string>> = {
+  bounced: 'Вернулось хоть одно письмо цепочки: отказ сильнее доставки.',
+  answered: 'Человек ответил сам или попросил больше не писать; автоответ ответом не считается.',
+  handed_off: 'Передача телемаркетологу заведена. MQL и SQL ставит телемаркетолог в Kommo.',
+};
 
 function Filters({
   filters,
@@ -147,6 +157,7 @@ function Tiles({ counts, stale }: { counts: FunnelCounts; stale: boolean }) {
           title={step.title}
           value={formatNumber(counts[step.key])}
           hint={stepHint(counts, step.key)}
+          info={STEP_INFO[step.key]}
         />
       ))}
     </SimpleGrid>
@@ -204,15 +215,19 @@ function ByHypothesis({ view, stale }: { view: SalesFunnelView; stale: boolean }
   );
 }
 
-/** Что значат шаги — словами под числами: правило сервера, а не догадка экрана. */
-function Rules() {
+/** Вступление одной строкой, как считается — в «i» (аудит экранов 09.10.2026). */
+function Intro() {
   return (
-    <Text size="sm" c="dimmed" px="md" className="funnelRules">
-      Ответ — человек ответил сам или попросил больше не писать; автоответ ответом не считается.
-      Отказ — вернулось хоть одно письмо цепочки: он сильнее доставки. Лид передан — передача
-      телемаркетологу заведена. Открытия и клики не считаем: пиксель вредит доставляемости. MQL и
-      SQL ставит телемаркетолог в Kommo.
-    </Text>
+    <Group gap={4} wrap="nowrap" align="flex-start" px="md">
+      <Text size="sm" className="funnelIntro">
+        Лиды на каждом шаге: письмо в очереди, ушло, дошло или вернулось, человек ответил, лид
+        передан телемаркетологу.
+      </Text>
+      <InfoHint name="Как считается воронка" width={340}>
+        Считаем лидов, а не письма; период — по первому письму лида, и всё, что с ним было потом.
+        Открытия и клики не считаем: пиксель вредит доставляемости.
+      </InfoHint>
+    </Group>
   );
 }
 
@@ -248,11 +263,7 @@ export function FunnelPane({ hypotheses, filters, onChange }: PaneProps) {
   }
   return (
     <Stack gap="md">
-      <Text size="sm" px="md" className="funnelIntro" maw={760}>
-        Лиды на каждом шаге: письмо в очереди, ушло, дошло или вернулось, человек ответил, лид
-        передан телемаркетологу. Считаем лидов, а не письма; период — по первому письму лида, и всё,
-        что с ним было потом.
-      </Text>
+      <Intro />
       <Filters filters={filters} hypotheses={hypotheses} problem={problem} onChange={onChange} />
       {view === undefined ? (
         funnel.error ? (
@@ -266,7 +277,6 @@ export function FunnelPane({ hypotheses, filters, onChange }: PaneProps) {
         <>
           <Tiles counts={view.total} stale={stale} />
           {view.total.sent === 0 && view.total.queued === 0 ? <Empty filters={filters} /> : null}
-          <Rules />
           {view.hypothesis_id === null ? <ByHypothesis view={view} stale={stale} /> : null}
         </>
       )}

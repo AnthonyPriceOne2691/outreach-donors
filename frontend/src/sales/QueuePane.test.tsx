@@ -115,6 +115,20 @@ function calls(recorded: Recorded, method: string, path: string): Call[] {
 }
 
 describe('очередь писем продаж', () => {
+  it('вступление — одной строкой, как уходят письма — в «i» (аудит 09.10.2026)', async () => {
+    await openQueue();
+    const user = userEvent.setup();
+
+    expect(screen.getByText(/^Сборка пишет первые письма/)).toBeInTheDocument();
+    expect(screen.queryByText(/Уходят письма общей отправкой/)).toBeNull();
+
+    await user.hover(screen.getByRole('button', { name: 'Как уходят письма продаж' }));
+
+    expect(
+      await screen.findByText(/Уходят письма общей отправкой/, {}, SCREEN_WAIT),
+    ).toBeInTheDocument();
+  });
+
   it('подключены: цепочки и числа словами сервера, кнопки открыты', async () => {
     await openQueue();
 

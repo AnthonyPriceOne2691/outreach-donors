@@ -21,26 +21,55 @@
  * на «Отборе» пять плиток из шести стояли с содержимым выше середины
  * (17 px сверху, 38 снизу). Строку пояснения теперь заводит пояснение
  * хоть одной плитки сетки (`metricHint`, правило в `glass.css`).
+ *
+ * **Что значит число — «i» у подписи** (`info`, аудит экранов 09.10.2026):
+ * определения шагов воронки стояли абзацем под плитками, и его читали раз,
+ * а прокручивали каждый заход. Значок — в строке подписи, а не четвёртой
+ * строкой плитки: подсетка ряда раскладывает только подпись, число и
+ * пояснение. У плитки-ссылки «i» нет: кнопка внутри ссылки — нельзя по
+ * разметке, и нажатие на значок уводило бы с экрана.
  */
 
 import { Card, Text } from '@mantine/core';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
-interface Props {
+import { InfoHint } from './InfoHint';
+
+interface Common {
   title: string;
   value: ReactNode;
   hint?: ReactNode;
   /** Цвет числа. По умолчанию обычные чернила: цветом помечают то,
    *  на что смотреть, а если помечено всё — не помечено ничего. */
   color?: string | undefined;
-  /** Куда ведёт плитка. С адресом плитка — ссылка целиком: число на главной
-   *  — это вход в экран, где с ним работают, и искать рядом отдельную
-   *  ссылку «перейти» незачем. */
-  to?: string | undefined;
 }
 
-export function Metric({ title, value, hint, color, to }: Props) {
+type Props = Common &
+  (
+    | {
+        /** Куда ведёт плитка. С адресом плитка — ссылка целиком: число на главной
+         *  — это вход в экран, где с ним работают, и искать рядом отдельную
+         *  ссылку «перейти» незачем. */
+        to?: string | undefined;
+        info?: undefined;
+      }
+    | {
+        to?: undefined;
+        /** Что значит число — подсказкой «i» у подписи. */
+        info: ReactNode;
+      }
+  );
+
+/** Значок в строке подписи не раздвигает её: «i» выше строки мелкого текста. */
+const INFO_INLINE = {
+  display: 'inline-flex',
+  verticalAlign: 'middle',
+  marginBlock: -4,
+  marginInlineStart: 2,
+} as const;
+
+export function Metric({ title, value, hint, color, to, info }: Props) {
   // Три строки — прямые дети плитки: подсетка раскладывает только их.
   const body = (
     <>
@@ -50,6 +79,13 @@ export function Metric({ title, value, hint, color, to }: Props) {
           давало 6,03 (замер 23.09). Иерархию держат размер и вес числа. */}
       <Text size="xs" c="var(--ink)" className="metricTitle">
         {title}
+        {info !== undefined && info !== null && (
+          <span style={INFO_INLINE}>
+            <InfoHint name={`Что значит «${title}»`} width={280}>
+              {info}
+            </InfoHint>
+          </span>
+        )}
       </Text>
       <Text fw={600} fz="xl" c={color ?? 'inherit'}>
         {value}

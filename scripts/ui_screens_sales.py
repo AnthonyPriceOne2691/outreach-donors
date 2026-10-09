@@ -314,6 +314,7 @@ def kb_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         ("кто правил", ".kbTable tbody td:nth-child(5) p:nth-child(1)", norm),
         ("когда правил", ".kbTable tbody td:nth-child(5) p:nth-child(2)", norm),
         ("кнопка «Править»", ".kbTable tbody button:has-text('Править')", norm),
+        hint_probe("что агент видит", "Что агент видит из базы", norm),
     ]
     dialog = ".mantine-Modal-content"
     sender = [
@@ -430,6 +431,7 @@ def chain_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         ("кто и когда правил", ".chainWho", norm),
         ("кнопка «Править»", ".chainStep button:has-text('Править')", norm),
         ("кнопка «Задать»", ".chainStep button:has-text('Задать')", norm),
+        hint_probe("тексты и чья цепочка", "Где живут тексты и чья цепочка действует", norm),
     ]
     dialog = ".mantine-Modal-content"
     return {

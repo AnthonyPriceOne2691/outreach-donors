@@ -36,6 +36,7 @@ import { buildSalesQueue } from '../api/sales';
 import { chainLanguageTitle } from '../api/salesLabels';
 import type { ChainState, HypothesisCard, SalesQueueView } from '../api/salesTypes';
 import { useSession } from '../auth/AuthProvider';
+import { InfoHint } from '../components/InfoHint';
 import { Metric } from '../components/Metric';
 import { formatNumber } from '../format';
 import { JobLine } from '../jobs/JobLine';
@@ -219,11 +220,17 @@ export function QueuePane({ hypotheses, hypothesis, onHypothesis }: PaneProps) {
   return (
     <Stack gap="md">
       <Group justify="space-between" align="flex-end" wrap="wrap" gap="md" px="md">
-        <Text size="sm" style={{ flex: '1 1 20rem', minWidth: 0 }}>
-          Сборка пишет первые письма лидам гипотезы, которые готовы к письмам, и ничего не
-          отправляет. Уходят письма общей отправкой — пачкой или по одному; добивки идут сами, в той
-          же переписке.
-        </Text>
+        {/* Вступление — одной строкой, остальное — в «i» (аудит экранов 09.10.2026). */}
+        <Group gap={4} wrap="nowrap" align="flex-start" style={{ flex: '1 1 20rem', minWidth: 0 }}>
+          <Text size="sm">
+            Сборка пишет первые письма лидам гипотезы, которые готовы к письмам, и ничего не
+            отправляет.
+          </Text>
+          <InfoHint name="Как уходят письма продаж" width={340}>
+            Уходят письма общей отправкой — пачкой или по одному; добивки идут сами, в той же
+            переписке.
+          </InfoHint>
+        </Group>
         <Select
           label="Гипотеза"
           allowDeselect={false}

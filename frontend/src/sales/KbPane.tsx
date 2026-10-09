@@ -18,6 +18,7 @@ import { useState } from 'react';
 import { refusalOf } from '../api/client';
 import { kbKindTitle } from '../api/salesLabels';
 import type { KbEntryCard, KbView } from '../api/salesTypes';
+import { InfoHint } from '../components/InfoHint';
 import { formatDateTime, formatNumber } from '../format';
 import { AgentPreview } from './AgentPreview';
 import { FixedTable } from './FixedTable';
@@ -52,10 +53,13 @@ function KbHead({
     <Group justify="space-between" align="flex-start" wrap="wrap" gap="md" px="md">
       {/* Основа в 20rem — как у сводки раздела: на телефоне кнопки уходят под текст. */}
       <Stack gap={4} style={{ flex: '1 1 20rem', minWidth: 0 }}>
-        <Text size="sm">
-          Агент пишет только из включённых записей. Выключенная остаётся в списке, но агент её не
-          видит. Тексты живут только здесь, в базе.
-        </Text>
+        {/* Вступление — одной строкой, остальное — в «i» (аудит экранов 09.10.2026). */}
+        <Group gap={4} wrap="nowrap" align="flex-start">
+          <Text size="sm">Агент пишет только из включённых записей.</Text>
+          <InfoHint name="Что агент видит из базы" width={340}>
+            Выключенная остаётся в списке, но агент её не видит. Тексты живут только здесь, в базе.
+          </InfoHint>
+        </Group>
         <Text size="sm" c="dimmed" className="kbVersion">
           Версия базы <code>{view.version}</code> · агент видит {formatNumber(view.active)} из{' '}
           {formatNumber(view.total)}

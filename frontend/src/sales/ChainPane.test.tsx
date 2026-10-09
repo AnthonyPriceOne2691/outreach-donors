@@ -143,6 +143,22 @@ async function pickSet(user: ReturnType<typeof userEvent.setup>, option: string)
 }
 
 describe('цепочка писем: языки и шаги', () => {
+  it('вступление — одной строкой, где живут тексты и чья цепочка — в «i» (аудит 09.10.2026)', async () => {
+    await openChain();
+    const user = userEvent.setup();
+
+    expect(screen.getByText(/^Первое письмо и две добивки/)).toBeInTheDocument();
+    expect(screen.queryByText(/Своя цепочка гипотезы на языке заменяет общую/)).toBeNull();
+
+    await user.hover(
+      screen.getByRole('button', { name: 'Где живут тексты и чья цепочка действует' }),
+    );
+
+    expect(
+      await screen.findByText(/Своя цепочка гипотезы на языке заменяет общую/, {}, SCREEN_WAIT),
+    ).toBeInTheDocument();
+  });
+
   it('пустой набор — у каждого языка «цепочка не задана» словами и дорога к загрузке', async () => {
     await openChain({}, EMPTY);
 

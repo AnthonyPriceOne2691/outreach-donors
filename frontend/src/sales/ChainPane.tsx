@@ -31,6 +31,7 @@ import { useState } from 'react';
 import { refusalOf } from '../api/client';
 import { chainLanguageTitle, chainStepTitle } from '../api/salesLabels';
 import type { ChainState, ChainStepCard, ChainView, HypothesisCard } from '../api/salesTypes';
+import { InfoHint } from '../components/InfoHint';
 import { formatDateTime } from '../format';
 import { useChain } from './chainData';
 import type { StepPlace } from './chainDraft';
@@ -61,17 +62,15 @@ function ChainHead({ hypotheses, owner, onOwner }: OwnerProps) {
   ];
   return (
     <Group justify="space-between" align="flex-end" wrap="wrap" gap="md" px="md">
-      <Stack gap={4} style={{ flex: '1 1 20rem', minWidth: 0 }}>
-        <Text size="sm">
-          Первое письмо и две добивки в той же переписке — на каждом языке. Тексты живут только
-          здесь, в базе. Подпись и физический адрес допишет сборка из «Отправителя» — в шаблоне их
-          нет.
-        </Text>
-        <Text size="sm" c="dimmed">
-          Своя цепочка гипотезы на языке заменяет общую целиком, если у гипотезы есть хоть один
-          включённый свой шаг.
-        </Text>
-      </Stack>
+      {/* Вступление — одной строкой, остальное — в «i» (аудит экранов 09.10.2026). */}
+      <Group gap={4} wrap="nowrap" align="flex-start" style={{ flex: '1 1 20rem', minWidth: 0 }}>
+        <Text size="sm">Первое письмо и две добивки в той же переписке — на каждом языке.</Text>
+        <InfoHint name="Где живут тексты и чья цепочка действует" width={340}>
+          Тексты живут только здесь, в базе. Подпись и физический адрес допишет сборка из
+          «Отправителя» — в шаблоне их нет. Своя цепочка гипотезы на языке заменяет общую целиком,
+          если у гипотезы есть хоть один включённый свой шаг.
+        </InfoHint>
+      </Group>
       <Select
         label="Набор"
         allowDeselect={false}

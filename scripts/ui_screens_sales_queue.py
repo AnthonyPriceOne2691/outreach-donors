@@ -15,6 +15,8 @@
 
 from typing import Any
 
+from ui_screens_sales_hints import hint_probe
+
 #: Узкое окно — телефон: вкладки встают столбиком, плитки — в колонку.
 PHONE = {"width": 390, "height": 844}
 
@@ -37,6 +39,8 @@ def queue_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         ("кнопка «Собрать очередь»", "button:has-text('Собрать очередь')", big),
         ("кнопка пачки", "button:has-text('Отправить очередь')", big),
         ("пояснение пачки", "p:has-text('Пачка берёт очередь продаж')", norm),
+        # Вступление — одной строкой, как уходят письма — в «i» (аудит экранов 09.10.2026).
+        hint_probe("как уходят письма", "Как уходят письма продаж", norm),
     ]
     return {
         "sales-queue": {"path": path, "ready": ready, "probes": connected},
