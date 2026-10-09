@@ -34,43 +34,31 @@
  * его после семидесяти семи строк списка.
  */
 
-import {
-  Alert,
-  Badge,
-  Button,
-  Card,
-  Grid,
-  Group,
-  Loader,
-  NumberInput,
-  Stack,
-  Text,
-  TextInput,
-  Title,
-} from '@mantine/core';
+import { Alert, Badge, Button, Card, Grid, Group, Loader, Stack, Text, Title } from '@mantine/core';
 import { useMediaQuery, useReducedMotion } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Dispatch, RefObject, SetStateAction } from 'react';
+import type { RefObject } from 'react';
 
 import { refusalOf } from '../api/client';
 import { buildLetters, editLetter, listLetters, sendLetter, skipLetter } from '../api/letters';
 import { mailSettingsList, settingsInWords } from '../api/labels';
 import type { Corridor, LetterDraft, LettersView, QueuedLetter } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
-import { HintLabel } from '../components/HintLabel';
 import { StageSwitch } from '../components/StageSwitch';
 import { formatNumber, formatPercent } from '../format';
-import { LetterDraftEditor, draftOf, sameDraft } from './LetterDraftEditor';
+import { BuildForm } from './BuildForm';
+import type { BuildProps } from './BuildForm';
+import { EmptyQueue } from './EmptyQueue';
+import { draftOf, sameDraft } from './LetterDraftEditor';
 import { LetterPreview, toneOf } from './LetterPreview';
 import { mailTile } from './mailTile';
 import { uniquenessText } from './letterText';
-import { RunPicker } from './RunPicker';
 import { QueueHead } from './QueueHead';
 import { SendQueue } from './SendQueue';
 import type { LetterTarget } from './targets';
-import { ABOUT, TARGETS, audienceOf, emptyQueueText, poolHint, stageOf, targetOf } from './targets';
+import { ABOUT, TARGETS, audienceOf, poolHint, stageOf, targetOf } from './targets';
 import { UnknownOutcome } from './UnknownOutcome';
 import { remember, remembered } from '../storage';
 import { JobLine } from '../jobs/JobLine';
@@ -384,55 +372,18 @@ export function LettersPage() {
   );
 }
 
-interface ControlsProps {
-  view: LettersView;
-  target: LetterTarget;
+interface ControlsProps extends BuildProps {
   /** Показана очередь прежнего этапа, пока идёт новая. */
   stale: boolean;
   canSend: boolean;
-  campaign: string;
-  onCampaign: (value: string) => void;
-  limit: number;
-  onLimit: (value: number) => void;
-  followups: (number | null)[];
-  onFollowups: Dispatch<SetStateAction<(number | null)[]>>;
-  building: boolean;
-  /** Чего не хватает для сборки — словами у кнопки; `null` — собрать можно. */
-  buildBlocked: string | null;
-  onBuild: () => void;
   buildJob: string | null;
   onBuildFinished: () => void;
-  runIds: number[];
-  onRunIds: (next: number[]) => void;
-  letterEdit: LetterDraft | null;
-  onLetterEdit: (next: LetterDraft) => void;
 }
 
 /** Сводка этапа, препятствия отправке и сборка очереди. */
-function QueueControls({
-  view,
-  target,
-  stale,
-  canSend,
-  campaign,
-  onCampaign,
-  limit,
-  onLimit,
-  followups,
-  onFollowups,
-  building,
-  buildBlocked,
-  onBuild,
-  buildJob,
-  onBuildFinished,
-  runIds,
-  onRunIds,
-  letterEdit,
-  onLetterEdit,
-}: ControlsProps) {
+function QueueControls({ stale, canSend, buildJob, onBuildFinished, ...build }: ControlsProps) {
+  const { view, target } = build;
   const mail = mailTile(view.transport);
-  const defaultDays = view.followup_default;
-  const letterDefault = view.letter_default;
 
   return (
     // Прежний этап — приглушён и не нажимается: текст первого письма
@@ -475,101 +426,9 @@ function QueueControls({
         </Alert>
       ) : null}
 
-      {/* Порядок формы — порядок решения: кампания и числа, прогоны, текст первого
-          письма, и кнопка — последней (аудит экранов 09.10.2026: «Собрать очередь»
-          стояла посреди формы, обязательные прогоны и текст — под ней, а выключенная
-          кнопка не говорила, чего не хватает). Поля — по значению, пояснения — в «i». */}
-      {canSend ? (
-        <Stack gap="sm">
-          <Group align="flex-end" gap="sm">
-            <TextInput
-              labelProps={{ labelElement: 'div' }}
-              label={
-                <HintLabel
-                  label="Кампания"
-                  hint="Одноимённая дополняется, а не заводится второй раз."
-                />
-              }
-              aria-label="Кампания"
-              placeholder={ABOUT[target].placeholder}
-              value={campaign}
-              w={280}
-              onChange={(event) => onCampaign(event.currentTarget.value)}
-            />
-            <NumberInput
-              labelProps={{ labelElement: 'div' }}
-              label={
-                <HintLabel
-                  label="За раз"
-                  hint="Писем за одну сборку. Каждое стоит вызова модели."
-                />
-              }
-              aria-label="Писем за раз"
-              value={limit}
-              min={1}
-              max={500}
-              w="6.5rem"
-              onChange={(value) => onLimit(typeof value === 'number' ? value : 50)}
-            />
-            {defaultDays.map((fallback, index) => (
-              <NumberInput
-                key={index}
-                labelProps={{ labelElement: 'div' }}
-                label={
-                  <HintLabel
-                    label={`Добивка ${index + 1}`}
-                    hint={
-                      index === 0
-                        ? 'Через сколько дней после первого письма.'
-                        : 'Через сколько дней после предыдущей добивки.'
-                    }
-                  />
-                }
-                aria-label={`Добивка ${index + 1}, дней`}
-                suffix=" дн."
-                value={followups[index] ?? fallback}
-                min={0}
-                max={90}
-                w="7rem"
-                onChange={(value) =>
-                  onFollowups((was) =>
-                    was.map((old, at) =>
-                      at === index ? (typeof value === 'number' ? value : null) : old,
-                    ),
-                  )
-                }
-              />
-            ))}
-          </Group>
-
-          {target === 'donors' ? <RunPicker value={runIds} onChange={onRunIds} /> : null}
-
-          <LetterDraftEditor
-            key={target}
-            target={target}
-            fallback={letterDefault}
-            value={letterEdit ?? draftOf(letterDefault)}
-            onChange={onLetterEdit}
-          />
-
-          <Group gap="sm">
-            <Button
-              color="lagoon"
-              className="press"
-              loading={building}
-              disabled={buildBlocked !== null}
-              onClick={onBuild}
-            >
-              Собрать очередь
-            </Button>
-            {buildBlocked !== null && (
-              <Text size="sm" c="dimmed">
-                {buildBlocked}
-              </Text>
-            )}
-          </Group>
-        </Stack>
-      ) : null}
+      {/* Свёрнута, пока в очереди есть письма; раскрытая руками остаётся раскрытой до
+          смены адресатов — у каждых она своя. */}
+      {canSend ? <BuildForm key={target} {...build} /> : null}
 
       {buildJob !== null ? <JobLine jobId={buildJob} onFinished={onBuildFinished} /> : null}
     </Stack>
@@ -607,16 +466,7 @@ function Queue({
   onSave,
 }: QueueProps) {
   if (letters.length === 0) {
-    return (
-      <Card className="glass staleRows" p="xl" data-stale={stale || undefined}>
-        <Stack gap="xs">
-          <Text fw={500}>Очередь пуста</Text>
-          <Text size="sm" c="dimmed">
-            {emptyQueueText(view.funnel, target)}
-          </Text>
-        </Stack>
-      </Card>
-    );
+    return <EmptyQueue funnel={view.funnel} target={target} stale={stale} />;
   }
 
   return (

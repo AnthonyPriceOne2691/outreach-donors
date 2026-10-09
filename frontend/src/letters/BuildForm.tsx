@@ -1,0 +1,202 @@
+/**
+ * Сборка очереди на «Письмах»: кампания и числа, прогоны, текст первого письма — и кнопка.
+ *
+ * **Пока в очереди есть письма, форма свёрнута в строку** (аудит экранов 09.10.2026).
+ * Раскрытая, она стояла над очередью при каждом заходе (очередь доноров начиналась с
+ * 683 px на 1440 и с 1139 px на телефоне, свёрнутая — с 520 и 776), а работа здесь —
+ * читать и отправлять собранное; собирают раз в несколько дней. У пустой очереди форма
+ * раскрыта: собрать — следующее, что здесь делают. Раскрытую руками форму экран не
+ * сворачивает, пока не сменят адресатов.
+ *
+ * **Порядок формы — порядок решения:** кампания и числа, прогоны, текст первого письма,
+ * и кнопка — последней; у выключенной кнопки сказано, чего не хватает. Поля — по
+ * значению, пояснения — в «i».
+ */
+
+import { Button, Collapse, Group, NumberInput, Stack, Text, TextInput } from '@mantine/core';
+import { IconChevronDown } from '@tabler/icons-react';
+import { useId, useState } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
+
+import type { LetterDraft, LettersView } from '../api/types';
+import { HintLabel } from '../components/HintLabel';
+import { LetterDraftEditor, draftOf } from './LetterDraftEditor';
+import { RunPicker } from './RunPicker';
+import type { LetterTarget } from './targets';
+import { ABOUT } from './targets';
+
+export interface BuildProps {
+  view: LettersView;
+  target: LetterTarget;
+  campaign: string;
+  onCampaign: (value: string) => void;
+  limit: number;
+  onLimit: (value: number) => void;
+  followups: (number | null)[];
+  onFollowups: Dispatch<SetStateAction<(number | null)[]>>;
+  building: boolean;
+  /** Чего не хватает для сборки — словами у кнопки; `null` — собрать можно. */
+  buildBlocked: string | null;
+  onBuild: () => void;
+  runIds: number[];
+  onRunIds: (next: number[]) => void;
+  letterEdit: LetterDraft | null;
+  onLetterEdit: (next: LetterDraft) => void;
+}
+
+export function BuildForm({
+  view,
+  target,
+  campaign,
+  onCampaign,
+  limit,
+  onLimit,
+  followups,
+  onFollowups,
+  building,
+  buildBlocked,
+  onBuild,
+  runIds,
+  onRunIds,
+  letterEdit,
+  onLetterEdit,
+}: BuildProps) {
+  const formId = useId();
+  const queued = view.letters.length > 0;
+  const [opened, setOpened] = useState(false);
+  // Пустая очередь — форма раскрыта, и строки «Сборка очереди» нет: сворачивать нечего,
+  // а строка над формой стоила бы 40 px. Раскрытая руками остаётся раскрытой и после
+  // того, как очередь пришла.
+  const shown = !queued || opened;
+  const defaultDays = view.followup_default;
+  const letterDefault = view.letter_default;
+
+  return (
+    <Stack gap="xs">
+      {queued && (
+        <Group gap="xs" align="center">
+          {/* `aria-expanded` — состояние для программы чтения с экрана и для теста:
+              в jsdom анимация высоты не проигрывается. */}
+          <Button
+            variant="subtle"
+            size="compact-sm"
+            px={6}
+            leftSection={
+              <IconChevronDown
+                size={16}
+                style={{
+                  transform: shown ? 'rotate(180deg)' : 'none',
+                  transition: 'transform 200ms cubic-bezier(0.32, 0.72, 0, 1)',
+                }}
+              />
+            }
+            aria-expanded={shown}
+            aria-controls={formId}
+            onClick={() => setOpened(!opened)}
+          >
+            Сборка очереди
+          </Button>
+          {!shown && (
+            <Text size="sm" c="dimmed">
+              {target === 'donors'
+                ? 'кампания, прогоны, текст первого письма'
+                : 'кампания и текст первого письма'}
+            </Text>
+          )}
+        </Group>
+      )}
+
+      <Collapse id={formId} in={shown} transitionDuration={220} transitionTimingFunction="ease">
+        <Stack gap="sm" pt={queued ? 4 : 0}>
+          <Group align="flex-end" gap="sm">
+            <TextInput
+              labelProps={{ labelElement: 'div' }}
+              label={
+                <HintLabel
+                  label="Кампания"
+                  hint="Одноимённая дополняется, а не заводится второй раз."
+                />
+              }
+              aria-label="Кампания"
+              placeholder={ABOUT[target].placeholder}
+              value={campaign}
+              w={280}
+              onChange={(event) => onCampaign(event.currentTarget.value)}
+            />
+            <NumberInput
+              labelProps={{ labelElement: 'div' }}
+              label={
+                <HintLabel
+                  label="За раз"
+                  hint="Писем за одну сборку. Каждое стоит вызова модели."
+                />
+              }
+              aria-label="Писем за раз"
+              value={limit}
+              min={1}
+              max={500}
+              w="6.5rem"
+              onChange={(value) => onLimit(typeof value === 'number' ? value : 50)}
+            />
+            {defaultDays.map((fallback, index) => (
+              <NumberInput
+                key={index}
+                labelProps={{ labelElement: 'div' }}
+                label={
+                  <HintLabel
+                    label={`Добивка ${index + 1}`}
+                    hint={
+                      index === 0
+                        ? 'Через сколько дней после первого письма.'
+                        : 'Через сколько дней после предыдущей добивки.'
+                    }
+                  />
+                }
+                aria-label={`Добивка ${index + 1}, дней`}
+                suffix=" дн."
+                value={followups[index] ?? fallback}
+                min={0}
+                max={90}
+                w="7rem"
+                onChange={(value) =>
+                  onFollowups((was) =>
+                    was.map((old, at) =>
+                      at === index ? (typeof value === 'number' ? value : null) : old,
+                    ),
+                  )
+                }
+              />
+            ))}
+          </Group>
+
+          {target === 'donors' ? <RunPicker value={runIds} onChange={onRunIds} /> : null}
+
+          <LetterDraftEditor
+            key={target}
+            target={target}
+            fallback={letterDefault}
+            value={letterEdit ?? draftOf(letterDefault)}
+            onChange={onLetterEdit}
+          />
+
+          <Group gap="sm">
+            <Button
+              color="lagoon"
+              className="press"
+              loading={building}
+              disabled={buildBlocked !== null}
+              onClick={onBuild}
+            >
+              Собрать очередь
+            </Button>
+            {buildBlocked !== null && (
+              <Text size="sm" c="dimmed">
+                {buildBlocked}
+              </Text>
+            )}
+          </Group>
+        </Stack>
+      </Collapse>
+    </Stack>
+  );
+}

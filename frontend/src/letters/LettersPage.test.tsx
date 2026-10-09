@@ -131,6 +131,13 @@ async function openLetters(
   return recorded;
 }
 
+/** Пока в очереди есть письма, сборка свёрнута в строку — раскрываем. Раскрытие
+ *  идёт кадром анимации, поэтому ждём, пока кнопка сборки станет видна. */
+async function openBuild(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('button', { name: 'Сборка очереди' }));
+  await screen.findByRole('button', { name: 'Собрать очередь' });
+}
+
 describe('цепочка писем', () => {
   it('добивки видны здесь же, а не приходят сюрпризом от донора', async () => {
     await openLetters();
@@ -173,6 +180,7 @@ describe('цепочка писем', () => {
       { 'POST /api/letters/build': { body: { job_id: 'j' } } },
     );
     const user = userEvent.setup();
+    await openBuild(user);
 
     await user.type(screen.getByLabelText('Кампания'), 'Май');
     await user.click(await screen.findByLabelText(/№18/));
@@ -196,6 +204,7 @@ describe('прогоны рассылки', () => {
       queue: { accepted: index + 1 },
     }));
     const recorded = await openLetters({}, { 'GET /api/runs/with-accepted': { body: ready } });
+    await openBuild(userEvent.setup());
 
     expect(await screen.findByLabelText(/№19 /)).toBeInTheDocument();
     expect(screen.getAllByRole('checkbox', { name: /^№\d+ · / })).toHaveLength(12);
@@ -377,7 +386,51 @@ describe('очередь писем', () => {
     // Пустая очередь при «всем написали» и при «ни у кого нет адреса»
     // выглядит одинаково, а действия из них следуют разные.
     expect(screen.getByText('Очередь пуста')).toBeInTheDocument();
-    expect(screen.getByText(/пора добрать контакты/)).toBeInTheDocument();
+    const steps = screen.getByRole('list', { name: 'Где кончились адресаты' });
+    expect(
+      within(steps)
+        .getAllByRole('listitem')
+        .map((step) => step.textContent),
+    ).toEqual(['подходящих 12', 'с адресом 0', 'ещё не писали 0']);
+    expect(
+      screen.getByText(
+        'Кончились на ступени «с адресом»: пора добрать контакты — экран «Формы» и карточка донора.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('адресаты есть, а очередь не собрана — так и сказано, без «кончились»', async () => {
+    await openLetters({
+      letters: [],
+      funnel: { подходящих: 12, 'с адресом': 9, 'ещё не писали': 4 },
+    });
+
+    expect(screen.getByText('Адресаты есть — очередь ещё не собрана.')).toBeInTheDocument();
+    expect(screen.queryByText(/Кончились на ступени/)).not.toBeInTheDocument();
+  });
+
+  it('пока в очереди есть письма, сборка свёрнута в строку', async () => {
+    await openLetters();
+    const user = userEvent.setup();
+    const toggle = screen.getByRole('button', { name: 'Сборка очереди' });
+
+    // Работа здесь — читать и отправлять собранное; собирают раз в несколько дней.
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('button', { name: 'Собрать очередь' })).not.toBeInTheDocument();
+    expect(screen.getByText('кампания, прогоны, текст первого письма')).toBeInTheDocument();
+
+    await user.click(toggle);
+
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(await screen.findByRole('button', { name: 'Собрать очередь' })).toBeInTheDocument();
+  });
+
+  it('у пустой очереди сборка раскрыта, и сворачивать её нечем', async () => {
+    await openLetters({ letters: [] });
+
+    // Собрать — следующее, что здесь делают; строка «Сборка очереди» стоила бы 40 px.
+    expect(screen.getByRole('button', { name: 'Собрать очередь' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Сборка очереди' })).not.toBeInTheDocument();
   });
 
   it('без права на отправку очередь видна, а кнопки нет', async () => {
@@ -405,6 +458,7 @@ describe('текст первого письма', () => {
       { 'POST /api/letters/build': { body: { job_id: 'j' } } },
     );
     const user = userEvent.setup();
+    await openBuild(user);
 
     await user.type(screen.getByLabelText('Кампания'), 'Май');
     await user.click(await screen.findByLabelText(/№18/));
@@ -421,6 +475,7 @@ describe('текст первого письма', () => {
       { 'POST /api/letters/build': { body: { job_id: 'j' } } },
     );
     const user = userEvent.setup();
+    await openBuild(user);
 
     // Текст — в окне (замечание 09.10.2026): правка остаётся и после «Готово».
     expect(screen.queryByRole('dialog', { name: 'Текст первого письма' })).toBeNull();
@@ -453,6 +508,7 @@ describe('текст первого письма', () => {
   it('каждая зона говорит, что с ней сделает модель', async () => {
     await openLetters();
     const user = userEvent.setup();
+    await openBuild(user);
 
     await user.click(screen.getByRole('button', { name: 'Текст первого письма' }));
     const dialog = await screen.findByRole('dialog', { name: 'Текст первого письма' });
@@ -464,6 +520,7 @@ describe('текст первого письма', () => {
   it('исходный текст возвращается одной кнопкой', async () => {
     await openLetters();
     const user = userEvent.setup();
+    await openBuild(user);
 
     await user.click(screen.getByRole('button', { name: 'Текст первого письма' }));
     const dialog = await screen.findByRole('dialog', { name: 'Текст первого письма' });
@@ -483,6 +540,7 @@ describe('прогоны рассылки', () => {
   it('без выбранного прогона собрать нельзя', async () => {
     await openLetters();
     const user = userEvent.setup();
+    await openBuild(user);
 
     await user.type(screen.getByLabelText('Кампания'), 'Май');
 
@@ -562,6 +620,7 @@ describe('этапы рассылки', () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole('radio', { name: 'Рекламодателям' }));
     await screen.findAllByText('brand.example.test');
+    await openBuild(user);
 
     await user.type(screen.getByLabelText('Кампания'), 'Сентябрь');
 
@@ -581,7 +640,7 @@ describe('этапы рассылки', () => {
 
     await user.click(screen.getByRole('radio', { name: 'Рекламодателям' }));
 
-    expect(await screen.findByText(/со свежей ценой донора 0/)).toBeInTheDocument();
+    expect(await screen.findByText('цена донора свежая 0')).toBeInTheDocument();
     expect(
       screen.getByText(/Кончились на ступени «цена донора свежая»: сначала нужны ответы доноров/),
     ).toBeInTheDocument();
@@ -660,6 +719,7 @@ describe('бизнесы ниши', () => {
     expect(recorded.calls.some((call: Call) => call.path === NICHE_PATH)).toBe(true);
     expect(screen.getByText(/пример нашей площадки той же темы/)).toBeInTheDocument();
     expect(localStorage.getItem('letters:stage')).toBe('niche');
+    await openBuild(user);
     await user.click(screen.getByRole('button', { name: 'Текст первого письма' }));
     // Текст письма — в окне (#253): его содержимое появляется не сразу.
     const dialog = await screen.findByRole('dialog', { name: 'Текст первого письма' });
@@ -680,6 +740,7 @@ describe('бизнесы ниши', () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole('radio', { name: 'Бизнесам ниши' }));
     await screen.findAllByText('bookie.example.test');
+    await openBuild(user);
 
     await user.type(screen.getByLabelText('Кампания'), 'Октябрь');
     await user.click(screen.getByRole('button', { name: 'Собрать очередь' }));
@@ -698,7 +759,11 @@ describe('бизнесы ниши', () => {
     expect(
       await screen.findByText(/Кончились на ступени «из них с адресом»: адрес ищется сам/),
     ).toBeInTheDocument();
-    expect(screen.getByText(/ждут решения 2, решено «пишем» 1/)).toBeInTheDocument();
+    expect(screen.getByText('решено «пишем» 1')).toBeInTheDocument();
+    // Без решения — не ступень: «пишем» им ещё могут сказать.
+    expect(
+      screen.getByText('Ждут решения 2 — «пишем» ставят на экране «Рекламодатели».'),
+    ).toBeInTheDocument();
   });
 });
 
