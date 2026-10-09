@@ -1347,9 +1347,9 @@
       "worst": "unsubscribe_domain:43"
     },
     "backend/features/letters/outgoing_files.py": {
-      "lines": 311,
+      "lines": 312,
       "complexity": 7,
-      "worst": "clean_name:123"
+      "worst": "clean_name:124"
     },
     "backend/features/letters/outgoing_store.py": {
       "lines": 261,
@@ -2167,9 +2167,9 @@
       "worst": "handle_warm_shutdown_request:48"
     },
     "backend/workers/followups.py": {
-      "lines": 65,
+      "lines": 109,
       "complexity": 4,
-      "worst": "sweep:38"
+      "worst": "sweep:51"
     },
     "backend/workers/health.py": {
       "lines": 118,
@@ -2187,9 +2187,9 @@
       "worst": "main:34"
     },
     "backend/workers/reaper.py": {
-      "lines": 191,
+      "lines": 158,
       "complexity": 4,
-      "worst": "_told:113"
+      "worst": "_told:103"
     },
     "backend/workers/sales_jobs.py": {
       "lines": 125,
