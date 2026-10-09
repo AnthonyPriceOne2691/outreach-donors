@@ -20,7 +20,8 @@
 
 **Вложение ответа скачивается здесь же, под правом смотреть:** прайс
 файлом — то же содержимое переписки, что и текст письма. Отдаётся оно
-только на скачивание (`download.py`), никогда — на показ.
+только на скачивание (`download.py`), никогда — на показ. Показывается —
+текст, прочитанный из него на сервере (`replies/attachment_text.py`).
 
 **Ответы без письма — тоже здесь и под тем же правом** (28.09.2026). Приём
 сохранял их с первого дня, а видеть их было негде: сохранённый и невидимый
@@ -38,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.api.deps import db_session, needs
 from backend.api.replies.download import download_headers
 from backend.api.replies.schemas import (
+    AttachmentText,
     Calibration,
     LeadSent,
     LeadTaken,
@@ -172,6 +174,28 @@ async def attachment(
         media_type="application/octet-stream",
         headers=download_headers(found.name, found.id),
     )
+
+
+@router.get(
+    "/{reply_id}/attachments/{attachment_id}/text",
+    response_model=AttachmentText,
+    summary="Текст вложения ответа — что из файла прочитано",
+)
+async def attachment_text(
+    reply_id: int,
+    attachment_id: int,
+    _: UserModel = _viewer,
+    session: AsyncSession = Depends(db_session),
+) -> AttachmentText:
+    """Текст, прочитанный из файла донора, — или словами, почему его нет.
+
+    Файл ответа, принятого раньше, чем файлы начали читаться, читается здесь,
+    по первому запросу, и прочитанное записывается: второй показ его не читает.
+    """
+    found = await ReplyFiles(session).text_of(reply_id, attachment_id, now=datetime.now(UTC))
+    answer = AttachmentText(name=found.name, text=found.text, note=found.text_note)
+    await session.commit()
+    return answer
 
 
 @router.post("/{reply_id}/lead", response_model=LeadTaken, summary="Взять лид в работу")

@@ -743,6 +743,8 @@ _REMOVED = frozenset({"replies", "messages", "threads", "contacts", "campaigns",
 REVIEWED = {
     "messages.answers_reply_id → replies SET NULL": "наш ответ на тестовый — в той же переписке",
     "reply_attachments.reply_id → replies CASCADE": "вложения тестового ответа уходят с ним",
+    "outgoing_attachments.message_id → messages CASCADE": "файлы письма своему ящику — с ним",
+    "outgoing_attachments.thread_id → threads CASCADE": "файлы переписки со своим ящиком — с ней",
     "replies.message_id → messages SET NULL": "ответ на письмо своему ящику уходит раньше письма",
     "messages.thread_id → threads CASCADE": "письма переписки со своим ящиком уходят раньше неё",
     "replies.thread_id → threads CASCADE": "ответы переписки со своим ящиком уходят раньше неё",

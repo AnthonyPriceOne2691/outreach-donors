@@ -450,7 +450,7 @@ describe('ответ собеседнику', () => {
       expect(recorded.calls.some((call: Call) => call.path === '/api/threads/3/answer')).toBe(true),
     );
     const call = recorded.calls.find((sent: Call) => sent.path === '/api/threads/3/answer');
-    expect(call?.body).toEqual({ reply_id: 7, body: 'Thanks! Which topics?' });
+    expect(call?.body).toEqual({ reply_id: 7, body: 'Thanks! Which topics?', file_ids: [] });
     expect(await screen.findByText('Ответ отправлен с anna@mail.test')).toBeInTheDocument();
   });
 

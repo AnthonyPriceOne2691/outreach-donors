@@ -5,12 +5,21 @@
 import { Button, Group, Stack, Text, Textarea } from '@mantine/core';
 import { useState } from 'react';
 
+import type { FileRules, OutgoingFile } from '../api/files';
+import { AnswerFiles } from './AnswerFiles';
+
 interface AnswerProps {
   answered: boolean;
   busy: boolean;
-  onSend: (text: string) => void;
+  onSend: (text: string, fileIds: number[]) => void;
   /** Ответ лиду продаж: подпись и физический адрес дописывает сервер (модуль продаж). */
   signed?: boolean;
+  /** Переписка — для скрепки: файл загружается к ней до отправки. */
+  threadId: number;
+  /** Файлы, загруженные к ответу и ещё не ушедшие, — с сервера. */
+  pendingFiles?: OutgoingFile[];
+  /** Правила файла — с сервера; нет — проверяет только сервер. */
+  rules?: FileRules;
 }
 
 /** С какого ящика уйдёт ответ — у самого поля, а не карточкой внизу переписки.
@@ -34,9 +43,19 @@ const SIGNED_HINT =
  * кнопкой формы цены, а не отдельным действием. Отвечает на последний ответ
  * человека (`threadTimeline.answerTarget`).
  */
-export function AnswerBox({ answered, busy, onSend, signed = false }: AnswerProps) {
-  const [open, setOpen] = useState(false);
+export function AnswerBox({
+  answered,
+  busy,
+  onSend,
+  signed = false,
+  threadId,
+  pendingFiles = [],
+  rules,
+}: AnswerProps) {
+  // Загруженный, но не ушедший файл — ответ начат: форма открыта сразу.
+  const [open, setOpen] = useState(pendingFiles.length > 0);
   const [text, setText] = useState('');
+  const [files, setFiles] = useState<OutgoingFile[]>(pendingFiles);
   return (
     <>
       {answered ? (
@@ -53,13 +72,25 @@ export function AnswerBox({ answered, busy, onSend, signed = false }: AnswerProp
             value={text}
             onChange={(event) => setText(event.currentTarget.value)}
           />
+          <AnswerFiles
+            threadId={threadId}
+            files={files}
+            onChange={setFiles}
+            {...(rules === undefined ? {} : { rules })}
+            disabled={busy}
+          />
           <Group>
             <Button
               color="lagoon"
               className="press"
               loading={busy}
               disabled={text.trim() === ''}
-              onClick={() => onSend(text)}
+              onClick={() =>
+                onSend(
+                  text,
+                  files.map((file) => file.id),
+                )
+              }
             >
               Отправить
             </Button>

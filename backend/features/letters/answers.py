@@ -27,10 +27,17 @@
 продаж (`core/stages.answer_text`) до заведения письма: продажи не подключены —
 отказ словами, чего не хватает, и ответ в очереди не остаётся; текст уходит с
 подписью и физическим адресом из настроек отправителя продаж, адрес — лида.
+
+**Файлы к ответу** (`outgoing_store.py`) человек прикладывает заранее и называет
+номерами (`file_ids`). Они сверяются до заведения письма — из этой ли переписки,
+не ушли ли с другим письмом, укладываются ли в пределы письма — и отказ, как и у
+продаж, не оставляет ответа в очереди. Мост продаж правит только текст: файлы у
+ответа лиду те же, что у ответа донору.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from sqlalchemy import func, select
@@ -48,6 +55,7 @@ from backend.features.core.models.outreach import (
 from backend.features.core.stages import answer_text
 from backend.features.letters import guards
 from backend.features.letters.chain import ANSWER_STEP, FIRST_STEP
+from backend.features.letters.outgoing_store import OutgoingFiles
 from backend.features.letters.sending import SendError, Sending, SendOutcome
 
 #: Длина ответа. Не про письмо человеку — про ошибку вставки: ответ на десятки
@@ -96,11 +104,13 @@ async def answer_reply(
     reply_id: int,
     body: str,
     author_id: int | None,
+    file_ids: Sequence[int] = (),
 ) -> SendOutcome:
     """Ответить собеседнику на его ответ — и отправить сразу.
 
     Сразу, а не в очередь: текст написал или принял человек, это и есть
-    согласование, которое у первого письма делает экран очереди.
+    согласование, которое у первого письма делает экран очереди. `file_ids` —
+    файлы, приложенные к переписке заранее; пусто — ответ без файлов.
     """
     text = body.strip()
     if not text:
@@ -117,7 +127,14 @@ async def answer_reply(
     what = f"Ответ в переписке №{thread_id}"
     text = await answer_text(session, found.stage, thread_id, text, what)
     sender_id = await _thread_sender(session, thread_id)
-    message = await _materialize(session, found, text)
+    queued = await _queued_answer(session, found)
+    # Файлы — тоже до заведения письма: отказ после него оставил бы ответ в очереди.
+    files = OutgoingFiles(session)
+    chosen = await files.chosen(
+        thread_id, file_ids, letter_id=queued.id if queued is not None else None
+    )
+    message = await _materialize(session, found, text, queued)
+    await files.attach(chosen, message.id)
     await session.commit()
     return await sending.send(
         message.id,
@@ -150,7 +167,11 @@ async def _context(session: AsyncSession, *, thread_id: int, reply_id: int) -> _
     return _Context(reply=reply, thread=thread, stage=stage, host=host)
 
 
-async def _materialize(session: AsyncSession, found: _Context, text: str) -> MessageModel:
+async def _queued_answer(session: AsyncSession, found: _Context) -> MessageModel | None:
+    """Письмо этого ответа, которое ждёт в очереди: почта его однажды не приняла.
+
+    Ушедшее — отказ: второй ответ на одно письмо собеседника не уходит.
+    """
     key = answer_key(found.stage, found.host, found.reply.id)
     existing = await session.scalar(select(MessageModel).where(MessageModel.idempotency_key == key))
     if existing is not None and existing.status is not MessageStatus.QUEUED:
@@ -158,6 +179,13 @@ async def _materialize(session: AsyncSession, found: _Context, text: str) -> Mes
             f"На ответ №{found.reply.id} уже ответили — письмо №{existing.id} "
             f"в состоянии «{existing.status.value}»"
         )
+    return existing
+
+
+async def _materialize(
+    session: AsyncSession, found: _Context, text: str, existing: MessageModel | None
+) -> MessageModel:
+    key = answer_key(found.stage, found.host, found.reply.id)
     message = existing or MessageModel(
         campaign_id=found.thread.campaign_id,
         thread_id=found.thread.id,

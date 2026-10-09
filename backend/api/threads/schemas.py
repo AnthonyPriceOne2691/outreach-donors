@@ -14,8 +14,11 @@ from backend.api.letters.schemas import Corridor
 from backend.features.agent.drafts import ShownDraft
 from backend.features.core.domain import MessageStatus, ReplyKind, Stage
 from backend.features.core.models.attachment import ReplyAttachmentModel
+from backend.features.core.models.outgoing_attachment import OutgoingAttachmentModel
 from backend.features.core.models.outreach import MessageModel, ReplyModel
+from backend.features.letters import outgoing_files
 from backend.features.letters.mailbox import ThreadMail
+from backend.features.letters.outgoing_store import NO_FILES, ThreadFiles
 from backend.features.outreach.repository import ThreadDetail, ThreadRow
 from backend.features.outreach.threads import ThreadState, review_of
 from backend.features.replies.quoting import written_by_hand
@@ -61,6 +64,64 @@ class ThreadCard(BaseModel):
         )
 
 
+class LetterFileCard(BaseModel):
+    """Файл к нашему письму: сведения без тела. У письма (`LetterCard.attachments`)
+    сам файл — отдельным запросом (`GET /api/messages/{message_id}/attachments/{id}`),
+    только на скачивание; ждущий ответа (`ThreadView.pending_files`) — тот, что
+    приложили к переписке и ещё ни с одним письмом не отправили."""
+
+    id: int
+    name: str
+    #: Байт.
+    size: int
+
+    @classmethod
+    def of(cls, row: OutgoingAttachmentModel) -> LetterFileCard:
+        return cls(id=row.id, name=row.name, size=row.size)
+
+
+class FileRulesCard(BaseModel):
+    """Правила файла к ответу — те же числа, что проверяет сервер
+    (`letters/outgoing_files.py`). Экран проверяет по ним файл до загрузки — файл
+    больше тела запроса отбил бы nginx страницей без слов — и задаёт `accept`
+    у кнопки, не держа второй копии чисел."""
+
+    #: Байт на файл.
+    max_file_bytes: int
+    #: Байт на все файлы одного письма вместе.
+    max_letter_bytes: int
+    max_files: int
+    #: Расширения без точки, в нижнем регистре.
+    extensions: list[str]
+    #: Сколько дней приложенный файл ждёт письма — потом убирается сам.
+    pending_days: int
+
+    @classmethod
+    def current(cls) -> FileRulesCard:
+        return cls(
+            max_file_bytes=outgoing_files.MAX_FILE_BYTES,
+            max_letter_bytes=outgoing_files.MAX_LETTER_BYTES,
+            max_files=outgoing_files.MAX_FILES,
+            extensions=list(outgoing_files.EXTENSIONS),
+            pending_days=outgoing_files.PENDING_DAYS,
+        )
+
+
+class OutgoingFileCard(BaseModel):
+    """Файл, приложенный к будущему ответу: номер идёт в `file_ids` ответа."""
+
+    id: int
+    name: str
+    #: Байт.
+    size: int
+    #: Тип из нашего белого списка — не тот, что назвал браузер.
+    content_type: str
+
+    @classmethod
+    def of(cls, row: OutgoingAttachmentModel) -> OutgoingFileCard:
+        return cls(id=row.id, name=row.name, size=row.size, content_type=row.content_type)
+
+
 class LetterCard(BaseModel):
     """Наше письмо в переписке."""
 
@@ -79,9 +140,11 @@ class LetterCard(BaseModel):
     #: Номер входящего ответа, на который это письмо отвечает. Пусто —
     #: первое письмо или добивка (`letters/answers.py`).
     answers_reply_id: int | None = None
+    #: Файлы письма — сведениями, без тел. Бывают только у ответа.
+    attachments: list[LetterFileCard] = Field(default_factory=list)
 
     @classmethod
-    def of(cls, message: MessageModel) -> LetterCard:
+    def of(cls, message: MessageModel, files: Sequence[OutgoingAttachmentModel] = ()) -> LetterCard:
         return cls(
             id=message.id,
             step=message.step,
@@ -91,6 +154,7 @@ class LetterCard(BaseModel):
             sent_at=message.sent_at,
             uniqueness=message.uniqueness_pct,
             answers_reply_id=message.answers_reply_id,
+            attachments=list(map(LetterFileCard.of, files)),
         )
 
 
@@ -99,11 +163,15 @@ class AnswerBody(BaseModel):
 
     reply_id: int
     body: str = Field(min_length=1, max_length=20_000)
+    #: Файлы к ответу — номера из загрузки (`POST /api/threads/{id}/files`).
+    #: Пусто — ответ без файлов, как прежде.
+    file_ids: list[int] = Field(default_factory=list)
 
 
 class AttachmentCard(BaseModel):
     """Вложение ответа: сведения о файле. Сам файл — отдельным запросом
-    (`GET /api/replies/{reply_id}/attachments/{id}`), только на скачивание."""
+    (`GET /api/replies/{reply_id}/attachments/{id}`), только на скачивание;
+    текст из него — тоже отдельным (`…/attachments/{id}/text`)."""
 
     id: int
     name: str
@@ -114,6 +182,12 @@ class AttachmentCard(BaseModel):
     accepted: bool
     #: Почему не сохранён — словами, для человека.
     reason: str | None
+    #: Из файла прочитан текст. Сам текст в карточку не едет: карточка диалога
+    #: читает сведения о десятке файлов, а текст бывает в двадцать тысяч знаков.
+    has_text: bool = False
+    #: Почему текста нет или чем он неполон — словами. Текста нет и слов нет —
+    #: файл ещё не читали: его прочитает первый запрос текста.
+    text_note: str | None = None
 
     @classmethod
     def of(cls, row: ReplyAttachmentModel) -> AttachmentCard:
@@ -124,6 +198,8 @@ class AttachmentCard(BaseModel):
             content_type=row.content_type,
             accepted=row.accepted,
             reason=row.reason,
+            has_text=row.has_text,
+            text_note=row.text_note,
         )
 
 
@@ -273,6 +349,11 @@ class ThreadView(BaseModel):
     agent_writes: bool = False
     #: За что отклоняют черновик на этапе переписки (`AgentStage.reject_reasons`).
     agent_reasons: list[str] = Field(default_factory=list)
+    #: Файлы, приложенные к переписке и ещё ни с одним письмом не ушедшие: по ним
+    #: экран восстанавливает скрепку у формы ответа после перезагрузки страницы.
+    pending_files: list[LetterFileCard] = Field(default_factory=list)
+    #: Правила файла к ответу — для проверки до загрузки и `accept` у кнопки.
+    file_rules: FileRulesCard = Field(default_factory=FileRulesCard.current)
 
     @classmethod
     def of(
@@ -284,10 +365,11 @@ class ThreadView(BaseModel):
         drafts: Sequence[ShownDraft] = (),
         agent_writes: bool = False,
         agent_reasons: Sequence[str] = (),
+        outgoing: ThreadFiles = NO_FILES,
     ) -> ThreadView:
         return cls(
             card=ThreadCard.of(detail.row),
-            letters=[LetterCard.of(m) for m in detail.messages],
+            letters=[LetterCard.of(m, outgoing.letters.get(m.id, ())) for m in detail.messages],
             incoming=[
                 IncomingCard.of(r, detail.row.stage, files.get(r.id, ())) for r in detail.replies
             ],
@@ -295,4 +377,5 @@ class ThreadView(BaseModel):
             drafts=[DraftCard.of(shown) for shown in drafts],
             agent_writes=agent_writes,
             agent_reasons=list(agent_reasons),
+            pending_files=list(map(LetterFileCard.of, outgoing.pending)),
         )

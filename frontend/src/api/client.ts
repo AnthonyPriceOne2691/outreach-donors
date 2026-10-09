@@ -131,6 +131,21 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   return (await response.json()) as T;
 }
 
+/**
+ * Файл на сервер — формой. Тип содержимого не задаётся: границу частей формы
+ * браузер пишет сам. Отказ — тем же исключением и с тем же текстом, что у
+ * `request`.
+ */
+export async function upload<T>(path: string, form: FormData): Promise<T> {
+  const response = await fetch(`/api${path}`, {
+    method: 'POST',
+    headers: withPass({}),
+    body: form,
+  });
+  if (!response.ok) await raise(response);
+  return (await response.json()) as T;
+}
+
 /** Файл с сервера: тело, имя, которое сервер для него назвал, и заголовки
  *  ответа — по ним экран говорит, сколько строк легло в файл. */
 export interface Downloaded {

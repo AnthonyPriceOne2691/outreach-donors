@@ -55,6 +55,7 @@ from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, SenderModel
 from backend.features.letters import compose, identity, mailbox, reply_to, settle, unsubscribe
 from backend.features.letters.chain import ANSWER_STEP
+from backend.features.letters.outgoing_store import Files, OutgoingFiles
 from backend.features.letters.transport import Mail, Outgoing, Transport, TransportError, of_stage
 
 logger = logging.getLogger(__name__)
@@ -179,6 +180,8 @@ class _Target:
     #: у возвращённого человеком из «отправляется» — след попытки, которая
     #: могла уйти (`unknown_outcome.py`).
     before: tuple[int | None, str | None] = (None, None)
+    #: Файлы письма (бывают у ответа) — прочитаны до «отправляется», как и заголовки.
+    files: Files = ()
 
 
 class Sending:
@@ -268,6 +271,7 @@ class Sending:
             email=to.email,
             to=to,
             before=(message.sender_id, message.internet_message_id),
+            files=await OutgoingFiles(self._session).outgoing(message_id),
         )
 
     async def _claim(self, target: _Target, sender: SenderModel, own: OwnHeaders) -> None:
@@ -431,6 +435,7 @@ class Sending:
             # Та же ссылка, что стоит в тексте письма: разойдись они —
             # кнопка почты отписывала бы не того, кому написали.
             unsubscribe_url=unsubscribe.url_for(target.message.domain_id),
+            attachments=target.files,
         )
         try:
             return await transport.send(outgoing)

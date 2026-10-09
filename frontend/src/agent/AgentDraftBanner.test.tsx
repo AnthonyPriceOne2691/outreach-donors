@@ -226,6 +226,7 @@ describe('плашка черновика агента', () => {
     expect(posted(recorded.calls, '/api/threads/3/answer')?.body).toEqual({
       reply_id: 7,
       body: 'Glad to help!',
+      file_ids: [],
     });
   });
 

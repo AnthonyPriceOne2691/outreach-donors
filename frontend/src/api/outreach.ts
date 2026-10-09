@@ -13,8 +13,9 @@ import type {
   ThreadCard,
   UnboundView,
 } from './types';
+import type { AttachmentText, OutgoingFile } from './files';
 import type { ThreadView } from './thread';
-import { download, request } from './client';
+import { download, request, upload } from './client';
 import type { Downloaded } from './client';
 
 export function listSenders(): Promise<SendersView> {
@@ -66,11 +67,42 @@ export function downloadAttachment(replyId: number, attachmentId: number): Promi
  * Наш ответ на ответ собеседника — и отправка сразу: тем ящиком, что начал
  * переписку, на адрес, с которого ответили, веткой к его письму.
  */
-export function answerReply(threadId: number, replyId: number, body: string): Promise<SendResult> {
+export function answerReply(
+  threadId: number,
+  replyId: number,
+  body: string,
+  fileIds: number[] = [],
+): Promise<SendResult> {
   return request<SendResult>(`/threads/${threadId}/answer`, {
     method: 'POST',
-    body: { reply_id: replyId, body },
+    body: { reply_id: replyId, body, file_ids: fileIds },
   });
+}
+
+/** Файл к ответу — сразу на сервер: тип и размер проверяет он, отказ — словами
+ *  до отправки. Файл ждёт в переписке, пока ответ не уйдёт. */
+export function attachFile(threadId: number, file: File): Promise<OutgoingFile> {
+  const form = new FormData();
+  form.append('file', file);
+  return upload<OutgoingFile>(`/threads/${threadId}/files`, form);
+}
+
+/** Убрать файл, который ещё не ушёл с письмом. */
+export function detachFile(threadId: number, fileId: number): Promise<void> {
+  return request<void>(`/threads/${threadId}/files/${fileId}`, { method: 'DELETE' });
+}
+
+/** Файл нашего письма — на скачивание. */
+export function downloadLetterFile(messageId: number, fileId: number): Promise<Downloaded> {
+  return download(`/messages/${messageId}/attachments/${fileId}`);
+}
+
+/** Текст вложения ответа — тот, что видела модель разбора цены. */
+export function fetchAttachmentText(
+  replyId: number,
+  attachmentId: number,
+): Promise<AttachmentText> {
+  return request<AttachmentText>(`/replies/${replyId}/attachments/${attachmentId}/text`);
 }
 
 /** Ответ рекламодателя — в работу. Повторно — отказ: лид уже кто-то ведёт. */

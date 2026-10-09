@@ -55,6 +55,8 @@ from backend.features.letters.building import LetterScopeError
 from backend.features.letters.compose import ComposeError
 from backend.features.letters.draft import LetterConflictError
 from backend.features.letters.guards import ForbiddenContentError
+from backend.features.letters.outgoing_files import OutgoingFileError
+from backend.features.letters.outgoing_store import OutgoingFileTakenError, UnknownOutgoingFileError
 from backend.features.letters.repository import UnknownLetterError
 from backend.features.letters.review import NotEditableError
 from backend.features.letters.sending import SendError
@@ -98,6 +100,12 @@ STATUSES: dict[type[Exception], int] = {
     # случаях, и текст отказа говорит, какой из двух.
     UnknownAttachmentError: status.HTTP_404_NOT_FOUND,
     AttachmentNotKeptError: status.HTTP_404_NOT_FOUND,
+    # Файл к нашему ответу: не годится (тип, содержимое, размер, число, имя) —
+    # это запрос, и текст называет, что не так и какой предел; такого файла
+    # нет в переписке или у письма — 404; уже приложен к письму — состояние.
+    OutgoingFileError: status.HTTP_422_UNPROCESSABLE_CONTENT,
+    UnknownOutgoingFileError: status.HTTP_404_NOT_FOUND,
+    OutgoingFileTakenError: status.HTTP_409_CONFLICT,
     # Письмо не отправлено: стоп-лист, незаполненная настройка письма,
     # некому писать сегодня, письмо уже ушло. Все четыре — про состояние,
     # а не про запрос, и все четыре человек чинит сам.

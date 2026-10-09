@@ -36,6 +36,7 @@ from backend.features.core.domain import AuditAction, MessageStatus
 from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.letters import chain
+from backend.features.letters.outgoing_store import OutgoingFiles
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +128,7 @@ async def record_sent(
     }
     if witness.how is not None:
         details["как узнали"] = witness.how
+    details.update(await _files(session, message.id))
     await AccessRepository(session).record(
         AuditAction.LETTER_SENT,
         author_id=author_id,
@@ -134,6 +136,15 @@ async def record_sent(
         details=details,
     )
     return True
+
+
+async def _files(session: AsyncSession, message_id: int) -> dict[str, Any]:
+    """Файлы письма именами — в журнал, каким бы путём письмо ни записалось ушедшим.
+
+    У письма без файлов ключа нет вовсе: запись первого письма и добивки прежняя.
+    """
+    names = await OutgoingFiles(session).names(message_id)
+    return {"вложения": names} if names else {}
 
 
 async def _cadence(session: AsyncSession, campaign_id: int) -> list[int] | None:

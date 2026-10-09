@@ -34,23 +34,41 @@
 `MaybeSentError`: письмо остаётся «отправляется», и его исход запишет
 событие платформы (наш номер письма в нём есть и без её номера) или человек
 в блоке «Исход неизвестен» (`unknown_outcome.py`).
+
+**Файлы ответа — полем `attachments`**: тело в base64, имя, наш тип и
+`disposition: attachment` — только на сохранение. Письмо целиком у платформы
+меньше 30 МБ вместе с кодированием (`MAX_MESSAGE_BYTES`), но наш предел файлов
+на письмо ниже — под сервером получателя, который отбивает письма больше 10 МБ
+(`outgoing_files.MAX_LETTER_BYTES`, сверяет тест).
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 
 import httpx
 
 from backend.config import outreach as cfg
 from backend.features.letters import identity
-from backend.features.letters.transport import MaybeSentError, Outgoing, TransportError
+from backend.features.letters.transport import (
+    MaybeSentError,
+    Outgoing,
+    OutgoingFile,
+    TransportError,
+)
 from backend.shared.net.retry import reason_of
 
 logger = logging.getLogger(__name__)
 
 API_URL = "https://api.sendgrid.com/v3/mail/send"
+
+#: Предел письма у платформы: «The total size of your email, including
+#: attachments, must be less than 30MB» — с заголовками, текстом и файлами
+#: после кодирования (документация Mail Send v3, раздел ограничений).
+#: Мегабайты читаем строже, десятичными: наш предел под ним при любом прочтении.
+MAX_MESSAGE_BYTES = 30_000_000
 
 #: Заголовок ответа платформы с её номером письма. Это номер в её журнале
 #: (Activity), а не `Message-ID`, который увидит получатель: тот ставим мы.
@@ -269,5 +287,18 @@ def _payload(outgoing: Outgoing) -> dict[str, object]:
     }
     if outgoing.reply_to:
         payload["reply_to"] = {"email": outgoing.reply_to}
+    if outgoing.attachments:
+        # Пустого списка платформе не шлём: у первого письма и добивки тело прежнее.
+        payload["attachments"] = [_attachment(file) for file in outgoing.attachments]
     payload["headers"] = headers
     return payload
+
+
+def _attachment(file: OutgoingFile) -> dict[str, str]:
+    """Файл письма для платформы: тело — base64, тип — наш, только на сохранение."""
+    return {
+        "content": base64.b64encode(file.data).decode("ascii"),
+        "filename": file.name,
+        "type": file.content_type,
+        "disposition": "attachment",
+    }

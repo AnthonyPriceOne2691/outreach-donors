@@ -365,7 +365,11 @@ Library.
     POST   /api/threads/{id}/reply      ответ руками      (точечное право)
     POST   /api/threads/{id}/status     состояние сделки, ставит человек
     POST   /api/threads/{id}/stop       остановить цепочку
+    POST   /api/threads/{id}/files      файл к ответу, до отправки  (точечное право)
+    DELETE /api/threads/{id}/files/{id} убрать файл, пока не ушёл   (точечное право)
+    GET    /api/messages/{id}/attachments/{id}  файл нашего письма, только на скачивание
     GET    /api/replies/{id}/attachments/{id}   вложение ответа, только на скачивание
+    GET    /api/replies/{id}/attachments/{id}/text   текст из файла или почему его нет
     GET    /api/replies/unbound         ответы без письма и почему, по странице
 
     GET    /api/senders                 домены и ящики рассылки     (админ)

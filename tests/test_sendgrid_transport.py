@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 from dataclasses import replace
 from typing import Any
@@ -14,7 +15,12 @@ from typing import Any
 import httpx
 import pytest
 from backend.features.letters.sendgrid import PROVIDER_ID_HEADER, SendGridTransport
-from backend.features.letters.transport import MaybeSentError, Outgoing, TransportError
+from backend.features.letters.transport import (
+    MaybeSentError,
+    Outgoing,
+    OutgoingFile,
+    TransportError,
+)
 
 SENT = Outgoing(
     message_id=417,
@@ -107,6 +113,42 @@ class TestWhatGoesOut:
         transport, _ = _transport(_accepted)
 
         assert await transport.send(SENT) == "sg-42"
+
+
+class TestFiles:
+    """Файлы ответа уходят полем `attachments`: тело — base64, тип — наш, только
+    на сохранение. У письма без файлов поля нет вовсе: тело первого письма и
+    добивки — прежнее."""
+
+    async def test_files_go_whole_in_base64_under_our_type_as_attachments(self) -> None:
+        price = OutgoingFile("Прайс 2026.pdf", "application/pdf", b"%PDF-1.7\n\x00\xff%%EOF")
+        rates = OutgoingFile("rates.csv", "text/csv", "сайт;цена\n".encode())
+        transport, seen = _transport(_accepted)
+
+        await transport.send(replace(SENT, attachments=(price, rates)))
+
+        assert seen[0]["attachments"] == [
+            {
+                "content": base64.b64encode(price.data).decode("ascii"),
+                "filename": "Прайс 2026.pdf",
+                "type": "application/pdf",
+                "disposition": "attachment",
+            },
+            {
+                "content": base64.b64encode(rates.data).decode("ascii"),
+                "filename": "rates.csv",
+                "type": "text/csv",
+                "disposition": "attachment",
+            },
+        ]
+        assert base64.b64decode(seen[0]["attachments"][0]["content"]) == price.data
+
+    async def test_letter_without_files_has_no_attachments_field(self) -> None:
+        transport, seen = _transport(_accepted)
+
+        await transport.send(SENT)
+
+        assert "attachments" not in seen[0]
 
 
 class TestWhenItGoesWrong:

@@ -120,8 +120,15 @@ export function ThreadPage() {
   });
 
   const answer = useMutation({
-    mutationFn: ({ replyId, text }: { replyId: number; text: string }) =>
-      answerReply(id ?? 0, replyId, text),
+    mutationFn: ({
+      replyId,
+      text,
+      fileIds,
+    }: {
+      replyId: number;
+      text: string;
+      fileIds: number[];
+    }) => answerReply(id ?? 0, replyId, text, fileIds),
     onSuccess: async (sent) => {
       await queryClient.invalidateQueries({ queryKey: ['thread', String(id)] });
       await queryClient.invalidateQueries({ queryKey: ['threads'] });
@@ -235,10 +242,14 @@ export function ThreadPage() {
       {can('send') && target !== null && (
         <Card className="glass" p="md">
           <AnswerBox
+            key={data.card.id}
             answered={data.letters.some((letter) => letter.answers_reply_id === target.id)}
             busy={busy(target.id)}
-            onSend={(text) => answer.mutate({ replyId: target.id, text })}
+            onSend={(text, fileIds) => answer.mutate({ replyId: target.id, text, fileIds })}
             signed={sales}
+            threadId={data.card.id}
+            pendingFiles={data.pending_files ?? []}
+            {...(data.file_rules === undefined ? {} : { rules: data.file_rules })}
           />
         </Card>
       )}

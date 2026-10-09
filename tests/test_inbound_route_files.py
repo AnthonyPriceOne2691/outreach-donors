@@ -250,6 +250,9 @@ async def test_thread_card_lists_files_without_their_bytes(
             "content_type": "application/pdf",
             "accepted": True,
             "reason": None,
+            # Файл ещё не читали: его текст прочитает разбор цены или первый показ.
+            "has_text": False,
+            "text_note": None,
         },
         {
             "id": ids[1],
@@ -258,6 +261,8 @@ async def test_thread_card_lists_files_without_their_bytes(
             "content_type": "text/javascript",
             "accepted": False,
             "reason": "«.js» — исполняемый файл или скрипт, такие не принимаются",
+            "has_text": False,
+            "text_note": None,
         },
     ]
     assert response.json()["incoming"][0]["id"] == reply.id

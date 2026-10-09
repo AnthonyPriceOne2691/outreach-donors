@@ -50,6 +50,9 @@ OUTREACH_ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("GET", "/api/threads/{thread}", None, "view"),
     ("POST", "/api/threads/{thread}/answer", {"reply_id": 999_999, "body": "Thanks"}, "send"),
     ("POST", "/api/threads/{thread}/replies/{reply}/draft", None, "send"),
+    # Файл к ответу уходит наружу письмом: приложить и убрать — то же право, что ответить.
+    ("POST", "/api/threads/{thread}/files", None, "send"),
+    ("DELETE", "/api/threads/{thread}/files/{file}", None, "send"),
 ]
 
 
@@ -159,8 +162,8 @@ async def operator_token(make_user: MakeUser, sign_in: SignIn) -> str:
 
 
 def _path(template: str, sender: SenderModel, thread: ThreadModel) -> str:
-    # Ответа с таким номером нет: проверяется право, а не сам черновик.
-    return template.format(sender=sender.id, thread=thread.id, reply=999_999)
+    # Ответа и файла с таким номером нет: проверяется право, а не сам черновик или файл.
+    return template.format(sender=sender.id, thread=thread.id, reply=999_999, file=999_999)
 
 
 class TestWhoIsLetIn:
@@ -234,7 +237,8 @@ class TestWhoIsLetIn:
                 method,
                 path.replace("{sender}", "{sender_id}")
                 .replace("{thread}", "{thread_id}")
-                .replace("{reply}", "{reply_id}"),
+                .replace("{reply}", "{reply_id}")
+                .replace("{file}", "{file_id}"),
             )
             for method, path, _, _ in OUTREACH_ROUTES
         }

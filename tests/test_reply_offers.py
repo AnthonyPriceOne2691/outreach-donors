@@ -220,7 +220,7 @@ class TestForm:
                 "period": None,
             }
         ]
-        assert snapshot["prompt_version"] == PROMPT_VERSION == "reply-parse-v6-offers"
+        assert snapshot["prompt_version"] == PROMPT_VERSION == "reply-parse-v7-attachments"
 
     def test_prompt_asks_for_every_price_and_no_longer_for_a_note(self) -> None:
         assert '"offers": array with one object per price' in SYSTEM
