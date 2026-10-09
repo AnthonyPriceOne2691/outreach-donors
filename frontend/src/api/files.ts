@@ -46,4 +46,6 @@ export interface FileRules {
   max_files: number;
   /** Расширения в нижнем регистре, без точки. */
   extensions: string[];
+  /** Сколько дней приложенный файл ждёт письма — потом убирается сам. */
+  pending_days?: number;
 }

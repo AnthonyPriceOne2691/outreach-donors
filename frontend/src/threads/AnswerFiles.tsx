@@ -18,7 +18,7 @@ import { useState } from 'react';
 import { refusalOf } from '../api/client';
 import type { FileRules, OutgoingFile } from '../api/files';
 import { attachFile, detachFile } from '../api/outreach';
-import { formatBytes } from '../format';
+import { formatBytes, plural } from '../format';
 
 /** Мегабайты — десятичные, как считает сервер. */
 function megabytes(bytes: number): string {
@@ -59,6 +59,12 @@ interface Props {
   onChange: (files: OutgoingFile[]) => void;
   rules?: FileRules;
   disabled: boolean;
+}
+
+/** Брошенный файл убирает сервер (reaper): человек должен знать срок заранее, а не
+ *  найти пустое место через неделю. */
+function pendingNote(days: number): string {
+  return `Не ушедший с письмом за ${days} ${plural(days, 'день', 'дня', 'дней')} файл уберётся сам`;
 }
 
 export function AnswerFiles({ threadId, files, onChange, rules, disabled }: Props) {
@@ -116,6 +122,11 @@ export function AnswerFiles({ threadId, files, onChange, rules, disabled }: Prop
           </Badge>
         ))}
       </Group>
+      {files.length > 0 && rules?.pending_days !== undefined ? (
+        <Text size="xs" c="dimmed">
+          {pendingNote(rules.pending_days)}
+        </Text>
+      ) : null}
       {refusal !== null ? (
         <Text size="sm" c="red" role="alert">
           {refusal}

@@ -145,8 +145,11 @@ describe('файлы нашего ответа', () => {
     });
     const user = userEvent.setup();
 
-    // Ответ начат — форма открыта сразу, файл в ней.
+    // Ответ начат — форма открыта сразу, файл в ней, и срок, после которого его уберут.
     expect(screen.getByLabelText('Текст ответа')).toBeInTheDocument();
+    expect(
+      screen.getByText('Не ушедший с письмом за 7 дней файл уберётся сам'),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: `Убрать ${OUR_FILE.name}` }));
 
     await waitFor(() =>
@@ -157,5 +160,7 @@ describe('файлы нашего ответа', () => {
       ).toBe(true),
     );
     await waitFor(() => expect(screen.queryByText(/media-kit\.pdf/)).toBeNull());
+    // Файлов нет — и срока не о чем называть.
+    expect(screen.queryByText(/уберётся сам/)).toBeNull();
   });
 });

@@ -13,6 +13,7 @@ export const FILE_RULES: FileRules = {
   max_file_bytes: 7_000_000,
   max_letter_bytes: 7_000_000,
   extensions: ['pdf', 'docx', 'xlsx', 'csv', 'txt', 'png', 'jpg', 'jpeg'],
+  pending_days: 7,
 };
 
 export const PRICE_FILE: ReplyFile = {
