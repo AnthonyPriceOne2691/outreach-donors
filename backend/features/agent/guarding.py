@@ -110,18 +110,20 @@ def said_at_start() -> list[str]:
     """Что процесс, который пишет черновики агента и тратит модель, говорит при старте.
 
     Словами и с именами настроек: на каких этапах агент ведёт переписку и включён ли агент
-    продаж — в журнал `info`; потолок, который черновиков не держит, — `warning`. Без этой
-    строки и выключенный агент продаж, и «потолка нет ни у чего» на сервере видно только по
-    коду и `.env`. Возвращает сказанное.
+    продаж — в журнал `info`; потолок, который свою часть расхода не держит (черновики
+    агента, вызовы модели продаж), — `warning`. Без этой строки и выключенный агент продаж,
+    и «потолка нет ни у чего» на сервере видно только по коду и `.env`. Возвращает сказанное.
     """
-    general, own = llm_cfg.DAILY_TOKEN_CAP, llm_cfg.AGENT_DAILY_TOKEN_CAP
+    general = llm_cfg.DAILY_TOKEN_CAP
     registry = _registry_said()
     logger.info("%s", registry, extra={"stages": [stage.value for stage in AGENT_STAGES]})
-    cap = _cap_said(general, own)
-    if cap is None:
-        return [registry]
-    logger.warning("%s", cap, extra={"general_cap": general, "own_cap": own})
-    return [registry, cap]
+    parts = _parts()
+    caps = [_unbounded(parts)] if not general else _not_held(general, parts)
+    for cap in caps:
+        logger.warning(
+            "%s", cap, extra={"general_cap": general, "own_caps": {p.setting: p.own for p in parts}}
+        )
+    return [registry, *caps]
 
 
 def _registry_said() -> str:
@@ -130,30 +132,76 @@ def _registry_said() -> str:
     return f"агент переписки ведёт этапы {stages}; агент продаж {sales} (SALES_AGENT_ENABLED)"
 
 
-def _cap_said(general: int, own: int | None) -> str | None:
-    """Потолок, который черновиков не держит: общего нет, своего нет или он выше доли.
-    `None` — черновики в своём потолке не больше доли общего."""
-    if not general:
-        spent = (
-            "судья и разбор ответов тратят без предела, черновики агента — до своего потолка "
-            f"{own} (AGENT_DAILY_TOKEN_CAP)"
-            if own
-            else "черновики агента, судья и разбор ответов тратят без предела"
-        )
-        return f"потолка расхода на модель за день нет (LLM_DAILY_TOKEN_CAP=0): {spent}"
-    if own == 0:
+@dataclass(frozen=True, slots=True)
+class _Part:
+    """Часть расхода модели со своим потолком внутри общего — словами строки при старте."""
+
+    #: Кто тратит: «черновики агента».
+    who: str
+    #: Чей потолок: «свой потолок черновиков».
+    whose: str
+    setting: str
+    own: int | None
+    share: float
+    #: Кому не останется дня, если часть выберет общий потолок.
+    starved: str
+
+
+def _parts() -> tuple[_Part, ...]:
+    """Черновики агента (`drafts_cap`) и вызовы модели продаж (`sales/usage_cap.sales_cap`):
+    одно правило доли (`usage.share_cap`) — одна строка при старте."""
+    return (
+        _Part(
+            "черновики агента",
+            "черновиков",
+            "AGENT_DAILY_TOKEN_CAP",
+            llm_cfg.AGENT_DAILY_TOKEN_CAP,
+            llm_cfg.AGENT_CAP_SHARE,
+            "разбору ответов и судье",
+        ),
+        _Part(
+            "вызовы модели продаж",
+            "вызовов модели продаж",
+            "SALES_DAILY_TOKEN_CAP",
+            llm_cfg.SALES_DAILY_TOKEN_CAP,
+            llm_cfg.SALES_CAP_SHARE,
+            "разбору ответов, судье и черновикам",
+        ),
+    )
+
+
+def _unbounded(parts: tuple[_Part, ...]) -> str:
+    """Общего потолка нет: кто тратит без предела, а кого держит только свой."""
+    free = [part.who for part in parts if not part.own]
+    capped = [
+        f"{part.who} — до своего потолка {part.own} ({part.setting})" for part in parts if part.own
+    ]
+    spent = ", ".join([*free, "судья и разбор ответов"]) + " тратят без предела"
+    return "потолка расхода на модель за день нет (LLM_DAILY_TOKEN_CAP=0): " + ", ".join(
+        [spent, *capped]
+    )
+
+
+def _not_held(general: int, parts: tuple[_Part, ...]) -> list[str]:
+    return [said for part in parts if (said := _cap_said(general, part)) is not None]
+
+
+def _cap_said(general: int, part: _Part) -> str | None:
+    """Свой потолок, который часть не держит: его нет или он выше доли общего.
+    `None` — часть в своём потолке не больше доли общего."""
+    if part.own == 0:
         return (
-            "своего потолка черновиков нет (AGENT_DAILY_TOKEN_CAP=0): черновики могут выбрать "
-            f"весь общий {general} (LLM_DAILY_TOKEN_CAP) — разбору ответов и судье не останется"
+            f"своего потолка {part.whose} нет ({part.setting}=0): {part.who} могут выбрать "
+            f"весь общий {general} (LLM_DAILY_TOKEN_CAP) — {part.starved} не останется"
         )
-    if own is None or own <= usage.share_cap(None, llm_cfg.AGENT_CAP_SHARE):
+    if part.own is None or part.own <= usage.share_cap(None, part.share):
         return None
-    named = f"свой потолок черновиков {own} (AGENT_DAILY_TOKEN_CAP)"
-    if own > general:
+    named = f"свой потолок {part.whose} {part.own} ({part.setting})"
+    if part.own > general:
         return f"{named} больше общего {general} (LLM_DAILY_TOKEN_CAP) — он ничего не ограничивает"
     return (
-        f"{named} больше доли {round(llm_cfg.AGENT_CAP_SHARE * 100)} % общего {general} "
-        "(LLM_DAILY_TOKEN_CAP): черновики могут выбрать день разбору ответов и судье"
+        f"{named} больше доли {round(part.share * 100)} % общего {general} "
+        f"(LLM_DAILY_TOKEN_CAP): {part.who} могут выбрать день {part.starved}"
     )
 
 
