@@ -91,20 +91,24 @@ export function SelectionRow(props: Props) {
   return (
     <Table.Tr>
       <Table.Td>
-        <Anchor
-          href={`https://${row.host}`}
-          target="_blank"
-          rel="noreferrer"
-          fw={500}
-          className="cellName"
-        >
-          <Seams text={row.host} />
-        </Anchor>
-        {row.dr !== null && (
-          <Text size="xs" c="dimmed">
-            DR {row.dr}
-          </Text>
-        )}
+        {/* DR — в строке домена, а не под ним: строка таблицы 67 px вместо ~48 при
+            двадцати строках на странице — экран и лишний (аудит экранов 09.10.2026). */}
+        <Group gap={8} justify="center" wrap="wrap" style={{ rowGap: 0 }}>
+          <Anchor
+            href={`https://${row.host}`}
+            target="_blank"
+            rel="noreferrer"
+            fw={500}
+            className="cellName"
+          >
+            <Seams text={row.host} />
+          </Anchor>
+          {row.dr !== null && (
+            <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+              DR {row.dr}
+            </Text>
+          )}
+        </Group>
       </Table.Td>
       {withThresholds && (
         <Table.Td data-label="Пороги">
