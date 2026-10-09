@@ -31,7 +31,7 @@
  * и страница — в адресе (`selectionFilters.ts`).
  */
 
-import { Alert, Card, Loader, SegmentedControl, SimpleGrid, Stack, Text } from '@mantine/core';
+import { Alert, Badge, Card, Group, Loader, SegmentedControl, Stack, Text } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -42,7 +42,6 @@ import { HUMAN_INTENTS, JUDGE_DECIDERS, SELECTION_TABS } from '../api/labels';
 import { decideSite, listSelection } from '../api/selection';
 import type { HumanIntent, JudgeDecider, SelectionCard, SelectionView } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
-import { Metric } from '../components/Metric';
 import { PageHead } from '../components/PageHead';
 import { PageSwitch } from '../components/PageSwitch';
 import { useTyped } from '../donors/useTyped';
@@ -91,21 +90,24 @@ function Summary({ data }: { data: SelectionView }) {
           hint="Каждый домен лежит ровно на одной вкладке. Отклонённый — не прошёл пороги или судья решил, что это не площадка; у каждого отказа названы автор и основание. Решение человека сильнее судьи, но вердикт судьи не переписывает: по расхождению между ними видно, как часто он ошибается."
         />
 
-        {/* Плитки без пояснений: доля расхождений («—» до первого решения
-            человека) держала пустую строку под числом у всех плиток и опускала
-            их содержимое ниже середины (замечание 26.09.2026). Плиток «Приняты /
-            К разбору / Отклонены» нет: те же числа стоят во вкладках строкой ниже
-            (аудит экранов 09.10.2026: каждое число — один раз, там, где по нему
-            действуют). */}
-        <SimpleGrid cols={{ base: 1, xs: 3 }} spacing="sm" maw={720}>
-          <Metric title="Ответили доноры" value={formatNumber(data.answered)} />
-          <Metric title="Смотрел человек" value={formatNumber(data.reviewed)} />
-          <Metric
-            title="Расходится с судьёй"
-            value={formatNumber(data.disagreements)}
-            color={data.disagreements > 0 ? 'yellow' : undefined}
-          />
-        </SimpleGrid>
+        {/* Строкой, а не плитками (аудит экранов 09.10.2026, второй круг): три плитки
+            по 90 px отвечали на один вопрос — «насколько верить судье», — а таблица,
+            ради которой экран открывают, стояла на экран ниже. Плиток «Приняты /
+            К разбору / Отклонены» нет: те же числа — во вкладках строкой ниже. */}
+        <Group gap="lg">
+          <Text size="sm">
+            Ответили доноры <b>{formatNumber(data.answered)}</b>
+          </Text>
+          <Text size="sm">
+            Смотрел человек <b>{formatNumber(data.reviewed)}</b>
+          </Text>
+          <Group gap={6}>
+            <Text size="sm">Расходится с судьёй</Text>
+            <Badge variant="light" color={data.disagreements > 0 ? 'yellow' : 'gray'}>
+              {formatNumber(data.disagreements)}
+            </Badge>
+          </Group>
+        </Group>
 
         {/* Главное число для гест-постинга: угадал ли судья, продаёт ли сайт
             размещение, — по ответам самих сайтов. Сходимость с человеком
