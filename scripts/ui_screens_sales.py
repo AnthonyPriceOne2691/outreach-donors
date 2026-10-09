@@ -34,7 +34,7 @@ from typing import Any
 
 from playwright.sync_api import expect
 from ui_screens_sales_funnel import funnel_prepare, funnel_screens
-from ui_screens_sales_hints import hint_probe
+from ui_screens_sales_hints import hint_probe, note_probes
 from ui_screens_sales_queue import queue_screens
 
 #: Узкое окно — телефон: вкладки встают столбиком, таблицы уезжают в прокрутку.
@@ -121,7 +121,6 @@ def sales_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         ("страна в строке", ".leadsTable tbody td:nth-child(4) p", norm),
         ("значок состояния", ".leadsTable tbody td:nth-child(5) .mantine-Badge-label", norm),
         ("значок причины", ".leadsTable tbody td:nth-child(6) .mantine-Badge-label", norm),
-        ("слова очистки", ".leadsTable tbody .leadNote", norm),
         (
             "номер другой страницы",
             "nav[aria-label='Страницы лидов'] button:not([aria-current]) "
@@ -134,12 +133,14 @@ def sales_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
             norm,
         ),
         ("пункт меню", "nav a", norm),
-        # Пояснение раздела — в «i» у заголовка (аудит 09.10.2026), а не абзацем под ним.
+        # Пояснение раздела — в «i» у заголовка (аудит 09.10.2026), а не абзацем под ним;
+        # слова очистки — за «!» лида, по нажатию.
         hint_probe("пояснение раздела", "Откуда лиды и как их чистят", norm),
+        *note_probes(norm),
     ]
     return {
         # Лиды — плитки состояний, вкладки, таблица с фильтрами под колонками. Мерится
-        # то, по чему решают: состояние, причина и слова очистки. Значок причины и
+        # то, по чему решают: состояние, причина и слова очистки за «!». Значок причины и
         # слова есть только у отклонённых: на базе без очистки точки честно
         # «не найдены», как и страницы — без двадцати одного лида.
         "sales": {"path": "/sales", "ready": ("heading", "Продажи"), "probes": leads_probes},

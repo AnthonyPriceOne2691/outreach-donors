@@ -202,7 +202,8 @@ describe('продажи: лиды', () => {
     const twin = within(rowOf('twin@acme.example.test'));
     expect(twin.getByText('отклонён')).toBeInTheDocument();
     expect(twin.getByText('дубль')).toBeInTheDocument();
-    expect(twin.getByText('дубль: адрес уже у лида №1')).toBeInTheDocument();
+    // Слова очистки — за «!» (аудит 09.10.2026): проверяет их тест ниже.
+    expect(twin.getByRole('button', { name: 'Что сказала очистка' })).toBeInTheDocument();
   });
 
   it('адрес и домен лида переносятся по швам, а не посреди слова', async () => {
@@ -522,6 +523,51 @@ describe('продажи: «Загрузить базу» — в строке в
 
     expect(screen.getAllByRole('link', { name: 'Загрузить базу' })).toHaveLength(1);
     expect(screen.getByText(/Загрузите базу/)).toBeInTheDocument();
+  });
+});
+
+describe('продажи: текст лида не вылезает из ячеек (аудит 09.10.2026)', () => {
+  it('слова очистки — за «!»: в ячейке значок причины, слова целиком — по нажатию', async () => {
+    await openScreen();
+    const user = userEvent.setup();
+
+    const twin = within(rowOf('twin@acme.example.test'));
+    expect(twin.getByText('дубль')).toBeInTheDocument();
+    expect(twin.queryByText('дубль: адрес уже у лида №1')).toBeNull();
+
+    await user.click(twin.getByRole('button', { name: 'Что сказала очистка' }));
+
+    const told = await screen.findByRole('dialog', { name: 'Что сказала очистка' }, SCREEN_WAIT);
+    expect(told).toHaveTextContent('дубль: адрес уже у лида №1');
+  });
+
+  it('«!» — только у лида, о котором очистка что-то сказала; «проверка не выполнена» — тоже за ним', async () => {
+    const unchecked: LeadCard = {
+      ...IVAN,
+      id: 4,
+      email: 'unchecked@beta.example.test',
+      cleaning_note: 'проверка не выполнена: сервис проверки не ответил',
+    };
+    await openScreen({ [LEADS]: { body: view([IVAN, unchecked]) } });
+
+    const fresh = within(rowOf('ivan@acme.example.test'));
+    expect(fresh.queryByRole('button', { name: 'Что сказала очистка' })).toBeNull();
+    const waiting = within(rowOf('unchecked@beta.example.test'));
+    expect(waiting.getByRole('button', { name: 'Что сказала очистка' })).toBeInTheDocument();
+    expect(waiting.queryByText(/проверка не выполнена/)).toBeNull();
+  });
+
+  it('компания и гипотеза переносятся по словам; пояс — одной строкой, целиком в подсказке', async () => {
+    const zone = 'America/Argentina/ComodRivadavia';
+    const company = 'International Association of Independent Online Publishers';
+    await openScreen({ [LEADS]: { body: view([{ ...IVAN, timezone: zone, company }]) } });
+
+    const row = within(rowOf('ivan@acme.example.test'));
+    expect(row.getByText(company).closest('td')).toHaveClass('wrapCell');
+    expect(row.getByText('сайты EN').closest('td')).toHaveClass('wrapCell');
+    const belt = row.getByText(zone);
+    expect(belt).toHaveAttribute('title', zone);
+    expect(belt).toHaveAttribute('data-line-clamp');
   });
 });
 
