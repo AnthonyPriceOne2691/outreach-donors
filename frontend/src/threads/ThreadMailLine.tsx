@@ -8,6 +8,11 @@
  * «Ответить».
  *
  * Пусто — первое письмо ещё не уходило: ящик выберется в момент отправки.
+ *
+ * **Две части — строка и плашка** (`ThreadPage`): строка «Пишет …» стоит в строке
+ * домена, плашка — одной строкой под шапкой, заголовок — в начале абзаца, а не
+ * отдельной строкой. До 09.10.2026 шапка с плашкой занимала 250 px из 792 и
+ * вместе с разбором цены сжимала ленту переписки до 192 px (аудит экранов).
  */
 
 import { Alert, Text } from '@mantine/core';
@@ -23,16 +28,25 @@ export function ThreadMailLine({ mail }: { mail: ThreadMail | null | undefined }
       ? ` · добивка ${mail.next_step} — ${formatDateTime(mail.next_at)}`
       : '';
   return (
-    <>
-      <Text size="sm" c="dimmed">
-        {who}
-        {next}
+    <Text size="sm" c="dimmed">
+      {who}
+      {next}
+    </Text>
+  );
+}
+
+/** Ящик не пишет — почему письма ждут, словами сервера. */
+export function ThreadMailWaiting({ mail }: { mail: ThreadMail | null | undefined }) {
+  if (!mail || mail.waiting === null) return null;
+  return (
+    <Alert color="yellow" py={6} px="sm">
+      <Text span size="sm" fw={600}>
+        Письма переписки ждут свой ящик
+      </Text>{' '}
+      —{' '}
+      <Text span size="sm">
+        {mail.waiting}
       </Text>
-      {mail.waiting !== null && (
-        <Alert color="yellow" title="Письма переписки ждут свой ящик" mt="xs">
-          {mail.waiting}
-        </Alert>
-      )}
-    </>
+    </Alert>
   );
 }

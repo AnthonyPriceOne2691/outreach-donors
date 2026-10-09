@@ -81,26 +81,29 @@ export function ReplyDecision({
   onClose,
 }: DecisionProps) {
   const who = reply.from_email ?? 'собеседника';
+  const heading = `${reply.lead ? 'Лид' : 'Разбор цены'} · ответ ${who}, ${when(reply.received_at)}`;
   return (
-    <Card className="glass" p="md" aria-label={reply.lead ? 'Лид' : 'Разбор цены'}>
-      <Group justify="space-between" gap="xs" wrap="nowrap">
-        <Text size="sm" fw={600}>
-          {reply.lead ? 'Лид' : 'Разбор цены'} · ответ {who}, {when(reply.received_at)}
-        </Text>
-        {onClose !== null && (
-          <Button variant="subtle" size="compact-xs" onClick={onClose}>
-            Свернуть
-          </Button>
-        )}
-      </Group>
+    <Card className="glass" px="md" py="sm" aria-label={reply.lead ? 'Лид' : 'Разбор цены'}>
       {reply.lead ? (
-        <LeadAction
-          incoming={reply}
-          canTake={canReview}
-          busy={busy}
-          onTake={onTakeLead}
-          onSend={onSendLead}
-        />
+        <>
+          <Group justify="space-between" gap="xs" wrap="nowrap">
+            <Text size="sm" fw={600}>
+              {heading}
+            </Text>
+            {onClose !== null && (
+              <Button variant="subtle" size="compact-xs" onClick={onClose}>
+                Свернуть
+              </Button>
+            )}
+          </Group>
+          <LeadAction
+            incoming={reply}
+            canTake={canReview}
+            busy={busy}
+            onTake={onTakeLead}
+            onSend={onSendLead}
+          />
+        </>
       ) : (
         <PriceReview
           incoming={reply}
@@ -108,6 +111,8 @@ export function ReplyDecision({
           busy={busy}
           onConfirm={onConfirm}
           onDecline={onDecline}
+          heading={heading}
+          onClose={onClose}
         />
       )}
     </Card>

@@ -17,6 +17,11 @@
  * (`ThreadsScreen`, с 09.10.2026): «К списку» там нет — список рядом, — а колонка
  * высотой окна: лента забирает остаток и прокручивается внутри, разбор и ответ
  * под ней всегда на виду. До этого на 1440 × 900 «Взять в работу» стояло ниже края.
+ *
+ * **Шапка — две строки** (аудит экранов 09.10.2026, второй круг): домен, состояние
+ * и ящик — первой, адрес и кампания — второй, плашка ящика — строкой под ними.
+ * Шапка в 250 px и разбор цены в 317 сжимали ленту до 192 px — 21 % окна 1440 × 900,
+ * а ради ленты диалог и открывают (жалоба Anthony 09.10.2026).
  */
 
 import { Alert, Badge, Card, Group, Loader, Stack, Text, Title } from '@mantine/core';
@@ -37,7 +42,7 @@ import { Seams } from '../components/Seams';
 import { AnswerBox } from './AnswerBox';
 import { ReplyDecision } from './ReplyDecision';
 import { ThreadFeed } from './ThreadFeed';
-import { ThreadMailLine } from './ThreadMailLine';
+import { ThreadMailLine, ThreadMailWaiting } from './ThreadMailLine';
 import type { ThreadOutlet } from './ThreadsScreen';
 import { activeReply, answerTarget } from './threadTimeline';
 
@@ -196,25 +201,28 @@ export function ThreadPage() {
     (handoff.isPending && handoff.variables === replyId);
 
   return (
-    <Stack gap="md" {...(split ? { className: 'threadPane' } : {})}>
-      <Card className="glassPanel threadHead" p={split ? 'lg' : 'xl'}>
-        <Stack gap={6}>
+    <Stack gap="sm" {...(split ? { className: 'threadPane' } : {})}>
+      <Card className="glassPanel threadHead" px="lg" py="md">
+        <Stack gap={4}>
           {back !== null && <BackLink to={back}>К списку</BackLink>}
-          <Group gap="sm">
-            {/* Длинный домен переносится по швам: без переноса на телефоне
-                он уходил за край карточки и обрезался (06.10.2026). */}
-            <Title order={3} className="cellName">
-              <Seams text={data.card.host} />
-            </Title>
-            <Badge variant="light" color={threadState(data.card.state).color}>
-              {threadState(data.card.state).title}
-            </Badge>
+          <Group gap="xs" justify="space-between" style={{ rowGap: 2 }}>
+            <Group gap="sm" wrap="nowrap" miw={0}>
+              {/* Длинный домен переносится по швам: без переноса на телефоне
+                  он уходил за край карточки и обрезался (06.10.2026). */}
+              <Title order={3} size="h4" className="cellName">
+                <Seams text={data.card.host} />
+              </Title>
+              <Badge variant="light" color={threadState(data.card.state).color}>
+                {threadState(data.card.state).title}
+              </Badge>
+            </Group>
+            <ThreadMailLine mail={data.mail} />
           </Group>
           <Text size="sm" c="dimmed">
             {data.card.contact_email ?? 'адрес не определён'} · кампания «{data.card.campaign}»
             {stageNote ? ` · ${stageNote}` : ''}
           </Text>
-          <ThreadMailLine mail={data.mail} />
+          <ThreadMailWaiting mail={data.mail} />
         </Stack>
       </Card>
 
@@ -251,7 +259,7 @@ export function ThreadPage() {
       {/* Отвечают человеку: автоответчику, отказу доставки и отписке — нет. Лиду
           продаж — тоже: подпись и адрес допишет модуль продаж. */}
       {can('send') && target !== null && (
-        <Card className="glass" p="md">
+        <Card className="glass" px="md" py="sm">
           <AnswerBox
             key={data.card.id}
             answered={data.letters.some((letter) => letter.answers_reply_id === target.id)}
