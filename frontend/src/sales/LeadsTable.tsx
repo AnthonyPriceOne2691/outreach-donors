@@ -47,17 +47,19 @@ import { LeadNote, NOTE_SLOT } from './LeadNote';
 
 /** Ширины полей фильтра — по самому длинному значению: «отклонён» — узкое поле,
  *  причина «домен в работе у другого направления» не влезает ни в какое разумное
- *  поле, поэтому её список — по содержимому (`WIDE_LIST`), а поле — по колонке. */
+ *  поле, поэтому её список — по содержимому (`WIDE_LIST`), а поле — по короткой. */
 const FIELD = {
   search: '12rem',
   hypothesis: '9rem',
   state: '7.5rem',
-  reason: '15rem',
+  // Поле — по короткой причине, длинная читается в списке (аудит экранов 09.10.2026).
+  reason: '9rem',
 } as const;
 
 const COLUMNS: Column[] = [
   { title: 'Лид', width: '17rem' },
-  { title: 'Компания', width: '13rem' },
+  // Имя и домен компании — по левому краю, как имя лида (аудит экранов 09.10.2026).
+  { title: 'Компания', width: '13rem', start: true },
   { title: 'Гипотеза', width: '10rem' },
   { title: 'Страна', width: '9rem' },
   { title: 'Состояние', width: '8rem' },
@@ -234,7 +236,7 @@ function LeadRow({ row }: { row: LeadCard }) {
           </Text>
         )}
       </Table.Td>
-      <Table.Td className="wrapCell">
+      <Table.Td className="wrapCell" ta="left">
         {row.company !== null && <Text size="sm">{row.company}</Text>}
         <Anchor
           href={`https://${row.host}`}

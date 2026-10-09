@@ -83,6 +83,13 @@ function calls(recorded: Recorded, method: string, path: string): Call[] {
 }
 
 describe('база знаний: список', () => {
+  it('колонка правки — «Кто и когда»: в ней и автор, и время (аудит 09.10.2026)', async () => {
+    await openKb();
+
+    expect(screen.getByRole('columnheader', { name: 'Кто и когда' })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: 'Правил' })).toBeNull();
+  });
+
   it('вступление — одной строкой, что с выключенными записями — в «i» (аудит 09.10.2026)', async () => {
     await openKb();
     const user = userEvent.setup();

@@ -92,7 +92,9 @@ function SenderInput({
       onChange={(event) => onChange(event.currentTarget.value)}
     />
   ) : (
-    <TextInput {...props} onChange={(event) => onChange(event.currentTarget.value)} />
+    // Одна строка — имя, должность, ссылка: поле по значению, а не на половину панели
+    // (аудит экранов 09.10.2026). Подписи и адресу в несколько строк ширина нужна.
+    <TextInput {...props} maw="22rem" onChange={(event) => onChange(event.currentTarget.value)} />
   );
 }
 
@@ -134,15 +136,17 @@ function SenderForm({ view }: { view: SenderView }) {
             />
           ))}
         </SimpleGrid>
-        <Group justify="space-between" align="center" wrap="wrap" gap="sm" px="md">
+        {/* «Сохранить» — слева, как у порогов и настроек агента: одно действие стоит
+            в одном месте на всех формах (аудит экранов 09.10.2026). */}
+        <Group align="center" wrap="wrap" gap="sm" px="md">
+          <Button type="submit" className="press" disabled={!ready} loading={save.isPending}>
+            Сохранить
+          </Button>
           <Text size="xs" c="dimmed">
             {view.updated_by === null || view.updated_at === null
               ? 'Ещё не заполнялся.'
               : `Правил ${view.updated_by} · ${formatDateTime(view.updated_at)}`}
           </Text>
-          <Button type="submit" className="press" disabled={!ready} loading={save.isPending}>
-            Сохранить
-          </Button>
         </Group>
       </Stack>
     </form>

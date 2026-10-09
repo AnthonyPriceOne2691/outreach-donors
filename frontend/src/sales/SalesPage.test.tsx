@@ -544,6 +544,21 @@ describe('продажи: «Загрузить базу» — в строке в
 });
 
 describe('продажи: текст лида не вылезает из ячеек (аудит 09.10.2026)', () => {
+  it('размеры: фильтр причины — 9rem, компания — по левому краю, как имя (аудит 09.10.2026)', async () => {
+    await openScreen();
+
+    const reason = screen.getByRole('textbox', { name: 'Причина отказа' });
+    expect(reason.closest('.mantine-InputWrapper-root')?.getAttribute('style')).toMatch(
+      /(^|;)\s*width: 9rem/,
+    );
+    expect(screen.getByRole('columnheader', { name: 'Компания' })).toHaveStyle({
+      textAlign: 'left',
+    });
+    expect(within(rowOf('ivan@acme.example.test')).getByText('Acme').closest('td')).toHaveStyle({
+      textAlign: 'left',
+    });
+  });
+
   it('слова очистки — за «!»: в ячейке значок причины, слова целиком — по нажатию', async () => {
     await openScreen();
     const user = userEvent.setup();

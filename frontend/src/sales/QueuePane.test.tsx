@@ -115,6 +115,15 @@ function calls(recorded: Recorded, method: string, path: string): Call[] {
 }
 
 describe('очередь писем продаж', () => {
+  it('«Писем за раз» — поле по числу, а не 180 px (аудит 09.10.2026)', async () => {
+    await openQueue();
+
+    const wrapper = screen
+      .getByRole('textbox', { name: 'Писем за раз' })
+      .closest('.mantine-InputWrapper-root');
+    expect(wrapper?.getAttribute('style')).toMatch(/(^|;)\s*width: 6\.5rem/);
+  });
+
   it('вступление — одной строкой, как уходят письма — в «i» (аудит 09.10.2026)', async () => {
     await openQueue();
     const user = userEvent.setup();

@@ -31,7 +31,8 @@ const COLUMNS: Column[] = [
   { title: 'Вид', width: '8.5rem' },
   { title: 'Язык', width: '5rem' },
   { title: 'Теги', width: '10rem' },
-  { title: 'Правил', width: '13rem' },
+  // Автор и время правки — «кто и когда», а не одно «правил» (аудит экранов 09.10.2026).
+  { title: 'Кто и когда', width: '13rem' },
   { title: 'Агент видит', width: '8rem' },
   { title: 'Действия', width: '8rem' },
 ];

@@ -22,6 +22,9 @@ export interface Column {
   title: string;
   /** Пусто — колонка берёт остаток ширины. */
   width?: string;
+  /** Колонка с именем не первой — по левому краю, как имя в первой: имена читают по
+   *  началу строки. Ячейкам то же выравнивание задаёт строка таблицы (`ta`). */
+  start?: boolean;
 }
 
 interface Props {
@@ -81,8 +84,10 @@ export function FixedTable({
           <Widths columns={columns} />
           <Table.Thead>
             <Table.Tr>
-              {columns.map(({ title }) => (
-                <Table.Th key={title}>{title}</Table.Th>
+              {columns.map(({ title, start }) => (
+                <Table.Th key={title} ta={start === true ? 'left' : undefined}>
+                  {title}
+                </Table.Th>
               ))}
             </Table.Tr>
             {head}

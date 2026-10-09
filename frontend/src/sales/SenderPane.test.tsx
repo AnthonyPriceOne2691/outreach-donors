@@ -71,6 +71,27 @@ function field(name: string): HTMLElement {
 }
 
 describe('отправитель', () => {
+  it('поля по значению: однострочные не шире 22rem; «Сохранить» слева, как у порогов и агента (аудит 09.10.2026)', async () => {
+    await openSender();
+
+    // Имя, должность, ссылки — одна строка, а поле было на половину панели.
+    for (const name of ['Имя отправителя', 'Сайт', 'Telegram для лидов']) {
+      expect(field(name).closest('.mantine-InputWrapper-root')?.getAttribute('style')).toMatch(
+        /max-width: 22rem/,
+      );
+    }
+    // Подпись и адрес — в несколько строк: им ширина панели и нужна.
+    expect(
+      field('Подпись').closest('.mantine-InputWrapper-root')?.getAttribute('style') ?? '',
+    ).not.toMatch(/max-width/);
+    const save = screen.getByRole('button', { name: 'Сохранить' });
+    const who = screen.getByText('Ещё не заполнялся.');
+    expect(save.compareDocumentPosition(who) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(save.closest('.mantine-Group-root')?.getAttribute('style') ?? '').not.toMatch(
+      /space-between/,
+    );
+  });
+
   it('пустой: чего не хватает для отправки — словами сервера, сохранять нечего', async () => {
     await openSender();
 

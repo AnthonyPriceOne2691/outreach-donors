@@ -125,7 +125,8 @@ function BuildQueue({ view }: { view: SalesQueueView }) {
           max={view.limit_max}
           clampBehavior="strict"
           allowDecimal={false}
-          w={180}
+          // По числу и подписи, а не 180 px: число — до трёх знаков (аудит экранов 09.10.2026).
+          w="6.5rem"
           onChange={(value) => setLimit(typeof value === 'number' ? value : DEFAULT_LIMIT)}
         />
         <Button
