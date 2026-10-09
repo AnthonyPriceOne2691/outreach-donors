@@ -50,6 +50,8 @@ REVIEW_ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("GET", "/api/replies/leads.csv", None, "prices"),
     # Прайс файлом — то же содержимое переписки, что и текст письма.
     ("GET", "/api/replies/{reply}/attachments/{file}", None, "view"),
+    # Текст из прайса — то же содержимое, что сам файл, только прочитанное.
+    ("GET", "/api/replies/{reply}/attachments/{file}/text", None, "view"),
     # Ответы без письма — та же переписка, только донор не найден.
     ("GET", "/api/replies/unbound", None, "view"),
 ]

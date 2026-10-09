@@ -167,7 +167,8 @@ class AnswerBody(BaseModel):
 
 class AttachmentCard(BaseModel):
     """Вложение ответа: сведения о файле. Сам файл — отдельным запросом
-    (`GET /api/replies/{reply_id}/attachments/{id}`), только на скачивание."""
+    (`GET /api/replies/{reply_id}/attachments/{id}`), только на скачивание;
+    текст из него — тоже отдельным (`…/attachments/{id}/text`)."""
 
     id: int
     name: str
@@ -178,6 +179,12 @@ class AttachmentCard(BaseModel):
     accepted: bool
     #: Почему не сохранён — словами, для человека.
     reason: str | None
+    #: Из файла прочитан текст. Сам текст в карточку не едет: карточка диалога
+    #: читает сведения о десятке файлов, а текст бывает в двадцать тысяч знаков.
+    has_text: bool = False
+    #: Почему текста нет или чем он неполон — словами. Текста нет и слов нет —
+    #: файл ещё не читали: его прочитает первый запрос текста.
+    text_note: str | None = None
 
     @classmethod
     def of(cls, row: ReplyAttachmentModel) -> AttachmentCard:
@@ -188,6 +195,8 @@ class AttachmentCard(BaseModel):
             content_type=row.content_type,
             accepted=row.accepted,
             reason=row.reason,
+            has_text=row.has_text,
+            text_note=row.text_note,
         )
 
 
