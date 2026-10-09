@@ -280,8 +280,8 @@ function EmptyAction({ action, onReset }: { action: Emptiness['action']; onReset
   );
 }
 
-/** Строка во всю ширину: почему пусто и что сделать. */
-function Empty({ empty, onReset }: { empty: Emptiness; onReset: () => void }) {
+/** Почему пусто и что сделать — под шапкой таблицы или вместо неё, если лидов нет вовсе. */
+export function LeadsEmpty({ empty, onReset }: { empty: Emptiness; onReset: () => void }) {
   const { title, detail, action } = empty;
   return (
     <Stack gap={6} align="flex-start" py="sm">
@@ -305,7 +305,7 @@ interface Props extends FilterRowProps {
   onReset: () => void;
 }
 
-/** Отказ сервера словами — и до первого ответа, и строкой вместо строк. */
+/** Отказ сервера словами — и до первого ответа, и под шапкой таблицы вместо строк. */
 export function LeadsRefused({ refusal }: { refusal: string }) {
   return (
     <Alert color="red" title="Лиды не загрузились">
@@ -317,7 +317,7 @@ export function LeadsRefused({ refusal }: { refusal: string }) {
 /** Что встаёт вместо строк: отказ сервера — или объяснение пустоты. */
 function fillerOf(refusal: string | null, empty: Emptiness | null, onReset: () => void) {
   if (refusal !== null) return <LeadsRefused refusal={refusal} />;
-  return empty === null ? undefined : <Empty empty={empty} onReset={onReset} />;
+  return empty === null ? undefined : <LeadsEmpty empty={empty} onReset={onReset} />;
 }
 
 export function LeadsTable({ rows, stale, empty, refusal, onReset, ...filters }: Props) {

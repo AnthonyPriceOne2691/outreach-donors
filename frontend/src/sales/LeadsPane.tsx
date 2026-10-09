@@ -8,16 +8,17 @@
  * выбрана, — тем же фильтром, куда ведут; «Лидов» и «Гипотез» — числа вкладок.
  *
  * **Смена фильтра — не перезагрузка.** Прежние строки стоят приглушёнными,
- * пока едут новые; отказ сервера на новом фильтре встаёт строкой в таблицу,
- * а фильтры остаются — условие поправляют тут же. Крутилка — только до первого
- * ответа: дальше вкладка не пропадает.
+ * пока едут новые; отказ сервера на новом фильтре встаёт под шапкой таблицы
+ * вместо строк, а фильтры остаются — условие поправляют тут же. Крутилка — только
+ * до первого ответа: дальше вкладка не пропадает. Лидов нет вовсе — нет и шапки
+ * с фильтрами: только объяснение.
  *
  * Запрос (`useLeads`) зовёт страница раздела, а не эта вкладка: он уходит
  * вместе со списком гипотез, а не после него — пока едут гипотезы, вкладки
  * на экране ещё нет.
  */
 
-import { Loader, SimpleGrid } from '@mantine/core';
+import { Box, Loader, SimpleGrid } from '@mantine/core';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 
@@ -30,7 +31,7 @@ import { PageSwitch } from '../components/PageSwitch';
 import { formatNumber } from '../format';
 import { emptinessOf, LEAD_STATE_KEYS, leadsLink, queryOf } from './leadFilters';
 import type { LeadFilters } from './leadFilters';
-import { LeadsRefused, LeadsTable } from './LeadsTable';
+import { LeadsEmpty, LeadsRefused, LeadsTable } from './LeadsTable';
 import type { FilterRowProps } from './LeadsTable';
 
 const LEADS_QUERY_KEY = ['sales', 'leads'] as const;
@@ -138,6 +139,15 @@ interface Props extends Omit<FilterRowProps, 'reasons'> {
 
 export function LeadsPane({ leads, total, onTurn, onReset, ...filterRow }: Props) {
   const { filters, hypotheses } = filterRow;
+  if (total === 0) {
+    // Лидов нет вовсе — ни плиток, ни шапки с фильтрами: сужать нечего, а на телефоне
+    // шапка таблицы в 1 224 px уводила объяснение вбок (аудит экранов 09.10.2026).
+    return (
+      <Box px="md">
+        <LeadsEmpty empty={emptinessOf(filters, total, () => undefined)} onReset={onReset} />
+      </Box>
+    );
+  }
   return (
     <>
       <LeadTiles hypotheses={hypotheses} hypothesis={filters.hypothesis} />

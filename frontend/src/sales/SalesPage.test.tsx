@@ -397,7 +397,7 @@ describe('продажи: лиды', () => {
     expect(screen.queryByText('Под фильтр ничего не попало.')).toBeNull();
   });
 
-  it('отказ сервера на новом фильтре — строкой в таблице; фильтры стоят', async () => {
+  it('отказ сервера на новом фильтре — словами под шапкой таблицы; фильтры стоят', async () => {
     await openScreen({
       [at('state=ready')]: {
         status: 500,
@@ -568,6 +568,40 @@ describe('продажи: текст лида не вылезает из яче�
     const belt = row.getByText(zone);
     expect(belt).toHaveAttribute('title', zone);
     expect(belt).toHaveAttribute('data-line-clamp');
+  });
+});
+
+describe('продажи: пустая таблица на телефоне (аудит 09.10.2026)', () => {
+  it('лидов нет вовсе — ни плиток, ни шапки с фильтрами: только объяснение, не в таблице', async () => {
+    const none = { ...HYPOTHESES, rows: HYPOTHESES.rows.map((row) => ({ ...row, total: 0 })) };
+    await openScreen(
+      {
+        'GET /api/sales/hypotheses': { body: none },
+        [LEADS]: { body: view([], { states: { new: 0, ready: 0, rejected: 0 } }) },
+      },
+      { ready: 'Лидов пока нет.' },
+    );
+
+    expect(screen.getByText('Лидов пока нет.').closest('table')).toBeNull();
+    expect(screen.queryByRole('columnheader', { name: 'Лид' })).toBeNull();
+    expect(
+      screen.queryByRole('textbox', { name: 'Поиск по адресу, имени или компании' }),
+    ).toBeNull();
+    expect(document.querySelectorAll('.metricTile')).toHaveLength(0);
+  });
+
+  it('под фильтром пусто — объяснение под таблицей, а не строкой шириной в таблицу; фильтры стоят', async () => {
+    await openScreen(
+      { [at('hypothesis=2')]: { body: view([]) } },
+      { path: '/sales?hypothesis=2', ready: 'Под фильтр ничего не попало.' },
+    );
+
+    // Строка во всю ширину таблицы в 1 224 px на телефоне уезжала в прокрутку и читалась обрубком.
+    expect(screen.getByText('Под фильтр ничего не попало.').closest('table')).toBeNull();
+    const head = screen.getByRole('columnheader', { name: 'Причина' }).closest('thead');
+    if (head === null) throw new Error('шапки таблицы нет');
+    expect(within(head).getByRole('textbox', { name: 'Гипотеза' })).toHaveValue('сервисы RU');
+    expect(screen.getByRole('button', { name: 'Сбросить фильтры' })).toBeInTheDocument();
   });
 });
 
