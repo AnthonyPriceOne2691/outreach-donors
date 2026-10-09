@@ -37,9 +37,16 @@ from tests.test_sales_handoff import (
 )
 from tests.test_sales_handoff_jobs import wired
 from tests.test_sales_handoff_rows import sales_dialog
+from tests.test_sales_switch import sales_switched_on
 from tests.test_sales_telegram import GROUP, PERSONAL, TOKEN, Recorder, ok, refused
 
-__all__ = ["alerts", "api", "http", "wired"]  # оснастка передачи и задачи
+__all__ = [  # оснастка передачи и задачи
+    "alerts",
+    "api",
+    "http",
+    "sales_switched_on",  # продажи включены (SALES_ENABLED): передача и повтор сообщения
+    "wired",
+]
 
 DOWN = refused(503, "Service Unavailable")
 MINUTE = timedelta(minutes=1)

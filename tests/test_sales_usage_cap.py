@@ -29,8 +29,14 @@ from tests.test_parse_requeue import CountingExtractor
 from tests.test_replies_inbox import NOW, sent
 from tests.test_sales_reply_kind import _sales_reply
 from tests.test_sales_reply_routing import FakeClassifier, secret
+from tests.test_sales_switch import sales_switched_on
 
-__all__ = ["reply", "secret", "sent"]  # фикстуры ответа донора и подписи адреса — их видит pytest
+__all__ = [  # фикстуры ответа донора и подписи адреса — их видит pytest
+    "reply",
+    "sales_switched_on",  # продажи включены (SALES_ENABLED): вид ответа зовёт модель
+    "secret",
+    "sent",
+]
 
 #: Слова отказа своего потолка продаж — с именем настройки, которой его поднять.
 REFUSED = (

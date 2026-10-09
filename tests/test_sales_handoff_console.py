@@ -41,9 +41,15 @@ from tests.test_sales_handoff import (
     sent,
 )
 from tests.test_sales_handoff_rows import Dialog, answer, sales_dialog
+from tests.test_sales_switch import sales_switched_on
 from tests.test_sales_telegram import TOKEN, Recorder
 
-__all__ = ["alerts", "api", "http"]  # оснастка передачи: тревоги, бот продаж, клиент httpx
+__all__ = [  # оснастка передачи: тревоги, бот продаж, клиент httpx
+    "alerts",
+    "api",
+    "http",
+    "sales_switched_on",  # продажи включены (SALES_ENABLED): «повторить» ставит задачу
+]
 
 #: Ключ Kommo — выдуманный, некруглый; в выводе и журнале его быть не должно.
 KOMMO_KEY = "kommo-test-key-5f3e91c2"  # pragma: allowlist secret
