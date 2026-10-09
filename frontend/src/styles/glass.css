@@ -1852,3 +1852,31 @@ html:root .mantine-Pill-root {
   overflow: visible;
   text-overflow: clip;
 }
+
+/* --- Текст вложения в окне (threads/ReplyFiles) ---------------------------
+ * Прайс таблицей приходит строками ячеек через табуляцию: моноширинный текст
+ * держит колонки ровно, длинная строка переносится, а не растягивает окно. */
+.fileText {
+  margin: 0;
+  font-family: var(--mantine-font-family-monospace);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 4;
+}
+
+/* --- Файлы нашего письма и скрепка ответа (threads/LetterFiles, AnswerFiles) -
+ * Список файлов письма без маркеров и отступа браузера; имя файла в значке
+ * скрепки переносится, а не растягивает форму. */
+.letterFiles {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.answerFile {
+  max-width: 100%;
+  height: auto;
+  text-transform: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

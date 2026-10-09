@@ -119,7 +119,7 @@ describe('переписка продаж', () => {
       await screen.findByText('Ответ отправлен с sales@mail.example.test'),
     ).toBeInTheDocument();
     const call = recorded.calls.find((sent: Call) => sent.path === '/api/threads/5/answer');
-    expect(call?.body).toEqual({ reply_id: 21, body: 'Sure, tomorrow at 10 works.' });
+    expect(call?.body).toEqual({ reply_id: 21, body: 'Sure, tomorrow at 10 works.', file_ids: [] });
   });
 
   it('отказ моста почты — словами сервера, а не «что-то пошло не так»', async () => {

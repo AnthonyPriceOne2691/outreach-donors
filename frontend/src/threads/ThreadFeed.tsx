@@ -25,9 +25,11 @@ import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from '
 
 import { AgentDraftBanner } from '../agent/AgentDraftBanner';
 import { MESSAGE_STATUSES, REPLY_KINDS } from '../api/labels';
+import type { LetterWithFiles } from '../api/files';
 import type { Corridor, IncomingCard, LetterCard, MessageStatus } from '../api/types';
 import { formatDateTime, formatMoney } from '../format';
 import { corridorText, readable, uniquenessText } from '../letters/letterText';
+import { LetterFiles } from './LetterFiles';
 import { ReplyFiles } from './ReplyFiles';
 import { ReplyOffers } from './ReplyOffers';
 import { feedOf, freshOf, waitsForPerson } from './threadTimeline';
@@ -62,7 +64,7 @@ export function letterTitle(letter: LetterCard): string {
   return letter.step === 0 ? 'первое письмо' : `добивка ${letter.step}`;
 }
 
-function OurBubble({ letter, corridor }: { letter: LetterCard; corridor: Corridor }) {
+function OurBubble({ letter, corridor }: { letter: LetterWithFiles; corridor: Corridor }) {
   return (
     <div className="bubbleRow bubbleRowOurs">
       <article className="bubble bubbleOurs" aria-label={`Наше письмо: ${letterTitle(letter)}`}>
@@ -87,6 +89,7 @@ function OurBubble({ letter, corridor }: { letter: LetterCard; corridor: Corrido
             {corridorText(corridor)}
           </Text>
         ) : null}
+        <LetterFiles messageId={letter.id} files={letter.attachments} />
         <Group gap={6} justify="flex-end" wrap="nowrap" className="bubbleMeta">
           <Text size="xs" c="dimmed">
             {when(letter.sent_at)}
@@ -280,7 +283,7 @@ function TheirBubble({ reply, active, reviewable, sales, onPick }: TheirProps) {
 }
 
 interface FeedProps {
-  letters: LetterCard[];
+  letters: LetterWithFiles[];
   incoming: IncomingCard[];
   corridor: Corridor;
   /** Ответ, который разбирают под лентой. */
