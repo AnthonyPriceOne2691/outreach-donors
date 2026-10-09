@@ -47,6 +47,7 @@ import { refusalOf } from '../api/client';
 import { countryTitle, languageTitle, presetTitle } from '../api/labels';
 import { Metric } from '../components/Metric';
 import { PageHead } from '../components/PageHead';
+import { FIELD_GAP } from '../components/formRhythm';
 import { usePageParam } from '../components/PageSwitch';
 import { buildPool, fetchMarketLanguages, fetchPresets } from '../api/keywords';
 import { ProvenKeywords } from './ProvenKeywords';
@@ -293,7 +294,7 @@ export function RunPage() {
   return (
     <Stack gap="lg">
       <Card className="glassPanel" p="xl">
-        <Stack gap="md">
+        <Stack gap={FIELD_GAP}>
           <PageHead
             title="Прогон"
             hint="Стоимость называется до того, как её потратят: сначала смета, потом кнопка. Пока смета не посчитана, запускать нечего — прогон без сверки с остатком это прямой путь к выбранному месячному лимиту за один день."

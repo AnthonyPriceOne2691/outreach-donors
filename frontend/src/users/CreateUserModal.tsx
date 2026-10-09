@@ -12,6 +12,7 @@ import { useState } from 'react';
 
 import type { OneTimePassword, Role } from '../api/types';
 import { createUser } from '../api/users';
+import { ACTIONS_GAP, FIELD_GAP } from '../components/formRhythm';
 
 interface Props {
   opened: boolean;
@@ -42,7 +43,7 @@ export function CreateUserModal({ opened, onClose, onCreated }: Props) {
   return (
     <Modal opened={opened} onClose={onClose} title="Новая учётка">
       <form onSubmit={submit}>
-        <Stack>
+        <Stack gap={FIELD_GAP}>
           {refusal !== null && (
             <Alert color="red" title="Не завели">
               {refusal}
@@ -59,7 +60,7 @@ export function CreateUserModal({ opened, onClose, onCreated }: Props) {
             ]}
             {...form.getInputProps('role')}
           />
-          <Group justify="flex-end">
+          <Group justify="flex-end" mt={ACTIONS_GAP}>
             <Button variant="subtle" className="press" onClick={onClose}>
               Отмена
             </Button>

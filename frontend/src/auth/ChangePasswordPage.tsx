@@ -25,6 +25,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { changePassword } from '../api/auth';
 import { SERVICE_NAME } from '../brand';
+import { ACTIONS_GAP, FIELD_GAP } from '../components/formRhythm';
 import { useSession } from './AuthProvider';
 
 const MIN_LENGTH = 10;
@@ -73,7 +74,7 @@ export function ChangePasswordPage() {
     <Center mih="100dvh" px="md" py="xl">
       <Card className="glass riseIn" w="100%" maw={440} p="xl">
         <form onSubmit={submit}>
-          <Stack>
+          <Stack gap={FIELD_GAP}>
             <div>
               <Text size="sm" c="dimmed">
                 {SERVICE_NAME}
@@ -108,7 +109,7 @@ export function ChangePasswordPage() {
               autoComplete="new-password"
               {...form.getInputProps('repeat')}
             />
-            <Group mt="md" gap="sm" grow>
+            <Group mt={ACTIONS_GAP} gap="sm" grow>
               <Button variant="default" size="md" className="press" onClick={leave}>
                 {forced ? 'Выйти' : 'Отмена'}
               </Button>

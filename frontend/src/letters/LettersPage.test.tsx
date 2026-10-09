@@ -513,8 +513,12 @@ describe('текст первого письма', () => {
     await user.click(screen.getByRole('button', { name: 'Текст первого письма' }));
     const dialog = await screen.findByRole('dialog', { name: 'Текст первого письма' });
 
-    expect(within(dialog).getAllByText('Переписывает модель под каждого донора')).toHaveLength(2);
-    expect(within(dialog).getAllByText('Уходит как есть, модель не видит')).toHaveLength(2);
+    // Пометкой в строке подписи, а что она значит — один раз наверху окна (аудит 09.10.2026).
+    expect(within(dialog).getAllByText('модель переписывает')).toHaveLength(2);
+    expect(within(dialog).getAllByText('как есть')).toHaveLength(2);
+    expect(within(dialog).getByText(/пишет заново под каждого донора/)).toBeInTheDocument();
+    // Пометка — описание поля: её слышит и экранный диктор.
+    expect(within(dialog).getByLabelText('Условия')).toHaveAccessibleDescription('как есть');
   });
 
   it('исходный текст возвращается одной кнопкой', async () => {
@@ -726,7 +730,7 @@ describe('бизнесы ниши', () => {
     expect(
       within(dialog).getByText(/\{\{example_host\}\} — пример нашей площадки/),
     ).toBeInTheDocument();
-    expect(within(dialog).getByText('Переписывает модель под каждый бизнес')).toBeInTheDocument();
+    expect(within(dialog).getByText(/пишет заново под каждый бизнес/)).toBeInTheDocument();
   });
 
   it('сборка уходит с аудиторией и без прогонов', async () => {
