@@ -122,7 +122,9 @@ export const theme = createTheme({
     // Флажок — квадратом со скруглением, а не кругом: при радиусе темы `lg` (20 px)
     // флажок в 20 px становился кругом и читался как выбор одного варианта из
     // нескольких (аудит экранов 09.10.2026: «Прогоны рассылки», «Обход доноров»).
-    Checkbox: Checkbox.extend({ defaultProps: { radius: 'xs' } }),
+    // Радиус — 4 px, а не `xs` темы: её 8 px на флажке в 20 px на снимке прода всё
+    // ещё читались кругом.
+    Checkbox: Checkbox.extend({ defaultProps: { radius: rem(4) } }),
     Card: Card.extend({ defaultProps: { radius: 'xl', withBorder: false } }),
     Paper: Paper.extend({ defaultProps: { radius: 'xl' } }),
     // Цвет `Text` у Mantine — `color: var(--text-color)` без запасного
