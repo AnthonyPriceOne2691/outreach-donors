@@ -37,6 +37,7 @@ import {
   Card,
   Group,
   Loader,
+  Grid,
   SimpleGrid,
   Stack,
   Text,
@@ -51,6 +52,7 @@ import { countryTitle, DONOR_STATUSES } from '../api/labels';
 import type { DonorFullCard } from '../api/types';
 import { formatDate, formatNumber, formatShare } from '../format';
 import { BackLink, backTo } from '../components/BackLink';
+import { InfoHint } from '../components/InfoHint';
 import { Metric } from '../components/Metric';
 import { Seams } from '../components/Seams';
 import { fetchDonor } from '../api/runs';
@@ -189,59 +191,66 @@ export function DonorPage() {
               Причина отсева: {data.reject_reason}
             </Text>
           )}
+          {/* Плитки — в шапке, а не отдельным рядом на полотне: в тёмной теме они
+              читались провалами, а пять карточек во всю ширину по 1–2 строки делали из
+              карточки донора простыню (аудит экранов 09.10.2026). */}
+          <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm" mt="sm">
+            <Metric title="DR" value={data.dr ?? '—'} />
+            <Metric title="Органический трафик" value={formatNumber(data.org_traffic)} />
+            <Metric
+              title="Гео"
+              value={data.geo === null ? '—' : countryTitle(data.geo)}
+              hint={
+                data.geo_top_share === null
+                  ? undefined
+                  : `доля рынка ${formatShare(data.geo_top_share)}`
+              }
+            />
+            <Metric
+              title="Данные проверены"
+              value={when(data.metrics_refreshed_at)}
+              hint={
+                data.expires_at === null
+                  ? 'не проверялись'
+                  : `${data.fresh ? 'в сроке до' : 'срок вышел'} ${when(data.expires_at)}`
+              }
+            />
+          </SimpleGrid>
+          {/* Разбивка по странам — строкой значков под плитками, и только когда стран
+              больше одной: при неполной разбивке была одна страна — та же, что в плитке
+              «Гео», — и абзац-оправдание к ней. Пояснение — в «i». */}
+          {data.geo_breakdown !== null && data.geo_breakdown.length > 1 && (
+            <Group gap="xs" mt="xs">
+              <Text size="sm">Откуда трафик</Text>
+              {data.geo_breakdown.map((row) => (
+                <Badge key={row.country} variant="light">
+                  {countryTitle(row.country)} · {formatShare(row.share)}
+                </Badge>
+              ))}
+              <InfoHint name="Как проверяется страна" width={320}>
+                {data.geo_partial
+                  ? 'Спрошена только верхняя страна: она же целевая, а значит донор в топ-5 при любом раскладе — остальные строки вердикт не меняют и стоили бы впятеро дороже.'
+                  : 'Проверяется вхождение в топ-5, а не только доля выше порога: страна с долей 12% на третьем месте нам подходит.'}
+              </InfoHint>
+            </Group>
+          )}
         </Stack>
       </Card>
 
-      <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
-        <Metric title="DR" value={data.dr ?? '—'} />
-        <Metric title="Органический трафик" value={formatNumber(data.org_traffic)} />
-        <Metric
-          title="Гео"
-          value={data.geo === null ? '—' : countryTitle(data.geo)}
-          hint={
-            data.geo_top_share === null
-              ? undefined
-              : `доля рынка ${formatShare(data.geo_top_share)}`
-          }
-        />
-        <Metric
-          title="Данные проверены"
-          value={when(data.metrics_refreshed_at)}
-          hint={
-            data.expires_at === null
-              ? 'не проверялись'
-              : `${data.fresh ? 'в сроке до' : 'срок вышел'} ${when(data.expires_at)}`
-          }
-        />
-      </SimpleGrid>
-
-      {data.geo_breakdown !== null && data.geo_breakdown.length > 0 && (
-        <Card className="glass" p="xl">
-          <Title order={5} mb="xs">
-            Откуда трафик
-          </Title>
-          <Text size="sm" c="dimmed" mb="sm">
-            {data.geo_partial
-              ? 'Спрошена только верхняя страна: она же целевая, а значит донор в топ-5 при любом раскладе — остальные строки вердикт не меняют и стоили бы впятеро дороже.'
-              : 'Проверяется вхождение в топ-5, а не только доля выше порога: страна с долей 12% на третьем месте нам подходит.'}
-          </Text>
-          <Group gap="xs">
-            {data.geo_breakdown.map((row) => (
-              <Badge key={row.country} variant="light">
-                {countryTitle(row.country)} · {formatShare(row.share)}
-              </Badge>
-            ))}
-          </Group>
-        </Card>
-      )}
-
-      {/* Ключ по донору: номер задачи поиска помнится по донору, и карточка
-          другого донора не должна унаследовать его от предыдущей. */}
-      <DonorAddresses key={data.id} donor={data} />
-
-      {/* Цена, откуда она и «Указать цену» — тоже по ключу донора: вписанное
-          в поля одного донора не должно уехать в карточку другого. */}
-      <DonorPrice key={`price-${data.id}`} donor={data} />
+      {/* Ниже — две колонки на широком окне: адреса шире, цена рядом (аудит
+          09.10.2026: пять карточек во всю ширину по 1–2 строки содержимого). */}
+      <Grid gutter="lg" align="flex-start">
+        <Grid.Col span={{ base: 12, lg: 7 }}>
+          {/* Ключ по донору: номер задачи поиска помнится по донору, и карточка
+              другого донора не должна унаследовать его от предыдущей. */}
+          <DonorAddresses key={data.id} donor={data} />
+        </Grid.Col>
+        <Grid.Col span={{ base: 12, lg: 5 }}>
+          {/* Цена, откуда она и «Указать цену» — тоже по ключу донора: вписанное
+              в поля одного донора не должно уехать в карточку другого. */}
+          <DonorPrice key={`price-${data.id}`} donor={data} />
+        </Grid.Col>
+      </Grid>
     </Stack>
   );
 }
