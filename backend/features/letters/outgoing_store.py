@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from types import MappingProxyType
 
 from sqlalchemy import delete, false, or_, select, update
@@ -30,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.models.outgoing_attachment import OutgoingAttachmentModel
 from backend.features.core.models.outreach import ThreadModel
-from backend.features.letters.outgoing_files import check, check_letter
+from backend.features.letters.outgoing_files import PENDING_DAYS, check, check_letter
 from backend.features.letters.transport import OutgoingFile
 from backend.features.outreach.repository import UnknownThreadError
 
@@ -112,6 +113,20 @@ class OutgoingFiles:
             f"Файл «{row.name}» уже приложен к письму №{row.message_id} — убрать его нельзя: "
             "письмо ушло или уйдёт вместе с ним"
         )
+
+    async def drop_abandoned(self, *, now: datetime) -> list[tuple[int, int]]:
+        """Убрать брошенные файлы: ни с одним письмом не ушли за `PENDING_DAYS`. Без фиксации.
+
+        Условие — в самом удалении, как у `remove`: файл, который секундой раньше взял
+        ответ, из-под письма не удаляется. Возвращает убранные (файл, переписка) — для журнала.
+        """
+        gone = await self._session.execute(
+            delete(_File)
+            .where(_File.message_id.is_(None))
+            .where(_File.created_at < now - timedelta(days=PENDING_DAYS))
+            .returning(_File.id, _File.thread_id)
+        )
+        return sorted((file_id, thread_id) for file_id, thread_id in gone.tuples())
 
     async def chosen(
         self, thread_id: int, file_ids: Sequence[int], *, letter_id: int | None

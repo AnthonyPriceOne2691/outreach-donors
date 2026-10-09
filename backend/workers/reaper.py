@@ -16,12 +16,16 @@
 контейнера ему не заводим — ему, как и сторожу, нужна сессия раз в несколько минут.
 Модуль продаж цикл импортирует сам, при первом проходе: сбой его импорта — сбой
 этого цикла (его ловит `every`), а разбор прогонов и сторож идут своим чередом.
+
+Четвёртый — чистка брошенных файлов ответа (`letters/outgoing_store.drop_abandoned`):
+файл, приложенный к переписке и не ушедший ни с одним письмом за неделю.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -29,6 +33,7 @@ from backend.config import sales as sales_cfg
 from backend.config import storage
 from backend.config.startup_checks import check_storage
 from backend.features.crawl.lifecycle import recover as recover_crawls
+from backend.features.letters.outgoing_store import OutgoingFiles
 from backend.features.ops import silence
 from backend.features.ops.alarm_feed import Feed
 from backend.features.runs.lifecycle import Recovery, recover
@@ -47,6 +52,11 @@ POLL_INTERVAL_SEC = 60.0
 #: Как часто сторож смотрит на тишину. Реже разбора намеренно: его
 #: пороги измеряются часами, и спрашивать базу каждую минуту незачем.
 WATCHDOG_INTERVAL_SEC = 600.0
+
+#: Как часто убирать брошенные файлы ответа. Сроку у них неделя
+#: (`outgoing_files.PENDING_DAYS`): проход раз в шесть часов — с запасом и без лишних
+#: запросов к базе.
+ABANDONED_FILES_SEC = 6 * 3600.0
 
 #: Что сторож уже сказал человеку в Telegram — по смене состояния (`ops/alarm_feed.py`).
 FEED = Feed()
@@ -129,6 +139,28 @@ async def watch() -> None:
     await FEED.tell(await silence.with_providers(found))
 
 
+async def drop_abandoned_files() -> None:
+    """Один проход чистки брошенных файлов ответа. Строка журнала — только если
+    что-то убрано: номера файлов и переписок полями — по ним ищут «куда делся файл»."""
+    engine = create_async_engine(storage.DSN)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with factory() as session:
+            gone = await OutgoingFiles(session).drop_abandoned(now=datetime.now(UTC))
+            await session.commit()
+    finally:
+        await engine.dispose()
+    if gone:
+        logger.info(
+            "файлы ответа: убраны брошенные — %s",
+            len(gone),
+            extra={
+                "files": [file_id for file_id, _ in gone],
+                "threads": sorted({t for _, t in gone}),
+            },
+        )
+
+
 async def retry_handoffs() -> None:
     """Проход повторов передачи лидов продаж. Импорт модуля продаж — здесь, а не при
     загрузке процесса: упадёт он — упадёт этот цикл, а не весь разбор."""
@@ -144,6 +176,7 @@ async def _loops() -> None:
         every(POLL_INTERVAL_SEC, sweep, name="Разбор мёртвых прогонов"),
         every(WATCHDOG_INTERVAL_SEC, watch, name="Сторож тишины"),
         every(sales_cfg.HANDOFF_PASS_SEC, retry_handoffs, name="Повтор передачи лидов продаж"),
+        every(ABANDONED_FILES_SEC, drop_abandoned_files, name="Чистка брошенных файлов ответа"),
     )
 
 

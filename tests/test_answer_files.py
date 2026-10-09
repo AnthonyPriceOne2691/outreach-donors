@@ -13,20 +13,22 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from backend.features.core.domain import AuditAction, MessageStatus
 from backend.features.core.models.access import AuditLogModel
 from backend.features.core.models.outgoing_attachment import OutgoingAttachmentModel
 from backend.features.core.models.outreach import MessageModel, ReplyModel, ThreadModel
 from backend.features.letters import answers
-from backend.features.letters.outgoing_files import OutgoingFileError
+from backend.features.letters.outgoing_files import PENDING_DAYS, OutgoingFileError
 from backend.features.letters.outgoing_store import (
     OutgoingFiles,
     OutgoingFileTakenError,
     UnknownOutgoingFileError,
 )
 from backend.features.letters.sending import SendError, Sending, SendOutcome
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests import test_sales_send_world as w
 from tests.conftest import make_donor
@@ -151,6 +153,47 @@ class TestFilesGoWithTheAnswer:
         assert record is not None
         assert "вложения" not in (record.details or {})
         assert await _bound(session, first.thread_id or 0) == [(loose.name, None)]
+
+
+class TestAbandonedFiles:
+    async def test_file_without_a_letter_for_a_week_goes_and_the_rest_stay(
+        self, session: AsyncSession, conversation: tuple[MessageModel, ReplyModel]
+    ) -> None:
+        """Брошенный — без письма дольше срока. Свежий ждёт дальше; ушедший с письмом не
+        уходит, сколько бы ему ни было: он часть письма."""
+        first, _ = conversation
+        thread_id = first.thread_id or 0
+        old, _fresh, sent = await _uploaded(
+            session, thread_id, ("old.pdf", PDF), ("fresh.pdf", PDF), ("sent.pdf", PDF)
+        )
+        now = datetime.now(UTC)
+        stale = now - timedelta(days=PENDING_DAYS, minutes=1)
+        _File = OutgoingAttachmentModel
+        await session.execute(
+            update(_File).where(_File.id.in_([old.id, sent.id])).values(created_at=stale)
+        )
+        await session.execute(update(_File).where(_File.id == sent.id).values(message_id=first.id))
+        await session.commit()
+
+        gone = await OutgoingFiles(session).drop_abandoned(now=now)
+        await session.commit()
+
+        assert gone == [(old.id, thread_id)]
+        assert await _bound(session, thread_id) == [("fresh.pdf", None), ("sent.pdf", first.id)]
+
+    async def test_file_exactly_at_the_term_still_waits(
+        self, session: AsyncSession, conversation: tuple[MessageModel, ReplyModel]
+    ) -> None:
+        first, _ = conversation
+        thread_id = first.thread_id or 0
+        (row,) = await _uploaded(session, thread_id, ("price.pdf", PDF))
+        await session.refresh(row)
+
+        gone = await OutgoingFiles(session).drop_abandoned(
+            now=row.created_at + timedelta(days=PENDING_DAYS)
+        )
+
+        assert gone == []
 
 
 class TestRepeatedAnswer:

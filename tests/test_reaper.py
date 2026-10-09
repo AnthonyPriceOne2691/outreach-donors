@@ -7,17 +7,22 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import pytest
 from backend.config import storage
-from backend.features.core.domain import CrawlStatus
+from backend.features.core.domain import CrawlStatus, Stage
 from backend.features.core.models.crawl import CrawlRunModel
+from backend.features.core.models.outgoing_attachment import OutgoingAttachmentModel
+from backend.features.core.models.outreach import CampaignModel, ThreadModel
 from backend.features.crawl.repository import queue_crawl
+from backend.features.letters.outgoing_store import OutgoingFiles
 from backend.features.ops import silence
 from backend.workers import reaper
-from sqlalchemy import text
-from tests.conftest import TEST_DSN
+from sqlalchemy import func, select, text
+from tests.conftest import TEST_DSN, make_donor
+from tests.test_outgoing_files import PDF
 from tests.test_send_race import committed_sessions
 
 
@@ -112,4 +117,44 @@ def test_main_runs_all_loops(monkeypatch: pytest.MonkeyPatch) -> None:
         "Разбор мёртвых прогонов",
         "Сторож тишины",
         "Повтор передачи лидов продаж",
+        "Чистка брошенных файлов ответа",
     ]
+
+
+async def test_abandoned_files_pass_removes_them_and_says_which(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Проход своей сессией по настоящей базе: брошенный файл уходит, номер — полем журнала."""
+    async with committed_sessions() as factory:
+        async with factory() as session:
+            domain = await make_donor(session, "files.example.test")
+            campaign = CampaignModel(name="Рассылка файлов", stage=Stage.DONORS, status="draft")
+            session.add(campaign)
+            await session.flush()
+            thread = ThreadModel(domain_id=domain.id, campaign_id=campaign.id)
+            session.add(thread)
+            await session.flush()
+            row = await OutgoingFiles(session).keep(thread.id, "price.pdf", PDF, by=None)
+            await session.commit()
+            await session.execute(
+                text("UPDATE outgoing_attachments SET created_at = now() - interval '8 days'")
+            )
+            await session.commit()
+
+        with caplog.at_level(logging.INFO, logger=reaper.__name__):
+            await reaper.drop_abandoned_files()
+
+        async with factory() as session:
+            left = await session.scalar(select(func.count(OutgoingAttachmentModel.id)))
+    assert left == 0
+    (said,) = [record for record in caplog.records if "брошенные" in record.getMessage()]
+    assert (getattr(said, "files", None), getattr(said, "threads", None)) == ([row.id], [thread.id])
+
+
+async def test_abandoned_files_pass_is_quiet_when_nothing_is_left(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async with committed_sessions():
+        with caplog.at_level(logging.INFO, logger=reaper.__name__):
+            await reaper.drop_abandoned_files()
+    assert [record for record in caplog.records if "брошенные" in record.getMessage()] == []

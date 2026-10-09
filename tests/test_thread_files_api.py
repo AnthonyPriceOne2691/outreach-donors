@@ -398,6 +398,7 @@ async def test_thread_gives_the_file_rules_the_server_checks(
         "max_letter_bytes": outgoing_files.MAX_LETTER_BYTES,
         "max_files": outgoing_files.MAX_FILES,
         "extensions": list(outgoing_files.EXTENSIONS),
+        "pending_days": outgoing_files.PENDING_DAYS,
     }
 
 

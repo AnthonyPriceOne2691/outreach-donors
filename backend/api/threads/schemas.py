@@ -93,6 +93,8 @@ class FileRulesCard(BaseModel):
     max_files: int
     #: Расширения без точки, в нижнем регистре.
     extensions: list[str]
+    #: Сколько дней приложенный файл ждёт письма — потом убирается сам.
+    pending_days: int
 
     @classmethod
     def current(cls) -> FileRulesCard:
@@ -101,6 +103,7 @@ class FileRulesCard(BaseModel):
             max_letter_bytes=outgoing_files.MAX_LETTER_BYTES,
             max_files=outgoing_files.MAX_FILES,
             extensions=list(outgoing_files.EXTENSIONS),
+            pending_days=outgoing_files.PENDING_DAYS,
         )
 
 
