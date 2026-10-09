@@ -612,6 +612,92 @@ describe('этапы рассылки', () => {
   });
 });
 
+const NICHE_LETTER = {
+  ...OFFER,
+  id: 31,
+  host: 'bookie.example.test',
+  email: 'partners@bookie.example.test',
+  campaign: 'Октябрь',
+  subject: 'Sponsored articles on sports betting sites',
+  body: 'Hello there,\n\nWe place articles with a link on sites that cover sports betting.',
+};
+
+const NICHE_VIEW = {
+  ...OFFER_VIEW,
+  audience: 'niche',
+  letters: [NICHE_LETTER],
+  letter_default: {
+    subject: 'Sponsored articles on {{niche}} sites',
+    zones: [
+      { name: 'greeting', kind: 'rewrite', title: 'Приветствие', text: 'Hello there,' },
+      {
+        name: 'offer',
+        kind: 'fixed',
+        title: 'Кто мы',
+        text: 'We place articles on sites that cover {{niche}}, such as {{example_host}}.',
+      },
+    ],
+  },
+  funnel: {
+    'бизнесов ниши': 3,
+    'ждут решения': 2,
+    'решено «пишем»': 1,
+    'из них с адресом': 0,
+    'ещё не писали': 0,
+  },
+};
+
+const NICHE_PATH = '/api/letters?stage=advertisers&audience=niche';
+
+describe('бизнесы ниши', () => {
+  it('своя очередь и свой текст: оффер бизнесу не спутать с оффером по ссылке', async () => {
+    const recorded = await openLetters({}, { [`GET ${NICHE_PATH}`]: { body: NICHE_VIEW } });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('radio', { name: 'Бизнесам ниши' }));
+
+    expect(await screen.findAllByText('bookie.example.test')).not.toHaveLength(0);
+    expect(recorded.calls.some((call: Call) => call.path === NICHE_PATH)).toBe(true);
+    expect(screen.getByText(/пример нашей площадки той же темы/)).toBeInTheDocument();
+    expect(localStorage.getItem('letters:stage')).toBe('niche');
+    await user.click(screen.getByRole('button', { name: 'Текст первого письма' }));
+    expect(screen.getByText(/\{\{example_host\}\} — пример нашей площадки/)).toBeInTheDocument();
+    expect(screen.getByText('Переписывает модель под каждый бизнес')).toBeInTheDocument();
+  });
+
+  it('сборка уходит с аудиторией и без прогонов', async () => {
+    const recorded = await openLetters(
+      {},
+      {
+        [`GET ${NICHE_PATH}`]: { body: NICHE_VIEW },
+        'POST /api/letters/build': { body: { job_id: 'j' } },
+      },
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('radio', { name: 'Бизнесам ниши' }));
+    await screen.findAllByText('bookie.example.test');
+
+    await user.type(screen.getByLabelText('Кампания'), 'Октябрь');
+    await user.click(screen.getByRole('button', { name: 'Собрать очередь' }));
+
+    const call = recorded.calls.find((one: Call) => one.path === '/api/letters/build');
+    expect(call?.body).toMatchObject({ stage: 'advertisers', audience: 'niche' });
+    expect(call?.body).not.toHaveProperty('run_ids');
+  });
+
+  it('пустая очередь называет ступень, на которой бизнесы кончились', async () => {
+    await openLetters({}, { [`GET ${NICHE_PATH}`]: { body: { ...NICHE_VIEW, letters: [] } } });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('radio', { name: 'Бизнесам ниши' }));
+
+    expect(
+      await screen.findByText(/Кончились на ступени «из них с адресом»: адрес ищется сам/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/ждут решения 2, решено «пишем» 1/)).toBeInTheDocument();
+  });
+});
+
 const UNSIGNED_BODY = 'Good afternoon,\n\nBest regards,\n«ИМЯ ОТПРАВИТЕЛЯ НЕ ЗАДАНО»';
 
 describe('незаданное — тихой пометкой везде', () => {

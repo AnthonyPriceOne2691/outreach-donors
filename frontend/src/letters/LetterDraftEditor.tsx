@@ -25,7 +25,8 @@ import { Badge, Button, Group, Modal, Stack, Text, TextInput, Textarea } from '@
 import { IconPencil } from '@tabler/icons-react';
 import { useState } from 'react';
 
-import type { LetterDraft, LetterDraftView, LetterStage } from '../api/types';
+import type { LetterDraft, LetterDraftView } from '../api/types';
+import type { LetterTarget } from './targets';
 
 export function draftOf(view: LetterDraftView): LetterDraft {
   return {
@@ -45,12 +46,12 @@ interface Props {
   fallback: LetterDraftView;
   value: LetterDraft;
   onChange: (next: LetterDraft) => void;
-  /** От этапа — подстановки и то, под кого модель переписывает зоны. */
-  stage?: LetterStage;
+  /** От адресата — подстановки и то, под кого модель переписывает зоны. */
+  target?: LetterTarget;
 }
 
-/** Что можно подставить в текст и что нельзя трогать — по этапу. */
-const HINTS: Record<LetterStage, { placeholders: string; rewrite: string }> = {
+/** Что можно подставить в текст и что нельзя трогать — по адресату. */
+const HINTS: Record<LetterTarget, { placeholders: string; rewrite: string }> = {
   donors: {
     placeholders:
       '{{host}} — сайт донора, {{sender_name}} — имя в подписи. Пункты списка вопросов ' +
@@ -67,9 +68,18 @@ const HINTS: Record<LetterStage, { placeholders: string; rewrite: string }> = {
       'модель могла бы её пересказать, и сервер такой текст не примет. Цену донора не называть.',
     rewrite: 'Переписывает модель под каждого рекламодателя',
   },
+  niche: {
+    placeholders:
+      '{{example_host}} — пример нашей площадки (принятый донор того же прогона со свежей ' +
+      'ценой), {{niche}} — тема, по которой бизнес нашёлся в выдаче, {{donor_audience}} — фраза ' +
+      'про страну аудитории (пустая, если страна прогона неизвестна), {{sender_name}} — имя в ' +
+      'подписи. Пример площадки и тема стоят только в неизменяемых зонах: в переписываемой ' +
+      'модель могла бы их пересказать, и сервер такой текст не примет. Цену не называть.',
+    rewrite: 'Переписывает модель под каждый бизнес',
+  },
 };
 
-export function LetterDraftEditor({ fallback, value, onChange, stage = 'donors' }: Props) {
+export function LetterDraftEditor({ fallback, value, onChange, target = 'donors' }: Props) {
   const [open, setOpen] = useState(false);
   const edited = !sameDraft(value, draftOf(fallback));
 
@@ -100,7 +110,7 @@ export function LetterDraftEditor({ fallback, value, onChange, stage = 'donors' 
         <Stack gap="sm">
           <Text size="sm" c="dimmed">
             Текст закрепляется за рассылкой при её создании и дальше не меняется. Подстановки:{' '}
-            {HINTS[stage].placeholders}
+            {HINTS[target].placeholders}
           </Text>
           <TextInput
             label="Тема"
@@ -112,7 +122,7 @@ export function LetterDraftEditor({ fallback, value, onChange, stage = 'donors' 
               key={zone.name}
               label={zone.title}
               description={
-                zone.kind === 'rewrite' ? HINTS[stage].rewrite : 'Уходит как есть, модель не видит'
+                zone.kind === 'rewrite' ? HINTS[target].rewrite : 'Уходит как есть, модель не видит'
               }
               autosize
               minRows={1}

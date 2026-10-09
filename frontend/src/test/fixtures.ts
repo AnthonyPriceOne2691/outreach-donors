@@ -124,12 +124,15 @@ export const NO_NICHE: Record<string, Answer> = {
   'GET /api/advertisers/niche': { body: { rows: [], waiting: 0 } },
 };
 
-/** Блок «Исход неизвестен» на экране писем: зависших писем нет ни на одном этапе.
- *  Экран спрашивает их на каждом этапе сам, и тест, которому блок не нужен,
+/** Блок «Исход неизвестен» на экране писем: зависших писем нет ни на одной вкладке.
+ *  Экран спрашивает их на каждой вкладке сам, и тест, которому блок не нужен,
  *  записывает пустой список — промах мимо записанных роняет тест. */
 export const NO_STUCK_LETTERS: Record<string, Answer> = {
   'GET /api/letters/unknown': { body: { stage: 'donors', letters: [], after_minutes: 5 } },
   'GET /api/letters/unknown?stage=advertisers': {
+    body: { stage: 'advertisers', letters: [], after_minutes: 5 },
+  },
+  'GET /api/letters/unknown?stage=advertisers&audience=niche': {
     body: { stage: 'advertisers', letters: [], after_minutes: 5 },
   },
 };

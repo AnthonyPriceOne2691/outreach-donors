@@ -23,6 +23,10 @@
  *
  * **Итог — словами под кнопкой**, из отчёта задачи: сколько ушло, что не ушло
  * и почему, сколько осталось. Номер задачи переживает перезагрузку страницы.
+ *
+ * **Пачка — одной аудитории.** У Этапа 2 две вкладки: рекламодатели по найденной
+ * ссылке и бизнесы ниши. Кнопка вкладки отправляет только её письма, число на ней —
+ * её очередь, и последняя пачка у каждой своя.
  */
 
 import { Alert, Button, Group, Modal, Stack, Text } from '@mantine/core';
@@ -32,12 +36,17 @@ import { useEffect, useState } from 'react';
 
 import { refusalOf } from '../api/client';
 import { sendQueue } from '../api/letters';
+import type { LetterAudience } from '../api/letters';
 import type { Stage } from '../api/stages';
 import { formatNumber, plural } from '../format';
 import { JobLine } from '../jobs/JobLine';
 import { remember, remembered } from '../storage';
 
-const keyOf = (stage: Stage) => `letters:last-send-queue:${stage}`;
+/** Где помнится последняя пачка вкладки. «По ссылке» — прежний ключ этапа. */
+const keyOf = (stage: Stage, audience: LetterAudience) =>
+  audience === 'links'
+    ? `letters:last-send-queue:${stage}`
+    : `letters:last-send-queue:${stage}:${audience}`;
 
 /** Итог пачки одной строкой: что ушло, что нет и почему, что осталось. */
 export function batchLine(report: Record<string, unknown>): string {
@@ -56,6 +65,8 @@ interface Props {
    *  Продажи не подключены — сервер отказывает словами (409), а отключились по ходу
    *  пачки — причина в её итоге. */
   stage: Stage;
+  /** Аудитория Этапа 2; нет — по найденной ссылке, как до аудиторий. */
+  audience?: LetterAudience;
   count: number;
   /** Сколько писем берёт одна пачка — число сервера из ответа, который дал `count`.
    *  Нет — окно говорит без потолка: он неизвестен. */
@@ -65,17 +76,24 @@ interface Props {
   onFinished: () => void;
 }
 
-export function SendQueue({ stage, count, batchMax, blocked, onFinished }: Props) {
+export function SendQueue({
+  stage,
+  audience = 'links',
+  count,
+  batchMax,
+  blocked,
+  onFinished,
+}: Props) {
   const [opened, setOpened] = useState(false);
-  const [jobId, setJobId] = useState<string | null>(() => remembered(keyOf(stage)));
-  useEffect(() => setJobId(remembered(keyOf(stage))), [stage]);
+  const [jobId, setJobId] = useState<string | null>(() => remembered(keyOf(stage, audience)));
+  useEffect(() => setJobId(remembered(keyOf(stage, audience))), [stage, audience]);
 
   const start = useMutation({
-    mutationFn: () => sendQueue(stage),
+    mutationFn: () => sendQueue(stage, audience),
     onSuccess: (queued) => {
       setOpened(false);
       setJobId(queued.job_id);
-      remember(keyOf(stage), queued.job_id);
+      remember(keyOf(stage, audience), queued.job_id);
       notifications.show({
         message: `Пачка ушла в очередь задач: писем ${formatNumber(queued.queued)}`,
         color: 'green',
