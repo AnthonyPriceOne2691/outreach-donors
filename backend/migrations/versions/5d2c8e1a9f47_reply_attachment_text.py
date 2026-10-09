@@ -1,7 +1,7 @@
 """вложения ответа: текст, прочитанный из файла, — для разбора цены и для экрана
 
 Revision ID: 5d2c8e1a9f47
-Revises: 260e2efdd0c6
+Revises: 8f3a6b2d0c95
 Create Date: 2026-10-09 12:00:00.000000
 
 Прайс приходит файлом, а цену модель брала только из текста письма. Текст файла
@@ -17,7 +17,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "5d2c8e1a9f47"  # pragma: allowlist secret
-down_revision: Union[str, Sequence[str], None] = "260e2efdd0c6"
+down_revision: Union[str, Sequence[str], None] = "8f3a6b2d0c95"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
