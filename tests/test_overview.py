@@ -225,7 +225,7 @@ class TestDonors:
             )
         await session.commit()
 
-        donors = (await overview(session)).donors
+        donors = (await overview(session, stages=EVERY_STAGE)).donors
         letters = await Recipients(session).donor_funnel()
         listed = (
             await client.get("/api/donors?has_contact=true", headers=bearer(operator_token))
@@ -396,8 +396,8 @@ class TestMenuWork:
             )
         await session.flush()
 
-        menu = await work(session)
-        waiting = (await overview(session)).waiting
+        menu = await work(session, stages=EVERY_STAGE)
+        waiting = (await overview(session, stages=EVERY_STAGE)).waiting
 
         assert waiting.niche == await niche.waiting(session) == 2
         assert menu.advertisers == waiting.advertisers == 1 + 2
