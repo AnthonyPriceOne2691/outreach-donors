@@ -134,6 +134,7 @@ class _Job:
     def __init__(self, job_id: str, func_name: str, redis: _Redis) -> None:
         self.id = job_id
         self.func_name = func_name
+        self.origin = "sales"
         self.connection = redis
         self.status = JobStatus.QUEUED
         self.deleted = False
