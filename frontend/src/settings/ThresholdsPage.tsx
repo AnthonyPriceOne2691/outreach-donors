@@ -34,7 +34,6 @@ import {
   Card,
   Group,
   Loader,
-  NumberInput,
   SimpleGrid,
   Stack,
   Table,
@@ -50,11 +49,13 @@ import { fetchThresholds, previewThresholds, saveThresholds } from '../api/setti
 import type { ThresholdsBody } from '../api/types';
 import { InfoHint } from '../components/InfoHint';
 import { Metric } from '../components/Metric';
+import { NumberField } from '../components/NumberField';
+import { rangeText } from '../components/numberText';
 import { PageHead } from '../components/PageHead';
 import { SaveVersionButton } from '../components/SaveVersionButton';
 import { useSession } from '../auth/AuthProvider';
 import { formatDateTime, formatNumber } from '../format';
-import { bodyOf, fieldRefusal, rangeText, THRESHOLD_KEYS, typed } from './thresholdDraft';
+import { bodyOf, draftOf, fieldRefusal, THRESHOLD_KEYS } from './thresholdDraft';
 import type { ThresholdDraft, ThresholdKey } from './thresholdDraft';
 import { notify } from '../notices';
 
@@ -76,8 +77,8 @@ const FIELDS: Record<ThresholdKey, { label: string; hint: string }> = {
   min_keywords: { label: 'Ключей в органике', hint: 'Сколько ключей сайта в органической выдаче.' },
 };
 
-/** **Поле — по числу**: самому длинному, «10 000 000» со стрелками и полями, хватает
- *  115 px (замер 28.09.2026). До 09.10.2026 поле стояло во всю колонку подписи —
+/** **Поле — по числу**: самому длинному, «10 000 000» с полями, хватает 115 px (замер
+ *  28.09.2026, тогда ещё со стрелками). До 09.10.2026 поле стояло во всю колонку подписи —
  *  200 px под «20», то самое «поле больше своего значения» (замечание Anthony
  *  09.10.2026). Колонка — по своей подписи: подпись не переносится (`nowrap`), и
  *  соседние поля стоят на одной высоте. */
@@ -99,8 +100,8 @@ const COLUMNS: { title: string; width?: string }[] = [
 ];
 const TABLE_MIN_WIDTH = 880;
 
-function same(draft: ThresholdDraft, inUse: ThresholdsBody): boolean {
-  return THRESHOLD_KEYS.every((key) => draft[key] === inUse[key]);
+function same(left: ThresholdsBody, right: ThresholdsBody): boolean {
+  return THRESHOLD_KEYS.every((key) => left[key] === right[key]);
 }
 
 export function ThresholdsPage() {
@@ -129,7 +130,7 @@ export function ThresholdsPage() {
   // от текущих, а не с чистого листа.
   useEffect(() => {
     if (data !== undefined && draft === null) {
-      setDraft(data.current ?? data.defaults);
+      setDraft(draftOf(data.current ?? data.defaults));
     }
   }, [data, draft]);
 
@@ -172,7 +173,9 @@ export function ThresholdsPage() {
     return <Loader aria-label="Загружаем пороги" m="md" />;
   }
 
-  const changed = inUse !== undefined && !same(draft, inUse);
+  // Поле с отказом — уже не действующие пороги, даже если цифры в нём те же:
+  // «20.0» в поле DR — не 20, а повод для отказа.
+  const changed = inUse !== undefined && (body === null || !same(body, inUse));
 
   return (
     <Stack gap="lg">
@@ -191,7 +194,7 @@ export function ThresholdsPage() {
               const range = data.limits[key];
               const field = FIELDS[key];
               return (
-                <NumberInput
+                <NumberField
                   key={key}
                   labelProps={{ labelElement: 'div' }}
                   label={
@@ -204,21 +207,12 @@ export function ThresholdsPage() {
                   }
                   aria-label={field.label}
                   styles={{ wrapper: { width: INPUT_WIDTH } }}
-                  min={range.min}
-                  max={range.max}
-                  // Число за границей не подменяется молча краем диапазона:
+                  // Ни число за границей, ни дробь, ни буква не подменяются молча:
                   // поле остаётся как набрано, под ним — почему так нельзя.
-                  clampBehavior="none"
-                  allowDecimal={false}
-                  allowNegative={false}
-                  // На телефоне — клавиатура из одних цифр: запятой и минуса
-                  // в пороге не бывает, а по умолчанию поле просит «дробную».
-                  inputMode="numeric"
-                  thousandSeparator=" "
                   disabled={!canEdit}
                   value={draft[key]}
                   error={canEdit ? fieldRefusal(draft[key], range) : null}
-                  onChange={(value) => setDraft({ ...draft, [key]: typed(value) })}
+                  onChange={(text) => setDraft({ ...draft, [key]: text })}
                 />
               );
             })}
@@ -237,7 +231,7 @@ export function ThresholdsPage() {
               onSave={() => body !== null && save.mutate(body)}
             />
             {changed && (
-              <Button variant="subtle" className="press" onClick={() => setDraft(inUse)}>
+              <Button variant="subtle" className="press" onClick={() => setDraft(draftOf(inUse))}>
                 Вернуть действующие
               </Button>
             )}

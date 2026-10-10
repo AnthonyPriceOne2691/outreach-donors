@@ -9,15 +9,21 @@
  *
  * **Пустое поле — не ноль.** Раньше стёртое поле тихо становилось нулём, и
  * «сохранить» заводило версию без порога, которую никто не набирал.
+ *
+ * **Поле — как набрано, строкой.** Числовое поле Mantine молча выбрасывало
+ * точку, запятую, минус и буквы и склеивало оставшиеся цифры: «2.5» и «2,5»
+ * становились 25, «1e3» — 13, «-5» — 5 (проверка QA 10.10.2026). Теперь набранное
+ * стоит в поле, а под ним — почему такой порог нельзя (`components/numberText`).
  */
 
 import type { ThresholdRange, ThresholdsBody } from '../api/types';
-import { formatNumber } from '../format';
+import { numberRefusal, numberText, validNumber } from '../components/numberText';
+import type { NumberRule } from '../components/numberText';
 
 export type ThresholdKey = keyof ThresholdsBody;
 
-/** Поле как набрано: число или пусто. */
-export type ThresholdDraft = Record<ThresholdKey, number | ''>;
+/** Поле как набрано. */
+export type ThresholdDraft = Record<ThresholdKey, string>;
 
 export type ThresholdLimits = Record<ThresholdKey, ThresholdRange>;
 
@@ -28,28 +34,22 @@ export const THRESHOLD_KEYS: ThresholdKey[] = [
   'min_keywords',
 ];
 
-/** Что набрано в поле. `NumberInput` отдаёт строку, когда поле пусто или
- *  число длиннее безопасного целого, — такое число честно остаётся числом
- *  и не проходит проверку границ, а не обрезается. */
-export function typed(value: number | string): number | '' {
-  if (typeof value === 'number') return value;
-  const digits = value.replace(/\s/g, '');
-  if (digits === '') return '';
-  const number = Number(digits);
-  return Number.isNaN(number) ? '' : number;
+/** Пороги в полях — числами по-русски, с разрядами: от них правят. */
+export function draftOf(body: ThresholdsBody): ThresholdDraft {
+  const draft: Partial<ThresholdDraft> = {};
+  for (const key of THRESHOLD_KEYS) draft[key] = numberText(body[key]);
+  return draft as ThresholdDraft;
 }
 
-/** «от 0 до 10 000 000» — числами по-русски. */
-export function rangeText(range: ThresholdRange): string {
-  return `от ${formatNumber(range.min)} до ${formatNumber(range.max)}`;
+/** Порог — целое число в границах, как у схемы сервера. */
+function ruleOf(range: ThresholdRange): NumberRule {
+  return { decimals: 0, min: range.min, max: range.max };
 }
 
 /** Почему значение сохранить нельзя — словами, или `null`, если можно. */
-export function fieldRefusal(value: number | '', range: ThresholdRange): string | null {
-  if (value === '') return 'Впишите число';
-  if (!Number.isInteger(value)) return 'Только целое число';
-  if (value < range.min || value > range.max) return `Допустимо ${rangeText(range)}`;
-  return null;
+export function fieldRefusal(text: string, range: ThresholdRange): string | null {
+  if (text.trim() === '') return 'Впишите число';
+  return numberRefusal(text, ruleOf(range));
 }
 
 /** Черновик, готовый уйти на сервер, или `null`, если хоть одно поле
@@ -57,8 +57,8 @@ export function fieldRefusal(value: number | '', range: ThresholdRange): string 
 export function bodyOf(draft: ThresholdDraft, limits: ThresholdLimits): ThresholdsBody | null {
   const body: Partial<ThresholdsBody> = {};
   for (const key of THRESHOLD_KEYS) {
-    const value = draft[key];
-    if (value === '' || fieldRefusal(value, limits[key]) !== null) return null;
+    const value = validNumber(draft[key], ruleOf(limits[key]));
+    if (value === null) return null;
     body[key] = value;
   }
   return body as ThresholdsBody;
