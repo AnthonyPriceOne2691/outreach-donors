@@ -44,7 +44,7 @@ import { Composer } from './Composer';
 import { NextWaiting } from './NextWaiting';
 import { ReplyDecision } from './ReplyDecision';
 import { ThreadFeed } from './ThreadFeed';
-import { ThreadMailLine, ThreadMailWaiting } from './ThreadMailLine';
+import { mailboxGone, ThreadMailLine, ThreadMailWaiting } from './ThreadMailLine';
 import type { ThreadOutlet } from './ThreadsScreen';
 import { activeReply, answerTarget } from './threadTimeline';
 import { notify } from '../notices';
@@ -259,6 +259,7 @@ export function ThreadPage() {
               threadId={data.card.id}
               pendingFiles={data.pending_files ?? []}
               {...(data.file_rules === undefined ? {} : { rules: data.file_rules })}
+              boxGone={mailboxGone(data.mail)}
             />
           ) : null
         }

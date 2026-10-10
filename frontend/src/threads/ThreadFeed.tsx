@@ -17,6 +17,9 @@
  * Отметки доставки — одна галочка и две: принято платформой и доставлено на сервер
  * получателя. Прочитано не показываем: отслеживание открытий требует
  * картинки-маячка, а она сама по себе повод уйти в спам.
+ *
+ * **Поле ответа выросло — лента держит нижний край** (`feedBottom.ts`, проверка QA
+ * 10.10.2026): значки приложенных файлов закрывали низ последнего ответа.
  */
 
 import { Badge, Button, Card, Group, ScrollArea, Stack, Text } from '@mantine/core';
@@ -29,6 +32,7 @@ import type { LetterWithFiles } from '../api/files';
 import type { Corridor, IncomingCard, LetterCard, MessageStatus } from '../api/types';
 import { formatDateTime, formatMoney } from '../format';
 import { corridorText, readable, uniquenessText } from '../letters/letterText';
+import { useBottomKept } from './feedBottom';
 import { LetterFiles } from './LetterFiles';
 import { ReplyFiles } from './ReplyFiles';
 import { ReplyOffers } from './ReplyOffers';
@@ -317,6 +321,7 @@ export function ThreadFeed({
     const node = viewport.current;
     if (node !== null) node.scrollTop = node.scrollHeight;
   }, [items.length]);
+  useBottomKept(viewport, items.length > 0, fill);
   if (items.length === 0) return null;
   const bubbles = (
     <Stack gap="sm" p="md" className="threadFeed" aria-label="Переписка">

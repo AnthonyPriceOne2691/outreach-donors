@@ -22,12 +22,22 @@ function extensionOf(name: string): string {
   return dot < 0 ? '' : name.slice(dot + 1).toLowerCase();
 }
 
+/** Тот же файл уже приложен — то же имя и тот же размер. */
+function attachedAlready(file: File, attached: OutgoingFile[]): boolean {
+  return attached.some((one) => one.name === file.name && one.size === file.size);
+}
+
 /** Почему файл не приложить — словами, до загрузки; `null` — можно. */
 export function refusalBefore(
   file: File,
   attached: OutgoingFile[],
   rules: FileRules,
 ): string | null {
+  // Второй раз тот же файл — без слов уходил на сервер и ложился рядом с первым:
+  // письмо понесло бы два одинаковых вложения (проверка QA 10.10.2026).
+  if (attachedAlready(file, attached)) {
+    return `«${file.name}» уже приложен к ответу — второй такой же не нужен`;
+  }
   if (!rules.extensions.includes(extensionOf(file.name))) {
     const allowed = rules.extensions.map((ext) => ext.toUpperCase()).join(', ');
     return `«${file.name}»: такие файлы с письмом не уходят — можно ${allowed}`;
