@@ -117,7 +117,7 @@
       "worst": "of:161"
     },
     "backend/api/errors.py": {
-      "lines": 442,
+      "lines": 447,
       "complexity": 7,
       "worst": "_database_code:275"
     },

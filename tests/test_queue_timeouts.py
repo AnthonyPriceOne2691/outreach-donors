@@ -13,6 +13,7 @@ Redis здесь — настоящий сокет, который приним�
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import socket
 import threading
 import time
@@ -46,11 +47,10 @@ def silent_redis(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
 
     def serve() -> None:
         while not stop.is_set():
-            try:
+            # Нового соединения за 50 мс нет — это не сбой, а следующий круг ожидания.
+            with contextlib.suppress(TimeoutError):
                 taken, _ = server.accept()
                 held.append((taken, time.monotonic()))
-            except TimeoutError:
-                pass
             for taken, since in list(held):
                 if time.monotonic() - since > HOLD:
                     taken.close()
