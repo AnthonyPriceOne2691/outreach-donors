@@ -20,6 +20,7 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.ops import UsageRecordModel
 from backend.features.donors.verdict import Thresholds
+from backend.features.ops.overview import overview
 from backend.features.outreach.repository import EVERY_STAGE
 from backend.features.runs.spending import SpendingRepository
 from backend.features.runs.thresholds import ThresholdsRepository, consequences
@@ -205,47 +206,51 @@ class TestWhoIsCounted:
 MakeUser = Callable[..., Awaitable[UserModel]]
 SignIn = Callable[..., Awaitable[str]]
 
+#: Пороги запроса: мягче сохранённой версии по DR.
+SOFTER = {"min_dr": 20, "min_org_traffic": 500, "min_refdomains": 100, "min_keywords": 300}
+
+
+@pytest.fixture
+async def token(make_user: MakeUser, sign_in: SignIn) -> str:
+    await make_user("пороги@site.com", role=UserRole.ADMIN)
+    return await sign_in("пороги@site.com")
+
+
+async def _stored(session: AsyncSession, host: str, status: DonorStatus, *, dr: int | None) -> None:
+    """Домен в базе: с метриками, если есть DR, — иначе без них, как заведённый руками."""
+    domain = DomainModel(host=host)
+    session.add(domain)
+    await session.flush()
+    measured = dr is not None
+    session.add(
+        DonorModel(
+            domain_id=domain.id,
+            status=status,
+            dr=dr,
+            org_traffic=5000 if measured else None,
+            metrics={"refdomains": 500, "org_keywords": 900} if measured else None,
+        )
+    )
+    await session.flush()
+
 
 class TestPreviewRoute:
     async def test_compares_with_the_version_in_force(
-        self, client: AsyncClient, session: AsyncSession, make_user: MakeUser, sign_in: SignIn
+        self, client: AsyncClient, session: AsyncSession, token: str
     ) -> None:
         """«Действующие» — сохранённая версия, та же, что возьмёт прогон, а не умолчания
         конфига; и её же пороги в предпросмотре — ноль перемен."""
-        await make_user("пороги@site.com", role=UserRole.ADMIN)
-        token = await sign_in("пороги@site.com")
         await ThresholdsRepository(session).save(
             Thresholds(40, 500, 100, 300), author="ivan@site.com"
         )
-        for host, status, dr in (
-            ("strong.example.test", DonorStatus.SUITABLE, 45),
-            ("region.example.test", DonorStatus.UNSUITABLE, 50),
-            ("weak.example.test", DonorStatus.UNSUITABLE, 30),
-        ):
-            domain = DomainModel(host=host)
-            session.add(domain)
-            await session.flush()
-            session.add(
-                DonorModel(
-                    domain_id=domain.id,
-                    status=status,
-                    dr=dr,
-                    org_traffic=5000,
-                    metrics={"refdomains": 500, "org_keywords": 900},
-                )
-            )
-        await session.flush()
+        await _stored(session, "strong.example.test", DonorStatus.SUITABLE, dr=45)
+        await _stored(session, "region.example.test", DonorStatus.UNSUITABLE, dr=50)
+        await _stored(session, "weak.example.test", DonorStatus.UNSUITABLE, dr=30)
 
         same = await client.post(
-            "/api/settings/preview",
-            json={"min_dr": 40, "min_org_traffic": 500, "min_refdomains": 100, "min_keywords": 300},
-            headers=bearer(token),
+            "/api/settings/preview", json={**SOFTER, "min_dr": 40}, headers=bearer(token)
         )
-        softer = await client.post(
-            "/api/settings/preview",
-            json={"min_dr": 20, "min_org_traffic": 500, "min_refdomains": 100, "min_keywords": 300},
-            headers=bearer(token),
-        )
+        softer = await client.post("/api/settings/preview", json=SOFTER, headers=bearer(token))
 
         assert same.status_code == 200, same.text
         assert {key: same.json()[key] for key in ("passing_now", "cut", "admitted")} == {
@@ -258,6 +263,27 @@ class TestPreviewRoute:
             "cut": 0,
             "admitted": 1,
         }
+
+    async def test_suitable_is_the_number_of_the_overview(
+        self, client: AsyncClient, session: AsyncSession, token: str
+    ) -> None:
+        """С вердиктом «подходит» — то же число, что «Прошли пороги» на «Обзоре», тем же
+        правилом: с донором, заведённым руками без метрик. До 10.10.2026 «Пороги»
+        показывали 130 против 131 «Обзора»: подходящий без DR уходил в «без метрик»
+        (проверка прода 10.10.2026)."""
+        await _stored(session, "strong.example.test", DonorStatus.SUITABLE, dr=45)
+        await _stored(session, "manual.example.test", DonorStatus.SUITABLE, dr=None)
+        await _stored(session, "region.example.test", DonorStatus.UNSUITABLE, dr=50)
+        await _stored(session, "unknown.example.test", DonorStatus.UNCHECKED, dr=None)
+
+        response = await client.post("/api/settings/preview", json=SOFTER, headers=bearer(token))
+        donors = (await overview(session, stages=EVERY_STAGE)).donors
+
+        assert response.status_code == 200, response.text
+        answer = response.json()
+        assert answer["suitable"] == donors.suitable == 2
+        # Все домены базы — те же, что «Проверено доменов» на «Обзоре».
+        assert answer["checked"] + answer["without_metrics"] == donors.total == 4
 
 
 class TestVersions:

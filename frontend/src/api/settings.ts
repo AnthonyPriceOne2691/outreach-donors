@@ -48,6 +48,8 @@ export interface ConsequencesView {
   undecided: number;
   /** Домены без метрик: пороги их не судят. */
   without_metrics: number;
+  /** С вердиктом «подходит» в базе — то же число, что «Прошли пороги» на «Обзоре». */
+  suitable: number;
 }
 
 export function fetchThresholds(): Promise<ThresholdsView> {

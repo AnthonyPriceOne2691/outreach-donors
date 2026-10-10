@@ -54,6 +54,7 @@ const CONSEQUENCES = {
   admitted: 0,
   undecided: 0,
   without_metrics: 6,
+  suitable: 101,
 };
 
 async function openThresholds(routes: Record<string, unknown> = {}, view: unknown = VIEW) {
@@ -140,6 +141,25 @@ describe('пороги', () => {
       ).toBeInTheDocument();
     },
   );
+
+  // Проверка прода 10.10.2026: «Обзор» — «Прошли пороги 131», «Пороги» — «Подходит сейчас
+  // 130 · 1 без метрик». Число вердикта в базе — то же, что на «Обзоре», а чем оно не
+  // совпадает с плитками пересчёта, сказано словами.
+  it.each([
+    [101, 'С вердиктом «подходит» в базе — 101 домен: это «Прошли пороги» на «Обзоре».'],
+    [131, 'С вердиктом «подходит» в базе — 131 домен: это «Прошли пороги» на «Обзоре».'],
+    [3, 'С вердиктом «подходит» в базе — 3 домена: это «Прошли пороги» на «Обзоре».'],
+  ])('вердикт в базе (%i) — числом «Обзора» и словами, чем он не пересчёт', async (count, said) => {
+    await openThresholds({
+      'POST /api/settings/preview': { body: { ...CONSEQUENCES, suitable: count } },
+    });
+    await touchDr();
+
+    const line = await screen.findByText(new RegExp(`^${said}`));
+    expect(line).toHaveTextContent(
+      'Тот вердикт ставит замер — порогами своего прогона и регионом, а у заведённых руками — человек; плитки выше пересчитывают одни пороги.',
+    );
+  });
 
   it('отказ сервера на сравнении — словами, а не «появится»', async () => {
     await openThresholds({

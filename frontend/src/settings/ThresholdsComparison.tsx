@@ -123,6 +123,9 @@ function Comparison({ data, stale }: { data: ConsequencesView; stale: boolean })
           {withoutMetrics(data.without_metrics)}
         </Text>
       )}
+      <Text size="sm" c="dimmed">
+        {storedVerdict(data.suitable)}
+      </Text>
     </Stack>
   );
 }
@@ -133,6 +136,15 @@ function undecided(count: number): string {
   const domains = plural(count, 'домен', 'домена', 'доменов');
   const them = count === 1 ? 'него' : 'них';
   return `Эти пороги пустили бы дальше ещё ${formatNumber(count)} ${domains}, но остальных метрик у ${them} нет — пройдут ли, решит новый замер.`;
+}
+
+/** Вердикт в базе — тем же числом, что «Прошли пороги» на «Обзоре», и словами, чем он
+ *  не пересчёт: до 10.10.2026 «Пороги» показывали «подходит сейчас 130» против 131
+ *  «Обзора» — подходящий, заведённый руками без метрик, уходил в «без метрик»
+ *  (проверка прода 10.10.2026). */
+function storedVerdict(count: number): string {
+  const domains = plural(count, 'домен', 'домена', 'доменов');
+  return `С вердиктом «подходит» в базе — ${formatNumber(count)} ${domains}: это «Прошли пороги» на «Обзоре». Тот вердикт ставит замер — порогами своего прогона и регионом, а у заведённых руками — человек; плитки выше пересчитывают одни пороги.`;
 }
 
 /** Домены без метрик — словом и местоимением по числу: «ещё 1 домен: пороги его не
