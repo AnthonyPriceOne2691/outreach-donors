@@ -145,26 +145,29 @@ export function PriceReview({
 
       {/* Поля и решения — одним рядом, что такое белая и серая — в «i» над ним:
           пояснение под каждым полем добавляло строку, и на 1280 ряд переносился
-          (09.10.2026). */}
+          (09.10.2026). Поля — гибкой ширины: от подписи до прежних 104/80 px.
+          С жёсткой шириной ряд вставал на 1280 впритык (641 px из 642) и
+          переносился от любой мелочи — так случилось, когда у пунктов меню
+          появились значки и рабочая область стала на 32 px уже (10.10.2026). */}
       <Group gap="xs" align="flex-end">
         <TextInput
           label="Белая цена"
           value={white}
-          w={96}
+          style={{ flex: '1 1 80px', maxWidth: 104 }}
           disabled={!canReview}
           onChange={(event) => setWhite(event.currentTarget.value)}
         />
         <TextInput
           label="Серая цена"
           value={grey}
-          w={96}
+          style={{ flex: '1 1 80px', maxWidth: 104 }}
           disabled={!canReview}
           onChange={(event) => setGrey(event.currentTarget.value)}
         />
         <TextInput
           label="Валюта"
           value={currency}
-          w={72}
+          style={{ flex: '1 1 56px', maxWidth: 80 }}
           disabled={!canReview}
           onChange={(event) => setCurrency(event.currentTarget.value)}
         />

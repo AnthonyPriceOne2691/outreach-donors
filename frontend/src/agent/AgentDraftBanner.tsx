@@ -8,8 +8,8 @@
  * - **отдан человеку** (`escalated`) — розой и без «как есть»: только правка
  *   или отклонение. Сервер держит то же: 409 и на «как есть», и на правку
  *   прежним текстом;
- * - **ответ не нужен** (`skipped`) — строкой с «Ответить всё же»: молчание
- *   агента видно, а пустой черновик уходит обычным ответом из переписки.
+ * - **ответ не нужен** (`skipped`) — строкой: молчание агента видно, а оспаривают
+ *   его ответом в поле внизу ленты (`threads/Composer`).
  *
  * Причина отклонения — выбор из списка этапа (`agent_reasons` переписки) или
  * «другое» словами: без неё кнопка неактивна, а сервер отвечает 422.
@@ -30,7 +30,7 @@ import { rejectDraft, sendDraft } from '../api/agent';
 import type { DraftCard, ThreadAgent } from '../api/agent';
 import { refusalOf } from '../api/client';
 import { rowIdOf } from '../api/ids';
-import { answerReply, fetchThread } from '../api/outreach';
+import { fetchThread } from '../api/outreach';
 import type { ThreadView } from '../api/thread';
 import type { SendResult } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
@@ -76,7 +76,7 @@ export function AgentDraftBanner({ replyId }: { replyId: number }) {
   // Новый текст черновика («написать заново») — новая плашка, без старой правки.
   const key = `${draft.id}-${draft.written_at}`;
   return draft.status === 'skipped' ? (
-    <SkippedLine key={key} {...props} />
+    <SkippedLine key={key} draft={props.draft} />
   ) : (
     <Banner key={key} {...props} />
   );
@@ -105,12 +105,7 @@ function useDecision(threadId: number, draft: DraftCard) {
     notify({ message, color });
   }
   const send = useMutation({
-    // Пропущенный черновик пуст: «Ответить всё же» — обычный ответ из
-    // переписки, и он же закрывает черновик на сервере.
-    mutationFn: (body: string | null) =>
-      draft.status === 'skipped'
-        ? answerReply(threadId, draft.reply_id, body ?? '')
-        : sendDraft(draft.id, body),
+    mutationFn: (body: string | null) => sendDraft(draft.id, body),
     onSuccess: (sent) => settled(sentWords(sent), sent.real ? 'green' : 'yellow'),
     onError: (failure) =>
       notify({ title: 'Не отправили', message: refusalOf(failure), color: 'red' }),
@@ -124,37 +119,26 @@ function useDecision(threadId: number, draft: DraftCard) {
   return { send, reject, busy: send.isPending || reject.isPending };
 }
 
-/** «Ответ не нужен» — строкой: молчание агента видно и оспаривается ответом. */
-function SkippedLine({ threadId, draft }: DraftProps) {
+/**
+ * «Ответ не нужен» — строкой: молчание агента видно, а оспаривается оно ответом
+ * в поле внизу ленты (`threads/Composer`) — этот ответ и закрывает черновик на
+ * сервере. До 10.10.2026 здесь было своё поле «Ответить всё же»: с полем ответа,
+ * которое теперь видно сразу, на экране вставали два поля и две «Отправить».
+ */
+function SkippedLine({ draft }: { draft: DraftCard }) {
   const { can } = useSession();
-  const { send, busy } = useDecision(threadId, draft);
-  const [open, setOpen] = useState(false);
-  const [text, setText] = useState('');
   return (
-    <Stack gap="xs" mt="sm">
-      <Group gap="xs">
-        <Badge variant="light" color="gray">
-          агент: ответ не нужен
-        </Badge>
-        <Text size="sm">{draft.reason ?? 'причина не названа'}</Text>
-        {can('send') && !open ? (
-          <Button variant="light" size="xs" onClick={() => setOpen(true)}>
-            Ответить всё же
-          </Button>
-        ) : null}
-      </Group>
-      {open ? (
-        <Editor
-          text={text}
-          onText={setText}
-          action="Отправить"
-          ready={text.trim() !== ''}
-          busy={busy}
-          onSend={() => send.mutate(text.trim())}
-          onCancel={() => setOpen(false)}
-        />
+    <Group gap="xs" mt="sm">
+      <Badge variant="light" color="gray">
+        агент: ответ не нужен
+      </Badge>
+      <Text size="sm">{draft.reason ?? 'причина не названа'}</Text>
+      {can('send') ? (
+        <Text size="sm" c="dimmed">
+          Не согласны — ответьте в поле внизу.
+        </Text>
       ) : null}
-    </Stack>
+    </Group>
   );
 }
 

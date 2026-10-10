@@ -21,7 +21,7 @@ import {
   reply,
   threadWith,
 } from '../test/threadFixtures';
-import { refusalBefore } from './AnswerFiles';
+import { refusalBefore } from './fileRules';
 
 async function openThread(view = threadWith(), routes: Record<string, unknown> = {}) {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
@@ -108,7 +108,6 @@ describe('файлы нашего ответа', () => {
     });
     const user = userEvent.setup();
 
-    await user.click(screen.getByRole('button', { name: 'Ответить' }));
     await user.upload(
       fileInput(),
       new File(['%PDF-1.7'], OUR_FILE.name, { type: 'application/pdf' }),
@@ -132,7 +131,6 @@ describe('файлы нашего ответа', () => {
     const recorded = await openThread();
     const user = userEvent.setup({ applyAccept: false });
 
-    await user.click(screen.getByRole('button', { name: 'Ответить' }));
     await user.upload(fileInput(), new File(['MZ'], 'setup.exe'));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/такие файлы с письмом не уходят/);
@@ -145,7 +143,7 @@ describe('файлы нашего ответа', () => {
     });
     const user = userEvent.setup();
 
-    // Ответ начат — форма открыта сразу, файл в ней, и срок, после которого его уберут.
+    // Ответ начат — файл у поля ответа, и срок, после которого его уберут.
     expect(screen.getByLabelText('Текст ответа')).toBeInTheDocument();
     expect(
       screen.getByText('Не ушедший с письмом за 7 дней файл уберётся сам'),
