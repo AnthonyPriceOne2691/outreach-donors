@@ -53,6 +53,7 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, SenderModel
+from backend.features.donors.standing import decided_in
 from backend.features.letters import compose, identity, mailbox, reply_to, settle, unsubscribe
 from backend.features.letters.chain import ANSWER_STEP
 from backend.features.letters.outgoing_store import Files, OutgoingFiles
@@ -336,9 +337,13 @@ class Sending:
                 f"Донора {target.host} отклонили после сборки письма №{target.message.id} — "
                 "писать ему нельзя. Письмо стоит убрать из очереди"
             )
+        # Где решать — номером прогона, а не письма (проверка QA 10.10.2026): у ответа в переписке
+        # это письмо, созданное секундой раньше, и человеку его номер не говорит ничего.
+        run = await decided_in(self._session, target.message.domain_id, None)
+        where = "прогона, где он нашёлся (экран «Прогон»)" if run is None else f"прогона №{run}"
         raise UndecidedDonorError(
-            f"Донора {target.host} вернули на рассмотрение после сборки письма "
-            f"№{target.message.id}. Сначала решить на экране прогона"
+            f"Донор {target.host} снова ждёт решения; пока его не примут, письмо ждёт. "
+            f"Решить — на рассмотрении {where}"
         )
 
     async def _check_advertiser(self, target: _Target) -> None:

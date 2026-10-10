@@ -25,6 +25,7 @@ from backend.features.core.domain import (
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.ops import SuppressionModel, UsageRecordModel
 from backend.features.core.models.outreach import MessageModel
+from backend.features.core.models.run import RunCandidateModel
 from backend.features.letters.building import BuildRequest, QueueBuilder
 from backend.features.letters.repository import LetterRepository
 from backend.features.letters.rewrite import RewriteResult
@@ -38,6 +39,8 @@ from backend.features.letters.sending import (
 )
 from backend.features.letters.transport import NullTransport, Outgoing, TransportError
 from backend.features.outreach.repository import OutreachRepository
+from backend.features.runs.repository import RunRepository
+from backend.features.runs.thresholds import defaults
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import make_donor, make_sender
@@ -512,8 +515,51 @@ class TestDecisionChangedAfterBuild:
     ) -> None:
         letter = await self._letter(session, None)
 
-        with pytest.raises(UndecidedDonorError, match="рассмотрение"):
+        with pytest.raises(UndecidedDonorError, match="снова ждёт решения"):
             await Sending(session, NullTransport(), now=NOW).send(letter.id)
+
+    async def test_the_refusal_names_the_run_where_to_decide(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        """Проверка QA 10.10.2026: отказ ответу в переписке называл «письмо №28» — письмо,
+        созданное секундой раньше, — и «экран прогона» без номера. Теперь — прогон, в очереди
+        которого донор ждёт решения, и номера письма в тексте нет."""
+        letter = await self._letter(session, None)
+        runs = RunRepository(session)
+        settings = await runs.create_settings(
+            defaults(),
+            geo_top_n=5,
+            geo_min_share=0.2,
+            metrics_ttl_days=90,
+            price_ttl_days=150,
+            units_cap=100_000,
+        )
+        run = await runs.create_run(
+            stage=Stage.DONORS, settings_id=settings.id, keywords=["garden"], country="us"
+        )
+        session.add(RunCandidateModel(run_id=run.id, domain_id=letter.domain_id, status="pending"))
+        await session.flush()
+
+        with pytest.raises(UndecidedDonorError) as refused:
+            await Sending(session, NullTransport(), now=NOW).send(letter.id)
+
+        assert str(refused.value) == (
+            "Донор one.example.test снова ждёт решения; пока его не примут, письмо ждёт. "
+            f"Решить — на рассмотрении прогона №{run.id}"
+        )
+
+    async def test_without_a_waiting_run_it_says_where_to_look(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        letter = await self._letter(session, None)
+
+        with pytest.raises(UndecidedDonorError) as refused:
+            await Sending(session, NullTransport(), now=NOW).send(letter.id)
+
+        assert str(refused.value).endswith(
+            "Решить — на рассмотрении прогона, где он нашёлся (экран «Прогон»)"
+        )
+        assert "письма №" not in str(refused.value)
 
     async def test_accepted_again_goes(self, session: AsyncSession, filled_legal: None) -> None:
         letter = await self._letter(session, "accepted")
