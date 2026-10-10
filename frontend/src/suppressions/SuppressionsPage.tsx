@@ -54,6 +54,7 @@ import {
   Textarea,
   TextInput,
 } from '@mantine/core';
+import { IconPlus } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
@@ -259,20 +260,24 @@ export function SuppressionsPage() {
     <Stack gap="lg">
       <Card className="glassPanel" p="xl">
         <Stack gap="md">
-          <Group justify="space-between" gap="sm">
-            <Group gap="sm" align="baseline">
-              <PageHead
-                title="Стоп-лист"
-                hint="Кому мы не пишем ни на одном этапе. Проверяется дважды: при отборе доменов — домен из списка в прогон не идёт и юнитов на него не тратится, — и перед каждой отправкой, так что письмо адресату из списка не уйдёт, даже если его собрали раньше."
-              />
-              {facts.length > 0 && <Text size="sm">{facts.join(' · ')}</Text>}
-            </Group>
+          {/* Кнопка — сразу за заголовком, а не в правом краю строки: там она стояла
+              отдельно от всего, через полэкрана пустоты (замечание Anthony 10.10.2026). */}
+          <Group gap="md" align="center">
+            <PageHead
+              title="Стоп-лист"
+              hint="Кому мы не пишем ни на одном этапе. Проверяется дважды: при отборе доменов — домен из списка в прогон не идёт и юнитов на него не тратится, — и перед каждой отправкой, так что письмо адресату из списка не уйдёт, даже если его собрали раньше."
+            />
             {mayChange ? (
-              <Button className="press" onClick={() => setAdding(true)}>
+              <Button
+                className="press"
+                leftSection={<IconPlus size={16} />}
+                onClick={() => setAdding(true)}
+              >
                 Добавить…
               </Button>
             ) : null}
           </Group>
+          {facts.length > 0 && <Text size="sm">{facts.join(' · ')}</Text>}
 
           {all.length === 0 ? (
             <Text size="sm" c="dimmed">

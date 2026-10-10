@@ -23,6 +23,14 @@
  * прозрачность трогается только после того, как высота дошла. Метки
  * `data-unfold` — для этого замера.
  *
+ * **Высота едет плавно, без хлопка** (замечание Anthony 10.10.2026: «Доноры и
+ * обходы» выезжает рвано). Замер по кадрам на 189 px: с кривой «Движения»
+ * (резкий старт) рамка проходила 78 % пути за три кадра — 40, 56, 51 px, — потом
+ * стояла пустой ~80 мс, и только тогда проявлялось содержимое. Теперь высота
+ * идёт кривой с разгоном и торможением (`MOVE`), а время растёт с высотой
+ * (`moveMs`): высокий список едет дольше и не прыгает крупными шагами. Рамка
+ * доходит до места к концу такта — пустой паузы перед проявлением нет.
+ *
  * Движение выключается при `prefers-reduced-motion` и там, где его нет
  * вовсе (jsdom): секция появляется и исчезает сразу.
  */
@@ -33,16 +41,21 @@ import { useReducedMotion } from '@mantine/hooks';
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
-/** Кривая «Движения» из правил интерфейса. */
+/** Кривая «Движения» из правил интерфейса — для проявления и угасания. */
 const EASE = 'cubic-bezier(0.32, 0.72, 0, 1)';
 
-/** Такты, мс. Каждый — в пределах «Движения» (160–260 мс); вместе открытие
- *  длится ~380 мс: это два перехода подряд, а не один затянутый. Кривая
- *  тормозит к концу, и высота проходит 97% пути за половину такта —
- *  поэтому такт высоты короче, чем мог бы: длиннее — и между «раздвинулось»
- *  и «проявилось» глазу видна пустая рамка (замер по кадрам 25.09.2026:
- *  при 240 мс рамка стояла пустой ~200 мс). */
-export const UNFOLD_MS = { grow: 200, show: 180, hide: 160, shrink: 200 } as const;
+/** Кривая высоты: разгон и торможение. У кривой «Движения» старт резкий — для
+ *  прозрачности это мягко, а высота на ней выпрыгивала тремя кадрами (10.10.2026). */
+const MOVE = 'cubic-bezier(0.4, 0, 0.2, 1)';
+
+/** Такты прозрачности, мс — в пределах «Движения» (160–260 мс). */
+export const UNFOLD_MS = { show: 180, hide: 160 } as const;
+
+/** Такт высоты по её размеру: 220 мс на коротком, до 380 на высоком. С одним
+ *  временем на все высоты список в 600 px проезжал бы втрое крупными шагами. */
+export function moveMs(px: number): number {
+  return Math.round(Math.min(380, Math.max(220, 160 + px * 0.3)));
+}
 
 /** Что растёт вместе с высотой: без полей, кромки и отступа рамка в ноль
  *  не сходится — от неё оставалась бы полоска в три десятка пикселей. */
@@ -157,8 +170,8 @@ export function Unfold({ open, children, ...frameProps }: Props) {
       if (done < whole - 0.5) {
         box.style.overflow = 'hidden';
         const grow = box.animate([from, natural], {
-          duration: UNFOLD_MS.grow * share(done, whole),
-          easing: EASE,
+          duration: moveMs(whole) * share(done, whole),
+          easing: MOVE,
         });
         if (!(await played(grow)) || !current()) return;
       }
@@ -186,8 +199,8 @@ export function Unfold({ open, children, ...frameProps }: Props) {
       stop(content);
       box.style.overflow = 'hidden';
       const shrink = box.animate([from, FOLDED], {
-        duration: UNFOLD_MS.shrink * share(whole - done, whole),
-        easing: EASE,
+        duration: moveMs(whole) * share(whole - done, whole),
+        easing: MOVE,
         fill: 'forwards',
       });
       if (!(await played(shrink)) || !current()) return;

@@ -1,7 +1,9 @@
 /**
  * Группа пунктов меню с подписью: «Работа» и «Настройки» (`Shell`).
  *
- * Подпись — не пункт: мелкая, приглушённая, без нажатия. Группа размечена для
+ * Подпись — не пункт и не похожа на пункт: заглавными с разрядкой, цветом акцента
+ * и с линией до края колонки (`.navGroupTitle`). Мелкая приглушённая подпись
+ * сливалась с пунктами (замечание Anthony 10.10.2026). Группа размечена для
  * диктора (`role="group"` с подписью), иначе пятнадцать ссылок звучали бы подряд.
  */
 
@@ -24,7 +26,7 @@ export function NavGroup({ group, children }: { group: NavGroupSpec; children: R
   const id = `nav-group-${group.key}`;
   return (
     <Stack gap={4} role="group" aria-labelledby={id}>
-      <Text id={id} size="xs" fw={600} c="dimmed" px="sm" className="navGroupTitle">
+      <Text id={id} px="sm" className="navGroupTitle">
         {group.title}
       </Text>
       {children}

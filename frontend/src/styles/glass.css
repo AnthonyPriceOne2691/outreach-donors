@@ -626,6 +626,37 @@ html:root[data-mantine-color-scheme='light'] .glassSolid {
 
 /* Пункты меню — своей прокруткой внутри рамы высотой окна (`layout/Shell`); поле
    в пару пикселей держит кольцо фокуса и подсветку пункта внутри края прокрутки. */
+/* Подпись группы меню — «РАБОТА», «НАСТРОЙКИ» (`NavGroup`). Заглавными, с разрядкой,
+   цветом акцента и линией до края: мелкая приглушённая подпись того же кегля, что
+   пункты, сливалась с ними (замечание Anthony 10.10.2026). Линия отделяет группы
+   и тогда, когда подпись не читают. */
+.navGroupTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  /* На свету — темнее текста акцента (39 % против 42 % светлоты): под «Работой» самое
+     яркое пятно полотна, и текст акцента давал 4,7 : 1 — впритык к 4,5; так — 5,2 (10.10.2026). */
+  color: var(--mantine-color-lagoon-9);
+}
+
+html:root[data-mantine-color-scheme='dark'] .navGroupTitle {
+  color: var(--mantine-color-lagoon-text);
+}
+
+.navGroupTitle::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.35;
+}
+
 .navScroll {
   flex: 1 1 auto;
   min-height: 0;
@@ -1947,8 +1978,11 @@ html:root .mantine-Pill-root {
   overflow-y: auto;
 }
 
+/* Заглушка «Выберите диалог в списке» — вверху колонки, вровень со списком, а не
+   посередине высоты: переписка открывается с того же места, и глаз не ищет её
+   по экрану (замечание Anthony 10.10.2026). */
 .threadsSplitPane > .threadsIntro {
-  margin-block: auto;
+  align-self: stretch;
 }
 
 .threadPane {

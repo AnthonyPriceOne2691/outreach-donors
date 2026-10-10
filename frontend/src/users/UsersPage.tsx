@@ -192,7 +192,8 @@ export function UsersPage() {
   return (
     <Stack gap="lg">
       <Card className="glassPanel" p="xl">
-        <Group justify="space-between" align="flex-start">
+        {/* Кнопка — сразу за заголовком, как на «Стоп-листе» (10.10.2026). */}
+        <Group gap="md" align="center">
           <PageHead
             title="Учётки"
             hint="Учётки не удаляются: вместе с ней ушла бы история действий. Отключённая учётка перестаёт пускать сразу, даже с непросроченным пропуском."
