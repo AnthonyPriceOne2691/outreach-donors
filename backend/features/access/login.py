@@ -11,16 +11,24 @@
 
 **Неудачная попытка попадает в журнал.** Иначе подбор пароля невидим:
 он выглядит как тишина.
+
+**Время отказа тоже одно** (аудит 10.10.2026). Пароль сверяется и тогда,
+когда почты нет, — с подставным хешем той же цены: иначе отказ по
+незнакомой почте приходил на проверку bcrypt быстрее, и одинаковый текст
+выдавало время ответа.
 """
 
 from __future__ import annotations
 
+import asyncio
+import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import cache
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.access.passwords import verify_password
+from backend.features.access.passwords import hash_password, verify_password
 from backend.features.access.repository import AccessRepository, normalize_email
 from backend.features.access.tokens import create_token
 from backend.features.core.domain import AuditAction, UserRole
@@ -44,12 +52,32 @@ class Session:
     must_change_password: bool
 
 
+@cache
+def _stand_in_hash() -> str:
+    """Хеш для почты, которой нет: один на процесс, той же цены, что у настоящих
+    (`hash_password`), из случайного пароля — совпасть с ним нечему."""
+    return hash_password(secrets.token_urlsafe(32))
+
+
+def _password_matches(password: str, stored: str | None) -> bool:
+    """Сверить пароль с хешем учётки, а нет учётки — с подставным: ответ тот же «нет»,
+    но за то же время. Сверка с подставным нужна ради её цены, а не ради ответа."""
+    if stored is None:
+        verify_password(password, _stand_in_hash())
+        return False
+    return verify_password(password, stored)
+
+
 async def login(session: AsyncSession, email: str, password: str) -> Session:
     """Проверить пару и выдать пропуск. Любая неудача — один и тот же отказ."""
     repository = AccessRepository(session)
     user = await repository.by_email(email)
 
-    if user is None or not verify_password(password, user.password_hash):
+    # bcrypt — в пуле потоков: четверть секунды счёта в цикле событий держала бы
+    # остальные запросы, а с подставным хешем считается и каждая незнакомая почта.
+    stored = user.password_hash if user is not None else None
+    matched = await asyncio.to_thread(_password_matches, password, stored)
+    if user is None or not matched:
         await repository.record(
             AuditAction.LOGIN_FAILED,
             author_id=user.id if user else None,
