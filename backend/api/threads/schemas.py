@@ -20,7 +20,7 @@ from backend.features.letters import outgoing_files
 from backend.features.letters.mailbox import ThreadMail
 from backend.features.letters.outgoing_store import NO_FILES, ThreadFiles
 from backend.features.outreach.repository import ThreadDetail, ThreadRow
-from backend.features.outreach.threads import ThreadState, review_of
+from backend.features.outreach.threads import ThreadState, review_of, superseded_by
 from backend.features.replies.quoting import written_by_hand
 
 
@@ -257,8 +257,13 @@ class IncomingCard(BaseModel):
     #: Продаёт ли донор размещение по разбору: `sells`, `declines`, `unclear`.
     placement: str | None
     #: Ждёт ли разбор человека. Считается, а не хранится: второе поле
-    #: разошлось бы с уверенностью при первой правке порога.
+    #: разошлось бы с уверенностью при первой правке порога. Перекрытый
+    #: ответ (`superseded_by`) не ждёт — правило то же, что у чисел и списка.
     needs_review: bool
+    #: Номер ответа, который перекрыл этот: позже донор назвал цену, и она
+    #: принята (`threads.superseded_by`). Подтверждать перекрытый — отказ: старая
+    #: цена легла бы в карточку донора поверх новой. Пусто — не перекрыт.
+    superseded_by: int | None = None
     #: Почему ответ ждёт человека не по уверенности разбора — словами:
     #: автоответ с суммой в валюте (модель автоответы не разбирает, цену
     #: вписывают руками) или ответ лида продаж (вид ответа и путь называет
@@ -277,10 +282,13 @@ class IncomingCard(BaseModel):
         reply: ReplyModel,
         stage: Stage = Stage.DONORS,
         files: Sequence[ReplyAttachmentModel] = (),
+        thread_replies: Sequence[ReplyModel] = (),
     ) -> IncomingCard:
+        """`thread_replies` — ответы той же переписки: по ним видно, перекрыт ли этот."""
         lead = stage is Stage.ADVERTISERS and reply.kind is ReplyKind.HUMAN
         # У лида нечего разбирать: форма цены для него — отказ (`review_of`).
         review = review_of(reply, stage)
+        superseding = superseded_by(reply, thread_replies)
         return cls(
             id=reply.id,
             kind=reply.kind,
@@ -297,7 +305,8 @@ class IncomingCard(BaseModel):
             payment_methods=reply.payment_methods,
             confidence=reply.confidence,
             placement=reply.placement,
-            needs_review=review.waiting,
+            needs_review=review.waiting and superseding is None,
+            superseded_by=superseding.id if superseding is not None else None,
             review_reason=review.reason,
             lead=lead,
             reviewed_by=reply.reviewed_by,
@@ -371,7 +380,8 @@ class ThreadView(BaseModel):
             card=ThreadCard.of(detail.row),
             letters=[LetterCard.of(m, outgoing.letters.get(m.id, ())) for m in detail.messages],
             incoming=[
-                IncomingCard.of(r, detail.row.stage, files.get(r.id, ())) for r in detail.replies
+                IncomingCard.of(r, detail.row.stage, files.get(r.id, ()), detail.replies)
+                for r in detail.replies
             ],
             mail=ThreadMailCard.of(mail),
             drafts=[DraftCard.of(shown) for shown in drafts],

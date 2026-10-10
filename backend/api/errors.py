@@ -78,6 +78,7 @@ from backend.features.letters.transport import MaybeSentError, TransportError
 from backend.features.letters.unknown_outcome import ResolveError
 from backend.features.outreach.repository import UnknownSenderError, UnknownThreadError
 from backend.features.replies.attachments import AttachmentNotKeptError, UnknownAttachmentError
+from backend.features.replies.confirmation import SupersededReplyError
 from backend.features.replies.repository import LeadError, NotAPriceError, UnknownReplyError
 from backend.features.review.candidates import NotInRunError
 from backend.features.review.candidates import UnknownRunError as ReviewUnknownRunError
@@ -130,6 +131,9 @@ STATUSES: dict[type[Exception], int] = {
     NotEditableError: status.HTTP_409_CONFLICT,
     # Подтверждать цену в ответе рекламодателя: его расход не цена площадки.
     NotAPriceError: status.HTTP_409_CONFLICT,
+    # Подтверждать ответ, перекрытый более поздним с принятой ценой: старая цена
+    # легла бы в карточку донора поверх новой. Состояние переписки, а не запрос.
+    SupersededReplyError: status.HTTP_409_CONFLICT,
     # Брать лидом ответ донора или лид, который уже ведёт другой.
     LeadError: status.HTTP_409_CONFLICT,
     # Транспорта нет или он не тот. Это тоже состояние развёртывания,

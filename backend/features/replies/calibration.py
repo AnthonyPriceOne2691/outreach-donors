@@ -12,12 +12,18 @@
 
 **По версиям промпта.** Правка промпта без метки версии была бы неотличима
 от смены писем; сравнивать версии и есть назначение этого счёта.
+
+**Перекрытый ответ человека не ждёт** (`threads.superseded_by`) — и здесь тоже:
+решения по нему не будет, цену переписки задаёт более поздний ответ. Иначе
+«ждут человека» росло бы навсегда и расходилось с числом у меню (проверка прода
+10.10.2026).
 """
 
 from __future__ import annotations
 
 import logging
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -27,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import ReplyKind, Stage
 from backend.features.core.models.outreach import ReplyModel
+from backend.features.outreach.threads import superseded_by
 from backend.features.replies.outcome import waiting_for_review
 
 logger = logging.getLogger(__name__)
@@ -98,19 +105,18 @@ async def calibrate(session: AsyncSession) -> list[VersionScore]:
         .where(ReplyModel.kind == ReplyKind.HUMAN)
         .where(ReplyModel.model_parse.is_not(None))
     )
+    replies = rows.scalars().all()
+    moot = await _superseded(session, replies)
     scores: dict[str, VersionScore] = {}
     order: defaultdict[str, int] = defaultdict(int)
-    for reply in rows.scalars().all():
+    for reply in replies:
         if (reply.model_parse or {}).get("stage") == Stage.SALES.value:
             continue  # снимок вида ответа продаж: цены в нём нет, судит свой eval
         version = str((reply.model_parse or {}).get("prompt_version") or "без версии")
         score = scores.setdefault(version, VersionScore(version))
         order[version] = max(order[version], reply.id)
         if reply.reviewed_at is None:
-            if waiting_for_review(reply.kind, reply.confidence, reviewed=False):
-                score.waiting += 1
-            elif reply.price_white is not None or reply.price_grey is not None:
-                score.auto_stored += 1
+            _unreviewed(score, reply, superseded=reply.id in moot)
             continue
         score.reviewed += 1
         wrong = differences(reply)
@@ -121,3 +127,37 @@ async def calibrate(session: AsyncSession) -> list[VersionScore]:
         else:
             score.as_is += 1
     return sorted(scores.values(), key=lambda s: -order[s.version])
+
+
+def _unreviewed(score: VersionScore, reply: ReplyModel, *, superseded: bool) -> None:
+    """Ответ без решения человека: ждёт его, перекрыт более поздним или цена легла сама."""
+    if waiting_for_review(reply.kind, reply.confidence, reviewed=False):
+        if not superseded:
+            score.waiting += 1
+    elif reply.price_white is not None or reply.price_grey is not None:
+        score.auto_stored += 1
+
+
+async def _superseded(session: AsyncSession, replies: Sequence[ReplyModel]) -> set[int]:
+    """Номера ждущих ответов, перекрытых более поздним с принятой ценой.
+
+    Ответы переписки — все, а не только разобранные моделью: цену переписки
+    задаёт и подтверждённая человеком (`threads.settled_price`). Читаются только
+    переписки, где кто-то ждёт, — их единицы.
+    """
+    waiting = [
+        reply
+        for reply in replies
+        if reply.reviewed_at is None
+        and reply.thread_id is not None
+        and waiting_for_review(reply.kind, reply.confidence, reviewed=False)
+    ]
+    if not waiting:
+        return set()
+    rows = await session.execute(
+        select(ReplyModel).where(ReplyModel.thread_id.in_({r.thread_id for r in waiting}))
+    )
+    by_thread: defaultdict[int | None, list[ReplyModel]] = defaultdict(list)
+    for reply in rows.scalars().all():
+        by_thread[reply.thread_id].append(reply)
+    return {r.id for r in waiting if superseded_by(r, by_thread[r.thread_id]) is not None}

@@ -17,7 +17,7 @@ from backend.features.outreach.senders import (
     enable,
     warmup_state,
 )
-from backend.features.outreach.threads import ThreadState, summarize
+from backend.features.outreach.threads import ThreadState, summarize, superseded_by
 
 NOW = datetime(2026, 9, 19, 12, 0, tzinfo=UTC)
 
@@ -258,6 +258,68 @@ class TestThreadState:
 
         assert summary.state is ThreadState.QUEUED
         assert summary.messages_sent == 0
+
+
+class TestSupersededAnswer:
+    """Проверка прода 10.10.2026: донор написал «250 $» (разбор не уверен), следом
+    уточнил «150 $» (уверен, цена в карточке), а карточка переписки звала подтвердить
+    250 — «Подтвердить» записал бы донору старую цену. Ответ, после которого донор
+    назвал цену и она принята, разбора не ждёт: правило одно на числа и на экран."""
+
+    def test_unsure_price_answered_by_a_later_settled_one_waits_for_nobody(self) -> None:
+        unsure = _reply(ReplyKind.HUMAN, price=Decimal("250"), confidence=0.6)
+        sure = _reply(ReplyKind.HUMAN, price=Decimal("150"), confidence=0.93)
+        sure.created_at = NOW + timedelta(minutes=3)
+
+        summary = summarize([_message(MessageStatus.DELIVERED)], [unsure, sure])
+
+        assert superseded_by(unsure, [unsure, sure]) is sure
+        assert superseded_by(sure, [unsure, sure]) is None
+        assert summary.state is ThreadState.PRICED
+        assert summary.price_white == Decimal("150")
+
+    def test_price_confirmed_by_a_person_later_supersedes_too(self) -> None:
+        """Принята — подтверждена человеком или разобрана уверенно, как у цены переписки."""
+        unsure = _reply(ReplyKind.HUMAN, price=Decimal("250"), confidence=0.6)
+        confirmed = _reply(ReplyKind.HUMAN, price=Decimal("150"), confidence=0.3, reviewed=True)
+        confirmed.created_at = NOW + timedelta(hours=1)
+
+        assert superseded_by(unsure, [confirmed, unsure]) is confirmed
+
+    def test_thanks_without_a_price_after_an_unsure_one_still_waits(self) -> None:
+        """«Спасибо» без цены цены не называет — старый разбор по-прежнему ждёт человека."""
+        unsure = _reply(ReplyKind.HUMAN, price=Decimal("250"), confidence=0.6)
+        thanks = _reply(ReplyKind.HUMAN, confidence=0.95)
+        thanks.created_at = NOW + timedelta(hours=1)
+
+        summary = summarize([_message(MessageStatus.DELIVERED)], [unsure, thanks])
+
+        assert superseded_by(unsure, [unsure, thanks]) is None
+        assert summary.state is ThreadState.NEEDS_REVIEW
+
+    def test_unsure_answer_after_a_settled_price_waits_for_a_person(self) -> None:
+        """Обратный порядок: цена принята, а следом донор написал то, что разбор
+        не понял. Этот ответ экран зовёт разобрать — и числа его считают: до 10.10.2026
+        цена стояла раньше «ждёт разбора», и меню такой диалог не считало. Цена
+        в колонке — прежняя принятая."""
+        sure = _reply(ReplyKind.HUMAN, price=Decimal("150"), confidence=0.93)
+        unsure = _reply(ReplyKind.HUMAN, price=Decimal("200"), confidence=0.5)
+        unsure.created_at = NOW + timedelta(days=1)
+
+        summary = summarize([_message(MessageStatus.DELIVERED)], [sure, unsure])
+
+        assert summary.state is ThreadState.NEEDS_REVIEW
+        assert summary.price_white == Decimal("150")
+
+    def test_unsure_answer_after_a_decline_waits_for_a_person(self) -> None:
+        """«Не продаём», а следом — неуверенная цена: донор, может быть, передумал."""
+        declined = _reply(ReplyKind.HUMAN, confidence=0.9, placement="declines")
+        unsure = _reply(ReplyKind.HUMAN, price=Decimal("90"), confidence=0.5)
+        unsure.created_at = NOW + timedelta(days=1)
+
+        summary = summarize([_message(MessageStatus.DELIVERED)], [declined, unsure])
+
+        assert summary.state is ThreadState.NEEDS_REVIEW
 
 
 class TestAdvertiserThreadState:
