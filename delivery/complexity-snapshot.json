@@ -277,9 +277,9 @@
       "worst": "—"
     },
     "backend/api/sales/chain.py": {
-      "lines": 70,
+      "lines": 76,
       "complexity": 2,
-      "worst": "read_chain:35"
+      "worst": "read_chain:38"
     },
     "backend/api/sales/chain_schemas.py": {
       "lines": 167,
@@ -292,9 +292,9 @@
       "worst": "read_funnel:76"
     },
     "backend/api/sales/kb.py": {
-      "lines": 93,
+      "lines": 103,
       "complexity": 1,
-      "worst": "list_entries:38"
+      "worst": "list_entries:41"
     },
     "backend/api/sales/kb_schemas.py": {
       "lines": 177,
@@ -302,9 +302,9 @@
       "worst": "of:93"
     },
     "backend/api/sales/queue.py": {
-      "lines": 156,
+      "lines": 162,
       "complexity": 3,
-      "worst": "_build_once:56"
+      "worst": "_build_once:59"
     },
     "backend/api/sales/routes.py": {
       "lines": 171,
