@@ -144,6 +144,15 @@ function attention(count: number): string | undefined {
   return count > 0 ? 'yellow' : undefined;
 }
 
+/** Части числа меню: спорные и бизнесы ниши ждут «пишем / не пишем» (проверка прода 10.10.2026). */
+function advertisersHint({ advertisers, niche }: OverviewWaiting): string {
+  const parts = [
+    advertisers > niche ? `спорных ${formatNumber(advertisers - niche)}` : '',
+    niche > 0 ? `бизнесов ниши ${formatNumber(niche)}` : '',
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(' · ') : 'решений не ждут';
+}
+
 function WaitingSection({ waiting }: { waiting: OverviewWaiting }) {
   const newest = waiting.review_runs[0];
   return (
@@ -180,9 +189,9 @@ function WaitingSection({ waiting }: { waiting: OverviewWaiting }) {
           to="/threads?state=lead"
         />
         <Metric
-          title="Спорные рекламодатели"
+          title="Кандидаты в рекламодатели"
           value={formatNumber(waiting.advertisers)}
-          hint={waiting.advertisers > 0 ? 'решает человек' : 'спорных нет'}
+          hint={advertisersHint(waiting)}
           color={attention(waiting.advertisers)}
           to="/advertisers"
         />
@@ -253,11 +262,9 @@ function DonorsSection({ donors, sent }: { donors: OverviewDonors; sent: number 
           }
           to="/donors"
         />
-        {/* «С адресом» — адрес есть в базе: одно правило у плитки, фильтра списка
-            доноров и ступени «с адресом» на экране писем (проверка прода 10.10.2026:
-            здесь стояло 22, там 23, а «Написали» — 23). Письмо уходит только на
-            адрес, и «Написали» не больше этого числа; у кого адреса кончились,
-            говорит экран писем. */}
+        {/* «С адресом» — адрес есть в базе: правило фильтра списка доноров и ступени писем
+            (проверка прода 10.10.2026: здесь 22, там 23 при «Написали 23»). Письмо уходит
+            только на адрес — «Написали» не больше; кончились ли адреса, скажут «Письма». */}
         <Metric
           title="С адресом"
           value={formatNumber(donors.with_email)}

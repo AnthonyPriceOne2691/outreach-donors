@@ -52,6 +52,7 @@ from backend.features.core.domain import (
 from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.core.models.run import RunModel
+from backend.features.crawl import niche
 from backend.features.crawl import review as advertiser_review
 from backend.features.donors import standing
 from backend.features.letters.chain import FIRST_STEP
@@ -124,8 +125,10 @@ class Waiting:
     #: Ответов рекламодателей, ещё не взятых в работу.
     leads: int
     forms: int
-    #: Спорных рекламодателей на ручной проверке.
+    #: Ждут «пишем / не пишем» на экране «Рекламодатели» (`_advertisers`) — число меню.
     advertisers: int
+    #: Из них — бизнесов ниши: на главной они названы, а не спрятаны в сумме.
+    niche: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,7 +173,7 @@ class Work:
     #: «Диалоги» — диалогов ждут человека (`WAITS_FOR_PERSON`).
     threads: int
     forms: int
-    #: «Рекламодатели» — спорных на ручной проверке.
+    #: «Рекламодатели» — ждут решения человека на их экране (`_advertisers`).
     advertisers: int
 
 
@@ -189,6 +192,7 @@ async def overview(
     threads = await OutreachRepository(session).states(stages=stages)
     spending = await SpendingRepository(session).since_month_start(stages=stages, now=moment)
     decisions = await standing.waiting(session)
+    advertisers, in_niche = await _advertisers(session)
     return Overview(
         donors=await _donors(session, threads, moment),
         waiting=Waiting(
@@ -197,7 +201,8 @@ async def overview(
             prices=_in_state(threads, ThreadState.NEEDS_REVIEW),
             leads=_in_state(threads, ThreadState.LEAD),
             forms=await forms.total(session),
-            advertisers=await advertiser_review.waiting(session),
+            advertisers=advertisers,
+            niche=in_niche,
         ),
         letters=await _letters(session, stages),
         last_run=await _last_run(session),
@@ -215,8 +220,20 @@ async def work(session: AsyncSession, *, stages: Collection[Stage]) -> Work:
         run=(await standing.waiting(session)).domains,
         threads=sum(1 for mark in threads if mark.state in WAITS_FOR_PERSON),
         forms=await forms.total(session),
-        advertisers=await advertiser_review.waiting(session),
+        advertisers=(await _advertisers(session))[0],
     )
+
+
+async def _advertisers(session: AsyncSession) -> tuple[int, int]:
+    """Сколько ждёт решения на экране «Рекламодатели» — всего и из них бизнесов ниши.
+
+    Спорные кандидаты (`crawl/review.py`) и бизнесы ниши без решения — тем же числом,
+    что «Ждут решения» в списке ниши (`crawl/niche.py`): ниша тоже ждёт «пишем / не
+    пишем». До проверки прода 10.10.2026 меню и главная считали только спорных —
+    5 при 53 ждущих бизнесах ниши.
+    """
+    in_niche = await niche.waiting(session)
+    return await advertiser_review.waiting(session) + in_niche, in_niche
 
 
 async def _donors(

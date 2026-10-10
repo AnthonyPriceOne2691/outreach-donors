@@ -694,8 +694,7 @@ export interface WatchdogView {
   alarms: AlarmCard[];
 }
 
-/** Доноры по ходу работы — независимые числа, а не воронка: адреса у части
- *  доноров искали раньше, чем появилось решение человека. */
+/** Воронка главной: ниже `accepted` — среди доноров; «С адресом» — адрес есть в базе. */
 export interface OverviewDonors {
   total: number;
   /** Не проверены метриками — не отсеяны, их добирают позже. */
@@ -724,6 +723,7 @@ export interface OverviewWaiting {
   leads: number;
   forms: number;
   advertisers: number;
+  niche: number;
 }
 
 export interface OverviewLetters {
