@@ -43,6 +43,7 @@ from backend.features.letters.sending import Sending
 from backend.features.letters.transport_factory import Transports, in_use
 from backend.features.outreach.repository import OutreachRepository
 from backend.features.replies.attachments import ReplyFiles
+from backend.shared.database.ids import storable
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +153,8 @@ async def redraft(
     или его ещё нет. `force` — «всё же написать», когда бриф этапа решил,
     что отвечать не нужно: решение брифа остаётся в `meta`.
     """
-    reply = await session.get(ReplyModel, reply_id)
+    # Номер больше столбца — «нет ответа», а не пятисотка (аудит 10.10.2026).
+    reply = await session.get(ReplyModel, reply_id) if storable(reply_id) else None
     if reply is None or reply.thread_id != thread_id:
         raise UnknownDraftReplyError(
             f"В переписке №{thread_id} нет ответа №{reply_id} — черновик писать не к чему"
