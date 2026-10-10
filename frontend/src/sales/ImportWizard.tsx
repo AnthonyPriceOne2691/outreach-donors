@@ -18,6 +18,10 @@
  * **Правка колонок — пересчёт, и экран ждёт только последний ответ.** Два
  * быстрых переключения — два запроса; пришедший первым ответ на устаревший
  * запрос не перебивает выбор человека.
+ *
+ * **Гипотезы нет — она заводится здесь же**, окном «Новая гипотеза», и заведённая
+ * сразу выбрана; после загрузки здесь же запускается очистка (`CleanLeads`) — мастер
+ * не отправляет человека в консоль ни до, ни после.
  */
 
 import {
@@ -48,7 +52,8 @@ import { withField } from './importMapping';
 import type { FieldMapping } from './importMapping';
 import { ImportOutcome, ImportReport } from './ImportReport';
 import { Pending } from './Pending';
-import { HYPOTHESES_QUERY_KEY } from './SalesPage';
+import { HYPOTHESES_QUERY_KEY } from './hypothesisData';
+import { NewHypothesisButton } from './HypothesisModal';
 
 /** Шаги мастера по порядку. Итог загрузки — не шаг: назад с него не ходят. */
 const STEPS = [
@@ -80,33 +85,51 @@ interface SourceStepProps {
 
 /** Чего не хватает, чтобы прочитать источник, — словами у кнопки. */
 function missingOf(props: SourceStepProps): string | null {
-  if (props.hypothesisId === null) return 'Выберите гипотезу — куда лягут лиды.';
+  if (props.hypothesisId === null) {
+    const pick = props.hypotheses.length === 0 ? 'Заведите' : 'Выберите';
+    return `${pick} гипотезу — куда лягут лиды.`;
+  }
   if (props.kind === 'file' && props.file === null) return 'Выберите файл.';
   if (props.kind === 'link' && props.link.trim() === '') return 'Вставьте ссылку на таблицу.';
   return null;
 }
 
+/** Гипотеза, куда лягут лиды: выбрать из заведённых или завести здесь же — заведённая
+ *  окном сразу выбрана. Нет ни одной — плашка зовёт к той же кнопке, а не к консоли. */
+function HypothesisPick({ hypotheses, hypothesisId, onHypothesis }: SourceStepProps) {
+  return (
+    <Stack gap="xs">
+      {hypotheses.length === 0 ? (
+        <Alert color="yellow" title="Гипотез пока нет">
+          Гипотеза — кому и зачем пишем; базу грузят в неё. Заведите её здесь — кнопкой «Новая
+          гипотеза».
+        </Alert>
+      ) : null}
+      <Group align="flex-end" gap="sm" wrap="wrap">
+        {hypotheses.length > 0 ? (
+          <Select
+            label="Гипотеза"
+            description="Куда лягут лиды."
+            placeholder="выберите"
+            data={hypotheses.map((row) => ({ value: String(row.id), label: row.name }))}
+            value={hypothesisId === null ? null : String(hypothesisId)}
+            onChange={(value) => onHypothesis(value === null ? null : Number(value))}
+            allowDeselect={false}
+            style={{ flex: '1 1 16rem' }}
+          />
+        ) : null}
+        <NewHypothesisButton onAdded={(card) => onHypothesis(card.id)} />
+      </Group>
+    </Stack>
+  );
+}
+
 function SourceStep(props: SourceStepProps) {
-  const { hypotheses, hypothesisId, kind, file, link, busy, refusal } = props;
+  const { kind, file, link, busy, refusal } = props;
   const missing = missingOf(props);
   return (
     <Stack gap="md" maw={560}>
-      {hypotheses.length === 0 ? (
-        <Alert color="yellow" title="Гипотез пока нет">
-          Гипотеза — кому и зачем пишем; базу грузят в неё. Заведите командой{' '}
-          <code>outreach sales-hypothesis-add</code> и возвращайтесь.
-        </Alert>
-      ) : (
-        <Select
-          label="Гипотеза"
-          description="Куда лягут лиды. Гипотеза заводится командой outreach sales-hypothesis-add."
-          placeholder="выберите"
-          data={hypotheses.map((row) => ({ value: String(row.id), label: row.name }))}
-          value={hypothesisId === null ? null : String(hypothesisId)}
-          onChange={(value) => props.onHypothesis(value === null ? null : Number(value))}
-          allowDeselect={false}
-        />
-      )}
+      <HypothesisPick {...props} />
       <Radio.Group
         label="Откуда база"
         value={kind}
@@ -361,6 +384,7 @@ export function ImportWizard() {
             outcome={outcome}
             hypothesisId={hypothesisId}
             hypothesisName={nameOf(known, hypothesisId)}
+            waiting={known.find((row) => row.id === hypothesisId)?.leads.new ?? 0}
             onAgain={wizard.again}
           />
         ) : (

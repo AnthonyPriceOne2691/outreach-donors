@@ -13,6 +13,10 @@
  *
  * **Числа — сервера.** «Станут лидами» до загрузки и «загружено» после —
  * один и тот же сухой прогон; экран ничего не пересчитывает.
+ *
+ * **Следующий шаг после загрузки — очистка, и она здесь же** (`CleanLeads`): без неё
+ * лид не станет «готов к письмам». Её кнопка — главная на итоге (залитая), «К лидам» —
+ * обычная: залитая кнопка на экране одна.
  */
 
 import { Alert, Badge, Button, Group, SimpleGrid, Stack, Table, Text, Title } from '@mantine/core';
@@ -23,6 +27,7 @@ import { countryTitle } from '../api/labels';
 import type { ImportedLead, ImportProblem, IntakeView } from '../api/salesTypes';
 import { Metric } from '../components/Metric';
 import { formatNumber, plural } from '../format';
+import { CleanLeads } from './CleanLeads';
 import { groupProblems, linesOf } from './importMapping';
 import type { ProblemGroup } from './importMapping';
 import { NO_LEAD_FILTERS, writeLeadFilters } from './leadFilters';
@@ -277,11 +282,19 @@ interface OutcomeProps {
   outcome: IntakeView;
   hypothesisId: number;
   hypothesisName: string | null;
+  /** Лидов гипотезы, ждущих очистки, — из списка гипотез: с загруженными и прежние. */
+  waiting: number;
   onAgain: () => void;
 }
 
-/** Итог загрузки: сколько записано и почему не всё — словами, по причинам. */
-export function ImportOutcome({ outcome, hypothesisId, hypothesisName, onAgain }: OutcomeProps) {
+/** Итог загрузки: сколько записано и почему не всё — словами, по причинам; очистка — тут же. */
+export function ImportOutcome({
+  outcome,
+  hypothesisId,
+  hypothesisName,
+  waiting,
+  onAgain,
+}: OutcomeProps) {
   const loaded = outcome.loaded ?? outcome.accepted;
   const leadsAt = `/sales?${writeLeadFilters({ ...NO_LEAD_FILTERS, hypothesis: hypothesisId }).toString()}`;
   return (
@@ -292,14 +305,15 @@ export function ImportOutcome({ outcome, hypothesisId, hypothesisName, onAgain }
         </Title>
         <Text size="sm" c="dimmed" maw={720}>
           {hypothesisName !== null && `В гипотезу «${hypothesisName}». `}
-          Лиды записаны новыми: очистка — дубли, стоп-лист, почта домена, проверка адреса — идёт
-          командой <code>outreach sales-clean</code>, её след виден в списке лидов.
+          Лиды записаны новыми: до писем их проверит очистка — дубли, стоп-лист, почта домена,
+          проверка адреса.
         </Text>
       </Stack>
+      <CleanLeads hypothesis={hypothesisId} waiting={waiting} primary />
       <Reasons title="Почему отклонены" groups={groupProblems(outcome.problems, false)} />
       <Reasons title="Загружены с замечанием" groups={groupProblems(outcome.problems, true)} />
       <Group>
-        <Button component={Link} to={leadsAt} className="press">
+        <Button component={Link} to={leadsAt} variant="default" className="press">
           К лидам
         </Button>
         <Button variant="subtle" className="press" onClick={onAgain}>

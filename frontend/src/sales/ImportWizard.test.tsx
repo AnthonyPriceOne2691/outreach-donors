@@ -296,7 +296,7 @@ describe('мастер загрузки', () => {
   });
 
   it('отказ сервера на загрузке — словами, отчёт и кнопка остаются', async () => {
-    const gone = 'гипотезы №1 нет — заведите её командой sales-hypothesis-add';
+    const gone = 'гипотезы №1 нет — обновите список гипотез или заведите новую';
     const user = await openWizard({ [LOAD_ROUTE]: { status: 404, body: { detail: gone } } });
     await readFile(user);
     await user.click(screen.getByRole('button', { name: 'К отчёту' }));

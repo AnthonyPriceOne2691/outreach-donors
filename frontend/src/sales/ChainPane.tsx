@@ -219,8 +219,7 @@ function LanguageCard({
 function ChainEmpty() {
   return (
     <Text size="sm" c="dimmed" px="md">
-      Шаблонов в наборе нет. Задайте шаги здесь или загрузите набор из файла:{' '}
-      <code>outreach sales-chain-load --file цепочка.json</code> — файл лежит вне репозитория.
+      Шаблонов в наборе нет. Задайте шаги здесь; набор целиком из файла загружает администратор.
     </Text>
   );
 }

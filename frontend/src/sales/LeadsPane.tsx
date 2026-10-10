@@ -16,6 +16,11 @@
  * Запрос (`useLeads`) зовёт страница раздела, а не эта вкладка: он уходит
  * вместе со списком гипотез, а не после него — пока едут гипотезы, вкладки
  * на экране ещё нет.
+ *
+ * **Очистка — здесь же, по гипотезе** (`CleanLeads`): выбрана гипотеза и у неё есть
+ * новые лиды — строка «N лидов ждут очистки» и кнопка между плитками и таблицей. Число —
+ * то же, что у плитки «Новые»: один список гипотез на оба места. Очистка идёт по одной
+ * гипотезе, поэтому без выбранной гипотезы строки нет.
  */
 
 import { Box, Loader, SimpleGrid } from '@mantine/core';
@@ -31,6 +36,7 @@ import { PageSwitch } from '../components/PageSwitch';
 import { formatNumber } from '../format';
 import { emptinessOf, LEAD_STATE_KEYS, leadsLink, queryOf } from './leadFilters';
 import type { LeadFilters } from './leadFilters';
+import { CleanLeads } from './CleanLeads';
 import { LeadsEmpty, LeadsRefused, LeadsTable } from './LeadsTable';
 import type { FilterRowProps } from './LeadsTable';
 
@@ -148,9 +154,16 @@ export function LeadsPane({ leads, total, onTurn, onReset, ...filterRow }: Props
       </Box>
     );
   }
+  const chosen = hypotheses.find((row) => row.id === filters.hypothesis);
   return (
     <>
       <LeadTiles hypotheses={hypotheses} hypothesis={filters.hypothesis} />
+      {/* Своя память задачи у каждой гипотезы: смена гипотезы — новая строка, не прежняя.
+          Поле — у самой строки: пустая обёртка добавила бы зазор стопки между плитками и
+          таблицей. */}
+      {chosen !== undefined ? (
+        <CleanLeads key={chosen.id} hypothesis={chosen.id} waiting={chosen.leads.new} px="md" />
+      ) : null}
       <LeadsBody leads={leads} total={total} onTurn={onTurn} onReset={onReset} {...filterRow} />
     </>
   );
