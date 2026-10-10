@@ -45,6 +45,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import hmac
@@ -167,7 +168,7 @@ def _too_large(response: Response, size: str) -> Taken:
     return Taken(accepted=False, reason="Письмо больше допустимого размера")
 
 
-def _queue_parse(reply_id: int | None, message_id: str, response: Response) -> str | None:
+async def _queue_parse(reply_id: int | None, message_id: str, response: Response) -> str | None:
     """Поставить разбор цены — одну задачу на ответ. Причина — если не вышло.
 
     Разбор цены — задача очереди: платный вызов модели внутри вебхука
@@ -180,20 +181,20 @@ def _queue_parse(reply_id: int | None, message_id: str, response: Response) -> s
     if reply_id is None:
         return None
     job_id = parse_job_id(reply_id, message_id)
-    return _queue(runs_queue, PARSE_JOB, reply_id, job_id, response, what="разбор цены")
+    return await _queue(runs_queue, PARSE_JOB, reply_id, job_id, response, what="разбор цены")
 
 
-def _queue_sales(reply_id: int | None, message_id: str, response: Response) -> str | None:
+async def _queue_sales(reply_id: int | None, message_id: str, response: Response) -> str | None:
     """Отдать ответ продаж своей очереди — по тем же правилам, что разбор цены."""
     if reply_id is None:
         return None
     job_id = sales_job_id(reply_id, message_id)
-    return _queue(
+    return await _queue(
         sales_queue, SALES_REPLY_JOB, reply_id, job_id, response, what="разбор ответа продаж"
     )
 
 
-def _queue(
+async def _queue(
     queue: Callable[[], Queue],
     job: str,
     reply_id: int,
@@ -202,9 +203,13 @@ def _queue(
     *,
     what: str,
 ) -> str | None:
-    """Одна задача на ответ в названную очередь. Причина — если не вышло."""
+    """Одна задача на ответ в названную очередь. Причина — если не вышло.
+
+    Постановка — в пуле потоков: клиент Redis синхронный, а процесс API один, и зависший
+    Redis держал бы в цикле событий всех, а не только этот вебхук (аудит 10.10.2026).
+    """
     try:
-        queue().enqueue(job, reply_id, job_id=job_id, unique=True, **with_retries())
+        await asyncio.to_thread(_enqueue_once, queue, job, reply_id, job_id)
     except DuplicateJobError:
         # Задача с этим номером есть: стоит, идёт, ждёт повтора или хранит
         # итог (неделю, упавшая — дольше). Упавшую видно в её исходе, а сам
@@ -224,6 +229,11 @@ def _queue(
             "Повторите доставку — разбор встанет при повторе"
         )
     return None
+
+
+def _enqueue_once(queue: Callable[[], Queue], job: str, reply_id: int, job_id: str) -> None:
+    """Постановка под номером задачи — синхронным клиентом, в пуле потоков (`_queue`)."""
+    queue().enqueue(job, reply_id, job_id=job_id, unique=True, **with_retries())
 
 
 async def _letter_from(request: Request, response: Response) -> Incoming | Taken:
@@ -283,8 +293,8 @@ async def take_reply(
     outcome = await Inbox(session).accept(incoming)
     await session.commit()
 
-    refused = _queue_parse(outcome.to_parse, incoming.message_id, response)
-    refused = _queue_sales(outcome.to_sales, incoming.message_id, response) or refused
+    refused = await _queue_parse(outcome.to_parse, incoming.message_id, response)
+    refused = await _queue_sales(outcome.to_sales, incoming.message_id, response) or refused
 
     logger.info(
         "приём: письмо от %s — %s",

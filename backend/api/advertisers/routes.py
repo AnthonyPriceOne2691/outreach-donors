@@ -25,6 +25,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -170,7 +171,8 @@ async def promote_candidates(
     )
     await session.commit()
     pending = await AdvertiserContactRepository(session).pending_count()
-    job_id = _search_after_promotion(pending) if pending > 0 else None
+    # Очередь — в пуле потоков: клиент Redis синхронный, а процесс API один (аудит 10.10.2026).
+    job_id = await asyncio.to_thread(_search_after_promotion, pending) if pending > 0 else None
     logger.info(
         "рекламодатели: %s перевёл — заведено %s, ждут адреса %s",
         author.email,
@@ -189,6 +191,11 @@ async def contacts_state(
 ) -> ContactsState:
     """Сколько рекламодателей ждёт адреса и идёт ли поиск — как у доноров."""
     pending = await AdvertiserContactRepository(session).pending_count()
+    return await asyncio.to_thread(_queue_state, pending)
+
+
+def _queue_state(pending: int) -> ContactsState:
+    """Что говорит очередь — в пуле потоков, как постановка поиска."""
     return search_state(pending, contacts_job_id(key=ADVERTISER_CONTACTS_JOB_KEY), workers_alive())
 
 
@@ -200,7 +207,7 @@ async def search_contacts(
 ) -> ContactsQueued:
     """Поставить поиск адресов тем рекламодателям, кому он нужен."""
     pending = await AdvertiserContactRepository(session).pending_count()
-    job_id = _search(body.limit)
+    job_id = await asyncio.to_thread(_search, body.limit)
     logger.info("рекламодатели: %s поставил поиск адресов, ждут %s", author.email, pending)
     return ContactsQueued(job_id=job_id, pending=pending)
 

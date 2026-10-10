@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -47,8 +49,10 @@ _runner = Depends(needs(Permission.RUN))
 _ALL = 10_000
 
 
-def _workers() -> int | None:
-    return workers_alive(queue=CRAWL_QUEUE_NAME)
+async def _workers() -> int | None:
+    """Сколько обходчиков слушает очередь. Клиент Redis синхронный — в пуле потоков, а не
+    в цикле событий: зависший Redis иначе держал бы весь процесс API (аудит 10.10.2026)."""
+    return await asyncio.to_thread(workers_alive, queue=CRAWL_QUEUE_NAME)
 
 
 @router.get("/targets", response_model=TargetsView, summary="Кого можно обойти")
@@ -68,7 +72,7 @@ async def crawl_targets(
         supplier=len(found.chosen.supplier),
         notes=targets.explain(found.chosen),
         max_pages=pages,
-        workers=_workers(),
+        workers=await _workers(),
     )
 
 
@@ -84,7 +88,7 @@ async def crawls(
             CrawlRow.of(line, max_pages=pages) for line in await board.recent(session, limit=limit)
         ],
         active=await board.active_count(session),
-        workers=_workers(),
+        workers=await _workers(),
     )
 
 
@@ -134,5 +138,5 @@ async def start(
         busy=done.busy,
         failed=done.failed,
         refused=refused,
-        workers=_workers(),
+        workers=await _workers(),
     )

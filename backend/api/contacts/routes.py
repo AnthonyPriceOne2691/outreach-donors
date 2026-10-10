@@ -25,6 +25,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, Query
@@ -81,6 +82,12 @@ async def state(
 ) -> ContactsState:
     """Сколько доноров ждёт контакта и идёт ли поиск прямо сейчас."""
     pending = await ContactRepository(session).pending_count()
+    return await asyncio.to_thread(_queue_state, pending)
+
+
+def _queue_state(pending: int) -> ContactsState:
+    """Что говорит очередь. Клиент Redis синхронный — зовётся в пуле потоков, а не в цикле
+    событий: зависший Redis иначе держал бы весь процесс API (аудит 10.10.2026)."""
     return search_state(pending, contacts_job_id(), workers_alive())
 
 
@@ -92,10 +99,16 @@ async def search(
 ) -> ContactsQueued:
     """Поставить поиск контактов в очередь."""
     pending = await ContactRepository(session).pending_count()
-    job = runs_queue().enqueue(CONTACTS_JOB, body.limit, body.use_browser, False, **with_retries())
-    remember_contacts_job(str(job.id))
+    job_id = await asyncio.to_thread(_queue_search, body.limit, body.use_browser)
     logger.info("контакты: %s поставил поиск, ждёт %s доноров", author.email, pending)
-    return ContactsQueued(job_id=str(job.id), pending=pending)
+    return ContactsQueued(job_id=job_id, pending=pending)
+
+
+def _queue_search(limit: int, use_browser: bool) -> str:
+    """Поставить общий поиск и запомнить его номер — в пуле потоков (`_queue_state`)."""
+    job = runs_queue().enqueue(CONTACTS_JOB, limit, use_browser, False, **with_retries())
+    remember_contacts_job(str(job.id))
+    return str(job.id)
 
 
 @router.post("/donors/{donor_id}", response_model=ContactsQueued, summary="Найти адрес донору")
@@ -118,9 +131,15 @@ async def search_one(
     refusal = await search_refusal(session, donor)
     if refusal is not None:
         raise SearchRefusedError(refusal)
-    job = runs_queue().enqueue(CONTACTS_JOB, 1, False, False, donor_id, **with_retries())
+    job_id = await asyncio.to_thread(_queue_one, donor_id)
     logger.info("контакты: %s поставил поиск адреса донору №%s", author.email, donor_id)
-    return ContactsQueued(job_id=str(job.id), pending=1)
+    return ContactsQueued(job_id=job_id, pending=1)
+
+
+def _queue_one(donor_id: int) -> str:
+    """Поставить поиск адреса одному донору — в пуле потоков (`_queue_state`)."""
+    job = runs_queue().enqueue(CONTACTS_JOB, 1, False, False, donor_id, **with_retries())
+    return str(job.id)
 
 
 async def _donor(session: AsyncSession, donor_id: int) -> DonorModel:
