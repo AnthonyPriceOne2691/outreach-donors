@@ -72,6 +72,13 @@ OPERATION_PROVIDERS = {
 }
 
 
+#: Операции этапа продаж — модель и проверка адресов модуля продаж: всё, что начинается
+#: с `sales_`. Без права «Продажи» их расхода нет на экране расхода — ни статьями, ни в
+#: итогах (решение Anthony 10.10.2026, П2б; `runs/spending.py`). Отправка письма
+#: (`letter_send`) — общая на все этапы и в продажи не входит.
+SALES_OPERATIONS = frozenset(name for name in OPERATION_PROVIDERS if name.startswith("sales_"))
+
+
 class UnknownOperationError(ValueError):
     """Расход по операции, которой нет в списке. Молча отнести её к Ahrefs
     нельзя: провайдер мог быть другой, и счёт разойдётся."""

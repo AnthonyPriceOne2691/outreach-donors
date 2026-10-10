@@ -14,6 +14,7 @@ from backend.features.core.domain import DonorStatus, UsageProvider
 from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.ops import UsageRecordModel
 from backend.features.donors.verdict import Thresholds
+from backend.features.outreach.repository import EVERY_STAGE
 from backend.features.runs.spending import SpendingRepository
 from backend.features.runs.thresholds import ThresholdsRepository, consequences
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -150,7 +151,7 @@ class TestSpending:
         )
         await session.commit()
 
-        spending = await SpendingRepository(session).since_month_start()
+        spending = await SpendingRepository(session).since_month_start(stages=EVERY_STAGE)
 
         by_operation = {article.operation: article for article in spending.articles}
         assert by_operation["batch_metrics"].units == 500
@@ -171,6 +172,6 @@ class TestSpending:
         old.created_at = NOW.replace(day=1) - timedelta(days=5)
         await session.commit()
 
-        spending = await SpendingRepository(session).since_month_start()
+        spending = await SpendingRepository(session).since_month_start(stages=EVERY_STAGE)
 
         assert all(article.units != 999 for article in spending.articles)

@@ -4,7 +4,8 @@
 заводит **новую версию**, а не переписывает старую: вердикты прошлых
 прогонов должны оставаться объяснимыми.
 
-Расход смотрят все: это то же содержимое базы, что и доноры.
+Расход смотрят все: это то же содержимое базы, что и доноры. Расход продаж —
+только с правом «Продажи» (решение Anthony 10.10.2026, П2б, `runs/spending.py`).
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.api.deps import db_session, needs
+from backend.api.deps import actor, db_session, needs
 from backend.api.settings.schemas import (
     ConsequencesView,
     SpendingView,
@@ -24,10 +25,11 @@ from backend.api.settings.schemas import (
     ThresholdsView,
 )
 from backend.config import ahrefs as ahrefs_cfg
+from backend.features.access.permissions import visible_stages
 from backend.features.access.repository import AccessRepository
 from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.ahrefs.units import Quota
-from backend.features.core.domain import AuditAction, Permission
+from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.runs.spending import SpendingRepository
 from backend.features.runs.thresholds import ThresholdsRepository, consequences, defaults
@@ -116,7 +118,7 @@ async def save_thresholds(
 
 @router.get("/usage", response_model=SpendingView, summary="Расход по статьям")
 async def usage(
-    _: UserModel = _viewer,
+    user: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> SpendingView:
     """Расход с начала месяца и остаток у провайдера.
@@ -124,8 +126,12 @@ async def usage(
     Недоступный остаток — не повод прятать расход: своя таблица знает,
     на что мы потратили, и этот ответ не зависит от провайдера. Поэтому
     неудача запроса остатка отдаётся отдельным полем, а не пятисоткой.
+
+    Без права «Продажи» — расход без операций продаж, весь: статьи, суммы и итог
+    сходятся, а `sales_hidden` говорит экрану, что итог — без продаж (П2б).
     """
-    spending = await SpendingRepository(session).since_month_start()
+    stages = visible_stages(actor(user))
+    spending = await SpendingRepository(session).since_month_start(stages=stages)
     serp_left, serp_error = await _serp_balance()
 
     # Спрашивается сырой остаток провайдера, а не бюджет прогона: бюджет —
@@ -153,6 +159,7 @@ async def usage(
         error=error,
         serp_left_usd=serp_left,
         serp_left_error=serp_error,
+        sales_hidden=Stage.SALES not in stages,
     )
 
 

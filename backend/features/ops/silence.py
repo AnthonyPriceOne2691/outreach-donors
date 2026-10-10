@@ -15,12 +15,17 @@
 называет. Автоматика, которая по своему подозрению останавливает
 рассылку, однажды остановит её на ровном месте — а в день, когда
 она понадобится, будет выключена.
+
+**Тревоги о почте продаж — только с правом «Продажи»** (решение Anthony 10.10.2026,
+П2б): сторож почты этапов считает этапы, которые видит спрашивающий (`stages`).
+Общие тревоги — о платформе, приёме ответов, добивках — этапа не имеют и видны всем:
+поломка приёма ответов касается каждого, кто ждёт ответов.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
@@ -33,6 +38,7 @@ from backend.features.core.domain import (
     CrawlStatus,
     MessageStatus,
     RunStatus,
+    Stage,
     StopReason,
 )
 from backend.features.core.models.crawl import CrawlRunModel
@@ -68,8 +74,11 @@ RUN_SILENCE_MINUTES = 30
 CRAWL_RUNS_WATCHED = 10
 
 
-async def alarms(session: AsyncSession, *, now: datetime | None = None) -> list[Alarm]:
-    """Всё, что сейчас молчит не по делу."""
+async def alarms(
+    session: AsyncSession, *, stages: Collection[Stage], now: datetime | None = None
+) -> list[Alarm]:
+    """Всё, что сейчас молчит не по делу; почта этапов — тех, что видит спрашивающий
+    (`stages`). Умолчания у этапов нет (ревью продаж к #304): фоновый проход передаёт все."""
     moment = now or datetime.now(UTC)
     found = [
         await _delivery_silence(session, moment),
@@ -79,7 +88,8 @@ async def alarms(session: AsyncSession, *, now: datetime | None = None) -> list[
         await _cap_reached(session),
         await _crawl_blocked(session),
     ]
-    found += await mail_watch.alarms(session, moment)  # почта этапов со сторожем в политике
+    # Почта этапов со сторожем в политике — видимых этапов (П2б).
+    found += await mail_watch.alarms(session, moment, stages=stages)
     return [alarm for alarm in found if alarm is not None]
 
 

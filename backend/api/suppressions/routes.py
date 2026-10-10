@@ -8,6 +8,10 @@
 **Каждая правка — в журнал.** Запись решает, придёт ли письмо, а снятие
 отписки разрешает написать тому, кто просил не писать: у обоих действий
 должен быть автор и время.
+
+**Запись этапа продаж — только с правом «Продажи»** (решение Anthony 10.10.2026,
+П2б): без права её нет ни в списке, ни в числах над ним, а снять или завести её —
+403 словами. Запись без этапа держит все этапы: её видят и правят, как раньше.
 """
 
 from __future__ import annotations
@@ -18,7 +22,8 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.api.deps import db_session, needs
+from backend.api.deps import actor, db_session, needs
+from backend.api.stage_access import SUPPRESSIONS, on_suppression
 from backend.api.suppressions.schemas import (
     AddBody,
     AddedEntry,
@@ -26,6 +31,7 @@ from backend.api.suppressions.schemas import (
     StopEntry,
     StopListView,
 )
+from backend.features.access.permissions import require_stage, visible_stages
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
@@ -37,14 +43,17 @@ router = APIRouter(prefix="/suppressions", tags=["стоп-лист"])
 
 _viewer = Depends(needs(Permission.VIEW))
 _sender = Depends(needs(Permission.SEND))
+#: Запись по номеру: у записи этапа продаж — ещё право «Продажи» (П2б).
+_row_sender = Depends(on_suppression(Permission.SEND))
 
 
 @router.get("", response_model=StopListView, summary="Стоп-лист целиком")
 async def all_rows(
-    _: UserModel = _viewer,
+    user: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> StopListView:
-    rows = await stoplist.rows(session)
+    # Записи и числа шапки — видимых этапов: без права «Продажи» — без записей продаж.
+    rows = await stoplist.rows(session, stages=visible_stages(actor(user)))
     moment = datetime.now(UTC)
     return StopListView(
         rows=[StopEntry.of(row, now=moment) for row in rows],
@@ -64,7 +73,9 @@ async def add_row(
 
     Домен приходит любым написанием — ссылкой, с `www.`, поддоменом — и ложится
     на корень сайта, как его пишет база; не было его там — ответ так и скажет.
+    Запись этапа продаж — с правом «Продажи» (П2б).
     """
+    require_stage(actor(author), body.stage, SUPPRESSIONS)
     row = await stoplist.add(
         session,
         body.target,
@@ -92,7 +103,7 @@ async def add_row(
 async def remove_row(
     row_id: int,
     body: RemoveBody,
-    author: UserModel = _sender,
+    author: UserModel = _row_sender,
     session: AsyncSession = Depends(db_session),
 ) -> StopEntry:
     """Снятое решение адресата уходит в журнал вместе с причиной.

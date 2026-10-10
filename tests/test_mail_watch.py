@@ -26,6 +26,7 @@ from backend.features.core.models.outreach import (
 from backend.features.core.stages import MailPolicy
 from backend.features.ops import alarm_feed, mail_watch, silence
 from backend.features.ops.alarms import Alarm
+from backend.features.outreach.repository import EVERY_STAGE
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.test_sales_stage_bridge import FakeSalesMail
 from tests.test_sales_stage_mail import sender
@@ -74,17 +75,17 @@ async def test_a3_a_box_with_waiting_letters_and_nothing_sent_is_quiet(
         next_action_at=NOW - timedelta(minutes=20),
     )
 
-    found = await mail_watch.alarms(session, NOW)
-    early = await mail_watch.alarms(session, NOW - timedelta(minutes=10))
+    found = await mail_watch.alarms(session, NOW, stages=EVERY_STAGE)
+    early = await mail_watch.alarms(session, NOW - timedelta(minutes=10), stages=EVERY_STAGE)
 
     assert [alarm.code for alarm in found] == [f"quiet-box:{box.email}"]
     assert early == []
-    assert found[0] in await silence.alarms(session, now=NOW)
+    assert found[0] in await silence.alarms(session, stages=EVERY_STAGE, now=NOW)
     # С ящика ушло письмо пять минут назад — он не молчит, проход просто не дошёл.
     await _letter(
         session, Stage.SALES, box, 1, status=MessageStatus.SENT, sent_at=NOW - timedelta(minutes=5)
     )
-    assert await mail_watch.alarms(session, NOW) == []
+    assert await mail_watch.alarms(session, NOW, stages=EVERY_STAGE) == []
 
 
 async def test_a4_queue_and_nobody_to_send_while_all_boxes_are_paused(
@@ -94,12 +95,14 @@ async def test_a4_queue_and_nobody_to_send_while_all_boxes_are_paused(
     box.status = SenderStatus.PAUSED
     await _letter(session, Stage.SALES, None, status=MessageStatus.QUEUED)
 
-    codes = [alarm.code for alarm in await mail_watch.alarms(session, NOW)]
+    codes = [alarm.code for alarm in await mail_watch.alarms(session, NOW, stages=EVERY_STAGE)]
     box.status = SenderStatus.FREE  # ящик пишет, но его домен на паузе — писать всё равно нечем
     session.add(
         SendingDomainModel(domain=box.domain, stage=Stage.SALES, daily_limit=5, paused_at=NOW)
     )
-    paused_domain = [alarm.code for alarm in await mail_watch.alarms(session, NOW)]
+    paused_domain = [
+        alarm.code for alarm in await mail_watch.alarms(session, NOW, stages=EVERY_STAGE)
+    ]
 
     assert codes == ["all-paused:sales", "nobody-to-send:sales"]
     assert paused_domain == ["nobody-to-send:sales"]
@@ -110,7 +113,7 @@ async def test_donors_get_no_new_alarms(session: AsyncSession) -> None:
     box.enabled = False
     await _letter(session, Stage.DONORS, None, status=MessageStatus.QUEUED)
 
-    assert await mail_watch.alarms(session, NOW) == []
+    assert await mail_watch.alarms(session, NOW, stages=EVERY_STAGE) == []
 
 
 async def test_a_module_without_a_policy_is_an_alarm_and_the_watch_goes_on(
@@ -118,7 +121,7 @@ async def test_a_module_without_a_policy_is_an_alarm_and_the_watch_goes_on(
 ) -> None:
     watched.broken = "policy"
 
-    [alarm] = await mail_watch.alarms(session, NOW)
+    [alarm] = await mail_watch.alarms(session, NOW, stages=EVERY_STAGE)
 
     assert (alarm.code, alarm.title) == ("no-policy:sales", "Политика почты «sales» не получена")
     assert alarm.detail.endswith("не подключены — выдуманная поломка модуля: policy")

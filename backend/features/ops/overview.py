@@ -180,14 +180,14 @@ async def overview(
     # там `EVERY_STAGE` — умолчание уходит, как у `work`; напомнит `tests/test_stage_scope.py`.
     stages: Collection[Stage] = EVERY_STAGE,
 ) -> Overview:
-    """Собрать главную. Каждое число — правилом своего экрана; письма и диалоги — только
-    видимых этапов (`stages`)."""
+    """Собрать главную. Каждое число — правилом своего экрана; письма, диалоги и расход —
+    только видимых этапов (`stages`)."""
     moment = now or datetime.now(UTC)
     # Все диалоги, состоянием по правилу списка (`threads.state_of`) — одним местом
     # правила, а не его копией в SQL: сумму в автоответе ищет питон. Из базы — только
     # то, что правило читает: статусы писем и поля ответов без текстов (аудит 10.10.2026).
     threads = await OutreachRepository(session).states(stages=stages)
-    spending = await SpendingRepository(session).since_month_start(now=moment)
+    spending = await SpendingRepository(session).since_month_start(stages=stages, now=moment)
     decisions = await standing.waiting(session)
     return Overview(
         donors=await _donors(session, threads, moment),

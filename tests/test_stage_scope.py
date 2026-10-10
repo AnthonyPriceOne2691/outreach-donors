@@ -15,8 +15,11 @@ from typing import Any
 
 import pytest
 from backend.features.agent import drafts
+from backend.features.letters import stoplist
+from backend.features.ops import mail_watch, silence
 from backend.features.ops.overview import overview, work
 from backend.features.outreach.repository import OutreachRepository
+from backend.features.runs.spending import SpendingRepository
 
 GUARDS = [
     pytest.param(OutreachRepository.threads, id="диалоги"),
@@ -24,8 +27,14 @@ GUARDS = [
     pytest.param(OutreachRepository._listed_letters, id="письма списка"),
     pytest.param(OutreachRepository._letter_statuses, id="статусы писем"),
     pytest.param(OutreachRepository._listed_replies, id="ответы списка"),
+    pytest.param(OutreachRepository.senders, id="ящики рассылки"),
+    pytest.param(OutreachRepository.enabled_domains, id="включённые домены"),
     pytest.param(work, id="числа меню"),
     pytest.param(drafts.waiting, id="черновики агента"),
+    pytest.param(stoplist.rows, id="стоп-лист"),
+    pytest.param(SpendingRepository.since_month_start, id="расход"),
+    pytest.param(silence.alarms, id="сторож тишины"),
+    pytest.param(mail_watch.alarms, id="сторож почты"),
     pytest.param(
         overview,
         id="сводка «Обзора»",
