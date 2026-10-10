@@ -60,7 +60,7 @@ import type { LetterTarget } from './targets';
 import { ABOUT, TARGETS, audienceOf, poolHint, stageOf, targetOf } from './targets';
 import { UnknownOutcome } from './UnknownOutcome';
 import { remember, remembered } from '../storage';
-import { JobLine } from '../jobs/JobLine';
+import { JobLine, jobRestarted } from '../jobs/JobLine';
 import { notify } from '../notices';
 
 /** Уже этого очередь и письмо стоят друг под другом (граница `md` у сетки). */
@@ -194,6 +194,8 @@ export function LettersPage() {
     onSuccess: async (queued) => {
       setBuildJobs((was) => ({ ...was, [target]: queued.job_id }));
       remember(jobKeyOf(target), queued.job_id);
+      // Номер сборки вкладки постоянный — сборка одна за раз: под ним уже новая задача.
+      void jobRestarted(queryClient, queued.job_id);
       await refresh();
       notify({
         message: 'Сборка ушла в очередь задач: каждое письмо стоит вызова модели, это минуты',
