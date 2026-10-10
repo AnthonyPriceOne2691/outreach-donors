@@ -1,4 +1,4 @@
-"""Кого обходить: доноры с известной и свежей ценой.
+"""Кого обходить: доноры, принятые человеком, с известной и свежей ценой.
 
 Требование прямое — «по кому запускаем: только доноры с известной ценой
 (из базы или заведённые вручную)» и «свежесть цены 150 дней; старше —
@@ -33,6 +33,7 @@ from backend.features.core.domain import DonorStatus
 from backend.features.core.models.advertisers import SupplierDonorModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
+from backend.features.donors.standing import is_donor
 
 logger = logging.getLogger(__name__)
 
@@ -67,10 +68,10 @@ async def choose(
     ttl_days: int = cfg.PRICE_TTL_DAYS,
     now: datetime | None = None,
 ) -> Targets:
-    """Доноры, по которым можно искать рекламодателей.
-
-    Порядок — по свежести цены: у самых свежих оффер «мы дешевле»
-    опирается на самое надёжное число.
+    """Доноры, по которым можно искать рекламодателей: принятые человеком — то же условие,
+    что у экрана «Доноры» (`is_donor`), — и годные по порогам. Одно «подходит» звало в
+    обход и отклонённого с ценой (проверка QA 10.10.2026). Порядок — по свежести цены:
+    у самых свежих оффер «мы дешевле» опирается на самое надёжное число.
     """
     moment = now or datetime.now(UTC)
     border = moment - timedelta(days=ttl_days)
@@ -85,7 +86,7 @@ async def choose(
         await session.execute(
             select(DomainModel.host, DonorModel.last_price, DonorModel.last_price_at)
             .join(DonorModel, DonorModel.domain_id == DomainModel.id)
-            .where(DonorModel.status == DonorStatus.SUITABLE)
+            .where(is_donor(), DonorModel.status == DonorStatus.SUITABLE)
             .order_by(DonorModel.last_price_at.desc().nullslast())
         )
     ).all()
@@ -121,9 +122,8 @@ def explain(targets: Targets) -> list[str]:
         )
     if targets.no_price:
         notes.append(
-            f"У {len(targets.no_price)} подходящих доноров цены нет вовсе — "
-            "по ним Этап 2 не запускается. Цену, которую знаете сами, можно указать "
-            "вручную на карточке донора."
+            f"У {len(targets.no_price)} доноров цены нет вовсе — по ним Этап 2 не запускается. "
+            "Цену, которую знаете сами, можно указать вручную на карточке донора."
         )
     if targets.supplier:
         notes.append(
@@ -132,7 +132,7 @@ def explain(targets: Targets) -> list[str]:
         )
     if not notes:
         notes.append(
-            "Подходящих доноров в базе нет: сначала прогон Этапа 1 — или донор, "
-            "заведённый вручную с ценой, которую агентство знает само."
+            "Принятых доноров нет: сначала прогон Этапа 1 и решение по его кандидатам — "
+            "или донор, заведённый вручную с ценой, которую агентство знает само."
         )
     return notes
