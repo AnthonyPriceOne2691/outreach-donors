@@ -17,7 +17,6 @@ import { Anchor, Badge, Button, Group, Stack, Table, Text } from '@mantine/core'
 import { DONOR_STATUSES, HUMAN_INTENTS, NOT_REACHED, SELECTION_HUMAN } from '../api/labels';
 import type { HumanIntent, SelectionCard } from '../api/types';
 import { JudgeVerdict, SellerAnswer } from '../components/JudgeVerdict';
-import { Seams } from '../components/Seams';
 
 interface Props {
   row: SelectionCard;
@@ -91,20 +90,26 @@ export function SelectionRow(props: Props) {
   return (
     <Table.Tr>
       <Table.Td>
-        {/* DR — в строке домена, а не под ним: строка таблицы 67 px вместо ~48 при
-            двадцати строках на странице — экран и лишний (аудит экранов 09.10.2026). */}
-        <Group gap={8} justify="center" wrap="wrap" style={{ rowGap: 0 }}>
+        {/* Домен и DR — одной строкой: строка таблицы ~48 px, а не 67 при двадцати
+            строках на странице (аудит экранов 09.10.2026). Обещание держит только
+            строка без переноса: со швами и переносом ряда на 1440 с раскрытым
+            меню (колонка 217 px) DR уходил под домен, а длинный домен ломался по
+            точкам в три строки — 91 px (проверка QA 10.10.2026). Не влезло —
+            многоточие; целиком домен — в подсказке и в имени ссылки. */}
+        <Group gap={8} justify="center" wrap="nowrap">
           <Anchor
             href={`https://${row.host}`}
             target="_blank"
             rel="noreferrer"
             fw={500}
+            truncate="end"
+            title={row.host}
             className="cellName"
           >
-            <Seams text={row.host} />
+            {row.host}
           </Anchor>
           {row.dr !== null && (
-            <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+            <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>
               DR {row.dr}
             </Text>
           )}
