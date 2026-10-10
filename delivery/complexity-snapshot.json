@@ -186,15 +186,20 @@
       "complexity": 0,
       "worst": "—"
     },
-    "backend/api/letters/routes.py": {
-      "lines": 361,
+    "backend/api/letters/once.py": {
+      "lines": 75,
       "complexity": 5,
-      "worst": "build:111"
+      "worst": "enqueue_once:52"
+    },
+    "backend/api/letters/routes.py": {
+      "lines": 393,
+      "complexity": 5,
+      "worst": "build:131"
     },
     "backend/api/letters/schemas.py": {
-      "lines": 377,
-      "complexity": 5,
-      "worst": "followups_for:91"
+      "lines": 420,
+      "complexity": 4,
+      "worst": "followups_for:92"
     },
     "backend/api/main.py": {
       "lines": 13,
@@ -1297,9 +1302,9 @@
       "worst": "build:251"
     },
     "backend/features/letters/chain.py": {
-      "lines": 68,
+      "lines": 106,
       "complexity": 3,
-      "worst": "kind_of:34"
+      "worst": "kind_of:45"
     },
     "backend/features/letters/compose.py": {
       "lines": 305,
@@ -1392,9 +1397,9 @@
       "worst": "candidates:93"
     },
     "backend/features/letters/review.py": {
-      "lines": 96,
+      "lines": 134,
       "complexity": 3,
-      "worst": "edit:54"
+      "worst": "edit:81"
     },
     "backend/features/letters/rewrite.py": {
       "lines": 328,
@@ -1407,9 +1412,9 @@
       "worst": "_post:168"
     },
     "backend/features/letters/sending.py": {
-      "lines": 491,
+      "lines": 500,
       "complexity": 5,
-      "worst": "_check_review:313"
+      "worst": "_check_review:319"
     },
     "backend/features/letters/settle.py": {
       "lines": 154,
