@@ -158,6 +158,26 @@ class TestWhoIsLetIn:
             )
             assert response.status_code == 403, auth
 
+    @pytest.mark.parametrize("how", ["заголовком", "паролем Basic"])
+    async def test_a_secret_outside_ascii_is_just_a_wrong_secret(
+        self, client: AsyncClient, sent: MessageModel, how: str
+    ) -> None:
+        """Аудит 10.10.2026, №14: кириллица в секрете роняла сравнение — `compare_digest`
+        на строке вне ASCII бросает TypeError, — и любой анонимный запрос получал пятисотку
+        с трассировкой, раньше потолка частоты. Это просто не тот секрет."""
+        given: dict[str, Any] = (
+            {"headers": {"X-Inbound-Secret": "секрет".encode()}}
+            if how == "заголовком"
+            else {"auth": ("inbound", "секрет")}
+        )
+
+        response = await client.post(
+            "/api/inbound/replies", data=form_for(sent, "250 EUR"), **given
+        )
+
+        assert response.status_code == 403
+        assert response.json()["reason"] == "Секрет не совпал"
+
     async def test_missing_secret_in_settings_refuses_everyone(
         self, client: AsyncClient, sent: MessageModel, monkeypatch: pytest.MonkeyPatch
     ) -> None:
