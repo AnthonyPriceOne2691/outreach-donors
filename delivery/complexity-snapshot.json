@@ -117,9 +117,9 @@
       "worst": "of:161"
     },
     "backend/api/errors.py": {
-      "lines": 447,
+      "lines": 454,
       "complexity": 7,
-      "worst": "_database_code:275"
+      "worst": "_database_code:282"
     },
     "backend/api/events/__init__.py": {
       "lines": 1,
@@ -232,9 +232,9 @@
       "worst": "_ascii_name:28"
     },
     "backend/api/replies/routes.py": {
-      "lines": 338,
+      "lines": 344,
       "complexity": 9,
-      "worst": "review:276"
+      "worst": "review:280"
     },
     "backend/api/replies/schemas.py": {
       "lines": 163,
@@ -402,9 +402,9 @@
       "worst": "redraft:151"
     },
     "backend/api/threads/schemas.py": {
-      "lines": 382,
+      "lines": 392,
       "complexity": 4,
-      "worst": "of:359"
+      "worst": "of:280"
     },
     "backend/api/unsubscribe/__init__.py": {
       "lines": 1,
@@ -1537,9 +1537,9 @@
       "worst": "of_reply:50"
     },
     "backend/features/outreach/threads.py": {
-      "lines": 324,
+      "lines": 357,
       "complexity": 10,
-      "worst": "review_of:233"
+      "worst": "review_of:238"
     },
     "backend/features/replies/__init__.py": {
       "lines": 1,
@@ -1567,9 +1567,9 @@
       "worst": "thread_ids:111"
     },
     "backend/features/replies/calibration.py": {
-      "lines": 124,
-      "complexity": 12,
-      "worst": "calibrate:94"
+      "lines": 164,
+      "complexity": 10,
+      "worst": "differences:80"
     },
     "backend/features/replies/charsets.py": {
       "lines": 154,
@@ -1577,14 +1577,14 @@
       "worst": "decode:92"
     },
     "backend/features/replies/classify.py": {
-      "lines": 293,
+      "lines": 316,
       "complexity": 3,
-      "worst": "_header_says:97"
+      "worst": "_header_says:104"
     },
     "backend/features/replies/confirmation.py": {
-      "lines": 57,
+      "lines": 98,
       "complexity": 4,
-      "worst": "confirmed_price:43"
+      "worst": "confirmed_price:59"
     },
     "backend/features/replies/extract.py": {
       "lines": 437,
@@ -1607,9 +1607,9 @@
       "worst": "addresses_in:164"
     },
     "backend/features/replies/lead_handoff.py": {
-      "lines": 290,
+      "lines": 328,
       "complexity": 8,
-      "worst": "_card:124"
+      "worst": "_card:129"
     },
     "backend/features/replies/mime.py": {
       "lines": 340,
@@ -1647,9 +1647,9 @@
       "worst": "_settle:223"
     },
     "backend/features/replies/quoting.py": {
-      "lines": 187,
+      "lines": 192,
       "complexity": 5,
-      "worst": "quote_starts_at:154"
+      "worst": "quote_starts_at:159"
     },
     "backend/features/replies/raw_mime.py": {
       "lines": 177,
@@ -1667,9 +1667,9 @@
       "worst": "add:389"
     },
     "backend/features/replies/robots.py": {
-      "lines": 56,
+      "lines": 61,
       "complexity": 2,
-      "worst": "robot:53"
+      "worst": "robot:58"
     },
     "backend/features/replies/stage_rules.py": {
       "lines": 65,
