@@ -67,10 +67,14 @@ export function PageSwitch({ label, page, pages, onChange, ...box }: Props) {
 /** Номер страницы — из адреса. Негодный или пустой — первая: ссылка
  *  с опечаткой в номере не должна ронять экран. Для экранов, у которых
  *  в адресе нет ничего, кроме страницы; где есть фильтры, страница живёт
- *  вместе с ними (`selectionFilters.ts`, `donorFilters.ts`). */
-export function usePageParam(): [number, (next: number, replace?: boolean) => void] {
+ *  вместе с ними (`selectionFilters.ts`, `donorFilters.ts`).
+ *
+ *  `name` — имя в адресе, когда листает не весь экран, а одна карточка на нём
+ *  («Бизнесы ниши» на экране рекламодателей — `?niche_page=2`): общий `page`
+ *  достался бы и соседней карточке, начни она листаться. */
+export function usePageParam(name = 'page'): [number, (next: number, replace?: boolean) => void] {
   const [params, setParams] = useSearchParams();
-  const asked = Number(params.get('page'));
+  const asked = Number(params.get(name));
   const page = Number.isInteger(asked) && asked >= 1 ? asked : 1;
   const goTo = useCallback(
     (next: number, replace = false) => {
@@ -81,14 +85,14 @@ export function usePageParam(): [number, (next: number, replace?: boolean) => vo
         (was) => {
           const moved = new URLSearchParams(was);
           // Первая страница — без номера: адрес экрана тот же, что в меню.
-          if (next <= 1) moved.delete('page');
-          else moved.set('page', String(next));
+          if (next <= 1) moved.delete(name);
+          else moved.set(name, String(next));
           return moved;
         },
         { replace },
       );
     },
-    [page, setParams],
+    [name, page, setParams],
   );
   return [page, goTo];
 }

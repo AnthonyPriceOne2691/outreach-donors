@@ -24,9 +24,14 @@ export interface NicheCard {
   decided_at: string | null;
 }
 
+/** Страница бизнесов ниши: `total` — строк по всем страницам, `limit` — размер
+ *  страницы, его называет сервер (как у очереди форм). */
 export interface NicheView {
   rows: NicheCard[];
   waiting: number;
+  total: number;
+  page: number;
+  limit: number;
 }
 
 export interface NicheCollected {
@@ -35,8 +40,8 @@ export interface NicheCollected {
   added: number;
 }
 
-export function fetchNiche(): Promise<NicheView> {
-  return request<NicheView>('/advertisers/niche');
+export function fetchNiche(page: number): Promise<NicheView> {
+  return request<NicheView>(`/advertisers/niche?page=${page}`);
 }
 
 /** «Пишем» открывает поиск адреса и письмо; «не пишем» запоминается. */

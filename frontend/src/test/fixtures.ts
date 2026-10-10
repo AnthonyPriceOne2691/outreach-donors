@@ -121,7 +121,9 @@ export const CRAWL_ROUTES: Record<string, Answer> = {
 
 /** Карточка «Бизнесы ниши из выдачи» на «Рекламодателях»: решать некого. */
 export const NO_NICHE: Record<string, Answer> = {
-  'GET /api/advertisers/niche': { body: { rows: [], waiting: 0 } },
+  'GET /api/advertisers/niche?page=1': {
+    body: { rows: [], waiting: 0, total: 0, page: 1, limit: 20 },
+  },
 };
 
 /** Блок «Исход неизвестен» на экране писем: зависших писем нет ни на одной вкладке.

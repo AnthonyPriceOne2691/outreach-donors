@@ -236,7 +236,77 @@ async def test_migration_goes_down_and_up(session: AsyncSession) -> None:
     assert await connection.run_sync(_source_column) == (False, True)
 
 
+async def _five_waiting(session: AsyncSession) -> list[str]:
+    """Пять бизнесов ниши из одного прогона — в порядке экрана (номером строки)."""
+    hosts = [f"shop-{n}.example.test" for n in range(1, 6)]
+    for host in hosts:
+        await _domain(session, host, judge="sells_own")
+    await niche.collect(session, await _run(session, hosts))
+    return hosts
+
+
+class TestPages:
+    """По двадцать на странице — слово Anthony 10.10.2026: полсотни строк «пишем / не пишем»
+    одним списком были простынёй, а пятьдесят первый бизнес — недостижим."""
+
+    async def test_page_is_a_slice_in_screen_order(self, session: AsyncSession) -> None:
+        hosts = await _five_waiting(session)
+
+        pages = [
+            [row.host for row in await niche.listed(session, page=number, size=2)]
+            for number in (1, 2, 3, 4)
+        ]
+
+        assert pages == [hosts[0:2], hosts[2:4], hosts[4:5], []]
+        assert await niche.total(session) == 5
+
+    async def test_decided_leaves_the_count_of_pages(self, session: AsyncSession) -> None:
+        hosts = await _five_waiting(session)
+        first = (await _advertisers(session))[hosts[0]]
+
+        await niche.decide(session, first.id, write=False, by="anthony@site.test")
+
+        assert await niche.total(session) == 4
+        assert await niche.waiting(session) == 4
+        # С решёнными — все пять: число страниц того списка, что показан.
+        assert await niche.total(session, include_decided=True) == 5
+        assert [row.host for row in await niche.listed(session, page=1, size=2)] == hosts[1:3]
+
+    async def test_screen_page_size_is_twenty(self) -> None:
+        assert niche.PAGE_SIZE == 20
+
+
 class TestScreen:
+    async def test_pages_through_the_api(
+        self,
+        client: AsyncClient,
+        make_user: MakeUser,
+        sign_in: SignIn,
+        session: AsyncSession,
+    ) -> None:
+        hosts = await _five_waiting(session)
+        await session.commit()
+        await make_user("админ@site.com", role=UserRole.ADMIN)
+        token = await sign_in("админ@site.com")
+
+        third = await client.get("/api/advertisers/niche?page=3&limit=2", headers=bearer(token))
+        beyond = await client.get("/api/advertisers/niche?page=9&limit=2", headers=bearer(token))
+        zero = await client.get("/api/advertisers/niche?page=0", headers=bearer(token))
+        huge = await client.get("/api/advertisers/niche?limit=201", headers=bearer(token))
+
+        assert third.status_code == 200, third.text
+        assert [row["host"] for row in third.json()["rows"]] == hosts[4:5]
+        assert {k: third.json()[k] for k in ("waiting", "total", "page", "limit")} == {
+            "waiting": 5,
+            "total": 5,
+            "page": 3,
+            "limit": 2,
+        }
+        # Страница за концом — пустая, но с числом: экран по нему уходит на последнюю.
+        assert beyond.json()["rows"] == []
+        assert beyond.json()["total"] == 5
+        assert (zero.status_code, huge.status_code) == (422, 422)
+
     async def test_queue_decide_and_collect_through_the_api(
         self,
         client: AsyncClient,
@@ -276,7 +346,7 @@ class TestScreen:
         assert card["confirmed"] is None
         assert decided.status_code == 200, decided.text
         assert decided.json()["confirmed"] is True
-        assert after.json() == {"rows": [], "waiting": 0}
+        assert after.json() == {"rows": [], "waiting": 0, "total": 0, "page": 1, "limit": 20}
         entry = await session.scalar(
             select(AuditLogModel).where(AuditLogModel.action == AuditAction.ADVERTISER_REVIEWED)
         )
