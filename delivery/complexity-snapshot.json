@@ -1477,9 +1477,9 @@
       "worst": "_of_stage:90"
     },
     "backend/features/ops/overview.py": {
-      "lines": 307,
+      "lines": 306,
       "complexity": 5,
-      "worst": "_letters:278"
+      "worst": "_letters:277"
     },
     "backend/features/ops/silence.py": {
       "lines": 326,
@@ -1507,9 +1507,9 @@
       "worst": "inbox_trace:229"
     },
     "backend/features/outreach/repository.py": {
-      "lines": 217,
+      "lines": 381,
       "complexity": 4,
-      "worst": "sent_today:80"
+      "worst": "sent_today:145"
     },
     "backend/features/outreach/senders.py": {
       "lines": 160,
@@ -1517,9 +1517,9 @@
       "worst": "_spot:112"
     },
     "backend/features/outreach/threads.py": {
-      "lines": 260,
+      "lines": 324,
       "complexity": 10,
-      "worst": "review_of:169"
+      "worst": "review_of:233"
     },
     "backend/features/replies/__init__.py": {
       "lines": 1,
