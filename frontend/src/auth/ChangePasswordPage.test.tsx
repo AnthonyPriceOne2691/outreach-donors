@@ -119,6 +119,24 @@ describe('смена своего пароля', () => {
     expect(await screen.findByText('Ждут человека')).toBeInTheDocument();
   });
 
+  it('обрыв связи — словами: «нет связи с сервером», а не текст браузера', async () => {
+    // Проверка прода 10.10.2026: формы показывали «Failed to fetch».
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    serve({
+      'GET /api/auth/me': { body: NEWCOMER },
+      'POST /api/auth/password': () => {
+        throw new TypeError('Failed to fetch');
+      },
+    });
+    renderWith(<AppRoutes />, '/password');
+    await screen.findByText('Смена пароля');
+
+    await fill('разовый', 'три слова подряд', 'три слова подряд');
+
+    expect(await screen.findByText(/Нет связи с сервером/)).toBeInTheDocument();
+    expect(screen.queryByText(/Failed to fetch/)).not.toBeInTheDocument();
+  });
+
   it('отказ сервера показывается целиком', async () => {
     localStorage.setItem(TOKEN_KEY, 'пропуск');
     serve({
