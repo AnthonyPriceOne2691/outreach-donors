@@ -37,15 +37,26 @@ def _first(response: Any) -> dict[str, Any]:
     return first
 
 
-async def test_a_price_in_words_is_refused_in_russian(client: AsyncClient, admin: str) -> None:
-    """Ровно случай QA: цена в ответе донора словами — «нужно число», с именем поля."""
-    response = await client.patch(
-        "/api/replies/1", json={"price_white": "сто евро"}, headers=bearer(admin)
-    )
+async def test_a_number_in_words_is_refused_in_russian(client: AsyncClient, admin: str) -> None:
+    """Число словами в числовом поле — «нужно число», с именем поля.
+
+    Случай QA — цена в ответе донора словами — с 10.10.2026 разбор схемы не видит: её
+    проверяют правила цены руками, отказ 400 словами (`test_api_replies.py`,
+    `TestTypedPriceIsChecked`). Здесь — поле, которое по-прежнему число в схеме.
+    """
+    body = {
+        "enabled": False,
+        "goal": "Договориться о размещении",
+        "tone": "Коротко и вежливо",
+        "points": [],
+        "price_limit_usd": "сто долларов",
+        "stop_topics": [],
+    }
+    response = await client.post("/api/agent/settings/donors", json=body, headers=bearer(admin))
 
     first = _first(response)
-    assert first["msg"] == "Поле «price_white»: нужно число"
-    assert (first["type"], first["loc"]) == ("decimal_parsing", ["body", "price_white"])
+    assert first["msg"] == "Поле «price_limit_usd»: нужно число"
+    assert (first["type"], first["loc"]) == ("decimal_parsing", ["body", "price_limit_usd"])
 
 
 @pytest.mark.parametrize(
