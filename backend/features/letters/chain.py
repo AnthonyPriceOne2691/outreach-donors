@@ -9,10 +9,14 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
+from itertools import takewhile
 
 from backend.config import outreach as cfg
 from backend.features.core.domain import MessageStatus
+
+logger = logging.getLogger(__name__)
 
 #: Шаг первого письма. Добивки — всё, что дальше.
 FIRST_STEP = 0
@@ -29,6 +33,13 @@ MAX_STEPS = 3
 #: В каких состояниях письмо ещё ждёт добивки. «Отправляется» сюда
 #: не входит: пока исход неизвестен, следующего письма быть не может.
 CHAINABLE = (MessageStatus.SENT, MessageStatus.DELIVERED)
+
+#: Срок добивки, в днях от предыдущего письма: не меньше суток (аудит 10.10.2026).
+#: «Через 0 дней» отправлял ближайший проход добивок — через минуты после первого
+#: письма, и донор получал три письма за час: для репутации домена это жалоба на
+#: спам. Сверху — потолок поля на экране сборки: сервер принимает то же, что форма.
+MIN_DELAY_DAYS = 1
+MAX_DELAY_DAYS = 90
 
 
 def kind_of(step: int) -> str:
@@ -51,17 +62,37 @@ def cadence(days: list[int] | None) -> tuple[int, ...]:
     return tuple(int(day) for day in days)
 
 
+def planned(days: list[int] | None) -> tuple[int, ...]:
+    """Сроки добивок, которые уйдут на самом деле: по порядку, не больше `MAX_STEPS - 1`
+    и до первого срока меньше суток.
+
+    Добивок столько, сколько сроков: одна добивка вместо двух — законная настройка.
+    Срок меньше суток — не «сразу», а обрыв цепочки на этом шаге: такие сроки сервер
+    больше не принимает (`api/letters/schemas.py`), но рассылка, заведённая до проверки,
+    хранит их в базе. Добивка без срока обрывает и следующую — цепочка идёт по шагам.
+    """
+    return tuple(takewhile(lambda day: day >= MIN_DELAY_DAYS, cadence(days)[: MAX_STEPS - 1]))
+
+
 def due_after(sent_at: datetime, *, step: int, days: list[int] | None) -> datetime | None:
     """Когда уходит добивка после письма шага `step`. `None` — цепочка кончилась.
 
     Срок считается от отправки предыдущего письма, а не от начала
     рассылки: письма уходят не в один день — очередь согласовывают
     руками, а ящики выбирают дневной лимит.
+
+    Сроки — те, что уйдут на самом деле (`planned`): срок меньше суток добивку
+    не назначает вовсе, а не отправляет её ближайшим проходом (аудит 10.10.2026).
     """
-    upcoming = step + 1
-    if upcoming >= MAX_STEPS:
-        return None
-    schedule = cadence(days)
-    if upcoming > len(schedule):
-        return None
-    return sent_at + timedelta(days=schedule[upcoming - 1])
+    schedule = planned(days)
+    if step < len(schedule):
+        return sent_at + timedelta(days=schedule[step])
+    asked = cadence(days)
+    if step == len(schedule) and step < min(len(asked), MAX_STEPS - 1):
+        # Шаг у рассылки есть, а срок меньше суток: цепочку оборвал он, а не конец сроков.
+        logger.warning(
+            "письма: добивка %s не назначена — срок %s дн. меньше суток, цепочка кончается",
+            step + 1,
+            asked[step],
+        )
+    return None

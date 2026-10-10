@@ -17,7 +17,7 @@ from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, ThreadModel
 from backend.features.letters import template
-from backend.features.letters.chain import MAX_STEPS, cadence, due_after
+from backend.features.letters.chain import MAX_STEPS, cadence, due_after, planned
 from backend.features.letters.followups import Chain, send_due
 from backend.features.letters.sending import Sending
 from backend.features.letters.transport import NullTransport, Outgoing
@@ -90,6 +90,33 @@ class TestCadence:
         """Одна добивка вместо двух — законная настройка, а не ошибка."""
         assert due_after(NOW, step=1, days=[7]) is None
 
+    @pytest.mark.parametrize("days", [[0, 0], [0, 7], [-3, 7]])
+    def test_less_than_a_day_never_means_right_away(
+        self, days: list[int], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Аудит 10.10.2026: «через 0 дней» давало срок, равный отправке, и ближайший
+        проход слал обе добивки вслед за письмом — три письма донору за час. Такой срок
+        цепочку обрывает, и это видно в журнале; следующая добивка без первой не уходит."""
+        assert due_after(NOW, step=0, days=days) is None
+        assert planned(days) == ()
+        assert "добивка 1 не назначена" in caplog.text
+
+    def test_a_bad_second_term_cuts_only_the_second_followup(self) -> None:
+        assert due_after(NOW, step=0, days=[7, 0]) == NOW + timedelta(days=7)
+        assert due_after(NOW, step=1, days=[7, 0]) is None
+        assert planned([7, 0]) == (7,)
+
+    def test_planned_is_what_due_after_schedules(self) -> None:
+        """Сроки на экране (`planned`) и сроки отправки (`due_after`) — одно правило:
+        у рассылки с одной добивкой второй нет ни там, ни там."""
+        assert planned([7]) == (7,)
+        assert planned(None) == outreach_cfg.FOLLOWUP_DAYS[: MAX_STEPS - 1]
+        assert [due_after(NOW, step=step, days=[3, 5]) for step in range(MAX_STEPS)] == [
+            NOW + timedelta(days=3),
+            NOW + timedelta(days=5),
+            None,
+        ]
+
 
 class TestTemplates:
     @pytest.mark.parametrize("step", [1, 2])
@@ -126,6 +153,20 @@ class TestSendingPlansTheChain:
         message, _ = await _chain_start(session, host="fast.example.test", followup_days=[1, 2])
 
         assert message.next_action_at == NOW + timedelta(days=1)
+
+    async def test_zero_days_campaign_sends_no_followup_after_the_letter(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        """Рассылка «через 0 дней», заведённая до проверки сроков, лежит в базе: её письмо
+        уходит без срока добивки, и проход через час не шлёт ничего (аудит 10.10.2026)."""
+        message, _ = await _chain_start(session, host="zero.example.test", followup_days=[0, 0])
+
+        report = await send_due(
+            session, transport=NullTransport(), limit=5, now=NOW + timedelta(hours=1)
+        )
+
+        assert message.next_action_at is None
+        assert report.sent == 0
 
 
 class TestClaiming:

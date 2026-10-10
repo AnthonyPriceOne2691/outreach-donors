@@ -6,13 +6,14 @@ import logging
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic_core import PydanticCustomError
 
 from backend.config import outreach as cfg
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.crawl.niche import LINKS
 from backend.features.letters import compose, template, unknown_outcome
-from backend.features.letters.chain import MAX_STEPS, cadence
+from backend.features.letters.chain import MAX_DELAY_DAYS, MAX_STEPS, MIN_DELAY_DAYS, planned
 from backend.features.letters.draft import Draft, default_draft
 from backend.features.letters.repository import QueuedLetter
 from backend.features.letters.transport import TransportError
@@ -107,10 +108,14 @@ def followups_for(
     `subject` — тема первого письма: с ней добивки и уйдут
     (`followups.Chain.compose_letter`), и показывать другую значило бы
     согласовать не то, что отправится.
+
+    Добивки — только те, что уйдут (`chain.planned`), со сроками отправки. Раньше
+    вкладок было всегда две, и добивка, которой не будет, стояла «через 0 дн.»
+    (аудит 10.10.2026): у рассылки с одной добивкой — вторая, у рассылки со сроком
+    меньше суток — обе.
     """
-    schedule = cadence(days)
     cards: list[FollowupCard] = []
-    for step in range(1, MAX_STEPS):
+    for step, in_days in enumerate(planned(days), start=1):
         letter = compose.assemble(
             compose.render(
                 template.followup(step, stage, audience),
@@ -123,7 +128,7 @@ def followups_for(
                 step=step,
                 subject=(subject or "").strip() or letter.subject,
                 body=letter.body,
-                in_days=schedule[step - 1] if step <= len(schedule) else 0,
+                in_days=in_days,
             )
         )
     return cards
@@ -248,7 +253,16 @@ class LettersView(BaseModel):
     batch_max: int
 
 
+#: Писем за одну сборку — тот же потолок, что у поля «За раз» на экране. До проверки
+#: QA 10.10.2026 граница стояла только там, и отрицательное число роняло задачу
+#: ошибкой SQL — трижды, повторами.
+LIMIT_MAX = 500
+
+
 class BuildRequestBody(BaseModel):
+    """Что собрать. Отказ разбора — своими словами (`PydanticCustomError`), как у
+    прогона (`api/runs/schemas.py`): умолчание дало бы «Input should be…» по-английски."""
+
     campaign: str
     #: Кому: донорам — вопрос о цене, рекламодателям — оффер под найденную
     #: ссылку. У рекламодателей прогонов нет, `run_ids` для них — отказ.
@@ -260,7 +274,9 @@ class BuildRequestBody(BaseModel):
     #: Через сколько дней после предыдущего письма уходят добивки.
     #: Пусто — умолчание настроек. Задаётся здесь, а не в настройках
     #: сервиса, потому что сроки подбирают по отклику, и у рассылки,
-    #: которая уже идёт, они меняться не должны.
+    #: которая уже идёт, они меняться не должны. Сколько сроков — столько
+    #: добивок: одна или две. Без добивок рассылку не заводят — «0 дней»
+    #: значил бы не «без добивки», а «сразу» (`_followups_not_at_once`).
     followup_days: list[int] = Field(default_factory=list, max_length=MAX_STEPS - 1)
     #: Поправленный текст первого письма. Пусто — у новой рассылки шаблон
     #: из кода, у найденной — её собственный текст.
@@ -271,6 +287,33 @@ class BuildRequestBody(BaseModel):
     #: Кому рассылка Этапа 2: `links` — рекламодателям по найденной ссылке,
     #: `niche` — бизнесам ниши из выдачи (свой оффер и свои добивки).
     audience: Audience = "links"
+
+    @field_validator("limit")
+    @classmethod
+    def _limit_of_the_screen(cls, limit: int) -> int:
+        if not 1 <= limit <= LIMIT_MAX:
+            raise PydanticCustomError(
+                "limit_out_of_range",
+                f"За одну сборку — от 1 до {LIMIT_MAX} писем, пришло {limit}",
+            )
+        return limit
+
+    @field_validator("followup_days")
+    @classmethod
+    def _followups_not_at_once(cls, days: list[int]) -> list[int]:
+        """Срок добивки — от суток (аудит 10.10.2026): «через 0 дней» отправляло обе
+        добивки ближайшими проходами, вслед за первым письмом, — три письма донору
+        за час. Проверка здесь, у формы: задача заводит рассылку с этими сроками,
+        и у идущей рассылки они уже не меняются."""
+        for day in days:
+            if not MIN_DELAY_DAYS <= day <= MAX_DELAY_DAYS:
+                raise PydanticCustomError(
+                    "followup_out_of_range",
+                    f"Добивка уходит через {MIN_DELAY_DAYS}–{MAX_DELAY_DAYS} дней после "
+                    f"предыдущего письма, пришло {day}: меньше суток значило бы «сразу» — "
+                    "вслед за первым письмом, три письма адресату за час",
+                )
+        return days
 
     @model_validator(mode="after")
     def _niche_is_stage_two(self) -> BuildRequestBody:
