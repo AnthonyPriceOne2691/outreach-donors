@@ -115,9 +115,12 @@ export function ThreadPage() {
         color: result.stored_price ? 'green' : 'yellow',
       });
     },
-    onError: (failure) =>
-      notify({ title: 'Не подтвердили', message: refusalOf(failure), color: 'red' }),
+    // Отказ — над полями разбора (`PriceReview`), а не уведомлением в углу: оно ложилось
+    // на «Подтвердить» и «Не продаёт размещения» (проверка QA 10.10.2026).
   });
+  // Отказ — о вписанном в этой переписке: в соседней поля уже другие.
+  const { reset: forgetRefusal } = confirm;
+  useEffect(() => forgetRefusal(), [id, forgetRefusal]);
 
   const lead = useMutation({
     mutationFn: (replyId: number) => takeLead(replyId),
@@ -196,6 +199,9 @@ export function ThreadPage() {
   const active = activeReply(data.incoming, picked);
   const decided = active !== null && (active.lead || reviewable(active)) ? active : null;
   const target = answerTarget(data.incoming);
+  // Отказ сервера по разбору этого ответа — над полями разбора, словами.
+  const refusalFor = (replyId: number) =>
+    confirm.isError && confirm.variables.replyId === replyId ? refusalOf(confirm.error) : null;
   const busy = (replyId: number) =>
     (confirm.isPending && confirm.variables?.replyId === replyId) ||
     (lead.isPending && lead.variables === replyId) ||
@@ -271,6 +277,7 @@ export function ThreadPage() {
               declines: true,
             })
           }
+          refusal={refusalFor(decided.id)}
           onTakeLead={() => lead.mutate(decided.id)}
           onSendLead={() => handoff.mutate(decided.id)}
           onClose={decided.id === picked ? () => setPicked(null) : null}

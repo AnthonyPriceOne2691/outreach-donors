@@ -56,6 +56,7 @@ from backend.features.core.models.access import UserModel
 from backend.features.replies import lead_handoff, unbound
 from backend.features.replies.attachments import ReplyFiles
 from backend.features.replies.calibration import calibrate
+from backend.features.replies.confirmation import confirmed_price
 from backend.features.replies.extract import PLACEMENT_DECLINES, PLACEMENT_SELLS
 from backend.features.replies.repository import ReplyRepository
 from backend.shared.queue import LEAD_JOB, runs_queue, with_retries
@@ -268,20 +269,25 @@ async def review(
     author: UserModel = _reviewer,
     session: AsyncSession = Depends(db_session),
 ) -> Reviewed:
-    """Принять цену такой, какой её увидел человек."""
+    """Принять цену такой, какой её увидел человек.
+
+    Цена и валюта проверяются правилами цены руками (`replies/confirmation.py`):
+    не цена — отказ словами, до записи.
+    """
     repository = ReplyRepository(session)
     reply = await repository.reply(reply_id)
+    checked = confirmed_price(body.price_white, body.price_grey, body.currency)
 
     await repository.confirm(
         reply,
         by=author.email,
-        price_white=body.price_white,
-        price_grey=body.price_grey,
-        currency=body.currency,
+        price_white=checked.white,
+        price_grey=checked.grey,
+        currency=checked.currency,
         payment_methods=body.payment_methods,
     )
 
-    price = body.price_white if body.price_white is not None else body.price_grey
+    price = checked.main
     domain_id = await repository.domain_of(reply)
     stored = False
     answer: str | None = None
@@ -289,7 +295,7 @@ async def review(
         # Список цен — тот, что лежит у ответа: человек решает главную цену,
         # а прочие цены письма им не правятся и идут в карточку как есть.
         await repository.store_price(
-            domain_id=domain_id, price=price, currency=body.currency, offers=reply.offers
+            domain_id=domain_id, price=price, currency=checked.currency, offers=reply.offers
         )
         stored = True
         answer = PLACEMENT_SELLS
@@ -307,9 +313,9 @@ async def review(
             "действие": "донор не продаёт размещения"
             if body.declines
             else "разбор цены подтверждён",
-            "белая": str(body.price_white) if body.price_white is not None else None,
-            "серая": str(body.price_grey) if body.price_grey is not None else None,
-            "валюта": body.currency,
+            "белая": str(checked.white) if checked.white is not None else None,
+            "серая": str(checked.grey) if checked.grey is not None else None,
+            "валюта": checked.currency,
             "уверенность модели": reply.confidence,
         },
     )

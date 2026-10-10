@@ -23,8 +23,11 @@ class ReviewBody(BaseModel):
     ними — целая строка в базе.
     """
 
-    price_white: Decimal | None = None
-    price_grey: Decimal | None = None
+    #: Строкой, как вписал человек, или числом. Проверяет ядро — правилами цены
+    #: руками (`replies/confirmation.py`): «сто евро» и «−5» получают отказ словами,
+    #: а не английский отказ разбора схемы (проверка QA 10.10.2026).
+    price_white: str | Decimal | None = None
+    price_grey: str | Decimal | None = None
     currency: str | None = None
     payment_methods: list[str] = []
     #: Донор ответил «не продаём размещения». Для гест-постинга это ответ

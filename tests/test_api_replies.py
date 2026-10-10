@@ -358,6 +358,88 @@ class TestReviewing:
         assert after.json()[0]["state"] == "priced"
 
 
+class TestTypedPriceIsChecked:
+    """Подтверждённая цена ложится в карточку донора — и проверяется теми же
+    правилами, что цена руками (`donors/manual_price`). До 10.10.2026 «−5 EUR»
+    ложилось последней ценой донора, а 1e12 и «доллар США» роняли запрос
+    пятисоткой о колонки (проверка QA 10.10.2026)."""
+
+    @pytest.mark.parametrize(
+        ("body", "said"),
+        [
+            ({"price_white": "-5", "currency": "EUR"}, "«-5» — не цена"),
+            ({"price_white": -5, "currency": "EUR"}, "«-5» — не цена"),
+            ({"price_white": "0", "currency": "EUR"}, "«0» — не цена"),
+            ({"price_grey": "1e12", "currency": "EUR"}, "не меньше 100 000"),
+            ({"price_white": "100.555", "currency": "EUR"}, "точнее копеек"),
+            ({"price_white": "сто евро", "currency": "EUR"}, "«сто евро» — не цена"),
+            ({"price_white": "250", "currency": "фантики"}, "«фантики» не знакома"),
+            ({"price_white": "250", "currency": "kr"}, "неоднозначна"),
+            ({"price_white": "250"}, "Не указана валюта цены"),
+        ],
+    )
+    async def test_not_a_price_is_refused_in_words_before_any_write(
+        self,
+        client: AsyncClient,
+        reviewer_token: str,
+        unsure: ReplyModel,
+        session: AsyncSession,
+        body: dict[str, Any],
+        said: str,
+    ) -> None:
+        response = await client.patch(
+            f"/api/replies/{unsure.id}", json=body, headers=bearer(reviewer_token)
+        )
+
+        assert response.status_code == 400, response.text
+        assert said in response.json()["detail"]
+        donor = (await session.execute(select(DonorModel))).scalars().one()
+        assert donor.last_price is None
+        reply = await session.get(ReplyModel, unsure.id)
+        assert reply is not None
+        await session.refresh(reply)
+        assert reply.reviewed_at is None  # разбор по-прежнему ждёт человека
+        assert reply.price_white == Decimal("250")  # снимок модели не тронут
+
+    @pytest.mark.parametrize(("typed", "code"), [("доллар США", "USD"), ("€", "EUR")])
+    async def test_currency_in_words_or_sign_lands_as_a_code(
+        self,
+        client: AsyncClient,
+        reviewer_token: str,
+        unsure: ReplyModel,
+        session: AsyncSession,
+        typed: str,
+        code: str,
+    ) -> None:
+        response = await client.patch(
+            f"/api/replies/{unsure.id}",
+            json={"price_white": "300", "currency": typed},
+            headers=bearer(reviewer_token),
+        )
+
+        assert response.status_code == 200, response.text
+        donor = (await session.execute(select(DonorModel))).scalars().one()
+        assert (donor.last_price, donor.last_price_currency) == (Decimal("300.00"), code)
+
+    async def test_no_price_is_not_held_by_the_currency_field(
+        self, client: AsyncClient, reviewer_token: str, unsure: ReplyModel, session: AsyncSession
+    ) -> None:
+        """«Цены в письме нет» к валюте не относится: догадка модели в поле
+        валюты такое решение не останавливает, а длинное слово ложится кодом."""
+        response = await client.patch(
+            f"/api/replies/{unsure.id}",
+            json={"price_white": None, "currency": "доллар США"},
+            headers=bearer(reviewer_token),
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["stored_price"] is False
+        reply = await session.get(ReplyModel, unsure.id)
+        assert reply is not None
+        await session.refresh(reply)
+        assert (reply.price_white, reply.currency) == (None, "USD")
+
+
 class TestWhatTheCardShows:
     async def test_card_shows_who_answered_and_whether_it_waits(
         self, client: AsyncClient, reviewer_token: str, unsure: ReplyModel

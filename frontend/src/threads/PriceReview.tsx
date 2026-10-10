@@ -23,12 +23,25 @@
  * 09.10.2026, второй круг). Уверенность — в той же строке, что «подтверждает
  * человек», подсказки полей — по слову: разбор в 317 px вместе с шапкой сжимал
  * ленту переписки до 192 px из 792.
+ *
+ * **Цена уходит строкой, как вписана, а проверяет сервер — словами**, тем же
+ * правилом, что «Указать цену» на карточке донора (`donors/PriceForm`,
+ * `replies/confirmation.py`). Проверка QA 10.10.2026: «−5 EUR» ложилось ценой в
+ * карточку донора, «сто евро» получало английский отказ разбора схемы, а запятую
+ * экран сам менял на точку — «1,200» записывалось как 1,20. Теперь отказ сервера
+ * стоит над полями, вписанное остаётся на месте, а запятую сервер не угадывает,
+ * а называет, как написать.
+ *
+ * **«Не продаёт размещения» — с подтверждением у кнопки** (`ConfirmPopover`):
+ * она стоит вплотную к «Подтвердить», а промах одним нажатием уводил домен из
+ * отбора на год (проверка QA 10.10.2026).
  */
 
 import { Alert, Badge, Button, Group, Stack, Text, TextInput } from '@mantine/core';
 import { useEffect, useState } from 'react';
 
 import type { IncomingCard } from '../api/types';
+import { ConfirmPopover } from '../components/ConfirmPopover';
 import { InfoHint } from '../components/InfoHint';
 
 export interface PriceReviewProps {
@@ -43,6 +56,8 @@ export interface PriceReviewProps {
   /** Донор ответил «не продаём размещения». Для гест-постинга это ответ на
    *  главный вопрос письма: он уходит в отбор, и домен выходит из прогонов. */
   onDecline: () => void;
+  /** Почему сервер не принял решение по этому ответу — словами; `null` — не отказывал. */
+  refusal: string | null;
 }
 
 /** Почему цену подтверждает человек и что сделать — одной строкой. */
@@ -57,8 +72,9 @@ function reviewWords(incoming: IncomingCard): string {
   return `—${sure} сверьте числа с письмом.`;
 }
 
-function clean(value: string): string | null {
-  const trimmed = value.trim().replace(',', '.');
+/** Вписанное — как есть, без догадок; пустое поле — «нет». */
+function typed(value: string): string | null {
+  const trimmed = value.trim();
   return trimmed === '' ? null : trimmed;
 }
 
@@ -74,12 +90,74 @@ export interface PriceHeadProps {
 const PRICE_WORDS =
   'Белая — с пометкой «партнёрский материал», серая — без пометки. Валюта — как назвал донор.';
 
+/** Что будет после «Не продаёт размещения» — словами подтверждения у кнопки. */
+const DECLINE_WORDS =
+  'Отметить, что донор не продаёт размещения? Домен уйдёт из отбора на год: новые прогоны его не возьмут.';
+
+/** Ответ, который уже не ждёт человека: заголовок, уверенность и что решено. */
+function DecidedHead({ incoming, heading }: { incoming: IncomingCard; heading: string }) {
+  return (
+    <Group gap="sm">
+      <Text size="sm" fw={600}>
+        {heading}
+      </Text>
+      {incoming.confidence !== null && (
+        <Text size="xs" c="dimmed">
+          уверенность разбора {(incoming.confidence * 100).toFixed(0)}%
+        </Text>
+      )}
+      {incoming.reviewed_by !== null && (
+        <Badge variant="light" color="green">
+          подтвердил {incoming.reviewed_by}
+        </Badge>
+      )}
+      {incoming.placement === 'declines' && (
+        <Badge variant="light" color="gray">
+          донор: размещений не продаёт
+        </Badge>
+      )}
+    </Group>
+  );
+}
+
+function PriceHead({ incoming, heading, onClose }: PriceHeadProps & { incoming: IncomingCard }) {
+  return (
+    <Group gap="sm" justify="space-between" wrap="nowrap">
+      {/* Ждёт человека — плашка и есть заголовок: что случилось и что сделать.
+          Одним абзацем: рядом со списком переписка — колонка высотой окна. */}
+      {incoming.needs_review ? (
+        <Alert color="yellow" py={6} px="sm" style={{ flex: 1 }}>
+          <Text span size="sm" fw={600}>
+            Цену подтверждает человек
+          </Text>{' '}
+          <Text span size="sm">
+            {reviewWords(incoming)}
+          </Text>
+        </Alert>
+      ) : (
+        <DecidedHead incoming={incoming} heading={heading} />
+      )}
+      <Group gap={4} wrap="nowrap">
+        <InfoHint name="Белая и серая цена" width={280}>
+          {PRICE_WORDS}
+        </InfoHint>
+        {onClose !== null && (
+          <Button variant="subtle" size="compact-xs" onClick={onClose}>
+            Свернуть
+          </Button>
+        )}
+      </Group>
+    </Group>
+  );
+}
+
 export function PriceReview({
   incoming,
   canReview,
   busy,
   onConfirm,
   onDecline,
+  refusal,
   heading,
   onClose,
 }: PriceReviewProps & PriceHeadProps) {
@@ -97,61 +175,32 @@ export function PriceReview({
 
   return (
     <Stack gap="xs">
-      <Group gap="sm" justify="space-between" wrap="nowrap">
-        {/* Ждёт человека — плашка и есть заголовок: что случилось и что сделать.
-            Одним абзацем: рядом со списком переписка — колонка высотой окна. */}
-        {incoming.needs_review ? (
-          <Alert color="yellow" py={6} px="sm" style={{ flex: 1 }}>
-            <Text span size="sm" fw={600}>
-              Цену подтверждает человек
-            </Text>{' '}
-            <Text span size="sm">
-              {reviewWords(incoming)}
-            </Text>
-          </Alert>
-        ) : (
-          <Group gap="sm">
-            <Text size="sm" fw={600}>
-              {heading}
-            </Text>
-            {incoming.confidence !== null && (
-              <Text size="xs" c="dimmed">
-                уверенность разбора {(incoming.confidence * 100).toFixed(0)}%
-              </Text>
-            )}
-            {incoming.reviewed_by !== null && (
-              <Badge variant="light" color="green">
-                подтвердил {incoming.reviewed_by}
-              </Badge>
-            )}
-            {incoming.placement === 'declines' && (
-              <Badge variant="light" color="gray">
-                донор: размещений не продаёт
-              </Badge>
-            )}
-          </Group>
-        )}
-        <Group gap={4} wrap="nowrap">
-          <InfoHint name="Белая и серая цена" width={280}>
-            {PRICE_WORDS}
-          </InfoHint>
-          {onClose !== null && (
-            <Button variant="subtle" size="compact-xs" onClick={onClose}>
-              Свернуть
-            </Button>
-          )}
-        </Group>
-      </Group>
+      <PriceHead incoming={incoming} heading={heading} onClose={onClose} />
+
+      {/* Отказ — над полями, одним абзацем, как плашка выше: уведомление в углу
+          закрывало «Подтвердить» и «Не продаёт размещения» (проверка QA 10.10.2026). */}
+      {refusal !== null && (
+        <Alert color="red" py={6} px="sm">
+          <Text span size="sm" fw={600}>
+            Не подтвердили
+          </Text>{' '}
+          <Text span size="sm">
+            — {refusal}
+          </Text>
+        </Alert>
+      )}
 
       {/* Поля и решения — одним рядом, что такое белая и серая — в «i» над ним:
           пояснение под каждым полем добавляло строку, и на 1280 ряд переносился
           (09.10.2026). Поля — гибкой ширины: от подписи до прежних 104/80 px.
           С жёсткой шириной ряд вставал на 1280 впритык (641 px из 642) и
           переносился от любой мелочи — так случилось, когда у пунктов меню
-          появились значки и рабочая область стала на 32 px уже (10.10.2026). */}
+          появились значки и рабочая область стала на 32 px уже (10.10.2026).
+          Цифры — с цифровой клавиатурой на телефоне, как у «Указать цену». */}
       <Group gap="xs" align="flex-end">
         <TextInput
           label="Белая цена"
+          inputMode="decimal"
           value={white}
           style={{ flex: '1 1 80px', maxWidth: 104 }}
           disabled={!canReview}
@@ -159,6 +208,7 @@ export function PriceReview({
         />
         <TextInput
           label="Серая цена"
+          inputMode="decimal"
           value={grey}
           style={{ flex: '1 1 80px', maxWidth: 104 }}
           disabled={!canReview}
@@ -179,9 +229,9 @@ export function PriceReview({
           disabled={!canReview}
           onClick={() =>
             onConfirm({
-              price_white: clean(white),
-              price_grey: clean(grey),
-              currency: clean(currency),
+              price_white: typed(white),
+              price_grey: typed(grey),
+              currency: typed(currency),
             })
           }
         >
@@ -190,15 +240,19 @@ export function PriceReview({
         {/* Отдельной кнопкой, а не пустыми полями: «цены нет в письме» и
             «донор сказал, что не продаёт» — разные ответы, и второй убирает
             домен из отбора на год. */}
-        <Button
-          variant="default"
-          className="press"
-          px="md"
-          disabled={!canReview || busy}
-          onClick={onDecline}
-        >
-          Не продаёт размещения
-        </Button>
+        <ConfirmPopover message={DECLINE_WORDS} confirm="Отметить" onConfirm={onDecline}>
+          {(ask) => (
+            <Button
+              variant="default"
+              className="press"
+              px="md"
+              disabled={!canReview || busy}
+              onClick={ask}
+            >
+              Не продаёт размещения
+            </Button>
+          )}
+        </ConfirmPopover>
       </Group>
 
       {!canReview && (
