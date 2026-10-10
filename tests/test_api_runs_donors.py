@@ -344,6 +344,33 @@ class TestTheCeilings:
         cap = await _cap_of_run(session, started.json()["run_id"])
         assert cap == 5_000
 
+    @pytest.mark.parametrize("path", ["/api/runs/estimate", "/api/runs"])
+    async def test_ceiling_without_a_top_is_refused_in_words(
+        self, client: AsyncClient, operator_token: str, offline: FakeQueue, path: str
+    ) -> None:
+        """Проверка прода 10.10.2026: двадцать девяток уходили в смету и возвращались
+        «ваш потолок 100 000 000 000 000 000 000». Верх — миллион, отказ — словами."""
+        response = await client.post(
+            path,
+            json={**RUN_BODY, "cap": 99_999_999_999_999_999_999},
+            headers=bearer(operator_token),
+        )
+
+        assert response.status_code == 422, response.text
+        said = response.json()["detail"][0]["msg"]
+        assert said.startswith("Потолок юнитов — не больше 1 000 000 на прогон"), said
+        assert offline.calls == []
+
+    async def test_a_million_is_still_a_ceiling(
+        self, client: AsyncClient, operator_token: str, queue: FakeQueue, session: AsyncSession
+    ) -> None:
+        started = await client.post(
+            "/api/runs", json={**RUN_BODY, "cap": 1_000_000}, headers=bearer(operator_token)
+        )
+
+        assert started.status_code == 200, started.text
+        assert await _cap_of_run(session, started.json()["run_id"]) == 100_000, "кап меньше"
+
     async def test_spent_units_lower_the_ceiling(
         self,
         client: AsyncClient,
