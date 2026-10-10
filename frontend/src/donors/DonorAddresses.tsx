@@ -339,19 +339,28 @@ function AddAddress({
   );
 }
 
-/** Только форма: где её заполнить и что будет дальше. */
-function FormOnly({ host }: { host: string }) {
+/** Только форма: где её заполнить и что будет дальше. В очереди «Формы» — только
+ *  доноры (`contacts/forms.py`, `in_queue`): у кандидата карточка писала «Донор стоит
+ *  в очереди», а очередь его не брала (проверка прода 10.10.2026). */
+function FormOnly({ donor }: { donor: DonorFullCard }) {
   return (
     <Text size="sm">
       Адреса нет — на сайте только форма, её заполняет человек:{' '}
-      <Anchor href={`https://${host}`} target="_blank" rel="noreferrer" size="sm">
+      <Anchor href={`https://${donor.host}`} target="_blank" rel="noreferrer" size="sm">
         открыть сайт
       </Anchor>
-      . Донор стоит в очереди{' '}
-      <Anchor component={Link} to="/forms" size="sm">
-        «Формы»
-      </Anchor>
-      : ответ на форму письмом даст адрес, и ему уйдёт письмо из очереди.
+      .{' '}
+      {donor.review === 'accepted' ? (
+        <>
+          Донор стоит в очереди{' '}
+          <Anchor component={Link} to="/forms" size="sm">
+            «Формы»
+          </Anchor>
+          : ответ на форму письмом даст адрес, и ему уйдёт письмо из очереди.
+        </>
+      ) : (
+        'В очередь «Формы» встают только доноры, принятые человеком.'
+      )}
     </Text>
   );
 }
@@ -433,7 +442,7 @@ export function DonorAddresses({ donor }: { donor: DonorFullCard }) {
         <SearchState donor={donor} />
         {/* Адреса нет, а форма есть: её заполняет человек. Где именно форма,
             лестница не запоминает — ссылка ведёт на сайт и в очередь форм. */}
-        {empty && donor.contact_status === 'form_only' ? <FormOnly host={donor.host} /> : null}
+        {empty && donor.contact_status === 'form_only' ? <FormOnly donor={donor} /> : null}
 
         {!empty && (
           <AddressTable
