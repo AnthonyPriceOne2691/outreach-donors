@@ -183,6 +183,28 @@ class TestDonorsTable:
 
         assert [row["host"] for row in by_reason.json()["rows"]] == ["weak.example.test"]
 
+    async def test_pattern_signs_in_search_are_text(
+        self,
+        client: AsyncClient,
+        operator_token: str,
+        donors: list[DonorModel],
+        session: AsyncSession,
+    ) -> None:
+        """«_» и «%» — набранный текст, а не шаблон: находили всех (проверка прода 10.10.2026)."""
+        donors[1].reject_reason = "США — 19% трафика, нужно от 30%"
+        await session.commit()
+
+        async def hosts(typed: str) -> list[str]:
+            response = await client.get(
+                "/api/donors", params={"search": typed}, headers=bearer(operator_token)
+            )
+            return [row["host"] for row in response.json()["rows"]]
+
+        assert await hosts("_") == []
+        assert await hosts("%") == ["weak.example.test"]
+        assert await hosts("19%") == ["weak.example.test"]
+        assert await hosts("\\") == []
+
     async def test_total_is_counted_before_the_page(
         self, client: AsyncClient, operator_token: str, donors: list[DonorModel]
     ) -> None:

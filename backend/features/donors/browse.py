@@ -42,6 +42,7 @@ from backend.features.donors.manual_price import price_refusal
 from backend.features.donors.standing import UnknownDonorError, decided_in, is_donor
 from backend.features.letters.recipients import LetterAddress, Recipients
 from backend.shared.database.ids import storable
+from backend.shared.database.text_search import contains
 
 
 class Freshness(StrEnum):
@@ -213,9 +214,12 @@ def _narrow(statement: Select[Any], filters: DonorFilters, now: datetime) -> Sel
         statement = statement.where(DonorModel.id.in_(filters.ids))
     statement = _by_metrics(statement, filters, now)
     if filters.search:
-        needle = f"%{filters.search.strip().lower()}%"
+        # Набранное — текст, а не шаблон: «_» и «%» находили всех (`text_search`).
         statement = statement.where(
-            or_(DomainModel.host.ilike(needle), DonorModel.reject_reason.ilike(needle))
+            or_(
+                contains(DomainModel.host, filters.search),
+                contains(DonorModel.reject_reason, filters.search),
+            )
         )
     if filters.has_contact is not None:
         # «С адресом» — адрес есть в базе (`has_address`), одним правилом с плиткой
