@@ -40,6 +40,8 @@ objectUrls();
 // начинает значить.
 afterEach(() => {
   localStorage.clear();
+  // Память разделов меню (`layout/sectionPlace.ts`) — на вкладку.
+  sessionStorage.clear();
   vi.restoreAllMocks();
   // Хуки «после» идут в обратном порядке: этот — после хуков файла, снявших свои заглушки.
   objectUrls();

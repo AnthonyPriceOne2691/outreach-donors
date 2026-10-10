@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
 import { SPLIT_QUERY, workKey } from '../layout/split';
-import { ADMIN, TOKEN_KEY } from '../test/fixtures';
+import { ADMIN, HOME_ROUTES, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import { shortWhen } from './ThreadList';
@@ -90,7 +90,7 @@ afterEach(() => {
   if (narrow !== undefined) Object.defineProperty(window, 'matchMedia', narrow);
 });
 
-async function openWide(path: string, threads = THREADS) {
+async function openWide(path: string, threads = THREADS, extra: Record<string, unknown> = {}) {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   serve({
     'GET /api/auth/me': { body: ADMIN },
@@ -99,6 +99,7 @@ async function openWide(path: string, threads = THREADS) {
       threads.map((card) => [`GET /api/threads/${card.id}`, { body: view(card) }]),
     ),
     'GET /api/replies/unbound?page=1': { body: { rows: [], total: 0, page: 1, limit: 20 } },
+    ...(extra as Record<string, never>),
   });
   renderWith(
     <>
@@ -213,6 +214,22 @@ describe('диалоги на широком окне: список и пере�
       await screen.findByRole('heading', { name: 'tech-review.example.test' }),
     ).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Следующий ждущий/ })).not.toBeInTheDocument();
+  });
+
+  it('вернулись в «Диалоги» из другого раздела — открыт тот же диалог с тем же фильтром', async () => {
+    const user = userEvent.setup();
+    await openWide('/threads/3?state=needs_review', THREADS, HOME_ROUTES);
+    const menu = within(screen.getByRole('navigation', { name: 'Разделы' }));
+    await screen.findByRole('heading', { name: 'tech-review.example.test' });
+
+    await user.click(menu.getByRole('link', { name: 'Обзор' }));
+    expect(where()).toHaveTextContent(/^\/$/);
+    await user.click(menu.getByRole('link', { name: /^Диалоги/ }));
+
+    expect(where()).toHaveTextContent('/threads/3?state=needs_review');
+    expect(
+      await screen.findByRole('heading', { name: 'tech-review.example.test' }),
+    ).toBeInTheDocument();
   });
 
   it('«Не привязаны» — на всю ширину: у ответа без письма переписки справа нет', async () => {
