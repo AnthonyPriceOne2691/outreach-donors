@@ -99,12 +99,15 @@ const ACCURACY = {
 };
 
 const PENDING = 'GET /api/review/runs/18?status=pending';
+/** Плитки судьи — по этому прогону; автоприём — по всем прогонам. */
+const RUN_ACCURACY = 'GET /api/review/accuracy?run_id=18';
 
 async function openReview(routes: Record<string, unknown> = {}, who = ADMIN) {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   const recorded = serve({
     'GET /api/auth/me': { body: who },
     [PENDING]: { body: VIEW },
+    [RUN_ACCURACY]: { body: ACCURACY },
     'GET /api/review/accuracy': { body: ACCURACY },
     ...(routes as Record<string, never>),
   });
@@ -226,8 +229,33 @@ describe('рассмотрение прогона', () => {
   it('готовность к автоприёму названа вместе с условием', async () => {
     await openReview();
 
-    expect(screen.getByText('рано')).toBeInTheDocument();
-    expect(screen.getByText('нужно ≥ 95% на ≥ 200')).toBeInTheDocument();
+    expect(await screen.findByText('рано')).toBeInTheDocument();
+    expect(
+      screen.getByText('по всем прогонам решений нет; нужно ≥ 95% на ≥ 200'),
+    ).toBeInTheDocument();
+  });
+
+  it('плитки судьи — про этот прогон, автоприём — по всем прогонам', async () => {
+    // Проверка прода 10.10.2026: на прогоне №25, где решено 7, стояло «Решено человеком 33»
+    // и «32 из 32» — счёт по всем прогонам. Сервер умеет и по одному.
+    const agreed = (count: number) => ({ advised: count, agreed: count, precision: 1 });
+    const recorded = await openReview({
+      [RUN_ACCURACY]: {
+        body: { ...ACCURACY, decided: 7, by_advice: { accept: agreed(7) } },
+      },
+      'GET /api/review/accuracy': {
+        body: { ...ACCURACY, decided: 33, by_advice: { accept: agreed(32) } },
+      },
+    });
+
+    const decided = (await screen.findByText('Решено человеком')).closest('.metricTile');
+    expect(decided).toHaveTextContent('7');
+    expect(decided).not.toHaveTextContent('33');
+    expect(screen.getByText('7 из 7')).toBeInTheDocument();
+    expect(screen.getByText('по всем прогонам 32 из 32; нужно ≥ 95% на ≥ 200')).toBeInTheDocument();
+    expect(
+      recorded.calls.some((call: Call) => call.path === '/api/review/accuracy?run_id=18'),
+    ).toBe(true);
   });
 
   it('без права решать кнопок нет, а очередь видна', async () => {
@@ -453,6 +481,7 @@ describe('возврат к прогонам', () => {
         body: { runs: [queued], total: 12, page: 2, limit: 10, workers: 1, queued: 0 },
       },
       [PENDING]: { body: VIEW },
+      [RUN_ACCURACY]: { body: ACCURACY },
       'GET /api/review/accuracy': { body: ACCURACY },
     });
     renderWith(<AppRoutes />, '/run?page=2');
@@ -549,6 +578,7 @@ describe('номер прогона из адреса', () => {
         status: 404,
         body: { detail: 'Прогона №999 нет' },
       },
+      'GET /api/review/accuracy?run_id=999': { status: 404, body: { detail: 'Прогона №999 нет' } },
       'GET /api/review/accuracy': { body: ACCURACY },
     });
     renderWith(<AppRoutes />, '/runs/999/review');

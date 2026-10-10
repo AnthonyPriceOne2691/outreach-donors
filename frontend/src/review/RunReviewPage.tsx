@@ -9,8 +9,8 @@
  * сомнительные скрыты под переключателем со счётчиком: судья ошибается,
  * и отказ модели без глаз человека стоил бы донора.
  *
- * **Счёт «судья против человека» — наверху экрана.** По нему решают,
- * когда судье можно доверить приём: совет «принять» верен в 95% на 200
+ * **Счёт «судья против человека» — наверху экрана**, по этому прогону; по
+ * всем прогонам — готовность к автоприёму: совет «принять» верен в 95% на 200
  * решениях. До этого приём — только руками.
  *
  * **Смена вкладки — не перезагрузка** (замечание 25.09.2026). Раньше новая
@@ -50,7 +50,7 @@ import { rowIdOf } from '../api/ids';
 import { countryTitle, REVIEW_DECISIONS } from '../api/labels';
 import { decideCandidates, loadAccuracy, loadReview } from '../api/review';
 import { KeywordYieldCard } from './KeywordYieldCard';
-import type { AccuracyView, ReviewDecision, ReviewView } from '../api/types';
+import type { AccuracyView, AgreementView, ReviewDecision, ReviewView } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { BackLink, backTo } from '../components/BackLink';
 import { Metric } from '../components/Metric';
@@ -106,33 +106,41 @@ function percent(value: number | null): string {
   return value === null ? '—' : `${Math.round(value * 100)}%`;
 }
 
-/** Точность советов судьи и готовность к автоприёму — словами и числами. */
-function JudgeScore({ accuracy }: { accuracy: AccuracyView }) {
-  const accept = accuracy.by_advice.accept;
-  const reject = accuracy.by_advice.reject;
-  const need = `≥ ${Math.round(accuracy.auto_accept_precision * 100)}% на ≥ ${accuracy.auto_accept_min_decisions}`;
+/** «7 из 7» — сколько раз человек согласился с советом; советов нет — словами. */
+function agreedOf(agreement: AgreementView | undefined): string {
+  return agreement ? `${agreement.agreed} из ${agreement.advised}` : 'решений нет';
+}
+
+/** Точность советов судьи — по этому прогону; готовность к автоприёму — по всем
+ *  прогонам: её решают на всей выборке, а не на одном прогоне. До 10.10.2026 все
+ *  плитки шли по всем прогонам — «Решено человеком 33» на прогоне, где решено 7
+ *  (проверка прода). По прогону счёт тот же, что у колонки истории. */
+function JudgeScore({ run, overall }: { run: AccuracyView; overall: AccuracyView }) {
+  const accept = run.by_advice.accept;
+  const reject = run.by_advice.reject;
+  const need = `≥ ${Math.round(overall.auto_accept_precision * 100)}% на ≥ ${overall.auto_accept_min_decisions}`;
   return (
     <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="sm">
       <Metric
         title="Решено человеком"
-        value={accuracy.decided}
-        hint={`судья просил посмотреть: ${accuracy.asked_to_review}`}
+        value={run.decided}
+        hint={`судья просил посмотреть: ${run.asked_to_review}`}
       />
       <Metric
         title="Совет «площадка» верен"
         value={percent(accept?.precision ?? null)}
-        hint={accept ? `${accept.agreed} из ${accept.advised}` : 'решений нет'}
+        hint={agreedOf(accept)}
       />
       <Metric
         title="Совет «не площадка» верен"
         value={percent(reject?.precision ?? null)}
-        hint={reject ? `${reject.agreed} из ${reject.advised}` : 'решений нет'}
+        hint={agreedOf(reject)}
       />
       <Metric
         title="Автоприём по судье"
-        value={accuracy.auto_accept_ready ? 'можно' : 'рано'}
-        hint={`нужно ${need}`}
-        color={accuracy.auto_accept_ready ? 'green' : undefined}
+        value={overall.auto_accept_ready ? 'можно' : 'рано'}
+        hint={`по всем прогонам ${agreedOf(overall.by_advice.accept)}; нужно ${need}`}
+        color={overall.auto_accept_ready ? 'green' : undefined}
       />
     </SimpleGrid>
   );
@@ -199,8 +207,14 @@ export function RunReviewPage() {
     // Смена вкладки не убирает экран: прежние строки стоят, пока едут новые.
     placeholderData: keepPreviousData,
   });
+  // Плитки — этого прогона, автоприём — по всем: два запроса, один ключ сброса.
   const accuracy = useQuery({
-    queryKey: ['review-accuracy'],
+    queryKey: ['review-accuracy', runId],
+    queryFn: () => loadAccuracy(runId ?? 0),
+    enabled: runId !== null,
+  });
+  const overall = useQuery({
+    queryKey: ['review-accuracy', 'all'],
     queryFn: () => loadAccuracy(),
     enabled: runId !== null,
   });
@@ -316,7 +330,9 @@ export function RunReviewPage() {
               </Text>
             )}
           </Head>
-          {accuracy.data && <JudgeScore accuracy={accuracy.data} />}
+          {accuracy.data && overall.data && (
+            <JudgeScore run={accuracy.data} overall={overall.data} />
+          )}
         </Stack>
       </Card>
 
