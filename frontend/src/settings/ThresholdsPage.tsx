@@ -55,7 +55,7 @@ import { PageHead } from '../components/PageHead';
 import { SaveVersionButton } from '../components/SaveVersionButton';
 import { useSession } from '../auth/AuthProvider';
 import { formatDateTime, formatNumber, plural } from '../format';
-import { bodyOf, draftOf, fieldRefusal, THRESHOLD_KEYS } from './thresholdDraft';
+import { bodyOf, draftOf, fieldRefusal, firstRefused, THRESHOLD_KEYS } from './thresholdDraft';
 import type { ThresholdDraft, ThresholdKey } from './thresholdDraft';
 import { notify } from '../notices';
 
@@ -185,6 +185,8 @@ export function ThresholdsPage() {
   // Поле с отказом — уже не действующие пороги, даже если цифры в нём те же:
   // «20.0» в поле DR — не 20, а повод для отказа.
   const changed = inUse !== undefined && (body === null || !same(body, inUse));
+  // Черновика для сервера нет ровно тогда, когда есть поле с отказом (`bodyOf`).
+  const refused = firstRefused(draft, data.limits);
 
   return (
     <Stack gap="lg">
@@ -261,10 +263,11 @@ export function ThresholdsPage() {
               Пороги совпадают с действующими — база не изменится. Измените порог, и здесь появится,
               кто выпадет и кто вернётся.
             </Text>
-          ) : body === null ? (
+          ) : refused !== null ? (
+            // Причину называет отказ под полем — здесь только какое поле: своя причина у
+            // блока разошлась с ней («вне границ» над «только целое число»).
             <Text size="sm" c="dimmed">
-              Порог вне допустимых границ — поправьте поле с пометкой, и здесь появится, кто выпадет
-              и кто вернётся.
+              {`Поле «${FIELDS[refused].label}» не годится: что не так, сказано под ним. Поправьте его — и здесь появится сравнение с действующими.`}
             </Text>
           ) : preview.data === undefined ? (
             preview.isFetching ? (

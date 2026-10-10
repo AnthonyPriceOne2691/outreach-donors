@@ -52,6 +52,14 @@ export function fieldRefusal(text: string, range: ThresholdRange): string | null
   return numberRefusal(text, ruleOf(range));
 }
 
+/** Первое поле, которое не годится, — его называет блок сравнения; `null` — годятся
+ *  все. Тем же правилом, что отказ под полем (`fieldRefusal`): до 10.10.2026 блок
+ *  говорил «Порог вне допустимых границ» и про букву в поле, под которым стояло
+ *  «Только целое число от 0 до 90» (проверка прода 10.10.2026). */
+export function firstRefused(draft: ThresholdDraft, limits: ThresholdLimits): ThresholdKey | null {
+  return THRESHOLD_KEYS.find((key) => fieldRefusal(draft[key], limits[key]) !== null) ?? null;
+}
+
 /** Черновик, готовый уйти на сервер, или `null`, если хоть одно поле
  *  не годится: предпросмотр и сохранение ждут все четыре. */
 export function bodyOf(draft: ThresholdDraft, limits: ThresholdLimits): ThresholdsBody | null {

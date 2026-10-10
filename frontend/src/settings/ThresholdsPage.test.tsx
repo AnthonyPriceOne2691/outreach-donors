@@ -235,10 +235,46 @@ describe('границы порогов', () => {
     expect(await screen.findByText('Допустимо от 0 до 90')).toBeInTheDocument();
     expect(dr).toHaveAttribute('aria-invalid', 'true');
     expect(screen.getByRole('button', { name: /Сохранить новой версией/ })).toBeDisabled();
-    // Блок последствий не показывает прежний ответ как ответ на новый порог.
-    expect(screen.getByText(/Порог вне допустимых границ/)).toBeInTheDocument();
+    // Блок сравнения не показывает прежний ответ как ответ на новый порог.
+    expect(screen.getByText(/Поле «DR не ниже» не годится/)).toBeInTheDocument();
     await pastDebounce();
     expect(previews(recorded).some((body) => body.min_dr === 95)).toBe(false);
+  });
+
+  // Проверка прода 10.10.2026: «abc» в поле — под полем верно «Только целое число от 0
+  // до 90», а в карточке «Порог вне допустимых границ» — другая причина, и неверная.
+  // Карточка называет поле и отсылает к отказу под ним, а своей причины не выдумывает.
+  it.each([
+    ['abc', 'Только целое число от 0 до 90'],
+    ['2.5', 'Только целое число от 0 до 90'],
+    ['95', 'Допустимо от 0 до 90'],
+    ['', 'Впишите число'],
+  ])('«%s» в поле — карточка не спорит с отказом под полем', async (typed, refusal) => {
+    await openThresholds();
+    const user = userEvent.setup();
+
+    const dr = screen.getByLabelText('DR не ниже');
+    await user.clear(dr);
+    if (typed !== '') await user.type(dr, typed);
+
+    expect(await screen.findByText(refusal)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Поле «DR не ниже» не годится: что не так, сказано под ним. Поправьте его — и здесь появится сравнение с действующими.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/вне допустимых границ/)).not.toBeInTheDocument();
+  });
+
+  it('карточка называет поле с отказом, а не всегда DR', async () => {
+    await openThresholds();
+    const user = userEvent.setup();
+
+    const keywords = screen.getByLabelText('Ключей в органике');
+    await user.clear(keywords);
+    await user.type(keywords, '1,5');
+
+    expect(await screen.findByText(/Поле «Ключей в органике» не годится/)).toBeInTheDocument();
   });
 
   // Проверка QA 10.10.2026: числовое поле молча выбрасывало точку, запятую, минус и
