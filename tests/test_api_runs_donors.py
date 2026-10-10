@@ -197,7 +197,9 @@ class TestDonorsTable:
         self, client: AsyncClient, operator_token: str, donors: list[DonorModel]
     ) -> None:
         response = await client.get("/api/donors?has_contact=true", headers=bearer(operator_token))
-        assert response.json()["total"] == 0  # адрес найден — это отметка на доноре
+        # «С адресом» — адрес есть в базе, а не отметка исхода поиска на доноре
+        # (проверка прода 10.10.2026): у good.example.test адрес есть, исхода нет.
+        assert [row["host"] for row in response.json()["rows"]] == ["good.example.test"]
 
     async def test_card_shows_contacts_and_expiry(
         self, client: AsyncClient, operator_token: str, donors: list[DonorModel]

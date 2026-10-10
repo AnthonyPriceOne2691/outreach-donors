@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import contacts as cfg
 from backend.features.contacts import manual
+from backend.features.contacts.repository import has_address
 from backend.features.core.domain import ContactSource, ContactStatus
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
@@ -71,9 +72,15 @@ def in_queue() -> ColumnElement[bool]:
 
     Донор — тем же правилом, что везде (`standing.is_donor`): форма кандидата —
     работа до решения «берём ли», и месячный потолок ушёл бы на домены, которые
-    человек потом отклонит.
+    человек потом отклонит. И без адреса в базе (`has_address`): форма — вместо
+    адреса, а исход «только форма» пишет и повторный поиск рядом с прежним адресом;
+    на главной «и N с формой» стоит рядом с «С адресом» и с ним не пересекается.
     """
-    return and_(is_donor(), DonorModel.contact_status == ContactStatus.FORM_ONLY)
+    return and_(
+        is_donor(),
+        DonorModel.contact_status == ContactStatus.FORM_ONLY,
+        ~has_address(DonorModel.domain_id),
+    )
 
 
 async def queue(session: AsyncSession, *, page: int = 1, size: int = PAGE_SIZE) -> list[FormRow]:

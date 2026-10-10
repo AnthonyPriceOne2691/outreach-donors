@@ -650,12 +650,26 @@ class TestBrowserOnlyWhenAsked:
 
 
 class TestAddressFilter:
-    async def test_no_address_includes_the_never_searched(
+    async def test_address_is_a_row_in_the_base_not_the_search_outcome(
         self, client: AsyncClient, operator_token: str, session: AsyncSession
     ) -> None:
-        """«Нет адреса» — это и «не нашли», и «ещё не искали». Голое отрицание
-        в SQL теряло второе: у него исход пуст, а NULL не равен ничему."""
-        await _donor(session, "found.example.test", contact_status=ContactStatus.FOUND, dr=50)
+        """«С адресом» — адрес есть в базе, тем же правилом, что плитка главной и
+        ступень писем (проверка прода 10.10.2026). Повторный поиск записал «адреса
+        нет», а прежний адрес с перепиской остался — донор с адресом: письмо
+        уходит по адресам, а не по исходу. «Без адреса» — и «не нашли», и «ещё
+        не искали»."""
+        found = await _donor(session, "found.example.test", contact_status=ContactStatus.FOUND)
+        kept = await _donor(
+            session, "kept.example.test", contact_status=ContactStatus.NOT_FOUND, dr=50
+        )
+        for donor in (found, kept):
+            session.add(
+                ContactModel(
+                    domain_id=donor.domain_id,
+                    email="ed@site.example.test",
+                    source=ContactSource.PAGE,
+                )
+            )
         await _donor(session, "missing.example.test", contact_status=ContactStatus.NOT_FOUND)
         await _donor(session, "never.example.test", dr=30)
         await session.commit()
@@ -665,7 +679,10 @@ class TestAddressFilter:
         )
         without = await client.get("/api/donors?has_contact=false", headers=bearer(operator_token))
 
-        assert [row["host"] for row in with_address.json()["rows"]] == ["found.example.test"]
+        assert [row["host"] for row in with_address.json()["rows"]] == [
+            "kept.example.test",
+            "found.example.test",
+        ]
         assert [row["host"] for row in without.json()["rows"]] == [
             "missing.example.test",
             "never.example.test",

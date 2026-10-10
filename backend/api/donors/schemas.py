@@ -35,7 +35,7 @@ class DonorQuery(BaseModel):
     status: DonorStatus | None = Field(default=None, description="вердикт по донору")
     search: str | None = Field(default=None, description="по домену или причине отсева")
     min_dr: int | None = Field(default=None, ge=0, le=100)
-    has_contact: bool | None = Field(default=None, description="найден ли адрес")
+    has_contact: bool | None = Field(default=None, description="есть ли у донора адрес в базе")
     min_traffic: int | None = Field(
         default=None, ge=0, le=MAX_TRAFFIC, description="органический трафик не ниже"
     )

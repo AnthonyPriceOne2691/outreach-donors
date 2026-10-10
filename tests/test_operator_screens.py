@@ -310,6 +310,26 @@ class TestOnlyDonorsWaitForHands:
         assert "нет в ручной очереди" in response.json()["detail"]
         assert await forms.monthly_left(session) == before
 
+    async def test_donor_with_an_address_does_not_wait_for_the_form(
+        self, session: AsyncSession, with_form: DonorModel
+    ) -> None:
+        """Форма — вместо адреса. Адрес в базе есть (донор ответил с другого ящика,
+        повторный поиск записал «только форма» рядом с прежним адресом) — заполнять
+        нечего; на главной «и N с формой» не пересекается с «С адресом»."""
+        session.add(
+            ContactModel(
+                domain_id=with_form.domain_id,
+                email="editor@form.example.test",
+                source=ContactSource.PAGE,
+            )
+        )
+        await session.flush()
+
+        assert await forms.queue(session) == []
+        view = await overview(session)
+        assert (await forms.total(session), view.donors.form_only) == (0, 0)
+        assert view.donors.with_email == 1
+
     async def test_monthly_cap_is_spent_only_on_donors(
         self, session: AsyncSession, candidate: DonorModel, with_form: DonorModel
     ) -> None:
