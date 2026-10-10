@@ -22,6 +22,7 @@ import math
 import re
 
 from backend.features.core.domain import ContactStatus, DonorStatus
+from backend.features.donors.regions_ru import REGION_NAMES
 
 #: Названия рынков — те же, что `COUNTRY_TITLES` в `labels.ts`.
 COUNTRY_TITLES: dict[str, str] = {
@@ -89,11 +90,21 @@ NOT_SEARCHED = "не искали"
 _LEADING_COUNTRY = re.compile(r"^(?P<code>[A-Za-z]{2})(?= не входит в топ-)")
 
 
+def _country_name(code: str) -> str | None:
+    """Имя страны: рынок — нашим словом, другая страна — именем CLDR (`regions_ru.py`,
+    на экране — `Intl.DisplayNames`); `None` — это не страна."""
+    key = code.lower()
+    return COUNTRY_TITLES.get(key) or REGION_NAMES.get(key)
+
+
 def country_title(code: str | None) -> str:
-    """Страна одним видом с экраном: русское имя, незнакомый код — заглавными."""
+    """Страна одним видом с экраном: русское имя, а не страна — кодом заглавными.
+
+    Страна вне 55 рынков шла кодом — «NP» (проверка прода 10.10.2026).
+    """
     if not code:
         return ""
-    return COUNTRY_TITLES.get(code.lower(), code.upper())
+    return _country_name(code) or code.upper()
 
 
 def reject_reason_text(reason: str | None) -> str | None:
@@ -105,9 +116,10 @@ def reject_reason_text(reason: str | None) -> str | None:
     if reason is None:
         return None
     found = _LEADING_COUNTRY.match(reason)
-    if found is None or found["code"].lower() not in COUNTRY_TITLES:
+    name = None if found is None else _country_name(found["code"])
+    if found is None or name is None:
         return reason
-    return COUNTRY_TITLES[found["code"].lower()] + reason[found.end() :]
+    return name + reason[found.end() :]
 
 
 def share_text(share: float | None) -> str:

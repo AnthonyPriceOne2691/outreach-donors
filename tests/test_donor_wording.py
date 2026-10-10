@@ -129,3 +129,19 @@ class TestNumbersAndNames:
         assert country_title("xx") == "XX"
         assert country_title("US") == "США"
         assert country_title(None) == ""
+
+    @pytest.mark.parametrize(
+        ("code", "name"), [("np", "Непал"), ("NP", "Непал"), ("bd", "Бангладеш")]
+    )
+    def test_country_outside_the_markets_is_named_not_coded(self, code: str, name: str) -> None:
+        """Проверка прода 10.10.2026: «NP · 84%» — страна вне 55 рынков шла кодом. Экран берёт
+        имя у браузера (`Intl.DisplayNames`), файл и причина отсева — из того же CLDR."""
+        assert country_title(code) == name
+
+    def test_reason_names_a_country_outside_the_markets(self) -> None:
+        """Причину отсева на экран переводит сервер: рядом с «Непал · 84%» в колонке «Гео»
+        стояло бы «NP не входит в топ-5»."""
+        assert (
+            reject_reason_text("NP не входит в топ-5 и даёт меньше 20%")
+            == "Непал не входит в топ-5 и даёт меньше 20%"
+        )
