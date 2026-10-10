@@ -15,7 +15,7 @@ import httpx
 import pytest
 from backend.features.ahrefs.client import AhrefsClient
 from backend.features.core import usage
-from backend.features.core.domain import ContactSource, DonorStatus, RunStatus, UserRole
+from backend.features.core.domain import ContactSource, DonorStatus, RunStatus, Stage, UserRole
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
@@ -659,6 +659,22 @@ class _NoAhrefs:
         return None
 
 
+@pytest.fixture
+def offline(monkeypatch: pytest.MonkeyPatch) -> FakeQueue:
+    """Смета и запуск без сети: остаток у Ahrefs большой и известный, очередь — заглушка."""
+
+    async def plenty(_: Any) -> int:
+        return 10_000_000
+
+    monkeypatch.setattr("backend.api.runs.routes.AhrefsClient", _NoAhrefs)
+    monkeypatch.setattr("backend.api.runs.routes.units_left", plenty)
+    monkeypatch.setattr("backend.config.ahrefs.API_KEY", "ключ-для-теста")
+    monkeypatch.setattr("backend.config.serp.SANDBOX", False)
+    fake = FakeQueue()
+    monkeypatch.setattr("backend.api.runs.routes.runs_queue", lambda: fake)
+    return fake
+
+
 class TestKeywordsAreWhatTheSerpBuys:
     """Смета и запуск считают ключи правилом выдачи (проверка прода 10.10.2026).
 
@@ -668,19 +684,6 @@ class TestKeywordsAreWhatTheSerpBuys:
     """
 
     TYPED: ClassVar[list[str]] = ["ремонт квартир", "ремонт квартир", "Ремонт  Квартир", " дизайн "]
-
-    @pytest.fixture
-    def offline(self, monkeypatch: pytest.MonkeyPatch) -> FakeQueue:
-        async def plenty(_: Any) -> int:
-            return 10_000_000
-
-        monkeypatch.setattr("backend.api.runs.routes.AhrefsClient", _NoAhrefs)
-        monkeypatch.setattr("backend.api.runs.routes.units_left", plenty)
-        monkeypatch.setattr("backend.config.ahrefs.API_KEY", "ключ-для-теста")
-        monkeypatch.setattr("backend.config.serp.SANDBOX", False)
-        fake = FakeQueue()
-        monkeypatch.setattr("backend.api.runs.routes.runs_queue", lambda: fake)
-        return fake
 
     async def test_estimate_and_start_count_the_same_keywords(
         self, client: AsyncClient, operator_token: str, offline: FakeQueue, session: AsyncSession
@@ -710,3 +713,45 @@ class TestKeywordsAreWhatTheSerpBuys:
 
         assert response.status_code == 422
         assert response.json()["detail"][0]["msg"].startswith("Ключей нет — одни пустые строки")
+
+
+class TestDuplicateShareIsTheEstimates:
+    """Доля дублей на экране — та, которой посчитана смета (проверка прода 10.10.2026).
+
+    Подсказка «83% схлопывается в дубли — по замеру» стояла от константы 0,17,
+    убранной 24.09, рядом с «≈ 31» из 40 результатов: смета берёт долю из истории
+    прогонов (`RunRepository.unique_share`), а экран — нет.
+    """
+
+    async def test_estimate_names_the_share_it_counted_with(
+        self, client: AsyncClient, operator_token: str, offline: FakeQueue, session: AsyncSession
+    ) -> None:
+        repository = RunRepository(session)
+        settings = await repository.create_settings(
+            defaults(),
+            geo_top_n=5,
+            geo_min_share=0.2,
+            metrics_ttl_days=90,
+            price_ttl_days=150,
+            units_cap=100_000,
+        )
+        done = await repository.create_run(
+            stage=Stage.DONORS,
+            settings_id=settings.id,
+            keywords=["a"],
+            country="us",
+            status=RunStatus.DONE,
+        )
+        done.stats = {"serp_results": 40, "unique_hosts": 31}
+        await session.commit()
+
+        response = await client.post(
+            "/api/runs/estimate",
+            json={"keywords": [f"ключ {n}" for n in range(4)], "country": "us"},
+            headers=bearer(operator_token),
+        )
+
+        assert response.status_code == 200, response.text
+        made = response.json()
+        assert made["unique_share"] == pytest.approx(31 / 40)
+        assert made["expected_domains"] == round(40 * 31 / 40)

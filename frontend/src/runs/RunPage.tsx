@@ -30,7 +30,6 @@ import {
   Group,
   Select,
   SegmentedControl,
-  SimpleGrid,
   Stack,
   Text,
   Textarea,
@@ -43,7 +42,6 @@ import { useEffect, useState } from 'react';
 
 import { refusalOf } from '../api/client';
 import { countryTitle, languageTitle, presetTitle } from '../api/labels';
-import { Metric } from '../components/Metric';
 import { NumberField } from '../components/NumberField';
 import { numberRefusal, validNumber } from '../components/numberText';
 import type { NumberRule } from '../components/numberText';
@@ -56,17 +54,10 @@ import { ACTIVE, pagesOf, RunHistory } from './RunHistory';
 import { estimateRun, fetchCountries, listRuns, startRun } from '../api/runs';
 import type { Forecast, RunRequest } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
-import { formatNumber, formatUsd, plural } from '../format';
-import {
-  DEFAULT_DEPTH,
-  DEPTHS,
-  depthTitle,
-  keywordsTitle,
-  pagesOf as depthPages,
-  RESULTS_PER_PAGE,
-} from './depth';
+import { DEFAULT_DEPTH, DEPTHS, depthTitle, keywordsTitle, pagesOf as depthPages } from './depth';
 import type { Depth } from './depth';
 import { isCountry, isDepth, useLastChoice } from './lastChoice';
+import { Estimate } from './Estimate';
 import { Unfold } from './Unfold';
 import { notify } from '../notices';
 
@@ -98,74 +89,6 @@ function parseKeywords(text: string): string[] {
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line !== '');
-}
-
-/** Ключи сметы — те, что купит выдача: сервер сводит повторы без учёта регистра
- *  и лишних пробелов (проверка прода 10.10.2026: два одинаковых ключа и вариант
- *  с заглавными были «3 ключа», а выдача покупала два). Строк в поле больше — это
- *  называется, иначе «2 ключа» под тремя строками читалось бы ошибкой сметы. */
-function resultsHint(forecast: Forecast, lines: number): string {
-  // Те же слова, что у поля: «глубина выдачи — 20 результатов».
-  const asked = `${keywordsTitle(forecast.keywords)} × ${depthTitle(forecast.depth_pages * RESULTS_PER_PAGE)}`;
-  const repeats = lines - forecast.keywords;
-  return repeats > 0
-    ? `${asked} · ${repeats} ${plural(repeats, 'повтор', 'повтора', 'повторов')} не в счёт`
-    : asked;
-}
-
-function Estimate({ forecast, lines }: { forecast: Forecast; lines: number }) {
-  return (
-    <Stack gap="sm">
-      <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
-        <Metric
-          title="Результатов выдачи"
-          value={formatNumber(forecast.expected_results)}
-          hint={resultsHint(forecast, lines)}
-        />
-        <Metric
-          title="Уникальных доменов"
-          value={`≈ ${formatNumber(forecast.expected_domains)}`}
-          hint="83% схлопывается в дубли — по замеру"
-        />
-        <Metric
-          title="Юнитов Ahrefs"
-          value={`до ${formatNumber(forecast.units_total)}`}
-          hint={`просев ${formatNumber(forecast.units_screen)} · метрики ${formatNumber(forecast.units_metrics)} · гео ${formatNumber(forecast.units_by_country)}`}
-        />
-        <Metric
-          title="Бюджет прогона"
-          value={formatNumber(forecast.budget)}
-          hint={
-            forecast.run_ceiling === null
-              ? `у провайдера ${formatNumber(forecast.units_left)}, по капу ${formatNumber(forecast.cap_left)} из ${formatNumber(forecast.units_cap)}`
-              : `ваш потолок ${formatNumber(forecast.run_ceiling)}; по капу ${formatNumber(forecast.cap_left)} из ${formatNumber(forecast.units_cap)}`
-          }
-        />
-      </SimpleGrid>
-
-      {/* Выдача платится деньгами, а не юнитами, и кнопку не блокирует:
-          без неё прогона нет вовсе. Но названа она должна быть — до этой
-          строки расход на выдачу не показывался нигде. Провайдер берёт за
-          каждые десять результатов: сто результатов — вдесятеро дороже. */}
-      <Text size="sm" c="dimmed">
-        Выдача обойдётся примерно в <b>{formatUsd(forecast.serp_cost_usd)}</b> — это другой счёт, не
-        юниты Ahrefs. Потрачено нами юнитов с начала месяца:{' '}
-        <b>{formatNumber(forecast.units_spent_this_month)}</b>.
-      </Text>
-
-      {forecast.affordable ? (
-        <Alert color="green" title="Помещается">
-          Смета считает худший случай — что все домены новые. За те, у которых данные ещё свежие,
-          второй раз не платят, поэтому по факту обычно меньше.
-        </Alert>
-      ) : (
-        <Alert color="red" title="Не помещается в бюджет">
-          Не хватает {formatNumber(forecast.shortfall)} юнитов. Сократите список ключей или глубину
-          выдачи — либо поднимите кап, если остаток у провайдера позволяет.
-        </Alert>
-      )}
-    </Stack>
-  );
 }
 
 export function RunPage() {

@@ -319,6 +319,8 @@ export interface Forecast {
   run_ceiling: number | null;
   /** Ожидаемая стоимость выдачи в долларах. Другой счёт, не юниты. */
   serp_cost_usd: number;
+  /** Доля уникальных, которой посчитаны домены сметы: по ней экран называет дубли. */
+  unique_share: number;
 }
 
 export interface RunCard {
@@ -332,8 +334,7 @@ export interface RunCard {
   estimate_error: number | null;
   stats: Record<string, unknown> | null;
   started_at: string;
-  /** Когда прогон последний раз подавал признаки жизни: для идущего это
-   *  удар heartbeat, а не запись результата. */
+  /** Последний признак жизни: у идущего прогона — удар heartbeat, а не запись итога. */
   alive_at: string;
   /** Сколько доменов дала выдача. Появляется раньше любых трат. */
   hosts: number | null;
@@ -352,8 +353,7 @@ export interface RunsView {
   runs: RunCard[];
   /** Сколько прогонов всего, а не на этой странице. */
   total: number;
-  /** Номер страницы (с единицы) и сколько прогонов на ней помещается —
-   *  по ним и `total` экран считает страницы. */
+  /** Номер страницы (с единицы) и её размер: по ним и `total` экран считает страницы. */
   page: number;
   limit: number;
   /** Сколько воркеров слушает очередь. `null` — спросить не удалось,

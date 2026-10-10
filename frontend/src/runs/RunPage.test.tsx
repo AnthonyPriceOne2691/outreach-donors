@@ -34,6 +34,8 @@ const FITS = {
   affordable: true,
   shortfall: 0,
   serp_cost_usd: 0.0012,
+  // Три домена на двадцать результатов — доля, которой посчитана смета.
+  unique_share: 0.15,
 };
 
 const TOO_MUCH = { ...FITS, units_left: 100, budget: 100, affordable: false, shortfall: 77 };
@@ -227,6 +229,23 @@ describe('прогон', () => {
     expect(screen.getByRole('button', { name: /Запустить/ })).toBeEnabled();
     // Смета — отдельный запрос, который ничего не тратит.
     expect(recorded.calls.some((call) => call.path === '/api/runs/estimate')).toBe(true);
+  });
+
+  it('доля дублей — та, которой посчитана смета, а не зашитое число', async () => {
+    // Проверка прода 10.10.2026: «83% схлопывается в дубли» стояло от константы,
+    // убранной 24.09, рядом с «≈ 31» из 40 результатов — то есть 22% дублей.
+    await openRun({
+      'POST /api/runs/estimate': {
+        body: { ...FITS, expected_results: 40, expected_domains: 31, unique_share: 0.775 },
+      },
+    });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
+    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
+
+    expect(await screen.findByText('≈ 31')).toBeInTheDocument();
+    expect(screen.getByText('22% схлопывается в дубли — по замеру')).toBeInTheDocument();
   });
 
   it('повторы ключей смета не считает и говорит об этом', async () => {
