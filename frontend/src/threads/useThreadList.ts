@@ -11,6 +11,7 @@ import { useSearchParams } from 'react-router-dom';
 import { threadState } from '../api/labels';
 import { listThreads } from '../api/outreach';
 import type { ThreadCard, ThreadState } from '../api/types';
+import { useSession } from '../auth/AuthProvider';
 import { useTyped } from '../donors/useTyped';
 import { formatNumber } from '../format';
 import {
@@ -68,16 +69,19 @@ export type ThreadListState = ReturnType<typeof useThreadList>;
 
 export function useThreadList() {
   const [params, setParams] = useSearchParams();
-  const filters = useMemo(() => readThreadFilters(params), [params]);
+  // Без права «Продажи» состояние продаж из адреса не сужает (П2, `readThreadFilters`).
+  const sales = useSession().can('sales');
+  const filters = useMemo(() => readThreadFilters(params, sales), [params, sales]);
 
   // Смена фильтра — замена записи в истории, а не новая: «назад» ведёт туда,
   // откуда пришли, а не по буквам поиска.
   const apply = useCallback(
     (patch: Partial<ThreadFilters>) =>
-      setParams((current) => writeThreadFilters({ ...readThreadFilters(current), ...patch }), {
-        replace: true,
-      }),
-    [setParams],
+      setParams(
+        (current) => writeThreadFilters({ ...readThreadFilters(current, sales), ...patch }),
+        { replace: true },
+      ),
+    [setParams, sales],
   );
   // Поиск печатают: в адрес он уходит после паузы в наборе, а список
   // сужается сразу — фильтр здесь по уже пришедшим строкам, сервер не ждут.

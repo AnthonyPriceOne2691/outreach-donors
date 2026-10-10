@@ -223,6 +223,24 @@ describe('агент переписки', () => {
     });
   });
 
+  it.each([
+    ['без права «Продажи» этапа продаж нет — даже присланного сервером', ['settings', 'view']],
+    ['с правом «Продажи» этап продаж на месте', ['sales', 'settings', 'view']],
+  ])('%s', async (_, permissions) => {
+    // Решение Anthony 10.10.2026 (П2): сервер без права этап продаж не отдаёт, а экран
+    // не показывает его и сам — ответ в кэше мог прийти до того, как право сняли.
+    const sales: AgentStageView = {
+      ...stage('advertisers', ADVERTISERS),
+      stage: 'sales',
+      title: 'Лидам',
+      lead: 'Лидам мы отвечаем фактами из базы знаний.',
+    };
+    await openAgent({ stages: [...BLANK.stages, sales] }, {}, { ...OPERATOR, permissions });
+
+    expect(screen.getByText('Рекламодателям')).toBeInTheDocument();
+    expect(screen.queryByText('Лидам') !== null).toBe(permissions.includes('sales'));
+  });
+
   it('автопилот выбран, а выключатель снят — словами, что письма сами не уходят', async () => {
     await openAgent(onAutopilot(false));
 

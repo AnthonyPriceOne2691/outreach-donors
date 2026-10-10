@@ -177,6 +177,29 @@ describe('диалоги', () => {
     expect(screen.getByRole('textbox', { name: 'Состояние' })).toHaveValue('все · 3');
   });
 
+  it('состояние продаж в адресе без права «Продажи» — не сужать и не называть', async () => {
+    // Решение Anthony 10.10.2026 (П2): переписок продаж такой учётке сервер не отдаёт,
+    // и фильтр не называет их состояние словами — как незнакомое.
+    await openThreads('/threads?state=sales_pending', 'digest-weekly.example.test', {
+      'GET /api/auth/me': { body: { ...OPERATOR, permissions: ['view'] } },
+    });
+
+    expect(hosts()).toHaveLength(3);
+    expect(screen.getByRole('textbox', { name: 'Состояние' })).toHaveValue('все · 3');
+    expect(screen.queryByText(/ответ продаж/)).not.toBeInTheDocument();
+  });
+
+  it('с правом «Продажи» состояние продаж из адреса сужает, как любое', async () => {
+    await openThreads(
+      '/threads?state=sales_pending',
+      'В состоянии «ответ продаж — ждёт человека» диалогов нет.',
+    );
+
+    expect(screen.getByRole('textbox', { name: 'Состояние' })).toHaveValue(
+      'ответ продаж — ждёт человека · 0',
+    );
+  });
+
   it('фильтр из адреса без таких диалогов объясняет, что их нет вовсе', async () => {
     await openThreads('/threads?state=lead', 'В состоянии «лид — ждёт человека» диалогов нет.');
 

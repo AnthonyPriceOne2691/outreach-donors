@@ -9,10 +9,13 @@
  *
  * **Адрес — чужой ввод.** Его правят руками и присылают устаревшим, поэтому
  * незнакомое состояние — «не сужать», а не пустой экран без объяснения.
- * Правило то же, что у доноров (`donors/donorFilters.ts`).
+ * Правило то же, что у доноров (`donors/donorFilters.ts`). Состояние продаж
+ * без права «Продажи» — тоже «не сужать» (решение Anthony 10.10.2026, П2):
+ * переписок продаж в таком списке нет, и фильтр их словами не называет.
  */
 
 import { THREAD_STATES } from '../api/labels';
+import { stateShown } from '../api/stages';
 import type { ThreadCard, ThreadState } from '../api/types';
 
 export interface ThreadFilters {
@@ -25,10 +28,11 @@ export const NO_THREAD_FILTERS: ThreadFilters = { state: null, search: '' };
 
 export const THREAD_STATE_KEYS = Object.keys(THREAD_STATES) as ThreadState[];
 
-export function readThreadFilters(params: URLSearchParams): ThreadFilters {
+/** Фильтры из адреса. `sales` — `can('sales')`: без права состояния продаж не сужают. */
+export function readThreadFilters(params: URLSearchParams, sales: boolean): ThreadFilters {
   const state = params.get('state');
   return {
-    state: THREAD_STATE_KEYS.find((known) => known === state) ?? null,
+    state: THREAD_STATE_KEYS.find((known) => known === state && stateShown(known, sales)) ?? null,
     search: (params.get('search') ?? '').trim(),
   };
 }
