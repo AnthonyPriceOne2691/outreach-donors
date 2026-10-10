@@ -18,6 +18,9 @@
  * **Агент продаж — только с правом «Продажи»** (решение Anthony 10.10.2026, П2):
  * сервер без права этап продаж не отдаёт и правку его настроек отказывает, а экран
  * не показывает его и сам: ответ в кэше мог прийти до того, как право сняли.
+ *
+ * **Набранное не пропадает молча** (проверка прода 10.10.2026): уход по ссылке и
+ * закрытие вкладки с несохранённым — с вопросом, этапы названы (`LeaveGuard`).
  */
 
 import { Alert, Badge, Card, Group, Loader, Stack, Text } from '@mantine/core';
@@ -29,6 +32,7 @@ import type { AgentStageView } from '../api/agent';
 import { refusalOf } from '../api/client';
 import { stageShown } from '../api/stages';
 import { useSession } from '../auth/AuthProvider';
+import { LeaveGuard } from '../components/LeaveGuard';
 import { PageHead } from '../components/PageHead';
 import { StageSwitch } from '../components/StageSwitch';
 import { formatDateTime } from '../format';
@@ -50,6 +54,19 @@ function without(drafts: Drafts, stage: string): Drafts {
   const rest = { ...drafts };
   delete rest[stage];
   return rest;
+}
+
+/** Что пропадёт при уходе — этапы, где набранное расходится с действующим, тем же
+ *  правилом, что «Вернуть действующие» (`sameDraft`); `null` — пропадать нечему. */
+function unsavedOf(drafts: Drafts, stages: AgentStageView[]): string | null {
+  const titles = stages
+    .filter((view) => {
+      const draft = drafts[view.stage];
+      return draft !== undefined && !sameDraft(draft, view.current?.settings ?? view.defaults);
+    })
+    .map((view) => `«${view.title}»`);
+  if (titles.length === 0) return null;
+  return `Не сохранено набранное в настройках агента: ${titles.join(', ')}. Уйдёте — оно пропадёт.`;
 }
 
 /** Действует ли агент на этапе — значком и словами. */
@@ -191,6 +208,7 @@ export function AgentPage() {
       </Card>
 
       {view !== undefined && <AgentHistory view={view} limitWord={LIMIT[view.price_side].limit} />}
+      <LeaveGuard unsaved={unsavedOf(drafts, stages)} />
     </Stack>
   );
 }
