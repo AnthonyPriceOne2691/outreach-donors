@@ -89,8 +89,23 @@ describe('пороги', () => {
 
     expect(await screen.findByText('13')).toBeInTheDocument();
     expect(screen.getByText('из них с ценой: 4')).toBeInTheDocument();
-    // Домены без метрик считаются отдельно: их вердикт не изменится.
-    expect(screen.getByText(/Ещё 6 доменов без метрик/)).toBeInTheDocument();
+    // Домены без метрик считаются отдельно: пороги их не судят.
+    expect(screen.getByText(/Без метрик — ещё 6 доменов/)).toBeInTheDocument();
+  });
+
+  // Проверка прода 10.10.2026: «Ещё 1 доменов без метрик» — число не согласовано со словом.
+  it.each([
+    [1, 'Без метрик — ещё 1 домен: пороги его не судят.'],
+    [3, 'Без метрик — ещё 3 домена: пороги их не судят.'],
+    [11, 'Без метрик — ещё 11 доменов: пороги их не судят.'],
+    [21, 'Без метрик — ещё 21 домен: пороги их не судят.'],
+  ])('без метрик %i — слово согласовано с числом', async (count, said) => {
+    await openThresholds({
+      'POST /api/settings/preview': { body: { ...CONSEQUENCES, unchecked: count } },
+    });
+    await touchDr();
+
+    expect(await screen.findByText(new RegExp(`^${said}`))).toBeInTheDocument();
   });
 
   it('предупреждает, если выпадают доноры с полученной ценой', async () => {
