@@ -22,7 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from backend.features.core.domain import Permission, UserRole
+from backend.features.core.domain import Permission, Stage, UserRole
 
 #: Что даёт роль сама по себе.
 ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
@@ -85,3 +85,24 @@ def require(actor: Actor | None, permission: Permission) -> None:
         raise AccessDeniedError(f"Нужен вход: действие «{permission.value}» требует учётки")
     if not has_permission(actor, permission):
         raise AccessDeniedError(f"Действие «{permission.value}» недоступно этой учётке")
+
+
+def sees_stage(actor: Actor, stage: Stage) -> bool:
+    """Видит ли сотрудник данные этапа: продажи — только с правом «Продажи» (решение
+    Anthony 10.10.2026, П2). Доноры и рекламодатели — правом самого действия, как до П2."""
+    return stage is not Stage.SALES or has_permission(actor, Permission.SALES)
+
+
+def visible_stages(actor: Actor) -> frozenset[Stage]:
+    """Этапы, которые сотрудник видит в общих списках и числах."""
+    return frozenset(stage for stage in Stage if sees_stage(actor, stage))
+
+
+def require_stage(actor: Actor, stage: Stage | None, what: str) -> None:
+    """Пропустить к строке этапа или отказать словами: `what` — что закрыто, «Письма продаж».
+
+    `None` — у строки этапа нет (ответ без письма) или строки нет вовсе: «не найдено»
+    скажет тот, кто её ищет, как и без этой проверки.
+    """
+    if stage is not None and not sees_stage(actor, stage):
+        raise AccessDeniedError(f"{what} — только с правом «Продажи»")

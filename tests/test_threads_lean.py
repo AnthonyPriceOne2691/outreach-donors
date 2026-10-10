@@ -522,3 +522,56 @@ async def test_overview_and_menu_take_no_texts(session: AsyncSession) -> None:
     named = _columns(sent)
     assert not named["messages"] & TEXTS, named["messages"] & TEXTS
     assert not named["replies"] & TEXTS, named["replies"] & TEXTS
+
+
+# --- без права «Продажи» (решение Anthony 10.10.2026, П2) -----------------------------------
+
+#: Этапы учётки без права «Продажи» (`access.permissions.visible_stages`).
+NO_SALES = frozenset({Stage.DONORS, Stage.ADVERTISERS})
+#: Ждут человека в продажах: `sales-unsorted`, `sales-waits`.
+WAITING_SALES = 2
+
+
+async def test_without_sales_the_list_and_the_numbers_are_the_rest_of_the_world(
+    session: AsyncSession,
+) -> None:
+    """Сужает база: строки и числа без продаж — ровно те же, что у всех, за вычетом переписок
+    продаж, тем же правилом и с теми же состояниями. Письма продаж в сводке не нулями —
+    этапа там нет вовсе."""
+    await _world(session)
+    repository = OutreachRepository(session)
+
+    everyone = await repository.threads()
+    listed = await repository.threads(stages=NO_SALES)
+    marks = await repository.states(stages=NO_SALES)
+    menu = await work(session, stages=NO_SALES)
+    view = await overview(session, now=NOW, stages=NO_SALES)
+
+    rest = [(row.thread.id, row.summary) for row in everyone if row.stage is not Stage.SALES]
+    assert [(row.thread.id, row.summary) for row in listed] == rest
+    assert {mark.thread_id for mark in marks} == {number for number, _ in rest}
+    assert menu.threads == WAITING_ALL - WAITING_SALES
+    assert (view.waiting.prices, view.waiting.leads) == (WAITING_PRICES, WAITING_LEADS)
+    assert view.donors.replied == REPLIED_DONORS
+    assert set(view.letters) == NO_SALES
+
+
+async def test_without_sales_the_queries_still_take_no_texts(session: AsyncSession) -> None:
+    """Сужение — условием в базе, и запросы списка и чисел по-прежнему без тел и адресов.
+    Видны все этапы — условия на этап нет вовсе: запросы те же, что до П2."""
+    await _world(session)
+    session.expunge_all()
+    repository = OutreachRepository(session)
+
+    with _statements(session) as narrowed:
+        await repository.threads(stages=NO_SALES)
+        await repository.states(stages=NO_SALES)
+    with _statements(session) as everyone:
+        await repository.threads()
+        await repository.states()
+
+    named = _columns(narrowed)
+    assert named["messages"] <= LETTER_FIELDS, named["messages"] - LETTER_FIELDS
+    assert named["replies"] <= REPLY_FIELDS, named["replies"] - REPLY_FIELDS
+    assert all("campaigns.stage IN" in statement for statement in narrowed)
+    assert not any("campaigns.stage IN" in statement for statement in everyone)

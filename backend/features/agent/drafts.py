@@ -20,7 +20,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -107,12 +107,22 @@ async def drafts_of(session: AsyncSession, reply_ids: Iterable[int]) -> Sequence
 
 
 async def waiting(
-    session: AsyncSession, status: DraftStatus, *, limit: int
+    session: AsyncSession,
+    status: DraftStatus,
+    *,
+    limit: int,
+    stages: Collection[Stage] = frozenset(Stage),
 ) -> Sequence[ShownDraft]:
-    """Черновики в одном статусе, новые первыми — например, ждущие человека."""
+    """Черновики в одном статусе, новые первыми — например, ждущие человека.
+
+    `stages` — этапы, которые видит спрашивающий (`access.permissions.visible_stages`):
+    черновик продаж без права «Продажи» в список не попадает (решение Anthony 10.10.2026,
+    П2). Этап — по версии настроек черновика: её берут по этапу переписки.
+    """
     rows = await session.execute(
         _shown()
         .where(AgentDraftModel.status == status)
+        .where(AgentSettingsModel.stage.in_(stages))
         .order_by(AgentDraftModel.updated_at.desc(), AgentDraftModel.id.desc())
         .limit(limit)
     )

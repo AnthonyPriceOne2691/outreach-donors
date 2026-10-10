@@ -18,11 +18,15 @@
 `/donors?has_contact=true` отвечают на один вопрос одним числом. Адреса,
 найденные до правила «ищем только принятым», в воронку не входят — пока
 домен не принят, он не донор, и адрес у него ничего не значит.
+
+**Числа — этапов, которые видит спрашивающий** (`stages`, решение Anthony
+10.10.2026, П2): без права «Продажи» письма и ответы продаж не входят ни в
+сводку, ни в числа меню — считаются доноры и рекламодатели. С правом — как было.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -47,7 +51,7 @@ from backend.features.core.models.run import RunModel
 from backend.features.crawl import review as advertiser_review
 from backend.features.donors import standing
 from backend.features.letters.chain import FIRST_STEP
-from backend.features.outreach.repository import OutreachRepository, ThreadMark
+from backend.features.outreach.repository import EVERY_STAGE, OutreachRepository, ThreadMark
 from backend.features.outreach.threads import ThreadState
 from backend.features.replies import unbound
 from backend.features.review.candidates import Decision
@@ -165,13 +169,19 @@ class Work:
     advertisers: int
 
 
-async def overview(session: AsyncSession, *, now: datetime | None = None) -> Overview:
-    """Собрать главную. Каждое число — правилом своего экрана."""
+async def overview(
+    session: AsyncSession,
+    *,
+    now: datetime | None = None,
+    stages: Collection[Stage] = EVERY_STAGE,
+) -> Overview:
+    """Собрать главную. Каждое число — правилом своего экрана; письма и диалоги — только
+    видимых этапов (`stages`)."""
     moment = now or datetime.now(UTC)
     # Все диалоги, состоянием по правилу списка (`threads.state_of`) — одним местом
     # правила, а не его копией в SQL: сумму в автоответе ищет питон. Из базы — только
     # то, что правило читает: статусы писем и поля ответов без текстов (аудит 10.10.2026).
-    threads = await OutreachRepository(session).states()
+    threads = await OutreachRepository(session).states(stages=stages)
     spending = await SpendingRepository(session).since_month_start(now=moment)
     decisions = await standing.waiting(session)
     return Overview(
@@ -184,7 +194,7 @@ async def overview(session: AsyncSession, *, now: datetime | None = None) -> Ove
             forms=await forms.total(session),
             advertisers=await advertiser_review.waiting(session),
         ),
-        letters=await _letters(session),
+        letters=await _letters(session, stages),
         last_run=await _last_run(session),
         ahrefs_units=spending.units_by_provider.get(UsageProvider.AHREFS, 0),
         ahrefs_cap=ahrefs_cfg.UNITS_CAP,
@@ -193,9 +203,9 @@ async def overview(session: AsyncSession, *, now: datetime | None = None) -> Ove
     )
 
 
-async def work(session: AsyncSession) -> Work:
-    """Числа меню — теми же правилами, что «Ждут человека» на главной."""
-    threads = await OutreachRepository(session).states()
+async def work(session: AsyncSession, *, stages: Collection[Stage] = EVERY_STAGE) -> Work:
+    """Числа меню — теми же правилами, что «Ждут человека» на главной, и тех же этапов."""
+    threads = await OutreachRepository(session).states(stages=stages)
     return Work(
         run=(await standing.waiting(session)).domains,
         threads=sum(1 for mark in threads if mark.state in WAITS_FOR_PERSON),
@@ -274,17 +284,21 @@ async def _written(session: AsyncSession) -> int:
     )
 
 
-async def _letters(session: AsyncSession) -> dict[Stage, LetterCounts]:
-    """Письма по этапам. «В очереди» — первые письма, как на экране писем,
+async def _letters(session: AsyncSession, stages: Collection[Stage]) -> dict[Stage, LetterCounts]:
+    """Письма по видимым этапам. «В очереди» — первые письма, как на экране писем,
     куда ведёт число: добивка и ответ ждут своим путём (`letters/mailbox.py`),
-    и с ними главная разошлась бы с экраном."""
+    и с ними главная разошлась бы с экраном. Этапа, которого спрашивающий не видит,
+    в ответе нет вовсе, а не нулями: нули читались бы как «писем продаж нет»."""
     rows = await session.execute(
         select(CampaignModel.stage, MessageModel.status, func.count())
         .join(CampaignModel, CampaignModel.id == MessageModel.campaign_id)
         .where(or_(MessageModel.status != MessageStatus.QUEUED, MessageModel.step == FIRST_STEP))
+        .where(CampaignModel.stage.in_(stages))
         .group_by(CampaignModel.stage, MessageModel.status)
     )
-    by_stage: dict[Stage, dict[MessageStatus, int]] = {stage: {} for stage in Stage}
+    by_stage: dict[Stage, dict[MessageStatus, int]] = {
+        stage: {} for stage in Stage if stage in stages
+    }
     for stage, status, count in rows.tuples().all():
         by_stage[stage][status] = int(count)
     return {
