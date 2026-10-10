@@ -26,6 +26,10 @@
 **Ответы без письма — тоже здесь и под тем же правом** (28.09.2026). Приём
 сохранял их с первого дня, а видеть их было негде: сохранённый и невидимый
 ответ — тот же «донор не ответил», только без шанса заметить.
+
+**Ответ в переписке продаж — ещё и с правом «Продажи»** (решение Anthony
+10.10.2026, П2): его вложения, разбор и лид без него — 403 словами
+(`api/stage_access.py`). У ответа без письма этапа нет — он виден, как был.
 """
 
 from __future__ import annotations
@@ -49,6 +53,7 @@ from backend.api.replies.schemas import (
     UnboundView,
     VersionCalibration,
 )
+from backend.api.stage_access import on_reply
 from backend.config import outreach as outreach_cfg
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission
@@ -67,6 +72,9 @@ router = APIRouter(prefix="/replies", tags=["ответы"])
 
 _reviewer = Depends(needs(Permission.PRICES))
 _viewer = Depends(needs(Permission.VIEW))
+#: Ответ по номеру: у ответа в переписке продаж — ещё право «Продажи» (П2).
+_reply_reviewer = Depends(on_reply(Permission.PRICES))
+_reply_viewer = Depends(on_reply(Permission.VIEW))
 
 
 @router.get("/leads.csv", summary="Лиды файлом")
@@ -162,7 +170,7 @@ async def unbound_replies(
 async def attachment(
     reply_id: int,
     attachment_id: int,
-    _: UserModel = _viewer,
+    _: UserModel = _reply_viewer,
     session: AsyncSession = Depends(db_session),
 ) -> Response:
     """Файл, присланный донором, — только на скачивание.
@@ -187,7 +195,7 @@ async def attachment(
 async def attachment_text(
     reply_id: int,
     attachment_id: int,
-    _: UserModel = _viewer,
+    _: UserModel = _reply_viewer,
     session: AsyncSession = Depends(db_session),
 ) -> AttachmentText:
     """Текст, прочитанный из файла донора, — или словами, почему его нет.
@@ -204,7 +212,7 @@ async def attachment_text(
 @router.post("/{reply_id}/lead", response_model=LeadTaken, summary="Взять лид в работу")
 async def take_lead(
     reply_id: int,
-    author: UserModel = _reviewer,
+    author: UserModel = _reply_reviewer,
     session: AsyncSession = Depends(db_session),
 ) -> LeadTaken:
     """Ответ рекламодателя — в работу. Цену в нём не разбирают, его ведёт человек.
@@ -236,7 +244,7 @@ async def take_lead(
 @router.post("/{reply_id}/lead/send", response_model=LeadSent, summary="Передать лид в CRM ещё раз")
 async def send_lead(
     reply_id: int,
-    _: UserModel = _reviewer,
+    _: UserModel = _reply_reviewer,
     session: AsyncSession = Depends(db_session),
 ) -> LeadSent:
     """Повторная передача: вебхук настроили позже, или получатель лежал дольше
@@ -268,7 +276,7 @@ def _enqueue_lead(reply_id: int, *, event_id: str) -> str:
 async def review(
     reply_id: int,
     body: ReviewBody,
-    author: UserModel = _reviewer,
+    author: UserModel = _reply_reviewer,
     session: AsyncSession = Depends(db_session),
 ) -> Reviewed:
     """Принять цену такой, какой её увидел человек.

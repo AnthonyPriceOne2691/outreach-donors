@@ -11,6 +11,10 @@
 
 Правила файла — `letters/outgoing_files.py`, хранение — `letters/outgoing_store.py`;
 отказ — словами (`api/errors.py`): что не так и какой предел.
+
+**Файлы переписки и письма продаж — ещё и с правом «Продажи»** (решение Anthony
+10.10.2026, П2): приложить, убрать и скачать без него — 403 словами
+(`api/stage_access.py`).
 """
 
 from __future__ import annotations
@@ -18,8 +22,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, File, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.api.deps import db_session, needs
+from backend.api.deps import db_session
 from backend.api.replies.download import download_headers
+from backend.api.stage_access import on_message, on_thread
 from backend.api.threads.schemas import OutgoingFileCard
 from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
@@ -28,8 +33,9 @@ from backend.features.letters.outgoing_store import OutgoingFiles
 
 router = APIRouter(tags=["диалоги"])
 
-_viewer = Depends(needs(Permission.VIEW))
-_sender = Depends(needs(Permission.SEND))
+#: Номер переписки или письма — из адреса: у продаж — ещё право «Продажи» (П2).
+_thread_sender = Depends(on_thread(Permission.SEND))
+_message_viewer = Depends(on_message(Permission.VIEW))
 
 
 @router.post(
@@ -40,7 +46,7 @@ _sender = Depends(needs(Permission.SEND))
 async def upload(
     thread_id: int,
     file: UploadFile = File(..., description=f"один файл: {ALLOWED}"),
-    author: UserModel = _sender,
+    author: UserModel = _thread_sender,
     session: AsyncSession = Depends(db_session),
 ) -> OutgoingFileCard:
     """Файл к будущему ответу. Тип назначает сервер по белому списку, сверив
@@ -64,7 +70,7 @@ async def upload(
 async def remove(
     thread_id: int,
     file_id: int,
-    _: UserModel = _sender,
+    _: UserModel = _thread_sender,
     session: AsyncSession = Depends(db_session),
 ) -> Response:
     """Убрать файл, который ни с одним письмом ещё не ушёл. Приложенный
@@ -83,7 +89,7 @@ async def remove(
 async def attachment(
     message_id: int,
     file_id: int,
-    _: UserModel = _viewer,
+    _: UserModel = _message_viewer,
     session: AsyncSession = Depends(db_session),
 ) -> Response:
     """Файл, ушедший с нашим письмом, — только на скачивание, как вложение

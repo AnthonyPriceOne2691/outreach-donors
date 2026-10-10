@@ -3,11 +3,15 @@
 Запросы собраны здесь, а не в обработчиках: веб-слой не должен знать,
 из скольких таблиц складывается строка списка. Заодно это единственный
 способ проверить их без сервера — на настоящей базе, но без HTTP.
+
+**Список и числа — этапов, которые видит спрашивающий** (`stages`, решение
+Anthony 10.10.2026, П2): без права «Продажи» переписок продаж нет ни в списке,
+ни в числах «Обзора» и меню. Сужает сама база — условием на этап рассылки.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, time
 from decimal import Decimal
@@ -124,6 +128,27 @@ def _snapshot() -> ColumnElement[Any]:
     return case((CampaignModel.stage == Stage.SALES, ReplyModel.model_parse))
 
 
+#: Все этапы — умолчание списка и чисел: кто их не сужает, видит всё, как до П2.
+EVERY_STAGE: frozenset[Stage] = frozenset(Stage)
+
+
+def _seen(stages: Collection[Stage]) -> ColumnElement[bool]:
+    """Рассылка — видимого этапа. Видны все — условия нет, как до П2."""
+    return sa_true() if set(stages) >= EVERY_STAGE else CampaignModel.stage.in_(stages)
+
+
+def _seen_letters(stages: Collection[Stage]) -> ColumnElement[bool]:
+    """Письмо — из диалога видимого этапа. Без соединения запроса писем с рассылкой: её
+    этап спрашивает подзапрос по диалогам, и только когда видны не все."""
+    if set(stages) >= EVERY_STAGE:
+        return sa_true()
+    return MessageModel.thread_id.in_(
+        select(ThreadModel.id)
+        .join(CampaignModel, CampaignModel.id == ThreadModel.campaign_id)
+        .where(_seen(stages))
+    )
+
+
 class OutreachRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -180,8 +205,8 @@ class OutreachRepository:
 
     # --- диалоги ---
 
-    async def threads(self) -> list[ThreadRow]:
-        """Все диалоги, новые первыми, — списку «Диалогов».
+    async def threads(self, *, stages: Collection[Stage] = EVERY_STAGE) -> list[ThreadRow]:
+        """Все диалоги видимых этапов (`stages`), новые первыми, — списку «Диалогов».
 
         Список до 09.10.2026 брал двести новых: с двести первого старый диалог,
         в котором только что ответили, выпадал из списка, а главная его считала
@@ -203,14 +228,15 @@ class OutreachRepository:
             .join(DomainModel, DomainModel.id == ThreadModel.domain_id)
             .join(CampaignModel, CampaignModel.id == ThreadModel.campaign_id)
             .outerjoin(ContactModel, ContactModel.id == ThreadModel.contact_id)
+            .where(_seen(stages))
             .order_by(ThreadModel.id.desc())
         )
         found = rows.all()
         if not found:
             return []
 
-        letters = await self._listed_letters()
-        replies = await self._listed_replies()
+        letters = await self._listed_letters(stages)
+        replies = await self._listed_replies(stages)
         return [
             ThreadRow(
                 thread=thread,
@@ -223,8 +249,8 @@ class OutreachRepository:
             for thread, host, email, campaign, stage in found
         ]
 
-    async def states(self) -> list[ThreadMark]:
-        """Состояние каждого диалога — числам «Обзора» и меню.
+    async def states(self, *, stages: Collection[Stage] = EVERY_STAGE) -> list[ThreadMark]:
+        """Состояние каждого диалога видимых этапов (`stages`) — числам «Обзора» и меню.
 
         Правило то же, что у списка (`threads.state_of`), но из писем ему нужны
         только статусы — они и приходят из базы, парами «диалог — статус», без самих
@@ -232,12 +258,12 @@ class OutreachRepository:
         аудита 10.10.2026 каждый раз грузило переписки целиком.
         """
         threads = await self._session.execute(
-            select(ThreadModel.id, ThreadModel.domain_id, CampaignModel.stage).join(
-                CampaignModel, CampaignModel.id == ThreadModel.campaign_id
-            )
+            select(ThreadModel.id, ThreadModel.domain_id, CampaignModel.stage)
+            .join(CampaignModel, CampaignModel.id == ThreadModel.campaign_id)
+            .where(_seen(stages))
         )
-        statuses = await self._letter_statuses()
-        replies = await self._listed_replies()
+        statuses = await self._letter_statuses(stages)
+        replies = await self._listed_replies(stages)
         return [
             ThreadMark(
                 thread_id=thread_id,
@@ -297,7 +323,9 @@ class OutreachRepository:
                 by_thread.setdefault(message.thread_id, []).append(message)
         return by_thread
 
-    async def _listed_letters(self) -> dict[int, list[ListedLetter]]:
+    async def _listed_letters(
+        self, stages: Collection[Stage] = EVERY_STAGE
+    ) -> dict[int, list[ListedLetter]]:
         """Письма всех диалогов — статусом и временем ухода, одним запросом.
 
         По запросу на диалог список стоил бы тысячи обращений к базе. И без перечня
@@ -305,9 +333,9 @@ class OutreachRepository:
         в потолок параметров запроса у asyncpg (32 767).
         """
         rows = await self._session.execute(
-            select(MessageModel.thread_id, MessageModel.status, MessageModel.sent_at).where(
-                MessageModel.thread_id.is_not(None)
-            )
+            select(MessageModel.thread_id, MessageModel.status, MessageModel.sent_at)
+            .where(MessageModel.thread_id.is_not(None))
+            .where(_seen_letters(stages))
         )
         by_thread: dict[int, list[ListedLetter]] = {}
         for thread_id, status, sent_at in rows.tuples():
@@ -315,11 +343,14 @@ class OutreachRepository:
                 by_thread.setdefault(thread_id, []).append(ListedLetter(status, sent_at))
         return by_thread
 
-    async def _letter_statuses(self) -> dict[int, set[MessageStatus]]:
+    async def _letter_statuses(
+        self, stages: Collection[Stage] = EVERY_STAGE
+    ) -> dict[int, set[MessageStatus]]:
         """Какие статусы есть у писем каждого диалога — парами из базы, без писем."""
         rows = await self._session.execute(
             select(MessageModel.thread_id, MessageModel.status)
             .where(MessageModel.thread_id.is_not(None))
+            .where(_seen_letters(stages))
             .distinct()
         )
         by_thread: dict[int, set[MessageStatus]] = {}
@@ -328,7 +359,9 @@ class OutreachRepository:
                 by_thread.setdefault(thread_id, set()).add(status)
         return by_thread
 
-    async def _listed_replies(self) -> dict[int, list[ListedReply]]:
+    async def _listed_replies(
+        self, stages: Collection[Stage] = EVERY_STAGE
+    ) -> dict[int, list[ListedReply]]:
         """Ответы всех диалогов — полями правила (`ListedReply`), одним запросом.
 
         Ответ без диалога (`replies/unbound.py`) сюда не входит: строки, к которой
@@ -351,6 +384,7 @@ class OutreachRepository:
             )
             .join(ThreadModel, ThreadModel.id == ReplyModel.thread_id)
             .join(CampaignModel, CampaignModel.id == ThreadModel.campaign_id)
+            .where(_seen(stages))
         )
         by_thread: dict[int, list[ListedReply]] = {}
         for row in rows:

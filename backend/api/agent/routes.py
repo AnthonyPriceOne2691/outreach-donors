@@ -5,6 +5,11 @@
 право «настройки», как пороги: это решение о том, что и за сколько мы
 обещаем людям снаружи. Отправить или отклонить черновик — право send: это
 решение о письме наружу.
+
+**Агент продаж — ещё и с правом «Продажи»** (решение Anthony 10.10.2026, П2):
+без него этапа продаж нет в настройках, его черновиков — в списке, а правка
+настроек этапа, черновик продаж и решение по нему — 403 словами
+(`api/stage_access.py`).
 """
 
 from __future__ import annotations
@@ -24,7 +29,8 @@ from backend.api.agent.schemas import (
 )
 from backend.api.deps import actor, db_session, needs
 from backend.api.letters.schemas import SendResult
-from backend.features.access.permissions import require
+from backend.api.stage_access import AGENT, on_draft
+from backend.features.access.permissions import require, require_stage, visible_stages
 from backend.features.access.repository import AccessRepository
 from backend.features.agent import autopilot, drafts
 from backend.features.agent.drafts import Decider
@@ -39,7 +45,9 @@ router = APIRouter(prefix="/agent", tags=["агент переписки"])
 
 _settler = Depends(needs(Permission.SETTINGS))
 _viewer = Depends(needs(Permission.VIEW))
-_sender = Depends(needs(Permission.SEND))
+#: Черновик по номеру: у черновика продаж — ещё право «Продажи» (П2).
+_draft_viewer = Depends(on_draft(Permission.VIEW))
+_draft_sender = Depends(on_draft(Permission.SEND))
 
 #: Черновиков в списке за раз: список — очередь «ждут человека», а не архив.
 DRAFTS_PAGE = 200
@@ -47,12 +55,15 @@ DRAFTS_PAGE = 200
 
 @router.get("/settings", response_model=AgentView, summary="Настройки агента по этапам")
 async def agent_settings(
-    _: UserModel = _viewer,
+    user: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> AgentView:
     repository = AgentSettingsRepository(session)
     stages = []
+    shown = visible_stages(actor(user))
     for stage, parts in AGENT_STAGES.items():
+        if stage not in shown:
+            continue  # этап продаж без права «Продажи» (П2): его настроек на экране нет
         current = await repository.current(stage)
         refused = autopilot.refusal(stage)
         stages.append(
@@ -82,6 +93,7 @@ async def save_agent_settings(
     author: UserModel = _settler,
     session: AsyncSession = Depends(db_session),
 ) -> AgentSettingsVersion:
+    require_stage(actor(author), stage, AGENT)
     parts = agent_stage(stage)  # этапа без агента нет — 404 словами
     repository = AgentSettingsRepository(session)
     previous = await repository.current(stage)
@@ -118,17 +130,19 @@ async def save_agent_settings(
 async def drafts_in(
     status: DraftStatus = DraftStatus.ESCALATED,
     limit: int = Query(default=50, ge=1, le=DRAFTS_PAGE),
-    _: UserModel = _viewer,
+    user: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> list[DraftCard]:
-    """По умолчанию — отданные человеку: их никто, кроме человека, не решит."""
-    return [DraftCard.of(shown) for shown in await drafts.waiting(session, status, limit=limit)]
+    """По умолчанию — отданные человеку: их никто, кроме человека, не решит. Без права
+    «Продажи» — без черновиков продаж."""
+    found = await drafts.waiting(session, status, limit=limit, stages=visible_stages(actor(user)))
+    return [DraftCard.of(shown) for shown in found]
 
 
 @router.get("/drafts/{draft_id}", response_model=DraftDetail, summary="Черновик целиком")
 async def draft_detail(
     draft_id: int,
-    _: UserModel = _viewer,
+    _: UserModel = _draft_viewer,
     session: AsyncSession = Depends(db_session),
 ) -> DraftDetail:
     return DraftDetail.of(await drafts.one(session, draft_id))
@@ -140,7 +154,7 @@ async def draft_detail(
 async def send_draft(
     draft_id: int,
     body: SendDraftBody,
-    author: UserModel = _sender,
+    author: UserModel = _draft_sender,
     session: AsyncSession = Depends(db_session),
 ) -> SendResult:
     """Без текста — как есть (у отданного человеку — 409), с текстом — с правкой."""
@@ -160,7 +174,7 @@ async def send_draft(
 async def reject_draft(
     draft_id: int,
     body: RejectDraftBody,
-    author: UserModel = _sender,
+    author: UserModel = _draft_sender,
     session: AsyncSession = Depends(db_session),
 ) -> DraftDetail:
     """Причина обязательна, у этапа со строгим списком — из него: иначе 422 словами."""

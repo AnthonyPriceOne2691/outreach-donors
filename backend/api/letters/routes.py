@@ -19,6 +19,11 @@
 **Очередь смотрится по этапу.** Вопрос донору о цене и оффер рекламодателю
 читаются разными глазами и уходят с разных доменов; у каждого этапа своя
 воронка и свой текст по умолчанию.
+
+**Письма продаж — ещё и с правом «Продажи»** (решение Anthony 10.10.2026, П2):
+очередь этапа продаж, её пачка и сборка, правка, отправка, «не писать» и исход
+письма продаж без него — 403 словами (`api/stage_access.py`). Очередь без этапа —
+очередь доноров, письма продаж в неё и в её счёт не входят.
 """
 
 from __future__ import annotations
@@ -30,7 +35,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from rq.job import Job
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.api.deps import db_session, needs
+from backend.api.deps import actor, db_session, needs
 from backend.api.letters import once
 from backend.api.letters.schemas import (
     Audience,
@@ -51,6 +56,8 @@ from backend.api.letters.schemas import (
     UnknownLettersView,
     stage_two_only,
 )
+from backend.api.stage_access import LETTERS, on_letter
+from backend.features.access.permissions import require_stage
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
@@ -73,6 +80,8 @@ logger = logging.getLogger(__name__)
 
 _viewer = Depends(needs(Permission.VIEW))
 _sender = Depends(needs(Permission.SEND))
+#: Правка, отправка, «не писать» и исход письма: у письма продаж — ещё «Продажи» (П2).
+_letter_sender = Depends(on_letter(Permission.SEND))
 
 
 #: Этап словами — для журнала действий. Каждый этап: без записи журнал падал бы
@@ -84,12 +93,13 @@ _STAGE_TITLES = {Stage.DONORS: "доноры", Stage.ADVERTISERS: "реклам�
 async def queue(
     stage: Stage = Stage.DONORS,
     audience: Audience = "links",
-    _: UserModel = _viewer,
+    user: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> LettersView:
     """Очередь этапа и аудитории: у бизнесов ниши свои письма, счёт для пачки, текст
     и воронка — «Отправить очередь · N» на их вкладке называет только их письма."""
     _stage_two(stage, audience)
+    require_stage(actor(user), stage, LETTERS)
     repository = LetterRepository(session)
     queued = await repository.queued(stage=stage, audience=audience)
     return LettersView(
@@ -139,6 +149,7 @@ async def build(
     миллисекунды, а отказ из задачи человек увидел бы через минуты
     и не рядом с формой.
     """
+    require_stage(actor(author), body.stage, LETTERS)
     letter_template = await _checked_letter(body, session)
     await _same_audience(body, session)
     # Прогоны — здесь, до очереди: разные страны и неоконченный поиск контактов
@@ -210,7 +221,7 @@ async def _checked_letter(body: BuildRequestBody, session: AsyncSession) -> str 
 async def edit(
     letter_id: int,
     body: EditRequestBody,
-    author: UserModel = _sender,
+    author: UserModel = _letter_sender,
     session: AsyncSession = Depends(db_session),
 ) -> QueuedLetterCard:
     """Заменить текст руками. Отличие пересчитывается, запреты те же."""
@@ -270,7 +281,7 @@ async def _niche_offer(row: QueuedLetter, session: AsyncSession) -> NicheOffer |
 @router.post("/{letter_id}/skip", response_model=QueuedLetterCard, summary="Не писать этому донору")
 async def skip(
     letter_id: int,
-    author: UserModel = _sender,
+    author: UserModel = _letter_sender,
     session: AsyncSession = Depends(db_session),
 ) -> QueuedLetterCard:
     """Убрать письмо из очереди. Донор считается написанным и в следующей
@@ -292,7 +303,7 @@ async def skip(
 @router.post("/{letter_id}/send", response_model=SendResult, summary="Отправить письмо")
 async def send(
     letter_id: int,
-    author: UserModel = _sender,
+    author: UserModel = _letter_sender,
     session: AsyncSession = Depends(db_session),
 ) -> SendResult:
     """Отправить одно письмо — то, что человек прочёл и решил отправить сам.
@@ -326,8 +337,9 @@ async def send_queue(
     отправляет только их письма, на «Рекламодателям» — только письма по найденной
     ссылке. Без аудитории — по ссылке, как до бизнесов ниши.
     """
-    # Продажи, не подключённые к почте (ответ моста `core/stages`), — отказ словами (409)
-    # до счёта и до задачи.
+    # Пачка продаж — с правом «Продажи» (П2); не подключённые к почте продажи (ответ моста
+    # `core/stages`) — отказ словами (409). Оба — до счёта и до задачи.
+    require_stage(actor(author), body.stage, LETTERS)
     await check_connected(session, body.stage, "Очередь писем не отправлена")
     waiting = await LetterRepository(session).queued_count(stage=body.stage, audience=body.audience)
     if waiting == 0:
@@ -364,13 +376,14 @@ async def send_queue(
 async def unknown(
     stage: Stage = Stage.DONORS,
     audience: Audience = "links",
-    _: UserModel = _viewer,
+    user: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> UnknownLettersView:
     """Письма этапа и аудитории, застрявшие в «отправляется»: связь с почтой оборвалась
     посреди передачи, и ушли ли они, неизвестно (`letters/unknown_outcome.py`). У каждой
     вкладки — свои: письмо бизнеса ниши решают там, откуда ушла его пачка."""
     _stage_two(stage, audience)
+    require_stage(actor(user), stage, LETTERS)
     found = await unknown_outcome.stuck(session, stage=stage, audience=audience)
     return UnknownLettersView(stage=stage, letters=[UnknownLetterCard.of(row) for row in found])
 
@@ -379,7 +392,7 @@ async def unknown(
 async def resolve(
     letter_id: int,
     body: ResolveBody,
-    author: UserModel = _sender,
+    author: UserModel = _letter_sender,
     session: AsyncSession = Depends(db_session),
 ) -> ResolvedLetter:
     """«Ушло» или «Вернуть в очередь» — по журналу платформы.

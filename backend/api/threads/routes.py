@@ -6,6 +6,10 @@
 письма из очереди (`send`). Черновик агента — под тем же правом: его пишут,
 чтобы отправить, и он стоит денег модели. Файлы к ответу — своим модулем
 (`files.py`), под теми же правами.
+
+**Переписка продаж — ещё и с правом «Продажи»** (решение Anthony 10.10.2026, П2):
+без него её нет в списке, а карточка, ответ и черновик — 403 словами
+(`api/stage_access.py`).
 """
 
 from __future__ import annotations
@@ -16,9 +20,11 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.agent.schemas import DraftCard
-from backend.api.deps import db_session, needs
+from backend.api.deps import actor, db_session, needs
 from backend.api.letters.schemas import SendResult
+from backend.api.stage_access import on_thread
 from backend.api.threads.schemas import AnswerBody, ThreadCard, ThreadView
+from backend.features.access.permissions import visible_stages
 from backend.features.agent.drafting import (
     DraftRefusedError,
     UnknownDraftReplyError,
@@ -50,22 +56,25 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/threads", tags=["диалоги"])
 
 _viewer = Depends(needs(Permission.VIEW))
-_sender = Depends(needs(Permission.SEND))
+#: Переписка по номеру: у переписки продаж — ещё право «Продажи» (П2).
+_thread_viewer = Depends(on_thread(Permission.VIEW))
+_thread_sender = Depends(on_thread(Permission.SEND))
 
 
 @router.get("", response_model=list[ThreadCard], summary="Список диалогов")
 async def all_threads(
-    _: UserModel = _viewer,
+    user: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> list[ThreadCard]:
-    rows = await OutreachRepository(session).threads()
+    """Диалоги этапов, которые видит учётка: без права «Продажи» — без переписок продаж."""
+    rows = await OutreachRepository(session).threads(stages=visible_stages(actor(user)))
     return [ThreadCard.of(row) for row in rows]
 
 
 @router.get("/{thread_id}", response_model=ThreadView, summary="Переписка целиком")
 async def one_thread(
     thread_id: int,
-    _: UserModel = _viewer,
+    _: UserModel = _thread_viewer,
     session: AsyncSession = Depends(db_session),
 ) -> ThreadView:
     detail = await OutreachRepository(session).thread(thread_id)
@@ -89,7 +98,7 @@ async def one_thread(
 async def answer(
     thread_id: int,
     body: AnswerBody,
-    author: UserModel = _sender,
+    author: UserModel = _thread_sender,
     session: AsyncSession = Depends(db_session),
 ) -> SendResult:
     """Наш ответ на ответ собеседника — и отправка сразу, тем ящиком, что начал
@@ -143,7 +152,7 @@ async def redraft(
     thread_id: int,
     reply_id: int,
     force: bool = False,
-    _: UserModel = _sender,
+    _: UserModel = _thread_sender,
     session: AsyncSession = Depends(db_session),
 ) -> DraftCard:
     """Агент пишет черновик ответа сейчас, переписывая прежний нерешённый.
