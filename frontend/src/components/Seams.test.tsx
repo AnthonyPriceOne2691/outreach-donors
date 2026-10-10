@@ -37,6 +37,18 @@ describe('швы имени', () => {
     expect(seamsOf(text)).toEqual(pieces);
   });
 
+  it.each([
+    ['qa-agent@site.example.test', ['qa-agent@', 'site', '.example', '.test']],
+    ['sales@supplier.co.uk', ['sales@', 'supplier', '.co.uk']],
+  ])('адрес почты рвётся после «@» и перед точками, а не посреди слова: %s', (text, pieces) => {
+    // Проверка прода 10.10.2026: «Кто завёл» на «Стоп-листе» рвался «qa- / agent@…co / m».
+    expect(seamsOf(text, { address: true })).toEqual(pieces);
+  });
+
+  it('без `address` «@» — не шов: имена без адреса рвутся как прежде', () => {
+    expect(seamsOf('qa-agent@site.example.test')).toEqual(['qa-agent@site', '.example', '.test']);
+  });
+
   it('«//» после схемы не рвётся: «https:/» и «/» на двух строках — не адрес', () => {
     expect(seamsOf('https://a.test')[0]).toBe('https://');
   });

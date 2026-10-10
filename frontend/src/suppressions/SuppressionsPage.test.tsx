@@ -75,18 +75,29 @@ async function openStopList(routes: Record<string, unknown> = {}, who: unknown =
 
 describe('стоп-лист', () => {
   it('домен и адрес переносятся по швам, а не посреди слова', async () => {
-    // Запись UI_RULES 08.10.2026: «Кому не пишем» оставалось без швов.
+    // Запись UI_RULES 08.10.2026: «Кому не пишем» оставалось без швов; адрес — ещё и
+    // после «@» (проверка прода 10.10.2026).
     await openStopList();
 
     for (const [name, seams] of [
       ['donor.example.test', 2],
-      ['sales@supplier.example.test', 2],
+      ['sales@supplier.example.test', 3],
     ] as const) {
       const cell = screen.getByText(name);
       expect(cell).toHaveTextContent(name);
       expect(cell.querySelectorAll('wbr')).toHaveLength(seams);
       expect(cell).toHaveClass('cellName');
     }
+  });
+
+  it('«Кто завёл» — адрес учётки по швам, а не «qa- / agent@…co / m»', async () => {
+    // Проверка прода 10.10.2026: колонка 12rem рвала адрес посреди слова на 1440 и 1280.
+    await openStopList();
+
+    const row = screen.getByText('sales@supplier.example.test').closest('tr')!;
+    const author = within(row).getByText('анна@site.com');
+    expect(author.querySelectorAll('wbr')).toHaveLength(2);
+    expect(author).toHaveTextContent('анна@site.com');
   });
 
   it('решение адресата видно в строке, а не в подсказке', async () => {

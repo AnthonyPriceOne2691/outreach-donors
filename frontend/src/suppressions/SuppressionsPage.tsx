@@ -103,8 +103,8 @@ function nothingFound(search: string, reason: ShownReason): string {
 /** Колонки слева направо. Ширина первой — остаток: в ней домен или адрес.
  *  Остальные — по самому длинному, замеренному шрифтом экрана 25.09.2026:
  *  значок «пожаловался» — 102 px, дата — 75, значок «истёк 25.09.2026» —
- *  128, кнопка «Снять» — 60. Автор записи — адрес учётки, он переносится.
- *  Плюс 32 px полей ячейки и запас. */
+ *  128, кнопка «Снять» — 60. Автор записи — адрес учётки, он переносится по
+ *  швам адреса (`Seams`). Плюс 32 px полей ячейки и запас. */
 const COLUMNS: { title: string; width?: string }[] = [
   { title: 'Кому не пишем' },
   { title: 'Причина', width: '9rem' },
@@ -151,14 +151,18 @@ function StopTable({ rows, mayChange, onRemove }: TableProps) {
           {rows.map((row) => (
             <Table.Tr key={row.id}>
               <Table.Td className="cellName">
-                <Seams text={row.host ?? row.email ?? ''} />
+                <Seams text={row.host ?? row.email ?? ''} address />
               </Table.Td>
               <Table.Td>
                 <Badge color={row.donor_decision ? 'red' : 'gray'} variant="light">
                   {SUPPRESSION_REASON_TITLES[row.reason]}
                 </Badge>
               </Table.Td>
-              <Table.Td className="wrapCell cellName">{row.created_by ?? '—'}</Table.Td>
+              {/* Адрес учётки — по швам, как домен: «qa- / agent@…co / m» (проверка прода
+                  10.10.2026). */}
+              <Table.Td className="wrapCell cellName">
+                <Seams text={row.created_by ?? '—'} address />
+              </Table.Td>
               <Table.Td>{when(row.created_at)}</Table.Td>
               <Table.Td>
                 {row.expires_at === null ? (
