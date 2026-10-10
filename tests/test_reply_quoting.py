@@ -74,6 +74,10 @@ WROTE = {
 OTHER_CLIENTS = {
     "gmail en в две строки": "On Mon, Sep 28, 2026 at 10:04 AM {me}\nwrote:",
     "gmail ru в две строки": "пн, 28 сент. 2026 г. в 10:04, Anna Ro\n<anna+m417.7d3a91c2e5@replies.ours.test>:",
+    # Проверка прода 10.10.2026: Gmail перенёс строку внутри угловых скобок, и вторая
+    # строка шапки начиналась с «>» — цитата резалась с неё, первая оставалась в ответе.
+    "gmail ru перенос перед «>»": "пн, 28 сент. 2026 г. в 10:04, Anna Ro <anna+m417.7d3a91c2e5@replies.ours.test\n>:",
+    "gmail ru перенос после «<»": "пн, 28 сент. 2026 г. в 10:04, Anna Ro <\nanna+m417.7d3a91c2e5@replies.ours.test>:",
     "es в две строки": "El lun, 28 sept 2026 a las 10:04, \nAnna Ro escribió:",
     "thunderbird de": "Am 28.09.26 um 10:04 schrieb Anna Ro:",
     "thunderbird fr": "Le 28/09/2026 à 10:04, Anna Ro a écrit :",
