@@ -47,7 +47,7 @@ from backend.features.core.models.run import RunModel
 from backend.features.crawl import review as advertiser_review
 from backend.features.donors import standing
 from backend.features.letters.chain import FIRST_STEP
-from backend.features.outreach.repository import OutreachRepository, ThreadRow
+from backend.features.outreach.repository import OutreachRepository, ThreadMark
 from backend.features.outreach.threads import ThreadState
 from backend.features.replies import unbound
 from backend.features.review.candidates import Decision
@@ -168,11 +168,10 @@ class Work:
 async def overview(session: AsyncSession, *, now: datetime | None = None) -> Overview:
     """Собрать главную. Каждое число — правилом своего экрана."""
     moment = now or datetime.now(UTC)
-    # Все диалоги, а не последние двести, как в списке: сводка считает по всем.
-    # Состояние выводится в питоне правилом `summarize`, поэтому грузятся
-    # и письма. На тысячах диалогов запрос станет заметным — тогда счёт
-    # переводить в SQL, сохранив правило одним местом.
-    threads = await OutreachRepository(session).threads()
+    # Все диалоги, состоянием по правилу списка (`threads.state_of`) — одним местом
+    # правила, а не его копией в SQL: сумму в автоответе ищет питон. Из базы — только
+    # то, что правило читает: статусы писем и поля ответов без текстов (аудит 10.10.2026).
+    threads = await OutreachRepository(session).states()
     spending = await SpendingRepository(session).since_month_start(now=moment)
     decisions = await standing.waiting(session)
     return Overview(
@@ -196,17 +195,17 @@ async def overview(session: AsyncSession, *, now: datetime | None = None) -> Ove
 
 async def work(session: AsyncSession) -> Work:
     """Числа меню — теми же правилами, что «Ждут человека» на главной."""
-    threads = await OutreachRepository(session).threads()
+    threads = await OutreachRepository(session).states()
     return Work(
         run=(await standing.waiting(session)).domains,
-        threads=sum(1 for row in threads if row.summary.state in WAITS_FOR_PERSON),
+        threads=sum(1 for mark in threads if mark.state in WAITS_FOR_PERSON),
         forms=await forms.total(session),
         advertisers=await advertiser_review.waiting(session),
     )
 
 
 async def _donors(
-    session: AsyncSession, threads: Sequence[ThreadRow], now: datetime
+    session: AsyncSession, threads: Sequence[ThreadMark], now: datetime
 ) -> DonorCounts:
     fresh_since = now - timedelta(days=filters_cfg.PRICE_TTL_DAYS)
     donor = standing.is_donor()
@@ -238,11 +237,11 @@ async def _donors(
         written=await _written(session),
         replied=len(
             {
-                thread.thread.domain_id
-                for thread in threads
-                if thread.stage is Stage.DONORS
-                and thread.summary.state in _ANSWERED
-                and thread.thread.domain_id in donors
+                mark.domain_id
+                for mark in threads
+                if mark.stage is Stage.DONORS
+                and mark.state in _ANSWERED
+                and mark.domain_id in donors
             }
         ),
         priced=int(priced),
@@ -255,8 +254,8 @@ def _count(condition: ColumnElement[bool]) -> ColumnElement[int]:
     return func.count().filter(condition)
 
 
-def _in_state(threads: Sequence[ThreadRow], state: ThreadState) -> int:
-    return sum(1 for row in threads if row.summary.state is state)
+def _in_state(threads: Sequence[ThreadMark], state: ThreadState) -> int:
+    return sum(1 for mark in threads if mark.state is state)
 
 
 async def _written(session: AsyncSession) -> int:

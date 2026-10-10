@@ -35,15 +35,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import assert_never
+from typing import Any, Protocol, assert_never
 
 from backend.features.core.domain import GONE_STATUSES, MessageStatus, ReplyKind, Stage
-from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.replies.outcome import (
     AUTO_REPLY_WITH_SUM,
     names_a_sum,
@@ -84,7 +83,67 @@ class ThreadSummary:
     currency: str | None
 
 
-def _last_at(messages: Sequence[MessageModel], replies: Sequence[ReplyModel]) -> datetime | None:
+class LetterFacts(Protocol):
+    """Что правило читает у письма — и только это.
+
+    Карточке переписки письма приходят целиком (`MessageModel`), списку диалогов —
+    без темы и тела (`repository.ListedLetter`, аудит 10.10.2026). Правило у обоих одно.
+    """
+
+    @property
+    def status(self) -> MessageStatus: ...
+
+    @property
+    def sent_at(self) -> datetime | None: ...
+
+
+class ReplyFacts(Protocol):
+    """Что правило читает у ответа — и только это.
+
+    Карточке ответы приходят целиком (`ReplyModel`), списку и числам меню — без
+    текста, адресов и разбора цен (`repository.ListedReply`, аудит 10.10.2026).
+    Понадобится правилу новое поле — сначала строка здесь, и mypy покажет выборку
+    списка, где его нет: иначе список молча разошёлся бы с карточкой.
+    """
+
+    #: Пусто у ответа, ещё не записанного в базу, — так его строят проверки правил.
+    @property
+    def id(self) -> int | None: ...
+
+    @property
+    def kind(self) -> ReplyKind: ...
+
+    @property
+    def created_at(self) -> datetime: ...
+
+    #: Читается только у автоответа на письмо донору: в нём ищется сумма (`review_of`).
+    @property
+    def raw_body(self) -> str: ...
+
+    @property
+    def confidence(self) -> float | None: ...
+
+    @property
+    def reviewed_at(self) -> datetime | None: ...
+
+    @property
+    def price_white(self) -> Decimal | None: ...
+
+    @property
+    def price_grey(self) -> Decimal | None: ...
+
+    @property
+    def currency(self) -> str | None: ...
+
+    @property
+    def placement(self) -> str | None: ...
+
+    #: Читается только у ответа продаж: «ждёт ли» и «закрыт ли адрес» (`outcome.sales_review`).
+    @property
+    def model_parse(self) -> Mapping[str, Any] | None: ...
+
+
+def _last_at(messages: Sequence[LetterFacts], replies: Sequence[ReplyFacts]) -> datetime | None:
     moments = [m.sent_at for m in messages if m.sent_at is not None]
     moments += [r.created_at for r in replies if r.created_at is not None]
     return max(moments) if moments else None
@@ -94,9 +153,9 @@ def _last_at(messages: Sequence[MessageModel], replies: Sequence[ReplyModel]) ->
 _Rules = tuple[tuple[bool, ThreadState], ...]
 
 
-def _state(
-    messages: Sequence[MessageModel],
-    replies: Sequence[ReplyModel],
+def state_of(
+    statuses: Collection[MessageStatus],
+    replies: Sequence[ReplyFacts],
     stage: Stage = Stage.DONORS,
 ) -> ThreadState:
     """Первое подошедшее правило и есть состояние.
@@ -109,9 +168,11 @@ def _state(
 
     Что считать ответом, решает этап: у донора — цена и её разбор,
     у рекламодателя — лид, у продаж — ответ, который ждёт своего разбора.
+
+    От писем правилу нужны только статусы — их оно и принимает: числа «Обзора»
+    и меню берут из базы статусы писем диалога, а не сами письма (аудит 10.10.2026).
     """
     kinds = {r.kind for r in replies}
-    statuses = {m.status for m in messages}
     answered = _answered(replies, stage)
 
     rules: _Rules = (
@@ -119,7 +180,10 @@ def _state(
         *answered,
         (MessageStatus.BOUNCED in statuses, ThreadState.BOUNCED),
         (MessageStatus.STOPPED in statuses, ThreadState.STOPPED),
-        (bool({MessageStatus.SENT, MessageStatus.DELIVERED} & statuses), ThreadState.WAITING),
+        (
+            MessageStatus.SENT in statuses or MessageStatus.DELIVERED in statuses,
+            ThreadState.WAITING,
+        ),
     )
     for matched, state in rules:
         if matched:
@@ -127,7 +191,7 @@ def _state(
     return ThreadState.QUEUED
 
 
-def _answered(replies: Sequence[ReplyModel], stage: Stage) -> _Rules:
+def _answered(replies: Sequence[ReplyFacts], stage: Stage) -> _Rules:
     """Правила ответа — по этапу рассылки, целиком: новый этап — ошибка mypy."""
     match stage:
         case Stage.DONORS:
@@ -147,7 +211,7 @@ def _answered(replies: Sequence[ReplyModel], stage: Stage) -> _Rules:
             assert_never(stage)
 
 
-def _lead_rules(replies: Sequence[ReplyModel]) -> _Rules:
+def _lead_rules(replies: Sequence[ReplyFacts]) -> _Rules:
     """Ответ рекламодателя: лид ждёт человека, пока его не взяли в работу."""
     human = [r for r in replies if r.kind is ReplyKind.HUMAN]
     return (
@@ -166,7 +230,7 @@ class Review:
     reason: str | None = None
 
 
-def review_of(reply: ReplyModel, stage: Stage = Stage.DONORS) -> Review:
+def review_of(reply: ReplyFacts, stage: Stage = Stage.DONORS) -> Review:
     """Ждёт ли ответ человека — у донора. У рекламодателя разбора цены нет
     вовсе: его ответ — лид, и сумма в нём — его расход, а не цена. Ответ
     человека в продажах ждёт, пока вид не разобран или путь вида — человек.
@@ -194,7 +258,7 @@ def review_of(reply: ReplyModel, stage: Stage = Stage.DONORS) -> Review:
     return Review(waiting=waiting, reason=AUTO_REPLY_WITH_SUM if priced else None)
 
 
-def _answer_rules(replies: Sequence[ReplyModel]) -> _Rules:
+def _answer_rules(replies: Sequence[ReplyFacts]) -> _Rules:
     """Ответ донора: цена, «не продаём», «бесплатно», ждёт разбора, просто ответил."""
     kinds = {r.kind for r in replies}
     judged = [(r, review_of(r).waiting) for r in replies]
@@ -220,7 +284,7 @@ def _answer_rules(replies: Sequence[ReplyModel]) -> _Rules:
     )
 
 
-def settled_price(replies: Sequence[ReplyModel]) -> ReplyModel | None:
+def settled_price(replies: Sequence[ReplyFacts]) -> ReplyFacts | None:
     """Ответ, чья цена — цена переписки: последний, где цена принята.
 
     Принята — подтверждена человеком или разобрана уверенно: так же цена
@@ -241,15 +305,15 @@ def settled_price(replies: Sequence[ReplyModel]) -> ReplyModel | None:
 
 
 def summarize(
-    messages: Sequence[MessageModel],
-    replies: Sequence[ReplyModel],
+    messages: Sequence[LetterFacts],
+    replies: Sequence[ReplyFacts],
     stage: Stage = Stage.DONORS,
 ) -> ThreadSummary:
     """Свести письма и входящие в одну строку списка."""
     priced = settled_price(replies)
     human = [r for r in replies if r.kind is ReplyKind.HUMAN]
     return ThreadSummary(
-        state=_state(messages, replies, stage),
+        state=state_of({m.status for m in messages}, replies, stage),
         messages_sent=sum(1 for m in messages if m.status in GONE_STATUSES),
         last_event_at=_last_at(messages, replies),
         last_reply_at=max((r.created_at for r in human), default=None),

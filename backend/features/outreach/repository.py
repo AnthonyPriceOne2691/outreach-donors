@@ -10,13 +10,15 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, time
+from decimal import Decimal
+from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, Text, and_, case, func, select
 from sqlalchemy import true as sa_true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from backend.features.core.domain import Stage
+from backend.features.core.domain import MessageStatus, ReplyKind, Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.outreach import (
@@ -26,7 +28,8 @@ from backend.features.core.models.outreach import (
     SenderModel,
     ThreadModel,
 )
-from backend.features.outreach.threads import ThreadState, ThreadSummary, summarize
+from backend.features.outreach.threads import ThreadState, ThreadSummary, state_of, summarize
+from backend.features.replies.inbound import MAX_TEXT_CHARS
 
 
 class UnknownSenderError(ValueError):
@@ -57,6 +60,68 @@ class ThreadDetail:
     row: ThreadRow
     messages: Sequence[MessageModel]
     replies: Sequence[ReplyModel]
+
+
+@dataclass(frozen=True, slots=True)
+class ThreadMark:
+    """Диалог для чисел «Обзора» и меню: чей он, какого этапа и в каком состоянии."""
+
+    thread_id: int
+    domain_id: int
+    stage: Stage
+    state: ThreadState
+
+
+@dataclass(frozen=True, slots=True)
+class ListedLetter:
+    """Письмо строки списка — то, что читает правило (`threads.LetterFacts`):
+    статус и время ухода. Тема и тело остаются в базе (аудит 10.10.2026)."""
+
+    status: MessageStatus
+    sent_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class ListedReply:
+    """Ответ строки списка и чисел меню — то, что читает правило (`threads.ReplyFacts`).
+
+    Адреса, тема и список цен остаются в базе: правило их не читает. Текст
+    и снимок разбора — только у тех ответов, где правило их читает (`_body_head`,
+    `_snapshot`); у остальных вместо них пусто.
+    """
+
+    id: int
+    kind: ReplyKind
+    created_at: datetime
+    confidence: float | None
+    reviewed_at: datetime | None
+    price_white: Decimal | None
+    price_grey: Decimal | None
+    currency: str | None
+    placement: str | None
+    raw_body: str
+    model_parse: dict[str, Any] | None
+
+
+def _body_head() -> ColumnElement[str]:
+    """Начало текста — только у автоответа на письмо донору: в нём правило ищет
+    сумму в валюте (`threads.review_of`), а у других ответов текст не читает.
+    Ищет в первых `MAX_TEXT_CHARS` знаках (`outcome.names_a_sum`) — дальше не грузим:
+    текст ответа бывает в двести тысяч знаков (`inbound.MAX_BODY_CHARS`)."""
+    return case(
+        (
+            and_(CampaignModel.stage == Stage.DONORS, ReplyModel.kind == ReplyKind.AUTO_REPLY),
+            func.left(ReplyModel.raw_body, MAX_TEXT_CHARS, type_=Text),
+        ),
+        else_="",
+    )
+
+
+def _snapshot() -> ColumnElement[Any]:
+    """Снимок разбора — только у ответа продаж: из него правило читает, ждёт ли ответ
+    человека и закрыт ли адрес (`outcome.sales_review`). Снимок модели у ответа донора
+    правилу не нужен — и не грузится."""
+    return case((CampaignModel.stage == Stage.SALES, ReplyModel.model_parse))
 
 
 class OutreachRepository:
@@ -116,12 +181,17 @@ class OutreachRepository:
     # --- диалоги ---
 
     async def threads(self) -> list[ThreadRow]:
-        """Все диалоги, новые первыми — и списку, и главной.
+        """Все диалоги, новые первыми, — списку «Диалогов».
 
-        Список «Диалогов» до 09.10.2026 брал двести новых: с двести первого старый
-        диалог, в котором только что ответили, выпадал из списка, а главная его
-        считала и вела на пустой фильтр (аудит экранов 09.10.2026). Главная читает
-        все диалоги на каждый показ — списку столько же по силам."""
+        Список до 09.10.2026 брал двести новых: с двести первого старый диалог,
+        в котором только что ответили, выпадал из списка, а главная его считала
+        и вела на пустой фильтр (аудит экранов 09.10.2026).
+
+        Письма и ответы — без текстов (аудит 10.10.2026): строке нужны состояние,
+        счёт ушедших писем, время и цена, а грузились переписки целиком — тела писем,
+        тексты ответов с адресами и разбором. На тысячах диалогов продаж это сотни
+        мегабайт на каждый показ в процессе с потолком в гигабайт.
+        """
         rows = await self._session.execute(
             select(
                 ThreadModel,
@@ -133,24 +203,49 @@ class OutreachRepository:
             .join(DomainModel, DomainModel.id == ThreadModel.domain_id)
             .join(CampaignModel, CampaignModel.id == ThreadModel.campaign_id)
             .outerjoin(ContactModel, ContactModel.id == ThreadModel.contact_id)
-            .options(selectinload(ThreadModel.replies))
             .order_by(ThreadModel.id.desc())
         )
         found = rows.all()
         if not found:
             return []
 
-        messages = await self._messages_by_thread([thread.id for thread, *_ in found])
+        letters = await self._listed_letters()
+        replies = await self._listed_replies()
         return [
             ThreadRow(
                 thread=thread,
                 host=host,
                 contact_email=email,
                 campaign_name=campaign,
-                summary=summarize(messages.get(thread.id, []), thread.replies, stage),
+                summary=summarize(letters.get(thread.id, []), replies.get(thread.id, []), stage),
                 stage=stage,
             )
             for thread, host, email, campaign, stage in found
+        ]
+
+    async def states(self) -> list[ThreadMark]:
+        """Состояние каждого диалога — числам «Обзора» и меню.
+
+        Правило то же, что у списка (`threads.state_of`), но из писем ему нужны
+        только статусы — они и приходят из базы, парами «диалог — статус», без самих
+        писем: меню спрашивает числа раз в минуту с каждой открытой вкладки, и до
+        аудита 10.10.2026 каждый раз грузило переписки целиком.
+        """
+        threads = await self._session.execute(
+            select(ThreadModel.id, ThreadModel.domain_id, CampaignModel.stage).join(
+                CampaignModel, CampaignModel.id == ThreadModel.campaign_id
+            )
+        )
+        statuses = await self._letter_statuses()
+        replies = await self._listed_replies()
+        return [
+            ThreadMark(
+                thread_id=thread_id,
+                domain_id=domain_id,
+                stage=stage,
+                state=state_of(statuses.get(thread_id, set()), replies.get(thread_id, []), stage),
+            )
+            for thread_id, domain_id, stage in threads.tuples()
         ]
 
     async def thread(self, thread_id: int) -> ThreadDetail:
@@ -190,12 +285,7 @@ class OutreachRepository:
         )
 
     async def _messages_by_thread(self, thread_ids: Sequence[int]) -> dict[int, list[MessageModel]]:
-        """Письма одним запросом на весь список.
-
-        По запросу на диалог список из двухсот строк стоил бы двухсот
-        обращений к базе — и это было бы незаметно на демонстрации
-        и заметно на боевом объёме.
-        """
+        """Письма целиком — карточке переписки."""
         rows = await self._session.execute(
             select(MessageModel)
             .where(MessageModel.thread_id.in_(thread_ids))
@@ -205,6 +295,80 @@ class OutreachRepository:
         for message in rows.scalars().all():
             if message.thread_id is not None:
                 by_thread.setdefault(message.thread_id, []).append(message)
+        return by_thread
+
+    async def _listed_letters(self) -> dict[int, list[ListedLetter]]:
+        """Письма всех диалогов — статусом и временем ухода, одним запросом.
+
+        По запросу на диалог список стоил бы тысячи обращений к базе. И без перечня
+        номеров диалогов: список берёт все, а перечень из тысяч номеров упёрся бы
+        в потолок параметров запроса у asyncpg (32 767).
+        """
+        rows = await self._session.execute(
+            select(MessageModel.thread_id, MessageModel.status, MessageModel.sent_at).where(
+                MessageModel.thread_id.is_not(None)
+            )
+        )
+        by_thread: dict[int, list[ListedLetter]] = {}
+        for thread_id, status, sent_at in rows.tuples():
+            if thread_id is not None:
+                by_thread.setdefault(thread_id, []).append(ListedLetter(status, sent_at))
+        return by_thread
+
+    async def _letter_statuses(self) -> dict[int, set[MessageStatus]]:
+        """Какие статусы есть у писем каждого диалога — парами из базы, без писем."""
+        rows = await self._session.execute(
+            select(MessageModel.thread_id, MessageModel.status)
+            .where(MessageModel.thread_id.is_not(None))
+            .distinct()
+        )
+        by_thread: dict[int, set[MessageStatus]] = {}
+        for thread_id, status in rows.tuples():
+            if thread_id is not None:
+                by_thread.setdefault(thread_id, set()).add(status)
+        return by_thread
+
+    async def _listed_replies(self) -> dict[int, list[ListedReply]]:
+        """Ответы всех диалогов — полями правила (`ListedReply`), одним запросом.
+
+        Ответ без диалога (`replies/unbound.py`) сюда не входит: строки, к которой
+        его приложить, нет, и считает его своя вкладка.
+        """
+        rows = await self._session.execute(
+            select(
+                ReplyModel.thread_id,
+                ReplyModel.id,
+                ReplyModel.kind,
+                ReplyModel.created_at,
+                ReplyModel.confidence,
+                ReplyModel.reviewed_at,
+                ReplyModel.price_white,
+                ReplyModel.price_grey,
+                ReplyModel.currency,
+                ReplyModel.placement,
+                _body_head().label("raw_body"),
+                _snapshot().label("model_parse"),
+            )
+            .join(ThreadModel, ThreadModel.id == ReplyModel.thread_id)
+            .join(CampaignModel, CampaignModel.id == ThreadModel.campaign_id)
+        )
+        by_thread: dict[int, list[ListedReply]] = {}
+        for row in rows:
+            by_thread.setdefault(row.thread_id, []).append(
+                ListedReply(
+                    id=row.id,
+                    kind=row.kind,
+                    created_at=row.created_at,
+                    confidence=row.confidence,
+                    reviewed_at=row.reviewed_at,
+                    price_white=row.price_white,
+                    price_grey=row.price_grey,
+                    currency=row.currency,
+                    placement=row.placement,
+                    raw_body=row.raw_body,
+                    model_parse=row.model_parse,
+                )
+            )
         return by_thread
 
 
