@@ -96,6 +96,41 @@ async def test_targets_are_fresh_priced_donors_with_their_last_crawl(
     assert body["workers"] == 4
 
 
+async def test_a_domain_rejected_by_a_person_is_neither_offered_nor_queued(
+    client: AsyncClient,
+    operator: str,
+    donors: None,
+    session: AsyncSession,
+    queue: list[tuple[int, str | None]],
+) -> None:
+    """Проверка QA 10.10.2026: домен, отклонённый человеком уже с ценой, стоял
+    в списке «кого обходить», «Обойти …» нажималось, а «без цены» считало
+    недонорами. Не донор — не предлагается, не считается и не ставится запросом
+    мимо экрана."""
+    rejected = await make_donor(session, "rejected.example.test", review="rejected")
+    donor = (
+        await session.execute(select(DonorModel).where(DonorModel.domain_id == rejected.id))
+    ).scalar_one()
+    donor.last_price, donor.last_price_at = Decimal("150.00"), datetime.now(UTC)
+    await make_donor(session, "waits.example.test", review=None)
+    await session.commit()
+
+    body = (await client.get("/api/crawls/targets", headers=bearer(operator))).json()
+
+    assert [row["host"] for row in body["donors"]] == [FRESH]
+    assert (body["stale_price"], body["no_price"], body["supplier"]) == (1, 0, 0)
+
+    response = await client.post(
+        "/api/crawls", json={"hosts": ["rejected.example.test"]}, headers=bearer(operator)
+    )
+
+    started = response.json()
+    assert response.status_code == 200, started
+    assert started["queued"] == {}
+    assert started["refused"]["rejected.example.test"].startswith("не принятый донор")
+    assert queue == []
+
+
 async def test_a_row_says_the_currency_and_where_the_price_came_from(
     client: AsyncClient, operator: str, donors: None, session: AsyncSession
 ) -> None:
