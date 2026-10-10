@@ -405,7 +405,12 @@ def _phrase(template: str, ctx: Mapping[str, Any]) -> str:
     try:
         return template.format(**shown)
     except (KeyError, IndexError):
-        # Подстановки нет: у типа другая форма `ctx` в этой версии pydantic.
+        # Подстановки нет: у типа другая форма `ctx` в этой версии pydantic. Человек
+        # получит общие слова, а журнал — что шаблон пора поправить.
+        logger.warning(
+            "отказ разбора запроса: у шаблона нет подстановки — ответ общими словами",
+            extra={"template": template, "ctx_keys": sorted(shown)},
+        )
         return _UNSAID
 
 
