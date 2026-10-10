@@ -130,12 +130,12 @@ def read_token(token: str) -> TokenPayload:
     except (KeyError, TypeError, ValueError) as exc:
         raise TokenError("В пропуске нет сотрудника") from exc
 
-    stamp = claims.get(STAMP_CLAIM)
     return TokenPayload(
         user_id=user_id,
         issued_at=datetime.fromtimestamp(int(claims["iat"]), tz=UTC),
         expires_at=datetime.fromtimestamp(int(claims["exp"]), tz=UTC),
-        password_stamp=stamp if isinstance(stamp, str) else None,
+        # Как лежит: подпись проверена, а отпечаток кладёт только `create_token` — строкой.
+        password_stamp=claims.get(STAMP_CLAIM),
     )
 
 
