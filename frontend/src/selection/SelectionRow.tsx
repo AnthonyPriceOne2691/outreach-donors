@@ -12,11 +12,11 @@
  * решение было видно без чтения подписи.
  *
  * **Строка, которую решение увело на другую вкладку, остаётся на месте**
- * (`useDecisions`, проверка QA 10.10.2026) — решение и куда ушла одной
- * пометкой, рядом «Вернуть»: нижние строки не поднимаются под курсор.
+ * (`useDecisions`, проверка QA 10.10.2026) — с решением, вкладкой, куда ушла,
+ * и «Вернуть»: нижние строки не поднимаются под курсор.
  */
 
-import { Anchor, Badge, Button, Group, Stack, Table, Text } from '@mantine/core';
+import { Anchor, Badge, Box, Button, Group, Stack, Table, Text } from '@mantine/core';
 
 import {
   DONOR_STATUSES,
@@ -27,6 +27,7 @@ import {
 } from '../api/labels';
 import type { HumanIntent, SelectionCard } from '../api/types';
 import { JudgeVerdict, SellerAnswer } from '../components/JudgeVerdict';
+import type { GoneRow } from './useDecisions';
 
 interface Props {
   row: SelectionCard;
@@ -35,7 +36,7 @@ interface Props {
   mayDecide: boolean;
   busy: boolean;
   /** Решение увело строку с вкладки — она стоит на месте до смены вида. */
-  gone: boolean;
+  gone: GoneRow | null;
   onDecide: (row: SelectionCard, intent: HumanIntent | null) => void;
   onUndo: (row: SelectionCard) => void;
 }
@@ -64,28 +65,37 @@ function Thresholds({ row }: { row: SelectionCard }) {
   );
 }
 
-/** Ушедшая строка: решение и вкладка, куда оно её увело, и «Вернуть» — к тому,
- *  что было до нажатия. Одной строкой вместо трёх кнопок: пометка под кнопками
- *  растила строку на 23 px и сдвигала нижние вниз — та же ловушка под курсором,
- *  только в другую сторону (замер в браузере 10.10.2026). */
-function Gone({ row, busy, onUndo }: Pick<Props, 'row' | 'busy' | 'onUndo'>) {
+/** Ушедшая строка: решение — значком цвета вкладки, куда оно её увело, и «Вернуть» —
+ *  к тому, что было до нажатия. Вместо трёх кнопок и той же высоты: в ряд, где кнопки
+ *  в ряд, в два ряда — где в два (`SelectionTable`). Пометка под кнопками растила
+ *  строку на 23 px и сдвигала нижние вниз — та же ловушка под курсором, только в другую
+ *  сторону; одним значком «решение → вкладка» она не влезала в колонку в два ряда
+ *  (замеры в браузере 10.10.2026). */
+function Gone({ row, busy, disagreed, onUndo }: Pick<Props, 'row' | 'busy' | 'onUndo'> & GoneRow) {
   const tab = SELECTION_TABS[row.tab];
   const said = row.human.intent === null ? 'решение снято' : HUMAN_INTENTS[row.human.intent];
   return (
-    <Group gap={6} justify="center" wrap="nowrap">
-      <Badge variant="light" color={tab.color} size="sm">
-        {said} → «{tab.title}»
-      </Badge>
-      <Button
-        size="compact-xs"
-        variant="subtle"
-        className="press"
-        disabled={busy}
-        onClick={() => onUndo(row)}
-      >
-        Вернуть
-      </Button>
-    </Group>
+    <Stack gap={4} align="center">
+      <Group gap={4} justify="center" wrap="wrap">
+        <Badge variant="light" color={tab.color} h={22}>
+          {said}
+        </Badge>
+        <Text size="xs" style={{ whiteSpace: 'nowrap' }}>
+          → «{tab.title}»
+        </Text>
+        <Button
+          size="compact-xs"
+          variant="subtle"
+          className="press"
+          disabled={busy}
+          onClick={() => onUndo(row)}
+        >
+          Вернуть
+        </Button>
+      </Group>
+      {/* Место значка «разошёлся с судьёй», что стоял под кнопками до решения. */}
+      {disagreed && <Box h={18} aria-hidden />}
+    </Stack>
   );
 }
 
@@ -98,10 +108,13 @@ function Human({ row, mayDecide, busy, gone, onDecide, onUndo }: Props) {
       </Text>
     );
   }
-  if (gone) return <Gone row={row} busy={busy} onUndo={onUndo} />;
+  if (gone !== null) return <Gone row={row} busy={busy} onUndo={onUndo} {...gone} />;
+  // Три кнопки — в ряд, где колонке хватает места (у принятых), и в два ряда,
+  // где рядом «Пороги» (`SelectionTable`): в одну строку они не вставали в панель
+  // на 1280 и 1440 с раскрытым меню, и «Не продаёт места» резался краем.
   return (
     <Stack gap={4} align="center">
-      <Group gap={4} justify="center" wrap="nowrap">
+      <Group gap={4} justify="center" wrap="wrap">
         {INTENTS.map((intent) => (
           <Button
             key={intent}

@@ -388,10 +388,11 @@ describe('решённая строка стоит на месте', () => {
       'fourth.test',
       'fifth.test',
     ]);
-    // Решение и куда оно увело — одной пометкой вместо трёх кнопок: строка
-    // не растёт и не сдвигает нижние вниз.
+    // Решение и куда оно увело — вместо трёх кнопок: строка не растёт и не
+    // сдвигает нижние вниз.
     const decided = within(rowOf('second.test'));
-    expect(decided.getByText('Продаёт своё → «Отклонены»')).toBeInTheDocument();
+    expect(decided.getByText('Продаёт своё')).toBeInTheDocument();
+    expect(decided.getByText('→ «Отклонены»')).toBeInTheDocument();
     expect(decided.queryByRole('button', { name: 'Площадка' })).toBeNull();
 
     await user.click(decided.getByRole('button', { name: 'Вернуть' }));
@@ -432,6 +433,43 @@ describe('решённая строка стоит на месте', () => {
       expect(hostsInTable()).toEqual(['first.test', 'third.test', 'fourth.test', 'fifth.test']),
     );
     expect(screen.queryByText(/→ «Отклонены»/)).toBeNull();
+  });
+});
+
+/** Ширины колонок таблицы из разметки, в пикселях; `null` — колонке достаётся остаток. */
+function columnWidths(): (number | null)[] {
+  return [...document.querySelectorAll<HTMLElement>('table colgroup col')].map((col) =>
+    col.style.width === '' ? null : parseFloat(col.style.width) * 16,
+  );
+}
+
+/** Панель «Отбора» на окне 1280 с раскрытым меню — замер в браузере 10.10.2026. */
+const PANEL_AT_1280 = 948;
+
+describe('таблица встаёт в панель', () => {
+  // Проверка QA 10.10.2026: колонки «Отклонены» и «К разбору» — 1 166 px против
+  // панели 1 108 на 1440 с раскрытым меню: прокрутка вбок, «Не продаёт места»
+  // обрезан краем. Раскладку меряет браузер; здесь — что колонки её допускают.
+  it('колонки любой вкладки вместе не шире панели на 1280, кнопки решения переносятся', async () => {
+    await openScreen({ [REJECTED]: { body: view([WEAK, CUT]) } });
+
+    const accepted = columnWidths();
+    expect(accepted).not.toContain(null);
+    expect(accepted.reduce<number>((sum, width) => sum + (width ?? 0), 0)).toBeLessThanOrEqual(
+      PANEL_AT_1280,
+    );
+
+    await userEvent.setup().click(screen.getByText('Отклонены — 3'));
+    await screen.findByText('weak.test');
+
+    // С «Порогами» судье — остаток; остальным — их ширины, и с ними ещё есть место
+    // под поле фильтра судьи (146 px и поля ячейки).
+    const rejected = columnWidths();
+    expect(rejected.indexOf(null)).toBe(2);
+    const fixed = rejected.reduce<number>((sum, width) => sum + (width ?? 0), 0);
+    expect(fixed + 166).toBeLessThanOrEqual(PANEL_AT_1280);
+    const decide = within(rowOf('weak.test')).getByRole('button', { name: 'Площадка' });
+    expect(decide.parentElement!.style.getPropertyValue('--group-wrap')).toBe('wrap');
   });
 });
 

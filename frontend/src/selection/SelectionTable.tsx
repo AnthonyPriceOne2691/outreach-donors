@@ -51,6 +51,7 @@ import { dropdownBelow } from '../theme';
 import { SelectionRow } from './SelectionRow';
 import { answersOn, HUMAN_KEYS, JUDGE_KEYS, thresholdsOn } from './selectionFilters';
 import type { Emptiness, SelectionFilters } from './selectionFilters';
+import type { GoneRow } from './useDecisions';
 
 /** Ширины полей фильтра — по самому длинному значению, замеренному шрифтом
  *  экрана 26.09.2026 (холст по живому полю, 12 px): «до Ahrefs не дошёл» —
@@ -71,46 +72,56 @@ const FIELD = {
   human: '10.625rem',
 } as const;
 
-/** Колонки слева направо — по самому широкому, что в них бывает, плюс поля
- *  ячейки по 10 px: пороги и ответ донора — по своему полю фильтра (значки
- *  «не проверен» — 98 px, «берёт бесплатно» — 123, заголовок «Донор
- *  ответил» — 120 — уже поля); судья — по цитате (не шире 260 px), ряд
- *  значков переносится целыми значками; человек — по трём кнопкам решения
- *  в ряд, 314 px.
+interface Column {
+  title: string;
+  /** Не задана — колонке достаётся остаток ширины таблицы. */
+  width?: string;
+}
+
+/** Колонки слева направо — так, чтобы таблица вставала целиком в самое узкое
+ *  место, где её смотрят: панель 948 px на окне 1280 с раскрытым меню (на 1440 —
+ *  1108; замер 10.10.2026). Колонки по самому широкому содержимому давали 1 166 px,
+ *  и «Отклонены» и «К разбору» уезжали в прокрутку уже на 1440, а «Не продаёт
+ *  места» обрезался краем панели (проверка QA 10.10.2026).
  *
- *  Домену — 192 px, столько, сколько ему и оставалось на окне в 1440 px:
- *  172 px текста. Раньше ему шёл весь остаток, и на широком экране колонка
- *  разъезжалась до 312 px. Шире суммы колонок таблица бывает только на
- *  широком окне, и запас — до 120 px — делится между колонками по их
- *  ширинам: домену на 1650 px — 212. Переносились длинные домены: из 1 065
- *  доменов базы разработки на 1440 px — 85, на 1650 — 24; самый длинный —
- *  233 px (замер холстом 28.09.2026). С 10.10.2026 домен не переносится:
- *  одна строка с DR, не влезло — многоточие, целиком — в подсказке
- *  (`SelectionRow`). */
-const COLUMNS: { title: string; width: string }[] = [
-  { title: 'Домен', width: '12rem' },
-  { title: 'Пороги', width: '11.5rem' },
-  { title: 'Судья', width: '17.75rem' },
+ *  Колонка — не уже поля фильтра над ней и полей ячейки по 10 px: домен — 180
+ *  (поиск 160; не влез домен — многоточие, `SelectionRow`), пороги — 184, ответ
+ *  донора — 170, человек — 190. Замер содержимого в браузере: три кнопки решения
+ *  в ряд — 316 px, в два ряда — 185 («Площадка» и «Продаёт своё»), значки судьи
+ *  в ряд — 235.
+ *
+ *  **У принятых колонки «Пороги» нет**: вердикт порогов у них один — «подходит»,
+ *  по определению вкладки (аудит экранов 09.10.2026), — и кнопки стоят в ряд:
+ *  строка там в одну строку текста, ~50 px. Запас широкого окна делится между
+ *  колонками по их ширинам. */
+const WITHOUT_THRESHOLDS: Column[] = [
+  { title: 'Домен', width: '11.25rem' },
+  { title: 'Судья', width: '16.125rem' },
   { title: 'Донор ответил', width: '10.625rem' },
   { title: 'Человек', width: '21rem' },
 ];
 
-/** Уже этого таблица не сжимается и уезжает в прокрутку: сумма ширин
- *  колонок (1 166 px). На окне в 1440 px таблице достаётся 1 169 — встаёт
- *  целиком. */
-export const TABLE_MIN_WIDTH = 1166;
+/** **С «Порогами» кнопки встают в два ряда**: строка там и так выше — значок
+ *  порогов и причина под ним, — и два ряда кнопок её не растят. Домену — те же
+ *  192 px, что и до правки. Судье — весь остаток: на 1280 его 194 px, и значки
+ *  переносятся, а на 1440 — 354, и строки не выше, чем были до правки. Делить
+ *  запас по долям значило бы оставить судье ~240 px и на 1440 — строки с цитатой
+ *  вырастали со 103 до 144 px. */
+const WITH_THRESHOLDS: Column[] = [
+  { title: 'Домен', width: '12rem' },
+  { title: 'Пороги', width: '11.5rem' },
+  { title: 'Судья' },
+  { title: 'Донор ответил', width: '10.625rem' },
+  { title: 'Человек', width: '13rem' },
+];
 
-/** «Пороги» в пикселях — на столько уже таблица без этой колонки. */
-const THRESHOLDS_PX = 184;
+/** Уже этого таблица не сжимается и уезжает в прокрутку: сумма колонок принятых —
+ *  944 px, на 4 меньше панели на 1280; судье с «Порогами» при ней остаётся 190. */
+export const TABLE_MIN_WIDTH = 944;
 
-/** Колонки вкладки. **У принятых колонки «Пороги» нет**: вердикт порогов у них один —
- *  «подходит», по определению вкладки, и 184 px одного и того же слова в каждой строке
- *  держали ширину, которой не хватало домену и судье (аудит экранов 09.10.2026).
- *  Запас делится между оставшимися колонками по их ширинам. */
-function columnsOn(tab: SelectionFilters['tab']): typeof COLUMNS {
-  return thresholdsOn(tab).length > 0
-    ? COLUMNS
-    : COLUMNS.filter((column) => column.title !== 'Пороги');
+/** Колонки вкладки: с «Порогами» — у всех, кроме принятых. */
+function columnsOn(tab: SelectionFilters['tab']): Column[] {
+  return thresholdsOn(tab).length > 0 ? WITH_THRESHOLDS : WITHOUT_THRESHOLDS;
 }
 
 /** Значение «не сужать» у всех фильтров строки — одним словом, как у доноров. */
@@ -287,7 +298,7 @@ interface Props extends FilterRowProps {
   refusal: string | null;
   mayDecide: boolean;
   /** Ушли решением на другую вкладку, но стоят на своём месте (`useDecisions`). */
-  gone: ReadonlySet<number>;
+  gone: ReadonlyMap<number, GoneRow>;
   /** Домен, решение по которому сейчас уходит на сервер. */
   deciding: number | null;
   onDecide: (row: SelectionCard, intent: HumanIntent | null) => void;
@@ -310,10 +321,10 @@ export function SelectionTable({
   ...filters
 }: Props) {
   const columns = columnsOn(filters.filters.tab);
-  const withThresholds = columns.length === COLUMNS.length;
+  const withThresholds = columns === WITH_THRESHOLDS;
   return (
     <Table.ScrollContainer
-      minWidth={TABLE_MIN_WIDTH - (withThresholds ? 0 : THRESHOLDS_PX)}
+      minWidth={TABLE_MIN_WIDTH}
       type="native"
       className="scrollSlim phoneCards"
     >
@@ -325,7 +336,10 @@ export function SelectionTable({
       >
         <colgroup>
           {columns.map((column) => (
-            <col key={column.title} style={{ width: column.width }} />
+            <col
+              key={column.title}
+              style={column.width === undefined ? undefined : { width: column.width }}
+            />
           ))}
         </colgroup>
         <Table.Thead>
@@ -373,7 +387,7 @@ export function SelectionTable({
                 withThresholds={withThresholds}
                 mayDecide={mayDecide}
                 busy={stale || deciding === row.domain_id}
-                gone={gone.has(row.domain_id)}
+                gone={gone.get(row.domain_id) ?? null}
                 onDecide={onDecide}
                 onUndo={onUndo}
               />
