@@ -255,3 +255,46 @@ async def test_sales_letter_is_matched_by_its_lead(
     assert (report.bounced, report.unknown) == ((1, 0) if ours else (0, 1))
     assert world.letter.status is (MessageStatus.BOUNCED if ours else MessageStatus.SENT)
     assert found.asked == [f"threads_to {email}"]
+
+
+async def test_sales_bridge_failure_is_not_a_foreign_event(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Модуль продаж упал на вопросе «чьи переписки у адреса» — получателя не узнать, а не
+    «событие чужое»: отказ по нашему письму продаж идёт по номеру, как до сверки. Иначе
+    поломка модуля глотала бы отказы и жалобы (кросс-ревью продаж #292, 10.10.2026)."""
+    world = await sales_world(session, status=MessageStatus.SENT)
+    broken = LeadMail(threads=(world.thread.id,), broken="threads_to")
+    monkeypatch.setattr(stages._SALES, "load", None)
+    stages.register_sales(lambda: broken)
+
+    report = await apply_events(
+        session, [DeliveryEvent("bounce", world.letter.id, LEAD_EMAIL)], now=NOW
+    )
+
+    assert (report.bounced, report.unknown) == (1, 0)
+    assert world.letter.status is MessageStatus.BOUNCED
+    assert broken.asked == [f"threads_to {LEAD_EMAIL}"]
+
+
+async def test_sales_bounce_keeps_the_letter_contact_alive(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Письмо продаж ушло лиду, а контакт письма — другой человек (`ceo@`): отказ адреса лида
+    гасит шаг цепочки, но адрес контакта не хоронит (кросс-ревью продаж, 10.10.2026)."""
+    world = await sales_world(session, status=MessageStatus.SENT)
+    monkeypatch.setattr(stages._SALES, "load", None)
+    stages.register_sales(lambda: LeadMail(threads=(world.thread.id,)))
+    world.letter.next_action_at = NOW + timedelta(days=3)
+    contact = await session.get(ContactModel, world.letter.contact_id)
+    assert contact is not None
+    before = (contact.verification_status, contact.verification_score)
+
+    report = await apply_events(
+        session, [DeliveryEvent("bounce", world.letter.id, LEAD_EMAIL)], now=NOW
+    )
+
+    assert report.bounced == 1
+    assert world.letter.status is MessageStatus.BOUNCED
+    assert world.letter.next_action_at is None
+    assert (contact.verification_status, contact.verification_score) == before

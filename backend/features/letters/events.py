@@ -226,10 +226,10 @@ async def _addressed(session: AsyncSession, message: MessageModel, email: str) -
     а почта его не импортирует: спрашивает мост (`stages.sales_threads_to`). Сверка —
     без регистра и краевых пробелов, так же сверяет адрес лида и модуль продаж.
     """
-    campaign = await session.get(CampaignModel, message.campaign_id)
-    if campaign is None:
+    stage = await _stage_of(session, message)
+    if stage is None:
         return None
-    match campaign.stage:
+    match stage:
         case Stage.DONORS | Stage.ADVERTISERS:
             if message.contact_id is None:
                 return None
@@ -238,11 +238,19 @@ async def _addressed(session: AsyncSession, message: MessageModel, email: str) -
                 return None
             return contact.email.strip().lower() == email.strip().lower()
         case Stage.SALES:
-            if message.thread_id is None or not stages.sales_registered():
+            if message.thread_id is None:
                 return None
-            return message.thread_id in await stages.sales_threads_to(session, email)
+            # Модуль продаж не ответил — «не узнать», а не «чужое» (`sales_lead_threads`).
+            threads = await stages.sales_lead_threads(session, email)
+            return None if threads is None else message.thread_id in threads
         case _:
-            assert_never(campaign.stage)
+            assert_never(stage)
+
+
+async def _stage_of(session: AsyncSession, message: MessageModel) -> Stage | None:
+    """Этап письма — по его рассылке; рассылки нет — не узнать."""
+    campaign = await session.get(CampaignModel, message.campaign_id)
+    return None if campaign is None else campaign.stage
 
 
 async def _settle_if_pending(
@@ -304,6 +312,12 @@ async def _bounced(
     message.next_action_at = None
 
     if event.soft or message.contact_id is None:
+        return
+    if await _stage_of(session, message) is Stage.SALES:
+        # Письмо продаж ушло лиду переписки (`stages.recipient`), а контакт письма — тот,
+        # кто ответил, например секретарь: отказ адреса лида его адрес не хоронит. Иначе
+        # закрылся бы и чужой адрес, а с ним — этапы 1–2 домену, если он ещё и донор
+        # (кросс-ревью продаж, 10.10.2026). Шаг цепочки погашен выше.
         return
     contact = await session.get(ContactModel, message.contact_id)
     if contact is not None:
