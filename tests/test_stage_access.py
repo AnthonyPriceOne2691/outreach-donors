@@ -402,7 +402,7 @@ async def test_agent_sales_settings_need_the_settings_right_too(
     response = await client.post("/api/agent/settings/sales", json=AGENT_BODY, headers=headers)
 
     assert response.status_code == 403
-    assert "«settings»" in response.json()["detail"]
+    assert "«править пороги»" in response.json()["detail"]
 
 
 async def test_sales_batch_needs_the_send_right_too(
@@ -417,4 +417,4 @@ async def test_sales_batch_needs_the_send_right_too(
     )
 
     assert response.status_code == 403
-    assert "«send»" in response.json()["detail"]
+    assert "«отправлять письма»" in response.json()["detail"]

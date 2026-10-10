@@ -189,7 +189,7 @@ class TestWhoIsLetIn:
 
         if permission == "run":
             assert response.status_code == 403
-            assert "«run»" in response.json()["detail"]
+            assert "«запускать прогоны»" in response.json()["detail"]
             assert queue.calls == []
         else:
             assert response.status_code == 200, response.text

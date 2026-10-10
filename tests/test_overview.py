@@ -15,6 +15,7 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
+from backend.features.access.permissions import PERMISSION_TITLES
 from backend.features.contacts.preference import DEAD
 from backend.features.core import usage
 from backend.features.core.domain import (
@@ -23,6 +24,7 @@ from backend.features.core.domain import (
     CrawlOutcome,
     DonorStatus,
     MessageStatus,
+    Permission,
     ReplyKind,
     RunStatus,
     Stage,
@@ -538,7 +540,7 @@ class TestWhoIsLetIn:
         response = await client.request(method, path, json=body, headers=bearer(token))
 
         assert response.status_code == 403
-        assert f"«{permission}»" in response.json()["detail"]
+        assert f"«{PERMISSION_TITLES[Permission(permission)]}»" in response.json()["detail"]
 
     async def test_table_covers_every_route(self, api_app: FastAPI) -> None:
         in_app = {

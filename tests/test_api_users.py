@@ -79,9 +79,13 @@ class TestWhoIsLetIn:
             method, path.format(id=target.id), json=body, headers=bearer(operator_token)
         )
         assert response.status_code == 403
-        # Отказ называет действие, а не «нет прав»: иначе через полгода
-        # никто не ответит, чего именно не хватает человеку.
-        assert "users" in response.json()["detail"]
+        # Отказ называет право, а не «нет прав»: иначе через полгода никто не ответит,
+        # чего именно не хватает человеку. И словами окна прав, а не кодом (проверка прода
+        # 10.10.2026): экран показывает отказ как есть. Признак отказа — заголовком: по нему
+        # экран перечитывает «кто я», и меню убирает раздел, которого больше нет.
+        assert "«заводить учётки»" in response.json()["detail"]
+        assert "users" not in response.json()["detail"]
+        assert response.headers["X-Access-Refusal"] == "permission"
 
     @pytest.mark.parametrize(("method", "path", "body"), USER_ROUTES)
     async def test_admin_is_let_in(

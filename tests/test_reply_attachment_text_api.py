@@ -91,7 +91,7 @@ class TestWhoGetsTheText:
         response = await client.get(_path(files["first"], files["book"]), headers=bearer(token))
 
         assert response.status_code == 403
-        assert "«view»" in response.json()["detail"]
+        assert "«смотреть базу»" in response.json()["detail"]
 
 
 class TestWhatComesBack:

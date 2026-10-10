@@ -157,7 +157,7 @@ class TestWhoIsLetIn:
         )
 
         assert response.status_code == 403
-        assert "«prices»" in response.json()["detail"]
+        assert "«подтверждать цены»" in response.json()["detail"]
 
     async def test_operator_may_review(
         self, client: AsyncClient, reviewer_token: str, unsure: ReplyModel

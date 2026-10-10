@@ -13,9 +13,11 @@ from typing import Any
 
 import pytest
 from backend.config import outreach as cfg
+from backend.features.access.permissions import PERMISSION_TITLES
 from backend.features.core.domain import (
     ContactSource,
     MessageStatus,
+    Permission,
     ReplyKind,
     SenderStatus,
     Stage,
@@ -202,9 +204,9 @@ class TestWhoIsLetIn:
 
         if permission in ("senders", "send"):
             assert response.status_code == 403
-            # Сервер называет действие кодом — по нему разбирают журнал.
-            # Словами его переводит интерфейс, у себя.
-            assert f"«{permission}»" in response.json()["detail"]
+            # Сервер называет право словами окна прав, а не кодом: отказ экран показывает
+            # как есть, не переводя (проверка прода 10.10.2026).
+            assert f"«{PERMISSION_TITLES[Permission(permission)]}»" in response.json()["detail"]
         else:
             assert response.status_code == 200, response.text
 

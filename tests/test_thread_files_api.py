@@ -21,7 +21,8 @@ import pytest
 from alembic.operations import Operations
 from alembic.runtime.migration import MigrationContext
 from backend.api.threads import routes as thread_routes
-from backend.features.core.domain import UserRole
+from backend.features.access.permissions import PERMISSION_TITLES
+from backend.features.core.domain import Permission, UserRole
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.outgoing_attachment import OutgoingAttachmentModel
 from backend.features.core.models.outreach import MessageModel, ReplyModel, ThreadModel
@@ -476,7 +477,7 @@ class TestWhoIsLetIn:
         )
 
         assert response.status_code == 403
-        assert f"«{permission}»" in response.json()["detail"]
+        assert f"«{PERMISSION_TITLES[Permission(permission)]}»" in response.json()["detail"]
 
     async def test_table_covers_every_route(self, api_app: FastAPI) -> None:
         in_app = {
