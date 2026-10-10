@@ -60,7 +60,17 @@ describe('место решённой строки', () => {
 
     expect(arranged.rows.map((one) => one.domain_id)).toEqual([1, 2, 3, 4]);
     expect(arranged.rows[1]).toBe(decided);
-    expect([...arranged.gone]).toEqual([2]);
+    expect([...arranged.gone]).toEqual([[2, { disagreed: false }]]);
+  });
+
+  it('у ушедшей держится место значка «разошёлся с судьёй», что стоял до решения', () => {
+    const hold = remember(
+      blankHold(VIEW),
+      { row: row(2, { disagrees: true }), intent: 'publisher', view: VIEW, order: [1, 2] },
+      row(2, { tab: 'accepted' }),
+    );
+
+    expect(arrange([row(1)], hold).gone.get(2)).toEqual({ disagreed: true });
   });
 
   it('«Вернуть» помнит решение до первого нажатия, а не до последнего', () => {

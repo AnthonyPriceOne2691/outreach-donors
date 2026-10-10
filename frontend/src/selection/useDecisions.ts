@@ -27,8 +27,14 @@ import { notify } from '../notices';
 
 export const SELECTION_KEY = ['selection'] as const;
 
+/** Ушедшая строка — чем держать её высоту: под кнопками стоял значок «разошёлся
+ *  с судьёй», и без его места строка сжималась бы, а нижние поднимались под курсор. */
+export interface GoneRow {
+  disagreed: boolean;
+}
+
 /** Строка, решённая на этом виде: как её вернул сервер и что было до. */
-interface Held {
+interface Held extends GoneRow {
   row: SelectionCard;
   /** Решение до первого нажатия на этом виде — его возвращает «Вернуть». */
   was: HumanIntent | null;
@@ -45,7 +51,7 @@ export interface Hold {
 export interface Arranged {
   rows: SelectionCard[];
   /** Ушли решением с вкладки, но стоят на месте до смены вида. */
-  gone: ReadonlySet<number>;
+  gone: ReadonlyMap<number, GoneRow>;
 }
 
 /** Нажатие: строка, решение, а ещё вид и порядок строк в миг нажатия. */
@@ -67,17 +73,17 @@ export function blankHold(view: string): Hold {
  * страницы), — в конце, а не под курсором.
  */
 export function arrange(fresh: SelectionCard[], hold: Hold): Arranged {
-  const gone = new Set<number>();
+  const gone = new Map<number, GoneRow>();
   if (hold.order.length === 0) return { rows: fresh, gone };
   const byId = new Map(fresh.map((row) => [row.domain_id, row]));
   const rows: SelectionCard[] = [];
   for (const id of hold.order) {
     const here = byId.get(id);
-    const left = hold.held.get(id)?.row;
+    const left = hold.held.get(id);
     if (here !== undefined) rows.push(here);
     else if (left !== undefined) {
-      rows.push(left);
-      gone.add(id);
+      rows.push(left.row);
+      gone.set(id, { disagreed: left.disagreed });
     }
   }
   const seen = new Set(hold.order);
@@ -93,7 +99,7 @@ export function remember(hold: Hold, asked: Asked, after: SelectionCard): Hold {
   // должно подменять тем, что выбрали первым.
   const earlier = base.held.get(after.domain_id);
   const was = earlier === undefined ? asked.row.human.intent : earlier.was;
-  held.set(after.domain_id, { row: after, was });
+  held.set(after.domain_id, { row: after, was, disagreed: asked.row.disagrees });
   return { view: asked.view, order: asked.order, held };
 }
 
