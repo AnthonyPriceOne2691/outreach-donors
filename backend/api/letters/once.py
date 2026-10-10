@@ -19,12 +19,16 @@
 
 from __future__ import annotations
 
+import logging
+
 from rq import Queue
 from rq.exceptions import DuplicateJobError
 from rq.job import Job, JobStatus
 from rq.results import Result
 
 from backend.features.core.domain import Stage
+
+logger = logging.getLogger(__name__)
 
 #: Задача ещё не кончилась: стоит в очереди, идёт, ждёт зависимости или повтора после сбоя.
 RUNNING = frozenset({JobStatus.QUEUED, JobStatus.STARTED, JobStatus.DEFERRED, JobStatus.SCHEDULED})
@@ -61,6 +65,7 @@ def enqueue_once(
     try:
         return jobs.enqueue(path, *args, job_id=job_id, unique=True, **options)
     except DuplicateJobError:
+        logger.info("письма: номер задачи занят — смотрим, кончилась ли", extra={"job_id": job_id})
         previous = jobs.fetch_job(job_id)
     if previous is not None:
         if previous.get_status() in RUNNING:
@@ -71,4 +76,7 @@ def enqueue_once(
         return jobs.enqueue(path, *args, job_id=job_id, unique=True, **options)
     except DuplicateJobError:
         # Второе нажатие успело поставить свою между уборкой и постановкой — она и идёт.
+        logger.info(
+            "письма: задачу поставило второе нажатие — эта не ставится", extra={"job_id": job_id}
+        )
         return None

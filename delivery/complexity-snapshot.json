@@ -187,9 +187,9 @@
       "worst": "—"
     },
     "backend/api/letters/once.py": {
-      "lines": 75,
+      "lines": 83,
       "complexity": 5,
-      "worst": "enqueue_once:52"
+      "worst": "enqueue_once:56"
     },
     "backend/api/letters/routes.py": {
       "lines": 393,
