@@ -70,7 +70,8 @@ function SalesTitle() {
 
 /** Вкладки, где загрузка базы — дело вкладки: лиды из неё и берутся, гипотезе её грузят.
  *  На остальных кнопка спорила с главной кнопкой вкладки — до трёх залитых кнопок разом
- *  (аудит экранов 09.10.2026). */
+ *  (аудит экранов 09.10.2026). Стоит сразу за вкладками, слева: в правом краю строки
+ *  между ними лежала пустая полоса во всю ширину (обход экранов 10.10.2026). */
 const UPLOAD_TABS: ReadonlySet<SalesTab> = new Set(['leads', 'hypotheses']);
 
 interface TabsProps {
@@ -221,7 +222,7 @@ export function SalesPage() {
     <Card className="glassPanel" p="md">
       <Stack gap="sm">
         <SalesTitle />
-        <Group justify="space-between" align="center" gap="sm" wrap="wrap" className="salesTabs">
+        <Group align="center" gap="sm" wrap="wrap" className="salesTabs">
           <SalesTabs
             tab={filters.tab}
             counts={{ leads: total, hypotheses: known.length, kb: kb.data?.total }}

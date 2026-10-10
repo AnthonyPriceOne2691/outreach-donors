@@ -517,6 +517,10 @@ describe('продажи: «Загрузить базу» — в строке в
     const upload = screen.getByRole('link', { name: 'Загрузить базу' });
     expect(upload.parentElement).toBe(tabs.parentElement);
     expect(upload).toHaveAttribute('href', '/sales/import');
+    // Сразу за вкладками, слева, а не в правом краю строки с пустотой посередине
+    // (обход экранов 10.10.2026).
+    expect(tabs.compareDocumentPosition(upload) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(upload.parentElement?.getAttribute('style') ?? '').not.toMatch(/space-between/);
   });
 
   it.each(OTHER_TABS)(
