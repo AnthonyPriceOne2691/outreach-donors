@@ -20,6 +20,13 @@ import { Alert, Text } from '@mantine/core';
 import type { ThreadMail } from '../api/thread';
 import { formatDateTime } from '../format';
 
+/** Ящика переписки больше нет: им начата переписка, а его удалили. То же условие, что
+ *  у «Ящик переписки удалён» в строке шапки: по нему поле ответа показывает причину
+ *  вместо себя (`Composer.boxGone`) — ответ с другого ящика не уходит. */
+export function mailboxGone(mail: ThreadMail | null | undefined): boolean {
+  return mail?.mailbox === null;
+}
+
 export function ThreadMailLine({ mail }: { mail: ThreadMail | null | undefined }) {
   if (!mail) return null;
   const who = mail.mailbox === null ? 'Ящик переписки удалён' : `Пишет ${mail.mailbox}`;

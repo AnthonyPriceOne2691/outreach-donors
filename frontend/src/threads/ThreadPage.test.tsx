@@ -611,6 +611,22 @@ describe('ящик переписки', () => {
     await openThread({ mail: null });
 
     expect(screen.queryByText(/^Пишет /)).not.toBeInTheDocument();
+    // Ящик выберется при отправке — отвечать можно.
+    expect(screen.getByLabelText('Текст ответа')).toBeEnabled();
+  });
+
+  it('ящик переписки удалён — вместо поля ответа причина, отправить нечем', async () => {
+    // Проверка QA 10.10.2026: шапка говорила «Ящик переписки удалён», а поле и
+    // «Отправить» работали — отказ приходил только после Ctrl+Enter.
+    const gone = 'Ящика первого письма нет: им начата переписка, а его удалили.';
+    await openThread({ mail: { ...MAIL, mailbox: null, waiting: gone, next_step: null } });
+
+    expect(screen.getByText('Ящик переписки удалён')).toBeInTheDocument();
+    expect(
+      screen.getByText(/^Ответ отсюда не уйдёт: ящик, которым начата переписка, удалён/),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText('Текст ответа')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Отправить' })).not.toBeInTheDocument();
   });
 });
 
