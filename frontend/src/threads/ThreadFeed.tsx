@@ -214,21 +214,42 @@ function ReplyText({ reply }: { reply: IncomingCard }) {
   );
 }
 
-/** Пометки под текстом: почему ответ продаж ждёт человека и кто ведёт взятый лид. */
+/**
+ * Почему перекрытый ответ не разбирают — строкой в его пузыре; не перекрыт — пусто.
+ * Без строки ответ со значком «белая 250 $» стоял бы без «ждёт разбора» и без кнопки,
+ * и непонятно почему (проверка прода 10.10.2026: цену уточнили следующим письмом).
+ */
+function supersededNote(reply: IncomingCard, incoming: IncomingCard[]): string | null {
+  const by = reply.superseded_by ?? null;
+  if (by === null) return null;
+  const later = incoming.find((other) => other.id === by);
+  const at = later === undefined ? '' : ` от ${when(later.received_at)}`;
+  return `Цену переписки задаёт более поздний ответ${at} — этот разбирать не нужно.`;
+}
+
+/** Пометки под текстом: почему ответ продаж ждёт человека, кто ведёт взятый лид
+ *  и почему перекрытый ответ не разбирают. */
 function ReplyNotes({
   reply,
   active,
   sales,
+  superseded,
 }: {
   reply: IncomingCard;
   active: boolean;
   sales: boolean;
+  superseded: string | null;
 }) {
   return (
     <>
       {sales && reply.review_reason ? (
         <Text size="sm" c="dimmed" mt="xs">
           Ждёт человека: {reply.review_reason}.
+        </Text>
+      ) : null}
+      {superseded !== null ? (
+        <Text size="sm" c="dimmed" mt="xs">
+          {superseded}
         </Text>
       ) : null}
       {/* Кто ведёт взятый лид — видно без раскрытия разбора; у открытого разбора
@@ -250,10 +271,12 @@ interface TheirProps {
   reviewable: boolean;
   /** Ответ лида продаж: причину ожидания называет сервер, разбора под лентой нет. */
   sales: boolean;
+  /** Почему ответ перекрыт — словами (`supersededNote`); не перекрыт — пусто. */
+  superseded: string | null;
   onPick: (replyId: number) => void;
 }
 
-function TheirBubble({ reply, active, reviewable, sales, onPick }: TheirProps) {
+function TheirBubble({ reply, active, reviewable, sales, superseded, onPick }: TheirProps) {
   const pick = active ? null : pickLabel(reply, reviewable);
   return (
     <div className="bubbleRow bubbleRowTheirs">
@@ -263,7 +286,7 @@ function TheirBubble({ reply, active, reviewable, sales, onPick }: TheirProps) {
       >
         <ReplyHead reply={reply} />
         <ReplyText reply={reply} />
-        <ReplyNotes reply={reply} active={active} sales={sales} />
+        <ReplyNotes reply={reply} active={active} sales={sales} superseded={superseded} />
         {/* Прайс приходит файлом чаще, чем текстом: ответ с вложением не должен
             выглядеть пустым. Файл скачивается, но не показывается внутри страницы —
             он пришёл снаружи (docs/SECURITY.md). */}
@@ -335,6 +358,7 @@ export function ThreadFeed({
               active={item.reply.id === activeId}
               reviewable={reviewable(item.reply)}
               sales={sales}
+              superseded={supersededNote(item.reply, incoming)}
               onPick={onPick}
             />
             {/* Черновик агента — сразу за ответом, на который он написан. */}
