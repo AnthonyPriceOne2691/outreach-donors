@@ -20,7 +20,7 @@ import {
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { NavigationType, useNavigate, useNavigationType } from 'react-router-dom';
 
 import { changePassword } from '../api/auth';
 import { SERVICE_NAME } from '../brand';
@@ -32,18 +32,25 @@ const MIN_LENGTH = 10;
 
 export function ChangePasswordPage() {
   const { user, refresh, signOut } = useSession();
+  const navigate = useNavigate();
+  // Пришли ссылкой из приложения («Сменить пароль» в меню у почты) — позади его же
+  // экран, и шаг назад вернёт туда, откуда пришли: отмена вела на «Обзор» откуда
+  // угодно (проверка QA 10.10.2026). Открыли адресом, обновили страницу, попали
+  // переадресацией — позади может быть чужой сайт: тогда на «Обзор».
+  const cameByLink = useNavigationType() === NavigationType.Push;
   // С разовым паролем уйти некуда, кроме выхода: остальное закрыто,
-  // пока пароль не сменён. Иначе — отмена возвращает туда, откуда пришли.
+  // пока пароль не сменён.
   const forced = user?.must_change_password === true;
   const leave = () => {
     if (forced) {
       signOut();
       void navigate('/login', { replace: true });
+    } else if (cameByLink) {
+      void navigate(-1);
     } else {
       void navigate('/');
     }
   };
-  const navigate = useNavigate();
   const [refusal, setRefusal] = useState<string | null>(null);
 
   const form = useForm({
