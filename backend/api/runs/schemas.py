@@ -14,6 +14,7 @@ from backend.features.runs.browse import RunRow
 from backend.features.runs.estimate import RESULTS_PER_PAGE, RunForecast
 from backend.features.runs.reasons import readable
 from backend.features.runs.repository import REASON_KEY
+from backend.features.serp.protocol import distinct_keywords
 
 
 class RunRequestBody(BaseModel):
@@ -41,19 +42,32 @@ class RunRequestBody(BaseModel):
 
     @field_validator("keywords")
     @classmethod
-    def _within_the_run_ceiling(cls, keywords: list[str]) -> list[str]:
-        """Потолок ключей на прогон стоит в настройках, и проверять его
+    def _what_the_serp_buys(cls, keywords: list[str]) -> list[str]:
+        """Ключи — те, за которые заплатит выдача, и потолок — по ним.
+
+        Повторы сводятся здесь, до сметы и до запуска, правилом провайдера
+        (`serp.protocol.distinct_keywords`): смета считает ровно то, что купит
+        выдача, а прогон хранит то, что купил. До 10.10.2026 два одинаковых ключа
+        и вариант с заглавными были «3 ключа» в смете, а выдача покупала два —
+        за вариант с заглавными второй раз (проверка прода 10.10.2026).
+
+        Потолок ключей на прогон стоит в настройках, и проверять его
         надо здесь: до этой проверки настройка была объявлена и не
         применялась нигде, а прогон принимал впятеро больше ключей,
         чем заложено в требования."""
-        if len(keywords) > serp_cfg.MAX_KEYWORDS_PER_RUN:
+        distinct = distinct_keywords(keywords)
+        if not distinct:
+            raise PydanticCustomError(
+                "no_keywords", "Ключей нет — одни пустые строки. Впишите ключи, по одному в строке"
+            )
+        if len(distinct) > serp_cfg.MAX_KEYWORDS_PER_RUN:
             raise PydanticCustomError(
                 "too_many_keywords",
                 f"За прогон берём не больше {serp_cfg.MAX_KEYWORDS_PER_RUN} ключей, "
-                f"пришло {len(keywords)}. Разбейте список на несколько прогонов: "
+                f"пришло {len(distinct)}. Разбейте список на несколько прогонов: "
                 "так видно смету каждого и можно остановиться на середине",
             )
-        return keywords
+        return distinct
 
     @field_validator("depth_pages")
     @classmethod

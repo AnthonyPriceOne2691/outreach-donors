@@ -56,7 +56,7 @@ import { ACTIVE, pagesOf, RunHistory } from './RunHistory';
 import { estimateRun, fetchCountries, listRuns, startRun } from '../api/runs';
 import type { Forecast, RunRequest } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
-import { formatNumber, formatUsd } from '../format';
+import { formatNumber, formatUsd, plural } from '../format';
 import {
   DEFAULT_DEPTH,
   DEPTHS,
@@ -100,15 +100,27 @@ function parseKeywords(text: string): string[] {
     .filter((line) => line !== '');
 }
 
-function Estimate({ forecast }: { forecast: Forecast }) {
+/** Ключи сметы — те, что купит выдача: сервер сводит повторы без учёта регистра
+ *  и лишних пробелов (проверка прода 10.10.2026: два одинаковых ключа и вариант
+ *  с заглавными были «3 ключа», а выдача покупала два). Строк в поле больше — это
+ *  называется, иначе «2 ключа» под тремя строками читалось бы ошибкой сметы. */
+function resultsHint(forecast: Forecast, lines: number): string {
+  // Те же слова, что у поля: «глубина выдачи — 20 результатов».
+  const asked = `${keywordsTitle(forecast.keywords)} × ${depthTitle(forecast.depth_pages * RESULTS_PER_PAGE)}`;
+  const repeats = lines - forecast.keywords;
+  return repeats > 0
+    ? `${asked} · ${repeats} ${plural(repeats, 'повтор', 'повтора', 'повторов')} не в счёт`
+    : asked;
+}
+
+function Estimate({ forecast, lines }: { forecast: Forecast; lines: number }) {
   return (
     <Stack gap="sm">
       <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
         <Metric
           title="Результатов выдачи"
           value={formatNumber(forecast.expected_results)}
-          // Те же слова, что у поля: «глубина выдачи — 20 результатов».
-          hint={`${keywordsTitle(forecast.keywords)} × ${depthTitle(forecast.depth_pages * RESULTS_PER_PAGE)}`}
+          hint={resultsHint(forecast, lines)}
         />
         <Metric
           title="Уникальных доменов"
@@ -517,7 +529,7 @@ export function RunPage() {
           <Title order={5} mb="sm">
             Смета
           </Title>
-          <Estimate forecast={forecast} />
+          <Estimate forecast={forecast} lines={list.length} />
         </Card>
       )}
 

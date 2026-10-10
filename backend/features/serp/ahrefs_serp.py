@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from backend.features.ahrefs.client import AhrefsClient
-from backend.features.serp.protocol import SerpResult
+from backend.features.serp.protocol import SerpResult, distinct_keywords
 
 RESULTS_PER_PAGE = 10
 
@@ -52,9 +52,10 @@ class AhrefsSerpProvider:
 
         # У этого провайдера запрос синхронный и быстрый, поэтому пачка
         # раскладывается в последовательные вызовы. Ограничитель частоты
-        # в клиенте не даёт превысить лимит Ahrefs.
+        # в клиенте не даёт превысить лимит Ahrefs. Повтор ключа — один
+        # вызов: каждый стоит юнитов (правило — `protocol.distinct_keywords`).
         out: dict[str, list[SerpResult]] = {}
-        for keyword in keywords:
+        for keyword in distinct_keywords(keywords):
             response = await self._client.serp_overview(keyword, country, date)
             out[keyword] = _take_organic(response.rows, wanted)
         return out

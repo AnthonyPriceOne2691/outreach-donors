@@ -5,7 +5,8 @@
 (`budget.ceiling_at_start`) — ещё и тратил юниты из уже съеденного остатка месяца.
 
 **Такой же — по смыслу, а не по байтам.** Ключи сравниваются набором: без порядка,
-повторов, регистра и пробелов по краям — выдача у таких списков одна. Страна — без
+повторов, регистра и лишних пробелов — правилом выдачи (`serp.protocol.keyword_key`),
+тем же, что у сметы и провайдера: выдача у таких списков одна. Страна — без
 регистра. Глубина — часть запроса: глубже — другая покупка. Потолок юнитов не в счёт:
 тот же список с другим потолком — та же выдача. Отказ — только пока первый в очереди
 или идёт: закончился — повтор законен, свежие домены он не оплатит второй раз.
@@ -26,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.features.core.domain import Stage
 from backend.features.core.models.run import RunModel
 from backend.features.runs.repository import RunRepository
+from backend.features.serp.protocol import keyword_key
 
 #: Ключ замка запуска — «RUNSTART» байтами. Один на все запуски: они редки и коротки.
 START_LOCK = 0x52554E5354415254
@@ -36,8 +38,8 @@ class DuplicateRunError(RuntimeError):
 
 
 def _keyset(keywords: Iterable[str]) -> frozenset[str]:
-    """Ключи как набор: без порядка, повторов, регистра и пробелов по краям."""
-    return frozenset(key.strip().casefold() for key in keywords if key.strip())
+    """Ключи как набор: без порядка, повторов, регистра и лишних пробелов."""
+    return frozenset(filter(None, map(keyword_key, keywords)))
 
 
 async def refuse_duplicate(

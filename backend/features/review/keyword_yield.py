@@ -33,6 +33,7 @@ from backend.features.core.domain import DonorStatus, Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.run import RunCandidateModel, RunModel
+from backend.features.serp.protocol import keyword_key
 
 #: Решения очереди и донора — строками, как в базе.
 ACCEPTED, REJECTED, PENDING = "accepted", "rejected", "pending"
@@ -56,8 +57,9 @@ class KeywordYield:
 
 
 def _key(keyword: str) -> str:
-    """Один ключ в разных прогонах пишут по-разному: регистр и пробелы."""
-    return " ".join(keyword.lower().split())
+    """Один ключ в разных прогонах пишут по-разному: регистр и пробелы. Сводит
+    правило выдачи — то же, что у сметы и провайдера (`serp.protocol`)."""
+    return keyword_key(keyword)
 
 
 def _found_by(run: RunModel) -> Mapping[str, Sequence[str]] | None:

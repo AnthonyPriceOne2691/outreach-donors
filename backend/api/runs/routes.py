@@ -88,6 +88,7 @@ async def estimate(
 
     return Forecast.of(
         forecast(
+            # Ключи уже сведены схемой правилом выдачи: смета считает то, что она купит.
             keywords=len(body.keywords),
             depth_pages=body.depth_pages,
             units_left=left,

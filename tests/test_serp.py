@@ -9,7 +9,7 @@ import httpx
 import pytest
 from backend.features.ahrefs.client import AhrefsClient
 from backend.features.serp.ahrefs_serp import AhrefsSerpProvider
-from backend.features.serp.protocol import SerpProvider
+from backend.features.serp.protocol import SerpProvider, distinct_keywords, keyword_key
 
 COST = {"x-api-units-cost-total-actual": "74", "x-api-units-cost-row": "2"}
 
@@ -85,3 +85,39 @@ class TestParsing:
         rows = [{"position": i, "url": f"https://d{i}.com"} for i in range(1, 26)]
         results = (await _provider(rows).search(["k"], "us", depth_pages=1))["k"]
         assert len(results) == 10
+
+
+class TestOneQueryOneKeyword:
+    """Повтор ключа — одна покупка (проверка прода 10.10.2026): смета считала два
+    одинаковых ключа и вариант с заглавными «3 ключами», выдача покупала два — за
+    вариант с заглавными второй раз. Правило одно — у сметы, запуска и провайдеров."""
+
+    def test_case_and_extra_spaces_make_no_new_keyword(self) -> None:
+        typed = ["budget tips", "budget tips", "Budget Tips", "  budget   tips ", "", "   "]
+
+        assert distinct_keywords(typed) == ["budget tips"]
+        assert {keyword_key(one) for one in typed if one.strip()} == {"budget tips"}
+
+    def test_first_spelling_stays_and_spaces_are_squeezed(self) -> None:
+        assert distinct_keywords(["Budget  Tips", "budget tips", " saving "]) == [
+            "Budget Tips",
+            "saving",
+        ]
+
+    async def test_ahrefs_source_asks_a_repeat_once(self) -> None:
+        """Запасной источник платит юнитами за каждый вызов — повтор тоже."""
+        asked: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            asked.extend(parse_qs(urlparse(str(request.url)).query)["keyword"])
+            return httpx.Response(200, json={"positions": []}, headers=COST)
+
+        http = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler), base_url="https://api.test"
+        )
+        provider = AhrefsSerpProvider(AhrefsClient(api_key="k", http=http))
+
+        answer = await provider.search(["budget tips", "Budget  Tips", "saving"], "us")
+
+        assert asked == ["budget tips", "saving"]
+        assert list(answer) == ["budget tips", "saving"]

@@ -229,6 +229,21 @@ describe('прогон', () => {
     expect(recorded.calls.some((call) => call.path === '/api/runs/estimate')).toBe(true);
   });
 
+  it('повторы ключей смета не считает и говорит об этом', async () => {
+    // Проверка прода 10.10.2026: два одинаковых ключа и вариант с заглавными были
+    // «3 ключа», а выдача покупала два. Сервер сводит повторы правилом выдачи и
+    // считает два; под четырьмя строками поля это названо, а не прячется.
+    await openRun({ 'POST /api/runs/estimate': { body: FITS } });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nремонт\nРемонт\nдизайн');
+    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
+
+    expect(
+      await screen.findByText('2 ключа × 10 результатов · 2 повтора не в счёт'),
+    ).toBeInTheDocument();
+  });
+
   it('смета называет стоимость выдачи — это другой счёт, не юниты', async () => {
     await openRun({ 'POST /api/runs/estimate': { body: FITS } });
     const user = userEvent.setup();
