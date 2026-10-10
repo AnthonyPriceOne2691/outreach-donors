@@ -4,18 +4,17 @@
  *
  * Списки — обычным `request`. Загрузка — файлом или ссылкой на Google-таблицу
  * формой `multipart/form-data` (контракт сервера 1.3c): байты файла уходят как
- * есть, и файл не в UTF-8 сервер отклоняет словами, а не кракозябрами. Общий
- * `request` умеет только JSON, а `client.ts` — общий код вне точек среза 1.5,
- * поэтому отправка формы живёт здесь, с тем же разбором отказа: текст сервера
- * целиком, 401 — пропуск сброшен, 403 — названо действие. Перенести форму
- * в `request` — отдельным общим PR (отчёт среза 1.5).
+ * есть, и файл не в UTF-8 сервер отклоняет словами, а не кракозябрами. Форма
+ * уходит общим `upload` из `client.ts` — тем же разбором отказа, что у всех
+ * запросов. До проверки прода 10.10.2026 у формы был свой `fetch` с копией
+ * разбора (срез 1.5 ждал общего пути — он появился): копия не знала ни признака
+ * отказа доступа, ни обрыва связи.
  *
  * Состояния между шагами мастера сервер не держит: источник уходит и на
  * предпросмотр, и на загрузку, таблица по ссылке читается заново.
  */
 
-import { clearToken, readToken } from '../auth/session';
-import { ApiError, AuthError, DeniedError, request } from './client';
+import { request, upload } from './client';
 import type {
   AgentView,
   ChainPreviewBody,
@@ -97,43 +96,9 @@ function formOf(source: ImportSource, options: ImportOptions, hypothesisId?: num
   return form;
 }
 
-/** Текст отказа из тела ответа: строкой — как есть; списком (отказ разбора
- *  формы) — первая причина: человеку нужна причина, а не схема. Нет ни того,
- *  ни другого — `null`, и остаётся код ответа. */
-function detailFrom(body: unknown): string | null {
-  if (!body || typeof body !== 'object' || !('detail' in body)) return null;
-  const { detail } = body;
-  if (typeof detail === 'string') return detail;
-  const first: unknown = Array.isArray(detail) ? detail[0] : null;
-  return first && typeof first === 'object' && 'msg' in first ? String(first.msg) : null;
-}
-
-/** Отказ сервера на форму — тем же исключением и с тем же текстом, что у `request`. */
-async function refused(response: Response): Promise<ApiError> {
-  // Тело не разобралось — отвечал не наш обработчик ошибок: остаётся код ответа.
-  const body: unknown = await response.json().catch(() => null);
-  const detail = detailFrom(body) ?? `Сервер ответил ${response.status}`;
-  if (response.status === 401) {
-    clearToken();
-    return new AuthError(detail);
-  }
-  if (response.status === 403) return new DeniedError(detail);
-  return new ApiError(response.status, detail);
-}
-
-async function sendForm(path: string, form: FormData): Promise<IntakeView> {
-  // Тип содержимого не задаётся: границу частей формы браузер пишет сам.
-  const headers: Record<string, string> = {};
-  const token = readToken();
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  const response = await fetch(`/api${path}`, { method: 'POST', headers, body: form });
-  if (!response.ok) throw await refused(response);
-  return (await response.json()) as IntakeView;
-}
-
 /** Сухой прогон: что станет лидами и что нет. В базу ничего не пишется. */
 export function previewImport(source: ImportSource, options: ImportOptions): Promise<IntakeView> {
-  return sendForm('/sales/import/preview', formOf(source, options));
+  return upload<IntakeView>('/sales/import/preview', formOf(source, options));
 }
 
 /** Записать лидов в гипотезу. Ответ — тот же предпросмотр с числом `loaded`. */
@@ -142,7 +107,7 @@ export function loadImport(
   options: ImportOptions,
   hypothesisId: number,
 ): Promise<IntakeView> {
-  return sendForm('/sales/import', formOf(source, options, hypothesisId));
+  return upload<IntakeView>('/sales/import', formOf(source, options, hypothesisId));
 }
 
 /** База знаний: все записи — включённые и нет — и версия, которую видит агент. */
