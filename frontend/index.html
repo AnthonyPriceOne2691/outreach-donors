@@ -4,6 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Parsing and Prices</title>
+    <!-- Значок вкладки. SVG — основной: чёткий на любой плотности экрана. ICO —
+         тем, кто SVG не берёт; `sizes` у него не для красоты: без них Chrome
+         выбирает ICO вместо SVG. Без своего файла браузер сам просил
+         /favicon.ico, и nginx отдавал на него index.html — вкладка без значка. -->
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <!-- Тема ставится первым же кадром, до React: человек с тёмной системой
          иначе видит вспышку белого полотна. Скрипт — тот же, что отдаёт
          ColorSchemeScript из Mantine; внутри дерева React он не исполняется

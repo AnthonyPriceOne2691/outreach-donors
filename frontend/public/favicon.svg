@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- «P» сервиса на заливке главной кнопки (lagoon.7 → lagoon.9, theme.ts);
+       отверстие чаши круглое, как у ценника. Ножка и кольцо чаши — по 4 из 32,
+       края на чётных координатах: во вкладке на 16 px это ровно по 2 px, без мыла.
+       favicon.ico (16, 32, 48) и apple-touch-icon.png (180, без скругления и
+       прозрачности) отрисованы из этого файла — правка значка правит все три. -->
+  <defs>
+    <linearGradient id="lagoon" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#008b8c"/>
+      <stop offset="1" stop-color="#005354"/>
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="7" fill="url(#lagoon)"/>
+  <path fill="#fff" fill-rule="evenodd" d="M10 7a1 1 0 0 1 1-1h5a6 6 0 0 1 0 12h-2v7a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1zM16 10a2 2 0 1 1 0 4a2 2 0 1 1 0-4z"/>
+</svg>
