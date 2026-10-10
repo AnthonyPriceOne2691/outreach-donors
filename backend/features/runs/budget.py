@@ -10,8 +10,13 @@ from __future__ import annotations
 
 import logging
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from backend.config import ahrefs as ahrefs_cfg
 from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.ahrefs.units import Quota
+from backend.features.runs.repository import RunRepository
+from backend.features.runs.spending import cap_left
 
 logger = logging.getLogger(__name__)
 
@@ -82,3 +87,34 @@ async def units_left(client: AhrefsClient, *, cap: int | None = None, claimed: i
             extra={"claimed": claimed, "available": quota.available, "free": free},
         )
     return min(free, cap) if cap is not None else free
+
+
+async def ceiling_at_start(session: AsyncSession, *, run_id: int, promised: int) -> int:
+    """Потолок прогона на старте задачи: обещанное при нажатии — но не больше, чем к этой
+    минуте осталось по месячному капу за вычетом обещанного идущими прогонами.
+
+    **При старте, а не при нажатии** (аудит 10.10.2026, №2). Потолок с нажатия — остаток
+    капа на ту минуту: два прогона, поставленные подряд, получали каждый весь остаток,
+    единственный воркер шёл ими по очереди, и второй тратил ещё раз то, что съел первый, —
+    до двух капов за месяц на ключе, общем с соседней системой.
+
+    **Удержания вычитаются и из нашего капа**, а не только из остатка провайдера
+    (`units_left`): обещанное идущим прогоном ещё не потрачено, и таблица расхода его
+    не видит. Сам прогон из удержаний исключён: продолжению после смерти воркера своё же
+    обещание не соперник, а потраченное им уже лежит в таблице расхода.
+    """
+    month = await cap_left(session, cap=ahrefs_cfg.UNITS_CAP)
+    claimed = await RunRepository(session).claimed_units(exclude_run_id=run_id)
+    ceiling = max(0, min(promised, month - claimed))
+    if ceiling < promised:
+        logger.info(
+            "Потолок прогона при старте ниже обещанного: месячный кап занят другими прогонами",
+            extra={
+                "run_id": run_id,
+                "promised": promised,
+                "ceiling": ceiling,
+                "month_left": month,
+                "claimed": claimed,
+            },
+        )
+    return ceiling

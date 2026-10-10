@@ -326,7 +326,9 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
     candidates = await _candidates_for(deps, request, run)
     await _record_search_cost(deps, run, candidates)
 
-    claimed = await deps.runs.claimed_units()
+    # Своё обещание — не чужое удержание: продолжение после смерти воркера иначе вычитало
+    # бы из остатка свою же неистраченную смету (аудит 10.10.2026).
+    claimed = await deps.runs.claimed_units(exclude_run_id=run.id)
     budget = await units_left(deps.client, cap=request.cap, claimed=claimed)
     plan = await plan_run(
         candidates,

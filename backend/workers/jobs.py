@@ -39,6 +39,7 @@ from backend.features.replies import lead_handoff
 from backend.features.replies.extract import ExtractClient
 from backend.features.replies.pipeline import Parser
 from backend.features.review.candidates import RunReview
+from backend.features.runs.budget import ceiling_at_start
 from backend.features.runs.exclusions import Exclusions
 from backend.features.runs.failures import described, is_permanent
 from backend.features.runs.lifecycle import heartbeat
@@ -108,6 +109,9 @@ async def _run(run_id: int) -> dict[str, Any]:
             runs = RunRepository(session)
             run = await runs.get(run_id)
             settings = await runs.settings_of(run)
+            # Потолок — на старте, а не с нажатия: остаток месяца к этой минуте мог уйти
+            # прогонам, поставленным раньше (аудит 10.10.2026, `budget.ceiling_at_start`).
+            cap = await ceiling_at_start(session, run_id=run.id, promised=settings.units_cap)
             # Удары о жизни идут своей короткой сессией: длинная в это
             # время занята пачкой доменов, и ждать её значит молчать
             # ровно тогда, когда прогон работает.
@@ -132,7 +136,7 @@ async def _run(run_id: int) -> dict[str, Any]:
                             # (аудит 10.10.2026): вердикт объясним по `settings_id`.
                             thresholds=thresholds_of(settings),
                             settings_id=run.settings_id,
-                            cap=settings.units_cap,
+                            cap=cap,
                             depth_pages=run.depth_pages,
                             run=run,
                         ),

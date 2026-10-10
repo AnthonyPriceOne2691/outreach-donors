@@ -15,7 +15,7 @@ import httpx
 import pytest
 from backend.features.ahrefs.client import AhrefsClient
 from backend.features.core import usage
-from backend.features.core.domain import ContactSource, DonorStatus, UserRole
+from backend.features.core.domain import ContactSource, DonorStatus, RunStatus, UserRole
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
@@ -414,6 +414,75 @@ class TestStartPutsTheRunOnTheScreen:
         listed = await client.get("/api/runs", headers=bearer(operator_token))
 
         assert listed.json()["workers"] is None
+
+
+class TestNoSecondSameRun:
+    """Такой же прогон, пока первый не закончен, — 409 словами (аудит 10.10.2026, №2).
+
+    Двойной щелчок или двое людей ставили два одинаковых прогона: единственный воркер шёл
+    ими по очереди, и второй покупал ту же выдачу ещё раз. Гонка двух нажатий разом —
+    `tests/test_run_start_race.py`.
+    """
+
+    @pytest.fixture
+    def queue(self, monkeypatch: pytest.MonkeyPatch) -> FakeQueue:
+        monkeypatch.setattr("backend.config.ahrefs.API_KEY", "ключ-для-теста")
+        monkeypatch.setattr("backend.config.serp.SANDBOX", False)
+        fake = FakeQueue()
+        monkeypatch.setattr("backend.api.runs.routes.runs_queue", lambda: fake)
+        return fake
+
+    async def _start(self, client: AsyncClient, token: str, **changes: Any) -> httpx.Response:
+        body = {"keywords": ["ремонт квартир", "дизайн"], "country": "us", **changes}
+        return await client.post("/api/runs", json=body, headers=bearer(token))
+
+    async def test_the_same_run_twice_is_refused_in_words(
+        self, client: AsyncClient, operator_token: str, queue: FakeQueue
+    ) -> None:
+        first = await self._start(client, operator_token)
+        second = await self._start(
+            client, operator_token, keywords=["Дизайн ", "ремонт квартир", "дизайн"], country="US"
+        )
+
+        assert first.status_code == 200, first.text
+        assert second.status_code == 409, second.text
+        run_id = first.json()["run_id"]
+        assert second.json()["detail"].startswith(f"Такой же прогон №{run_id} ещё не закончен")
+        assert len(queue.calls) == 1, "второй — до очереди"
+
+    @pytest.mark.parametrize(
+        "changes",
+        [{"keywords": ["ремонт квартир"]}, {"country": "de"}, {"depth_pages": 2}],
+        ids=["другие ключи", "другая страна", "другая глубина"],
+    )
+    async def test_another_run_is_not_a_duplicate(
+        self,
+        client: AsyncClient,
+        operator_token: str,
+        queue: FakeQueue,
+        changes: dict[str, Any],
+    ) -> None:
+        await self._start(client, operator_token)
+
+        another = await self._start(client, operator_token, **changes)
+
+        assert another.status_code == 200, another.text
+
+    async def test_once_the_first_is_over_the_same_run_is_welcome(
+        self,
+        client: AsyncClient,
+        operator_token: str,
+        queue: FakeQueue,
+        session: AsyncSession,
+    ) -> None:
+        first = await self._start(client, operator_token)
+        run = await RunRepository(session).get(first.json()["run_id"])
+        run.status = RunStatus.DONE
+        await session.commit()
+
+        again = await self._start(client, operator_token)
+
+        assert again.status_code == 200, again.text
 
 
 async def _settings_of_run(session: AsyncSession, run_id: int) -> RunSettingsModel:
