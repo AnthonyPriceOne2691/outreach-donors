@@ -65,3 +65,20 @@ export function clearToken(): void {
   // уже не пускают, — и сказать на входе, почему пришлось войти снова.
   onLost?.(hadPass);
 }
+
+/** Кому сказать, что сервер отказал в доступе посреди сеанса: право сняли или пароль
+ *  сбросили, а карточка «кто я» у экрана прежняя. Слушатель один — сессия, как у
+ *  `watchTokenLoss`. */
+let onDenied: (() => void) | null = null;
+
+export function watchAccessDenied(listener: () => void): () => void {
+  onDenied = listener;
+  return () => {
+    onDenied = null;
+  };
+}
+
+/** Отказ доступа с признаком сервера (403, `api/client.ts`): сессия перечитает «кто я». */
+export function accessDenied(): void {
+  onDenied?.();
+}

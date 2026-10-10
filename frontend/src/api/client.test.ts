@@ -3,8 +3,9 @@
  * экранов: тип отказа, текст отказа и судьба пропуска.
  */
 
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { watchAccessDenied } from '../auth/session';
 import { AuthError, DeniedError, TooManyAttemptsError, request } from './client';
 import { TOKEN_KEY } from '../test/fixtures';
 import { misses, serve } from '../test/server';
@@ -47,12 +48,33 @@ describe('запрос к серверу', () => {
     serve({
       'GET /api/users': {
         status: 403,
-        body: { detail: 'Действие «users» недоступно этой учётке' },
+        body: { detail: 'Действие «заводить учётки» не выдано этой учётке — права выдаёт админ' },
       },
     });
 
-    await expect(request('/users')).rejects.toThrow(/users/);
+    await expect(request('/users')).rejects.toThrow(/«заводить учётки»/);
     await expect(request('/users')).rejects.toBeInstanceOf(DeniedError);
+  });
+
+  it('403 с признаком отказа доступа зовёт сессию перечитать «кто я», без признака — нет', async () => {
+    // Проверка прода 10.10.2026: право сняли посреди сеанса, а меню вело в отказ.
+    const denied = vi.fn();
+    const stop = watchAccessDenied(denied);
+    serve({
+      'GET /api/users': {
+        status: 403,
+        body: { detail: 'Действие «заводить учётки» не выдано этой учётке — права выдаёт админ' },
+        headers: { 'X-Access-Refusal': 'permission' },
+      },
+      // Отказ без признака — не наш отказ доступа (прокси, чужой обработчик).
+      'GET /api/watchdog': { status: 403, body: { detail: 'Forbidden' } },
+    });
+
+    await expect(request('/users')).rejects.toBeInstanceOf(DeniedError);
+    expect(denied).toHaveBeenCalledTimes(1);
+    await expect(request('/watchdog')).rejects.toBeInstanceOf(DeniedError);
+    expect(denied).toHaveBeenCalledTimes(1);
+    stop();
   });
 
   it('429 доносит, сколько ждать', async () => {

@@ -12,7 +12,7 @@
  * они писались.
  */
 
-import { clearToken, readToken } from '../auth/session';
+import { accessDenied, clearToken, readToken } from '../auth/session';
 
 /** Ответ сервера с внятным отказом. */
 export class ApiError extends Error {
@@ -86,6 +86,10 @@ async function detailOf(response: Response): Promise<string> {
   return `Сервер ответил ${response.status}`;
 }
 
+/** Признак отказа доступа — заголовок сервера (`api/errors.py`), а не текст отказа:
+ *  текст правят, и разбор ломался бы от первой правки. */
+const ACCESS_REFUSAL = 'X-Access-Refusal';
+
 function retryAfterOf(response: Response): number | null {
   const header = response.headers.get('Retry-After');
   if (!header) return null;
@@ -101,7 +105,12 @@ async function raise(response: Response): Promise<never> {
     clearToken();
     throw new AuthError(detail);
   }
-  if (response.status === 403) throw new DeniedError(detail);
+  if (response.status === 403) {
+    // Право сняли посреди сеанса — меню по прежней карточке «кто я» вело в отказ (проверка
+    // прода 10.10.2026). Отказ доступа сессия перечитывает сразу: пункт уходит из меню.
+    if (response.headers.has(ACCESS_REFUSAL)) accessDenied();
+    throw new DeniedError(detail);
+  }
   if (response.status === 429) throw new TooManyAttemptsError(detail, retryAfterOf(response));
   throw new ApiError(response.status, detail);
 }
