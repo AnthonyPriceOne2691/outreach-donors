@@ -37,6 +37,7 @@ from sqlalchemy.orm.util import AliasedClass
 from backend.config import filters as filters_cfg
 from backend.features.contacts.preference import preferred_first
 from backend.features.contacts.quality import rejection_reason
+from backend.features.contacts.repository import has_address
 from backend.features.core.domain import DonorStatus, Stage
 from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
@@ -146,9 +147,8 @@ class Recipients:
         return statement.where(in_runs)
 
     def _has_contact(self, statement: _Query) -> _Query:
-        return statement.where(
-            select(ContactModel.id).where(ContactModel.domain_id == DomainModel.id).exists()
-        )
+        """Ступень «с адресом» — правилом главной и списка доноров (`has_address`)."""
+        return statement.where(has_address(DomainModel.id))
 
     @staticmethod
     def _suppressed_domain(stage: Stage) -> ColumnElement[bool]:

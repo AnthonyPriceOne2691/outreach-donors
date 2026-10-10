@@ -33,8 +33,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.config import filters as filters_cfg
 from backend.features.contacts.manual import removal_refusals
 from backend.features.contacts.preference import preferred_first
-from backend.features.contacts.repository import search_refusal
-from backend.features.core.domain import ContactStatus, DonorStatus, Stage
+from backend.features.contacts.repository import has_address, search_refusal
+from backend.features.core.domain import DonorStatus, Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.outreach import CampaignModel, ThreadModel
@@ -218,12 +218,11 @@ def _narrow(statement: Select[Any], filters: DonorFilters, now: datetime) -> Sel
             or_(DomainModel.host.ilike(needle), DonorModel.reject_reason.ilike(needle))
         )
     if filters.has_contact is not None:
-        found = DonorModel.contact_status == ContactStatus.FOUND
-        # «Нет адреса» — это и «искали, не нашли», и «ещё не искали». У второго
-        # исход пуст, а NULL в SQL ни равен, ни не равен «найден»: голое
-        # отрицание теряло всех, кого ещё не искали.
-        missing = or_(DonorModel.contact_status.is_(None), ~found)
-        statement = statement.where(found if filters.has_contact else missing)
+        # «С адресом» — адрес есть в базе (`has_address`), одним правилом с плиткой
+        # главной и ступенью писем (проверка прода 10.10.2026), а не исход поиска:
+        # тот пишет «адреса нет» рядом с адресом, оставшимся от прежнего прохода.
+        found = has_address(DonorModel.domain_id)
+        statement = statement.where(found if filters.has_contact else ~found)
     return statement
 
 

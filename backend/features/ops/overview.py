@@ -17,7 +17,9 @@
 ответ, цена — считается среди доноров: плитка «С адресом» и список
 `/donors?has_contact=true` отвечают на один вопрос одним числом. Адреса,
 найденные до правила «ищем только принятым», в воронку не входят — пока
-домен не принят, он не донор, и адрес у него ничего не значит.
+домен не принят, он не донор, и адрес у него ничего не значит. «С адресом» —
+правилом воронки писем (`contacts.repository.has_address`): адрес есть в базе,
+а не исход последнего поиска, — и «Написали» не больше «С адресом».
 
 **Числа — этапов, которые видит спрашивающий** (`stages`, решение Anthony
 10.10.2026, П2): без права «Продажи» письма и ответы продаж не входят ни в
@@ -39,9 +41,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.config import ahrefs as ahrefs_cfg
 from backend.config import filters as filters_cfg
 from backend.features.contacts import forms
+from backend.features.contacts.repository import has_address
 from backend.features.core.domain import (
     GONE_STATUSES,
-    ContactStatus,
     DonorStatus,
     MessageStatus,
     Stage,
@@ -95,7 +97,7 @@ class DonorCounts:
     #: Доноры — принятые человеком.
     accepted: int
     rejected: int
-    #: Доноры с найденным адресом — то же правило, что у фильтра списка.
+    #: Доноры с адресом в базе — правило списка доноров и ступени «с адресом» писем.
     with_email: int
     #: Доноры с формой вместо адреса — очередь «Формы» её условием (`forms.in_queue`):
     #: «и 2 с формой» стояло рядом с «Заполнить формы 5» (проверка прода 10.10.2026).
@@ -230,7 +232,7 @@ async def _donors(
                 _count(DonorModel.status == DonorStatus.SUITABLE),
                 _count(donor),
                 _count(DonorModel.review == Decision.REJECTED.value),
-                _count(and_(donor, DonorModel.contact_status == ContactStatus.FOUND)),
+                _count(and_(donor, has_address(DonorModel.domain_id))),
                 _count(forms.in_queue()),
                 _count(and_(donor, DonorModel.last_price.is_not(None))),
                 _count(and_(donor, DonorModel.last_price_at >= fresh_since)),

@@ -31,6 +31,7 @@ from typing import Protocol
 from sqlalchemy import ColumnElement, and_, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import InstrumentedAttribute
 
 from backend.config import contacts as cfg
 from backend.features.contacts import attempts
@@ -41,6 +42,23 @@ from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.donors.standing import donor_now, is_donor
 
 logger = logging.getLogger(__name__)
+
+
+def has_address(domain_id: ColumnElement[int] | InstrumentedAttribute[int]) -> ColumnElement[bool]:
+    """У домена есть адрес — строка в `contacts`, любая: найденная лестницей,
+    вписанная человеком, та, с которой ответили, и та, на которую письмо не дошло.
+
+    Одно правило «с адресом» для главной, списка доноров и воронки писем
+    (проверка прода 10.10.2026: «Обзор» считал по исходу поиска и показывал
+    «С адресом 22», «Письма» — по строкам адресов и «с адресом 23», а «Написали
+    23»). Взято правило писем: по строкам адресов сборка выбирает, куда писать,
+    а исход поиска — итог последнего прохода лестницы, и он пишет «адреса нет»
+    рядом с адресом, оставшимся от прежнего (повторный поиск по сроку, `refind`
+    не снимает адрес с перепиской). Так «Написали» не больше «С адресом»: письмо
+    уходит только на адрес. Что живые адреса кончились, говорит своя строка
+    «Писем» («адреса кончились у N»), а не меньшее число.
+    """
+    return select(ContactModel.id).where(ContactModel.domain_id == domain_id).exists()
 
 
 def manual_address() -> ColumnElement[bool]:

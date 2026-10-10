@@ -15,8 +15,10 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
+from backend.features.contacts.preference import DEAD
 from backend.features.core import usage
 from backend.features.core.domain import (
+    ContactSource,
     ContactStatus,
     DonorStatus,
     MessageStatus,
@@ -27,7 +29,7 @@ from backend.features.core.domain import (
 )
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.domain import DomainModel
-from backend.features.core.models.donor import DonorModel
+from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.outreach import (
     CampaignModel,
     MessageModel,
@@ -36,12 +38,14 @@ from backend.features.core.models.outreach import (
 )
 from backend.features.core.models.run import RunCandidateModel, RunModel
 from backend.features.letters.chain import ANSWER_STEP
+from backend.features.letters.recipients import Recipients
 from backend.features.ops.overview import overview, work
 from backend.features.outreach.repository import EVERY_STAGE
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.thresholds import defaults
 from fastapi import FastAPI
 from httpx import AsyncClient
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer, make_donor
 
@@ -75,11 +79,16 @@ async def _run(session: AsyncSession) -> RunModel:
     )
 
 
-async def _donor(session: AsyncSession, host: str, **fields: Any) -> DomainModel:
+async def _donor(
+    session: AsyncSession, host: str, *, email: str | None = None, **fields: Any
+) -> DomainModel:
+    """Запись `donors` с полями `fields`; `email` — и адрес домена в базе."""
     domain = DomainModel(host=host)
     session.add(domain)
     await session.flush()
     session.add(DonorModel(domain_id=domain.id, **fields))
+    if email is not None:
+        session.add(ContactModel(domain_id=domain.id, email=email, source=ContactSource.PAGE))
     await session.flush()
     return domain
 
@@ -128,6 +137,7 @@ class TestDonors:
         await _donor(
             session,
             "priced.example.test",
+            email="ed@priced.example.test",
             status=DonorStatus.SUITABLE,
             review="accepted",
             contact_status=ContactStatus.FOUND,
@@ -138,6 +148,7 @@ class TestDonors:
         await _donor(
             session,
             "stale-price.example.test",
+            email="ed@stale-price.example.test",
             status=DonorStatus.SUITABLE,
             review="accepted",
             contact_status=ContactStatus.FOUND,
@@ -181,6 +192,42 @@ class TestDonors:
         await _letter(session, stage_two, waiting, MessageStatus.SENT)
 
         assert (await overview(session, stages=EVERY_STAGE)).donors.written == 2
+
+    async def test_address_is_one_rule_for_overview_letters_and_list(
+        self, session: AsyncSession, client: AsyncClient, operator_token: str
+    ) -> None:
+        """Проверка прода 10.10.2026: «Обзор» — «С адресом 22», «Письма» — «с адресом 23»,
+        а «Написали 23». Донору писали, письмо не дошло, повторный поиск записал «адреса
+        нет» — адрес с перепиской остался в базе. «С адресом» — есть адрес в базе: им
+        письмо и уходит; что адреса кончились, «Письма» говорят отдельной строкой."""
+        campaign = await _campaign(session)
+        reached = await make_donor(session, "reached.example.test", email="ed@reached.example.test")
+        await _letter(session, campaign, reached, MessageStatus.DELIVERED)
+        dead = await make_donor(session, "dead.example.test", email="old@dead.example.test")
+        await _letter(session, campaign, dead, MessageStatus.BOUNCED)
+        await session.execute(
+            update(ContactModel)
+            .where(ContactModel.domain_id == dead.id)
+            .values(verification_status=DEAD)
+        )
+        for domain, outcome in ((reached, ContactStatus.FOUND), (dead, ContactStatus.NOT_FOUND)):
+            await session.execute(
+                update(DonorModel)
+                .where(DonorModel.domain_id == domain.id)
+                .values(contact_status=outcome)
+            )
+        await session.commit()
+
+        donors = (await overview(session)).donors
+        letters = await Recipients(session).donor_funnel()
+        listed = (
+            await client.get("/api/donors?has_contact=true", headers=bearer(operator_token))
+        ).json()
+
+        assert donors.with_email == letters.with_contact == listed["total"] == 2
+        assert donors.written <= donors.with_email
+        # Адреса кончились у того, чьё письмо не дошло: строка «Писем», а не меньшее число.
+        assert letters.exhausted == 1
 
 
 class TestWaiting:
