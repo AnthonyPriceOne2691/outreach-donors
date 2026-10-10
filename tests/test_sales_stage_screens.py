@@ -21,6 +21,7 @@ from backend.api.letters.routes import _STAGE_TITLES
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.stages import MailStage
 from backend.features.ops.overview import overview
+from backend.features.outreach.repository import EVERY_STAGE
 from backend.features.outreach.threads import ThreadState
 from backend.features.replies.outcome import SALES_WAITING
 from backend.features.runs.exclusions import ExclusionReason, Exclusions
@@ -100,7 +101,7 @@ async def test_sales_answer_is_neither_a_price_nor_a_lead_on_the_main_page(
     """Домен лида — заодно принятый донор: числа доноров его письмо и ответ не трогают."""
     await sales_world(session, status=MessageStatus.DELIVERED)
 
-    view = await overview(session, now=NOW)
+    view = await overview(session, now=NOW, stages=EVERY_STAGE)
 
     assert (view.waiting.prices, view.waiting.leads) == (0, 0)
     assert (view.donors.written, view.donors.replied) == (0, 0)
