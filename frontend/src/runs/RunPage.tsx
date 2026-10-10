@@ -59,7 +59,7 @@ import type { Depth } from './depth';
 import { isCountry, isDepth, useLastChoice } from './lastChoice';
 import { Estimate } from './Estimate';
 import { Unfold } from './Unfold';
-import { notify } from '../notices';
+import { notify, refuse, settle } from '../notices';
 
 /** Набор углов, пока человек не выбрал другой, — тот же, что берёт сервер
  *  по умолчанию (`angles.DEFAULT_PRESET`). */
@@ -181,6 +181,7 @@ export function RunPage() {
         cap: validNumber(poolCap, POOL_CAP) ?? 30,
       }),
     onSuccess: (built) => {
+      settle('run-pool');
       // Фразы падают в то же поле, а не уходят в прогон: человек видит
       // их и правит до сметы. Смета и кап остаются последним рубежом.
       setKeywords(built.keywords.join('\n'));
@@ -195,30 +196,26 @@ export function RunPage() {
       });
     },
     onError: (failure) =>
-      notify({
-        title: 'Пул не собрался',
-        message: refusalOf(failure),
-        color: 'red',
-      }),
+      refuse('run-pool', { title: 'Пул не собрался', message: refusalOf(failure) }),
   });
 
+  // Удача действия снимает его прежний отказ — и только его (`notices.ts`, проверка
+  // прода 10.10.2026: красный «Смета не посчиталась» висел рядом с новой сметой).
   const estimate = useMutation({
     mutationFn: (asked: RunRequest) => estimateRun(asked),
     onSuccess: (made, asked) => {
+      settle('run-estimate');
       setForecast(made);
       setAskedFor(JSON.stringify(asked));
     },
     onError: (failure) =>
-      notify({
-        title: 'Смета не посчиталась',
-        message: refusalOf(failure),
-        color: 'red',
-      }),
+      refuse('run-estimate', { title: 'Смета не посчиталась', message: refusalOf(failure) }),
   });
 
   const launch = useMutation({
     mutationFn: () => startRun(body),
     onSuccess: async (queued) => {
+      settle('run-start');
       notify({ title: 'Прогон в очереди', message: queued.note, color: 'green' });
       setForecast(null);
       // Новый прогон встаёт первым на первой странице — туда и ведём, иначе
@@ -228,7 +225,7 @@ export function RunPage() {
       await queryClient.invalidateQueries({ queryKey: ['runs'] });
     },
     onError: (failure) =>
-      notify({ title: 'Прогон не запущен', message: refusalOf(failure), color: 'red' }),
+      refuse('run-start', { title: 'Прогон не запущен', message: refusalOf(failure) }),
   });
 
   // Смета устаревает, как только меняют ключи, страну, глубину или потолок:
