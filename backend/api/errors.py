@@ -26,6 +26,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from redis.exceptions import RedisError
+from sqlalchemy.exc import DataError, DBAPIError, IntegrityError
 
 from backend.config.startup_checks import ConfigError
 from backend.features.access.administration import (
@@ -258,6 +259,60 @@ async def _quota_unknown(_: Request, exc: Exception) -> JSONResponse:
     return JSONResponse({"detail": str(exc)}, status_code=code)
 
 
+#: Значение не годится столбцу: номер больше `integer`, строка длиннее поля (SQLSTATE 22…).
+DATA_REFUSED = (
+    "Значение не помещается в базу: номер вне допустимого диапазона или строка длиннее "
+    "допустимого — поправьте и повторите"
+)
+
+#: Два запроса за одну строку: уникальность, ссылка на удалённое (SQLSTATE 23…).
+RACED = "Это уже сделано или изменено другим запросом — обновите экран"
+
+
+def _database_code(exc: Exception) -> int | None:
+    """Код ответа на отказ базы по классу SQLSTATE. `None` — не отказ запросу, а поломка.
+
+    Смотрится код, а не только класс исключения: asyncpg через SQLAlchemy отдаёт и
+    переполнение номера, и длинную строку общим `DBAPIError` (проверено на Postgres
+    10.10.2026), `DataError` от него не приходит никогда.
+    """
+    orig = getattr(exc, "orig", None)
+    state = str(getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None) or "")
+    if isinstance(exc, DataError) or state.startswith("22"):
+        return status.HTTP_422_UNPROCESSABLE_CONTENT
+    if isinstance(exc, IntegrityError) or state.startswith("23"):
+        return status.HTTP_409_CONFLICT
+    return None
+
+
+async def _database_refused(request: Request, exc: Exception) -> JSONResponse:
+    """Отказ базы, который не поломка сервера (аудит 10.10.2026, №12): значение не годится
+    столбцу — 422, гонка за одну строку — 409. До этого — пятисотка: номер больше столбца
+    в адресе (`/api/threads/99999999999`), тема письма длиннее поля, два ответа разом.
+
+    Остальное — `raise`: база не отвечает, запрос сломан — пятисотка и трассировка остаются
+    за сервером, как до этого обработчика. Сессия запроса здесь уже откатана и закрыта:
+    исключение вышло из маршрута сквозь `db_session`, и её `async with` закрыл сессию раньше,
+    чем FastAPI позвал обработчик, — соединение вернулось в пул без незафиксированного.
+    """
+    code = _database_code(exc)
+    if code is None:
+        raise exc
+    orig = getattr(exc, "orig", None)
+    logger.warning(
+        "база отказала запросу — ответ %s",
+        code,
+        extra={
+            "path": request.url.path,
+            "sqlstate": getattr(orig, "sqlstate", None),
+            # Первая строка — без DETAIL: там значения ключа, например почта.
+            "error": str(orig or exc).splitlines()[0][:300],
+        },
+    )
+    said = DATA_REFUSED if code == status.HTTP_422_UNPROCESSABLE_CONTENT else RACED
+    return JSONResponse({"detail": said}, status_code=code)
+
+
 #: Отказ разбора запроса по типу pydantic — что не так, словами (аудит 10.10.2026, QA №5).
 #: Подстановки — из `ctx` отказа. Число стоит в конце фразы: «элементов — не больше 500»
 #: склоняется одинаково при любом числе, «не больше 500 элементов» — нет.
@@ -374,6 +429,7 @@ def install(app: FastAPI) -> None:
         app.add_exception_handler(error, _handler(code))
     app.add_exception_handler(QuotaUnavailableError, _quota_unknown)
     app.add_exception_handler(RequestValidationError, _unreadable)
+    app.add_exception_handler(DBAPIError, _database_refused)
     # Маршруты, которые отвечают о недоступной очереди сами (вебхук ответов — 503 со своей
     # причиной, поиск после перевода рекламодателей — успех перевода, исход задачи —
     # «очередь не отвечает»), ловят её до этого.

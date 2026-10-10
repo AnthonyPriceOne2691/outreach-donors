@@ -113,9 +113,8 @@ async def search_one(
     Номер задачи не запоминается как «поиск контактов»: то место — про
     общий поиск, и один донор выдал бы на экране списка чужой исход.
     """
-    donor = await session.get(DonorModel, donor_id)
-    if donor is None:
-        raise UnknownDonorError(f"Донора №{donor_id} нет")
+    # Номер больше столбца — «не найдено», а не пятисотка (`_donor`, аудит 10.10.2026).
+    donor = await _donor(session, donor_id)
     refusal = await search_refusal(session, donor)
     if refusal is not None:
         raise SearchRefusedError(refusal)
