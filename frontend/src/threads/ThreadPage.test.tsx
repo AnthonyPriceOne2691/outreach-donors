@@ -564,6 +564,19 @@ describe('ответ собеседнику', () => {
     expect(screen.getByRole('button', { name: 'Как уйдёт ответ' })).toBeInTheDocument();
   });
 
+  it('«i» стоит парой с «Отправить», на одной средней линии', async () => {
+    // Замечание Anthony 10.10.2026: «i» меньше кнопки «Отправить», и, прижатый к низу
+    // строки сам по себе, стоял ниже её середины — неровно. Пара в одном ряду с
+    // выравниванием по центру: середины совпадают, к низу поля прижата пара целиком.
+    await openThread(VIEW);
+
+    const info = screen.getByRole('button', { name: 'Как уйдёт ответ' });
+    const send = screen.getByRole('button', { name: 'Отправить' });
+    expect(info.parentElement).toBe(send.parentElement);
+    // Mantine кладёт выравнивание ряда переменной стиля: CSS-модулей в jsdom нет.
+    expect(info.parentElement).toHaveStyle({ '--group-align': 'center' });
+  });
+
   it('отвеченный ответ говорит об этом, а наше письмо подписано «наш ответ»', async () => {
     await openThread({
       letters: [
