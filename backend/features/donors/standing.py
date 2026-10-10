@@ -60,6 +60,10 @@ class Waiting:
     domains: int
     #: Прогоны, в очередях которых они ждут, новые первыми.
     runs: list[int]
+    #: Из них ждут в очередях нескольких прогонов: в строке истории каждого прогона
+    #: такой домен посчитан, и сумма «Рассмотреть» по строкам больше `domains`
+    #: (проверка прода 10.10.2026: 55 + 41 при 89 у пункта меню).
+    shared: int
 
 
 async def waiting(session: AsyncSession) -> Waiting:
@@ -80,7 +84,20 @@ async def waiting(session: AsyncSession) -> Waiting:
         .group_by(RunCandidateModel.run_id)
         .order_by(RunCandidateModel.run_id.desc())
     )
-    return Waiting(domains=int(domains or 0), runs=[int(one) for one in runs.scalars().all()])
+    # Пара «прогон + домен» в очереди одна (`uq_run_candidates_run_domain`): больше
+    # одной ждущей строки у домена — больше одной очереди.
+    in_several = (
+        select(RunCandidateModel.domain_id)
+        .where(RunCandidateModel.status == Decision.PENDING.value)
+        .group_by(RunCandidateModel.domain_id)
+        .having(func.count() > 1)
+    )
+    shared = await session.execute(select(func.count()).select_from(in_several.subquery()))
+    return Waiting(
+        domains=int(domains or 0),
+        runs=[int(one) for one in runs.scalars().all()],
+        shared=int(shared.scalar_one()),
+    )
 
 
 async def decided_in(session: AsyncSession, domain_id: int, review: str | None) -> int | None:

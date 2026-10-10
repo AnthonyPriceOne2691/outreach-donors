@@ -22,9 +22,10 @@ import { Badge, Box, Button, Card, Group, Stack, Table, Text } from '@mantine/co
 import { Link, useLocation } from 'react-router-dom';
 
 import { countryTitle, RUN_STATUSES } from '../api/labels';
+import type { RunsPage } from '../api/runs';
 import type { RunCard, RunsView, RunStatus } from '../api/types';
 import { PageSwitch } from '../components/PageSwitch';
-import { formatDateTime, formatNumber } from '../format';
+import { formatDateTime, formatNumber, plural } from '../format';
 import { RunReason } from './RunReason';
 
 /** Состояния, в которых прогон ещё не кончился: пока такой есть,
@@ -249,8 +250,23 @@ function HistoryRow({ run, from }: { run: RunCard; from: string }) {
   );
 }
 
+/** Почему сумма «Рассмотреть» по строкам больше числа у «Прогона» в меню (проверка прода
+ *  10.10.2026: 55 + 41 при 89): домен, ждущий в нескольких очередях, — в каждой строке,
+ *  а меню считает его один раз. Таких нет — строки нет. */
+function SharedQueues({ view }: { view: RunsPage | null }) {
+  if (view === null || !(view.review_shared > 0)) return null;
+  const { review_waiting: waiting, review_shared: shared } = view;
+  return (
+    <Text size="sm" c="dimmed" px="xs" pt="sm">
+      Решения ждут {formatNumber(waiting)} {plural(waiting, 'домен', 'домена', 'доменов')} — это
+      число у «Прогона» в меню. {formatNumber(shared)} из них стоят в очередях нескольких прогонов:
+      в строках выше такой домен посчитан в каждой своей очереди, в меню — один раз.
+    </Text>
+  );
+}
+
 interface Props {
-  view: RunsView | null;
+  view: RunsPage | null;
   page: number;
   onPage: (next: number) => void;
 }
@@ -290,6 +306,7 @@ export function RunHistory({ view, page, onPage }: Props) {
           </Table.Tbody>
         </Table>
       </Table.ScrollContainer>
+      <SharedQueues view={view} />
       {view !== null && view.total === 0 && (
         <Text size="sm" c="dimmed" p="lg">
           Прогонов ещё не было. Первый появится здесь сразу после запуска — вместе со сметой, с
