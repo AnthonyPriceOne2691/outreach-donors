@@ -4,6 +4,12 @@
  * Пароль не спрашивается намеренно — его выдаёт система разовым.
  * Придуманный админом пароль он бы диктовал голосом, а сотрудник
  * оставлял бы навсегда.
+ *
+ * **Почта проверяется формой адреса, а не одним «@»** (проверка QA 10.10.2026):
+ * `a@b` заводился учёткой, которую потом не удалить — только отключить, а отказ
+ * «Почта — она же логин» не говорил, что не так. Правила и слова — те же, что
+ * у сервера (`api/users/schemas.py`, `mail_problem`): здесь они экономят круг,
+ * решает всё равно сервер.
  */
 
 import { Alert, Button, Group, Modal, Select, Stack, TextInput } from '@mantine/core';
@@ -13,6 +19,28 @@ import { useState } from 'react';
 import type { OneTimePassword, Role } from '../api/types';
 import { createUser } from '../api/users';
 import { ACTIONS_GAP, FIELD_GAP } from '../components/formRhythm';
+
+/** Ширина `users.email` на сервере. */
+const MAIL_MAX = 255;
+/** Домен почты: метки через точку, без пустых, зона — от двух знаков. */
+const MAIL_DOMAIN = /^[^@\s.]+(?:\.[^@\s.]+)*\.[^@\s.]{2,}$/;
+
+/** Что не так с почтой — словами сервера; `null` — годится. */
+function mailProblem(raw: string): string | null {
+  const email = raw.trim();
+  if (email === '') return 'Впишите почту — она же логин';
+  if (email.length > MAIL_MAX) return `Почта длиннее ${MAIL_MAX} знаков — таких адресов не бывает`;
+  if (/\s/.test(email)) return 'В почте пробел — адрес пишется без пробелов';
+  const [name = '', ...domains] = email.split('@');
+  if (domains.length === 0) {
+    return 'В почте нет «@» — нужен адрес целиком, например ivan@example.com';
+  }
+  if (domains.length > 1) return 'В почте больше одного «@» — в адресе он один';
+  if (name === '') return 'Перед «@» нет имени ящика — например ivan@example.com';
+  return MAIL_DOMAIN.test(domains[0] ?? '')
+    ? null
+    : 'После «@» нужен домен с зоной через точку — например example.com';
+}
 
 interface Props {
   opened: boolean;
@@ -25,7 +53,7 @@ export function CreateUserModal({ opened, onClose, onCreated }: Props) {
   const form = useForm<{ email: string; role: Role }>({
     initialValues: { email: '', role: 'operator' },
     validate: {
-      email: (value) => (value.includes('@') ? null : 'Почта — она же логин'),
+      email: mailProblem,
     },
   });
 
