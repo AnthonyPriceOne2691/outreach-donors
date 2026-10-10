@@ -45,7 +45,7 @@ import { useRef, useState } from 'react';
 import { refusalOf } from '../api/client';
 import { listHypotheses, loadImport, previewImport } from '../api/sales';
 import type { ImportOptions, ImportSource } from '../api/sales';
-import type { HypothesisCard, IntakeView, LeadField } from '../api/salesTypes';
+import type { HypothesesView, HypothesisCard, IntakeView, LeadField } from '../api/salesTypes';
 import { BackLink } from '../components/BackLink';
 import { ImportColumns } from './ImportColumns';
 import { withField } from './importMapping';
@@ -54,6 +54,7 @@ import { ImportOutcome, ImportReport } from './ImportReport';
 import { Pending } from './Pending';
 import { HYPOTHESES_QUERY_KEY } from './hypothesisData';
 import { NewHypothesisButton } from './HypothesisModal';
+import { ModuleOff } from './ModuleOff';
 
 /** Шаги мастера по порядку. Итог загрузки — не шаг: назад с него не ходят. */
 const STEPS = [
@@ -350,8 +351,9 @@ function WizardSteps({ wizard, known }: { wizard: Wizard; known: HypothesisCard[
   );
 }
 
-/** Шапка мастера: куда вернуться и что будет до записи. */
-function WizardHead() {
+/** Шапка мастера: куда вернуться и что будет до записи. Модуль выключен — строкой под ней,
+ *  как под шапкой раздела: база грузится, а письма из неё не уйдут. */
+function WizardHead({ view }: { view: HypothesesView }) {
   return (
     <Card className="glassPanel" p="xl">
       <Stack gap={6}>
@@ -361,6 +363,7 @@ function WizardHead() {
           Файл CSV или Google-таблица → колонки → отчёт по каждой строке → запись в гипотезу. До
           последнего шага в базу ничего не пишется: сначала мастер показывает, что получится.
         </Text>
+        <ModuleOff view={view} />
       </Stack>
     </Card>
   );
@@ -376,7 +379,7 @@ export function ImportWizard() {
   const { outcome, hypothesisId } = wizard;
   return (
     <Stack gap="lg">
-      <WizardHead />
+      <WizardHead view={hypotheses.data} />
 
       <Card className="glassPanel" p="xl">
         {outcome !== null && hypothesisId !== null ? (

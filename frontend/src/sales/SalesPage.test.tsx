@@ -45,6 +45,7 @@ const HYPOTHESES: HypothesesView = {
     },
   ],
   total: 2,
+  module_enabled: true,
 };
 
 const IVAN: LeadCard = {

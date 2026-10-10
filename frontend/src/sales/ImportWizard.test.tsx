@@ -35,6 +35,7 @@ const HYPOTHESES: HypothesesView = {
     },
   ],
   total: 1,
+  module_enabled: true,
 };
 
 /** Предпросмотр файла на сто строк: три плохие, две с замечанием. */

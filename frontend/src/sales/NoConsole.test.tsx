@@ -97,8 +97,9 @@ const WITH_NEW: HypothesesView = {
     },
   ],
   total: 1,
+  module_enabled: true,
 };
-const NO_HYPOTHESES: HypothesesView = { rows: [], total: 0 };
+const NO_HYPOTHESES: HypothesesView = { rows: [], total: 0, module_enabled: true };
 
 describe('экраны продаж без команд консоли', () => {
   it.each([

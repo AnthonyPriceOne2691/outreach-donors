@@ -12,8 +12,9 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
-from backend.api.sales.schemas import HypothesisBody
+from backend.api.sales.schemas import HypothesesView, HypothesisBody
 from backend.cli.sales import EXIT_TAKEN, run_hypothesis_add
+from backend.config import sales as sales_cfg
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.outreach import MessageModel
 from backend.features.sales import queue
@@ -196,3 +197,17 @@ async def test_description_does_not_reach_the_letters_or_the_model(
 def test_screen_sends_the_hypothesis_by_the_server_names() -> None:
     """Поле, переименованное на сервере, экран отправлял бы мимо — без ошибки."""
     assert _screen_fields("HypothesisBody") == set(HypothesisBody.model_fields)
+    assert _screen_fields("HypothesesView") == set(HypothesesView.model_fields)
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+async def test_list_says_whether_the_sales_module_is_on(
+    client: AsyncClient, headers: dict[str, str], monkeypatch: pytest.MonkeyPatch, enabled: bool
+) -> None:
+    """Список гипотез раздел грузит на любой вкладке и в мастере: по нему экран говорит строкой
+    под шапкой, что модуль выключен (находка QA на проде: выключенный выглядел рабочим)."""
+    monkeypatch.setattr(sales_cfg, "ENABLED", enabled)
+
+    body = (await client.get(HYPOTHESES, headers=headers)).json()
+
+    assert body["module_enabled"] is enabled

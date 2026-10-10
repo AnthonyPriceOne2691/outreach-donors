@@ -58,7 +58,7 @@ const KB: KbView = {
   limits: { title: 255, text: 20000, tag: 64, tags: 20 },
 };
 
-const HYPOTHESES: HypothesesView = { rows: [], total: 0 };
+const HYPOTHESES: HypothesesView = { rows: [], total: 0, module_enabled: true };
 
 async function openKb(
   routes: Record<string, Answer | ((call: Call) => Answer)> = {},

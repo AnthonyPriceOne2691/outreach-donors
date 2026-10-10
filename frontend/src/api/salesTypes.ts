@@ -42,6 +42,8 @@ export interface HypothesisCard {
 export interface HypothesesView {
   rows: HypothesisCard[];
   total: number;
+  /** Модуль продаж включён. Выключен — строка под шапкой раздела на любой вкладке. */
+  module_enabled: boolean;
 }
 
 /** Новая гипотеза из окна «Новая гипотеза» (`POST /sales/hypotheses`). Пустоту и длину

@@ -92,6 +92,9 @@ class HypothesisCard(BaseModel):
 class HypothesesView(BaseModel):
     rows: list[HypothesisCard]
     total: int
+    #: Модуль продаж включён. Выключен — экран говорит это строкой под шапкой раздела: список
+    #: гипотез раздел грузит на любой вкладке и в мастере загрузки, отдельного запроса нет.
+    module_enabled: bool
 
 
 class LeadCard(BaseModel):

@@ -50,6 +50,7 @@ import {
 } from './leadFilters';
 import type { LeadFilters, SalesTab } from './leadFilters';
 import { LeadsPane, pageBack, useLeads } from './LeadsPane';
+import { ModuleOff } from './ModuleOff';
 import { Pending } from './Pending';
 import { QueuePane } from './QueuePane';
 import { SenderPane } from './SenderPane';
@@ -231,6 +232,7 @@ export function SalesPage() {
     <Card className="glassPanel" p="md">
       <Stack gap="sm">
         <SalesTitle />
+        <ModuleOff view={hypotheses.data} />
         <Group align="center" gap="sm" wrap="wrap" className="salesTabs">
           <SalesTabs
             tab={filters.tab}
