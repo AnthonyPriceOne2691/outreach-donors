@@ -7,7 +7,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
-import { HOME_ROUTES, NEWCOMER, OPERATOR, TOKEN_KEY } from '../test/fixtures';
+import { HOME_ROUTES, NEWCOMER, OPERATOR, TOKEN_KEY, signedIn } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 
@@ -53,7 +53,7 @@ describe('смена своего пароля', () => {
       'GET /api/auth/me': () => ({ body: changed ? OPERATOR : NEWCOMER }),
       'POST /api/auth/password': () => {
         changed = true;
-        return { status: 204 };
+        return { body: signedIn(OPERATOR) };
       },
       ...HOME_ROUTES,
     });
@@ -69,6 +69,26 @@ describe('смена своего пароля', () => {
       current: 'разовый',
       new: 'три слова подряд',
     });
+  });
+
+  it('после смены работа идёт новым пропуском из ответа: прежний сервер закрыл', async () => {
+    // Проверка прода 10.10.2026: пропуск, выданный до смены пароля, больше не действует —
+    // сеанс, оставшийся на нём, следующим же запросом вылетел бы на вход.
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    const recorded = serve({
+      'GET /api/auth/me': { body: NEWCOMER },
+      'POST /api/auth/password': { body: signedIn(OPERATOR) },
+      ...HOME_ROUTES,
+    });
+    renderWith(<AppRoutes />, '/password');
+    await screen.findByText('Смена пароля');
+
+    await fill('разовый', 'три слова подряд', 'три слова подряд');
+
+    expect(await screen.findByText('Ждут человека')).toBeInTheDocument();
+    expect(localStorage.getItem(TOKEN_KEY)).toBe(signedIn(OPERATOR).token);
+    const after = recorded.calls.filter((call) => call.path === '/api/overview');
+    expect(after.map((call) => call.token)).toEqual([`Bearer ${signedIn(OPERATOR).token}`]);
   });
 
   it('отмена возвращает туда, откуда пришли, а не на «Обзор»', async () => {

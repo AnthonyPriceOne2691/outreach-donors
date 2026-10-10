@@ -3,7 +3,9 @@
 Правило одно на весь файл: **права берутся из базы на каждом запросе,
 а не из пропуска.** В пропуске нет ни роли, ни прав намеренно — иначе
 отключённый сотрудник ходит с действующим пропуском до конца суток,
-а отобранное право продолжает действовать столько же.
+а отобранное право продолжает действовать столько же. Так же и пароль:
+пропуск несёт только его отпечаток, и смена пароля закрывает выданные до неё
+пропуска (`access/tokens.py`).
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.features.access.attempts import LoginAttempts
 from backend.features.access.permissions import Actor, OneTimePasswordError, require
 from backend.features.access.repository import AccessRepository, actor_of
-from backend.features.access.tokens import read_token
+from backend.features.access.tokens import password_changed_since, read_token
 from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
 from backend.shared.database.base import SessionFactory
@@ -57,6 +59,15 @@ async def signed_in(
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,
             detail="Учётка отключена или удалена — войти по этому пропуску нельзя",
+            headers=_UNAUTHORIZED,
+        )
+    if password_changed_since(payload, user.password_hash):
+        # Сброс админом и смена своего пароля закрывают выданные пропуска (проверка прода
+        # 10.10.2026): окно сброса обещало «старый перестанет действовать», а пропуск,
+        # выданный до сброса, открывал данные до конца суток.
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            detail="Пароль учётки сменили — этот пропуск больше не действует, войдите заново",
             headers=_UNAUTHORIZED,
         )
     return user

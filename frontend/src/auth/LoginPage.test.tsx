@@ -104,7 +104,7 @@ describe('вход после оборванного сеанса', () => {
     renderWith(<AppRoutes />, '/suppressions');
 
     expect(await screen.findByText('Сеанс закончился')).toBeInTheDocument();
-    expect(screen.getByText(/учётку могли отключить/)).toBeInTheDocument();
+    expect(screen.getByText(/пароль могли сбросить или учётку отключить/)).toBeInTheDocument();
     expect(screen.getByText('Вход для сотрудников')).toBeInTheDocument();
   });
 

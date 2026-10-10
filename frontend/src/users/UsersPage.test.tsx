@@ -162,9 +162,28 @@ describe('учётки', () => {
     await user.click(within(row as HTMLElement).getByRole('button', { name: 'Сбросить пароль' }));
     const ask = await screen.findByRole('dialog', { name: /^Сбросить пароль/, hidden: true });
     expect(within(ask).getByText(/новый разовый покажется один раз/)).toBeInTheDocument();
+    // Окно говорит правду: сброс закрывает и открытые сеансы (проверка прода 10.10.2026).
+    expect(within(ask).getByText(/открытые сеансы перестанут действовать/)).toBeInTheDocument();
     await user.click(within(ask).getByRole('button', { name: 'Сбросить', hidden: true }));
 
     expect(await screen.findByText('QwErTy12QwErTy34')).toBeInTheDocument();
+  });
+
+  it('своя строка — «Сменить пароль», а не сброс: сброс себе закрыл бы этот сеанс', async () => {
+    await openUsers();
+
+    // Своя почта есть и в шапке («Вошли как»): строка — та, что в таблице.
+    const own = screen
+      .getAllByText('админ@site.com')
+      .map((text) => text.closest('tr'))
+      .find((found) => found !== null) as HTMLElement;
+    expect(within(own).getByRole('link', { name: 'Сменить пароль' })).toHaveAttribute(
+      'href',
+      '/password',
+    );
+    expect(within(own).queryByRole('button', { name: 'Сбросить пароль' })).not.toBeInTheDocument();
+    const other = screen.getByText('оператор@site.com').closest('tr') as HTMLElement;
+    expect(within(other).getByRole('button', { name: 'Сбросить пароль' })).toBeInTheDocument();
   });
 
   it('отказ сервера в праве на себя — переключатель стоит, как стоял, отказ словами', async () => {

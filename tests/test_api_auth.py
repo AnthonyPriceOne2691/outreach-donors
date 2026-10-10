@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 
+import jwt
 import pytest
 from backend.api.app import create_app
 from backend.config.startup_checks import ConfigError
@@ -234,18 +236,20 @@ class TestOwnPasswordAttempts:
             await client.post("/api/auth/password", headers=bearer(token), json=WRONG_OLD)
 
         changed = await client.post("/api/auth/password", headers=bearer(token), json=RIGHT_OLD)
+        assert changed.status_code == 200, changed.text
+        # Дальше — новым пропуском: прежний смена пароля закрыла.
+        renewed = changed.json()["token"]
         again = [
             (
                 await client.post(
                     "/api/auth/password",
-                    headers=bearer(token),
+                    headers=bearer(renewed),
                     json={"current": "мимо", "new": "четыре слова подряд длиннее"},
                 )
             ).status_code
             for _ in range(4)
         ]
 
-        assert changed.status_code == 204, changed.text
         assert again == [400] * 4
 
 
@@ -308,7 +312,7 @@ class TestOwnPassword:
             json={"current": "пароль-для-теста", "new": "три слова подряд длиннее"},
         )
 
-        assert changed.status_code == 204, changed.text
+        assert changed.status_code == 200, changed.text
         old = await client.post(
             "/api/auth/login", json={"email": "ivan@site.com", "password": "пароль-для-теста"}
         )
@@ -393,7 +397,7 @@ class TestOneTimePasswordGate:
             headers=bearer(token),
             json={"current": "пароль-для-теста", "new": "три слова подряд длиннее"},
         )
-        assert changed.status_code == 204, changed.text
+        assert changed.status_code == 200, changed.text
 
     async def test_change_opens_the_work(
         self,
@@ -403,16 +407,66 @@ class TestOneTimePasswordGate:
     ) -> None:
         await make_user("новый@site.com", role=UserRole.ADMIN, must_change_password=True)
         token = await sign_in("новый@site.com")
-        await client.post(
+        changed = await client.post(
             "/api/auth/password",
             headers=bearer(token),
             json={"current": "пароль-для-теста", "new": "три слова подряд длиннее"},
         )
 
-        assert (await client.get("/api/users", headers=bearer(token))).status_code == 200
-        assert (await client.get("/api/auth/me", headers=bearer(token))).json()[
+        # Новый пропуск приходит ответом смены, с карточкой — как у входа.
+        assert changed.json()["user"]["must_change_password"] is False
+        renewed = changed.json()["token"]
+        assert (await client.get("/api/users", headers=bearer(renewed))).status_code == 200
+        assert (await client.get("/api/auth/me", headers=bearer(renewed))).json()[
             "must_change_password"
         ] is False
+        # Пропуск, выданный с разовым паролем, смена закрыла.
+        assert (await client.get("/api/auth/me", headers=bearer(token))).status_code == 401
+
+
+class TestPassAfterPasswordChange:
+    """Пропуск, выданный до смены пароля, не действует (проверка прода 10.10.2026): окно
+    сброса обещало «старый перестанет действовать», а пропуск открывал данные до конца
+    суток — и снова, едва человек сменит разовый пароль."""
+
+    async def test_own_change_closes_every_older_pass_and_gives_a_new_one(
+        self,
+        client: AsyncClient,
+        make_user: MakeUser,
+        sign_in: Callable[..., Awaitable[str]],
+    ) -> None:
+        """Два сеанса — две вкладки или два устройства; смена в одном закрывает оба
+        прежних пропуска, а сменивший работает дальше новым."""
+        await make_user("ivan@site.com")
+        here = await sign_in("ivan@site.com")
+        elsewhere = await sign_in("ivan@site.com")
+
+        changed = await client.post("/api/auth/password", headers=bearer(here), json=RIGHT_OLD)
+
+        assert changed.status_code == 200, changed.text
+        for old in (here, elsewhere):
+            refused = await client.get("/api/auth/me", headers=bearer(old))
+            assert refused.status_code == 401
+            assert "Пароль учётки сменили" in refused.json()["detail"]
+            assert refused.headers["WWW-Authenticate"] == "Bearer"
+        renewed = await client.get("/api/auth/me", headers=bearer(changed.json()["token"]))
+        assert renewed.status_code == 200
+        assert renewed.json()["email"] == "ivan@site.com"
+
+    async def test_pass_from_before_stamps_lives_its_term(
+        self, client: AsyncClient, make_user: MakeUser
+    ) -> None:
+        """Пропуск, выданный до выкатки отпечатков, — без отпечатка: он доживает свой срок
+        (сутки), а не выбрасывает всех из сервиса в день выкатки."""
+        user = await make_user("ivan@site.com")
+        moment = int(datetime.now(UTC).timestamp())
+        legacy = jwt.encode(
+            {"sub": str(user.id), "iat": moment, "exp": moment + 3600}, "x" * 64, algorithm="HS256"
+        )
+
+        response = await client.get("/api/auth/me", headers=bearer(legacy))
+
+        assert response.status_code == 200, response.text
 
 
 class TestStartup:

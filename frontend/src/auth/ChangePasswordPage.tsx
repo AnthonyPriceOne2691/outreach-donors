@@ -22,7 +22,6 @@ import { useForm } from '@mantine/form';
 import { useState } from 'react';
 import { NavigationType, useNavigate, useNavigationType } from 'react-router-dom';
 
-import { changePassword } from '../api/auth';
 import { SERVICE_NAME } from '../brand';
 import { ACTIONS_GAP, FIELD_GAP } from '../components/formRhythm';
 import { useSession } from './AuthProvider';
@@ -31,7 +30,7 @@ import { notify } from '../notices';
 const MIN_LENGTH = 10;
 
 export function ChangePasswordPage() {
-  const { user, refresh, signOut } = useSession();
+  const { user, changePassword, signOut } = useSession();
   const navigate = useNavigate();
   // Пришли ссылкой из приложения («Сменить пароль» в меню у почты) — позади его же
   // экран, и шаг назад вернёт туда, откуда пришли: отмена вела на «Обзор» откуда
@@ -68,8 +67,8 @@ export function ChangePasswordPage() {
   const submit = form.onSubmit(async ({ current, next }) => {
     setRefusal(null);
     try {
+      // Сеанс берёт новый пропуск из ответа: прежние смена пароля закрыла.
       await changePassword(current, next);
-      await refresh();
       notify({ message: 'Пароль сменён', color: 'green' });
       void navigate('/', { replace: true });
     } catch (error) {

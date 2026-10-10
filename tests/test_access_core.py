@@ -29,9 +29,13 @@ from backend.features.access.permissions import (
     require,
 )
 from backend.features.access.tokens import (
+    STAMP_CLAIM,
+    STAMP_LENGTH,
     SecretMissingError,
     TokenError,
     create_token,
+    password_changed_since,
+    password_stamp,
     read_token,
 )
 from backend.features.core.domain import Permission, UserRole
@@ -82,21 +86,26 @@ class TestPasswords:
         assert len({generate_one_time() for _ in range(50)}) == 50
 
 
+#: Хеш пароля учётки — какой лежит в базе; смена пароля даёт новый.
+HASH = hash_password("три слова подряд")
+
+
 class TestTokens:
     @pytest.fixture(autouse=True)
     def _secret(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("backend.features.access.tokens.cfg.JWT_SECRET", "x" * 64)
 
     def test_roundtrip(self) -> None:
-        payload = read_token(create_token(42))
+        payload = read_token(create_token(42, password_hash=HASH))
         assert payload.user_id == 42
         assert payload.expires_at > datetime.now(UTC)
+        assert payload.password_stamp == password_stamp(HASH)
 
     def test_expired_token_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("backend.features.access.tokens.cfg.TOKEN_TTL_HOURS", 1)
         long_ago = datetime.now(UTC) - timedelta(hours=5)
         with pytest.raises(TokenError, match="просрочен"):
-            read_token(create_token(1, now=long_ago))
+            read_token(create_token(1, password_hash=HASH, now=long_ago))
 
     def test_token_signed_with_another_secret_refused(self) -> None:
         alien = jwt.encode({"sub": "1", "exp": 9999999999}, "y" * 64, algorithm="HS256")
@@ -119,14 +128,66 @@ class TestTokens:
         """Пустой секрет — это отказ с инструкцией, а не проверка без подписи."""
         monkeypatch.setattr("backend.features.access.tokens.cfg.JWT_SECRET", "")
         with pytest.raises(SecretMissingError, match="ACCESS_JWT_SECRET"):
-            create_token(1)
+            create_token(1, password_hash=HASH)
 
     def test_short_secret_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Короткий секрет подбирают. Поймано тем, что библиотека
         предупреждает, а у нас предупреждение — это падение теста."""
         monkeypatch.setattr("backend.features.access.tokens.cfg.JWT_SECRET", "коротко")
         with pytest.raises(SecretMissingError, match="короче"):
-            create_token(1)
+            create_token(1, password_hash=HASH)
+
+
+class TestPasswordStamp:
+    """Пропуск, выданный до смены пароля, не действует (проверка прода 10.10.2026): сброс
+    пароля админом обещал «старый перестанет действовать», а пропуск жил до конца суток."""
+
+    @pytest.fixture(autouse=True)
+    def _secret(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("backend.features.access.tokens.cfg.JWT_SECRET", "x" * 64)
+
+    def test_pass_works_while_the_password_is_the_same(self) -> None:
+        payload = read_token(create_token(7, password_hash=HASH))
+        assert not password_changed_since(payload, HASH)
+
+    def test_new_password_closes_the_pass(self) -> None:
+        """Тот же пароль заново — тоже смена: соль bcrypt новая, хеш другой."""
+        payload = read_token(create_token(7, password_hash=HASH))
+
+        assert password_changed_since(payload, hash_password("другой пароль подряд"))
+        assert password_changed_since(payload, hash_password("три слова подряд"))
+
+    def test_pass_from_before_stamps_lives_its_term(self) -> None:
+        """Пропуск, выданный до выкатки, отпечатка не несёт — он доживает свой срок, а не
+        выбрасывает всех из сервиса в день выкатки."""
+        moment = int(datetime.now(UTC).timestamp())
+        legacy = jwt.encode(
+            {"sub": "7", "iat": moment, "exp": moment + 3600}, "x" * 64, algorithm="HS256"
+        )
+        payload = read_token(legacy)
+
+        assert payload.password_stamp is None
+        assert not password_changed_since(payload, hash_password("другой пароль подряд"))
+
+    def test_stamp_tells_nothing_about_the_hash(self) -> None:
+        """Пропуск читает любой, у кого он есть: в нём короткий отпечаток на секрете
+        подписи, а не хеш и не его кусок."""
+        claims = jwt.decode(
+            create_token(7, password_hash=HASH), options={"verify_signature": False}
+        )
+
+        stamp = claims[STAMP_CLAIM]
+        assert len(stamp) == STAMP_LENGTH
+        assert stamp not in HASH
+        assert HASH not in str(claims)
+
+    def test_stamp_cannot_be_counted_without_the_secret(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        mine = password_stamp(HASH)
+        monkeypatch.setattr("backend.features.access.tokens.cfg.JWT_SECRET", "y" * 64)
+
+        assert password_stamp(HASH) != mine
 
 
 class TestPermissions:
