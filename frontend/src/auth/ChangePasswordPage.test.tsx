@@ -11,6 +11,9 @@ import { HOME_ROUTES, NEWCOMER, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 
+/** Пустой стоп-лист — экран, с которого уходят менять пароль. */
+const EMPTY_STOP = { rows: [], total: 0, donor_decisions: 0, expired: 0 };
+
 async function fill(current: string, next: string, repeat: string) {
   const user = userEvent.setup();
   await user.type(screen.getByLabelText('Текущий пароль'), current);
@@ -66,6 +69,34 @@ describe('смена своего пароля', () => {
       current: 'разовый',
       new: 'три слова подряд',
     });
+  });
+
+  it('отмена возвращает туда, откуда пришли, а не на «Обзор»', async () => {
+    // Проверка QA 10.10.2026: из «Стоп-листа» отмена вела на «Обзор».
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    serve({
+      'GET /api/auth/me': { body: OPERATOR },
+      'GET /api/suppressions': { body: EMPTY_STOP },
+    });
+    renderWith(<AppRoutes />, '/suppressions');
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: `Вошли как ${OPERATOR.email}` }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Сменить пароль', hidden: true }));
+    await user.click(await screen.findByRole('button', { name: 'Отмена' }));
+
+    expect(await screen.findByText(/Список пуст/)).toBeInTheDocument();
+  });
+
+  it('открытая адресом смена отменяется на «Обзор», а не шагом назад из приложения', async () => {
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    serve({ 'GET /api/auth/me': { body: OPERATOR }, ...HOME_ROUTES });
+    renderWith(<AppRoutes />, '/password');
+    await screen.findByText('Смена пароля');
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Отмена' }));
+
+    expect(await screen.findByText('Ждут человека')).toBeInTheDocument();
   });
 
   it('отказ сервера показывается целиком', async () => {
