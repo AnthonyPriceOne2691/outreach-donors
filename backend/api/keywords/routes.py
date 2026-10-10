@@ -104,6 +104,9 @@ async def build_pool(
     except LlmError as exc:
         # Пустой пул из-за отказов модели — ошибка, а не результат: отдать
         # пустой список значит предложить человеку запустить прогон ни за чем.
+        # Но токены вызовов, на которые модель успела ответить, потрачены: без
+        # строки журнала расход выглядел меньше настоящего (аудит 10.10.2026).
+        await _record_tokens(session, client.tokens_spent)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
     finally:
         await client.aclose()
@@ -111,11 +114,7 @@ async def build_pool(
     # Поля берём у отчёта напрямую, а не через `as_dict()`: тот отдаёт
     # словарь для журнала, и типы там уже не видны.
     report = pool.report
-    if report.tokens:
-        # Расход пишется даже когда пул пустой по другой причине: строка
-        # журнала отвечает на вопрос «во что обошлось», а не «что вышло».
-        usage.record(session, operation="keywords", units=report.tokens)
-        await session.commit()
+    await _record_tokens(session, report.tokens)
     return PoolView(
         keywords=pool.keywords,
         languages=list(languages),
@@ -127,3 +126,11 @@ async def build_pool(
         tokens=report.tokens,
         model=llm_cfg.KEYGEN_MODEL,
     )
+
+
+async def _record_tokens(session: AsyncSession, tokens: int) -> None:
+    """Строка расхода на модель. Пишется и при пустом пуле, и при отказе модели:
+    строка журнала отвечает на вопрос «во что обошлось», а не «что вышло»."""
+    if tokens:
+        usage.record(session, operation="keywords", units=tokens)
+        await session.commit()
