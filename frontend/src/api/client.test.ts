@@ -6,7 +6,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { watchAccessDenied } from '../auth/session';
-import { AuthError, DeniedError, TooManyAttemptsError, request } from './client';
+import {
+  ApiError,
+  AuthError,
+  DeniedError,
+  NO_CONNECTION,
+  NoConnectionError,
+  TooManyAttemptsError,
+  download,
+  request,
+  upload,
+} from './client';
 import { TOKEN_KEY } from '../test/fixtures';
 import { misses, serve } from '../test/server';
 
@@ -107,6 +117,33 @@ describe('запрос к серверу', () => {
     await expect(request('/users/1', { method: 'PATCH', body: {} })).rejects.toThrow(
       /Неизвестные действия/,
     );
+  });
+
+  it('обрыв связи — словами, а не текстом браузера: у запроса, формы и выгрузки', async () => {
+    // Проверка прода 10.10.2026: «Не завели · Failed to fetch». Место одно — на все формы.
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('Failed to fetch'));
+
+    const failures = await Promise.all([
+      request('/suppressions', { method: 'POST', body: {} }).catch((error: unknown) => error),
+      upload('/sales/import/preview', new FormData()).catch((error: unknown) => error),
+      download('/donors/export').catch((error: unknown) => error),
+    ]);
+
+    for (const failure of failures) {
+      expect(failure).toBeInstanceOf(NoConnectionError);
+      expect(failure).toHaveProperty('message', NO_CONNECTION);
+      // Ответа не было — и кода ответа нет: это не отказ сервера.
+      expect(failure).not.toBeInstanceOf(ApiError);
+    }
+  });
+
+  it('отмена запроса — не обрыв: уходит как есть', async () => {
+    const aborted = new DOMException('The operation was aborted.', 'AbortError');
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(aborted);
+
+    const failure = await request('/donors').catch((error: unknown) => error);
+
+    expect(failure).toBe(aborted);
   });
 
   it('незаписанный адрес роняет тест с внятным текстом', () => {

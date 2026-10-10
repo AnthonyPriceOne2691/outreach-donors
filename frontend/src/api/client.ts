@@ -10,6 +10,9 @@
  * сервера написаны так, чтобы говорить, что делать, и заменять их
  * на «ошибка запроса» значит выбрасывать ровно ту часть, ради которой
  * они писались.
+ *
+ * Запрос, не дошедший до сервера, — свой тип и свои слова (`NoConnectionError`):
+ * ответа нет, и текст браузера («Failed to fetch») человеку ничего не говорит.
  */
 
 import { accessDenied, clearToken, readToken } from '../auth/session';
@@ -49,6 +52,20 @@ export class TooManyAttemptsError extends ApiError {
     super(429, detail);
     this.name = 'TooManyAttemptsError';
     this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
+/** Что сказать, когда запрос не дошёл до сервера (проверка прода 10.10.2026: форма
+ *  показывала «Не завели · Failed to fetch» — текст браузера по-английски). */
+export const NO_CONNECTION =
+  'Нет связи с сервером — запрос не дошёл. Проверьте интернет и повторите';
+
+/** Запрос не дошёл: сети нет или сервер не отвечает. Ответа нет — нет и кода ответа,
+ *  поэтому это не `ApiError`. Исходная ошибка браузера — в `cause`. */
+export class NoConnectionError extends Error {
+  constructor(cause: unknown) {
+    super(NO_CONNECTION, { cause });
+    this.name = 'NoConnectionError';
   }
 }
 
@@ -115,6 +132,23 @@ async function raise(response: Response): Promise<never> {
   throw new ApiError(response.status, detail);
 }
 
+/**
+ * Один выход в сеть: `request`, `upload` и `download` идут через него.
+ *
+ * Сеть не ответила — `fetch` по стандарту отклоняет `TypeError`, а текст у браузеров
+ * свой («Failed to fetch», «Load failed»): человеку — словами, одним местом для всех форм.
+ * Отмена (`AbortError`) — не обрыв: её просил сам экран или человек, и она уходит как
+ * есть; прочее — тоже как есть.
+ */
+async function send(path: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(`/api${path}`, init);
+  } catch (error) {
+    if (error instanceof TypeError) throw new NoConnectionError(error);
+    throw error;
+  }
+}
+
 /** Пропуск заголовком. Одно место на все запросы: выгрузка файлом когда-то
  *  шла простой ссылкой, без него, и сервер отвечал ей 401. */
 function withPass(headers: Record<string, string>): Record<string, string> {
@@ -129,7 +163,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   if (body !== undefined) headers['content-type'] = 'application/json';
   if (!anonymous) withPass(headers);
 
-  const response = await fetch(`/api${path}`, {
+  const response = await send(path, {
     method,
     headers,
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -146,7 +180,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
  * `request`.
  */
 export async function upload<T>(path: string, form: FormData): Promise<T> {
-  const response = await fetch(`/api${path}`, {
+  const response = await send(path, {
     method: 'POST',
     headers: withPass({}),
     body: form,
@@ -200,7 +234,7 @@ export async function download(
   // Тело — JSON и только у POST: номера отмеченных доноров едут телом,
   // потому что тысячи номеров в адресе упёрлись бы в предел строки у прокси.
   const headers = withPass(body === undefined ? {} : { 'content-type': 'application/json' });
-  const response = await fetch(`/api${path}`, {
+  const response = await send(path, {
     method,
     headers,
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
