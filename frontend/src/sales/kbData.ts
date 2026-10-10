@@ -8,12 +8,12 @@
  * прежний ответ.
  */
 
-import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { refusalOf } from '../api/client';
 import { changeKbEntry, listKb, readSender, saveSender } from '../api/sales';
 import type { KbEntryCard } from '../api/salesTypes';
+import { notify } from '../notices';
 
 export const KB_QUERY_KEY = ['sales', 'kb'] as const;
 export const SENDER_QUERY_KEY = ['sales', 'sender'] as const;
@@ -29,7 +29,7 @@ export function useToggle() {
     mutationFn: ({ id, active }: { id: number; active: boolean }) => changeKbEntry(id, { active }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: KB_QUERY_KEY }),
     onError: (failure) =>
-      notifications.show({ title: 'Не переключили', message: refusalOf(failure), color: 'red' }),
+      notify({ title: 'Не переключили', message: refusalOf(failure), color: 'red' }),
   });
 }
 
@@ -38,7 +38,7 @@ export function useSavedEntry() {
   const queryClient = useQueryClient();
   return async (card: KbEntryCard) => {
     await queryClient.invalidateQueries({ queryKey: KB_QUERY_KEY });
-    notifications.show({ message: `Запись «${card.title}» сохранена`, color: 'green' });
+    notify({ message: `Запись «${card.title}» сохранена`, color: 'green' });
   };
 }
 
@@ -53,7 +53,7 @@ export function useSaveSender() {
     mutationFn: saveSender,
     onSuccess: (saved) => {
       queryClient.setQueryData(SENDER_QUERY_KEY, saved);
-      notifications.show({ message: 'Отправитель сохранён', color: 'green' });
+      notify({ message: 'Отправитель сохранён', color: 'green' });
     },
   });
 }

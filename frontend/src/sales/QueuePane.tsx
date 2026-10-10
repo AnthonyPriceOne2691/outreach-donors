@@ -27,7 +27,6 @@ import {
   Stack,
   Text,
 } from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
@@ -42,6 +41,7 @@ import { Metric } from '../components/Metric';
 import { formatNumber } from '../format';
 import { JobLine } from '../jobs/JobLine';
 import { SendQueue } from '../letters/SendQueue';
+import { notify } from '../notices';
 import { remember, remembered } from '../storage';
 import { buildJobKey, QUEUE_QUERY_KEY, queueLine, useSalesQueue } from './queueData';
 
@@ -119,7 +119,7 @@ function BuildQueue({ view }: { view: SalesQueueView }) {
     onSuccess: (queued) => {
       setJobId(queued.job_id);
       remember(buildJobKey(hypothesis), queued.job_id);
-      notifications.show({ message: 'Сборка очереди ушла в очередь задач', color: 'green' });
+      notify({ message: 'Сборка очереди ушла в очередь задач', color: 'green' });
     },
   });
   const empty = view.unwritten === 0 && view.queued === 0;

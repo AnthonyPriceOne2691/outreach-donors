@@ -7,12 +7,12 @@
  * в общий набор, меняет то, что видит гипотеза без своих шагов.
  */
 
-import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { previewChainStep, readChain, saveChainStep } from '../api/sales';
 import { chainLanguageTitle, chainStepTitle } from '../api/salesLabels';
 import type { ChainStepCard } from '../api/salesTypes';
+import { notify } from '../notices';
 
 export const CHAIN_QUERY_KEY = ['sales', 'chain'] as const;
 
@@ -33,7 +33,7 @@ export function useSaveStep(onSaved: (card: ChainStepCard) => void) {
       onSaved(card);
       await client.invalidateQueries({ queryKey: CHAIN_QUERY_KEY });
       const what = `${chainStepTitle(card.step)} · ${chainLanguageTitle(card.language)}`;
-      notifications.show({ message: `Сохранено: ${what}`, color: 'green' });
+      notify({ message: `Сохранено: ${what}`, color: 'green' });
     },
   });
 }

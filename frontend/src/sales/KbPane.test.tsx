@@ -8,9 +8,10 @@
  * словами, а не пропадает.
  */
 
+import { notifications } from '@mantine/notifications';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
 import type { AgentView, HypothesesView, KbEntryCard, KbView } from '../api/salesTypes';
@@ -171,13 +172,14 @@ describe('база знаний: включение', () => {
     );
   });
 
-  it('отказ переключения — уведомлением словами сервера', async () => {
+  it('отказ переключения — уведомлением словами сервера, само не исчезает', async () => {
     await openKb({
       'PATCH /api/sales/kb/7': {
         status: 404,
         body: { detail: 'записи базы знаний №7 нет — обновите список' },
       },
     });
+    const show = vi.spyOn(notifications, 'show');
 
     await userEvent.click(screen.getByRole('switch', { name: 'Агент видит «Цена аудита»' }));
 
@@ -185,6 +187,10 @@ describe('база знаний: включение', () => {
       await screen.findByText('записи базы знаний №7 нет — обновите список', {}, SCREEN_WAIT),
     ).toBeInTheDocument();
     expect(screen.getByText('Не переключили')).toBeInTheDocument();
+    // Отказ закрывает человек (`notices.ts`): ушёл к соседнему окну — увидит, вернувшись.
+    expect(show).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Не переключили', autoClose: false }),
+    );
   });
 });
 
