@@ -28,8 +28,18 @@ interface Props {
   onChange: (next: number[]) => void;
 }
 
+/** Прогоны с принятыми донорами. Тот же запрос читает причина у кнопки сборки
+ *  (`BuildForm`): кэш общий, второго запроса нет. */
+export function useAcceptedRuns(enabled = true) {
+  return useQuery({
+    queryKey: ['runs', 'with-accepted'],
+    queryFn: listRunsWithAccepted,
+    enabled,
+  });
+}
+
 export function RunPicker({ value, onChange }: Props) {
-  const { data } = useQuery({ queryKey: ['runs', 'with-accepted'], queryFn: listRunsWithAccepted });
+  const { data } = useAcceptedRuns();
   const ready = data ?? [];
 
   if (ready.length === 0) {

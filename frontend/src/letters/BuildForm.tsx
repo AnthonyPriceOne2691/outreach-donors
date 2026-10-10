@@ -9,8 +9,8 @@
  * сворачивает, пока не сменят адресатов.
  *
  * **Порядок формы — порядок решения:** кампания и числа, прогоны, текст первого письма,
- * и кнопка — последней; у выключенной кнопки сказано, чего не хватает. Поля — по
- * значению, пояснения — в «i».
+ * и кнопка — последней; у выключенной кнопки сказано, чего не хватает (`buildBlocked`).
+ * Поля — по значению, пояснения — в «i».
  *
  * **Числа — те, что уйдут** (`CountInput`): пустое поле при уходе из него показывает
  * умолчание, число вне границ — границу. Границы те же, что у сервера: добивка — через
@@ -26,7 +26,7 @@ import type { LetterDraft, LettersView } from '../api/types';
 import { HintLabel } from '../components/HintLabel';
 import { CountInput } from './CountInput';
 import { LetterDraftEditor, draftOf } from './LetterDraftEditor';
-import { RunPicker } from './RunPicker';
+import { RunPicker, useAcceptedRuns } from './RunPicker';
 import type { LetterTarget } from './targets';
 import { ABOUT } from './targets';
 
@@ -52,6 +52,25 @@ export function followupDays(followups: (number | null)[], defaults: number[]): 
   return days;
 }
 
+/** Чего не хватает для сборки — словами у кнопки; `null` — собрать можно.
+ *
+ *  Принятых доноров нет вовсе — так и сказано: отмечать нечего, и «Отметьте прогоны
+ *  рассылки» под строкой «Принятых доноров ещё нет» спорило с ней (проверка QA
+ *  10.10.2026). `accepted` — сколько прогонов с принятыми; пока список не пришёл
+ *  (`undefined`), о нём не говорится ничего. */
+export function buildBlocked(
+  target: LetterTarget,
+  campaign: string,
+  runIds: number[],
+  accepted: number | undefined,
+): string | null {
+  const donors = target === 'donors';
+  if (donors && accepted === 0) return 'Собирать не из чего — принятых доноров нет';
+  if (campaign.trim() === '') return 'Назовите кампанию';
+  if (donors && runIds.length === 0) return 'Отметьте прогоны рассылки';
+  return null;
+}
+
 export interface BuildProps {
   view: LettersView;
   target: LetterTarget;
@@ -62,8 +81,6 @@ export interface BuildProps {
   followups: (number | null)[];
   onFollowups: Dispatch<SetStateAction<(number | null)[]>>;
   building: boolean;
-  /** Чего не хватает для сборки — словами у кнопки; `null` — собрать можно. */
-  buildBlocked: string | null;
   onBuild: () => void;
   runIds: number[];
   onRunIds: (next: number[]) => void;
@@ -81,7 +98,6 @@ export function BuildForm({
   followups,
   onFollowups,
   building,
-  buildBlocked,
   onBuild,
   runIds,
   onRunIds,
@@ -90,6 +106,8 @@ export function BuildForm({
 }: BuildProps) {
   const formId = useId();
   const queued = view.letters.length > 0;
+  const accepted = useAcceptedRuns(target === 'donors');
+  const blocked = buildBlocked(target, campaign, runIds, accepted.data?.length);
   const [opened, setOpened] = useState(false);
   // Пустая очередь — форма раскрыта, и строки «Сборка очереди» нет: сворачивать нечего,
   // а строка над формой стоила бы 40 px. Раскрытая руками остаётся раскрытой и после
@@ -200,24 +218,42 @@ export function BuildForm({
             onChange={onLetterEdit}
           />
 
-          <Group gap="sm">
-            <Button
-              color="lagoon"
-              className="press"
-              loading={building}
-              disabled={buildBlocked !== null}
-              onClick={onBuild}
-            >
-              Собрать очередь
-            </Button>
-            {buildBlocked !== null && (
-              <Text size="sm" c="dimmed">
-                {buildBlocked}
-              </Text>
-            )}
-          </Group>
+          <BuildButton building={building} blocked={blocked} onBuild={onBuild} />
         </Stack>
       </Collapse>
     </Stack>
+  );
+}
+
+/** «Собрать очередь», а у выключенной — чего не хватает: строкой рядом, а не подсказкой
+ *  по наведению (на телефоне наведения нет). Строка — и описание кнопки для диктора. */
+function BuildButton({
+  building,
+  blocked,
+  onBuild,
+}: {
+  building: boolean;
+  blocked: string | null;
+  onBuild: () => void;
+}) {
+  const reasonId = useId();
+  return (
+    <Group gap="sm">
+      <Button
+        color="lagoon"
+        className="press"
+        loading={building}
+        disabled={blocked !== null}
+        aria-describedby={blocked !== null ? reasonId : undefined}
+        onClick={onBuild}
+      >
+        Собрать очередь
+      </Button>
+      {blocked !== null && (
+        <Text id={reasonId} size="sm" c="dimmed">
+          {blocked}
+        </Text>
+      )}
+    </Group>
   );
 }
