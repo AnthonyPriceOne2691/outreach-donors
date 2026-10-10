@@ -232,7 +232,7 @@ async def test_edited_sales_answer_waits_while_sales_are_not_connected_and_the_d
     assert edited.status_code == 409, edited.text
     detail = edited.json()["detail"]
     assert detail.startswith("Ответ в переписке №"), detail
-    assert ": продажи к почте ещё не подключены — продажи выключены: SALES_ENABLED" in detail
+    assert ": продажи к почте ещё не подключены — модуль продаж выключен" in detail
     await _undecided(session, draft, DraftStatus.ESCALATED)
     answers = await session.scalar(
         select(func.count(MessageModel.id)).where(MessageModel.answers_reply_id == draft.reply_id)
