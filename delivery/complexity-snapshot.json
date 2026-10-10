@@ -217,9 +217,9 @@
       "worst": "summary:34"
     },
     "backend/api/overview/schemas.py": {
-      "lines": 130,
+      "lines": 134,
       "complexity": 3,
-      "worst": "of:103"
+      "worst": "of:107"
     },
     "backend/api/replies/__init__.py": {
       "lines": 1,
@@ -262,12 +262,12 @@
       "worst": "—"
     },
     "backend/api/runs/routes.py": {
-      "lines": 220,
+      "lines": 228,
       "complexity": 2,
-      "worst": "effective_cap:45"
+      "worst": "effective_cap:46"
     },
     "backend/api/runs/schemas.py": {
-      "lines": 227,
+      "lines": 231,
       "complexity": 4,
       "worst": "of:167"
     },
@@ -802,9 +802,9 @@
       "worst": "_handle_columns:194"
     },
     "backend/features/contacts/forms.py": {
-      "lines": 193,
+      "lines": 219,
       "complexity": 3,
-      "worst": "monthly_left:115"
+      "worst": "monthly_left:133"
     },
     "backend/features/contacts/known_addresses.py": {
       "lines": 67,
@@ -862,9 +862,9 @@
       "worst": "_clear:193"
     },
     "backend/features/contacts/repository.py": {
-      "lines": 327,
+      "lines": 345,
       "complexity": 5,
-      "worst": "_not_entitled:89"
+      "worst": "_not_entitled:107"
     },
     "backend/features/contacts/search.py": {
       "lines": 246,
@@ -1157,9 +1157,9 @@
       "worst": "backfill:203"
     },
     "backend/features/donors/browse.py": {
-      "lines": 385,
+      "lines": 384,
       "complexity": 7,
-      "worst": "picked:278"
+      "worst": "picked:277"
     },
     "backend/features/donors/collect.py": {
       "lines": 302,
@@ -1237,9 +1237,9 @@
       "worst": "index_homes:47"
     },
     "backend/features/donors/standing.py": {
-      "lines": 109,
+      "lines": 126,
       "complexity": 3,
-      "worst": "waiting:65"
+      "worst": "waiting:69"
     },
     "backend/features/donors/verdict.py": {
       "lines": 101,
@@ -1492,9 +1492,9 @@
       "worst": "_of_stage:99"
     },
     "backend/features/ops/overview.py": {
-      "lines": 322,
+      "lines": 342,
       "complexity": 5,
-      "worst": "_letters:289"
+      "worst": "_letters:309"
     },
     "backend/features/ops/silence.py": {
       "lines": 336,
