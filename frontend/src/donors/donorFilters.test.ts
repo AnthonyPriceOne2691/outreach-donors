@@ -9,10 +9,15 @@ import { describe, expect, it } from 'vitest';
 
 import {
   conditionsOf,
+  DR_MAX,
   emptinessOf,
   NO_FILTERS,
   queryOf,
   readFilters,
+  thresholdOf,
+  thresholdRefusal,
+  thresholdText,
+  TRAFFIC_MAX,
   writeFilters,
 } from './donorFilters';
 
@@ -98,5 +103,33 @@ describe('фильтры доноров: пустой экран', () => {
     expect(empty.detail).toBe('Условия: страна «Германия». Всего доноров — 4.');
     expect(empty.path).toBeUndefined();
     expect(empty.resettable).toBe(true);
+  });
+});
+
+describe('фильтры доноров: порог в поле', () => {
+  it('из адреса — с разрядами, как на экране; нет порога — пусто', () => {
+    expect(thresholdText(1_000_000)).toBe('1 000 000');
+    expect(thresholdText(30)).toBe('30');
+    expect(thresholdText(null)).toBe('');
+  });
+
+  // Проверка QA 10.10.2026: «1.5» молча становилось фильтром «не ниже 15».
+  it('не целое — отказ коротко, в фильтр — ничего: остаётся прежний', () => {
+    expect(thresholdRefusal('1.5', DR_MAX)).toBe('Только целое число');
+    expect(thresholdOf('1.5', DR_MAX)).toBeUndefined();
+    expect(thresholdRefusal('1e3', TRAFFIC_MAX)).toBe('Только целое число');
+    expect(thresholdOf('1e3', TRAFFIC_MAX)).toBeUndefined();
+  });
+
+  it('за краем — какой край; пусто — не сужать; «05» — пять', () => {
+    expect(thresholdRefusal('101', DR_MAX)).toBe('Не больше 100');
+    expect(thresholdRefusal('-1', DR_MAX)).toBe('Не меньше 0');
+    expect(plain(thresholdRefusal('10000000000000', TRAFFIC_MAX) ?? '')).toBe(
+      'Не больше 9 999 999 999 999',
+    );
+    expect(thresholdOf('', DR_MAX)).toBeNull();
+    expect(thresholdRefusal('', DR_MAX)).toBeNull();
+    expect(thresholdOf('05', DR_MAX)).toBe(5);
+    expect(thresholdOf('1 000 000', TRAFFIC_MAX)).toBe(1_000_000);
   });
 });

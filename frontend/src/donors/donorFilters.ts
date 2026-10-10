@@ -17,6 +17,7 @@
  */
 
 import { countryTitle, DONOR_FRESHNESS, DONOR_STATUSES } from '../api/labels';
+import { numberOf, numberRefusal, numberText } from '../components/numberText';
 import { formatNumber } from '../format';
 import type { DonorFilterQuery } from '../api/donors';
 import type { DonorFreshness, DonorStatus, DonorsWaiting } from '../api/types';
@@ -57,6 +58,34 @@ export const FRESHNESS = Object.keys(DONOR_FRESHNESS) as DonorFreshness[];
  *  пять миллиардов, десять знаков. Длиннее — не порог, а опечатка. */
 export const TRAFFIC_DIGITS = 13;
 
+/** Верх порогов — тот же, что у разбора адреса (`readFilters`). */
+export const DR_MAX = 100;
+export const TRAFFIC_MAX = 10 ** TRAFFIC_DIGITS - 1;
+
+/** Порог в поле — строкой, разряды пробелом, как на экране; нет порога — пусто. */
+export function thresholdText(value: number | null): string {
+  return value === null ? '' : numberText(value);
+}
+
+/**
+ * Почему набранный порог не фильтр — коротко: поле узкое, в шапке колонки.
+ * Числовое поле молча выбрасывало точку, и «1.5» становилось фильтром «не ниже
+ * 15» (проверка QA 10.10.2026). Пусто — не отказ, а «не сужать».
+ */
+export function thresholdRefusal(text: string, max: number): string | null {
+  const refusal = numberRefusal(text, { decimals: 0, min: 0 });
+  if (refusal !== null) return refusal;
+  const value = numberOf(text);
+  return value !== null && value > max ? `Не больше ${formatNumber(max)}` : null;
+}
+
+/** Что набранный порог даёт фильтру: число; `null` — пусто, не сужать;
+ *  `undefined` — набрано не число, и фильтр остаётся прежним. */
+export function thresholdOf(text: string, max: number): number | null | undefined {
+  if (text.trim() === '') return null;
+  return thresholdRefusal(text, max) === null ? (numberOf(text) ?? undefined) : undefined;
+}
+
 function wholeNumber(raw: string | null, min: number, max: number, digits = 6): number | null {
   if (raw === null || !new RegExp(`^\\d{1,${digits}}$`).test(raw)) return null;
   const value = Number(raw);
@@ -74,7 +103,7 @@ export function readFilters(params: URLSearchParams): DonorFilters {
   return {
     status: STATUSES.find((known) => known === status) ?? null,
     search: (params.get('search') ?? '').trim(),
-    minDr: wholeNumber(params.get('min_dr'), 0, 100),
+    minDr: wholeNumber(params.get('min_dr'), 0, DR_MAX),
     minTraffic: wholeNumber(params.get('min_traffic'), 0, Number.MAX_SAFE_INTEGER, TRAFFIC_DIGITS),
     geo: countryCode(params.get('geo')),
     freshness: FRESHNESS.find((known) => known === freshness) ?? null,

@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  groupDigits,
   numberOf,
   numberRefusal,
   numberText,
@@ -96,6 +97,18 @@ describe('число в поле и сравнение', () => {
     expect(numberText(10_000_000)).toBe('10 000 000');
     expect(numberText(1250.5, 2)).toBe('1 250,5');
     expect(numberText(150, 2)).toBe('150');
+  });
+
+  it('разряды по ходу набора — только у одних цифр, и цифры не трогаются', () => {
+    expect(groupDigits('1000000')).toBe('1 000 000');
+    expect(groupDigits('1 0000')).toBe('10 000');
+    // Стёртая первая цифра — «000 000», а не ноль: следующая встанет на её место.
+    expect(groupDigits('000 000')).toBe('000 000');
+    expect(groupDigits('05')).toBe('05');
+    // Длиннее безопасного целого — разряды той же строкой, без округления числом.
+    expect(groupDigits('123456789012345678901')).toBe('123 456 789 012 345 678 901');
+    expect(groupDigits('1.5')).toBeNull();
+    expect(groupDigits('')).toBeNull();
   });
 
   it('границы — числами по-русски', () => {
