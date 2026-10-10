@@ -6,15 +6,15 @@
  * уже нет, а восстановить его нечем.
  */
 
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
-import type { Call } from '../test/server';
+import type { AccessPatch, Permission, UserCard } from '../api/types';
 import { ADMIN, NEWCOMER, OPERATOR, TOKEN_KEY, card } from '../test/fixtures';
 import { renderWith } from '../test/render';
-import { serve } from '../test/server';
+import { serve, type Call } from '../test/server';
 
 const LIST = [card(ADMIN), card(OPERATOR), card(NEWCOMER)];
 
@@ -170,5 +170,68 @@ describe('учётки', () => {
     await user.click(within(ask).getByRole('button', { name: 'Сбросить', hidden: true }));
 
     expect(await screen.findByText('QwErTy12QwErTy34')).toBeInTheDocument();
+  });
+
+  it('отказ сервера в праве на себя — переключатель стоит, как стоял, отказ словами', async () => {
+    const recorded = await openUsers({
+      'PATCH /api/users/1': {
+        status: 409,
+        body: {
+          detail:
+            'Нельзя снять права с самого себя. Попросите другого админа — иначе выйти обратно будет некому',
+        },
+      },
+    });
+    const user = userEvent.setup();
+
+    // Своя почта есть и в шапке («Вошли как»): строка — та, что в таблице.
+    const row = screen
+      .getAllByText('админ@site.com')
+      .map((text) => text.closest('tr'))
+      .find((found) => found !== null);
+    await user.click(within(row as HTMLElement).getByRole('button', { name: /Права/ }));
+    await user.click(await screen.findByLabelText('Заводить учётки'));
+
+    expect(await screen.findByText(/Попросите другого админа/)).toBeInTheDocument();
+    expect(patches(recorded.calls).map((call) => call.body)).toEqual([
+      { permissions: { users: false } },
+    ]);
+    expect(screen.getByLabelText('Заводить учётки')).toBeChecked();
+  });
+
+  it('два быстрых переключателя — выданы оба права, второй не затирает первый', async () => {
+    /** Оператор, каким его отдаёт сервер с исключениями: роль плюс выданное, минус отобранное. */
+    const operatorWith = (overrides: Partial<Record<Permission, boolean>>): UserCard => {
+      const kept = OPERATOR.permissions.filter((key) => overrides[key] !== false);
+      const given = (Object.keys(overrides) as Permission[]).filter((key) => overrides[key]);
+      return card(OPERATOR, { overrides, permissions: [...new Set([...kept, ...given])].sort() });
+    };
+    // Сервер с памятью: правка заменяет исключения целиком, список отдаёт последние.
+    let overrides: Partial<Record<Permission, boolean>> = {};
+    const recorded = await openUsers({
+      'GET /api/users': () => ({ body: [card(ADMIN), operatorWith(overrides), card(NEWCOMER)] }),
+      'PATCH /api/users/2': (call: Call) => {
+        overrides = (call.body as AccessPatch).permissions ?? overrides;
+        return { body: operatorWith(overrides) };
+      },
+    });
+
+    const row = screen.getByText('оператор@site.com').closest('tr');
+    await userEvent
+      .setup()
+      .click(within(row as HTMLElement).getByRole('button', { name: /Права/ }));
+    const senders = await screen.findByLabelText('Домены рассылки');
+    // Второй щелчок — пока первая правка ещё в пути (QA 10.10.2026).
+    fireEvent.click(senders);
+    fireEvent.click(screen.getByLabelText('Заводить учётки'));
+
+    await waitFor(() => expect(patches(recorded.calls)).toHaveLength(2));
+    expect(patches(recorded.calls).map((call) => call.body)).toEqual([
+      { permissions: { senders: true } },
+      { permissions: { senders: true, users: true } },
+    ]);
+    await waitFor(() => expect(screen.getByLabelText('Заводить учётки')).toBeChecked());
+    expect(screen.getByLabelText('Домены рассылки')).toBeChecked();
+    expect(overrides).toEqual({ senders: true, users: true });
   });
 });

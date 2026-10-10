@@ -42,6 +42,10 @@ import { notify } from '../notices';
 
 const USERS_QUERY_KEY = ['users'] as const;
 
+/** Правка доступа: готовая — роль, включение — или функцией от учётки, какой её знает
+ *  страница, когда до правки дошла очередь, — точечные права (`PermissionsPopover`). */
+type Patch = AccessPatch | ((latest: UserCard) => AccessPatch);
+
 export function UsersPage() {
   const queryClient = useQueryClient();
   const { user: me, refresh } = useSession();
@@ -57,9 +61,24 @@ export function UsersPage() {
     queryFn: listUsers,
   });
 
+  /** Учётка, какой её знает страница сейчас, а не какой её видел щелчок. */
+  const latest = (user: UserCard): UserCard =>
+    queryClient.getQueryData<UserCard[]>(USERS_QUERY_KEY)?.find((one) => one.id === user.id) ??
+    user;
+
   const change = useMutation({
-    mutationFn: ({ id, patch }: { id: number; patch: AccessPatch }) => patchUser(id, patch),
+    // Правки — по одной, в порядке щелчков, и точечные права собираются, когда до правки
+    // дошла очередь: две разом уходили наборами из одного списка, и вторая затирала первую
+    // (QA 10.10.2026). Отказ сервера списка не трогает — переключатель стоит, как стоял.
+    scope: { id: 'users-access' },
+    mutationFn: ({ user, patch }: { user: UserCard; patch: Patch }) =>
+      patchUser(user.id, typeof patch === 'function' ? patch(latest(user)) : patch),
     onSuccess: async (updated) => {
+      // Ответ сервера — последнее известное состояние учётки: следующая правка в очереди
+      // собирается из него, даже если перечитать список не выйдет.
+      queryClient.setQueryData<UserCard[]>(USERS_QUERY_KEY, (list) =>
+        list?.map((one) => (one.id === updated.id ? updated : one)),
+      );
       await queryClient.invalidateQueries({ queryKey: USERS_QUERY_KEY });
       // Правка своих прав меняет то, что человек видит прямо сейчас,
       // — карточку себя надо перечитать, иначе меню останется прежним.
@@ -123,7 +142,7 @@ export function UsersPage() {
               { value: 'admin', label: 'админ' },
             ]}
             onChange={(value) =>
-              value !== null && change.mutate({ id: user.id, patch: { role: value as Role } })
+              value !== null && change.mutate({ user, patch: { role: value as Role } })
             }
           />
         </Group>
@@ -133,7 +152,9 @@ export function UsersPage() {
           <PermissionsPopover
             user={user}
             disabled={change.isPending}
-            onChange={(permissions) => change.mutate({ id: user.id, patch: { permissions } })}
+            onChange={(next) =>
+              change.mutate({ user, patch: (now) => ({ permissions: next(now.overrides) }) })
+            }
           />
         </Group>
       </Table.Td>
@@ -145,7 +166,7 @@ export function UsersPage() {
             message={`Отключить ${user.email}? Учётка перестанет пускать сразу, даже с непросроченным пропуском.`}
             confirm="Отключить"
             danger
-            onConfirm={() => change.mutate({ id: user.id, patch: { is_active: false } })}
+            onConfirm={() => change.mutate({ user, patch: { is_active: false } })}
           >
             {(ask) => (
               <Switch
@@ -153,7 +174,7 @@ export function UsersPage() {
                 checked={user.is_active}
                 onChange={(event) =>
                   event.currentTarget.checked
-                    ? change.mutate({ id: user.id, patch: { is_active: true } })
+                    ? change.mutate({ user, patch: { is_active: true } })
                     : ask()
                 }
               />

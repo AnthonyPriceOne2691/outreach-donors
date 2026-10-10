@@ -28,10 +28,16 @@ function title(permission: Permission): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+type Overrides = UserCard['overrides'];
+
 interface Props {
   user: UserCard;
   disabled: boolean;
-  onChange: (permissions: Partial<Record<Permission, boolean>>) => void;
+  /** Правка — функцией от последних известных исключений учётки, а не готовым набором.
+   *  Набор, собранный при щелчке, брался из списка, загруженного до прошлой правки: второй
+   *  быстрый переключатель затирал первый, хотя оба «обновлены» (QA 10.10.2026). Из чего
+   *  собирать, решает страница — когда до правки дойдёт очередь (`UsersPage`). */
+  onChange: (next: (overrides: Overrides) => Overrides) => void;
 }
 
 export function PermissionsPopover({ user, disabled, onChange }: Props) {
@@ -39,13 +45,15 @@ export function PermissionsPopover({ user, disabled, onChange }: Props) {
   const overrides = user.overrides;
 
   const set = (key: Permission, allowed: boolean) => {
-    onChange({ ...overrides, [key]: allowed });
+    onChange((latest) => ({ ...latest, [key]: allowed }));
   };
 
   const back = (key: Permission) => {
-    const next = { ...overrides };
-    delete next[key];
-    onChange(next);
+    onChange((latest) => {
+      const next = { ...latest };
+      delete next[key];
+      return next;
+    });
   };
 
   return (
