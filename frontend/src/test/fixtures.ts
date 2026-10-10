@@ -54,7 +54,15 @@ export const OVERVIEW: OverviewView = {
     priced: 1,
     priced_fresh: 1,
   },
-  waiting: { review: 394, review_runs: [18], prices: 1, leads: 0, forms: 97, advertisers: 0 },
+  waiting: {
+    review: 394,
+    review_runs: [18],
+    prices: 1,
+    leads: 0,
+    forms: 97,
+    advertisers: 0,
+    niche: 0,
+  },
   letters: {
     donors: { queued: 77, sent: 28, delivered: 7, bounced: 1 },
     advertisers: { queued: 0, sent: 0, delivered: 0, bounced: 0 },

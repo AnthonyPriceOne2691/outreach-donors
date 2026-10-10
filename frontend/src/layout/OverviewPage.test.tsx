@@ -104,7 +104,19 @@ describe('сводка на главной', () => {
     expect(await tile('Разобрать цены')).toHaveAttribute('href', '/threads?state=needs_review');
     expect(await tile('Лиды рекламодателей')).toHaveAttribute('href', '/threads?state=lead');
     expect(await tile('Заполнить формы')).toHaveAttribute('href', '/forms');
-    expect(await tile('Спорные рекламодатели')).toHaveAttribute('href', '/advertisers');
+    expect(await tile('Кандидаты в рекламодатели')).toHaveAttribute('href', '/advertisers');
+  });
+
+  it('кандидаты в рекламодатели — числом меню, и бизнесы ниши в нём названы', async () => {
+    // Проверка прода 10.10.2026: у «Рекламодателей» стояло 5 спорных, а 53 бизнеса ниши,
+    // ждущих «пишем / не пишем» на том же экране, не считались нигде.
+    await openOverview([], {
+      body: { ...OVERVIEW, waiting: { ...OVERVIEW.waiting, advertisers: 58, niche: 53 } },
+    });
+
+    const advertisers = await tile('Кандидаты в рекламодатели');
+    expect(within(advertisers).getByText('58')).toBeInTheDocument();
+    expect(within(advertisers).getByText('спорных 5 · бизнесов ниши 53')).toBeInTheDocument();
   });
 
   it('доноры с адресом — ссылкой на тот же фильтр списка доноров', async () => {
@@ -116,7 +128,15 @@ describe('сводка на главной', () => {
   it('пустая очередь говорит, что пусто, а рассмотрение ведёт к прогонам', async () => {
     const quiet: OverviewView = {
       ...OVERVIEW,
-      waiting: { review: 0, review_runs: [], prices: 0, leads: 0, forms: 0, advertisers: 0 },
+      waiting: {
+        review: 0,
+        review_runs: [],
+        prices: 0,
+        leads: 0,
+        forms: 0,
+        advertisers: 0,
+        niche: 0,
+      },
     };
     await openOverview([], { body: quiet });
 

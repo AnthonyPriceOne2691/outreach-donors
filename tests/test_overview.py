@@ -20,14 +20,20 @@ from backend.features.core import usage
 from backend.features.core.domain import (
     ContactSource,
     ContactStatus,
+    CrawlOutcome,
     DonorStatus,
     MessageStatus,
     ReplyKind,
     RunStatus,
     Stage,
+    StopReason,
     UserRole,
+    Verdict,
 )
 from backend.features.core.models.access import UserModel
+from backend.features.core.models.advertiser import CandidateModel
+from backend.features.core.models.advertisers import AdvertiserModel
+from backend.features.core.models.crawl import CrawlRunModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.outreach import (
@@ -37,6 +43,7 @@ from backend.features.core.models.outreach import (
     ThreadModel,
 )
 from backend.features.core.models.run import RunCandidateModel, RunModel
+from backend.features.crawl import niche
 from backend.features.letters.chain import ANSWER_STEP
 from backend.features.letters.recipients import Recipients
 from backend.features.ops.overview import overview, work
@@ -355,6 +362,46 @@ class TestMenuWork:
         assert menu.threads == waiting.prices + waiting.leads == 2
         assert (menu.forms, menu.advertisers) == (waiting.forms, waiting.advertisers)
 
+    async def test_niche_businesses_wait_on_advertisers_too(self, session: AsyncSession) -> None:
+        """Проверка прода 10.10.2026: у «Рекламодателей» стояло 5 — только спорные, а
+        53 бизнеса ниши ждали «пишем / не пишем» на том же экране. Ниша — тем же
+        числом, что «Ждут решения» её списка (`niche.waiting`), в меню и на главной."""
+        crawl = CrawlRunModel(
+            host="donor.example.test",
+            outcome=CrawlOutcome.OK,
+            stop_reason=StopReason.EXHAUSTED,
+            pages_opened=3,
+            articles=2,
+        )
+        session.add(crawl)
+        await session.flush()
+        session.add(
+            CandidateModel(
+                crawl_run_id=crawl.id,
+                donor_host="donor.example.test",
+                target_root="disputed.example.test",
+                verdict=Verdict.PENDING,
+            )
+        )
+        for host, decided in (
+            ("bookie.example.test", None),
+            ("casino.example.test", None),
+            ("decided.example.test", NOW),
+        ):
+            domain = DomainModel(host=host)
+            session.add(domain)
+            await session.flush()
+            session.add(
+                AdvertiserModel(domain_id=domain.id, source=niche.NICHE, decided_at=decided)
+            )
+        await session.flush()
+
+        menu = await work(session)
+        waiting = (await overview(session)).waiting
+
+        assert waiting.niche == await niche.waiting(session) == 2
+        assert menu.advertisers == waiting.advertisers == 1 + 2
+
     async def test_sales_lead_waiting_counts_like_the_threads_screen(
         self, session: AsyncSession
     ) -> None:
@@ -515,3 +562,13 @@ class TestShape:
         assert set(body["letters"]) == {stage.value for stage in Stage}
         assert body["transport"]["real"] is False
         assert body["last_run"] is None
+
+    async def test_waiting_names_niche_inside_advertisers(
+        self, client: AsyncClient, operator_token: str
+    ) -> None:
+        """Плитка кандидатов в рекламодатели называет бизнесы ниши — экран берёт их из
+        ответа, а не вычисляет сам."""
+        response = await client.get("/api/overview", headers=bearer(operator_token))
+
+        waiting = response.json()["waiting"]
+        assert (waiting["advertisers"], waiting["niche"]) == (0, 0)
