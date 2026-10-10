@@ -124,7 +124,8 @@ async function raise(response: Response): Promise<never> {
   }
   if (response.status === 403) {
     // Право сняли посреди сеанса — меню по прежней карточке «кто я» вело в отказ (проверка
-    // прода 10.10.2026). Отказ доступа сессия перечитывает сразу: пункт уходит из меню.
+    // прода 10.10.2026). Отказ доступа сессия перечитывает сразу: пункт уходит из меню,
+    // а «сначала смените разовый пароль» уводит на смену (`RequireAccess`).
     if (response.headers.has(ACCESS_REFUSAL)) accessDenied();
     throw new DeniedError(detail);
   }
