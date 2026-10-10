@@ -1,10 +1,12 @@
 /**
- * Числа сборки очереди: поле показывает то, что уйдёт, и нуля в сроках добивок не бывает.
+ * Сборка очереди: поле показывает то, что уйдёт, нуля в сроках добивок не бывает, а у
+ * выключенной кнопки — та причина, что есть на самом деле.
  *
  * Аудит 10.10.2026: «Добивка» принимала 0, а форма подставляла 0 на месте неизвестного
  * умолчания — «через 0 дней» отправляло обе добивки вслед за первым письмом. Проверка QA
  * 10.10.2026: очищенная «Добивка 1» стояла пустой, а уходили 7 дней; «За раз» после букв —
  * пустым, а уходили 50; умолчание вставало в поле посреди набора, и цифры дописывались к нему.
+ * Без принятых доноров кнопка просила «Отметьте прогоны рассылки» — а отмечать было нечего.
  */
 
 import { screen, waitFor } from '@testing-library/react';
@@ -49,12 +51,12 @@ const RUN = {
   reason: null,
 };
 
-async function openForm(): Promise<Recorded> {
+async function openForm(runs: unknown[] = [RUN]): Promise<Recorded> {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   const recorded = serve({
     'GET /api/auth/me': { body: ADMIN },
     'GET /api/letters': { body: VIEW },
-    'GET /api/runs/with-accepted': { body: [RUN] },
+    'GET /api/runs/with-accepted': { body: runs },
     'POST /api/letters/build': { body: { job_id: 'letters-build-donors-links' } },
     'GET /api/jobs/letters-build-donors-links': {
       body: {
@@ -181,5 +183,32 @@ describe('«За раз»', () => {
 
     expect(limit).toHaveValue('500');
     expect(await build(user, recorded)).toMatchObject({ limit: 500 });
+  });
+});
+
+describe('почему «Собрать очередь» не нажимается', () => {
+  it('принятых доноров нет — так и сказано, а не «отметьте прогоны»', async () => {
+    await openForm([]);
+    const user = userEvent.setup();
+    expect(await screen.findByText(/^Принятых доноров ещё нет/)).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Кампания'), 'Май');
+
+    const button = screen.getByRole('button', { name: 'Собрать очередь' });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAccessibleDescription('Собирать не из чего — принятых доноров нет');
+    expect(screen.queryByText('Отметьте прогоны рассылки')).not.toBeInTheDocument();
+  });
+
+  it('прогоны есть — причины по порядку формы: кампания, затем прогоны', async () => {
+    await openForm();
+    const user = userEvent.setup();
+    const button = screen.getByRole('button', { name: 'Собрать очередь' });
+
+    expect(button).toHaveAccessibleDescription('Назовите кампанию');
+    await user.type(screen.getByLabelText('Кампания'), 'Май');
+    expect(button).toHaveAccessibleDescription('Отметьте прогоны рассылки');
+    await user.click(await screen.findByLabelText(/№18/));
+    expect(button).toBeEnabled();
   });
 });

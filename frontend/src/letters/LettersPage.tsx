@@ -309,13 +309,6 @@ export function LettersPage() {
               followups={followups}
               onFollowups={setFollowups}
               building={build.isPending}
-              buildBlocked={
-                campaign.trim() === ''
-                  ? 'Назовите кампанию'
-                  : stage === 'donors' && runIds.length === 0
-                    ? 'Отметьте прогоны рассылки'
-                    : null
-              }
               onBuild={() => build.mutate()}
               buildJob={buildJob}
               onBuildFinished={() => void refresh()}
