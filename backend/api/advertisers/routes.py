@@ -253,18 +253,32 @@ def _search(limit: int) -> str:
 # --- бизнесы ниши из выдачи прогона (`crawl/niche.py`) ---
 
 
-@router.get("/niche", response_model=NicheView, summary="Бизнесы ниши из выдачи")
+@router.get("/niche", response_model=NicheView, summary="Бизнесы ниши из выдачи, по странице")
 async def niche_queue(
     include_decided: bool = Query(
         default=False, description="показывать и те, по которым решение уже принято"
     ),
-    limit: int = Query(default=niche.PAGE_SIZE, ge=1, le=200),
+    page: int = Query(default=1, ge=1, le=1_000_000, description="страница, с единицы"),
+    limit: int = Query(
+        default=niche.PAGE_SIZE, ge=1, le=niche.MAX_PAGE_SIZE, description="бизнесов на странице"
+    ),
     _: UserModel = _viewer,
     session: AsyncSession = Depends(db_session),
 ) -> NicheView:
-    """Сайты, которые сами продают в нише прогона: кандидаты в рекламодатели."""
-    rows = await niche.listed(session, include_decided=include_decided, limit=limit)
-    return NicheView(rows=[NicheCard.of(row) for row in rows], waiting=await niche.waiting(session))
+    """Сайты, которые сами продают в нише прогона: кандидаты в рекламодатели, по странице.
+
+    Страница — номером, как у очереди форм: экран держит номер в адресе, а размер
+    страницы называет сервер. До 10.10.2026 приходили первые полсотни одним списком —
+    простыня «пишем / не пишем», а пятьдесят первый бизнес был недостижим.
+    """
+    rows = await niche.listed(session, include_decided=include_decided, page=page, size=limit)
+    return NicheView(
+        rows=[NicheCard.of(row) for row in rows],
+        waiting=await niche.waiting(session),
+        total=await niche.total(session, include_decided=include_decided),
+        page=page,
+        limit=limit,
+    )
 
 
 @router.post(

@@ -138,10 +138,17 @@ class NicheCard(BaseModel):
 
 
 class NicheView(BaseModel):
-    """Бизнесы ниши и сколько из них ждут решения."""
+    """Страница бизнесов ниши и сколько из них ждут решения.
+
+    `total` — строк списка по всем страницам, `limit` — размер страницы: его знает
+    только сервер, экран по ним считает число страниц (как у очереди форм).
+    """
 
     rows: list[NicheCard]
     waiting: int
+    total: int
+    page: int
+    limit: int
 
 
 class NicheDecision(BaseModel):

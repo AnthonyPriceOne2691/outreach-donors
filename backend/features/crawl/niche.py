@@ -181,8 +181,11 @@ async def _stop_letters(session: AsyncSession, domain_id: int) -> int:
     return len({*queued.all(), *waiting.all()})
 
 
-#: Сколько бизнесов ниши отдаётся экрану за раз.
-PAGE_SIZE = 50
+#: Сколько бизнесов ниши на странице экрана. Двадцать — слово Anthony 10.10.2026:
+#: полсотни строк «пишем / не пишем» одним списком читались простынёй.
+PAGE_SIZE = 20
+#: Больше за раз не отдаётся: без границы ответ рос бы вместе с базой.
+MAX_PAGE_SIZE = 200
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,17 +233,30 @@ async def _rows(session: AsyncSession, statement: Select[Any]) -> list[NicheRow]
 
 
 async def listed(
-    session: AsyncSession, *, include_decided: bool = False, limit: int = PAGE_SIZE
+    session: AsyncSession, *, include_decided: bool = False, page: int = 1, size: int = PAGE_SIZE
 ) -> list[NicheRow]:
-    """Бизнесы ниши, ждущие решения, — новые прогоны первыми."""
+    """Бизнесы ниши, ждущие решения, — новые прогоны первыми, страница `page` (с единицы).
+
+    Порядок с номером строки в конце: без него строки одного прогона менялись бы местами
+    между запросами, и при листании одна попадала бы на две страницы, а другая — ни на одну.
+    """
     statement = (
         _listing()
         .order_by(AdvertiserModel.found_run_id.desc().nullslast(), AdvertiserModel.id)
-        .limit(limit)
+        .offset((page - 1) * size)
+        .limit(size)
     )
     if not include_decided:
         statement = statement.where(AdvertiserModel.decided_at.is_(None))
     return await _rows(session, statement)
+
+
+async def total(session: AsyncSession, *, include_decided: bool = False) -> int:
+    """Сколько строк у списка `listed` по всем страницам — экрану, чтобы знать число страниц."""
+    if not include_decided:
+        return await waiting(session)
+    count = await session.scalar(select(func.count()).select_from(AdvertiserModel).where(_niche()))
+    return int(count or 0)
 
 
 async def row_of(session: AsyncSession, advertiser_id: int) -> NicheRow:

@@ -17,12 +17,12 @@
       "worst": "—"
     },
     "backend/api/advertisers/routes.py": {
-      "lines": 310,
+      "lines": 324,
       "complexity": 4,
       "worst": "decide:109"
     },
     "backend/api/advertisers/schemas.py": {
-      "lines": 159,
+      "lines": 166,
       "complexity": 3,
       "worst": "of:40"
     },
@@ -1072,7 +1072,7 @@
       "worst": "marker_reason:71"
     },
     "backend/features/crawl/niche.py": {
-      "lines": 279,
+      "lines": 295,
       "complexity": 7,
       "worst": "collect:68"
     },

@@ -50,7 +50,9 @@ async function openScreen(routes: Record<string, unknown> = {}, who: unknown = A
   const recorded = serve({
     ...CRAWL_ROUTES,
     'GET /api/auth/me': { body: who },
-    'GET /api/advertisers/niche': { body: { rows: [], waiting: 0 } },
+    'GET /api/advertisers/niche?page=1': {
+      body: { rows: [], waiting: 0, total: 0, page: 1, limit: 20 },
+    },
     'GET /api/advertisers': { body: QUEUE },
     ...(routes as Record<string, never>),
   });
@@ -161,7 +163,9 @@ describe('ручная проверка рекламодателей', () => {
     serve({
       ...CRAWL_ROUTES,
       'GET /api/auth/me': { body: ADMIN },
-      'GET /api/advertisers/niche': { body: { rows: [], waiting: 0 } },
+      'GET /api/advertisers/niche?page=1': {
+        body: { rows: [], waiting: 0, total: 0, page: 1, limit: 20 },
+      },
       'GET /api/advertisers': { body: { rows: [], waiting: 0, counts: {} } },
     });
     renderWith(<AppRoutes />, '/advertisers');
@@ -178,7 +182,9 @@ describe('числа и текст сходятся', () => {
     serve({
       ...CRAWL_ROUTES,
       'GET /api/auth/me': { body: ADMIN },
-      'GET /api/advertisers/niche': { body: { rows: [], waiting: 0 } },
+      'GET /api/advertisers/niche?page=1': {
+        body: { rows: [], waiting: 0, total: 0, page: 1, limit: 20 },
+      },
       'GET /api/advertisers': { body: { ...QUEUE, rows: [], waiting: 0 } },
       'GET /api/advertisers?include_decided=true': { body: { ...QUEUE, rows: [DECIDED] } },
     });
@@ -242,7 +248,9 @@ describe('слова при числах', () => {
     serve({
       ...CRAWL_ROUTES,
       'GET /api/auth/me': { body: ADMIN },
-      'GET /api/advertisers/niche': { body: { rows: [], waiting: 0 } },
+      'GET /api/advertisers/niche?page=1': {
+        body: { rows: [], waiting: 0, total: 0, page: 1, limit: 20 },
+      },
       'GET /api/advertisers': {
         body: { ...QUEUE, rows: [{ ...CANDIDATE, links: 1, pages: 1 }] },
       },

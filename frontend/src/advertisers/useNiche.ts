@@ -2,7 +2,7 @@
  * Данные карточки бизнесов ниши: очередь, решение человека, сбор из прогона.
  */
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { refusalOf } from '../api/client';
 import { collectNiche, decideNiche, fetchNiche } from '../api/niche';
@@ -10,10 +10,16 @@ import { notify } from '../notices';
 
 const NICHE_KEY = ['advertisers-niche'] as const;
 
-/** Очередь и решение по ней: после решения очередь перечитывается. */
-export function useNicheQueue() {
+/** Страница очереди и решение по ней: после решения очередь перечитывается. */
+export function useNicheQueue(page: number) {
   const queryClient = useQueryClient();
-  const queue = useQuery({ queryKey: NICHE_KEY, queryFn: fetchNiche });
+  const queue = useQuery({
+    queryKey: [...NICHE_KEY, page],
+    queryFn: () => fetchNiche(page),
+    // Пока едет следующая страница, стоит прежняя: пустой список на долю секунды
+    // читался бы как «ждущих нет».
+    placeholderData: keepPreviousData,
+  });
   const decide = useMutation({
     mutationFn: ({ id, write }: { id: number; write: boolean }) => decideNiche(id, write),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: NICHE_KEY }),
