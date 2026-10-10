@@ -6,6 +6,9 @@
  * запустить, если цена не помещается в остаток.
  */
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
@@ -601,6 +604,19 @@ describe('ключи, дававшие доноров', () => {
     expect(screen.getByLabelText('Ключевые слова')).toHaveValue(
       'martech guest post\nsaas blog write for us',
     );
+  });
+
+  it('длинный ключ на телефоне переносится в значке, а не режется многоточием', async () => {
+    // Проверка прода 10.10.2026 (390 px): «saving strategies submit a guest post · пр…».
+    // Раскладку jsdom не считает — проверяется договор с правилом в `glass.css`: значки
+    // этого ряда переносят текст внутри себя (замер в браузере — в описании правила).
+    await openRun({ 'GET /api/keywords/yield?country=us': { body: PROVEN } });
+
+    const chip = await screen.findByText('saas blog write for us · принято 5');
+    expect(chip.closest('.provenKeywords')).not.toBeNull();
+    // Путь — от корня фронта: тесты идут из него (`npm test`, CI — так же).
+    const glass = readFileSync(resolve(process.cwd(), 'src/styles/glass.css'), 'utf8');
+    expect(glass).toMatch(/\.provenKeywords \.mantine-Badge-label \{[^}]*white-space: normal;/);
   });
 
   it('когда таких ключей нет, блока нет вовсе', async () => {

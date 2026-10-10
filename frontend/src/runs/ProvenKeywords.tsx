@@ -8,6 +8,10 @@
  * **Добавляет, а не заменяет.** Кнопка дописывает в поле только те ключи,
  * которых там ещё нет: свой список оператора остаётся его списком.
  * Нет таких ключей — подсказки нет вовсе, а не пустой блок.
+ *
+ * **Длинный ключ переносится внутри значка** (`provenKeywords` в `glass.css`):
+ * ключ — фраза до восьми слов, и на телефоне многоточие съедало число принятых
+ * — «saving strategies submit a guest post · пр…» (проверка прода 10.10.2026).
  */
 
 import { Badge, Button, Group, Stack, Text } from '@mantine/core';
@@ -46,10 +50,12 @@ export function ProvenKeywords({ country, current, onAdd }: Props) {
       <Text size="sm" fw={500}>
         Ключи, дававшие принятых доноров · {countryTitle(country)}
       </Text>
-      <Group gap={6}>
+      <Group gap={6} className="provenKeywords">
         {rows.map((row) => (
           <Badge key={row.keyword} variant="light" color="lagoon" tt="none">
-            {row.keyword} · принято {row.accepted}
+            {/* Неразрывные пробелы: перенос — перед «·», и «· принято 3» уходит строкой целиком. */}
+            {row.keyword} ·{'\u00a0'}принято{'\u00a0'}
+            {row.accepted}
           </Badge>
         ))}
       </Group>

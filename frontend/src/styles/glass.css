@@ -2292,6 +2292,25 @@ html:root .mantine-Pill-root {
   text-overflow: clip;
 }
 
+/* --- Ключи, дававшие доноров (runs/ProvenKeywords) ------------------------
+ * Ключ — фраза до восьми слов, и на телефоне значок с ним шире строки: значок
+ * сжимался до неё, и многоточие съедало число принятых — «saving strategies
+ * submit a guest post · пр…» (проверка прода 10.10.2026, 390 px). Здесь значок
+ * длиннее строки переносится внутри себя. Высота строки — своя у значка, поэтому
+ * короткий ключ стоит в прежние 20 px, длинный — в две строки по столько же. */
+.provenKeywords .mantine-Badge-root {
+  height: auto;
+  min-height: var(--badge-height);
+  max-width: 100%;
+}
+
+.provenKeywords .mantine-Badge-label {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
+
 /* --- Текст вложения в окне (threads/ReplyFiles) ---------------------------
  * Прайс таблицей приходит строками ячеек через табуляцию: моноширинный текст
  * держит колонки ровно, длинная строка переносится, а не растягивает окно. */
