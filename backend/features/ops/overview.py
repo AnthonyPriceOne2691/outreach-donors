@@ -22,6 +22,8 @@
 **Числа — этапов, которые видит спрашивающий** (`stages`, решение Anthony
 10.10.2026, П2): без права «Продажи» письма и ответы продаж не входят ни в
 сводку, ни в числа меню — считаются доноры и рекламодатели. С правом — как было.
+Этапы — без умолчания (ревью продаж к #304): забытый вызов ловит mypy, а не
+показывает продажи всем. Одно исключение — `overview`, и оно временное (там же).
 """
 
 from __future__ import annotations
@@ -173,6 +175,9 @@ async def overview(
     session: AsyncSession,
     *,
     now: datetime | None = None,
+    # ⚠ Умолчание — временно и только ради теста продаж: `tests/test_sales_stage_screens.py`
+    # зовёт сводку без этапов, а тесты продаж правят продажи (ревью продаж к #304). Передадут
+    # там `EVERY_STAGE` — умолчание уходит, как у `work`; напомнит `tests/test_stage_scope.py`.
     stages: Collection[Stage] = EVERY_STAGE,
 ) -> Overview:
     """Собрать главную. Каждое число — правилом своего экрана; письма и диалоги — только
@@ -203,7 +208,7 @@ async def overview(
     )
 
 
-async def work(session: AsyncSession, *, stages: Collection[Stage] = EVERY_STAGE) -> Work:
+async def work(session: AsyncSession, *, stages: Collection[Stage]) -> Work:
     """Числа меню — теми же правилами, что «Ждут человека» на главной, и тех же этапов."""
     threads = await OutreachRepository(session).states(stages=stages)
     return Work(

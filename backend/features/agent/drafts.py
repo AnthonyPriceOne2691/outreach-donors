@@ -111,13 +111,14 @@ async def waiting(
     status: DraftStatus,
     *,
     limit: int,
-    stages: Collection[Stage] = frozenset(Stage),
+    stages: Collection[Stage],
 ) -> Sequence[ShownDraft]:
     """Черновики в одном статусе, новые первыми — например, ждущие человека.
 
     `stages` — этапы, которые видит спрашивающий (`access.permissions.visible_stages`):
     черновик продаж без права «Продажи» в список не попадает (решение Anthony 10.10.2026,
-    П2). Этап — по версии настроек черновика: её берут по этапу переписки.
+    П2). Этап — по версии настроек черновика: её берут по этапу переписки. Умолчания нет
+    (ревью продаж к #304): забытый вызов ловит mypy, а не показывает продажи всем.
     """
     rows = await session.execute(
         _shown()

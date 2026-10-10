@@ -7,6 +7,10 @@
 **Список и числа — этапов, которые видит спрашивающий** (`stages`, решение
 Anthony 10.10.2026, П2): без права «Продажи» переписок продаж нет ни в списке,
 ни в числах «Обзора» и меню. Сужает сама база — условием на этап рассылки.
+
+**Этапы — без умолчания** (ревью продаж к #304): умолчание «все этапы» открывало бы
+продажи каждому новому вызову, забывшему их сузить. Теперь забытый вызов ловит mypy;
+кому видно всё — фоновым задачам — `EVERY_STAGE` передаётся явно.
 """
 
 from __future__ import annotations
@@ -128,7 +132,8 @@ def _snapshot() -> ColumnElement[Any]:
     return case((CampaignModel.stage == Stage.SALES, ReplyModel.model_parse))
 
 
-#: Все этапы — умолчание списка и чисел: кто их не сужает, видит всё, как до П2.
+#: Все этапы: так видит учётка с правом «Продажи» (`access.permissions.visible_stages`)
+#: и так считают фоновые задачи. Не умолчание — передаётся явно (ревью продаж к #304).
 EVERY_STAGE: frozenset[Stage] = frozenset(Stage)
 
 
@@ -205,7 +210,7 @@ class OutreachRepository:
 
     # --- диалоги ---
 
-    async def threads(self, *, stages: Collection[Stage] = EVERY_STAGE) -> list[ThreadRow]:
+    async def threads(self, *, stages: Collection[Stage]) -> list[ThreadRow]:
         """Все диалоги видимых этапов (`stages`), новые первыми, — списку «Диалогов».
 
         Список до 09.10.2026 брал двести новых: с двести первого старый диалог,
@@ -235,8 +240,8 @@ class OutreachRepository:
         if not found:
             return []
 
-        letters = await self._listed_letters(stages)
-        replies = await self._listed_replies(stages)
+        letters = await self._listed_letters(stages=stages)
+        replies = await self._listed_replies(stages=stages)
         return [
             ThreadRow(
                 thread=thread,
@@ -249,7 +254,7 @@ class OutreachRepository:
             for thread, host, email, campaign, stage in found
         ]
 
-    async def states(self, *, stages: Collection[Stage] = EVERY_STAGE) -> list[ThreadMark]:
+    async def states(self, *, stages: Collection[Stage]) -> list[ThreadMark]:
         """Состояние каждого диалога видимых этапов (`stages`) — числам «Обзора» и меню.
 
         Правило то же, что у списка (`threads.state_of`), но из писем ему нужны
@@ -262,8 +267,8 @@ class OutreachRepository:
             .join(CampaignModel, CampaignModel.id == ThreadModel.campaign_id)
             .where(_seen(stages))
         )
-        statuses = await self._letter_statuses(stages)
-        replies = await self._listed_replies(stages)
+        statuses = await self._letter_statuses(stages=stages)
+        replies = await self._listed_replies(stages=stages)
         return [
             ThreadMark(
                 thread_id=thread_id,
@@ -323,9 +328,7 @@ class OutreachRepository:
                 by_thread.setdefault(message.thread_id, []).append(message)
         return by_thread
 
-    async def _listed_letters(
-        self, stages: Collection[Stage] = EVERY_STAGE
-    ) -> dict[int, list[ListedLetter]]:
+    async def _listed_letters(self, *, stages: Collection[Stage]) -> dict[int, list[ListedLetter]]:
         """Письма всех диалогов — статусом и временем ухода, одним запросом.
 
         По запросу на диалог список стоил бы тысячи обращений к базе. И без перечня
@@ -343,9 +346,7 @@ class OutreachRepository:
                 by_thread.setdefault(thread_id, []).append(ListedLetter(status, sent_at))
         return by_thread
 
-    async def _letter_statuses(
-        self, stages: Collection[Stage] = EVERY_STAGE
-    ) -> dict[int, set[MessageStatus]]:
+    async def _letter_statuses(self, *, stages: Collection[Stage]) -> dict[int, set[MessageStatus]]:
         """Какие статусы есть у писем каждого диалога — парами из базы, без писем."""
         rows = await self._session.execute(
             select(MessageModel.thread_id, MessageModel.status)
@@ -359,9 +360,7 @@ class OutreachRepository:
                 by_thread.setdefault(thread_id, set()).add(status)
         return by_thread
 
-    async def _listed_replies(
-        self, stages: Collection[Stage] = EVERY_STAGE
-    ) -> dict[int, list[ListedReply]]:
+    async def _listed_replies(self, *, stages: Collection[Stage]) -> dict[int, list[ListedReply]]:
         """Ответы всех диалогов — полями правила (`ListedReply`), одним запросом.
 
         Ответ без диалога (`replies/unbound.py`) сюда не входит: строки, к которой

@@ -37,6 +37,7 @@ from backend.features.core.models.outreach import (
 from backend.features.core.models.run import RunCandidateModel, RunModel
 from backend.features.letters.chain import ANSWER_STEP
 from backend.features.ops.overview import overview, work
+from backend.features.outreach.repository import EVERY_STAGE
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.thresholds import defaults
 from fastapi import FastAPI
@@ -299,7 +300,7 @@ class TestMenuWork:
         )
         await session.flush()
 
-        menu = await work(session)
+        menu = await work(session, stages=EVERY_STAGE)
         waiting = (await overview(session)).waiting
 
         assert menu.run == waiting.review == 1
@@ -314,7 +315,7 @@ class TestMenuWork:
         await self._answered(session, Stage.SALES, "client.example.test", kind=ReplyKind.HUMAN)
         await session.flush()
 
-        assert (await work(session)).threads == 1
+        assert (await work(session, stages=EVERY_STAGE)).threads == 1
 
     async def test_menu_answer_has_the_four_numbers(
         self, client: AsyncClient, operator_token: str
