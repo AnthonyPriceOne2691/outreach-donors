@@ -248,6 +248,33 @@ class TestDomainKey:
         assert response.status_code == 200, response.text
         assert response.json()["new_domain"] is True
 
+    async def test_address_answer_says_if_the_base_knows_it_and_what_was_taken_off(
+        self, client: AsyncClient, admin_token: str, session: AsyncSession
+    ) -> None:
+        """Проверка прода 10.10.2026: незнакомый адрес заводился зелёным «письма сняты
+        с очереди». Ответ называет, знаком ли адрес и сколько писем снято, — как у домена."""
+        await make_donor(session, HOST, email=f"editor@{HOST}")
+        await session.commit()
+
+        known = await client.post(
+            "/api/suppressions",
+            json={"target": f"Editor@{HOST}", "reason": "manual"},
+            headers=bearer(admin_token),
+        )
+        unknown = await client.post(
+            "/api/suppressions",
+            json={"target": "nobody@elsewhere.example.test", "reason": "manual"},
+            headers=bearer(admin_token),
+        )
+
+        assert known.status_code == 200, known.text
+        assert {key: known.json()[key] for key in ("new_address", "new_domain", "stopped")} == {
+            "new_address": False,
+            "new_domain": False,
+            "stopped": 0,
+        }
+        assert unknown.json()["new_address"] is True
+
     async def test_too_long_domain_is_refused_in_words(
         self, client: AsyncClient, admin_token: str
     ) -> None:
