@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import codecs
 import csv
 import hashlib
 import hmac
@@ -68,6 +69,11 @@ async def _lead(session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> int:
     return got.reply_id
 
 
+def _rows(data: bytes) -> list[dict[str, str]]:
+    """Файл выгрузки строками — как его читает Excel: метка UTF-8, точка с запятой."""
+    return list(csv.DictReader(io.StringIO(data.decode("utf-8-sig")), delimiter=";"))
+
+
 def _card(**changes: str) -> lead_handoff.LeadCard:
     fields: dict[str, Any] = dict.fromkeys(lead_handoff.LeadCard.__dataclass_fields__, "")
     fields |= {"lead_id": 7, "advertiser": "brand.test", "text": "We might be interested."}
@@ -115,10 +121,23 @@ class TestWhatIsALead:
 
 
 class TestFile:
-    def test_csv_header_is_the_webhook_fields(self) -> None:
-        rows = list(csv.DictReader(io.StringIO(lead_handoff.to_csv([_card()]))))
-        assert list(rows[0]) == list(lead_handoff.LeadCard.__dataclass_fields__)
-        assert rows[0]["advertiser"] == "brand.test"
+    def test_csv_opens_in_excel_with_words_for_headers(self) -> None:
+        """Проверка QA 10.10.2026: файл шёл без метки UTF-8, с запятыми и именами полей
+        вебхука — Excel показывал русский текст кракозябрами, а `taken_by` человеку не
+        говорит ничего. Поля и их порядок — те же, что в вебхуке."""
+        data = lead_handoff.to_csv([_card(text="Интересно, пришлите прайс")])
+
+        assert data.startswith(codecs.BOM_UTF8)
+        assert data.decode("utf-8-sig").splitlines()[0].startswith("номер лида;получен;")
+        rows = _rows(data)
+        fields = lead_handoff.LeadCard.__dataclass_fields__
+        assert list(rows[0]) == [lead_handoff.CSV_TITLES[name] for name in fields]
+        assert rows[0]["рекламодатель"] == "brand.test"
+        assert rows[0]["текст ответа"] == "Интересно, пришлите прайс"
+
+    def test_every_lead_field_has_a_title(self) -> None:
+        """Новое поле карточки без слова ушло бы в файл своим именем."""
+        assert list(lead_handoff.CSV_TITLES) == list(lead_handoff.LeadCard.__dataclass_fields__)
 
     @pytest.mark.parametrize(
         "evil",
@@ -127,12 +146,10 @@ class TestFile:
     def test_formula_from_a_strangers_letter_is_inert(self, evil: str) -> None:
         """Текст ответа — из чужого письма; формула в нём при открытии выгрузки
         в Excel или Google Sheets вытащила бы адреса соседних лидов (OWASP)."""
-        rows = list(
-            csv.DictReader(io.StringIO(lead_handoff.to_csv([_card(text=evil, subject=evil)])))
-        )
-        assert rows[0]["text"] == f"'{evil}"
-        assert rows[0]["subject"] == f"'{evil}"
-        assert rows[0]["advertiser"] == "brand.test"  # обычные ячейки не тронуты
+        rows = _rows(lead_handoff.to_csv([_card(text=evil, subject=evil)]))
+        assert rows[0]["текст ответа"] == f"'{evil}"
+        assert rows[0]["тема"] == f"'{evil}"
+        assert rows[0]["рекламодатель"] == "brand.test"  # обычные ячейки не тронуты
 
 
 class TestWebhook:
@@ -318,5 +335,5 @@ class TestScreen:
         assert got.headers["content-type"].startswith("text/csv")
         assert got.headers["x-export-rows"] == "1"
         assert got.headers["x-export-truncated"] == "0"
-        rows = list(csv.DictReader(io.StringIO(got.text)))
-        assert rows[0]["lead_id"] == str(reply_id)
+        rows = _rows(got.content)
+        assert rows[0]["номер лида"] == str(reply_id)
