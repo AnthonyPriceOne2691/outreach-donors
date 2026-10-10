@@ -32,7 +32,7 @@ import {
 } from '@mantine/core';
 import { IconPaperclip, IconSend } from '@tabler/icons-react';
 import { useMutation } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 
 import { refusalOf } from '../api/client';
@@ -74,6 +74,41 @@ interface Props {
 /** Ctrl+Enter или ⌘+Enter — отправить; просто Enter — новая строка. */
 function sendsOn(event: KeyboardEvent): boolean {
   return event.key === 'Enter' && (event.ctrlKey || event.metaKey);
+}
+
+/**
+ * Набранный ответ — черновиком на переписку в этой вкладке (`sessionStorage`).
+ * Поле видно всегда, и уйти из переписки посреди ответа легко — J/K, «Следующий
+ * ждущий», строка списка: прежде набранное молча пропадало (попутный аудит
+ * 10.10.2026). Ответ ушёл — черновик стирается. Хранилище закрыто — без черновика.
+ */
+function useDraft(threadId: number, answered: boolean): [string, (text: string) => void] {
+  const key = `outreach.answer.${threadId}`;
+  const [text, setText] = useState(() => {
+    try {
+      return sessionStorage.getItem(key) ?? '';
+    } catch {
+      return '';
+    }
+  });
+  const keep = (next: string) => {
+    setText(next);
+    try {
+      if (next === '') sessionStorage.removeItem(key);
+      else sessionStorage.setItem(key, next);
+    } catch {
+      // Хранилище закрыто — набранное живёт, пока открыта переписка.
+    }
+  };
+  useEffect(() => {
+    if (!answered) return;
+    try {
+      sessionStorage.removeItem(key);
+    } catch {
+      // Нечего стирать.
+    }
+  }, [answered, key]);
+  return [text, keep];
 }
 
 function useAttachments(threadId: number, initial: OutgoingFile[], rules: FileRules | undefined) {
@@ -187,7 +222,7 @@ export function Composer({
   pendingFiles = [],
   rules,
 }: Props) {
-  const [text, setText] = useState('');
+  const [text, setText] = useDraft(threadId, answered);
   const box = useAttachments(threadId, pendingFiles, rules);
   if (answered) {
     return (
