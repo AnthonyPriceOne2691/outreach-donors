@@ -193,6 +193,21 @@ function priceHint(donors: OverviewDonors): string {
 }
 
 /**
+ * Под «Ответили»: доля написанных — или почему её нет.
+ *
+ * «Написали» считает принятых доноров (как вся воронка), а «Ушло» в письмах
+ * донорам — все письма этапа, и доменам, которых человек не принял или
+ * отклонил потом. Ноль в воронке рядом с «Ушло 24» поэтому не значит, что
+ * писем не было: до 10.10.2026 здесь стояло «писем ещё не было» — неправда
+ * на том же экране (проверка QA 10.10.2026). Так говорится, только когда
+ * донорам не ушло ни одного письма.
+ */
+function repliedHint(donors: OverviewDonors, sent: number): string {
+  if (donors.written > 0) return `${formatShare(donors.replied / donors.written)} написанных`;
+  return sent > 0 ? 'принятым донорам не писали' : 'писем ещё не было';
+}
+
+/**
  * Воронка: от проверенного домена до донора с ценой (решение 26.09.2026).
  *
  * «Донор» здесь значит одно — домен, принятый человеком: то же, что на экране
@@ -201,7 +216,7 @@ function priceHint(donors: OverviewDonors): string {
  * «доноров 1 065» над пустым списком доноров читалось бы как сбой. Всё, что
  * ниже «Доноров», считается среди них — тем же правилом, что у списка.
  */
-function DonorsSection({ donors }: { donors: OverviewDonors }) {
+function DonorsSection({ donors, sent }: { donors: OverviewDonors; sent: number }) {
   const checked = donors.total - donors.unchecked;
   return (
     // Ссылки у раздела нет: «Доноры» — плитка-ссылка внутри, и две ссылки
@@ -242,15 +257,14 @@ function DonorsSection({ donors }: { donors: OverviewDonors }) {
           hint={donors.form_only > 0 ? `и ${formatNumber(donors.form_only)} с формой` : undefined}
           to="/donors?has_contact=true"
         />
-        <Metric title="Написали" value={formatNumber(donors.written)} hint="хоть одно письмо" />
+        {/* Кому из принятых ушло хоть одно письмо — это и сказано под числом:
+            «Ушло» ниже считает письма всем доменам, и ноль здесь рядом с ним
+            читался сбоем (проверка QA 10.10.2026). */}
+        <Metric title="Написали" value={formatNumber(donors.written)} hint="принятым донорам" />
         <Metric
           title="Ответили"
           value={formatNumber(donors.replied)}
-          hint={
-            donors.written > 0
-              ? `${formatShare(donors.replied / donors.written)} написанных`
-              : 'писем ещё не было'
-          }
+          hint={repliedHint(donors, sent)}
         />
         <Metric title="С ценой" value={formatNumber(donors.priced)} hint={priceHint(donors)} />
       </SimpleGrid>
@@ -437,7 +451,7 @@ function Dashboard() {
   return (
     <>
       <WaitingSection waiting={data.waiting} />
-      <DonorsSection donors={data.donors} />
+      <DonorsSection donors={data.donors} sent={data.letters.donors.sent} />
       <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
         <LettersSection
           donors={data.letters.donors}
