@@ -16,6 +16,7 @@ from collections.abc import Awaitable, Callable
 import pytest
 from backend.api.app import create_app
 from backend.config.startup_checks import ConfigError
+from backend.features.access.passwords import verify_password
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, UserRole
 from backend.features.core.models.access import AuditLogModel, UserModel
@@ -153,6 +154,99 @@ class TestBruteForce:
         )
 
         assert again.status_code == 401
+
+
+class TestTimingDoesNotTell:
+    async def test_unknown_email_costs_a_password_check_too(
+        self, client: AsyncClient, make_user: MakeUser, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Аудит 10.10.2026, №15: bcrypt шёл только для существующей почты, и отказ по
+        незнакомой приходил быстрее — время ответа называло, какие учётки есть. Теперь
+        пароль сверяется и тогда: с подставным хешем той же цены."""
+        await make_user("ivan@site.com")
+        checked: list[str] = []
+
+        def spy(plain: str, password_hash: str | None) -> bool:
+            checked.append(password_hash or "")
+            return verify_password(plain, password_hash)
+
+        monkeypatch.setattr("backend.features.access.login.verify_password", spy)
+
+        unknown = await client.post(
+            "/api/auth/login", json={"email": "никого@site.com", "password": "мимо"}
+        )
+        wrong = await client.post(
+            "/api/auth/login", json={"email": "ivan@site.com", "password": "мимо"}
+        )
+
+        assert unknown.json() == wrong.json()
+        assert len(checked) == 2, "пароль сверяется и с почтой, которой нет"
+        unknown_hash, real_hash = checked
+        assert unknown_hash.startswith("$2"), "и подставной — bcrypt"
+        assert real_hash.startswith("$2")
+        assert unknown_hash.split("$")[2] == real_hash.split("$")[2], "той же ценой"
+
+
+WRONG_OLD = {"current": "мимо", "new": "три слова подряд длиннее"}
+RIGHT_OLD = {"current": "пароль-для-теста", "new": "три слова подряд длиннее"}
+
+
+class TestOwnPasswordAttempts:
+    """Подбор старого пароля по пропуску — с тем же пределом, что у входа (аудит 10.10.2026).
+
+    Украденный суточный пропуск позволял перебирать старый пароль без счёта, а с ним —
+    пароль, которым человек, может быть, входит и в другие сервисы.
+    """
+
+    async def test_guessing_the_old_password_runs_out(
+        self,
+        client: AsyncClient,
+        make_user: MakeUser,
+        sign_in: Callable[..., Awaitable[str]],
+    ) -> None:
+        await make_user("ivan@site.com")
+        token = await sign_in("ivan@site.com")
+
+        codes = [
+            (
+                await client.post("/api/auth/password", headers=bearer(token), json=WRONG_OLD)
+            ).status_code
+            for _ in range(6)
+        ]
+        right = await client.post("/api/auth/password", headers=bearer(token), json=RIGHT_OLD)
+
+        assert codes == [400] * 5 + [429]
+        assert right.status_code == 429, "исчерпано — не проверяется и верный"
+        assert int(right.headers["Retry-After"]) > 0
+        # Пароль не сменён, и вход по нему не задет: у входа свой счёт.
+        await sign_in("ivan@site.com")
+
+    async def test_a_change_clears_the_count(
+        self,
+        client: AsyncClient,
+        make_user: MakeUser,
+        sign_in: Callable[..., Awaitable[str]],
+    ) -> None:
+        """Ошибся раскладкой и сменил — следующая ошибка не упирается в предел."""
+        await make_user("ivan@site.com")
+        token = await sign_in("ivan@site.com")
+        for _ in range(4):
+            await client.post("/api/auth/password", headers=bearer(token), json=WRONG_OLD)
+
+        changed = await client.post("/api/auth/password", headers=bearer(token), json=RIGHT_OLD)
+        again = [
+            (
+                await client.post(
+                    "/api/auth/password",
+                    headers=bearer(token),
+                    json={"current": "мимо", "new": "четыре слова подряд длиннее"},
+                )
+            ).status_code
+            for _ in range(4)
+        ]
+
+        assert changed.status_code == 204, changed.text
+        assert again == [400] * 4
 
 
 class TestWhoAmI:

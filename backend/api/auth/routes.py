@@ -19,7 +19,7 @@ from backend.api import deps
 from backend.api.auth.schemas import Credentials, Me, PasswordChange, SignedIn
 from backend.api.deps import db_session, signed_in
 from backend.config import access as cfg
-from backend.features.access.administration import change_own_password
+from backend.features.access.administration import WrongPasswordError, change_own_password
 from backend.features.access.attempts import TooManyAttemptsError
 from backend.features.access.login import LoginFailedError, login
 from backend.features.access.repository import actor_of, normalize_email
@@ -103,5 +103,23 @@ async def change_password(
     user: UserModel = Depends(signed_in),
     session: AsyncSession = Depends(db_session),
 ) -> None:
-    await change_own_password(session, user_id=user.id, current=body.current, new=body.new)
+    """Сменить свой пароль. Неверный старый считает тот же счётчик, что у входа, — по
+    учётке (аудит 10.10.2026): украденный суточный пропуск иначе подбирал старый пароль
+    без предела. Ключ свой: подбор здесь не закрывает вход, а вход не сбрасывает подбор."""
+    key = f"password:{user.id}"
+    try:
+        deps.attempts.check(key)
+    except TooManyAttemptsError:
+        # Как у входа: остановленная попытка до проверки не доходит, но в журнале видна.
+        logger.warning(
+            "смена пароля: попытки исчерпаны, старый пароль даже не проверялся",
+            extra={"user_id": user.id},
+        )
+        raise
+    try:
+        await change_own_password(session, user_id=user.id, current=body.current, new=body.new)
+    except WrongPasswordError:
+        deps.attempts.failed(key)
+        raise
+    deps.attempts.succeeded(key)
     await session.commit()
