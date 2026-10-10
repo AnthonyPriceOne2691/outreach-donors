@@ -18,6 +18,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from redis.exceptions import RedisError
 
+from backend.config.startup_checks import ConfigError
 from backend.features.access.administration import (
     LastAdminError,
     SelfLockoutError,
@@ -71,6 +72,7 @@ from backend.features.replies.repository import LeadError, NotAPriceError, Unkno
 from backend.features.review.candidates import NotInRunError
 from backend.features.review.candidates import UnknownRunError as ReviewUnknownRunError
 from backend.features.runs.browse import UnknownRunError
+from backend.features.runs.budget import QuotaUnavailableError
 from backend.features.sales.chain import ChainNotReadyError
 from backend.features.sales.intake import IntakeError, UnknownHypothesisError
 from backend.features.sales.kb import KbError, KbKeyTakenError, UnknownKbEntryError
@@ -201,6 +203,10 @@ STATUSES: dict[type[Exception], int] = {
     WeakPasswordError: status.HTTP_400_BAD_REQUEST,
     WrongPasswordError: status.HTTP_400_BAD_REQUEST,
     TooManyAttemptsError: status.HTTP_429_TOO_MANY_REQUESTS,
+    # Настройка не даёт работать: песочница выдачи, нет ключа. Состояние развёртывания,
+    # и текст называет, что поправить; до аудита 10.10.2026 «Запустить» отвечал на это
+    # пятисоткой, и написанный человеку отказ до экрана не доходил.
+    ConfigError: status.HTTP_409_CONFLICT,
     # Секрета подписи нет — это поломка развёртывания, а не запроса.
     # Ответ честно говорит об этом пятисоткой и называет переменную:
     # в логах иначе останется «internal error» без единой подсказки.
@@ -234,9 +240,19 @@ async def _queue_down(_: Request, exc: Exception) -> JSONResponse:
     return JSONResponse({"detail": QUEUE_DOWN}, status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
 
 
+async def _quota_unknown(_: Request, exc: Exception) -> JSONResponse:
+    """Остаток у Ahrefs не узнать — код по причине (`runs/budget.py`): ключ отозван или прав
+    нет (`permanent`) — 409, повтор не поможет; сеть или 5xx — 503, поможет. Текст — как
+    написан, с причиной: до аудита 10.10.2026 смета отвечала «Internal Server Error»."""
+    permanent = getattr(exc, "permanent", False)
+    code = status.HTTP_409_CONFLICT if permanent else status.HTTP_503_SERVICE_UNAVAILABLE
+    return JSONResponse({"detail": str(exc)}, status_code=code)
+
+
 def install(app: FastAPI) -> None:
     for error, code in STATUSES.items():
         app.add_exception_handler(error, _handler(code))
+    app.add_exception_handler(QuotaUnavailableError, _quota_unknown)
     # Маршруты, которые отвечают о недоступной очереди сами (вебхук ответов — 503 со своей
     # причиной, поиск после перевода рекламодателей — успех перевода, исход задачи —
     # «очередь не отвечает»), ловят её до этого.

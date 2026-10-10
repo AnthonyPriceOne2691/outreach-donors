@@ -11,7 +11,9 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import httpx
 import pytest
+from backend.features.ahrefs.client import AhrefsClient
 from backend.features.core import usage
 from backend.features.core.domain import ContactSource, DonorStatus, UserRole
 from backend.features.core.models.access import UserModel
@@ -410,3 +412,84 @@ class TestStartPutsTheRunOnTheScreen:
         listed = await client.get("/api/runs", headers=bearer(operator_token))
 
         assert listed.json()["workers"] is None
+
+
+def _ahrefs_answers(monkeypatch: pytest.MonkeyPatch, code: int) -> None:
+    """Остаток у Ahrefs отвечает этим кодом — настоящий клиент, подменён только транспорт."""
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(code, text="unauthorized" if code == 401 else "")
+
+    monkeypatch.setattr(
+        "backend.api.runs.routes.AhrefsClient",
+        lambda: AhrefsClient(
+            api_key="k",
+            http=httpx.AsyncClient(
+                transport=httpx.MockTransport(answer), base_url="https://api.test"
+            ),
+        ),
+    )
+
+
+class TestRefusalsInWords:
+    """Смета и запуск отказывают словами, а не «Internal Server Error» (аудит 10.10.2026).
+
+    Остаток у Ahrefs не узнать — смета отвечала пятисоткой: так выглядел отозванный 08.10 ключ.
+    Песочница выдачи или нет ключа — то же на «Запустить», и написанный человеку отказ
+    («Песочница… прогон не запускает») до экрана не доходил.
+    """
+
+    async def test_revoked_key_on_the_estimate_is_a_state_in_words(
+        self, client: AsyncClient, operator_token: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Ключ отозван — повтор не поможет: 409 и причина, чинят ключ."""
+        _ahrefs_answers(monkeypatch, 401)
+
+        response = await client.post(
+            "/api/runs/estimate", json=RUN_BODY, headers=bearer(operator_token)
+        )
+
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"].startswith("Не удалось узнать остаток юнитов у Ahrefs")
+        assert "401" in response.json()["detail"]
+
+    async def test_ahrefs_down_on_the_estimate_is_worth_a_retry(
+        self, client: AsyncClient, operator_token: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Провайдер лежит — 503: поможет повтор, а не правка."""
+        _ahrefs_answers(monkeypatch, 503)
+
+        response = await client.post(
+            "/api/runs/estimate", json=RUN_BODY, headers=bearer(operator_token)
+        )
+
+        assert response.status_code == 503, response.text
+        assert response.json()["detail"].startswith("Не удалось узнать остаток юнитов у Ahrefs")
+
+    @pytest.mark.parametrize(
+        ("sandbox", "key", "words"),
+        [
+            (True, "ключ-для-теста", "Песочница выдачи (SERP_SANDBOX=true) прогон не запускает"),
+            (False, "", "AHREFS_API_KEY"),
+        ],
+        ids=["песочница", "нет ключа"],
+    )
+    async def test_settings_refuse_the_start_in_their_own_words(
+        self,
+        client: AsyncClient,
+        operator_token: str,
+        monkeypatch: pytest.MonkeyPatch,
+        sandbox: bool,
+        key: str,
+        words: str,
+    ) -> None:
+        monkeypatch.setattr("backend.config.serp.SANDBOX", sandbox)
+        monkeypatch.setattr("backend.config.ahrefs.API_KEY", key)
+        queue = FakeQueue()
+        monkeypatch.setattr("backend.api.runs.routes.runs_queue", lambda: queue)
+
+        response = await client.post("/api/runs", json=RUN_BODY, headers=bearer(operator_token))
+
+        assert response.status_code == 409, response.text
+        assert words in response.json()["detail"]
+        assert queue.calls == [], "отказ настроек — до очереди"
