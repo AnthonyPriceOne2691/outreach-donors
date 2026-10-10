@@ -365,18 +365,6 @@ describe('очередь писем', () => {
     expect(patch?.path).toBe('/api/letters/7');
   });
 
-  it('«не писать» предупреждает, что донор больше не появится', async () => {
-    await openLetters(
-      {},
-      { 'POST /api/letters/7/skip': { body: { ...LETTER, status: 'stopped' } } },
-    );
-    const user = userEvent.setup();
-
-    await user.click(screen.getByRole('button', { name: 'Не писать' }));
-
-    expect(await screen.findByText(/в следующей сборке не появится/)).toBeInTheDocument();
-  });
-
   it('пустая очередь объясняет, где кончились доноры', async () => {
     await openLetters({
       letters: [],

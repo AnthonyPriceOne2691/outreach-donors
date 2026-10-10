@@ -21,6 +21,10 @@
  *
  * **Незаданное — тихой пометкой везде: в первом письме, в добивках и в
  * правке** (`letterText.ts`). Громкая метка сервера на экран не попадает.
+ *
+ * **«Не писать» — с подтверждением у кнопки** (проверка QA 10.10.2026). Решение — по
+ * адресату, а не по письму: он считается написанным и в следующих сборках не появится,
+ * а кнопка стоит вплотную к «Поправить», и промах стоил адресата.
  */
 
 import {
@@ -38,6 +42,7 @@ import {
 import { useEffect, useRef, useState } from 'react';
 
 import type { Corridor, LetterTransport, QueuedLetter } from '../api/types';
+import { ConfirmPopover } from '../components/ConfirmPopover';
 import { readable, restored, uniquenessText } from './letterText';
 import { mailSendNote } from './mailTile';
 
@@ -264,15 +269,24 @@ export function LetterPreview({
                 >
                   Поправить
                 </Button>
-                <Button
-                  variant="subtle"
-                  color="red"
-                  disabled={!canSend}
-                  className="press"
-                  onClick={onSkip}
+                <ConfirmPopover
+                  message={`Не писать ${letter.host}? Письмо уберём из очереди, и в следующих сборках этого адресата не будет.`}
+                  confirm="Не писать"
+                  danger
+                  onConfirm={onSkip}
                 >
-                  Не писать
-                </Button>
+                  {(ask) => (
+                    <Button
+                      variant="subtle"
+                      color="red"
+                      disabled={!canSend}
+                      className="press"
+                      onClick={ask}
+                    >
+                      Не писать
+                    </Button>
+                  )}
+                </ConfirmPopover>
               </>
             )}
           </Group>
