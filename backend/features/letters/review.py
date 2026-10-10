@@ -18,15 +18,26 @@
 в остановленные и больше в очереди не появляется, донор считается
 написанным. Иначе следующая сборка предложила бы его снова, и человеку
 пришлось бы отказываться от него каждую неделю.
+
+**Решение пишется, только если письмо всё ещё в очереди** (аудит 10.10.2026) —
+условием в самом `UPDATE`, как захват отправки (`Sending._claim`). Пачка — другая
+задача: между чтением письма и записью решения она успевает перевести его
+в «отправляется». Запись поверх такого письма врала бы о нём: «не писать» на
+ушедшем письме оставляло его без времени ухода, без добивок и мимо дневного счёта
+ящика (`settle.record_sent` ждёт «отправляется»), правка — оставляла в базе текст,
+которого адресат не получал.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import MessageStatus
 from backend.features.core.models.outreach import MessageModel
-from backend.features.letters import compose, guards
+from backend.features.letters import compose, guards, settle
 from backend.features.letters.template import Template, default
 from backend.features.letters.uniqueness import corridor_verdict, difference
 
@@ -51,7 +62,24 @@ def _editable(message: MessageModel) -> None:
         )
 
 
-def edit(
+async def _while_queued(
+    session: AsyncSession, message: MessageModel, *, lost: str, **values: Any
+) -> None:
+    """Записать `values`, только если письмо всё ещё в очереди. `lost` — что не записано.
+
+    Тот же условный `UPDATE`, что выводит письмо из состояния (`settle.leave`): правка
+    статус не меняет, но пишется тем же условием — проверка `_editable` смотрит
+    на письмо, прочитанное до решения, и могла устареть.
+    """
+    if not await settle.leave(session, message, was=MessageStatus.QUEUED, **values):
+        raise NotEditableError(
+            f"Письмо №{message.id} уже не в очереди: секундой раньше его взяла отправка "
+            f"или оно остановлено, и {lost}. Что с ним сейчас, видно в очереди писем"
+        )
+
+
+async def edit(
+    session: AsyncSession,
     message: MessageModel,
     *,
     host: str,
@@ -83,13 +111,23 @@ def edit(
     ).body
     uniqueness = difference(plain, text)
 
-    message.subject = subject.strip()
-    message.body = text
-    message.uniqueness_pct = uniqueness
+    await _while_queued(
+        session,
+        message,
+        lost="правка не записана",
+        subject=subject.strip(),
+        body=text,
+        uniqueness_pct=uniqueness,
+    )
     return Reviewed(uniqueness=uniqueness, verdict=corridor_verdict(uniqueness))
 
 
-def skip(message: MessageModel) -> None:
+async def skip(session: AsyncSession, message: MessageModel) -> None:
     """Не писать этому донору."""
     _editable(message)
-    message.status = MessageStatus.STOPPED
+    await _while_queued(
+        session,
+        message,
+        lost="«не писать» не записано",
+        status=MessageStatus.STOPPED,
+    )

@@ -195,7 +195,8 @@ async def edit(
     repository = LetterRepository(session)
     row = await repository.letter(letter_id)
     niche = await _niche_offer(row, session)
-    review.edit(
+    await review.edit(
+        session,
         row.message,
         host=row.host,
         subject=body.subject,
@@ -255,7 +256,7 @@ async def skip(
     неделю заново."""
     repository = LetterRepository(session)
     row = await repository.letter(letter_id)
-    review.skip(row.message)
+    await review.skip(session, row.message)
     await AccessRepository(session).record(
         AuditAction.USER_UPDATED,
         author_id=author.id,
