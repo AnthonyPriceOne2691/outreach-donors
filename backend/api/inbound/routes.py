@@ -114,7 +114,10 @@ def _check_secret(given: str | None) -> None:
             "в заголовке HTTP такой секрет не передаётся. "
             "Сгенерировать годный: openssl rand -hex 32"
         )
-    if not given or not hmac.compare_digest(given, expected):
+    # Байты, а не строки: `compare_digest` на строке вне ASCII бросает TypeError, и
+    # кириллица в заголовке или в пароле Basic давала любому анониму пятисотку с
+    # трассировкой — раньше потолка частоты (аудит 10.10.2026). Это просто не тот секрет.
+    if not given or not hmac.compare_digest(given.encode(), expected.encode()):
         raise InboundRefusedError("Секрет не совпал")
 
 
