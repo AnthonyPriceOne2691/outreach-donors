@@ -6,48 +6,13 @@
  * запустить, если цена не помещается в остаток.
  */
 
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
-import { AppRoutes } from '../App';
 import { countryTitle } from '../api/labels';
-import { ADMIN, TOKEN_KEY } from '../test/fixtures';
-import { renderWith } from '../test/render';
-import { serve } from '../test/server';
-
-const FITS = {
-  keywords: 2,
-  depth_pages: 1,
-  expected_results: 20,
-  expected_domains: 3,
-  units_screen: 50,
-  units_metrics: 72,
-  units_by_country: 55,
-  units_total: 177,
-  units_left: 100000,
-  units_cap: 100000,
-  units_spent_this_month: 6416,
-  cap_left: 93584,
-  run_ceiling: null,
-  budget: 93584,
-  affordable: true,
-  shortfall: 0,
-  serp_cost_usd: 0.0012,
-  // Три домена на двадцать результатов — доля, которой посчитана смета.
-  unique_share: 0.15,
-};
-
-const TOO_MUCH = { ...FITS, units_left: 100, budget: 100, affordable: false, shortfall: 77 };
-
-const CAP_EATEN = {
-  ...FITS,
-  units_spent_this_month: 99_950,
-  cap_left: 50,
-  budget: 50,
-  affordable: false,
-  shortfall: 127,
-};
+import { notify } from '../notices';
+import { FITS, history, openRun } from '../test/runFixtures';
 
 const QUEUED = {
   id: 7,
@@ -85,27 +50,6 @@ const STOPPED = {
   stats: { причина: 'сырой текст из базы — экран его не показывает' },
   reason: STOP_REASON,
 };
-
-/** Ответ истории: страница, её размер и сколько прогонов всего. */
-function history(runs: unknown[], extra: Record<string, unknown> = {}) {
-  return {
-    body: { runs, total: runs.length, page: 1, limit: 10, workers: 1, queued: 0, ...extra },
-  };
-}
-
-async function openRun(routes: Record<string, unknown> = {}, path = '/run') {
-  localStorage.setItem(TOKEN_KEY, 'пропуск');
-  const recorded = serve({
-    'GET /api/auth/me': { body: ADMIN },
-    'GET /api/runs/countries': { body: ['us', 'de'] },
-    'GET /api/runs?page=1': history([]),
-    'GET /api/keywords/yield?country=us': { body: [] },
-    ...(routes as Record<string, never>),
-  });
-  renderWith(<AppRoutes />, path);
-  await screen.findByLabelText('Ключевые слова');
-  return recorded;
-}
 
 /** Прогоны с номерами от `from` вниз — законченные, без причин. */
 function finished(from: number, count: number) {
@@ -231,77 +175,6 @@ describe('прогон', () => {
     expect(recorded.calls.some((call) => call.path === '/api/runs/estimate')).toBe(true);
   });
 
-  it('доля дублей — та, которой посчитана смета, а не зашитое число', async () => {
-    // Проверка прода 10.10.2026: «83% схлопывается в дубли» стояло от константы,
-    // убранной 24.09, рядом с «≈ 31» из 40 результатов — то есть 22% дублей.
-    await openRun({
-      'POST /api/runs/estimate': {
-        body: { ...FITS, expected_results: 40, expected_domains: 31, unique_share: 0.775 },
-      },
-    });
-    const user = userEvent.setup();
-
-    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
-    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
-
-    expect(await screen.findByText('≈ 31')).toBeInTheDocument();
-    expect(screen.getByText('22% схлопывается в дубли — по замеру')).toBeInTheDocument();
-  });
-
-  it('повторы ключей смета не считает и говорит об этом', async () => {
-    // Проверка прода 10.10.2026: два одинаковых ключа и вариант с заглавными были
-    // «3 ключа», а выдача покупала два. Сервер сводит повторы правилом выдачи и
-    // считает два; под четырьмя строками поля это названо, а не прячется.
-    await openRun({ 'POST /api/runs/estimate': { body: FITS } });
-    const user = userEvent.setup();
-
-    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nремонт\nРемонт\nдизайн');
-    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
-
-    expect(
-      await screen.findByText('2 ключа × 10 результатов · 2 повтора не в счёт'),
-    ).toBeInTheDocument();
-  });
-
-  it('смета называет стоимость выдачи — это другой счёт, не юниты', async () => {
-    await openRun({ 'POST /api/runs/estimate': { body: { ...FITS, serp_cost_usd: 0.72 } } });
-    const user = userEvent.setup();
-
-    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
-    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
-
-    // До этого среза расход на выдачу не показывался нигде, хотя это
-    // вторая статья после Ahrefs.
-    expect(await screen.findByText(/Потрачено нами юнитов с начала месяца/)).toBeInTheDocument();
-    expect(screen.getByText(/0,72\s\$/)).toBeInTheDocument();
-    expect(screen.getByText(/Выдача будет стоить примерно/)).toBeInTheDocument();
-  });
-
-  it('выдача в доли цента — «меньше 0,01 $», а не «примерно 0,00 $»', async () => {
-    // Проверка прода 10.10.2026: 0,0024 $ округлялись в «0,00 $» — будто даром.
-    await openRun({ 'POST /api/runs/estimate': { body: { ...FITS, serp_cost_usd: 0.0024 } } });
-    const user = userEvent.setup();
-
-    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
-    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
-
-    const line = (await screen.findByText(/Выдача будет стоить/)).closest('p') as HTMLElement;
-    expect(line).toHaveTextContent(/Выдача будет стоить меньше 0,01\s\$/);
-    expect(line).not.toHaveTextContent(/0,00/);
-    expect(line).not.toHaveTextContent(/примерно/);
-  });
-
-  it('бюджет считается от остатка по капу, а не от самого капа', async () => {
-    await openRun({ 'POST /api/runs/estimate': { body: CAP_EATEN } });
-    const user = userEvent.setup();
-
-    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
-    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
-
-    expect(await screen.findByText(/по капу 50 из 100\s000/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Запустить/ })).toBeDisabled();
-  });
-
   it('свой потолок уходит на сервер вместе с ключами', async () => {
     const recorded = await openRun({ 'POST /api/runs/estimate': { body: FITS } });
     const user = userEvent.setup();
@@ -313,36 +186,6 @@ describe('прогон', () => {
     await screen.findByText('до 177');
     const sent = recorded.calls.find((call) => call.path === '/api/runs/estimate');
     expect(sent?.body).toMatchObject({ cap: 5000 });
-  });
-
-  it('со своим потолком бюджет считается по нему, а не по капу', async () => {
-    await openRun({
-      'POST /api/runs/estimate': {
-        body: { ...FITS, run_ceiling: 5000, budget: 5000 },
-      },
-    });
-    const user = userEvent.setup();
-
-    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
-    await user.type(screen.getByLabelText('Потолок юнитов'), '5000');
-    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
-
-    // Свой потолок — про один прогон, кап — про месяц. Живая проверка
-    // поймала ровно эту путаницу: месячная трата вычиталась из потолка.
-    expect(await screen.findByText(/ваш потолок 5\s000/)).toBeInTheDocument();
-    expect(screen.getByText(/по капу 93\s584 из 100\s000/)).toBeInTheDocument();
-  });
-
-  it('не помещается — кнопка не нажимается и сказано, чего не хватает', async () => {
-    await openRun({ 'POST /api/runs/estimate': { body: TOO_MUCH } });
-    const user = userEvent.setup();
-
-    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
-    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
-
-    expect(await screen.findByText('Не помещается в бюджет')).toBeInTheDocument();
-    expect(screen.getByText(/Не хватает 77 юнитов/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Запустить/ })).toBeDisabled();
   });
 
   it('смета устаревает вместе со списком ключей', async () => {
@@ -357,6 +200,31 @@ describe('прогон', () => {
 
     expect(await screen.findByText('Смета устарела')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Запустить/ })).toBeDisabled();
+  });
+
+  it('удачная смета снимает свой прежний отказ, а чужие уведомления не трогает', async () => {
+    // Проверка прода 10.10.2026: красный «Смета не посчиталась» висел рядом с новой
+    // сметой и закрывал её текст — красные сами не гаснут, а удача их не снимала.
+    let asked = 0;
+    await openRun({
+      'POST /api/runs/estimate': () =>
+        (asked += 1) === 1
+          ? { status: 503, body: { detail: 'Не удалось узнать остаток юнитов у Ahrefs' } }
+          : { body: FITS },
+    });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт');
+    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
+    expect(await screen.findByText('Смета не посчиталась')).toBeInTheDocument();
+    act(() => {
+      notify({ title: 'Письмо не ушло', message: 'отказ другого экрана', color: 'red' });
+    });
+    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
+
+    expect(await screen.findByText('до 177')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText('Смета не посчиталась')).toBeNull());
+    expect(screen.getByText('Письмо не ушло')).toBeInTheDocument();
   });
 
   it('прогон в очереди виден до первой траты', async () => {

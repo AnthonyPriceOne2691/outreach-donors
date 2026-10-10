@@ -10,6 +10,12 @@
  * **Правило одно, а не у каждого вызова**: красных уведомлений полсотни на двух
  * десятках экранов, и новое, забывшее про `autoClose`, исчезало бы снова. Отказ
  * закрывает человек; явный `autoClose` у вызова сильнее правила.
+ *
+ * **Отказ действия снимает его же успех** (`refuse` / `settle`, проверка прода
+ * 10.10.2026): красный «Смета не посчиталась» висел рядом с новой, удачной сметой и
+ * закрывал её текст. Отказ, ставший неправдой, больше не нужен — но снимается только
+ * свой: чужие уведомления успех действия не трогает. Повторный отказ того же действия
+ * встаёт на место прежнего, а не стопкой одинаковых.
  */
 
 import { notifications } from '@mantine/notifications';
@@ -19,4 +25,24 @@ import type { NotificationData } from '@mantine/notifications';
 export function notify(data: NotificationData): string {
   const refusal = data.color === 'red' && data.autoClose === undefined;
   return notifications.show(refusal ? { ...data, autoClose: false } : data);
+}
+
+/** Действие → его отказ на экране. Общее на страницу, а не на экран: отказ,
+ *  оставленный до ухода с экрана, снимает успех того же действия и после возврата. */
+const refusals = new Map<string, string>();
+
+/** Отказ действия `action` — красным, на месте прежнего отказа того же действия. */
+export function refuse(action: string, data: NotificationData): string {
+  settle(action);
+  const id = notify({ ...data, color: 'red' });
+  refusals.set(action, id);
+  return id;
+}
+
+/** Действие удалось: его прежний отказ снимается. Чужих уведомлений не трогает. */
+export function settle(action: string): void {
+  const id = refusals.get(action);
+  if (id === undefined) return;
+  refusals.delete(action);
+  notifications.hide(id);
 }
