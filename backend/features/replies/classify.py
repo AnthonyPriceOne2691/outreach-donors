@@ -225,6 +225,11 @@ def _service_phrase(incoming: Incoming, body: str) -> bool:
     )
 
 
+def _weak_sign(incoming: Incoming, body: str) -> bool:
+    """Признак служебного письма, который сумма перевешивает: фраза или адрес робота."""
+    return _service_phrase(incoming, body) or robots.robot(incoming.from_email)
+
+
 def _sum_outweighs_phrase(incoming: Incoming, body: str) -> bool:
     """Фраза автоответчика или отписки — или адрес робота — рядом с суммой
     в валюте: живой ответ.
@@ -235,9 +240,7 @@ def _sum_outweighs_phrase(incoming: Incoming, body: str) -> bool:
     фразой не перевешивается: заголовки — факт, а не слово.
     """
     return (
-        not _signed_by_machine(incoming)
-        and (_service_phrase(incoming, body) or robots.robot(incoming.from_email))
-        and bool(amounts_in(body))
+        not _signed_by_machine(incoming) and _weak_sign(incoming, body) and bool(amounts_in(body))
     )
 
 
