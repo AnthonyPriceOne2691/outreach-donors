@@ -1,4 +1,4 @@
-"""База знаний и отправитель продаж — под правом `sales` (срез 3.1).
+"""База знаний и отправитель продаж: смотреть — `sales`, менять — `sales` и `send`, как в ядре.
 
 Записи: список с версией базы, заведение, правка — и включение с выключением как
 правка поля `active`; предпросмотр «что увидит агент» — той же выборкой, что получит
@@ -32,6 +32,9 @@ from backend.features.sales import kb, sender
 router = APIRouter()
 
 _seller = Depends(needs(Permission.SALES))
+#: Запись базы — опора судьи (неверная пройдёт его проверку), подпись и адрес уходят в письме:
+#: менять — ещё и с правом отправки, как письмо ядра. После `_seller`: без раздела отказ — о нём.
+_sender = Depends(needs(Permission.SEND))
 
 
 @router.get("/kb", response_model=KbView, summary="Записи базы знаний и версия базы")
@@ -52,7 +55,10 @@ async def agent_preview(
     "/kb", response_model=KbEntryCard, status_code=status.HTTP_201_CREATED, summary="Завести запись"
 )
 async def add_entry(
-    body: KbEntryBody, author: UserModel = _seller, session: AsyncSession = Depends(db_session)
+    body: KbEntryBody,
+    author: UserModel = _seller,
+    _: UserModel = _sender,
+    session: AsyncSession = Depends(db_session),
 ) -> KbEntryCard:
     new = kb.entry(**body.model_dump())
     row = await kb.add(session, new, author=author.email, author_id=author.id)
@@ -67,6 +73,7 @@ async def change_entry(
     entry_id: int,
     body: KbEntryPatch,
     author: UserModel = _seller,
+    _: UserModel = _sender,
     session: AsyncSession = Depends(db_session),
 ) -> KbEntryCard:
     # `null` в поле — «не трогать»: стереть заголовок или текст правкой нельзя.
@@ -85,7 +92,10 @@ async def read_sender(
 
 @router.post("/sender", response_model=SenderView, summary="Записать отправителя целиком")
 async def save_sender(
-    body: SenderBody, author: UserModel = _seller, session: AsyncSession = Depends(db_session)
+    body: SenderBody,
+    author: UserModel = _seller,
+    _: UserModel = _sender,
+    session: AsyncSession = Depends(db_session),
 ) -> SenderView:
     saved = await sender.save(session, body.model_dump(), author=author.email, author_id=author.id)
     await session.commit()

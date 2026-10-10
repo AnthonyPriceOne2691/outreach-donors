@@ -1,4 +1,4 @@
-"""Цепочка писем продаж — под правом `sales`.
+"""Цепочка писем продаж: смотреть — `sales`, менять — `sales` и `send`, как в ядре.
 
 Набор целиком с цепочками по языкам (`GET /sales/chain`, гипотеза — параметром), запись
 шага (`POST`: завести или поправить — ключ «набор, шаг, язык» знает ядро; клиент экрана
@@ -29,6 +29,9 @@ from backend.features.sales import chain, chain_text, sender
 router = APIRouter()
 
 _seller = Depends(needs(Permission.SALES))
+#: Шаг уходит адресату, как письмо ядра (`api/letters/routes.py`): записать — ещё и с правом
+#: отправки. Стоит после `_seller`: без раздела отказ называет раздел.
+_sender = Depends(needs(Permission.SEND))
 
 
 @router.get("/chain", response_model=ChainView, summary="Набор шаблонов и цепочки по языкам")
@@ -49,7 +52,10 @@ async def read_chain(
 
 @router.post("/chain", response_model=ChainStepCard, summary="Записать шаг: завести или поправить")
 async def save_step(
-    body: ChainStepBody, author: UserModel = _seller, session: AsyncSession = Depends(db_session)
+    body: ChainStepBody,
+    author: UserModel = _seller,
+    _: UserModel = _sender,
+    session: AsyncSession = Depends(db_session),
 ) -> ChainStepCard:
     new = chain_text.step_template(**body.model_dump(exclude={"hypothesis_id"}))
     row = await chain.save(

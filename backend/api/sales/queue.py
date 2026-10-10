@@ -1,4 +1,4 @@
-"""Очередь писем продаж — под правом `sales`: что ждёт и подключены ли продажи, сборка задачей.
+"""Очередь писем продаж: смотреть — `sales`, менять — `sales` и `send`, как в ядре.
 
 `GET /sales/queue?hypothesis=N` — без записи: подключены ли продажи и чего не хватает
 (тем же правилом, каким откажет отправка), цепочка гипотезы на каждом языке, сколько лидов
@@ -38,6 +38,9 @@ from backend.shared.queue import sales_queue, with_retries
 router = APIRouter()
 
 _seller = Depends(needs(Permission.SALES))
+#: Сборка пишет письма адресатам и тратит модель — как сборка ядра, ещё и с правом отправки.
+#: После `_seller`: без раздела отказ называет раздел.
+_sender = Depends(needs(Permission.SEND))
 #: Писем за одну сборку: больше — модель часами, а очередь пачкой всё равно идёт днями.
 LIMIT_MAX = 200
 #: Сборка ещё идёт или ждёт повтора — вторую не ставим.
@@ -131,7 +134,10 @@ async def read_queue(
 
 @router.post("/queue", response_model=SalesQueueQueued, summary="Собрать очередь продаж")
 async def build_queue(
-    body: SalesQueueBody, author: UserModel = _seller, session: AsyncSession = Depends(db_session)
+    body: SalesQueueBody,
+    author: UserModel = _seller,
+    _: UserModel = _sender,
+    session: AsyncSession = Depends(db_session),
 ) -> SalesQueueQueued:
     """Поставить сборку в очередь задач. Ничего не отправляет."""
     await chain.known(session, body.hypothesis_id)
