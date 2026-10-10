@@ -32,7 +32,12 @@ from backend.features.ahrefs.units import Quota
 from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.runs.spending import SpendingRepository
-from backend.features.runs.thresholds import ThresholdsRepository, consequences, defaults
+from backend.features.runs.thresholds import (
+    ThresholdsRepository,
+    consequences,
+    defaults,
+    in_force,
+)
 from backend.features.serp.dataforseo import SerpError
 from backend.features.serp.factory import UnknownProviderError, build_provider
 
@@ -70,22 +75,24 @@ async def current_thresholds(
 @router.post(
     "/settings/preview",
     response_model=ConsequencesView,
-    summary="Последствия порогов до сохранения",
+    summary="Эти пороги против действующих — до сохранения",
 )
 async def preview(
     body: ThresholdsBody,
     _: UserModel = _settler,
     session: AsyncSession = Depends(db_session),
 ) -> ConsequencesView:
-    """Пересчитать базу новыми порогами, ничего не сохраняя.
+    """Сравнить пороги с действующими по метрикам доменов базы, ничего не сохраняя.
 
-    Считается тем же правилом, что и отбор: второй экземпляр правила
-    разошёлся бы с настоящим при первой правке, и экран показывал бы
-    последствия, которых не будет.
+    Обе стороны — тем же правилом, что у прогона: второй экземпляр правила
+    разошёлся бы с настоящим при первой правке. Действующие — те, что возьмёт
+    следующий прогон (`in_force`), а не сохранённые вердикты: те ставят ещё регион
+    и прошлые версии порогов (проверка прода 10.10.2026).
     """
-    repository = ThresholdsRepository(session)
-    donors = await repository.donors()
-    return ConsequencesView.of(consequences(donors, body.to_thresholds()))
+    donors = await ThresholdsRepository(session).donors()
+    return ConsequencesView.of(
+        consequences(donors, body.to_thresholds(), in_force=await in_force(session))
+    )
 
 
 @router.post(

@@ -1,8 +1,9 @@
 /**
- * Пороги: предпросмотр до сохранения и новая версия вместо правки.
+ * Пороги: сравнение с действующими до сохранения и новая версия вместо правки.
  *
- * Проверяется то, ради чего экран такой: человек видит последствия
- * до нажатия, а сохранение не переписывает прошлые вердикты.
+ * Проверяется то, ради чего экран такой: человек видит, чем новые пороги разойдутся
+ * с действующими, до нажатия, а экран не обещает перемен в базе — сохранение прошлые
+ * вердикты не переписывает (проверка прода 10.10.2026).
  */
 
 import { act, screen, waitFor } from '@testing-library/react';
@@ -46,12 +47,13 @@ const VIEW = {
 
 const CONSEQUENCES = {
   checked: 111,
-  suitable_now: 105,
-  suitable_after: 92,
-  falls_out: 13,
-  falls_out_with_price: 4,
-  comes_back: 0,
-  unchecked: 6,
+  passing_now: 105,
+  passing_after: 92,
+  cut: 13,
+  cut_with_price: 4,
+  admitted: 0,
+  undecided: 0,
+  without_metrics: 6,
 };
 
 async function openThresholds(routes: Record<string, unknown> = {}, view: unknown = VIEW) {
@@ -67,7 +69,7 @@ async function openThresholds(routes: Record<string, unknown> = {}, view: unknow
   return recorded;
 }
 
-/** Сдвинуть порог DR: последствия показываются только у изменённых порогов. */
+/** Сдвинуть порог DR: сравнение показывается только у изменённых порогов. */
 async function touchDr() {
   const user = userEvent.setup();
   const dr = screen.getByLabelText('DR не ниже');
@@ -80,17 +82,73 @@ describe('пороги', () => {
     await openThresholds();
 
     expect(screen.getByText(/Пороги совпадают с действующими/)).toBeInTheDocument();
-    expect(screen.queryByText('Выпадет из базы')).not.toBeInTheDocument();
+    expect(screen.queryByText('Отсекут сверх действующих')).not.toBeInTheDocument();
+    expect(screen.queryByText(/база не изменится/)).not.toBeInTheDocument();
   });
 
-  it('показывает последствия до сохранения', async () => {
+  it('сравнивает с действующими до сохранения и говорит, что посчитано', async () => {
     await openThresholds();
     await touchDr();
 
     expect(await screen.findByText('13')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Эти пороги против действующих' })).toBeVisible();
+    expect(screen.getByText(/^По метрикам 111 доменов базы — тем же правилом/)).toBeInTheDocument();
+    const tiles: [string, string][] = [
+      ['Пропускают действующие', '105'],
+      ['Пропустят эти', '92'],
+      ['Отсекут сверх действующих', '13'],
+      ['Пропустят сверх действующих', '0'],
+    ];
+    for (const [title, value] of tiles) {
+      expect(screen.getByText(title).parentElement).toHaveTextContent(value);
+    }
     expect(screen.getByText('из них с ценой: 4')).toBeInTheDocument();
     // Домены без метрик считаются отдельно: пороги их не судят.
     expect(screen.getByText(/Без метрик — ещё 6 доменов/)).toBeInTheDocument();
+  });
+
+  // Проверка прода 10.10.2026: карточка «Что станет с базой» обещала «Выпадет из базы»
+  // и «Вернётся в базу», а сохранение вердиктов в базе не переписывает.
+  it('не обещает того, чего сохранение не сделает', async () => {
+    await openThresholds();
+    await touchDr();
+    await screen.findByText('13');
+
+    for (const promise of [/Что станет с базой/, /Выпадет из базы/, /Вернётся в базу/]) {
+      expect(screen.queryByText(promise)).not.toBeInTheDocument();
+    }
+    expect(
+      screen.getByText(
+        /Вердикты в базе сохранение не переписывает: новые пороги судят следующие замеры\.$/,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it.each([
+    [1, 'Эти пороги пустили бы дальше ещё 1 домен, но остальных метрик у него нет'],
+    [12, 'Эти пороги пустили бы дальше ещё 12 доменов, но остальных метрик у них нет'],
+  ])(
+    'отсеянные раньше остальных метрик (%i) — не «пропустят», а «решит замер»',
+    async (count, said) => {
+      await openThresholds({
+        'POST /api/settings/preview': { body: { ...CONSEQUENCES, undecided: count } },
+      });
+      await touchDr();
+
+      expect(
+        await screen.findByText(new RegExp(`^${said} — пройдут ли, решит новый замер\\.$`)),
+      ).toBeInTheDocument();
+    },
+  );
+
+  it('отказ сервера на сравнении — словами, а не «появится»', async () => {
+    await openThresholds({
+      'POST /api/settings/preview': { status: 503, body: { detail: 'База недоступна' } },
+    });
+    await touchDr();
+
+    expect(await screen.findByText('Сравнение не посчиталось')).toBeInTheDocument();
+    expect(screen.getByText('База недоступна')).toBeInTheDocument();
   });
 
   // Проверка прода 10.10.2026: «Ещё 1 доменов без метрик» — число не согласовано со словом.
@@ -101,19 +159,19 @@ describe('пороги', () => {
     [21, 'Без метрик — ещё 21 домен: пороги их не судят.'],
   ])('без метрик %i — слово согласовано с числом', async (count, said) => {
     await openThresholds({
-      'POST /api/settings/preview': { body: { ...CONSEQUENCES, unchecked: count } },
+      'POST /api/settings/preview': { body: { ...CONSEQUENCES, without_metrics: count } },
     });
     await touchDr();
 
     expect(await screen.findByText(new RegExp(`^${said}`))).toBeInTheDocument();
   });
 
-  it('предупреждает, если выпадают доноры с полученной ценой', async () => {
+  it('предупреждает, если эти пороги отсекут домены с полученной ценой', async () => {
     await openThresholds();
     await touchDr();
 
     expect(
-      await screen.findByText('Среди выпавших есть доноры с полученной ценой'),
+      await screen.findByText('Эти пороги отсекут домены с полученной ценой'),
     ).toBeInTheDocument();
   });
 
@@ -172,7 +230,7 @@ describe('пороги', () => {
   });
 });
 
-describe('пересчёт последствий', () => {
+describe('пересчёт сравнения', () => {
   it('не прячет прежние числа за значком загрузки: блок стоит приглушённым до ответа', async () => {
     let answers = 0;
     let release = () => {};
@@ -199,7 +257,7 @@ describe('пересчёт последствий', () => {
     await user.type(screen.getByLabelText('DR не ниже'), '{backspace}6');
 
     await waitFor(() => expect(screen.getByText('13').closest('[data-stale]')).not.toBeNull());
-    expect(screen.queryByLabelText('Считаем последствия')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Сравниваем с действующими')).not.toBeInTheDocument();
 
     release();
     await waitFor(() => expect(document.querySelector('[data-stale]')).toBeNull());
@@ -313,7 +371,7 @@ describe('границы порогов', () => {
     expect(previews(recorded).some((body) => body.min_org_traffic === 0)).toBe(false);
   });
 
-  it('поправили — отказ ушёл, последствия посчитаны, сохранение открыто', async () => {
+  it('поправили — отказ ушёл, сравнение посчитано, сохранение открыто', async () => {
     const recorded = await openThresholds();
     const user = userEvent.setup();
 

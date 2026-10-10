@@ -378,7 +378,7 @@ Library.
 
     GET    /api/settings/thresholds     текущие пороги и версия
     POST   /api/settings/thresholds     новая версия порогов
-    POST   /api/settings/preview        последствия порогов до сохранения
+    POST   /api/settings/preview        эти пороги против действующих, по метрикам базы
 
     GET    /api/usage                   расход по статьям
     GET    /api/audit                   журнал действий          (админ)
