@@ -20,4 +20,26 @@ export default tseslint.config(
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },
   },
+  {
+    // Уведомления — только через `notify()` (src/notices.ts): красное без явного срока
+    // не гаснет само. Прямой `notifications.show` обходил бы это правило — так и было
+    // в 30 файлах до 10.10.2026. Тестам можно: они чистят и подслушивают уведомления.
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/notices.ts', 'src/test/**', 'src/**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@mantine/notifications',
+              importNames: ['notifications'],
+              message:
+                'Уведомления — через notify() из src/notices.ts: красное без срока не гаснет само.',
+            },
+          ],
+        },
+      ],
+    },
+  },
 );
