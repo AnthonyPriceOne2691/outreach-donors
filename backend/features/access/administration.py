@@ -9,11 +9,16 @@
 **Последний действующий админ не отключается и не разжалуется.** Иначе
 учёток в базе полный список, а завести или вернуть права некому: команда
 заведения работает только на машине с базой, а доступ к ней есть не у того,
-кто нажал кнопку.
+кто нажал кнопку. «Админ» здесь — тот, у кого есть действие `users`: роль
+вместе с точечными правами, а не одна роль. Исключение `{"users": false}`
+запирает раздел учёток так же верно, как разжалование, а до 10.10.2026
+проходило мимо проверки — один переключатель на себе закрывал раздел для
+всех, и вернуть его можно было только командой на сервере (аудит 10.10.2026).
 
 **Себя не отключить и не разжаловать.** Формально это частный случай
 предыдущего, но сообщение нужно другое: человек, снимающий с себя роль
-по ошибке, должен прочитать про себя, а не про «последнего админа».
+или право `users` по ошибке, должен прочитать про себя, а не про
+«последнего админа».
 
 **Свой пароль меняется только со старым.** Украденный пропуск живёт сутки;
 без этого правила он превращается в постоянный доступ — вор просто
@@ -32,9 +37,9 @@ from backend.features.access.passwords import (
     generate_one_time,
     verify_password,
 )
-from backend.features.access.permissions import Actor
-from backend.features.access.repository import AccessRepository
-from backend.features.core.domain import UserRole
+from backend.features.access.permissions import Actor, has_permission
+from backend.features.access.repository import AccessRepository, actor_of
+from backend.features.core.domain import Permission, UserRole
 from backend.features.core.models.access import UserModel
 
 
@@ -54,23 +59,39 @@ class WrongPasswordError(ValueError):
     """Старый пароль не подошёл."""
 
 
-def _keeps_admin_rights(*, role: UserRole | None, is_active: bool | None) -> bool:
-    """Останется ли учётка действующим админом после такого изменения."""
-    return role in (None, UserRole.ADMIN) and is_active is not False
+def _after(
+    user: UserModel,
+    *,
+    role: UserRole | None,
+    is_active: bool | None,
+    permissions: dict[str, Any] | None,
+) -> Actor:
+    """Какой учётка станет после изменения. Точечные права заменяются целиком —
+    так их пишет `AccessRepository.update_access`."""
+    return Actor(
+        user_id=user.id,
+        role=role if role is not None else user.role,
+        is_active=is_active if is_active is not None else user.is_active,
+        overrides=permissions if permissions is not None else user.permissions,
+    )
 
 
 async def _guard_admin_supply(
     repository: AccessRepository,
     user: UserModel,
     *,
-    role: UserRole | None,
-    is_active: bool | None,
+    after: Actor,
     author: Actor,
 ) -> None:
-    """Проверки, после которых админов не станет ноль."""
-    if user.role is not UserRole.ADMIN or not user.is_active:
+    """Проверки, после которых управлять учётками не станет некому.
+
+    Судится действие `users` до и после изменения, той же проверкой, что пускает
+    в раздел (`has_permission`), — а не роль: разжалование, отключение и
+    `{"users": false}` отбирают раздел одинаково.
+    """
+    if not has_permission(actor_of(user), Permission.USERS):
         return
-    if _keeps_admin_rights(role=role, is_active=is_active):
+    if has_permission(after, Permission.USERS):
         return
 
     if author.user_id == user.id:
@@ -80,8 +101,8 @@ async def _guard_admin_supply(
         )
     if await repository.count_active_admins() <= 1:
         raise LastAdminError(
-            f"{user.email} — последний действующий админ. Заведите второго, "
-            "а потом снимайте права с этого"
+            f"{user.email} — последний действующий админ: больше ни у кого нет права "
+            "«заводить учётки». Выдайте его второй учётке, а потом снимайте с этой"
         )
 
 
@@ -130,7 +151,8 @@ async def update_access(
     """Роль, активность и точечные права — одним действием и с проверками."""
     repository = AccessRepository(session)
     user = await _known(repository, user_id)
-    await _guard_admin_supply(repository, user, role=role, is_active=is_active, author=author)
+    after = _after(user, role=role, is_active=is_active, permissions=permissions)
+    await _guard_admin_supply(repository, user, after=after, author=author)
     await repository.update_access(
         user.id,
         role=role,

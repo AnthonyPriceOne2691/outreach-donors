@@ -18,8 +18,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.access.passwords import hash_password
-from backend.features.access.permissions import Actor
-from backend.features.core.domain import AuditAction, UserRole
+from backend.features.access.permissions import Actor, has_permission
+from backend.features.core.domain import AuditAction, Permission, UserRole
 from backend.features.core.models.access import AuditLogModel, UserModel
 
 
@@ -75,16 +75,20 @@ class AccessRepository:
     async def count_active_admins(self) -> int:
         """Сколько людей сейчас могут завести учётку и выдать права.
 
-        Число нужно ровно в одном месте — перед тем как отобрать роль
-        у админа. Ноль здесь означает сервис, в который никто не может
-        впустить нового человека.
+        Число нужно ровно в одном месте — перед тем как отобрать у админа
+        роль, учётку или право `users`. Ноль здесь означает сервис, в который
+        никто не может впустить нового человека.
+
+        Считается по действию `users`, а не по роли (аудит 10.10.2026): админ
+        с `{"users": false}` в раздел учёток не войдёт, а оператор с
+        `{"users": true}` войдёт. Судит та же проверка, что пускает в раздел
+        (`has_permission`), — своя копия матрицы в запросе однажды разошлась бы
+        с ней. Учёток единицы, и прочитать их все дешевле, чем держать копию.
         """
-        rows = await self._session.execute(
-            select(UserModel.id).where(
-                UserModel.role == UserRole.ADMIN, UserModel.is_active.is_(True)
-            )
+        rows = await self._session.execute(select(UserModel).where(UserModel.is_active.is_(True)))
+        return sum(
+            1 for user in rows.scalars().all() if has_permission(actor_of(user), Permission.USERS)
         )
-        return len(rows.scalars().all())
 
     # --- изменение ---
 
