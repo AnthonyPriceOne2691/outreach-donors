@@ -264,7 +264,7 @@ describe('прогон', () => {
   });
 
   it('смета называет стоимость выдачи — это другой счёт, не юниты', async () => {
-    await openRun({ 'POST /api/runs/estimate': { body: FITS } });
+    await openRun({ 'POST /api/runs/estimate': { body: { ...FITS, serp_cost_usd: 0.72 } } });
     const user = userEvent.setup();
 
     await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
@@ -272,8 +272,23 @@ describe('прогон', () => {
 
     // До этого среза расход на выдачу не показывался нигде, хотя это
     // вторая статья после Ahrefs.
-    expect(await screen.findByText(/0,00 \$/)).toBeInTheDocument();
-    expect(screen.getByText(/Потрачено нами юнитов с начала месяца/)).toBeInTheDocument();
+    expect(await screen.findByText(/Потрачено нами юнитов с начала месяца/)).toBeInTheDocument();
+    expect(screen.getByText(/0,72\s\$/)).toBeInTheDocument();
+    expect(screen.getByText(/Выдача будет стоить примерно/)).toBeInTheDocument();
+  });
+
+  it('выдача в доли цента — «меньше 0,01 $», а не «примерно 0,00 $»', async () => {
+    // Проверка прода 10.10.2026: 0,0024 $ округлялись в «0,00 $» — будто даром.
+    await openRun({ 'POST /api/runs/estimate': { body: { ...FITS, serp_cost_usd: 0.0024 } } });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
+    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
+
+    const line = (await screen.findByText(/Выдача будет стоить/)).closest('p') as HTMLElement;
+    expect(line).toHaveTextContent(/Выдача будет стоить меньше 0,01\s\$/);
+    expect(line).not.toHaveTextContent(/0,00/);
+    expect(line).not.toHaveTextContent(/примерно/);
   });
 
   it('бюджет считается от остатка по капу, а не от самого капа', async () => {

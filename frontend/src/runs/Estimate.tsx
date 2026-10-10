@@ -11,7 +11,7 @@ import { Alert, SimpleGrid, Stack, Text } from '@mantine/core';
 
 import type { Forecast } from '../api/types';
 import { Metric } from '../components/Metric';
-import { formatNumber, formatShare, formatUsd, plural } from '../format';
+import { belowCent, formatNumber, formatShare, formatUsd, plural } from '../format';
 import { depthTitle, keywordsTitle, RESULTS_PER_PAGE } from './depth';
 
 /** Ключи сметы — те, что купит выдача: сервер сводит повторы без учёта регистра
@@ -69,11 +69,13 @@ export function Estimate({ forecast, lines }: Props) {
       {/* Выдача платится деньгами, а не юнитами, и кнопку не блокирует:
           без неё прогона нет вовсе. Но названа она должна быть — до этой
           строки расход на выдачу не показывался нигде. Провайдер берёт за
-          каждые десять результатов: сто результатов — вдесятеро дороже. */}
+          каждые десять результатов: сто результатов — вдесятеро дороже.
+          Доли цента — «меньше 0,01 $», а не «примерно 0,00 $» (проверка прода
+          10.10.2026): «примерно» при «меньше» лишнее. */}
       <Text size="sm" c="dimmed">
-        Выдача обойдётся примерно в <b>{formatUsd(forecast.serp_cost_usd)}</b> — это другой счёт, не
-        юниты Ahrefs. Потрачено нами юнитов с начала месяца:{' '}
-        <b>{formatNumber(forecast.units_spent_this_month)}</b>.
+        Выдача будет стоить {belowCent(forecast.serp_cost_usd) ? '' : 'примерно '}
+        <b>{formatUsd(forecast.serp_cost_usd)}</b> — это другой счёт, не юниты Ahrefs. Потрачено
+        нами юнитов с начала месяца: <b>{formatNumber(forecast.units_spent_this_month)}</b>.
       </Text>
 
       {forecast.affordable ? (
