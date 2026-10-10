@@ -138,10 +138,126 @@ class TestAddingByHand:
         with pytest.raises(stoplist.StopListError, match="ставит сам сервис"):
             await stoplist.add(session, HOST, reason=reason, author="а@б.в")
 
-    @pytest.mark.parametrize("target", ["", "  ", "не домен", "@site.test", "site"])
+    @pytest.mark.parametrize(
+        "target",
+        ["", "  ", "не домен", "@site.test", "site", "a@b@c.test", "ex ample.com", "-bad-.test"],
+    )
     async def test_nonsense_target_is_refused(self, session: AsyncSession, target: str) -> None:
-        with pytest.raises(stoplist.StopListError):
+        with pytest.raises(stoplist.StopListError, match="не похоже"):
             await stoplist.add(session, target, reason=SuppressionReason.MANUAL, author="а@б.в")
+
+
+async def domain_hosts(session: AsyncSession) -> list[str]:
+    found = await session.execute(select(DomainModel.host).order_by(DomainModel.id))
+    return list(found.scalars().all())
+
+
+class TestDomainKey:
+    """Домен ложится на ключ базы, а не туда, как его вписали.
+
+    Проверка QA 10.10.2026: `www.` и поддомен донора, ссылка на сайт заводились
+    новыми строками `domains` — донор оставался открыт, а экран говорил
+    «в стоп-листе». Прогон и отправка ищут запись по ключу `donors/host.py`,
+    значит и стоп-лист обязан писать её туда же.
+    """
+
+    @pytest.mark.parametrize(
+        "entered",
+        [
+            "www.example.com",
+            "https://www.example.com/blog/post?page=2",
+            "EXAMPLE.COM",
+            "example.com:8080",
+            "blog.example.com",
+            "http://shop.blog.example.com/",
+        ],
+    )
+    async def test_any_spelling_of_the_site_lands_on_the_donor(
+        self, session: AsyncSession, entered: str
+    ) -> None:
+        await make_donor(session, "example.com")
+
+        row = await stoplist.add(session, entered, reason=SuppressionReason.MANUAL, author="а@б.в")
+
+        assert row.host == "example.com"
+        assert row.new_domain is False
+        assert await domain_hosts(session) == ["example.com"]
+
+    async def test_www_link_takes_the_donor_letters_off(
+        self, session: AsyncSession, written: MessageModel
+    ) -> None:
+        """Зона `.test` списку суффиксов неизвестна: корнем её не свести, но `www.`,
+        схема и путь отходят — как у обхода."""
+        await stoplist.add(
+            session, f"https://www.{HOST}/contact", reason=SuppressionReason.MANUAL, author="а@б.в"
+        )
+
+        assert await status_in_base(session, written) is MessageStatus.STOPPED
+        assert await domain_hosts(session) == [HOST]
+
+    async def test_subdomain_in_an_unknown_zone_is_a_new_domain_and_says_so(
+        self, session: AsyncSession, written: MessageModel
+    ) -> None:
+        """Корня `.test` список суффиксов не знает, и угадывать его стоп-лист
+        не берётся: заводит новый домен — и говорит, что он новый."""
+        row = await stoplist.add(
+            session, f"blog.{HOST}", reason=SuppressionReason.MANUAL, author="а@б.в"
+        )
+
+        assert row.host == f"blog.{HOST}"
+        assert row.new_domain is True
+        assert await status_in_base(session, written) is MessageStatus.QUEUED
+
+    async def test_cyrillic_domain_lands_on_the_donor_as_the_base_writes_it(
+        self, session: AsyncSession
+    ) -> None:
+        """База хранит домен в написании источника: кириллица остаётся кириллицей."""
+        await make_donor(session, "пример.рф")
+
+        row = await stoplist.add(
+            session, "https://WWW.Пример.РФ/о-нас", reason=SuppressionReason.MANUAL, author="а@б.в"
+        )
+
+        assert row.host == "пример.рф"
+        assert row.new_domain is False
+
+    async def test_address_stays_an_address(self, session: AsyncSession) -> None:
+        """Адрес на поддомене не сводится к домену: запись по адресу держит один ящик."""
+        row = await stoplist.add(
+            session, "Editor@Blog.Example.com", reason=SuppressionReason.MANUAL, author="а@б.в"
+        )
+
+        assert row.email == "editor@blog.example.com"
+        assert row.host is None
+        assert row.new_domain is False
+        assert await domain_hosts(session) == []
+
+
+class TestTooLong:
+    """Пределы длины — словами стоп-листа, а не английским разбором запроса."""
+
+    async def test_domain_longer_than_dns_allows(self, session: AsyncSession) -> None:
+        with pytest.raises(stoplist.StopListError, match="Домен длиннее 253 знаков"):
+            await stoplist.add(
+                session, "x" * 300 + ".test", reason=SuppressionReason.MANUAL, author="а@б.в"
+            )
+
+    async def test_address_longer_than_the_column(self, session: AsyncSession) -> None:
+        with pytest.raises(stoplist.StopListError, match="Адрес длиннее 255 знаков"):
+            await stoplist.add(
+                session, "x" * 250 + "@site.test", reason=SuppressionReason.MANUAL, author="а@б.в"
+            )
+
+    async def test_long_link_to_a_short_domain_is_fine(self, session: AsyncSession) -> None:
+        """Предел — у домена, а не у ссылки: путь в 600 знаков домену не помеха."""
+        row = await stoplist.add(
+            session,
+            "https://www.example.com/" + "p" * 600,
+            reason=SuppressionReason.MANUAL,
+            author="а@б.в",
+        )
+
+        assert row.host == "example.com"
 
 
 class TestRemoving:

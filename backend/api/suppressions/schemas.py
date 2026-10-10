@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pydantic import BaseModel, Field
 
 from backend.features.core.domain import Stage, SuppressionReason
-from backend.features.letters.stoplist import StopRow
+from backend.features.letters.stoplist import AddedRow, StopRow
 
 
 class StopEntry(BaseModel):
@@ -46,6 +46,19 @@ class StopEntry(BaseModel):
         )
 
 
+class AddedEntry(StopEntry):
+    """Заведённая запись — и легла ли она на домен из базы."""
+
+    #: Домена в базе не было, запись завела его новым: донора с ним нет.
+    #: Экран говорит это словами, а не «письма сняты с очереди» — иначе
+    #: опечатка в домене выглядит как закрытый донор (проверка QA 10.10.2026).
+    new_domain: bool
+
+    @classmethod
+    def added(cls, row: AddedRow) -> AddedEntry:
+        return cls(**StopEntry.of(row).model_dump(), new_domain=row.new_domain)
+
+
 class StopListView(BaseModel):
     """Весь список и его состав по причинам — числа для шапки экрана."""
 
@@ -60,7 +73,12 @@ class StopListView(BaseModel):
 class AddBody(BaseModel):
     """Завести запись руками."""
 
-    target: str = Field(min_length=3, max_length=253)
+    #: Домен, ссылка на сайт или адрес. Пределов длины у поля нет намеренно:
+    #: прежние 3–253 отказывали по-английски («String should have at most
+    #: 253 characters») и не пускали ссылку с длинным путём, из которой нужен
+    #: один домен. Пределы домена, адреса и вписанного знает стоп-лист
+    #: (`letters/stoplist.py`) — и отказывает словами (проверка QA 10.10.2026).
+    target: str
     reason: SuppressionReason
     #: Пусто — запрет действует на обоих этапах.
     stage: Stage | None = None
