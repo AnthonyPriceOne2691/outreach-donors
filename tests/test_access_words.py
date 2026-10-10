@@ -19,13 +19,19 @@ from backend.features.access.permissions import (
     Actor,
     no_right,
     require,
+    require_stage,
 )
-from backend.features.core.domain import Permission, UserRole
+from backend.features.core.domain import Permission, Stage, UserRole
 
 LABELS_TS = Path(__file__).resolve().parent.parent / "frontend" / "src" / "api" / "labels.ts"
 
 #: Кто не может ничего: учётка отключена — отказ по любому праву.
 NOBODY = Actor(user_id=1, role=UserRole.ADMIN, is_active=False)
+
+#: Подпись права sales на экране меняет PR продаж #308: «раздел продаж» → «Продажи». Сервер
+#: говорит «Продажи» уже сейчас — как `require_stage` и как экран после #308. До слияния #308
+#: сверка терпит прежнюю подпись — только её и только у этого права. После слияния — убрать.
+SCREEN_BEFORE_308 = {"sales": "раздел продаж"}
 
 
 def _screen_titles() -> dict[str, str]:
@@ -38,9 +44,23 @@ def _screen_titles() -> dict[str, str]:
 
 class TestSameWordsAsTheScreen:
     def test_titles_match_the_permissions_window(self) -> None:
-        assert _screen_titles() == {
-            permission.value: title for permission, title in PERMISSION_TITLES.items()
-        }
+        server = {permission.value: title for permission, title in PERMISSION_TITLES.items()}
+        screen = _screen_titles()
+        for code, before in SCREEN_BEFORE_308.items():
+            if screen.get(code) == before:
+                screen[code] = server[code]
+
+        assert screen == server
+
+    def test_sales_right_is_named_like_the_stage_refusal(self) -> None:
+        """Одно слово на право: «нет права» и отказ строки этапа продаж (`require_stage`)
+        называют право одинаково — «Продажи», как экран после #308."""
+        outsider = Actor(user_id=3, role=UserRole.OPERATOR, overrides={"sales": False})
+
+        with pytest.raises(AccessDeniedError) as stage_refused:
+            require_stage(outsider, Stage.SALES, "Письма продаж")
+
+        assert f"«{PERMISSION_TITLES[Permission.SALES]}»" in str(stage_refused.value)
 
     def test_every_permission_has_words(self) -> None:
         """Право без слов ушло бы в отказ кодом — ровно то, что чинили."""
