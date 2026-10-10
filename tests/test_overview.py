@@ -155,7 +155,7 @@ class TestDonors:
         await _donor(session, "unchecked.example.test", status=DonorStatus.UNCHECKED)
         await _donor(session, "weak.example.test", status=DonorStatus.UNSUITABLE)
 
-        donors = (await overview(session)).donors
+        donors = (await overview(session, stages=EVERY_STAGE)).donors
 
         assert (donors.total, donors.unchecked, donors.suitable) == (5, 1, 3)
         assert (donors.accepted, donors.rejected) == (2, 1)
@@ -180,7 +180,7 @@ class TestDonors:
         stage_two = await _campaign(session, Stage.ADVERTISERS)
         await _letter(session, stage_two, waiting, MessageStatus.SENT)
 
-        assert (await overview(session)).donors.written == 2
+        assert (await overview(session, stages=EVERY_STAGE)).donors.written == 2
 
 
 class TestWaiting:
@@ -199,7 +199,7 @@ class TestWaiting:
         )
         await session.flush()
 
-        view = await overview(session)
+        view = await overview(session, stages=EVERY_STAGE)
 
         assert view.waiting.review == 2
         # Новые первыми: плитка ведёт в самую свежую очередь.
@@ -211,7 +211,7 @@ class TestWaiting:
         session.add(RunCandidateModel(run_id=run.id, domain_id=domain.id, status="rejected"))
         await session.flush()
 
-        waiting = (await overview(session)).waiting
+        waiting = (await overview(session, stages=EVERY_STAGE)).waiting
 
         assert (waiting.review, waiting.review_runs) == (0, [])
 
@@ -267,7 +267,7 @@ class TestWaiting:
         )
         await session.flush()
 
-        view = await overview(session)
+        view = await overview(session, stages=EVERY_STAGE)
 
         assert view.waiting.prices == 1
         assert view.donors.replied == 2
@@ -301,7 +301,7 @@ class TestMenuWork:
         await session.flush()
 
         menu = await work(session, stages=EVERY_STAGE)
-        waiting = (await overview(session)).waiting
+        waiting = (await overview(session, stages=EVERY_STAGE)).waiting
 
         assert menu.run == waiting.review == 1
         # Цена, которую подтверждает человек, и невзятый лид; цена и взятый лид — не работа.
@@ -343,7 +343,7 @@ class TestLettersAndSpending:
         advertiser = await make_donor(session, "brand.example.test")
         await _letter(session, advertisers_campaign, advertiser, MessageStatus.QUEUED)
 
-        letters = (await overview(session)).letters
+        letters = (await overview(session, stages=EVERY_STAGE)).letters
 
         donors = letters[Stage.DONORS]
         assert (donors.queued, donors.sent, donors.delivered, donors.bounced) == (2, 3, 1, 1)
@@ -363,7 +363,7 @@ class TestLettersAndSpending:
         newcomer = await make_donor(session, "newcomer.example.test")
         await _letter(session, campaign, newcomer, MessageStatus.QUEUED)
 
-        donors = (await overview(session)).letters[Stage.DONORS]
+        donors = (await overview(session, stages=EVERY_STAGE)).letters[Stage.DONORS]
 
         assert (donors.queued, donors.sent) == (1, 1)
 
@@ -373,7 +373,7 @@ class TestLettersAndSpending:
         usage.record(session, operation="serp_search", amount_usd=Decimal("0.35"))
         await session.flush()
 
-        view = await overview(session)
+        view = await overview(session, stages=EVERY_STAGE)
 
         assert view.ahrefs_units == 1_255
         assert view.serp_usd == Decimal("0.35")
@@ -385,7 +385,7 @@ class TestLettersAndSpending:
         session.add(RunCandidateModel(run_id=newest.id, domain_id=domain.id, status="pending"))
         await session.flush()
 
-        last = (await overview(session)).last_run
+        last = (await overview(session, stages=EVERY_STAGE)).last_run
 
         assert last is not None
         assert last.run.id == newest.id
@@ -393,7 +393,7 @@ class TestLettersAndSpending:
         assert last.queue == {"pending": 1}
 
     async def test_empty_base_is_zeros_not_a_failure(self, session: AsyncSession) -> None:
-        view = await overview(session)
+        view = await overview(session, stages=EVERY_STAGE)
 
         assert view.donors.total == 0
         assert view.last_run is None

@@ -1492,9 +1492,9 @@
       "worst": "_of_stage:99"
     },
     "backend/features/ops/overview.py": {
-      "lines": 325,
+      "lines": 322,
       "complexity": 5,
-      "worst": "_letters:292"
+      "worst": "_letters:289"
     },
     "backend/features/ops/silence.py": {
       "lines": 336,

@@ -431,7 +431,7 @@ async def test_menu_and_overview_count_what_the_cards_say(session: AsyncSession)
     cards = await _cards(session, ids)
 
     menu = await work(session, stages=EVERY_STAGE)
-    view = await overview(session, now=NOW)
+    view = await overview(session, now=NOW, stages=EVERY_STAGE)
 
     states = [card.summary.state for card in cards.values()]
     assert menu.threads == sum(state in WAITS_FOR_PERSON for state in states) == WAITING_ALL
@@ -522,7 +522,7 @@ async def test_overview_and_menu_take_no_texts(session: AsyncSession) -> None:
 
     with _statements(session) as sent:
         await work(session, stages=EVERY_STAGE)
-        await overview(session, now=NOW)
+        await overview(session, now=NOW, stages=EVERY_STAGE)
 
     named = _columns(sent)
     assert not named["messages"] & TEXTS, named["messages"] & TEXTS

@@ -35,17 +35,7 @@ GUARDS = [
     pytest.param(SpendingRepository.since_month_start, id="расход"),
     pytest.param(silence.alarms, id="сторож тишины"),
     pytest.param(mail_watch.alarms, id="сторож почты"),
-    pytest.param(
-        overview,
-        id="сводка «Обзора»",
-        marks=pytest.mark.xfail(
-            strict=True,
-            reason=(
-                "тест продаж tests/test_sales_stage_screens.py зовёт сводку без этапов; тесты "
-                "продаж правят продажи — передадут там EVERY_STAGE, и умолчание уходит"
-            ),
-        ),
-    ),
+    pytest.param(overview, id="сводка «Обзора»"),
 ]
 
 
