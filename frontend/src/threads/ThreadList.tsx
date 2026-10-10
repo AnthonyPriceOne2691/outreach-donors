@@ -167,9 +167,12 @@ export function ThreadRows({ list, split }: RowsProps) {
   return (
     <>
       <Group gap="xs" wrap="nowrap" className="threadFilters">
+        {/* Подсказка — одним словом, что ищется — в имени поля: рядом с перепиской на
+            1280 колонка списка — 20rem, и поиску за фильтром состояния остаётся ~80 px
+            текста. «Донор или адрес» обрезалось до «Донор или ад» (проверка QA 10.10.2026). */}
         <TextInput
           size="xs"
-          placeholder="Донор или адрес"
+          placeholder="Поиск"
           aria-label="Поиск по донору или адресу"
           value={list.search}
           onChange={(event) => list.setSearch(event.currentTarget.value)}

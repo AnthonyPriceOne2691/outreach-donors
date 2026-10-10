@@ -34,6 +34,33 @@ export function writeThreadTab(tab: ThreadTab): URLSearchParams {
   return tab === 'unbound' ? new URLSearchParams({ tab }) : new URLSearchParams();
 }
 
+/**
+ * Где человек был на вкладке «Диалоги»: открытая переписка и фильтр списка. Вкладка
+ * «Диалоги» возвращает туда же, а не в начало списка — проверка QA 10.10.2026: ушёл на
+ * «Не привязаны», вернулся — открытый диалог закрыт. Тот же приём, что у пунктов меню
+ * (`layout/sectionPlace.ts`): память на вкладку браузера, хранилище закрыто — начало
+ * списка, как раньше.
+ */
+const PLACE_KEY = 'outreach.threads.place';
+
+export function rememberThreadsPlace(place: string): void {
+  try {
+    sessionStorage.setItem(PLACE_KEY, place);
+  } catch {
+    // Хранилище закрыто — вкладка «Диалоги» ведёт в начало списка.
+  }
+}
+
+export function threadsPlace(): string {
+  try {
+    const place = sessionStorage.getItem(PLACE_KEY);
+    // Только адрес этого раздела: чужое значение в хранилище из «Диалогов» не уводит.
+    return place !== null && /^\/threads(?:[/?]|$)/.test(place) ? place : '/threads';
+  } catch {
+    return '/threads';
+  }
+}
+
 /** Ключ кэша ответов без письма — общий для счётчика во вкладке и для самой
  *  вкладки: первая страница, спрошенная ради числа, открывает вкладку сразу. */
 export const UNBOUND_QUERY_KEY = ['unbound'] as const;

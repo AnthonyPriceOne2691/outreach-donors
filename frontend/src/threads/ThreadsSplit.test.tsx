@@ -243,6 +243,23 @@ describe('диалоги на широком окне: список и пере�
     expect(screen.queryByRole('navigation', { name: 'Список диалогов' })).not.toBeInTheDocument();
   });
 
+  it('с «Не привязаны» обратно на «Диалоги» — открыт тот же диалог с тем же фильтром', async () => {
+    // Проверка QA 10.10.2026: вкладка «Диалоги» вела в начало списка, и открытый
+    // диалог закрывался.
+    const user = userEvent.setup();
+    await openWide('/threads/3?state=needs_review');
+    await screen.findByRole('heading', { name: 'tech-review.example.test' });
+
+    await user.click(await screen.findByRole('radio', { name: 'Не привязаны — 0' }));
+    expect(where()).toHaveTextContent('/threads?tab=unbound');
+    await user.click(await screen.findByRole('radio', { name: /^Диалоги/ }));
+
+    expect(where()).toHaveTextContent('/threads/3?state=needs_review');
+    expect(
+      await screen.findByRole('heading', { name: 'tech-review.example.test' }),
+    ).toBeInTheDocument();
+  });
+
   it('отказ разбора цены — у своей переписки: ушли в соседнюю и вернулись — отказа нет', async () => {
     // Переписка рядом со списком не пересоздаётся при выборе строки: отказ, оставшийся
     // от прошлого раза, стоял бы над полями, уже сброшенными к разбору модели.
@@ -266,6 +283,15 @@ describe('диалоги на широком окне: список и пере�
 
     expect(screen.getByLabelText('Белая цена')).toHaveValue('300');
     expect(screen.queryByText(`— ${refusal}`)).not.toBeInTheDocument();
+  });
+
+  it('поиск — подсказкой в слово, что ищется — в имени поля', async () => {
+    // На 1280 колонка списка — 20rem: «Донор или адрес» обрезалось до «Донор или ад»
+    // (проверка QA 10.10.2026).
+    await openWide('/threads');
+
+    const search = screen.getByRole('textbox', { name: 'Поиск по донору или адресу' });
+    expect(search).toHaveAttribute('placeholder', 'Поиск');
   });
 });
 

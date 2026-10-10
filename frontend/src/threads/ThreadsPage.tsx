@@ -28,7 +28,7 @@
 
 import { Alert, Card, Group, Loader, SegmentedControl, Stack } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { refusalOf } from '../api/client';
 import { usePageParam } from '../components/PageSwitch';
@@ -41,6 +41,7 @@ import {
   readThreadTab,
   THREAD_TAB_KEYS,
   THREAD_TABS,
+  threadsPlace,
   useUnboundPage,
   writeThreadTab,
 } from './threadTabs';
@@ -54,6 +55,7 @@ function tabLabel(tab: ThreadTab, count: number | undefined): string {
 }
 
 export function ThreadsPage() {
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const tab = readThreadTab(params);
   const [page, goToPage] = usePageParam();
@@ -83,9 +85,11 @@ export function ThreadsPage() {
   };
   // Смена вкладки — замена записи в истории, как у «Отбора»; недонабранный
   // поиск сбрасывается, чтобы не догнать новую вкладку своей записью в адрес.
+  // «Диалоги» — туда, где на этой вкладке были: к открытому диалогу и фильтру.
   const switchTab = (next: ThreadTab) => {
     list.setSearch('');
-    setParams(writeThreadTab(next), { replace: true });
+    if (next === 'threads') void navigate(threadsPlace(), { replace: true });
+    else setParams(writeThreadTab(next), { replace: true });
   };
 
   return (
