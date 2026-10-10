@@ -322,6 +322,11 @@ describe('прогон', () => {
     await openRun({ 'GET /api/runs?page=1': history([QUEUED], { workers: 0 }) });
 
     expect(await screen.findByText('Задачу некому взять')).toBeInTheDocument();
+    // Словами человека: что не работает и кто запускает, — без команд для терминала
+    // (проверка QA 10.10.2026: экран велел набрать `python -m backend.workers.reaper`).
+    expect(screen.getByText(/служба, которая выполняет прогоны, сейчас не запущена/)).toBeVisible();
+    expect(screen.getByText(/Сообщите администратору/)).toBeVisible();
+    expect(screen.queryByText(/python -m/)).not.toBeInTheDocument();
   });
 
   it('пока воркер жив, про него ничего не говорят', async () => {
