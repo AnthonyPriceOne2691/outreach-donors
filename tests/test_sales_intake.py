@@ -308,7 +308,7 @@ async def test_a8_load_writes_leads_domains_and_journal_but_no_contacts(
 @pytest.mark.parametrize(
     ("text", "hypothesis_id", "words"),
     [
-        (A1, 999999, "гипотезы №999999 нет — заведите её: outreach sales-hypothesis-add"),
+        (A1, 999999, "гипотезы №999999 нет — обновите список гипотез или заведите новую"),
         (
             "ivan@acme.example.test\n",
             None,

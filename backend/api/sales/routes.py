@@ -15,10 +15,15 @@
 страница — в адресе экрана (`?state=rejected&reason=duplicate&page=2`), имена
 параметров — те же, что в адресе. Логика чтения — `features/sales/browse.py`.
 
+**Гипотеза заводится и здесь** (`POST /sales/hypotheses`) — тем же правилом, что команда
+консоли (`features/sales/hypotheses.add`): негодное имя — 422 словами, занятое — 409 словами.
+Право — `sales`: описание гипотезы в тексты писем не идёт, его читают только экраны.
+
 **База знаний и отправитель** (срез 3.1) — своим модулем `kb.py`, **цепочка писем**
 (срез 4.6) — модулем `chain.py`, **очередь писем** (срез 4.6b) — модулем `queue.py`,
-**воронка** (срез 5.4) — модулем `funnel.py`; их маршруты входят в этот же роутер: у раздела
-один префикс и одно право.
+**воронка** (срез 5.4) — модулем `funnel.py`, **очистка лидов** — модулем `clean.py`; их
+маршруты входят в этот же роутер: у раздела один префикс, право — `sales` (очистке нужно
+ещё `run`: в ней платная проверка адресов).
 """
 
 from __future__ import annotations
@@ -28,19 +33,26 @@ from collections.abc import AsyncIterator
 from typing import Annotated
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field, NonNegativeInt, TypeAdapter, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
 from backend.api.sales import chain as chain_routes
+from backend.api.sales import clean as clean_routes
 from backend.api.sales import funnel as funnel_routes
 from backend.api.sales import kb as kb_routes
 from backend.api.sales import queue as queue_routes
-from backend.api.sales.schemas import HypothesesView, HypothesisCard, IntakeView, LeadsView
+from backend.api.sales.schemas import (
+    HypothesesView,
+    HypothesisBody,
+    HypothesisCard,
+    IntakeView,
+    LeadsView,
+)
 from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
-from backend.features.sales import browse, intake, sheet
+from backend.features.sales import browse, hypotheses, intake, sheet
 from backend.features.sales.columns import LeadField, Mapping
 from backend.features.sales.models import LeadStatus
 
@@ -153,6 +165,27 @@ async def list_hypotheses(
     return HypothesesView(rows=rows, total=len(rows))
 
 
+@router.post(
+    "/hypotheses",
+    response_model=HypothesisCard,
+    status_code=status.HTTP_201_CREATED,
+    summary="Завести гипотезу",
+)
+async def add_hypothesis(
+    body: HypothesisBody, _: UserModel = _seller, session: AsyncSession = Depends(db_session)
+) -> HypothesisCard:
+    """Окно «Новая гипотеза»: правило и слова отказа — те же, что у команды консоли."""
+    try:
+        made = await hypotheses.add(session, body.name, body.description)
+    except hypotheses.BadNameError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+    except hypotheses.NameTakenError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    await session.commit()
+    # Новая гипотеза — без лидов, но каждое состояние названо нулём, как в списке.
+    return HypothesisCard.of(browse.HypothesisRow(made, {state.value: 0 for state in LeadStatus}))
+
+
 @router.get("/leads", response_model=LeadsView, summary="Лиды с фильтрами под колонками")
 async def list_leads(
     query: Annotated[LeadsQuery, Query()],
@@ -168,3 +201,4 @@ router.include_router(kb_routes.router)
 router.include_router(chain_routes.router)
 router.include_router(queue_routes.router)
 router.include_router(funnel_routes.router)
+router.include_router(clean_routes.router)

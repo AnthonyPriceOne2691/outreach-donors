@@ -1,10 +1,11 @@
-"""Раздел «Продажи»: что уходит на экран — мастеру загрузки, вкладкам гипотез и лидов."""
+"""Раздел «Продажи»: что уходит на экран — мастеру загрузки, вкладкам гипотез и лидов, —
+и что приходит из окна «Новая гипотеза»."""
 
 from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from backend.features.sales.browse import HypothesisRow, LeadRow, LeadsPage
 from backend.features.sales.columns import LeadField
@@ -49,6 +50,18 @@ class IntakeView(BaseModel):
             problems=found.problems,
             loaded=loaded,
         )
+
+
+class HypothesisBody(BaseModel):
+    """Новая гипотеза из окна «Новая гипотеза»: имя и, если есть, описание словами.
+
+    Пробелы и пустоту имени судит ядро (`hypotheses.add`) — его отказ словами, а не схема;
+    лишнее поле — отказ схемы: опечатка в имени поля не должна молча ничего не менять."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    description: str | None = None
 
 
 class HypothesisCard(BaseModel):

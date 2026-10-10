@@ -55,9 +55,11 @@ KINDS = {
     RUN_JOB: "прогон",
     BUILD_JOB: "сборка писем",
     SEND_QUEUE_JOB: "отправка очереди",
-    # Задача продаж живёт в своём модуле (`sales/queue_jobs.py`): общий код о продажах
-    # знает только её путь строкой — сверку держит `tests/test_sales_queue_api.py`.
+    # Задачи продаж живут в своём модуле (`sales/queue_jobs.py`, `sales/clean_jobs.py`): общий
+    # код о продажах знает только их пути строкой — сверку держат `tests/test_sales_queue_api.py`
+    # и `tests/test_sales_clean_api.py`.
     "backend.features.sales.queue_jobs.build_sales_queue": "сборка очереди продаж",
+    "backend.features.sales.clean_jobs.clean_sales_leads": "очистка лидов продаж",
     CONTACTS_JOB: "поиск контактов",
     PARSE_JOB: "разбор ответа",
     # Задача агента переписки живёт в своём модуле (`workers/agent_jobs.py`).
