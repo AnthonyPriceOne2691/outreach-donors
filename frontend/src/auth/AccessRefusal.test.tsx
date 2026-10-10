@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
 import type { Me } from '../api/types';
-import { ADMIN, TOKEN_KEY } from '../test/fixtures';
+import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve, type Call } from '../test/server';
 
@@ -28,7 +28,7 @@ function asked(calls: Call[]): number {
   return calls.filter((call) => call.path === '/api/auth/me').length;
 }
 
-describe('право сняли посреди сеанса', () => {
+describe('доступ сменился посреди сеанса', () => {
   it('отказ с признаком перечитывает «кто я»: раздел уходит из меню, на месте — объяснение', async () => {
     localStorage.setItem(TOKEN_KEY, 'пропуск');
     let taken = false;
@@ -50,6 +50,30 @@ describe('право сняли посреди сеанса', () => {
     expect(menu.queryByRole('link', { name: 'Учётки' })).not.toBeInTheDocument();
     expect(menu.getByRole('link', { name: 'Обзор' })).toBeInTheDocument();
     expect(asked(recorded.calls)).toBe(2);
+  });
+
+  it('«сначала смените разовый пароль» уводит на смену пароля, а не оставляет отказ', async () => {
+    // Проверка прода 10.10.2026: после сброса открытый сеанс показывал «Доноры не загрузились
+    // · Сначала смените разовый пароль: POST /api/auth/password» и никуда не вёл.
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    let reset = false;
+    serve({
+      'GET /api/auth/me': () => ({
+        body: reset ? { ...OPERATOR, must_change_password: true } : OPERATOR,
+      }),
+      'GET /api/suppressions': () => {
+        reset = true;
+        return {
+          status: 403,
+          body: { detail: 'Сначала смените разовый пароль: пока он не сменён, остальное закрыто' },
+          headers: { 'X-Access-Refusal': 'change-password' },
+        };
+      },
+    });
+    renderWith(<AppRoutes />, '/suppressions');
+
+    expect(await screen.findByText('Смена пароля')).toBeInTheDocument();
+    expect(screen.getByText(/Пароль выдан разовым/)).toBeInTheDocument();
   });
 
   it('отказ без признака — не отказ доступа: карточка не перечитывается', async () => {

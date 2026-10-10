@@ -15,7 +15,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.access.attempts import LoginAttempts
-from backend.features.access.permissions import Actor, require
+from backend.features.access.permissions import Actor, OneTimePasswordError, require
 from backend.features.access.repository import AccessRepository, actor_of
 from backend.features.access.tokens import read_token
 from backend.features.core.domain import Permission
@@ -71,9 +71,10 @@ async def working_user(user: UserModel = Depends(signed_in)) -> UserModel:
     и пароль, продиктованный голосом, остаётся действующим месяцами.
     """
     if user.must_change_password:
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN,
-            detail="Сначала смените разовый пароль: POST /api/auth/password",
+        # Словами и с признаком отказа (`OneTimePasswordError.refusal`): экран по нему уводит
+        # на смену пароля, а не показывает метод и путь (проверка прода 10.10.2026).
+        raise OneTimePasswordError(
+            "Сначала смените разовый пароль: пока он не сменён, остальное закрыто"
         )
     return user
 
