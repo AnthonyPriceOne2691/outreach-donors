@@ -362,12 +362,12 @@
       "worst": "—"
     },
     "backend/api/suppressions/routes.py": {
-      "lines": 115,
+      "lines": 120,
       "complexity": 4,
-      "worst": "all_rows:42"
+      "worst": "all_rows:43"
     },
     "backend/api/suppressions/schemas.py": {
-      "lines": 76,
+      "lines": 94,
       "complexity": 2,
       "worst": "of:34"
     },
@@ -417,9 +417,9 @@
       "worst": "all_users:31"
     },
     "backend/api/users/schemas.py": {
-      "lines": 106,
+      "lines": 156,
       "complexity": 5,
-      "worst": "_check_overrides:16"
+      "worst": "mail_problem:23"
     },
     "backend/api/watchdog/__init__.py": {
       "lines": 1,
@@ -1417,9 +1417,9 @@
       "worst": "record_sent:77"
     },
     "backend/features/letters/stoplist.py": {
-      "lines": 319,
+      "lines": 390,
       "complexity": 7,
-      "worst": "remove:159"
+      "worst": "add:150"
     },
     "backend/features/letters/template.py": {
       "lines": 470,
