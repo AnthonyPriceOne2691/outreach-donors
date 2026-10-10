@@ -36,6 +36,12 @@
  * занимала экран всегда, хотя заводят редко, а поиска не было — при том что сюда
  * приходят с вопросом «почему не ушло письмо», а список поставщиков — сотни строк.
  * Числа в шапке — только не нулём: «Всего 0» и «Список пуст» говорили одно и то же.
+ *
+ * **Фильтр не переживает свою причину, пустая таблица называет свою** (проверка QA
+ * 10.10.2026): после снятия последней отписки выбор показывал «отписался», которого
+ * в списке уже не было, а под пустой таблицей стояло «под поиск ничего не попало»
+ * при пустом поиске. Теперь фильтр уходит на «все причины», а текст говорит, что
+ * пусто: поиск, причина или сам список.
  */
 
 import {
@@ -46,7 +52,6 @@ import {
   Group,
   Loader,
   Modal,
-  SegmentedControl,
   Select,
   Stack,
   Table,
@@ -61,38 +66,39 @@ import { useState } from 'react';
 import { refusalOf } from '../api/client';
 import { addSuppression, listSuppressions, removeSuppression } from '../api/outreach';
 import { SUPPRESSION_REASON_TITLES } from '../api/labels';
-import type { StopEntry, SuppressionReason } from '../api/types';
+import type { StopEntry, StopListView, SuppressionReason } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { PageHead } from '../components/PageHead';
 import { Seams } from '../components/Seams';
 import { formatDate } from '../format';
 import { notify } from '../notices';
+import { AddStopModal, addedNotice } from './AddStopModal';
+import type { StopRequest } from './AddStopModal';
 
 const STOP_LIST_QUERY_KEY = ['suppressions'] as const;
 
-const HAND_REASONS: { value: SuppressionReason; label: string }[] = [
-  { value: 'manual', label: 'вручную' },
-  { value: 'supplier', label: 'поставщик' },
-];
+const when = formatDate;
 
-/** Сроки записи. «Навсегда» первым: оно и есть умолчание. */
-const TERMS = [
-  { value: 'forever', label: 'навсегда' },
-  { value: 'year', label: '12 месяцев' },
-] as const;
+type ShownReason = SuppressionReason | 'all';
 
-type Term = (typeof TERMS)[number]['value'];
-
-/** Когда запись перестаёт держать. Год считается от сегодня — так
- *  требование и называет поставщиков: «размещались за последние 12 мес.». */
-function endOf(term: Term): string | null {
-  if (term === 'forever') return null;
-  const until = new Date();
-  until.setFullYear(until.getFullYear() + 1);
-  return until.toISOString();
+/** Числа шапки — только не нулём: «всего 0» и «список пуст» говорили одно и то же. */
+function factsOf(view: StopListView | undefined): string[] {
+  return [
+    view?.total ? `всего ${view.total}` : null,
+    view?.donor_decisions ? `по решению адресата ${view.donor_decisions}` : null,
+    view?.expired ? `истекли и больше не держат ${view.expired}` : null,
+  ].filter((fact) => fact !== null);
 }
 
-const when = formatDate;
+/** Почему таблица пуста, когда список — нет: поиск, причина или оба сразу. */
+function nothingFound(search: string, reason: ShownReason): string {
+  const title = reason === 'all' ? null : SUPPRESSION_REASON_TITLES[reason];
+  if (title === null) {
+    return `Под поиск «${search}» ничего не попало — в стоп-листе такого адреса нет.`;
+  }
+  if (search === '') return `Записей с причиной «${title}» нет.`;
+  return `Под поиск «${search}» с причиной «${title}» ничего не попало — выберите «все причины», чтобы искать по всему списку.`;
+}
 
 /** Колонки слева направо. Ширина первой — остаток: в ней домен или адрес.
  *  Остальные — по самому длинному, замеренному шрифтом экрана 25.09.2026:
@@ -188,14 +194,11 @@ function StopTable({ rows, mayChange, onRemove }: TableProps) {
 export function SuppressionsPage() {
   const { can } = useSession();
   const queryClient = useQueryClient();
-  const [target, setTarget] = useState('');
-  const [reason, setReason] = useState<SuppressionReason>('manual');
-  const [term, setTerm] = useState<Term>('forever');
   const [removing, setRemoving] = useState<StopEntry | null>(null);
   const [why, setWhy] = useState('');
   const [adding, setAdding] = useState(false);
   const [search, setSearch] = useState('');
-  const [shownReason, setShownReason] = useState<string>('all');
+  const [shownReason, setShownReason] = useState<ShownReason>('all');
 
   const { data, isLoading, error } = useQuery({
     queryKey: STOP_LIST_QUERY_KEY,
@@ -203,15 +206,11 @@ export function SuppressionsPage() {
   });
 
   const add = useMutation({
-    mutationFn: () => addSuppression({ target: target.trim(), reason, expires_at: endOf(term) }),
+    mutationFn: (request: StopRequest) => addSuppression(request),
     onSuccess: async (row) => {
       await queryClient.invalidateQueries({ queryKey: STOP_LIST_QUERY_KEY });
-      setTarget('');
       setAdding(false);
-      notify({
-        message: `${row.host ?? row.email} в стоп-листе — письма сняты с очереди`,
-        color: 'green',
-      });
+      notify(addedNotice(row));
     },
     onError: (failure) => notify({ title: 'Не завели', message: refusalOf(failure), color: 'red' }),
   });
@@ -250,11 +249,10 @@ export function SuppressionsPage() {
       (needle === '' || (row.host ?? row.email ?? '').toLowerCase().includes(needle)),
   );
   const reasons = [...new Set(all.map((row) => row.reason))];
-  const facts = [
-    data?.total ? `всего ${data.total}` : null,
-    data?.donor_decisions ? `по решению адресата ${data.donor_decisions}` : null,
-    data?.expired ? `истекли и больше не держат ${data.expired}` : null,
-  ].filter((fact) => fact !== null);
+  // Причина, записей с которой не осталось, фильтром не остаётся: состояние меняется
+  // при отрисовке, а не эффектом — иначе один кадр показал бы пустую таблицу.
+  if (shownReason !== 'all' && !reasons.includes(shownReason)) setShownReason('all');
+  const facts = factsOf(data);
 
   return (
     <Stack gap="lg">
@@ -300,7 +298,7 @@ export function SuppressionsPage() {
                   aria-label="Причина записи"
                   allowDeselect={false}
                   value={shownReason}
-                  onChange={(value) => setShownReason(value ?? 'all')}
+                  onChange={(value) => setShownReason((value ?? 'all') as ShownReason)}
                   data={[
                     { value: 'all', label: 'все причины' },
                     ...reasons.map((value) => ({
@@ -313,7 +311,7 @@ export function SuppressionsPage() {
               </Group>
               {rows.length === 0 ? (
                 <Text size="sm" c="dimmed">
-                  Под поиск ничего не попало — в стоп-листе такого адреса нет.
+                  {nothingFound(search.trim(), shownReason)}
                 </Text>
               ) : (
                 <StopTable
@@ -330,58 +328,14 @@ export function SuppressionsPage() {
         </Stack>
       </Card>
 
-      <Modal opened={adding} onClose={() => setAdding(false)} title="Больше не писать">
-        <Stack gap="sm">
-          <Text size="sm" c="dimmed">
-            Домен закрывает сайт целиком, адрес — один ящик. Домен, которого ещё нет в базе,
-            заводится вместе с записью: список поставщиков приходит раньше первого прогона.
-          </Text>
-          <TextInput
-            label="Домен или адрес"
-            placeholder="site.com или editor@site.com"
-            value={target}
-            onChange={(event) => setTarget(event.currentTarget.value)}
-            data-autofocus
-          />
-          {/* Два значения — переключателем, а не списком в 200 px (аудит 09.10.2026). */}
-          <Stack gap={4}>
-            <Text size="sm" fw={500}>
-              Причина
-            </Text>
-            <SegmentedControl
-              aria-label="Причина"
-              data={HAND_REASONS}
-              value={reason}
-              onChange={(picked) => setReason(picked as SuppressionReason)}
-              style={{ alignSelf: 'flex-start' }}
-            />
-          </Stack>
-          <Stack gap={4}>
-            <Text size="sm" fw={500}>
-              Держит
-            </Text>
-            <SegmentedControl
-              aria-label="Держит"
-              data={TERMS.map((item) => ({ value: item.value, label: item.label }))}
-              value={term}
-              onChange={(picked) => setTerm(picked as Term)}
-              style={{ alignSelf: 'flex-start' }}
-            />
-          </Stack>
-          <Group justify="flex-end" gap="sm">
-            <Button variant="default" onClick={() => setAdding(false)}>
-              Отмена
-            </Button>
-            <Button
-              onClick={() => add.mutate()}
-              loading={add.isPending}
-              disabled={target.trim().length < 3}
-            >
-              Больше не писать
-            </Button>
-          </Group>
-        </Stack>
-      </Modal>
+      {/* Окно монтируется на каждое открытие — и открывается чистым (`AddStopModal`). */}
+      {adding && (
+        <AddStopModal
+          pending={add.isPending}
+          onClose={() => setAdding(false)}
+          onSubmit={(request) => add.mutate(request)}
+        />
+      )}
 
       <Modal
         opened={removing !== null}

@@ -7,7 +7,7 @@
  * не писать.
  */
 
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
@@ -148,7 +148,7 @@ describe('стоп-лист', () => {
 
   it('новая запись уходит доменом или адресом', async () => {
     const recorded = await openStopList({
-      'POST /api/suppressions': { body: { ...STOP_LIST.rows[1], id: 3 } },
+      'POST /api/suppressions': { body: { ...STOP_LIST.rows[1], id: 3, new_domain: false } },
     });
     const user = userEvent.setup();
 
@@ -169,7 +169,7 @@ describe('стоп-лист', () => {
 
   it('срок ставится выбором, и по умолчанию его нет', async () => {
     const recorded = await openStopList({
-      'POST /api/suppressions': { body: { ...STOP_LIST.rows[1], id: 4 } },
+      'POST /api/suppressions': { body: { ...STOP_LIST.rows[1], id: 4, new_domain: false } },
     });
     const user = userEvent.setup();
 
@@ -204,5 +204,164 @@ describe('стоп-лист', () => {
     const row = screen.getByText('was.example.test').closest('tr')!;
     expect(within(row).getByText(/истёк/)).toBeInTheDocument();
     expect(screen.getByText(/истекли и больше не держат/)).toBeInTheDocument();
+  });
+});
+
+/** Ответ сервера на заведение: запись из базы или новый домен. */
+function added(host: string, newDomain: boolean) {
+  return { ...STOP_LIST.rows[2], id: 9, host, expired: false, new_domain: newDomain };
+}
+
+/** Выбор причины над таблицей. По подписи их два: поле и его список. */
+function reasonFilter() {
+  return screen.getByRole('textbox', { name: 'Причина записи' });
+}
+
+/** Выпадающий список Mantine в jsdom остаётся `display: none` — раскладки здесь нет,
+ *  и без `hidden` его пункты не видны запросу (так же в `DonorsPage.test.tsx`). */
+async function chooseReason(user: ReturnType<typeof userEvent.setup>, reason: string) {
+  await user.click(reasonFilter());
+  await user.click(await screen.findByRole('option', { name: reason, hidden: true }));
+}
+
+async function openAdding(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('button', { name: 'Добавить…' }));
+  return screen.findByRole('dialog', { name: 'Больше не писать' });
+}
+
+function posted(recorded: { calls: Call[] }): unknown[] {
+  return recorded.calls
+    .filter((call) => call.method === 'POST' && call.path === '/api/suppressions')
+    .map((call) => call.body);
+}
+
+describe('стоп-лист: проверка QA 10.10.2026', () => {
+  it('домен, которого в базе не было, назван новым, а не «письма сняты»', async () => {
+    // `blog.` донора в зоне, корня которой список суффиксов не знает, — новый домен:
+    // экран прежде говорил «в стоп-листе — письма сняты», и донор казался закрытым.
+    await openStopList({
+      'POST /api/suppressions': { body: added('blog.donor.example.test', true) },
+    });
+    const user = userEvent.setup();
+
+    const dialog = await openAdding(user);
+    await user.type(within(dialog).getByLabelText('Домен или адрес'), 'blog.donor.example.test');
+    await user.click(within(dialog).getByRole('button', { name: 'Больше не писать' }));
+
+    expect(await screen.findByText('Записан новый домен')).toBeInTheDocument();
+    expect(screen.getByText(/донора с таким доменом нет/)).toBeInTheDocument();
+    expect(screen.queryByText(/сняты с очереди/)).not.toBeInTheDocument();
+  });
+
+  it('окно открывается чистым: «поставщик» и «12 месяцев» не достаются следующей записи', async () => {
+    const recorded = await openStopList({
+      'POST /api/suppressions': { body: added('supplier.example.test', false) },
+    });
+    const user = userEvent.setup();
+
+    let dialog = await openAdding(user);
+    await user.type(within(dialog).getByLabelText('Домен или адрес'), 'supplier.example.test');
+    await user.click(within(dialog).getByRole('radio', { name: 'поставщик' }));
+    await user.click(within(dialog).getByRole('radio', { name: '12 месяцев' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Больше не писать' }));
+    await screen.findByText(/сняты с очереди/);
+
+    dialog = await openAdding(user);
+    expect(within(dialog).getByLabelText('Домен или адрес')).toHaveValue('');
+    expect(within(dialog).getByRole('radio', { name: 'вручную' })).toBeChecked();
+    expect(within(dialog).getByRole('radio', { name: 'навсегда' })).toBeChecked();
+    await user.type(within(dialog).getByLabelText('Домен или адрес'), 'other.example.test');
+    await user.click(within(dialog).getByRole('button', { name: 'Больше не писать' }));
+
+    await waitFor(() => expect(posted(recorded)).toHaveLength(2));
+    expect(posted(recorded)[1]).toEqual({
+      target: 'other.example.test',
+      reason: 'manual',
+      expires_at: null,
+    });
+  });
+
+  it('отменённое окно тоже открывается чистым', async () => {
+    await openStopList();
+    const user = userEvent.setup();
+
+    let dialog = await openAdding(user);
+    await user.type(within(dialog).getByLabelText('Домен или адрес'), 'draft.example.test');
+    await user.click(within(dialog).getByRole('radio', { name: 'поставщик' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Отмена' }));
+
+    dialog = await openAdding(user);
+    expect(within(dialog).getByLabelText('Домен или адрес')).toHaveValue('');
+    expect(within(dialog).getByRole('radio', { name: 'вручную' })).toBeChecked();
+  });
+
+  it('Enter в поле — то же, что кнопка', async () => {
+    const recorded = await openStopList({
+      'POST /api/suppressions': { body: added('supplier.example.test', false) },
+    });
+    const user = userEvent.setup();
+
+    const dialog = await openAdding(user);
+    await user.type(
+      within(dialog).getByLabelText('Домен или адрес'),
+      'supplier.example.test{Enter}',
+    );
+
+    await screen.findByText(/сняты с очереди/);
+    expect(posted(recorded)).toEqual([
+      { target: 'supplier.example.test', reason: 'manual', expires_at: null },
+    ]);
+  });
+
+  it('Enter с коротким вводом не отправляет, как и кнопка', async () => {
+    const recorded = await openStopList();
+    const user = userEvent.setup();
+
+    const dialog = await openAdding(user);
+    await user.type(within(dialog).getByLabelText('Домен или адрес'), 'ab{Enter}');
+
+    expect(within(dialog).getByRole('button', { name: 'Больше не писать' })).toBeDisabled();
+    expect(posted(recorded)).toHaveLength(0);
+    expect(screen.getByRole('dialog', { name: 'Больше не писать' })).toBeInTheDocument();
+  });
+
+  it('фильтр причины не переживает свою причину', async () => {
+    let removed = false;
+    await openStopList({
+      'GET /api/suppressions': () => ({
+        body: removed ? { ...STOP_LIST, rows: STOP_LIST.rows.slice(1), total: 2 } : STOP_LIST,
+      }),
+      'POST /api/suppressions/1/remove': () => {
+        removed = true;
+        return { body: STOP_LIST.rows[0] };
+      },
+    });
+    const user = userEvent.setup();
+
+    await chooseReason(user, 'отписался');
+    await user.click(screen.getByRole('button', { name: 'Снять' }));
+    await user.type(await screen.findByLabelText('Почему снимаем'), 'написал «пишите»');
+    await user.click(screen.getByRole('button', { name: 'Снять запись' }));
+
+    // Отписок больше нет — и фильтра по ним тоже: виден весь список, а не пустота
+    // с «под поиск ничего не попало» при пустом поиске.
+    expect(await screen.findByText('was.example.test')).toBeInTheDocument();
+    expect(reasonFilter()).toHaveValue('все причины');
+    expect(screen.queryByText(/Под поиск/)).not.toBeInTheDocument();
+  });
+
+  it('пустая таблица называет причину: поиск или поиск внутри причины', async () => {
+    await openStopList();
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Поиск по домену или адресу'), 'нет-такого');
+    expect(
+      screen.getByText('Под поиск «нет-такого» ничего не попало — в стоп-листе такого адреса нет.'),
+    ).toBeInTheDocument();
+
+    await chooseReason(user, 'поставщик');
+    expect(
+      screen.getByText(/Под поиск «нет-такого» с причиной «поставщик» ничего не попало/),
+    ).toBeInTheDocument();
   });
 });

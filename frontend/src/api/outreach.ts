@@ -124,14 +124,22 @@ export function listSuppressions(): Promise<StopListView> {
   return request<StopListView>('/suppressions');
 }
 
-/** Завести запись руками: домен целиком или один адрес. */
+/** Запись, только что заведённая руками, — и легла ли она на домен из базы.
+ *  Здесь, а не в `types.ts`: тот упёрся в предел длины файла. */
+export interface StopAdded extends StopEntry {
+  /** Домена в базе не было, запись завела его новым: донора с ним нет. */
+  new_domain: boolean;
+}
+
+/** Завести запись руками: домен целиком или один адрес. Ссылку, `www.` и поддомен
+ *  сервер сводит к домену сайта, как его пишет база, и говорит, был ли такой домен. */
 export function addSuppression(body: {
   target: string;
   reason: SuppressionReason;
   /** Пусто — навсегда. Дата в прошлом отвергается сервером. */
   expires_at?: string | null;
-}): Promise<StopEntry> {
-  return request<StopEntry>('/suppressions', { method: 'POST', body });
+}): Promise<StopAdded> {
+  return request<StopAdded>('/suppressions', { method: 'POST', body });
 }
 
 /** Снять запись. Для решения адресата причина обязательна — её требует
