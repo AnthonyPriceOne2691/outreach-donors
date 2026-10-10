@@ -55,7 +55,8 @@ ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
 #: Права словами — те же, что человек видит в окне прав учётки: копия `PERMISSION_TITLES`
 #: из `frontend/src/api/labels.ts`, сверка построчно — `tests/test_access_words.py`. Своя
 #: копия потому, что отказ сервер пишет сам, а экран его не переводит: до проверки прода
-#: 10.10.2026 отказ называл код — «Действие «sales» недоступно этой учётке».
+#: 10.10.2026 отказ называл код — «Действие «sales» недоступно этой учётке». «Продажи» —
+#: как у `require_stage` и как у экрана после PR продаж #308 (было «раздел продаж»).
 PERMISSION_TITLES: dict[Permission, str] = {
     Permission.VIEW: "смотреть базу",
     Permission.RUN: "запускать прогоны",
@@ -64,7 +65,7 @@ PERMISSION_TITLES: dict[Permission, str] = {
     Permission.SEND: "отправлять письма",
     Permission.SENDERS: "домены рассылки",
     Permission.USERS: "заводить учётки",
-    Permission.SALES: "раздел продаж",
+    Permission.SALES: "Продажи",
 }
 
 
