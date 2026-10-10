@@ -446,6 +446,9 @@ function columnWidths(): (number | null)[] {
 /** Панель «Отбора» на окне 1280 с раскрытым меню — замер в браузере 10.10.2026. */
 const PANEL_AT_1280 = 948;
 
+/** Та же панель на окне 1440 — замер в браузере 10.10.2026. */
+const PANEL_AT_1440 = 1108;
+
 describe('таблица встаёт в панель', () => {
   // Проверка QA 10.10.2026: колонки «Отклонены» и «К разбору» — 1 166 px против
   // панели 1 108 на 1440 с раскрытым меню: прокрутка вбок, «Не продаёт места»
@@ -470,6 +473,20 @@ describe('таблица встаёт в панель', () => {
     expect(fixed + 166).toBeLessThanOrEqual(PANEL_AT_1280);
     const decide = within(rowOf('weak.test')).getByRole('button', { name: 'Площадка' });
     expect(decide.parentElement!.style.getPropertyValue('--group-wrap')).toBe('wrap');
+  });
+
+  it('у принятых домен с DR встаёт в строку на 1280, а кнопки решения в ряд — от 1440', async () => {
+    // Проверка прода 10.10.2026: на 1280 домену доставалось 181 px, и обычный домен в
+    // 15 знаков резался многоточием. Запас панели браузер делит между колонками по их
+    // ширинам. Замер в браузере: DR с отступом — 43 px, домен в 19 знаков — 152, три
+    // кнопки решения в ряд — 316, поля ячейки — 20.
+    await openScreen();
+
+    const widths = columnWidths().map((width) => width ?? 0);
+    const total = widths.reduce((sum, width) => sum + width, 0);
+    const at = (panel: number, column: number) => (widths[column]! * panel) / total;
+    expect(at(PANEL_AT_1280, 0)).toBeGreaterThanOrEqual(20 + 152 + 43);
+    expect(at(PANEL_AT_1440, 3)).toBeGreaterThanOrEqual(20 + 316);
   });
 });
 
