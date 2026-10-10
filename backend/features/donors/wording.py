@@ -116,10 +116,10 @@ def reject_reason_text(reason: str | None) -> str | None:
     if reason is None:
         return None
     found = _LEADING_COUNTRY.match(reason)
-    name = None if found is None else _country_name(found["code"])
-    if found is None or name is None:
+    if found is None:
         return reason
-    return name + reason[found.end() :]
+    name = _country_name(found["code"])
+    return reason if name is None else name + reason[found.end() :]
 
 
 def share_text(share: float | None) -> str:
