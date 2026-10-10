@@ -3,7 +3,7 @@
  * не настроенный этап говорит, что агент на нём не пишет.
  */
 
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
@@ -291,5 +291,82 @@ describe('агент переписки', () => {
 
     expect(await screen.findByText('Настройки агента не загрузились')).toBeInTheDocument();
     expect(screen.getByText('База недоступна')).toBeInTheDocument();
+  });
+});
+
+describe('агент переписки: набранное не пропадает молча (проверка прода 10.10.2026)', () => {
+  /** Куда ведёт пункт меню в этих тестах: стоп-лист, пустой. */
+  const ELSEWHERE = {
+    'GET /api/suppressions': { body: { rows: [], total: 0, donor_decisions: 0 } },
+  };
+
+  function menuLink(name: string) {
+    return within(screen.getByRole('navigation', { name: 'Разделы' })).getByRole('link', { name });
+  }
+
+  it('уход по меню с несохранённым — вопрос, «Остаться» оставляет набранное', async () => {
+    await openAgent(BLANK, ELSEWHERE);
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Тон'), ', по делу');
+    await user.click(menuLink('Стоп-лист'));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Уйти без сохранения?' });
+    expect(within(dialog).getByText(/настройках агента: «Донорам»/)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Остаться' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.getByLabelText('Тон')).toHaveValue('Вежливо и коротко, по делу');
+  });
+
+  it('«Уйти без сохранения» ведёт туда, куда вела ссылка', async () => {
+    await openAgent(BLANK, ELSEWHERE);
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Тон'), ', по делу');
+    await user.click(menuLink('Стоп-лист'));
+    const dialog = await screen.findByRole('dialog', { name: 'Уйти без сохранения?' });
+    await user.click(within(dialog).getByRole('button', { name: 'Уйти без сохранения' }));
+
+    expect(await screen.findByText(/Список пуст/)).toBeInTheDocument();
+    expect(screen.queryByLabelText('Тон')).not.toBeInTheDocument();
+  });
+
+  it('набранное на другом этапе тоже держит, и этап назван', async () => {
+    await openAgent(BLANK, ELSEWHERE);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('radio', { name: 'Рекламодателям' }));
+    await user.type(screen.getByLabelText('Тон'), ', по делу');
+    await user.click(screen.getByRole('radio', { name: 'Донорам' }));
+    await user.click(menuLink('Стоп-лист'));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Уйти без сохранения?' });
+    expect(within(dialog).getByText(/«Рекламодателям»/)).toBeInTheDocument();
+  });
+
+  it('без правки — и правка, вернувшая действующие, — уход без вопроса', async () => {
+    await openAgent(BLANK, ELSEWHERE);
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Тон'), '   ');
+    await user.click(menuLink('Стоп-лист'));
+
+    expect(await screen.findByText(/Список пуст/)).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('закрытие и обновление вкладки с несохранённым — браузер спрашивает', async () => {
+    await openAgent();
+    const user = userEvent.setup();
+    const leave = () => {
+      const event = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+
+    expect(leave()).toBe(false);
+    await user.type(screen.getByLabelText('Тон'), ', по делу');
+    expect(leave()).toBe(true);
   });
 });
