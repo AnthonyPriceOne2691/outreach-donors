@@ -129,7 +129,10 @@ async def test_no_key_or_no_rewritable_zones_means_no_call() -> None:
 
     assert seen_without_key == []
     assert seen_fixed_only == []
-    assert without_key.notes == ["LLM_API_KEY не задан — письма уходят шаблонными"]
+    # Слова человека: имя настройки — в журнал, не в ноту сборки.
+    assert without_key.notes == [
+        "ключ модели не задан — письма уходят шаблонными; задаёт администратор"
+    ]
     assert fixed_only.notes == ["в шаблоне нет переписываемых зон"]
 
 

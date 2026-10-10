@@ -982,9 +982,9 @@
       "worst": "check_connected:115"
     },
     "backend/features/core/usage.py": {
-      "lines": 222,
+      "lines": 251,
       "complexity": 10,
-      "worst": "ensure_llm_within_cap:179"
+      "worst": "ensure_llm_within_cap:182"
     },
     "backend/features/core/window.py": {
       "lines": 172,
@@ -1412,9 +1412,9 @@
       "worst": "edit:81"
     },
     "backend/features/letters/rewrite.py": {
-      "lines": 328,
+      "lines": 335,
       "complexity": 7,
-      "worst": "parse_zones:168"
+      "worst": "parse_zones:173"
     },
     "backend/features/letters/sendgrid.py": {
       "lines": 305,

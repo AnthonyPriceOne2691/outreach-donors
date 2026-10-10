@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import UTC, datetime, time
@@ -23,6 +24,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.config import llm as llm_cfg
 from backend.features.core.domain import UsageProvider
 from backend.features.core.models.ops import UsageRecordModel
+
+logger = logging.getLogger(__name__)
 
 #: Имя нашей системы в общей таблице расхода: ключ Ahrefs делится
 #: с соседней, и без имени непонятно, чья это строка.
@@ -132,8 +135,8 @@ class LlmCapExceededError(RuntimeError):
 class OwnCap:
     """Свой дневной потолок части операций модели — внутри общего, тем же журналом.
 
-    `tokens` 0 — своего потолка нет. `what` и `setting` — слова отказа: чей
-    потолок и какой настройкой его поднять.
+    `tokens` 0 — своего потолка нет. `what` — слова отказа: чей потолок;
+    `setting` — какой настройкой его поднять: для журнала, а не для отказа (`_refused`).
     """
 
     what: str
@@ -200,22 +203,48 @@ async def ensure_llm_within_cap(
     if llm_cfg.DAILY_TOKEN_CAP:
         spent = await llm_tokens_spent(session, since=day_start)
         if spent >= llm_cfg.DAILY_TOKEN_CAP:
-            raise LlmCapExceededError(
-                f"потолок расхода на модель за день достигнут: {spent} из "
-                f"{llm_cfg.DAILY_TOKEN_CAP} токенов (LLM_DAILY_TOKEN_CAP) — "
-                "продолжение завтра или поднять потолок"
+            raise _refused(
+                "потолок расхода на модель за день достигнут",
+                spent=spent,
+                cap=llm_cfg.DAILY_TOKEN_CAP,
+                setting="LLM_DAILY_TOKEN_CAP",
             )
     if own is not None and own.tokens:
         spent = await llm_tokens_spent(session, since=day_start, operations=own.operations)
         if spent >= own.tokens:
-            raise LlmCapExceededError(
-                f"дневной потолок {own.what} выбран: {spent} из {own.tokens} токенов "
-                f"({own.setting}); завтра или поднимите {own.setting}"
+            raise _refused(
+                f"дневной потолок {own.what} выбран",
+                spent=spent,
+                cap=own.tokens,
+                setting=own.setting,
             )
     if llm_cfg.RUN_TOKEN_CAP and run_id is not None:
         spent = await llm_tokens_spent(session, run_id=run_id)
         if spent >= llm_cfg.RUN_TOKEN_CAP:
-            raise LlmCapExceededError(
-                f"потолок расхода на модель за прогон №{run_id} достигнут: {spent} из "
-                f"{llm_cfg.RUN_TOKEN_CAP} токенов (LLM_RUN_TOKEN_CAP)"
+            raise _refused(
+                f"потолок расхода на модель за прогон №{run_id} достигнут",
+                spent=spent,
+                cap=llm_cfg.RUN_TOKEN_CAP,
+                setting="LLM_RUN_TOKEN_CAP",
+                tomorrow=False,
             )
+
+
+def _refused(
+    words: str, *, spent: int, cap: int, setting: str, tomorrow: bool = True
+) -> LlmCapExceededError:
+    """Отказ потолка: человеку — слова, журналу — имя настройки, которой его поднять.
+
+    До 10.10.2026 имя настройки стояло в самом отказе («…поднимите SALES_DAILY_TOKEN_CAP»),
+    и его читал человек в итоге сборки очереди и разбора ответа (находка QA продаж на проде).
+    Поднимает потолок администратор — ему имя и нужно, и оно в журнале.
+    """
+    logger.warning(
+        "потолок модели выбран: %s",
+        setting,
+        extra={"setting": setting, "spent": spent, "cap": cap},
+    )
+    later = "продолжение завтра; " if tomorrow else ""
+    return LlmCapExceededError(
+        f"{words}: {spent} из {cap} токенов — {later}поднять потолок может администратор"
+    )
