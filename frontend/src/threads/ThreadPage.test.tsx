@@ -6,7 +6,7 @@
  * в 5% ошибок не держится: ровно поэтому она и есть в требованиях.
  */
 
-import { screen, waitFor, within } from '@testing-library/react';
+import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
@@ -482,6 +482,23 @@ describe('ответ собеседнику', () => {
     );
     const call = recorded.calls.find((sent: Call) => sent.path === '/api/threads/3/answer');
     expect(call?.body).toMatchObject({ body: 'Hello,\nwhich topics?' });
+  });
+
+  it('набранный ответ переживает уход из переписки и стирается, когда ответ ушёл', async () => {
+    await openThread(VIEW);
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText('Текст ответа'), 'Half a thought');
+    cleanup();
+
+    // Тот же диалог открыт заново (J/K, «Следующий ждущий», строка списка).
+    await openThread(VIEW);
+    expect(screen.getByLabelText('Текст ответа')).toHaveValue('Half a thought');
+    cleanup();
+
+    await openThread({
+      letters: [LETTER, { ...LETTER, id: 9, step: 100, answers_reply_id: 7 }],
+    });
+    expect(sessionStorage.getItem('outreach.answer.3')).toBeNull();
   });
 
   it('без права отправлять поля ответа нет', async () => {
