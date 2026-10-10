@@ -41,7 +41,12 @@ from backend.features.core.models.outreach import (
     ThreadModel,
 )
 from backend.features.ops.overview import WAITS_FOR_PERSON, overview, work
-from backend.features.outreach.repository import OutreachRepository, ThreadMark, ThreadRow
+from backend.features.outreach.repository import (
+    EVERY_STAGE,
+    OutreachRepository,
+    ThreadMark,
+    ThreadRow,
+)
 from backend.features.outreach.threads import ThreadState
 from backend.features.replies.inbound import MAX_TEXT_CHARS
 from backend.features.replies.outcome import names_a_sum
@@ -385,7 +390,7 @@ async def test_list_row_is_the_card_head(session: AsyncSession) -> None:
     счёт писем, время и цена. И состояние — то, которого ждёт мир."""
     ids = await _world(session)
 
-    listed = await OutreachRepository(session).threads()
+    listed = await OutreachRepository(session).threads(stages=EVERY_STAGE)
     cards = await _cards(session, ids)
 
     assert [row.thread.id for row in listed] == sorted(ids.values(), reverse=True)
@@ -406,7 +411,7 @@ async def test_list_row_is_the_card_head(session: AsyncSession) -> None:
 async def test_counted_state_is_the_card_state(session: AsyncSession) -> None:
     ids = await _world(session)
 
-    marks = await OutreachRepository(session).states()
+    marks = await OutreachRepository(session).states(stages=EVERY_STAGE)
     cards = await _cards(session, ids)
 
     assert len(marks) == len(ids)
@@ -425,7 +430,7 @@ async def test_menu_and_overview_count_what_the_cards_say(session: AsyncSession)
     ids = await _world(session)
     cards = await _cards(session, ids)
 
-    menu = await work(session)
+    menu = await work(session, stages=EVERY_STAGE)
     view = await overview(session, now=NOW)
 
     states = [card.summary.state for card in cards.values()]
@@ -470,8 +475,8 @@ async def test_list_and_counts_take_no_texts(session: AsyncSession) -> None:
     repository = OutreachRepository(session)
 
     with _statements(session) as sent:
-        listed = await repository.threads()
-        await repository.states()
+        listed = await repository.threads(stages=EVERY_STAGE)
+        await repository.states(stages=EVERY_STAGE)
 
     assert len(listed) == len(WORLD)
     named = _columns(sent)
@@ -494,7 +499,7 @@ async def test_text_and_snapshot_come_only_where_the_rule_reads_them(
     не стоит ничего."""
     ids = await _world(session)
 
-    replies = await OutreachRepository(session)._listed_replies()
+    replies = await OutreachRepository(session)._listed_replies(stages=EVERY_STAGE)
 
     def taken(name: str) -> list[tuple[str, dict[str, Any] | None]]:
         return sorted(
@@ -516,7 +521,7 @@ async def test_overview_and_menu_take_no_texts(session: AsyncSession) -> None:
     await _world(session)
 
     with _statements(session) as sent:
-        await work(session)
+        await work(session, stages=EVERY_STAGE)
         await overview(session, now=NOW)
 
     named = _columns(sent)
@@ -541,7 +546,7 @@ async def test_without_sales_the_list_and_the_numbers_are_the_rest_of_the_world(
     await _world(session)
     repository = OutreachRepository(session)
 
-    everyone = await repository.threads()
+    everyone = await repository.threads(stages=EVERY_STAGE)
     listed = await repository.threads(stages=NO_SALES)
     marks = await repository.states(stages=NO_SALES)
     menu = await work(session, stages=NO_SALES)
@@ -567,8 +572,8 @@ async def test_without_sales_the_queries_still_take_no_texts(session: AsyncSessi
         await repository.threads(stages=NO_SALES)
         await repository.states(stages=NO_SALES)
     with _statements(session) as everyone:
-        await repository.threads()
-        await repository.states()
+        await repository.threads(stages=EVERY_STAGE)
+        await repository.states(stages=EVERY_STAGE)
 
     named = _columns(narrowed)
     assert named["messages"] <= LETTER_FIELDS, named["messages"] - LETTER_FIELDS
