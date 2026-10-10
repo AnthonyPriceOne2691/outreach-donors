@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -26,7 +27,7 @@ from backend.features.letters.batch import BATCH_MAX, send_queue
 from backend.features.letters.rewrite import RewriteClient
 from backend.features.letters.sending import Sending
 from backend.features.ops import job_outcome
-from backend.features.sales import chain, queue, queue_jobs, sender
+from backend.features.sales import chain, connection, queue, queue_jobs, sender
 from backend.features.sales.handoff import lead_of
 from backend.features.sales.models import SalesThreadModel
 from backend.shared.queue import QUEUE_NAME, SALES_QUEUE_NAME
@@ -149,13 +150,42 @@ async def test_queue_says_in_words_what_sales_lack(
 
     body = response.json()
     assert body["connected"] is False
+    # Выключенный модуль — первым пунктом и словами человека: включает его администратор,
+    # имя настройки — в журнале, а не на экране (находка QA на проде).
     assert body["missing"] == [
-        "продажи выключены: SALES_ENABLED не включён",
+        "модуль продаж выключен — включает администратор",
         f"не задан физический адрес; не задана подпись; не задано имя отправителя — {sender.WHERE}",
     ]
     assert [item["missing"] for item in body["chains"]] == [
         ["первого письма", "первой добивки", "второй добивки"]
     ] * 2
+
+
+async def test_switched_off_build_is_refused_in_words_without_the_setting_name(
+    session: AsyncSession,
+    world: w.World,
+    client: AsyncClient,
+    headers: dict[str, str],
+    jobs: _Jobs,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Отказ сборки при выключенном модуле — словами человека; имя настройки — в журнале."""
+    await session.commit()
+    monkeypatch.setattr(sales_cfg, "ENABLED", False)
+
+    with caplog.at_level(logging.WARNING, logger=connection.__name__):
+        response = await _build(client, headers, world.hypothesis_id)
+
+    detail = response.json()["detail"]
+    assert (response.status_code, detail) == (
+        409,
+        f"{queue.WHAT}: {SALES_NOT_CONNECTED} — модуль продаж выключен — включает администратор",
+    )
+    assert "SALES_ENABLED" not in detail
+    journal = [r.__dict__["settings"] for r in caplog.records if r.name == connection.__name__]
+    assert journal == [["SALES_ENABLED"]]
+    assert jobs.enqueued == []
 
 
 async def _hypothesis(session: AsyncSession) -> int:
@@ -410,7 +440,7 @@ def test_job_settles_a_refusal_of_connection_as_an_outcome(monkeypatch: pytest.M
     """Повтор задачи продажи не подключит: итог «не выполнена», а не три попытки."""
 
     async def refused(_hypothesis_id: int, _limit: int) -> dict[str, Any]:
-        raise SalesNotConnectedError(queue.WHAT, "продажи выключены: SALES_ENABLED не включён")
+        raise SalesNotConnectedError(queue.WHAT, "модуль продаж выключен — включает администратор")
 
     monkeypatch.setattr(queue_jobs, "run_build", refused)
     monkeypatch.setattr(queue_jobs, "setup_logging", lambda: None)
@@ -420,7 +450,7 @@ def test_job_settles_a_refusal_of_connection_as_an_outcome(monkeypatch: pytest.M
 
     assert result == {
         "error": f"SalesNotConnectedError: {queue.WHAT}: {SALES_NOT_CONNECTED} — "
-        "продажи выключены: SALES_ENABLED не включён",
+        "модуль продаж выключен — включает администратор",
         "permanent": True,
     }
 

@@ -130,7 +130,7 @@ async def test_without_own_account_sales_do_not_go_through_the_shared_one(
     monkeypatch.setattr(outreach_cfg, "SENDGRID_API_KEY", "SG.made-up-shared-key")
     source = _transports()
 
-    with pytest.raises(SalesNotConnectedError, match="OUTREACH_SALES_SENDGRID_API_KEY"):
+    with pytest.raises(SalesNotConnectedError, match="нет своей учётки почты продаж"):
         await Sending(session, source, now=w.NOW).send(letter.id)
 
     assert source.asked == []
@@ -448,7 +448,8 @@ async def test_screen_says_in_words_why_sales_are_not_connected(
 
     assert response.status_code == 409
     assert response.json()["detail"] == (
-        f"Письмо №{letter.id}: {SALES_NOT_CONNECTED} — продажи выключены: SALES_ENABLED не включён"
+        f"Письмо №{letter.id}: {SALES_NOT_CONNECTED} — модуль продаж выключен — включает "
+        "администратор"
     )
 
 

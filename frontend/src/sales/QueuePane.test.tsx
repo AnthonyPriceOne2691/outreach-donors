@@ -42,6 +42,7 @@ function hypothesis(id: number, name: string) {
 const HYPOTHESES: HypothesesView = {
   rows: [hypothesis(5, 'тестовая гипотеза'), hypothesis(8, 'вторая тестовая')],
   total: 2,
+  module_enabled: true,
 };
 
 const READY: SalesQueueView = {
@@ -63,7 +64,7 @@ const OFF: SalesQueueView = {
   ...READY,
   connected: false,
   missing: [
-    'продажи выключены: SALES_ENABLED не включён',
+    'модуль продаж выключен — включает администратор',
     'не задан физический адрес — вкладка «Отправитель»',
   ],
 };

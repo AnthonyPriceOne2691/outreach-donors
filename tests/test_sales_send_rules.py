@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+import logging
+import re
 from datetime import timedelta
 
 import pytest
@@ -26,6 +28,9 @@ from backend.features.sales.verifier import FixtureVerifier
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests import test_sales_send_world as w
 
+#: Имя настройки окружения — так его пишут в `.env`: на экран оно не уходит.
+SETTING = re.compile(r"\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b")
+
 # --- подключение -----------------------------------------------------------------------------
 
 
@@ -38,12 +43,36 @@ async def test_nothing_set_names_everything_missing_at_once(
 
     said = await connection.missing(session)
 
+    # Модуль — первым пунктом; всё словами человека, без имён настроек: их задаёт
+    # администратор и находит в журнале (`test_refusal_names_the_settings_only_in_the_journal`).
     assert said == [
-        "продажи выключены: SALES_ENABLED не включён",
-        "нет своей учётки почты продаж: не задан OUTREACH_SALES_SENDGRID_API_KEY — "
-        "письма продаж общей учёткой не уходят",
-        "нет ссылки отписки для List-Unsubscribe: не задан OUTREACH_UNSUBSCRIBE_URL",
+        "модуль продаж выключен — включает администратор",
+        "нет своей учётки почты продаж — общей учёткой письма продаж не уходят; заводит "
+        "администратор",
+        "нет ссылки отписки — без неё письмо продаж не уходит; задаёт администратор",
         f"не задан физический адрес; не задана подпись; не задано имя отправителя — {sender.WHERE}",
+    ]
+    assert not any(SETTING.search(item) for item in said)
+
+
+async def test_refusal_names_the_settings_only_in_the_journal(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Человеку — слова, администратору — имена настроек строкой журнала, при каждом отказе."""
+    monkeypatch.setattr(sales_cfg, "ENABLED", False)
+    monkeypatch.delenv("OUTREACH_SALES_SENDGRID_API_KEY", raising=False)
+    monkeypatch.setattr(outreach_cfg, "UNSUBSCRIBE_URL", "")
+
+    with (
+        caplog.at_level(logging.WARNING, logger=connection.__name__),
+        pytest.raises(stages.SalesNotConnectedError) as refused,
+    ):
+        await connection.check(session, "Проба")
+
+    assert not SETTING.search(str(refused.value))
+    journal = [r.__dict__["settings"] for r in caplog.records if r.name == connection.__name__]
+    assert journal == [
+        ["SALES_ENABLED", "OUTREACH_SALES_SENDGRID_API_KEY", "OUTREACH_UNSUBSCRIBE_URL"]
     ]
 
 
@@ -71,16 +100,22 @@ async def test_shared_key_alone_is_not_an_account_of_sales(
         await connection.check(session, "Проба")
 
     assert str(refused.value) == (
-        f"Проба: {stages.SALES_NOT_CONNECTED} — нет своей учётки почты продаж: не задан "
-        "OUTREACH_SALES_SENDGRID_API_KEY — письма продаж общей учёткой не уходят"
+        f"Проба: {stages.SALES_NOT_CONNECTED} — нет своей учётки почты продаж — общей учёткой "
+        "письма продаж не уходят; заводит администратор"
     )
 
 
 @pytest.mark.parametrize(
     ("env", "words"),
     [
-        ({"OUTREACH_SALES_SENDGRID_API_KEY": "  "}, "OUTREACH_SALES_SENDGRID_API_KEY пуст"),
-        ({"OUTREACH_SALES_ALLOWED_RECIPIENTS": None}, "OUTREACH_SALES_ALLOWED_RECIPIENTS не задан"),
+        (
+            {"OUTREACH_SALES_SENDGRID_API_KEY": "  "},
+            "ключ учётки почты продаж не задан — задаёт администратор",
+        ),
+        (
+            {"OUTREACH_SALES_ALLOWED_RECIPIENTS": None},
+            "у учётки почты продаж не задан свой список разрешённых адресов — задаёт администратор",
+        ),
     ],
 )
 async def test_own_account_half_set_is_named(
@@ -99,8 +134,7 @@ async def test_own_account_half_set_is_named(
 
     said = await connection.missing(session)
 
-    assert len(said) == 1
-    assert said[0].startswith(words)
+    assert said == [words]
 
 
 async def test_physical_address_alone_missing_keeps_sales_off(

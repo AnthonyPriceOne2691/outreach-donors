@@ -13,7 +13,8 @@
 одной платной проверки, а дубли, стоп-листы и домены без почты отсеиваются до неё.
 
 **Отказы.** Негодная настройка проверяльщика (`live` без ключа, незнакомое имя) — итог
-«не выполнена», а не три повтора: повтор её не исправит. Остальное (база) — исключение,
+«не выполнена» словами человека, а не три повтора: повтор её не исправит; имена настроек —
+в журнале. Остальное (база) — исключение,
 и очередь повторит задачу; повтор не платит дважды — очищенный лид уже не `new`, а
 партии закоммичены. Квота и закрытая учётка Hunter — не отказ задачи, а итог прохода
 (`stopped`): непроверенные лиды остались `new`, итог называет причину.
@@ -32,7 +33,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.config import storage
-from backend.config.startup_checks import check_storage
+from backend.config.startup_checks import ConfigError, check_storage
 from backend.features.runs.failures import described, is_permanent
 from backend.features.sales import cleaning
 from backend.features.sales.cleaning import CleaningReport
@@ -46,6 +47,9 @@ logger = logging.getLogger(__name__)
 
 #: Путь задачи строкой: очередь импортирует её в воркере продаж.
 CLEAN_JOB = "backend.features.sales.clean_jobs.clean_sales_leads"
+#: Проверка адресов не настроена — словами человека: настройки задаёт администратор, их имена
+#: (`SALES_VERIFIER_PROVIDER`, `CONTACTS_HUNTER_API_KEY`) — в журнале, а не на экране.
+VERIFIER_NOT_SET = "проверка адресов не настроена — настраивает администратор"
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,7 +125,8 @@ def clean_sales_leads(hypothesis_id: int) -> dict[str, Any]:
                 "продажи: очистка лидов не выполнена",
                 extra={"hypothesis_id": hypothesis_id, "error": described(exc)},
             )
-            return {"error": described(exc), "permanent": True}
+            said = VERIFIER_NOT_SET if isinstance(exc, ConfigError) else described(exc)
+            return {"error": said, "permanent": True}
         if (job := get_current_job()) is not None:
             remember_job_error(job.id, described(exc))
         raise

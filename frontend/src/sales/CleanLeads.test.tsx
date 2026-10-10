@@ -48,6 +48,7 @@ const HYPOTHESES: HypothesesView = {
     },
   ],
   total: 2,
+  module_enabled: true,
 };
 
 const VIEW: LeadsView = {

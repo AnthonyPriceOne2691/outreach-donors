@@ -15,12 +15,15 @@
 поиск адресов в ядре — под `run` (`api/contacts/routes.py`).
 
 **Отказы — до очереди задач, словами.** Гипотезы нет — 404. Ждущих лидов нет, проверяльщик
-не настроен (`live` без ключа) — 409: человек видит причину у кнопки, а не в итоге задачи.
+не настроен (`live` без ключа) — 409: человек видит причину у кнопки, а не в итоге задачи, и
+без имён настроек — их задаёт администратор и находит в журнале.
 Очистка гипотезы идёт или ждёт повтора — 409: вторая проверила бы те же адреса и заплатила
 бы дважды (та же проверка, что у сборки очереди, `queue._build_once`).
 """
 
 from __future__ import annotations
+
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -38,6 +41,8 @@ from backend.features.core.models.access import UserModel
 from backend.features.sales import clean_jobs, verifier
 from backend.shared.queue import sales_queue, with_retries
 
+logger = logging.getLogger(__name__)
+
 #: Без префикса и меток: роутер входит в роутер раздела (`routes.py`) — как очередь писем.
 router = APIRouter()
 
@@ -50,6 +55,7 @@ CLEAN_RUNNING = (
     "адреса и заплатила бы дважды"
 )
 NOTHING_WAITS = "Лидов, ждущих очистки, у гипотезы нет — очищать нечего"
+NOT_SET = f"Очистка не запустится: {clean_jobs.VERIFIER_NOT_SET}"
 
 
 def clean_job_id(hypothesis_id: int) -> str:
@@ -78,11 +84,16 @@ def _clean_once(jobs: Queue, hypothesis_id: int) -> Job:
 
 
 def _paid() -> bool:
-    """Платная ли проверка адресов. Настройка негодна — 409 её словами, до очереди задач."""
+    """Платная ли проверка адресов. Настройка негодна — 409 словами человека, до очереди задач;
+    имена настроек — строкой журнала: их задаёт администратор."""
     try:
         return verifier.configured() == verifier.LIVE
     except ConfigError as exc:
-        raise HTTPException(status.HTTP_409_CONFLICT, f"Очистка не запустится: {exc}") from exc
+        logger.warning(
+            "продажи: проверка адресов не настроена — очистка не ставится",
+            extra={"error": str(exc)},
+        )
+        raise HTTPException(status.HTTP_409_CONFLICT, NOT_SET) from exc
 
 
 class SalesCleanView(BaseModel):

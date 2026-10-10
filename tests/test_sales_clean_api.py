@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -435,22 +436,25 @@ async def test_live_without_a_key_is_refused_at_the_button_not_in_the_job(
     waiting: SalesHypothesisModel,
     jobs: _Jobs,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Негодная настройка проверяльщика — 409 её словами до очереди задач: человек видит
-    причину у кнопки, а не в итоге задачи через минуты."""
+    """Негодная настройка проверяльщика — 409 до очереди задач: человек видит причину у
+    кнопки, а не в итоге задачи через минуты, и словами — настройки задаёт администратор,
+    их имена — в журнале."""
     monkeypatch.setattr(sales_cfg, "VERIFIER_PROVIDER", "live")
     monkeypatch.setattr(contacts_cfg, "HUNTER_API_KEY", "")
 
-    read = await client.get(f"{CLEAN}?hypothesis={waiting.id}", headers=headers)
-    start = await _start(client, headers, waiting.id)
+    with caplog.at_level(logging.WARNING, logger=clean_api.__name__):
+        read = await client.get(f"{CLEAN}?hypothesis={waiting.id}", headers=headers)
+        start = await _start(client, headers, waiting.id)
 
-    words = (
-        "Очистка не запустится: SALES_VERIFIER_PROVIDER=live, а CONTACTS_HUNTER_API_KEY пуст. "
-        "Заполнить ключ или вернуть fixture — без ключа проверка адресов не стартует"
-    )
+    words = "Очистка не запустится: проверка адресов не настроена — настраивает администратор"
     assert (read.status_code, read.json()["detail"]) == (409, words)
     assert (start.status_code, start.json()["detail"]) == (409, words)
     assert jobs.enqueued == []
+    journal = [r.__dict__["error"] for r in caplog.records if r.name == clean_api.__name__]
+    assert len(journal) == 2
+    assert all("CONTACTS_HUNTER_API_KEY пуст" in line for line in journal)
 
 
 @pytest.mark.parametrize(
@@ -547,8 +551,9 @@ def test_job_settles_a_misconfigured_verifier_as_an_outcome(
 
     result = clean_jobs.clean_sales_leads(5)
 
+    # Итог задачи читает человек в строке задачи — словами; имена настроек — в журнале.
     assert result == {
-        "error": "ConfigError: SALES_VERIFIER_PROVIDER=live, а CONTACTS_HUNTER_API_KEY пуст",
+        "error": "проверка адресов не настроена — настраивает администратор",
         "permanent": True,
     }
 

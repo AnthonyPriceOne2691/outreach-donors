@@ -228,7 +228,7 @@ async def test_not_connected_sales_refuse_the_answer_in_words_and_store_nothing(
 
     assert str(refused.value) == (
         f"Ответ в переписке №{answered.first.thread_id}: {SALES_NOT_CONNECTED} — "
-        "продажи выключены: SALES_ENABLED не включён"
+        "модуль продаж выключен — включает администратор"
     )
     assert await _answers(session, answered.reply.id) == 0
     assert len(_seen(answered.source)) == 1  # только первое письмо

@@ -11,6 +11,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
+from backend.config import sales as sales_cfg
 from backend.features.core.domain import AuditAction
 from backend.features.core.models.access import AuditLogModel, UserModel
 from backend.features.sales import chain, hypotheses, sender
@@ -19,6 +20,7 @@ from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests import test_sales_send_world as w
 from tests.conftest import bearer
 
 MakeUser = Callable[..., Awaitable[UserModel]]
@@ -51,6 +53,13 @@ async def seller(make_user: MakeUser, sign_in: SignIn) -> tuple[UserModel, dict[
     """Продавец с правом отправки: менять цепочку — `sales` и `send` (`test_sales_write_rights`)."""
     user = await make_user(SELLER, permissions={"send": True})
     return user, bearer(await sign_in(SELLER))
+
+
+@pytest.fixture
+def connected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Продажи подключены, кроме полей «Отправителя»: готовность — тем же правилом, что отказ
+    отправки (`connection.reasons`), — и называет только их."""
+    w.connect(monkeypatch)
 
 
 async def _post(
@@ -222,7 +231,10 @@ async def test_unknown_hypothesis_set_is_refused_in_words(
 
 
 async def test_preview_shows_made_up_values_and_the_sender_signature_and_writes_nothing(
-    client: AsyncClient, session: AsyncSession, seller: tuple[UserModel, dict[str, str]]
+    client: AsyncClient,
+    session: AsyncSession,
+    seller: tuple[UserModel, dict[str, str]],
+    connected: None,
 ) -> None:
     _, headers = seller
     settings = {
@@ -254,7 +266,7 @@ async def test_preview_shows_made_up_values_and_the_sender_signature_and_writes_
 
 
 async def test_preview_of_a_followup_has_no_subject_and_names_what_sending_lacks(
-    client: AsyncClient, seller: tuple[UserModel, dict[str, str]]
+    client: AsyncClient, seller: tuple[UserModel, dict[str, str]], connected: None
 ) -> None:
     _, headers = seller
 
@@ -265,6 +277,26 @@ async def test_preview_of_a_followup_has_no_subject_and_names_what_sending_lacks
         None,
         ["не задан физический адрес", "не задана подпись", "не задано имя отправителя"],
     )
+
+
+async def test_preview_with_the_module_switched_off_names_it_first(
+    client: AsyncClient,
+    seller: tuple[UserModel, dict[str, str]],
+    connected: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Письмо глазами адресата при выключенном модуле: «не готова» — модулем первым, словами."""
+    monkeypatch.setattr(sales_cfg, "ENABLED", False)
+    _, headers = seller
+
+    response = await client.post(PREVIEW, json=FOLLOW | {"language": "ru"}, headers=headers)
+
+    assert response.json()["missing"] == [
+        "модуль продаж выключен — включает администратор",
+        "не задан физический адрес",
+        "не задана подпись",
+        "не задано имя отправителя",
+    ]
 
 
 async def test_preview_refuses_a_body_that_repeats_the_settings_signature(

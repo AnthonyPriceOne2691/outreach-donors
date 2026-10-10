@@ -110,7 +110,8 @@ async def test_switched_off_the_job_calls_no_model_and_the_answer_waits_in_words
 
     assert (model.calls, start.calls) == (0, []), "ни модели, ни передачи"
     assert (report["route"], report["waits"], report["reason"]) == ("manual", True, SWITCHED_OFF)
-    assert SWITCHED_OFF == "продажи выключены (SALES_ENABLED) — ответ ждёт человека"
+    # Причину читает человек на экране диалога — словами, без имени настройки.
+    assert SWITCHED_OFF == "модуль продаж выключен — ответ ждёт человека"
     stored = await _reread(session, reply)
     assert (stored.model_parse or {}).get("kind") is None, "записка, а не вид"
     assert outcome.sales_review(stored.model_parse) == (True, SWITCHED_OFF)
@@ -191,7 +192,9 @@ async def test_switched_off_a_handoff_does_not_start(
     _switch(monkeypatch, on=False)
     queued: list[int] = []
 
-    with pytest.raises(HandoffError, match=r"не начата: продажи выключены \(SALES_ENABLED\)"):
+    with pytest.raises(
+        HandoffError, match=r"не начата: модуль продаж выключен — передача ждёт включения$"
+    ):
         await handoff.start(session, dialog.thread.id, enqueue=queued.append)
 
     assert (queued, await _handoffs(session)) == ([], 0)
