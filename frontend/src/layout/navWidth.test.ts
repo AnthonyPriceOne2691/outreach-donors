@@ -9,7 +9,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { COUNT_ROOM, FALLBACK_WIDTH, navbarWidth } from './navWidth';
+import { COUNT_ROOM, FALLBACK_WIDTH, ICON_ROOM, navbarWidth } from './navWidth';
 
 /** Холст, у которого каждая буква шириной 8 px. */
 function measureByLength() {
@@ -27,9 +27,11 @@ afterEach(() => {
 describe('ширина боковой колонки', () => {
   it('равна самому длинному пункту и равным полям слева и справа', () => {
     measureByLength();
-    // «Домены рассылки» — 15 букв, 120 px; поля по 24 от рамки и по 12
-    // у колонки с каждой стороны.
-    expect(navbarWidth(['Обзор', 'Домены рассылки', 'Учётки'])).toBe(120 + 2 * (24 + 12));
+    // «Домены рассылки» — 15 букв, 120 px; значок с зазором; поля по 24 от
+    // рамки и по 12 у колонки с каждой стороны.
+    expect(navbarWidth(['Обзор', 'Домены рассылки', 'Учётки'])).toBe(
+      120 + ICON_ROOM + 2 * (24 + 12),
+    );
   });
 
   it('у оператора без длинных разделов колонка уже', () => {
@@ -43,7 +45,7 @@ describe('ширина боковой колонки', () => {
     measureByLength();
     // «Рекламодатели» — 104 px и место под число: шире «Доменов рассылки» (120).
     expect(navbarWidth(['Рекламодатели', 'Домены рассылки'], ['Рекламодатели'])).toBe(
-      104 + COUNT_ROOM + 2 * (24 + 12),
+      104 + COUNT_ROOM + ICON_ROOM + 2 * (24 + 12),
     );
   });
 

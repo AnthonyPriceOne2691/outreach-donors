@@ -14,7 +14,8 @@ import { IconDeviceLaptop, IconMoon, IconSun } from '@tabler/icons-react';
 
 const SIZE = 16;
 
-export function ThemeToggle() {
+/** `vertical` — столбиком, для свёрнутого меню шириной со значок (`NavMenu`). */
+export function ThemeToggle({ vertical = false }: { vertical?: boolean }) {
   // `keepTransitions` — не украшение. Mantine на время переключения
   // вставляет в документ `*, *::before, *::after { transition: none }`
   // на десять миллисекунд: так он борется с миганием у тех, у кого
@@ -30,11 +31,12 @@ export function ThemeToggle() {
       size="xs"
       radius="xl"
       fullWidth
+      orientation={vertical ? 'vertical' : 'horizontal'}
       data={[
         {
           value: 'light',
           label: (
-            <Tooltip label="Светлая тема" withArrow>
+            <Tooltip label="Светлая тема" withArrow position={vertical ? 'right' : 'top'}>
               <IconSun size={SIZE} aria-label="Светлая тема" />
             </Tooltip>
           ),
@@ -42,7 +44,7 @@ export function ThemeToggle() {
         {
           value: 'auto',
           label: (
-            <Tooltip label="Как в системе" withArrow>
+            <Tooltip label="Как в системе" withArrow position={vertical ? 'right' : 'top'}>
               <IconDeviceLaptop size={SIZE} aria-label="Как в системе" />
             </Tooltip>
           ),
@@ -50,7 +52,7 @@ export function ThemeToggle() {
         {
           value: 'dark',
           label: (
-            <Tooltip label="Тёмная тема" withArrow>
+            <Tooltip label="Тёмная тема" withArrow position={vertical ? 'right' : 'top'}>
               <IconMoon size={SIZE} aria-label="Тёмная тема" />
             </Tooltip>
           ),

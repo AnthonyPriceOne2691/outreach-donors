@@ -22,12 +22,19 @@ export const NAV_GROUPS: NavGroupSpec[] = [
   { key: 'settings', title: 'Настройки' },
 ];
 
-export function NavGroup({ group, children }: { group: NavGroupSpec; children: ReactNode }) {
+interface Props {
+  group: NavGroupSpec;
+  /** Меню свёрнуто до значков: от подписи остаётся линия, название — диктору. */
+  folded?: boolean;
+  children: ReactNode;
+}
+
+export function NavGroup({ group, folded = false, children }: Props) {
   const id = `nav-group-${group.key}`;
   return (
     <Stack gap={4} role="group" aria-labelledby={id}>
-      <Text id={id} px="sm" className="navGroupTitle">
-        {group.title}
+      <Text id={id} px="sm" className="navGroupTitle" data-folded={folded || undefined}>
+        <span className="navGroupName">{group.title}</span>
       </Text>
       {children}
     </Stack>
