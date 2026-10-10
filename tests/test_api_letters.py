@@ -31,9 +31,10 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, SenderModel
 from backend.features.letters import batch, compose, template
+from backend.features.letters.repository import LetterRepository, QueuedLetter
 from fastapi import FastAPI
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
 
@@ -354,6 +355,78 @@ class TestSkipping:
         again = await client.post(f"/api/letters/{letter.id}/skip", headers=bearer(admin_token))
 
         assert again.status_code == 409
+
+
+def _claimed_after_reading(monkeypatch: pytest.MonkeyPatch, session: AsyncSession) -> None:
+    """Пачка берёт письмо в «отправляется» между тем, как маршрут его прочёл, и записью
+    решения человека. Прочитанное письмо об этом не знает — как и при настоящей гонке:
+    захват пачки — другая задача и другая транзакция."""
+    read = LetterRepository.letter
+
+    async def read_then_claimed(self: LetterRepository, message_id: int) -> QueuedLetter:
+        row = await read(self, message_id)
+        await session.execute(
+            update(MessageModel)
+            .where(MessageModel.id == message_id)
+            .values(status=MessageStatus.SENDING)
+            .execution_options(synchronize_session=False)
+        )
+        return row
+
+    monkeypatch.setattr(LetterRepository, "letter", read_then_claimed)
+
+
+async def _stored(session: AsyncSession, letter: MessageModel) -> tuple[MessageStatus, str | None]:
+    found = await session.execute(
+        select(MessageModel.status, MessageModel.body).where(MessageModel.id == letter.id)
+    )
+    status, body = found.one()
+    return status, body
+
+
+class TestDecisionOnALetterTheBatchTook:
+    """Аудит 10.10.2026: правка и «Не писать» перезаписывали письмо, которое пачка уже
+    перевела в «отправляется». «Не писать» поверх него — ушедшее письмо без времени ухода,
+    без добивок и мимо дневного счёта ящика; правка — текст в базе, которого адресат
+    не получал. Решение пишется условием «всё ещё в очереди», как захват отправки."""
+
+    async def test_skip_is_refused_and_the_letter_stays_sending(
+        self,
+        client: AsyncClient,
+        admin_token: str,
+        letter: MessageModel,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _claimed_after_reading(monkeypatch, session)
+
+        response = await client.post(f"/api/letters/{letter.id}/skip", headers=bearer(admin_token))
+
+        assert response.status_code == 409, response.text
+        assert "уже не в очереди" in response.json()["detail"]
+        assert "«не писать» не записано" in response.json()["detail"]
+        assert await _stored(session, letter) == (MessageStatus.SENDING, letter.body)
+
+    async def test_edit_is_refused_and_the_text_that_went_stays(
+        self,
+        client: AsyncClient,
+        admin_token: str,
+        letter: MessageModel,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        went = letter.body
+        _claimed_after_reading(monkeypatch, session)
+
+        response = await client.patch(
+            f"/api/letters/{letter.id}",
+            json={"subject": "Rates", "body": "Совсем другой текст письма"},
+            headers=bearer(admin_token),
+        )
+
+        assert response.status_code == 409, response.text
+        assert "правка не записана" in response.json()["detail"]
+        assert await _stored(session, letter) == (MessageStatus.SENDING, went)
 
 
 class TestSending:
