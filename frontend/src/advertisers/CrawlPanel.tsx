@@ -177,10 +177,13 @@ function Troubles({ error, workers }: { error: unknown; workers: number | null |
           {refusalOf(error)}
         </Alert>
       ) : null}
+      {/* Что происходит и кто это чинит — словами, а не командой консоли: «Поднять:
+          docker compose up -d crawler» читал тот, у кого консоли нет и не будет
+          (проверка QA 10.10.2026). */}
       {workers === 0 ? (
-        <Alert color="yellow" title="Обходчиков нет">
-          Поставленные обходы ждут в очереди, и брать их некому. Поднять: docker compose up -d
-          crawler
+        <Alert color="yellow" title="Обходы некому взять">
+          Поставленные обходы ждут в очереди: служба обхода не запущена. Запустить её может
+          администратор сервиса — сообщите ему, и обходы пойдут сами, по очереди.
         </Alert>
       ) : null}
     </>
