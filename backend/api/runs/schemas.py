@@ -16,6 +16,13 @@ from backend.features.runs.reasons import readable
 from backend.features.runs.repository import REASON_KEY
 from backend.features.serp.protocol import distinct_keywords
 
+#: Свой потолок юнитов на прогон — не больше этого. Миллион — месячный лимит всего
+#: аккаунта Ahrefs по умолчанию (`AHREFS_MONTHLY_UNITS`): выше потолок ничего не
+#: ограничивает, а двадцать девяток в поле — опечатка. До 10.10.2026 верха не было,
+#: и смета отвечала «ваш потолок 100 000 000 000 000 000 000» (проверка прода).
+#: Экран держит то же число (`runs/RunPage.tsx`, `CAP`) и отказывает до нажатия.
+MAX_RUN_CEILING = 1_000_000
+
 
 class RunRequestBody(BaseModel):
     """Чего хотим от прогона. Ключи приходят списком, а не текстом:
@@ -88,6 +95,19 @@ class RunRequestBody(BaseModel):
                 "а не числом результатов",
             )
         return depth
+
+    @field_validator("cap")
+    @classmethod
+    def _ceiling_that_means_something(cls, cap: int | None) -> int | None:
+        """Потолок — до `MAX_RUN_CEILING`: выше он ничего не ограничивает."""
+        if cap is not None and cap > MAX_RUN_CEILING:
+            most, came = (f"{number:,}".replace(",", " ") for number in (MAX_RUN_CEILING, cap))
+            raise PydanticCustomError(
+                "cap_out_of_range",
+                f"Потолок юнитов — не больше {most} на прогон, пришло {came}. "
+                "Пусто — весь остаток по месячному капу",
+            )
+        return cap
 
 
 class Forecast(BaseModel):

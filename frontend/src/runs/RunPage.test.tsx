@@ -950,7 +950,21 @@ describe('числа в полях прогона', () => {
 
     expect(screen.getByLabelText('Потолок юнитов')).toHaveValue('1.5');
     expect(screen.getByLabelText('Потолок юнитов')).toHaveAttribute('aria-invalid', 'true');
-    expect(screen.getByText('Только целое число')).toBeInTheDocument();
+    expect(screen.getByText(/^Только целое число от 1 до 1\s000\s000$/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Посчитать смету' })).toBeDisabled();
+    expect(recorded.calls.some((call) => call.path === '/api/runs/estimate')).toBe(false);
+  });
+
+  it('потолок без верха не бывает: двадцать девяток — отказ словами, смета закрыта', async () => {
+    // Проверка прода 10.10.2026: 99999999999999999999 уходило в смету и возвращалось «1e20».
+    const recorded = await openRun({ 'POST /api/runs/estimate': { body: FITS } });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт');
+    await user.type(screen.getByLabelText('Потолок юнитов'), '99999999999999999999');
+
+    expect(screen.getByLabelText('Потолок юнитов')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText(/^Допустимо от 1 до 1\s000\s000$/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Посчитать смету' })).toBeDisabled();
     expect(recorded.calls.some((call) => call.path === '/api/runs/estimate')).toBe(false);
   });
