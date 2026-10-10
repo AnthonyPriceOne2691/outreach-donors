@@ -398,7 +398,9 @@ class TestStageTwo:
         assert first is not None
         await Sending(session, RecordingTransport(), now=NOW).send(first.id)
 
-        await apply_events(session, [DeliveryEvent("bounce", first.id, "x")], now=NOW)
+        await apply_events(
+            session, [DeliveryEvent("bounce", first.id, "marketing@brand.example.test")], now=NOW
+        )
         second = await _build(session, name="Офферы", stage=Stage.ADVERTISERS)
 
         assert second is not None

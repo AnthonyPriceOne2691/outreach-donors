@@ -35,6 +35,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.test_delivery_events import _keypair, _sign
 from tests.thread_letters import (
+    ANSWERED_FROM,
     BOX,
     Conversation,
     Recording,
@@ -211,7 +212,9 @@ class TestEventAfterRequeue:
         await age(session, answered, since=SINCE)
         await unknown_outcome.resolve(session, answered.id, Outcome.QUEUED, author_id=None, now=NOW)
 
-        await apply_events(session, [DeliveryEvent("processed", answered.id, TO, at=AT)], now=NOW)
+        # Ответ ушёл тому, кто ответил, а не на первый адрес: событие — о его адресе.
+        event = DeliveryEvent("processed", answered.id, ANSWERED_FROM, at=AT)
+        await apply_events(session, [event], now=NOW)
         await session.commit()
 
         assert answered.status is MessageStatus.SENT
