@@ -359,6 +359,25 @@ class TestOneTimePasswordGate:
         assert response.status_code == 403
         assert "смените разовый пароль" in response.json()["detail"]
 
+    async def test_refusal_is_in_words_and_marked_for_the_screen(
+        self,
+        client: AsyncClient,
+        make_user: MakeUser,
+        sign_in: Callable[..., Awaitable[str]],
+    ) -> None:
+        """Проверка прода 10.10.2026: после сброса открытый сеанс показывал «Сначала смените
+        разовый пароль: POST /api/auth/password» — метод и путь, и никуда не вёл. Теперь —
+        словами, а куда вести, экран узнаёт по признаку отказа, не разбирая текст."""
+        await make_user("новый@site.com", role=UserRole.ADMIN, must_change_password=True)
+        token = await sign_in("новый@site.com")
+
+        response = await client.get("/api/users", headers=bearer(token))
+
+        assert response.status_code == 403
+        said = response.json()["detail"]
+        assert said == "Сначала смените разовый пароль: пока он не сменён, остальное закрыто"
+        assert response.headers["X-Access-Refusal"] == "change-password"
+
     async def test_me_and_password_stay_open(
         self,
         client: AsyncClient,

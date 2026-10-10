@@ -88,6 +88,16 @@ class AccessDeniedError(PermissionError):
     refusal = "permission"
 
 
+class OneTimePasswordError(AccessDeniedError):
+    """Разовый пароль не сменён: до смены открыты только «кто я» и смена пароля (`api/deps.py`).
+
+    Свой признак: по нему экран перечитывает «кто я» и уводит на смену пароля. До проверки
+    прода 10.10.2026 открытый сеанс после сброса показывал «Доноры не загрузились · Сначала
+    смените разовый пароль: POST /api/auth/password» — метод и путь вместо перехода."""
+
+    refusal = "change-password"
+
+
 @dataclass(frozen=True, slots=True)
 class Actor:
     """Кто действует. Ровно то, что нужно для проверки прав, — не модель базы.
