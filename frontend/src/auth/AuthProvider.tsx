@@ -34,7 +34,7 @@ import type { ReactNode } from 'react';
 import { fetchMe, login as loginRequest } from '../api/auth';
 import { AuthError } from '../api/client';
 import type { Me, Permission } from '../api/types';
-import { dropToken, readToken, saveToken, watchTokenLoss } from './session';
+import { dropToken, readToken, saveToken, watchAccessDenied, watchTokenLoss } from './session';
 
 interface Session {
   user: Me | null;
@@ -106,6 +106,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setToken(null);
       }),
     [],
+  );
+
+  // Отказ доступа посреди сеанса (403 с признаком сервера) — карточка перечитывается сразу,
+  // а не через минуту `staleTime`: снятый раздел уходит из меню (проверка прода 10.10.2026).
+  useEffect(
+    () => watchAccessDenied(() => void queryClient.invalidateQueries({ queryKey: ['me'] })),
+    [queryClient],
   );
 
   const value = useMemo<Session>(
