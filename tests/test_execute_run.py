@@ -684,3 +684,29 @@ class TestTransientFailureIsRetriedNotBuried:
         assert run.stats["причина"].startswith("продолжен после сбоя (1 раз)")
         donor = (await session.execute(select(DonorModel))).scalar_one()
         assert donor.status is DonorStatus.SUITABLE
+
+    async def test_a_resumed_run_is_not_held_back_by_its_own_promise(
+        self, session: AsyncSession
+    ) -> None:
+        """Своё неистраченное обещание — не чужое удержание (аудит 10.10.2026): вычтенное
+        из своего же бюджета, оно требовало от остатка провайдера вдвое больше нужного,
+        а смету первой попытки больше остатка продолжение не переживало вовсе."""
+        broken = {"on": True}
+        serp = FakeSerp(["https://good.com"])
+        deps = await _deps(session, serp, _flaky_ahrefs({"good.com": GOOD}, broken=broken))
+        request = RunRequest(["crm"], "us", T, await _settings_id(session))
+        with pytest.raises(AhrefsError):
+            await execute_run(deps, request)
+        run = (await session.execute(select(RunModel))).scalar_one()
+        # Смета первой попытки — больше всего остатка у провайдера (1,6 млн на ключе).
+        run.estimated_units = 2_000_000
+        await session.flush()
+
+        broken["on"] = False
+        await execute_run(
+            await _deps(session, serp, _flaky_ahrefs({"good.com": GOOD}, broken=broken)),
+            replace(request, run=run),
+        )
+        await session.refresh(run)
+
+        assert run.status is RunStatus.DONE, run.stats

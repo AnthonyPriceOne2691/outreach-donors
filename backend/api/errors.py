@@ -83,6 +83,7 @@ from backend.features.review.candidates import NotInRunError
 from backend.features.review.candidates import UnknownRunError as ReviewUnknownRunError
 from backend.features.runs.browse import UnknownRunError
 from backend.features.runs.budget import QuotaUnavailableError
+from backend.features.runs.duplicates import DuplicateRunError
 from backend.features.sales.chain import ChainNotReadyError
 from backend.features.sales.intake import IntakeError, UnknownHypothesisError
 from backend.features.sales.kb import KbError, KbKeyTakenError, UnknownKbEntryError
@@ -174,6 +175,8 @@ STATUSES: dict[type[Exception], int] = {
     LetterScopeError: status.HTTP_409_CONFLICT,
     ReviewUnknownRunError: status.HTTP_404_NOT_FOUND,
     NotInRunError: status.HTTP_409_CONFLICT,
+    # Такой же прогон ещё в очереди или идёт: второй купил бы ту же выдачу — состояние.
+    DuplicateRunError: status.HTTP_409_CONFLICT,
     # Ручная очередь форм: донора в ней уже нет — либо адрес нашёлся,
     # либо очередь разобрал кто-то другой. Это состояние, а не запрос.
     UnknownFormError: status.HTTP_409_CONFLICT,

@@ -28,6 +28,7 @@ from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.runs.browse import MAX_PAGE_SIZE, PAGE_SIZE, RunBrowser
 from backend.features.runs.budget import units_left
+from backend.features.runs.duplicates import refuse_duplicate
 from backend.features.runs.estimate import UNIQUE_SHARE, forecast
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.spending import ahrefs_spent_this_month, cap_left
@@ -111,6 +112,11 @@ async def start_run(
     случился». Отказ на нажатии он видит сразу и с текстом.
     """
     check_collect()
+    # Такой же прогон, пока первый в очереди или идёт, — отказ: двойной щелчок покупал
+    # выдачу дважды (аудит 10.10.2026). Под замком до фиксации (`runs/duplicates.py`).
+    await refuse_duplicate(
+        session, keywords=body.keywords, country=body.country, depth_pages=body.depth_pages
+    )
 
     # Строка прогона заводится здесь, а не в задаче. Между нажатием
     # и первой тратой идут выдача и смета — минуты, за которые экран
@@ -118,10 +124,11 @@ async def start_run(
     # никогда. Теперь прогон виден сразу и со своим состоянием.
     runs = RunRepository(session)
     # Кап прогона: остаток по месячному капу, а если человек задал свой
-    # потолок — меньшее из двух. Дальше он едет в настройках прогона,
-    # и задача берёт его оттуда: между нажатием и тратой проходят минуты,
-    # за которые остаток мог измениться, — но обещанное человеку число
-    # меняться не должно.
+    # потолок — меньшее из двух. Дальше он едет в настройках прогона:
+    # это обещанное человеку число, и выше него прогон не потратит. Но
+    # и не больше, чем останется по месячному капу к старту задачи, —
+    # между нажатием и стартом очередь может пройти другие прогоны
+    # (`budget.ceiling_at_start`, аудит 10.10.2026).
     settings = await runs.create_settings(
         # Пороги — действующие, с экрана «Пороги»: умолчания конфига здесь
         # молча отменяли сохранённую версию (аудит 10.10.2026).
