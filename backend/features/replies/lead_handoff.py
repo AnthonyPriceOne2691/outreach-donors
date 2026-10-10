@@ -180,14 +180,40 @@ def _inert(value: object) -> object:
     return value
 
 
-def to_csv(cards: list[LeadCard]) -> str:
-    """Выгрузка файлом. Заголовок — имена полей вебхука: одно описание на оба пути."""
+#: Заголовки файла — словами, по полю карточки. Файл открывает человек (лид программе
+#: передаёт вебхук, `body_of`), и `taken_by` или `page_url` ему не говорят ничего. Поле
+#: без слова уходит своим именем, а тест выгрузки краснеет: заголовок не теряется молча.
+CSV_TITLES: dict[str, str] = {
+    "lead_id": "номер лида",
+    "received_at": "получен",
+    "advertiser": "рекламодатель",
+    "from_email": "от кого",
+    "subject": "тема",
+    "text": "текст ответа",
+    "taken_by": "кто ведёт",
+    "taken_at": "взят в работу",
+    "donor_host": "донор",
+    "page_url": "страница донора",
+    "anchor": "анкор",
+    "campaign": "кампания",
+}
+
+
+def to_csv(cards: list[LeadCard]) -> bytes:
+    """Выгрузка файлом — для Excel: заголовки словами, точка с запятой, UTF-8 с меткой.
+
+    Те же уступки Excel, что у выгрузки доноров (`donors/export.py`): с запятой
+    русский Excel раскладывает строку в одну колонку, без метки — показывает
+    кракозябры. До 10.10.2026 файл шёл с именами полей вебхука, запятыми и без метки,
+    и русский текст ответа в Excel не читался (проверка QA 10.10.2026). Поля и их
+    порядок — те же, что в вебхуке: одно описание лида на оба пути.
+    """
     out = io.StringIO()
-    writer = csv.DictWriter(out, fieldnames=list(LeadCard.__dataclass_fields__))
-    writer.writeheader()
+    writer = csv.writer(out, delimiter=";", lineterminator="\r\n")
+    writer.writerow([CSV_TITLES.get(name, name) for name in LeadCard.__dataclass_fields__])
     for card in cards:
-        writer.writerow({name: _inert(value) for name, value in asdict(card).items()})
-    return out.getvalue()
+        writer.writerow([_inert(value) for value in asdict(card).values()])
+    return out.getvalue().encode("utf-8-sig")
 
 
 def body_of(card: LeadCard, *, event_id: str) -> bytes:
