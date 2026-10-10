@@ -194,8 +194,12 @@ export function ThreadPage() {
   // Кроме автоответа с суммой в валюте — у него сервер называет причину, и без
   // формы цену из него было бы некуда вписать. У продаж формы цены нет вовсе:
   // причину ожидания называет сервер, вид ответа разбирает модуль продаж.
+  // Перекрытый ответ (`superseded_by`) не разбирают и не правят: цена переписки —
+  // из более позднего, а «Подтвердить» записал бы донору старую (проверка прода 10.10.2026).
   const reviewable = (reply: IncomingCard) =>
-    !sales && (reply.kind === 'human' || Boolean(reply.review_reason));
+    !sales &&
+    (reply.superseded_by ?? null) === null &&
+    (reply.kind === 'human' || Boolean(reply.review_reason));
   const active = activeReply(data.incoming, picked);
   const decided = active !== null && (active.lead || reviewable(active)) ? active : null;
   const target = answerTarget(data.incoming);

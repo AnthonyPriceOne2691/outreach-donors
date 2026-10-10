@@ -36,7 +36,10 @@ function byTime(incoming: IncomingCard[]): IncomingCard[] {
   return [...incoming].sort((a, b) => Date.parse(a.received_at) - Date.parse(b.received_at));
 }
 
-/** Ответ ждёт решения человека: цену подтвердить, лид взять или ответ продаж разобрать. */
+/** Ответ ждёт решения человека: цену подтвердить, лид взять или ответ продаж разобрать.
+ *  Ждёт ли разбор — решает сервер (`needs_review`) тем же правилом, что числа меню:
+ *  ответ, перекрытый более поздним с принятой ценой, у него не ждёт (`superseded_by`),
+ *  и своей копии этого правила у экрана нет (проверка прода 10.10.2026). */
 export function waitsForPerson(reply: IncomingCard): boolean {
   return reply.reviewed_at === null && (reply.needs_review || reply.lead);
 }

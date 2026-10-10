@@ -325,6 +325,76 @@ describe('карточка переписки', () => {
   });
 });
 
+/** Следующий ответ донора: уточнил цену, разбор уверен — цена легла в карточку сама. */
+const CLARIFIED = {
+  ...UNSURE,
+  id: 8,
+  raw_body: 'Sorry, to clarify: a guest post with one link is $150. Thanks!',
+  received_at: '2026-09-19T10:03:00+00:00',
+  price_white: '150',
+  currency: 'USD',
+  confidence: 0.93,
+  placement: 'sells',
+  needs_review: false,
+};
+
+describe('перекрытый ответ', () => {
+  // Проверка прода 10.10.2026: ответ «250» ждал человека, следом донор уточнил «150»,
+  // разбор взял её сам, а под лентой стояло «Цену подтверждает человек» с полем 250 —
+  // «Подтвердить» записал бы донору старую цену. Ждёт ли ответ — решает сервер.
+  it('перекрытый не разбирают: ни формы, ни кнопки в пузыре — строка, почему', async () => {
+    await openThread({
+      card: { ...VIEW.card, state: 'priced', price_white: '150', currency: 'USD' },
+      incoming: [{ ...UNSURE, needs_review: false, superseded_by: 8 }, CLARIFIED],
+    });
+
+    expect(screen.queryByText('Цену подтверждает человек')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Подтвердить' })).not.toBeInTheDocument();
+    const [old, clarified] = screen.getAllByRole('article', {
+      name: 'Ответ elena@donor.example.test',
+    });
+    expect(
+      within(old!).getByText(
+        /^Цену переписки задаёт более поздний ответ от 19\.09\.2026, \d\d:\d\d — этот разбирать не нужно\.$/,
+      ),
+    ).toBeInTheDocument();
+    expect(within(old!).queryByRole('button')).not.toBeInTheDocument();
+    // Более поздний правят, как всякий решённый: цена переписки — его.
+    expect(within(clarified!).getByRole('button', { name: 'Поправить цену' })).toBeInTheDocument();
+  });
+
+  it('«спасибо» без цены не перекрывает: старый разбор по-прежнему под лентой', async () => {
+    await openThread({
+      incoming: [
+        UNSURE,
+        {
+          ...CLARIFIED,
+          raw_body: 'Thanks!',
+          price_white: null,
+          currency: null,
+          confidence: 0.95,
+          placement: 'unclear',
+        },
+      ],
+    });
+
+    expect(screen.getByText('Цену подтверждает человек')).toBeInTheDocument();
+    expect(screen.getByLabelText('Белая цена')).toHaveValue('250');
+  });
+
+  it('форма, открытая до уточнения: отказ сервера — над полями, словами', async () => {
+    const refusal =
+      'Ответ №7 перекрыт: позже донор назвал цену 150 USD, и она принята — цена переписки теперь из того ответа.';
+    await openThread({}, { 'PATCH /api/replies/7': { status: 409, body: { detail: refusal } } });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Подтвердить' }));
+
+    expect(await screen.findByText(`— ${refusal}`)).toBeInTheDocument();
+    expect(screen.getByLabelText('Белая цена')).toHaveValue('250');
+  });
+});
+
 /** Учётка, у которой право разбирать ответы отобрано точечно. */
 const OPERATOR_WITHOUT_PRICES = {
   ...OPERATOR,
