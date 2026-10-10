@@ -8,13 +8,22 @@
 **Текст отказа доходит до человека целиком.** Сообщения ядра написаны
 так, чтобы говорить, что делать; заменять их на «Bad Request» значит
 выбрасывать ровно ту часть, ради которой они писались.
+
+**Отказ разбора запроса (422) — тоже по-русски.** Экран показывает первую
+строку списка как есть, и умолчание FastAPI давало «Input should be a valid
+decimal» на любом экране (`said_in_russian`).
 """
 
 from __future__ import annotations
 
 import logging
+import re
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from fastapi import FastAPI, Request, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from redis.exceptions import RedisError
 
@@ -249,10 +258,122 @@ async def _quota_unknown(_: Request, exc: Exception) -> JSONResponse:
     return JSONResponse({"detail": str(exc)}, status_code=code)
 
 
+#: Отказ разбора запроса по типу pydantic — что не так, словами (аудит 10.10.2026, QA №5).
+#: Подстановки — из `ctx` отказа. Число стоит в конце фразы: «элементов — не больше 500»
+#: склоняется одинаково при любом числе, «не больше 500 элементов» — нет.
+_SAID: dict[str, str] = {
+    "missing": "обязательно, а в запросе его нет",
+    "extra_forbidden": "такого поля нет",
+    "string_type": "нужна строка",
+    "string_too_short": "знаков — не меньше {min_length}",
+    "string_too_long": "знаков — не больше {max_length}",
+    "string_pattern_mismatch": "не того вида",
+    "too_short": "элементов — не меньше {min_length}",
+    "too_long": "элементов — не больше {max_length}, пришло {actual_length}",
+    "int_type": "нужно целое число",
+    "int_parsing": "нужно целое число",
+    "int_from_float": "нужно целое число, без дробной части",
+    "int_parsing_size": "число слишком большое",
+    "float_type": "нужно число",
+    "float_parsing": "нужно число",
+    "finite_number": "нужно конечное число",
+    "decimal_type": "нужно число",
+    "decimal_parsing": "нужно число",
+    "decimal_max_digits": "цифр — не больше {max_digits}",
+    "decimal_max_places": "знаков после запятой — не больше {decimal_places}",
+    "decimal_whole_digits": "цифр до запятой — не больше {whole_digits}",
+    "bool_type": "нужно «да» или «нет» (true или false)",
+    "bool_parsing": "нужно «да» или «нет» (true или false)",
+    "greater_than": "нужно больше {gt}",
+    "greater_than_equal": "нужно не меньше {ge}",
+    "less_than": "нужно меньше {lt}",
+    "less_than_equal": "нужно не больше {le}",
+    "multiple_of": "нужно кратное {multiple_of}",
+    "literal_error": "нужно одно из: {expected}",
+    "enum": "нужно одно из: {expected}",
+    "list_type": "нужен список",
+    "dict_type": "нужен объект",
+    "model_type": "нужен объект",
+    "model_attributes_type": "нужен объект",
+    "json_type": "нужен JSON",
+    "none_required": "должно быть пусто",
+    "url_type": "нужна ссылка",
+    "url_parsing": "нужна ссылка",
+    "date_type": "нужна дата",
+    "date_parsing": "нужна дата",
+    "datetime_type": "нужны дата и время",
+    "datetime_parsing": "нужны дата и время",
+    "timezone_aware": "нужно время с часовым поясом",
+    "uuid_type": "нужен UUID",
+    "uuid_parsing": "нужен UUID",
+}
+
+#: Чего нет в `_SAID` или чему не хватило подстановки: общие слова, поле — по имени.
+_UNSAID = "значение не подходит"
+
+#: Приставки pydantic к нашему же тексту: `ValueError` и `assert` в проверках схем.
+_PREFIXES = ("Value error, ", "Assertion failed, ")
+
+#: Откуда поле — тело, адрес, заголовок: человеку нужно имя поля, а не это.
+_SOURCES = frozenset({"body", "query", "path", "header", "cookie"})
+
+#: Свой текст отказа — по-русски, как и всё, что пишет сервис (тот же признак —
+#: язык — у причин прогона, `runs/reasons.py`).
+_CYRILLIC = re.compile(r"[А-Яа-яЁё]")
+
+
+def said_in_russian(error: Mapping[str, Any]) -> str:
+    """Один отказ разбора — для экрана. Свой текст (кириллица) — как написан, без
+    «Value error, »; знакомый тип — фразой с именем поля; незнакомый или чужой английский
+    текст — общими словами, тоже с именем поля: экран показывает одну строку."""
+    said = str(error.get("msg", ""))
+    for prefix in _PREFIXES:
+        said = said.removeprefix(prefix)
+    if _CYRILLIC.search(said):
+        return said
+    kind = str(error.get("type", ""))
+    if kind == "json_invalid":
+        return "Тело запроса — не JSON"
+    phrase = _phrase(_SAID.get(kind, _UNSAID), error.get("ctx") or {})
+    field = _field(error.get("loc") or ())
+    return f"Поле «{field}»: {phrase}" if field else f"Тело запроса: {phrase}"
+
+
+def _phrase(template: str, ctx: Mapping[str, Any]) -> str:
+    """Фраза с подстановками из `ctx`. «'a' or 'b'» pydantic — «'a' или 'b'»."""
+    shown = {key: str(value).replace(" or ", " или ") for key, value in ctx.items()}
+    try:
+        return template.format(**shown)
+    except (KeyError, IndexError):
+        # Подстановки нет: у типа другая форма `ctx` в этой версии pydantic.
+        return _UNSAID
+
+
+def _field(loc: Sequence[object]) -> str:
+    """Имя поля из `loc`: без источника, вложенное — через точку, номер в списке — [n]."""
+    parts = list(loc)[1:] if loc and loc[0] in _SOURCES else list(loc)
+    name = ""
+    for part in parts:
+        name += f"[{part}]" if isinstance(part, int) else f"{'.' if name else ''}{part}"
+    return name
+
+
+async def _unreadable(_: Request, exc: Exception) -> JSONResponse:
+    """422 разбора запроса: тот же список, что у FastAPI (`msg`, `loc`, `type`…), но `msg`
+    по-русски. Экран и тесты читают форму ответа — она не меняется, меняются слова."""
+    errors = exc.errors() if isinstance(exc, RequestValidationError) else []
+    detail = [{**error, "msg": said_in_russian(error)} for error in errors]
+    return JSONResponse(
+        {"detail": jsonable_encoder(detail)},
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+    )
+
+
 def install(app: FastAPI) -> None:
     for error, code in STATUSES.items():
         app.add_exception_handler(error, _handler(code))
     app.add_exception_handler(QuotaUnavailableError, _quota_unknown)
+    app.add_exception_handler(RequestValidationError, _unreadable)
     # Маршруты, которые отвечают о недоступной очереди сами (вебхук ответов — 503 со своей
     # причиной, поиск после перевода рекламодателей — успех перевода, исход задачи —
     # «очередь не отвечает»), ловят её до этого.
