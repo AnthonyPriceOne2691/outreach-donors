@@ -132,18 +132,26 @@ describe('экран отбора', () => {
     expect(decide.closest('tr')!.querySelector('td[data-label="Судья"]')).not.toBeNull();
   });
 
-  it('длинный домен переносится по швам, а не посреди слова', async () => {
-    // Запись UI_RULES 08.10.2026: колонка «Домен» «Отбора» оставалась без швов.
+  it('домен и DR — одной строкой: длинный домен — многоточием, целиком — в подсказке', async () => {
+    // Проверка QA 10.10.2026: на 1440 с раскрытым меню колонке 217 px, DR уходил
+    // под домен (строка 67 px вместо ~48), а длинный домен ломался по точкам
+    // в три строки (91 px).
     const host = 'gambling-news-and-analysis.example.test';
     await openScreen({
-      [ACCEPTED]: { body: view([BRAND, WEAK, CUT, { ...CUT, domain_id: 99, host }]) },
+      [ACCEPTED]: { body: view([BRAND, WEAK, CUT, { ...CUT, domain_id: 99, host, dr: 46 }]) },
     });
 
     const name = screen.getByRole('link', { name: host });
-    // Имя то же: его копируют и ищут по странице, шов — место переноса, а не знак.
+    // Имя то же: его копируют и ищут по странице. Не влезло — многоточие, а не перенос.
     expect(name).toHaveTextContent(host);
-    expect(name.querySelectorAll('wbr')).toHaveLength(2);
+    expect(name).toHaveAttribute('title', host);
+    expect(name).toHaveAttribute('data-truncate', 'end');
+    expect(name.querySelectorAll('wbr')).toHaveLength(0);
     expect(name).toHaveClass('cellName');
+    // DR — в той же строке, она не переносится, и сам DR не сжимается.
+    const line = name.parentElement!;
+    expect(line.style.getPropertyValue('--group-wrap')).toBe('nowrap');
+    expect(within(line).getByText('DR 46')).toHaveStyle({ whiteSpace: 'nowrap', flexShrink: '0' });
   });
 
   it('у отказа судьи видны автор, цитата и главная', async () => {
