@@ -25,6 +25,7 @@ from backend.features.access.permissions import (
     AccessDeniedError,
     Actor,
     has_permission,
+    no_right,
     require,
 )
 from backend.features.access.tokens import (
@@ -163,6 +164,17 @@ class TestPermissions:
     def test_refusal_names_the_action(self) -> None:
         with pytest.raises(AccessDeniedError, match="users"):
             require(self.OPERATOR, Permission.USERS)
+
+    @pytest.mark.parametrize("permission", list(Permission))
+    def test_refusal_is_one_place_for_every_right(self, permission: Permission) -> None:
+        # Тесты модулей сверяют отказ по `no_right`, а не копией строки: слова отказа
+        # меняются, и копия в чужом тесте держала бы правку до его правки.
+        nobody = Actor(
+            user_id=6, role=UserRole.OPERATOR, overrides={p.value: False for p in Permission}
+        )
+        with pytest.raises(AccessDeniedError) as refused:
+            require(nobody, permission)
+        assert str(refused.value) == no_right(permission)
 
     def test_anonymous_is_asked_to_log_in(self) -> None:
         with pytest.raises(AccessDeniedError, match="Нужен вход"):

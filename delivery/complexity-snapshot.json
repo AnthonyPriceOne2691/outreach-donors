@@ -697,7 +697,7 @@
       "worst": "verify_password:43"
     },
     "backend/features/access/permissions.py": {
-      "lines": 124,
+      "lines": 134,
       "complexity": 4,
       "worst": "has_permission:79"
     },
