@@ -328,18 +328,41 @@ async def sales_threads_to(session: AsyncSession, email: str) -> list[int]:
     Модуль не подключён — писем продаж нет, снимать нечего. Поломка модуля — пусто и строка в
     журнал, как у «подключены ли»: стоп-лист почты из-за модуля продаж не встаёт, а письмо продаж
     адресу, закрытому для продаж, откажет проверка перед отправкой (`SalesMail.check`)."""
+    found = await _lead_threads(
+        session, email, "Переписки продаж адресата стоп-листа", "письма продаж адресата не сняты"
+    )
+    return found or []
+
+
+async def sales_lead_threads(session: AsyncSession, email: str) -> list[int] | None:
+    """Переписки продаж, чей лид — этот адрес, — сверке событий доставки (`letters/events`).
+
+    `None` — спросить не вышло: модуль не подключён или упал. Это «получателя не узнать»,
+    а не «переписок у адреса нет»: пустой ответ значит «событие о чужом письме», и поломка
+    модуля глотала бы отказы и жалобы на наши же письма продаж (кросс-ревью продаж #292,
+    10.10.2026). Не узнать — событие идёт по номеру письма, как до сверки."""
+    return await _lead_threads(
+        session,
+        email,
+        "Переписки продаж адресата события доставки",
+        "адресата события не сверить — событие пойдёт по номеру письма",
+    )
+
+
+async def _lead_threads(
+    session: AsyncSession, email: str, what: str, unasked: str
+) -> list[int] | None:
+    """Ответ модуля продаж «переписки адресата» — или `None`, если спросить не вышло;
+    `unasked` — что это значит для вызывающего, строкой журнала."""
     if _SALES.load is None:
-        return []
+        return None
     try:
         found = await _asked(
-            session,
-            "Переписки продаж адресата стоп-листа",
-            lambda mail: mail.threads_to(session, email),
-            SalesNotConnectedError,
+            session, what, lambda mail: mail.threads_to(session, email), SalesNotConnectedError
         )
     except SalesNotConnectedError as exc:
-        logger.info("мост продаж: письма продаж адресата не сняты — %s", exc)
-        return []
+        logger.info("мост продаж: %s — %s", unasked, exc)
+        return None
     return list(found)
 
 

@@ -962,7 +962,7 @@
       "worst": "_enum:27"
     },
     "backend/features/core/stages.py": {
-      "lines": 373,
+      "lines": 396,
       "complexity": 5,
       "worst": "check_connected:115"
     },
@@ -1312,7 +1312,7 @@
       "worst": "to_text:92"
     },
     "backend/features/letters/events.py": {
-      "lines": 376,
+      "lines": 390,
       "complexity": 10,
       "worst": "apply_events:152"
     },
