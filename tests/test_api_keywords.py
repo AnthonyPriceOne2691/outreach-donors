@@ -15,10 +15,13 @@ from typing import Any
 import pytest
 from backend.features.core.domain import UserRole
 from backend.features.core.models.access import UserModel
+from backend.features.core.models.ops import UsageRecordModel
 from backend.features.keywords.client import LlmError
 from backend.features.keywords.generator import Pool, PoolReport
 from fastapi import FastAPI
 from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
 
 MakeUser = Callable[..., Awaitable[UserModel]]
@@ -42,6 +45,9 @@ class FakeClient:
         self._phrases = phrases if phrases is not None else []
         self._fail = fail
         self.closed = False
+        #: Сколько токенов «потрачено» — как у настоящего клиента: маршрут пишет их
+        #: в журнал и тогда, когда модель отказала.
+        self.tokens_spent = 0
 
     async def aclose(self) -> None:
         self.closed = True
@@ -169,6 +175,27 @@ class TestRefusals:
         assert response.status_code == 502
         assert "модель отказала" in response.text
         assert model["client"].closed, "клиент не закрыт на отказе"
+
+    async def test_tokens_spent_before_the_refusal_are_recorded(
+        self,
+        client: AsyncClient,
+        admin_token: str,
+        model: dict[str, Any],
+        session: AsyncSession,
+    ) -> None:
+        """Аудит 10.10.2026, №11: модель ответила на часть вызовов и отказала на остальных —
+        502, а потраченные токены в журнал не попадали: расход на модель выглядел меньше
+        настоящего, и дневной потолок расхода их не видел."""
+        model["client"].tokens_spent = 777
+        model["raise"] = LlmError("пул ключей пуст: модель отказала 3 раз(а)")
+
+        response = await client.post("/api/keywords", json=POOL_BODY, headers=bearer(admin_token))
+
+        assert response.status_code == 502
+        spent = await session.scalars(
+            select(UsageRecordModel.units).where(UsageRecordModel.operation == "keywords")
+        )
+        assert list(spent) == [777]
 
     async def test_unknown_market_refuses_instead_of_english(
         self, client: AsyncClient, admin_token: str
