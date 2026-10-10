@@ -137,8 +137,10 @@ class TestAddingByHand:
     ) -> None:
         """Отписку заводит страница, жалобу — приём ответов. Рука здесь
         означала бы запись о решении донора, которого он не принимал."""
-        with pytest.raises(stoplist.StopListError, match="ставит сам сервис"):
+        with pytest.raises(stoplist.StopListError, match="ставит сам сервис") as refused:
             await stoplist.add(session, HOST, reason=reason, author="а@б.в")
+        # Словами, без кода причины (проверка прода 10.10.2026).
+        assert reason.value not in str(refused.value)
 
     @pytest.mark.parametrize(
         "target",
