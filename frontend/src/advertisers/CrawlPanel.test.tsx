@@ -134,10 +134,15 @@ describe('обход доноров', () => {
     expect(await screen.findByText('Поставлено: 1.')).toBeInTheDocument();
   });
 
-  it('некому взять — сказано, а не тишина', async () => {
+  it('некому взять — сказано словами человека, а не тишиной и не командой консоли', async () => {
     open({ 'GET /api/crawls/targets': { body: { ...TARGETS, workers: 0 } } });
 
-    expect(await screen.findByText('Обходчиков нет')).toBeInTheDocument();
+    const alert = (await screen.findByText('Обходы некому взять')).closest('[role="alert"]')!;
+    // Проверка QA 10.10.2026: «Поднять: docker compose up -d crawler» — команда
+    // для того, у кого есть консоль, а читает её тот, у кого её нет.
+    expect(alert).toHaveTextContent('служба обхода не запущена');
+    expect(alert).toHaveTextContent('Запустить её может администратор сервиса');
+    expect(alert).not.toHaveTextContent(/docker|compose|crawler/);
   });
 
   it('обходить некого — что делать сначала', async () => {
