@@ -27,7 +27,8 @@ import io
 import json
 import time
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import UTC, datetime, tzinfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from sqlalchemy import Select, select
@@ -50,6 +51,10 @@ TIMEOUT_S = 20.0
 
 SIGNATURE_HEADER = "X-Outreach-Signature"
 EVENT = "lead_taken"
+
+
+class UnknownZoneError(ValueError):
+    """Часовой пояс выгрузки не знаком базе поясов."""
 
 
 class LeadNotTakenError(ValueError):
@@ -199,20 +204,53 @@ CSV_TITLES: dict[str, str] = {
 }
 
 
-def to_csv(cards: list[LeadCard]) -> bytes:
+#: Поля карточки со временем. В вебхуке — ISO с поясом: его читает программа.
+#: В файле — как на экране (`format.formatDateTime`): «07.10.2026 14:01» в поясе,
+#: в котором экран пишет время, — поясе браузера выгрузившего. До 10.10.2026 файл
+#: нёс «2026-10-07T11:01:49.964379+00:00» — машинный вид и UTC, а экран — время
+#: браузера (проверка прода 10.10.2026).
+_MOMENTS = frozenset({"received_at", "taken_at"})
+
+
+def zone_named(name: str | None) -> tzinfo:
+    """Пояс времени в файле по имени из базы поясов (`Europe/Moscow`) — так его
+    называет браузер. Пусто — UTC; незнакомое имя — отказ словами."""
+    if not name:
+        return UTC
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise UnknownZoneError(
+            f"Часовой пояс «{name[:64]}» не знаком: время в файле пишется в поясе браузера, "
+            "его имя — из базы поясов, например Europe/Moscow"
+        ) from exc
+
+
+def _local(iso: str, zone: tzinfo) -> str:
+    """Время карточки словами экрана, в поясе файла. Пусто — пусто: лид не взят."""
+    return datetime.fromisoformat(iso).astimezone(zone).strftime("%d.%m.%Y %H:%M") if iso else ""
+
+
+def to_csv(cards: list[LeadCard], zone: tzinfo = UTC) -> bytes:
     """Выгрузка файлом — для Excel: заголовки словами, точка с запятой, UTF-8 с меткой.
 
     Те же уступки Excel, что у выгрузки доноров (`donors/export.py`): с запятой
     русский Excel раскладывает строку в одну колонку, без метки — показывает
     кракозябры. До 10.10.2026 файл шёл с именами полей вебхука, запятыми и без метки,
     и русский текст ответа в Excel не читался (проверка QA 10.10.2026). Поля и их
-    порядок — те же, что в вебхуке: одно описание лида на оба пути.
+    порядок — те же, что в вебхуке: одно описание лида на оба пути; время — словами
+    экрана в поясе `zone` (`_MOMENTS`).
     """
     out = io.StringIO()
     writer = csv.writer(out, delimiter=";", lineterminator="\r\n")
     writer.writerow([CSV_TITLES.get(name, name) for name in LeadCard.__dataclass_fields__])
     for card in cards:
-        writer.writerow([_inert(value) for value in asdict(card).values()])
+        writer.writerow(
+            [
+                _inert(_local(value, zone) if name in _MOMENTS else value)
+                for name, value in asdict(card).items()
+            ]
+        )
     return out.getvalue().encode("utf-8-sig")
 
 

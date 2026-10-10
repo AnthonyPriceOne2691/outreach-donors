@@ -79,6 +79,7 @@ from backend.features.letters.unknown_outcome import ResolveError
 from backend.features.outreach.repository import UnknownSenderError, UnknownThreadError
 from backend.features.replies.attachments import AttachmentNotKeptError, UnknownAttachmentError
 from backend.features.replies.confirmation import SupersededReplyError
+from backend.features.replies.lead_handoff import UnknownZoneError
 from backend.features.replies.repository import LeadError, NotAPriceError, UnknownReplyError
 from backend.features.review.candidates import NotInRunError
 from backend.features.review.candidates import UnknownRunError as ReviewUnknownRunError
@@ -122,6 +123,8 @@ STATUSES: dict[type[Exception], int] = {
     # это запрос, и текст называет, что не так и какой предел; такого файла
     # нет в переписке или у письма — 404; уже приложен к письму — состояние.
     OutgoingFileError: status.HTTP_422_UNPROCESSABLE_CONTENT,
+    # Пояс времени выгрузки лидов не из базы поясов: это запрос, и текст называет образец.
+    UnknownZoneError: status.HTTP_422_UNPROCESSABLE_CONTENT,
     UnknownOutgoingFileError: status.HTTP_404_NOT_FOUND,
     OutgoingFileTakenError: status.HTTP_409_CONFLICT,
     # Письмо не отправлено: стоп-лист, незаполненная настройка письма,

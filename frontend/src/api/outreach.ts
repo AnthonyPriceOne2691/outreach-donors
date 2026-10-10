@@ -115,9 +115,12 @@ export function sendLead(id: number): Promise<LeadSent> {
   return request<LeadSent>(`/replies/${id}/lead/send`, { method: 'POST' });
 }
 
-/** Лиды файлом CSV — те же поля, что уходят вебхуком в CRM. */
+/** Лиды файлом CSV — те же поля, что уходят вебхуком в CRM. Время в файле — как на
+ *  экране (`formatDateTime`): в поясе браузера, его имя уходит запросом. До 10.10.2026
+ *  файл писал время в UTC машинным видом (проверка прода 10.10.2026). */
 export function exportLeads(): Promise<Downloaded> {
-  return download('/replies/leads.csv');
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return download(`/replies/leads.csv?tz=${encodeURIComponent(zone)}`);
 }
 
 export function listSuppressions(): Promise<StopListView> {
