@@ -234,11 +234,19 @@ STATUSES: dict[type[Exception], int] = {
 }
 
 
+#: Признак отказа доступа — машинный, рядом с текстом (проверка прода 10.10.2026): «права нет»
+#: (`permission`). По нему экран перечитывает «кто я» и меню убирает снятый раздел — а не по
+#: тексту: разбор текста ломается от первой правки сообщения.
+ACCESS_REFUSAL = "X-Access-Refusal"
+
+
 def _handler(code: int):  # type: ignore[no-untyped-def]
     async def handle(_: Request, exc: Exception) -> JSONResponse:
         headers = {}
         if isinstance(exc, TooManyAttemptsError):
             headers["Retry-After"] = str(exc.retry_after_seconds)
+        if isinstance(exc, AccessDeniedError):
+            headers[ACCESS_REFUSAL] = exc.refusal
         if code == status.HTTP_401_UNAUTHORIZED:
             headers["WWW-Authenticate"] = "Bearer"
         return JSONResponse({"detail": str(exc)}, status_code=code, headers=headers)

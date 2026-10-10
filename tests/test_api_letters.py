@@ -152,7 +152,7 @@ class TestWhoIsLetIn:
 
         if permission == "send":
             assert response.status_code == 403
-            assert "«send»" in response.json()["detail"]
+            assert "«отправлять письма»" in response.json()["detail"]
         else:
             assert response.status_code == 200, response.text
 

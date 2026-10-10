@@ -472,7 +472,7 @@ async def test_without_the_right_nothing_is_written(
 
     for response in (entered, priced):
         assert response.status_code == 403
-        assert "«run»" in response.json()["detail"]
+        assert "«запускать прогоны»" in response.json()["detail"]
     await _nothing_written(session, domains=1)
 
 

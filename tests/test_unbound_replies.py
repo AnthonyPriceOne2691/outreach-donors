@@ -122,7 +122,7 @@ class TestWhoSees:
         response = await client.get(LIST, headers=bearer(token))
 
         assert response.status_code == 403
-        assert "«view»" in response.json()["detail"]
+        assert "«смотреть базу»" in response.json()["detail"]
 
 
 class TestWhyNotBound:

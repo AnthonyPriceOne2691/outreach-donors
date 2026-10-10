@@ -162,7 +162,7 @@ class TestPermissions:
         assert not any(has_permission(fired, p) for p in Permission)
 
     def test_refusal_names_the_action(self) -> None:
-        with pytest.raises(AccessDeniedError, match="users"):
+        with pytest.raises(AccessDeniedError, match="«заводить учётки»"):
             require(self.OPERATOR, Permission.USERS)
 
     @pytest.mark.parametrize("permission", list(Permission))

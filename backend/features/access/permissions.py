@@ -52,8 +52,40 @@ ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
 }
 
 
+#: Права словами — те же, что человек видит в окне прав учётки: копия `PERMISSION_TITLES`
+#: из `frontend/src/api/labels.ts`, сверка построчно — `tests/test_access_words.py`. Своя
+#: копия потому, что отказ сервер пишет сам, а экран его не переводит: до проверки прода
+#: 10.10.2026 отказ называл код — «Действие «sales» недоступно этой учётке».
+PERMISSION_TITLES: dict[Permission, str] = {
+    Permission.VIEW: "смотреть базу",
+    Permission.RUN: "запускать прогоны",
+    Permission.SETTINGS: "править пороги",
+    Permission.PRICES: "подтверждать цены",
+    Permission.SEND: "отправлять письма",
+    Permission.SENDERS: "домены рассылки",
+    Permission.USERS: "заводить учётки",
+    Permission.SALES: "раздел продаж",
+}
+
+
+def no_right(permission: Permission) -> str:
+    """Отказ «права нет» — одним местом: право словами, как в окне прав, и кто его выдаёт.
+
+    Тесты и экраны сверяют отказ по этой функции, а не своей копией строки: слова отказа
+    меняются (проверка прода 10.10.2026 — в отказе код права вместо названия), и копия
+    строки в чужом тесте держала бы правку слов до его правки.
+    """
+    return f"Действие «{PERMISSION_TITLES[permission]}» не выдано этой учётке — права выдаёт админ"
+
+
 class AccessDeniedError(PermissionError):
-    """Действие запрещено. Сообщение называет действие, а не «нет прав»."""
+    """Действие запрещено. Сообщение называет право словами, а не «нет прав».
+
+    `refusal` — машинный признак отказа рядом с текстом (заголовок ответа — `api/errors.py`):
+    по нему экран перечитывает «кто я», а не по тексту, который правят.
+    """
+
+    refusal = "permission"
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,20 +126,11 @@ def has_permission(actor: Actor, permission: Permission) -> bool:
     return permission in permissions_of(actor.role)
 
 
-def no_right(permission: Permission) -> str:
-    """Отказ «права нет» — одним местом.
-
-    Тесты и экраны сверяют отказ по этой функции, а не своей копией строки: слова отказа
-    меняются (проверка прода 10.10.2026 — в отказе код права вместо названия), и копия
-    строки в чужом тесте держала бы правку слов до его правки.
-    """
-    return f"Действие «{permission.value}» недоступно этой учётке"
-
-
 def require(actor: Actor | None, permission: Permission) -> None:
-    """Пропустить или отказать. Отказ называет действие (`no_right`)."""
+    """Пропустить или отказать. Отказ называет право словами (`no_right`)."""
     if actor is None:
-        raise AccessDeniedError(f"Нужен вход: действие «{permission.value}» требует учётки")
+        title = PERMISSION_TITLES[permission]
+        raise AccessDeniedError(f"Нужен вход: действие «{title}» требует учётки")
     if not has_permission(actor, permission):
         raise AccessDeniedError(no_right(permission))
 
