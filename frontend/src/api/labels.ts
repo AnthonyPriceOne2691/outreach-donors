@@ -33,6 +33,7 @@ import type {
   ThreadState,
   UsageProvider,
 } from './types';
+import { regionName } from './regions';
 
 export const PERMISSION_TITLES: Record<Permission, string> = {
   view: 'смотреть базу',
@@ -218,12 +219,12 @@ const COUNTRY_TITLES: Record<string, string> = {
   ee: 'Эстония',
 };
 
-/** Страна одним видом на всех экранах: русское имя, а незнакомый код —
- *  заглавными («NG»). Раньше одна и та же страна была «США · us», «US»
- *  и «us» на трёх соседних экранах. */
+/** Страна одним видом на всех экранах: рынок — нашим словом, другая страна — именем CLDR
+ *  (`regions.ts`; было — кодом, «NP · 84%», проверка прода 10.10.2026), не страна — кодом.
+ *  Раньше одна и та же страна была «США · us», «US» и «us» на трёх соседних экранах. */
 export function countryTitle(code: string | null | undefined): string {
   if (code === null || code === undefined || code === '') return '—';
-  return COUNTRY_TITLES[code.toLowerCase()] ?? code.toUpperCase();
+  return COUNTRY_TITLES[code.toLowerCase()] ?? regionName(code) ?? code.toUpperCase();
 }
 
 /** На что уходят деньги. Подписи те же, что в отчёте прогона: расход
