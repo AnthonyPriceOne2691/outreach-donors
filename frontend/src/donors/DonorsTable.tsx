@@ -35,7 +35,6 @@ import {
   Button,
   Checkbox,
   Group,
-  NumberInput,
   Select,
   Stack,
   Table,
@@ -54,10 +53,10 @@ import {
 } from '../api/labels';
 import type { DonorFreshness, DonorRowCard, DonorStatus } from '../api/types';
 import { InfoHint } from '../components/InfoHint';
-import { numberOf } from '../components/numberText';
+import { NumberField } from '../components/NumberField';
 import { Seams } from '../components/Seams';
 import { formatCompact, formatNumber, formatShare } from '../format';
-import { FRESHNESS, totalOf, TRAFFIC_DIGITS } from './donorFilters';
+import { DR_MAX, FRESHNESS, thresholdRefusal, totalOf, TRAFFIC_MAX } from './donorFilters';
 import type { DonorFilters, Emptiness } from './donorFilters';
 import type { Picks } from './picks';
 import { placeOf } from './place';
@@ -144,20 +143,15 @@ function countryOptions(facets: Facets | null): { value: string; label: string }
 interface FilterRowProps {
   filters: DonorFilters;
   facets: Facets | null;
-  /** Поиск и пороги — как набраны сейчас: в адрес они уходят после паузы. */
+  /** Поиск и пороги — как набраны сейчас: в адрес они уходят после паузы,
+   *  порог — только годным числом. */
   search: string;
   onSearch: (value: string) => void;
-  minDr: number | null;
-  onMinDr: (value: number | null) => void;
-  minTraffic: number | null;
-  onMinTraffic: (value: number | null) => void;
+  minDr: string;
+  onMinDr: (text: string) => void;
+  minTraffic: string;
+  onMinTraffic: (text: string) => void;
   onFilter: (patch: Partial<DonorFilters>) => void;
-}
-
-/** Строкой поле отдаёт и число с нулём впереди («05»): она была «пусто», и поле
- *  стиралось посреди набора (проверка QA 10.10.2026). */
-function filterNumber(value: number | string): number | null {
-  return typeof value === 'number' ? value : numberOf(value);
 }
 
 function FilterRow({
@@ -225,36 +219,28 @@ function FilterRow({
         />
       </Table.Th>
       <Table.Th>
-        <NumberInput
+        {/* Порог — как набран: «1.5» не склеивается в 15, под полем — почему
+            так нельзя, а фильтр прежний (проверка QA 10.10.2026). */}
+        <NumberField
           size="xs"
           placeholder="не ниже"
           aria-label="DR не ниже"
-          min={0}
-          max={100}
-          clampBehavior="strict"
-          allowDecimal={false}
-          allowNegative={false}
-          hideControls
-          value={minDr ?? ''}
-          onChange={(value) => onMinDr(filterNumber(value))}
+          value={minDr}
+          error={thresholdRefusal(minDr, DR_MAX)}
+          onChange={onMinDr}
         />
       </Table.Th>
       <Table.Th>
         {/* Разряды — пробелом, как у чисел на экране: «1 000 000» читается,
             «1000000» — пересчитывается по нулям. */}
-        <NumberInput
+        <NumberField
           size="xs"
           placeholder="не ниже"
           aria-label="Трафик не ниже"
-          min={0}
-          max={10 ** TRAFFIC_DIGITS - 1}
-          clampBehavior="strict"
-          allowDecimal={false}
-          allowNegative={false}
-          thousandSeparator=" "
-          hideControls
-          value={minTraffic ?? ''}
-          onChange={(value) => onMinTraffic(filterNumber(value))}
+          grouped
+          value={minTraffic}
+          error={thresholdRefusal(minTraffic, TRAFFIC_MAX)}
+          onChange={onMinTraffic}
         />
       </Table.Th>
       <Table.Th>

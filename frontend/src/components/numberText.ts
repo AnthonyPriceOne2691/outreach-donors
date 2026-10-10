@@ -108,6 +108,15 @@ export function numberText(value: number, decimals: NumberRule['decimals'] = 0):
   return SHOWN[decimals].format(value).replace(SPACES, ' ');
 }
 
+/** Целое из одних цифр — разрядами через пробел, как на экране: «1000000» —
+ *  «1 000 000». Цифры не трогаются, нули впереди тоже: стёртая первая цифра у
+ *  «1 000 000» — это «000 000», а не ноль. Набрано не из одних цифр — `null`:
+ *  такое поле стоит как набрано и получает отказ. */
+export function groupDigits(text: string): string | null {
+  const digits = bare(text);
+  return /^\d+$/.test(digits) ? digits.replace(/\B(?=(\d{3})+(?!\d))/g, ' ') : null;
+}
+
 /** Одно ли число в двух полях — по смыслу, а не по написанию: «1 250,5» и
  *  «1250.50» — одно. Не числа сравниваются как набраны. */
 export function sameNumber(left: string, right: string): boolean {

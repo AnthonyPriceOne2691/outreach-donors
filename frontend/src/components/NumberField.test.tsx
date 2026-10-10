@@ -65,6 +65,30 @@ describe('поле числа', () => {
     expect(field).toHaveAccessibleDescription('Пусто — весь остаток по капу');
   });
 
+  it('с разрядами: пробелы встают по ходу набора, курсор — за той же цифрой', async () => {
+    function Traffic() {
+      const [text, setText] = useState('');
+      return <NumberField aria-label="Трафик не ниже" grouped value={text} onChange={setText} />;
+    }
+    renderWith(<Traffic />);
+    const field = screen.getByLabelText<HTMLInputElement>('Трафик не ниже');
+    const user = userEvent.setup();
+
+    await user.type(field, '1000000');
+    expect(field).toHaveValue('1 000 000');
+
+    // Цифра в середину: «1 0|00 000» + «5» — «10 500 000», курсор за пятёркой.
+    await user.type(field, '5', { initialSelectionStart: 3, initialSelectionEnd: 3 });
+    expect(field).toHaveValue('10 500 000');
+    expect(field.selectionStart).toBe(4);
+
+    // С точкой — уже не одни цифры: дальше пробелы не переставляются, набранное
+    // стоит как есть (отказ — дело правила поля).
+    await user.clear(field);
+    await user.type(field, '1000.5000');
+    expect(field).toHaveValue('1 000.5000');
+  });
+
   it('клавиатура телефона — из цифр, у денег — с запятой', () => {
     renderWith(
       <>

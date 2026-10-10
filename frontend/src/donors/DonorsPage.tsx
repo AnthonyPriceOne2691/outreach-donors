@@ -37,18 +37,23 @@ import { refusalOf } from '../api/client';
 import { exportCounts, exportDonors, exportPicked, saveFile } from '../api/donors';
 import { listDonors } from '../api/runs';
 import type { DonorRowCard } from '../api/types';
+import { sameNumber } from '../components/numberText';
 import { PageSwitch } from '../components/PageSwitch';
 import { formatNumber } from '../format';
 import { DonorsTable } from './DonorsTable';
 import { placeOf } from './place';
 import {
+  DR_MAX,
   emptinessOf,
   isFiltered,
   NO_FILTERS,
   PAGE_SIZE,
   queryOf,
   readFilters,
+  thresholdOf,
+  thresholdText,
   totalOf,
+  TRAFFIC_MAX,
   writeFilters,
 } from './donorFilters';
 import type { DonorFilters } from './donorFilters';
@@ -61,7 +66,16 @@ import { notify } from '../notices';
 /** Набранный поиск совпадает с адресом без пробелов по краям: пробел
  *  в конце — это ещё набор, а не новый фильтр. */
 const sameSearch = (draft: string, committed: string) => draft.trim() === committed;
-const sameNumber = (draft: number | null, committed: number | null) => draft === committed;
+
+/** Порог уходит в адрес, только если набрано число или пусто. Набрано не число —
+ *  фильтр прежний, а под полем отказ: «1.5» больше не склеивается в 15
+ *  (проверка QA 10.10.2026). */
+function onlyValid(max: number, commit: (value: number | null) => void) {
+  return (text: string) => {
+    const value = thresholdOf(text, max);
+    if (value !== undefined) commit(value);
+  };
+}
 
 export function DonorsPage() {
   const navigate = useNavigate();
@@ -86,15 +100,21 @@ export function DonorsPage() {
   );
 
   // Поиск и пороги печатают — в адрес они уходят после паузы в наборе.
+  // Пороги — строкой, как набраны: «05» и «5» — один фильтр, и набранное
+  // не переписывается адресом, пока число в нём то же.
   const [search, setSearch] = useTyped(
     filters.search,
     (value) => apply({ search: value.trim() }),
     sameSearch,
   );
-  const [minDr, setMinDr] = useTyped(filters.minDr, (value) => apply({ minDr: value }), sameNumber);
+  const [minDr, setMinDr] = useTyped(
+    thresholdText(filters.minDr),
+    onlyValid(DR_MAX, (value) => apply({ minDr: value })),
+    sameNumber,
+  );
   const [minTraffic, setMinTraffic] = useTyped(
-    filters.minTraffic,
-    (value) => apply({ minTraffic: value }),
+    thresholdText(filters.minTraffic),
+    onlyValid(TRAFFIC_MAX, (value) => apply({ minTraffic: value })),
     sameNumber,
   );
 
@@ -235,7 +255,12 @@ export function DonorsPage() {
           picks={picks}
           onFilter={apply}
           onOpen={open}
-          onReset={() => setParams(writeFilters(NO_FILTERS), { replace: true })}
+          onReset={() => {
+            setParams(writeFilters(NO_FILTERS), { replace: true });
+            // Порог с отказом в адрес не попал — сброс адреса его не сотрёт.
+            setMinDr('');
+            setMinTraffic('');
+          }}
         />
 
         <PageSwitch label="Страницы доноров" page={filters.page} pages={pages} onChange={turn} />

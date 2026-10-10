@@ -8,7 +8,7 @@
  * а не «база пуста».
  */
 
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
@@ -102,8 +102,8 @@ describe('доноры: фильтры трафика, страны и данн�
   });
 
   it('DR с нулём впереди не стирает поле: «05» — фильтр «не ниже 5»', async () => {
-    // Проверка QA 10.10.2026: «05» поле отдаёт строкой, экран делал из неё «пусто» —
-    // и набранное стиралось посреди набора.
+    // Проверка QA 10.10.2026: «05» числовое поле отдавало строкой, экран делал из неё
+    // «пусто» — и набранное стиралось посреди набора.
     const recorded = await openDonors({
       [donorsAt('min_dr=0&limit=20&offset=0')]: { body: page() },
       [donorsAt('min_dr=5&limit=20&offset=0')]: { body: page() },
@@ -116,7 +116,65 @@ describe('доноры: фильтры трафика, страны и данн�
     await waitFor(() =>
       expect(listCalls(recorded).at(-1)).toBe('/api/donors?min_dr=5&limit=20&offset=0'),
     );
-    expect(dr).toHaveValue('5');
+    // Набранное — как есть: «05» и «5» — один фильтр, адрес поле не переписывает.
+    expect(dr).toHaveValue('05');
+  });
+
+  // Проверка QA 10.10.2026: числовое поле выбрасывало точку, и «1.5» становилось
+  // фильтром «DR не ниже 15»; «1e3» в трафике — 13.
+  it.each([
+    ['DR не ниже', '1.5', 'min_dr=15'],
+    ['Трафик не ниже', '1e3', 'min_traffic=13'],
+  ])(
+    '«%s» с «%s» — отказ под полем, склеенное число в фильтр не уходит',
+    async (name, typed, glued) => {
+      // Под нагрузкой пауза набора может застать и первую цифру — её ответ записан.
+      const recorded = await openDonors({
+        [donorsAt('min_dr=1&limit=20&offset=0')]: { body: page() },
+        [donorsAt('min_traffic=1&limit=20&offset=0')]: { body: page() },
+      });
+      const user = userEvent.setup();
+      const field = screen.getByRole('textbox', { name });
+
+      await user.type(field, typed);
+
+      expect(field).toHaveValue(typed);
+      expect(field).toHaveAttribute('aria-invalid', 'true');
+      expect(screen.getByText('Только целое число')).toBeInTheDocument();
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      });
+      expect(listCalls(recorded).some((path) => path.includes(glued))).toBe(false);
+    },
+  );
+
+  it('пока порог с отказом, фильтр прежний; поправили — уходит новый', async () => {
+    const recorded = await openDonors(
+      {
+        [donorsAt('min_dr=30&limit=20&offset=0')]: { body: page() },
+        [donorsAt('min_dr=25&limit=20&offset=0')]: { body: page() },
+      },
+      { path: '/donors?min_dr=30' },
+    );
+    const dr = screen.getByRole('textbox', { name: 'DR не ниже' });
+    expect(dr).toHaveValue('30');
+
+    // Целиком, одним изменением: без промежуточных «1» и «1.», которые пауза набора
+    // под нагрузкой могла бы застать годными.
+    fireEvent.change(dr, { target: { value: '1.5' } });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    });
+
+    expect(dr).toHaveValue('1.5');
+    expect(screen.getByText('Только целое число')).toBeInTheDocument();
+    expect(listCalls(recorded).every((path) => path.includes('min_dr=30'))).toBe(true);
+
+    fireEvent.change(dr, { target: { value: '25' } });
+    await waitFor(() =>
+      expect(listCalls(recorded).at(-1)).toBe('/api/donors?min_dr=25&limit=20&offset=0'),
+    );
+    expect(screen.queryByText('Только целое число')).not.toBeInTheDocument();
   });
 
   it('страна — из тех, что есть у доноров, со счётчиками и поиском по названию', async () => {
