@@ -19,6 +19,12 @@
  * маршрутизатором и переходами не задевается. Пропуск в ключе закрывает
  * этот класс по построению: чужая карточка под чужим ключом и показана
  * быть не может.
+ *
+ * **Сеанс, оборванный сервером, отличается от выхода кнопкой** (проверка QA
+ * 10.10.2026). Учётку отключили посреди работы — следующий запрос получал 401,
+ * и человек молча оказывался на входе, не зная почему. Теперь отказ пропуску
+ * (`session.clearToken`) помечает сеанс оборванным, и вход это объясняет; выход
+ * кнопкой пропуск убирает молча (`dropToken`), и объяснять там нечего.
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -28,13 +34,16 @@ import type { ReactNode } from 'react';
 import { fetchMe, login as loginRequest } from '../api/auth';
 import { AuthError } from '../api/client';
 import type { Me, Permission } from '../api/types';
-import { clearToken, readToken, saveToken, watchTokenLoss } from './session';
+import { dropToken, readToken, saveToken, watchTokenLoss } from './session';
 
 interface Session {
   user: Me | null;
   /** Первая проверка пропуска ещё идёт — показывать интерфейс рано. */
   loading: boolean;
   can: (permission: Permission) => boolean;
+  /** Сеанс оборвал отказ сервера (пропуск просрочен, учётку отключили), а не
+   *  «Выйти». Держится до следующего входа: вход говорит, почему он снова нужен. */
+  cutOff: boolean;
   signIn: (email: string, password: string) => Promise<Me>;
   signOut: () => void;
   /** Перечитать себя: после смены пароля и после правки своих прав. */
@@ -51,6 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // отрисовке: смена пропуска обязана перерисовать всё дерево, иначе
   // новый человек видит экран старого.
   const [token, setToken] = useState<string | null>(() => readToken());
+  const [cutOff, setCutOff] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: meQueryKey(token),
@@ -67,6 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const opened = await loginRequest(email, password);
       saveToken(opened.token);
       setToken(opened.token);
+      setCutOff(false);
       // Карточка приходит вместе с пропуском — лишний запрос за ней дал бы
       // промежуток, в котором непонятно, что рисовать.
       queryClient.setQueryData(meQueryKey(opened.token), opened.user);
@@ -76,8 +87,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const signOut = useCallback(() => {
-    clearToken();
+    dropToken();
     setToken(null);
+    setCutOff(false);
     // Чистится весь кэш, а не только «кто я»: в нём лежат данные,
     // которых следующему вошедшему видеть не положено.
     queryClient.clear();
@@ -87,18 +99,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await queryClient.invalidateQueries({ queryKey: meQueryKey(token) });
   }, [queryClient, token]);
 
-  useEffect(() => watchTokenLoss(() => setToken(null)), []);
+  useEffect(
+    () =>
+      watchTokenLoss((hadPass) => {
+        if (hadPass) setCutOff(true);
+        setToken(null);
+      }),
+    [],
+  );
 
   const value = useMemo<Session>(
     () => ({
       user: data ?? null,
       loading: isLoading,
       can: (permission) => data?.permissions.includes(permission) ?? false,
+      cutOff,
       signIn,
       signOut,
       refresh,
     }),
-    [data, isLoading, signIn, signOut, refresh],
+    [data, isLoading, cutOff, signIn, signOut, refresh],
   );
 
   return <SessionContext value={value}>{children}</SessionContext>;

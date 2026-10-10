@@ -64,6 +64,18 @@ describe('вход', () => {
     expect(screen.getByText(/Повторите через 59/)).toBeInTheDocument();
   });
 
+  it('неверный пароль — отказ входа, а не «сеанс закончился»: сеанса и не было', async () => {
+    serve({
+      'POST /api/auth/login': { status: 401, body: { detail: 'Неверная почта или пароль' } },
+    });
+    renderWith(<AppRoutes />, '/login');
+
+    await enter('админ@site.com', 'мимо');
+
+    expect(await screen.findByText('Неверная почта или пароль')).toBeInTheDocument();
+    expect(screen.queryByText('Сеанс закончился')).not.toBeInTheDocument();
+  });
+
   it('с разовым паролем ведёт сразу на смену, а не на обзор', async () => {
     serve({ 'POST /api/auth/login': { body: signedIn(NEWCOMER) } });
     renderWith(<AppRoutes />, '/login');
@@ -74,5 +86,36 @@ describe('вход', () => {
       expect(screen.getByText('Смена пароля')).toBeInTheDocument();
     });
     expect(screen.getByText(/Пока он не сменён, остальное закрыто/)).toBeInTheDocument();
+  });
+});
+
+describe('вход после оборванного сеанса', () => {
+  it('учётку отключили посреди работы — вход говорит, почему пришлось войти снова', async () => {
+    // Проверка QA 10.10.2026: следующий запрос получал 401, и человек молча
+    // оказывался на входе.
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    serve({
+      'GET /api/auth/me': { body: ADMIN },
+      'GET /api/suppressions': {
+        status: 401,
+        body: { detail: 'Учётка отключена или удалена — войти по этому пропуску нельзя' },
+      },
+    });
+    renderWith(<AppRoutes />, '/suppressions');
+
+    expect(await screen.findByText('Сеанс закончился')).toBeInTheDocument();
+    expect(screen.getByText(/учётку могли отключить/)).toBeInTheDocument();
+    expect(screen.getByText('Вход для сотрудников')).toBeInTheDocument();
+  });
+
+  it('выход кнопкой — без объяснений: человек вышел сам', async () => {
+    serve({ 'POST /api/auth/login': { body: signedIn(ADMIN) }, ...HOME_ROUTES });
+    renderWith(<AppRoutes />, '/login');
+    await enter('админ@site.com', 'пароль-для-теста');
+
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Выйти' }));
+
+    expect(await screen.findByText('Вход для сотрудников')).toBeInTheDocument();
+    expect(screen.queryByText('Сеанс закончился')).not.toBeInTheDocument();
   });
 });

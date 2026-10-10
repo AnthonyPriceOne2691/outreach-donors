@@ -8,6 +8,11 @@
  *
  * Отдельно разобран отказ по счётчику попыток: это не ошибка ввода,
  * а «подождите», и человеку надо сказать сколько.
+ *
+ * **Сеанс, оборванный сервером, назван** (проверка QA 10.10.2026): учётку
+ * отключили посреди работы — и человек молча оказывался здесь. Догадка
+ * «учётку могли отключить» подсказкой подбирающему не служит: её видит
+ * только тот, у кого в этой вкладке был живой сеанс.
  */
 
 import {
@@ -34,7 +39,7 @@ interface FromState {
 }
 
 export function LoginPage() {
-  const { signIn } = useSession();
+  const { signIn, cutOff } = useSession();
   const navigate = useNavigate();
   const location = useLocation();
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -80,6 +85,12 @@ export function LoginPage() {
                 Вход для сотрудников
               </Text>
             </div>
+
+            {cutOff && (
+              <Alert color="yellow" title="Сеанс закончился">
+                Войдите снова; если не пускает, учётку могли отключить — спросите админа.
+              </Alert>
+            )}
 
             {refusal !== null && (
               <Alert color={waiting ? 'yellow' : 'red'} title={waiting ? 'Подождите' : 'Не вошли'}>
