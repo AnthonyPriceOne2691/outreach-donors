@@ -12,6 +12,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -135,7 +137,9 @@ async def start_run(
         country=body.country,
         depth_pages=body.depth_pages,
     )
-    job = runs_queue().enqueue(RUN_JOB, run.id)
+    # Клиент очереди синхронный: в пуле потоков, а не в цикле событий единственного
+    # процесса API — зависший Redis иначе держал бы всех (аудит 10.10.2026).
+    job = await asyncio.to_thread(runs_queue().enqueue, RUN_JOB, run.id)
     await runs.bind_job(run, str(job.id))
     await AccessRepository(session).record(
         AuditAction.RUN_STARTED,
@@ -177,7 +181,7 @@ async def all_runs(
         total=found.total,
         page=page,
         limit=limit,
-        workers=workers_alive(),
+        workers=await asyncio.to_thread(workers_alive),
         queued=found.queued,
     )
 

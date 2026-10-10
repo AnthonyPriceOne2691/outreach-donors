@@ -144,9 +144,22 @@ def with_retries() -> dict[str, Any]:
     }
 
 
+#: Сколько ждать Redis — подключения и ответа (аудит 10.10.2026, №9). Клиент синхронный,
+#: а зовут его и маршруты единственного процесса API: без предела зависший Redis держал
+#: первый же `GET /runs`, а с ним — всех людей и `/health`. Пять секунд — как у ленты
+#: тревог сторожа (`ops/alarm_feed.py`). Воркеру короткий предел не мешает: на своё
+#: блокирующее ожидание задачи (минуты) rq растягивает его сам (`Worker._set_connection`).
+REDIS_TIMEOUT_SEC = 5.0
+
+
 def connection() -> Redis:
-    """Соединение с очередью. Адрес — из конфига, как и всё остальное."""
-    return Redis.from_url(storage.REDIS_URL)
+    """Соединение с очередью. Адрес — из конфига, как и всё остальное; пределы ожидания —
+    `REDIS_TIMEOUT_SEC`."""
+    return Redis.from_url(
+        storage.REDIS_URL,
+        socket_connect_timeout=REDIS_TIMEOUT_SEC,
+        socket_timeout=REDIS_TIMEOUT_SEC,
+    )
 
 
 def runs_queue(redis: Redis | None = None) -> Queue:
@@ -182,8 +195,7 @@ def workers_alive(redis: Redis | None = None, queue: str = QUEUE_NAME) -> int | 
     Проверено 21.09.2026: задача разбора провисела так сутки.
     """
     try:
-        connection = redis or Redis.from_url(storage.REDIS_URL)
-        return len(Worker.all(queue=Queue(queue, connection=connection)))
+        return len(Worker.all(queue=Queue(queue, connection=redis or connection())))
     except RedisError as exc:
         logger.warning("очередь: не удалось спросить, есть ли воркеры — %s", exc)
         return None
@@ -245,9 +257,9 @@ def job_alive(job_id: str | None, redis: Redis | None = None) -> bool | None:
     if not job_id:
         return None
     try:
-        connection = redis or Redis.from_url(storage.REDIS_URL)
+        conn = redis or connection()
         try:
-            job = Job.fetch(job_id, connection=connection)
+            job = Job.fetch(job_id, connection=conn)
         except NoSuchJobError:
             # Задачи в Redis нет: её убрал перезапуск очереди без
             # сохранения или срок хранения результата. Это штатный
@@ -264,7 +276,7 @@ def job_alive(job_id: str | None, redis: Redis | None = None) -> bool | None:
         state = job.get_status(refresh=True)
         if state != "started":
             return state in _LIVE_STATES
-        return _worker_lives(job, connection)
+        return _worker_lives(job, conn)
     except RedisError as exc:
         logger.warning("очередь: не удалось узнать судьбу задачи %s — %s", job_id, exc)
         return None
@@ -282,7 +294,7 @@ def job_failure(job_id: str | None, redis: Redis | None = None) -> str | None:
     if not job_id:
         return None
     try:
-        job = Job.fetch(job_id, connection=redis or Redis.from_url(storage.REDIS_URL))
+        job = Job.fetch(job_id, connection=redis or connection())
         if job.get_status(refresh=True) != "failed":
             return None
         result = job.latest_result()

@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, Query
@@ -75,21 +76,22 @@ async def decide(
     job_id: str | None = None
     if report.accepted_domains:
         pending = await ContactRepository(session).pending_count()
-        job = runs_queue().enqueue(
-            CONTACTS_JOB,
-            max(pending, len(report.accepted_domains)),
-            False,
-            False,
-            **with_retries(),
-        )
-        job_id = str(job.id)
-        remember_contacts_job(job_id)
+        # Очередь — в пуле потоков: клиент Redis синхронный, а процесс API один
+        # (аудит 10.10.2026).
+        job_id = await asyncio.to_thread(_queue_search, max(pending, len(report.accepted_domains)))
         logger.info(
             "рассмотрение: принято %s — поиск контактов поставлен", len(report.accepted_domains)
         )
     return DecideResult(
         changed=report.changed, accepted=len(report.accepted_domains), contacts_job_id=job_id
     )
+
+
+def _queue_search(limit: int) -> str:
+    """Поставить поиск контактов принятым и запомнить его номер."""
+    job = runs_queue().enqueue(CONTACTS_JOB, limit, False, False, **with_retries())
+    remember_contacts_job(str(job.id))
+    return str(job.id)
 
 
 @router.get("/accuracy", response_model=AccuracyView, summary="Судья против человека")

@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from typing import Any
 
@@ -54,7 +55,9 @@ class JobCard(BaseModel):
 
 @router.get("/{job_id}", response_model=JobCard, summary="Исход фоновой задачи")
 async def outcome(job_id: str, _: UserModel = _viewer) -> JobCard:
-    found = job_outcome(job_id)
+    # Исход читается из Redis синхронным клиентом — в пуле потоков, а не в цикле событий
+    # единственного процесса API (аудит 10.10.2026).
+    found = await asyncio.to_thread(job_outcome, job_id)
     if found is None:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
