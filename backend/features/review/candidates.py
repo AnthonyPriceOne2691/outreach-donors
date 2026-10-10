@@ -131,10 +131,10 @@ AUTO_ACCEPT_MIN_DECISIONS = 200
 class Agreement:
     """Как совет судьи сходится с решением человека.
 
-    Считается только там, где человек решал сам: перенесённые решения —
-    копия, а не второе мнение. «Посмотри» судьи — просьба, а не совет,
-    и в точность не входит, но считается отдельно: доля «посмотри» —
-    это сколько работы судья оставляет человеку.
+    По всем прогонам — только там, где человек решал сам: перенесённое решение —
+    копия, а не второе мнение. В одном прогоне — и перенесённые (`accuracy`).
+    «Посмотри» судьи — просьба, а не совет, и в точность не входит, но считается
+    отдельно: доля «посмотри» — это сколько работы судья оставляет человеку.
     """
 
     advised: int = 0
@@ -182,12 +182,19 @@ def _voice(value: str | None) -> SellsBy | None:
     return None if value is None else SellsBy(value)
 
 
+#: Решение в очереди → совет, сравнимый с советом судьи: принял — «площадка»,
+#: отклонил — «не площадка». Одно правило у плиток рассмотрения и колонки
+#: истории прогонов (`runs/browse.py`, проверка прода 10.10.2026).
+DECISION_ADVICE: dict[str, str] = {
+    Decision.ACCEPTED.value: "accept",
+    Decision.REJECTED.value: "reject",
+}
+
+
 def _agreement_key(recommendation: str | None, status: str) -> tuple[str, bool] | None:
-    if recommendation == "accept":
-        return "accept", status == Decision.ACCEPTED.value
-    if recommendation == "reject":
-        return "reject", status == Decision.REJECTED.value
-    return None
+    if recommendation not in ("accept", "reject"):
+        return None
+    return recommendation, DECISION_ADVICE.get(status) == recommendation
 
 
 def _bump(table: dict[str, Agreement], advice: str, agreed: bool) -> None:
@@ -372,7 +379,12 @@ class RunReview:
         return candidates
 
     async def accuracy(self, run_id: int | None = None) -> JudgeAccuracy:
-        """Судья против человека — по всем прогонам или по одному."""
+        """Судья против человека — по всем прогонам или по одному.
+
+        По всем — без перенесённых: одно решение считается один раз. В одном
+        прогоне перенесённое — решение о его кандидате, оно стоит во вкладке:
+        плитки сходятся с вкладками и с колонкой истории (проверка прода 10.10.2026).
+        """
         statement = (
             select(
                 RunCandidateModel.status,
@@ -382,10 +394,10 @@ class RunReview:
             )
             .join(DomainModel, DomainModel.id == RunCandidateModel.domain_id)
             .where(RunCandidateModel.status != Decision.PENDING.value)
-            .where(RunCandidateModel.carried.is_(False))
         )
-        if run_id is not None:
-            statement = statement.where(_of_run(run_id))
+        statement = statement.where(
+            RunCandidateModel.carried.is_(False) if run_id is None else _of_run(run_id)
+        )
         by_advice: dict[str, Agreement] = {}
         by_layer: dict[str, dict[str, Agreement]] = {}
         by_intent: dict[str, dict[str, Agreement]] = {}

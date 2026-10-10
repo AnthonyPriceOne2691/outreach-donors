@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 from backend.features.contacts.repository import ContactRepository
@@ -29,6 +29,7 @@ from backend.features.review.candidates import (
     RunReview,
 )
 from backend.features.review.ordering import Tier
+from backend.features.runs.browse import RunBrowser
 from backend.features.runs.exclusions import ExclusionReason, Exclusions, by_name
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.thresholds import defaults
@@ -303,6 +304,86 @@ class TestAccuracy:
 
     def test_auto_accept_needs_a_real_sample(self) -> None:
         assert AUTO_ACCEPT_MIN_DECISIONS >= 200
+
+
+class TestHumanLookedAtTheRun:
+    """«Человек смотрел» в истории прогонов — одним правилом с рассмотрением прогона.
+
+    Проверка прода 10.10.2026: прогоны с 26 и 7 принятыми стояли в истории с «человек
+    не смотрел» — счётчик знал только «Отбор». Теперь слово человека о домене прогона —
+    решение в его очереди, а без него — тип сайта на «Отборе»; колонка истории и плитки
+    рассмотрения прогона называют одни числа.
+    """
+
+    HOSTS: ClassVar[list[str]] = [
+        "right.example.test",
+        "wrong.example.test",
+        "asked.example.test",
+        "blind.example.test",
+    ]
+
+    async def test_queue_decisions_count_and_match_the_review_tiles(
+        self, session: AsyncSession
+    ) -> None:
+        run = await _run(session, found_by={host: ["k"] for host in self.HOSTS})
+        await _judged(session, "right.example.test", "accept")
+        await _judged(session, "wrong.example.test", "reject", intent="sells_own")
+        await _judged(session, "asked.example.test", "review")
+        await _judged(session, "blind.example.test", None)
+        review = RunReview(session)
+        await review.queue_run(run.id, self.HOSTS)
+        ids = await _candidate_ids(session, run.id)
+        await review.decide(run.id, [ids[h] for h in self.HOSTS[:3]], Decision.ACCEPTED, by="a")
+        await review.decide(run.id, [ids["blind.example.test"]], Decision.REJECTED, by="a")
+
+        card = await RunBrowser(session).one(run.id)
+        tiles = await review.accuracy(run.id)
+
+        assert (card.review.reviewed, card.review.disagreements) == (4, 1)
+        missed = sum(advice.advised - advice.agreed for advice in tiles.by_advice.values())
+        assert (card.review.reviewed, card.review.disagreements) == (tiles.decided, missed)
+
+    async def test_carried_decision_counts_in_its_run_but_once_overall(
+        self, session: AsyncSession
+    ) -> None:
+        """Перенесённое решение стоит во вкладке прогона — в его колонке и плитках оно
+        есть. По всем прогонам — нет: это копия, одно решение считается один раз."""
+        run = await _run(session, found_by={"old.example.test": ["k"]})
+        await _judged(session, "old.example.test", "accept", review="accepted")
+        await RunReview(session).queue_run(run.id, ["old.example.test"])
+
+        card = await RunBrowser(session).one(run.id)
+
+        assert card.review.reviewed == 1
+        assert (await RunReview(session).accuracy(run.id)).decided == 1
+        assert (await RunReview(session).accuracy()).decided == 0
+
+    async def test_queue_is_stronger_than_selection_which_adds_the_rest(
+        self, session: AsyncSession
+    ) -> None:
+        """Решение в очереди сильнее «Отбора» — с ним сходятся плитки рассмотрения.
+        «Отбор» добавляет домены, о которых очередь молчит, — и отрезанные судьёй."""
+        hosts = ["both.example.test", "cut.example.test"]
+        run = await _run(session, found_by={host: ["k"] for host in hosts})
+        both = await _judged(session, "both.example.test", "accept")
+        both.human_intent = "sells_own"
+        session.add(
+            DomainModel(
+                host="cut.example.test",
+                judge_recommendation="reject",
+                judge_decided_by="rule",
+                human_intent="publisher",
+            )
+        )
+        await session.flush()
+        review = RunReview(session)
+        await review.queue_run(run.id, hosts)
+        ids = await _candidate_ids(session, run.id)
+        await review.decide(run.id, [ids["both.example.test"]], Decision.ACCEPTED, by="a")
+
+        card = await RunBrowser(session).one(run.id)
+
+        assert (card.review.reviewed, card.review.disagreements) == (2, 1)
 
 
 class TestExclusionsByName:

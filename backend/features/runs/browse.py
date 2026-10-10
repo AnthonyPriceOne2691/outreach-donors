@@ -4,19 +4,25 @@
 и факт. Их расхождение — единственная проверка сметы; без неё оценка
 расхода ничем не подтверждается, и разговор «почему кончились юниты»
 не с чего начинать.
+
+**Проверка судьи человеком — одним правилом с рассмотрением прогона**
+(`tally_reviews`). До 10.10.2026 колонка знала только «Отбор», и прогоны
+с 26 и 7 принятыми стояли с «человек не смотрел» (проверка прода).
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import RunStatus
+from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.run import RunCandidateModel, RunModel
-from backend.features.donors.selection import ReviewTally, tally_reviews
-from backend.features.review.candidates import Decision
+from backend.features.donors.selection import human_advice
+from backend.features.review.candidates import DECISION_ADVICE, Decision
 from backend.shared.database.ids import storable
 
 #: Сколько прогонов на странице истории. Число живёт только здесь: экран
@@ -30,6 +36,23 @@ MAX_PAGE_SIZE = 50
 
 class UnknownRunError(ValueError):
     """Прогона с таким номером нет."""
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewTally:
+    """Проверка судьи человеком по доменам прогона: о скольких человек сказал
+    своё и сколько раз разошёлся с судьёй. «Посмотри» судьи — просьба, а не
+    мнение, и расхождением не считается."""
+
+    reviewed: int = 0
+    disagreements: int = 0
+
+
+#: Слова о доменах прогона: домен → (совет человека, совет судьи).
+Words = dict[str, tuple[str | None, str | None]]
+
+#: Советы, которые можно сравнить: «площадка» и «не площадка».
+ADVICES = ("accept", "reject")
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,3 +160,78 @@ class RunBrowser:
 def _hosts(run: RunModel) -> list[str]:
     hosts = (run.candidates or {}).get("hosts")
     return [str(host) for host in hosts] if isinstance(hosts, list) else []
+
+
+async def tally_reviews(
+    session: AsyncSession, runs: dict[int, list[str]]
+) -> dict[int, ReviewTally]:
+    """Проверка судьи человеком по прогонам — прогон → его домены выдачи.
+
+    Слово человека о домене прогона — решение в очереди этого прогона (принят —
+    «площадка», отклонён — «не площадка», правилом `review.candidates.DECISION_ADVICE`;
+    перенесённое из прошлого прогона — тоже, оно и стоит во вкладке), а без него —
+    тип сайта, названный на «Отборе». Решения очереди так же считает рассмотрение
+    прогона (`RunReview.accuracy` по прогону), и без слов «Отбора» колонка истории
+    и плитки рассмотрения называют одни числа. «Отбор» добавляет домены, о которых
+    человек сказал там, — и отрезанные судьёй, до очереди не дошедшие.
+
+    Считается при чтении, а не в конце прогона: человек решает после.
+    """
+    if not runs:
+        return {}
+    words: dict[int, Words] = {run_id: {} for run_id in runs}
+    for run_id, host, status, judge in await _queue_words(session, list(runs)):
+        words[run_id][host] = (DECISION_ADVICE.get(status), judge)
+    typed = await _selection_words(session, {host for hosts in runs.values() for host in hosts})
+    for run_id, hosts in runs.items():
+        _add_typed(words[run_id], hosts, typed)
+    return {run_id: _tally(said) for run_id, said in words.items()}
+
+
+async def _queue_words(
+    session: AsyncSession, run_ids: Sequence[int]
+) -> Sequence[tuple[int, str, str, str | None]]:
+    """Решения очереди прогонов: прогон, домен, решение, совет судьи."""
+    rows = await session.execute(
+        select(
+            RunCandidateModel.run_id,
+            DomainModel.host,
+            RunCandidateModel.status,
+            DomainModel.judge_recommendation,
+        )
+        .join(DomainModel, DomainModel.id == RunCandidateModel.domain_id)
+        .where(RunCandidateModel.run_id.in_(run_ids))
+        .where(RunCandidateModel.status != Decision.PENDING.value)
+    )
+    return rows.tuples().all()
+
+
+async def _selection_words(session: AsyncSession, hosts: set[str]) -> Words:
+    """Тип сайта, названный человеком на «Отборе»: домен → (совет, совет судьи)."""
+    if not hosts:
+        return {}
+    rows = await session.execute(
+        select(DomainModel.host, DomainModel.human_intent, DomainModel.judge_recommendation)
+        .where(DomainModel.host.in_(hosts))
+        .where(DomainModel.human_intent.is_not(None))
+    )
+    return {host: (human_advice(intent), judge) for host, intent, judge in rows.tuples() if intent}
+
+
+def _add_typed(words: Words, hosts: Sequence[str], typed: Words) -> None:
+    """Слова «Отбора» — тем доменам прогона, о которых очередь молчит: решение
+    в очереди сильнее, с ним сходятся плитки рассмотрения."""
+    for host in hosts:
+        if host in typed:
+            words.setdefault(host, typed[host])
+
+
+def _tally(words: Words) -> ReviewTally:
+    return ReviewTally(
+        reviewed=len(words),
+        disagreements=sum(
+            1
+            for human, judge in words.values()
+            if human in ADVICES and judge in ADVICES and human != judge
+        ),
+    )

@@ -409,39 +409,3 @@ class SelectionBrowser:
         domain.human_note = cleaned if intent else None
         await self._session.flush()
         return await self.row(domain_id)
-
-
-@dataclass(frozen=True, slots=True)
-class ReviewTally:
-    """Проверка человеком по набору доменов: сколько смотрел и сколько раз
-    разошёлся с судьёй. «Посмотри» судьи расхождением не считается."""
-
-    reviewed: int = 0
-    disagreements: int = 0
-
-
-async def tally_reviews(
-    session: AsyncSession, groups: dict[int, list[str]]
-) -> dict[int, ReviewTally]:
-    """Сводка по группам доменов одним запросом — например, по прогонам.
-
-    Считается при чтении, а не в момент прогона: человек решает на экране
-    отбора уже после, и в отчёте, записанном в конце прогона, здесь всегда
-    стоял бы ноль.
-    """
-    hosts = {host for group in groups.values() for host in group}
-    if not hosts:
-        return {key: ReviewTally() for key in groups}
-    rows = await session.execute(
-        select(DomainModel.host, _disagrees())
-        .where(DomainModel.host.in_(hosts))
-        .where(DomainModel.human_intent.is_not(None))
-    )
-    seen = {host: bool(disagrees) for host, disagrees in rows.all()}
-    return {
-        key: ReviewTally(
-            reviewed=sum(1 for host in group if host in seen),
-            disagreements=sum(1 for host in group if seen.get(host)),
-        )
-        for key, group in groups.items()
-    }
