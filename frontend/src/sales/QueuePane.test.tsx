@@ -291,6 +291,94 @@ describe('очередь писем продаж', () => {
   });
 });
 
+describe('«Писем за раз» — как набрано', () => {
+  const NONE = { prepared: 0, refreshed: 0, waiting: {}, stopped: null };
+
+  it('стёртое поле и «05» не прыгают к умолчанию; «05» уходит пятёркой', async () => {
+    const recorded = await openQueue({
+      [`POST ${QUEUE}`]: { body: { job_id: 'job-b' } },
+      'GET /api/jobs/job-b': { body: job('job-b', NONE) },
+    });
+    const user = userEvent.setup();
+    const limit = screen.getByRole('textbox', { name: 'Писем за раз' });
+    const build = screen.getByRole('button', { name: 'Собрать очередь' });
+
+    await user.clear(limit);
+    // Стёртое — пустое, а не умолчание: «впишите» словами, кнопка закрыта.
+    expect(limit).toHaveValue('');
+    expect(screen.getByText('Впишите, сколько писем собрать')).toBeInTheDocument();
+    expect(build).toBeDisabled();
+
+    await user.type(limit, '05');
+    expect(limit).toHaveValue('05');
+    expect(screen.queryByText('Впишите, сколько писем собрать')).not.toBeInTheDocument();
+    await user.click(build);
+
+    await waitFor(() => expect(calls(recorded, 'POST', QUEUE)).toHaveLength(1), SCREEN_WAIT);
+    expect(calls(recorded, 'POST', QUEUE)[0]?.body).toEqual({ hypothesis_id: 5, limit: 5 });
+  });
+
+  it.each([
+    ['201', 'Допустимо от 1 до 200'],
+    ['0', 'Допустимо от 1 до 200'],
+    ['1.5', 'Только целое число от 1 до 200'],
+    ['пять', 'Только целое число от 1 до 200'],
+  ])('«%s» — отказ словами у поля, кнопка закрыта, запроса нет', async (text, words) => {
+    const recorded = await openQueue();
+    const user = userEvent.setup();
+    const limit = screen.getByRole('textbox', { name: 'Писем за раз' });
+
+    await user.clear(limit);
+    await user.type(limit, text);
+
+    // Набранное — на месте, границы — сервера (`limit_max`), а не копия числа на экране.
+    expect(limit).toHaveValue(text);
+    expect(screen.getByText(words)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Собрать очередь' })).toBeDisabled();
+    expect(calls(recorded, 'POST', QUEUE)).toEqual([]);
+  });
+
+  it('граница — у сервера: потолок меньше — и отказ называет его', async () => {
+    await openQueue({}, { ...READY, limit_max: 30 });
+    const user = userEvent.setup();
+    const limit = screen.getByRole('textbox', { name: 'Писем за раз' });
+
+    // Умолчание — не выше потолка сервера.
+    expect(limit).toHaveValue('30');
+    await user.clear(limit);
+    await user.type(limit, '31');
+
+    expect(screen.getByText('Допустимо от 1 до 30')).toBeInTheDocument();
+  });
+
+  it('вторая сборка гипотезы — строка об исходе новой: номер сборки постоянный', async () => {
+    let built = 0;
+    const reports = [NONE, { ...NONE, prepared: 4, refreshed: 1 }];
+    const recorded = await openQueue({
+      [`POST ${QUEUE}`]: () => {
+        built += 1;
+        return { body: { job_id: 'sales-queue-5' } };
+      },
+      'GET /api/jobs/sales-queue-5': () => ({
+        body: job('sales-queue-5', reports[Math.max(0, built - 1)] ?? NONE),
+      }),
+    });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Собрать очередь' }));
+    expect(
+      await screen.findByText('Новых писем 0, собрано заново 0.', {}, SCREEN_WAIT),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Собрать очередь' }));
+
+    // Под тем же номером — новая задача: строка спросила о ней заново, а не держит прежний итог.
+    expect(
+      await screen.findByText('Новых писем 4, собрано заново 1.', {}, SCREEN_WAIT),
+    ).toBeInTheDocument();
+    expect(calls(recorded, 'POST', QUEUE)).toHaveLength(2);
+  });
+});
+
 describe('пачка продаж', () => {
   it('уходит этапом продаж после подтверждения, итог сказан словами', async () => {
     const recorded = await openQueue({
