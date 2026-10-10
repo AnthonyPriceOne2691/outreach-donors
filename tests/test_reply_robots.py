@@ -1,7 +1,7 @@
 """Адрес робота не становится адресом донора.
 
-Письмо от noreply без служебных фраз правила вида считают ответом
-человека — и это верно: его увидит человек, и цену в нём разберут. Но
+Письмо от noreply с суммой или файлом правила вида считают ответом
+человека — и это верно: цену в нём разберут (без них это автоответчик). Но
 адрес, с которого ответили, запоминается предпочтительным: следующее
 письмо донору ушло бы роботу, который его выбросит, а отказ доставки
 ударил бы по нашему домену. Правило «адрес робота» одно на весь приём
@@ -46,6 +46,10 @@ WROTE_TO = f"editor@{HOST}"
         "MAILER-DAEMON@mx.donor.test",
         "postmaster@donor.test",
         "mail.daemon@donor.test",
+        # Проверка прода 10.10.2026: службы подписывают уведомления «<служба>-noreply@».
+        "accounts-noreply@service.example.test",
+        "sc-noreply@service.example.test",
+        "payments.no-reply@service.example.test",
     ],
 )
 def test_robot_addresses(address: str) -> None:
@@ -54,11 +58,18 @@ def test_robot_addresses(address: str) -> None:
 
 @pytest.mark.parametrize(
     "address",
-    ["editor@donor.test", "info@donor.test", "noreplyteam@donor.test", "replies@donor.test"],
+    [
+        "editor@donor.test",
+        "info@donor.test",
+        "noreplyteam@donor.test",
+        "info.noreplyteam@donor.test",
+        "juno-reply@donor.test",
+        "replies@donor.test",
+    ],
 )
 def test_people_are_not_robots(address: str) -> None:
-    """Сверка — с начала имени ящика и целым словом: «noreplyteam» — чья-то
-    команда, а не робот, и терять её адрес дороже."""
+    """Сверка — целым словом: «noreplyteam» — чья-то команда, а не робот,
+    и терять её адрес дороже; «juno-reply» — имя, а не «no-reply»."""
     assert not robots.robot(address)
 
 

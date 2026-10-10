@@ -12,12 +12,13 @@ from __future__ import annotations
 
 import json
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 from backend.features.core.domain import ReplyKind
 from backend.features.replies import classify, outcome, phrases
-from backend.features.replies.inbound import Incoming
+from backend.features.replies.inbound import Attachment, Incoming
 
 OUR_SUBJECT = "Re: Guest article on donor.test"
 AUTO_SUBMITTED = {"Auto-Submitted": "auto-replied"}
@@ -308,6 +309,44 @@ def test_noreply_speaking_of_itself_does_not_bury_the_address() -> None:
     )
 
     assert got.kind is not ReplyKind.BOUNCE
+
+
+# --- письмо робота ------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "sender",
+    ["accounts-noreply@service.example.test", "noreply@donor.test", "postmaster@donor.test"],
+)
+def test_service_notice_from_a_robot_is_not_a_human_answer(sender: str) -> None:
+    """Проверка прода 10.10.2026: уведомление службы о настройках с адреса
+    `…-noreply@` стояло на «Не привязаны» ответом человека."""
+    got = verdict(
+        "Hello, we're updating our settings to give you more control over saved history.",
+        subject="New privacy settings for your account",
+        sender=sender,
+    )
+
+    assert got.kind is ReplyKind.AUTO_REPLY
+    assert got.rule == "письмо робота без суммы и файла"
+
+
+def test_robot_naming_a_sum_is_still_a_reply_for_the_model() -> None:
+    """Прайс от робота тикет-системы — цена донора: сумма перевешивает адрес, как фразу."""
+    got = verdict("Request #77: a sponsored post is 150 GBP.", sender="sc-noreply@donor.test")
+
+    assert got.kind is ReplyKind.HUMAN
+    assert got.rule == "сумма в тексте важнее фразы"
+
+
+def test_robot_sending_a_file_is_still_a_reply_for_the_model() -> None:
+    """Прайс приходит файлом чаще, чем текстом: файл перевешивает адрес робота."""
+    incoming = replace(
+        reply("Our rates are attached.", sender="noreply@donor.test"),
+        attachments=(Attachment(name="rates.pdf", size=9000, content_type="application/pdf"),),
+    )
+
+    assert classify.classify(incoming).kind is ReplyKind.HUMAN
 
 
 # --- отказы доставки ----------------------------------------------------------
