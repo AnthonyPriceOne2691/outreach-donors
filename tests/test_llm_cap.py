@@ -97,15 +97,26 @@ class TestCap:
         await usage.ensure_llm_within_cap(session, run_id=await _run(session))
 
     async def test_daily_cap_stops_with_numbers(
-        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+        self,
+        session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         monkeypatch.setattr(llm_cfg, "DAILY_TOKEN_CAP", 1_000)
         await _spend(session, 600)
         await usage.ensure_llm_within_cap(session)
         await _spend(session, 400)
 
-        with pytest.raises(LlmCapExceededError, match=r"1000 из 1000.*LLM_DAILY_TOKEN_CAP"):
+        with pytest.raises(LlmCapExceededError) as refused:
             await usage.ensure_llm_within_cap(session)
+
+        # Человеку — числа и кто поднимет потолок; имя настройки — только журналу
+        # (находка QA продаж 10.10.2026: имя доходило до итога сборки).
+        assert str(refused.value) == (
+            "потолок расхода на модель за день достигнут: 1000 из 1000 токенов — "
+            "продолжение завтра; поднять потолок может администратор"
+        )
+        assert [getattr(r, "setting", None) for r in caplog.records] == ["LLM_DAILY_TOKEN_CAP"]
 
     async def test_yesterday_does_not_count_today(
         self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
@@ -153,7 +164,9 @@ class TestWhereItStops:
         report = await _build(session, rewriter=rewriter)
 
         assert report.prepared == 0  # type: ignore[attr-defined]
-        assert "LLM_DAILY_TOKEN_CAP" in (report.stopped or "")  # type: ignore[attr-defined]
+        stopped = report.stopped or ""  # type: ignore[attr-defined]
+        assert stopped.startswith("потолок расхода на модель за день достигнут: 1 из 1")
+        assert "LLM_DAILY_TOKEN_CAP" not in stopped
         assert rewriter.seen == []
 
     @pytest.mark.usefixtures("caps")

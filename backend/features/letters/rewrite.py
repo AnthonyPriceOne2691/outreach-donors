@@ -47,6 +47,11 @@ from backend.shared.llm import (
 
 logger = logging.getLogger(__name__)
 
+#: Ключа модели нет — нота сборки словами человека: ключ задаёт администратор, имя
+#: настройки — в журнале (находка QA продаж 10.10.2026: «LLM_API_KEY не задан…» доходило
+#: до итога сборки).
+NO_KEY = "ключ модели не задан — письма уходят шаблонными; задаёт администратор"
+
 #: Тема для логов.
 TOPIC = "письма"
 
@@ -225,7 +230,9 @@ class RewriteClient(ModelClient):
         if not zones:
             return RewriteResult(notes=["в шаблоне нет переписываемых зон"])
         if not self._api_key:
-            return RewriteResult(notes=["LLM_API_KEY не задан — письма уходят шаблонными"])
+            # Человеку — слова: нота доходит до итога сборки; имя настройки — журналу.
+            logger.warning("переписывание писем: не задан LLM_API_KEY — письма шаблонные")
+            return RewriteResult(notes=[NO_KEY])
         return None
 
     def _collect(

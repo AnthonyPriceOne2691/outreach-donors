@@ -63,8 +63,8 @@ async def test_spent_drafts_cap_lets_the_parse_go_and_refuses_the_draft_in_words
     assert agent.seen == []  # модель черновика не звали
     # 321 токен разбора — не в счёте черновиков: только 61 + 40.
     assert str(refused.value) == (
-        "дневной потолок черновиков агента выбран: 101 из 83 токенов (AGENT_DAILY_TOKEN_CAP); "
-        "завтра или поднимите AGENT_DAILY_TOKEN_CAP"
+        "дневной потолок черновиков агента выбран: 101 из 83 токенов — продолжение завтра; "
+        "поднять потолок может администратор"
     )
 
 
