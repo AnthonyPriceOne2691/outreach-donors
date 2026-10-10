@@ -208,23 +208,30 @@ def _verdict(body: dict[str, Any], code: int) -> Verdict:
     return Verdict(status, score if isinstance(score, int) else None, units=1)
 
 
+def configured() -> str:
+    """Какой проверяльщик задан — `fixture` или `live`. Негодная настройка — отказ словами
+    (`ConfigError`) без сети: так её судят и сборка проверяльщика, и экран — до постановки
+    очистки в очередь (`api/sales/clean.py`), а не в итоге задачи через минуты."""
+    name = (cfg.VERIFIER_PROVIDER or "").strip().lower()
+    if name == LIVE and not contacts_cfg.HUNTER_API_KEY:
+        raise ConfigError(
+            "SALES_VERIFIER_PROVIDER=live, а CONTACTS_HUNTER_API_KEY пуст. "
+            "Заполнить ключ или вернуть fixture — без ключа проверка адресов не стартует"
+        )
+    if name not in KNOWN:
+        raise ConfigError(
+            f"SALES_VERIFIER_PROVIDER=«{cfg.VERIFIER_PROVIDER}» — такого проверяльщика нет. "
+            f"Известные: {', '.join(KNOWN)}"
+        )
+    return name
+
+
 def build_verifier(http: httpx.AsyncClient) -> EmailVerifier:
     """Проверяльщик по настройке. Отказ — на старте, до первого лида."""
-    name = (cfg.VERIFIER_PROVIDER or "").strip().lower()
-    if name == FIXTURE:
-        logger.warning(
-            "продажи: проверяльщик адресов — fixture, вердикты выдуманные: "
-            "годится для проверки проводки, не для писем"
-        )
-        return FixtureVerifier()
-    if name == LIVE:
-        if not contacts_cfg.HUNTER_API_KEY:
-            raise ConfigError(
-                "SALES_VERIFIER_PROVIDER=live, а CONTACTS_HUNTER_API_KEY пуст. "
-                "Заполнить ключ или вернуть fixture — без ключа проверка адресов не стартует"
-            )
+    if configured() == LIVE:
         return HunterVerifier(http, api_key=contacts_cfg.HUNTER_API_KEY)
-    raise ConfigError(
-        f"SALES_VERIFIER_PROVIDER=«{cfg.VERIFIER_PROVIDER}» — такого проверяльщика нет. "
-        f"Известные: {', '.join(KNOWN)}"
+    logger.warning(
+        "продажи: проверяльщик адресов — fixture, вердикты выдуманные: "
+        "годится для проверки проводки, не для писем"
     )
+    return FixtureVerifier()

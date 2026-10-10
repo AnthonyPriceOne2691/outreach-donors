@@ -1,6 +1,6 @@
 /**
  * Продажи: гипотезы, лиды, загрузка базы, база знаний, отправитель, цепочка писем,
- * очередь писем и воронка.
+ * очередь писем, воронка и очистка лидов.
  *
  * Списки — обычным `request`. Загрузка — файлом или ссылкой на Google-таблицу
  * формой `multipart/form-data` (контракт сервера 1.3c): байты файла уходят как
@@ -24,6 +24,8 @@ import type {
   ChainStepCard,
   ChainView,
   HypothesesView,
+  HypothesisBody,
+  HypothesisCard,
   IntakeView,
   KbEntryBody,
   KbEntryCard,
@@ -31,6 +33,8 @@ import type {
   LeadField,
   LeadState,
   LeadsView,
+  SalesCleanBody,
+  SalesCleanView,
   SalesFunnelView,
   SalesQueueBody,
   SalesQueueView,
@@ -51,6 +55,11 @@ export interface LeadsQuery {
 
 export function listHypotheses(): Promise<HypothesesView> {
   return request<HypothesesView>('/sales/hypotheses');
+}
+
+/** Завести гипотезу из окна «Новая гипотеза». Ответ — карточка той же формы, что в списке. */
+export function addHypothesis(body: HypothesisBody): Promise<HypothesisCard> {
+  return request<HypothesisCard>('/sales/hypotheses', { method: 'POST', body });
 }
 
 /** Запрос → строка адреса: незаданные условия не пишутся вовсе — `?reason=`
@@ -190,6 +199,17 @@ export function readSalesQueue(hypothesis: number): Promise<SalesQueueView> {
 /** Поставить сборку очереди в очередь задач. Ничего не отправляет. */
 export function buildSalesQueue(body: SalesQueueBody): Promise<BuildQueued> {
   return request<BuildQueued>('/sales/queue', { method: 'POST', body });
+}
+
+/** Перед очисткой: сколько лидов гипотезы ждут и платная ли проверка адресов — на момент
+ *  нажатия: окно подтверждения называет расход по свежему числу. Без записи. */
+export function readSalesClean(hypothesis: number): Promise<SalesCleanView> {
+  return request<SalesCleanView>(`/sales/clean?hypothesis=${hypothesis}`);
+}
+
+/** Поставить очистку лидов гипотезы в очередь задач. Писем не пишет и не отправляет. */
+export function cleanSalesLeads(body: SalesCleanBody): Promise<BuildQueued> {
+  return request<BuildQueued>('/sales/clean', { method: 'POST', body });
 }
 
 /** Запрос воронки: гипотеза и период — моменты ISO с поясом, `until` не включая.

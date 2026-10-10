@@ -21,3 +21,12 @@ export function remember(key: string, value: string): void {
     // Хранилище недоступно (приватное окно) — помним до перезагрузки.
   }
 }
+
+/** Забыть: задача кончилась, и её итог после перезагрузки уже не нужен на экране. */
+export function forget(key: string): void {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Хранилище недоступно — забывать нечего: помнили только до перезагрузки.
+  }
+}

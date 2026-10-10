@@ -140,7 +140,9 @@ describe('база знаний: список', () => {
     expect(
       await screen.findByText('Записей пока нет — агенту не из чего писать.', {}, SCREEN_WAIT),
     ).toBeInTheDocument();
-    expect(screen.getByText(/sales-kb-load/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Заведите запись здесь; базу целиком из файла загружает администратор/),
+    ).toBeInTheDocument();
   });
 
   it('база не прочиталась — отказ сервера словами', async () => {

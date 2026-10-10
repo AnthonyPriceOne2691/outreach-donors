@@ -286,6 +286,11 @@
       "complexity": 3,
       "worst": "of:123"
     },
+    "backend/api/sales/clean.py": {
+      "lines": 156,
+      "complexity": 4,
+      "worst": "start_clean:128"
+    },
     "backend/api/sales/funnel.py": {
       "lines": 99,
       "complexity": 5,
@@ -307,14 +312,14 @@
       "worst": "_build_once:59"
     },
     "backend/api/sales/routes.py": {
-      "lines": 171,
+      "lines": 206,
       "complexity": 6,
-      "worst": "_found:62"
+      "worst": "_found:75"
     },
     "backend/api/sales/schemas.py": {
-      "lines": 152,
+      "lines": 165,
       "complexity": 2,
-      "worst": "of:143"
+      "worst": "of:156"
     },
     "backend/api/selection/__init__.py": {
       "lines": 1,
@@ -1477,9 +1482,9 @@
       "worst": "—"
     },
     "backend/features/ops/job_outcome.py": {
-      "lines": 189,
+      "lines": 191,
       "complexity": 10,
-      "worst": "_outcome:129"
+      "worst": "_outcome:131"
     },
     "backend/features/ops/mail_watch.py": {
       "lines": 165,
@@ -1901,6 +1906,11 @@
       "complexity": 8,
       "worst": "zones_of:197"
     },
+    "backend/features/sales/clean_jobs.py": {
+      "lines": 128,
+      "complexity": 4,
+      "worst": "clean_sales_leads:112"
+    },
     "backend/features/sales/cleaning.py": {
       "lines": 497,
       "complexity": 8,
@@ -1962,9 +1972,9 @@
       "worst": "note:90"
     },
     "backend/features/sales/hypotheses.py": {
-      "lines": 68,
+      "lines": 72,
       "complexity": 6,
-      "worst": "add:49"
+      "worst": "add:50"
     },
     "backend/features/sales/intake.py": {
       "lines": 393,
@@ -2107,7 +2117,7 @@
       "worst": "sales_cap:27"
     },
     "backend/features/sales/verifier.py": {
-      "lines": 231,
+      "lines": 238,
       "complexity": 9,
       "worst": "verify:139"
     },

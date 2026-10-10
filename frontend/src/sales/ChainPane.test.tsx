@@ -179,7 +179,9 @@ describe('цепочка писем: языки и шаги', () => {
       expect(card.getAllByText('не задан')).toHaveLength(3);
       expect(card.getAllByRole('button', { name: 'Задать' })).toHaveLength(3);
     }
-    expect(screen.getByText(/sales-chain-load --file/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Задайте шаги здесь; набор целиком из файла загружает администратор/),
+    ).toBeInTheDocument();
   });
 
   it('шаг называет тему, начало текста и кто правил; неполная цепочка — чего нет', async () => {
@@ -197,7 +199,7 @@ describe('цепочка писем: языки и шаги', () => {
     expect(
       english.getByText('Нет второй добивки — письма продаж на этом языке не соберутся.'),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/sales-chain-load/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/загружает администратор/)).not.toBeInTheDocument();
   });
 
   it('полная цепочка — с версией: по ней сборка и калибровка узнают текст', async () => {

@@ -335,8 +335,8 @@ async def test_own_chain_replaces_the_common_one_whole_steps_never_mix(
         found.check_ready()
     assert str(refused.value) == (
         f"цепочка писем продаж (en, набор гипотезы №{hypothesis_id}) не задана: "
-        "нет первой добивки, второй добивки — задайте на экране «Продажи» → «Цепочка писем» "
-        "или загрузите файлом: outreach sales-chain-load"
+        "нет первой добивки, второй добивки — задайте на экране «Продажи» → «Цепочка писем»; "
+        "набор из файла загружает администратор"
     )
 
 

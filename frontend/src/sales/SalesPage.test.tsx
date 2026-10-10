@@ -875,12 +875,13 @@ describe('продажи: гипотезы', () => {
     expect(screen.queryByText('ivan@acme.example.test')).not.toBeInTheDocument();
   });
 
-  it('гипотез нет — сказано, как завести', async () => {
+  it('гипотез нет — сказано, как завести: кнопкой рядом, а не командой', async () => {
     await openScreen(
       { 'GET /api/sales/hypotheses': { body: { rows: [], total: 0 } } },
       { path: '/sales?tab=hypotheses', ready: 'Гипотез пока нет.' },
     );
 
-    expect(screen.getByText(/sales-hypothesis-add/)).toBeInTheDocument();
+    expect(screen.getByText(/Заведите её кнопкой «Новая гипотеза» выше/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Новая гипотеза' })).toBeInTheDocument();
   });
 });

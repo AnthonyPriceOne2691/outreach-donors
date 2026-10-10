@@ -362,7 +362,7 @@ async def load(
         raise IntakeError("сопоставьте колонки: не найдена колонка почты — без неё лидов нет")
     if await session.get(SalesHypothesisModel, hypothesis_id) is None:
         raise UnknownHypothesisError(
-            f"гипотезы №{hypothesis_id} нет — заведите её: outreach sales-hypothesis-add"
+            f"гипотезы №{hypothesis_id} нет — обновите список гипотез или заведите новую"
         )
     if not found.leads:
         return 0

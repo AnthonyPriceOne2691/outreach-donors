@@ -94,7 +94,7 @@ class Chain:
             raise ChainNotReadyError(
                 f"цепочка писем продаж ({self.language}, {set_name(self.hypothesis_id)}) "
                 f"не задана: нет {', '.join(self.missing)} — задайте на экране «Продажи» → "
-                "«Цепочка писем» или загрузите файлом: outreach sales-chain-load"
+                "«Цепочка писем»; набор из файла загружает администратор"
             )
 
 
