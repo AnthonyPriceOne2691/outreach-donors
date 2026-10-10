@@ -662,9 +662,9 @@
       "worst": "—"
     },
     "backend/features/access/administration.py": {
-      "lines": 171,
-      "complexity": 6,
-      "worst": "_guard_admin_supply:62"
+      "lines": 193,
+      "complexity": 5,
+      "worst": "_guard_admin_supply:79"
     },
     "backend/features/access/attempts.py": {
       "lines": 75,
@@ -687,9 +687,9 @@
       "worst": "has_permission:64"
     },
     "backend/features/access/repository.py": {
-      "lines": 219,
+      "lines": 223,
       "complexity": 7,
-      "worst": "update_access:154"
+      "worst": "update_access:158"
     },
     "backend/features/access/tokens.py": {
       "lines": 100,
@@ -1312,9 +1312,9 @@
       "worst": "to_text:92"
     },
     "backend/features/letters/events.py": {
-      "lines": 305,
+      "lines": 376,
       "complexity": 10,
-      "worst": "apply_events:138"
+      "worst": "apply_events:152"
     },
     "backend/features/letters/followups.py": {
       "lines": 500,
