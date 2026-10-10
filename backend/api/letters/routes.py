@@ -13,6 +13,9 @@
 стоит вызова модели, полсотни идут минутами, и выполнять это внутри
 запроса значит потерять работу, если человек закрыл вкладку.
 
+**Сборка и пачка — по одной на этап и аудиторию за раз** (`once.py`): второе
+нажатие, пока первая задача не кончилась, — 409 словами, а не вторая задача.
+
 **Очередь смотрится по этапу.** Вопрос донору о цене и оффер рекламодателю
 читаются разными глазами и уходят с разных доменов; у каждого этапа своя
 воронка и свой текст по умолчанию.
@@ -20,12 +23,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from rq.job import Job
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
+from backend.api.letters import once
 from backend.api.letters.schemas import (
     Audience,
     BuildQueued,
@@ -59,7 +65,7 @@ from backend.features.letters.repository import LetterRepository, QueuedLetter
 from backend.features.letters.sending import Sending
 from backend.features.letters.template import Template, of_campaign
 from backend.features.letters.transport_factory import Transports, in_use
-from backend.shared.queue import BUILD_JOB, SEND_QUEUE_JOB, runs_queue, with_retries
+from backend.shared.queue import BUILD_JOB, RESULT_TTL, SEND_QUEUE_JOB, runs_queue, with_retries
 
 router = APIRouter(prefix="/letters", tags=["письма"])
 
@@ -107,6 +113,20 @@ def _audience_of(audience: str) -> dict[str, str]:
     return {} if audience == LINKS else {"audience": audience}
 
 
+async def _enqueue_once(
+    job_id: str, refusal: str, path: str, /, *args: object, **options: object
+) -> Job:
+    """Поставить задачу этапа и аудитории, если та же не идёт; идёт — 409 словами.
+
+    Клиент Redis синхронный: постановка — в потоке, а не в цикле событий, иначе
+    задумавшийся Redis держал бы все запросы сервиса, а не только этот.
+    """
+    job = await asyncio.to_thread(once.enqueue_once, runs_queue(), job_id, path, *args, **options)
+    if job is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, refusal)
+    return job
+
+
 @router.post("/build", response_model=BuildQueued, summary="Собрать очередь")
 async def build(
     body: BuildRequestBody,
@@ -124,7 +144,9 @@ async def build(
     # Прогоны — здесь, до очереди: разные страны и неоконченный поиск контактов
     # человек должен увидеть у формы, а не в отчёте задачи через минуты.
     scope = await run_scope(LetterRepository(session), body.run_ids, stage=body.stage)
-    job = runs_queue().enqueue(
+    job = await _enqueue_once(
+        once.build_job_id(body.stage, body.audience),
+        once.BUILD_RUNNING,
         BUILD_JOB,
         body.campaign,
         scope.country or body.country,
@@ -312,8 +334,17 @@ async def send_queue(
         raise HTTPException(
             status.HTTP_409_CONFLICT, "В очереди этого этапа писем нет — отправлять нечего"
         )
-    job = runs_queue().enqueue(
-        SEND_QUEUE_JOB, body.stage.value, author.id, **_audience_of(body.audience)
+    # Итог пачки — неделю, как у остальных задач (`RESULT_TTL`): с умолчанием rq в восемь
+    # минут строка пачки через десять минут отвечала «задачи нет», и причина остановки
+    # пачки пропадала с экрана (аудит 10.10.2026).
+    job = await _enqueue_once(
+        once.send_job_id(body.stage, body.audience),
+        once.SEND_RUNNING,
+        SEND_QUEUE_JOB,
+        body.stage.value,
+        author.id,
+        **_audience_of(body.audience),
+        result_ttl=RESULT_TTL,
     )
     # Пачка берёт не больше своего потолка: то же число, что «Отправить N» в окне, —
     # и потолок отсюда же, откуда его берёт экран писем (`batch_max`).

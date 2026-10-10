@@ -216,6 +216,41 @@ describe('пачка вкладки: у бизнесов ниши и рекла�
   });
 });
 
+describe('пачка вкладки одна за раз (проверка QA 10.10.2026)', () => {
+  const NUMBER = 'letters-send-donors-links';
+
+  it('новая пачка под прежним номером — строка показывает её, а не итог прежней', async () => {
+    // Номер пачки вкладки постоянный: вторая, пока идёт первая, — отказ сервера. Строка,
+    // уже знающая итог прежней пачки, после нажатия спрашивает задачу заново.
+    localStorage.setItem('letters:last-send-queue:donors', NUMBER);
+    let sent = false;
+    open(
+      {},
+      {
+        'POST /api/letters/send-queue': () => {
+          sent = true;
+          return { body: { job_id: NUMBER, queued: 2 } };
+        },
+        [`GET /api/jobs/${NUMBER}`]: () => ({
+          body: sent
+            ? { ...DONE, job_id: NUMBER, state: 'queued', title: 'в очереди', report: null }
+            : { ...DONE, job_id: NUMBER },
+        }),
+      },
+    );
+    const user = userEvent.setup();
+    expect(await screen.findByText('Ушло 1, стоп-лист — 1, осталось в очереди 1.')).toBeVisible();
+
+    await user.click(await screen.findByRole('button', { name: 'Отправить очередь · 2' }));
+    await user.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Отправить 2' }),
+    );
+
+    expect(await screen.findByText('Отправка очереди: в очереди')).toBeInTheDocument();
+    expect(screen.queryByText(/^Ушло 1/)).not.toBeInTheDocument();
+  });
+});
+
 describe('итог пачки словами', () => {
   it('называет, почему пачка остановилась', () => {
     expect(batchLine({ sent: 20, refused: {}, stopped: 'Сегодня писать некому', left: 5 })).toBe(

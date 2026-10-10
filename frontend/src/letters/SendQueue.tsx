@@ -22,7 +22,9 @@
  * копия числа здесь разошлась бы с пачкой при первой его правке.
  *
  * **Итог — словами под кнопкой**, из отчёта задачи: сколько ушло, что не ушло
- * и почему, сколько осталось. Номер задачи переживает перезагрузку страницы.
+ * и почему, сколько осталось. Номер задачи переживает перезагрузку страницы. Номер у
+ * пачки вкладки постоянный — пачка одна за раз (проверка QA 10.10.2026), — и строка
+ * итога после нажатия спрашивает задачу заново: под прежним номером уже новая пачка.
  *
  * **Пачка — одной аудитории.** У Этапа 2 две вкладки: рекламодатели по найденной
  * ссылке и бизнесы ниши. Кнопка вкладки отправляет только её письма, число на ней —
@@ -30,7 +32,7 @@
  */
 
 import { Alert, Button, Group, Modal, Stack, Text } from '@mantine/core';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 
 import { refusalOf } from '../api/client';
@@ -38,7 +40,7 @@ import { sendQueue } from '../api/letters';
 import type { LetterAudience } from '../api/letters';
 import type { Stage } from '../api/stages';
 import { formatNumber, plural } from '../format';
-import { JobLine } from '../jobs/JobLine';
+import { JobLine, jobRestarted } from '../jobs/JobLine';
 import { remember, remembered } from '../storage';
 import { notify } from '../notices';
 
@@ -84,6 +86,7 @@ export function SendQueue({
   blocked,
   onFinished,
 }: Props) {
+  const client = useQueryClient();
   const [opened, setOpened] = useState(false);
   const [jobId, setJobId] = useState<string | null>(() => remembered(keyOf(stage, audience)));
   useEffect(() => setJobId(remembered(keyOf(stage, audience))), [stage, audience]);
@@ -94,6 +97,7 @@ export function SendQueue({
       setOpened(false);
       setJobId(queued.job_id);
       remember(keyOf(stage, audience), queued.job_id);
+      void jobRestarted(client, queued.job_id);
       notify({
         message: `Пачка ушла в очередь задач: писем ${formatNumber(queued.queued)}`,
         color: 'green',

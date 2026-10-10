@@ -42,6 +42,7 @@ from backend.features.runs.repository import RunRepository
 from backend.shared.queue import SEND_QUEUE_JOB
 from backend.workers import send_jobs
 from httpx import AsyncClient
+from rq import Queue
 from sqlalchemy import select, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -504,13 +505,16 @@ class TestOnlyStageTwoIsSplit:
 
 
 class _Jobs:
-    """Очередь задач, которая помнит доводы целиком — и позиционные, и ключами."""
+    """Очередь задач, которая помнит доводы целиком — и позиционные, и ключами, — какими
+    их получит задача: параметры постановки (`job_id`, `unique`, `result_ttl`) снимает тот же
+    разбор, что у `rq.Queue.enqueue`, — функции задачи они не передаются."""
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
 
     def enqueue(self, job: str, *args: Any, **kwargs: Any) -> object:
-        self.calls.append((job, args, kwargs))
+        parsed = Queue.parse_args(job, *args, **kwargs)
+        self.calls.append((job, tuple(parsed.args or ()), dict(parsed.kwargs or {})))
         return type("Job", (), {"id": "job-ниша"})()
 
 

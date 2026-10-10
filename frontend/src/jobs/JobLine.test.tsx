@@ -1,10 +1,12 @@
-import { screen } from '@testing-library/react';
+import { useQueryClient } from '@tanstack/react-query';
+import { screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { JobCard } from '../api/types';
 import { ADMIN, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
-import { JobLine, jobSentence } from './JobLine';
+import { JobLine, jobRestarted, jobSentence } from './JobLine';
 
 const BASE: JobCard = {
   job_id: 'job-7',
@@ -55,5 +57,35 @@ describe('исход задачи', () => {
 
     expect(await screen.findByRole('status')).toHaveTextContent('Сборка писем: готово');
     expect(finished).toHaveBeenCalledTimes(1);
+  });
+
+  it('новая задача под тем же номером: строка спрашивает заново и говорит и о её конце', async () => {
+    // Сборка и пачка писем — одна на этап за раз, номер постоянный (проверка QA 10.10.2026):
+    // без нового вопроса строка так и показывала бы итог прежней задачи.
+    let state: JobCard = BASE;
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    serve({ 'GET /api/auth/me': { body: ADMIN }, 'GET /api/jobs/job-7': () => ({ body: state }) });
+    const finished = vi.fn();
+    function Again() {
+      const client = useQueryClient();
+      return <button onClick={() => void jobRestarted(client, 'job-7')}>Поставлена снова</button>;
+    }
+    renderWith(
+      <>
+        <JobLine jobId="job-7" onFinished={finished} />
+        <Again />
+      </>,
+    );
+    const user = userEvent.setup();
+    await screen.findByText('Сборка писем: готово');
+
+    state = { ...BASE, state: 'queued', title: 'в очереди', report: null };
+    await user.click(screen.getByRole('button', { name: 'Поставлена снова' }));
+    expect(await screen.findByText('Сборка писем: в очереди')).toBeInTheDocument();
+
+    state = { ...BASE, report: { prepared: 5 } };
+    await user.click(screen.getByRole('button', { name: 'Поставлена снова' }));
+    await screen.findByText('Сборка писем: готово');
+    await waitFor(() => expect(finished).toHaveBeenCalledTimes(2));
   });
 });

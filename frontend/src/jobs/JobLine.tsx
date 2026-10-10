@@ -8,6 +8,7 @@
  */
 import { Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
+import type { QueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { fetchJob } from '../api/jobs';
 import type { JobCard, JobState } from '../api/types';
@@ -15,6 +16,16 @@ import { formatDateTime } from '../format';
 
 /** Пока задача не кончилась, экран спрашивает о ней сам. */
 const ACTIVE: ReadonlySet<JobState> = new Set(['queued', 'running', 'retry_wait']);
+
+const jobKey = (jobId: string) => ['job', jobId] as const;
+
+/** Под этим номером поставлена новая задача. Номер бывает постоянным — сборка и пачка
+ *  писем идут по одной на этап и аудиторию (проверка QA 10.10.2026), — и строка с ним
+ *  уже знает исход прежней задачи и сама больше не спрашивает: без этого она так и
+ *  показывала бы прежний итог. */
+export function jobRestarted(client: QueryClient, jobId: string): Promise<void> {
+  return client.invalidateQueries({ queryKey: jobKey(jobId) });
+}
 
 const COLORS: Record<JobState, string> = {
   queued: 'dimmed',
@@ -60,7 +71,7 @@ export function JobLine({
   describe?: (report: Record<string, unknown>) => string | null;
 }) {
   const { data } = useQuery({
-    queryKey: ['job', jobId],
+    queryKey: jobKey(jobId),
     queryFn: () => fetchJob(jobId),
     refetchInterval: (query) =>
       query.state.data === undefined || ACTIVE.has(query.state.data.state) ? 3_000 : false,
@@ -72,7 +83,13 @@ export function JobLine({
   const told = useRef<string | null>(null);
 
   useEffect(() => {
-    if (finished && told.current !== jobId) {
+    // Задача под тем же номером снова идёт — это следующая (`jobRestarted`): о её конце
+    // тоже надо сказать.
+    if (!finished) {
+      told.current = null;
+      return;
+    }
+    if (told.current !== jobId) {
       told.current = jobId;
       onFinished?.();
     }
