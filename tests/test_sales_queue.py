@@ -520,7 +520,7 @@ async def test_console_lets_the_refusal_of_connection_through_to_main(
 
     monkeypatch.setattr(sales_cfg, "ENABLED", False)
 
-    with pytest.raises(SalesNotConnectedError, match="продажи выключены: SALES_ENABLED"):
+    with pytest.raises(SalesNotConnectedError, match="модуль продаж выключен — включает"):
         await run_sales_queue(session, w.NoRewrite(), "Выдуманная гипотеза", 5)  # type: ignore[arg-type]
 
 

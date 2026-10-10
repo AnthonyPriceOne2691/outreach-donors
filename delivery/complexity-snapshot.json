@@ -282,14 +282,14 @@
       "worst": "read_chain:38"
     },
     "backend/api/sales/chain_schemas.py": {
-      "lines": 167,
+      "lines": 168,
       "complexity": 3,
       "worst": "of:123"
     },
     "backend/api/sales/clean.py": {
-      "lines": 156,
+      "lines": 167,
       "complexity": 4,
-      "worst": "start_clean:128"
+      "worst": "start_clean:139"
     },
     "backend/api/sales/funnel.py": {
       "lines": 99,
@@ -302,24 +302,24 @@
       "worst": "list_entries:41"
     },
     "backend/api/sales/kb_schemas.py": {
-      "lines": 177,
+      "lines": 179,
       "complexity": 3,
       "worst": "of:93"
     },
     "backend/api/sales/queue.py": {
-      "lines": 162,
+      "lines": 168,
       "complexity": 3,
-      "worst": "_build_once:59"
+      "worst": "_build_once:60"
     },
     "backend/api/sales/routes.py": {
-      "lines": 206,
+      "lines": 207,
       "complexity": 6,
-      "worst": "_found:75"
+      "worst": "_found:76"
     },
     "backend/api/sales/schemas.py": {
-      "lines": 165,
+      "lines": 168,
       "complexity": 2,
-      "worst": "of:156"
+      "worst": "of:159"
     },
     "backend/api/selection/__init__.py": {
       "lines": 1,
@@ -1912,9 +1912,9 @@
       "worst": "zones_of:197"
     },
     "backend/features/sales/clean_jobs.py": {
-      "lines": 128,
-      "complexity": 4,
-      "worst": "clean_sales_leads:112"
+      "lines": 133,
+      "complexity": 5,
+      "worst": "clean_sales_leads:116"
     },
     "backend/features/sales/cleaning.py": {
       "lines": 497,
@@ -1927,9 +1927,9 @@
       "worst": "guess:72"
     },
     "backend/features/sales/connection.py": {
-      "lines": 85,
+      "lines": 134,
       "complexity": 4,
-      "worst": "reasons:64"
+      "worst": "_account_gap:64"
     },
     "backend/features/sales/domain_hold.py": {
       "lines": 81,
@@ -1947,9 +1947,9 @@
       "worst": "_by_name:351"
     },
     "backend/features/sales/handoff.py": {
-      "lines": 499,
+      "lines": 500,
       "complexity": 11,
-      "worst": "_card:458"
+      "worst": "_card:459"
     },
     "backend/features/sales/handoff_console.py": {
       "lines": 270,
@@ -2067,9 +2067,9 @@
       "worst": "refer:80"
     },
     "backend/features/sales/replies.py": {
-      "lines": 426,
+      "lines": 428,
       "complexity": 8,
-      "worst": "handle:176"
+      "worst": "handle:178"
     },
     "backend/features/sales/reply_kind.py": {
       "lines": 273,
@@ -2122,7 +2122,7 @@
       "worst": "sales_cap:27"
     },
     "backend/features/sales/verifier.py": {
-      "lines": 238,
+      "lines": 245,
       "complexity": 9,
       "worst": "verify:139"
     },

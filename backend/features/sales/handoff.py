@@ -69,6 +69,7 @@ from backend.features.core.models.outreach import MessageModel, ReplyModel, Thre
 from backend.features.replies.quoting import written_by_hand
 from backend.features.runs.failures import described
 from backend.features.sales import handoff_kommo, handoff_telegram
+from backend.features.sales.connection import MODULE_OFF
 from backend.features.sales.handoff_text import Card
 from backend.features.sales.kommo import KommoClient
 from backend.features.sales.models import (
@@ -94,8 +95,8 @@ MESSAGE_JOB = "backend.features.sales.handoff_jobs.resend_lead_message"
 #: Сколько передач проход берёт за круг: лидов единицы в день, круг короткий.
 PASS_LIMIT = 50
 
-#: Почему передача стоит: продажи выключены.
-SWITCHED_OFF = "продажи выключены (SALES_ENABLED) — передача ждёт включения"
+#: Почему передача стоит (`SALES_ENABLED`) — словами: причина доходит до экрана диалога.
+SWITCHED_OFF = f"{MODULE_OFF} — передача ждёт включения"
 
 #: Kommo ждёт записи — задаче есть что делать.
 _KOMMO_WORK = handoff_kommo.WORK

@@ -65,6 +65,7 @@ from backend.features.core.models.outreach import ReplyModel, ThreadModel
 from backend.features.replies import outcome
 from backend.features.replies.repository import ReplyRepository
 from backend.features.sales import handoff, ooo
+from backend.features.sales.connection import MODULE_OFF
 from backend.features.sales.mail import linked, unwritable
 from backend.features.sales.referral import Referred, refer
 from backend.features.sales.reply_kind import (
@@ -82,8 +83,9 @@ from backend.features.sales.verifier import EmailVerifier
 
 logger = logging.getLogger(__name__)
 
-#: Почему ответ ждёт человека, когда продажи выключены: модель не звалась.
-SWITCHED_OFF = "продажи выключены (SALES_ENABLED) — ответ ждёт человека"
+#: Почему ответ ждёт человека, когда продажи выключены (`SALES_ENABLED`): модель не звалась.
+#: Словами человека, без имени настройки — причину читают на экране диалога.
+SWITCHED_OFF = f"{MODULE_OFF} — ответ ждёт человека"
 
 #: Чем кончился путь «хочет говорить», когда передача заведена, — словами.
 HANDED_OVER = "передан телемаркетологу"

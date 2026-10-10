@@ -142,10 +142,17 @@ class HunterVerifier:
         code = response.status_code
         if code == httpx.codes.UNAUTHORIZED:
             # Ключ не принят. Код однозначен при любом маркере, а повторять
-            # бессмысленно: каждый следующий лид получил бы тот же отказ.
+            # бессмысленно: каждый следующий лид получил бы тот же отказ. Причина уходит
+            # в слова очистки лида и итог задачи на экране — без имени настройки; имя —
+            # строкой журнала: ключ меняет администратор.
             said = f", {details}" if (details := _details(body)) else ""
+            logger.warning(
+                "продажи: ключ проверки адресов не принят — проверить CONTACTS_HUNTER_API_KEY",
+                extra={"status": code, "details": details},
+            )
             raise ProviderBlockedError(
-                f"ключ не принят провайдером (HTTP 401{said}) — проверить CONTACTS_HUNTER_API_KEY"
+                f"ключ проверки адресов не принят провайдером (HTTP 401{said}) — "
+                "ключ меняет администратор"
             )
         if body is not None and body.get("errors"):
             _raise_refusal(body, code)  # маркер раньше кода: 429 бывает закрытой учёткой

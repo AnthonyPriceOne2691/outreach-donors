@@ -213,7 +213,7 @@ async def test_the_batch_refusal_names_what_sales_lack(
     assert response.status_code == 409
     assert response.json()["detail"] == (
         f"Очередь писем не отправлена: {SALES_NOT_CONNECTED} — "
-        "продажи выключены: SALES_ENABLED не включён"
+        "модуль продаж выключен — включает администратор"
     )
 
 

@@ -51,6 +51,7 @@ from backend.api.sales.schemas import (
     IntakeView,
     LeadsView,
 )
+from backend.config import sales as sales_cfg
 from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
 from backend.features.sales import browse, hypotheses, intake, sheet
@@ -163,7 +164,7 @@ async def list_hypotheses(
     _: UserModel = _seller, session: AsyncSession = Depends(db_session)
 ) -> HypothesesView:
     rows = [HypothesisCard.of(row) for row in await browse.hypotheses(session)]
-    return HypothesesView(rows=rows, total=len(rows))
+    return HypothesesView(rows=rows, total=len(rows), module_enabled=sales_cfg.ENABLED)
 
 
 @router.post(

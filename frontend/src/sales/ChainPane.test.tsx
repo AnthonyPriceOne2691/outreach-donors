@@ -90,6 +90,7 @@ const HYPOTHESES: HypothesesView = {
     },
   ],
   total: 1,
+  module_enabled: true,
 };
 
 const KB = {

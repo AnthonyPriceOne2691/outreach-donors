@@ -13,6 +13,11 @@
  * она берёт письма всех гипотез, кнопка называет их число, а вкладка говорит это словами
  * до нажатия. Кнопка пачки — только у кого есть право отправки; сборка без него закрыта
  * строкой почему (`WriteRight`): она пишет письма адресатам и тратит модель.
+ *
+ * **«Писем за раз» держит набранное** (`components/NumberField`, правило `numberText`):
+ * `NumberInput` подменял стёртое поле и «05» умолчанием посреди набора. Число — целое в
+ * границах сервера (`limit_max`, тот же потолок, что у тела сборки); что с набранным не так —
+ * словами у поля, и без годного числа «Собрать очередь» закрыта: запроса нет.
  */
 
 import {
@@ -22,7 +27,6 @@ import {
   Group,
   List,
   Loader,
-  NumberInput,
   Select,
   SimpleGrid,
   Stack,
@@ -39,8 +43,11 @@ import { useSession } from '../auth/AuthProvider';
 import { HintLabel } from '../components/HintLabel';
 import { InfoHint } from '../components/InfoHint';
 import { Metric } from '../components/Metric';
+import { NumberField } from '../components/NumberField';
+import { numberRefusal, numberText, validNumber } from '../components/numberText';
+import type { NumberRule } from '../components/numberText';
 import { formatNumber } from '../format';
-import { JobLine } from '../jobs/JobLine';
+import { JobLine, jobRestarted } from '../jobs/JobLine';
 import { SendQueue } from '../letters/SendQueue';
 import { notify } from '../notices';
 import { remember, remembered } from '../storage';
@@ -49,6 +56,17 @@ import { useMayWrite, WriteRight } from './WriteRight';
 
 /** Писем за раз, пока человек не поправил: как у сборки писем доноров. */
 const DEFAULT_LIMIT = 50;
+
+/** «Писем за раз» — целое от единицы до потолка сервера: тем же правилом, что тело сборки. */
+function limitRule(view: SalesQueueView): NumberRule {
+  return { decimals: 0, min: 1, max: view.limit_max };
+}
+
+/** Что с набранным не так — словами. Стёртое поле — «впишите», а не умолчание: умолчания
+ *  никто не набирал. */
+function limitRefusal(text: string, rule: NumberRule): string | null {
+  return text.trim() === '' ? 'Впишите, сколько писем собрать' : numberRefusal(text, rule);
+}
 
 function Connection({ view }: { view: SalesQueueView }) {
   if (view.connected) {
@@ -115,13 +133,19 @@ function BuildQueue({ view }: { view: SalesQueueView }) {
   const client = useQueryClient();
   const mayWrite = useMayWrite();
   const hypothesis = view.hypothesis_id;
-  const [limit, setLimit] = useState(Math.min(DEFAULT_LIMIT, view.limit_max));
+  const rule = limitRule(view);
+  const [typed, setTyped] = useState(() => numberText(Math.min(DEFAULT_LIMIT, view.limit_max)));
+  // Число берётся при нажатии: набранное не годится — числа нет, и кнопка закрыта.
+  const limit = validNumber(typed, rule);
   const [jobId, setJobId] = useState<string | null>(() => remembered(buildJobKey(hypothesis)));
   const build = useMutation({
-    mutationFn: () => buildSalesQueue({ hypothesis_id: hypothesis, limit }),
+    mutationFn: (count: number) => buildSalesQueue({ hypothesis_id: hypothesis, limit: count }),
     onSuccess: (queued) => {
       setJobId(queued.job_id);
       remember(buildJobKey(hypothesis), queued.job_id);
+      // Номер сборки гипотезы постоянный: строка с ним уже знает исход прежней сборки и сама
+      // больше не спрашивает — без этого показала бы прежний итог.
+      void jobRestarted(client, queued.job_id);
       notify({ message: 'Сборка очереди ушла в очередь задач', color: 'green' });
     },
   });
@@ -130,27 +154,28 @@ function BuildQueue({ view }: { view: SalesQueueView }) {
     <Stack gap={6} px="md">
       <Group align="flex-end" gap="md" wrap="wrap">
         {/* Пояснение — в «i» у подписи (`HintLabel`), как у «За раз» на «Письмах»: строка
-            под полем раздувала его до своей ширины. Подпись — не `<label>`: в ней кнопка. */}
-        <NumberInput
+            под полем раздувала его до своей ширины. Подпись — не `<label>`: в ней кнопка.
+            Отказ — над полем: ряд с кнопкой выровнен по низу и не пляшет. */}
+        <NumberField
           label={<HintLabel label="Писем за раз" hint="Каждое стоит вызова модели." />}
           labelProps={{ labelElement: 'div' }}
           aria-label="Писем за раз"
-          value={limit}
-          min={1}
-          max={view.limit_max}
-          clampBehavior="strict"
-          allowDecimal={false}
+          value={typed}
+          onChange={setTyped}
+          error={limitRefusal(typed, rule)}
+          refusalAbove
           // Поле — по числу (до трёх знаков), а не 180 px; колонка — по подписи: «Писем за раз»
           // с «i» в 6,5rem вставала в две строки (аудит экранов 09.10.2026, как у порогов).
           styles={{ wrapper: { width: '6.5rem' } }}
           disabled={!mayWrite}
-          onChange={(value) => setLimit(typeof value === 'number' ? value : DEFAULT_LIMIT)}
         />
         <Button
           className="press"
-          disabled={!mayWrite || !view.connected || empty}
+          disabled={!mayWrite || !view.connected || empty || limit === null}
           loading={build.isPending}
-          onClick={() => build.mutate()}
+          onClick={() => {
+            if (limit !== null) build.mutate(limit);
+          }}
         >
           Собрать очередь
         </Button>

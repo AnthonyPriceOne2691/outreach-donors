@@ -11,6 +11,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
+from backend.config import sales as sales_cfg
 from backend.features.core.domain import AuditAction
 from backend.features.core.models.access import AuditLogModel, UserModel
 from backend.features.sales import kb
@@ -19,6 +20,7 @@ from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests import test_sales_send_world as w
 from tests.conftest import bearer
 
 MakeUser = Callable[..., Awaitable[UserModel]]
@@ -67,6 +69,13 @@ async def seller(make_user: MakeUser, sign_in: SignIn) -> tuple[UserModel, dict[
     (`test_sales_write_rights`)."""
     user = await make_user(SELLER, permissions={"send": True})
     return user, bearer(await sign_in(SELLER))
+
+
+@pytest.fixture
+def connected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Продажи подключены, кроме полей «Отправителя»: готовность — тем же правилом, что отказ
+    отправки (`connection.reasons`), — и называет только их."""
+    w.connect(monkeypatch)
 
 
 async def _post(
@@ -227,7 +236,7 @@ async def test_unknown_entry_is_404_in_words_and_null_fields_are_left_alone(
 
 
 async def test_empty_sender_names_what_sending_lacks_and_the_field_limits(
-    client: AsyncClient, seller: tuple[UserModel, dict[str, str]]
+    client: AsyncClient, seller: tuple[UserModel, dict[str, str]], connected: None
 ) -> None:
     _, headers = seller
 
@@ -251,7 +260,7 @@ async def test_empty_sender_names_what_sending_lacks_and_the_field_limits(
 
 
 async def test_sender_is_saved_whole_and_read_back_ready(
-    client: AsyncClient, seller: tuple[UserModel, dict[str, str]]
+    client: AsyncClient, seller: tuple[UserModel, dict[str, str]], connected: None
 ) -> None:
     _, headers = seller
     body = {
@@ -267,6 +276,24 @@ async def test_sender_is_saved_whole_and_read_back_ready(
     assert saved.status_code == 200, saved.text
     assert (read["sender_name"], read["missing"], read["updated_by"]) == ("Ива Тестова", [], SELLER)
     assert (read["website"], read["telegram"]) == (None, "@studio_example")
+
+
+async def test_switched_off_module_is_the_first_thing_sending_lacks(
+    client: AsyncClient,
+    seller: tuple[UserModel, dict[str, str]],
+    connected: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """«Отправка продаж не готова» — тем же правилом, что отказ отправки: выключенный модуль —
+    первым и словами (находка QA на проде: при выключенном модуле экран говорил «готова»)."""
+    monkeypatch.setattr(sales_cfg, "ENABLED", False)
+    _, headers = seller
+    filled = {"sender_name": "Ива Тестова", "signature": "Ива", "physical_address": "Ул., 7"}
+
+    await client.post(SENDER, json=filled, headers=headers)
+    read = (await client.get(SENDER, headers=headers)).json()
+
+    assert read["missing"] == ["модуль продаж выключен — включает администратор"]
 
 
 async def test_sender_with_a_bad_link_is_refused_in_words_and_typos_by_the_schema(

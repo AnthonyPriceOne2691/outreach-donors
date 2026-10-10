@@ -14,7 +14,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
-from backend.features.sales import kb, sender
+from backend.features.sales import connection, kb, sender
 from backend.features.sales.models import TAG_LENGTH, TITLE_LENGTH, KbKind, SalesKbEntryModel
 
 #: Границы записи для экрана — те же числа, которыми отказывает ядро.
@@ -160,7 +160,9 @@ class SenderView(SenderBody):
 
     updated_by: str | None
     updated_at: datetime | None
-    #: Чего не хватает — теми же словами, какими откажет отправка (Ф4).
+    #: Чего не хватает — теми же словами, какими откажет отправка (Ф4): выключенный модуль
+    #: первым, затем учётка, отписка и поля отправителя (`connection.blockers`). До находки QA
+    #: на проде здесь были только поля — и «Отправка продаж готова» при выключенном модуле.
     missing: list[str]
     #: Предел длины каждого поля — экран проверяет им поле до нажатия.
     limits: dict[str, int]
@@ -171,6 +173,6 @@ class SenderView(SenderBody):
             **found.values,
             updated_by=found.updated_by,
             updated_at=found.updated_at,
-            missing=found.missing,
+            missing=connection.blockers(found),
             limits={name: limit for name, (_, limit) in sender.FIELDS.items()},
         )

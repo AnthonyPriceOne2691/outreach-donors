@@ -126,8 +126,8 @@ def test_every_known_status_has_a_deliverability_and_only_dead_ones_have_words()
         (_reply(429, {"errors": [{"id": "usage_exceeded", "details": "monthly"}]}), ProviderQuotaError, "квота исчерпана: monthly"),
         (_reply(403, {"errors": [{"details": "no id"}]}), ProviderQuotaError, "квота исчерпана: no id"),
         (_reply(429, {"errors": [{"id": "restricted_account", "details": "restricted"}]}), ProviderBlockedError, "учётка закрыта провайдером: restricted — квота тут ни при чём, зайти в кабинет и разобраться"),
-        (_reply(401, {"errors": [{"id": "authentication_failed", "details": "No valid API key"}]}), ProviderBlockedError, "ключ не принят провайдером (HTTP 401, No valid API key) — проверить CONTACTS_HUNTER_API_KEY"),
-        (_reply(401), ProviderBlockedError, "ключ не принят провайдером (HTTP 401) — проверить CONTACTS_HUNTER_API_KEY"),
+        (_reply(401, {"errors": [{"id": "authentication_failed", "details": "No valid API key"}]}), ProviderBlockedError, "ключ проверки адресов не принят провайдером (HTTP 401, No valid API key) — ключ меняет администратор"),
+        (_reply(401), ProviderBlockedError, "ключ проверки адресов не принят провайдером (HTTP 401) — ключ меняет администратор"),
     ],
 )  # fmt: skip
 async def test_a6_refusals_are_named_and_sorted_into_retry_and_stop(

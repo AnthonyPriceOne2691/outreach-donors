@@ -26,7 +26,9 @@ export function useAddHypothesis(onAdded: (card: HypothesisCard) => void) {
     mutationFn: (body: HypothesisBody) => addHypothesis(body),
     onSuccess: (card) => {
       client.setQueryData<HypothesesView>(HYPOTHESES_QUERY_KEY, (known) =>
-        known === undefined ? known : { rows: [...known.rows, card], total: known.total + 1 },
+        known === undefined
+          ? known
+          : { ...known, rows: [...known.rows, card], total: known.total + 1 },
       );
       void client.invalidateQueries({ queryKey: HYPOTHESES_QUERY_KEY });
       notify({ message: `Гипотеза «${card.name}» заведена`, color: 'green' });

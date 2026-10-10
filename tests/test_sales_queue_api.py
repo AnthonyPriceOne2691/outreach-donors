@@ -8,9 +8,8 @@
 
 from __future__ import annotations
 
-import re
+import logging
 from collections.abc import Awaitable, Callable
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -28,18 +27,18 @@ from backend.features.letters.batch import BATCH_MAX, send_queue
 from backend.features.letters.rewrite import RewriteClient
 from backend.features.letters.sending import Sending
 from backend.features.ops import job_outcome
-from backend.features.sales import chain, queue, queue_jobs, sender
+from backend.features.sales import chain, connection, queue, queue_jobs, sender
 from backend.features.sales.handoff import lead_of
 from backend.features.sales.models import SalesThreadModel
 from backend.shared.queue import QUEUE_NAME, SALES_QUEUE_NAME
 from fastapi import FastAPI
 from httpx import AsyncClient, Response
-from rq.exceptions import DuplicateJobError
 from rq.job import JobStatus
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests import test_sales_send_world as w
 from tests.conftest import TEST_DSN, bearer
+from tests.test_sales_clean_api import _Jobs, _screen_fields, _screen_reads
 from tests.test_sales_send import FIRST_DUE, _transports
 
 MakeUser = Callable[..., Awaitable[UserModel]]
@@ -48,9 +47,6 @@ SignIn = Callable[..., Awaitable[str]]
 SELLER = "seller@ours.example.test"
 QUEUE = "/api/sales/queue"
 NO_RIGHT = "Действие «sales» недоступно этой учётке"
-TYPES = (Path(__file__).resolve().parent.parent / "frontend/src/api/salesTypes.ts").read_text(
-    encoding="utf-8"
-)
 
 
 @pytest.fixture
@@ -65,45 +61,10 @@ async def world(session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> w.Wor
     return await w.world(session, monkeypatch)
 
 
-class _Job:
-    """Задача rq, какой её видит сборка: статус и удаление следа."""
-
-    def __init__(self, job_id: str) -> None:
-        self.id = job_id
-        self.status = JobStatus.QUEUED
-        self.deleted = False
-
-    def get_status(self) -> JobStatus:
-        return self.status
-
-    def delete(self) -> None:
-        self.deleted = True
-
-
-class _Jobs:
-    """Очередь задач с правилами rq 2.12, что нужны сборке: задача по номеру; при `unique=True`
-    занятый номер — `DuplicateJobError`, а след задачи лежит, пока его не удалят."""
-
-    def __init__(self) -> None:
-        self.enqueued: list[tuple[tuple[object, ...], dict[str, object]]] = []
-        self.known: dict[str, _Job] = {}
-
-    def fetch_job(self, job_id: str) -> _Job | None:
-        found = self.known.get(job_id)
-        return None if found is None or found.deleted else found
-
-    def enqueue(self, *args: object, **kwargs: object) -> _Job:
-        job_id = str(kwargs.get("job_id", "job-7"))
-        taken = self.known.get(job_id)
-        if kwargs.get("unique") and taken is not None and not taken.deleted:
-            raise DuplicateJobError(f"Job with ID '{job_id}' already exists")
-        self.enqueued.append((args, kwargs))
-        self.known[job_id] = _Job(job_id)
-        return self.known[job_id]
-
-
 @pytest.fixture
 def jobs(monkeypatch: pytest.MonkeyPatch) -> _Jobs:
+    """Подставная очередь очистки (`test_sales_clean_api.py`): правила rq 2.12 — номер, `unique`,
+    след задачи и итог отдельно от задачи; одна подделка на сборку и очистку."""
     found = _Jobs()
     monkeypatch.setattr("backend.api.sales.queue.sales_queue", lambda: found)
     return found
@@ -189,13 +150,42 @@ async def test_queue_says_in_words_what_sales_lack(
 
     body = response.json()
     assert body["connected"] is False
+    # Выключенный модуль — первым пунктом и словами человека: включает его администратор,
+    # имя настройки — в журнале, а не на экране (находка QA на проде).
     assert body["missing"] == [
-        "продажи выключены: SALES_ENABLED не включён",
+        "модуль продаж выключен — включает администратор",
         f"не задан физический адрес; не задана подпись; не задано имя отправителя — {sender.WHERE}",
     ]
     assert [item["missing"] for item in body["chains"]] == [
         ["первого письма", "первой добивки", "второй добивки"]
     ] * 2
+
+
+async def test_switched_off_build_is_refused_in_words_without_the_setting_name(
+    session: AsyncSession,
+    world: w.World,
+    client: AsyncClient,
+    headers: dict[str, str],
+    jobs: _Jobs,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Отказ сборки при выключенном модуле — словами человека; имя настройки — в журнале."""
+    await session.commit()
+    monkeypatch.setattr(sales_cfg, "ENABLED", False)
+
+    with caplog.at_level(logging.WARNING, logger=connection.__name__):
+        response = await _build(client, headers, world.hypothesis_id)
+
+    detail = response.json()["detail"]
+    assert (response.status_code, detail) == (
+        409,
+        f"{queue.WHAT}: {SALES_NOT_CONNECTED} — модуль продаж выключен — включает администратор",
+    )
+    assert "SALES_ENABLED" not in detail
+    journal = [r.__dict__["settings"] for r in caplog.records if r.name == connection.__name__]
+    assert journal == [["SALES_ENABLED"]]
+    assert jobs.enqueued == []
 
 
 async def _hypothesis(session: AsyncSession) -> int:
@@ -302,6 +292,40 @@ async def test_build_after_the_previous_one_ended_goes_again(
     assert len(jobs.enqueued) == 2
 
 
+#: Отчёт прежней сборки — выдуманный, не круглый.
+PREVIOUS = {"campaign_id": 3, "prepared": 7, "refreshed": 0, "waiting": {}, "stopped": None}
+
+
+async def test_new_build_in_the_queue_does_not_show_the_report_of_the_previous_one(
+    session: AsyncSession,
+    world: w.World,
+    client: AsyncClient,
+    headers: dict[str, str],
+    jobs: _Jobs,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Итог прежней сборки rq хранит отдельно от задачи, и `Job.delete()` его не трогает: новая
+    сборка под тем же номером, пока стоит в очереди, показала бы отчёт прежней. Строка задачи —
+    тем же путём, что у экрана: `GET /api/jobs/{номер}`."""
+    _screen_reads(jobs, monkeypatch)
+    await session.commit()
+    job_id = sales_queue_api.build_job_id(world.hypothesis_id)
+    await _build(client, headers, world.hypothesis_id)
+    jobs.known[job_id].finish(PREVIOUS)
+    before = (await client.get(f"/api/jobs/{job_id}", headers=headers)).json()
+
+    again = await _build(client, headers, world.hypothesis_id)
+    after = (await client.get(f"/api/jobs/{job_id}", headers=headers)).json()
+
+    assert (before["kind"], before["state"], before["report"]) == (
+        "сборка очереди продаж",
+        "done",
+        PREVIOUS,
+    )
+    assert again.status_code == 200, again.text
+    assert (after["state"], after["report"]) == ("queued", None)
+
+
 @pytest.mark.parametrize("waits", [JobStatus.STARTED, JobStatus.DEFERRED, JobStatus.SCHEDULED])
 async def test_build_waiting_for_a_retry_still_counts_as_running(
     session: AsyncSession,
@@ -386,13 +410,6 @@ async def test_without_the_sales_right_the_queue_refuses_in_words(
     assert (response.status_code, response.json()["detail"]) == (403, NO_RIGHT)
 
 
-def _screen_fields(name: str) -> set[str]:
-    """Поля интерфейса экрана `export interface <name> { … }` — файл читается как текст."""
-    found = re.search(rf"export interface {name} \{{\n(.*?)\n\}}", TYPES, re.DOTALL)
-    assert found is not None, f"в salesTypes.ts нет интерфейса {name}"
-    return set(re.findall(r"^  ([a-z_]+):", found.group(1), re.MULTILINE))
-
-
 def test_screen_reads_the_queue_by_the_server_names() -> None:
     """Поле, переименованное на сервере, экран показал бы пустым — без ошибки."""
     assert _screen_fields("SalesQueueView") == set(SalesQueueView.model_fields)
@@ -423,7 +440,7 @@ def test_job_settles_a_refusal_of_connection_as_an_outcome(monkeypatch: pytest.M
     """Повтор задачи продажи не подключит: итог «не выполнена», а не три попытки."""
 
     async def refused(_hypothesis_id: int, _limit: int) -> dict[str, Any]:
-        raise SalesNotConnectedError(queue.WHAT, "продажи выключены: SALES_ENABLED не включён")
+        raise SalesNotConnectedError(queue.WHAT, "модуль продаж выключен — включает администратор")
 
     monkeypatch.setattr(queue_jobs, "run_build", refused)
     monkeypatch.setattr(queue_jobs, "setup_logging", lambda: None)
@@ -433,7 +450,7 @@ def test_job_settles_a_refusal_of_connection_as_an_outcome(monkeypatch: pytest.M
 
     assert result == {
         "error": f"SalesNotConnectedError: {queue.WHAT}: {SALES_NOT_CONNECTED} — "
-        "продажи выключены: SALES_ENABLED не включён",
+        "модуль продаж выключен — включает администратор",
         "permanent": True,
     }
 

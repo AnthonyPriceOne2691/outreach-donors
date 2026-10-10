@@ -16,7 +16,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.features.letters.template import Zone, ZoneKind
-from backend.features.sales import chain, chain_text
+from backend.features.sales import chain, chain_text, connection
 from backend.features.sales.models import SUBJECT_LENGTH, SalesChainTemplateModel
 
 #: Границы шаблона для экрана — те же числа, которыми отказывает ядро.
@@ -149,7 +149,8 @@ class PreviewView(BaseModel):
     sender_name: str | None
     signature: str | None
     address: str | None
-    #: Чего не хватает для отправки продаж — теми же словами, какими откажет отправка.
+    #: Чего не хватает для отправки продаж — теми же словами, какими откажет отправка
+    #: (`connection.blockers`: выключенный модуль первым).
     missing: list[str]
 
     @classmethod
@@ -162,5 +163,5 @@ class PreviewView(BaseModel):
             sender_name=settings.get("sender_name"),
             signature=settings.get("signature"),
             address=settings.get("physical_address"),
-            missing=found.sender.missing,
+            missing=connection.blockers(found.sender),
         )

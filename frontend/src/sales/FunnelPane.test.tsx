@@ -38,6 +38,7 @@ function hypothesis(id: number, name: string) {
 const HYPOTHESES: HypothesesView = {
   rows: [hypothesis(5, 'тестовая гипотеза'), hypothesis(8, 'вторая тестовая')],
   total: 2,
+  module_enabled: true,
 };
 
 const KB = {

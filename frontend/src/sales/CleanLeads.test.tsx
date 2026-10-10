@@ -48,6 +48,7 @@ const HYPOTHESES: HypothesesView = {
     },
   ],
   total: 2,
+  module_enabled: true,
 };
 
 const VIEW: LeadsView = {
@@ -324,7 +325,7 @@ describe('очистка на вкладке лидов', () => {
 
   it('проверяльщик не настроен — отказ сервера словами у кнопки, в очередь ничего', async () => {
     const misconfigured =
-      'Очистка не запустится: SALES_VERIFIER_PROVIDER=live, а CONTACTS_HUNTER_API_KEY пуст.';
+      'Очистка не запустится: проверка адресов не настроена — настраивает администратор';
     const recorded = await openLeads({
       [`GET ${ASK}`]: { status: 409, body: { detail: misconfigured } },
     });

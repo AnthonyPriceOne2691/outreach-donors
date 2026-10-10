@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from rq import Queue
 from rq.exceptions import DuplicateJobError
 from rq.job import Job, JobStatus
+from rq.results import Result
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
@@ -60,14 +61,19 @@ def _build_once(jobs: Queue, hypothesis_id: int, limit: int) -> Job:
     """Поставить сборку гипотезы, если её сборка не идёт.
 
     Готовая задача лежит в Redis весь `result_ttl` (неделю), поэтому один `unique=True` с постоянным
-    номером отказывал бы и после неё: закончившуюся или упавшую сборку убираем и ставим заново.
-    `unique=True` остаётся на гонку двух нажатий между проверкой и постановкой.
+    номером отказывал бы и после неё: закончившуюся или упавшую сборку убираем — вместе с итогом —
+    и ставим заново. `unique=True` остаётся на гонку двух нажатий между проверкой и постановкой.
     """
     job_id = build_job_id(hypothesis_id)
     previous = jobs.fetch_job(job_id)
     if previous is not None:
         if previous.get_status() in _RUNNING:
             raise DuplicateJobError(job_id)
+        # Итог прежней rq 2.12 хранит отдельно от задачи, и `Job.delete()` его не трогает:
+        # новая сборка под тем же номером, пока стоит в очереди, показала бы на экране отчёт
+        # прежней. Тот же вызов — у писем (`api/letters/once.enqueue_once`) и у очистки
+        # (`clean._clean_once`); когда он переедет в `shared/queue.py`, сборка перейдёт на него.
+        Result.delete_all(previous)
         previous.delete()
     return jobs.enqueue(
         QUEUE_JOB, hypothesis_id, limit, job_id=job_id, unique=True, **with_retries()

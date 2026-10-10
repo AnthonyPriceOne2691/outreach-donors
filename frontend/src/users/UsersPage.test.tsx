@@ -108,12 +108,7 @@ describe('учётки', () => {
     const row = screen.getByText('оператор@site.com').closest('tr');
     await user.click(within(row as HTMLElement).getByRole('button', { name: /Права/ }));
 
-    for (const name of [
-      'Подтверждать цены',
-      'Домены рассылки',
-      'Раздел продаж',
-      'Заводить учётки',
-    ]) {
+    for (const name of ['Подтверждать цены', 'Домены рассылки', 'Продажи', 'Заводить учётки']) {
       expect(await screen.findByLabelText(name)).toBeInTheDocument();
     }
   });
