@@ -8,6 +8,8 @@
  *
  * **Включение — в той же форме**: новая запись может сразу лечь выключенной —
  * так её готовят, не показывая агенту. В таблице включают переключателем строки.
+ *
+ * **Без права отправки писем окно — смотреть** (`WriteRight`): поля и «Сохранить» закрыты.
  */
 
 import {
@@ -31,12 +33,15 @@ import { formatNumber } from '../format';
 import { changed, draftOf, refusalsOf } from './kbDraft';
 import type { KbDraft } from './kbDraft';
 import { SaveRefusal } from './SaveRefusal';
+import { WriteRight } from './WriteRight';
 
 interface Props {
   /** Правка — запись; новая — `null`. */
   entry: KbEntryCard | null;
   kinds: KbKind[];
   limits: KbLimits;
+  /** Право записи (`WriteRight`); без него окно — смотреть. */
+  mayWrite: boolean;
   onClose: () => void;
   onSaved: (saved: KbEntryCard) => void;
 }
@@ -54,12 +59,14 @@ function KbFields({
   kinds,
   limits,
   refusals,
+  disabled,
   onChange,
 }: {
   draft: KbDraft;
   kinds: KbKind[];
   limits: KbLimits;
   refusals: ReturnType<typeof refusalsOf>;
+  disabled: boolean;
   onChange: (patch: Partial<KbDraft>) => void;
 }) {
   return (
@@ -70,6 +77,7 @@ function KbFields({
         allowDeselect={false}
         data={kindOptions(kinds)}
         value={draft.kind}
+        disabled={disabled}
         onChange={(value) => value !== null && onChange({ kind: value as KbKind })}
       />
       <TextInput
@@ -77,6 +85,7 @@ function KbFields({
         description="код языка письма: ru, en, pt-br"
         value={draft.language}
         error={refusals.language}
+        disabled={disabled}
         onChange={(event) => onChange({ language: event.currentTarget.value })}
       />
       <TextInput
@@ -84,6 +93,7 @@ function KbFields({
         description="по виду, языку и заголовку запись узнаёт и повторная загрузка файла"
         value={draft.title}
         error={refusals.title}
+        disabled={disabled}
         onChange={(event) => onChange({ title: event.currentTarget.value })}
       />
       <Textarea
@@ -94,6 +104,7 @@ function KbFields({
         maxRows={14}
         value={draft.text}
         error={refusals.text}
+        disabled={disabled}
         onChange={(event) => onChange({ text: event.currentTarget.value })}
       />
       <TagsInput
@@ -101,18 +112,20 @@ function KbFields({
         description="метки выборки: цена, аудит, b2b — Enter после каждой"
         value={draft.tags}
         error={refusals.tags}
+        disabled={disabled}
         onChange={(tags) => onChange({ tags })}
       />
       <Switch
         label="Агент видит запись"
         checked={draft.active}
+        disabled={disabled}
         onChange={(event) => onChange({ active: event.currentTarget.checked })}
       />
     </>
   );
 }
 
-export function KbEntryModal({ entry, kinds, limits, onClose, onSaved }: Props) {
+export function KbEntryModal({ entry, kinds, limits, mayWrite, onClose, onSaved }: Props) {
   const [draft, setDraft] = useState<KbDraft>(() => draftOf(entry, kinds[0] ?? 'brief'));
   // Тронутые поля: пустая новая форма не краснеет сразу — отказ «впишите»
   // встаёт под полем, которое правили и оставили пустым или слишком длинным.
@@ -123,7 +136,8 @@ export function KbEntryModal({ entry, kinds, limits, onClose, onSaved }: Props) 
     onSuccess: onSaved,
   });
   const refusals = refusalsOf(draft, limits);
-  const ready = Object.keys(refusals).length === 0 && (entry === null || changed(draft, entry));
+  const ready =
+    mayWrite && Object.keys(refusals).length === 0 && (entry === null || changed(draft, entry));
   const shown = Object.fromEntries(
     Object.entries(refusals).filter(([field]) => touched.has(field)),
   ) as typeof refusals;
@@ -148,6 +162,7 @@ export function KbEntryModal({ entry, kinds, limits, onClose, onSaved }: Props) 
             kinds={kinds}
             limits={limits}
             refusals={shown}
+            disabled={!mayWrite}
             onChange={(patch) => {
               setDraft((current) => ({ ...current, ...patch }));
               setTouched((current) => new Set([...current, ...Object.keys(patch)]));
@@ -161,6 +176,7 @@ export function KbEntryModal({ entry, kinds, limits, onClose, onSaved }: Props) 
               {entry === null ? 'Завести' : 'Сохранить'}
             </Button>
           </Group>
+          {!mayWrite && <WriteRight what="Правит базу знаний" />}
         </Stack>
       </form>
     </Modal>

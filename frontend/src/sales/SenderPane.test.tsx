@@ -1,6 +1,7 @@
 /**
  * Вкладка «Отправитель»: готовность к отправке словами сервера, форма целиком,
- * границы сервера до нажатия, отказ словами. Адреса и подписи выдуманы.
+ * границы сервера до нажатия, отказ словами. Без права отправки писем форма видна,
+ * а записать нечем — сказано строкой. Адреса и подписи выдуманы.
  */
 
 import { screen, waitFor, within } from '@testing-library/react';
@@ -8,8 +9,10 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
+import { SENDER_FIELDS } from '../api/salesLabels';
 import type { SenderView } from '../api/salesTypes';
-import { ADMIN, TOKEN_KEY } from '../test/fixtures';
+import type { Me } from '../api/types';
+import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import type { Answer, Call, Recorded } from '../test/server';
@@ -43,10 +46,11 @@ const EMPTY: SenderView = {
 async function openSender(
   routes: Record<string, Answer | ((call: Call) => Answer)> = {},
   sender: SenderView = EMPTY,
+  who: Me = ADMIN,
 ): Promise<Recorded> {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   const recorded = serve({
-    'GET /api/auth/me': { body: ADMIN },
+    'GET /api/auth/me': { body: who },
     'GET /api/sales/hypotheses': { body: { rows: [], total: 0 } },
     'GET /api/sales/kb': {
       body: {
@@ -170,5 +174,37 @@ describe('отправитель', () => {
     expect(screen.getByText('Длиннее 5 знаков: сейчас 11')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled();
     expect(recorded.calls.filter((c) => c.method === 'POST')).toEqual([]);
+  });
+});
+
+describe('отправитель: без права на отправку', () => {
+  const LINE = 'Правит отправителя тот, у кого есть право отправки писем. Смотреть можно всем.';
+  const FILLED: SenderView = {
+    ...EMPTY,
+    sender_name: 'Ива Тестова',
+    signature: 'Ива Тестова',
+    updated_by: 'seller@ours.example.test',
+    updated_at: '2026-10-05T10:00:00+00:00',
+    missing: ['не задан физический адрес'],
+  };
+
+  it('поля видны и закрыты, «Сохранить» закрыта, готовность — словами сервера, строка — почему', async () => {
+    const recorded = await openSender({}, FILLED, OPERATOR);
+
+    for (const { label } of Object.values(SENDER_FIELDS)) {
+      expect(field(label)).toBeDisabled();
+    }
+    expect(field('Подпись')).toHaveValue('Ива Тестова');
+    expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled();
+    expect(screen.getByText(LINE)).toBeInTheDocument();
+    expect(screen.getByText('Отправка продаж не готова')).toBeInTheDocument();
+    expect(recorded.calls.filter((call) => call.method === 'POST')).toEqual([]);
+  });
+
+  it('с правом отправки строки нет, поля открыты', async () => {
+    await openSender();
+
+    expect(screen.queryByText(LINE)).not.toBeInTheDocument();
+    expect(field('Подпись')).toBeEnabled();
   });
 });

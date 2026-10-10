@@ -5,7 +5,8 @@
  *
  * Проверяется то, ради чего вкладка: что уходит на сервер (тело правки,
  * `active`), что экран перечитывает после правки, и что отказ сервера виден
- * словами, а не пропадает.
+ * словами, а не пропадает. Без права отправки писем записи и «что увидит агент»
+ * видны, а записать нечем — сказано строкой.
  */
 
 import { notifications } from '@mantine/notifications';
@@ -15,7 +16,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
 import type { AgentView, HypothesesView, KbEntryCard, KbView } from '../api/salesTypes';
-import { ADMIN, TOKEN_KEY } from '../test/fixtures';
+import type { Me } from '../api/types';
+import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import type { Answer, Call, Recorded } from '../test/server';
@@ -60,10 +62,11 @@ const HYPOTHESES: HypothesesView = { rows: [], total: 0 };
 
 async function openKb(
   routes: Record<string, Answer | ((call: Call) => Answer)> = {},
+  who: Me = ADMIN,
 ): Promise<Recorded> {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   const recorded = serve({
-    'GET /api/auth/me': { body: ADMIN },
+    'GET /api/auth/me': { body: who },
     'GET /api/sales/hypotheses': { body: HYPOTHESES },
     'GET /api/sales/kb': { body: KB },
     ...routes,
@@ -318,5 +321,59 @@ describe('база знаний: что увидит агент', () => {
     expect(
       await screen.findByText(/Агенту не из чего писать: включённых записей нет/, {}, SCREEN_WAIT),
     ).toBeInTheDocument();
+  });
+});
+
+describe('база знаний: без права на отправку', () => {
+  const LINE = 'Правит базу знаний тот, у кого есть право отправки писем. Смотреть можно всем.';
+  const SEEN: AgentView = {
+    version: 'kb-3f2a9c1d0b7e',
+    total: 1,
+    groups: [
+      {
+        kind: 'price_policy',
+        language: 'ru',
+        facts: [{ id: PRICE.id, title: PRICE.title, text: PRICE.text, tags: PRICE.tags }],
+      },
+    ],
+  };
+
+  it('записи и «что увидит агент» видны; завести и переключить нельзя — строка говорит почему', async () => {
+    const recorded = await openKb({ 'GET /api/sales/kb/preview': { body: SEEN } }, OPERATOR);
+
+    expect(screen.getByText(LINE)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Добавить запись' })).toBeDisabled();
+    for (const title of ['Цена аудита', 'Made-up shop']) {
+      expect(screen.getByRole('switch', { name: `Агент видит «${title}»` })).toBeDisabled();
+    }
+
+    await userEvent.click(screen.getByRole('button', { name: 'Что увидит агент' }));
+
+    const dialog = within(await screen.findByRole('dialog', {}, SCREEN_WAIT));
+    expect(await dialog.findByText('цены · ru', {}, SCREEN_WAIT)).toBeInTheDocument();
+    expect(recorded.calls.filter((call) => call.method !== 'GET')).toEqual([]);
+  });
+
+  it('запись открывают смотреть: текст целиком, поля и «Сохранить» закрыты', async () => {
+    await openKb({}, OPERATOR);
+    const user = userEvent.setup();
+
+    await user.click(within(rowOf('Made-up shop')).getByRole('button', { name: 'Открыть' }));
+
+    const dialog = within(await screen.findByRole('dialog', {}, SCREEN_WAIT));
+    expect(dialog.getByRole('textbox', { name: 'Текст' })).toHaveValue(OLD_CASE.text);
+    for (const name of ['Вид', 'Язык', 'Заголовок', 'Текст', 'Теги']) {
+      expect(dialog.getByRole('textbox', { name })).toBeDisabled();
+    }
+    expect(dialog.getByRole('switch', { name: 'Агент видит запись' })).toBeDisabled();
+    expect(dialog.getByRole('button', { name: 'Сохранить' })).toBeDisabled();
+    expect(dialog.getByText(LINE)).toBeInTheDocument();
+  });
+
+  it('с правом отправки строки нет', async () => {
+    await openKb();
+
+    expect(screen.queryByText(LINE)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Добавить запись' })).toBeEnabled();
   });
 });

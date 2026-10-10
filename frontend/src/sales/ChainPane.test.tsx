@@ -5,7 +5,8 @@
  *
  * Проверяется то, ради чего вкладка: «цепочка не задана» видно словами, что уходит на
  * сервер (тело шага целиком, тема только у первого письма, набор гипотезы), что экран
- * перечитывает после записи, и что отказ сервера виден словами, а не пропадает.
+ * перечитывает после записи, и что отказ сервера виден словами, а не пропадает. Без права
+ * отправки писем шаги и письмо глазами адресата видны, а записать нечем — сказано строкой.
  */
 
 import { screen, waitFor, within } from '@testing-library/react';
@@ -20,7 +21,8 @@ import type {
   ChainView,
   HypothesesView,
 } from '../api/salesTypes';
-import { ADMIN, TOKEN_KEY } from '../test/fixtures';
+import type { Me } from '../api/types';
+import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import type { Answer, Call, Recorded } from '../test/server';
@@ -101,10 +103,14 @@ const KB = {
 
 type Routes = Record<string, Answer | ((call: Call) => Answer)>;
 
-async function openChain(routes: Routes = {}, view: ChainView = FILLED): Promise<Recorded> {
+async function openChain(
+  routes: Routes = {},
+  view: ChainView = FILLED,
+  who: Me = ADMIN,
+): Promise<Recorded> {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   const recorded = serve({
-    'GET /api/auth/me': { body: ADMIN },
+    'GET /api/auth/me': { body: who },
     'GET /api/sales/hypotheses': { body: HYPOTHESES },
     'GET /api/sales/kb': { body: KB },
     'GET /api/sales/chain': { body: view },
@@ -407,5 +413,63 @@ describe('цепочка писем: письмо глазами адресат�
 
     expect(await dialog.findByText('Письмо не собралось', {}, SCREEN_WAIT)).toBeVisible();
     expect(dialog.getByText(refusal)).toBeVisible();
+  });
+});
+
+describe('цепочка писем: без права на отправку', () => {
+  const LINE = 'Правит цепочку тот, у кого есть право отправки писем. Смотреть можно всем.';
+  const SHOWN: ChainPreviewView = {
+    subject: 'Test for Example Company',
+    zones: [{ name: 'greeting', kind: 'rewrite', text: 'Hello Alex Example,' }],
+    values: { name: 'Alex Example', company: 'Example Company', site: 'example.com' },
+    sender_name: null,
+    signature: null,
+    address: null,
+    missing: [],
+  };
+
+  it('шаги видны, заданный открывают смотреть, задать новый нельзя — строка говорит почему', async () => {
+    await openChain({}, FILLED, OPERATOR);
+
+    expect(screen.getByText(LINE)).toBeInTheDocument();
+    const first = within(stepOf('Английский', '1. Первое письмо'));
+    expect(first.getByText('Тема: Test for {{company}}')).toBeInTheDocument();
+    expect(first.getByRole('button', { name: 'Открыть' })).toBeEnabled();
+    expect(
+      within(stepOf('Русский', '1. Первое письмо')).getByRole('button', { name: 'Задать' }),
+    ).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Править' })).not.toBeInTheDocument();
+  });
+
+  it('окно шага: поля и «Сохранить» закрыты, письмо глазами адресата — как было', async () => {
+    const recorded = await openChain(
+      { 'POST /api/sales/chain/preview': { body: SHOWN } },
+      FILLED,
+      OPERATOR,
+    );
+    const user = userEvent.setup();
+
+    await user.click(
+      within(stepOf('Английский', '1. Первое письмо')).getByRole('button', { name: 'Открыть' }),
+    );
+    const dialog = within(await screen.findByRole('dialog', {}, SCREEN_WAIT));
+    expect(dialog.getByRole('textbox', { name: 'Тема' })).toHaveValue(FIRST_EN.subject);
+    expect(dialog.getByRole('textbox', { name: 'Тема' })).toBeDisabled();
+    expect(dialog.getByRole('textbox', { name: 'Текст письма' })).toBeDisabled();
+    expect(dialog.getByRole('switch', { name: 'Шаг включён — входит в цепочку' })).toBeDisabled();
+    expect(dialog.getByRole('button', { name: 'Сохранить' })).toBeDisabled();
+    expect(dialog.getByText(LINE)).toBeInTheDocument();
+
+    await user.click(dialog.getByRole('button', { name: 'Показать письмо' }));
+
+    expect(await dialog.findByLabelText('Письмо глазами адресата', {}, SCREEN_WAIT)).toBeVisible();
+    expect(calls(recorded, 'POST', '/api/sales/chain/preview')).toHaveLength(1);
+    expect(calls(recorded, 'POST', '/api/sales/chain')).toEqual([]);
+  });
+
+  it('с правом отправки строки нет', async () => {
+    await openChain();
+
+    expect(screen.queryByText(LINE)).not.toBeInTheDocument();
   });
 });

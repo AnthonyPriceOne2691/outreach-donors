@@ -7,7 +7,7 @@
  * чего не хватает; отказ сервера на нажатие виден словами; на сервер уходит гипотеза и
  * число писем, а пачка — общей кнопкой почты с этапом продаж; число на кнопке пачки —
  * письма всех гипотез, и вкладка говорит это до нажатия; итог задачи — словами; без права
- * отправки кнопки пачки нет.
+ * отправки кнопки пачки нет, а сборка закрыта и сказано почему.
  */
 
 import { screen, waitFor, within } from '@testing-library/react';
@@ -26,6 +26,7 @@ import { queueLine } from './queueData';
 const SCREEN_WAIT = { timeout: 5000 };
 const QUEUE = '/api/sales/queue';
 const ALL_MISSING = ['первого письма', 'первой добивки', 'второй добивки'];
+const WRITE_RIGHT = 'Собирает очередь тот, у кого есть право отправки писем. Смотреть можно всем.';
 
 function hypothesis(id: number, name: string) {
   return {
@@ -363,11 +364,24 @@ describe('пачка продаж', () => {
     expect(calls(recorded, 'POST', '/api/letters/send-queue')).toEqual([]);
   });
 
-  it('без права на отправку кнопки пачки нет, сборка есть', async () => {
-    await openQueue({}, READY, OPERATOR);
+  it('без права на отправку кнопки пачки нет, сборка закрыта — строка говорит почему', async () => {
+    const recorded = await openQueue({}, READY, OPERATOR);
 
-    expect(screen.getByRole('button', { name: 'Собрать очередь' })).toBeEnabled();
+    // Сборка пишет письма адресатам и тратит модель — как сборка ядра, только с правом отправки.
+    expect(screen.getByRole('textbox', { name: 'Писем за раз' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Собрать очередь' })).toBeDisabled();
+    expect(screen.getByText(WRITE_RIGHT)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Отправить очередь/ })).not.toBeInTheDocument();
+    // Смотреть — как было: подключение, цепочки и числа.
+    expect(screen.getByText('продажи подключены')).toBeInTheDocument();
+    expect(calls(recorded, 'POST', QUEUE)).toEqual([]);
+  });
+
+  it('с правом отправки строки о праве нет, сборка открыта', async () => {
+    await openQueue();
+
+    expect(screen.queryByText(WRITE_RIGHT)).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Писем за раз' })).toBeEnabled();
   });
 });
 

@@ -11,6 +11,9 @@
  * пустое и длинное (`chainDraft.ts`); отказ сервера встаёт над формой словами, а
  * введённое остаётся на месте. «Показать письмо» не пишет ничего; правка после
  * показа убирает показанное — письмо по прежнему тексту врало бы.
+ *
+ * **Без права отправки писем окно — смотреть** (`WriteRight`): поля и «Сохранить»
+ * закрыты, «Показать письмо» — как было.
  */
 
 import {
@@ -39,6 +42,7 @@ import { changed, draftOf, FIRST_STEP, previewBodyOf, refusalsOf, stepBodyOf } f
 import type { ChainDraft, StepPlace } from './chainDraft';
 import { usePreview, useSaveStep } from './chainData';
 import { SaveRefusal } from './SaveRefusal';
+import { WriteRight } from './WriteRight';
 
 interface Props {
   place: StepPlace;
@@ -47,6 +51,8 @@ interface Props {
   /** Шаблон шага; ещё не задан — `null`. */
   row: ChainStepCard | null;
   view: ChainView;
+  /** Право записи (`WriteRight`); без него окно — смотреть и показать письмо. */
+  mayWrite: boolean;
   onClose: () => void;
 }
 
@@ -67,10 +73,11 @@ interface FieldsProps {
   draft: ChainDraft;
   refusals: ReturnType<typeof refusalsOf>;
   placeholders: string[];
+  disabled: boolean;
   onChange: (patch: Partial<ChainDraft>) => void;
 }
 
-function StepFields({ place, draft, refusals, placeholders, onChange }: FieldsProps) {
+function StepFields({ place, draft, refusals, placeholders, disabled, onChange }: FieldsProps) {
   return (
     <>
       {place.step === FIRST_STEP && (
@@ -79,6 +86,7 @@ function StepFields({ place, draft, refusals, placeholders, onChange }: FieldsPr
           description="без «Re:» и «Fwd:» — переписки ещё нет; подстановки — как в тексте"
           value={draft.subject}
           error={refusals.subject}
+          disabled={disabled}
           onChange={(event) => onChange({ subject: event.currentTarget.value })}
         />
       )}
@@ -92,18 +100,20 @@ function StepFields({ place, draft, refusals, placeholders, onChange }: FieldsPr
         classNames={{ input: 'chainBody' }}
         value={draft.body}
         error={refusals.body}
+        disabled={disabled}
         onChange={(event) => onChange({ body: event.currentTarget.value })}
       />
       <Switch
         label="Шаг включён — входит в цепочку"
         checked={draft.active}
+        disabled={disabled}
         onChange={(event) => onChange({ active: event.currentTarget.checked })}
       />
     </>
   );
 }
 
-export function ChainStepModal({ place, setTitle, row, view, onClose }: Props) {
+export function ChainStepModal({ place, setTitle, row, view, mayWrite, onClose }: Props) {
   const [draft, setDraft] = useState<ChainDraft>(() => draftOf(row));
   // Тронутые поля: пустая новая форма не краснеет сразу.
   const [touched, setTouched] = useState<ReadonlySet<string>>(() => new Set());
@@ -111,6 +121,7 @@ export function ChainStepModal({ place, setTitle, row, view, onClose }: Props) {
   const preview = usePreview();
   const refusals = refusalsOf(draft, place.step, view.limits);
   const clean = Object.keys(refusals).length === 0;
+  const savable = mayWrite && clean && changed(draft, row);
   const shown = Object.fromEntries(
     Object.entries(refusals).filter(([field]) => touched.has(field)),
   ) as typeof refusals;
@@ -121,7 +132,7 @@ export function ChainStepModal({ place, setTitle, row, view, onClose }: Props) {
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          if (clean && changed(draft, row)) save.mutate(stepBodyOf(draft, place));
+          if (savable) save.mutate(stepBodyOf(draft, place));
         }}
       >
         <Stack gap="sm">
@@ -134,6 +145,7 @@ export function ChainStepModal({ place, setTitle, row, view, onClose }: Props) {
             draft={draft}
             refusals={shown}
             placeholders={view.placeholders}
+            disabled={!mayWrite}
             onChange={(patch) => {
               setDraft((current) => ({ ...current, ...patch }));
               setTouched((current) => new Set([...current, ...Object.keys(patch)]));
@@ -154,16 +166,12 @@ export function ChainStepModal({ place, setTitle, row, view, onClose }: Props) {
               <Button variant="subtle" className="press" onClick={onClose}>
                 Отмена
               </Button>
-              <Button
-                type="submit"
-                className="press"
-                disabled={!clean || !changed(draft, row)}
-                loading={save.isPending}
-              >
+              <Button type="submit" className="press" disabled={!savable} loading={save.isPending}>
                 Сохранить
               </Button>
             </Group>
           </Group>
+          {!mayWrite && <WriteRight what="Правит цепочку" />}
           {preview.error !== null && (
             <Alert color="red" title="Письмо не собралось">
               {refusalOf(preview.error)}
