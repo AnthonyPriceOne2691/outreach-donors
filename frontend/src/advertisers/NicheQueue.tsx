@@ -7,7 +7,7 @@
  * прогона»: вердикты судьи там уже оплачены.
  */
 
-import { Badge, Button, Card, Group, NumberInput, Stack, Text, Title } from '@mantine/core';
+import { Badge, Button, Card, Group, Stack, Text, Title } from '@mantine/core';
 import { useState } from 'react';
 
 import { refusalOf } from '../api/client';
@@ -15,6 +15,14 @@ import type { NicheCard } from '../api/niche';
 import { useSession } from '../auth/AuthProvider';
 import { useNicheCollect, useNicheQueue } from './useNiche';
 import { InfoHint } from '../components/InfoHint';
+import { NumberField } from '../components/NumberField';
+import { numberRefusal, validNumber } from '../components/numberText';
+import type { NumberRule } from '../components/numberText';
+
+/** Номер прогона — целое с единицы. Набранное стоит в поле как есть: «1.5» не
+ *  склеивается в 15, на которое сервер честно отвечал «Прогона №15 нет», а
+ *  получает отказ (проверка QA 10.10.2026). */
+const RUN_NUMBER: NumberRule = { decimals: 0, min: 1 };
 
 function whereFrom(card: NicheCard): string {
   const run = card.run_id === null ? 'прогон удалён' : `прогон №${card.run_id}`;
@@ -79,25 +87,25 @@ function NicheRow({
 }
 
 function Collect() {
-  const [runId, setRunId] = useState<number | ''>('');
+  const [runId, setRunId] = useState('');
   const collect = useNicheCollect();
+  const run = validNumber(runId, RUN_NUMBER);
   return (
     <Group gap="xs" align="flex-end">
-      <NumberInput
+      <NumberField
         label="Собрать из прогона №"
         w="12rem"
-        min={1}
-        allowDecimal={false}
-        allowNegative={false}
+        refusalAbove
         value={runId}
-        onChange={(value) => setRunId(typeof value === 'number' ? value : '')}
+        error={numberRefusal(runId, RUN_NUMBER)}
+        onChange={setRunId}
       />
       <Button
         variant="light"
         className="press"
         loading={collect.isPending}
-        disabled={runId === ''}
-        onClick={() => runId !== '' && collect.mutate(runId)}
+        disabled={run === null}
+        onClick={() => run !== null && collect.mutate(run)}
       >
         Собрать
       </Button>

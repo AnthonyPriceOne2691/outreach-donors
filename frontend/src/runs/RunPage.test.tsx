@@ -856,6 +856,54 @@ describe('режим сборки моделью', () => {
   });
 });
 
+describe('числа в полях прогона', () => {
+  // Проверка QA 10.10.2026: «1.5» в «Потолке юнитов» давало 5 — поле стиралось на точке.
+  it('потолок «1.5» стоит в поле как набран: отказ словами, смета закрыта', async () => {
+    const recorded = await openRun({ 'POST /api/runs/estimate': { body: FITS } });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
+    await user.type(screen.getByLabelText('Потолок юнитов'), '1.5');
+
+    expect(screen.getByLabelText('Потолок юнитов')).toHaveValue('1.5');
+    expect(screen.getByLabelText('Потолок юнитов')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText('Только целое число')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Посчитать смету' })).toBeDisabled();
+    expect(recorded.calls.some((call) => call.path === '/api/runs/estimate')).toBe(false);
+  });
+
+  it('потолок с отказом закрывает и запуск по смете, посчитанной без потолка', async () => {
+    // Потолок с отказом в тело не попадает: смета без потолка осталась бы свежей, и
+    // запуск ушёл бы на весь остаток по капу, а в поле стояло бы «1.5».
+    await openRun({ 'POST /api/runs/estimate': { body: FITS } });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Ключевые слова'), 'ремонт\nдизайн');
+    await user.click(screen.getByRole('button', { name: 'Посчитать смету' }));
+    await screen.findByText('до 177');
+    await user.type(screen.getByLabelText('Потолок юнитов'), '1.5');
+
+    expect(screen.getByRole('button', { name: /Запустить/ })).toBeDisabled();
+  });
+
+  it('«Сколько ключей» не склеивает «1.5» и не собирает с ним', async () => {
+    await openRun({
+      'GET /api/keywords/presets': { body: ['wide'] },
+      'GET /api/keywords/languages?country=us': { body: ['English'] },
+    });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('radio', { name: 'Собрать моделью' }));
+    const count = await screen.findByLabelText('Сколько ключей');
+    await user.clear(count);
+    await user.type(count, '1.5');
+
+    expect(count).toHaveValue('1.5');
+    expect(screen.getByText('Только целое число от 1 до 100')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Собрать' })).toBeDisabled();
+  });
+});
+
 describe('задачу некому взять', () => {
   it('предупреждение видно и со второй страницы истории', async () => {
     // Прогон в очереди — на первой странице, а смотрят вторую. До 25.09.2026

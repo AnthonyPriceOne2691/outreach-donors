@@ -101,6 +101,24 @@ describe('доноры: фильтры трафика, страны и данн�
     expect(screen.getByRole('textbox', { name: 'Трафик не ниже' })).toHaveValue('1 000 000');
   });
 
+  it('DR с нулём впереди не стирает поле: «05» — фильтр «не ниже 5»', async () => {
+    // Проверка QA 10.10.2026: «05» поле отдаёт строкой, экран делал из неё «пусто» —
+    // и набранное стиралось посреди набора.
+    const recorded = await openDonors({
+      [donorsAt('min_dr=0&limit=20&offset=0')]: { body: page() },
+      [donorsAt('min_dr=5&limit=20&offset=0')]: { body: page() },
+    });
+    const user = userEvent.setup();
+    const dr = screen.getByRole('textbox', { name: 'DR не ниже' });
+
+    await user.type(dr, '05');
+
+    await waitFor(() =>
+      expect(listCalls(recorded).at(-1)).toBe('/api/donors?min_dr=5&limit=20&offset=0'),
+    );
+    expect(dr).toHaveValue('5');
+  });
+
   it('страна — из тех, что есть у доноров, со счётчиками и поиском по названию', async () => {
     const recorded = await openDonors({
       [donorsAt('geo=de&limit=20&offset=0')]: { body: page({ rows: [ROWS[1]!], total: 1 }) },

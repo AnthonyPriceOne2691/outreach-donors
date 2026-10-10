@@ -28,7 +28,6 @@ import {
   Button,
   Card,
   Group,
-  NumberInput,
   Select,
   SegmentedControl,
   SimpleGrid,
@@ -45,6 +44,9 @@ import { useEffect, useState } from 'react';
 import { refusalOf } from '../api/client';
 import { countryTitle, languageTitle, presetTitle } from '../api/labels';
 import { Metric } from '../components/Metric';
+import { NumberField } from '../components/NumberField';
+import { numberRefusal, validNumber } from '../components/numberText';
+import type { NumberRule } from '../components/numberText';
 import { PageHead } from '../components/PageHead';
 import { FIELD_GAP } from '../components/formRhythm';
 import { usePageParam } from '../components/PageSwitch';
@@ -71,6 +73,11 @@ import { notify } from '../notices';
 /** Набор углов, пока человек не выбрал другой, — тот же, что берёт сервер
  *  по умолчанию (`angles.DEFAULT_PRESET`). */
 const DEFAULT_PRESET = 'wide';
+
+/** Потолок юнитов и сколько ключей собрать — целые. Поля держат набранное:
+ *  «1.5» не становится ни пустым, ни 15, а получает отказ (проверка QA 10.10.2026). */
+const CAP: NumberRule = { decimals: 0, min: 1 };
+const POOL_CAP: NumberRule = { decimals: 0, min: 1, max: 100 };
 
 /** Ширины полей ряда — по самому длинному значению шрифтом экрана, а не на
  *  глаз: «Саудовская Аравия» в поле страны, «100 результатов» в поле
@@ -154,7 +161,7 @@ export function RunPage() {
   const [keywords, setKeywords] = useState('');
   const [country, setCountry] = useLastChoice('country', 'us', isCountry);
   const [depth, setDepth] = useLastChoice<Depth>('depth', DEFAULT_DEPTH, isDepth);
-  const [cap, setCap] = useState<number | ''>('');
+  const [cap, setCap] = useState('');
   const [forecast, setForecast] = useState<Forecast | null>(null);
   // О чём спрашивали смету: ключи, страна, глубина и потолок одной строкой.
   const [askedFor, setAskedFor] = useState<string | null>(null);
@@ -163,7 +170,7 @@ export function RunPage() {
   const [source, setSource] = useState<'manual' | 'model'>('manual');
   const [preset, setPreset] = useState<string>(DEFAULT_PRESET);
   const [topics, setTopics] = useState<string[]>([]);
-  const [poolCap, setPoolCap] = useState<number | ''>(30);
+  const [poolCap, setPoolCap] = useState('30');
 
   const countries = useQuery({ queryKey: ['countries'], queryFn: fetchCountries });
   // Пресеты спрашиваются у сервера по той же причине, что и страны:
@@ -218,11 +225,14 @@ export function RunPage() {
   }, [settled, page, pages, goToPage]);
 
   const list = parseKeywords(keywords);
+  const capRefusal = numberRefusal(cap, CAP);
+  const capValue = validNumber(cap, CAP);
+  const poolRefusal = numberRefusal(poolCap, POOL_CAP);
   const body: RunRequest = {
     keywords: list,
     country,
     depth_pages: depthPages(depth),
-    ...(typeof cap === 'number' ? { cap } : {}),
+    ...(capValue !== null ? { cap: capValue } : {}),
   };
 
   const pool = useMutation({
@@ -231,7 +241,7 @@ export function RunPage() {
         preset,
         country,
         topics,
-        cap: typeof poolCap === 'number' ? poolCap : 30,
+        cap: validNumber(poolCap, POOL_CAP) ?? 30,
       }),
     onSuccess: (built) => {
       // Фразы падают в то же поле, а не уходят в прогон: человек видит
@@ -290,6 +300,9 @@ export function RunPage() {
   // 25.09.2026 устаревание смотрело только на число ключей.
   const stale = forecast !== null && askedFor !== JSON.stringify(body);
   const canRun = can('run');
+  // Потолок с отказом в тело не попадает: без своей проверки запуск ушёл бы без потолка —
+  // на весь остаток по капу, — а в поле стояло бы «1.5».
+  const launchable = forecast?.affordable === true && !stale && canRun && capRefusal === null;
   const languages = marketLanguages.data ?? [];
 
   return (
@@ -358,13 +371,13 @@ export function RunPage() {
                       clearable
                       w={{ base: '100%', xs: WIDTH.topics }}
                     />
-                    <NumberInput
+                    <NumberField
                       label="Сколько ключей"
                       description="От 1 до 100"
-                      min={1}
-                      max={100}
+                      refusalAbove
                       value={poolCap}
-                      onChange={(value) => setPoolCap(typeof value === 'number' ? value : '')}
+                      error={poolRefusal}
+                      onChange={setPoolCap}
                       w={{ base: '100%', xs: WIDTH.poolCap }}
                     />
                     <Button
@@ -373,7 +386,7 @@ export function RunPage() {
                       leftSection={<IconSparkles size={16} />}
                       onClick={() => pool.mutate()}
                       loading={pool.isPending}
-                      disabled={!canRun}
+                      disabled={!canRun || poolRefusal !== null}
                     >
                       Собрать
                     </Button>
@@ -439,14 +452,14 @@ export function RunPage() {
             {/* Своя планка на прогон: попробовать нишу дёшево, не сокращая
                 список ключей. Больше остатка по капу её всё равно не
                 поднять — сервер возьмёт меньшее из двух. */}
-            <NumberInput
+            <NumberField
               label="Потолок юнитов"
               description="Пусто — весь остаток по капу"
               w={{ base: '100%', xs: WIDTH.cap }}
-              min={1}
-              step={1000}
+              refusalAbove
               value={cap}
-              onChange={(value) => setCap(typeof value === 'number' ? value : '')}
+              error={capRefusal}
+              onChange={setCap}
             />
             <Group gap="sm" className="runActions">
               <Button
@@ -454,7 +467,7 @@ export function RunPage() {
                 className="press"
                 leftSection={<IconCalculator size={18} />}
                 loading={estimate.isPending}
-                disabled={list.length === 0}
+                disabled={list.length === 0 || capRefusal !== null}
                 onClick={() => estimate.mutate(body)}
               >
                 Посчитать смету
@@ -464,7 +477,7 @@ export function RunPage() {
                 variant="gradient"
                 leftSection={<IconPlayerPlay size={18} />}
                 loading={launch.isPending}
-                disabled={forecast === null || !forecast.affordable || stale || !canRun}
+                disabled={!launchable}
                 onClick={() => launch.mutate()}
               >
                 Запустить

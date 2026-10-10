@@ -8,18 +8,23 @@
  */
 
 import type { AgentSettingsBody } from '../api/agent';
-import { formatNumber } from '../format';
+import { numberOf, numberRefusal, numberText, sameNumber } from '../components/numberText';
+import type { NumberRule } from '../components/numberText';
 
 /** Границы — те же, что у схемы сервера. */
 export const LIMITS = { goal: 2000, tone: 500, line: 300, lines: 20, price: 100_000 } as const;
+
+/** Предел цены — доллары с центами, точкой или запятой: «12.5» и «99,5». */
+const PRICE: NumberRule = { decimals: 2, min: 0, max: LIMITS.price };
 
 export interface AgentDraft {
   enabled: boolean;
   goal: string;
   tone: string;
   points: string;
-  /** Как набрано в поле: пусто — предела нет. */
-  price: number | '';
+  /** Как набрано в поле, строкой: пусто — предела нет. Числом поле стиралось
+   *  на точке — «12.» не число (проверка QA 10.10.2026). */
+  price: string;
   stopTopics: string;
   /** Режим и предел ответов автопилота — как пришли: полей правки нет, терять нельзя. */
   mode: AgentSettingsBody['mode'];
@@ -34,7 +39,7 @@ export function draftOf(body: AgentSettingsBody): AgentDraft {
     goal: body.goal,
     tone: body.tone,
     points: body.points.join('\n'),
-    price: body.price_limit_usd === null ? '' : Number(body.price_limit_usd),
+    price: body.price_limit_usd === null ? '' : numberText(Number(body.price_limit_usd), 2),
     stopTopics: body.stop_topics.join('\n'),
     mode: body.mode,
     maxTurns: body.max_turns,
@@ -68,10 +73,7 @@ export function refusalsOf(draft: AgentDraft): Partial<Record<DraftField, string
     tone: textRefusal(draft.tone, LIMITS.tone),
     points: linesRefusal(draft.points),
     stopTopics: linesRefusal(draft.stopTopics),
-    price:
-      draft.price !== '' && (draft.price < 0 || draft.price > LIMITS.price)
-        ? `Допустимо от 0 до ${formatNumber(LIMITS.price)}`
-        : null,
+    price: numberRefusal(draft.price, PRICE),
   };
   return Object.fromEntries(
     Object.entries(found).filter((entry): entry is [DraftField, string] => entry[1] !== null),
@@ -81,12 +83,14 @@ export function refusalsOf(draft: AgentDraft): Partial<Record<DraftField, string
 /** Тело запроса из черновика; `null` — в черновике есть отказ. */
 export function bodyOf(draft: AgentDraft): AgentSettingsBody | null {
   if (Object.keys(refusalsOf(draft)).length > 0) return null;
+  // Отказов нет — значит, в поле цены число или пусто.
+  const price = numberOf(draft.price);
   return {
     enabled: draft.enabled,
     goal: draft.goal.trim(),
     tone: draft.tone.trim(),
     points: linesOf(draft.points),
-    price_limit_usd: draft.price === '' ? null : draft.price.toFixed(2),
+    price_limit_usd: price === null ? null : price.toFixed(2),
     stop_topics: linesOf(draft.stopTopics),
     mode: draft.mode,
     max_turns: draft.maxTurns,
@@ -101,7 +105,7 @@ export function sameDraft(draft: AgentDraft, inUse: AgentSettingsBody): boolean 
     draft.goal.trim() === asIs.goal &&
     draft.tone.trim() === asIs.tone &&
     linesOf(draft.points).join('\n') === asIs.points &&
-    draft.price === asIs.price &&
+    sameNumber(draft.price, asIs.price) &&
     linesOf(draft.stopTopics).join('\n') === asIs.stopTopics &&
     draft.mode === asIs.mode &&
     draft.maxTurns === asIs.maxTurns

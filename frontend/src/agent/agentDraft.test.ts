@@ -39,7 +39,7 @@ describe('черновик настроек агента', () => {
     const draft = {
       ...draftOf(SAVED),
       goal: '   ',
-      price: 1_000_000,
+      price: '1 000 000',
       points: Array.from({ length: 21 }, (_, n) => `довод ${n}`).join('\n'),
     };
 
@@ -49,6 +49,36 @@ describe('черновик настроек агента', () => {
       points: 'Пунктов 21 — больше 20',
     });
     expect(bodyOf(draft)).toBeNull();
+  });
+
+  // Числом поле стиралось на точке: «12.» — строка, и черновик делал из неё «пусто»
+  // (проверка QA 10.10.2026: «12.5» → 5, «99,5» → 5).
+  it.each([
+    ['12.5', '12.50'],
+    ['99,5', '99.50'],
+    ['0.99', '0.99'],
+    ['1 250,5', '1250.50'],
+  ] as const)('цена «%s» — как набрана, на сервер — %s', (typed, sent) => {
+    const draft = { ...draftOf(SAVED), price: typed };
+    expect(refusalsOf(draft).price).toBeUndefined();
+    expect(bodyOf(draft)?.price_limit_usd).toBe(sent);
+  });
+
+  it('не число и лишние центы — отказ, а не склеенные цифры', () => {
+    const refusal = (price: string) => refusalsOf({ ...draftOf(SAVED), price }).price;
+
+    // «ю» — точка на русской раскладке: 12ю5 не становится 125.
+    expect(refusal('12ю5')).toBe('Только число, например 99,50');
+    expect(refusal('12.345')).toBe('Не больше двух знаков после запятой');
+    expect(refusal('-5')).toBe(`Допустимо от 0 до ${formatNumber(100_000)}`);
+  });
+
+  it('цена — та же, если записана иначе: «1250.5» при действующих «1250.50» — не правка', () => {
+    const saved = { ...SAVED, price_limit_usd: '1250.50' };
+    expect(draftOf(saved).price).toBe('1 250,5');
+    expect(sameDraft({ ...draftOf(saved), price: '1250.5' }, saved)).toBe(true);
+    expect(sameDraft({ ...draftOf(saved), price: '1250.6' }, saved)).toBe(false);
+    expect(sameDraft({ ...draftOf(SAVED), price: 'абв' }, SAVED)).toBe(false);
   });
 
   it('длинная строка называется номером', () => {
