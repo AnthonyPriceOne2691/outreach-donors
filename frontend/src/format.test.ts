@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { formatMoney, formatPercent, formatUsd, plural } from './format';
+import { belowCent, formatMoney, formatPercent, formatUsd, plural } from './format';
 
 /** Разряды у `Intl` — неразрывным пробелом; сравниваем по обычному. */
 function plain(text: string): string {
@@ -38,6 +38,16 @@ describe('деньги', () => {
   it('доллары расхода — той же функцией', () => {
     expect(plain(formatUsd('0.7194'))).toBe('0,72 $');
     expect(plain(formatUsd(0))).toBe('0,00 $');
+  });
+
+  it('доли цента — «меньше 0,01», а не ноль, будто даром', () => {
+    // Проверка прода 10.10.2026: смета выдачи в 0,0024 $ показывалась «0,00 $».
+    expect(plain(formatUsd(0.0024))).toBe('меньше 0,01 $');
+    expect(plain(formatMoney('0.004', null))).toBe('меньше 0,01');
+    expect(belowCent(0.0049)).toBe(true);
+    // Ровный ноль — ноль; что округляется до цента — цент.
+    expect(belowCent(0)).toBe(false);
+    expect(plain(formatUsd(0.005))).toBe('0,01 $');
   });
 });
 

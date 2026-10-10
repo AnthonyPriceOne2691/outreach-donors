@@ -61,7 +61,8 @@ export function formatCompact(value: number | string | null | undefined): string
  * строкой сервера — «250.00 / 180.00 EUR», с точкой и без разрядов, — рядом
  * с расходом, написанным «0,72 $»: два формата денег на соседних экранах
  * читаются как два приложения. Копейки — всегда: цена бывает и 249,99.
- * Валюта без знака пишется кодом; не названа — только число.
+ * Валюта без знака пишется кодом; не названа — только число. Доли цента —
+ * «меньше 0,01» (`belowCent`), ноль — нулём.
  */
 export function formatMoney(
   value: number | string | null | undefined,
@@ -70,8 +71,17 @@ export function formatMoney(
   if (missing(value)) return '—';
   const code = (currency ?? '').trim();
   const sign = CURRENCY_SIGNS[code.toUpperCase()] ?? code;
-  const amount = money.format(Number(value));
+  const amount = belowCent(value) ? `меньше ${money.format(0.01)}` : money.format(Number(value));
   return sign === '' ? amount : `${amount} ${sign}`;
+}
+
+/**
+ * Сумма больше нуля, которая в копейках вышла бы нулём: «0,0024 $» — это не
+ * «0,00 $», будто даром (проверка прода 10.10.2026: «Выдача обойдётся примерно
+ * в 0,00 $» на смете в доли цента). Такая сумма пишется «меньше 0,01 $».
+ */
+export function belowCent(value: number | string | null | undefined): boolean {
+  return !missing(value) && Number(value) > 0 && money.format(Number(value)) === money.format(0);
 }
 
 /** Доллары: «0,72 $». Сервер отдаёт деньги строкой, чтобы не терять копейки. */
