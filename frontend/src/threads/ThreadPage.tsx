@@ -3,10 +3,11 @@
  *
  * **Лента — как в мессенджере** (`ThreadFeed`): наши письма справа, письма
  * собеседника слева, в своём блоке с прокруткой; в пузыре ответа — написанное
- * человеком, цитата и подпись — по раскрытию. **Под лентой — одна форма разбора**
- * (`ReplyDecision`) для ответа, который ждёт человека или открыт кнопкой в пузыре,
- * и **одна форма ответа** — на последний ответ человека. До 09.10.2026 у каждого
- * ответа была своя карточка со своими формами, и переписка растягивалась
+ * человеком, цитата и подпись — по раскрытию. **Поле ответа — внизу карточки ленты**
+ * (`Composer`, 10.10.2026): видно сразу, со скрепкой, без кнопки «Ответить»; отвечает
+ * на последний ответ человека. **Под лентой — одна форма разбора** (`ReplyDecision`)
+ * для ответа, который ждёт человека или открыт кнопкой в пузыре. До 09.10.2026 у
+ * каждого ответа была своя карточка со своими формами, и переписка растягивалась
  * в простыню (замечание Anthony по первому настоящему ответу донора).
  *
  * **«К списку» — над заголовком, как у карточек донора и прогона**
@@ -39,7 +40,7 @@ import type { IncomingCard } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { BackLink, backTo } from '../components/BackLink';
 import { Seams } from '../components/Seams';
-import { AnswerBox } from './AnswerBox';
+import { Composer } from './Composer';
 import { NextWaiting } from './NextWaiting';
 import { ReplyDecision } from './ReplyDecision';
 import { ThreadFeed } from './ThreadFeed';
@@ -239,6 +240,22 @@ export function ThreadPage() {
         sales={sales}
         onPick={setPicked}
         fill={split}
+        composer={
+          // Отвечают человеку: автоответчику, отказу доставки и отписке — нет. Лиду
+          // продаж — тоже: подпись и адрес допишет модуль продаж.
+          can('send') && target !== null ? (
+            <Composer
+              key={data.card.id}
+              answered={data.letters.some((letter) => letter.answers_reply_id === target.id)}
+              busy={busy(target.id)}
+              onSend={(text, fileIds) => answer.mutate({ replyId: target.id, text, fileIds })}
+              signed={sales}
+              threadId={data.card.id}
+              pendingFiles={data.pending_files ?? []}
+              {...(data.file_rules === undefined ? {} : { rules: data.file_rules })}
+            />
+          ) : null
+        }
       />
 
       {decided !== null && (
@@ -258,23 +275,6 @@ export function ThreadPage() {
           onSendLead={() => handoff.mutate(decided.id)}
           onClose={decided.id === picked ? () => setPicked(null) : null}
         />
-      )}
-
-      {/* Отвечают человеку: автоответчику, отказу доставки и отписке — нет. Лиду
-          продаж — тоже: подпись и адрес допишет модуль продаж. */}
-      {can('send') && target !== null && (
-        <Card className="glass" px="md" py="sm">
-          <AnswerBox
-            key={data.card.id}
-            answered={data.letters.some((letter) => letter.answers_reply_id === target.id)}
-            busy={busy(target.id)}
-            onSend={(text, fileIds) => answer.mutate({ replyId: target.id, text, fileIds })}
-            signed={sales}
-            threadId={data.card.id}
-            pendingFiles={data.pending_files ?? []}
-            {...(data.file_rules === undefined ? {} : { rules: data.file_rules })}
-          />
-        </Card>
       )}
     </Stack>
   );

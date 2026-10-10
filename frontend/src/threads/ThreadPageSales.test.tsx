@@ -106,7 +106,6 @@ describe('переписка продаж', () => {
 
     renderWith(<AppRoutes />, '/threads/5');
     await screen.findByRole('heading', { name: 'lead.example.test' });
-    await user.click(screen.getByRole('button', { name: 'Ответить' }));
 
     const field = screen.getByLabelText('Текст ответа');
     expect(field).toHaveAccessibleDescription(
@@ -136,7 +135,6 @@ describe('переписка продаж', () => {
 
     renderWith(<AppRoutes />, '/threads/5');
     await screen.findByRole('heading', { name: 'lead.example.test' });
-    await user.click(screen.getByRole('button', { name: 'Ответить' }));
     await user.type(screen.getByLabelText('Текст ответа'), 'Sure.');
     await user.click(screen.getByRole('button', { name: 'Отправить' }));
 
@@ -154,7 +152,6 @@ describe('переписка продаж', () => {
 
     renderWith(<AppRoutes />, '/threads/5');
     await screen.findByRole('heading', { name: 'lead.example.test' });
-    await userEvent.setup().click(screen.getByRole('button', { name: 'Ответить' }));
 
     // Пометка этапа и причина продаж — только у продаж: ответ донору и его
     // пояснение, с какого ящика он уйдёт, — у самого поля, как без них.

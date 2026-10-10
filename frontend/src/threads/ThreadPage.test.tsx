@@ -442,7 +442,7 @@ describe('ответ собеседнику', () => {
     });
     const user = userEvent.setup();
 
-    await user.click(screen.getByRole('button', { name: 'Ответить' }));
+    // Поле — сразу внизу ленты, без кнопки «Ответить» (замечание Anthony 10.10.2026).
     await user.type(screen.getByLabelText('Текст ответа'), 'Thanks! Which topics?');
     await user.click(screen.getByRole('button', { name: 'Отправить' }));
 
@@ -454,37 +454,54 @@ describe('ответ собеседнику', () => {
     expect(await screen.findByText('Ответ отправлен с anna@mail.test')).toBeInTheDocument();
   });
 
-  it('пустой ответ не отправить', async () => {
-    await openThread(VIEW);
+  it('пустой ответ не отправить — ни кнопкой, ни Ctrl+Enter', async () => {
+    const recorded = await openThread(VIEW);
     const user = userEvent.setup();
 
-    await user.click(screen.getByRole('button', { name: 'Ответить' }));
-
     expect(screen.getByRole('button', { name: 'Отправить' })).toBeDisabled();
+    await user.type(screen.getByLabelText('Текст ответа'), '   {Control>}{Enter}{/Control}');
+
+    expect(recorded.calls.some((call: Call) => call.path === '/api/threads/3/answer')).toBe(false);
   });
 
-  it('без права отправлять кнопки ответа нет', async () => {
+  it('Ctrl+Enter отправляет, Enter — новая строка: ответ — письмо, а не реплика', async () => {
+    const recorded = await openThread(VIEW, {
+      'POST /api/threads/3/answer': {
+        body: { id: 9, sender_email: 'anna@mail.test', real: true },
+      },
+    });
+    const user = userEvent.setup();
+    const field = screen.getByLabelText('Текст ответа');
+
+    await user.type(field, 'Hello,{Enter}which topics?');
+    expect(recorded.calls.some((call: Call) => call.path === '/api/threads/3/answer')).toBe(false);
+    await user.type(field, '{Control>}{Enter}{/Control}');
+
+    await waitFor(() =>
+      expect(recorded.calls.some((call: Call) => call.path === '/api/threads/3/answer')).toBe(true),
+    );
+    const call = recorded.calls.find((sent: Call) => sent.path === '/api/threads/3/answer');
+    expect(call?.body).toMatchObject({ body: 'Hello,\nwhich topics?' });
+  });
+
+  it('без права отправлять поля ответа нет', async () => {
     await openThread(VIEW, {}, OPERATOR);
 
-    expect(screen.queryByRole('button', { name: 'Ответить' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Текст ответа')).not.toBeInTheDocument();
     expect(screen.queryByText(/с того же ящика/)).not.toBeInTheDocument();
   });
 
-  it('с какого ящика уйдёт ответ — у самого поля, а не карточкой внизу', async () => {
+  it('с какого ящика уйдёт ответ — описание самого поля, а не карточка внизу', async () => {
     await openThread(VIEW);
-    const user = userEvent.setup();
 
     // До 06.10.2026 внизу переписки всегда стояло «ответ из карточки
     // появится вместе с подключением почты» — и после того, как ответ
     // заработал.
     expect(screen.queryByText(/вместе с подключением почты/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/с того же ящика/)).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'Ответить' }));
-
     expect(screen.getByLabelText('Текст ответа')).toHaveAccessibleDescription(
       /с того же ящика, что вёл переписку/,
     );
+    expect(screen.getByRole('button', { name: 'Как уйдёт ответ' })).toBeInTheDocument();
   });
 
   it('отвеченный ответ говорит об этом, а наше письмо подписано «наш ответ»', async () => {
@@ -497,7 +514,7 @@ describe('ответ собеседнику', () => {
 
     expect(screen.getByText(/Ответили — наше письмо в ленте выше/)).toBeInTheDocument();
     expect(screen.getByText('наш ответ')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Ответить' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Текст ответа')).not.toBeInTheDocument();
   });
 });
 

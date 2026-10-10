@@ -294,6 +294,8 @@ interface FeedProps {
   /** Лента забирает остаток колонки высотой окна (переписка рядом со списком,
    *  `ThreadsScreen`), а не растёт до своего потолка. */
   fill?: boolean;
+  /** Поле ответа — внизу той же карточки, под лентой, как в мессенджере (`Composer`). */
+  composer?: ReactNode;
 }
 
 export function ThreadFeed({
@@ -305,6 +307,7 @@ export function ThreadFeed({
   sales,
   onPick,
   fill = false,
+  composer = null,
 }: FeedProps) {
   const viewport = useRef<HTMLDivElement>(null);
   const items = useMemo(() => feedOf(letters, incoming), [letters, incoming]);
@@ -348,6 +351,7 @@ export function ThreadFeed({
         >
           {bubbles}
         </ScrollArea>
+        {composer}
       </Card>
     );
   }
@@ -362,6 +366,7 @@ export function ThreadFeed({
       >
         {bubbles}
       </ScrollArea.Autosize>
+      {composer}
     </Card>
   );
 }

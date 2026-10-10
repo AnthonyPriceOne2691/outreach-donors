@@ -3,7 +3,7 @@
  *
  * Проверяется обещанное Spec 5.1: готовый черновик уходит как есть или
  * с правкой (A1, A2), отклонить без причины нельзя (A3), у отданного человеку
- * «как есть» нет (A4), «ответ не нужен» виден и оспаривается ответом (A5).
+ * «как есть» нет (A4), «ответ не нужен» виден и оспаривается ответом в поле ленты (A5).
  * И условие соседей: «черновик устарел» говорит сервер — экран показывает его
  * словами, а ответить своими словами черновик не мешает.
  */
@@ -207,7 +207,7 @@ describe('плашка черновика агента', () => {
     expect(send).toBeEnabled();
   });
 
-  it('A5: «ответ не нужен» виден, «Ответить всё же» — пустой черновик обычным ответом', async () => {
+  it('A5: «ответ не нужен» виден и оспаривается ответом в поле внизу ленты — одном на экране', async () => {
     const recorded = await openThread(
       { ...DRAFT, status: 'skipped', body: '', reason: 'собеседник поблагодарил' },
       () => ({ 'POST /api/threads/3/answer': { body: SENT } }),
@@ -216,10 +216,11 @@ describe('плашка черновика агента', () => {
 
     expect(screen.getByText('агент: ответ не нужен')).toBeInTheDocument();
     expect(screen.getByText('собеседник поблагодарил')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Ответить всё же' }));
-    const field = screen.getByLabelText('Текст ответа по черновику');
-    expect(field).toHaveValue('');
-    await user.type(field, 'Glad to help!');
+    expect(screen.getByText('Не согласны — ответьте в поле внизу.')).toBeInTheDocument();
+    // Своего поля у плашки нет: до 10.10.2026 «Ответить всё же» открывало второе.
+    expect(screen.queryByRole('button', { name: 'Ответить всё же' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Отправить' })).toHaveLength(1);
+    await user.type(screen.getByLabelText('Текст ответа'), 'Glad to help!');
     await user.click(screen.getByRole('button', { name: 'Отправить' }));
 
     await screen.findByText('Ответ отправлен с anna@mail.example');
@@ -249,7 +250,7 @@ describe('плашка черновика агента', () => {
     await openThread(DRAFT);
 
     expect(screen.getByText(/Есть черновик агента выше/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Ответить' })).toBeEnabled();
+    expect(screen.getByLabelText('Текст ответа')).toBeEnabled();
   });
 
   it('без права отправки — черновик виден, решать нельзя', async () => {
