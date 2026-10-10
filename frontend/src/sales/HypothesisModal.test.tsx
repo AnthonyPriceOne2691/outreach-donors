@@ -233,4 +233,37 @@ describe('новая гипотеза: мастер загрузки', () => {
     await waitFor(() => expect(field).toHaveValue('сайты DE'), SCREEN_WAIT);
     expect(screen.queryByText('Выберите гипотезу — куда лягут лиды.')).not.toBeInTheDocument();
   });
+
+  it('список не перечитался — заведённая всё равно в нём и выбрана: карточка сервера', async () => {
+    let made = false;
+    const { recorded, user } = await open(
+      '/sales/import',
+      {
+        // Первый список — с одной гипотезой; после заведения список не отвечает.
+        'GET /api/sales/hypotheses': () =>
+          made
+            ? { status: 503, body: { detail: 'База не ответила — повторите' } }
+            : { body: { rows: [EN], total: 1 } },
+        [`POST ${ADD}`]: () => {
+          made = true;
+          return { status: 201, body: card(7, 'сайты DE') };
+        },
+      },
+      'Выберите гипотезу — куда лягут лиды.',
+    );
+
+    const dialog = await openDialog(user);
+    await user.type(within(dialog).getByRole('textbox', { name: /Имя/ }), 'сайты DE');
+    await user.click(within(dialog).getByRole('button', { name: 'Завести' }));
+
+    const field = screen.getByRole('textbox', { name: 'Гипотеза' });
+    await waitFor(() => expect(field).toHaveValue('сайты DE'), SCREEN_WAIT);
+    // Перечитать список экран пытался — правда за сервером, — но его отказ выбора не снял.
+    await waitFor(() =>
+      expect(
+        recorded.calls.filter((call) => call.path === '/api/sales/hypotheses').length,
+      ).toBeGreaterThan(1),
+    );
+    expect(field).toHaveValue('сайты DE');
+  });
 });

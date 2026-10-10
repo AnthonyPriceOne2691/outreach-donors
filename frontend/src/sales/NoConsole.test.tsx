@@ -12,7 +12,7 @@ import { screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
-import type { ChainView, SalesFunnelView, SenderView } from '../api/salesTypes';
+import type { ChainView, HypothesesView, SalesFunnelView, SenderView } from '../api/salesTypes';
 import { ADMIN, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
@@ -84,22 +84,41 @@ const LEADS = {
   reasons: {},
 };
 
+/** Гипотеза с новыми лидами: на вкладке лидов — строка очистки, в мастере — поле выбора. */
+const WITH_NEW: HypothesesView = {
+  rows: [
+    {
+      id: 1,
+      name: 'сайты EN',
+      description: null,
+      created_at: '2026-10-01T10:00:00+00:00',
+      leads: { new: 3, ready: 0, rejected: 0 },
+      total: 3,
+    },
+  ],
+  total: 1,
+};
+const NO_HYPOTHESES: HypothesesView = { rows: [], total: 0 };
+
 describe('экраны продаж без команд консоли', () => {
   it.each([
-    ['лиды', '/sales', 'Лидов пока нет.'],
-    ['гипотезы', '/sales?tab=hypotheses', 'Гипотез пока нет.'],
-    ['цепочка писем', '/sales?tab=chain', /Шаблонов в наборе нет/],
-    ['очередь писем', '/sales?tab=queue', /Очередь собирается из лидов гипотезы/],
-    ['воронка', '/sales?tab=funnel', /Воронка считается по лидам гипотез/],
-    ['база знаний', '/sales?tab=kb', 'Записей пока нет — агенту не из чего писать.'],
-    ['отправитель', '/sales?tab=sender', /Отправка продаж/],
-    ['мастер загрузки', '/sales/import', 'Гипотез пока нет'],
-  ])('%s: на экране нет «outreach …»', async (_name, path, ready) => {
+    ['лиды', '/sales', 'Лидов пока нет.', NO_HYPOTHESES],
+    ['лиды гипотезы с новыми', '/sales?hypothesis=1', '3 лида ждут очистки', WITH_NEW],
+    ['гипотезы', '/sales?tab=hypotheses', 'Гипотез пока нет.', NO_HYPOTHESES],
+    ['цепочка писем', '/sales?tab=chain', /Шаблонов в наборе нет/, NO_HYPOTHESES],
+    ['очередь писем', '/sales?tab=queue', /Очередь собирается из лидов/, NO_HYPOTHESES],
+    ['воронка', '/sales?tab=funnel', /Воронка считается по лидам гипотез/, NO_HYPOTHESES],
+    ['база знаний', '/sales?tab=kb', 'Записей пока нет — агенту не из чего писать.', NO_HYPOTHESES],
+    ['отправитель', '/sales?tab=sender', /Отправка продаж/, NO_HYPOTHESES],
+    ['мастер без гипотез', '/sales/import', 'Гипотез пока нет', NO_HYPOTHESES],
+    ['мастер с гипотезой', '/sales/import', 'Выберите гипотезу — куда лягут лиды.', WITH_NEW],
+  ])('%s: на экране нет «outreach …»', async (_name, path, ready, hypotheses) => {
     localStorage.setItem(TOKEN_KEY, 'пропуск');
     serve({
       'GET /api/auth/me': { body: ADMIN },
-      'GET /api/sales/hypotheses': { body: { rows: [], total: 0 } },
+      'GET /api/sales/hypotheses': { body: hypotheses },
       'GET /api/sales/leads': { body: LEADS },
+      'GET /api/sales/leads?hypothesis=1': { body: { ...LEADS, total: 3 } },
       'GET /api/sales/kb': { body: KB },
       'GET /api/sales/chain': { body: CHAIN },
       'GET /api/sales/funnel': { body: FUNNEL },
