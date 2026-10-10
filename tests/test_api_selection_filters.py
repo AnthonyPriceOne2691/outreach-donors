@@ -182,6 +182,13 @@ class TestFilterUnderEachColumn:
         ) == ["brand.test"]
         assert await _hosts(client, token, tab="rejected", search="brand", judge="model") == []
 
+    async def test_pattern_signs_in_search_are_text(self, client: AsyncClient, token: str) -> None:
+        """«_» и «%» — набранный текст, а не шаблон: находили всю вкладку (проверка прода
+        10.10.2026). Ни в домене, ни в причине, ни в доводе судьи этих знаков здесь нет."""
+        for typed in ("_", "%", "\\"):
+            assert await _hosts(client, token, tab="rejected", search=typed) == []
+        assert await _hosts(client, token, tab="rejected", search="cut.test") == ["cut.test"]
+
     async def test_summary_is_the_whole_selection_not_the_filter(
         self, client: AsyncClient, token: str
     ) -> None:
