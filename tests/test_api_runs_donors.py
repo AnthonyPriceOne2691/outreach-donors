@@ -20,7 +20,9 @@ from backend.features.core.models.access import UserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.run import RunModel, RunSettingsModel
+from backend.features.donors.verdict import Thresholds
 from backend.features.runs.repository import RunRepository
+from backend.features.runs.thresholds import ThresholdsRepository, defaults, thresholds_of
 from fastapi import FastAPI
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -412,6 +414,68 @@ class TestStartPutsTheRunOnTheScreen:
         listed = await client.get("/api/runs", headers=bearer(operator_token))
 
         assert listed.json()["workers"] is None
+
+
+async def _settings_of_run(session: AsyncSession, run_id: int) -> RunSettingsModel:
+    run = await RunRepository(session).get(run_id)
+    settings = await session.get(RunSettingsModel, run.settings_id)
+    assert settings is not None
+    return settings
+
+
+class TestThresholdsOfTheScreen:
+    """Прогон берёт пороги с экрана «Пороги», а не умолчания конфига (аудит 10.10.2026).
+
+    Запуск заводил настройки прогона из `defaults()`, и задача передавала сбору их же:
+    человек правил пороги на экране, а прогоны отсеивали по конфигу. Хуже того, строка
+    настроек прогона сама становилась «текущей версией» — экран после каждого запуска
+    показывал умолчания вместо сохранённого.
+    """
+
+    @pytest.fixture
+    def queue(self, monkeypatch: pytest.MonkeyPatch) -> FakeQueue:
+        monkeypatch.setattr("backend.config.ahrefs.API_KEY", "ключ-для-теста")
+        monkeypatch.setattr("backend.config.serp.SANDBOX", False)
+        fake = FakeQueue()
+        monkeypatch.setattr("backend.api.runs.routes.runs_queue", lambda: fake)
+        return fake
+
+    async def test_saved_version_is_what_the_run_uses(
+        self,
+        client: AsyncClient,
+        operator_token: str,
+        queue: FakeQueue,
+        session: AsyncSession,
+    ) -> None:
+        await ThresholdsRepository(session).save(
+            Thresholds(min_dr=77, min_org_traffic=7_007, min_refdomains=707, min_keywords=770),
+            author="оператор@site.com",
+        )
+        await session.commit()
+
+        started = await client.post("/api/runs", json=RUN_BODY, headers=bearer(operator_token))
+
+        assert started.status_code == 200, started.text
+        settings = await _settings_of_run(session, started.json()["run_id"])
+        assert thresholds_of(settings) == Thresholds(77, 7_007, 707, 770)
+        current = await ThresholdsRepository(session).current()
+        assert current is not None
+        assert thresholds_of(current) == Thresholds(77, 7_007, 707, 770), (
+            "запуск не откатывает экран «Пороги» к умолчаниям"
+        )
+
+    async def test_without_a_saved_version_the_config_stands(
+        self,
+        client: AsyncClient,
+        operator_token: str,
+        queue: FakeQueue,
+        session: AsyncSession,
+    ) -> None:
+        started = await client.post("/api/runs", json=RUN_BODY, headers=bearer(operator_token))
+
+        assert started.status_code == 200, started.text
+        settings = await _settings_of_run(session, started.json()["run_id"])
+        assert thresholds_of(settings) == defaults()
 
 
 def _ahrefs_answers(monkeypatch: pytest.MonkeyPatch, code: int) -> None:

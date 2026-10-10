@@ -46,7 +46,7 @@ from backend.features.runs.pipeline import RunDeps, RunRequest, execute_run
 from backend.features.runs.reasons import explained
 from backend.features.runs.repository import FAILURE_KEY, REASON_KEY, RunRepository
 from backend.features.runs.stopped import tell_stopped
-from backend.features.runs.thresholds import defaults
+from backend.features.runs.thresholds import thresholds_of
 from backend.features.serp.factory import build_provider
 from backend.shared.logs import setup_logging
 from backend.shared.queue import (
@@ -128,7 +128,9 @@ async def _run(run_id: int) -> dict[str, Any]:
                         RunRequest(
                             keywords=list(run.keywords),
                             country=run.country,
-                            thresholds=defaults(),
+                            # Пороги — своей строки настроек, а не умолчания конфига
+                            # (аудит 10.10.2026): вердикт объясним по `settings_id`.
+                            thresholds=thresholds_of(settings),
                             settings_id=run.settings_id,
                             cap=settings.units_cap,
                             depth_pages=run.depth_pages,

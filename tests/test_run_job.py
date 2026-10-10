@@ -21,6 +21,7 @@ import pytest
 from backend.config import filters
 from backend.config.startup_checks import ConfigError
 from backend.features.core.domain import RunStatus, Stage
+from backend.features.donors.verdict import Thresholds
 from backend.features.runs.budget import CapExceededError
 from backend.features.runs.pipeline import RunDeps, RunRequest
 from backend.features.runs.repository import RunRepository, unique_share_from
@@ -98,13 +99,29 @@ async def test_queued_run_reaches_the_pipeline_with_its_own_cap(
     assert result["run"] == run.id
 
 
+async def test_the_run_collects_with_its_own_thresholds(
+    session: AsyncSession, pipeline: dict[str, Any]
+) -> None:
+    """Пороги сбора — из строки настроек прогона, а не умолчания конфига (аудит 10.10.2026):
+    правка на экране «Пороги» иначе не доходила до сбора, и вердикт прогона не объяснялся
+    его же `settings_id`."""
+    own = Thresholds(min_dr=77, min_org_traffic=7_007, min_refdomains=707, min_keywords=770)
+    run = await _queued_run(session, thresholds=own)
+
+    await jobs._run(run.id)
+
+    assert pipeline["request"].thresholds == own
+
+
 # --- исход прогона — в самом прогоне ---------------------------------------
 
 
-async def _queued_run(session: AsyncSession, *, cap: int = 3000) -> Any:
+async def _queued_run(
+    session: AsyncSession, *, cap: int = 3000, thresholds: Thresholds | None = None
+) -> Any:
     runs = RunRepository(session)
     settings = await runs.create_settings(
-        defaults(),
+        thresholds or defaults(),
         geo_top_n=filters.GEO_TOP_N,
         geo_min_share=filters.GEO_MIN_SHARE,
         metrics_ttl_days=filters.METRICS_TTL_DAYS,

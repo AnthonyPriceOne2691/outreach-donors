@@ -159,3 +159,25 @@ def defaults() -> Thresholds:
         min_refdomains=filters_cfg.MIN_REFDOMAINS,
         min_keywords=filters_cfg.MIN_KEYWORDS,
     )
+
+
+def thresholds_of(settings: RunSettingsModel) -> Thresholds:
+    """Пороги версии настроек — те, с которыми прогон поставлен: по его `settings_id`
+    вердикт объясним и через полгода."""
+    return Thresholds(
+        min_dr=settings.min_dr,
+        min_org_traffic=settings.min_org_traffic,
+        min_refdomains=settings.min_refdomains,
+        min_keywords=settings.min_keywords,
+    )
+
+
+async def in_force(session: AsyncSession) -> Thresholds:
+    """Пороги, действующие сейчас: последняя версия, а пока её нет — умолчания конфига.
+
+    Этим заводится прогон (аудит 10.10.2026). Запуск брал `defaults()`, и правка на экране
+    «Пороги» до сбора не доходила; а строка настроек прогона — тоже версия, последняя, —
+    после каждого запуска показывала на экране умолчания вместо сохранённого.
+    """
+    current = await ThresholdsRepository(session).current()
+    return defaults() if current is None else thresholds_of(current)

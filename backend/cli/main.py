@@ -84,7 +84,7 @@ from backend.features.runs.planning import RunPlan, gather_candidates, plan_run
 from backend.features.runs.report import RunReport
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.spending import cap_left
-from backend.features.runs.thresholds import defaults
+from backend.features.runs.thresholds import in_force
 from backend.features.serp.factory import UnknownProviderError, build_provider
 from backend.shared.logs import setup_logging
 
@@ -201,8 +201,10 @@ async def cmd_run(args: argparse.Namespace) -> int:
                 print("Отменено.")
                 return EXIT_CANCELLED
 
+            # Пороги — действующие, с экрана «Пороги», как у кнопки (аудит 10.10.2026).
+            thresholds = await in_force(session)
             settings = await runs.create_settings(
-                defaults(),
+                thresholds,
                 geo_top_n=filters.GEO_TOP_N,
                 geo_min_share=filters.GEO_MIN_SHARE,
                 metrics_ttl_days=filters.METRICS_TTL_DAYS,
@@ -224,7 +226,7 @@ async def cmd_run(args: argparse.Namespace) -> int:
                     RunRequest(
                         keywords=keywords,
                         country=args.country,
-                        thresholds=defaults(),
+                        thresholds=thresholds,
                         settings_id=settings.id,
                         cap=allowed,
                         depth_pages=args.depth,
