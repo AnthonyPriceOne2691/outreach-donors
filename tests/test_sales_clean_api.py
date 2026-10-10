@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -43,6 +44,7 @@ from fastapi import FastAPI
 from httpx import AsyncClient, Response
 from rq.exceptions import DuplicateJobError
 from rq.job import JobStatus
+from rq.results import Result
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import TEST_DSN, bearer
@@ -106,19 +108,52 @@ async def _leads(
     await session.flush()
 
 
-class _Job:
-    """Задача rq, какой её видит постановка: статус и удаление следа."""
+@dataclass(frozen=True, slots=True)
+class _Result:
+    """Итог задачи rq: его отчёт — `return_value`."""
 
-    def __init__(self, job_id: str) -> None:
+    return_value: Any
+
+
+class _Redis:
+    """Redis в том, что нужно постановке и строке задачи: итоги rq 2.12 хранит отдельно от
+    задач — ключом `Result.get_key(номер)`, и стирает их только `Result.delete_all`."""
+
+    def __init__(self) -> None:
+        self.results: dict[str, _Result] = {}
+
+    def delete(self, *keys: str) -> None:
+        for key in keys:
+            self.results.pop(key, None)
+
+
+class _Job:
+    """Задача rq, какой её видят постановка и строка задачи: статус, удаление следа и итог —
+    по номеру из Redis, а не из самой задачи."""
+
+    def __init__(self, job_id: str, func_name: str, redis: _Redis) -> None:
         self.id = job_id
+        self.func_name = func_name
+        self.connection = redis
         self.status = JobStatus.QUEUED
         self.deleted = False
+        self.retries_left = 3
+        self.ended_at = None
 
-    def get_status(self) -> JobStatus:
+    def get_status(self, **_options: object) -> JobStatus:
         return self.status
 
+    def latest_result(self) -> _Result | None:
+        return self.connection.results.get(Result.get_key(self.id))
+
     def delete(self) -> None:
+        # Как `Job.delete()` rq 2.12: итог задачи остаётся лежать под её номером.
         self.deleted = True
+
+    def finish(self, report: dict[str, Any]) -> None:
+        """Воркер дошёл до конца: статус — готово, итог — в Redis под номером задачи."""
+        self.status = JobStatus.FINISHED
+        self.connection.results[Result.get_key(self.id)] = _Result(report)
 
 
 class _Jobs:
@@ -126,6 +161,7 @@ class _Jobs:
     `unique=True` занятый номер — `DuplicateJobError`, пока след задачи не удалён."""
 
     def __init__(self) -> None:
+        self.redis = _Redis()
         self.enqueued: list[tuple[tuple[object, ...], dict[str, object]]] = []
         self.known: dict[str, _Job] = {}
 
@@ -139,7 +175,7 @@ class _Jobs:
         if kwargs.get("unique") and taken is not None and not taken.deleted:
             raise DuplicateJobError(f"Job with ID '{job_id}' already exists")
         self.enqueued.append((args, kwargs))
-        self.known[job_id] = _Job(job_id)
+        self.known[job_id] = _Job(job_id, str(args[0]), self.redis)
         return self.known[job_id]
 
 
@@ -158,6 +194,10 @@ async def waiting(session: AsyncSession) -> SalesHypothesisModel:
     await _leads(session, hypothesis, "maria@gamma.example.test", status=LeadStatus.READY)
     await session.commit()
     return hypothesis
+
+
+#: Отчёт прежней очистки — выдуманный, не круглый.
+REPORT = {"checked": 7, "ready": 5, "rejected": {"duplicate": 2}, "stopped": None}
 
 
 async def _start(client: AsyncClient, headers: dict[str, str], hypothesis_id: int) -> Response:
@@ -293,6 +333,42 @@ async def test_clean_after_the_previous_one_ended_goes_again(
     assert again.status_code == 202, again.text
     assert previous.deleted
     assert len(jobs.enqueued) == 2
+
+
+async def test_new_clean_in_the_queue_does_not_show_the_report_of_the_previous_one(
+    client: AsyncClient,
+    headers: dict[str, str],
+    waiting: SalesHypothesisModel,
+    jobs: _Jobs,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Итог прежней очистки rq хранит отдельно от задачи, и `Job.delete()` его не трогает: новая
+    очистка под тем же номером, пока стоит в очереди, показала бы отчёт прежней. Строка задачи —
+    тем же путём, что у экрана: `GET /api/jobs/{номер}`."""
+
+    class _Fetch:
+        @staticmethod
+        def fetch(job_id: str, connection: _Redis) -> _Job:
+            assert connection is jobs.redis
+            return jobs.known[job_id]
+
+    monkeypatch.setattr(job_outcome, "connection", lambda: jobs.redis)
+    monkeypatch.setattr(job_outcome, "Job", _Fetch)
+    job_id = clean_api.clean_job_id(waiting.id)
+    await _start(client, headers, waiting.id)
+    jobs.known[job_id].finish(REPORT)
+    before = (await client.get(f"/api/jobs/{job_id}", headers=headers)).json()
+
+    again = await _start(client, headers, waiting.id)
+    after = (await client.get(f"/api/jobs/{job_id}", headers=headers)).json()
+
+    assert (before["kind"], before["state"], before["report"]) == (
+        "очистка лидов продаж",
+        "done",
+        REPORT,
+    )
+    assert again.status_code == 202, again.text
+    assert (after["state"], after["report"]) == ("queued", None)
 
 
 @pytest.mark.parametrize("waits", [JobStatus.STARTED, JobStatus.DEFERRED, JobStatus.SCHEDULED])

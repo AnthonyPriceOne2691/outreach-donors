@@ -287,9 +287,9 @@
       "worst": "of:123"
     },
     "backend/api/sales/clean.py": {
-      "lines": 149,
+      "lines": 156,
       "complexity": 4,
-      "worst": "start_clean:121"
+      "worst": "start_clean:128"
     },
     "backend/api/sales/funnel.py": {
       "lines": 99,

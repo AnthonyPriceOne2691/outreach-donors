@@ -27,6 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from rq import Queue
 from rq.exceptions import DuplicateJobError
 from rq.job import Job, JobStatus
+from rq.results import Result
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
@@ -59,11 +60,17 @@ def clean_job_id(hypothesis_id: int) -> str:
 def _clean_once(jobs: Queue, hypothesis_id: int) -> Job:
     """Поставить очистку гипотезы, если её очистка не идёт. След кончившейся лежит в Redis
     неделю (`result_ttl`): постоянный номер с `unique=True` отказывал бы и после неё, поэтому
-    он убирается; `unique=True` остаётся на гонку двух нажатий между проверкой и постановкой."""
+    он убирается — вместе с итогом; `unique=True` остаётся на гонку двух нажатий между
+    проверкой и постановкой."""
     job_id = clean_job_id(hypothesis_id)
     if (earlier := jobs.fetch_job(job_id)) is not None:
         if earlier.get_status() in _LIVE:
             raise DuplicateJobError(job_id)
+        # Итог прежней rq 2.12 хранит отдельно от задачи, и `Job.delete()` его не трогает:
+        # новая очистка под тем же номером, пока стоит в очереди, показала бы на экране отчёт
+        # прежней. Тот же вызов — у писем (`api/letters/once.enqueue_once`); когда он переедет
+        # в `shared/queue.py`, очистка перейдёт на него.
+        Result.delete_all(earlier)
         earlier.delete()
     return jobs.enqueue(
         clean_jobs.CLEAN_JOB, hypothesis_id, job_id=job_id, unique=True, **with_retries()
