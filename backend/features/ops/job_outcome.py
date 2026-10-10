@@ -19,6 +19,10 @@
 Итог живёт в самой очереди: rq хранит упавшие задачи год, удачные —
 неделю (`queue.RESULT_TTL`). Очередь не ответила — это отдельный исход,
 а не «задачи нет»: иначе недоступный Redis выглядел бы как пропавшая задача.
+
+**Исход задачи продаж — только с правом «Продажи»** (решение Anthony 10.10.2026, П2б):
+какая задача — продаж, решает `sales_job` по тому, что она такое, а не по строкам базы;
+отказывает маршрут (`api/jobs`).
 """
 
 from __future__ import annotations
@@ -35,12 +39,14 @@ from rq.exceptions import NoSuchJobError
 from rq.job import Job
 from rq.registry import ScheduledJobRegistry
 
+from backend.features.core.domain import Stage
 from backend.features.runs.reasons import explained_line
 from backend.shared.queue import (
     BUILD_JOB,
     CONTACTS_JOB,
     PARSE_JOB,
     RUN_JOB,
+    SALES_QUEUE_NAME,
     SALES_REPLY_JOB,
     SEND_QUEUE_JOB,
     connection,
@@ -66,6 +72,25 @@ KINDS = {
     "backend.workers.agent_jobs.draft_answer": "черновик ответа",
     SALES_REPLY_JOB: "разбор ответа продаж",
 }
+
+#: Задача продаж (`sales_job`) — по пути функции: модуль продаж (сборка очереди, очистка,
+#: передача лида, уведомления агента) и разбор ответа лида (`workers/sales_jobs.py`).
+SALES_PATHS = ("backend.features.sales.", "backend.workers.sales_jobs.")
+#: …по номеру: у общих задач писем путь общий, а этап — в номере (`api/letters/once.py`).
+SALES_IDS = ("letters-build-sales-", "letters-send-sales-")
+
+
+def sales_job(job_id: str, path: str | None, queue: str | None) -> bool:
+    """Задача ли это продаж — по тому, что она такое (П2б): путь функции продаж
+    (`SALES_PATHS`), номер общей задачи писем этапа продаж (`SALES_IDS`) или очередь
+    продаж (`worker-sales`). Очередь — ради черновика агента к ответу лида: путь у него
+    общий с донорами (`workers/agent_jobs.py`), а встаёт он в очередь продаж."""
+    return (
+        (path or "").startswith(SALES_PATHS)
+        or job_id.startswith(SALES_IDS)
+        or queue == SALES_QUEUE_NAME
+    )
+
 
 TITLES = {
     "queued": "в очереди",
@@ -95,6 +120,9 @@ class JobOutcome:
     retries_left: int | None = None
     next_try_at: datetime | None = None
     ended_at: datetime | None = None
+    #: Этап, который закрывает исход правом: продажи (`sales_job`). У остальных задач — `None`:
+    #: их исход смотрит право `view`, как до П2б.
+    stage: Stage | None = None
 
     @property
     def title(self) -> str:
@@ -149,7 +177,13 @@ def _outcome(job: Job, conn: Redis) -> JobOutcome:
         retries_left=job.retries_left,
         next_try_at=_next_try(job, conn) if state == "retry_wait" else None,
         ended_at=job.ended_at,
+        stage=_stage(job),
     )
+
+
+def _stage(job: Job) -> Stage | None:
+    """Этап, который закрывает исход правом: продажи (`sales_job`) — или `None`."""
+    return Stage.SALES if sales_job(job.id, job.func_name, job.origin) else None
 
 
 def _error_of(

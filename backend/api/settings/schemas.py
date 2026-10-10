@@ -181,6 +181,10 @@ class SpendingView(BaseModel):
     serp_left_usd: Decimal | None = None
     serp_spent_by_us: Decimal = Decimal(0)
     serp_left_error: str | None = None
+    #: Расход продаж не показан — у учётки нет права «Продажи» (решение Anthony 10.10.2026,
+    #: П2б): статьи, суммы по провайдерам и итог — без него и сходятся между собой. Экран
+    #: говорит это словами: итог без продаж — не весь счёт.
+    sales_hidden: bool = False
 
     @classmethod
     def of(
@@ -192,6 +196,7 @@ class SpendingView(BaseModel):
         error: str | None = None,
         serp_left_usd: Decimal | None = None,
         serp_left_error: str | None = None,
+        sales_hidden: bool = False,
     ) -> SpendingView:
         return cls(
             since=spending.since,
@@ -211,4 +216,5 @@ class SpendingView(BaseModel):
             serp_left_usd=serp_left_usd,
             serp_spent_by_us=spending.amount_by_provider.get(UsageProvider.SERP, Decimal(0)),
             serp_left_error=serp_left_error,
+            sales_hidden=sales_hidden,
         )

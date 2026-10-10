@@ -14,18 +14,24 @@
 Запрос сторожа упал в базе — тревога «сторож этапа не досчитал»: проверка этапа идёт в своей
 точке сохранения, и остальные этапы и правила сторожа тишины проверяются как обычно.
 Тревоги уходят в Telegram по смене состояния (`alarm_feed.py`).
+
+**Этапы — те, что видит спрашивающий** (`stages`, решение Anthony 10.10.2026, П2б): тревог
+о почте продаж без права «Продажи» на экране нет, и модуль продаж о политике тогда не
+спрашивается. Тревога несёт свой этап (`Alarm.stage`). Фоновый проход — все этапы.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Collection
 from datetime import datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.core import stages
+# Мост к модулю продаж — под своим именем: `stages` здесь — этапы, которые видит спрашивающий.
+from backend.features.core import stages as mail_bridge
 from backend.features.core.domain import MessageStatus, SenderStatus, Stage
 from backend.features.core.models.outreach import (
     CampaignModel,
@@ -43,18 +49,20 @@ logger = logging.getLogger(__name__)
 QUIET_MINUTES = 15
 
 
-async def alarms(session: AsyncSession, now: datetime) -> list[Alarm]:
-    """Тревоги почты этапов со сторожем в политике. Несохранённое вызывающего сбрасывается до
-    проверок: его сбой всплывает как есть, а не тревогой «сторож этапа не досчитал»."""
+async def alarms(session: AsyncSession, now: datetime, *, stages: Collection[Stage]) -> list[Alarm]:
+    """Тревоги почты этапов со сторожем в политике — этапов, которые видит спрашивающий
+    (`stages`); умолчания нет (ревью продаж к #304). Несохранённое вызывающего сбрасывается
+    до проверок: его сбой всплывает как есть, а не тревогой «сторож этапа не досчитал»."""
     await session.flush()
     found: list[Alarm] = []
-    for stage in Stage:
+    for stage in (one for one in Stage if one in stages):
         try:
-            policy = await stages.mail_policy(session, stage, f"Сторож почты «{stage.value}»")
-        except stages.SalesNotConnectedError as exc:
+            policy = await mail_bridge.mail_policy(session, stage, f"Сторож почты «{stage.value}»")
+        except mail_bridge.SalesNotConnectedError as exc:
             logger.info("сторож почты: %s", exc)
             title = f"Политика почты «{stage.value}» не получена"
-            found.append(Alarm(code=f"no-policy:{stage.value}", title=title, detail=str(exc)))
+            code = f"no-policy:{stage.value}"
+            found.append(Alarm(code=code, title=title, detail=str(exc), stage=stage))
             continue
         if policy.watch:
             found += await _counted(session, stage, now)
@@ -84,6 +92,7 @@ def _not_counted(stage: Stage, exc: SQLAlchemyError) -> Alarm:
             f"Запрос сторожа упал в базе: {reason}. Остальные этапы и правила сторож проверил; "
             "трасса — в журнале"
         ),
+        stage=stage,
     )
 
 
@@ -97,6 +106,7 @@ async def _of_stage(session: AsyncSession, stage: Stage, now: datetime) -> list[
                 code=f"all-paused:{stage.value}",
                 title=f"Все ящики направления «{stage.value}» на паузе",
                 detail=f"Ящиков {len(boxes)}, пишущих нет: письма направления стоят",
+                stage=stage,
             )
         )
     queued = await session.scalar(
@@ -118,6 +128,7 @@ async def _of_stage(session: AsyncSession, stage: Stage, now: datetime) -> list[
                     "ящики выключены или домен на паузе, на выдержке, записан за другим "
                     "направлением. Что с доменом — на экране «Домены рассылки»"
                 ),
+                stage=stage,
             )
         )
     return found
@@ -161,4 +172,5 @@ async def _quiet(session: AsyncSession, box: SenderModel, now: datetime) -> Alar
             f"{waiting} писем переписки ждут его дольше {QUIET_MINUTES} минут, а с него "
             "не ушло ничего: проход добивок не идёт или ящик упёрся в отказы почты"
         ),
+        stage=box.stage,
     )

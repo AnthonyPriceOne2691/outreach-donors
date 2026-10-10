@@ -31,6 +31,7 @@ from backend.features.core.models.outreach import SenderModel, SendingDomainMode
 from backend.features.core.stages import MailPolicy
 from backend.features.ops import alarm_feed, mail_watch, silence
 from backend.features.ops.alarms import Alarm
+from backend.features.outreach.repository import EVERY_STAGE
 from backend.workers import reaper
 from httpx import AsyncClient
 from redis.exceptions import ConnectionError as RedisConnectionError
@@ -88,7 +89,7 @@ async def test_a_young_domain_leaves_nobody_to_send(session: AsyncSession) -> No
         )
     )
 
-    codes = [alarm.code for alarm in await mail_watch.alarms(session, NOW)]
+    codes = [alarm.code for alarm in await mail_watch.alarms(session, NOW, stages=EVERY_STAGE)]
 
     assert codes == ["nobody-to-send:sales"]
 
@@ -99,7 +100,7 @@ async def test_a_domain_of_another_direction_leaves_nobody_to_send(session: Asyn
     box = await _queued_with_box(session)
     session.add(SendingDomainModel(domain=box.domain, stage=Stage.DONORS, daily_limit=5))
 
-    codes = [alarm.code for alarm in await mail_watch.alarms(session, NOW)]
+    codes = [alarm.code for alarm in await mail_watch.alarms(session, NOW, stages=EVERY_STAGE)]
 
     assert codes == ["nobody-to-send:sales"]
 
@@ -119,7 +120,7 @@ async def test_an_open_domain_of_its_direction_spent_for_today_is_no_alarm(
         session, Stage.SALES, box, 1, status=MessageStatus.SENT, sent_at=NOW - timedelta(minutes=5)
     )
 
-    assert await mail_watch.alarms(session, NOW) == []
+    assert await mail_watch.alarms(session, NOW, stages=EVERY_STAGE) == []
 
 
 # --- _of_stage: ошибка базы — тревога, а не падение ------------------------------------------
@@ -145,7 +146,7 @@ async def test_a_base_error_of_one_stage_is_an_alarm_and_the_watch_goes_on(
     await _queued_with_box(session)
     _break_the_quiet_check(monkeypatch)
 
-    found = await mail_watch.alarms(session, NOW)
+    found = await mail_watch.alarms(session, NOW, stages=EVERY_STAGE)
 
     assert [alarm.code.rpartition(":")[2] for alarm in found] == ["sales"]
     assert "made_up_table_of_the_watch" in found[0].detail
@@ -167,7 +168,7 @@ async def test_the_stages_after_a_broken_one_are_still_watched(
     paused.status = SenderStatus.PAUSED
     _break_the_quiet_check(monkeypatch, only=Stage.DONORS)
 
-    codes = [alarm.code for alarm in await mail_watch.alarms(session, NOW)]
+    codes = [alarm.code for alarm in await mail_watch.alarms(session, NOW, stages=EVERY_STAGE)]
 
     assert codes == ["watch-failed:donors", "all-paused:sales"]
 
@@ -188,7 +189,7 @@ async def test_a_broken_stage_keeps_the_donor_alarms(
     await _queued_with_box(session)
     _break_the_quiet_check(monkeypatch)
 
-    codes = {alarm.code for alarm in await silence.alarms(session, now=NOW)}
+    codes = {alarm.code for alarm in await silence.alarms(session, stages=EVERY_STAGE, now=NOW)}
 
     assert {"delivery-silence", "watch-failed:sales"} <= codes
 
@@ -427,7 +428,7 @@ async def test_the_watch_talks_to_the_network_outside_its_transaction(
     opened: list[AsyncSession] = []
     seen: list[tuple[str, bool]] = []
 
-    async def alarms(session: AsyncSession, *, now: object = None) -> list[Alarm]:
+    async def alarms(session: AsyncSession, *, stages: object, now: object = None) -> list[Alarm]:
         opened.append(session)
         await session.execute(text("SELECT 1"))
         return [QUIET]

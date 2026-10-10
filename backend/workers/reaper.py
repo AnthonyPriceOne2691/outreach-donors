@@ -31,6 +31,7 @@ from backend.config.startup_checks import check_storage
 from backend.features.crawl.lifecycle import recover as recover_crawls
 from backend.features.ops import silence
 from backend.features.ops.alarm_feed import Feed
+from backend.features.outreach.repository import EVERY_STAGE
 from backend.features.runs.lifecycle import Recovery, recover
 from backend.features.runs.repository import RunRepository
 from backend.shared.logs import setup_logging
@@ -123,7 +124,9 @@ async def watch() -> None:
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with factory() as session:
-            found = await silence.alarms(session)
+            # Фоновый проход — все этапы: тревоги идут владельцу в Telegram, а не на экран
+            # учётки (этапы видимости — `EVERY_STAGE` явно, ревью продаж к #304).
+            found = await silence.alarms(session, stages=EVERY_STAGE)
     finally:
         await engine.dispose()
     await FEED.tell(await silence.with_providers(found))

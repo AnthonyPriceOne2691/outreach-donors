@@ -1,8 +1,8 @@
 """Этап строки почты по её номеру — проверке права «Продажи» (решение Anthony 10.10.2026, П2).
 
-Маршрут письма, переписки, ответа или черновика агента спрашивает здесь этап строки до
-своего тела: строка продаж без права «Продажи» — отказ словами
-(`access.permissions.require_stage`). Строки нет — `None`, и «не найдено» говорит сам
+Маршрут письма, переписки, ответа или черновика агента — а с П2б и ящика рассылки и записи
+стоп-листа — спрашивает здесь этап строки до своего тела: строка продаж без права «Продажи» —
+отказ словами (`access.permissions.require_stage`). Строки нет — `None`, и «не найдено» говорит сам
 маршрут, как до этой проверки; номер больше столбца — тоже `None`, а не отказ базы
 (`shared/database/ids.py`).
 
@@ -16,10 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import Stage
 from backend.features.core.models.agent import AgentDraftModel, AgentSettingsModel
+from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import (
     CampaignModel,
     MessageModel,
     ReplyModel,
+    SenderModel,
     ThreadModel,
 )
 from backend.shared.database.ids import storable
@@ -75,8 +77,24 @@ async def of_draft(session: AsyncSession, draft_id: int) -> Stage | None:
     return await _stage(session, draft_id, query)
 
 
-async def _stage(session: AsyncSession, number: int, query: Select[tuple[Stage]]) -> Stage | None:
-    """Этап из запроса по номеру строки; номер, которого быть не может, — без запроса."""
+async def of_sender(session: AsyncSession, sender_id: int) -> Stage | None:
+    """Этап ящика рассылки — его направление (П2б)."""
+    query = select(SenderModel.stage).where(SenderModel.id == sender_id)
+    return await _stage(session, sender_id, query)
+
+
+async def of_suppression(session: AsyncSession, row_id: int) -> Stage | None:
+    """Этап записи стоп-листа (П2б). Запись без этапа держит все этапы — `None`: её снимает
+    своё право маршрута, как и до П2б."""
+    query = select(SuppressionModel.stage).where(SuppressionModel.id == row_id)
+    return await _stage(session, row_id, query)
+
+
+async def _stage(
+    session: AsyncSession, number: int, query: Select[tuple[Stage]] | Select[tuple[Stage | None]]
+) -> Stage | None:
+    """Этап из запроса по номеру строки; номер, которого быть не может, — без запроса.
+    Этап у записи стоп-листа необязателен — отсюда второй вид запроса."""
     if not storable(number):
         return None
     found: Stage | None = await session.scalar(query)

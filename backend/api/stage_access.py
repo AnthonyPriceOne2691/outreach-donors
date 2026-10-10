@@ -9,6 +9,9 @@
 Номер строки зависимость берёт из адреса своим именем (`letter_id`, `thread_id`…): FastAPI
 отдаёт ей тот же параметр пути, что и маршруту. Этап из тела или строки запроса (пачка,
 очередь этапа) маршрут проверяет сам — `require_stage` с теми же словами.
+
+П2б (решение Anthony 10.10.2026) — так же ящик рассылки (`on_sender`) и запись стоп-листа
+(`on_suppression`); исход задачи продаж проверяет маршрут задач — этап знает её исход.
 """
 
 from __future__ import annotations
@@ -30,6 +33,9 @@ THREADS = "Переписки продаж"
 REPLIES = "Ответы в переписках продаж"
 DRAFTS = "Черновики агента продаж"
 AGENT = "Настройки агента продаж"
+SENDERS = "Ящики продаж"
+SUPPRESSIONS = "Записи стоп-листа продаж"
+JOBS = "Задачи продаж"
 
 Guard = Callable[..., Awaitable[UserModel]]
 
@@ -101,5 +107,32 @@ def on_draft(permission: Permission) -> Guard:
         session: AsyncSession = Depends(db_session),
     ) -> UserModel:
         return _passed(user, await stage_of.of_draft(session, draft_id), DRAFTS)
+
+    return guard
+
+
+def on_sender(permission: Permission) -> Guard:
+    """Право `permission` — и «Продажи» у ящика продаж (`{sender_id}`, П2б)."""
+
+    async def guard(
+        sender_id: int,
+        user: UserModel = Depends(needs(permission)),
+        session: AsyncSession = Depends(db_session),
+    ) -> UserModel:
+        return _passed(user, await stage_of.of_sender(session, sender_id), SENDERS)
+
+    return guard
+
+
+def on_suppression(permission: Permission) -> Guard:
+    """Право `permission` — и «Продажи» у записи стоп-листа этапа продаж (`{row_id}`, П2б).
+    Запись без этапа держит все этапы и пускается своим правом, как до П2б."""
+
+    async def guard(
+        row_id: int,
+        user: UserModel = Depends(needs(permission)),
+        session: AsyncSession = Depends(db_session),
+    ) -> UserModel:
+        return _passed(user, await stage_of.of_suppression(session, row_id), SUPPRESSIONS)
 
     return guard

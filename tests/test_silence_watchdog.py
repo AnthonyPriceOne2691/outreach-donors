@@ -30,6 +30,7 @@ from backend.features.core.models.run import RunModel
 from backend.features.donors.verdict import Thresholds
 from backend.features.ops import silence as silence_module
 from backend.features.ops.silence import alarms
+from backend.features.outreach.repository import EVERY_STAGE
 from backend.features.runs.repository import RunRepository
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import make_donor
@@ -80,13 +81,13 @@ def _codes(found: list) -> set[str]:
 
 class TestQuietIsNotAlwaysBroken:
     async def test_empty_base_is_silent_for_a_reason(self, session: AsyncSession) -> None:
-        assert await alarms(session, now=NOW) == []
+        assert await alarms(session, stages=EVERY_STAGE, now=NOW) == []
 
     async def test_fresh_letter_waits_without_alarm(self, session: AsyncSession) -> None:
         """Событие доставки идёт минутами — час ожидания не поломка."""
         await _letter(session, status=MessageStatus.SENT, sent_at=NOW - timedelta(hours=1))
 
-        assert "delivery-silence" not in _codes(await alarms(session, now=NOW))
+        assert "delivery-silence" not in _codes(await alarms(session, stages=EVERY_STAGE, now=NOW))
 
     async def test_null_transport_does_not_raise_the_alarm(self, session: AsyncSession) -> None:
         """Нулевой транспорт событий не порождает: молчание при нём —
@@ -98,14 +99,14 @@ class TestQuietIsNotAlwaysBroken:
             provider_message_id="null-7",
         )
 
-        assert "delivery-silence" not in _codes(await alarms(session, now=NOW))
+        assert "delivery-silence" not in _codes(await alarms(session, stages=EVERY_STAGE, now=NOW))
 
 
 class TestSilenceThatMeansBroken:
     async def test_platform_says_nothing_about_delivery(self, session: AsyncSession) -> None:
         await _letter(session, status=MessageStatus.SENT, sent_at=NOW - timedelta(hours=8))
 
-        found = await alarms(session, now=NOW)
+        found = await alarms(session, stages=EVERY_STAGE, now=NOW)
 
         assert "delivery-silence" in _codes(found)
         assert "вебхук" in next(a.detail for a in found if a.code == "delivery-silence")
@@ -114,7 +115,7 @@ class TestSilenceThatMeansBroken:
         for number in range(20):
             await _letter(session, status=MessageStatus.DELIVERED, number=number)
 
-        assert "reply-silence" in _codes(await alarms(session, now=NOW))
+        assert "reply-silence" in _codes(await alarms(session, stages=EVERY_STAGE, now=NOW))
 
     async def test_one_recent_reply_is_enough_to_keep_quiet(self, session: AsyncSession) -> None:
         for number in range(20):
@@ -122,7 +123,7 @@ class TestSilenceThatMeansBroken:
         session.add(ReplyModel(kind=ReplyKind.HUMAN, from_email="a@b.c", raw_body="Hi"))
         await session.flush()
 
-        assert "reply-silence" not in _codes(await alarms(session, now=NOW))
+        assert "reply-silence" not in _codes(await alarms(session, stages=EVERY_STAGE, now=NOW))
 
     async def test_followups_are_standing_still(self, session: AsyncSession) -> None:
         await _letter(
@@ -132,7 +133,7 @@ class TestSilenceThatMeansBroken:
             next_action_at=NOW - timedelta(hours=3),
         )
 
-        assert "followups-stuck" in _codes(await alarms(session, now=NOW))
+        assert "followups-stuck" in _codes(await alarms(session, stages=EVERY_STAGE, now=NOW))
 
     async def test_run_is_running_but_silent(self, session: AsyncSession) -> None:
         settings = await RunRepository(session).create_settings(
@@ -155,7 +156,7 @@ class TestSilenceThatMeansBroken:
         run.updated_at = NOW - timedelta(hours=2)
         await session.flush()
 
-        assert "runs-stuck" in _codes(await alarms(session, now=NOW))
+        assert "runs-stuck" in _codes(await alarms(session, stages=EVERY_STAGE, now=NOW))
 
     async def test_cap_is_spent(self, session: AsyncSession) -> None:
         """Прогоны не идут не потому, что сломались, — деньги кончились.
@@ -163,7 +164,7 @@ class TestSilenceThatMeansBroken:
         usage.record(session, operation="batch_metrics", units=100_000)
         await session.flush()
 
-        found = await alarms(session, now=NOW)
+        found = await alarms(session, stages=EVERY_STAGE, now=NOW)
 
         assert "cap-reached" in _codes(found)
 
@@ -198,7 +199,7 @@ class TestCrawlBlocked:
     async def test_a_stopped_crawl_raises_the_alarm(self, session: AsyncSession) -> None:
         await self._crawl(session, outcome=CrawlOutcome.BLOCKED, stop=StopReason.UNHEALTHY)
 
-        codes = {alarm.code for alarm in await alarms(session)}
+        codes = {alarm.code for alarm in await alarms(session, stages=EVERY_STAGE)}
 
         assert "crawl-blocked" in codes
 
@@ -206,21 +207,21 @@ class TestCrawlBlocked:
         await self._crawl(session, outcome=CrawlOutcome.BLOCKED, stop=StopReason.NO_START, number=3)
         await self._crawl(session, number=1)
 
-        codes = {alarm.code for alarm in await alarms(session)}
+        codes = {alarm.code for alarm in await alarms(session, stages=EVERY_STAGE)}
 
         assert "crawl-blocked" in codes
 
     async def test_a_healthy_crawl_is_silent(self, session: AsyncSession) -> None:
         await self._crawl(session, number=5)
 
-        codes = {alarm.code for alarm in await alarms(session)}
+        codes = {alarm.code for alarm in await alarms(session, stages=EVERY_STAGE)}
 
         assert "crawl-blocked" not in codes
 
     async def test_no_crawls_at_all_is_not_an_alarm(self, session: AsyncSession) -> None:
         """Сторож говорит про то, что сломалось, а не про то,
         что ещё не начинали."""
-        codes = {alarm.code for alarm in await alarms(session)}
+        codes = {alarm.code for alarm in await alarms(session, stages=EVERY_STAGE)}
 
         assert "crawl-blocked" not in codes
 
@@ -228,7 +229,9 @@ class TestCrawlBlocked:
         """«Обход упирается» без продолжения — полсообщения."""
         await self._crawl(session, outcome=CrawlOutcome.BLOCKED, stop=StopReason.UNHEALTHY)
 
-        found = next(a for a in await alarms(session) if a.code == "crawl-blocked")
+        found = next(
+            a for a in await alarms(session, stages=EVERY_STAGE) if a.code == "crawl-blocked"
+        )
 
         assert "каскада" in found.detail
 
@@ -308,7 +311,9 @@ class TestProviderAnswersWithAPage:
     async def test_the_pass_keeps_the_other_alarms(self, session: AsyncSession) -> None:
         await _letter(session, status=MessageStatus.SENT, sent_at=NOW - timedelta(hours=8))
 
-        found = await silence_module.with_providers(await alarms(session, now=NOW))
+        found = await silence_module.with_providers(
+            await alarms(session, stages=EVERY_STAGE, now=NOW)
+        )
 
         assert {"provider-unreachable", "delivery-silence"} <= _codes(found)
 

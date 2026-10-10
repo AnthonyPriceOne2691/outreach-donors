@@ -21,6 +21,7 @@ from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, ThreadModel
 from backend.features.letters import stoplist
+from backend.features.outreach.repository import EVERY_STAGE
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import make_donor
@@ -323,7 +324,7 @@ class TestListing:
         )
         await session.flush()
 
-        rows = await stoplist.rows(session)
+        rows = await stoplist.rows(session, stages=EVERY_STAGE)
 
         assert [row.target for row in rows] == [HOST, "old@site.test"]
         assert [row.donor_decision for row in rows] == [False, True]

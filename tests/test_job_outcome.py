@@ -36,6 +36,7 @@ def _job(status: JobStatus, *, value: Any = None, exc: str | None = None) -> Sim
     return SimpleNamespace(
         id="job-1",
         func_name="backend.workers.jobs.build_letter_queue",
+        origin=QUEUE_NAME,
         retries_left=2,
         ended_at=AT,
         get_status=lambda refresh=True: status,

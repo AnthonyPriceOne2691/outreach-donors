@@ -27,11 +27,16 @@
 До этого стоп-лист срезал только схему и косую черту и искал домен точным
 совпадением: `www.` и поддомен донора заводились новыми строками `domains`,
 донор оставался открыт, а экран говорил «в стоп-листе» (проверка QA 10.10.2026).
+
+**Запись этапа продаж — только с правом «Продажи»** (решение Anthony 10.10.2026, П2б):
+без права её нет в списке и в числах над ним (`rows(stages=…)`), а снять или завести
+такую запись маршрут не даст. Запись без этапа держит все этапы — её видят все, как было.
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -125,11 +130,13 @@ class AddedRow(StopRow):
     new_domain: bool = False
 
 
-async def rows(session: AsyncSession) -> list[StopRow]:
-    """Весь список, свежие сверху."""
+async def rows(session: AsyncSession, *, stages: Collection[Stage]) -> list[StopRow]:
+    """Весь список видимых этапов (`stages`), свежие сверху: записи без этапа и записи
+    этапов из `stages`. Умолчания у этапов нет (ревью продаж к #304)."""
     found = await session.execute(
         select(SuppressionModel, DomainModel.host)
         .outerjoin(DomainModel, DomainModel.id == SuppressionModel.domain_id)
+        .where(or_(SuppressionModel.stage.is_(None), SuppressionModel.stage.in_(stages)))
         .order_by(SuppressionModel.created_at.desc(), SuppressionModel.id.desc())
     )
     return [

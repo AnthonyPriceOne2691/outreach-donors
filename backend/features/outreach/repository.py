@@ -7,6 +7,7 @@
 **Список и числа — этапов, которые видит спрашивающий** (`stages`, решение
 Anthony 10.10.2026, П2): без права «Продажи» переписок продаж нет ни в списке,
 ни в числах «Обзора» и меню. Сужает сама база — условием на этап рассылки.
+Ящики рассылки — так же: ящика продаж без права нет на экране доменов (П2б).
 
 **Этапы — без умолчания** (ревью продаж к #304): умолчание «все этапы» открывало бы
 продажи каждому новому вызову, забывшему их сузить. Теперь забытый вызов ловит mypy;
@@ -160,9 +161,13 @@ class OutreachRepository:
 
     # --- отправители ---
 
-    async def senders(self) -> Sequence[SenderModel]:
+    async def senders(self, *, stages: Collection[Stage]) -> Sequence[SenderModel]:
+        """Ящики видимых этапов (`stages`): ящика продаж без права «Продажи» нет (решение
+        Anthony 10.10.2026, П2б) — направление ящика и есть его этап."""
         rows = await self._session.execute(
-            select(SenderModel).order_by(SenderModel.domain, SenderModel.email)
+            select(SenderModel)
+            .where(SenderModel.stage.in_(stages))
+            .order_by(SenderModel.domain, SenderModel.email)
         )
         return rows.scalars().all()
 
@@ -200,11 +205,13 @@ class OutreachRepository:
         )
         return {sender_id: count for sender_id, count in rows.all() if sender_id is not None}
 
-    async def enabled_domains(self) -> set[str]:
-        """Домены, у которых хоть один ящик включён. Нужно ровно для одного
+    async def enabled_domains(self, *, stages: Collection[Stage]) -> set[str]:
+        """Домены, у которых хоть один ящик видимых этапов включён. Нужно ровно для одного
         вопроса: останется ли чем отправлять после выключения этого."""
         rows = await self._session.execute(
-            select(SenderModel.domain).where(SenderModel.enabled.is_(True)).distinct()
+            select(SenderModel.domain)
+            .where(SenderModel.enabled.is_(True), SenderModel.stage.in_(stages))
+            .distinct()
         )
         return set(rows.scalars().all())
 

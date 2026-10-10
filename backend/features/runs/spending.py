@@ -9,20 +9,29 @@
 Таблица знает, на что мы потратили; провайдер знает, сколько осталось
 на ключе, общем с соседней системой. Судить об остатке по своей таблице
 нельзя — она не видит чужих трат.
+
+**Расход продаж — только с правом «Продажи»** (решение Anthony 10.10.2026, П2б).
+Без права операций продаж (`usage.SALES_OPERATIONS`) нет ни в статьях, ни в суммах
+по провайдерам, ни в итоге: суммы сходятся со статьями, и расход продаж не
+вычитается из итога. Что итог — без продаж, экран говорит словами. Кап Ahrefs и
+потолки считают весь расход (`EVERY_STAGE`): этапы видимости — про экран, а не про деньги.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, func, select
+from sqlalchemy import true as sa_true
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.core.domain import UsageProvider
+from backend.features.core.domain import Stage, UsageProvider
 from backend.features.core.models.ops import UsageRecordModel
+from backend.features.core.usage import SALES_OPERATIONS
+from backend.features.outreach.repository import EVERY_STAGE
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,11 +70,22 @@ def _month_start(now: datetime | None = None) -> datetime:
     return moment.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
 
+def _seen(stages: Collection[Stage]) -> ColumnElement[bool]:
+    """Расход видимых этапов: без права «Продажи» — без операций продаж (П2б)."""
+    if Stage.SALES in stages:
+        return sa_true()
+    return UsageRecordModel.operation.not_in(sorted(SALES_OPERATIONS))
+
+
 class SpendingRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def since_month_start(self, *, now: datetime | None = None) -> Spending:
+    async def since_month_start(
+        self, *, stages: Collection[Stage], now: datetime | None = None
+    ) -> Spending:
+        """Расход с первого числа — этапов, которые видит спрашивающий (`stages`). Умолчания
+        у этапов нет (ревью продаж к #304): забытый вызов ловит mypy."""
         since = _month_start(now)
         rows = await self._session.execute(
             select(
@@ -75,7 +95,7 @@ class SpendingRepository:
                 func.coalesce(func.sum(UsageRecordModel.amount_usd), 0),
                 func.count(UsageRecordModel.id),
             )
-            .where(UsageRecordModel.created_at >= since)
+            .where(UsageRecordModel.created_at >= since, _seen(stages))
             .group_by(UsageRecordModel.provider, UsageRecordModel.operation)
             .order_by(func.coalesce(func.sum(UsageRecordModel.units), 0).desc())
         )
@@ -108,7 +128,8 @@ async def ahrefs_spent_this_month(session: AsyncSession, *, now: datetime | None
     соседней системы на общем ключе и на вопрос «сколько съели мы»
     не отвечает.
     """
-    spending = await SpendingRepository(session).since_month_start(now=now)
+    # Кап — про весь наш расход: этапы видимости здесь не сужают ничего.
+    spending = await SpendingRepository(session).since_month_start(stages=EVERY_STAGE, now=now)
     return spending.units_by_provider.get(UsageProvider.AHREFS, 0)
 
 
