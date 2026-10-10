@@ -47,16 +47,26 @@ class StopEntry(BaseModel):
 
 
 class AddedEntry(StopEntry):
-    """Заведённая запись — и легла ли она на домен из базы."""
+    """Заведённая запись — знаком ли адресат базе и сколько писем снято."""
 
     #: Домена в базе не было, запись завела его новым: донора с ним нет.
     #: Экран говорит это словами, а не «письма сняты с очереди» — иначе
     #: опечатка в домене выглядит как закрытый донор (проверка QA 10.10.2026).
     new_domain: bool
+    #: Адреса нет ни у одного донора или рекламодателя, и писем на него не было —
+    #: тот же ответ для адреса (проверка прода 10.10.2026).
+    new_address: bool
+    #: Сколько писем запись сняла: из очереди и со сроков добивок.
+    stopped: int
 
     @classmethod
     def added(cls, row: AddedRow) -> AddedEntry:
-        return cls(**StopEntry.of(row).model_dump(), new_domain=row.new_domain)
+        return cls(
+            **StopEntry.of(row).model_dump(),
+            new_domain=row.new_domain,
+            new_address=row.new_address,
+            stopped=row.stopped,
+        )
 
 
 class StopListView(BaseModel):

@@ -132,10 +132,15 @@ export function listSuppressions(): Promise<StopListView> {
 export interface StopAdded extends StopEntry {
   /** Домена в базе не было, запись завела его новым: донора с ним нет. */
   new_domain: boolean;
+  /** Адреса нет ни у одного донора или рекламодателя, и писем на него не было. */
+  new_address: boolean;
+  /** Сколько писем запись сняла: из очереди и со сроков добивок. */
+  stopped: number;
 }
 
 /** Завести запись руками: домен целиком или один адрес. Ссылку, `www.` и поддомен
- *  сервер сводит к домену сайта, как его пишет база, и говорит, был ли такой домен. */
+ *  сервер сводит к домену сайта, как его пишет база, и говорит, знаком ли ей домен
+ *  или адрес и сколько писем запись сняла. */
 export function addSuppression(body: {
   target: string;
   reason: SuppressionReason;

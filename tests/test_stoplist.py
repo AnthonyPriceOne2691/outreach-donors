@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from backend.features.core import stages
 from backend.features.core.domain import (
     MessageStatus,
     Stage,
@@ -146,6 +147,72 @@ class TestAddingByHand:
     async def test_nonsense_target_is_refused(self, session: AsyncSession, target: str) -> None:
         with pytest.raises(stoplist.StopListError, match="не похоже"):
             await stoplist.add(session, target, reason=SuppressionReason.MANUAL, author="а@б.в")
+
+
+class TestWhatTheEntryFound:
+    """Что запись нашла в базе и что сняла — экрану, чтобы сказать это словами.
+
+    Проверка прода 10.10.2026: у домена ответ «в базе такого нет» уже был, а незнакомый
+    адрес заводился зелёным «письма сняты с очереди» — и число снятых писем отбрасывалось.
+    """
+
+    async def test_donor_address_is_known_and_its_letter_counted(
+        self, session: AsyncSession, written: MessageModel
+    ) -> None:
+        row = await stoplist.add(
+            session, f"editor@{HOST}", reason=SuppressionReason.MANUAL, author="а@б.в"
+        )
+
+        assert (row.new_address, row.stopped) == (False, 1)
+
+    async def test_unknown_address_is_named_unknown(
+        self, session: AsyncSession, written: MessageModel
+    ) -> None:
+        row = await stoplist.add(
+            session,
+            "nobody@elsewhere.example.test",
+            reason=SuppressionReason.MANUAL,
+            author="а@б.в",
+        )
+
+        assert (row.new_address, row.stopped) == (True, 0)
+        assert await status_in_base(session, written) is MessageStatus.QUEUED
+
+    async def test_known_address_without_letters_takes_nothing_off(
+        self, session: AsyncSession
+    ) -> None:
+        await make_donor(session, HOST, email=f"editor@{HOST}")
+
+        row = await stoplist.add(
+            session, f"editor@{HOST}", reason=SuppressionReason.MANUAL, author="а@б.в"
+        )
+
+        assert (row.new_address, row.stopped) == (False, 0)
+
+    async def test_sales_lead_address_is_known_by_its_threads(
+        self, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Строки `contacts` у лида нет: его переписки называет модуль продаж через мост."""
+        lead = "lead@shop.example.test"
+        asked: list[str] = []
+
+        async def threads_to(_session: AsyncSession, email: str) -> list[int]:
+            asked.append(email)
+            return [10_000] if email == lead else []
+
+        monkeypatch.setattr(stages, "sales_threads_to", threads_to)
+
+        row = await stoplist.add(session, lead, reason=SuppressionReason.MANUAL, author="а@б.в")
+
+        assert row.new_address is False
+        assert asked == [lead]  # один вопрос модулю: и «знаком ли», и «что снять»
+
+    async def test_domain_counts_the_letters_it_took_off(
+        self, session: AsyncSession, written: MessageModel
+    ) -> None:
+        row = await stoplist.add(session, HOST, reason=SuppressionReason.MANUAL, author="а@б.в")
+
+        assert (row.new_domain, row.new_address, row.stopped) == (False, False, 1)
 
 
 async def domain_hosts(session: AsyncSession) -> list[str]:

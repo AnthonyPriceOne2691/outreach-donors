@@ -121,13 +121,20 @@ class StopRow:
 
 @dataclass(frozen=True, slots=True)
 class AddedRow(StopRow):
-    """Строка, только что заведённая руками, — и легла ли она на домен из базы."""
+    """Строка, только что заведённая руками: знаком ли адресат базе и что запись сняла."""
 
     #: Домена в базе не было, запись завела его сама. Донора с таким доменом
     #: нет: вписан сайт, которого прогоны ещё не видели, опечатка или поддомен
     #: в зоне, корня которой список суффиксов не знает. Экран говорит это
     #: словами — «письма сняты с очереди» здесь читалось как «донор закрыт».
     new_domain: bool = False
+    #: Адрес базе не знаком (`_Addressee.known`): ни у одного донора или рекламодателя
+    #: его нет, писем на него не было. Тот же ответ, что у домена: незнакомый адрес
+    #: заводился зелёным «письма сняты с очереди» (проверка прода 10.10.2026).
+    new_address: bool = False
+    #: Сколько писем запись сняла — из очереди и со сроков добивок (`stop_pending`).
+    #: Экран называет число, а не обещает «сняты», когда снимать было нечего.
+    stopped: int = 0
 
 
 async def rows(session: AsyncSession, *, stages: Collection[Stage]) -> list[StopRow]:
@@ -275,24 +282,53 @@ async def stop_pending(
     продаж её нет, адрес живёт у лида. Их переписки называет модуль продаж
     через мост (`stages.sales_threads_to`): почта продажи не импортирует.
     """
-    statement = select(MessageModel).where(
-        or_(
-            MessageModel.status == MessageStatus.QUEUED,
-            MessageModel.next_action_at.is_not(None),
+    if domain_id is not None:
+        return await _stop(session, MessageModel.domain_id == domain_id)
+    return await _stop(session, (await _addressee(session, email)).letters())
+
+
+@dataclass(frozen=True, slots=True)
+class _Addressee:
+    """Чей это адрес в базе: строки `contacts` доноров и рекламодателей и переписки продаж,
+    чей лид — этот адрес. Одно правило и для «знаком ли адрес», и для «какие письма снять»:
+    иначе экран назвал бы знакомым адрес, письма которому запись не нашла, или наоборот."""
+
+    contacts: tuple[int, ...]
+    sales_threads: tuple[int, ...]
+
+    @property
+    def known(self) -> bool:
+        """Знаком ли адрес. Лида, которому ещё не писали, знает только модуль продаж: мост
+        называет переписки, а не лидов, — и такой адрес здесь незнаком, писем ему не было."""
+        return bool(self.contacts or self.sales_threads)
+
+    def letters(self) -> ColumnElement[bool]:
+        """Письма этому адресу: по строке `contacts` или в переписке продаж."""
+        addressed: ColumnElement[bool] = MessageModel.contact_id.in_(self.contacts)
+        if self.sales_threads:
+            addressed = or_(addressed, MessageModel.thread_id.in_(self.sales_threads))
+        return addressed
+
+
+async def _addressee(session: AsyncSession, email: str | None) -> _Addressee:
+    if not email:
+        return _Addressee(contacts=(), sales_threads=())
+    contacts = await session.scalars(select(ContactModel.id).where(ContactModel.email == email))
+    sales = await stages.sales_threads_to(session, email)
+    return _Addressee(contacts=tuple(contacts), sales_threads=tuple(sales))
+
+
+async def _stop(session: AsyncSession, addressed: ColumnElement[bool]) -> int:
+    """Снять письма адресату: из очереди — в «снято», у ушедших — срок добивки."""
+    found = await session.execute(
+        select(MessageModel).where(
+            or_(
+                MessageModel.status == MessageStatus.QUEUED,
+                MessageModel.next_action_at.is_not(None),
+            ),
+            addressed,
         )
     )
-    if domain_id is not None:
-        statement = statement.where(MessageModel.domain_id == domain_id)
-    else:
-        addressed: ColumnElement[bool] = MessageModel.contact_id.in_(
-            select(ContactModel.id).where(ContactModel.email == email)
-        )
-        sales = await stages.sales_threads_to(session, email) if email else []
-        if sales:
-            addressed = or_(addressed, MessageModel.thread_id.in_(sales))
-        statement = statement.where(addressed)
-
-    found = await session.execute(statement)
     stopped = 0
     for message in found.scalars().all():
         if message.status is MessageStatus.QUEUED:
@@ -329,7 +365,7 @@ async def _add_host(
     )
     session.add(row)
     await session.flush()
-    await stop_pending(session, domain_id=domain.id)
+    stopped = await stop_pending(session, domain_id=domain.id)
     return AddedRow(
         id=row.id,
         host=host,
@@ -340,6 +376,7 @@ async def _add_host(
         created_at=row.created_at,
         expires_at=expires_at,
         new_domain=new_domain,
+        stopped=stopped,
     )
 
 
@@ -360,7 +397,9 @@ async def _add_email(
     )
     session.add(row)
     await session.flush()
-    await stop_pending(session, email=email)
+    # Знаком ли адрес и что ему снять — одним ответом: модуль продаж спрошен один раз.
+    addressee = await _addressee(session, email)
+    stopped = await _stop(session, addressee.letters())
     return AddedRow(
         id=row.id,
         host=None,
@@ -370,6 +409,8 @@ async def _add_email(
         created_by=author,
         created_at=row.created_at,
         expires_at=expires_at,
+        new_address=not addressee.known,
+        stopped=stopped,
     )
 
 

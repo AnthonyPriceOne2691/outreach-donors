@@ -18,6 +18,7 @@ import { useState } from 'react';
 
 import type { StopAdded } from '../api/outreach';
 import type { SuppressionReason } from '../api/types';
+import { plural } from '../format';
 
 const HAND_REASONS: { value: SuppressionReason; label: string }[] = [
   { value: 'manual', label: 'вручную' },
@@ -50,10 +51,18 @@ export interface StopRequest {
   expires_at: string | null;
 }
 
-/** Что сказать о новой записи. Домен, которого в базе не было, — не закрытый
- *  донор: так выглядели опечатка и поддомен, на который донор не записан
- *  (проверка QA 10.10.2026), и «письма сняты с очереди» здесь было неправдой.
- *  Такое уведомление не гаснет само: оно просит сверить домен, а не сообщает. */
+/** Что запись сняла — числом с сервера: «письма сняты с очереди» стояло и там,
+ *  где снимать было нечего (проверка прода 10.10.2026). */
+function takenOff(stopped: number): string {
+  if (stopped === 0) return 'в очереди и добивках ему ничего не было';
+  return `снято ${stopped} ${plural(stopped, 'письмо', 'письма', 'писем')} из очереди и добивок`;
+}
+
+/** Что сказать о новой записи. Домен или адрес, которых база не знает, — не закрытый
+ *  донор: так выглядели опечатка и поддомен, на который донор не записан (проверка QA
+ *  10.10.2026), а у адреса — любой адрес, которого нет ни у одного донора (проверка прода
+ *  10.10.2026), и «письма сняты с очереди» здесь было неправдой. Такое уведомление
+ *  не гаснет само: оно просит сверить домен или адрес, а не сообщает. */
 export function addedNotice(row: StopAdded): NotificationData {
   if (row.new_domain) {
     return {
@@ -63,8 +72,16 @@ export function addedNotice(row: StopAdded): NotificationData {
       autoClose: false,
     };
   }
+  if (row.new_address) {
+    return {
+      title: 'Записан незнакомый адрес',
+      message: `${row.email} нет ни у одного донора или рекламодателя, и писем на него не было. Закрывали адрес донора — сверьте его с карточкой донора`,
+      color: 'yellow',
+      autoClose: false,
+    };
+  }
   return {
-    message: `${row.host ?? row.email} в стоп-листе — письма сняты с очереди`,
+    message: `${row.host ?? row.email} в стоп-листе — ${takenOff(row.stopped)}`,
     color: 'green',
   };
 }

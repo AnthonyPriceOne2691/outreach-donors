@@ -148,7 +148,9 @@ describe('стоп-лист', () => {
 
   it('новая запись уходит доменом или адресом', async () => {
     const recorded = await openStopList({
-      'POST /api/suppressions': { body: { ...STOP_LIST.rows[1], id: 3, new_domain: false } },
+      'POST /api/suppressions': {
+        body: { ...STOP_LIST.rows[1], id: 3, new_domain: false, new_address: false, stopped: 1 },
+      },
     });
     const user = userEvent.setup();
 
@@ -158,7 +160,7 @@ describe('стоп-лист', () => {
     await user.type(within(dialog).getByLabelText('Домен или адрес'), 'supplier.example.test');
     await user.click(within(dialog).getByRole('button', { name: 'Больше не писать' }));
 
-    await screen.findByText(/сняты с очереди/);
+    await screen.findByText(/в стоп-листе — снято 1 письмо из очереди и добивок/);
     const sent = recorded.calls.filter((call: Call) => call.method === 'POST');
     expect(sent[0]?.body).toEqual({
       target: 'supplier.example.test',
@@ -169,7 +171,9 @@ describe('стоп-лист', () => {
 
   it('срок ставится выбором, и по умолчанию его нет', async () => {
     const recorded = await openStopList({
-      'POST /api/suppressions': { body: { ...STOP_LIST.rows[1], id: 4, new_domain: false } },
+      'POST /api/suppressions': {
+        body: { ...STOP_LIST.rows[1], id: 4, new_domain: false, new_address: false, stopped: 0 },
+      },
     });
     const user = userEvent.setup();
 
@@ -180,7 +184,7 @@ describe('стоп-лист', () => {
     await user.click(within(dialog).getByRole('radio', { name: '12 месяцев' }));
     await user.click(within(dialog).getByRole('button', { name: 'Больше не писать' }));
 
-    await screen.findAllByText(/сняты с очереди/);
+    await screen.findAllByText(/в стоп-листе — /);
     const sent = recorded.calls.filter((call: Call) => call.method === 'POST');
     const body = sent[0]?.body as { expires_at: string | null };
     expect(body.expires_at).not.toBeNull();
@@ -209,7 +213,27 @@ describe('стоп-лист', () => {
 
 /** Ответ сервера на заведение: запись из базы или новый домен. */
 function added(host: string, newDomain: boolean) {
-  return { ...STOP_LIST.rows[2], id: 9, host, expired: false, new_domain: newDomain };
+  return {
+    ...STOP_LIST.rows[2],
+    id: 9,
+    host,
+    expired: false,
+    new_domain: newDomain,
+    new_address: false,
+    stopped: newDomain ? 0 : 1,
+  };
+}
+
+/** Ответ сервера на заведение адреса: знаком ли он базе и сколько писем снято. */
+function addedAddress(email: string, newAddress: boolean, stopped: number) {
+  return {
+    ...STOP_LIST.rows[1],
+    id: 10,
+    email,
+    new_domain: false,
+    new_address: newAddress,
+    stopped,
+  };
 }
 
 /** Выбор причины над таблицей. По подписи их два: поле и его список. */
@@ -250,7 +274,7 @@ describe('стоп-лист: проверка QA 10.10.2026', () => {
 
     expect(await screen.findByText('Записан новый домен')).toBeInTheDocument();
     expect(screen.getByText(/донора с таким доменом нет/)).toBeInTheDocument();
-    expect(screen.queryByText(/сняты с очереди/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/в стоп-листе — /)).not.toBeInTheDocument();
   });
 
   it('окно открывается чистым: «поставщик» и «12 месяцев» не достаются следующей записи', async () => {
@@ -264,7 +288,7 @@ describe('стоп-лист: проверка QA 10.10.2026', () => {
     await user.click(within(dialog).getByRole('radio', { name: 'поставщик' }));
     await user.click(within(dialog).getByRole('radio', { name: '12 месяцев' }));
     await user.click(within(dialog).getByRole('button', { name: 'Больше не писать' }));
-    await screen.findByText(/сняты с очереди/);
+    await screen.findByText(/в стоп-листе — /);
 
     dialog = await openAdding(user);
     expect(within(dialog).getByLabelText('Домен или адрес')).toHaveValue('');
@@ -307,7 +331,7 @@ describe('стоп-лист: проверка QA 10.10.2026', () => {
       'supplier.example.test{Enter}',
     );
 
-    await screen.findByText(/сняты с очереди/);
+    await screen.findByText(/в стоп-листе — /);
     expect(posted(recorded)).toEqual([
       { target: 'supplier.example.test', reason: 'manual', expires_at: null },
     ]);
@@ -362,6 +386,50 @@ describe('стоп-лист: проверка QA 10.10.2026', () => {
     await chooseReason(user, 'поставщик');
     expect(
       screen.getByText(/Под поиск «нет-такого» с причиной «поставщик» ничего не попало/),
+    ).toBeInTheDocument();
+  });
+});
+
+describe('стоп-лист: проверка прода 10.10.2026', () => {
+  async function add(response: unknown, target: string) {
+    await openStopList({ 'POST /api/suppressions': { body: response } });
+    const user = userEvent.setup();
+    const dialog = await openAdding(user);
+    await user.type(within(dialog).getByLabelText('Домен или адрес'), target);
+    await user.click(within(dialog).getByRole('button', { name: 'Больше не писать' }));
+  }
+
+  it('незнакомый адрес назван незнакомым, а не «письма сняты с очереди»', async () => {
+    // Как у домена: адреса нет ни у одного донора — опечатка выглядела закрытым донором.
+    await add(
+      addedAddress('nobody@elsewhere.example.test', true, 0),
+      'nobody@elsewhere.example.test',
+    );
+
+    expect(await screen.findByText('Записан незнакомый адрес')).toBeInTheDocument();
+    expect(
+      screen.getByText(/nobody@elsewhere\.example\.test нет ни у одного донора или рекламодателя/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/в стоп-листе — /)).not.toBeInTheDocument();
+  });
+
+  it('знакомый адрес — сколько писем снято, числом с сервера', async () => {
+    await add(addedAddress('editor@donor.example.test', false, 2), 'editor@donor.example.test');
+
+    expect(
+      await screen.findByText(
+        'editor@donor.example.test в стоп-листе — снято 2 письма из очереди и добивок',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('снимать было нечего — так и сказано, а не «письма сняты»', async () => {
+    await add(addedAddress('editor@donor.example.test', false, 0), 'editor@donor.example.test');
+
+    expect(
+      await screen.findByText(
+        'editor@donor.example.test в стоп-листе — в очереди и добивках ему ничего не было',
+      ),
     ).toBeInTheDocument();
   });
 });
