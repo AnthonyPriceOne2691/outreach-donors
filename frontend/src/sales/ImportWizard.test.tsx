@@ -332,7 +332,7 @@ describe('мастер загрузки', () => {
     renderWith(<AppRoutes />, '/sales/import');
 
     const refusal = await screen.findByText('Раздел недоступен', {}, SCREEN_WAIT);
-    expect(refusal.closest('[role="alert"]')).toHaveTextContent('«раздел продаж» не выдано');
+    expect(refusal.closest('[role="alert"]')).toHaveTextContent('«Продажи» не выдано');
     expect(recorded.calls.map((call) => call.path)).toEqual(['/api/auth/me']);
   });
 });

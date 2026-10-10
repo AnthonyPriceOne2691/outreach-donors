@@ -187,7 +187,7 @@ describe('продажи: право', () => {
     renderWith(<AppRoutes />, '/sales?state=rejected');
 
     const refusal = await screen.findByText('Раздел недоступен', {}, SCREEN_WAIT);
-    expect(refusal.closest('[role="alert"]')).toHaveTextContent('«раздел продаж» не выдано');
+    expect(refusal.closest('[role="alert"]')).toHaveTextContent('«Продажи» не выдано');
     // Списки не спрашивались: без права на экран сервер и не ходят.
     expect(screen.queryByText('ivan@acme.example.test')).not.toBeInTheDocument();
   });
