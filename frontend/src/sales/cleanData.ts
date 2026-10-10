@@ -17,6 +17,7 @@ import { cleanSalesLeads, readSalesClean } from '../api/sales';
 import { leadReasonTitle } from '../api/salesLabels';
 import type { SalesCleanReport, SalesCleanView } from '../api/salesTypes';
 import { formatNumber } from '../format';
+import { jobRestarted } from '../jobs/JobLine';
 import { notify } from '../notices';
 import { forget, remember, remembered } from '../storage';
 
@@ -41,6 +42,9 @@ export function useCleaning(hypothesis: number) {
       setPaid(null);
       setJobId(queued.job_id);
       remember(key, queued.job_id);
+      // Номер очистки гипотезы постоянный: строка с ним уже знает исход прежней очистки и
+      // сама больше не спрашивает — без этого показала бы прежний итог.
+      void jobRestarted(client, queued.job_id);
       notify({ message: 'Очистка ушла в очередь задач', color: 'green' });
     },
   });

@@ -197,6 +197,34 @@ describe('очистка на вкладке лидов', () => {
     expect(localStorage.getItem(cleanJobKey(1))).toBeNull();
   });
 
+  it('вторая очистка гипотезы — строка об исходе новой: номер задачи постоянный', async () => {
+    const reports = [REPORT, { ...REPORT, checked: 1, ready: 1, rejected: {} }];
+    let started = 0;
+    const recorded = await openLeads({
+      [`GET ${ASK}`]: { body: FIXTURE },
+      [`POST ${CLEAN}`]: () => {
+        started += 1;
+        return { status: 202, body: { job_id: 'sales-clean-1' } };
+      },
+      'GET /api/jobs/sales-clean-1': () => ({
+        body: job('sales-clean-1', 'done', reports[Math.max(0, started - 1)] ?? REPORT),
+      }),
+    });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Очистить' }));
+    expect(
+      await screen.findByText(/^Проверено 2: готово 1, отклонено 1/, {}, SCREEN_WAIT),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Очистить' }));
+
+    // Под тем же номером — новая задача: строка спросила о ней заново, а не держит прежний итог.
+    expect(
+      await screen.findByText(/^Проверено 1: готово 1, отклонено 0/, {}, SCREEN_WAIT),
+    ).toBeInTheDocument();
+    expect(calls(recorded, 'POST', CLEAN)).toHaveLength(2);
+  });
+
   it('живая проверка — окно с числом сервера; «Отмена» ничего не ставит', async () => {
     const recorded = await openLeads({
       [`GET ${ASK}`]: { body: LIVE },
