@@ -2,8 +2,8 @@
 
 `GET /api/sales/queue` — подключены ли продажи и чего не хватает (словами отказа
 отправки), цепочки по языкам, сколько лидов без письма и писем в очереди. `POST` — сборка
-задачей; отказ подключения — 409 словами до очереди задач. Права — `sales`. Тексты и
-адреса выдуманы (`*.example.test`).
+задачей; отказ подключения — 409 словами до очереди задач. Права: смотреть — `sales`, собрать —
+`sales` и `send` (`test_sales_write_rights.py`). Тексты и адреса выдуманы (`*.example.test`).
 """
 
 from __future__ import annotations
@@ -55,7 +55,8 @@ TYPES = (Path(__file__).resolve().parent.parent / "frontend/src/api/salesTypes.t
 
 @pytest.fixture
 async def headers(make_user: MakeUser, sign_in: SignIn) -> dict[str, str]:
-    await make_user(SELLER)
+    """Продавец с правом отправки: собрать очередь — `sales` и `send` (`test_sales_write_rights`)."""
+    await make_user(SELLER, permissions={"send": True})
     return bearer(await sign_in(SELLER))
 
 

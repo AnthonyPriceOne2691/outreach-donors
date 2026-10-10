@@ -63,7 +63,9 @@ ROUTES: list[tuple[str, str, dict[str, Any] | None]] = [
 
 @pytest.fixture
 async def seller(make_user: MakeUser, sign_in: SignIn) -> tuple[UserModel, dict[str, str]]:
-    user = await make_user(SELLER)
+    """Продавец с правом отправки: менять базу и отправителя — `sales` и `send`
+    (`test_sales_write_rights`)."""
+    user = await make_user(SELLER, permissions={"send": True})
     return user, bearer(await sign_in(SELLER))
 
 

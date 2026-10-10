@@ -36,6 +36,7 @@ import { formatDateTime } from '../format';
 import { useChain } from './chainData';
 import type { StepPlace } from './chainDraft';
 import { ChainStepModal } from './ChainStepModal';
+import { useMayWrite, WriteRight } from './WriteRight';
 
 const COMMON = 'common';
 
@@ -112,13 +113,22 @@ function StepState({ row }: { row: ChainStepCard | undefined }) {
   );
 }
 
+/** Кнопка шага. Без права записи заданный шаг открывают смотреть и показать письмо, а задать
+ *  новый нельзя (`WriteRight`). */
+function stepAction(row: ChainStepCard | undefined, mayWrite: boolean): string {
+  if (row === undefined) return 'Задать';
+  return mayWrite ? 'Править' : 'Открыть';
+}
+
 function StepRow({
   step,
   row,
+  mayWrite,
   onEdit,
 }: {
   step: number;
   row: ChainStepCard | undefined;
+  mayWrite: boolean;
   onEdit: () => void;
 }) {
   return (
@@ -146,8 +156,14 @@ function StepRow({
           </>
         )}
       </Stack>
-      <Button size="compact-sm" variant="default" className="press" onClick={onEdit}>
-        {row === undefined ? 'Задать' : 'Править'}
+      <Button
+        size="compact-sm"
+        variant="default"
+        className="press"
+        disabled={row === undefined && !mayWrite}
+        onClick={onEdit}
+      >
+        {stepAction(row, mayWrite)}
       </Button>
     </Group>
   );
@@ -157,11 +173,13 @@ function LanguageCard({
   view,
   state,
   owner,
+  mayWrite,
   onEdit,
 }: {
   view: ChainView;
   state: ChainState;
   owner: number | null;
+  mayWrite: boolean;
   onEdit: (step: number) => void;
 }) {
   const words = chainWords(state, owner);
@@ -185,7 +203,13 @@ function LanguageCard({
           {words.line}
         </Text>
         {view.steps.map((step) => (
-          <StepRow key={step} step={step} row={rowOf(step)} onEdit={() => onEdit(step)} />
+          <StepRow
+            key={step}
+            step={step}
+            row={rowOf(step)}
+            mayWrite={mayWrite}
+            onEdit={() => onEdit(step)}
+          />
         ))}
       </Stack>
     </Card>
@@ -212,6 +236,7 @@ function ChainWaiting({ error }: { error: unknown }) {
 
 export function ChainPane({ hypotheses, owner, onOwner }: OwnerProps) {
   const [editing, setEditing] = useState<StepPlace | null>(null);
+  const mayWrite = useMayWrite();
   const chain = useChain(owner);
   const view = chain.data;
   const setTitle = setTitleOf(hypotheses, owner);
@@ -221,6 +246,7 @@ export function ChainPane({ hypotheses, owner, onOwner }: OwnerProps) {
   return (
     <Stack gap="sm">
       <ChainHead hypotheses={hypotheses} owner={owner} onOwner={onOwner} />
+      {!mayWrite && <WriteRight what="Правит цепочку" px="md" />}
       {view === undefined ? (
         <ChainWaiting error={chain.error} />
       ) : (
@@ -233,6 +259,7 @@ export function ChainPane({ hypotheses, owner, onOwner }: OwnerProps) {
                 view={view}
                 state={state}
                 owner={owner}
+                mayWrite={mayWrite}
                 onEdit={(step) =>
                   setEditing({ hypothesisId: owner, step, language: state.language })
                 }
@@ -248,6 +275,7 @@ export function ChainPane({ hypotheses, owner, onOwner }: OwnerProps) {
           setTitle={setTitle}
           row={rowAt(editing) ?? null}
           view={view}
+          mayWrite={mayWrite}
           onClose={() => setEditing(null)}
         />
       )}

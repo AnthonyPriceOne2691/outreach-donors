@@ -10,6 +10,8 @@
  * **Границы — сервера** (`limits`): длинное поле видно до нажатия, форму ссылок
  * и Telegram судит сервер, его отказ встаёт над формой целиком. Пустое поле
  * уходит `null` — «не задано», а не пустой строкой.
+ *
+ * **Без права отправки писем форма — смотреть** (`WriteRight`): поля и «Сохранить» закрыты.
  */
 
 import {
@@ -32,6 +34,7 @@ import type { SenderBody, SenderField, SenderView } from '../api/salesTypes';
 import { formatDateTime, formatNumber } from '../format';
 import { useSaveSender, useSender } from './kbData';
 import { SaveRefusal } from './SaveRefusal';
+import { useMayWrite, WriteRight } from './WriteRight';
 
 const FIELD_KEYS = Object.keys(SENDER_FIELDS) as SenderField[];
 
@@ -74,15 +77,17 @@ function SenderInput({
   field,
   value,
   error,
+  disabled,
   onChange,
 }: {
   field: SenderField;
   value: string;
   error: string | undefined;
+  disabled: boolean;
   onChange: (value: string) => void;
 }) {
   const { label, hint, multiline } = SENDER_FIELDS[field];
-  const props = { label, description: hint, value, error };
+  const props = { label, description: hint, value, error, disabled };
   return multiline ? (
     <Textarea
       {...props}
@@ -101,11 +106,12 @@ function SenderInput({
 function SenderForm({ view }: { view: SenderView }) {
   const [draft, setDraft] = useState<Draft>(() => draftOf(view));
   const save = useSaveSender();
+  const mayWrite = useMayWrite();
   // Граница `md` у Mantine — 62em: шире поля стоят парой.
   const paired = useMediaQuery('(min-width: 62em)');
   const refusals = tooLong(draft, view.limits);
   const dirty = JSON.stringify(bodyOf(draft)) !== JSON.stringify(bodyOf(draftOf(view)));
-  const ready = dirty && Object.keys(refusals).length === 0;
+  const ready = mayWrite && dirty && Object.keys(refusals).length === 0;
 
   return (
     <form
@@ -132,6 +138,7 @@ function SenderForm({ view }: { view: SenderView }) {
               field={field}
               value={draft[field]}
               error={refusals[field]}
+              disabled={!mayWrite}
               onChange={(value) => setDraft((current) => ({ ...current, [field]: value }))}
             />
           ))}
@@ -148,6 +155,7 @@ function SenderForm({ view }: { view: SenderView }) {
               : `Правил ${view.updated_by} · ${formatDateTime(view.updated_at)}`}
           </Text>
         </Group>
+        {!mayWrite && <WriteRight what="Правит отправителя" px="md" />}
       </Stack>
     </form>
   );

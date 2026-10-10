@@ -25,6 +25,7 @@ import { FixedTable } from './FixedTable';
 import type { Column } from './FixedTable';
 import { useKb, useSavedEntry, useToggle } from './kbData';
 import { KbEntryModal } from './KbEntryModal';
+import { useMayWrite, WriteRight } from './WriteRight';
 
 const COLUMNS: Column[] = [
   { title: 'Запись' },
@@ -41,10 +42,12 @@ export const KB_MIN_WIDTH = 1040;
 
 function KbHead({
   view,
+  mayWrite,
   onAdd,
   onPreview,
 }: {
   view: KbView;
+  mayWrite: boolean;
   onAdd: () => void;
   onPreview: () => void;
 }) {
@@ -65,12 +68,13 @@ function KbHead({
           Версия базы <code>{view.version}</code> · агент видит {formatNumber(view.active)} из{' '}
           {formatNumber(view.total)}
         </Text>
+        {!mayWrite && <WriteRight what="Правит базу знаний" />}
       </Stack>
       <Group gap="xs">
         <Button variant="default" className="press" onClick={onPreview}>
           Что увидит агент
         </Button>
-        <Button className="press" onClick={onAdd}>
+        <Button className="press" disabled={!mayWrite} onClick={onAdd}>
           Добавить запись
         </Button>
       </Group>
@@ -82,11 +86,13 @@ interface RowProps {
   row: KbEntryCard;
   /** Переключатель этой строки ждёт ответа сервера. */
   busy: boolean;
+  /** Право записи (`WriteRight`); без него запись открывают смотреть, переключатель закрыт. */
+  mayWrite: boolean;
   onEdit: (row: KbEntryCard) => void;
   onToggle: (active: boolean) => void;
 }
 
-function KbRow({ row, busy, onEdit, onToggle }: RowProps) {
+function KbRow({ row, busy, mayWrite, onEdit, onToggle }: RowProps) {
   return (
     <Table.Tr>
       <Table.Td className="wrapCell">
@@ -121,14 +127,14 @@ function KbRow({ row, busy, onEdit, onToggle }: RowProps) {
           <Switch
             aria-label={`Агент видит «${row.title}»`}
             checked={row.active}
-            disabled={busy}
+            disabled={busy || !mayWrite}
             onChange={(event) => onToggle(event.currentTarget.checked)}
           />
         </Group>
       </Table.Td>
       <Table.Td>
         <Button size="compact-sm" variant="default" className="press" onClick={() => onEdit(row)}>
-          Править
+          {mayWrite ? 'Править' : 'Открыть'}
         </Button>
       </Table.Td>
     </Table.Tr>
@@ -162,6 +168,7 @@ export function KbPane() {
   const kb = useKb();
   const toggle = useToggle();
   const announce = useSavedEntry();
+  const mayWrite = useMayWrite();
   const [editing, setEditing] = useState<KbEntryCard | 'new' | null>(null);
   const [previewing, setPreviewing] = useState(false);
   if (kb.data === undefined) return <KbWaiting error={kb.error} />;
@@ -176,6 +183,7 @@ export function KbPane() {
       key={row.id}
       row={row}
       busy={toggle.isPending && toggle.variables?.id === row.id}
+      mayWrite={mayWrite}
       onEdit={setEditing}
       onToggle={(active) => toggle.mutate({ id: row.id, active })}
     />
@@ -183,7 +191,12 @@ export function KbPane() {
 
   return (
     <Stack gap="sm">
-      <KbHead view={view} onAdd={() => setEditing('new')} onPreview={() => setPreviewing(true)} />
+      <KbHead
+        view={view}
+        mayWrite={mayWrite}
+        onAdd={() => setEditing('new')}
+        onPreview={() => setPreviewing(true)}
+      />
       {view.total === 0 ? (
         <KbEmpty />
       ) : (
@@ -202,6 +215,7 @@ export function KbPane() {
           entry={editing === 'new' ? null : editing}
           kinds={view.kinds}
           limits={view.limits}
+          mayWrite={mayWrite}
           onClose={() => setEditing(null)}
           onSaved={saved}
         />

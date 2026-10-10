@@ -11,7 +11,8 @@
  * гипотезы и ничего не отправляет: модель на каждое письмо — минуты, поэтому задачей.
  * Пачка — общая кнопка почты (`letters/SendQueue`) с этапом продаж, своей у продаж нет:
  * она берёт письма всех гипотез, кнопка называет их число, а вкладка говорит это словами
- * до нажатия. Кнопка пачки — только у кого есть право отправки.
+ * до нажатия. Кнопка пачки — только у кого есть право отправки; сборка без него закрыта
+ * строкой почему (`WriteRight`): она пишет письма адресатам и тратит модель.
  */
 
 import {
@@ -44,6 +45,7 @@ import { SendQueue } from '../letters/SendQueue';
 import { notify } from '../notices';
 import { remember, remembered } from '../storage';
 import { buildJobKey, QUEUE_QUERY_KEY, queueLine, useSalesQueue } from './queueData';
+import { useMayWrite, WriteRight } from './WriteRight';
 
 /** Писем за раз, пока человек не поправил: как у сборки писем доноров. */
 const DEFAULT_LIMIT = 50;
@@ -111,6 +113,7 @@ function Chains({ chains }: { chains: ChainState[] }) {
 
 function BuildQueue({ view }: { view: SalesQueueView }) {
   const client = useQueryClient();
+  const mayWrite = useMayWrite();
   const hypothesis = view.hypothesis_id;
   const [limit, setLimit] = useState(Math.min(DEFAULT_LIMIT, view.limit_max));
   const [jobId, setJobId] = useState<string | null>(() => remembered(buildJobKey(hypothesis)));
@@ -140,17 +143,19 @@ function BuildQueue({ view }: { view: SalesQueueView }) {
           // Поле — по числу (до трёх знаков), а не 180 px; колонка — по подписи: «Писем за раз»
           // с «i» в 6,5rem вставала в две строки (аудит экранов 09.10.2026, как у порогов).
           styles={{ wrapper: { width: '6.5rem' } }}
+          disabled={!mayWrite}
           onChange={(value) => setLimit(typeof value === 'number' ? value : DEFAULT_LIMIT)}
         />
         <Button
           className="press"
-          disabled={!view.connected || empty}
+          disabled={!mayWrite || !view.connected || empty}
           loading={build.isPending}
           onClick={() => build.mutate()}
         >
           Собрать очередь
         </Button>
       </Group>
+      {!mayWrite && <WriteRight what="Собирает очередь" />}
       {empty ? (
         <Text size="sm" c="dimmed">
           Лидов без письма и писем в очереди у гипотезы нет — собирать нечего.
