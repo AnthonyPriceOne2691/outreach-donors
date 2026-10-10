@@ -245,6 +245,8 @@ describe('очистка на вкладке лидов', () => {
     );
     expect(alert).toHaveTextContent(running);
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+    // Одним местом: две одинаковые плашки — в окне и под кнопкой — читались бы двумя отказами.
+    expect(screen.getAllByText('Очистка не запущена')).toHaveLength(1);
   });
 
   it('отказ на запуск при выдуманной проверке — словами под кнопкой', async () => {
