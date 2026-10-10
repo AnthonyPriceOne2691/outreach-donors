@@ -208,14 +208,19 @@ def site_of(entered: str) -> str:
     """
     if "@" in entered:
         return ""
-    split = split_url(entered if "//" in entered else f"//{entered}")
-    host = ((split.hostname if split else None) or "").rstrip(".")
+    host = _hostname(entered)
     if len(host) > HOST_MAX:
         raise StopListError(
             f"Домен длиннее {HOST_MAX} знаков — таких не бывает. Проверьте, что вставилось в поле"
         )
     site = normalize_host(host) or host.removeprefix("www.")
     return site if _HOST_RE.match(host) and _HOST_RE.match(site) else ""
+
+
+def _hostname(entered: str) -> str:
+    """Хост из ссылки или голого домена: схема, путь, порт и точка в конце — прочь."""
+    split = split_url(entered if "//" in entered else f"//{entered}")
+    return ((split.hostname if split else None) or "").rstrip(".")
 
 
 async def remove(session: AsyncSession, row_id: int, *, reason: str | None) -> StopRow:
