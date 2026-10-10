@@ -226,6 +226,30 @@ describe('границы порогов', () => {
     expect(previews(recorded).some((body) => body.min_dr === 95)).toBe(false);
   });
 
+  // Проверка QA 10.10.2026: числовое поле молча выбрасывало точку, запятую, минус и
+  // буквы — «2.5» и «2,5» становились 25, «1e3» — 13, «-5» — 5, и такой порог уходил
+  // в предпросмотр и в сохранение.
+  it.each([
+    ['2.5', 'Только целое число от 0 до 90'],
+    ['2,5', 'Только целое число от 0 до 90'],
+    ['1e3', 'Только целое число от 0 до 90'],
+    ['-5', 'Допустимо от 0 до 90'],
+  ])('«%s» стоит в поле как набрано, под ним — отказ', async (typed, refusal) => {
+    const recorded = await openThresholds();
+    const user = userEvent.setup();
+
+    const dr = screen.getByLabelText('DR не ниже');
+    await user.clear(dr);
+    await user.type(dr, typed);
+
+    expect(dr).toHaveValue(typed);
+    expect(await screen.findByText(refusal)).toBeInTheDocument();
+    expect(dr).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByRole('button', { name: /Сохранить новой версией/ })).toBeDisabled();
+    await pastDebounce();
+    expect(previews(recorded).some((body) => body.min_dr !== CURRENT.min_dr)).toBe(false);
+  });
+
   it('стёртое поле — не ноль: просит число и не сохраняется', async () => {
     const recorded = await openThresholds();
     const user = userEvent.setup();
