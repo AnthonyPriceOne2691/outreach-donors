@@ -109,6 +109,4 @@ class TestPreviewShowsOnlyFollowupsThatGo:
     def test_no_terms_are_the_defaults(self) -> None:
         cards = followups_for("donor.example.test", None)
 
-        assert [card.in_days for card in cards] == list(
-            outreach_cfg.FOLLOWUP_DAYS[: MAX_STEPS - 1]
-        )
+        assert [card.in_days for card in cards] == list(outreach_cfg.FOLLOWUP_DAYS[: MAX_STEPS - 1])
