@@ -121,6 +121,9 @@ class Forecast(BaseModel):
     #: Ожидаемая стоимость самой выдачи, в долларах. Кнопку не блокирует:
     #: без выдачи прогона нет вовсе. Но названа быть должна.
     serp_cost_usd: float
+    #: Доля уникальных доменов среди результатов, с которой посчитано
+    #: `expected_domains`: экран называет по ней долю дублей, а не своим числом.
+    unique_share: float
 
     @classmethod
     def of(cls, forecast: RunForecast) -> Forecast:
@@ -142,6 +145,7 @@ class Forecast(BaseModel):
             affordable=forecast.affordable,
             shortfall=forecast.shortfall,
             serp_cost_usd=forecast.serp_cost_usd,
+            unique_share=forecast.unique_share,
         )
 
 

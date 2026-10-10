@@ -18,11 +18,22 @@ class TestArithmetic:
         assert made.expected_results == 10 * 2 * RESULTS_PER_PAGE
 
     def test_domains_use_the_measured_share(self) -> None:
-        """Доля уникальных — замер, а не догадка: 85 доменов на 500
-        результатов, то есть 83% схлопывается в дубли."""
+        """Доля уникальных — замер, а не догадка: без своей истории — худшая
+        из замеренных на малых прогонах (0,85)."""
         made = forecast(keywords=50, depth_pages=1, units_left=10**6, units_cap=10**6)
 
         assert made.expected_domains == round(500 * UNIQUE_SHARE)
+        assert made.unique_share == UNIQUE_SHARE
+
+    def test_forecast_names_the_share_it_counted_with(self) -> None:
+        """Экран называет долю дублей по этому числу, а не своим (проверка прода
+        10.10.2026: «83% схлопывается в дубли» рядом с «≈ 31» из 40)."""
+        made = forecast(
+            keywords=4, depth_pages=1, units_left=10**6, units_cap=10**6, unique_share=0.775
+        )
+
+        assert made.unique_share == 0.775
+        assert made.expected_domains == 31
 
     def test_no_keywords_costs_nothing(self) -> None:
         made = forecast(keywords=0, depth_pages=1, units_left=10**6, units_cap=10**6)

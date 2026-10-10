@@ -63,6 +63,11 @@ class RunForecast:
     #: Во что обойдётся сама выдача. Юниты и доллары не складываются:
     #: это два разных счёта у двух разных провайдеров.
     serp_cost_usd: float = 0.0
+    #: Доля уникальных доменов, по которой посчитаны домены сметы. Экран
+    #: называет по ней долю дублей: подсказка «83% схлопывается в дубли»
+    #: стояла от константы 0,17, убранной 24.09, — рядом с «≈ 31 из 40»
+    #: (проверка прода 10.10.2026).
+    unique_share: float = UNIQUE_SHARE
 
     @property
     def cap_left(self) -> int:
@@ -127,4 +132,5 @@ def forecast(
         serp_cost_usd=round(
             max(0, keywords) * max(1, depth_pages) * serp_cfg.PRICE_PER_KEYWORD_USD, 4
         ),
+        unique_share=unique_share,
     )
