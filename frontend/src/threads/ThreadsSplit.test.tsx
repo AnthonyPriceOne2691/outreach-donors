@@ -18,6 +18,7 @@ import { SPLIT_QUERY, workKey } from '../layout/split';
 import { ADMIN, HOME_ROUTES, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
+import { reply } from '../test/threadFixtures';
 import { shortWhen } from './ThreadList';
 
 function thread(id: number, host: string, state: string, at: string) {
@@ -240,6 +241,31 @@ describe('диалоги на широком окне: список и пере�
 
     expect(where()).toHaveTextContent('/threads?tab=unbound');
     expect(screen.queryByRole('navigation', { name: 'Список диалогов' })).not.toBeInTheDocument();
+  });
+
+  it('отказ разбора цены — у своей переписки: ушли в соседнюю и вернулись — отказа нет', async () => {
+    // Переписка рядом со списком не пересоздаётся при выборе строки: отказ, оставшийся
+    // от прошлого раза, стоял бы над полями, уже сброшенными к разбору модели.
+    const user = userEvent.setup();
+    const refusal = '«-5» — не цена: впишите число больше нуля, например 150 или 150.50.';
+    const asking = { ...view(THREADS[2]!), incoming: [reply({ id: 70, needs_review: true })] };
+    await openWide('/threads/3', THREADS, {
+      'GET /api/threads/3': { body: asking },
+      'PATCH /api/replies/70': { status: 400, body: { detail: refusal } },
+    });
+    const white = await screen.findByLabelText('Белая цена');
+    await user.clear(white);
+    await user.type(white, '-5');
+    await user.click(screen.getByRole('button', { name: 'Подтвердить' }));
+    expect(await screen.findByText(`— ${refusal}`)).toBeInTheDocument();
+
+    await user.keyboard('j');
+    await screen.findByRole('heading', { name: 'digest-weekly.example.test' });
+    await user.keyboard('k');
+    await screen.findByRole('heading', { name: 'tech-review.example.test' });
+
+    expect(screen.getByLabelText('Белая цена')).toHaveValue('300');
+    expect(screen.queryByText(`— ${refusal}`)).not.toBeInTheDocument();
   });
 });
 

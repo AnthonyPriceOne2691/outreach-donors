@@ -76,6 +76,7 @@ export function ReplyDecision({
   busy,
   onConfirm,
   onDecline,
+  refusal,
   onTakeLead,
   onSendLead,
   onClose,
@@ -111,6 +112,7 @@ export function ReplyDecision({
           busy={busy}
           onConfirm={onConfirm}
           onDecline={onDecline}
+          refusal={refusal}
           heading={heading}
           onClose={onClose}
         />

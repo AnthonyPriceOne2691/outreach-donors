@@ -143,13 +143,20 @@ def manual_price(
 ) -> ManualPrice:
     """Проверить то, что вписал человек. Отказ — словами, до записи."""
     return ManualPrice(
-        amount=_amount(amount), currency=_currency(currency), note=_note(note), by=_author(by)
+        amount=typed_amount(amount),
+        currency=typed_currency(currency),
+        note=_note(note),
+        by=_author(by),
     )
 
 
-def _amount(raw: object) -> Decimal:
-    """Число в цену. Запятая — отказ, а не догадка: «1,200» бывает и тысячей
-    двумястами, и единицей с копейками."""
+def typed_amount(raw: object) -> Decimal:
+    """Число, вписанное человеком, — в цену. Запятая — отказ, а не догадка: «1,200»
+    бывает и тысячей двумястами, и единицей с копейками.
+
+    Правило одно на оба входа цены руками: «Указать цену» и подтверждение разбора
+    ответа (`replies/confirmation.py`) кладут число в те же поля карточки донора.
+    """
     said = "" if raw is None else str(raw).strip()
     if not said:
         raise ManualPriceError(f"Цена не указана: {_PRICE_HINT}.")
@@ -170,7 +177,9 @@ def _amount(raw: object) -> Decimal:
     return value.quantize(CENTS)
 
 
-def _currency(raw: object) -> str:
+def typed_currency(raw: object) -> str:
+    """Валюта, вписанная человеком, — к коду, который знает разбор ответов. Пусто
+    или незнакомо — отказ: правило то же у подтверждения разбора, что у `typed_amount`."""
     said = raw.strip() if isinstance(raw, str) else ""
     code = normalize_currency(said)
     if code is None:

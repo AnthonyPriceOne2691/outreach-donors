@@ -147,9 +147,36 @@ describe('карточка переписки', () => {
     expect(await screen.findByText(/в карточку донора ничего не пошло/)).toBeInTheDocument();
   });
 
-  it('«не продаёт размещения» уходит одним нажатием, без цены', async () => {
+  it('не цена — отказ сервера над полями, вписанное уходит как есть и остаётся', async () => {
+    // Проверка QA 10.10.2026: «−5 EUR» ложилось ценой в карточку донора, а запятую
+    // экран сам менял на точку — «1,200» уходило как 1,20.
+    const refusal = '«-5» — не цена: впишите число больше нуля, например 150 или 150.50.';
+    const recorded = await openThread(
+      {},
+      { 'PATCH /api/replies/7': { status: 400, body: { detail: refusal } } },
+    );
+    const user = userEvent.setup();
+    const white = screen.getByLabelText('Белая цена');
+    const grey = screen.getByLabelText('Серая цена');
+
+    // Цифры — с цифровой клавиатурой на телефоне, как у «Указать цену».
+    expect(white).toHaveAttribute('inputmode', 'decimal');
+    await user.clear(white);
+    await user.type(white, '-5');
+    await user.type(grey, '1,200');
+    await user.click(screen.getByRole('button', { name: 'Подтвердить' }));
+
+    expect(await screen.findByText(`— ${refusal}`)).toBeInTheDocument();
+    expect(screen.getByText('Не подтвердили')).toBeInTheDocument();
+    const patch = recorded.calls.find((call: Call) => call.method === 'PATCH');
+    expect(patch?.body).toMatchObject({ price_white: '-5', price_grey: '1,200', currency: 'EUR' });
+    expect(white).toHaveValue('-5');
+  });
+
+  it('«не продаёт размещения» — только после подтверждения у кнопки, без цены', async () => {
     // Для гест-постинга это ответ на главный вопрос письма: «цены нет»
-    // и «не продаём» — разные ответы, и второй убирает домен из отбора.
+    // и «не продаём» — разные ответы, и второй убирает домен из отбора на год.
+    // Кнопка стоит вплотную к «Подтвердить»: до 10.10.2026 промах срабатывал сразу.
     const recorded = await openThread(
       {},
       {
@@ -166,10 +193,26 @@ describe('карточка переписки', () => {
     const user = userEvent.setup();
 
     await user.click(screen.getByRole('button', { name: 'Не продаёт размещения' }));
+    const ask = await screen.findByRole('dialog', { name: /донор не продаёт/, hidden: true });
+    expect(ask).toHaveTextContent('Домен уйдёт из отбора на год');
+    expect(recorded.calls.some((call: Call) => call.method === 'PATCH')).toBe(false);
+    // Выпадающее окно Mantine в jsdom — `display: none`: без `hidden` кнопок не видно.
+    await user.click(within(ask).getByRole('button', { name: 'Отметить', hidden: true }));
 
-    await screen.findByText(/донор не продаёт размещения/);
+    await screen.findByText(/донор не продаёт размещения — домен уходит/);
     const patch = recorded.calls.find((call: Call) => call.method === 'PATCH');
     expect(patch?.body).toMatchObject({ declines: true, price_white: null, price_grey: null });
+  });
+
+  it('«не продаёт размещения»: передумал — «Отмена», и на сервер ничего не ушло', async () => {
+    const recorded = await openThread();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Не продаёт размещения' }));
+    const ask = await screen.findByRole('dialog', { name: /донор не продаёт/, hidden: true });
+    await user.click(within(ask).getByRole('button', { name: 'Отмена', hidden: true }));
+
+    expect(recorded.calls.some((call: Call) => call.method === 'PATCH')).toBe(false);
   });
 
   it('у автоответчика разбирать нечего', async () => {
