@@ -29,6 +29,7 @@ import { refusalOf } from '../api/client';
 import { countryTitle, RUN_STATUSES } from '../api/labels';
 import { fetchOverview } from '../api/overview';
 import { fetchWatchdog } from '../api/settings';
+import { stageShown } from '../api/stages';
 import type {
   LetterTransport,
   OverviewDonors,
@@ -64,7 +65,11 @@ function Watchdog() {
     refetchInterval: 5 * 60 * 1000,
   });
 
-  const alarms = data?.alarms ?? [];
+  // Тревога о почте продаж — только с правом «Продажи» (П2б), даже пришедшая раньше,
+  // чем право сняли; общая тревога (`stage: null`) — всем.
+  const alarms = (data?.alarms ?? []).filter(
+    (alarm) => alarm.stage === null || stageShown(alarm.stage, can('sales')),
+  );
   if (!can('view') || alarms.length === 0) return null;
 
   return (
