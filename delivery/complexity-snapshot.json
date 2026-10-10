@@ -307,9 +307,9 @@
       "worst": "of:93"
     },
     "backend/api/sales/queue.py": {
-      "lines": 162,
+      "lines": 168,
       "complexity": 3,
-      "worst": "_build_once:59"
+      "worst": "_build_once:60"
     },
     "backend/api/sales/routes.py": {
       "lines": 206,

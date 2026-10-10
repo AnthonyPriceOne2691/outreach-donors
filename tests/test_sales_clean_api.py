@@ -10,8 +10,10 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -48,7 +50,6 @@ from rq.results import Result
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import TEST_DSN, bearer
-from tests.test_sales_queue_api import _screen_fields
 
 MakeUser = Callable[..., Awaitable[UserModel]]
 SignIn = Callable[..., Awaitable[str]]
@@ -56,6 +57,9 @@ SignIn = Callable[..., Awaitable[str]]
 SELLER = "seller@ours.example.test"
 CLEAN = "/api/sales/clean"
 ROUTES = {"none-a.example.test": MailRoute.NONE, "none-b.example.test": MailRoute.NONE}
+TYPES = (Path(__file__).resolve().parent.parent / "frontend/src/api/salesTypes.ts").read_text(
+    encoding="utf-8"
+)
 #: Ответ Hunter «адрес есть» — по нему считается платная единица.
 VALID = {"data": {"status": "valid", "score": 91}}
 
@@ -185,6 +189,20 @@ def jobs(monkeypatch: pytest.MonkeyPatch) -> _Jobs:
     found = _Jobs()
     monkeypatch.setattr("backend.api.sales.clean.sales_queue", lambda: found)
     return found
+
+
+def _screen_reads(jobs: _Jobs, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Строка задачи экрана (`GET /api/jobs/{номер}`, `ops/job_outcome`) читает эту очередь, а не
+    Redis из настроек. Ею же пользуется сборка очереди продаж (`test_sales_queue_api.py`)."""
+
+    class _Fetch:
+        @staticmethod
+        def fetch(job_id: str, connection: _Redis) -> _Job:
+            assert connection is jobs.redis
+            return jobs.known[job_id]
+
+    monkeypatch.setattr(job_outcome, "connection", lambda: jobs.redis)
+    monkeypatch.setattr(job_outcome, "Job", _Fetch)
 
 
 @pytest.fixture
@@ -346,15 +364,7 @@ async def test_new_clean_in_the_queue_does_not_show_the_report_of_the_previous_o
     """Итог прежней очистки rq хранит отдельно от задачи, и `Job.delete()` его не трогает: новая
     очистка под тем же номером, пока стоит в очереди, показала бы отчёт прежней. Строка задачи —
     тем же путём, что у экрана: `GET /api/jobs/{номер}`."""
-
-    class _Fetch:
-        @staticmethod
-        def fetch(job_id: str, connection: _Redis) -> _Job:
-            assert connection is jobs.redis
-            return jobs.known[job_id]
-
-    monkeypatch.setattr(job_outcome, "connection", lambda: jobs.redis)
-    monkeypatch.setattr(job_outcome, "Job", _Fetch)
+    _screen_reads(jobs, monkeypatch)
     job_id = clean_api.clean_job_id(waiting.id)
     await _start(client, headers, waiting.id)
     jobs.known[job_id].finish(REPORT)
@@ -498,6 +508,14 @@ async def test_clean_routes_are_these_two(api_app: FastAPI) -> None:
     }
 
     assert in_app == {("GET", CLEAN), ("POST", CLEAN)}
+
+
+def _screen_fields(name: str) -> set[str]:
+    """Поля интерфейса экрана `export interface <name> { … }` — файл читается как текст. Им же
+    сверяют поля сборка очереди и гипотеза (`test_sales_queue_api.py`, `test_sales_hypothesis_api.py`)."""
+    found = re.search(rf"export interface {name} \{{\n(.*?)\n\}}", TYPES, re.DOTALL)
+    assert found is not None, f"в salesTypes.ts нет интерфейса {name}"
+    return set(re.findall(r"^  ([a-z_]+):", found.group(1), re.MULTILINE))
 
 
 def test_screen_reads_the_clean_by_the_server_names() -> None:
