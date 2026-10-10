@@ -130,6 +130,8 @@ class ConsequencesView(BaseModel):
     undecided: int
     #: Домены без метрик: пороги их не судят.
     without_metrics: int
+    #: С вердиктом «подходит» в базе — то же число, что «Прошли пороги» на «Обзоре».
+    suitable: int
 
     @classmethod
     def of(cls, data: Consequences) -> ConsequencesView:
@@ -142,6 +144,7 @@ class ConsequencesView(BaseModel):
             admitted=data.admitted,
             undecided=data.undecided,
             without_metrics=data.without_metrics,
+            suitable=data.suitable,
         )
 
 
