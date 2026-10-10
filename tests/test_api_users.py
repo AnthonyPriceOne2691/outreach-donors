@@ -250,6 +250,23 @@ class TestSelfLockout:
         assert response.status_code == 409
         assert "самого себя" in response.json()["detail"]
 
+    async def test_admin_cannot_take_his_own_users_right(
+        self, client: AsyncClient, admin_token: str
+    ) -> None:
+        """Сценарий аудита 10.10.2026: единственный админ снимает с себя «заводить
+        учётки» точечным правом. Было 200 — и дальше раздел учёток отвечал 403 всем."""
+        me = (await client.get("/api/auth/me", headers=bearer(admin_token))).json()
+
+        response = await client.patch(
+            f"/api/users/{me['id']}",
+            json={"permissions": {"users": False}},
+            headers=bearer(admin_token),
+        )
+
+        assert response.status_code == 409
+        assert "самого себя" in response.json()["detail"]
+        assert (await client.get("/api/users", headers=bearer(admin_token))).status_code == 200
+
     async def test_last_admin_cannot_be_demoted(
         self, client: AsyncClient, admin_token: str, make_user: MakeUser, sign_in: SignIn
     ) -> None:

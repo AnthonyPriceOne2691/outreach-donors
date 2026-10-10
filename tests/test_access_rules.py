@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 from backend.features.access.administration import (
@@ -23,8 +24,9 @@ from backend.features.access.administration import (
 )
 from backend.features.access.attempts import LoginAttempts, TooManyAttemptsError
 from backend.features.access.passwords import verify_password
+from backend.features.access.permissions import has_permission
 from backend.features.access.repository import AccessRepository, actor_of
-from backend.features.core.domain import UserRole
+from backend.features.core.domain import Permission, UserRole
 from backend.features.core.models.access import UserModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -142,6 +144,73 @@ class TestAdministration:
             await update_access(
                 session, user_id=admin.id, author=actor_of(admin), role=UserRole.OPERATOR
             )
+
+    async def test_sole_admin_cannot_take_his_own_users_right(self, session: AsyncSession) -> None:
+        """Аудит 10.10.2026: `{"users": false}` на себе проходил мимо проверки роли —
+        и раздел учёток закрывался для всех, вернуть его могла только команда на сервере."""
+        admin = await _admin(session)
+
+        with pytest.raises(SelfLockoutError, match="самого себя"):
+            await update_access(
+                session, user_id=admin.id, author=actor_of(admin), permissions={"users": False}
+            )
+
+        await session.refresh(admin)
+        assert has_permission(actor_of(admin), Permission.USERS)
+
+    async def test_users_right_is_taken_while_another_admin_keeps_it(
+        self, session: AsyncSession, make_user: MakeUser
+    ) -> None:
+        """Отобрать право у другого админа можно: управлять учётками остаётся кому."""
+        admin = await _admin(session)
+        second = await make_user("второй@site.com", role=UserRole.ADMIN)
+
+        await update_access(
+            session, user_id=second.id, author=actor_of(admin), permissions={"users": False}
+        )
+
+        await session.refresh(second)
+        assert not has_permission(actor_of(second), Permission.USERS)
+
+    @pytest.mark.parametrize(
+        "change",
+        [
+            {"role": UserRole.OPERATOR},
+            {"is_active": False},
+            {"permissions": {"users": False}},
+        ],
+        ids=["demote", "disable", "override"],
+    )
+    async def test_admin_without_the_users_right_is_not_a_spare(
+        self, session: AsyncSession, make_user: MakeUser, change: dict[str, Any]
+    ) -> None:
+        """Второй админ по роли, но с `{"users": false}`: в раздел учёток он не войдёт.
+        Счёт по роли видел двоих и пропускал — раздел запирался (аудит 10.10.2026)."""
+        admin = await _admin(session)
+        hollow = await make_user(
+            "без-права@site.com", role=UserRole.ADMIN, permissions={"users": False}
+        )
+
+        with pytest.raises(LastAdminError, match="заводить учётки"):
+            await update_access(session, user_id=admin.id, author=actor_of(hollow), **change)
+
+        await session.refresh(admin)
+        assert has_permission(actor_of(admin), Permission.USERS)
+
+    async def test_operator_with_the_users_right_is_a_spare(
+        self, session: AsyncSession, make_user: MakeUser
+    ) -> None:
+        """И в обратную сторону: оператору с `{"users": true}` раздел открыт — он
+        запасной, и разжаловать единственного админа по роли при нём можно."""
+        admin = await _admin(session)
+        keeper = await make_user("хранитель@site.com", permissions={"users": True})
+
+        await update_access(
+            session, user_id=admin.id, author=actor_of(keeper), role=UserRole.OPERATOR
+        )
+
+        await session.refresh(admin)
+        assert admin.role is UserRole.OPERATOR
 
     async def test_own_password_change_clears_the_one_time_flag(
         self, session: AsyncSession, make_user: MakeUser
