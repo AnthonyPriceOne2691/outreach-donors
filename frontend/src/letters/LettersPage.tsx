@@ -340,6 +340,7 @@ export function LettersPage() {
                 count={data.queued_total}
                 batchMax={data.batch_max}
                 blocked={data.blocked_by.length > 0}
+                blockedWhy={`Не нажимается, пока не задано ${mailSettingsList(data.blocked_by)}`}
                 onFinished={() => void refresh()}
               />
             ) : null
