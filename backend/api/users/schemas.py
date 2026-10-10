@@ -2,15 +2,53 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic_core import PydanticCustomError
 
 from backend.features.access.permissions import has_permission
 from backend.features.access.repository import actor_of
 from backend.features.core.domain import Permission, UserRole
 from backend.features.core.models.access import UserModel
+
+#: Ширина `users.email`: длиннее база не примет.
+MAIL_MAX = 255
+#: Домен почты: метки через точку, без пустых, зона — от двух знаков.
+_MAIL_DOMAIN = re.compile(r"^[^@\s.]+(?:\.[^@\s.]+)*\.[^@\s.]{2,}$")
+
+
+def mail_problem(email: str) -> str | None:
+    """Что не так с почтой учётки — словами; `None` — годится.
+
+    Проверка формы, а не существования ящика: имя, один «@», домен с зоной,
+    без пробелов. До неё хватало трёх знаков, и `a@b` заводился учёткой, которую
+    потом не удалить — только отключить (проверка QA 10.10.2026). Экран проверяет
+    теми же словами до сервера (`users/CreateUserModal.tsx`), решает сервер.
+    """
+    if not email:
+        return "Впишите почту — она же логин"
+    if len(email) > MAIL_MAX:
+        return f"Почта длиннее {MAIL_MAX} знаков — таких адресов не бывает"
+    if any(char.isspace() for char in email):
+        return "В почте пробел — адрес пишется без пробелов"
+    return _parts_problem(email)
+
+
+def _parts_problem(email: str) -> str | None:
+    """Имя, «@» и домен — по отдельности: отказ называет ту часть, что не так."""
+    name, at, domain = email.partition("@")
+    if not at:
+        return "В почте нет «@» — нужен адрес целиком, например ivan@example.com"
+    if "@" in domain:
+        return "В почте больше одного «@» — в адресе он один"
+    if not name:
+        return "Перед «@» нет имени ящика — например ivan@example.com"
+    if _MAIL_DOMAIN.match(domain) is None:
+        return "После «@» нужен домен с зоной через точку — например example.com"
+    return None
 
 
 def _check_overrides(value: dict[str, Any] | None) -> dict[str, bool] | None:
@@ -69,8 +107,20 @@ class NewUser(BaseModel):
     и показывает один раз — придуманный админом пароль он бы диктовал
     голосом, а сотрудник оставлял бы навсегда."""
 
-    email: str = Field(min_length=3, max_length=255)
+    #: Пределов у поля нет: длину и форму судит `mail_problem` — словами, а не
+    #: умолчанием разбора («String should have at least 3 characters»).
+    email: str
     role: UserRole
+
+    @field_validator("email")
+    @classmethod
+    def _looks_like_mail(cls, email: str) -> str:
+        """Отказ — `PydanticCustomError`: его текст доходит до экрана как написан,
+        без «Value error, » впереди (так же `api/runs/schemas.py`)."""
+        problem = mail_problem(email.strip())
+        if problem is not None:
+            raise PydanticCustomError("not_an_email", problem)
+        return email
 
 
 class OneTimePassword(BaseModel):
