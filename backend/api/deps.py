@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.features.access.attempts import LoginAttempts
 from backend.features.access.permissions import Actor, OneTimePasswordError, require
 from backend.features.access.repository import AccessRepository, actor_of
-from backend.features.access.tokens import password_changed_since, read_token
+from backend.features.access.tokens import TokenPayload, password_changed_since, read_token
 from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
 from backend.shared.database.base import SessionFactory
@@ -54,7 +54,17 @@ async def signed_in(
         )
 
     payload = read_token(credentials.credentials)
-    user = await AccessRepository(session).by_id(payload.user_id)
+    return _admitted(await AccessRepository(session).by_id(payload.user_id), payload)
+
+
+def _admitted(user: UserModel | None, payload: TokenPayload) -> UserModel:
+    """Учётка пропуска — или отказ 401 словами: учётки нет или она отключена; пароль
+    сменили после выдачи пропуска.
+
+    Второе — с проверки прода 10.10.2026: сброс админом и смена своего пароля закрывают
+    выданные пропуска, а окно сброса до того обещало «старый перестанет действовать»,
+    пока пропуск, выданный до сброса, открывал данные до конца суток.
+    """
     if user is None or not user.is_active:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,
@@ -62,9 +72,6 @@ async def signed_in(
             headers=_UNAUTHORIZED,
         )
     if password_changed_since(payload, user.password_hash):
-        # Сброс админом и смена своего пароля закрывают выданные пропуска (проверка прода
-        # 10.10.2026): окно сброса обещало «старый перестанет действовать», а пропуск,
-        # выданный до сброса, открывал данные до конца суток.
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,
             detail="Пароль учётки сменили — этот пропуск больше не действует, войдите заново",
