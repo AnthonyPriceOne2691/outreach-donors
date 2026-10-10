@@ -30,8 +30,8 @@ describe('новая учётка: почта', () => {
   it.each([
     ['a@b', 'После «@» нужен домен с зоной через точку — например example.com'],
     ['no-at-sign', 'В почте нет «@» — нужен адрес целиком, например ivan@example.com'],
-    ['ivan petrov@site.com', 'В почте пробел — адрес пишется без пробелов'],
-    ['@site.com', 'Перед «@» нет имени ящика — например ivan@example.com'],
+    ['ivan petrov@example.com', 'В почте пробел — адрес пишется без пробелов'],
+    ['@example.com', 'Перед «@» нет имени ящика — например ivan@example.com'],
   ])('«%s» не уходит на сервер, и отказ называет, что не так', async (email, says) => {
     const recorded = serve({});
     renderWith(<CreateUserModal opened onClose={vi.fn()} onCreated={vi.fn()} />);

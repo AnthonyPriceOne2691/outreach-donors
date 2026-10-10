@@ -25,8 +25,8 @@ SignIn = Callable[..., Awaitable[str]]
 
 @pytest.fixture
 async def admin_token(make_user: MakeUser, sign_in: SignIn) -> str:
-    await make_user("админ@site.com", role=UserRole.ADMIN)
-    return await sign_in("админ@site.com")
+    await make_user("админ@example.com", role=UserRole.ADMIN)
+    return await sign_in("админ@example.com")
 
 
 class TestShape:
@@ -37,11 +37,11 @@ class TestShape:
             ("a@b.c", "После «@» нужен домен с зоной"),
             ("a@b..com", "После «@» нужен домен с зоной"),
             ("no-at-sign", "нет «@»"),
-            ("a@b@site.com", "больше одного «@»"),
-            ("@site.com", "нет имени ящика"),
-            ("ivan petrov@site.com", "пробел"),
+            ("a@b@example.com", "больше одного «@»"),
+            ("@example.com", "нет имени ящика"),
+            ("ivan petrov@example.com", "пробел"),
             ("", "Впишите почту"),
-            ("x" * 250 + "@site.com", "длиннее 255 знаков"),
+            ("x" * 250 + "@example.com", "длиннее 255 знаков"),
         ],
     )
     def test_refusal_names_what_is_wrong(self, email: str, says: str) -> None:
@@ -52,7 +52,7 @@ class TestShape:
 
     @pytest.mark.parametrize(
         "email",
-        ["ivan@example.com", "Новичок@Site.com", "иван@пример.рф", "a.b+c@mail.example.co.uk"],
+        ["ivan@example.com", "Новичок@Example.com", "иван@пример.рф", "a.b+c@mail.example.co.uk"],
     )
     def test_sane_address_passes(self, email: str) -> None:
         assert mail_problem(email) is None
