@@ -13,7 +13,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
-import type { SelectionCard, SelectionView } from '../api/types';
+import type { HumanIntent, SelectionCard, SelectionView } from '../api/types';
 import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import type { Call } from '../test/server';
@@ -103,7 +103,11 @@ function view(rows: SelectionCard[], extra: Partial<SelectionView> = {}): Select
   };
 }
 
-async function openScreen(routes: Record<string, unknown> = {}, who: unknown = ADMIN) {
+async function openScreen(
+  routes: Record<string, unknown> = {},
+  who: unknown = ADMIN,
+  first = 'brand.test',
+) {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   const recorded = serve({
     'GET /api/auth/me': { body: who },
@@ -111,7 +115,7 @@ async function openScreen(routes: Record<string, unknown> = {}, who: unknown = A
     ...(routes as Record<string, never>),
   });
   renderWith(<AppRoutes />, '/selection');
-  await screen.findByText('brand.test');
+  await screen.findByText(first);
   return recorded;
 }
 
@@ -316,6 +320,118 @@ describe('экран отбора', () => {
     expect(screen.getByText(/Судья угадал по ответам доноров/)).toHaveTextContent(
       'правило 1 из 1 · модель 1 из 2 · арбитр — ответов нет',
     );
+  });
+});
+
+/** Строки «Приняты» для проверки места решённой: пять доменов по убыванию DR. */
+function accepted(host: string, id: number, dr: number): SelectionCard {
+  return { ...BRAND, domain_id: id, host, tab: 'accepted', dr, machine: MACHINE_NONE };
+}
+
+const FIRST = accepted('first.test', 1, 50);
+const SECOND = accepted('second.test', 2, 40);
+const THIRD = accepted('third.test', 3, 30);
+const FOURTH = accepted('fourth.test', 4, 20);
+const FIFTH = accepted('fifth.test', 5, 10);
+
+/** Домены строк таблицы — сверху вниз. */
+function hostsInTable(): string[] {
+  return [...document.querySelectorAll('tbody a.cellName')].map((name) => name.textContent ?? '');
+}
+
+/** «Приняты» по четыре на странице: решение уводит `second.test` на «Отклонены»,
+ *  снизу подтягивается `fifth.test` с соседней страницы; «Вернуть» — обратно. */
+function decidingRoutes() {
+  let intent: HumanIntent | null = null;
+  const left = () => intent === 'sells_own' || intent === 'non_commercial';
+  const tabs = () => ({ accepted: left() ? 4 : 5, review: 0, rejected: left() ? 1 : 0 });
+  const second = (): SelectionCard => ({
+    ...SECOND,
+    tab: left() ? 'rejected' : 'accepted',
+    human: { ...NOBODY, intent },
+  });
+  const page = () =>
+    view(left() ? [FIRST, THIRD, FOURTH, FIFTH] : [FIRST, second(), THIRD, FOURTH], {
+      total: left() ? 4 : 5,
+      limit: 4,
+      tabs: tabs(),
+    });
+  return {
+    [ACCEPTED]: () => ({ body: page() }),
+    [REJECTED]: () => ({ body: view(left() ? [second()] : [], { tabs: tabs() }) }),
+    'POST /api/selection/2/decide': (call: Call) => {
+      ({ intent } = call.body as { intent: HumanIntent | null });
+      return { body: second() };
+    },
+  };
+}
+
+describe('решённая строка стоит на месте', () => {
+  // Проверка QA 10.10.2026: «Продаёт своё» уводило строку на «Отклонены» сразу,
+  // нижние поднимались под курсор, и следующее нажатие в том же месте решало
+  // соседний домен (kitchen-daily вместо home-guide).
+  it('ушедшая решением — на своём месте, с пометкой и «Вернуть»; нижние не сдвигаются', async () => {
+    const recorded = await openScreen(decidingRoutes(), ADMIN, 'second.test');
+    const user = userEvent.setup();
+    expect(hostsInTable()).toEqual(['first.test', 'second.test', 'third.test', 'fourth.test']);
+
+    await user.click(within(rowOf('second.test')).getByRole('button', { name: 'Продаёт своё' }));
+
+    await screen.findByText('second.test: Продаёт своё');
+    // Список перечитан — числа вкладок новые, — а строки стоят, где стояли:
+    // на месте решённой — она же, пришедшая с соседней страницы — в конце.
+    expect(await screen.findByText('Отклонены — 1')).toBeInTheDocument();
+    expect(hostsInTable()).toEqual([
+      'first.test',
+      'second.test',
+      'third.test',
+      'fourth.test',
+      'fifth.test',
+    ]);
+    // Решение и куда оно увело — одной пометкой вместо трёх кнопок: строка
+    // не растёт и не сдвигает нижние вниз.
+    const decided = within(rowOf('second.test'));
+    expect(decided.getByText('Продаёт своё → «Отклонены»')).toBeInTheDocument();
+    expect(decided.queryByRole('button', { name: 'Площадка' })).toBeNull();
+
+    await user.click(decided.getByRole('button', { name: 'Вернуть' }));
+
+    await screen.findByText('second.test: решение снято');
+    await waitFor(() => expect(screen.queryByText(/→ «Отклонены»/)).toBeNull());
+    expect(
+      within(rowOf('second.test')).getByRole('button', { name: 'Продаёт своё' }),
+    ).toHaveAttribute('aria-pressed', 'false');
+    expect(hostsInTable().slice(0, 4)).toEqual([
+      'first.test',
+      'second.test',
+      'third.test',
+      'fourth.test',
+    ]);
+    const sent = recorded.calls.filter((call: Call) => call.method === 'POST');
+    expect(sent.map((call: Call) => call.body)).toEqual([
+      { intent: 'sells_own', note: null },
+      { intent: null, note: null },
+    ]);
+  });
+
+  it('ушли с вкладки и вернулись — список свежий, ушедшей строки в нём нет', async () => {
+    await openScreen(decidingRoutes(), ADMIN, 'second.test');
+    const user = userEvent.setup();
+
+    await user.click(
+      within(rowOf('second.test')).getByRole('button', { name: 'Не продаёт места' }),
+    );
+    await screen.findByText('Отклонены — 1');
+    expect(hostsInTable()[1]).toBe('second.test');
+    await user.click(screen.getByText('Отклонены — 1'));
+    await waitFor(() => expect(hostsInTable()).toEqual(['second.test']));
+    await user.click(screen.getByText('Приняты — 4'));
+
+    await screen.findByText('first.test');
+    await waitFor(() =>
+      expect(hostsInTable()).toEqual(['first.test', 'third.test', 'fourth.test', 'fifth.test']),
+    );
+    expect(screen.queryByText(/→ «Отклонены»/)).toBeNull();
   });
 });
 

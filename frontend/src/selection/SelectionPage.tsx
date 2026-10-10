@@ -33,14 +33,14 @@
 
 import { Alert, Badge, Card, Group, Loader, SegmentedControl, Stack, Text } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { refusalOf } from '../api/client';
-import { HUMAN_INTENTS, JUDGE_DECIDERS, SELECTION_TABS } from '../api/labels';
-import { decideSite, listSelection } from '../api/selection';
-import type { HumanIntent, JudgeDecider, SelectionCard, SelectionView } from '../api/types';
+import { JUDGE_DECIDERS, SELECTION_TABS } from '../api/labels';
+import { listSelection } from '../api/selection';
+import type { JudgeDecider, SelectionView } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { PageHead } from '../components/PageHead';
 import { PageSwitch } from '../components/PageSwitch';
@@ -56,9 +56,8 @@ import {
 } from './selectionFilters';
 import type { SelectionFilters } from './selectionFilters';
 import { SelectionTable } from './SelectionTable';
-import { notify } from '../notices';
+import { SELECTION_KEY, useDecisions } from './useDecisions';
 
-const QUERY_KEY = ['selection'] as const;
 const DECIDERS = Object.keys(JUDGE_DECIDERS) as JudgeDecider[];
 
 /** Набранный поиск совпадает с адресом без пробелов по краям: пробел в конце —
@@ -125,7 +124,6 @@ function Summary({ data }: { data: SelectionView }) {
 
 export function SelectionPage() {
   const { can } = useSession();
-  const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
   const filters = useMemo(() => readSelectionFilters(params), [params]);
   // На узком окне три вкладки в ряд резали «Отклонены — 727» до «О».
@@ -156,22 +154,26 @@ export function SelectionPage() {
     sameSearch,
   );
 
+  const queryKey = [
+    ...SELECTION_KEY,
+    filters.tab,
+    filters.search,
+    filters.thresholds,
+    filters.judge,
+    filters.answer,
+    filters.human,
+    filters.page,
+  ];
   const query = useQuery({
-    queryKey: [
-      ...QUERY_KEY,
-      filters.tab,
-      filters.search,
-      filters.thresholds,
-      filters.judge,
-      filters.answer,
-      filters.human,
-      filters.page,
-    ],
+    queryKey,
     queryFn: () => listSelection(queryOf(filters)),
     // Смена вкладки, фильтра или страницы не убирает экран: прежние строки
     // стоят, пока едут новые.
     placeholderData: keepPreviousData,
   });
+  // Решённая строка стоит на своём месте до смены вида — вкладки, фильтра или
+  // страницы (`useDecisions`): нижние не поднимаются под курсор.
+  const decisions = useDecisions(JSON.stringify(queryKey), query.data?.rows ?? []);
 
   // Сводка не зависит от фильтров, и отказ сервера на новом фильтре не должен
   // убирать её с экрана вместе с фильтрами: отказ встаёт строкой в таблицу,
@@ -203,18 +205,6 @@ export function SelectionPage() {
     }
   }, [answer, filters.page, setParams]);
 
-  const decide = useMutation({
-    mutationFn: ({ row, intent }: { row: SelectionCard; intent: HumanIntent | null }) =>
-      decideSite(row.domain_id, intent),
-    onSuccess: async (row) => {
-      await queryClient.invalidateQueries({ queryKey: QUERY_KEY });
-      const said = row.human.intent === null ? 'решение снято' : HUMAN_INTENTS[row.human.intent];
-      notify({ message: `${row.host}: ${said}`, color: 'green' });
-    },
-    onError: (failure) =>
-      notify({ title: 'Не записали', message: refusalOf(failure), color: 'red' }),
-  });
-
   if (data === undefined) {
     // Первого ответа ещё нет — или не будет: крутилка только до первого
     // ответа, дальше экран не пропадает.
@@ -230,7 +220,7 @@ export function SelectionPage() {
   // Строки прежней вкладки или фильтра — ждут замены: решать по ним нельзя.
   const stale = query.isPlaceholderData;
   const refusal = query.data === undefined && query.error ? refusalOf(query.error) : null;
-  const rows = query.data?.rows ?? [];
+  const rows = decisions.rows;
 
   return (
     <Stack gap="lg">
@@ -270,8 +260,10 @@ export function SelectionPage() {
             onSearch={setSearch}
             onFilter={apply}
             mayDecide={can('prices')}
-            deciding={decide.isPending ? (decide.variables?.row.domain_id ?? null) : null}
-            onDecide={(row, intent) => decide.mutate({ row, intent })}
+            gone={decisions.gone}
+            deciding={decisions.deciding}
+            onDecide={decisions.decide}
+            onUndo={decisions.undo}
             onReset={() => {
               setSearch('');
               setParams(writeSelectionFilters({ ...NO_SELECTION_FILTERS, tab: filters.tab }), {

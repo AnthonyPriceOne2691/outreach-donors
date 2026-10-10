@@ -286,9 +286,13 @@ interface Props extends FilterRowProps {
   empty: Emptiness | null;
   refusal: string | null;
   mayDecide: boolean;
+  /** Ушли решением на другую вкладку, но стоят на своём месте (`useDecisions`). */
+  gone: ReadonlySet<number>;
   /** Домен, решение по которому сейчас уходит на сервер. */
   deciding: number | null;
   onDecide: (row: SelectionCard, intent: HumanIntent | null) => void;
+  /** «Вернуть» ушедшую строку — решение, что было до нажатия. */
+  onUndo: (row: SelectionCard) => void;
   onReset: () => void;
 }
 
@@ -298,8 +302,10 @@ export function SelectionTable({
   empty,
   refusal,
   mayDecide,
+  gone,
   deciding,
   onDecide,
+  onUndo,
   onReset,
   ...filters
 }: Props) {
@@ -367,7 +373,9 @@ export function SelectionTable({
                 withThresholds={withThresholds}
                 mayDecide={mayDecide}
                 busy={stale || deciding === row.domain_id}
+                gone={gone.has(row.domain_id)}
                 onDecide={onDecide}
+                onUndo={onUndo}
               />
             ))}
         </Table.Tbody>
