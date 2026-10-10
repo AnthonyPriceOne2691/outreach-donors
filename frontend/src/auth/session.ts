@@ -16,10 +16,13 @@ const KEY = 'outreach_donors_token';
 
 /** Кому сообщить, что пропуск больше не действует. Слушатель один —
  *  это состояние сессии; список слушателей тут был бы обещанием, что
- *  их может быть несколько, а их не бывает. */
-let onLost: (() => void) | null = null;
+ *  их может быть несколько, а их не бывает.
+ *
+ *  `hadPass` — был ли пропуск, который отказали: отказ входа с неверным
+ *  паролем тоже 401, но сеанса он не обрывает — его и не было. */
+let onLost: ((hadPass: boolean) => void) | null = null;
 
-export function watchTokenLoss(listener: () => void): () => void {
+export function watchTokenLoss(listener: (hadPass: boolean) => void): () => void {
   onLost = listener;
   return () => {
     onLost = null;
@@ -44,14 +47,21 @@ export function saveToken(token: string): void {
   }
 }
 
-export function clearToken(): void {
+/** Выход кнопкой: пропуск убирается молча — о своём выходе сессия знает сама. */
+export function dropToken(): void {
   try {
     localStorage.removeItem(KEY);
   } catch {
     /* см. выше */
   }
-  // Пропуск мог быть выброшен не выходом, а отказом сервера на любом
-  // запросе. Сессия обязана узнать об этом сама, иначе экран остаётся
-  // нарисованным для человека, которого уже не пускают.
-  onLost?.();
+}
+
+/** Сервер отказал пропуску (401 на любом запросе): выбросить и сказать сессии. */
+export function clearToken(): void {
+  const hadPass = readToken() !== null;
+  dropToken();
+  // Пропуск выброшен не выходом, а отказом сервера. Сессия обязана узнать
+  // об этом сама, иначе экран остаётся нарисованным для человека, которого
+  // уже не пускают, — и сказать на входе, почему пришлось войти снова.
+  onLost?.(hadPass);
 }
