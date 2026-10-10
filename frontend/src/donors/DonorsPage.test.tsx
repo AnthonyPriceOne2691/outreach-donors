@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
 import { REVOKE_AFTER_MS } from '../api/donors';
+import { TABLE_MIN_WIDTH } from './DonorsTable';
 import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
@@ -527,5 +528,42 @@ describe('выгрузка', () => {
       await screen.findByText('Выгрузка не собралась: база не ответила — повторите через минуту'),
     ).toBeInTheDocument();
     expect(clicked).toHaveLength(0);
+  });
+});
+
+/** Ширина таблицы доноров на окне 1440 с раскрытым меню — замер в браузере 10.10.2026. */
+const TABLE_AT_1440 = 1100;
+
+/** Домен шрифтом таблицы (16 px, полужирный) — около 8 px на знак: замер в браузере. */
+const CHAR = 8;
+
+/** Поле поиска с подсказкой «Домен или причина» целиком: подсказка 117 px шрифтом поля,
+ *  поля поля 20, кромка 2 — замер в браузере 10.10.2026. */
+const SEARCH_FIELD = 139;
+
+/** Поле ячейки слева и справа, px — из стиля таблицы, который ставит Mantine. */
+function cellPadding(table: HTMLElement): number {
+  const spacing = table.style.getPropertyValue('--table-horizontal-spacing');
+  const rem = /([\d.]+)rem/.exec(spacing);
+  if (rem !== null) return parseFloat(rem[1]!) * 16;
+  return spacing === 'var(--mantine-spacing-xs)' ? 10 : NaN;
+}
+
+describe('домен встаёт в колонку (проверка прода 10.10.2026)', () => {
+  // На 1440 слитный домен в 23 знака рвался посреди слова: шва в нём нет, а колонке
+  // доставалось 164 px текста. На 1280 и телефоне таблица и так прокручивается, а
+  // колонке домена оставалось 136 px — подсказка «Домен или причина» обрезалась.
+  it('на 1440 — домен в 23 знака одной частью, на прокрутке — подсказка поиска целиком', async () => {
+    await openDonors();
+
+    const table = screen.getByRole('table');
+    const widths = [...table.querySelectorAll<HTMLElement>('colgroup col')].map((col) =>
+      col.style.width === '' ? null : parseFloat(col.style.width) * 16,
+    );
+    expect(widths.indexOf(null)).toBe(1);
+    const others = widths.reduce<number>((sum, width) => sum + (width ?? 0), 0);
+    const padding = 2 * cellPadding(table);
+    expect(TABLE_AT_1440 - others - padding).toBeGreaterThanOrEqual(23 * CHAR);
+    expect(TABLE_MIN_WIDTH - others - padding).toBeGreaterThanOrEqual(SEARCH_FIELD);
   });
 });
