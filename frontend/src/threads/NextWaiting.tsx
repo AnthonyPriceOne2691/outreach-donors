@@ -11,6 +11,12 @@
  * а также когда открытый уже решён, — верхний. Других ждущих нет — кнопки нет.
  * Только рядом со списком: на узком окне список — отдельной страницей, и запрос
  * списка ради одной кнопки шёл бы с каждой открытой перепиской.
+ *
+ * **Список кнопка берёт у списка рядом, не перекачивая его.** Она монтируется заново
+ * с каждой перепиской (пока переписка грузится, шапки нет), и свой наблюдатель
+ * списка перекачивал весь `/api/threads` на каждом переходе — J, K и самой кнопкой
+ * (проверка прода 10.10.2026; при сотнях диалогов это заметно). Свежим список держат
+ * действия: ответ и решение по ответу обновляют его сами (`ThreadPage`).
  */
 
 import { Button } from '@mantine/core';
@@ -33,7 +39,7 @@ function NextWaitingLink({ current }: { current: number }) {
   const location = useLocation();
   const [params] = useSearchParams();
   const { can } = useSession();
-  const { threads } = useSortedThreads();
+  const { threads } = useSortedThreads(false);
   const filters = readThreadFilters(params, can('sales'));
   const next = nextWaiting(
     threads.filter((thread) => threadMatches(thread, filters)),

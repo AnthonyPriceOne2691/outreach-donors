@@ -58,9 +58,14 @@ export function counted(title: string, count: number): string {
   return `${title} · ${formatNumber(count)}`;
 }
 
-/** Все диалоги в порядке экрана — для тех, кому фильтры не нужны (`ThreadsIntro`). */
-export function useSortedThreads() {
-  const query = useQuery({ queryKey: THREADS_QUERY_KEY, queryFn: listThreads });
+/**
+ * Все диалоги в порядке экрана — для тех, кому фильтры не нужны (`ThreadsIntro`).
+ * `refetchOnMount: false` — у читателя, который стоит рядом со списком и монтируется
+ * заново на каждом переходе (`NextWaiting`): список рядом и так держит данные, а
+ * свежими их держат действия — ответ и решение обновляют список сами.
+ */
+export function useSortedThreads(refetchOnMount = true) {
+  const query = useQuery({ queryKey: THREADS_QUERY_KEY, queryFn: listThreads, refetchOnMount });
   const threads = useMemo(() => [...(query.data ?? [])].sort(byAttention), [query.data]);
   return { query, threads };
 }

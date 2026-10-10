@@ -17,7 +17,7 @@ import { AppRoutes } from '../App';
 import { SPLIT_QUERY, workKey } from '../layout/split';
 import { ADMIN, HOME_ROUTES, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
-import { serve } from '../test/server';
+import { serve, type Recorded } from '../test/server';
 import { reply } from '../test/threadFixtures';
 import { shortWhen } from './ThreadList';
 
@@ -91,9 +91,15 @@ afterEach(() => {
   if (narrow !== undefined) Object.defineProperty(window, 'matchMedia', narrow);
 });
 
+/** Что ушло на сервер в последнем `openWide`. */
+let served: Recorded = { calls: [] };
+
+/** Сколько раз список диалогов спрошен целиком. */
+const listFetches = () => served.calls.filter((call) => call.path === '/api/threads').length;
+
 async function openWide(path: string, threads = THREADS, extra: Record<string, unknown> = {}) {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
-  serve({
+  served = serve({
     'GET /api/auth/me': { body: ADMIN },
     'GET /api/threads': { body: threads },
     ...Object.fromEntries(
@@ -198,6 +204,47 @@ describe('диалоги на широком окне: список и пере�
     await user.keyboard('j');
     expect(where()).toHaveTextContent('/threads/1');
     await waitFor(async () => expect(await next()).toHaveAttribute('href', '/threads/3'));
+  });
+
+  it('переход к соседней переписке не перекачивает весь список — он рядом и уже есть', async () => {
+    // Проверка прода 10.10.2026: «Следующий ждущий» монтируется с каждой перепиской, и его
+    // наблюдатель списка перекачивал весь /api/threads на каждом переходе — J, K и кнопкой.
+    const user = userEvent.setup();
+    const lead = thread(4, 'price-desk.example.test', 'lead', '2026-09-16T10:00:00+00:00');
+    await openWide('/threads/3', [...THREADS, lead]);
+    const next = () => screen.findByRole('link', { name: /Следующий ждущий/ });
+    await next();
+    expect(listFetches()).toBe(1);
+
+    await user.click(await next());
+    await screen.findByRole('heading', { name: 'price-desk.example.test' });
+    await next();
+    await user.keyboard('j');
+    await screen.findByRole('heading', { name: 'digest-weekly.example.test' });
+    await next();
+
+    expect(listFetches()).toBe(1);
+  });
+
+  it('после решения по ответу и после ответа список рядом обновляется', async () => {
+    const user = userEvent.setup();
+    const asking = { ...view(THREADS[2]!), incoming: [reply({ id: 70, needs_review: true })] };
+    await openWide('/threads/3', THREADS, {
+      'GET /api/threads/3': { body: asking },
+      'PATCH /api/replies/70': {
+        body: { id: 70, reviewed_by: 'админ@site.com', stored_price: true },
+      },
+      'POST /api/threads/3/answer': { body: { id: 9, sender_email: 'anna@mail.test', real: true } },
+    });
+    await screen.findByLabelText('Белая цена');
+    expect(listFetches()).toBe(1);
+
+    await user.click(screen.getByRole('button', { name: 'Подтвердить' }));
+    await waitFor(() => expect(listFetches()).toBe(2));
+
+    await user.type(screen.getByLabelText('Текст ответа'), 'Thanks! Which topics?');
+    await user.click(screen.getByRole('button', { name: 'Отправить' }));
+    await waitFor(() => expect(listFetches()).toBe(3));
   });
 
   it('«Следующий ждущий» держит фильтр из адреса', async () => {
