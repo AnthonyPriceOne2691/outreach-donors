@@ -129,6 +129,39 @@ describe('агент переписки', () => {
     });
   });
 
+  it('предел цены с дробью: «99,5» и «12.5» остаются в поле и уходят с центами', async () => {
+    // Проверка QA 10.10.2026: поле стиралось на точке — «12.5» давало 5, «99,5» — тоже 5.
+    const recorded = await openAgent(BLANK, {
+      'POST /api/agent/settings/donors': { body: { ...VERSION, version: 1 } },
+    });
+    const user = userEvent.setup();
+    const price = screen.getByLabelText('Не дороже, $');
+
+    await user.type(price, '99,5');
+    expect(price).toHaveValue('99,5');
+    await user.clear(price);
+    await user.type(price, '12.5');
+    expect(price).toHaveValue('12.5');
+    await user.click(screen.getByRole('button', { name: /Сохранить новой версией/ }));
+
+    await waitFor(() => {
+      const saved = recorded.calls.find((call) => call.method === 'POST');
+      expect(saved?.body).toMatchObject({ price_limit_usd: '12.50' });
+    });
+  });
+
+  it('буква в цене — отказ под полем, а не склеенные цифры', async () => {
+    await openAgent();
+    const user = userEvent.setup();
+
+    // «ю» — клавиша точки на русской раскладке: числовое поле выбрасывало её, и «12ю5» было 125.
+    await user.type(screen.getByLabelText('Не дороже, $'), '12ю5');
+
+    expect(screen.getByLabelText('Не дороже, $')).toHaveValue('12ю5');
+    expect(screen.getByText('Только число, например 99,50')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Сохранить новой версией/ })).toBeDisabled();
+  });
+
   it('у этапов свои настройки, и набранное не теряется при переключении', async () => {
     await openAgent();
     const user = userEvent.setup();

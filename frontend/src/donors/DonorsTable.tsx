@@ -54,6 +54,7 @@ import {
 } from '../api/labels';
 import type { DonorFreshness, DonorRowCard, DonorStatus } from '../api/types';
 import { InfoHint } from '../components/InfoHint';
+import { numberOf } from '../components/numberText';
 import { Seams } from '../components/Seams';
 import { formatCompact, formatNumber, formatShare } from '../format';
 import { FRESHNESS, totalOf, TRAFFIC_DIGITS } from './donorFilters';
@@ -153,8 +154,10 @@ interface FilterRowProps {
   onFilter: (patch: Partial<DonorFilters>) => void;
 }
 
-function numberOf(value: number | string): number | null {
-  return typeof value === 'number' ? value : null;
+/** Строкой поле отдаёт и число с нулём впереди («05»): она была «пусто», и поле
+ *  стиралось посреди набора (проверка QA 10.10.2026). */
+function filterNumber(value: number | string): number | null {
+  return typeof value === 'number' ? value : numberOf(value);
 }
 
 function FilterRow({
@@ -233,7 +236,7 @@ function FilterRow({
           allowNegative={false}
           hideControls
           value={minDr ?? ''}
-          onChange={(value) => onMinDr(numberOf(value))}
+          onChange={(value) => onMinDr(filterNumber(value))}
         />
       </Table.Th>
       <Table.Th>
@@ -251,7 +254,7 @@ function FilterRow({
           thousandSeparator=" "
           hideControls
           value={minTraffic ?? ''}
-          onChange={(value) => onMinTraffic(numberOf(value))}
+          onChange={(value) => onMinTraffic(filterNumber(value))}
         />
       </Table.Th>
       <Table.Th>

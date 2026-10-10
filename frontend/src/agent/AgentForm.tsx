@@ -3,18 +3,10 @@
  * (`agentDraft.ts`), правка закрыта без права «настройки».
  */
 
-import {
-  Alert,
-  Button,
-  Group,
-  NumberInput,
-  SimpleGrid,
-  Stack,
-  Switch,
-  Textarea,
-} from '@mantine/core';
+import { Alert, Button, Group, SimpleGrid, Stack, Switch, Textarea } from '@mantine/core';
 
 import { InfoHint } from '../components/InfoHint';
+import { NumberField } from '../components/NumberField';
 import { FIELD_GAP } from '../components/formRhythm';
 import { SaveVersionButton } from '../components/SaveVersionButton';
 import { LIMITS } from './agentDraft';
@@ -102,8 +94,10 @@ export function AgentForm({
           {text(GOAL)}
           {text(TONE)}
           {/* Поле — по цене, а не 288 px под три-четыре цифры; пояснение — в «i».
-              Подпись — не `<label>`: в ней кнопка подсказки, имя полю — `aria-label`. */}
-          <NumberInput
+              Подпись — не `<label>`: в ней кнопка подсказки, имя полю — `aria-label`.
+              Набранное — как есть: «12.5» и «99,5» не стираются на точке, лишнее —
+              отказом под полем (`agentDraft.ts`). */}
+          <NumberField
             labelProps={{ labelElement: 'div' }}
             label={
               <Group component="span" gap={4} wrap="nowrap">
@@ -116,16 +110,11 @@ export function AgentForm({
             aria-label={priceLabel}
             placeholder="без предела"
             w="9rem"
-            min={0}
-            max={LIMITS.price}
-            clampBehavior="none"
-            decimalScale={2}
-            allowNegative={false}
-            thousandSeparator=" "
+            decimals={2}
             disabled={!canEdit}
             value={draft.price}
             error={refusals.price}
-            onChange={(value) => onEdit({ price: typeof value === 'number' ? value : '' })}
+            onChange={(price) => onEdit({ price })}
           />
         </Stack>
         <Stack gap={FIELD_GAP}>

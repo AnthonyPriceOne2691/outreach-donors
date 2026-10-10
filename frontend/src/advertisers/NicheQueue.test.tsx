@@ -80,6 +80,22 @@ describe('бизнесы ниши из выдачи', () => {
     expect(recorded.calls.some((call) => call.path.endsWith('collect?run_id=18'))).toBe(true);
   });
 
+  it('«1.5» не склеивается в 15: в поле — как набрано, отказ словами, сбор закрыт', async () => {
+    // Проверка QA 10.10.2026: поле выбрасывало точку, «1.5» становилось 15, и сервер
+    // честно отвечал «Прогона №15 нет».
+    const recorded = await openAdvertisers();
+    const user = userEvent.setup();
+    const field = screen.getByLabelText('Собрать из прогона №');
+
+    await user.type(field, '1.5');
+
+    expect(field).toHaveValue('1.5');
+    expect(field).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText('Только целое число')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Собрать' })).toBeDisabled();
+    expect(recorded.calls.some((call) => call.path.includes('/niche/collect'))).toBe(false);
+  });
+
   it('без права решать кнопок и сбора нет', async () => {
     await openAdvertisers({}, { ...OPERATOR, permissions: ['view'] });
 
