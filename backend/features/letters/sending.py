@@ -156,6 +156,11 @@ def own_headers(message_id: int, *, sender_email: str, real: bool) -> OwnHeaders
     return OwnHeaders(message_id=own_id, reply_to=address)
 
 
+def _review_of(run: int | None) -> str:
+    """Чьё рассмотрение назвать: прогона, где донор ждёт решения, — или где его искать."""
+    return "прогона, где он нашёлся (экран «Прогон»)" if run is None else f"прогона №{run}"
+
+
 def check_ready(body: str, *, what: str) -> None:
     """Громкая метка в тексте — отказ, а не предупреждение.
 
@@ -340,10 +345,9 @@ class Sending:
         # Где решать — номером прогона, а не письма (проверка QA 10.10.2026): у ответа в переписке
         # это письмо, созданное секундой раньше, и человеку его номер не говорит ничего.
         run = await decided_in(self._session, target.message.domain_id, None)
-        where = "прогона, где он нашёлся (экран «Прогон»)" if run is None else f"прогона №{run}"
         raise UndecidedDonorError(
             f"Донор {target.host} снова ждёт решения; пока его не примут, письмо ждёт. "
-            f"Решить — на рассмотрении {where}"
+            f"Решить — на рассмотрении {_review_of(run)}"
         )
 
     async def _check_advertiser(self, target: _Target) -> None:

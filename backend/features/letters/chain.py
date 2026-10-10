@@ -87,12 +87,19 @@ def due_after(sent_at: datetime, *, step: int, days: list[int] | None) -> dateti
     schedule = planned(days)
     if step < len(schedule):
         return sent_at + timedelta(days=schedule[step])
-    asked = cadence(days)
-    if step == len(schedule) and step < min(len(asked), MAX_STEPS - 1):
-        # Шаг у рассылки есть, а срок меньше суток: цепочку оборвал он, а не конец сроков.
+    cut = _cut_at(step, days)
+    if cut is not None:
         logger.warning(
             "письма: добивка %s не назначена — срок %s дн. меньше суток, цепочка кончается",
             step + 1,
-            asked[step],
+            cut,
         )
+    return None
+
+
+def _cut_at(step: int, days: list[int] | None) -> int | None:
+    """Срок шага `step`, если цепочку оборвал он — срок меньше суток, — а не конец сроков."""
+    asked = cadence(days)[: MAX_STEPS - 1]
+    if step == len(planned(days)) and step < len(asked):
+        return asked[step]
     return None
