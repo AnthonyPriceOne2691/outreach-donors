@@ -47,7 +47,7 @@ import type { Corridor, LetterDraft, LettersView, QueuedLetter } from '../api/ty
 import { useSession } from '../auth/AuthProvider';
 import { StageSwitch } from '../components/StageSwitch';
 import { formatNumber, formatPercent } from '../format';
-import { BuildForm } from './BuildForm';
+import { BuildForm, LIMIT_DEFAULT, followupDays } from './BuildForm';
 import type { BuildProps } from './BuildForm';
 import { EmptyQueue } from './EmptyQueue';
 import { draftOf, sameDraft } from './LetterDraftEditor';
@@ -94,7 +94,7 @@ export function LettersPage() {
   // щелчок ушёл бы ему без подтверждения. Следующее открывает человек.
   const [held, setHeld] = useState(false);
   const [campaign, setCampaign] = useState('');
-  const [limit, setLimit] = useState<number>(50);
+  const [limit, setLimit] = useState<number>(LIMIT_DEFAULT);
   // Сроки добивок задаются здесь, при создании рассылки: их подбирают
   // по отклику, и у рассылки, которая уже идёт, они меняться не должны.
   // Пусто — значит взять умолчание сервера.
@@ -186,7 +186,7 @@ export function LettersPage() {
         stage,
         audience: audienceOf(target),
         limit,
-        followup_days: followups.map((days, index) => days ?? defaultDays[index] ?? 0),
+        followup_days: followupDays(followups, defaultDays),
         ...(letterChanged && letterEdit !== null ? { letter: letterEdit } : {}),
         // У рекламодателей прогонов нет: сервер откажет, если их прислать.
         ...(stage === 'donors' ? { run_ids: runIds } : {}),

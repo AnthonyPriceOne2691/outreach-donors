@@ -11,19 +11,46 @@
  * **Порядок формы — порядок решения:** кампания и числа, прогоны, текст первого письма,
  * и кнопка — последней; у выключенной кнопки сказано, чего не хватает. Поля — по
  * значению, пояснения — в «i».
+ *
+ * **Числа — те, что уйдут** (`CountInput`): пустое поле при уходе из него показывает
+ * умолчание, число вне границ — границу. Границы те же, что у сервера: добивка — через
+ * 1–90 дней, «через 0 дней» значило бы «сразу» (аудит 10.10.2026).
  */
 
-import { Button, Collapse, Group, NumberInput, Stack, Text, TextInput } from '@mantine/core';
+import { Button, Collapse, Group, Stack, Text, TextInput } from '@mantine/core';
 import { IconChevronDown } from '@tabler/icons-react';
 import { useId, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 
 import type { LetterDraft, LettersView } from '../api/types';
 import { HintLabel } from '../components/HintLabel';
+import { CountInput } from './CountInput';
 import { LetterDraftEditor, draftOf } from './LetterDraftEditor';
 import { RunPicker } from './RunPicker';
 import type { LetterTarget } from './targets';
 import { ABOUT } from './targets';
+
+/** Писем за сборку, пока человек не поправил, и потолок — как у сервера (`LIMIT_MAX`). */
+export const LIMIT_DEFAULT = 50;
+const LIMIT_MAX = 500;
+
+/** Срок добивки, в днях, — как у сервера (`letters/chain.py`). */
+const FOLLOWUP_MIN = 1;
+const FOLLOWUP_MAX = 90;
+
+/** Сроки добивок, которые уйдут со сборкой: поправленные — как в поле, нетронутые —
+ *  умолчание сервера, которое поле и показывает. Нуля здесь не бывает: прежнее «?? 0»
+ *  вместо неизвестного умолчания значило «добивка сразу вслед за письмом» (аудит
+ *  10.10.2026). Срока нет — цепочка на нём кончается, как и на сервере. */
+export function followupDays(followups: (number | null)[], defaults: number[]): number[] {
+  const days: number[] = [];
+  for (const [index, set] of followups.entries()) {
+    const day = set ?? defaults[index];
+    if (day === undefined || day < FOLLOWUP_MIN) break;
+    days.push(day);
+  }
+  return days;
+}
 
 export interface BuildProps {
   view: LettersView;
@@ -123,47 +150,41 @@ export function BuildForm({
               w={280}
               onChange={(event) => onCampaign(event.currentTarget.value)}
             />
-            <NumberInput
+            <CountInput
               labelProps={{ labelElement: 'div' }}
               label={
                 <HintLabel
                   label="За раз"
-                  hint="Писем за одну сборку. Каждое стоит вызова модели."
+                  hint={`Писем за одну сборку, от 1 до ${LIMIT_MAX}. Каждое стоит вызова модели.`}
                 />
               }
               aria-label="Писем за раз"
               value={limit}
+              fallback={LIMIT_DEFAULT}
               min={1}
-              max={500}
+              max={LIMIT_MAX}
               w="6.5rem"
-              onChange={(value) => onLimit(typeof value === 'number' ? value : 50)}
+              onValue={onLimit}
             />
             {defaultDays.map((fallback, index) => (
-              <NumberInput
+              <CountInput
                 key={index}
                 labelProps={{ labelElement: 'div' }}
                 label={
                   <HintLabel
                     label={`Добивка ${index + 1}`}
-                    hint={
-                      index === 0
-                        ? 'Через сколько дней после первого письма.'
-                        : 'Через сколько дней после предыдущей добивки.'
-                    }
+                    hint={`Через сколько дней после ${index === 0 ? 'первого письма' : 'предыдущей добивки'}: от ${FOLLOWUP_MIN} до ${FOLLOWUP_MAX}.`}
                   />
                 }
                 aria-label={`Добивка ${index + 1}, дней`}
                 suffix=" дн."
                 value={followups[index] ?? fallback}
-                min={0}
-                max={90}
+                fallback={fallback}
+                min={FOLLOWUP_MIN}
+                max={FOLLOWUP_MAX}
                 w="7rem"
-                onChange={(value) =>
-                  onFollowups((was) =>
-                    was.map((old, at) =>
-                      at === index ? (typeof value === 'number' ? value : null) : old,
-                    ),
-                  )
+                onValue={(days) =>
+                  onFollowups((was) => was.map((old, at) => (at === index ? days : old)))
                 }
               />
             ))}
