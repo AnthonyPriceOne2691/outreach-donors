@@ -154,6 +154,10 @@ export const theme = createTheme({
     Input: Input.extend({ styles: glassField }),
     TextInput: TextInput.extend({ defaultProps: { radius: 'xl' } }),
     PasswordInput: PasswordInput.extend({ defaultProps: { radius: 'xl' } }),
+    // Стрелкам ▲▼ числового поля имени не дают намеренно: Mantine сам прячет их от
+    // диктора (`aria-hidden`, вне порядка Tab) — это подспорье мыши, с клавиатуры число
+    // двигают стрелками в самом поле. Проверка QA 10.10.2026 насчитала их «кнопками без
+    // имени»: её счёт не смотрит на `aria-hidden`. Держит это `theme.names.test.tsx`.
     NumberInput: NumberInput.extend({ defaultProps: { radius: 'xl' } }),
     // Многострочное поле — то же стекло: белая простыня посреди
     // полупрозрачной панели видна первой, а это всего лишь поле ввода.
@@ -240,6 +244,9 @@ export const theme = createTheme({
         // поверх резкой страницы и выглядит вырезанным из другого макета.
         overlayProps: { backgroundOpacity: 0.35, blur: 8 },
         transitionProps: { transition: 'pop', duration: 220 },
+        // Крестик окна — кнопка с одним значком, и диктор читал её как «кнопка» без
+        // имени во всех окнах (проверка QA 10.10.2026). Имя — здесь, одно на все окна.
+        closeButtonProps: { 'aria-label': 'Закрыть' },
       },
     }),
   },
