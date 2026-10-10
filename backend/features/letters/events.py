@@ -10,6 +10,16 @@
 по адресу получателя нельзя: у донора адресов бывает несколько,
 и один из них мог смениться между письмом и событием.
 
+**А найденное письмо сверяется с адресом события** (аудит 10.10.2026).
+Номер уникален только в нашей базе: стенд с ключом боевой учётки платформы
+шлёт свои письма №17, база, поднятая из копии, раздаёт номера заново, — и
+отказ или жалоба по чужому письму №17 хоронили адрес нашего донора, ставили
+его в стоп-лист и портили долю отказов ящика. Событие, чей адрес — не адрес
+получателя письма, — чужое: оно не трогает ничего и считается «без письма».
+Сильнее адреса в событии нет ничего: в `custom_args` только номер, номер
+платформы пуст ровно у писем с неизвестным исходом, которые событие и решает,
+а `Message-ID` у повтора после возврата в очередь другой.
+
 **Статус двигается только вперёд.** События приходят не по порядку
 и повторяются: платформа доставляет их «хотя бы один раз». Запоздавший
 `delivered` не должен откатывать письмо, которое уже отмечено
@@ -49,16 +59,18 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import assert_never
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import outreach as cfg
 from backend.features.contacts.preference import DEAD
-from backend.features.core.domain import MessageStatus, SuppressionReason
+from backend.features.core import stages
+from backend.features.core.domain import MessageStatus, Stage, SuppressionReason
 from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.ops import SuppressionModel
-from backend.features.core.models.outreach import MessageModel, SenderModel
+from backend.features.core.models.outreach import CampaignModel, MessageModel, SenderModel
 from backend.features.letters import unknown_outcome
 from backend.features.outreach import health
 from backend.features.outreach.senders import disable
@@ -102,6 +114,8 @@ class DeliveryEvent:
 
     kind: str
     message_id: int | None
+    #: Кому письмо, по словам платформы. Сверяется с получателем письма с этим
+    #: номером: не он — событие о чужом письме (`_foreign`).
     email: str
     reason: str | None = None
     #: Мягкий отказ: ящик переполнен, сервер занят. Адрес живой,
@@ -169,9 +183,66 @@ async def apply_events(
 
 
 async def _message_of(session: AsyncSession, event: DeliveryEvent) -> MessageModel | None:
+    """Наше письмо события. Нет номера, нет письма с ним или письмо ушло не на адрес
+    события — `None`: событие не наше, и последствий у него нет."""
     if event.message_id is None:
         return None
-    return await session.get(MessageModel, event.message_id)
+    message = await session.get(MessageModel, event.message_id)
+    if message is None or await _foreign(session, message, event):
+        return None
+    return message
+
+
+async def _foreign(session: AsyncSession, message: MessageModel, event: DeliveryEvent) -> bool:
+    """Событие о чужом письме с нашим номером: адрес события — не адрес получателя.
+
+    Получателя не узнать — событие идёт, как шло до сверки: верим номеру. Так у письма,
+    чей контакт удалён, и у письма продаж без лида, — отказываться от их событий значило
+    бы терять отказы и жалобы наших же писем.
+    """
+    if await _addressed(session, message, event.email) is not False:
+        return False
+    logger.warning(
+        "события доставки: событие «%s» с номером письма №%s — о чужом письме: адрес "
+        "события не адрес получателя, событие пропущено",
+        event.kind,
+        message.id,
+        extra={
+            "letter": message.id,
+            "event": event.kind,
+            "event_email": event.email,
+            "event_id": event.event_id,
+        },
+    )
+    return True
+
+
+async def _addressed(session: AsyncSession, message: MessageModel, email: str) -> bool | None:
+    """Ушло ли письмо на адрес `email`: да, нет — или `None`, получателя не узнать.
+
+    Получатель — тот же, кого назвала отправка (`stages.recipient`): у доноров
+    и рекламодателей — контакт письма, у продаж — лид переписки, а не контакт письма
+    (ответ лиду уходит лиду, даже если написал секретарь). Лида знает модуль продаж,
+    а почта его не импортирует: спрашивает мост (`stages.sales_threads_to`). Сверка —
+    без регистра и краевых пробелов, так же сверяет адрес лида и модуль продаж.
+    """
+    campaign = await session.get(CampaignModel, message.campaign_id)
+    if campaign is None:
+        return None
+    match campaign.stage:
+        case Stage.DONORS | Stage.ADVERTISERS:
+            if message.contact_id is None:
+                return None
+            contact = await session.get(ContactModel, message.contact_id)
+            if contact is None:
+                return None
+            return contact.email.strip().lower() == email.strip().lower()
+        case Stage.SALES:
+            if message.thread_id is None or not stages.sales_registered():
+                return None
+            return message.thread_id in await stages.sales_threads_to(session, email)
+        case _:
+            assert_never(campaign.stage)
 
 
 async def _settle_if_pending(

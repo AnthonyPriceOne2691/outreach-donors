@@ -134,7 +134,7 @@ class TestTheEventDecides:
         letter = await stuck_first(session, since=SINCE)
 
         report = await apply_events(
-            session, [DeliveryEvent("delivered", letter.id, "x@stuck.example.test")], now=NOW
+            session, [DeliveryEvent("delivered", letter.id, "editor@stuck.example.test")], now=NOW
         )
 
         assert (report.resolved, report.delivered) == (1, 1)
@@ -151,7 +151,7 @@ class TestTheEventDecides:
 
         report = await apply_events(
             session,
-            [DeliveryEvent("bounce", letter.id, "x@stuck.example.test", reason="550 no user")],
+            [DeliveryEvent("bounce", letter.id, "editor@stuck.example.test", reason="550 no user")],
             now=NOW,
         )
 
@@ -167,7 +167,7 @@ class TestTheEventDecides:
         followup = await stuck_followup(session, await _talk(session), since=SINCE)
 
         await apply_events(
-            session, [DeliveryEvent("delivered", followup.id, "x@stuck.example.test")], now=NOW
+            session, [DeliveryEvent("delivered", followup.id, "editor@stuck.example.test")], now=NOW
         )
 
         assert followup.status is MessageStatus.DELIVERED
@@ -181,7 +181,9 @@ class TestTheEventDecides:
         letter = await stuck_first(session, since=SINCE)
 
         report = await apply_events(
-            session, [DeliveryEvent("account_review", letter.id, "x@stuck.example.test")], now=NOW
+            session,
+            [DeliveryEvent("account_review", letter.id, "editor@stuck.example.test")],
+            now=NOW,
         )
 
         assert report.resolved == 0

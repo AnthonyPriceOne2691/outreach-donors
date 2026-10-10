@@ -38,6 +38,8 @@ from tests.conftest import make_donor
 
 NOW = datetime(2026, 9, 21, 12, 0, tzinfo=UTC)
 HOST = "donor.example.test"
+#: Получатель письма `sent` — адрес события о нём (`letters/events._foreign`).
+TO = f"editor@{HOST}"
 
 
 # --- подпись ---
@@ -178,9 +180,9 @@ class TestWhatEventsDo:
         """События приходят не по порядку. Запоздавший «доставлено»
         поверх недоставки означал бы письмо, которое одновременно
         дошло и не дошло."""
-        await apply_events(session, [DeliveryEvent("bounce", sent.id, "x@y.z")], now=NOW)
+        await apply_events(session, [DeliveryEvent("bounce", sent.id, TO)], now=NOW)
 
-        await apply_events(session, [DeliveryEvent("delivered", sent.id, "x@y.z")], now=NOW)
+        await apply_events(session, [DeliveryEvent("delivered", sent.id, TO)], now=NOW)
 
         assert sent.status is MessageStatus.BOUNCED
 
@@ -188,7 +190,7 @@ class TestWhatEventsDo:
         self, session: AsyncSession, sent: MessageModel
     ) -> None:
         """Платформа доставляет события «хотя бы один раз»."""
-        one = DeliveryEvent("delivered", sent.id, "x@y.z")
+        one = DeliveryEvent("delivered", sent.id, TO)
 
         first = await apply_events(session, [one], now=NOW)
         second = await apply_events(session, [one], now=NOW)
@@ -201,7 +203,7 @@ class TestWhatEventsDo:
         """Адреса нет — открывается следующий адрес донора."""
         await apply_events(
             session,
-            [DeliveryEvent("bounce", sent.id, "x@y.z", reason="550 no such user")],
+            [DeliveryEvent("bounce", sent.id, TO, reason="550 no such user")],
             now=NOW,
         )
 
@@ -217,7 +219,7 @@ class TestWhatEventsDo:
         """Ящик переполнен — завтра письмо уйдёт. Хоронить адрес нельзя."""
         await apply_events(
             session,
-            [DeliveryEvent("bounce", sent.id, "x@y.z", reason="mailbox full", soft=True)],
+            [DeliveryEvent("bounce", sent.id, TO, reason="mailbox full", soft=True)],
             now=NOW,
         )
 
@@ -276,7 +278,7 @@ class TestParking:
     ) -> None:
         await self._fill(session, sent, total=5, bounced=5)
 
-        report = await apply_events(session, [DeliveryEvent("bounce", sent.id, "x@y.z")], now=NOW)
+        report = await apply_events(session, [DeliveryEvent("bounce", sent.id, TO)], now=NOW)
 
         assert report.paused_domains == []
         sender = await session.get(SenderModel, sent.sender_id)
@@ -288,7 +290,7 @@ class TestParking:
     ) -> None:
         await self._fill(session, sent, total=99, bounced=10)
 
-        report = await apply_events(session, [DeliveryEvent("bounce", sent.id, "x@y.z")], now=NOW)
+        report = await apply_events(session, [DeliveryEvent("bounce", sent.id, TO)], now=NOW)
 
         assert report.paused_domains == ["outreach@mail-a.example"]
         sender = await session.get(SenderModel, sent.sender_id)
@@ -311,7 +313,9 @@ class TestTheRoute:
     ) -> None:
         private, public = _keypair()
         monkeypatch.setattr("backend.config.outreach.EVENTS_PUBLIC_KEY", public)
-        payload = json.dumps([{"event": "delivered", "message_id": str(sent.id)}]).encode()
+        payload = json.dumps(
+            [{"event": "delivered", "message_id": str(sent.id), "email": TO}]
+        ).encode()
         stamp = str(int(time.time()))
 
         response = await client.post(
