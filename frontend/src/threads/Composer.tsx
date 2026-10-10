@@ -286,23 +286,29 @@ function AnswerField({ text, setText, box, busy, onSend, signed = false, rules }
             send();
           }}
         />
-        <InfoHint name="Как уйдёт ответ" width={320}>
-          {words.hint}
-        </InfoHint>
-        <Tooltip label="Отправить · Ctrl+Enter" withArrow>
-          <ActionIcon
-            color="lagoon"
-            size="lg"
-            radius="xl"
-            className="press"
-            aria-label="Отправить"
-            loading={busy}
-            disabled={!ready}
-            onClick={send}
-          >
-            <IconSend size={18} />
-          </ActionIcon>
-        </Tooltip>
+        {/* «i» и «Отправить» — парой на одной средней линии. Прижатые к низу строки
+            поодиночке, «i» меньше кнопки и стоял ниже её середины — неровно
+            (замечание Anthony 10.10.2026). Пара прижата к низу целиком: поле растёт
+            вверх, кнопки остаются у последней строки. */}
+        <Group gap={4} align="center" wrap="nowrap">
+          <InfoHint name="Как уйдёт ответ" width={320}>
+            {words.hint}
+          </InfoHint>
+          <Tooltip label="Отправить · Ctrl+Enter" withArrow>
+            <ActionIcon
+              color="lagoon"
+              size="lg"
+              radius="xl"
+              className="press"
+              aria-label="Отправить"
+              loading={busy}
+              disabled={!ready}
+              onClick={send}
+            >
+              <IconSend size={18} />
+            </ActionIcon>
+          </Tooltip>
+        </Group>
       </Group>
       {box.refusal !== null ? (
         <Text size="sm" c="red" role="alert">
