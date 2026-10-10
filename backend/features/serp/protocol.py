@@ -14,13 +14,38 @@
 Страна передаётся кодом ISO-2. Перевод в то, что понимает конкретный провайдер,
 его забота: DataForSEO принимает числовой `location_code`, и карта соответствий
 ляжет внутрь его адаптера.
+
+**Один запрос — один ключ, правилом отсюда** (`keyword_key`, `distinct_keywords`).
+Поиску не важны регистр и лишние пробелы, а провайдер берёт деньги за каждую
+поставленную задачу. До 10.10.2026 смета считала строки поля, а выдача снимала
+повторы только с точностью до пробелов по краям: два одинаковых ключа и вариант
+с заглавными — «3 ключа» в смете, две покупки в выдаче, и за вариант с заглавными
+платили второй раз (проверка прода 10.10.2026). Теперь правило одно у сметы,
+запуска, обоих провайдеров и сверки «такой же прогон уже идёт».
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
+
+
+def keyword_key(keyword: str) -> str:
+    """Чем ключ является для выдачи: без регистра, без пробелов по краям,
+    подряд идущие пробелы — одним. Пустая строка — не ключ."""
+    return " ".join(keyword.split()).casefold()
+
+
+def distinct_keywords(keywords: Iterable[str]) -> list[str]:
+    """Ключи, за которые заплатит выдача: каждый запрос один раз — в первом
+    написании, с пробелами, сведёнными к одному. Пустые строки выпадают."""
+    found: dict[str, str] = {}
+    for keyword in keywords:
+        clean = " ".join(keyword.split())
+        if clean:
+            found.setdefault(clean.casefold(), clean)
+    return list(found.values())
 
 
 @dataclass(frozen=True, slots=True)

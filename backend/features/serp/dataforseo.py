@@ -29,7 +29,7 @@ import httpx
 
 from backend.config import serp as cfg
 from backend.features.serp import markets
-from backend.features.serp.protocol import SerpResult
+from backend.features.serp.protocol import SerpResult, distinct_keywords
 from backend.shared.net.retry import RateLimiter, reason_of, unsent, with_retries
 
 logger = logging.getLogger(__name__)
@@ -219,11 +219,14 @@ class DataForSeoProvider:
     async def search(
         self, keywords: Sequence[str], country: str, *, depth_pages: int = 1
     ) -> dict[str, list[SerpResult]]:
-        """Выдача по пачке ключей. Ключ без результатов — с пустым списком."""
+        """Выдача по пачке ключей. Ключ без результатов — с пустым списком.
+
+        Повтор — одна задача: регистр и лишние пробелы выдаче не важны, а задача
+        стоит денег (`protocol.distinct_keywords`, то же правило у сметы)."""
         if depth_pages < 1:
             raise ValueError("Глубина выдачи считается страницами по десять; минимум одна")
 
-        unique = list(dict.fromkeys(k.strip() for k in keywords if k.strip()))
+        unique = distinct_keywords(keywords)
         out: dict[str, list[SerpResult]] = {k: [] for k in unique}
         if not unique:
             return out

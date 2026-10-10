@@ -29,7 +29,7 @@ from backend.features.core.domain import Stage
 from backend.features.donors.host import normalize_host
 from backend.features.runs.budget import CapExceededError
 from backend.features.runs.exclusions import ExclusionReason, counts
-from backend.features.serp.protocol import SerpProvider
+from backend.features.serp.protocol import SerpProvider, keyword_key
 
 
 class FreshnessSource(Protocol):
@@ -294,11 +294,15 @@ async def gather_candidates(
 def _lost(keywords: Sequence[str], answer: dict[str, Any]) -> list[str]:
     """Запрошенные ключи, которых нет в ответе источника.
 
-    Источник чистит ключ от пробелов по краям, поэтому сверка — и сырым
-    ключом, и чистым: иначе « ключ» числился бы потерянным при полной выдаче.
+    Источник сводит повторы правилом выдачи (`serp.protocol.keyword_key`):
+    « ключ» и «Ключ» в ответе — тот же «ключ». Сверка — тем же правилом, иначе
+    полная выдача числилась бы потерянной. Потерянный назван, как его прислали.
     """
-    requested = dict.fromkeys(key for key in keywords if key.strip())
-    return [key for key in requested if key not in answer and key.strip() not in answer]
+    answered = {keyword_key(key) for key in answer}
+    requested: dict[str, str] = {}
+    for key in keywords:
+        requested.setdefault(keyword_key(key), key)
+    return [key for same, key in requested.items() if same and same not in answered]
 
 
 async def plan_run(

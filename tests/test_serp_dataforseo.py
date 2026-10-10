@@ -123,6 +123,18 @@ class TestWiring:
         assert list(out) == ["один"]
         assert len(site.gets) == 1
 
+    async def test_case_and_inner_spaces_are_no_new_task(self) -> None:
+        """Поиску регистр и лишние пробелы не важны, а задача стоит денег: до
+        10.10.2026 «Budget Tips» после «budget tips» покупалась второй раз
+        (проверка прода). Задача ставится один раз — в первом написании."""
+        site = Provider(results={"budget tips": [_organic(1, "https://a.com/")]})
+
+        out = await _provider(site).search(["budget tips", "Budget Tips", "budget   tips"], "us")
+
+        assert list(site._ids.values()) == ["budget tips"]
+        assert list(out) == ["budget tips"]
+        assert len(site.gets) == 1
+
     async def test_only_organic_taken(self) -> None:
         """В выдаче есть карты, реклама и «люди также спрашивают» — доноров
         там нет."""

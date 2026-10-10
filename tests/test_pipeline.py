@@ -18,7 +18,7 @@ from backend.features.runs.budget import (
 from backend.features.runs.failures import is_permanent
 from backend.features.runs.planning import Candidates, gather_candidates, plan_run
 from backend.features.runs.report import RunReport
-from backend.features.serp.protocol import SerpResult
+from backend.features.serp.protocol import SerpResult, distinct_keywords
 
 
 class FakeSerp:
@@ -37,8 +37,8 @@ class FakeSerp:
 
 
 class LosingSerp:
-    """Источник, который чистит ключи, как DataForSEO, и теряет часть из них:
-    ключа, задачу по которому не дождались, в ответе нет вовсе."""
+    """Источник, который сводит ключи, как DataForSEO (правилом выдачи), и теряет
+    часть из них: ключа, задачу по которому не дождались, в ответе нет вовсе."""
 
     name = "losing"
 
@@ -49,7 +49,7 @@ class LosingSerp:
     async def search(
         self, keywords: Sequence[str], country: str, *, depth_pages: int = 1
     ) -> dict[str, list[SerpResult]]:
-        clean = dict.fromkeys(k.strip() for k in keywords if k.strip())
+        clean = distinct_keywords(keywords)
         return {
             kw: [SerpResult(position=i + 1, url=u) for i, u in enumerate(self._answer.get(kw, []))]
             for kw in clean
@@ -148,6 +148,15 @@ class TestCandidates:
         сырому ключу записала бы полную выдачу в потерянные."""
         serp = LosingSerp({"a": ["https://good.com"]}, lost=set())
         candidates = await gather_candidates(serp, [" a "], "us")
+        assert candidates.lost_keywords == []
+
+    async def test_case_variant_of_an_answered_keyword_is_not_lost(self) -> None:
+        """Источник сводит повторы правилом выдачи (проверка прода 10.10.2026):
+        «Budget  Tips» после «budget tips» — тот же запрос, его выдача пришла."""
+        serp = LosingSerp({"budget tips": ["https://good.com"]}, lost=set())
+
+        candidates = await gather_candidates(serp, ["budget tips", "Budget  Tips"], "us")
+
         assert candidates.lost_keywords == []
 
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, ClassVar
 
 import httpx
 import pytest
@@ -650,3 +650,63 @@ class TestRefusalsInWords:
         assert response.status_code == 409, response.text
         assert words in response.json()["detail"]
         assert queue.calls == [], "отказ настроек — до очереди"
+
+
+class _NoAhrefs:
+    """Клиент Ahrefs, который никуда не ходит: остаток подменён в тесте."""
+
+    async def aclose(self) -> None:
+        return None
+
+
+class TestKeywordsAreWhatTheSerpBuys:
+    """Смета и запуск считают ключи правилом выдачи (проверка прода 10.10.2026).
+
+    Два одинаковых ключа и вариант с заглавными — «3 ключа» в смете, а выдача покупала
+    два: за вариант с заглавными платила второй раз. Теперь повторы сводятся до сметы
+    и до запуска одним правилом с провайдером (`serp.protocol.distinct_keywords`).
+    """
+
+    TYPED: ClassVar[list[str]] = ["ремонт квартир", "ремонт квартир", "Ремонт  Квартир", " дизайн "]
+
+    @pytest.fixture
+    def offline(self, monkeypatch: pytest.MonkeyPatch) -> FakeQueue:
+        async def plenty(_: Any) -> int:
+            return 10_000_000
+
+        monkeypatch.setattr("backend.api.runs.routes.AhrefsClient", _NoAhrefs)
+        monkeypatch.setattr("backend.api.runs.routes.units_left", plenty)
+        monkeypatch.setattr("backend.config.ahrefs.API_KEY", "ключ-для-теста")
+        monkeypatch.setattr("backend.config.serp.SANDBOX", False)
+        fake = FakeQueue()
+        monkeypatch.setattr("backend.api.runs.routes.runs_queue", lambda: fake)
+        return fake
+
+    async def test_estimate_and_start_count_the_same_keywords(
+        self, client: AsyncClient, operator_token: str, offline: FakeQueue, session: AsyncSession
+    ) -> None:
+        body = {"keywords": self.TYPED, "country": "us", "depth_pages": 1}
+
+        estimate = await client.post(
+            "/api/runs/estimate", json=body, headers=bearer(operator_token)
+        )
+        started = await client.post("/api/runs", json=body, headers=bearer(operator_token))
+
+        assert estimate.status_code == 200, estimate.text
+        assert estimate.json()["keywords"] == 2
+        assert estimate.json()["expected_results"] == 20
+        assert started.status_code == 200, started.text
+        run = await RunRepository(session).get(started.json()["run_id"])
+        assert run.keywords == ["ремонт квартир", "дизайн"]
+
+    async def test_only_blank_lines_are_no_keywords_in_words(
+        self, client: AsyncClient, operator_token: str, offline: FakeQueue
+    ) -> None:
+        response = await client.post(
+            "/api/runs/estimate",
+            json={"keywords": ["  ", ""], "country": "us"},
+            headers=bearer(operator_token),
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"][0]["msg"].startswith("Ключей нет — одни пустые строки")
