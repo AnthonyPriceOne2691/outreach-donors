@@ -105,30 +105,43 @@ class ThresholdsView(BaseModel):
 
 
 class ConsequencesView(BaseModel):
-    """Последствия новых порогов для базы.
+    """Эти пороги против действующих — по метрикам доменов базы.
 
-    Показывается обе стороны: и что выпадет, и что вернётся. Порог двигают
-    в обе стороны, и «выпадет 340» без «вернётся 12» — половина ответа.
+    Показываются обе стороны: и кого эти пороги отсекут, и кого пропустят сверх
+    действующих. Порог двигают в обе стороны, и «отсекут 340» без «пропустят 12» —
+    половина ответа. Вердикты в базе сохранение не переписывает, и имена полей
+    не обещают перемен в ней: до 10.10.2026 они звались «выпадет из базы» и
+    «вернётся в базу» (проверка прода 10.10.2026).
     """
 
+    #: Домены с метриками: их и сравнивают.
     checked: int
-    suitable_now: int
-    suitable_after: int
-    falls_out: int
-    falls_out_with_price: int
-    comes_back: int
-    unchecked: int
+    #: Пропускают действующие пороги.
+    passing_now: int
+    #: Пропустят эти.
+    passing_after: int
+    #: Действующие пропускают, эти — нет.
+    cut: int
+    #: Из них — с полученной ценой.
+    cut_with_price: int
+    #: Эти пропускают, действующие — нет.
+    admitted: int
+    #: Действующие отсекают, эти пустили бы дальше, но метрик для решения нет.
+    undecided: int
+    #: Домены без метрик: пороги их не судят.
+    without_metrics: int
 
     @classmethod
     def of(cls, data: Consequences) -> ConsequencesView:
         return cls(
             checked=data.checked,
-            suitable_now=data.suitable_now,
-            suitable_after=data.suitable_after,
-            falls_out=data.falls_out,
-            falls_out_with_price=data.falls_out_with_price,
-            comes_back=data.comes_back,
-            unchecked=data.unchecked,
+            passing_now=data.passing_now,
+            passing_after=data.passing_after,
+            cut=data.cut,
+            cut_with_price=data.cut_with_price,
+            admitted=data.admitted,
+            undecided=data.undecided,
+            without_metrics=data.without_metrics,
         )
 
 

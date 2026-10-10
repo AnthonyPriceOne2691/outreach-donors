@@ -1,18 +1,29 @@
-"""Пороги: текущие, предпросмотр последствий и новая версия.
+"""Пороги: текущие, сравнение новых с действующими и новая версия.
 
 Пороги версионируются намеренно: смена порога не должна переписывать
 вердикты прошлых прогонов — иначе через полгода непонятно, почему домен
 отсеялся. Поэтому «сохранить» здесь означает «завести новую версию»,
 а не «поправить строчку».
 
-**Предпросмотр считается тем же правилом, что и сам отбор.** Второй
-экземпляр правила в предпросмотре разошёлся бы с настоящим при первой
-же правке, и экран показывал бы последствия, которых не будет.
+**Где пороги действуют — только в прогоне.** Прогон, заводясь, берёт версию,
+действующую сейчас (`in_force`), и судит ею домены, которые измеряет: новые и те,
+у кого истёк срок метрик (`DonorRepository.fresh_hosts`). Вердикт ложится в базу
+при замере (`donors.status`), и его берут как есть «Отбор», «Доноры», «Обзор»,
+сборка писем и обход. Сохранение порогов базу не пересчитывает.
 
-**Показывается и то, что выпадет, и то, что вернётся.** Порог двигают
-в обе стороны, и «из базы выпадет 340» без «вернётся 12» — половина
-ответа. Отдельной строкой — сколько среди выпавших тех, у кого цена уже
-получена: за них заплачено не только юнитами, но и письмом.
+**Предпросмотр — эти пороги против действующих, одним правилом с обеих сторон**
+(проверка прода 10.10.2026). Обе стороны считает `check_metrics` — то же правило,
+что у прогона, — по метрикам доменов базы. До этого «было» брало сохранённый
+вердикт, а «станет» — одни метрики; вердикт же ставят ещё регион и прошлые версии
+порогов, и любая правка «возвращала в базу» домены, отсеянные регионом: ключи
+300 → 301 — «подходит 130, будет 135, вернётся 5». Теперь при порогах, равных
+действующим, перемен ноль; строже — никого не пропустят сверх действующих; мягче —
+никого не отсекут.
+
+**Показывается и то, что отсекут, и то, что пропустят.** Порог двигают в обе
+стороны, и «отсекут 340» без «пропустят 12» — половина ответа. Отдельной
+строкой — сколько среди отсечённых тех, у кого цена уже получена: за них
+заплачено не только юнитами, но и письмом.
 """
 
 from __future__ import annotations
@@ -31,22 +42,6 @@ from backend.features.core.models.run import RunSettingsModel
 from backend.features.donors.verdict import Metrics, Thresholds, check_metrics
 
 
-@dataclass(frozen=True, slots=True)
-class Consequences:
-    """Что станет с базой, если применить новые пороги."""
-
-    checked: int
-    suitable_now: int
-    suitable_after: int
-    falls_out: int
-    falls_out_with_price: int
-    comes_back: int
-    #: Домены без метрик: их вердикт не изменится, потому что его нет.
-    #: Число показывается отдельно — ступень, которая ничего не решает,
-    #: иначе выглядит работающей.
-    unchecked: int
-
-
 def _metrics_of(donor: DonorModel) -> Metrics:
     """Метрики из JSONB. Ключи те же, что пишет сборщик."""
     raw: dict[str, Any] = donor.metrics or {}
@@ -58,41 +53,71 @@ def _metrics_of(donor: DonorModel) -> Metrics:
     )
 
 
-def consequences(donors: Sequence[DonorModel], candidate: Thresholds) -> Consequences:
-    """Пересчитать вердикты тем же правилом, что и отбор."""
-    checked = suitable_now = suitable_after = 0
-    falls_out = falls_out_with_price = comes_back = unchecked = 0
+def _passes(metrics: Metrics, thresholds: Thresholds) -> bool | None:
+    """Пропускают ли пороги домен: да, нет — или `None`, если метрик для решения нет.
 
-    for donor in donors:
+    Третий ответ — не «нет». Домен, отсеянный по DR, остальных метрик не покупал
+    (`collect`, первая ступень): мягче DR пустил бы его дальше, а пройдёт ли он там,
+    скажет только замер.
+    """
+    verdict = check_metrics(metrics, thresholds)
+    if verdict is None:
+        return True
+    return None if verdict.status is DonorStatus.UNCHECKED else False
+
+
+@dataclass(slots=True)
+class Consequences:
+    """Эти пороги против действующих — по метрикам доменов базы.
+
+    Обе стороны считает одно правило (`_passes` → `check_metrics`): при порогах,
+    равных действующим, `cut`, `admitted` и `undecided` — нули. Регион и решения
+    человека здесь не считаются — их пороги не решают.
+    """
+
+    #: Домены с метриками: их и сравнивают.
+    checked: int = 0
+    #: Пропускают действующие пороги.
+    passing_now: int = 0
+    #: Пропустят эти.
+    passing_after: int = 0
+    #: Действующие пропускают, эти — нет.
+    cut: int = 0
+    #: Из них — с полученной ценой.
+    cut_with_price: int = 0
+    #: Эти пропускают, действующие — нет.
+    admitted: int = 0
+    #: Действующие отсекают, эти пустили бы дальше, но метрик для решения нет.
+    undecided: int = 0
+    #: Домены без метрик (DR нет): пороги их не судят. Число показывается
+    #: отдельно — ступень, которая ничего не решает, иначе выглядит работающей.
+    without_metrics: int = 0
+
+    def count(self, donor: DonorModel, candidate: Thresholds, in_force: Thresholds) -> None:
+        """Учесть один домен — тем же правилом с обеих сторон."""
         metrics = _metrics_of(donor)
         if metrics.dr is None:
-            unchecked += 1
-            continue
+            self.without_metrics += 1
+            return
+        now, after = _passes(metrics, in_force), _passes(metrics, candidate)
+        self.checked += 1
+        self.passing_now += int(now is True)
+        self.passing_after += int(after is True)
+        cut = now is True and after is False
+        self.cut += int(cut)
+        self.cut_with_price += int(cut and donor.last_price is not None)
+        self.admitted += int(after is True and now is False)
+        self.undecided += int(now is False and after is None)
 
-        checked += 1
-        was = donor.status is DonorStatus.SUITABLE
-        # `check_metrics` возвращает вердикт при отказе и `None`, если
-        # домен прошёл все пороги.
-        will = check_metrics(metrics, candidate) is None
 
-        suitable_now += int(was)
-        suitable_after += int(will)
-        if was and not will:
-            falls_out += 1
-            if donor.last_price is not None:
-                falls_out_with_price += 1
-        if will and not was:
-            comes_back += 1
-
-    return Consequences(
-        checked=checked,
-        suitable_now=suitable_now,
-        suitable_after=suitable_after,
-        falls_out=falls_out,
-        falls_out_with_price=falls_out_with_price,
-        comes_back=comes_back,
-        unchecked=unchecked,
-    )
+def consequences(
+    donors: Sequence[DonorModel], candidate: Thresholds, *, in_force: Thresholds
+) -> Consequences:
+    """Эти пороги против действующих — по метрикам доменов базы, ничего не меняя."""
+    result = Consequences()
+    for donor in donors:
+        result.count(donor, candidate, in_force)
+    return result
 
 
 class ThresholdsRepository:

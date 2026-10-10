@@ -491,16 +491,6 @@ export interface ThresholdsView {
   limits: Record<keyof ThresholdsBody, ThresholdRange>;
 }
 
-export interface ConsequencesView {
-  checked: number;
-  suitable_now: number;
-  suitable_after: number;
-  falls_out: number;
-  falls_out_with_price: number;
-  comes_back: number;
-  unchecked: number;
-}
-
 export type UsageProvider = 'ahrefs' | 'serp' | 'llm' | 'email' | 'hunter';
 
 export interface ArticleCard {

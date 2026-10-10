@@ -1,20 +1,18 @@
 /**
- * Пороги отбора с предпросмотром последствий.
+ * Пороги отбора со сравнением против действующих.
  *
- * **Порог двигают, глядя на последствия, а не на число.** «DR не ниже 25»
- * само по себе не говорит ничего; «из базы выпадет 8 доноров, из них 0
- * с полученной ценой» — говорит всё. Поэтому предпросмотр считается
- * на каждое изменение, ещё до сохранения, и показывает обе стороны:
- * и что выпадет, и что вернётся.
+ * **Порог двигают, глядя на сравнение, а не на число.** «DR не ниже 25» само по
+ * себе не говорит ничего; «эти пороги отсекут сверх действующих 8 доменов базы, из
+ * них 0 с полученной ценой» — говорит всё. Поэтому сравнение считается на каждое
+ * изменение, ещё до сохранения, и показывает обе стороны: и кого отсекут, и кого
+ * пропустят (`ThresholdsComparison`).
  *
  * **Сохранение заводит новую версию, а не правит старую.** Смена порога
  * не должна переписывать вердикты прошлых прогонов — иначе через полгода
- * непонятно, почему домен отсеялся. История версий с автором и датой
- * лежит здесь же.
- *
- * **Пересчёт не перерисовывает блок последствий.** Пока идёт новый расчёт,
- * прежние числа стоят приглушёнными: значок загрузки на месте блока на
- * каждое изменение порога заставлял экран прыгать под рукой.
+ * непонятно, почему домен отсеялся. Новой версией судит следующий прогон, а
+ * вердикты в базе остаются как есть — и экран этого не обещает (проверка прода
+ * 10.10.2026: карточка звалась «Что станет с базой»). История версий с автором
+ * и датой лежит здесь же.
  *
  * **Текст трёх карточек начинается с одной кромки** — 32 px от края стекла
  * (аудит 25.09.2026: было 32, 20 и 26).
@@ -24,22 +22,10 @@
  * допустимые значения; значки подсказок, в каких диапазонах»). Поле шириной
  * в четверть панели держало восьмизначное число; границы приходят с сервера
  * и проверяют поле тем же правилом, что схема сервера (`thresholdDraft.ts`),
- * — пока порог за границей, последствия не считаются и сохранять нечего.
+ * — пока порог за границей, сравнение не считается и сохранять нечего.
  */
 
-import {
-  Alert,
-  Badge,
-  Button,
-  Card,
-  Group,
-  Loader,
-  SimpleGrid,
-  Stack,
-  Table,
-  Text,
-  Title,
-} from '@mantine/core';
+import { Alert, Badge, Button, Card, Group, Loader, Stack, Table, Text } from '@mantine/core';
 import { useDebouncedValue } from '@mantine/hooks';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
@@ -48,15 +34,15 @@ import { refusalOf } from '../api/client';
 import { fetchThresholds, previewThresholds, saveThresholds } from '../api/settings';
 import type { ThresholdsBody } from '../api/types';
 import { InfoHint } from '../components/InfoHint';
-import { Metric } from '../components/Metric';
 import { NumberField } from '../components/NumberField';
 import { rangeText } from '../components/numberText';
 import { PageHead } from '../components/PageHead';
 import { SaveVersionButton } from '../components/SaveVersionButton';
 import { useSession } from '../auth/AuthProvider';
-import { formatDateTime, formatNumber, plural } from '../format';
+import { formatDateTime, formatNumber } from '../format';
 import { bodyOf, draftOf, fieldRefusal, firstRefused, THRESHOLD_KEYS } from './thresholdDraft';
 import type { ThresholdDraft, ThresholdKey } from './thresholdDraft';
+import { ThresholdsComparison } from './ThresholdsComparison';
 import { notify } from '../notices';
 
 const THRESHOLDS_KEY = ['thresholds'] as const;
@@ -65,8 +51,8 @@ const THRESHOLDS_KEY = ['thresholds'] as const;
  *
  *  До 09.10.2026 смысл стоял строкой под полем, и в ней были вшитые доли — «убирает
  *  19% доменов», «убирает ещё 25%»: замер одного дня, который не пересчитывался ни от
- *  порога, ни от базы и при другом пороге врал (аудит экранов 09.10.2026). Что станет с
- *  базой при новых порогах, говорит карточка ниже — числом с сервера. */
+ *  порога, ни от базы и при другом пороге врал (аудит экранов 09.10.2026). Как новые
+ *  пороги разойдутся с действующими, говорит карточка ниже — числом с сервера. */
 const FIELDS: Record<ThresholdKey, { label: string; hint: string }> = {
   min_dr: { label: 'DR не ниже', hint: 'Первая ступень отбора: 2 юнита Ahrefs на домен.' },
   min_org_traffic: {
@@ -104,15 +90,6 @@ function same(left: ThresholdsBody, right: ThresholdsBody): boolean {
   return THRESHOLD_KEYS.every((key) => left[key] === right[key]);
 }
 
-/** Домены без метрик — словом и местоимением по числу: «ещё 1 домен: пороги его не
- *  судят», «ещё 21 домен: … их». До 10.10.2026 стояло «Ещё 1 доменов без метрик»
- *  (проверка прода 10.10.2026). */
-function withoutMetrics(count: number): string {
-  const domains = plural(count, 'домен', 'домена', 'доменов');
-  const them = count === 1 ? 'его' : 'их';
-  return `Без метрик — ещё ${formatNumber(count)} ${domains}: пороги ${them} не судят. Это повод добрать данные, а не отсев.`;
-}
-
 export function ThresholdsPage() {
   const queryClient = useQueryClient();
   const { can } = useSession();
@@ -145,9 +122,9 @@ export function ThresholdsPage() {
 
   // Пороги, которые действуют сейчас, — от них правят и с ними сравнивают.
   const inUse = data === undefined ? undefined : (data.current ?? data.defaults);
-  // Последствия считаются по всей базе и нужны только изменённым порогам:
-  // у совпадающих с действующими экран их и не показывает. До 28.09.2026
-  // каждое открытие экрана пересчитывало базу впустую.
+  // Сравнение считается по всей базе и нужно только изменённым порогам: у
+  // совпадающих с действующими перемен ноль тем же правилом, и экран не спрашивает.
+  // До 28.09.2026 каждое открытие экрана пересчитывало базу впустую.
   const debouncedChanged = debounced !== null && inUse !== undefined && !same(debounced, inUse);
   const preview = useQuery({
     queryKey: ['thresholds-preview', debounced],
@@ -194,7 +171,7 @@ export function ThresholdsPage() {
         <Stack gap="md">
           <PageHead
             title="Пороги отбора"
-            hint="Сохранение заводит новую версию, а не правит старую: вердикты прошлых прогонов должны оставаться объяснимыми. Ниже — что станет с базой, если применить новые пороги."
+            hint="Сохранение заводит новую версию, а не правит старую. Ею прогоны судят домены, которые измеряют после, — новые и те, у кого истёк срок метрик. Вердикты, что уже стоят в базе, не переписываются: «Отбор», «Доноры», «Обзор» и письма берут их как есть. Ниже — эти пороги против действующих по метрикам доменов базы, тем же правилом, что у прогона; регион и решения человека там не считаются."
           />
 
           {/* Подпись — не `<label>`: в ней кнопка подсказки, а кнопка внутри
@@ -251,65 +228,13 @@ export function ThresholdsPage() {
       </Card>
 
       {canEdit && (
-        <Card className="glass" p="xl">
-          <Title order={5} mb="sm">
-            Что станет с базой
-          </Title>
-          {/* Пока черновик совпадает с действующими, последствий нет по
-              определению — и экран не показывает их, даже если пересчёт
-              по нынешним правилам дал бы расхождение со старыми вердиктами. */}
-          {!changed ? (
-            <Text size="sm" c="dimmed">
-              Пороги совпадают с действующими — база не изменится. Измените порог, и здесь появится,
-              кто выпадет и кто вернётся.
-            </Text>
-          ) : refused !== null ? (
-            // Причину называет отказ под полем — здесь только какое поле: своя причина у
-            // блока разошлась с ней («вне границ» над «только целое число»).
-            <Text size="sm" c="dimmed">
-              {`Поле «${FIELDS[refused].label}» не годится: что не так, сказано под ним. Поправьте его — и здесь появится сравнение с действующими.`}
-            </Text>
-          ) : preview.data === undefined ? (
-            preview.isFetching ? (
-              <Loader size="sm" aria-label="Считаем последствия" />
-            ) : (
-              <Text size="sm" c="dimmed">
-                Последствия считаются по всей базе — измените порог, и они появятся.
-              </Text>
-            )
-          ) : (
-            <Stack
-              gap="sm"
-              className="staleRows"
-              data-stale={preview.isFetching || undefined}
-              aria-busy={preview.isFetching || undefined}
-            >
-              <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
-                <Metric title="Подходит сейчас" value={formatNumber(preview.data.suitable_now)} />
-                <Metric title="Будет подходить" value={formatNumber(preview.data.suitable_after)} />
-                <Metric
-                  title="Выпадет из базы"
-                  value={formatNumber(preview.data.falls_out)}
-                  color={preview.data.falls_out > 0 ? 'yellow' : undefined}
-                  hint={`из них с ценой: ${preview.data.falls_out_with_price}`}
-                />
-                <Metric title="Вернётся в базу" value={formatNumber(preview.data.comes_back)} />
-              </SimpleGrid>
-
-              {preview.data.falls_out_with_price > 0 && (
-                <Alert color="yellow" title="Среди выпавших есть доноры с полученной ценой">
-                  За них заплачено не только юнитами, но и письмом. Пороги это не запрещает — просто
-                  стоит знать до, а не после.
-                </Alert>
-              )}
-              {preview.data.unchecked > 0 && (
-                <Text size="sm" c="dimmed">
-                  {withoutMetrics(preview.data.unchecked)}
-                </Text>
-              )}
-            </Stack>
-          )}
-        </Card>
+        <ThresholdsComparison
+          changed={changed}
+          refused={refused === null ? null : FIELDS[refused].label}
+          data={preview.data}
+          fetching={preview.isFetching}
+          error={preview.error}
+        />
       )}
 
       {/* Поля карточки с таблицей — вместе с полем ячейки те же 32 px, что
