@@ -617,6 +617,35 @@ describe('рассмотрение прогона', () => {
 
     expect(await screen.findByText('очереди нет')).toBeInTheDocument();
   });
+
+  it('домены в нескольких очередях — почему строки дают больше числа меню', async () => {
+    // Проверка прода 10.10.2026: «Прогон 89» в меню, а в строках «Рассмотреть 55» и
+    // «Рассмотреть 41»: 7 доменов ждут в обеих очередях, меню считает домен один раз.
+    const newer = { ...QUEUED, id: 27, status: 'done', queue: { pending: 55 } };
+    const older = { ...QUEUED, id: 25, status: 'done', queue: { pending: 41 } };
+    await openRun({
+      'GET /api/runs?page=1': history([newer, older], { review_waiting: 89, review_shared: 7 }),
+    });
+
+    await screen.findByRole('link', { name: 'Рассмотреть 55' });
+    expect(
+      screen.getByText(
+        'Решения ждут 89 доменов — это число у «Прогона» в меню. 7 из них стоят в очередях ' +
+          'нескольких прогонов: в строках выше такой домен посчитан в каждой своей очереди, ' +
+          'в меню — один раз.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('общих доменов нет — и строки о них нет', async () => {
+    const queued = { ...QUEUED, id: 18, status: 'done', queue: { pending: 394 } };
+    await openRun({
+      'GET /api/runs?page=1': history([queued], { review_waiting: 394, review_shared: 0 }),
+    });
+
+    await screen.findByRole('link', { name: 'Рассмотреть 394' });
+    expect(screen.queryByText(/в очередях нескольких прогонов/)).toBeNull();
+  });
 });
 
 const PROVEN = [

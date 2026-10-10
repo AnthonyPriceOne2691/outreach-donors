@@ -26,6 +26,7 @@ from backend.features.access.repository import AccessRepository
 from backend.features.ahrefs.client import AhrefsClient
 from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
+from backend.features.donors import standing
 from backend.features.runs.browse import MAX_PAGE_SIZE, PAGE_SIZE, RunBrowser
 from backend.features.runs.budget import units_left
 from backend.features.runs.duplicates import refuse_duplicate
@@ -183,8 +184,13 @@ async def all_runs(
     Про воркеров спрашивается здесь, а не отдельным маршрутом: экран,
     на котором нажимают «Запустить», — единственное место, где ответ
     «задачу некому взять» приходит вовремя.
+
+    Рядом со строками — число у «Прогона» в меню и сколько доменов ждут в
+    нескольких очередях (`standing.waiting`): сумма «Рассмотреть» по строкам
+    больше числа меню, и экран говорит почему (проверка прода 10.10.2026).
     """
     found = await RunBrowser(session).page(page, size=limit)
+    decisions = await standing.waiting(session)
     return RunsView(
         runs=[RunCard.of(row) for row in found.rows],
         total=found.total,
@@ -192,6 +198,8 @@ async def all_runs(
         limit=limit,
         workers=await asyncio.to_thread(workers_alive),
         queued=found.queued,
+        review_waiting=decisions.domains,
+        review_shared=decisions.shared,
     )
 
 

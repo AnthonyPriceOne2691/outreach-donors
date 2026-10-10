@@ -16,6 +16,7 @@ from backend.features.core.domain import RunStatus, Stage, UserRole
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.run import RunCandidateModel, RunModel
+from backend.features.ops.overview import work
 from backend.features.review.candidates import Decision
 from backend.features.runs.browse import PAGE_SIZE
 from backend.features.runs.repository import RunRepository
@@ -157,6 +158,40 @@ class TestHistoryPages:
 
         assert body["workers"] == 0
         assert body["total"] == 0
+
+
+class TestQueuesOverlap:
+    """Проверка прода 10.10.2026: «Прогон 89» в меню, а в истории «Рассмотреть 55» и
+    «Рассмотреть 41» — 96: 7 доменов стоят в обеих очередях, меню считает домен один
+    раз. История называет число меню и сколько доменов ждут в нескольких очередях."""
+
+    async def test_history_names_the_menu_number_and_the_overlap(
+        self, client: AsyncClient, token: str, session: AsyncSession
+    ) -> None:
+        older, newer = await _runs(session, 2)
+        for host, runs in (
+            ("both.example.test", (older, newer)),
+            ("old.example.test", (older,)),
+            ("new.example.test", (newer,)),
+        ):
+            domain = DomainModel(host=host)
+            session.add(domain)
+            await session.flush()
+            for run in runs:
+                session.add(
+                    RunCandidateModel(
+                        run_id=run.id, domain_id=domain.id, status=Decision.PENDING.value
+                    )
+                )
+        await session.commit()
+
+        body = await _page(client, token)
+
+        rows = body["runs"]
+        assert isinstance(rows, list)
+        assert sum(row["queue"]["pending"] for row in rows) == 4
+        assert (body["review_waiting"], body["review_shared"]) == (3, 1)
+        assert body["review_waiting"] == (await work(session)).run
 
 
 class TestRunsForLetters:

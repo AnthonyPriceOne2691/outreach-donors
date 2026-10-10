@@ -22,10 +22,19 @@ export function startRun(body: RunRequest): Promise<RunQueued> {
   return request<RunQueued>('/runs', { method: 'POST', body });
 }
 
+/** Страница истории и рядом — число у «Прогона» в меню (`standing.waiting`): сумма
+ *  «Рассмотреть» по строкам больше него, когда домен ждёт в нескольких очередях. */
+export interface RunsPage extends RunsView {
+  /** Доменов ждут решения — каждый один раз. */
+  review_waiting: number;
+  /** Из них ждут в очередях нескольких прогонов. */
+  review_shared: number;
+}
+
 /** Страница истории прогонов, с единицы. Размер страницы называет сервер
  *  в ответе (`limit`): своей копии числа у экрана нет. */
-export function listRuns(page: number): Promise<RunsView> {
-  return request<RunsView>(`/runs?page=${page}`);
+export function listRuns(page: number): Promise<RunsPage> {
+  return request<RunsPage>(`/runs?page=${page}`);
 }
 
 /** Прогоны, в которых кого-то приняли, — все, без страниц: из них
