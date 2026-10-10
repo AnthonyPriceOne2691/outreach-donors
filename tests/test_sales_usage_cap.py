@@ -38,11 +38,10 @@ __all__ = [  # фикстуры ответа донора и подписи ад
     "sent",
 ]
 
-#: Слова отказа своего потолка продаж — с именем настройки, которой его поднять.
-REFUSED = (
-    "дневной потолок вызовов модели продаж выбран: {spent} из {cap} токенов "
-    "(SALES_DAILY_TOKEN_CAP); завтра или поднимите SALES_DAILY_TOKEN_CAP"
-)
+#: Начало отказа своего потолка продаж: что выбрано и сколько. Продолжение — кто и как
+#: поднимает потолок — пишет ядро (`core/usage.py`), и имя настройки уходит в журнал, а не
+#: человеку; тест держит только своё — слова потолка продаж и числа.
+REFUSED = "дневной потолок вызовов модели продаж выбран: {spent} из {cap} токенов"
 
 
 async def _sales_cap_spent(monkeypatch: pytest.MonkeyPatch, session: AsyncSession) -> None:
@@ -67,7 +66,7 @@ async def test_spent_sales_cap_refuses_the_reply_kind_in_words_without_the_model
 
     assert kinds.calls == 0  # модель вида ответа не звали
     # Разбор доноров и черновик агента — не в счёте продаж: только 61 + 40.
-    assert str(refused.value) == REFUSED.format(spent=101, cap=83)
+    assert str(refused.value).startswith(REFUSED.format(spent=101, cap=83))
 
 
 async def test_spent_sales_cap_lets_the_donor_price_parse_go(
@@ -104,7 +103,7 @@ async def test_sales_cap_is_the_setting_or_a_share_of_the_general_one(
     usage.record(session, operation="reply_parse", units=97)
 
     if refused:
-        with pytest.raises(LlmCapExceededError, match="SALES_DAILY_TOKEN_CAP"):
+        with pytest.raises(LlmCapExceededError, match="дневной потолок вызовов модели продаж"):
             await usage.ensure_llm_within_cap(session, own=usage_cap.sales_cap())
     else:
         await usage.ensure_llm_within_cap(session, own=usage_cap.sales_cap())
@@ -125,7 +124,8 @@ async def test_the_queue_build_stops_in_words_of_the_sales_cap_and_spends_under_
     report = await queue.build(session, rewriter, hypothesis_id=world.hypothesis_id, limit=10)
 
     assert (report.prepared, report.tokens_spent, len(rewriter.seen)) == (2, 74, 2)
-    assert report.stopped == REFUSED.format(spent=74, cap=53)
+    assert report.stopped is not None
+    assert report.stopped.startswith(REFUSED.format(spent=74, cap=53))
     spent = await session.execute(
         select(UsageRecordModel.operation, func.sum(UsageRecordModel.units)).group_by(
             UsageRecordModel.operation
