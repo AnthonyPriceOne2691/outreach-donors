@@ -8,7 +8,7 @@
 
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
 import { permissionTitle, ROLE_TITLES } from '../api/labels';
@@ -146,5 +146,75 @@ describe('меню у почты', () => {
     // Выпадающее Mantine в jsdom для запросов по роли «скрыто» — переход не доигран.
     const password = within(menu).getByRole('menuitem', { name: 'Сменить пароль', hidden: true });
     expect(password).toHaveAttribute('href', '/password');
+  });
+});
+
+/** Окно, где совпадает только этот запрос ширины. */
+function windowWhere(matched: string) {
+  window.matchMedia = (query: string) =>
+    ({
+      matches: query === matched,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }) as MediaQueryList;
+}
+
+describe('меню сворачивается до значков (замечание Anthony 10.10.2026)', () => {
+  const before = Object.getOwnPropertyDescriptor(window, 'matchMedia');
+  afterEach(() => {
+    if (before !== undefined) Object.defineProperty(window, 'matchMedia', before);
+  });
+
+  it('кнопкой в шапке: подписи — только диктору, ссылки на месте, выбор помнится', async () => {
+    windowWhere('(min-width: 48em)');
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    serve({ 'GET /api/auth/me': { body: ADMIN }, ...HOME_ROUTES });
+    renderWith(<AppRoutes />, '/');
+    const user = userEvent.setup();
+    const fold = await screen.findByRole('button', { name: 'Свернуть меню' });
+    expect(fold).toHaveAttribute('aria-expanded', 'true');
+
+    await user.click(fold);
+
+    const menu = within(screen.getByRole('navigation', { name: 'Разделы' }));
+    expect(menu.getByRole('link', { name: 'Учётки' })).toHaveAttribute('href', '/users');
+    expect(menu.getByText('Учётки')).toHaveClass('mantine-VisuallyHidden-root');
+    expect(menu.getByRole('group', { name: 'Настройки' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Развернуть меню' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+    expect(localStorage.getItem('outreach.nav.folded')).toBe('1');
+
+    await user.click(screen.getByRole('button', { name: 'Развернуть меню' }));
+    expect(menu.getByText('Учётки')).not.toHaveClass('mantine-VisuallyHidden-root');
+    expect(localStorage.getItem('outreach.nav.folded')).toBeNull();
+  });
+
+  it('на телефоне меню всегда с подписями, даже если на компьютере его свернули', async () => {
+    localStorage.setItem('outreach.nav.folded', '1');
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    serve({ 'GET /api/auth/me': { body: ADMIN }, ...HOME_ROUTES });
+    renderWith(<AppRoutes />, '/');
+
+    const menu = within(await screen.findByRole('navigation', { name: 'Разделы' }));
+    expect(await menu.findByText('Учётки')).not.toHaveClass('mantine-VisuallyHidden-root');
+  });
+
+  it('на телефоне выбранный раздел закрывает выехавшее меню', async () => {
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    serve({ 'GET /api/auth/me': { body: ADMIN }, ...HOME_ROUTES });
+    renderWith(<AppRoutes />, '/settings/extra');
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Открыть меню' }));
+    await user.click(item('Обзор'));
+
+    expect(await screen.findByRole('button', { name: 'Открыть меню' })).toBeInTheDocument();
   });
 });

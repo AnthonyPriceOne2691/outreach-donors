@@ -10,6 +10,13 @@
  * открыть в новой вкладке, и диктор называет его ссылкой. «Диалоги» ведут туда,
  * откуда из них ушли (`sectionPlace.ts`, 10.10.2026).
  *
+ * **Меню сворачивается до значков** кнопкой в шапке (`navFold.ts`, `NavMenu`,
+ * замечание Anthony 10.10.2026). Колонка меняет ширину тем же ходом, что рабочая
+ * область — свой отступ (`.mantine-AppShell-navbar` в glass.css): иначе колонка
+ * вставала на место сразу, а содержимое доезжало за ней 200 мс и на это время
+ * уходило под неё. На телефоне меню выезжает по кнопке и закрывается, когда
+ * раздел выбран: прежде оно оставалось поверх открытого раздела.
+ *
  * Шапка и боковая колонка — стекло: они стоят поверх полотна, и именно
  * на них держится ощущение глубины. Содержимое — на своей панели, чтобы
  * длинный текст не читался поверх пёстрого пятна фона.
@@ -18,103 +25,57 @@
  * к верхнему краю вслед за шапкой (`shellLift.ts`, замечание 25.09.2026).
  */
 
+import { ActionIcon, AppShell, Box, Burger, Button, Group, Title, Tooltip } from '@mantine/core';
+import { useDisclosure, useMediaQuery } from '@mantine/hooks';
 import {
-  AppShell,
-  Badge,
-  Box,
-  Burger,
-  Button,
-  Group,
-  NavLink,
-  Stack,
-  Title,
-  VisuallyHidden,
-} from '@mantine/core';
-import { useDisclosure } from '@mantine/hooks';
-import { IconLogout } from '@tabler/icons-react';
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
+  IconLogout,
+} from '@tabler/icons-react';
 import { useEffect, useMemo, useRef } from 'react';
-import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 
 import { SERVICE_NAME } from '../brand';
-import type { Permission } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
-import { formatNumber } from '../format';
 import { AccountMenu } from './AccountMenu';
-import { NAV_GROUPS, NavGroup } from './NavGroup';
-import type { NavGroupKey } from './NavGroup';
+import { FOLDED_WIDTH, useNavFold } from './navFold';
+import { NavMenu } from './NavMenu';
 import { navbarWidth } from './navWidth';
+import { REMEMBERED, SECTIONS } from './sections';
 import { useSectionPlaces } from './sectionPlace';
 import { followScroll } from './shellLift';
 import { useSplit, workKey } from './split';
-import { ThemeToggle } from './ThemeToggle';
 import { useWork } from './work';
-import type { WorkSection } from './work';
-
-interface Section {
-  path: string;
-  title: string;
-  group: NavGroupKey;
-  permission?: Permission;
-  /** Какое число ждущей работы стоит у пункта. */
-  work?: WorkSection;
-  /** Пункт ведёт туда, откуда из раздела ушли (`sectionPlace.ts`): список и запись —
-   *  на одном экране, и возврат в раздел не должен закрывать открытую запись. */
-  remember?: true;
-}
-
-/** Две группы — решение Anthony 09.10.2026 (аудит экранов, второй круг): пятнадцать
- *  пунктов одним списком читались вперемешку — ежедневная работа рядом с тем, что
- *  настраивают раз в неделю. Порядок внутри групп — прежний: к нему привыкли. */
-const SECTIONS: Section[] = [
-  { path: '/', title: 'Обзор', group: 'work' },
-  { path: '/run', title: 'Прогон', group: 'work', permission: 'view', work: 'run' },
-  { path: '/donors', title: 'Доноры', group: 'work', permission: 'view' },
-  { path: '/selection', title: 'Отбор', group: 'work', permission: 'view' },
-  { path: '/forms', title: 'Формы', group: 'work', permission: 'view', work: 'forms' },
-  {
-    path: '/advertisers',
-    title: 'Рекламодатели',
-    group: 'work',
-    permission: 'view',
-    work: 'advertisers',
-  },
-  // Своё право, а не `view`: раздел снимается с учётки поимённо (решение владельца 01.10).
-  { path: '/sales', title: 'Продажи', group: 'work', permission: 'sales' },
-  { path: '/letters', title: 'Письма', group: 'work', permission: 'view' },
-  {
-    path: '/threads',
-    title: 'Диалоги',
-    group: 'work',
-    permission: 'view',
-    work: 'threads',
-    remember: true,
-  },
-  { path: '/suppressions', title: 'Стоп-лист', group: 'settings', permission: 'view' },
-  { path: '/settings', title: 'Пороги', group: 'settings', permission: 'view' },
-  { path: '/agent', title: 'Агент переписки', group: 'settings', permission: 'view' },
-  { path: '/usage', title: 'Расход', group: 'settings', permission: 'view' },
-  { path: '/senders', title: 'Домены рассылки', group: 'settings', permission: 'senders' },
-  { path: '/users', title: 'Учётки', group: 'settings', permission: 'users' },
-];
-
-const REMEMBERED = SECTIONS.filter((section) => section.remember).map((section) => section.path);
 
 /** Высота шапки. Одна на раму и на подъём колонки меню: разойдись они —
  *  колонка поднималась бы не до края или заезжала за него. */
 const HEADER_HEIGHT = 68;
 
-/** Больше значок не показывает: место под число у пункта — на три цифры (`navWidth.ts`). */
-const COUNT_CAP = 999;
+/** С какой ширины меню — колонкой рядом, а не выезжает по кнопке: `sm` Mantine. */
+const BESIDE = '(min-width: 48em)';
 
-/** Число у пункта: работы нет — значка нет, ноль не рисуется. Точное число
- *  сверх потолка — на «Обзоре» и на экране раздела. */
-function WorkCount({ count }: { count: number | undefined }) {
-  if (count === undefined || count === 0) return null;
+/** Кнопка в шапке, сворачивающая меню до значков. Только рядом с колонкой. */
+function FoldToggle({ folded, onToggle }: { folded: boolean; onToggle: () => void }) {
+  const said = folded ? 'Развернуть меню' : 'Свернуть меню';
   return (
-    <Badge size="sm" variant="light" color="yellow">
-      {count > COUNT_CAP ? `${COUNT_CAP}+` : formatNumber(count)}
-      <VisuallyHidden> ждут человека</VisuallyHidden>
-    </Badge>
+    <Tooltip label={said} withArrow>
+      <ActionIcon
+        variant="subtle"
+        size="lg"
+        className="press"
+        visibleFrom="sm"
+        aria-label={said}
+        aria-expanded={!folded}
+        aria-controls="app-menu"
+        onClick={onToggle}
+      >
+        {folded ? (
+          <IconLayoutSidebarLeftExpand size={20} />
+        ) : (
+          <IconLayoutSidebarLeftCollapse size={20} />
+        )}
+      </ActionIcon>
+    </Tooltip>
   );
 }
 
@@ -123,7 +84,13 @@ export function Shell() {
   const navigate = useNavigate();
   const location = useLocation();
   const split = useSplit();
-  const [opened, { toggle }] = useDisclosure();
+  const [opened, { toggle, close }] = useDisclosure();
+  const [foldedChoice, toggleFold] = useNavFold();
+  // Свёрнутым бывает только меню-колонка: на телефоне оно выезжает с подписями.
+  // Значение — с первой отрисовки: иначе свёрнутое меню на каждом заходе
+  // рисовалось бы развёрнутым и сворачивалось на глазах (как `useSplit`).
+  const beside = useMediaQuery(BESIDE, false, { getInitialValueInEffect: false }) === true;
+  const folded = foldedChoice && beside;
   const sections = SECTIONS.filter(
     (section) => section.permission === undefined || can(section.permission),
   );
@@ -138,6 +105,10 @@ export function Shell() {
     () => navbarWidth(titles.split('\n'), counted.split('\n')),
     [titles, counted],
   );
+
+  // Раздел выбран — выехавшее меню телефона уходит: иначе оно закрывало раздел,
+  // пока его не убрали кнопкой.
+  useEffect(() => close(), [location.pathname, close]);
 
   const leave = () => {
     signOut();
@@ -154,7 +125,11 @@ export function Shell() {
     <AppShell
       ref={frame}
       header={{ height: HEADER_HEIGHT }}
-      navbar={{ width: navWidth, breakpoint: 'sm', collapsed: { mobile: !opened } }}
+      navbar={{
+        width: folded ? FOLDED_WIDTH : navWidth,
+        breakpoint: 'sm',
+        collapsed: { mobile: !opened },
+      }}
       padding="lg"
       styles={{
         // Рама прозрачна: полотно живёт на `body` и должно просвечивать
@@ -178,7 +153,14 @@ export function Shell() {
               многоточия, а не уходит под кнопки; на телефоне почта и «Выйти» —
               значками с теми же названиями. Роль и права — в меню у почты. */}
           <Group gap="sm" wrap="nowrap" style={{ minWidth: 0 }}>
-            <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
+            <Burger
+              opened={opened}
+              onClick={toggle}
+              hiddenFrom="sm"
+              size="sm"
+              aria-label={opened ? 'Закрыть меню' : 'Открыть меню'}
+            />
+            <FoldToggle folded={foldedChoice} onToggle={toggleFold} />
             <Title
               order={4}
               style={{
@@ -210,48 +192,8 @@ export function Shell() {
       </AppShell.Header>
 
       {/* Имя области: на «Диалогах» рядом вторая навигация — список диалогов. */}
-      <AppShell.Navbar p="sm" aria-label="Разделы">
-        <Stack h="100%" justify="space-between" className="glassFrame navFrame" p="xs" gap="xs">
-          {/* Пункты — своей прокруткой, переключатель темы — внизу рамы всегда: с
-              подписями групп пятнадцать пунктов не помещались в колонку на 1280 × 800,
-              и переключатель уходил под край (аудит экранов 09.10.2026). */}
-          <Stack gap="md" className="navScroll">
-            {NAV_GROUPS.map((group) => {
-              const items = sections.filter((section) => section.group === group.key);
-              if (items.length === 0) return null;
-              return (
-                <NavGroup key={group.key} group={group}>
-                  {items.map((section) => (
-                    <NavLink
-                      key={section.path}
-                      label={section.title}
-                      rightSection={
-                        section.work === undefined ? null : (
-                          <WorkCount count={work?.[section.work]} />
-                        )
-                      }
-                      className="glassSlot"
-                      active={
-                        section.path === '/'
-                          ? location.pathname === '/'
-                          : location.pathname.startsWith(section.path)
-                      }
-                      variant="light"
-                      component={Link}
-                      to={placeOf(section.path)}
-                    />
-                  ))}
-                </NavGroup>
-              );
-            })}
-          </Stack>
-
-          {/* Переключатель темы отделён линией: без неё он читается ещё
-              одним пунктом меню. */}
-          <Stack gap="xs" className="hairline" pt="xs">
-            <ThemeToggle />
-          </Stack>
-        </Stack>
+      <AppShell.Navbar p="sm" aria-label="Разделы" id="app-menu">
+        <NavMenu sections={sections} work={work} placeOf={placeOf} folded={folded} />
       </AppShell.Navbar>
 
       <AppShell.Main>

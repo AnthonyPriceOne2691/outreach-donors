@@ -661,9 +661,48 @@ html:root[data-mantine-color-scheme='dark'] .navGroupTitle {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  /* Вбок не прокручивается никогда: пока колонка разворачивается, подписи шире неё,
+     и `overflow-y: auto` без этой строки давал вбок `auto` — мелькала полоса прокрутки. */
+  overflow-x: hidden;
   scrollbar-width: thin;
   margin-inline: -4px;
   padding: 2px 4px;
+}
+
+/* Колонка меню меняет ширину тем же ходом, что рабочая область — свой отступ
+   (Mantine ведёт `padding` у main за `--app-shell-transition-duration`): иначе при
+   разворачивании колонка вставала на место сразу и на 200 мс накрывала содержимое. */
+.mantine-AppShell-root .mantine-AppShell-navbar {
+  transition-property: transform, top, height, width;
+}
+
+/* Подпись пункта — в одну строку: пока колонка разворачивается, подпись переносилась
+   бы на две и пункты прыгали по высоте. */
+.navFrame .mantine-NavLink-label {
+  white-space: nowrap;
+}
+
+/* Свёрнутое меню (`NavMenu`, `navFold.ts`): остаются значки. Подпись — диктору
+   (`VisuallyHidden`), поэтому тело пункта сжимается в ноль, а не прячется
+   `display: none`: спрятанное так пропало бы и для диктора. */
+.navFrame[data-folded] .mantine-NavLink-body {
+  flex: 0 0 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.navFrame[data-folded] .mantine-NavLink-section[data-position='left'] {
+  margin-inline-end: 0;
+}
+
+/* От подписи группы в свёрнутом меню — линия; название остаётся диктору. */
+.navGroupTitle[data-folded] .navGroupName {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* Пункт меню на 4 px ниже умолчания Mantine: с подписями групп «Работа» и

@@ -29,6 +29,10 @@ const TEXT_INSET = 24;
  *  с подписями. */
 const LABEL_FONT = `14px ${FONT_STACK}`;
 
+/** Значок пункта (`sections.ts`): 20 px и зазор 12 до подписи — отступ левой части
+ *  `NavLink` (10.10.2026, у пунктов появились значки). */
+export const ICON_ROOM = 32;
+
 /** Уже не бывает: ниже в рамке не помещается переключатель тем. */
 const MIN_WIDTH = 170;
 
@@ -50,7 +54,7 @@ export function navbarWidth(labels: readonly string[], counted: readonly string[
   if (widest === null) return FALLBACK_WIDTH;
   // Вверх, а не до ближайшего: подпись, которой не хватило доли пикселя,
   // обрезается многоточием целиком.
-  return Math.max(MIN_WIDTH, Math.ceil(widest) + 2 * (TEXT_INSET + NAV_PADDING));
+  return Math.max(MIN_WIDTH, Math.ceil(widest) + ICON_ROOM + 2 * (TEXT_INSET + NAV_PADDING));
 }
 
 function widestLabel(labels: readonly string[], counted: readonly string[]): number | null {
