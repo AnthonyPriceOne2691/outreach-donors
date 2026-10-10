@@ -4,9 +4,16 @@
  * Один на все экраны, где этап выбирают (письма, агент переписки): подписи
  * этапов и вид переключателя не расходятся между экранами. Под ним — что
  * экран делает на выбранном этапе, словами человека.
+ *
+ * **На телефоне — столбиком во всю ширину**, как период воронки продаж
+ * (`sales/FunnelPane`). В ряд «Донорам · Рекламодателям · Бизнесам ниши» —
+ * около 360 px, а панели на телефоне достаётся 286: на 390 px третий этап
+ * уходил за край экрана и срезался (проверка QA 10.10.2026, «Письма»). Столбик,
+ * а не список: этапов два-три, и все видны и нажимаются сразу.
  */
 
 import { SegmentedControl, Stack, Text } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import type { ReactNode } from 'react';
 
 import type { LetterStage } from '../api/types';
@@ -21,6 +28,9 @@ const STAGES: StageOption<LetterStage>[] = [
   { value: 'donors', label: 'Донорам' },
   { value: 'advertisers', label: 'Рекламодателям' },
 ];
+
+/** Узкое окно — то же, что у вкладок «Диалогов» и периода воронки. */
+const NARROW = '(max-width: 36em)';
 
 interface StageSwitchProps<S extends string> {
   /** Имя переключателя для программ чтения с экрана и тестов. */
@@ -41,6 +51,9 @@ export function StageSwitch<S extends string = LetterStage>({
   lead,
   stages,
 }: StageSwitchProps<S>) {
+  // Значение — с первой отрисовки: иначе телефон на миг рисовал бы ряд за краем
+  // экрана и перестраивал его на глазах (как `layout/split`).
+  const narrow = useMediaQuery(NARROW, false, { getInitialValueInEffect: false }) === true;
   return (
     <Stack gap={6}>
       <SegmentedControl
@@ -48,7 +61,9 @@ export function StageSwitch<S extends string = LetterStage>({
         value={value}
         onChange={(picked) => onChange(picked as S)}
         data={stages ?? STAGES}
-        style={{ alignSelf: 'flex-start' }}
+        orientation={narrow ? 'vertical' : 'horizontal'}
+        fullWidth={narrow}
+        style={{ alignSelf: narrow ? 'stretch' : 'flex-start' }}
       />
       <Text size="sm" c="dimmed" maw={680}>
         {lead}
