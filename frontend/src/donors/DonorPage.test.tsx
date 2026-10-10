@@ -108,6 +108,19 @@ describe('карточка донора: решение человека и фо
       '/forms',
     );
   });
+
+  it('форма у кандидата — в очередь «Формы» он не встаёт, и карточка этого не обещает', async () => {
+    // Проверка прода 10.10.2026: карточка кандидата писала «Донор стоит в очереди
+    // «Формы»», а очередь — только доноры.
+    await openCard({ ...CARD, review: null, contact_status: 'form_only' });
+
+    const section = addresses();
+    expect(within(section).getByText(/на сайте только форма/)).toBeInTheDocument();
+    expect(within(section).queryByText(/стоит в очереди/)).toBeNull();
+    expect(
+      within(section).getByText(/В очередь «Формы» встают только доноры, принятые человеком/),
+    ).toBeInTheDocument();
+  });
 });
 
 describe('карточка донора: переходы', () => {

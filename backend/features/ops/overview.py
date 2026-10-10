@@ -97,7 +97,8 @@ class DonorCounts:
     rejected: int
     #: Доноры с найденным адресом — то же правило, что у фильтра списка.
     with_email: int
-    #: Доноры с формой вместо адреса — их ведут руками.
+    #: Доноры с формой вместо адреса — очередь «Формы» её условием (`forms.in_queue`):
+    #: «и 2 с формой» стояло рядом с «Заполнить формы 5» (проверка прода 10.10.2026).
     form_only: int
     #: Скольким донорам ушло хотя бы одно письмо.
     written: int
@@ -230,7 +231,7 @@ async def _donors(
                 _count(donor),
                 _count(DonorModel.review == Decision.REJECTED.value),
                 _count(and_(donor, DonorModel.contact_status == ContactStatus.FOUND)),
-                _count(and_(donor, DonorModel.contact_status == ContactStatus.FORM_ONLY)),
+                _count(forms.in_queue()),
                 _count(and_(donor, DonorModel.last_price.is_not(None))),
                 _count(and_(donor, DonorModel.last_price_at >= fresh_since)),
             )

@@ -14,6 +14,11 @@
 на форму письмом — у нас появился адрес, и донор становится обычным:
 ему уйдёт письмо из очереди. Если не ответил, запись закрывается
 как «без контакта»: висеть в очереди вечно она не должна.
+
+**В очереди — только доноры** (`in_queue`, проверка прода 10.10.2026). Исход
+«только форма» лежит и на кандидатах, которых человек не принимал: их адреса
+искали до правила «ищем только принятым». Очередь их брала — первыми, по DR, —
+и меню с главной звали «Формы 5» рядом с «2 с формой» в воронке доноров.
 """
 
 from __future__ import annotations
@@ -22,7 +27,7 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import contacts as cfg
@@ -30,6 +35,7 @@ from backend.features.contacts import manual
 from backend.features.core.domain import ContactSource, ContactStatus
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
+from backend.features.donors.standing import is_donor
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +64,18 @@ class FormRow:
     attempted_at: datetime | None
 
 
+def in_queue() -> ColumnElement[bool]:
+    """Кто ждёт рук — одно условие для страницы очереди, её числа, строки под
+    действие и сводки главной: разойдись они, меню звало бы «Формы 5» над
+    очередью из двух.
+
+    Донор — тем же правилом, что везде (`standing.is_donor`): форма кандидата —
+    работа до решения «берём ли», и месячный потолок ушёл бы на домены, которые
+    человек потом отклонит.
+    """
+    return and_(is_donor(), DonorModel.contact_status == ContactStatus.FORM_ONLY)
+
+
 async def queue(session: AsyncSession, *, page: int = 1, size: int = PAGE_SIZE) -> list[FormRow]:
     """Кого заполнять руками — страница очереди, номер с единицы. Сильные
     доноры сверху: их форма стоит потраченного времени, слабые подождут.
@@ -78,7 +96,7 @@ async def queue(session: AsyncSession, *, page: int = 1, size: int = PAGE_SIZE) 
             DonorModel.contact_attempted_at,
         )
         .join(DomainModel, DomainModel.id == DonorModel.domain_id)
-        .where(DonorModel.contact_status == ContactStatus.FORM_ONLY)
+        .where(in_queue())
         .order_by(
             DonorModel.dr.desc().nullslast(),
             DonorModel.org_traffic.desc().nullslast(),
@@ -102,14 +120,7 @@ async def queue(session: AsyncSession, *, page: int = 1, size: int = PAGE_SIZE) 
 
 async def total(session: AsyncSession) -> int:
     """Сколько всего ждёт рук."""
-    return int(
-        await session.scalar(
-            select(func.count(DonorModel.id)).where(
-                DonorModel.contact_status == ContactStatus.FORM_ONLY
-            )
-        )
-        or 0
-    )
+    return int(await session.scalar(select(func.count(DonorModel.id)).where(in_queue())) or 0)
 
 
 async def monthly_left(session: AsyncSession, *, now: datetime | None = None) -> int:
@@ -119,14 +130,21 @@ async def monthly_left(session: AsyncSession, *, now: datetime | None = None) ->
     дней, а не хранимым счётчиком: счётчик, который некому обнулять,
     однажды застревает — этот урок в сервисе уже оплачен дневным
     лимитом ящиков.
+
+    Только адреса доноров (проверка прода 10.10.2026): «вписан руками» — и адрес
+    кандидата с его карточки, и адрес, с которого ответил рекламодатель или лид
+    продаж; потолок форм доноров тратился на них.
     """
     moment = now or datetime.now(UTC)
     since = moment - timedelta(days=30)
     used = int(
         await session.scalar(
-            select(func.count(ContactModel.id)).where(
+            select(func.count(ContactModel.id))
+            .join(DonorModel, DonorModel.domain_id == ContactModel.domain_id)
+            .where(
                 ContactModel.source == ContactSource.MANUAL,
                 ContactModel.created_at >= since,
+                is_donor(),
             )
         )
         or 0
@@ -173,12 +191,13 @@ async def _row(session: AsyncSession, donor_id: int) -> FormRow:
             DonorModel.contact_attempted_at,
         )
         .join(DomainModel, DomainModel.id == DonorModel.domain_id)
-        .where(DonorModel.id == donor_id, DonorModel.contact_status == ContactStatus.FORM_ONLY)
+        .where(DonorModel.id == donor_id, in_queue())
     )
     one = found.first()
     if one is None:
         raise UnknownFormError(
             f"Донора №{donor_id} нет в ручной очереди: либо адрес у него уже есть, "
+            "либо его не принимал человек — форму заполняют только донору, — "
             "либо очередь успел разобрать кто-то другой"
         )
     donor_id_, domain_id, host, dr, traffic, attempted = one
