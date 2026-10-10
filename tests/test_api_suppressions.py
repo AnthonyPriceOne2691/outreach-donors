@@ -214,3 +214,60 @@ class TestChanging:
 
         assert response.status_code == 409
         assert "не похоже" in response.json()["detail"]
+
+
+class TestDomainKey:
+    """Проверка QA 10.10.2026: ссылка и `www.` донора заводили новый домен,
+    а экран говорил «в стоп-листе» — донор при этом оставался открыт."""
+
+    async def test_link_to_the_donor_lands_on_the_donor(
+        self, client: AsyncClient, admin_token: str, session: AsyncSession
+    ) -> None:
+        await make_donor(session, HOST)
+        await session.commit()
+
+        response = await client.post(
+            "/api/suppressions",
+            json={"target": f"https://www.{HOST}/contact?from=mail", "reason": "manual"},
+            headers=bearer(admin_token),
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["host"] == HOST
+        assert response.json()["new_domain"] is False
+
+    async def test_unknown_domain_is_named_new(self, client: AsyncClient, admin_token: str) -> None:
+        """Экрану нужно знать, что донора с таким доменом нет: опечатка
+        в домене иначе выглядит как закрытый донор."""
+        response = await client.post(
+            "/api/suppressions",
+            json={"target": "never-seen.example.test", "reason": "manual"},
+            headers=bearer(admin_token),
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["new_domain"] is True
+
+    async def test_too_long_domain_is_refused_in_words(
+        self, client: AsyncClient, admin_token: str
+    ) -> None:
+        """Раньше отказывал разбор запроса: «String should have at most 253 characters»."""
+        response = await client.post(
+            "/api/suppressions",
+            json={"target": "x" * 300 + ".test", "reason": "manual"},
+            headers=bearer(admin_token),
+        )
+
+        assert response.status_code == 409
+        assert response.json()["detail"].startswith("Домен длиннее 253 знаков")
+
+    async def test_cyrillic_domain_is_taken(self, client: AsyncClient, admin_token: str) -> None:
+        """Раньше: «кириллица.рф не похоже ни на домен» — проверка знала одну латиницу."""
+        response = await client.post(
+            "/api/suppressions",
+            json={"target": "пример.рф", "reason": "manual"},
+            headers=bearer(admin_token),
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["host"] == "пример.рф"

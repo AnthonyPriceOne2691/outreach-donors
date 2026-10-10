@@ -21,6 +21,12 @@
 условиях: их заводит не человек, а страница отписки и приём ответов,
 и поля они не заполняют вовсе. Здесь это ещё и запрещено явно —
 причина с чужим решением руками не заводится.
+
+**Домен — тем ключом, которым его пишет база.** Ссылка, `www.`, поддомен,
+порт и регистр сводятся к корню сайта тем же `donors/host.py`, что у прогона.
+До этого стоп-лист срезал только схему и косую черту и искал домен точным
+совпадением: `www.` и поддомен донора заводились новыми строками `domains`,
+донор оставался открыт, а экран говорил «в стоп-листе» (проверка QA 10.10.2026).
 """
 
 from __future__ import annotations
@@ -42,6 +48,8 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import MessageModel
+from backend.features.donors.host import normalize_host
+from backend.shared.net.url_parts import split_url
 
 #: Причины, за которыми стоит решение адресата, а не наше. Снять такую
 #: запись можно, но только назвав причину: письмо после неё уходит тому,
@@ -53,7 +61,20 @@ DONOR_DECISION = (SuppressionReason.UNSUBSCRIBED, SuppressionReason.COMPLAINED)
 HAND_REASONS = (SuppressionReason.MANUAL, SuppressionReason.SUPPLIER)
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-_HOST_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$")
+#: Метка домена: буквы любого алфавита, цифры, дефис не с краю, до 63 знаков.
+#: Кириллица — потому что база хранит домен в том написании, в каком его дал
+#: источник (`normalize_host` его не меняет), и `пример.рф` в ней бывает, а
+#: проверка одной латиницей отказывала ему «не похоже на домен».
+_LABEL = r"[^\W_](?:(?:[^\W_]|-){0,61}[^\W_])?"
+_HOST_RE = re.compile(rf"^{_LABEL}(?:\.{_LABEL})+$")
+
+#: Длиннее не бывает: домен — предел DNS и ширина `domains.host`, адрес — ширина
+#: `suppressions.email`. Без своей проверки отказывал разбор запроса по-английски,
+#: а мимо него — база пятисоткой.
+HOST_MAX = 253
+EMAIL_MAX = 255
+#: Вписанное целиком: ссылка с путём длиннее своего домена, и предел у неё свой.
+ENTERED_MAX = 2048
 
 
 class StopListError(ValueError):
@@ -93,6 +114,17 @@ class StopRow:
         return self.reason in DONOR_DECISION
 
 
+@dataclass(frozen=True, slots=True)
+class AddedRow(StopRow):
+    """Строка, только что заведённая руками, — и легла ли она на домен из базы."""
+
+    #: Домена в базе не было, запись завела его сама. Донора с таким доменом
+    #: нет: вписан сайт, которого прогоны ещё не видели, опечатка или поддомен
+    #: в зоне, корня которой список суффиксов не знает. Экран говорит это
+    #: словами — «письма сняты с очереди» здесь читалось как «донор закрыт».
+    new_domain: bool = False
+
+
 async def rows(session: AsyncSession) -> list[StopRow]:
     """Весь список, свежие сверху."""
     found = await session.execute(
@@ -123,12 +155,13 @@ async def add(
     stage: Stage | None = None,
     expires_at: datetime | None = None,
     author: str,
-) -> StopRow:
+) -> AddedRow:
     """Завести запись руками: домен целиком или один адрес.
 
-    Домен, которого мы ещё не видели, заводится строкой в `domains`:
-    список поставщиков приходит раньше первого прогона, и ждать, пока
-    донор найдётся сам, значит написать ему до того.
+    Домен — сайт целиком: ссылка, `www.` и поддомен сводятся к корню, как
+    у прогона (`site_of`). Домен, которого мы ещё не видели, заводится
+    строкой в `domains`: список поставщиков приходит раньше первого прогона,
+    и ждать, пока донор найдётся сам, значит написать ему до того.
 
     Срок необязателен и по умолчанию его нет: запись держит, пока её
     не снимут. С ним запись перестаёт держать сама — так выражается
@@ -144,16 +177,45 @@ async def add(
             "Срок записи уже прошёл — такая запись не удержит ни одного письма. "
             "Поставьте будущую дату или оставьте поле пустым: пусто значит «навсегда»"
         )
-    cleaned = target.strip().lower().removeprefix("http://").removeprefix("https://").strip("/")
-    if _EMAIL_RE.match(cleaned):
+    entered = target.strip().lower()
+    if len(entered) > ENTERED_MAX:
+        raise StopListError(
+            f"Вписано длиннее {ENTERED_MAX} знаков — здесь ждут домен, ссылку на сайт "
+            "или адрес почты"
+        )
+    if _EMAIL_RE.match(entered):
         return await _add_email(
-            session, cleaned, reason=reason, stage=stage, expires_at=expires_at, author=author
+            session, entered, reason=reason, stage=stage, expires_at=expires_at, author=author
         )
-    if _HOST_RE.match(cleaned):
+    host = site_of(entered)
+    if host:
         return await _add_host(
-            session, cleaned, reason=reason, stage=stage, expires_at=expires_at, author=author
+            session, host, reason=reason, stage=stage, expires_at=expires_at, author=author
         )
-    raise StopListError(f"«{target}» не похоже ни на домен, ни на адрес почты")
+    raise StopListError(f"«{target.strip()}» не похоже ни на домен, ни на адрес почты")
+
+
+def site_of(entered: str) -> str:
+    """Домен сайта тем ключом, которым его пишет база. Не домен — пустая строка.
+
+    `https://WWW.Blog.Example.co.uk:8080/path` → `example.co.uk`: схема, путь,
+    порт, регистр и поддомен уходят тем же `normalize_host`, что у прогона, — его
+    отбор и проверка перед отправкой ищут запись по этому ключу. Зоны, которой
+    нет в списке суффиксов (`.test`, `.local`), корнем не свести: от хоста
+    отходит только `www.`, как у обхода (`crawl/links.py`).
+
+    Знак «@» — не домен: `a@b@c.test` разбор адреса прочёл бы как `c.test`.
+    """
+    if "@" in entered:
+        return ""
+    split = split_url(entered if "//" in entered else f"//{entered}")
+    host = ((split.hostname if split else None) or "").rstrip(".")
+    if len(host) > HOST_MAX:
+        raise StopListError(
+            f"Домен длиннее {HOST_MAX} знаков — таких не бывает. Проверьте, что вставилось в поле"
+        )
+    site = normalize_host(host) or host.removeprefix("www.")
+    return site if _HOST_RE.match(host) and _HOST_RE.match(site) else ""
 
 
 async def remove(session: AsyncSession, row_id: int, *, reason: str | None) -> StopRow:
@@ -236,9 +298,10 @@ async def _add_host(
     stage: Stage | None,
     expires_at: datetime | None,
     author: str,
-) -> StopRow:
+) -> AddedRow:
     found = await session.execute(select(DomainModel).where(DomainModel.host == host))
     domain = found.scalars().first()
+    new_domain = domain is None
     if domain is None:
         domain = DomainModel(host=host)
         session.add(domain)
@@ -255,7 +318,7 @@ async def _add_host(
     session.add(row)
     await session.flush()
     await stop_pending(session, domain_id=domain.id)
-    return StopRow(
+    return AddedRow(
         id=row.id,
         host=host,
         email=None,
@@ -264,6 +327,7 @@ async def _add_host(
         created_by=author,
         created_at=row.created_at,
         expires_at=expires_at,
+        new_domain=new_domain,
     )
 
 
@@ -275,7 +339,9 @@ async def _add_email(
     stage: Stage | None,
     expires_at: datetime | None,
     author: str,
-) -> StopRow:
+) -> AddedRow:
+    if len(email) > EMAIL_MAX:
+        raise StopListError(f"Адрес длиннее {EMAIL_MAX} знаков — таких не бывает")
     await _refuse_duplicate(session, SuppressionModel.email == email, stage, email)
     row = SuppressionModel(
         email=email, reason=reason, stage=stage, expires_at=expires_at, created_by=author
@@ -283,7 +349,7 @@ async def _add_email(
     session.add(row)
     await session.flush()
     await stop_pending(session, email=email)
-    return StopRow(
+    return AddedRow(
         id=row.id,
         host=None,
         email=email,

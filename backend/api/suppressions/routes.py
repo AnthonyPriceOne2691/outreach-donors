@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.api.deps import db_session, needs
 from backend.api.suppressions.schemas import (
     AddBody,
+    AddedEntry,
     RemoveBody,
     StopEntry,
     StopListView,
@@ -53,13 +54,17 @@ async def all_rows(
     )
 
 
-@router.post("", response_model=StopEntry, summary="Завести запись руками")
+@router.post("", response_model=AddedEntry, summary="Завести запись руками")
 async def add_row(
     body: AddBody,
     author: UserModel = _sender,
     session: AsyncSession = Depends(db_session),
-) -> StopEntry:
-    """Домен целиком или один адрес. Письма адресату снимаются с очереди."""
+) -> AddedEntry:
+    """Домен целиком или один адрес. Письма адресату снимаются с очереди.
+
+    Домен приходит любым написанием — ссылкой, с `www.`, поддоменом — и ложится
+    на корень сайта, как его пишет база; не было его там — ответ так и скажет.
+    """
     row = await stoplist.add(
         session,
         body.target,
@@ -80,7 +85,7 @@ async def add_row(
     )
     await session.commit()
     logger.info("стоп-лист: %s добавил %s (%s)", author.email, row.target, row.reason.value)
-    return StopEntry.of(row)
+    return AddedEntry.added(row)
 
 
 @router.post("/{row_id}/remove", response_model=StopEntry, summary="Снять запись")
