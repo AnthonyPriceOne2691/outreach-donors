@@ -18,6 +18,7 @@ import { IconArrowRight } from '@tabler/icons-react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 
 import type { ThreadCard } from '../api/types';
+import { useSession } from '../auth/AuthProvider';
 import { readThreadFilters, threadMatches } from './threadFilters';
 import { useSortedThreads, waitsForPerson } from './useThreadList';
 
@@ -31,8 +32,9 @@ export function nextWaiting(threads: ThreadCard[], current: number): ThreadCard 
 function NextWaitingLink({ current }: { current: number }) {
   const location = useLocation();
   const [params] = useSearchParams();
+  const { can } = useSession();
   const { threads } = useSortedThreads();
-  const filters = readThreadFilters(params);
+  const filters = readThreadFilters(params, can('sales'));
   const next = nextWaiting(
     threads.filter((thread) => threadMatches(thread, filters)),
     current,

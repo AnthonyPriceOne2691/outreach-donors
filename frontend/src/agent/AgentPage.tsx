@@ -14,6 +14,10 @@
  * **Этапы — из реестра сервера** (`AGENT_STAGES`): имя, пояснение и сторона
  * цены приходят с ними. Своего списка у экрана нет — новый этап встаёт на
  * экран строкой реестра, без правки здесь.
+ *
+ * **Агент продаж — только с правом «Продажи»** (решение Anthony 10.10.2026, П2):
+ * сервер без права этап продаж не отдаёт и правку его настроек отказывает, а экран
+ * не показывает его и сам: ответ в кэше мог прийти до того, как право сняли.
  */
 
 import { Alert, Badge, Card, Group, Loader, Stack, Text } from '@mantine/core';
@@ -23,6 +27,7 @@ import { useState } from 'react';
 import { fetchAgentSettings } from '../api/agent';
 import type { AgentStageView } from '../api/agent';
 import { refusalOf } from '../api/client';
+import { stageShown } from '../api/stages';
 import { useSession } from '../auth/AuthProvider';
 import { PageHead } from '../components/PageHead';
 import { StageSwitch } from '../components/StageSwitch';
@@ -135,8 +140,8 @@ export function AgentPage() {
   // Черновик у каждого этапа свой: переключение этапа не теряет набранное.
   const [drafts, setDrafts] = useState<Drafts>({});
   const { data, error } = useQuery({ queryKey: AGENT_KEY, queryFn: fetchAgentSettings });
-  // Пока этап не выбран — первый в реестре.
-  const stages = data?.stages ?? [];
+  // Пока этап не выбран — первый в реестре из тех, что учётка видит.
+  const stages = (data?.stages ?? []).filter((one) => stageShown(one.stage, can('sales')));
   const view = stages.find((one) => one.stage === picked) ?? stages.at(0);
   const stage = view?.stage ?? '';
 
