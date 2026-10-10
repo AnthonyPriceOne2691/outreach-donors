@@ -23,7 +23,7 @@
 10.10.2026, П2): без права «Продажи» письма и ответы продаж не входят ни в
 сводку, ни в числа меню — считаются доноры и рекламодатели. С правом — как было.
 Этапы — без умолчания (ревью продаж к #304): забытый вызов ловит mypy, а не
-показывает продажи всем. Одно исключение — `overview`, и оно временное (там же).
+показывает продажи всем.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ from backend.features.core.models.run import RunModel
 from backend.features.crawl import review as advertiser_review
 from backend.features.donors import standing
 from backend.features.letters.chain import FIRST_STEP
-from backend.features.outreach.repository import EVERY_STAGE, OutreachRepository, ThreadMark
+from backend.features.outreach.repository import OutreachRepository, ThreadMark
 from backend.features.outreach.threads import ThreadState
 from backend.features.replies import unbound
 from backend.features.review.candidates import Decision
@@ -175,10 +175,7 @@ async def overview(
     session: AsyncSession,
     *,
     now: datetime | None = None,
-    # ⚠ Умолчание — временно и только ради теста продаж: `tests/test_sales_stage_screens.py`
-    # зовёт сводку без этапов, а тесты продаж правят продажи (ревью продаж к #304). Передадут
-    # там `EVERY_STAGE` — умолчание уходит, как у `work`; напомнит `tests/test_stage_scope.py`.
-    stages: Collection[Stage] = EVERY_STAGE,
+    stages: Collection[Stage],
 ) -> Overview:
     """Собрать главную. Каждое число — правилом своего экрана; письма, диалоги и расход —
     только видимых этапов (`stages`)."""

@@ -31,6 +31,7 @@ from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.core.models.run import RunCandidateModel, RunModel
 from backend.features.ops.overview import overview
+from backend.features.outreach.repository import EVERY_STAGE
 from backend.features.review.candidates import Decision, RunReview
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.thresholds import defaults
@@ -229,7 +230,7 @@ async def test_overview_is_a_funnel_through_the_same_rule(
 ) -> None:
     """Главная: проверено доменов — все записи; доноры — принятые; адрес —
     среди доноров, то есть та же длина, что у списка `?has_contact=true`."""
-    donors = (await overview(session)).donors
+    donors = (await overview(session, stages=EVERY_STAGE)).donors
 
     assert (donors.total, donors.suitable) == (4, 4)
     assert (donors.accepted, donors.rejected) == (1, 1)
@@ -241,7 +242,7 @@ async def test_overview_address_tile_matches_the_list_it_leads_to(
 ) -> None:
     listed = (await client.get("/api/donors?has_contact=true", headers=bearer(token))).json()
 
-    assert (await overview(session)).donors.with_email == listed["total"]
+    assert (await overview(session, stages=EVERY_STAGE)).donors.with_email == listed["total"]
 
 
 async def test_waiting_names_the_path_to_the_first_donors(
@@ -250,7 +251,7 @@ async def test_waiting_names_the_path_to_the_first_donors(
     """Пустой экран доноров ведёт туда, где доноров принимают: сколько ждёт
     решения и в очереди какого прогона — тем же правилом, что у главной."""
     body = (await client.get("/api/donors", headers=bearer(token))).json()
-    view = await overview(session)
+    view = await overview(session, stages=EVERY_STAGE)
 
     assert body["waiting"] == {"domains": view.waiting.review, "runs": view.waiting.review_runs}
     assert body["waiting"]["domains"] == 2
@@ -281,6 +282,6 @@ async def test_letters_and_prices_below_donors_count_only_donors(
         )
     await session.flush()
 
-    donors = (await overview(session)).donors
+    donors = (await overview(session, stages=EVERY_STAGE)).donors
 
     assert (donors.written, donors.priced, donors.priced_fresh) == (1, 1, 1)
