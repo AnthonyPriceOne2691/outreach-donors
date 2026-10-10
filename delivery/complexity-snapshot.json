@@ -162,9 +162,9 @@
       "worst": "—"
     },
     "backend/api/jobs/routes.py": {
-      "lines": 67,
+      "lines": 73,
       "complexity": 2,
-      "worst": "outcome:57"
+      "worst": "outcome:62"
     },
     "backend/api/keywords/__init__.py": {
       "lines": 1,
@@ -342,9 +342,9 @@
       "worst": "—"
     },
     "backend/api/senders/routes.py": {
-      "lines": 111,
+      "lines": 133,
       "complexity": 6,
-      "worst": "all_senders:37"
+      "worst": "all_senders:47"
     },
     "backend/api/senders/schemas.py": {
       "lines": 103,
@@ -357,19 +357,19 @@
       "worst": "—"
     },
     "backend/api/settings/routes.py": {
-      "lines": 188,
+      "lines": 195,
       "complexity": 5,
-      "worst": "_serp_balance:159"
+      "worst": "_serp_balance:166"
     },
     "backend/api/settings/schemas.py": {
-      "lines": 215,
+      "lines": 221,
       "complexity": 4,
-      "worst": "of:186"
+      "worst": "of:190"
     },
     "backend/api/stage_access.py": {
-      "lines": 106,
+      "lines": 139,
       "complexity": 1,
-      "worst": "_passed:37"
+      "worst": "_passed:43"
     },
     "backend/api/suppressions/__init__.py": {
       "lines": 1,
@@ -377,9 +377,9 @@
       "worst": "—"
     },
     "backend/api/suppressions/routes.py": {
-      "lines": 120,
+      "lines": 131,
       "complexity": 4,
-      "worst": "all_rows:43"
+      "worst": "all_rows:51"
     },
     "backend/api/suppressions/schemas.py": {
       "lines": 94,
@@ -442,9 +442,9 @@
       "worst": "—"
     },
     "backend/api/watchdog/routes.py": {
-      "lines": 54,
+      "lines": 60,
       "complexity": 3,
-      "worst": "silence:43"
+      "worst": "silence:49"
     },
     "backend/cli/__init__.py": {
       "lines": 1,
@@ -697,9 +697,9 @@
       "worst": "verify_password:43"
     },
     "backend/features/access/permissions.py": {
-      "lines": 122,
+      "lines": 124,
       "complexity": 4,
-      "worst": "has_permission:77"
+      "worst": "has_permission:79"
     },
     "backend/features/access/repository.py": {
       "lines": 223,
@@ -732,9 +732,9 @@
       "worst": "draft_answer:138"
     },
     "backend/features/agent/drafts.py": {
-      "lines": 343,
+      "lines": 344,
       "complexity": 7,
-      "worst": "reject_draft:252"
+      "worst": "reject_draft:253"
     },
     "backend/features/agent/guarding.py": {
       "lines": 241,
@@ -982,9 +982,9 @@
       "worst": "check_connected:115"
     },
     "backend/features/core/usage.py": {
-      "lines": 215,
+      "lines": 222,
       "complexity": 10,
-      "worst": "ensure_llm_within_cap:172"
+      "worst": "ensure_llm_within_cap:179"
     },
     "backend/features/core/window.py": {
       "lines": 172,
@@ -1432,9 +1432,9 @@
       "worst": "record_sent:77"
     },
     "backend/features/letters/stoplist.py": {
-      "lines": 390,
+      "lines": 397,
       "complexity": 7,
-      "worst": "add:150"
+      "worst": "add:157"
     },
     "backend/features/letters/template.py": {
       "lines": 470,
@@ -1477,29 +1477,29 @@
       "worst": "_gone:104"
     },
     "backend/features/ops/alarms.py": {
-      "lines": 16,
+      "lines": 21,
       "complexity": 0,
       "worst": "—"
     },
     "backend/features/ops/job_outcome.py": {
-      "lines": 191,
+      "lines": 225,
       "complexity": 10,
-      "worst": "_outcome:131"
+      "worst": "_outcome:159"
     },
     "backend/features/ops/mail_watch.py": {
-      "lines": 165,
+      "lines": 177,
       "complexity": 8,
-      "worst": "_of_stage:90"
+      "worst": "_of_stage:99"
     },
     "backend/features/ops/overview.py": {
-      "lines": 320,
+      "lines": 325,
       "complexity": 5,
-      "worst": "_letters:287"
+      "worst": "_letters:292"
     },
     "backend/features/ops/silence.py": {
-      "lines": 326,
+      "lines": 336,
       "complexity": 7,
-      "worst": "_crawl_blocked:249"
+      "worst": "_crawl_blocked:259"
     },
     "backend/features/outreach/__init__.py": {
       "lines": 2,
@@ -1522,9 +1522,9 @@
       "worst": "inbox_trace:229"
     },
     "backend/features/outreach/repository.py": {
-      "lines": 415,
+      "lines": 421,
       "complexity": 4,
-      "worst": "sent_today:170"
+      "worst": "sent_today:180"
     },
     "backend/features/outreach/senders.py": {
       "lines": 160,
@@ -1532,9 +1532,9 @@
       "worst": "_spot:112"
     },
     "backend/features/outreach/stage_of.py": {
-      "lines": 84,
+      "lines": 102,
       "complexity": 5,
-      "worst": "of_reply:48"
+      "worst": "of_reply:50"
     },
     "backend/features/outreach/threads.py": {
       "lines": 324,
@@ -1772,9 +1772,9 @@
       "worst": "unique_share_from:122"
     },
     "backend/features/runs/spending.py": {
-      "lines": 143,
+      "lines": 164,
       "complexity": 4,
-      "worst": "since_month_start:68"
+      "worst": "since_month_start:84"
     },
     "backend/features/runs/stopped.py": {
       "lines": 37,
@@ -2272,9 +2272,9 @@
       "worst": "main:34"
     },
     "backend/workers/reaper.py": {
-      "lines": 158,
+      "lines": 161,
       "complexity": 4,
-      "worst": "_told:103"
+      "worst": "_told:104"
     },
     "backend/workers/sales_jobs.py": {
       "lines": 125,
