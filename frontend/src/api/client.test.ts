@@ -30,9 +30,9 @@ describe('запрос к серверу', () => {
   });
 
   it('204 не пытается разобрать тело', async () => {
-    serve({ 'POST /api/auth/password': { status: 204 } });
+    serve({ 'DELETE /api/threads/1/files/2': { status: 204 } });
 
-    await expect(request('/auth/password', { method: 'POST', body: {} })).resolves.toBeUndefined();
+    await expect(request('/threads/1/files/2', { method: 'DELETE' })).resolves.toBeUndefined();
   });
 
   it('401 выбрасывает пропуск: следующий запрос ушёл бы с тем же отказом', async () => {

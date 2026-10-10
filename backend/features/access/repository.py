@@ -135,7 +135,7 @@ class AccessRepository:
         *,
         one_time: bool,
         author_id: int | None = None,
-    ) -> None:
+    ) -> str:
         """Сменить пароль. `one_time` — пароль выдан админом, и человек
         обязан сменить его при первом входе.
 
@@ -143,17 +143,22 @@ class AccessRepository:
         другой, и это обязано быть видно: «сотрудник сменил себе пароль»
         и «админ выдал сотруднику новый» — разные события, и второе
         интересно ровно тогда, когда разбираются с доступом.
+
+        Возвращает хеш, который лёг в базу: новый хеш закрывает пропуска, выданные
+        до смены, и пропуск после смены выдаётся по нему (`tokens.password_stamp`).
         """
+        password_hash = hash_password(password)
         await self._session.execute(
             update(UserModel)
             .where(UserModel.id == user_id)
-            .values(password_hash=hash_password(password), must_change_password=one_time)
+            .values(password_hash=password_hash, must_change_password=one_time)
         )
         await self.record(
             AuditAction.PASSWORD_CHANGED,
             author_id=author_id if author_id is not None else user_id,
             target=f"user:{user_id}",
         )
+        return password_hash
 
     async def update_access(
         self,

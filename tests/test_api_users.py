@@ -254,6 +254,20 @@ class TestSelfLockout:
         assert response.status_code == 409
         assert "самого себя" in response.json()["detail"]
 
+    async def test_admin_cannot_reset_his_own_password(
+        self, client: AsyncClient, admin_token: str
+    ) -> None:
+        """Сброс себе выдавал пароль без старого — в обход «свой меняется только со старым», —
+        а теперь закрыл бы и свой сеанс раньше, чем окно покажет разовый."""
+        me = (await client.get("/api/auth/me", headers=bearer(admin_token))).json()
+
+        response = await client.post(f"/api/users/{me['id']}/password", headers=bearer(admin_token))
+
+        assert response.status_code == 409
+        assert "меняют со старым" in response.json()["detail"]
+        # Ничего не сменилось: сеанс жив, пароль прежний.
+        assert (await client.get("/api/users", headers=bearer(admin_token))).status_code == 200
+
     async def test_admin_cannot_take_his_own_users_right(
         self, client: AsyncClient, admin_token: str
     ) -> None:
@@ -310,6 +324,40 @@ class TestReset:
         )
         assert old.status_code == 401
         await sign_in(target.email, password)
+
+    async def test_reset_closes_the_session_already_open(
+        self, client: AsyncClient, admin_token: str, target: UserModel, sign_in: SignIn
+    ) -> None:
+        """Проверка прода 10.10.2026: окно сброса обещало «старый перестанет действовать»,
+        а пропуск, выданный до сброса, открывал данные до конца суток — и снова, едва
+        человек сменит разовый пароль. Теперь пропуск выдан до сброса — не действует."""
+        open_session = await sign_in(target.email)
+
+        reset = await client.post(f"/api/users/{target.id}/password", headers=bearer(admin_token))
+        assert reset.status_code == 200, reset.text
+
+        refused = await client.get("/api/auth/me", headers=bearer(open_session))
+        assert refused.status_code == 401
+        assert "Пароль учётки сменили" in refused.json()["detail"]
+
+        # И после смены разового — тоже: пропуск закрыт навсегда, а не до смены.
+        fresh = await sign_in(target.email, reset.json()["password"])
+        changed = await client.post(
+            "/api/auth/password",
+            headers=bearer(fresh),
+            json={"current": reset.json()["password"], "new": "три слова подряд длиннее"},
+        )
+        assert changed.status_code == 200, changed.text
+        assert (await client.get("/api/donors", headers=bearer(open_session))).status_code == 401
+        mine = await client.get("/api/auth/me", headers=bearer(changed.json()["token"]))
+        assert mine.status_code == 200
+
+    async def test_admin_session_is_not_touched_by_resetting_another(
+        self, client: AsyncClient, admin_token: str, target: UserModel
+    ) -> None:
+        await client.post(f"/api/users/{target.id}/password", headers=bearer(admin_token))
+
+        assert (await client.get("/api/users", headers=bearer(admin_token))).status_code == 200
 
     async def test_journal_names_the_admin_not_the_owner(
         self,

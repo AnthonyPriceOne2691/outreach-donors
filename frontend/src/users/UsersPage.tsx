@@ -27,6 +27,7 @@ import {
 import { IconUserPlus } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 
 import { refusalOf } from '../api/client';
 import type { AccessPatch, OneTimePassword, Role, UserCard } from '../api/types';
@@ -45,6 +46,51 @@ const USERS_QUERY_KEY = ['users'] as const;
 /** Правка доступа: готовая — роль, включение — или функцией от учётки, какой её знает
  *  страница, когда до правки дошла очередь, — точечные права (`PermissionsPopover`). */
 type Patch = AccessPatch | ((latest: UserCard) => AccessPatch);
+
+interface PasswordActionProps {
+  user: UserCard;
+  /** Своя строка: себе пароль не сбрасывают, а меняют со старым. */
+  own: boolean;
+  resetting: boolean;
+  onReset: () => void;
+}
+
+/**
+ * Пароль учётки: чужой — сбросить, свой — сменить.
+ *
+ * Сброс закрывает открытые сеансы учётки (проверка прода 10.10.2026: окно обещало «старый
+ * перестанет действовать», а пропуск жил до конца суток). Сброс себе закрыл бы и этот
+ * сеанс раньше, чем окно покажет разовый, — сервер его не принимает, и кнопки нет.
+ */
+function PasswordAction({ user, own, resetting, onReset }: PasswordActionProps) {
+  if (own) {
+    return (
+      <Button component={Link} to="/password" size="compact-sm" variant="default" className="press">
+        Сменить пароль
+      </Button>
+    );
+  }
+  return (
+    <ConfirmPopover
+      message={`Сбросить пароль ${user.email}? Старый пароль и открытые сеансы перестанут действовать, новый разовый покажется один раз.`}
+      confirm="Сбросить"
+      danger
+      onConfirm={onReset}
+    >
+      {(ask) => (
+        <Button
+          size="compact-sm"
+          variant="default"
+          className="press"
+          loading={resetting}
+          onClick={ask}
+        >
+          Сбросить пароль
+        </Button>
+      )}
+    </ConfirmPopover>
+  );
+}
 
 export function UsersPage() {
   const queryClient = useQueryClient();
@@ -188,24 +234,12 @@ export function UsersPage() {
         </Text>
       </Table.Td>
       <Table.Td>
-        <ConfirmPopover
-          message={`Сбросить пароль ${user.email}? Старый перестанет действовать, новый разовый покажется один раз.`}
-          confirm="Сбросить"
-          danger
-          onConfirm={() => reset.mutate(user.id)}
-        >
-          {(ask) => (
-            <Button
-              size="compact-sm"
-              variant="default"
-              className="press"
-              loading={reset.isPending && reset.variables === user.id}
-              onClick={ask}
-            >
-              Сбросить пароль
-            </Button>
-          )}
-        </ConfirmPopover>
+        <PasswordAction
+          user={user}
+          own={user.id === me?.id}
+          resetting={reset.isPending && reset.variables === user.id}
+          onReset={() => reset.mutate(user.id)}
+        />
       </Table.Td>
     </Table.Tr>
   ));
@@ -217,7 +251,7 @@ export function UsersPage() {
         <Group gap="md" align="center">
           <PageHead
             title="Учётки"
-            hint="Учётки не удаляются: вместе с ней ушла бы история действий. Отключённая учётка перестаёт пускать сразу, даже с непросроченным пропуском."
+            hint="Учётки не удаляются: вместе с ней ушла бы история действий. Отключённая учётка перестаёт пускать сразу, даже с непросроченным пропуском; сброс пароля так же закрывает её открытые сеансы."
           />
           <Button
             className="press"

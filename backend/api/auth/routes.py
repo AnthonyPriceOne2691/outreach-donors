@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api import deps
@@ -93,19 +93,18 @@ async def me(user: UserModel = Depends(signed_in)) -> Me:
     return Me.of(user, actor_of(user))
 
 
-@router.post(
-    "/password",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="Сменить свой пароль",
-)
+@router.post("/password", response_model=SignedIn, summary="Сменить свой пароль")
 async def change_password(
     body: PasswordChange,
     user: UserModel = Depends(signed_in),
     session: AsyncSession = Depends(db_session),
-) -> None:
+) -> SignedIn:
     """Сменить свой пароль. Неверный старый считает тот же счётчик, что у входа, — по
     учётке (аудит 10.10.2026): украденный суточный пропуск иначе подбирал старый пароль
-    без предела. Ключ свой: подбор здесь не закрывает вход, а вход не сбрасывает подбор."""
+    без предела. Ключ свой: подбор здесь не закрывает вход, а вход не сбрасывает подбор.
+
+    Ответ — новый пропуск с карточкой, как у входа: пропуска, выданные до смены, больше
+    не действуют (проверка прода 10.10.2026), и этот сеанс без нового вышел бы с ними."""
     key = f"password:{user.id}"
     try:
         deps.attempts.check(key)
@@ -117,9 +116,15 @@ async def change_password(
         )
         raise
     try:
-        await change_own_password(session, user_id=user.id, current=body.current, new=body.new)
+        token = await change_own_password(
+            session, user_id=user.id, current=body.current, new=body.new
+        )
     except WrongPasswordError:
         deps.attempts.failed(key)
         raise
     deps.attempts.succeeded(key)
     await session.commit()
+    await session.refresh(user)
+    return SignedIn(
+        token=token, expires_in_hours=cfg.TOKEN_TTL_HOURS, user=Me.of(user, actor_of(user))
+    )

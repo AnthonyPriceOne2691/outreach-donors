@@ -31,9 +31,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createContext, use, useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 
-import { fetchMe, login as loginRequest } from '../api/auth';
+import { changePassword as changeRequest, fetchMe, login as loginRequest } from '../api/auth';
 import { AuthError } from '../api/client';
-import type { Me, Permission } from '../api/types';
+import type { Me, Permission, SignedIn } from '../api/types';
 import { dropToken, readToken, saveToken, watchAccessDenied, watchTokenLoss } from './session';
 
 interface Session {
@@ -45,8 +45,11 @@ interface Session {
    *  «Выйти». Держится до следующего входа: вход говорит, почему он снова нужен. */
   cutOff: boolean;
   signIn: (email: string, password: string) => Promise<Me>;
+  /** Сменить свой пароль. Сервер закрывает пропуска, выданные до смены, и отвечает новым —
+   *  сеанс берёт его, как при входе: иначе следующий же запрос выбросил бы на вход. */
+  changePassword: (current: string, next: string) => Promise<Me>;
   signOut: () => void;
-  /** Перечитать себя: после смены пароля и после правки своих прав. */
+  /** Перечитать себя: после правки своих прав. */
   refresh: () => Promise<void>;
 }
 
@@ -72,9 +75,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     staleTime: 60_000,
   });
 
-  const signIn = useCallback(
-    async (email: string, password: string) => {
-      const opened = await loginRequest(email, password);
+  /** Пропуск от сервера — вход или смена пароля — становится пропуском сеанса. */
+  const adopt = useCallback(
+    (opened: SignedIn) => {
       saveToken(opened.token);
       setToken(opened.token);
       setCutOff(false);
@@ -84,6 +87,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return opened.user;
     },
     [queryClient],
+  );
+
+  const signIn = useCallback(
+    async (email: string, password: string) => adopt(await loginRequest(email, password)),
+    [adopt],
+  );
+
+  const changePassword = useCallback(
+    async (current: string, next: string) => adopt(await changeRequest(current, next)),
+    [adopt],
   );
 
   const signOut = useCallback(() => {
@@ -122,10 +135,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       can: (permission) => data?.permissions.includes(permission) ?? false,
       cutOff,
       signIn,
+      changePassword,
       signOut,
       refresh,
     }),
-    [data, isLoading, cutOff, signIn, signOut, refresh],
+    [data, isLoading, cutOff, signIn, changePassword, signOut, refresh],
   );
 
   return <SessionContext value={value}>{children}</SessionContext>;

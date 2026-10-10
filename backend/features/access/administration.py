@@ -22,7 +22,9 @@
 
 **Свой пароль меняется только со старым.** Украденный пропуск живёт сутки;
 без этого правила он превращается в постоянный доступ — вор просто
-сменит пароль на свой.
+сменит пароль на свой. Поэтому и сброса себе нет: он выдавал разовый пароль
+без старого, а с проверки прода 10.10.2026 ещё и закрывает свой же сеанс
+раньше, чем окно покажет разовый (сброс закрывает выданные пропуска).
 """
 
 from __future__ import annotations
@@ -39,6 +41,7 @@ from backend.features.access.passwords import (
 )
 from backend.features.access.permissions import Actor, has_permission
 from backend.features.access.repository import AccessRepository, actor_of
+from backend.features.access.tokens import create_token
 from backend.features.core.domain import Permission, UserRole
 from backend.features.core.models.access import UserModel
 
@@ -48,7 +51,7 @@ class LastAdminError(ValueError):
 
 
 class SelfLockoutError(ValueError):
-    """Админ отбирает права у самого себя."""
+    """Админ отбирает права у самого себя или сбрасывает себе пароль."""
 
 
 class UnknownUserError(ValueError):
@@ -129,9 +132,17 @@ async def reset_password(
     user_id: int,
     author: Actor,
 ) -> tuple[UserModel, str]:
-    """Выдать новый разовый пароль. Старый пропуск при этом остаётся
-    действующим до конца суток — это плата за отсутствие списка выданных
-    пропусков; учётку под угрозой отключают, а не сбрасывают."""
+    """Выдать новый разовый пароль. Выданные учётке пропуска перестают действовать:
+    в пропуске — отпечаток пароля, и «кто я» сверяет его с нынешним (`tokens.py`,
+    проверка прода 10.10.2026; до неё пропуск жил до конца суток).
+
+    Себе пароль не сбрасывают — меняют со старым (`change_own_password`)."""
+    if author.user_id == user_id:
+        raise SelfLockoutError(
+            "Свой пароль не сбрасывают, а меняют со старым — «Сменить пароль» в меню у почты. "
+            "Сброс закрыл бы этот сеанс раньше, чем покажет разовый; забыли старый — "
+            "сбросит другой админ"
+        )
     repository = AccessRepository(session)
     user = await _known(repository, user_id)
     password = generate_one_time()
@@ -170,9 +181,12 @@ async def change_own_password(
     user_id: int,
     current: str,
     new: str,
-) -> None:
+) -> str:
     """Смена своего пароля. Старый обязателен, новый — длиннее минимума
-    и не совпадает со старым."""
+    и не совпадает со старым.
+
+    Возвращает новый пропуск: выданные до смены больше не действуют (`tokens.py`), и тот,
+    кто сменил пароль, без нового вышел бы вместе с ними."""
     repository = AccessRepository(session)
     user = await _known(repository, user_id)
 
@@ -182,7 +196,8 @@ async def change_own_password(
     if verify_password(new, user.password_hash):
         raise WeakPasswordError("Новый пароль совпадает со старым")
 
-    await repository.set_password(user.id, new, one_time=False)
+    stored = await repository.set_password(user.id, new, one_time=False)
+    return create_token(user.id, password_hash=stored)
 
 
 async def _known(repository: AccessRepository, user_id: int) -> UserModel:

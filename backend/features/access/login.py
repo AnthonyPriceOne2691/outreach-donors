@@ -95,7 +95,7 @@ async def login(session: AsyncSession, email: str, password: str) -> Session:
 
     await repository.note_login(user.id, now=datetime.now(UTC))
     return Session(
-        token=create_token(user.id),
+        token=create_token(user.id, password_hash=user.password_hash),
         user_id=user.id,
         email=user.email,
         role=user.role,

@@ -26,6 +26,7 @@ from backend.features.access.attempts import LoginAttempts, TooManyAttemptsError
 from backend.features.access.passwords import verify_password
 from backend.features.access.permissions import has_permission
 from backend.features.access.repository import AccessRepository, actor_of
+from backend.features.access.tokens import password_changed_since, read_token
 from backend.features.core.domain import Permission, UserRole
 from backend.features.core.models.access import UserModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -103,6 +104,19 @@ class TestAdministration:
             session, email="второй@site.com", role=UserRole.OPERATOR, author=actor_of(admin)
         )
         assert first != second
+
+    async def test_own_password_is_not_reset_but_changed(self, session: AsyncSession) -> None:
+        """Сброс себе — разовый пароль без старого: обход правила «свой пароль меняется
+        только со старым». С 10.10.2026 он ещё и закрыл бы свой сеанс (сброс закрывает
+        выданные пропуска) раньше, чем окно покажет разовый."""
+        admin = await _admin(session)
+        before = admin.password_hash
+
+        with pytest.raises(SelfLockoutError, match="меняют со старым"):
+            await reset_password(session, user_id=admin.id, author=actor_of(admin))
+
+        await session.refresh(admin)
+        assert admin.password_hash == before
 
     async def test_reset_requires_a_known_user(self, session: AsyncSession) -> None:
         admin = await _admin(session)
@@ -213,11 +227,12 @@ class TestAdministration:
         assert admin.role is UserRole.OPERATOR
 
     async def test_own_password_change_clears_the_one_time_flag(
-        self, session: AsyncSession, make_user: MakeUser
+        self, session: AsyncSession, make_user: MakeUser, jwt_secret: None
     ) -> None:
         user = await make_user("ivan@site.com", must_change_password=True)
+        before = user.password_hash
 
-        await change_own_password(
+        token = await change_own_password(
             session,
             user_id=user.id,
             current="пароль-для-теста",
@@ -227,6 +242,11 @@ class TestAdministration:
         await session.refresh(user)
         assert user.must_change_password is False
         assert verify_password("три слова подряд длиннее", user.password_hash)
+        # Новый пропуск — по новому паролю: прежние смена закрыла, этот действует.
+        issued = read_token(token)
+        assert issued.user_id == user.id
+        assert not password_changed_since(issued, user.password_hash)
+        assert password_changed_since(issued, before)
 
 
 async def _admin(session: AsyncSession) -> UserModel:
