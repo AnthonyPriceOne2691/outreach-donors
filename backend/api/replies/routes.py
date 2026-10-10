@@ -82,24 +82,28 @@ async def export_leads(
     taken: bool | None = Query(None, description="только взятые (true) или ждущие (false)"),
     since: datetime | None = Query(None, description="получены не раньше"),
     until: datetime | None = Query(None, description="получены раньше"),
+    tz: str | None = Query(
+        None, max_length=64, description="пояс времени в файле, как у браузера; пусто — UTC"
+    ),
     _: UserModel = _reviewer,
     session: AsyncSession = Depends(db_session),
 ) -> Response:
     """Лиды — ответы людей на оффер рекламодателю — файлом CSV, новые первыми.
 
     Поля те же, что в теле вебхука: одно описание лида на оба пути передачи.
-    Файл — для Excel: заголовки словами, точка с запятой, UTF-8 с меткой
-    (`lead_handoff.to_csv`).
+    Файл — для Excel: заголовки словами, точка с запятой, UTF-8 с меткой, время —
+    как на экране, в поясе браузера (`tz`, `lead_handoff.to_csv`).
     Право — того, кто ведёт лиды: в файле переписка с адресами (ревью #160).
     Строк больше потолка — файл обрезан, и заголовок это говорит.
     """
+    zone = lead_handoff.zone_named(tz)
     limit = lead_handoff.EXPORT_LIMIT
     cards = await lead_handoff.leads(
         session, taken=taken, since=since, until=until, limit=limit + 1
     )
     stamp = datetime.now(UTC).strftime("%Y-%m-%d")
     return Response(
-        content=lead_handoff.to_csv(cards[:limit]),
+        content=lead_handoff.to_csv(cards[:limit], zone),
         media_type="text/csv; charset=utf-8",
         headers={
             "Content-Disposition": f'attachment; filename="leads-{stamp}.csv"',

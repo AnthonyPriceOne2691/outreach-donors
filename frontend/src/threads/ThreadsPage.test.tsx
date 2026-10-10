@@ -336,8 +336,12 @@ describe('выгрузка лидов', () => {
   });
 
   it('лиды уходят файлом с пропуском — те же поля, что в вебхуке CRM', async () => {
+    // Время в файле — в поясе браузера, как на экране (проверка прода 10.10.2026).
+    const leadsPath = `/api/replies/leads.csv?tz=${encodeURIComponent(
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
+    )}`;
     const recorded = await openThreads('/threads', 'digest-weekly.example.test', {
-      'GET /api/replies/leads.csv': {
+      [`GET ${leadsPath}`]: {
         raw: 'lead_id,advertiser\r\n21,brand.test\r\n',
         headers: {
           'content-type': 'text/csv; charset=utf-8',
@@ -351,7 +355,7 @@ describe('выгрузка лидов', () => {
     await user.click(screen.getByRole('button', { name: 'Выгрузить лиды' }));
 
     await waitFor(() => expect(clicked).toHaveLength(1));
-    const call = recorded.calls.find((sent) => sent.path === '/api/replies/leads.csv');
+    const call = recorded.calls.find((sent) => sent.path === leadsPath);
     expect(call?.token).toBe('Bearer пропуск');
     expect(clicked[0]?.download).toBe('leads-2026-10-04.csv');
     expect(await screen.findByText('Выгружено лидов: 1')).toBeInTheDocument();

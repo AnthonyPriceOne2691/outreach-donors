@@ -15,7 +15,9 @@ import hmac
 import io
 import json
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
@@ -134,6 +136,29 @@ class TestFile:
         assert list(rows[0]) == [lead_handoff.CSV_TITLES[name] for name in fields]
         assert rows[0]["рекламодатель"] == "brand.test"
         assert rows[0]["текст ответа"] == "Интересно, пришлите прайс"
+
+    def test_time_in_the_file_is_as_on_the_screen(self) -> None:
+        """Проверка прода 10.10.2026: в файле «2026-10-07T11:01:49.964379+00:00» —
+        машинный вид и UTC, а экран пишет «07.10.2026, 14:01» по времени браузера.
+        Файл — словами экрана в поясе браузера; вебхук — по-прежнему ISO с поясом:
+        его читает программа."""
+        card = _card(
+            received_at="2026-10-07T11:01:49.964379+00:00", taken_at="2026-10-07T21:30:00+00:00"
+        )
+
+        rows = _rows(lead_handoff.to_csv([card], ZoneInfo("Europe/Moscow")))
+
+        assert (rows[0]["получен"], rows[0]["взят в работу"]) == (
+            "07.10.2026 14:01",
+            "08.10.2026 00:30",
+        )
+        webhook = json.loads(lead_handoff.body_of(card, event_id="lead-7"))["lead"]
+        assert webhook["received_at"] == "2026-10-07T11:01:49.964379+00:00"
+
+    def test_lead_not_taken_has_no_time_and_no_zone_means_utc(self) -> None:
+        rows = _rows(lead_handoff.to_csv([_card(received_at="2026-10-07T11:01:49+00:00")]))
+
+        assert (rows[0]["получен"], rows[0]["взят в работу"]) == ("07.10.2026 11:01", "")
 
     def test_every_lead_field_has_a_title(self) -> None:
         """Новое поле карточки без слова ушло бы в файл своим именем."""
@@ -337,3 +362,34 @@ class TestScreen:
         assert got.headers["x-export-truncated"] == "0"
         rows = _rows(got.content)
         assert rows[0]["номер лида"] == str(reply_id)
+
+    async def test_leads_file_writes_time_in_the_zone_of_the_screen(
+        self,
+        client: AsyncClient,
+        admin_token: str,
+        session: AsyncSession,
+        filled_legal: None,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Экран передаёт пояс браузера — тот, в котором сам пишет время лида."""
+        reply = await session.get(ReplyModel, await _lead(session, monkeypatch))
+        assert reply is not None
+        reply.created_at = datetime(2026, 10, 7, 11, 1, 49, tzinfo=UTC)
+        await session.commit()
+
+        got = await client.get(
+            "/api/replies/leads.csv", params={"tz": "Europe/Moscow"}, headers=bearer(admin_token)
+        )
+
+        assert got.status_code == 200, got.text
+        assert _rows(got.content)[0]["получен"] == "07.10.2026 14:01"
+
+    async def test_unknown_zone_is_refused_in_words(
+        self, client: AsyncClient, admin_token: str
+    ) -> None:
+        got = await client.get(
+            "/api/replies/leads.csv", params={"tz": "Mars/Olympus"}, headers=bearer(admin_token)
+        )
+
+        assert got.status_code == 422
+        assert "Часовой пояс «Mars/Olympus» не знаком" in got.json()["detail"]
