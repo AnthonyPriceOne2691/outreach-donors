@@ -61,7 +61,7 @@ from backend.features.core.models.access import UserModel
 from backend.features.replies import lead_handoff, unbound
 from backend.features.replies.attachments import ReplyFiles
 from backend.features.replies.calibration import calibrate
-from backend.features.replies.confirmation import confirmed_price
+from backend.features.replies.confirmation import confirmed_price, refuse_superseded
 from backend.features.replies.extract import PLACEMENT_DECLINES, PLACEMENT_SELLS
 from backend.features.replies.repository import ReplyRepository
 from backend.shared.queue import LEAD_JOB, runs_queue, with_retries
@@ -282,10 +282,12 @@ async def review(
     """Принять цену такой, какой её увидел человек.
 
     Цена и валюта проверяются правилами цены руками (`replies/confirmation.py`):
-    не цена — отказ словами, до записи.
+    не цена — отказ словами, до записи. Ответ, перекрытый более поздним с принятой
+    ценой, — тоже отказ: его подтверждение записало бы в карточку донора старую цену.
     """
     repository = ReplyRepository(session)
     reply = await repository.reply(reply_id)
+    await refuse_superseded(session, reply)
     checked = confirmed_price(body.price_white, body.price_grey, body.currency)
 
     await repository.confirm(

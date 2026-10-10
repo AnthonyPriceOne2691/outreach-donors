@@ -21,6 +21,11 @@
 автоответ с суммой в валюте (`replies.outcome.AUTO_REPLY_WITH_SUM`):
 модель его не разбирала, и без человека цена в нём пропала бы.
 
+**Перекрытый ответ разбора не ждёт** (`superseded_by`): после него донор
+назвал цену, и она принята — цена переписки теперь из того ответа. Правило
+одно на числа, карточку переписки и подтверждение: экран не зовёт разбирать
+перекрытый ответ, а сервер не даёт его подтвердить.
+
 **Ответ рекламодателя — лид, а не цена.** Его не разбирают
 (`replies.outcome.ADVERTISER_LEAD`), и «ждёт разбора» с формой цены
 было бы неправдой: подтверждение цены для него — отказ. Диалог Этапа 2
@@ -259,7 +264,7 @@ def review_of(reply: ReplyFacts, stage: Stage = Stage.DONORS) -> Review:
 
 
 def _answer_rules(replies: Sequence[ReplyFacts]) -> _Rules:
-    """Ответ донора: цена, «не продаём», «бесплатно», ждёт разбора, просто ответил."""
+    """Ответ донора: ждёт разбора, цена, «не продаём», «бесплатно», просто ответил."""
     kinds = {r.kind for r in replies}
     judged = [(r, review_of(r).waiting) for r in replies]
     # Цена считается полученной, только если её не ждёт человек: иначе
@@ -271,17 +276,45 @@ def _answer_rules(replies: Sequence[ReplyFacts]) -> _Rules:
     has_price = any(r.price_white is not None or r.price_grey is not None for r in settled)
     declined = any(r.placement == "declines" for r in settled)
     free = any(r.placement == "free" for r in settled)
-    waiting = len(settled) < len(judged)
+    priced = settled_price(replies)
+    waiting = any(waits and _later_price(priced, r) is None for r, waits in judged)
 
     return (
+        # Первым — пока хоть один ответ ждёт человека и не перекрыт: ровно его
+        # карточка переписки и зовёт разбирать. До 10.10.2026 «ждёт разбора» стояло
+        # после цены, и ответ, пришедший после принятой цены, ждал человека только
+        # на экране — меню, список и «Обзор» его не считали (проверка прода 10.10.2026).
+        # Ответ, перекрытый ценой, не ждёт — и цена остаётся ценой.
+        (waiting, ThreadState.NEEDS_REVIEW),
         (has_price, ThreadState.PRICED),
         (declined, ThreadState.DECLINED),
         (free, ThreadState.FREE),
-        # Раньше «ответил»: у обоих состояний ответ уже есть, но одно
-        # требует работы, а другое нет, и по списку принимают решения.
-        (waiting, ThreadState.NEEDS_REVIEW),
         (ReplyKind.HUMAN in kinds, ThreadState.REPLIED),
     )
+
+
+def _order(reply: ReplyFacts) -> tuple[datetime, int]:
+    """Порядок ответов переписки: по времени прихода, при равном — по номеру."""
+    return (reply.created_at, reply.id or 0)
+
+
+def _later_price(priced: ReplyFacts | None, reply: ReplyFacts) -> ReplyFacts | None:
+    """Принятая цена переписки (`settled_price`), если она пришла позже ответа."""
+    return priced if priced is not None and _order(reply) < _order(priced) else None
+
+
+def superseded_by(reply: ReplyFacts, replies: Sequence[ReplyFacts]) -> ReplyFacts | None:
+    """Ответ, который перекрыл этот: пришёл позже, и цена в нём принята. Пусто — не перекрыт.
+
+    Перекрытый ответ разбора не ждёт: цена переписки и карточки донора — из более
+    позднего ответа (`settled_price`), и подтверждение старого записало бы в карточку
+    прежнюю цену поверх новой. Проверка прода 10.10.2026: донор написал «250 $»
+    (разбор не уверен, 60 %), следом уточнил «150 $» (уверен, 93 %, цена в карточке),
+    а карточка переписки звала подтвердить 250. Перекрывает только цена: «спасибо»
+    без цены после неуверенного разбора его не снимает — разбор по-прежнему ждёт.
+    Цена бывает только у ответа донора: у лида и ответа продаж перекрывать нечем.
+    """
+    return _later_price(settled_price(replies), reply)
 
 
 def settled_price(replies: Sequence[ReplyFacts]) -> ReplyFacts | None:
@@ -301,7 +334,7 @@ def settled_price(replies: Sequence[ReplyFacts]) -> ReplyFacts | None:
             reply.kind, reply.confidence, reviewed=reply.reviewed_at is not None
         )
     ]
-    return max(settled, key=lambda reply: (reply.created_at, reply.id or 0), default=None)
+    return max(settled, key=_order, default=None)
 
 
 def summarize(

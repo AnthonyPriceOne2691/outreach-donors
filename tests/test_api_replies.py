@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -438,6 +438,126 @@ class TestTypedPriceIsChecked:
         assert reply is not None
         await session.refresh(reply)
         assert (reply.price_white, reply.currency) == (None, "USD")
+
+
+async def _answered_later(
+    session: AsyncSession, unsure: ReplyModel, *, price: Decimal | None, confidence: float
+) -> ReplyModel:
+    """Следующий ответ донора в той же переписке — через три минуты после неуверенного."""
+    unsure.created_at = NOW
+    later = ReplyModel(
+        thread_id=unsure.thread_id,
+        message_id=unsure.message_id,
+        kind=ReplyKind.HUMAN,
+        raw_body="Sorry, to clarify: a guest post is $150.",
+        from_email=f"elena@{HOST}",
+        subject="Re: Advertising rates",
+        inbound_message_id="<in-2@site.test>",
+        price_white=price,
+        currency="USD" if price is not None else None,
+        confidence=confidence,
+        placement="sells" if price is not None else "unclear",
+    )
+    later.created_at = NOW + timedelta(minutes=3)
+    session.add(later)
+    if price is not None:
+        # Уверенный разбор кладёт цену в карточку донора сам (`pipeline._store_price`).
+        donor = (await session.execute(select(DonorModel))).scalars().one()
+        donor.last_price, donor.last_price_currency = price, "USD"
+    await session.commit()
+    return later
+
+
+class TestSupersededAnswer:
+    """Проверка прода 10.10.2026: ответ «250» ждал человека (уверенность 60 %), следом
+    донор уточнил «150» (уверенность 93 %, цена легла в карточку сама), а карточка
+    переписки звала подтвердить 250 — «Подтвердить» записал бы донору старую цену."""
+
+    async def test_card_does_not_call_to_confirm_a_superseded_answer(
+        self, client: AsyncClient, reviewer_token: str, unsure: ReplyModel, session: AsyncSession
+    ) -> None:
+        later = await _answered_later(session, unsure, price=Decimal("150"), confidence=0.93)
+
+        response = await client.get(
+            f"/api/threads/{unsure.thread_id}", headers=bearer(reviewer_token)
+        )
+
+        body = response.json()
+        old, new = body["incoming"]
+        assert old["id"] == unsure.id
+        assert (old["needs_review"], old["superseded_by"]) == (False, later.id)
+        assert (new["needs_review"], new["superseded_by"]) == (False, None)
+        assert body["card"]["state"] == "priced"
+
+    async def test_confirming_a_superseded_answer_is_refused_in_words(
+        self, client: AsyncClient, reviewer_token: str, unsure: ReplyModel, session: AsyncSession
+    ) -> None:
+        """Форма могла остаться открытой с тех пор, как более позднего ответа ещё не было."""
+        await _answered_later(session, unsure, price=Decimal("150"), confidence=0.93)
+
+        response = await client.patch(
+            f"/api/replies/{unsure.id}",
+            json={"price_white": "250", "currency": "USD"},
+            headers=bearer(reviewer_token),
+        )
+
+        assert response.status_code == 409, response.text
+        said = response.json()["detail"]
+        assert f"Ответ №{unsure.id} перекрыт" in said
+        assert "150 USD" in said
+        donor = (await session.execute(select(DonorModel))).scalars().one()
+        await session.refresh(donor)
+        assert donor.last_price == Decimal("150.00")
+        reply = await session.get(ReplyModel, unsure.id)
+        assert reply is not None
+        await session.refresh(reply)
+        assert reply.reviewed_at is None
+
+    async def test_decline_on_a_superseded_answer_is_refused_too(
+        self, client: AsyncClient, reviewer_token: str, unsure: ReplyModel, session: AsyncSession
+    ) -> None:
+        """«Не продаёт» по старому ответу увёл бы из отбора донора, назвавшего цену позже."""
+        await _answered_later(session, unsure, price=Decimal("150"), confidence=0.93)
+
+        response = await client.patch(
+            f"/api/replies/{unsure.id}", json={"declines": True}, headers=bearer(reviewer_token)
+        )
+
+        assert response.status_code == 409, response.text
+        domain = (await session.execute(select(DomainModel))).scalars().one()
+        assert domain.seller_answer is None
+
+    async def test_calibration_does_not_count_a_superseded_answer_as_waiting(
+        self, client: AsyncClient, reviewer_token: str, unsure: ReplyModel, session: AsyncSession
+    ) -> None:
+        """Решения по перекрытому не будет: «ждут человека» иначе не убывало бы никогда
+        и расходилось бы с числом у меню."""
+        later = await _answered_later(session, unsure, price=Decimal("150"), confidence=0.93)
+        later.model_parse = {"price_white": "150", "currency": "USD", "prompt_version": "v-test"}
+        await session.commit()
+
+        response = await client.get("/api/replies/calibration", headers=bearer(reviewer_token))
+
+        (score,) = response.json()["versions"]
+        assert (score["waiting"], score["auto_stored"], score["reviewed"]) == (0, 1, 0)
+
+    async def test_thanks_without_a_price_leaves_the_old_answer_waiting(
+        self, client: AsyncClient, reviewer_token: str, unsure: ReplyModel, session: AsyncSession
+    ) -> None:
+        """«Спасибо» без цены цену не называет: разбор по-прежнему ждёт и подтверждается."""
+        await _answered_later(session, unsure, price=None, confidence=0.95)
+
+        card = await client.get(f"/api/threads/{unsure.thread_id}", headers=bearer(reviewer_token))
+        old = card.json()["incoming"][0]
+        assert (old["needs_review"], old["superseded_by"]) == (True, None)
+        assert card.json()["card"]["state"] == "needs_review"
+
+        response = await client.patch(
+            f"/api/replies/{unsure.id}",
+            json={"price_white": "250", "currency": "EUR"},
+            headers=bearer(reviewer_token),
+        )
+        assert response.status_code == 200, response.text
 
 
 class TestWhatTheCardShows:
