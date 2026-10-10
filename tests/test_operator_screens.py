@@ -29,6 +29,7 @@ from backend.features.core.models.run import RunCandidateModel
 from backend.features.donors.browse import DonorBrowser, DonorFilters
 from backend.features.donors.export import to_csv
 from backend.features.ops.overview import overview, work
+from backend.features.outreach.repository import EVERY_STAGE
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.thresholds import defaults
 from httpx import AsyncClient
@@ -289,8 +290,13 @@ class TestOnlyDonorsWaitForHands:
         assert [row["host"] for row in response.json()["rows"]] == ["form.example.test"]
         assert response.json()["total"] == await forms.total(session) == 1
         # Меню, плитка «Заполнить формы» и «с формой» под «С адресом» — то же число.
-        view = await overview(session)
-        assert (await work(session)).forms == view.waiting.forms == view.donors.form_only == 1
+        view = await overview(session, stages=EVERY_STAGE)
+        assert (
+            (await work(session, stages=EVERY_STAGE)).forms
+            == view.waiting.forms
+            == view.donors.form_only
+            == 1
+        )
 
     async def test_candidate_form_is_not_filled_from_the_queue(
         self, client: AsyncClient, admin_token: str, session: AsyncSession, candidate: DonorModel
@@ -326,7 +332,7 @@ class TestOnlyDonorsWaitForHands:
         await session.flush()
 
         assert await forms.queue(session) == []
-        view = await overview(session)
+        view = await overview(session, stages=EVERY_STAGE)
         assert (await forms.total(session), view.donors.form_only) == (0, 0)
         assert view.donors.with_email == 1
 

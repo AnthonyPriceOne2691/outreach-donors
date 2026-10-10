@@ -17,6 +17,7 @@ from backend.features.core.models.access import UserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.run import RunCandidateModel, RunModel
 from backend.features.ops.overview import work
+from backend.features.outreach.repository import EVERY_STAGE
 from backend.features.review.candidates import Decision
 from backend.features.runs.browse import PAGE_SIZE
 from backend.features.runs.repository import RunRepository
@@ -191,7 +192,7 @@ class TestQueuesOverlap:
         assert isinstance(rows, list)
         assert sum(row["queue"]["pending"] for row in rows) == 4
         assert (body["review_waiting"], body["review_shared"]) == (3, 1)
-        assert body["review_waiting"] == (await work(session)).run
+        assert body["review_waiting"] == (await work(session, stages=EVERY_STAGE)).run
 
 
 class TestRunsForLetters:
