@@ -81,6 +81,14 @@ function SetPrice({ donor }: { donor: DonorFullCard }) {
   // которую всё равно не запишут, незачем, и поля не раскрываются.
   const refusal = donor.price_refusal ?? null;
   const shown = open && refusal === null;
+  // Свернуть — значит отказаться от вписанного, как у окна «Завести донора
+  // вручную»: после «Отмены» поля открывались с прежним 999 (проверка QA
+  // 10.10.2026), и недописанная цена ждала, чтобы её записали по ошибке.
+  const close = () => {
+    setOpen(false);
+    setDraft(NEW_PRICE);
+    save.reset();
+  };
   return (
     <Stack gap="sm" mt="md" align="flex-start">
       <Button
@@ -90,7 +98,11 @@ function SetPrice({ donor }: { donor: DonorFullCard }) {
         aria-controls={formId}
         disabled={refusal !== null}
         onClick={() => {
-          setOpen((was) => !was);
+          if (open) {
+            close();
+            return;
+          }
+          setOpen(true);
           save.reset();
         }}
       >
@@ -111,7 +123,7 @@ function SetPrice({ donor }: { donor: DonorFullCard }) {
           refused="Цену не записали"
           submit="Записать цену"
           onSubmit={() => save.mutate()}
-          onCancel={() => setOpen(false)}
+          onCancel={close}
         />
       </Unfold>
     </Stack>

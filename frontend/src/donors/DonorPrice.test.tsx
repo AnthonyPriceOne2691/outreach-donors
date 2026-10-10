@@ -239,6 +239,45 @@ describe('карточка донора: «Указать цену»', () => {
     expect(recorded.calls.filter((call) => call.method === 'POST')).toEqual([]);
   });
 
+  it('«Отмена» забывает вписанное: открыть снова — пустые поля', async () => {
+    // Проверка QA 10.10.2026: после «Отмены» поля открывались с прежним 999,
+    // а окно «Завести донора вручную» вписанное забывает.
+    await openCard(CARD);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Указать цену' }));
+    await user.type(screen.getByRole('textbox', { name: 'Цена' }), '999');
+    await user.clear(screen.getByRole('textbox', { name: 'Валюта' }));
+    await user.type(screen.getByRole('textbox', { name: 'Валюта' }), 'EUR');
+    await user.type(screen.getByRole('textbox', { name: 'Откуда цена' }), 'биржа');
+    await user.click(screen.getByRole('button', { name: 'Отмена' }));
+    await waitFor(() => expect(screen.queryByRole('textbox', { name: 'Цена' })).toBeNull());
+    await user.click(screen.getByRole('button', { name: 'Указать цену' }));
+
+    expect(screen.getByRole('textbox', { name: 'Цена' })).toHaveValue('');
+    expect(screen.getByRole('textbox', { name: 'Валюта' })).toHaveValue('USD');
+    expect(screen.getByRole('textbox', { name: 'Откуда цена' })).toHaveValue('');
+  });
+
+  it('свёрнуто кнопкой «Указать цену» — забыто и вписанное, и отказ сервера о нём', async () => {
+    const refusal = '«1,200» — не цена: впишите число больше нуля, например 150 или 150.50.';
+    await openCard(CARD, {
+      'POST /api/donors/7/price': { status: 400, body: { detail: refusal } },
+    });
+    const user = userEvent.setup();
+    const toggle = screen.getByRole('button', { name: 'Указать цену' });
+
+    await user.click(toggle);
+    await user.type(screen.getByRole('textbox', { name: 'Цена' }), '1,200{Enter}');
+    expect(await screen.findByText(refusal)).toBeVisible();
+    await user.click(toggle);
+    await waitFor(() => expect(screen.queryByRole('textbox', { name: 'Цена' })).toBeNull());
+    await user.click(toggle);
+
+    expect(screen.getByRole('textbox', { name: 'Цена' })).toHaveValue('');
+    expect(screen.queryByText(refusal)).toBeNull();
+  });
+
   it('без права — объяснение на месте, а не кнопка', async () => {
     await openCard({ ...CARD, ...MANUAL }, {}, { ...OPERATOR, permissions: ['view'] });
 
