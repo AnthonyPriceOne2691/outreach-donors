@@ -54,7 +54,7 @@ import { rangeText } from '../components/numberText';
 import { PageHead } from '../components/PageHead';
 import { SaveVersionButton } from '../components/SaveVersionButton';
 import { useSession } from '../auth/AuthProvider';
-import { formatDateTime, formatNumber } from '../format';
+import { formatDateTime, formatNumber, plural } from '../format';
 import { bodyOf, draftOf, fieldRefusal, THRESHOLD_KEYS } from './thresholdDraft';
 import type { ThresholdDraft, ThresholdKey } from './thresholdDraft';
 import { notify } from '../notices';
@@ -102,6 +102,15 @@ const TABLE_MIN_WIDTH = 880;
 
 function same(left: ThresholdsBody, right: ThresholdsBody): boolean {
   return THRESHOLD_KEYS.every((key) => left[key] === right[key]);
+}
+
+/** Домены без метрик — словом и местоимением по числу: «ещё 1 домен: пороги его не
+ *  судят», «ещё 21 домен: … их». До 10.10.2026 стояло «Ещё 1 доменов без метрик»
+ *  (проверка прода 10.10.2026). */
+function withoutMetrics(count: number): string {
+  const domains = plural(count, 'домен', 'домена', 'доменов');
+  const them = count === 1 ? 'его' : 'их';
+  return `Без метрик — ещё ${formatNumber(count)} ${domains}: пороги ${them} не судят. Это повод добрать данные, а не отсев.`;
 }
 
 export function ThresholdsPage() {
@@ -292,8 +301,7 @@ export function ThresholdsPage() {
               )}
               {preview.data.unchecked > 0 && (
                 <Text size="sm" c="dimmed">
-                  Ещё {preview.data.unchecked} доменов без метрик: их вердикт не изменится, потому
-                  что его нет. Это повод добрать данные, а не отсев.
+                  {withoutMetrics(preview.data.unchecked)}
                 </Text>
               )}
             </Stack>
