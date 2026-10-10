@@ -17,16 +17,18 @@
  * сбрасывал бы прокрутку списка и заново проигрывал подъём экрана.
  *
  * **Вкладка «Не привязаны» — на всю ширину**, без правой колонки: у ответа без письма
- * своей переписки нет, открывать справа нечего.
+ * своей переписки нет, открывать справа нечего. Вкладка «Диалоги» возвращает оттуда
+ * к открытому диалогу с его фильтром (`threadTabs.threadsPlace`).
  */
 
 import { Card, Stack } from '@mantine/core';
-import { Outlet, useMatch, useSearchParams } from 'react-router-dom';
+import { useEffect } from 'react';
+import { Outlet, useLocation, useMatch, useSearchParams } from 'react-router-dom';
 
 import { useSplit } from '../layout/split';
 import { ThreadList } from './ThreadList';
 import { ThreadsPage } from './ThreadsPage';
-import { readThreadTab } from './threadTabs';
+import { readThreadTab, rememberThreadsPlace } from './threadTabs';
 
 /** Что маршрут переписки знает о своём месте (`ThreadPage`). */
 export interface ThreadOutlet {
@@ -41,8 +43,14 @@ export function ThreadsScreen() {
   const split = useSplit();
   const opened = useMatch('/threads/:id') !== null;
   const [params] = useSearchParams();
+  const location = useLocation();
+  const tab = readThreadTab(params);
+  const here = `${location.pathname}${location.search}`;
+  useEffect(() => {
+    if (tab === 'threads') rememberThreadsPlace(here);
+  }, [tab, here]);
   if (!split) return opened ? <Outlet context={PAGE} /> : <ThreadsPage />;
-  if (!opened && readThreadTab(params) === 'unbound') return <ThreadsPage />;
+  if (!opened && tab === 'unbound') return <ThreadsPage />;
   return (
     <div className="threadsSplit">
       <Card className="glassPanel threadsSplitList" p="md">

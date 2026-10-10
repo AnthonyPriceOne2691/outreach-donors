@@ -243,6 +243,19 @@ describe('диалоги', () => {
     expect(screen.getByTestId('where')).toHaveTextContent('/threads?state=waiting');
   });
 
+  it('с «Не привязаны» обратно на «Диалоги» — с тем же фильтром, а не с начала', async () => {
+    // Проверка QA 10.10.2026: вкладка «Диалоги» вела в начало списка без фильтра.
+    await openThreads('/threads?state=priced');
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('radio', { name: /^Не привязаны/ }));
+    expect(screen.getByTestId('where')).toHaveTextContent('/threads?tab=unbound');
+    await user.click(screen.getByRole('radio', { name: /^Диалоги/ }));
+
+    expect(await screen.findByText('digest-weekly.example.test')).toBeInTheDocument();
+    expect(screen.getByTestId('where')).toHaveTextContent('/threads?state=priced');
+  });
+
   it('калибровка разбора — в подсказке «i» у заголовка', async () => {
     // Какие поля человек правит чаще — тем и занимается следующая версия
     // промпта. Приём соседней системы, работавший в бою. С 09.10.2026 — в «i»
