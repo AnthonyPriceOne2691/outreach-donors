@@ -10,17 +10,18 @@
 import { screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
+import type { OverviewView } from '../api/types';
 import { AppRoutes } from '../App';
 import { ADMIN, OVERVIEW, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 
-async function openOverview(): Promise<void> {
+async function openOverview(overview: OverviewView = OVERVIEW): Promise<void> {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   serve({
     'GET /api/auth/me': { body: ADMIN },
     'GET /api/watchdog': { body: { alarms: [] } },
-    'GET /api/overview': { body: OVERVIEW },
+    'GET /api/overview': { body: overview },
   });
   renderWith(<AppRoutes />, '/');
   await screen.findByRole('heading', { name: 'Обзор' });
@@ -63,5 +64,40 @@ describe('главная: воронка доноров', () => {
     await screen.findByText('Воронка доноров');
 
     expect(screen.queryByRole('link', { name: 'Все доноры' })).toBeNull();
+  });
+});
+
+/** Сводка, где донорам ушло `sent` писем, а принятым донорам не писали. */
+function unwritten(sent: number): OverviewView {
+  return {
+    ...OVERVIEW,
+    donors: { ...OVERVIEW.donors, written: 0, replied: 0 },
+    letters: { ...OVERVIEW.letters, donors: { ...OVERVIEW.letters.donors, sent } },
+  };
+}
+
+describe('главная: «Написали» и «Ответили» не спорят с письмами', () => {
+  it('письма ушли, а принятым не писали — так и сказано, а не «писем ещё не было»', async () => {
+    // Проверка QA 10.10.2026: «Ответили 0 — писем ещё не было» стояло на одном
+    // экране с «Ушло 24»: воронка считает только принятых доноров.
+    await openOverview(unwritten(24));
+
+    const replied = await tile('Ответили');
+    expect(replied).toHaveTextContent('принятым донорам не писали');
+    expect(replied).not.toHaveTextContent('писем ещё не было');
+    expect(await tile('Написали')).toHaveTextContent('принятым донорам');
+  });
+
+  it('донорам не ушло ни одного письма — «писем ещё не было»', async () => {
+    await openOverview(unwritten(0));
+
+    expect(await tile('Ответили')).toHaveTextContent('писем ещё не было');
+  });
+
+  it('принятым писали — доля ответивших среди написанных', async () => {
+    await openOverview();
+
+    // 3 из 25 — 12 %.
+    expect(await tile('Ответили')).toHaveTextContent(/12\s?%\s+написанных/);
   });
 });
