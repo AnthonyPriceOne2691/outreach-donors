@@ -31,7 +31,7 @@ from backend.features.runs.budget import units_left
 from backend.features.runs.estimate import UNIQUE_SHARE, forecast
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.spending import ahrefs_spent_this_month, cap_left
-from backend.features.runs.thresholds import defaults
+from backend.features.runs.thresholds import in_force
 from backend.features.serp.dataforseo import COUNTRY_CODES
 from backend.shared.queue import RUN_JOB, runs_queue, workers_alive
 
@@ -123,7 +123,9 @@ async def start_run(
     # за которые остаток мог измениться, — но обещанное человеку число
     # меняться не должно.
     settings = await runs.create_settings(
-        defaults(),
+        # Пороги — действующие, с экрана «Пороги»: умолчания конфига здесь
+        # молча отменяли сохранённую версию (аудит 10.10.2026).
+        await in_force(session),
         geo_top_n=filters.GEO_TOP_N,
         geo_min_share=filters.GEO_MIN_SHARE,
         metrics_ttl_days=filters.METRICS_TTL_DAYS,
