@@ -94,12 +94,22 @@ def has_permission(actor: Actor, permission: Permission) -> bool:
     return permission in permissions_of(actor.role)
 
 
+def no_right(permission: Permission) -> str:
+    """Отказ «права нет» — одним местом.
+
+    Тесты и экраны сверяют отказ по этой функции, а не своей копией строки: слова отказа
+    меняются (проверка прода 10.10.2026 — в отказе код права вместо названия), и копия
+    строки в чужом тесте держала бы правку слов до его правки.
+    """
+    return f"Действие «{permission.value}» недоступно этой учётке"
+
+
 def require(actor: Actor | None, permission: Permission) -> None:
-    """Пропустить или отказать. Отказ называет действие."""
+    """Пропустить или отказать. Отказ называет действие (`no_right`)."""
     if actor is None:
         raise AccessDeniedError(f"Нужен вход: действие «{permission.value}» требует учётки")
     if not has_permission(actor, permission):
-        raise AccessDeniedError(f"Действие «{permission.value}» недоступно этой учётке")
+        raise AccessDeniedError(no_right(permission))
 
 
 def sees_stage(actor: Actor, stage: Stage) -> bool:
