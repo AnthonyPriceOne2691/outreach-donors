@@ -73,11 +73,20 @@ export function PermissionsPopover({ user, disabled, onChange }: Props) {
           disabled={disabled}
           onClick={() => setOpened((o) => !o)}
         >
-          Права ({user.permissions.length})
+          {/* У отключённой — не «Права (0)»: ноль читался «роль ничего не даёт»
+              (проверка прода 10.10.2026), а не действует сейчас ничего потому, что
+              учётка отключена. */}
+          {user.is_active ? `Права (${user.permissions.length})` : 'Права не действуют'}
         </Button>
       </Popover.Target>
       <Popover.Dropdown className="glassSolid">
         <Stack gap="xs" w={320}>
+          {!user.is_active && (
+            <Text size="sm" c="dimmed">
+              Учётка отключена: ни одно право не действует, пока её не включат. Исключения ниже
+              сохранятся и вернутся вместе с ролью.
+            </Text>
+          )}
           {ACTIONS.map((key) => {
             const override = overrides[key];
             return (

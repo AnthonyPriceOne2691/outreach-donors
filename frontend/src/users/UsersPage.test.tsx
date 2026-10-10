@@ -169,6 +169,22 @@ describe('учётки', () => {
     expect(await screen.findByText('QwErTy12QwErTy34')).toBeInTheDocument();
   });
 
+  it('у отключённой учётки — «права не действуют», а не «Права (0)» и роль, что ничего не даёт', async () => {
+    // Проверка прода 10.10.2026: «Права (0)» и «как у роли» у каждого права читались
+    // «роль ничего не даёт», а не действует ничего потому, что учётка отключена.
+    const off = card(OPERATOR, { is_active: false, permissions: [] });
+    await openUsers({ 'GET /api/users': { body: [card(ADMIN), off, card(NEWCOMER)] } });
+    const user = userEvent.setup();
+
+    const row = screen.getByText('оператор@site.com').closest('tr') as HTMLElement;
+    expect(within(row).queryByRole('button', { name: 'Права (0)' })).not.toBeInTheDocument();
+    await user.click(within(row).getByRole('button', { name: 'Права не действуют' }));
+
+    expect(
+      await screen.findByText(/ни одно право не действует, пока её не включат/),
+    ).toBeInTheDocument();
+  });
+
   it('своя строка — «Сменить пароль», а не сброс: сброс себе закрыл бы этот сеанс', async () => {
     await openUsers();
 
