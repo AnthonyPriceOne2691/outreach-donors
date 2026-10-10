@@ -172,6 +172,23 @@ describe('домены по этапу (4.5a)', () => {
     expect(screen.getByText('Лимит направления: 4 из 50 первых писем сегодня')).toBeInTheDocument();
   });
 
+  it.each([
+    ['без права «Продажи» ящиков продаж нет — даже присланных сервером', false],
+    ['с правом «Продажи» раздел продаж на месте', true],
+  ])('%s', async (_, sales) => {
+    // Решение Anthony 10.10.2026 (П2б): сервер без права ящики продаж не отдаёт и переключить
+    // не даст, а экран не показывает их и сам — ответ в кэше мог прийти до того, как право сняли.
+    const permissions = ADMIN.permissions.filter((one) => sales || one !== 'sales');
+    await openSenders({
+      'GET /api/auth/me': { body: { ...ADMIN, permissions } },
+      'GET /api/senders': { body: BY_STAGE },
+    });
+
+    expect(screen.queryByText(domain) !== null).toBe(sales);
+    expect(screen.queryByRole('heading', { name: 'Продажи' }) !== null).toBe(sales);
+    expect(screen.queryByText(/Лимит направления: 4 из 50/) !== null).toBe(sales);
+  });
+
   it('у одних доноров экран прежний: без разделов и лимитов, «Отправлять нечем» — как было', async () => {
     const off = SENDERS.senders.map((box) => ({ ...box, enabled: false }));
     await openSenders({

@@ -16,7 +16,7 @@
 import { screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import type { OverviewView } from '../api/types';
+import type { Me, OverviewView } from '../api/types';
 import { AppRoutes } from '../App';
 import { ADMIN, OVERVIEW, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
@@ -26,10 +26,11 @@ import { serve } from '../test/server';
 async function openOverview(
   alarms: unknown[] = [],
   overview: Answer = { body: OVERVIEW },
+  me: Me = ADMIN,
 ): Promise<Recorded> {
   localStorage.setItem(TOKEN_KEY, 'пропуск');
   const recorded = serve({
-    'GET /api/auth/me': { body: ADMIN },
+    'GET /api/auth/me': { body: me },
     'GET /api/watchdog': { body: { alarms } },
     'GET /api/overview': overview,
   });
@@ -59,6 +60,23 @@ describe('сторож тишины на обзоре', () => {
 
     expect(await screen.findByText('Платформа молчит о доставке')).toBeInTheDocument();
     expect(screen.getByText(/ни по одному не пришло события/)).toBeInTheDocument();
+  });
+
+  it.each([
+    ['без права «Продажи» тревоги о почте продаж нет — даже присланной сервером', false],
+    ['с правом «Продажи» тревога о почте продаж на месте', true],
+  ])('%s', async (_, sales) => {
+    // Решение Anthony 10.10.2026 (П2б): сервер без права тревог о почте продаж не считает, а
+    // экран не показывает их и сам; общая тревога (`stage: null`) видна всем.
+    const permissions = ADMIN.permissions.filter((one) => sales || one !== 'sales');
+    const alarms = [
+      { code: 'delivery-silence', title: 'Платформа молчит о доставке', detail: '…', stage: null },
+      { code: 'all-paused:sales', title: 'Все ящики продаж на паузе', detail: '…', stage: 'sales' },
+    ];
+    await openOverview(alarms, { body: OVERVIEW }, { ...ADMIN, permissions });
+
+    expect(await screen.findByText('Платформа молчит о доставке')).toBeInTheDocument();
+    expect(screen.queryByText('Все ящики продаж на паузе') !== null).toBe(sales);
   });
 
   it('в тишине сторожа на экране нет, но спрошен он всё равно', async () => {

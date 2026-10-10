@@ -58,6 +58,17 @@ async function openUsage(spending: unknown = SPENDING) {
 }
 
 describe('расход', () => {
+  it.each([
+    ['без права «Продажи» — расход без продаж, и это сказано словами', true],
+    ['с правом «Продажи» расход весь — строки о продажах нет', false],
+  ])('%s', async (_, hidden) => {
+    // Решение Anthony 10.10.2026 (П2б): без права сервер считает статьи, плитки и итог без
+    // операций продаж — числа сходятся между собой, но это не весь счёт, и экран так и говорит.
+    await openUsage({ ...SPENDING, sales_hidden: hidden });
+
+    expect(screen.queryByText(/Расход продаж не показан/) !== null).toBe(hidden);
+  });
+
   it('остаток у источника выдачи виден отдельно от Ahrefs', async () => {
     await openUsage();
 

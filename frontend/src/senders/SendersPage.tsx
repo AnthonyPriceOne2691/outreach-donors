@@ -9,6 +9,10 @@
  * сказано прямо в карточке, а не в документации: домен выключают обычно
  * потому, что с ним что-то не так, и вернуть его сразу на полный кап
  * значит добить репутацию, которая и так пошатнулась.
+ *
+ * **Ящики продаж — только с правом «Продажи»** (решение Anthony 10.10.2026, П2б):
+ * сервер без права их не отдаёт и переключить не даст, а экран не показывает их и сам —
+ * ответ в кэше мог прийти до того, как право сняли.
  */
 
 import { Alert, Card, Loader, Stack, Text, Title } from '@mantine/core';
@@ -19,6 +23,8 @@ import { disableSender, enableSender } from '../api/outreach';
 import { STAGE_TITLES, listSendersByStage } from '../api/senders';
 import type { DirectionLimit, DomainLimit, StagedSender } from '../api/senders';
 import type { Stage } from '../api/stages';
+import { stageShown } from '../api/stages';
+import { useSession } from '../auth/AuthProvider';
 import { formatNumber, plural } from '../format';
 import { SenderCard as DomainCard, domainShut } from './SenderCard';
 import type { DomainGroup } from './SenderCard';
@@ -63,6 +69,7 @@ function directionLine(direction: DirectionLimit | undefined): string | null {
 }
 
 export function SendersPage() {
+  const { can } = useSession();
   const queryClient = useQueryClient();
   const { data, isLoading, error } = useQuery({
     queryKey: SENDERS_QUERY_KEY,
@@ -98,7 +105,8 @@ export function SendersPage() {
     );
   }
 
-  const groups = groupByDomain(data?.senders ?? [], data?.domains ?? []);
+  const boxes = (data?.senders ?? []).filter((box) => stageShown(box.stage, can('sales')));
+  const groups = groupByDomain(boxes, data?.domains ?? []);
   // Пишет домен, у которого включён ящик и который строка домена не закрыла: тот же
   // отбор, что у фильтра отправки, — иначе «могут» считал бы и тех, кого фильтр отсеет.
   const writing = groups.filter((group) => group.enabled && group.shut === null).length;

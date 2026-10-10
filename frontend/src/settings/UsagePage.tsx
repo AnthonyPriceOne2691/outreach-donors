@@ -13,6 +13,10 @@
  * телефоне «2 180 924 ток.» не влезало в плитку и ломалось на «2 180 924»
  * и «ток.» отдельной строкой (аудит 25.09.2026). Число — крупно, «токенов»
  * — подписью, как «подходящих 840» у плиток писем.
+ *
+ * **Без права «Продажи» — расход без продаж** (решение Anthony 10.10.2026, П2б):
+ * статьи, плитки и итог считает сервер без операций продаж, и сходятся они между
+ * собой. Что это не весь счёт, экран говорит строкой под плитками.
  */
 
 import { Alert, Badge, Card, Group, Loader, SimpleGrid, Stack, Table, Text } from '@mantine/core';
@@ -91,6 +95,18 @@ const COLUMNS: { title: string; width?: string }[] = [
   { title: 'Денег', width: '7rem' },
 ];
 const TABLE_MIN_WIDTH = 720;
+
+/** Без права «Продажи» сервер считает расход без продаж (П2б): числа сходятся между собой,
+ *  но это не весь счёт — и экран так и говорит. */
+function SalesHidden({ hidden }: { hidden: boolean }) {
+  if (!hidden) return null;
+  return (
+    <Text size="sm" c="dimmed">
+      Расход продаж не показан — его видно с правом «Продажи». Плитки и статьи — без него: это не
+      весь счёт.
+    </Text>
+  );
+}
 
 export function UsagePage() {
   const { data, isLoading, error } = useQuery({ queryKey: ['usage'], queryFn: fetchUsage });
@@ -177,6 +193,7 @@ export function UsagePage() {
               );
             })}
           </SimpleGrid>
+          <SalesHidden hidden={data.sales_hidden} />
         </Stack>
       </Card>
 
