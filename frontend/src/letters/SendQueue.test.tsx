@@ -155,6 +155,28 @@ describe('отправка очереди пачкой', () => {
     expect(await screen.findByRole('button', { name: 'Отправить очередь · 2' })).toBeDisabled();
   });
 
+  it('закрытая почтой — причина у самой кнопки: что не задано, словами', async () => {
+    // Проверка QA 10.10.2026: причина была только в плашке наверху экрана, а у кнопки и
+    // по наведению — ничего. Строкой под кнопкой — она же описание кнопки для диктора.
+    open({ blocked_by: ['OUTREACH_SENDER_NAME'] });
+
+    const button = await screen.findByRole('button', { name: 'Отправить очередь · 2' });
+
+    expect(button).toHaveAccessibleDescription('Не нажимается, пока не задано имя отправителя');
+    expect(screen.getByText('Не нажимается, пока не задано имя отправителя')).toBeVisible();
+    expect(screen.queryByText(/OUTREACH_/)).not.toBeInTheDocument();
+  });
+
+  it('открытая почта — строки причины нет', async () => {
+    open();
+
+    const button = await screen.findByRole('button', { name: 'Отправить очередь · 2' });
+
+    expect(button).toBeEnabled();
+    expect(button).not.toHaveAccessibleDescription();
+    expect(screen.queryByText(/^Не нажимается/)).not.toBeInTheDocument();
+  });
+
   it('без права на отправку кнопки нет', async () => {
     open({}, {}, OPERATOR);
 
@@ -260,6 +282,16 @@ describe('итог пачки словами', () => {
 });
 
 describe('пачка любого этапа (4.5a)', () => {
+  it('закрытая у продаж — причина общими словами: что не так, сказано выше', () => {
+    renderWith(<SendQueue stage="sales" count={2} blocked onFinished={() => undefined} />);
+
+    expect(
+      screen.getByRole('button', { name: 'Отправить очередь · 2' }),
+    ).toHaveAccessibleDescription(
+      'Не нажимается, пока почта не подключена — что не так, сказано выше',
+    );
+  });
+
   it('продажи уходят своим этапом, отказ сервера — словами', async () => {
     const refusal = 'Очередь писем не отправлена: продажи к почте ещё не подключены';
     const recorded = serve({

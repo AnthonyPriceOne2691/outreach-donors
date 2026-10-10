@@ -29,11 +29,15 @@
  * **Пачка — одной аудитории.** У Этапа 2 две вкладки: рекламодатели по найденной
  * ссылке и бизнесы ниши. Кнопка вкладки отправляет только её письма, число на ней —
  * её очередь, и последняя пачка у каждой своя.
+ *
+ * **Закрытая почтой кнопка говорит почему — строкой под собой** (проверка QA 10.10.2026):
+ * причина была только в плашке наверху экрана, а у кнопки и по наведению — ничего.
+ * Строкой, а не подсказкой: на телефоне наведения нет (`docs/UI_RULES.md`).
  */
 
 import { Alert, Button, Group, Modal, Stack, Text } from '@mantine/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 
 import { refusalOf } from '../api/client';
 import { sendQueue } from '../api/letters';
@@ -49,6 +53,10 @@ const keyOf = (stage: Stage, audience: LetterAudience) =>
   audience === 'links'
     ? `letters:last-send-queue:${stage}`
     : `letters:last-send-queue:${stage}:${audience}`;
+
+/** Почему закрыта пачка, когда экран не назвал своих слов: что именно не так, сказано
+ *  выше — плашкой экрана писем или блоком подключения продаж. */
+const BLOCKED_WHY = 'Не нажимается, пока почта не подключена — что не так, сказано выше';
 
 /** Итог пачки одной строкой: что ушло, что нет и почему, что осталось. */
 export function batchLine(report: Record<string, unknown>): string {
@@ -75,7 +83,43 @@ interface Props {
   batchMax?: number;
   /** Почта не подключена или не заполнены обязательные поля письма. */
   blocked: boolean;
+  /** Почему закрыта — словами экрана; нет — общими (`BLOCKED_WHY`). */
+  blockedWhy?: string;
   onFinished: () => void;
+}
+
+/** Кнопка пачки и, у закрытой почтой, — почему: строкой под ней. Строка — и описание
+ *  кнопки: её слышит экранный диктор. */
+function BatchButton({
+  count,
+  why,
+  onOpen,
+}: {
+  count: number;
+  why: string | null;
+  onOpen: () => void;
+}) {
+  const reasonId = useId();
+  return (
+    <>
+      <Group>
+        <Button
+          color="lagoon"
+          className="press"
+          disabled={count === 0 || why !== null}
+          aria-describedby={why === null ? undefined : reasonId}
+          onClick={onOpen}
+        >
+          Отправить очередь · {formatNumber(count)}
+        </Button>
+      </Group>
+      {why === null ? null : (
+        <Text id={reasonId} size="sm" c="dimmed">
+          {why}
+        </Text>
+      )}
+    </>
+  );
 }
 
 export function SendQueue({
@@ -84,6 +128,7 @@ export function SendQueue({
   count,
   batchMax,
   blocked,
+  blockedWhy = BLOCKED_WHY,
   onFinished,
 }: Props) {
   const client = useQueryClient();
@@ -121,16 +166,7 @@ export function SendQueue({
       : `В очереди ${letters}; одна пачка берёт до ${formatNumber(cap)}, остальное — следующей. Каждое`;
   return (
     <Stack gap={6}>
-      <Group>
-        <Button
-          color="lagoon"
-          className="press"
-          disabled={count === 0 || blocked}
-          onClick={() => toggle(true)}
-        >
-          Отправить очередь · {formatNumber(count)}
-        </Button>
-      </Group>
+      <BatchButton count={count} why={blocked ? blockedWhy : null} onOpen={() => toggle(true)} />
       {jobId !== null ? (
         <JobLine jobId={jobId} onFinished={onFinished} describe={batchLine} />
       ) : null}
