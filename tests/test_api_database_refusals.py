@@ -20,7 +20,7 @@ from backend.features.core.models.domain import DomainModel
 from fastapi import Depends, FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select, text
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -85,7 +85,7 @@ async def engine(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[AsyncEngine]:
 
 @pytest.fixture
 async def bare(engine: AsyncEngine) -> AsyncIterator[AsyncClient]:
-    """Приложение из одних отказов (`errors.install`) и трёх маршрутов на настоящей базе."""
+    """Приложение из одних отказов (`errors.install`) и маршрутов на настоящей базе."""
     app = FastAPI()
     install(app)
 
@@ -109,8 +109,21 @@ async def bare(engine: AsyncEngine) -> AsyncIterator[AsyncClient]:
     async def down() -> None:
         raise OperationalError("SELECT 1", {}, Exception("база не отвечает"))
 
+    @app.get("/silent")
+    async def silent() -> None:
+        raise DBAPIError("INSERT", {}, _SilentError())
+
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http:
         yield http
+
+
+class _SilentError(Exception):
+    """Отказ драйвера с кодом уникальности, но без текста."""
+
+    sqlstate = "23505"
+
+    def __str__(self) -> str:
+        return ""
 
 
 async def _domains(engine: AsyncEngine) -> int:
@@ -140,6 +153,13 @@ async def test_a_string_longer_than_the_column_is_422_in_words(
     assert response.json()["detail"] == DATA_REFUSED
     assert engine.pool.checkedout() == 0
     assert await _domains(engine) == 0
+
+
+async def test_a_refusal_without_words_is_still_answered(bare: AsyncClient) -> None:
+    """У отказа драйвера может не быть текста — ответ тот же, а не пятисотка из журнала."""
+    response = await bare.get("/silent")
+
+    assert (response.status_code, response.json()["detail"]) == (409, RACED)
 
 
 async def test_a_broken_database_stays_a_crash(bare: AsyncClient) -> None:

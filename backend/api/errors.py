@@ -302,14 +302,16 @@ async def _database_refused(request: Request, exc: Exception) -> JSONResponse:
     if code is None:
         raise exc
     orig = getattr(exc, "orig", None)
+    # Первая строка — без DETAIL: там значения ключа, например почта. Текста у отказа
+    # драйвера может не быть вовсе — тогда пусто, а не IndexError вместо ответа.
+    first_line = next(iter(str(orig or exc).splitlines()), "")
     logger.warning(
         "база отказала запросу — ответ %s",
         code,
         extra={
             "path": request.url.path,
             "sqlstate": getattr(orig, "sqlstate", None),
-            # Первая строка — без DETAIL: там значения ключа, например почта.
-            "error": str(orig or exc).splitlines()[0][:300],
+            "error": first_line[:300],
         },
     )
     said = DATA_REFUSED if code == status.HTTP_422_UNPROCESSABLE_CONTENT else RACED

@@ -108,7 +108,7 @@ async def ceiling_at_start(session: AsyncSession, *, run_id: int, promised: int)
     ceiling = max(0, min(promised, month - claimed))
     if ceiling < promised:
         logger.info(
-            "Потолок прогона при старте ниже обещанного: месячный кап занят другими прогонами",
+            "Потолок прогона при старте ниже обещанного: от месячного капа осталось меньше",
             extra={
                 "run_id": run_id,
                 "promised": promised,
