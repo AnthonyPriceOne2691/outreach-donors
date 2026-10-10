@@ -256,6 +256,35 @@ describe('очистка на вкладке лидов', () => {
     expect(localStorage.getItem(cleanJobKey(1))).toBe('job-l');
   });
 
+  it('пока смотрели, лидов очистили — ни окна, ни запуска: раздел перечитан, строка ушла', async () => {
+    let asked = false;
+    const recorded = await openLeads({
+      [`GET ${ASK}`]: () => {
+        asked = true;
+        return { body: { ...LIVE, waiting: 0 } };
+      },
+      // После вопроса сервер знает: новых у гипотезы уже нет.
+      'GET /api/sales/hypotheses': () => ({
+        body: asked
+          ? {
+              ...HYPOTHESES,
+              rows: [
+                { ...HYPOTHESES.rows[0], leads: { new: 0, ready: 3, rejected: 0 } },
+                HYPOTHESES.rows[1],
+              ],
+            }
+          : HYPOTHESES,
+      }),
+    });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Очистить' }));
+
+    await waitFor(() => expect(screen.queryByText(/ждут очистки/)).not.toBeInTheDocument());
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(calls(recorded, 'POST', CLEAN)).toEqual([]);
+  });
+
   it('отказ на запуск при живой проверке — словами в окне, окно остаётся', async () => {
     const running = 'Очистка лидов этой гипотезы уже идёт — дождитесь её итога';
     await openLeads({

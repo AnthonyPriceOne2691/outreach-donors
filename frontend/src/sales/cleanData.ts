@@ -51,7 +51,10 @@ export function useCleaning(hypothesis: number) {
   const ask = useMutation({
     mutationFn: () => readSalesClean(hypothesis),
     onSuccess: (view) => {
-      if (view.paid) setPaid(view);
+      // Пока смотрели, лидов очистил кто-то другой: окна «до 0 запросов» нет — экран
+      // перечитывает раздел, и строка очистки уходит сама.
+      if (view.waiting === 0) void client.invalidateQueries({ queryKey: SALES_QUERIES });
+      else if (view.paid) setPaid(view);
       else start.mutate();
     },
   });
