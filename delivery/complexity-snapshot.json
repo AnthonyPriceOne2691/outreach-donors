@@ -142,9 +142,9 @@
       "worst": "—"
     },
     "backend/api/events/routes.py": {
-      "lines": 155,
+      "lines": 161,
       "complexity": 7,
-      "worst": "take_events:49"
+      "worst": "take_events:53"
     },
     "backend/api/events/schemas.py": {
       "lines": 21,
@@ -472,14 +472,19 @@
       "worst": "—"
     },
     "backend/api/unsubscribe/page.py": {
-      "lines": 129,
-      "complexity": 3,
-      "worst": "_signature:63"
+      "lines": 198,
+      "complexity": 4,
+      "worst": "_signature:122"
     },
     "backend/api/unsubscribe/routes.py": {
-      "lines": 124,
+      "lines": 134,
       "complexity": 5,
-      "worst": "apply:90"
+      "worst": "apply:97"
+    },
+    "backend/api/unsubscribe/signer.py": {
+      "lines": 83,
+      "complexity": 5,
+      "worst": "voice_of:38"
     },
     "backend/api/users/__init__.py": {
       "lines": 1,
@@ -1462,9 +1467,9 @@
       "worst": "to_text:92"
     },
     "backend/features/letters/events.py": {
-      "lines": 390,
+      "lines": 404,
       "complexity": 10,
-      "worst": "apply_events:152"
+      "worst": "apply_events:159"
     },
     "backend/features/letters/followups.py": {
       "lines": 498,
@@ -1487,9 +1492,9 @@
       "worst": "sender_domain:50"
     },
     "backend/features/letters/mailbox.py": {
-      "lines": 270,
+      "lines": 271,
       "complexity": 7,
-      "worst": "silence_words:154"
+      "worst": "silence_words:155"
     },
     "backend/features/letters/masking.py": {
       "lines": 111,
@@ -1632,9 +1637,9 @@
       "worst": "_back:325"
     },
     "backend/features/letters/unsubscribe.py": {
-      "lines": 98,
-      "complexity": 5,
-      "worst": "url_for:51"
+      "lines": 142,
+      "complexity": 6,
+      "worst": "parse:119"
     },
     "backend/features/ops/__init__.py": {
       "lines": 1,
@@ -1657,9 +1662,9 @@
       "worst": "_outcome:159"
     },
     "backend/features/ops/mail_watch.py": {
-      "lines": 177,
+      "lines": 281,
       "complexity": 8,
-      "worst": "_of_stage:99"
+      "worst": "_of_stage:112"
     },
     "backend/features/ops/overview.py": {
       "lines": 358,
@@ -1667,7 +1672,7 @@
       "worst": "_letters:325"
     },
     "backend/features/ops/silence.py": {
-      "lines": 336,
+      "lines": 339,
       "complexity": 7,
       "worst": "_crawl_blocked:259"
     },
@@ -1676,10 +1681,15 @@
       "complexity": 0,
       "worst": "—"
     },
+    "backend/features/outreach/autopause.py": {
+      "lines": 80,
+      "complexity": 2,
+      "worst": "pause_once:62"
+    },
     "backend/features/outreach/health.py": {
-      "lines": 249,
-      "complexity": 10,
-      "worst": "listen:85"
+      "lines": 257,
+      "complexity": 9,
+      "worst": "listen:86"
     },
     "backend/features/outreach/limits.py": {
       "lines": 113,
@@ -2537,9 +2547,9 @@
       "worst": "main:34"
     },
     "backend/workers/reaper.py": {
-      "lines": 163,
+      "lines": 197,
       "complexity": 4,
-      "worst": "_told:106"
+      "worst": "_told:140"
     },
     "backend/workers/sales_jobs.py": {
       "lines": 150,
