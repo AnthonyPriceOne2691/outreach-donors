@@ -32,11 +32,11 @@ logger = logging.getLogger(__name__)
 
 SEND_OFF = (
     "Автоотправка выключена — первые письма уходят кнопкой «Отправить очередь» или по одному; "
-    "включается настройкой SALES_AUTOSEND"
+    "включается настройкой SALES_AUTOSEND."
 )
 BUILD_OFF = (
     "Автосборка выключена — очередь собирают кнопкой «Собрать очередь»; включается настройкой "
-    "SALES_AUTOBUILD"
+    "SALES_AUTOBUILD."
 )
 
 
@@ -59,9 +59,10 @@ def pace() -> str:
     """Как часто уходят письма — из настроек прохода."""
     gap = sales_cfg.AUTOSEND_GAP_MIN
     shortest, longest = round(gap * (1 - SPREAD)), round(gap * (1 + SPREAD))
+    # Число и единица — неразрывным пробелом: на телефоне «60» и «с» расходились по строкам.
     return (
-        f"проход раз в {sales_cfg.AUTOSEND_PASS_SEC} с, с ящика — не больше письма за проход и "
-        f"пауза {shortest}–{longest} мин между его первыми письмами"
+        f"проход раз в {sales_cfg.AUTOSEND_PASS_SEC}\u00a0с, с ящика — не больше письма за проход "
+        f"и пауза {shortest}–{longest}\u00a0мин между его первыми письмами"
     )
 
 
@@ -73,8 +74,8 @@ async def autosend_line(session: AsyncSession, now: datetime) -> AutoLine:
     head = f"Автоотправка включена: {pace()}. В окне получателя сейчас {letters(len(seen.waiting.ids))}"
     stop = seen.stop()
     if stop is not None:
-        return AutoLine(enabled=True, line=f"{head}. Стоит: {stop[1]}")
-    return AutoLine(enabled=True, line=f"{head}. {await _going(session, seen, now)}")
+        return AutoLine(enabled=True, line=f"{head}. Стоит: {stop[1]}.")
+    return AutoLine(enabled=True, line=f"{head}. {await _going(session, seen, now)}.")
 
 
 async def _going(session: AsyncSession, seen: autosend.Facts, now: datetime) -> str:
@@ -113,7 +114,7 @@ async def autobuild_line(session: AsyncSession, jobs: Queue, now: datetime) -> A
     last = await _last(session, jobs)
     if last is not None:
         parts.append(last)
-    return AutoLine(enabled=True, line="; ".join(parts))
+    return AutoLine(enabled=True, line="; ".join(parts) + ".")
 
 
 async def _last(session: AsyncSession, jobs: Queue) -> str | None:

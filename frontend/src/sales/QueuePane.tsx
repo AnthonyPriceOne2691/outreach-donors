@@ -35,6 +35,7 @@
 import {
   Alert,
   Badge,
+  Box,
   Button,
   Group,
   List,
@@ -44,8 +45,9 @@ import {
   Stack,
   Text,
 } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 
 import { refusalOf } from '../api/client';
 import { fetchJob } from '../api/jobs';
@@ -147,16 +149,30 @@ function Chains({ chains }: { chains: ChainState[] }) {
   );
 }
 
-/** Автоотправка и автосборка — значок «включена» или «выключена» и строка сервера. */
+/** Автоотправка и автосборка — значок «включена» или «выключена» и строка сервера. Сеткой
+ *  «значок | строка»: значки разной ширины, а строки начинаются с одной кромки. На узком
+ *  окне значок — над строкой: в колонке рядом с ним строка вставала в двадцать узких строк
+ *  (снимок 390 px). */
 function AutoLines({ view }: { view: SalesQueueView }) {
+  const narrow = useMediaQuery('(max-width: 36em)');
   const lines: [string, SalesAutoLine][] = [
     ['автоотправка', view.autosend],
     ['автосборка', view.autobuild],
   ];
   return (
-    <Stack gap={4} px="md">
+    <Box
+      px="md"
+      style={{
+        display: 'grid',
+        gridTemplateColumns: narrow ? 'minmax(0, 1fr)' : 'max-content minmax(0, 1fr)',
+        columnGap: 'var(--mantine-spacing-xs)',
+        rowGap: 4,
+        alignItems: 'start',
+        justifyItems: 'start',
+      }}
+    >
       {lines.map(([title, auto]) => (
-        <Group key={title} gap="xs" wrap="nowrap" align="flex-start">
+        <Fragment key={title}>
           <Badge
             variant="light"
             color={auto.enabled ? 'green' : 'gray'}
@@ -168,9 +184,9 @@ function AutoLines({ view }: { view: SalesQueueView }) {
           <Text size="sm" className="queueAuto">
             {auto.line}
           </Text>
-        </Group>
+        </Fragment>
       ))}
-    </Stack>
+    </Box>
   );
 }
 

@@ -108,12 +108,12 @@ async def test_going_and_then_waiting_for_the_box_pause(
     resting = await _lines(client, headers, world.hypothesis_id)
 
     assert str(going["autosend"]["line"]).endswith(
-        "В окне получателя сейчас 2 письма. Письма уходят"
+        "В окне получателя сейчас 2 письма. Письма уходят."
     )
     until = now + autosend.pause_of(world.sales_box.id, letters[0].id)
     assert str(resting["autosend"]["line"]).endswith(
         f"В окне получателя сейчас 1 письмо. Ящики на паузе — ближайший освободится в "
-        f"{until:%H:%M} UTC"
+        f"{until:%H:%M} UTC."
     )
 
 
@@ -144,12 +144,12 @@ async def test_autobuild_line_says_the_shortage_whom_it_builds_and_what_it_built
     assert before["autobuild"] == {
         "enabled": True,
         "line": f"{head}; не хватает 20 писем — ближайший проход соберёт гипотезу "
-        "«Выдуманная гипотеза», до 20 писем",
+        "«Выдуманная гипотеза», до 20 писем.",
     }
     assert str(running["autobuild"]["line"]).startswith(
         f"{head}; не хватает 20 писем, но не собирается: идёт сборка гипотезы «Выдуманная гипотеза»"
     )
-    assert str(running["autobuild"]["line"]).endswith("«Выдуманная гипотеза», до 20 писем: идёт")
+    assert str(running["autobuild"]["line"]).endswith("«Выдуманная гипотеза», до 20 писем: идёт.")
     assert str(done["autobuild"]["line"]).endswith(
-        "«Выдуманная гипотеза», до 20 писем: собрано 3 письма"
+        "«Выдуманная гипотеза», до 20 писем: собрано 3 письма."
     )
