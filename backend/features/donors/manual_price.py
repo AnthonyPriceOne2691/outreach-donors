@@ -26,7 +26,10 @@
   Молчание в ответ на письмо и «не продаём» — не отказ: цену человек знает
   не из письма;
 * кандидат, ждущий решения в очереди прогона, — решают там, а не здесь;
-* не прошёл пороги отбора — Этап 2 обходит только годных доноров.
+* не прошёл пороги отбора — Этап 2 обходит только годных доноров;
+* у донора слово новее этой минуты (`price.said_later`, 11.10.2026): последнее
+  слово сильнее. Цена руками — слово минуты, когда её вписали, и такого почти
+  не бывает; бывает — часы разошлись, и записи о цене, которой нет, не будет.
 
 Отказ по состоянию домена карточка донора называет до нажатия — теми же
 словами (`price_refusal`, 08.10.2026).
@@ -48,7 +51,7 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.outreach import SenderModel
 from backend.features.donors.host import normalize_host
-from backend.features.donors.price import put_price
+from backend.features.donors.price import put_price, said_later
 from backend.features.donors.standing import UnknownDonorError, decided_in, donor_now
 from backend.features.donors.wording import reject_reason_text
 from backend.features.replies.money import (
@@ -377,8 +380,18 @@ async def _priced(
     author_id: int | None,
     at: datetime,
 ) -> Entered:
-    """Цена — в карточку, запись — в журнал: кто, сколько, откуда и что было до."""
+    """Цена — в карточку, запись — в журнал: кто, сколько, откуда и что было до.
+
+    Правило последнего слова — то же, что у цены из ответа (`price.said_later`): цена
+    руками — слово минуты, когда её вписали, и обычно новее всего. Слово новее этой
+    минуты — отказ словами, а не запись в журнал о цене, которой нет.
+    """
     before = _shown(donor)
+    if said_later(donor, await session.get(DomainModel, donor.domain_id), at):
+        raise DonorRefusedError(
+            f"Цену {host} не записали: у донора записано слово новее этой цены — ответ или "
+            "цена позже неё, а последнее слово сильнее. Обновите карточку и проверьте цену."
+        )
     put_price(
         donor,
         amount=price.amount,

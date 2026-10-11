@@ -58,10 +58,15 @@ from backend.config import outreach as outreach_cfg
 from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
+from backend.features.core.models.outreach import ReplyModel
 from backend.features.replies import lead_handoff, unbound
 from backend.features.replies.attachments import ReplyFiles
 from backend.features.replies.calibration import calibrate
-from backend.features.replies.confirmation import confirmed_price, refuse_superseded
+from backend.features.replies.confirmation import (
+    ConfirmedPrice,
+    confirmed_price,
+    refuse_superseded,
+)
 from backend.features.replies.extract import PLACEMENT_DECLINES, PLACEMENT_SELLS
 from backend.features.replies.repository import ReplyRepository
 from backend.shared.queue import LEAD_JOB, runs_queue, with_retries
@@ -288,6 +293,11 @@ async def review(
     Цена и валюта проверяются правилами цены руками (`replies/confirmation.py`):
     не цена — отказ словами, до записи. Ответ, перекрытый более поздним с принятой
     ценой, — тоже отказ: его подтверждение записало бы в карточку донора старую цену.
+
+    Решение человека ложится в карточку донора временем самого ответа: последнее
+    слово донора — по тому, когда он ответил (`donors/price.py`). Слово новее этого
+    ответа оно не перебивает — тогда `stored_price` и `seller_answer` говорят, что
+    в карточку не легло.
     """
     repository = ReplyRepository(session)
     reply = await repository.reply(reply_id)
@@ -303,23 +313,9 @@ async def review(
         payment_methods=body.payment_methods,
     )
 
-    price = checked.main
-    domain_id = await repository.domain_of(reply)
-    stored = False
-    answer: str | None = None
-    if price is not None and domain_id is not None:
-        # Список цен — тот, что лежит у ответа: человек решает главную цену,
-        # а прочие цены письма им не правятся и идут в карточку как есть.
-        await repository.store_price(
-            domain_id=domain_id, price=price, currency=checked.currency, offers=reply.offers
-        )
-        stored = True
-        answer = PLACEMENT_SELLS
-    elif body.declines:
+    if body.declines:
         reply.placement = PLACEMENT_DECLINES
-        answer = PLACEMENT_DECLINES
-    if answer is not None and domain_id is not None:
-        await repository.record_seller_answer(domain_id=domain_id, answer=answer, reply_id=reply.id)
+    stored, answer = await _to_donor_card(repository, reply, checked, declines=body.declines)
 
     await AccessRepository(session).record(
         AuditAction.PRICE_REVIEWED,
@@ -341,3 +337,29 @@ async def review(
     return Reviewed(
         id=reply_id, reviewed_by=author.email, stored_price=stored, seller_answer=answer
     )
+
+
+async def _to_donor_card(
+    repository: ReplyRepository, reply: ReplyModel, checked: ConfirmedPrice, *, declines: bool
+) -> tuple[bool, str | None]:
+    """Решение человека — в карточку донора, временем самого ответа: легла ли цена
+    и какой ответ лёг на домен. Слово новее этого ответа не перебивается
+    (`donors/price.py`) — тогда «не легла» и пусто."""
+    domain_id = await repository.domain_of(reply)
+    price = checked.main
+    if domain_id is None or (price is None and not declines):
+        return False, None
+    # Список цен — тот, что лежит у ответа: человек решает главную цену,
+    # а прочие цены письма им не правятся и идут в карточку как есть.
+    stored = price is not None and await repository.store_price(
+        domain_id=domain_id,
+        price=price,
+        currency=checked.currency,
+        offers=reply.offers,
+        at=reply.created_at,
+    )
+    answer = PLACEMENT_DECLINES if price is None else PLACEMENT_SELLS
+    landed = await repository.record_seller_answer(
+        domain_id=domain_id, answer=answer, reply_id=reply.id, at=reply.created_at
+    )
+    return stored, answer if landed else None
