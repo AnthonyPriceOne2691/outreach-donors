@@ -1892,9 +1892,9 @@
       "worst": "parse:191"
     },
     "backend/features/sales/browse.py": {
-      "lines": 184,
+      "lines": 185,
       "complexity": 6,
-      "worst": "_conditions:98"
+      "worst": "_conditions:99"
     },
     "backend/features/sales/chain.py": {
       "lines": 224,
