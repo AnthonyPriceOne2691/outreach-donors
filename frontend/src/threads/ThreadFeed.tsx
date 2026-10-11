@@ -27,7 +27,7 @@ import { IconCheck, IconChecks, IconClock } from '@tabler/icons-react';
 import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 
 import { AgentDraftBanner } from '../agent/AgentDraftBanner';
-import { MESSAGE_STATUSES, REPLY_KINDS } from '../api/labels';
+import { MESSAGE_STATUSES, REPLY_KINDS, SELLER_ANSWERS } from '../api/labels';
 import type { LetterWithFiles } from '../api/files';
 import type { Corridor, IncomingCard, LetterCard, MessageStatus } from '../api/types';
 import { formatDateTime, formatMoney } from '../format';
@@ -218,13 +218,27 @@ function ReplyText({ reply }: { reply: IncomingCard }) {
  * Почему перекрытый ответ не разбирают — строкой в его пузыре; не перекрыт — пусто.
  * Без строки ответ со значком «белая 250 $» стоял бы без «ждёт разбора» и без кнопки,
  * и непонятно почему (проверка прода 10.10.2026: цену уточнили следующим письмом).
+ * Перекрыл ответ без цены — «не продаёт» или «бесплатно» — строка называет его словами
+ * отбора: последнее слово донора побеждает (11.10.2026), и цены у переписки нет вовсе.
  */
 function supersededNote(reply: IncomingCard, incoming: IncomingCard[]): string | null {
   const by = reply.superseded_by ?? null;
   if (by === null) return null;
   const later = incoming.find((other) => other.id === by);
   const at = later === undefined ? '' : ` от ${when(later.received_at)}`;
+  const said = later === undefined ? null : answerWithoutPrice(later);
+  if (said !== null) {
+    return `Последнее слово донора — «${said}» в ответе${at}: этот разбирать не нужно.`;
+  }
   return `Цену переписки задаёт более поздний ответ${at} — этот разбирать не нужно.`;
+}
+
+/** «Не продаёт» или «берёт бесплатно» у ответа без цены; иначе пусто. */
+function answerWithoutPrice(reply: IncomingCard): string | null {
+  if (reply.price_white !== null || reply.price_grey !== null) return null;
+  return reply.placement === 'declines' || reply.placement === 'free'
+    ? SELLER_ANSWERS[reply.placement].title
+    : null;
 }
 
 /** Пометки под текстом: почему ответ продаж ждёт человека, кто ведёт взятый лид

@@ -19,6 +19,7 @@ from backend.features.donors.wording import (
     COUNTRY_TITLES,
     DONOR_STATUS_TITLES,
     NOT_SEARCHED,
+    SELLER_ANSWER_TITLES,
     country_title,
     reject_reason_text,
     share_text,
@@ -69,6 +70,11 @@ class TestSameWordsAsTheScreen:
     def test_never_searched(self) -> None:
         source = LABELS_TS.read_text(encoding="utf-8")
         assert f"NOT_SEARCHED = {{ title: '{NOT_SEARCHED}'" in source
+
+    def test_seller_answers(self) -> None:
+        """«Не продаёт» и «берёт бесплатно» стоят в выгрузке на месте цены, которую
+        снял ответ донора, — словами отбора и карточки."""
+        assert _titles("SELLER_ANSWERS") == SELLER_ANSWER_TITLES
 
 
 class TestRejectReason:

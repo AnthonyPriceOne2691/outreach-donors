@@ -139,7 +139,7 @@ def _unreviewed(score: VersionScore, reply: ReplyModel, *, superseded: bool) -> 
 
 
 async def _superseded(session: AsyncSession, replies: Sequence[ReplyModel]) -> set[int]:
-    """Номера ждущих ответов, перекрытых более поздним с принятой ценой.
+    """Номера ждущих ответов, перекрытых более поздним принятым (`threads.superseded_by`).
 
     Ответы переписки — все, а не только разобранные моделью: цену переписки
     задаёт и подтверждённая человеком (`threads.settled_price`). Читаются только

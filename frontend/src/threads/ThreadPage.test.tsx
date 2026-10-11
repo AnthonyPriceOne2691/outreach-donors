@@ -147,6 +147,28 @@ describe('карточка переписки', () => {
     expect(await screen.findByText(/в карточку донора ничего не пошло/)).toBeInTheDocument();
   });
 
+  it('цена подтверждена, но в карточку не легла — там слово новее, так и сказано', async () => {
+    // Последнее слово донора побеждает (11.10.2026): «не продаём» из другой переписки
+    // или цена руками новее этого ответа — и сервер цену не пускает. «Цены в ответе
+    // нет» здесь было бы неправдой: цена есть, она старше.
+    await openThread(
+      {},
+      {
+        'PATCH /api/replies/7': {
+          body: { id: 7, reviewed_by: 'админ@site.com', stored_price: false, seller_answer: null },
+        },
+      },
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Подтвердить' }));
+
+    expect(
+      await screen.findByText(/В карточку донора не легло: там слово новее этого ответа/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Цены в ответе нет/)).toBeNull();
+  });
+
   it('не цена — отказ сервера над полями, вписанное уходит как есть и остаётся', async () => {
     // Проверка QA 10.10.2026: «−5 EUR» ложилось ценой в карточку донора, а запятую
     // экран сам менял на точку — «1,200» уходило как 1,20.
@@ -361,6 +383,33 @@ describe('перекрытый ответ', () => {
     expect(within(old!).queryByRole('button')).not.toBeInTheDocument();
     // Более поздний правят, как всякий решённый: цена переписки — его.
     expect(within(clarified!).getByRole('button', { name: 'Поправить цену' })).toBeInTheDocument();
+  });
+
+  it('перекрыт ответом «не продаёт» — строка называет его словами отбора', async () => {
+    // Последнее слово донора побеждает (11.10.2026): «не продаём» после неуверенной цены
+    // перекрывает её, и цены у переписки нет вовсе — «цену задаёт» было бы неправдой.
+    await openThread({
+      card: { ...VIEW.card, state: 'declined' },
+      incoming: [
+        { ...UNSURE, needs_review: false, superseded_by: 8 },
+        {
+          ...CLARIFIED,
+          raw_body: 'Sorry, we no longer sell posts.',
+          price_white: null,
+          currency: null,
+          confidence: 0.9,
+          placement: 'declines',
+        },
+      ],
+    });
+
+    const [old] = screen.getAllByRole('article', { name: 'Ответ elena@donor.example.test' });
+    expect(
+      within(old!).getByText(
+        /^Последнее слово донора — «не продаёт» в ответе от 19\.09\.2026, \d\d:\d\d: этот разбирать не нужно\.$/,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Подтвердить' })).not.toBeInTheDocument();
   });
 
   it('«спасибо» без цены не перекрывает: старый разбор по-прежнему под лентой', async () => {

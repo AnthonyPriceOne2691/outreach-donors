@@ -175,7 +175,8 @@ PLACEMENT_UNCLEAR = "unclear"
 PLACEMENTS = frozenset({PLACEMENT_SELLS, PLACEMENT_FREE, PLACEMENT_DECLINES, PLACEMENT_UNCLEAR})
 #: Ответы без цены, после которых прежней цены у донора нет: «не продаём» её снимает,
 #: «бесплатно» ставит вместо неё отметку. Последнее слово донора побеждает (решение
-#: Anthony 11.10.2026, `donors/price.py`). «Продаём» без цены с ценой не спорит.
+#: Anthony 11.10.2026) — и в карточке донора (`donors/price.py`), и в переписке
+#: (`outreach/threads.settled_answer`). «Продаём» без цены с ценой не спорит.
 WITHOUT_PRICE = frozenset({PLACEMENT_DECLINES, PLACEMENT_FREE})
 
 

@@ -97,7 +97,7 @@ export function ThreadPage() {
       declines?: boolean;
     }) =>
       reviewReply(replyId, { ...values, payment_methods: [], ...(declines ? { declines } : {}) }),
-    onSuccess: async (result) => {
+    onSuccess: async (result, { values, declines = false }) => {
       // Список диалогов тоже меняется: состояние «ждёт разбора» уходит.
       await queryClient.invalidateQueries({ queryKey: ['thread', String(id)] });
       await queryClient.invalidateQueries({ queryKey: ['threads'] });
@@ -105,6 +105,19 @@ export function ThreadPage() {
         notify({
           message: 'Отмечено: донор не продаёт размещения — домен уходит из отбора на год',
           color: 'green',
+        });
+        return;
+      }
+      // Решение не легло в карточку донора: там слово новее этого ответа — цена из другой
+      // переписки или руками, «не продаём». Последнее слово донора побеждает (11.10.2026).
+      if (
+        (declines || values.price_white !== null || values.price_grey !== null) &&
+        !result.stored_price
+      ) {
+        notify({
+          message:
+            'Подтверждено. В карточку донора не легло: там слово новее этого ответа — последнее сильнее',
+          color: 'yellow',
         });
         return;
       }
