@@ -119,6 +119,12 @@ def _print_build(report: BuildReport) -> None:
         )
     if report.off_corridor:
         print(f"Вне коридора отличия: {report.off_corridor} — посмотреть перед отправкой.")
+    if report.selected_letters:
+        # Не отказ модели, поэтому не нотой ниже: подбор сам оставил зоны текстом шаблона.
+        print(
+            f"Подбор зон под коридор: писем {report.selected_letters}, переписанных зон "
+            f"оставлено текстом шаблона {report.dropped_zones}."
+        )
     for reason, times in report.bad_addresses.items():
         print(f"Пропущено, адрес не прошёл фильтр — {reason}: {times}")
     for note, times in sorted(report.notes.items(), key=lambda pair: -pair[1]):

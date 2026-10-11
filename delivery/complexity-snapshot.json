@@ -517,8 +517,8 @@
       "worst": "cmd_keywords:83"
     },
     "backend/cli/letters_queue.py": {
-      "lines": 174,
-      "complexity": 6,
+      "lines": 180,
+      "complexity": 7,
       "worst": "_print_build:107"
     },
     "backend/cli/mail_test.py": {
@@ -1312,9 +1312,9 @@
       "worst": "why:109"
     },
     "backend/features/letters/building.py": {
-      "lines": 429,
+      "lines": 472,
       "complexity": 7,
-      "worst": "build:251"
+      "worst": "build:289"
     },
     "backend/features/letters/chain.py": {
       "lines": 106,
@@ -1420,6 +1420,11 @@
       "lines": 352,
       "complexity": 7,
       "worst": "parse_zones:186"
+    },
+    "backend/features/letters/selection.py": {
+      "lines": 115,
+      "complexity": 5,
+      "worst": "_greedy:76"
     },
     "backend/features/letters/selection.py": {
       "lines": 115,
