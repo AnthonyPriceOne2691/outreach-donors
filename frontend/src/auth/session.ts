@@ -18,8 +18,8 @@ const KEY = 'outreach_donors_token';
  *  это состояние сессии; список слушателей тут был бы обещанием, что
  *  их может быть несколько, а их не бывает.
  *
- *  `hadPass` — был ли пропуск, который отказали: отказ входа с неверным
- *  паролем тоже 401, но сеанса он не обрывает — его и не было. */
+ *  `hadPass` — был ли пропуск, который отказали: вход с неверным паролем
+ *  сеанса не обрывает — его и не было. */
 let onLost: ((hadPass: boolean) => void) | null = null;
 
 export function watchTokenLoss(listener: (hadPass: boolean) => void): () => void {
@@ -56,7 +56,7 @@ export function dropToken(): void {
   }
 }
 
-/** Сервер отказал пропуску (401 на любом запросе): выбросить и сказать сессии. */
+/** Сервер отказал пропуску («входа нет» на любом запросе): выбросить и сказать сессии. */
 export function clearToken(): void {
   const hadPass = readToken() !== null;
   dropToken();

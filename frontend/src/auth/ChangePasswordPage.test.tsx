@@ -119,7 +119,7 @@ describe('смена своего пароля', () => {
     expect(await screen.findByText('Ждут человека')).toBeInTheDocument();
   });
 
-  it('обрыв связи — словами: «нет связи с сервером», а не текст браузера', async () => {
+  it('обрыв связи — словами: «ответа нет», а не текст браузера', async () => {
     // Проверка прода 10.10.2026: формы показывали «Failed to fetch».
     localStorage.setItem(TOKEN_KEY, 'пропуск');
     serve({
@@ -133,7 +133,7 @@ describe('смена своего пароля', () => {
 
     await fill('разовый', 'три слова подряд', 'три слова подряд');
 
-    expect(await screen.findByText(/Нет связи с сервером/)).toBeInTheDocument();
+    expect(await screen.findByText(/Ответа нет: связь оборвалась/)).toBeInTheDocument();
     expect(screen.queryByText(/Failed to fetch/)).not.toBeInTheDocument();
   });
 
