@@ -15,9 +15,10 @@ from __future__ import annotations
 
 import csv
 import io
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 from backend.features.core.domain import ContactSource, ReplyKind, RunStatus, Stage, UserRole
@@ -345,6 +346,55 @@ class TestConfirmedLater:
         assert (donor.last_price, donor.last_price_source) == (Decimal("90.00"), "manual")
         # «Продаёт» — слово самого донора, и оно тоже его: ответ ничего новее не перебивает.
         assert (domain.seller_answer, domain.seller_answer_at) == ("sells", DAY + timedelta(1))
+
+
+class TestConfirmedEmpty:
+    """«Подтвердить» пустыми полями — «цены в письме нет», а не «не продаёт» и не
+    «бесплатно»: для отказа своя кнопка. Ревью #323: неуверенная догадка модели
+    оставалась у ответа, переписка считала её последним словом донора, а карточка — нет."""
+
+    EMPTY: ClassVar[dict[str, Any]] = {"price_white": None, "price_grey": None, "currency": None}
+
+    async def test_a_free_guess_confirmed_empty_leaves_the_price(
+        self, session: AsyncSession, client: AsyncClient, token: str
+    ) -> None:
+        thread = await _thread(session)
+        await _answer(session, thread, 1, PRICE)
+        guess = await _answer(session, thread, 3, replace(FREE, confidence=0.5))
+        await session.commit()
+
+        response = await client.patch(
+            f"/api/replies/{guess.id}", json=self.EMPTY, headers=bearer(token)
+        )
+
+        assert response.status_code == 200, response.text
+        card = (await client.get(f"/api/threads/{thread.id}", headers=bearer(token))).json()
+        assert card["card"]["state"] == "priced"
+        donor, _ = await _state(session)
+        assert donor.last_price == Decimal("150.00")
+
+    async def test_a_decline_guess_confirmed_empty_leaves_the_older_price_open(
+        self, session: AsyncSession, client: AsyncClient, token: str
+    ) -> None:
+        thread = await _thread(session)
+        unsure = await _answer(session, thread, 1, UNSURE)
+        guess = await _answer(session, thread, 3, replace(DECLINES, confidence=0.5))
+        await session.commit()
+
+        empty = await client.patch(
+            f"/api/replies/{guess.id}", json=self.EMPTY, headers=bearer(token)
+        )
+        older = await client.patch(
+            f"/api/replies/{unsure.id}",
+            json={"price_white": "250", "currency": "USD"},
+            headers=bearer(token),
+        )
+
+        assert empty.status_code == 200, empty.text
+        assert older.status_code == 200, older.text
+        donor, domain = await _state(session)
+        assert donor.last_price == Decimal("250.00")
+        assert domain.seller_answer == "sells"
 
 
 class TestManualPrice:

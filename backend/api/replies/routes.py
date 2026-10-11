@@ -67,7 +67,7 @@ from backend.features.replies.confirmation import (
     confirmed_price,
     refuse_superseded,
 )
-from backend.features.replies.extract import PLACEMENT_DECLINES, PLACEMENT_SELLS
+from backend.features.replies.extract import PLACEMENT_DECLINES, PLACEMENT_SELLS, WITHOUT_PRICE
 from backend.features.replies.repository import ReplyRepository
 from backend.shared.queue import LEAD_JOB, runs_queue, with_retries
 
@@ -316,6 +316,11 @@ async def review(
 
     if body.declines:
         reply.placement = PLACEMENT_DECLINES
+    elif checked.main is None and reply.placement in WITHOUT_PRICE:
+        # Пустые поля — «цены в письме нет», а не «не продаёт» и не «бесплатно» (для отказа
+        # своя кнопка): догадка модели снимается, иначе переписка сочла бы её последним
+        # словом донора, а карточка — нет (ревью #323).
+        reply.placement = None
     stored, answer = await _to_donor_card(repository, reply, checked, declines=body.declines)
 
     await AccessRepository(session).record(
