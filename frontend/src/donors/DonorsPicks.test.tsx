@@ -122,6 +122,19 @@ describe('отметка доноров', () => {
     expect(exportButton()).toHaveTextContent('Выгрузить найденных · 1');
   });
 
+  it('отметки переживают новый пропуск той же учётки: смена своего пароля их не сбрасывает', async () => {
+    // P4: смена своего пароля выдаёт новый пропуск. Отметки привязаны к учётке, а не к
+    // строке пропуска — иначе они пропадали бы у того же человека (ревью продаж 11.10.2026).
+    await openDonors();
+    const user = userEvent.setup();
+
+    await user.click(pickBox('good.example.test'));
+    localStorage.setItem(TOKEN_KEY, 'новый пропуск');
+    await user.click(pickBox('weak.example.test'));
+
+    expect(screen.getByText(/отмечено:/)).toHaveTextContent('отмечено: 2');
+  });
+
   it('флажок не открывает карточку, а отметки переживают заход в неё', async () => {
     const withCard = [...ROWS, { ...ROW, id: CARD.id, host: CARD.host }];
     const recorded = await openDonors({
