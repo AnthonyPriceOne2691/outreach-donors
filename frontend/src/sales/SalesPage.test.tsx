@@ -232,7 +232,8 @@ describe('продажи: лиды', () => {
 
     const address = screen.getByText(email);
     expect(address).toHaveTextContent(email);
-    expect(address.querySelectorAll('wbr')).toHaveLength(2);
+    // Швы адреса — после «@» и перед двумя точками: строка рвётся по ним, а не посреди слова.
+    expect(address.querySelectorAll('wbr')).toHaveLength(3);
     expect(address.closest('td')).toHaveClass('cellName');
     // Имя ссылки — домен целиком: его копируют и ищут по странице, шов — место переноса.
     const link = screen.getByRole('link', { name: host });

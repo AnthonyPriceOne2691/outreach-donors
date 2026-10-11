@@ -238,6 +238,30 @@ async def test_hypothesis_and_search_filters_find_by_address_name_company_and_do
     assert await found(f"hypothesis={field.en.id}&state=new") == ["ivan@acme.example.test"]
 
 
+async def test_search_takes_typed_signs_literally_not_as_a_pattern(
+    client: AsyncClient,
+    session: AsyncSession,
+    make_user: MakeUser,
+    sign_in: SignIn,
+    field: Field,
+) -> None:
+    """«_» и «%» в поиске — знаки, а не шаблон `LIKE`: «_» находил всех лидов, «%» — тоже."""
+    await _lead(session, field.ru, "first_last@under.example.test")
+    await _lead(session, field.ru, "sale@pct.example.test", company="Скидка 100%")
+    await session.commit()
+    headers = await _headers(make_user, sign_in)
+
+    async def found(typed: str) -> list[str]:
+        response = await client.get(LEADS, params={"search": typed}, headers=headers)
+        assert response.status_code == 200, response.text
+        return _emails(response.json())
+
+    assert await found("_") == ["first_last@under.example.test"]
+    assert await found("%") == ["sale@pct.example.test"]
+    # Знак экранирования — тоже знак: лидов с ним нет.
+    assert await found("\\") == []
+
+
 async def test_twenty_per_page_and_the_server_names_the_size(
     client: AsyncClient,
     session: AsyncSession,

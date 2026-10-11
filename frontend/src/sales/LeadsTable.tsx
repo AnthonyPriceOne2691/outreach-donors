@@ -226,9 +226,9 @@ function LeadRow({ row }: { row: LeadCard }) {
     <Table.Tr>
       <Table.Td className="cellName">
         {/* Адрес и домен — по швам (`components/Seams`), а не посреди слова: имя то же,
-            шов — место переноса без знака. */}
+            шов — место переноса без знака. У адреса шов и после «@», как на «Стоп-листе». */}
         <Text size="sm" fw={500} className="leadEmail">
-          <Seams text={row.email} />
+          <Seams text={row.email} address />
         </Text>
         {who !== '' && (
           <Text size="xs" c="dimmed" className="leadWho">
