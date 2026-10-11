@@ -5,10 +5,12 @@
  * Замечание 26.09.2026: «заведи возможность отмечать, какие именно доноры
  * можно выгрузить». Отметка — не фильтр: в адрес она не пишется (ссылка,
  * отправленная коллеге, не должна приносить чужие отметки), а живёт в памяти
- * вкладки — рядом с клиентом запросов и под пропуском вошедшего. Другой
- * пропуск — другой набор: отметки одного человека не достаются следующему,
+ * вкладки — рядом с клиентом запросов и под учёткой вошедшего. Другая
+ * учётка — другой набор: отметки одного человека не достаются следующему,
  * вошедшему в ту же вкладку (урок 19.09.2026: экран показывал предыдущего
- * пользователя).
+ * пользователя). Владелец — номер учётки, а не строка пропуска: смена своего
+ * пароля выдаёт новый пропуск, и отметки того же человека пропадали бы с ним
+ * (ревью продаж 11.10.2026).
  *
  * **Отметка ставится сразу, а не после.** Первая версия держала набор
  * в кэше запросов, и тот сообщает об изменении не сразу, а следующей задачей:
@@ -21,11 +23,11 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
 
-import { readToken } from '../auth/session';
+import { useSession } from '../auth/AuthProvider';
 
 interface Store {
-  /** Пропуск, под которым отмечали: сменился — отметки не наши. */
-  owner: string | null;
+  /** Учётка, под которой отмечали: сменилась — отметки не наши. */
+  owner: number | null;
   picked: ReadonlySet<number>;
   listeners: Set<() => void>;
 }
@@ -33,13 +35,12 @@ interface Store {
 /** Набор на клиента запросов: у каждого приложения (и у каждого теста) свой. */
 const stores = new WeakMap<QueryClient, Store>();
 
-function storeOf(client: QueryClient): Store {
+function storeOf(client: QueryClient, owner: number | null): Store {
   let store = stores.get(client);
   if (store === undefined) {
-    store = { owner: readToken(), picked: new Set(), listeners: new Set() };
+    store = { owner, picked: new Set(), listeners: new Set() };
     stores.set(client, store);
   }
-  const owner = readToken();
   if (owner !== store.owner) {
     store.owner = owner;
     store.picked = new Set();
@@ -58,27 +59,28 @@ export interface Picks {
 
 export function usePicks(): Picks {
   const client = useQueryClient();
+  const owner = useSession().user?.id ?? null;
   const subscribe = useCallback(
     (listener: () => void) => {
-      const { listeners } = storeOf(client);
+      const { listeners } = storeOf(client, owner);
       listeners.add(listener);
       return () => {
         listeners.delete(listener);
       };
     },
-    [client],
+    [client, owner],
   );
-  const picked = useSyncExternalStore(subscribe, () => storeOf(client).picked);
+  const picked = useSyncExternalStore(subscribe, () => storeOf(client, owner).picked);
 
   const update = useCallback(
     (change: (next: Set<number>) => void) => {
-      const store = storeOf(client);
+      const store = storeOf(client, owner);
       const next = new Set(store.picked);
       change(next);
       store.picked = next;
       for (const listener of store.listeners) listener();
     },
-    [client],
+    [client, owner],
   );
 
   return useMemo(
