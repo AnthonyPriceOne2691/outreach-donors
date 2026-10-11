@@ -54,6 +54,12 @@ MAX_LENGTH = 255
 #: выше найденных, пока с другого не ответили и пока он жив.
 MANUAL_SCORE = 100
 
+#: Отметка вписанного человеком в `verification_status`. Источник `manual` у адреса
+#: бывает и без рук: адрес, с которого донор ответил, адрес из автоответа мёртвого
+#: ящика (`replies/redirect.py`), свой ящик проверки (`donors/probe.py`). По отметке
+#: считает ориентир «Форм» (`forms.monthly_left`).
+BY_HAND = "manual"
+
 #: Почему адрес с перепиской не удаляется.
 HAS_LETTERS = "По этому адресу уже есть письма — удалить нельзя: переписка потеряла бы адресата."
 
@@ -111,7 +117,7 @@ async def add(session: AsyncSession, donor: DonorModel, email: str) -> ContactMo
         domain_id=donor.domain_id,
         email=value,
         source=ContactSource.MANUAL,
-        verification_status="manual",
+        verification_status=BY_HAND,
         verification_score=MANUAL_SCORE,
     )
     session.add(contact)

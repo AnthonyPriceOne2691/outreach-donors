@@ -5,10 +5,10 @@
 увидеть такую очередь было негде: исход лежал значком в общей таблице
 доноров, а работать с ним было нельзя.
 
-**Потолок в месяц — часть правила, а не украшение.** Форм на тысяче
-доменов десятки, на пятидесяти тысячах — тысячи; без потолка очередь
-превращается в список, который никто никогда не разберёт
-(`okf/contact-ladder.md`).
+**Потолок в месяц — ориентир темпа, а не запрет** (решение Anthony 11.10.2026).
+Форм на тысяче доменов десятки, на пятидесяти тысячах — тысячи; число говорит,
+успевают ли руки за очередью, но очередь не закрывает: форма сверх него — та же
+строка (`okf/contact-ladder.md`).
 
 **Заполненная форма даёт адрес, а не отметку.** Если донор ответил
 на форму письмом — у нас появился адрес, и донор становится обычным:
@@ -33,7 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.config import contacts as cfg
 from backend.features.contacts import manual
 from backend.features.contacts.repository import has_address
-from backend.features.core.domain import ContactSource, ContactStatus
+from backend.features.core.domain import ContactStatus
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.donors.standing import is_donor
@@ -131,12 +131,20 @@ async def total(session: AsyncSession) -> int:
 
 
 async def monthly_left(session: AsyncSession, *, now: datetime | None = None) -> int:
-    """Остаток месячного потолка ручных форм.
+    """Остаток ориентира темпа «Форм»: сколько адресов ещё вписать руками, чтобы
+    за последние тридцать дней остаться в ориентире. Ничего не держит: при нуле
+    очередь та же, и вписывать можно (решение Anthony 11.10.2026).
 
     Считается по заведённым руками контактам за последние тридцать
     дней, а не хранимым счётчиком: счётчик, который некому обнулять,
     однажды застревает — этот урок в сервисе уже оплачен дневным
     лимитом ящиков.
+
+    Только вписанные человеком (`manual.BY_HAND`) — на «Формах» и в карточке донора
+    (решение Anthony 11.10.2026). Источник `manual` есть и у адреса, с которого донор
+    ответил, и у адреса из автоответа, и у ящика проверки — ориентир тратился на них.
+    Адрес, на который письмо не дошло, из счёта выходит: отметка мёртвого
+    (`preference.DEAD`) ложится поверх.
 
     Только адреса доноров (проверка прода 10.10.2026): «вписан руками» — и адрес
     кандидата с его карточки, и адрес, с которого ответил рекламодатель или лид
@@ -149,7 +157,7 @@ async def monthly_left(session: AsyncSession, *, now: datetime | None = None) ->
             select(func.count(ContactModel.id))
             .join(DonorModel, DonorModel.domain_id == ContactModel.domain_id)
             .where(
-                ContactModel.source == ContactSource.MANUAL,
+                ContactModel.verification_status == manual.BY_HAND,
                 ContactModel.created_at >= since,
                 is_donor(),
             )
