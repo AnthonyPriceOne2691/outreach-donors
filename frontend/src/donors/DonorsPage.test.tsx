@@ -502,7 +502,7 @@ describe('выгрузка', () => {
     await waitFor(() => expect(clicked).toHaveLength(1));
     const call = recorded.calls.find((sent) => sent.path.startsWith('/api/donors/export'));
     // Раньше это была ссылка без пропуска, и сервер отвечал ей 401.
-    expect(call?.token).toBe('Bearer пропуск');
+    expect(call?.token).toBe('пропуск');
     expect(call?.path).toBe('/api/donors/export?status=suitable');
     expect(clicked[0]?.download).toBe('donors-2026-09-25.csv');
     expect(clicked[0]?.getAttribute('href')).toBe('blob:donors');

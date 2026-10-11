@@ -150,11 +150,16 @@ async function send(path: string, init: RequestInit): Promise<Response> {
   }
 }
 
+/** Заголовок пропуска — свой, а не `Authorization`: на /api/ тот несёт общий пароль сервера,
+ *  и браузер шлёт его сам, раз человек ввёл его на входе в экран (с 11.10.2026 API за тем же
+ *  паролем, что и экран). Имя — как у сервера (`access/tokens.TOKEN_HEADER`). */
+export const PASS_HEADER = 'X-Access-Token';
+
 /** Пропуск заголовком. Одно место на все запросы: выгрузка файлом когда-то
  *  шла простой ссылкой, без него, и сервер отвечал ей 401. */
 function withPass(headers: Record<string, string>): Record<string, string> {
   const token = readToken();
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  if (token) headers[PASS_HEADER] = token;
   return headers;
 }
 

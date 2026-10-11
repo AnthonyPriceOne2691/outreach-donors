@@ -314,7 +314,7 @@ describe('вложение непривязанного ответа', () => {
     await user.click(screen.getByRole('button', { name: 'Скачать Прайс 2026.pdf' }));
 
     await waitFor(() => expect(clicked).toHaveLength(1));
-    expect(recorded.calls.find((call) => call.path === path)?.token).toBe('Bearer пропуск');
+    expect(recorded.calls.find((call) => call.path === path)?.token).toBe('пропуск');
     expect(clicked[0]?.download).toBe('Прайс 2026.pdf');
     expect(await textOf(created[0]!)).toBe('%PDF-1.4 rate card');
   });

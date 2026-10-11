@@ -88,7 +88,7 @@ describe('смена своего пароля', () => {
     expect(await screen.findByText('Ждут человека')).toBeInTheDocument();
     expect(localStorage.getItem(TOKEN_KEY)).toBe(signedIn(OPERATOR).token);
     const after = recorded.calls.filter((call) => call.path === '/api/overview');
-    expect(after.map((call) => call.token)).toEqual([`Bearer ${signedIn(OPERATOR).token}`]);
+    expect(after.map((call) => call.token)).toEqual([signedIn(OPERATOR).token]);
   });
 
   it('отмена возвращает туда, откуда пришли, а не на «Обзор»', async () => {

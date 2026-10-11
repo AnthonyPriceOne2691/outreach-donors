@@ -13,6 +13,8 @@
 
 import { vi } from 'vitest';
 
+import { PASS_HEADER } from '../api/client';
+
 export interface Answer {
   status?: number;
   body?: unknown;
@@ -69,7 +71,7 @@ export function serve(routes: Record<string, Route>): Recorded {
         method,
         path,
         body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
-        token: headers['Authorization'] ?? null,
+        token: headers[PASS_HEADER] ?? null,
       };
       const own = routes[`${method} ${path}`];
       const route = own ?? FRAME_ROUTES[`${method} ${path}`];
