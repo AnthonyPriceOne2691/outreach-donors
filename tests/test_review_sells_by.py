@@ -14,12 +14,13 @@ from collections.abc import Awaitable, Callable
 
 from backend.features.core.domain import UserRole
 from backend.features.core.models.access import UserModel
+from backend.features.donors.selection import HumanIntent, SelectionBrowser
 from backend.features.review.candidates import Decision, RunReview
 from backend.features.review.ordering import SellsBy
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
-from tests.test_review import _judged, _run
+from tests.test_review import _donor, _judged, _run
 
 MakeUser = Callable[..., Awaitable[UserModel]]
 SignIn = Callable[..., Awaitable[str]]
@@ -40,7 +41,7 @@ class TestWhoSaidItSells:
         free = await _judged(session, "free.test", "accept")
         free.seller_answer = "free"
         human = await _judged(session, "human.test", "accept")
-        human.human_intent = "sells_placement"
+        human.human_intent = HumanIntent.PUBLISHER.value
         await _judged(session, "judged.test", "accept", intent="sells_placement")
         door = await _judged(session, "door.test", "accept")
         door.site_door = "страница «write-for-us»"
@@ -63,6 +64,27 @@ class TestWhoSaidItSells:
         assert rows["judged.test"] == ("судья: продаёт размещение у себя", SellsBy.JUDGE)
         assert rows["door.test"] == ("страница «write-for-us»", SellsBy.DOOR)
         assert rows["plain.test"] == (None, None)
+
+    async def test_the_type_named_on_selection_lifts_the_site(self, session: AsyncSession) -> None:
+        """Тип сайта человек называет на «Отборе» (`SelectionBrowser.decide`), и очередь
+        читает ровно это слово. До 11.10.2026 она ждала от человека `sells_placement` —
+        тип судьи, которого человек не говорит, — и «человек: продаёт размещение у себя»
+        не загоралось ни разу, а названная площадка не вставала первой."""
+        plain = await _judged(session, "plain.example.test", "accept")
+        named = await _judged(session, "named.example.test", "accept")
+        for domain, dr in ((plain, 60), (named, 30)):
+            (await _donor(session, domain.host)).dr = dr
+        await SelectionBrowser(session).decide(named.id, intent=HumanIntent.PUBLISHER, note=None)
+        run = await _run(session)
+        review = RunReview(session)
+        await review.queue_run(run.id, [plain.host, named.host])
+
+        page = await review.page(run.id, status=Decision.PENDING)
+
+        assert [(row.domain.host, row.sells, row.sells_by) for row in page.rows] == [
+            ("named.example.test", "человек: продаёт размещение у себя", SellsBy.HUMAN),
+            ("plain.example.test", None, None),
+        ]
 
     async def test_no_from_the_site_silences_both(self, session: AsyncSession) -> None:
         """Ответ «не продаём» гасит и пояснение, и источник — вместе."""
