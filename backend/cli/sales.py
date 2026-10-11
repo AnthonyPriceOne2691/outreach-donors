@@ -175,21 +175,22 @@ async def run_stoplist_add(session: AsyncSession, args: argparse.Namespace) -> i
         return EXIT_BAD_INPUT
     if not entries.hosts and not entries.emails:
         print(f"Стоп-лист не прочитан: в файле {args.file.name} нет ни домена, ни адреса")
-        _print_unreadable(entries.unreadable)
+        _print_unreadable(entries.remarks)
         return EXIT_BAD_INPUT
     loaded = await stoplist.add(session, entries, author=AUTHOR, note=args.note or args.file.name)
     await session.commit()
+    closed = f"; лидов снято: {loaded.closed}" if loaded.closed else ""
     print(
         f"Стоп-лист продаж: добавлено {loaded.added}, уже было {loaded.known} "
-        f"(доменов {len(entries.hosts)}, адресов {len(entries.emails)})."
+        f"(доменов {len(entries.hosts)}, адресов {len(entries.emails)}){closed}."
     )
-    _print_unreadable(loaded.unreadable)
+    _print_unreadable(loaded.remarks)
     return EXIT_OK
 
 
-def _print_unreadable(rows: list[tuple[int, str]]) -> None:
-    for line, cell in rows:
-        print(f"  строка {line}: {stoplist.NOT_AN_ENTRY} — «{cell}»")
+def _print_unreadable(rows: list[tuple[int, str, str]]) -> None:
+    for line, why, cell in rows:
+        print(f"  строка {line}: {why} — «{cell}»")
 
 
 async def run_kb_load(session: AsyncSession, args: argparse.Namespace) -> int:

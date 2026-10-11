@@ -34,13 +34,8 @@ import { useEffect, useState } from 'react';
 import { refusalOf } from '../api/client';
 import { listLeads } from '../api/sales';
 import { LEAD_STATES } from '../api/salesLabels';
-import type {
-  HypothesisCard,
-  LeadCard,
-  LeadChanged,
-  LeadState,
-  LeadsView,
-} from '../api/salesTypes';
+import type { LeadChanged } from '../api/salesLeads';
+import type { HypothesisCard, LeadCard, LeadState, LeadsView } from '../api/salesTypes';
 import { Metric } from '../components/Metric';
 import { PageSwitch } from '../components/PageSwitch';
 import { formatNumber } from '../format';

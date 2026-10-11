@@ -55,6 +55,7 @@ import { ModuleOff } from './ModuleOff';
 import { Pending } from './Pending';
 import { QueuePane } from './QueuePane';
 import { SenderPane } from './SenderPane';
+import { StoplistPane } from './StoplistPane';
 
 /** Набранный поиск совпадает с адресом без пробелов по краям. */
 const sameSearch = (draft: string, committed: string) => draft.trim() === committed;
@@ -123,7 +124,7 @@ function SalesTabs({ tab, counts, onTab }: TabsProps) {
           ...SALES_TAB_KEYS.filter((key) => !SETTINGS_TABS.has(key)).map(item),
           { group: 'Настройки', items: settings.map(item) },
         ]}
-        // Все семь пунктов без прокрутки списка. На телефоне рядом в ряд встаёт «Загрузить
+        // Все пункты без прокрутки списка. На телефоне рядом в ряд встаёт «Загрузить
         // базу», и поле уже пункта «База знаний — 3» — список по содержимому, левым краем по
         // полю; на окне пошире поле — по значению, не шире 16rem, а не на весь ряд.
         maxDropdownHeight={360}
@@ -219,6 +220,7 @@ export function SalesPage() {
     hypotheses: () => <HypothesesTable rows={known} />,
     kb: () => <KbPane />,
     sender: () => <SenderPane />,
+    stoplist: () => <StoplistPane />,
     chain: () => <ChainPane hypotheses={known} owner={chosen} onOwner={pick} />,
     queue: () => <QueuePane hypotheses={known} hypothesis={chosen} onHypothesis={pick} />,
     funnel: () => (

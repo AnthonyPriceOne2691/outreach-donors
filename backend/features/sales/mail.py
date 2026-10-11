@@ -67,7 +67,6 @@ from backend.features.letters.chain import ANSWER_STEP, FIRST_STEP
 from backend.features.letters.sending import NotReadyError, SendError, SuppressedError
 from backend.features.letters.uniqueness import corridor_verdict
 from backend.features.sales import chain, connection, followup_texts, handoff, letter, sender
-from backend.features.sales.cleaning import ASKED_NOT_TO_WRITE
 from backend.features.sales.intake import host_key
 from backend.features.sales.lead_edit import EDITED, edited
 from backend.features.sales.models import (
@@ -77,6 +76,7 @@ from backend.features.sales.models import (
     SalesThreadModel,
 )
 from backend.features.sales.policy import sales_policy, zones_of
+from backend.features.sales.suppressions import holds_sales
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +163,7 @@ async def stopped_by(
 
     Те же правила, что у очистки (`cleaning.py`): стоп-лист продаж держит адрес, домен
     компании и домен адреса; общий — строки без этапа, этапа продаж и те, где человек
-    сам просил не писать."""
+    сам просил не писать (`suppressions.holds_sales` — одно условие на очистку и отправку)."""
     mailbox = lead.email.rpartition("@")[2]
     hosts = sorted({host, mailbox, host_key(mailbox)} - {""})
     manual = await session.scalar(
@@ -182,12 +182,7 @@ async def stopped_by(
         select(SuppressionModel.reason)
         .where(
             or_(SuppressionModel.domain_id == lead.domain_id, SuppressionModel.email == lead.email),
-            or_(
-                SuppressionModel.stage.is_(None),
-                SuppressionModel.stage == Stage.SALES,
-                SuppressionModel.reason.in_(ASKED_NOT_TO_WRITE),
-            ),
-            SuppressionModel.in_force(now or datetime.now(UTC)),
+            holds_sales(now or datetime.now(UTC)),
         )
         .limit(1)
     )

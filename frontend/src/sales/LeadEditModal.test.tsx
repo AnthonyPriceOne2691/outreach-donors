@@ -12,7 +12,8 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
-import type { HypothesesView, KbView, LeadCard, LeadChanged, LeadsView } from '../api/salesTypes';
+import type { LeadChanged } from '../api/salesLeads';
+import type { HypothesesView, KbView, LeadCard, LeadsView } from '../api/salesTypes';
 import type { Me } from '../api/types';
 import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';

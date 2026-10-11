@@ -1,5 +1,6 @@
 /**
- * Что отдаёт сервер разделу «Продажи»: гипотезы, лиды, загрузка базы.
+ * Что отдаёт сервер разделу «Продажи»: гипотезы, лиды, загрузка базы. Стоп-лист — своим
+ * файлом (`salesStoplist.ts`): этот стоит у предела длины.
  *
  * Своим файлом, а не в `types.ts`: тот стоит в тающем baseline длины (988 строк
  * при пределе 500, запас — на точечные правки до сплита), и гейт длины новый
@@ -75,25 +76,6 @@ export interface LeadCard {
   /** Вердикт проверяльщика с именем источника: `fixture:valid`, `hunter:valid`. */
   verification_status: string | null;
   created_at: string;
-}
-
-/** Правка лида с экрана (`PATCH /sales/leads/{id}`): только присланные поля; пусто или
- *  `null` — «не задано». Правила полей — сервера, как у загрузки базы. */
-export interface LeadPatchBody {
-  name?: string | null;
-  position?: string | null;
-  company?: string | null;
-  language?: string | null;
-  country?: string | null;
-  timezone?: string | null;
-}
-
-/** Лид после правки — строка той же формы, что в списке, — и что изменилось. */
-export interface LeadChanged extends LeadCard {
-  /** Поля, которые правка изменила; пусто — всё было так же. */
-  changed: string[];
-  /** Первое письмо лида ждёт в очереди — следующая сборка соберёт его заново. */
-  rebuild: boolean;
 }
 
 export interface LeadsView {

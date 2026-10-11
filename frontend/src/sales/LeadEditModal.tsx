@@ -19,9 +19,10 @@ import { Modal, Select, SimpleGrid, Stack, TextInput } from '@mantine/core';
 import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 
-import { changeLead } from '../api/sales';
+import { changeLead } from '../api/salesLeads';
 import { CHAIN_LANGUAGES } from '../api/salesLabels';
-import type { ChainLanguage, LeadCard, LeadChanged, LeadPatchBody } from '../api/salesTypes';
+import type { LeadChanged, LeadPatchBody } from '../api/salesLeads';
+import type { ChainLanguage, LeadCard } from '../api/salesTypes';
 import { dropdownBelow } from '../theme';
 import { SaveActions } from './SaveActions';
 import { SaveRefusal } from './SaveRefusal';
