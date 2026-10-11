@@ -1,8 +1,10 @@
 """Текст шаблона цепочки писем продаж: разбор зон и правила записи — без базы.
 
 **Тело — в формате зон шаблонов доноров** (`letters/template.py`): строка `[имя] rewrite`
-открывает зону, которую модель переписывает под адресата, `[имя] fixed` — зону, которая
-уходит как есть и в модель не попадает; подстановка — `{{имя}}`. Разбор свой, а не
+открывает зону, которую модель может переписать под адресата — в отдельном письме она может
+остаться текстом шаблона: какие из переписанных зон принять, сборка подбирает под коридор
+отличия (`corridor.py`); `[имя] fixed` — зону, которая уходит как есть и в модель не
+попадает; подстановка — `{{имя}}`. Разбор свой, а не
 `template.parse`: тот требует набор зон доноров и подпись в шаблоне, а у продаж подпись
 и физический адрес дописывает сборка из настроек отправителя (`sender.py`) — шаблон их
 не повторяет.
@@ -10,6 +12,8 @@
 **Правила записи — здесь, одни для экрана, консоли и предпросмотра:**
 - первое письмо (шаг 1) — с темой, без «Re:» и «Fwd:» (конституция: поддельная
   переписка — обман адресата); переписываемая часть дотягивает до коридора отличия;
+  коридор достижим, но трудно (`corridor_warning`) — шаг записывается с предупреждением
+  словами, а не отказом;
 - добивки (шаги 2 и 3) — без темы: они идут в той же переписке; зоны только `fixed` —
   модель в добивках не участвует, как у доноров;
 - подстановки — только из `PLACEHOLDERS`; незнакомая или одиночная скобка — отказ;
@@ -26,7 +30,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from backend.config import outreach as cfg
-from backend.features.letters import compose, guards
+from backend.features.letters import compose, guards, uniqueness
+from backend.features.letters.rewrite import CHANGE_MIN, change_share
 from backend.features.letters.template import (
     HEADER_RE,
     PLACEHOLDER_RE,
@@ -66,6 +71,19 @@ SAMPLE: dict[str, dict[str, str]] = {
 }
 
 
+#: Просьба к модели мельче трети слов зоны — коридор трудно достижим: так мелко модель не
+#: правит. Пилот 11.10.2026: шаблон целиком `rewrite`, просьба — пятая часть слов, и три
+#: сборки подряд вне коридора; живые прогоны того же дня — модель переписывает такие зоны
+#: почти целиком (42–66% отличия письма), и в коридор письмо ложится только подбором зон
+#: (`corridor.py`). Просьбу считает `rewrite.change_share`: при середине коридора 20% порог —
+#: переписываемое больше 60% письма; шаблон с переписываемыми 30–50% ложится с первого вызова.
+HARD_CHANGE = 1 / 3
+#: Переписываемая зона короче — даже самая малая просьба модели (`CHANGE_MIN`, пятая часть
+#: слов) в ней меньше слова: «Hi {{name}},» модель не трогает или переписывает целиком.
+SHORT_ZONE = round(1 / CHANGE_MIN)
+#: Совет словами: модели — вступление, остальное уходит как есть.
+ADVICE = "rewrite — только вступление, около 30–50% письма, остальное — fixed"
+
 #: Тема, выдающая себя за ответ или пересылку: «Re:», «Fwd:», «Отв:» — с номером и без.
 _REPLY = re.compile(r"(re|fwd?|отв|ответ)\s*(\[\d+\]|\(\d+\))?\s*:", re.IGNORECASE)
 #: Строка, похожая на заголовок зоны, но не заголовок: `[Offer] fixed`, ` [offer] fixed`.
@@ -101,6 +119,11 @@ class StepTemplate:
     def letter(self) -> Template:
         """Шаблон письма в устройстве доноров — для подстановок и доли переписываемого."""
         return Template(subject=self.subject or "", zones=self.zones)
+
+    @property
+    def warning(self) -> str | None:
+        """Коридор отличия достижим, но трудно — словами (`corridor_warning`); `None` — нет."""
+        return corridor_warning(self.step, self.zones)
 
 
 def _step(value: int) -> int:
@@ -167,7 +190,7 @@ def _kind(raw: str, number: int) -> ZoneKind:
         return ZoneKind(raw)
     except ValueError:
         raise ChainError(
-            f"строка {number}: вида зоны «{raw}» нет — rewrite (переписывает модель) "
+            f"строка {number}: вида зоны «{raw}» нет — rewrite (может переписать модель) "
             "или fixed (уходит как есть)"
         ) from None
 
@@ -253,6 +276,53 @@ def _corridor(letter: Template) -> None:
         )
 
 
+def _fine_ask(letter: Template) -> list[str]:
+    """Просьба модели мельче трети слов зоны — переписываемого слишком много."""
+    asked = change_share(compose.Rendered(subject=letter.subject, zones=letter.zones))
+    if asked >= HARD_CHANGE:
+        return []
+    return [
+        f"модель просят менять около {round(asked * 100)}% слов каждой зоны, а так мелко она "
+        "не правит — переписывает зоны почти целиком, и в коридор письмо ложится, только если "
+        "часть зон останется текстом шаблона"
+    ]
+
+
+def _short_zones(letter: Template) -> list[str]:
+    """Переписываемые зоны в несколько слов: приветствие, подпись строкой."""
+    short = [
+        f"«{zone.name}»"
+        for zone in letter.of_kind(ZoneKind.REWRITE)
+        if len(uniqueness.words(zone.text)) < SHORT_ZONE
+    ]
+    if not short:
+        return []
+    what, them = ("зона", "её") if len(short) == 1 else ("зоны", "их")
+    return [
+        f"{what} rewrite {', '.join(short)} короче {SHORT_ZONE} слов — модель {them} "
+        "не трогает или переписывает целиком"
+    ]
+
+
+def corridor_warning(step: int, zones: Iterable[Zone]) -> str | None:
+    """Коридор отличия достижим, но трудно: предупреждение шагу 1 словами, `None` — годен.
+
+    Отказ — только у недостижимого нижнего края (`_corridor`). Трудный шаблон записывается:
+    письмо выйдет, но сборка будет переписывать его по нескольку попыток (`sales/corridor.py`),
+    и каждая — вызов модели. Число в совете — доля переписываемого, как у отказа."""
+    if step != FIRST_STEP:
+        return None
+    letter = Template(subject="", zones=tuple(zones))
+    found = _fine_ask(letter) + _short_zones(letter)
+    if not found:
+        return None
+    share = round(letter.rewritable_share * 100)
+    return (
+        f"Коридор отличия трудно достижим: {'; '.join(found)}. Совет: {ADVICE} "
+        f"(сейчас переписывается {share}%)."
+    )
+
+
 def _checked_zones(step: int, text: str) -> tuple[Zone, ...]:
     zones = zones_of(text)
     if step != FIRST_STEP and any(zone.kind is ZoneKind.REWRITE for zone in zones):
@@ -310,10 +380,12 @@ class Preview:
     zones: tuple[Zone, ...]
     values: dict[str, str]
     sender: Sender
+    #: Коридор отличия трудно достижим — словами (`corridor_warning`); `None` — нет.
+    warning: str | None = None
 
 
 def preview(new: StepTemplate, found: Sender) -> Preview:
     """Подставить выдуманные значения. Подписи и адреса в шаблоне нет — они из настроек."""
     values = SAMPLE[new.language]
     rendered = compose.render(new.letter, values)
-    return Preview(rendered.subject or None, rendered.zones, values, found)
+    return Preview(rendered.subject or None, rendered.zones, values, found, new.warning)

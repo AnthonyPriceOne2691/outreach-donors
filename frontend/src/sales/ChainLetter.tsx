@@ -3,17 +3,21 @@
  *
  * **Порядок — тот, в каком письмо соберёт сборка**: от кого, тема, зоны с
  * выдуманными значениями, подпись и физический адрес из «Отправителя». У каждой
- * зоны сказано, что с ней будет — «переписывает модель» или «уходит как есть»:
- * иначе человек поправит приветствие и удивится, что в письмах правки не видно.
+ * зоны сказано, что с ней будет — «может переписать модель» или «уходит как есть»:
+ * иначе человек поправит приветствие и удивится, что в письмах правки не видно. «Может» —
+ * потому что сборка подбирает, какие переписанные зоны принять под коридор отличия, и в
+ * отдельном письме зона может остаться текстом шаблона.
  *
  * **Чего не хватает для отправки — словами сервера**, тем же правилом, каким
  * откажет отправка; незаданная подпись или адрес видны на своём месте в письме.
+ * Трудно достижимый коридор отличия — жёлтой строкой там же, до записи шага.
  */
 
 import { Alert, Badge, Group, Stack, Text } from '@mantine/core';
 
 import { chainPlaceholderTitle, ZONE_KINDS } from '../api/salesLabels';
 import type { ChainPreviewView, ZoneCard } from '../api/salesTypes';
+import { CorridorWarning } from './CorridorWarning';
 
 function Zone({ zone }: { zone: ZoneCard }) {
   return (
@@ -66,6 +70,7 @@ export function ChainLetter({ letter }: { letter: ChainPreviewView }) {
       ))}
       <FromSettings text={letter.signature} absent="Подпись не задана" />
       <FromSettings text={letter.address} absent="Физический адрес не задан" />
+      {letter.warning ? <CorridorWarning text={letter.warning} /> : null}
       {letter.missing.length > 0 && (
         <Alert color="yellow" title="Отправка продаж не готова">
           {letter.missing.join('; ')} — без этого письмо продаж не уходит.

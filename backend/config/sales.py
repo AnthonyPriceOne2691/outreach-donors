@@ -113,6 +113,10 @@ class _Sales(DomainSettings):
     # Автоответ в треде продаж цепочку не останавливает, а переносит следующий шаг:
     # до даты возвращения из текста или на столько дней от автоответа.
     ooo_delay_days: int = Field(default=7, ge=1, le=60, validation_alias="SALES_OOO_DELAY_DAYS")
+    # Вызовов модели на письмо очереди в одной сборке: ни один набор переписанных зон не лёг
+    # в коридор отличия — новый вызов с подсказкой (`features/sales/corridor.py`); 1 — без
+    # повтора. Больше десяти — опечатка: подсказка не помогла за десять, поможет шаблон.
+    rewrite_attempts: int = Field(default=3, ge=1, le=10, validation_alias="SALES_REWRITE_ATTEMPTS")
 
     # Бот продаж (секрет: в `.env`). Телемаркетолог один раз жмёт Start, его
     # chat id печатает `outreach sales-telegram-chat-id`.
@@ -192,6 +196,8 @@ REPLY_CONFIDENCE: float = _s.reply_confidence
 GOLDEN_DIR: str = _s.golden_dir.strip()
 #: На сколько дней автоответ переносит следующий шаг продаж, если даты в нём нет.
 OOO_DELAY_DAYS: int = _s.ooo_delay_days
+#: Вызовов модели на письмо очереди продаж в одной сборке (`features/sales/corridor.py`).
+REWRITE_ATTEMPTS: int = _s.rewrite_attempts
 JUDGE_MODE: SalesJudgeMode = _s.judge_mode
 JUDGE_GOLDEN_DIR: str = _s.judge_golden_dir.strip()
 STYLE_GOLDEN_DIR: str = _s.style_golden_dir.strip()

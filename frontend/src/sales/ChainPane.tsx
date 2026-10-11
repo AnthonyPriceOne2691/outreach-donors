@@ -11,6 +11,10 @@
  * общая. Какая цепочка действует и полна ли она, называет сервер — экран не решает
  * сам: правило выбора одно, и живёт оно там, где по нему соберут письма. Набор —
  * гипотеза раздела из адреса (`?hypothesis=`): общий — гипотеза не выбрана.
+ *
+ * **Трудно достижимый коридор отличия — жёлтой строкой у шага** (`CorridorWarning`): шаг
+ * записан, но письма сборка будет переписывать по нескольку попыток; совет — словами
+ * сервера.
  */
 
 import {
@@ -36,6 +40,7 @@ import { formatDateTime } from '../format';
 import { useChain } from './chainData';
 import type { StepPlace } from './chainDraft';
 import { ChainStepModal } from './ChainStepModal';
+import { CorridorWarning } from './CorridorWarning';
 import { useMayWrite, WriteRight } from './WriteRight';
 
 const COMMON = 'common';
@@ -153,6 +158,7 @@ function StepRow({
             <Text size="xs" c="dimmed" className="chainWho">
               {row.updated_by ?? '—'} · {formatDateTime(row.updated_at)}
             </Text>
+            {row.warning ? <CorridorWarning text={row.warning} /> : null}
           </>
         )}
       </Stack>

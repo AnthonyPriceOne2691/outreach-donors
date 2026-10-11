@@ -277,14 +277,14 @@
       "worst": "—"
     },
     "backend/api/sales/chain.py": {
-      "lines": 76,
+      "lines": 78,
       "complexity": 2,
-      "worst": "read_chain:38"
+      "worst": "read_chain:40"
     },
     "backend/api/sales/chain_schemas.py": {
-      "lines": 168,
+      "lines": 176,
       "complexity": 3,
-      "worst": "of:123"
+      "worst": "of:128"
     },
     "backend/api/sales/clean.py": {
       "lines": 167,
@@ -552,9 +552,9 @@
       "worst": "cmd_review_queue:31"
     },
     "backend/cli/sales.py": {
-      "lines": 473,
+      "lines": 483,
       "complexity": 7,
-      "worst": "_mapping:362"
+      "worst": "_mapping:372"
     },
     "backend/cli/sales_commands.py": {
       "lines": 66,
@@ -567,9 +567,9 @@
       "worst": "_line:64"
     },
     "backend/cli/sales_queue.py": {
-      "lines": 71,
+      "lines": 95,
       "complexity": 4,
-      "worst": "run_sales_queue:51"
+      "worst": "run_sales_queue:57"
     },
     "backend/cli/sales_telegram.py": {
       "lines": 69,
@@ -647,9 +647,9 @@
       "worst": "_own_account:203"
     },
     "backend/config/sales.py": {
-      "lines": 224,
+      "lines": 230,
       "complexity": 6,
-      "worst": "_days:139"
+      "worst": "_days:143"
     },
     "backend/config/serp.py": {
       "lines": 56,
@@ -1417,9 +1417,14 @@
       "worst": "edit:81"
     },
     "backend/features/letters/rewrite.py": {
-      "lines": 335,
+      "lines": 352,
       "complexity": 7,
-      "worst": "parse_zones:173"
+      "worst": "parse_zones:186"
+    },
+    "backend/features/letters/selection.py": {
+      "lines": 115,
+      "complexity": 5,
+      "worst": "_greedy:76"
     },
     "backend/features/letters/sendgrid.py": {
       "lines": 305,
@@ -1907,14 +1912,14 @@
       "worst": "save:179"
     },
     "backend/features/sales/chain_load.py": {
-      "lines": 213,
+      "lines": 215,
       "complexity": 8,
-      "worst": "apply:161"
+      "worst": "apply:163"
     },
     "backend/features/sales/chain_text.py": {
-      "lines": 320,
+      "lines": 392,
       "complexity": 8,
-      "worst": "zones_of:197"
+      "worst": "zones_of:220"
     },
     "backend/features/sales/clean_jobs.py": {
       "lines": 133,
@@ -1935,6 +1940,11 @@
       "lines": 134,
       "complexity": 4,
       "worst": "_account_gap:64"
+    },
+    "backend/features/sales/corridor.py": {
+      "lines": 257,
+      "complexity": 7,
+      "worst": "write:216"
     },
     "backend/features/sales/domain_hold.py": {
       "lines": 81,
@@ -2057,9 +2067,9 @@
       "worst": "zones_of:35"
     },
     "backend/features/sales/queue.py": {
-      "lines": 413,
-      "complexity": 9,
-      "worst": "_prepare:246"
+      "lines": 456,
+      "complexity": 7,
+      "worst": "build:148"
     },
     "backend/features/sales/queue_jobs.py": {
       "lines": 66,

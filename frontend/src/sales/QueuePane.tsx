@@ -18,6 +18,11 @@
  * `NumberInput` подменял стёртое поле и «05» умолчанием посреди набора. Число — целое в
  * границах сервера (`limit_max`, тот же потолок, что у тела сборки); что с набранным не так —
  * словами у поля, и без годного числа «Собрать очередь» закрыта: запроса нет.
+ *
+ * **Отличие каждого письма — под строкой задачи**, когда сборка кончилась: лид, отличие
+ * словами сервера, принятые зоны, вызовов модели, в очереди или ждёт (`BuildLetters`). Какие
+ * переписанные зоны принять, чтобы письмо легло в коридор, подбирает сборка, а ни один набор
+ * не лёг — зовёт модель заново сама; ждущие — первыми, длинный список — по «Показать все».
  */
 
 import {
@@ -32,10 +37,11 @@ import {
   Stack,
   Text,
 } from '@mantine/core';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
 import { refusalOf } from '../api/client';
+import { fetchJob } from '../api/jobs';
 import { buildSalesQueue } from '../api/sales';
 import { chainLanguageTitle } from '../api/salesLabels';
 import type { ChainState, HypothesisCard, SalesQueueView } from '../api/salesTypes';
@@ -51,11 +57,22 @@ import { JobLine, jobRestarted } from '../jobs/JobLine';
 import { SendQueue } from '../letters/SendQueue';
 import { notify } from '../notices';
 import { remember, remembered } from '../storage';
-import { buildJobKey, QUEUE_QUERY_KEY, queueLine, useSalesQueue } from './queueData';
+import {
+  buildJobKey,
+  buildLetters,
+  letterLine,
+  QUEUE_QUERY_KEY,
+  queueLine,
+  useSalesQueue,
+} from './queueData';
 import { useMayWrite, WriteRight } from './WriteRight';
 
 /** Писем за раз, пока человек не поправил: как у сборки писем доноров. */
 const DEFAULT_LIMIT = 50;
+
+/** Писем сборки на экране сразу: читают первые — ждущие идут первыми, — остальные по
+ *  «Показать все», как строки отчёта загрузки. */
+const SHOWN_LETTERS = 10;
 
 /** «Писем за раз» — целое от единицы до потолка сервера: тем же правилом, что тело сборки. */
 function limitRule(view: SalesQueueView): NumberRule {
@@ -129,6 +146,40 @@ function Chains({ chains }: { chains: ChainState[] }) {
   );
 }
 
+/** Письма сборки по одному — под строкой задачи, когда сборка кончилась: лид, отличие,
+ *  принятые зоны, попыток, в очереди или ждёт. Исход задачи — из того же кэша, что у
+ *  `JobLine`: второго опроса нет. */
+function BuildLetters({ jobId }: { jobId: string }) {
+  const [all, setAll] = useState(false);
+  const job = useQuery({
+    queryKey: ['job', jobId],
+    queryFn: () => fetchJob(jobId),
+    retry: false,
+  });
+  const letters = job.data?.state === 'done' ? buildLetters(job.data.report) : [];
+  if (letters.length === 0) return null;
+  const shown = all ? letters : letters.slice(0, SHOWN_LETTERS);
+  return (
+    <Stack gap={4}>
+      <List size="sm" spacing={2} aria-label="Письма сборки">
+        {shown.map((letter) => (
+          <List.Item key={letter.lead_id}>{letterLine(letter)}</List.Item>
+        ))}
+      </List>
+      {shown.length < letters.length && (
+        <Group gap="sm">
+          <Text size="sm" c="dimmed">
+            Показаны {formatNumber(shown.length)} из {formatNumber(letters.length)} писем сборки.
+          </Text>
+          <Button variant="subtle" size="compact-sm" className="press" onClick={() => setAll(true)}>
+            Показать все
+          </Button>
+        </Group>
+      )}
+    </Stack>
+  );
+}
+
 function BuildQueue({ view }: { view: SalesQueueView }) {
   const client = useQueryClient();
   const mayWrite = useMayWrite();
@@ -192,11 +243,14 @@ function BuildQueue({ view }: { view: SalesQueueView }) {
         </Alert>
       ) : null}
       {jobId !== null ? (
-        <JobLine
-          jobId={jobId}
-          describe={queueLine}
-          onFinished={() => void client.invalidateQueries({ queryKey: QUEUE_QUERY_KEY })}
-        />
+        <>
+          <JobLine
+            jobId={jobId}
+            describe={queueLine}
+            onFinished={() => void client.invalidateQueries({ queryKey: QUEUE_QUERY_KEY })}
+          />
+          <BuildLetters jobId={jobId} />
+        </>
       ) : null}
     </Stack>
   );

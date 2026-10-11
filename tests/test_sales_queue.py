@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from typing import Any
 
@@ -21,7 +22,7 @@ from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, ThreadModel
 from backend.features.core.stages import SALES_NOT_CONNECTED, SalesNotConnectedError
 from backend.features.letters.uniqueness import in_corridor
-from backend.features.sales import chain, chain_text, hypotheses, queue
+from backend.features.sales import chain, chain_text, corridor, hypotheses, queue
 from backend.features.sales.intake import UnknownHypothesisError
 from backend.features.sales.models import (
     LeadSource,
@@ -206,13 +207,18 @@ async def test_a4_letter_outside_the_corridor_is_not_queued(
     session: AsyncSession, world: w.World, rewriter: Any
 ) -> None:  # A4
     """Ниже коридора — модель не переписала (нет ключа, отказ); выше — переписала лишнее.
-    Очередь продаж уходит пачкой, без глаз на каждом письме: лид ждёт следующей сборки."""
+    Очередь продаж уходит пачкой, без глаз на каждом письме: та же сборка пишет письмо заново
+    (`corridor.py`), а после всех попыток мимо лид ждёт следующей сборки — с отличием каждой
+    попытки в причине. Подделка без памяти промахивается одинаково."""
     await w.lead(session, world.hypothesis_id, JANE)
 
     report = await _build(session, world, rewriter)
 
+    [line] = report.letters
+    assert (line.attempts, line.queued) == (sales_cfg.REWRITE_ATTEMPTS, False)
+    reason = corridor.waiting_reason([line.difference] * sales_cfg.REWRITE_ATTEMPTS)
     assert (report.prepared, report.off_corridor) == (0, 1)
-    assert report.waiting == Counter({queue.OFF_CORRIDOR: 1})
+    assert report.waiting == Counter({reason: 1})
     assert await _letters(session) == []
     assert await session.scalar(select(func.count()).select_from(SalesThreadModel)) == 0
 
@@ -374,11 +380,11 @@ class _SentMeanwhile(w.CorridorRewriter):
         super().__init__()
         self._session, self._message_id = session, message_id
 
-    async def rewrite(self, rendered: Any, about: Any) -> Any:
+    async def rewrite(self, rendered: Any, about: Any, *, hint: str | None = None) -> Any:
         await self._session.execute(
             text("UPDATE messages SET status = 'sent' WHERE id = :id"), {"id": self._message_id}
         )
-        return await super().rewrite(rendered, about)
+        return await super().rewrite(rendered, about, hint=hint)
 
 
 async def test_letter_sent_while_the_queue_was_rebuilt_stays_as_it_was_sent(
@@ -498,6 +504,13 @@ async def test_console_prints_the_report(
     assert code == 0
     assert "новых писем: 1, собрано заново: 0" in out
     assert f"ждут — {queue.NO_LANGUAGE}: 1" in out
+    # Письма по одному: лид, отличие, принятые зоны, попыток, в очереди — лид без цепочки
+    # модели не стоил.
+    assert re.search(
+        r"\n  Jane Example — отличие \d+(,\d+)?% \(переписаны greeting, ask\), попыток: 1 — "
+        r"в очереди\n",
+        out,
+    )
     assert "Ничего не отправлено" in out
 
 

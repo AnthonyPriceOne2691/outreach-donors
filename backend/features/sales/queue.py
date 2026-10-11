@@ -7,16 +7,22 @@
 **Письмо лида.** Язык — лида; цепочка — гипотезы на этом языке (своя целиком или общая,
 `chain.resolve`) и полная — иначе лид ждёт с причиной в отчёте. Шаблон первого письма —
 с подстановками лида (`{{name}}`, `{{company}}`, `{{site}}`); зоны `rewrite` переписывает
-модель — общим клиентом доноров (`RewriteClient`), зоны `fixed` уходят как есть; подпись и
-физический адрес — блоком из «Отправителя» (`letter.signed`). Тема — шаблона, без «Re:»
-(правило записи 4.6a). Адрес получателя — лида (`sales_leads.email`), а не `contacts`
-(решение 01.10); связь диалога с лидом — явная (`sales_threads`).
+модель — общим клиентом доноров (`RewriteClient`), а какие из переписанных принять, подбирает
+сборка (`corridor.py`): в отдельном письме зона может остаться текстом шаблона; зоны `fixed`
+уходят как есть; подпись и физический адрес — блоком из «Отправителя» (`letter.signed`).
+Тема — шаблона, без «Re:» (правило записи 4.6a). Адрес получателя — лида
+(`sales_leads.email`), а не `contacts` (решение 01.10); связь диалога с лидом — явная
+(`sales_threads`).
 
 **Коридор отличия — тот же, что у доноров (15–25%), но письмо вне коридора в очередь не
 встаёт.** У доноров его видит человек и решает сам; очередь продаж уходит пачкой, без глаз
-на каждом письме, — поэтому лид ждёт следующей сборки, а отчёт называет число. Отличие
-меряется по тексту шаблона без блока настроек: правило записи 4.6a считает достижимость
-коридора по зонам.
+на каждом письме. Поэтому сборка подбирает, какие переписанные зоны принять, чтобы письмо
+легло в коридор; ни один набор не лёг — модель переписывает заново с подсказкой, куда и на
+сколько промахнулась прошлая попытка, до `SALES_REWRITE_ATTEMPTS` вызовов (`corridor.py`);
+не вышло — лид ждёт следующей сборки с отличием каждой попытки в причине. Отличие каждого
+письма и принятые зоны — в отчёте сборки (`QueueReport.letters`): на экране под строкой задачи
+и в консоли. Меряется отличие по тексту шаблона без блока настроек: правило записи 4.6a
+считает достижимость коридора по зонам.
 
 **Повтор сборки не задваивает**: у лида один диалог, у письма — ключ с контактом. Письмо,
 которое ещё в очереди, но написано не нынешней цепочкой или с прежними подписью и адресом,
@@ -39,16 +45,16 @@ from typing import Any
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.config import sales as sales_cfg
 from backend.features.core import usage
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, ThreadModel
-from backend.features.letters import compose, guards
+from backend.features.letters import compose
 from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.repository import LetterRepository
 from backend.features.letters.rewrite import Personalization, RewriteClient
-from backend.features.letters.uniqueness import corridor_verdict, difference
-from backend.features.sales import chain, chain_text, connection, handoff, letter
+from backend.features.sales import chain, chain_text, connection, corridor, handoff, letter
 from backend.features.sales.intake import UnknownHypothesisError
 from backend.features.sales.mail import stopped_by
 from backend.features.sales.models import (
@@ -58,7 +64,7 @@ from backend.features.sales.models import (
     SalesThreadModel,
 )
 from backend.features.sales.sender import Sender
-from backend.features.sales.usage_cap import LETTER_REWRITE, sales_cap
+from backend.features.sales.usage_cap import sales_cap
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +80,6 @@ HANDED_OFF = "передан телемаркетологу"
 STOPLIST = "стоп-лист"
 LONG_KEY = "адрес и домен длиннее ключа письма"
 UP_TO_DATE = "письмо уже в очереди"
-OFF_CORRIDOR = "вне коридора отличия — ждёт следующей сборки"
 SENT_MEANWHILE = "письмо ушло или снято, пока его собирали заново — оставлено как есть"
 
 
@@ -97,8 +102,14 @@ class QueueReport:
     waiting: Counter[str] = field(default_factory=Counter)
     #: Сборка остановлена потолком расхода на модель: причина словами.
     stopped: str | None = None
+    #: Почему зоны остались шаблонными: причина → сколько раз (как у сборки доноров).
+    notes: Counter[str] = field(default_factory=Counter)
+    #: Письма, которые писала модель, — по порядку сборки.
+    letters: list[corridor.LetterLine] = field(default_factory=list)
 
-    def as_dict(self) -> dict[str, Any]:
+    def totals(self) -> dict[str, Any]:
+        """Числа и причины без писем по одному — так сборку пишет журнал: имена лидов ему
+        не нужны."""
         return {
             "campaign_id": self.campaign_id,
             "prepared": self.prepared,
@@ -107,7 +118,12 @@ class QueueReport:
             "off_corridor": self.off_corridor,
             "waiting": dict(self.waiting),
             "stopped": self.stopped,
+            "notes": dict(self.notes),
         }
+
+    def as_dict(self) -> dict[str, Any]:
+        """Итог задачи для экрана: числа, причины и письма по одному."""
+        return {**self.totals(), "letters": [line.as_dict() for line in self.letters]}
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,14 +171,12 @@ async def build(
             break
         for row in rows:
             after = row.lead.id
-            if report.prepared + report.refreshed >= limit or not await _within_cap(
-                session, report
-            ):
+            if not await _room(session, report, limit):
                 break
             await _prepare(session, rewriter, row, campaign.id, hypothesis_id, found, report)
             await session.commit()
     logger.info(
-        "продажи: очередь собрана", extra={"hypothesis_id": hypothesis_id, **report.as_dict()}
+        "продажи: очередь собрана", extra={"hypothesis_id": hypothesis_id, **report.totals()}
     )
     return report
 
@@ -192,9 +206,18 @@ async def _leads(session: AsyncSession, hypothesis_id: int, after: int) -> list[
     return [_Lead(*row._tuple()) for row in rows.all()]
 
 
+async def _room(session: AsyncSession, report: QueueReport, limit: int) -> bool:
+    """Есть ли место следующему письму: предел сборки не набран, сборка не встала — потолок
+    модели мог встать и посреди попыток прошлого письма, — и потолок не достигнут сейчас."""
+    if report.prepared + report.refreshed >= limit or report.stopped is not None:
+        return False
+    return await _within_cap(session, report)
+
+
 async def _within_cap(session: AsyncSession, report: QueueReport) -> bool:
-    """Потолок расхода на модель — до каждого письма, как у доноров; кроме общего — свой
-    у вызовов модели продаж (`usage_cap.sales_cap`)."""
+    """Потолок расхода на модель — до каждого письма, как у доноров, и до каждой следующей
+    попытки письма (`corridor.write`); кроме общего — свой у вызовов модели продаж
+    (`usage_cap.sales_cap`)."""
     try:
         await usage.ensure_llm_within_cap(session, run_id=None, own=sales_cap())
     except usage.LlmCapExceededError as exc:
@@ -252,7 +275,8 @@ async def _prepare(
     found: Sender,
     report: QueueReport,
 ) -> None:
-    """Одно письмо: план, текст, коридор, сверка, запись в очередь."""
+    """Одно письмо: план, текст в коридоре (подбор зон и попытки — `corridor.py`), сверка
+    по итоговому тексту, запись в очередь."""
     plan = await _plan(session, row, hypothesis_id)
     if isinstance(plan, str):
         report.waiting[plan] += 1
@@ -263,32 +287,51 @@ async def _prepare(
     rendered = compose.render(
         plan.chain.steps[letter.template_step(FIRST_STEP)].letter, plan.values
     )
-    rewritten = await rewriter.rewrite(
-        rendered, Personalization(host=row.host, country=row.lead.country or "—")
+    tried = await corridor.write(
+        session,
+        rewriter,
+        rendered,
+        Personalization(host=row.host, country=row.lead.country or "—"),
+        lead_id=row.lead.id,
+        attempts=sales_cfg.REWRITE_ATTEMPTS,
+        within_cap=lambda: _within_cap(session, report),
     )
-    if rewritten.tokens_spent:
-        usage.record(session, operation=LETTER_REWRITE, units=rewritten.tokens_spent)
-        report.tokens_spent += rewritten.tokens_spent
-    assembled = compose.assemble(rendered, rewritten.zones)
-    guards.assert_no_metrics(f"{assembled.subject}\n{assembled.body}")
-    uniqueness = difference(assembled.plain_body, assembled.body)
-    if corridor_verdict(uniqueness) is not None:
-        report.off_corridor += 1
-        report.waiting[OFF_CORRIDOR] += 1
-        return
-    body = letter.signed(assembled.body, found)
-    problem = letter.problem(body, found)
-    if problem is not None:
-        report.waiting[problem] += 1
-        return
-    written = compose.Letter(subject=assembled.subject, body=body, plain_body=assembled.plain_body)
-    if not await _write(session, row, plan, written, uniqueness, campaign_id):
-        report.waiting[SENT_MEANWHILE] += 1
-        return
-    if row.queued is None:
+    report.tokens_spent += tried.tokens
+    report.notes.update(tried.notes)
+    why = await _store(session, row, plan, tried, found, campaign_id)
+    report.letters.append(corridor.line(row.lead.id, row.lead.name, tried, queued=why is None))
+    if why is not None:
+        report.waiting[why] += 1
+        if tried.letter is None:
+            report.off_corridor += 1
+    elif row.queued is None:
         report.prepared += 1
     else:
         report.refreshed += 1
+
+
+async def _store(
+    session: AsyncSession,
+    row: _Lead,
+    plan: _Plan,
+    tried: corridor.Tried,
+    found: Sender,
+    campaign_id: int,
+) -> str | None:
+    """Письмо в очередь — или почему нет, строкой отчёта: вне коридора после всех попыток,
+    не сходится с подписью и адресом отправителя, ушло, пока его собирали заново."""
+    if tried.letter is None:
+        return corridor.waiting_reason(tried.differences)
+    body = letter.signed(tried.letter.body, found)
+    problem = letter.problem(body, found)
+    if problem is not None:
+        return problem
+    written = compose.Letter(
+        subject=tried.letter.subject, body=body, plain_body=tried.letter.plain_body
+    )
+    if not await _write(session, row, plan, written, tried.difference, campaign_id):
+        return SENT_MEANWHILE
+    return None
 
 
 async def _write(

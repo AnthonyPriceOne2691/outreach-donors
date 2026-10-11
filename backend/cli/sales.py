@@ -251,6 +251,7 @@ async def run_chain_load(session: AsyncSession, args: argparse.Namespace) -> int
     planned = await chain_load.plan(session, templates, hypothesis_id)
     named = chain.set_name(hypothesis_id)
     print(f"Цепочка писем из {args.file.name}: шаблонов {len(templates)}, {named}.")
+    _print_chain_warnings(templates)
     if args.dry_run:
         _print_chain_plan(planned, update=args.update)
         print("Предпросмотр: в базу ничего не записано.")
@@ -288,6 +289,15 @@ async def _chain_templates(session: AsyncSession, path: Path) -> list[StepTempla
         where = f" ({problem.where})" if problem.where else ""
         print(f"  №{problem.number}{where}: {problem.reason}")
     return None
+
+
+def _print_chain_warnings(templates: list[StepTemplate]) -> None:
+    """Шаг 1 с трудно достижимым коридором отличия — строкой отчёта: шаблон загружается, но
+    сборка будет переписывать письмо по нескольку попыток (`chain_text.corridor_warning`)."""
+    for new in templates:
+        if new.warning is not None:
+            where = f"{chain_text.STEP_TITLES[new.step]}, {new.language}"
+            print(f"  предупреждение — {where}: {new.warning}")
 
 
 def _print_chain_plan(planned: chain_load.Plan, *, update: bool) -> None:

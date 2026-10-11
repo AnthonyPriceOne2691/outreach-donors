@@ -20,6 +20,10 @@
 не персонализация, а повод не отвечать. Ограничение записано
 в `docs/WEB_LAYER.md` как долг: заголовок главной ступень контактов
 и так качает, сохранить его дешевле, чем кажется.
+
+**Подсказка повторной попытки — необязательна.** Продажи переписывают письмо
+вне коридора отличия заново и называют модели направление и число промаха
+(`sales/corridor.py`). Доноры её не передают: их запрос — слово в слово прежний.
 """
 
 from __future__ import annotations
@@ -142,13 +146,22 @@ def change_share(rendered: Rendered) -> float:
 
 
 def build_payload(
-    model: str, *, zones: dict[str, str], about: Personalization, change: float = CHANGE_MAX
+    model: str,
+    *,
+    zones: dict[str, str],
+    about: Personalization,
+    change: float = CHANGE_MAX,
+    hint: str | None = None,
 ) -> dict[str, Any]:
-    """Тело запроса с поправкой на семейство модели."""
+    """Тело запроса с поправкой на семейство модели.
+
+    `hint` — подсказка повторной попытки: абзацем между долей слов и зонами, рядом с
+    просьбой, которую она уточняет. Без неё текст запроса прежний до знака."""
+    asked = f"Change roughly {round(change * 100)}% of the words in each zone.\n\n"
+    if hint:
+        asked += f"{hint}\n\n"
     user = (
-        f"{about.as_prompt()}\n\n"
-        f"Change roughly {round(change * 100)}% of the words in each zone.\n\n"
-        f"Zones to rewrite:\n{json.dumps(zones, ensure_ascii=False)}"
+        f"{about.as_prompt()}\n\n{asked}Zones to rewrite:\n{json.dumps(zones, ensure_ascii=False)}"
     )
     payload: dict[str, Any] = {
         "model": model,
@@ -199,8 +212,12 @@ def parse_zones(content: str, *, expected: set[str]) -> dict[str, str]:
 class RewriteClient(ModelClient):
     """Клиент уникализации. Считает токены — это и есть расход на письмо."""
 
-    async def rewrite(self, rendered: Rendered, about: Personalization) -> RewriteResult:
-        """Переписать зоны письма. Незаполненный результат — законный исход."""
+    async def rewrite(
+        self, rendered: Rendered, about: Personalization, *, hint: str | None = None
+    ) -> RewriteResult:
+        """Переписать зоны письма. Незаполненный результат — законный исход.
+
+        `hint` — подсказка повторной попытки (`build_payload`); без неё — прежний запрос."""
         zones = {z.name: z.text for z in rendered.rewritable()}
         refusal = self._refusal(zones)
         if refusal is not None:
@@ -214,7 +231,7 @@ class RewriteClient(ModelClient):
             self._http,
             api_key=self._api_key,
             payload=build_payload(
-                self._model, zones=masked, about=about, change=change_share(rendered)
+                self._model, zones=masked, about=about, change=change_share(rendered), hint=hint
             ),
             topic=TOPIC,
         )

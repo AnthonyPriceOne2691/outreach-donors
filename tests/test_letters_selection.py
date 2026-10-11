@@ -156,7 +156,7 @@ def test_full_search_goes_up_to_the_limit_then_greedy(monkeypatch: pytest.Monkey
 
 
 def test_many_rewrite_zones_do_not_hang_the_build(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Число зон `rewrite` у шаблона не ограничено: 15 зон — 32 767 наборов полным перебором.
+    """Число зон `rewrite` у шаблона не ограничено: 15 зон — 2^15 − 1 наборов полным перебором.
     Жадно — не больше 15·16/2 = 120 сборок письма, и письмо всё равно в коридоре."""
     many = _letter(*[(f"part{n}x", 4) for n in range(15)], fixed=40)
     rewritten = _rewritten(many, **{f"part{n}x": 1 for n in range(15)})

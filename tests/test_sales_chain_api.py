@@ -205,6 +205,60 @@ async def test_refusals_come_in_words_and_nothing_is_written(
     assert await chain.rows(session, None) == []
 
 
+#: Вступление переписывает модель, остальное уходит как есть: переписывается 53% письма.
+CLEAN_BODY = (
+    "[intro] rewrite\nHello {{name}}, I came across {{company}} and its made-up test pages, "
+    "and wanted to ask one short test question about {{site}} today.\n\n"
+    "[offer] fixed\nMade-up test offer: we write test articles for test sites, and nothing real "
+    "is sold here at all, ever."
+)
+HARD = "Коридор отличия трудно достижим: "
+
+
+async def test_hard_corridor_is_saved_with_a_warning_and_the_set_shows_it_at_the_step(
+    client: AsyncClient, seller: tuple[UserModel, dict[str, str]]
+) -> None:
+    """Шаг 1 с трудно достижимым коридором — не отказ: записан, а ответ записи и набор
+    называют это словами — экран показывает жёлтую строку у шага. Добивке предупреждать
+    не о чем: модель её не переписывает."""
+    _, headers = seller
+
+    card = await _post(client, headers, FIRST)
+    follow = await _post(client, headers, FOLLOW)
+    view = await _chain(client, headers)
+
+    assert card["warning"] is not None
+    assert card["warning"].startswith(HARD)
+    assert "зона rewrite «greeting» короче 5 слов" in card["warning"]
+    assert follow["warning"] is None
+    assert {row["step"]: row["warning"] for row in view["rows"]} == {1: card["warning"], 2: None}
+
+
+async def test_intro_rewritten_and_the_rest_fixed_is_saved_without_a_warning(
+    client: AsyncClient, seller: tuple[UserModel, dict[str, str]]
+) -> None:
+    _, headers = seller
+
+    card = await _post(client, headers, FIRST | {"body": CLEAN_BODY})
+    preview = await client.post(PREVIEW, json=FIRST | {"body": CLEAN_BODY}, headers=headers)
+
+    assert card["warning"] is None
+    assert preview.json()["warning"] is None
+
+
+async def test_preview_warns_of_the_hard_corridor_before_the_step_is_saved(
+    client: AsyncClient, session: AsyncSession, seller: tuple[UserModel, dict[str, str]]
+) -> None:
+    _, headers = seller
+
+    response = await client.post(PREVIEW, json=FIRST, headers=headers)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["warning"] == step_template(**FIRST).warning
+    assert response.json()["warning"].startswith(HARD)
+    assert await chain.rows(session, None) == []
+
+
 async def test_a_typo_in_a_field_name_is_refused_not_ignored(
     client: AsyncClient, seller: tuple[UserModel, dict[str, str]]
 ) -> None:
