@@ -205,6 +205,21 @@ class TestDonorsAsBefore:
         подпись доноров по-английски: и меткой донора, и меткой с номером письма доноров."""
         sales, _ = await _sales_letter(session)
         donor = await _donor_letter(session, sales.domain_id)
+        # Добивка продаж тому же сайту — после письма доноров: этап не «по сайту» и не
+        # «по последнему письму сайта», а по письму метки.
+        session.add(
+            MessageModel(
+                campaign_id=sales.campaign_id,
+                thread_id=sales.thread_id,
+                domain_id=sales.domain_id,
+                step=1,
+                status=MessageStatus.SENT,
+                subject="Re",
+                body="Re",
+                idempotency_key="test:acme.example.test:followup:1",
+            )
+        )
+        await session.commit()
 
         pages = [
             (await client.get(link)).text
