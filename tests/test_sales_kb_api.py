@@ -12,7 +12,8 @@ from typing import Any
 
 import pytest
 from backend.config import sales as sales_cfg
-from backend.features.core.domain import AuditAction
+from backend.features.access.permissions import no_right
+from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import AuditLogModel, UserModel
 from backend.features.sales import kb
 from backend.features.sales.models import KbKind
@@ -30,7 +31,7 @@ SELLER = "seller@ours.example.test"
 KB = "/api/sales/kb"
 PREVIEW = "/api/sales/kb/preview"
 SENDER = "/api/sales/sender"
-NO_RIGHT = "Действие «sales» недоступно этой учётке"
+NO_RIGHT = no_right(Permission.SALES)
 
 PRICE = {
     "kind": "price_policy",

@@ -12,7 +12,8 @@ from typing import Any
 
 import pytest
 from backend.config import sales as sales_cfg
-from backend.features.core.domain import AuditAction
+from backend.features.access.permissions import no_right
+from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import AuditLogModel, UserModel
 from backend.features.sales import chain, hypotheses, sender
 from backend.features.sales.chain_text import step_template
@@ -29,7 +30,7 @@ SignIn = Callable[..., Awaitable[str]]
 SELLER = "seller@ours.example.test"
 CHAIN = "/api/sales/chain"
 PREVIEW = "/api/sales/chain/preview"
-NO_RIGHT = "Действие «sales» недоступно этой учётке"
+NO_RIGHT = no_right(Permission.SALES)
 
 FIRST_BODY = (
     "[greeting] rewrite\nHello {{name}},\n\n"

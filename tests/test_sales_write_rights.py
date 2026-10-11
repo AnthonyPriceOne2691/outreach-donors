@@ -18,7 +18,8 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
-from backend.features.core.domain import AuditAction
+from backend.features.access.permissions import no_right
+from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import AuditLogModel, UserModel
 from backend.features.sales import kb
 from fastapi import FastAPI
@@ -36,8 +37,8 @@ MakeUser = Callable[..., Awaitable[UserModel]]
 SignIn = Callable[..., Awaitable[str]]
 
 SELLER = "seller@ours.example.test"
-NO_SALES = "Действие «sales» недоступно этой учётке"
-NO_SEND = "Действие «send» недоступно этой учётке"
+NO_SALES = no_right(Permission.SALES)
+NO_SEND = no_right(Permission.SEND)
 
 #: Учётки по правам. Оператору `sales` положено ролью, `send` выдают поимённо.
 ONLY_SALES: dict[str, bool] | None = None

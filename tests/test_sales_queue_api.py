@@ -18,7 +18,8 @@ from backend.api.sales.queue import SalesQueueBody, SalesQueueView
 from backend.cli.sales_queue import run_sales_queue
 from backend.config import sales as sales_cfg
 from backend.config import storage
-from backend.features.core.domain import AuditAction, SenderStatus, Stage
+from backend.features.access.permissions import no_right
+from backend.features.core.domain import AuditAction, Permission, SenderStatus, Stage
 from backend.features.core.models.access import AuditLogModel, UserModel
 from backend.features.core.models.outreach import MessageModel
 from backend.features.core.stages import SALES_NOT_CONNECTED, SalesNotConnectedError
@@ -46,7 +47,7 @@ SignIn = Callable[..., Awaitable[str]]
 
 SELLER = "seller@ours.example.test"
 QUEUE = "/api/sales/queue"
-NO_RIGHT = "Действие «sales» недоступно этой учётке"
+NO_RIGHT = no_right(Permission.SALES)
 
 
 @pytest.fixture
