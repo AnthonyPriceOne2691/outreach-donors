@@ -22,12 +22,8 @@ from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.run import RunCandidateModel, RunModel
 from backend.features.letters.building import LetterScopeError, run_scope
 from backend.features.letters.repository import LetterRepository
-from backend.features.review.candidates import (
-    AUTO_ACCEPT_MIN_DECISIONS,
-    Decision,
-    NotInRunError,
-    RunReview,
-)
+from backend.features.review.accuracy import AUTO_ACCEPT_MIN_DECISIONS
+from backend.features.review.candidates import Decision, NotInRunError, RunReview
 from backend.features.review.ordering import Tier
 from backend.features.runs.browse import RunBrowser
 from backend.features.runs.exclusions import ExclusionReason, Exclusions, by_name
