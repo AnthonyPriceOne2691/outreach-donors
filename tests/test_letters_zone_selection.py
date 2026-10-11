@@ -37,8 +37,9 @@ from backend.features.letters.uniqueness import (
     difference,
     in_corridor,
 )
+from backend.workers import jobs
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tests.test_letters_advertisers import ANCHOR, DONOR, PAGE, make_advertiser, priced_donor
 from tests.test_niche_letters import BOOKIE, _business
 
@@ -73,7 +74,8 @@ def _changed(text: str, share: float) -> str:
 
 class ZoneRewriter:
     """Подделка модели: зона `rewrite` переписана на заданную долю слов — по умолчанию
-    целиком, как переписывала живая модель. Помнит, что видела и что вернула, по хосту."""
+    целиком, как переписывала живая модель. Помнит, что видела и что вернула, по хосту.
+    `silent` — хосты, у которых не принята ни одна зона."""
 
     def __init__(
         self,
@@ -81,26 +83,36 @@ class ZoneRewriter:
         *,
         refuse: tuple[str, ...] = (),
         leak: tuple[str, ...] = (),
+        silent: tuple[str, ...] = (),
     ) -> None:
         self.share = dict(share or {})
         self.refuse = refuse
         self.leak = leak
+        self.silent = silent
         self.calls = 0
         self.rendered: dict[str, Rendered] = {}
         self.zones: dict[str, dict[str, str]] = {}
 
     async def rewrite(self, rendered: Rendered, about: Personalization) -> RewriteResult:
         self.calls += 1
+        refused = (
+            tuple(zone.name for zone in rendered.rewritable())
+            if about.host in self.silent
+            else self.refuse
+        )
         zones = {
             zone.name: _changed(zone.text, self.share.get(zone.name, 1.0))
             + (LEAK if zone.name in self.leak else "")
             for zone in rendered.rewritable()
-            if zone.name not in self.refuse
+            if zone.name not in refused
         }
         self.rendered[about.host], self.zones[about.host] = rendered, zones
         # Отказ по зоне — нотой, как у настоящего переписчика (`RewriteClient._collect`).
-        notes = [f"зона «{name}» осталась шаблонной" for name in self.refuse]
+        notes = [f"зона «{name}» осталась шаблонной" for name in refused]
         return RewriteResult(zones=zones, tokens_spent=TOKENS, notes=notes)
+
+    async def aclose(self) -> None:
+        """Задача сборки закрывает переписчик в конце (`jobs._build_letters`)."""
 
     def chosen(self, host: str, domain_id: int) -> selection.Selection | None:
         """Набор, который ядро выбирает этому адресату с зерном — номером его домена."""
@@ -347,17 +359,51 @@ class TestOffers:
         assert (report.off_corridor, report.notes) == (0, {})
 
 
-def test_console_report_names_letters_put_into_the_corridor_by_selection(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """Итог сборки в консоли — отдельной строкой: сколько писем собрал подбор и сколько
-    переписанных зон осталось текстом шаблона; без подбора строки нет."""
-    letters_queue._print_build(
-        BuildReport(campaign_id=7, prepared=3, selected_letters=2, dropped_zones=3)
-    )
-    said = capsys.readouterr().out
-    letters_queue._print_build(BuildReport(campaign_id=7, prepared=3))
-    quiet = capsys.readouterr().out
+class _Engine:
+    """Движок задачи: тест отдаёт ей свою сессию, закрывать нечего."""
 
-    assert "Подбор зон под коридор: писем 2, переписанных зон оставлено текстом шаблона 3" in said
-    assert "Подбор зон" not in quiet
+    async def dispose(self) -> None:
+        return None
+
+
+class TestBuildSummary:
+    """Итог сборки: числа подбора — отдельно от нот, и у задачи, и в консоли."""
+
+    async def test_job_report_carries_the_selection_numbers(
+        self, session: AsyncSession, filled_legal: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Итог задачи сборки — тот, что лежит у задачи за экраном, — несёт письма,
+        собранные подбором, и зоны, оставленные шаблоном, каждое своим полем."""
+        domains = [await _donor(session, domain_id) for domain_id in SEEDED[:3]]
+        rewriter = ZoneRewriter(ASK, silent=(domains[2].host,))
+        monkeypatch.setattr(jobs, "RewriteClient", lambda: rewriter)
+        monkeypatch.setattr(jobs, "create_async_engine", lambda dsn: _Engine())
+        monkeypatch.setattr(
+            jobs,
+            "async_sessionmaker",
+            lambda engine, **kw: async_sessionmaker(bind=session.bind, expire_on_commit=False),
+        )
+
+        report = await jobs._build_letters(BuildRequest(campaign_name="Задача"))
+
+        chosen = [rewriter.chosen(domain.host, domain.id) for domain in domains[:2]]
+        dropped = sum(len(found.dropped) for found in chosen if found is not None)
+        assert len({3, 2, dropped}) == 3, "числа различимы: перепутанное поле не пройдёт"
+        summary = (report["prepared"], report["selected_letters"], report["dropped_zones"])
+        assert summary == (3, 2, dropped)
+        assert report["off_corridor"] == 1
+
+    def test_console_names_the_selection_only_when_there_was_one(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Строка рядом с «Вне коридора отличия»: сколько писем собрал подбор и сколько
+        переписанных зон осталось текстом шаблона; без подбора строки нет."""
+        letters_queue._print_build(
+            BuildReport(campaign_id=7, prepared=3, selected_letters=2, dropped_zones=5)
+        )
+        said = capsys.readouterr().out
+        letters_queue._print_build(BuildReport(campaign_id=7, prepared=3))
+        quiet = capsys.readouterr().out
+
+        assert "Подбор под коридор: писем 2, шаблонными оставлено зон 5." in said
+        assert "Подбор под коридор" not in quiet

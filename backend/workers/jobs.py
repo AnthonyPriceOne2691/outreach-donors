@@ -245,6 +245,8 @@ async def _build_letters(request: BuildRequest) -> dict[str, Any]:
                 "prepared": report.prepared,
                 "tokens": report.tokens_spent,
                 "off_corridor": report.off_corridor,
+                "selected_letters": report.selected_letters,
+                "dropped_zones": report.dropped_zones,
                 "funnel": report.funnel,
                 "blocked_by": report.blocked_by,
                 "notes": report.notes,

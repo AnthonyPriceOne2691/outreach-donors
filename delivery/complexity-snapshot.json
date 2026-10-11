@@ -517,7 +517,7 @@
       "worst": "cmd_keywords:83"
     },
     "backend/cli/letters_queue.py": {
-      "lines": 180,
+      "lines": 181,
       "complexity": 7,
       "worst": "_print_build:107"
     },
@@ -1322,7 +1322,7 @@
       "worst": "kind_of:45"
     },
     "backend/features/letters/compose.py": {
-      "lines": 305,
+      "lines": 306,
       "complexity": 4,
       "worst": "unset_reason:262"
     },
@@ -1452,9 +1452,9 @@
       "worst": "add:164"
     },
     "backend/features/letters/template.py": {
-      "lines": 470,
+      "lines": 472,
       "complexity": 9,
-      "worst": "_check_zones:243"
+      "worst": "_check_zones:245"
     },
     "backend/features/letters/transport.py": {
       "lines": 187,
@@ -2292,9 +2292,9 @@
       "worst": "worker_problems:75"
     },
     "backend/workers/jobs.py": {
-      "lines": 484,
+      "lines": 486,
       "complexity": 6,
-      "worst": "_search_contacts:299"
+      "worst": "_search_contacts:301"
     },
     "backend/workers/main.py": {
       "lines": 49,
