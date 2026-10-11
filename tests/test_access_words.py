@@ -28,12 +28,6 @@ LABELS_TS = Path(__file__).resolve().parent.parent / "frontend" / "src" / "api" 
 #: Кто не может ничего: учётка отключена — отказ по любому праву.
 NOBODY = Actor(user_id=1, role=UserRole.ADMIN, is_active=False)
 
-#: Подпись права sales на экране меняет PR продаж #308: «раздел продаж» → «Продажи». Сервер
-#: говорит «Продажи» уже сейчас — как `require_stage` и как экран после #308. До слияния #308
-#: сверка терпит прежнюю подпись — только её и только у этого права. После слияния — убрать.
-SCREEN_BEFORE_308 = {"sales": "раздел продаж"}
-
-
 def _screen_titles() -> dict[str, str]:
     """`код: 'слова'` из `PERMISSION_TITLES` экрана."""
     source = LABELS_TS.read_text(encoding="utf-8")
@@ -46,9 +40,6 @@ class TestSameWordsAsTheScreen:
     def test_titles_match_the_permissions_window(self) -> None:
         server = {permission.value: title for permission, title in PERMISSION_TITLES.items()}
         screen = _screen_titles()
-        for code, before in SCREEN_BEFORE_308.items():
-            if screen.get(code) == before:
-                screen[code] = server[code]
 
         assert screen == server
 
