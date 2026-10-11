@@ -63,6 +63,16 @@ class TestTheReport:
         contact_search._print_report(_report(provider_refused=2))
         assert "ОТКАЗАЛ 2" in capsys.readouterr().out
 
+    def test_forms_are_not_split_into_queued_and_left_out(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Потолок «Форм» — ориентир темпа, а не запрет (решение Anthony 11.10.2026):
+        «форм 5, поставлено 3» говорило, что две формы в очередь не попали, а встают все."""
+        contact_search._print_report(_report(form_only=5, manual_queued=3))
+        said = capsys.readouterr().out
+        assert "  4. ручная очередь    форм 5\n" in said
+        assert "поставлено" not in said
+
 
 class TestTheCommand:
     @pytest.fixture

@@ -285,7 +285,8 @@ class TestNoManualQueueInAFileRun:
 
         (row,) = file_sweep.rows_from_checkpoint(checkpoint)
         assert (row["status"], row["has_form"]) == ("form_only", "true")
-        assert not [record for record in caplog.records if "ручной очереди" in record.getMessage()]
+        # Лог лестницы сверх потолка — об ориентире «Форм» (с 11.10.2026), а не об очереди.
+        assert not [record for record in caplog.records if "ориентир" in record.getMessage()]
 
 
 class TestNumbersSurviveExcel:

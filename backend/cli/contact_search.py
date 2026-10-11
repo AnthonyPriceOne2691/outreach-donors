@@ -49,10 +49,9 @@ def _print_report(report: SearchReport) -> None:
         f"  3. платный сервис    вошло {counters.get('provider_entered', 0)}, "
         f"нашли {counters.get('provider_found', 0)}" + (f", ОТКАЗАЛ {refused}" if refused else "")
     )
-    print(
-        f"  4. ручная очередь    форм {counters.get('form_only', 0)}, "
-        f"поставлено {counters.get('manual_queued', 0)}"
-    )
+    # Без «поставлено»: потолок «Форм» — ориентир темпа, а не запрет (решение Anthony
+    # 11.10.2026), и «форм 5, поставлено 3» говорило бы, что две в очередь не попали.
+    print(f"  4. ручная очередь    форм {counters.get('form_only', 0)}")
     print(f"\nБез контакта:          {counters.get('not_found', 0)}")
     # Отдельно от «без контакта»: сайт не ответил, повтор по сроку
     # (`contacts/attempts.py`), а не полгода ожидания.
