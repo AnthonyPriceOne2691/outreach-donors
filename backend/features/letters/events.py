@@ -51,7 +51,8 @@
 **Домен паркуется по доле отказов, а не по их числу.** Один отказ
 из двух писем — это пятьдесят процентов и ничего не значит; поэтому
 доля считается только после того, как с домена ушло хоть сколько-то
-писем (`OUTREACH_BOUNCE_PAUSE_MIN_SENT`).
+писем (`OUTREACH_BOUNCE_PAUSE_MIN_SENT`). Пауза — одна на ящик, и о ней
+одна тревога человеку после фиксации (`outreach/autopause.py`, `EventReport.pauses`).
 """
 
 from __future__ import annotations
@@ -73,7 +74,7 @@ from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, SenderModel
 from backend.features.letters import unknown_outcome
 from backend.features.outreach import health
-from backend.features.outreach.senders import disable
+from backend.features.outreach.autopause import AutoPause, pause_once
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +139,13 @@ class EventReport:
     unknown: int = 0
     #: Письма из «отправляется» и из очереди, которые событие записало ушедшими.
     resolved: int = 0
-    paused_domains: list[str] = field(default_factory=list)
+    #: Ящики, вставшие на паузу сами: о каждой — тревога после фиксации (`autopause.tell`).
+    pauses: list[AutoPause] = field(default_factory=list)
+
+    @property
+    def paused_domains(self) -> list[str]:
+        """Адреса ящиков, вставших на паузу, — для ответа вебхука."""
+        return [pause.email for pause in self.pauses]
 
     @property
     def as_report(self) -> str:
@@ -169,14 +176,14 @@ async def apply_events(
         # Этап с мягкими сигналами судит ящик своей политикой (`outreach/health.py`).
         heard = await health.listen(session, message.sender_id, event, moment)
         if heard.paused is not None:
-            report.paused_domains.append(heard.paused)
+            report.pauses.append(heard.paused)
         if event.kind in BOUNCE_EVENTS and not heard.ruled:
             checked.add(message.sender_id)
 
     for sender_id in checked:
         parked = await _park_if_burning(session, sender_id, moment)
         if parked is not None:
-            report.paused_domains.append(parked)
+            report.pauses.append(parked)
 
     logger.info("события доставки: %s", report.as_report)
     return report
@@ -345,8 +352,10 @@ async def _complained(session: AsyncSession, message: MessageModel, report: Even
     )
 
 
-async def _park_if_burning(session: AsyncSession, sender_id: int, moment: datetime) -> str | None:
-    """Домен с высокой долей отказов — на паузу. Возвращает адрес ящика."""
+async def _park_if_burning(
+    session: AsyncSession, sender_id: int, moment: datetime
+) -> AutoPause | None:
+    """Домен с высокой долей отказов — на паузу. Возвращает паузу: ящик и почему, с числами."""
     sent, bounced = await _delivery_stats(session, sender_id)
     if sent < cfg.BOUNCE_PAUSE_MIN_SENT:
         return None
@@ -358,7 +367,8 @@ async def _park_if_burning(session: AsyncSession, sender_id: int, moment: dateti
     if sender is None or not sender.enabled:
         return None
 
-    disable(sender, f"доля отказов {rate:.0%} — парковка", now=moment)
+    if not await pause_once(session, sender, f"доля отказов {rate:.0%} — парковка", now=moment):
+        return None
     logger.warning(
         "события доставки: %s снят с отправки — отказов %s из %s (%.0f%%)",
         sender.email,
@@ -366,7 +376,11 @@ async def _park_if_burning(session: AsyncSession, sender_id: int, moment: dateti
         sent,
         rate * 100,
     )
-    return sender.email
+    why = (
+        f"доля отказов {rate:.0%} — {bounced} из {sent} писем за всё время ящика, "
+        f"порог {cfg.BOUNCE_PAUSE_THRESHOLD:.0%}"
+    )
+    return AutoPause(sender.email, sender.stage, why)
 
 
 async def _delivery_stats(session: AsyncSession, sender_id: int) -> tuple[int, int]:

@@ -13,6 +13,9 @@
 
 **Тело читается сырым.** Подпись считается по байтам запроса, и разбор
 в модель до проверки означал бы проверку не того, что подписано.
+
+**Ящик встал на паузу сам — тревога человеку** (`outreach/autopause.py`): после фиксации
+и после ответа платформе — Telegram, задумавшийся на свой таймаут, не держит её вебхук.
 """
 
 from __future__ import annotations
@@ -22,7 +25,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session
@@ -31,6 +34,7 @@ from backend.config import outreach as cfg
 from backend.features.core.domain import Stage
 from backend.features.core.models.outreach import EVENT_ID_LENGTH
 from backend.features.letters.events import DeliveryEvent, apply_events
+from backend.features.outreach import autopause
 from backend.shared.webhook_signature import SignatureError, verify_any
 
 logger = logging.getLogger(__name__)
@@ -49,6 +53,7 @@ SOFT_BOUNCE = "blocked"
 async def take_events(
     request: Request,
     response: Response,
+    later: BackgroundTasks,
     signature: str | None = Header(default=None, alias="X-Twilio-Email-Event-Webhook-Signature"),
     timestamp: str | None = Header(default=None, alias="X-Twilio-Email-Event-Webhook-Timestamp"),
     session: AsyncSession = Depends(db_session),
@@ -83,6 +88,7 @@ async def take_events(
     events = _events_of(payload)
     report = await apply_events(session, events)
     await session.commit()
+    later.add_task(autopause.tell, report.pauses)
 
     return Taken(
         accepted=True,
