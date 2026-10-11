@@ -28,7 +28,7 @@ from backend.features.access.repository import AccessRepository
 from backend.features.access.tokens import TOKEN_HEADER, TokenError
 from backend.features.core.domain import AuditAction, UserRole
 from backend.features.core.models.access import AuditLogModel, UserModel
-from fastapi import status
+from fastapi import FastAPI, status
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -317,6 +317,23 @@ class TestWhoAmI:
         assert status.HTTP_401_UNAUTHORIZED not in errors.STATUSES.values()
         assert errors.STATUSES[LoginFailedError] == status.HTTP_400_BAD_REQUEST
         assert issubclass(TokenError, SignedOutError)
+
+    async def test_no_route_answers_401_without_a_pass(
+        self, client: AsyncClient, api_app: FastAPI
+    ) -> None:
+        """Таблица отказов — не всё: прямой HTTPException(401) или схема входа с
+        `auto_error=True` её обойдут (ревью продаж #319). Обход всех маршрутов схемы API
+        без пропуска: 401 не отвечает ни один, в том числе вебхуки."""
+        answered: dict[str, int] = {}
+        for path, methods in api_app.openapi()["paths"].items():
+            url = re.sub(r"\{[^}]+\}", "1", path)
+            for method in methods:
+                body = None if method == "get" else {}
+                response = await client.request(method.upper(), url, json=body)
+                answered[f"{method.upper()} {path}"] = response.status_code
+
+        assert len(answered) > 50, "обход прошёл мимо маршрутов"
+        assert [route for route, code in answered.items() if code == 401] == []
 
     def test_the_screen_sends_the_pass_in_the_same_header(self) -> None:
         """Имя заголовка — одно у сервера и экрана: разъедутся — экран останется без входа."""
