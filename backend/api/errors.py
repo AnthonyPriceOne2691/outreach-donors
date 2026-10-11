@@ -40,7 +40,7 @@ from backend.features.access.login import LoginFailedError
 from backend.features.access.passwords import WeakPasswordError
 from backend.features.access.permissions import AccessDeniedError
 from backend.features.access.repository import EmailTakenError
-from backend.features.access.tokens import SecretMissingError, TokenError
+from backend.features.access.tokens import SecretMissingError
 from backend.features.agent.drafting import DraftRefusedError, UnknownDraftReplyError
 from backend.features.agent.drafts import DraftDecisionError, DraftReasonError, UnknownDraftError
 from backend.features.agent.settings import (
@@ -101,8 +101,10 @@ STATUSES: dict[type[Exception], int] = {
     # предел, который человек поднимает настройкой или ждёт следующего дня.
     LlmCapExceededError: status.HTTP_429_TOO_MANY_REQUESTS,
     UnknownAnswerTargetError: status.HTTP_404_NOT_FOUND,
-    LoginFailedError: status.HTTP_401_UNAUTHORIZED,
-    TokenError: status.HTTP_401_UNAUTHORIZED,
+    # Неверная почта или пароль — 400, как неверный старый пароль при смене (`WrongPasswordError`),
+    # а не 401: 401 за прокси стирает у браузера пароль прокси (`access/permissions.SignedOutError`).
+    # Пропуск не принят (`TokenError`) — отказ «входа нет»: 403 обработчиком `AccessDeniedError`.
+    LoginFailedError: status.HTTP_400_BAD_REQUEST,
     AccessDeniedError: status.HTTP_403_FORBIDDEN,
     UnknownUserError: status.HTTP_404_NOT_FOUND,
     UnknownSenderError: status.HTTP_404_NOT_FOUND,
@@ -235,9 +237,10 @@ STATUSES: dict[type[Exception], int] = {
 
 
 #: Признак отказа доступа — машинный, рядом с текстом (проверка прода 10.10.2026): «права нет»
-#: (`permission`) или «сначала смените разовый пароль» (`change-password`). По нему экран
-#: перечитывает «кто я»: меню убирает снятый раздел, разовый пароль уводит на смену. Не по
-#: тексту: разбор текста ломается от первой правки сообщения.
+#: (`permission`), «сначала смените разовый пароль» (`change-password`) или «входа нет»
+#: (`signed-out`, 11.10.2026 — вместо 401). По нему экран перечитывает «кто я»: меню убирает
+#: снятый раздел, разовый пароль уводит на смену, без входа — на вход. Не по тексту: разбор
+#: текста ломается от первой правки сообщения.
 ACCESS_REFUSAL = "X-Access-Refusal"
 
 
@@ -248,8 +251,6 @@ def _handler(code: int):  # type: ignore[no-untyped-def]
             headers["Retry-After"] = str(exc.retry_after_seconds)
         if isinstance(exc, AccessDeniedError):
             headers[ACCESS_REFUSAL] = exc.refusal
-        if code == status.HTTP_401_UNAUTHORIZED:
-            headers["WWW-Authenticate"] = "Bearer"
         return JSONResponse({"detail": str(exc)}, status_code=code, headers=headers)
 
     return handle

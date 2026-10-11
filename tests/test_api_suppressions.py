@@ -79,7 +79,7 @@ class TestWhoIsLetIn:
     ) -> None:
         response = await client.request(method, _path(path, row), json=body)
 
-        assert response.status_code == 401
+        assert response.status_code == 403
 
     @pytest.mark.parametrize(("method", "path", "body", "permission"), ROUTES)
     async def test_operator_sees_but_does_not_change(

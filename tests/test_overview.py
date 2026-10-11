@@ -506,7 +506,7 @@ class TestWhoIsLetIn:
         self, client: AsyncClient, method: str, path: str, body: Any, permission: str
     ) -> None:
         response = await client.request(method, path, json=body)
-        assert response.status_code == 401
+        assert response.status_code == 403
 
     @pytest.mark.parametrize(("method", "path", "body", "permission"), ROUTES)
     async def test_operator_sees_the_overview(

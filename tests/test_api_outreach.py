@@ -181,7 +181,7 @@ class TestWhoIsLetIn:
         permission: str,
     ) -> None:
         response = await client.request(method, _path(path, sender, thread), json=body)
-        assert response.status_code == 401
+        assert response.status_code == 403
 
     @pytest.mark.parametrize(("method", "path", "body", "permission"), OUTREACH_ROUTES)
     async def test_operator_sees_threads_but_not_senders(

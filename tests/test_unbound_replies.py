@@ -103,7 +103,7 @@ class TestWhoSees:
     async def test_without_a_pass_nobody(self, client: AsyncClient) -> None:
         response = await client.get(LIST)
 
-        assert response.status_code == 401
+        assert response.status_code == 403
 
     async def test_operator_with_view_sees(
         self, client: AsyncClient, viewer: dict[str, str]

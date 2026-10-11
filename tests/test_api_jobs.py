@@ -67,7 +67,7 @@ async def test_unknown_job_is_404_with_a_hint(
 
 async def test_needs_a_pass(client: AsyncClient, outcomes: dict[str, JobOutcome]) -> None:
     response = await client.get("/api/jobs/j1")
-    assert response.status_code == 401
+    assert response.status_code == 403
 
 
 def test_route_table_is_complete(api_app: FastAPI) -> None:

@@ -457,7 +457,7 @@ class TestWhoIsLetIn:
     ) -> None:
         response = await client.request(method, path.format(message=1, file=1))
 
-        assert response.status_code == 401
+        assert response.status_code == 403
 
     @pytest.mark.parametrize(("method", "path", "permission"), MESSAGE_ROUTES)
     async def test_pointed_refusal_closes_it(

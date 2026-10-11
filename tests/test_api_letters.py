@@ -132,7 +132,7 @@ class TestWhoIsLetIn:
     ) -> None:
         response = await client.request(method, _path(path, letter), json=body)
 
-        assert response.status_code == 401
+        assert response.status_code == 403
 
     @pytest.mark.parametrize(("method", "path", "body", "permission"), LETTER_ROUTES)
     async def test_operator_sees_but_does_not_send(

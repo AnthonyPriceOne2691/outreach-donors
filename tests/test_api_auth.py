@@ -18,13 +18,17 @@ from pathlib import Path
 
 import jwt
 import pytest
+from backend.api import errors
 from backend.api.app import create_app
 from backend.config.startup_checks import ConfigError
+from backend.features.access.login import LoginFailedError
 from backend.features.access.passwords import verify_password
+from backend.features.access.permissions import SignedOutError
 from backend.features.access.repository import AccessRepository
-from backend.features.access.tokens import TOKEN_HEADER
+from backend.features.access.tokens import TOKEN_HEADER, TokenError
 from backend.features.core.domain import AuditAction, UserRole
 from backend.features.core.models.access import AuditLogModel, UserModel
+from fastapi import status
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -81,7 +85,7 @@ class TestLogin:
 
         response = await client.post("/api/auth/login", json={"email": email, "password": password})
 
-        assert response.status_code == 401
+        assert response.status_code == 400
         assert response.json()["detail"] == "Неверная почта или пароль"
 
     async def test_disabled_user_does_not_get_in(
@@ -93,7 +97,7 @@ class TestLogin:
             "/api/auth/login", json={"email": "уволен@site.com", "password": "пароль-для-теста"}
         )
 
-        assert response.status_code == 401
+        assert response.status_code == 400
         assert response.json()["detail"] == "Неверная почта или пароль"
 
     async def test_failed_attempt_survives_the_refusal(
@@ -124,7 +128,7 @@ class TestBruteForce:
 
         codes = [(await client.post("/api/auth/login", json=payload)).status_code for _ in range(6)]
 
-        assert codes[:5] == [401] * 5
+        assert codes[:5] == [400] * 5
         assert codes[5] == 429
 
     async def test_refusal_says_how_long_to_wait(
@@ -158,7 +162,7 @@ class TestBruteForce:
             "/api/auth/login", json={"email": "ivan@site.com", "password": "мимо"}
         )
 
-        assert again.status_code == 401
+        assert again.status_code == 400
 
 
 class TestTimingDoesNotTell:
@@ -282,8 +286,8 @@ class TestWhoAmI:
     )
     async def test_no_pass_no_answer(self, client: AsyncClient, headers: dict[str, str]) -> None:
         response = await client.get("/api/auth/me", headers=headers)
-        assert response.status_code == 401
-        assert response.headers["WWW-Authenticate"] == "Bearer"
+        assert response.status_code == 403
+        assert response.headers["X-Access-Refusal"] == "signed-out"
 
     async def test_pass_comes_in_its_own_header_next_to_the_proxy_password(
         self, client: AsyncClient, make_user: MakeUser, sign_in: Callable[..., Awaitable[str]]
@@ -303,8 +307,16 @@ class TestWhoAmI:
     async def test_without_a_pass_the_refusal_names_the_header(self, client: AsyncClient) -> None:
         response = await client.get("/api/auth/me")
 
-        assert response.status_code == 401
+        assert response.status_code == 403
         assert TOKEN_HEADER in response.json()["detail"]
+
+    def test_the_service_never_answers_401(self) -> None:
+        """401 отвечает только прокси: на 401 Chrome стирает пароль прокси, который сам
+        приложил к запросу, и посреди работы всплывает окно пароля сервера (11.10.2026).
+        «Входа нет» — 403 с признаком `signed-out`, неверный пароль на входе — 400."""
+        assert status.HTTP_401_UNAUTHORIZED not in errors.STATUSES.values()
+        assert errors.STATUSES[LoginFailedError] == status.HTTP_400_BAD_REQUEST
+        assert issubclass(TokenError, SignedOutError)
 
     def test_the_screen_sends_the_pass_in_the_same_header(self) -> None:
         """Имя заголовка — одно у сервера и экрана: разъедутся — экран останется без входа."""
@@ -334,7 +346,7 @@ class TestWhoAmI:
         await session.commit()
 
         response = await client.get("/api/auth/me", headers=bearer(token))
-        assert response.status_code == 401
+        assert response.status_code == 403
 
 
 class TestOwnPassword:
@@ -357,7 +369,7 @@ class TestOwnPassword:
         old = await client.post(
             "/api/auth/login", json={"email": "ivan@site.com", "password": "пароль-для-теста"}
         )
-        assert old.status_code == 401
+        assert old.status_code == 400
         await sign_in("ivan@site.com", "три слова подряд длиннее")
 
     @pytest.mark.parametrize(
@@ -462,7 +474,7 @@ class TestOneTimePasswordGate:
             "must_change_password"
         ] is False
         # Пропуск, выданный с разовым паролем, смена закрыла.
-        assert (await client.get("/api/auth/me", headers=bearer(token))).status_code == 401
+        assert (await client.get("/api/auth/me", headers=bearer(token))).status_code == 403
 
 
 class TestPassAfterPasswordChange:
@@ -487,9 +499,9 @@ class TestPassAfterPasswordChange:
         assert changed.status_code == 200, changed.text
         for old in (here, elsewhere):
             refused = await client.get("/api/auth/me", headers=bearer(old))
-            assert refused.status_code == 401
+            assert refused.status_code == 403
             assert "Пароль учётки сменили" in refused.json()["detail"]
-            assert refused.headers["WWW-Authenticate"] == "Bearer"
+            assert refused.headers["X-Access-Refusal"] == "signed-out"
         renewed = await client.get("/api/auth/me", headers=bearer(changed.json()["token"]))
         assert renewed.status_code == 200
         assert renewed.json()["email"] == "ivan@site.com"
