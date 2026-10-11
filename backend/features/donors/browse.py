@@ -24,6 +24,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 
@@ -41,6 +42,7 @@ from backend.features.core.models.outreach import CampaignModel, ThreadModel
 from backend.features.donors.manual_price import price_refusal
 from backend.features.donors.standing import UnknownDonorError, decided_in, is_donor
 from backend.features.letters.recipients import LetterAddress, Recipients
+from backend.features.replies.extract import WITHOUT_PRICE
 from backend.shared.database.ids import storable
 from backend.shared.database.text_search import contains
 
@@ -106,11 +108,23 @@ class DonorRow:
     host: str
     contacts: int
     freshness: Freshness
+    #: Ответ донора на домене (`domains.seller_answer`): «не продаём» снимает цену,
+    #: «бесплатно» ставит вместо неё отметку (`donors/price.py`).
+    seller_answer: str | None
 
     @property
     def fresh(self) -> bool:
         """За свежие данные уже заплачено, и второй раз за них не платят."""
         return self.freshness is Freshness.FRESH
+
+    @property
+    def price(self) -> Decimal | str | None:
+        """Цена строки: последняя цена донора, а без неё — ответ, который её снял
+        (`declines`, `free`). Словами его называет выгрузка (`export.WORDS`): пустая
+        ячейка читалась бы «цену не спрашивали»."""
+        if self.donor.last_price is not None:
+            return self.donor.last_price
+        return self.seller_answer if self.seller_answer in WITHOUT_PRICE else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,6 +172,8 @@ class DonorCard:
 
     donor: DonorModel
     host: str
+    #: Ответ донора на домене — карточка показывает его вместо цены, которую он снял.
+    seller_answer: str | None
     #: Адреса — в порядке, в каком их берёт сборка писем (`preferred_first`).
     contacts: Sequence[ContactModel]
     freshness: Freshness
@@ -250,12 +266,9 @@ class DonorBrowser:
 
     async def page(self, filters: DonorFilters, *, now: datetime | None = None) -> DonorPage:
         moment = now or datetime.now(UTC)
+        columns = (DonorModel, DomainModel.host, DomainModel.seller_answer)
         rows = await self._session.execute(
-            _narrow(
-                self._screen(DonorModel, DomainModel.host, freshness(moment).label("freshness")),
-                filters,
-                moment,
-            )
+            _narrow(self._screen(*columns, freshness(moment).label("freshness")), filters, moment)
             .order_by(DonorModel.dr.desc().nullslast(), DonorModel.id.desc())
             .limit(filters.limit)
             .offset(filters.offset)
@@ -264,7 +277,7 @@ class DonorBrowser:
         total = await self._session.scalar(
             _narrow(self._screen(func.count(DonorModel.id)), filters, moment)
         )
-        contacts = await self._contact_counts([donor.domain_id for donor, _, _ in found])
+        contacts = await self._contact_counts([donor.domain_id for donor, *_ in found])
         return DonorPage(
             rows=[
                 DonorRow(
@@ -272,8 +285,9 @@ class DonorBrowser:
                     host=host,
                     contacts=contacts.get(donor.domain_id, 0),
                     freshness=Freshness(state),
+                    seller_answer=answer,
                 )
-                for donor, host, state in found
+                for donor, host, answer, state in found
             ],
             total=int(total or 0),
         )
@@ -333,7 +347,12 @@ class DonorBrowser:
             raise UnknownDonorError(f"Донора №{donor_id} нет")
         moment = datetime.now(UTC)
         rows = await self._session.execute(
-            select(DonorModel, DomainModel.host, freshness(moment).label("freshness"))
+            select(
+                DonorModel,
+                DomainModel.host,
+                DomainModel.seller_answer,
+                freshness(moment).label("freshness"),
+            )
             .join(DomainModel, DomainModel.id == DonorModel.domain_id)
             .where(DonorModel.id == donor_id)
         )
@@ -341,7 +360,7 @@ class DonorBrowser:
         if found is None:
             raise UnknownDonorError(f"Донора №{donor_id} нет")
 
-        donor, host, state = found
+        donor, host, answer, state = found
         contacts = (
             (
                 await self._session.execute(
@@ -356,6 +375,7 @@ class DonorBrowser:
         return DonorCard(
             donor=donor,
             host=host,
+            seller_answer=answer,
             contacts=contacts,
             freshness=Freshness(state),
             expires_at=_expires_at(donor),

@@ -104,6 +104,40 @@ describe('карточка донора: откуда цена', () => {
   });
 });
 
+describe('карточка донора: ответ на месте цены', () => {
+  // Решение Anthony 11.10.2026: последнее слово донора побеждает — «не продаём» снимает
+  // цену, «бесплатно» ставит вместо неё отметку. «Цены нет» читалось бы «не спрашивали».
+  it.each([
+    ['free' as const, 'берёт бесплатно'],
+    ['declines' as const, 'не продаёт'],
+  ])('ответ «%s» снял цену — на её месте «%s» словами отбора', async (answer, said) => {
+    await openCard({ ...CARD, seller_answer: answer });
+
+    expect(within(priceCard()).getByText(said)).toBeVisible();
+    expect(
+      within(priceCard()).getByText(
+        'Последний ответ донора — цены нет: Этап 2 по нему не запускается.',
+      ),
+    ).toBeVisible();
+    expect(within(priceCard()).queryByText(/^Цены нет/)).toBeNull();
+  });
+
+  it('у кандидата ответ на месте цены тоже виден — без «Указать цену»', async () => {
+    await openCard({ ...CARD, review: null, seller_answer: 'declines' });
+
+    expect(within(priceCard()).getByText('не продаёт')).toBeVisible();
+    expect(within(priceCard()).queryByRole('button', { name: 'Указать цену' })).toBeNull();
+  });
+
+  it('«продаёт» без цены — «цены нет», как прежде: с ценой он не спорит', async () => {
+    await openCard({ ...CARD, seller_answer: 'sells' });
+
+    expect(
+      within(priceCard()).getByText('Цены нет — по донору без цены Этап 2 не запускается.'),
+    ).toBeVisible();
+  });
+});
+
 describe('карточка донора: «Указать цену»', () => {
   it('донору без цены — «цены нет» и кнопка', async () => {
     await openCard(CARD);

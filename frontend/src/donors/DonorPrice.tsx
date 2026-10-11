@@ -24,13 +24,18 @@
  * где размещений не продают. Сервер называет это в карточке (`price_refusal`)
  * словами отказа «Записать цену» — кнопка заперта, причина под ней. Прежде
  * человек вписывал цену и узнавал об отказе нажатием.
+ *
+ * **Цену снял ответ донора — на её месте ответ** (11.10.2026): последнее слово
+ * донора побеждает, «не продаём» цену снимает, «бесплатно» ставит вместо неё
+ * отметку. Карточка говорит «не продаёт» или «берёт бесплатно» словами отбора,
+ * а не «цены нет»: так читалось бы «цену не спрашивали».
  */
 
-import { Button, Card, Stack, Text, Title } from '@mantine/core';
+import { Badge, Button, Card, Stack, Text, Title } from '@mantine/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
-import { PERMISSION_TITLES } from '../api/labels';
+import { PERMISSION_TITLES, SELLER_ANSWERS } from '../api/labels';
 import { setDonorPrice } from '../api/runs';
 import type { DonorFullCard } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
@@ -130,34 +135,63 @@ function SetPrice({ donor }: { donor: DonorFullCard }) {
   );
 }
 
+/** Ответ донора, снявший цену, — словами отбора (`SELLER_ANSWERS`): «не продаёт»,
+ *  «берёт бесплатно». Последнее слово донора побеждает (11.10.2026): цены у такого
+ *  донора нет, и на её месте — его ответ. `null` — цену ответ не снимал. */
+function answerInstead(donor: DonorFullCard): { title: string; color: string } | null {
+  const answer = donor.seller_answer ?? null;
+  if (donor.last_price !== null || (answer !== 'declines' && answer !== 'free')) return null;
+  return SELLER_ANSWERS[answer];
+}
+
+/** Цена с датой и откуда она — или ответ донора на её месте, или «цены нет». */
+function PriceLine({ donor }: { donor: DonorFullCard }) {
+  const answer = answerInstead(donor);
+  if (answer !== null) {
+    return (
+      <>
+        <Badge variant="light" color={answer.color}>
+          {answer.title}
+        </Badge>
+        <Text size="sm" c="dimmed" mt={4}>
+          Последний ответ донора — цены нет: Этап 2 по нему не запускается.
+        </Text>
+      </>
+    );
+  }
+  if (donor.last_price === null) {
+    return <Text size="sm">Цены нет — по донору без цены Этап 2 не запускается.</Text>;
+  }
+  return (
+    <>
+      {/* Валюта приходит с ценой, а не подставляется здесь: конвертации
+          в сервисе нет, и «USD» рядом с числом в евро — это не подпись,
+          а неверное число. Деньги — общей функцией, как на остальных
+          экранах: сырой строкой сервера цена печаталась «250.00 EUR». */}
+      <Text>
+        {formatMoney(donor.last_price, donor.last_price_currency)} ·{' '}
+        {formatDate(donor.last_price_at)}
+      </Text>
+      <Text size="sm" c="dimmed">
+        {priceOrigin(donor)}
+      </Text>
+    </>
+  );
+}
+
 export function DonorPrice({ donor }: { donor: DonorFullCard }) {
   const { can } = useSession();
   const isDonor = donor.review === 'accepted';
   // У записи без цены, которая не донор, показывать нечего: цену ей здесь
-  // не указывают, а почему — говорит шапка карточки.
-  if (donor.last_price === null && !isDonor) return null;
+  // не указывают, а почему — говорит шапка карточки. Ответ, снявший цену, —
+  // показывать: он стоит на её месте.
+  if (donor.last_price === null && answerInstead(donor) === null && !isDonor) return null;
   return (
     <Card className="glass" p="xl">
       <Title order={5} mb="xs">
         Последняя цена
       </Title>
-      {donor.last_price === null ? (
-        <Text size="sm">Цены нет — по донору без цены Этап 2 не запускается.</Text>
-      ) : (
-        <>
-          {/* Валюта приходит с ценой, а не подставляется здесь: конвертации
-              в сервисе нет, и «USD» рядом с числом в евро — это не подпись,
-              а неверное число. Деньги — общей функцией, как на остальных
-              экранах: сырой строкой сервера цена печаталась «250.00 EUR». */}
-          <Text>
-            {formatMoney(donor.last_price, donor.last_price_currency)} ·{' '}
-            {formatDate(donor.last_price_at)}
-          </Text>
-          <Text size="sm" c="dimmed">
-            {priceOrigin(donor)}
-          </Text>
-        </>
-      )}
+      <PriceLine donor={donor} />
       <ReplyOffers offers={donor.last_offers} />
       {/* Без права — объяснение на месте, а не пропавшая кнопка. */}
       {isDonor && can('run') ? <SetPrice donor={donor} /> : null}

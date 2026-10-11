@@ -35,6 +35,7 @@ from backend.features.donors.wording import (
     CONTACT_STATUS_TITLES,
     DONOR_STATUS_TITLES,
     NOT_SEARCHED,
+    SELLER_ANSWER_TITLES,
     country_title,
     reject_reason_text,
     share_text,
@@ -78,15 +79,15 @@ COLUMNS: tuple[tuple[str, str], ...] = (
     ("доля региона", "geo_top_share"),
     ("адресов", "contacts"),
     ("исход поиска", "contact_status"),
-    ("цена", "last_price"),
+    ("цена", "price"),
     ("валюта", "last_price_currency"),
     ("метрики от", "metrics_refreshed_at"),
 )
 
 
 #: Поля, которые экран показывает словами, а не как хранятся. Остальные
-#: уходят как есть: числа, цена, даты.
-WORDS: dict[str, Callable[[Any], str | None]] = {
+#: уходят как есть: числа и даты; цена — числом, а без неё — словами ответа.
+WORDS: dict[str, Callable[[Any], Any]] = {
     "status": lambda status: DONOR_STATUS_TITLES[status],
     "reject_reason": reject_reason_text,
     "geo": country_title,
@@ -96,6 +97,9 @@ WORDS: dict[str, Callable[[Any], str | None]] = {
     "contact_status": lambda status: (
         NOT_SEARCHED if status is None else CONTACT_STATUS_TITLES[status]
     ),
+    # Цену снял ответ донора — его словами экрана: «не продаёт», «берёт бесплатно»
+    # (`DonorRow.price`, решение Anthony 11.10.2026). Цена — числом, как была.
+    "price": lambda price: SELLER_ANSWER_TITLES[price] if isinstance(price, str) else price,
 }
 
 

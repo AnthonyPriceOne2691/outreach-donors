@@ -13,6 +13,8 @@
 
 from __future__ import annotations
 
+import csv
+import io
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -186,15 +188,37 @@ class TestAnswerWithoutAPrice:
         assert await stage_two.advertiser_candidates(limit=10, now=NOW) == []
         assert await stage_two.offer_of(bookie.id, NOW) is None
 
-    async def test_free_after_a_price_takes_it(self, session: AsyncSession) -> None:
+    async def test_free_after_a_price_takes_it_and_the_card_and_the_file_say_free(
+        self, session: AsyncSession, client: AsyncClient, token: str
+    ) -> None:
         thread = await _thread(session)
         await _answer(session, thread, 1, PRICE)
 
         await _answer(session, thread, 3, FREE)
+        await session.commit()
 
         donor, domain = await _state(session)
         assert _price(donor) == NO_PRICE
         assert domain.seller_answer == "free"
+        card = (await client.get(f"/api/donors/{donor.id}", headers=bearer(token))).json()
+        assert (card["last_price"], card["seller_answer"]) == (None, "free")
+        exported = await client.get("/api/donors/export", headers=bearer(token))
+        reader = csv.DictReader(io.StringIO(exported.content.decode("utf-8-sig")), delimiter=";")
+        (row,) = list(reader)
+        assert (row["цена"], row["валюта"]) == ("берёт бесплатно", "")
+
+    async def test_a_decline_in_the_file_is_said_in_words(
+        self, session: AsyncSession, client: AsyncClient, token: str
+    ) -> None:
+        thread = await _thread(session)
+        await _answer(session, thread, 1, PRICE)
+        await _answer(session, thread, 3, DECLINES)
+        await session.commit()
+
+        exported = await client.get("/api/donors/export", headers=bearer(token))
+
+        reader = csv.DictReader(io.StringIO(exported.content.decode("utf-8-sig")), delimiter=";")
+        assert [row["цена"] for row in reader] == ["не продаёт"]
 
     async def test_a_price_named_after_a_decline_is_the_price_again(
         self, session: AsyncSession
