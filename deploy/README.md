@@ -65,17 +65,18 @@ sudo cp deploy/healthwatch.cron /etc/cron.d/outreach-donors-healthwatch
 их командой в шаге 2 — в новом шелле при обновлении их уже не было,
 и `up -d` начинал сборку на машине.
 
-**Периметр — два слоя.** Оболочка приложения и схема API закрыты
-паролем прокси, сам API — входом сервиса; вход ограничен по частоте
-и на прокси, и в сервере. Пароля прокси на `/api/` нет намеренно: фронт
-шлёт пропуск заголовком `Authorization`, и basic auth на том же заголовке
-отказал бы каждому запросу. Вебхуки почты и страница отписки поэтому
-открыты без него — у них своя защита (`docs/SECURITY.md`).
+**Периметр — два слоя.** Весь сервис — экран, схема API и сам API — закрыт
+паролем прокси, данные — ещё и входом сервиса; вход ограничен по частоте
+и на прокси, и в сервере. Пропуск сервиса идёт заголовком `X-Access-Token`,
+а `Authorization` несёт пароль прокси (с 11.10.2026; до того `/api/` был без
+него). Без пароля прокси открыты только вебхуки почты и страница отписки —
+у них своя защита (`docs/SECURITY.md`, `tests/test_deploy_proxy.py`).
 
 **Проверка после подъёма:**
 
 ```bash
-curl -s https://outreach.ДОМЕН/api/health                  # {"status": "жив"}
+curl -so /dev/null -w '%{http_code}\n' https://outreach.ДОМЕН/api/health # 401 — пароль прокси и на API
+curl -so /dev/null -w '%{http_code}\n' -X POST https://outreach.ДОМЕН/api/events/delivery  # 403 — без пароля прокси, отказ подписи
 curl -so /dev/null -w '%{http_code}\n' https://outreach.ДОМЕН/            # 401 — пароль прокси
 curl -so /dev/null -w '%{http_code}\n' https://outreach.ДОМЕН/api/docs    # 401
 docker compose -f docker-compose.yml -f docker-compose.prod.yml ps        # все (healthy), кроме migrate
