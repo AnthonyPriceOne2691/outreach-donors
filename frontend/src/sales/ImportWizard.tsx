@@ -22,6 +22,9 @@
  * **Гипотезы нет — она заводится здесь же**, окном «Новая гипотеза», и заведённая
  * сразу выбрана; после загрузки здесь же запускается очистка (`CleanLeads`) — мастер
  * не отправляет человека в консоль ни до, ни после.
+ *
+ * **Язык и страна или пояс по умолчанию** (`ImportDefaults`) — выбор человека, как
+ * сопоставление: уходят с каждым предпросмотром и с загрузкой, «Загрузить ещё» их держит.
  */
 
 import {
@@ -44,10 +47,11 @@ import { useRef, useState } from 'react';
 
 import { refusalOf } from '../api/client';
 import { listHypotheses, loadImport, previewImport } from '../api/sales';
-import type { ImportOptions, ImportSource } from '../api/sales';
+import type { ImportDefaults, ImportOptions, ImportSource } from '../api/sales';
 import type { HypothesesView, HypothesisCard, IntakeView, LeadField } from '../api/salesTypes';
 import { BackLink } from '../components/BackLink';
 import { ImportColumns } from './ImportColumns';
+import { DefaultsFields } from './ImportDefaults';
 import { withField } from './importMapping';
 import type { FieldMapping } from './importMapping';
 import { ImportOutcome, ImportReport } from './ImportReport';
@@ -210,6 +214,7 @@ function useImportWizard() {
   const [found, setFound] = useState<IntakeView | null>(null);
   const [mapping, setMapping] = useState<FieldMapping>({});
   const [header, setHeader] = useState(false);
+  const [defaults, setDefaults] = useState<ImportDefaults>({ language: null, place: '' });
   const [outcome, setOutcome] = useState<IntakeView | null>(null);
   // Номер последнего запроса предпросмотра: ответы на прежние — не в счёт.
   const requests = useRef(0);
@@ -231,7 +236,8 @@ function useImportWizard() {
   });
 
   const load = useMutation({
-    mutationFn: (hypothesis: number) => loadImport(source, { mapping, header }, hypothesis),
+    mutationFn: (hypothesis: number) =>
+      loadImport(source, { mapping, header, defaults }, hypothesis),
     onSuccess: async (view) => {
       setOutcome(view);
       await queryClient.invalidateQueries({ queryKey: SALES_QUERIES });
@@ -263,6 +269,7 @@ function useImportWizard() {
     found,
     mapping,
     header,
+    defaults,
     outcome,
     preview,
     load,
@@ -274,16 +281,20 @@ function useImportWizard() {
     changeLink: changing(setLink),
     read: () => {
       setOutcome(null);
-      preview.mutate({});
+      preview.mutate({ defaults });
     },
     remap: (column: number, field: LeadField | null) => {
       const next = withField(mapping, column, field);
       setMapping(next);
-      preview.mutate({ mapping: next, header });
+      preview.mutate({ mapping: next, header, defaults });
     },
     reheader: (checked: boolean) => {
       setHeader(checked);
-      preview.mutate({ mapping, header: checked });
+      preview.mutate({ mapping, header: checked, defaults });
+    },
+    redefault: (next: ImportDefaults) => {
+      setDefaults(next);
+      preview.mutate({ mapping, header, defaults: next });
     },
     again: () => {
       forget();
@@ -342,6 +353,13 @@ function WizardSteps({ wizard, known }: { wizard: Wizard; known: HypothesisCard[
           onHeader={wizard.reheader}
           onBack={() => wizard.setStep(0)}
           onNext={() => wizard.setStep(2)}
+          defaults={
+            <DefaultsFields
+              value={wizard.defaults}
+              busy={preview.isPending}
+              onChange={wizard.redefault}
+            />
+          }
         />
       )}
 

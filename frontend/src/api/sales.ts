@@ -80,11 +80,26 @@ export interface ImportSource {
   link: string;
 }
 
+/** Язык (код) и страна или пояс по умолчанию на эту загрузку: сервер кладёт их только туда,
+ *  где колонка пуста. Пусто — без умолчания. */
+export interface ImportDefaults {
+  language: string | null;
+  place: string;
+}
+
 export interface ImportOptions {
   /** Поле → колонка с нуля. Правка руками заменяет угаданное целиком. */
   mapping?: Partial<Record<LeadField, number>>;
   /** Первая строка — заголовок. Не задано — сервер угадывает по именам колонок. */
   header?: boolean;
+  defaults?: ImportDefaults;
+}
+
+/** Умолчания — в форму, только заданные: пустое поле сервер прочёл бы как «не код языка». */
+function setDefaults(form: FormData, given: ImportDefaults | undefined): void {
+  const place = given?.place.trim() ?? '';
+  if (given?.language) form.set('default_language', given.language);
+  if (place !== '') form.set('default_place', place);
 }
 
 function formOf(source: ImportSource, options: ImportOptions, hypothesisId?: number): FormData {
@@ -93,6 +108,7 @@ function formOf(source: ImportSource, options: ImportOptions, hypothesisId?: num
   else form.set('link', source.link.trim());
   if (options.mapping !== undefined) form.set('mapping', JSON.stringify(options.mapping));
   if (options.header !== undefined) form.set('header', String(options.header));
+  setDefaults(form, options.defaults);
   if (hypothesisId !== undefined) form.set('hypothesis_id', String(hypothesisId));
   return form;
 }

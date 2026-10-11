@@ -64,6 +64,7 @@ from backend.features.sales import chain, chain_text, connection, corridor, hand
 from backend.features.sales.followup_texts import CAPPED, Built
 from backend.features.sales.followup_texts import build as build_followups
 from backend.features.sales.intake import UnknownHypothesisError
+from backend.features.sales.lead_values import language_base
 from backend.features.sales.mail import stopped_by
 from backend.features.sales.models import (
     LeadStatus,
@@ -218,8 +219,8 @@ async def _plan(session: AsyncSession, row: _Lead, hypothesis_id: int) -> _Plan 
     """Что писать лиду — или почему он ждёт (строкой отчёта). Без вызова модели."""
     if (why := await _blocked(session, row)) is not None:
         return why
-    # Язык лида без цепочки — обычный случай очереди, а не ошибка: причина в отчёте.
-    language = (row.lead.language or "").strip().lower()
+    # Язык без цепочки — причина в отчёте, не ошибка; язык — основой кода: `ru-RU` → `ru`.
+    language = language_base(row.lead.language)
     if language not in chain_text.LANGUAGES:
         return NO_LANGUAGE
     found = await chain.resolve(session, hypothesis_id=hypothesis_id, language=language)

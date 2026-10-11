@@ -3,19 +3,29 @@
 Здесь — окно отправки из настроек продаж (Ф4, 4.3), мягкие сигналы и сторож почты (4.5b;
 порог жалоб — `SALES_COMPLAINT_PAUSE`) и пояса получателя по порядку: лида, его страны,
 гипотезы (своего поля у гипотезы пока нет). Подключение — в ответах модуля мосту: `policy`
-отдаёт `sales_policy()`, `recipient` кладёт `zones_of(lead)` в `Recipient.zones`.
+отдаёт `sales_policy()`, `recipient` кладёт `zones_of(lead)` в `Recipient.zones`. Тем же
+правилом загрузка базы называет лидов, чьих часов окно не знает (`lead_values.warnings`).
 """
 
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import Protocol
 
 from backend.config import sales as cfg
 from backend.features.core.stages import MailPolicy
 from backend.features.core.window import SendWindow
 from backend.features.outreach.health import SoftSignals
 from backend.features.sales import geo
-from backend.features.sales.models import SalesLeadModel
+
+
+class Located(Protocol):
+    """Где получатель: записанный лид или загружаемый (`intake.Lead`) — страна и пояс."""
+
+    @property
+    def country(self) -> str | None: ...
+    @property
+    def timezone(self) -> str | None: ...
 
 
 def sales_policy() -> MailPolicy:
@@ -32,7 +42,7 @@ def sales_policy() -> MailPolicy:
     )
 
 
-def zones_of(lead: SalesLeadModel, hypothesis_zone: str | None = None) -> tuple[str | None, ...]:
+def zones_of(lead: Located, hypothesis_zone: str | None = None) -> tuple[str | None, ...]:
     """Пояса получателя по порядку: лида, его страны (единственный или столичный), гипотезы."""
     by_country = geo.timezone_for(lead.country) if lead.country else None
     return (lead.timezone, by_country, hypothesis_zone)

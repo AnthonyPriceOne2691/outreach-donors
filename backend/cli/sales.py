@@ -1,7 +1,8 @@
 """Команды модуля «Продажи».
 
     outreach sales-hypothesis-add --name "…" --description "…"
-    outreach sales-import --hypothesis "…" (--file база.csv | --link …) [--dry-run]
+    outreach sales-import --hypothesis "…" (--file база.csv | --link …) [--language en]
+        [--place "Europe/Berlin"] [--dry-run]
     outreach sales-stoplist-add --file стоп.csv [--note "…"]
     outreach sales-clean [--hypothesis "…"]
     outreach sales-kb-load --file база.json [--update] [--dry-run]
@@ -357,16 +358,17 @@ async def run_import(session: AsyncSession, args: argparse.Namespace) -> int:
 
 
 async def _read(args: argparse.Namespace) -> intake.Preview:
+    given = intake.defaults(args.language, args.place)
     if args.link:
         async with sheet.client() as http:
             table = await intake.read_link(args.link, http, delimiter=args.delimiter)
     else:
         table = await asyncio.to_thread(intake.read_file, args.file, delimiter=args.delimiter)
-    found = intake.preview(table, header=args.header)
+    found = intake.preview(table, header=args.header, given=given)
     if not args.map:
         return found
     chosen = {**found.mapping, **_mapping(args.map, found.columns)}
-    return intake.preview(table, chosen, header=found.header)
+    return intake.preview(table, chosen, header=found.header, given=given)
 
 
 def _mapping(pairs: list[str], columns: list[str]) -> Mapping:
@@ -397,6 +399,19 @@ def _print_preview(found: intake.Preview) -> None:
     for problem in found.problems:
         kept = " (лид загружен)" if problem.loaded else ""
         print(f"  строка {problem.line}: {problem.reason} — «{problem.cell}»{kept}")
+    _print_defaults(found)
+
+
+def _print_defaults(found: intake.Preview) -> None:
+    """Сколько лидов получили умолчания — и без чего письма не уйдут, до записи."""
+    given = found.defaults
+    if found.defaulted_language:
+        print(f"Язык по умолчанию {given.language} — лидов: {found.defaulted_language}")
+    if found.defaulted_place and given.place is not None:
+        where = ", ".join(part for part in (given.place.country, given.place.timezone) if part)
+        print(f"Страна или пояс по умолчанию {where} — лидов: {found.defaulted_place}")
+    for warning in found.warnings:
+        print(f"Внимание: {warning}")
 
 
 def add_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
@@ -427,6 +442,8 @@ def add_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-ar
         help="первая строка — заголовок (--no-header — данные); без флага угадывается",
     )
     load.add_argument("--delimiter", default=None, help="разделитель CSV, если угадан неверно")
+    load.add_argument("--language", help="язык по умолчанию — где колонка языка пуста: en, ru")
+    load.add_argument("--place", help="страна или пояс по умолчанию: de, Europe/Berlin")
     load.add_argument("--dry-run", action="store_true", help="только предпросмотр, без записи")
 
     stop = sub.add_parser(

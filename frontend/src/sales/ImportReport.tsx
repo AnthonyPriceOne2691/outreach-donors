@@ -28,6 +28,7 @@ import type { ImportedLead, ImportProblem, IntakeView } from '../api/salesTypes'
 import { Metric } from '../components/Metric';
 import { formatNumber, plural } from '../format';
 import { CleanLeads } from './CleanLeads';
+import { DefaultsReport } from './ImportDefaults';
 import { groupProblems, linesOf } from './importMapping';
 import type { ProblemGroup } from './importMapping';
 import { NO_LEAD_FILTERS, writeLeadFilters } from './leadFilters';
@@ -232,6 +233,7 @@ export function ImportReport({
         />
         <Metric title="С замечанием" value={formatNumber(notes)} />
       </SimpleGrid>
+      <DefaultsReport found={found} />
       {found.leads.length > 0 && <LeadsPreview leads={found.leads} total={found.accepted} />}
       <Stack gap={4}>
         <Text size="sm" fw={500}>
@@ -310,6 +312,7 @@ export function ImportOutcome({
         </Text>
       </Stack>
       <CleanLeads hypothesis={hypothesisId} waiting={waiting} primary />
+      <DefaultsReport found={outcome} />
       <Reasons title="Почему отклонены" groups={groupProblems(outcome.problems, false)} />
       <Reasons title="Загружены с замечанием" groups={groupProblems(outcome.problems, true)} />
       <Group>

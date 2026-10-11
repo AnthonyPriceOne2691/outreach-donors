@@ -77,6 +77,10 @@ const PREVIEW: IntakeView = {
     },
     { line: 40, reason: 'страна не распознана: ждём код или название', cell: '??', loaded: true },
   ],
+  defaults: { language: null, country: null, timezone: null },
+  defaulted_language: 0,
+  defaulted_place: 0,
+  warnings: [],
   loaded: null,
 };
 
@@ -355,6 +359,90 @@ describe('мастер загрузки', () => {
     const refusal = await screen.findByText('Раздел недоступен', {}, SCREEN_WAIT);
     expect(refusal.closest('[role="alert"]')).toHaveTextContent('«Продажи» не выдано');
     expect(recorded.calls.map((call) => call.path)).toEqual(['/api/auth/me']);
+  });
+});
+
+describe('язык и страна или пояс по умолчанию', () => {
+  const WARNED: IntakeView = {
+    ...PREVIEW,
+    warnings: [
+      'у 97 лидов нет языка — им не уйдёт ни одно письмо: задайте язык по умолчанию или колонку языка',
+    ],
+  };
+  const GIVEN: IntakeView = {
+    ...PREVIEW,
+    defaults: { language: 'en', country: 'de', timezone: 'Europe/Berlin' },
+    defaulted_language: 97,
+    defaulted_place: 95,
+  };
+
+  it('без умолчания отчёт до загрузки говорит, скольким не уйдут письма', async () => {
+    const user = await openWizard({ [PREVIEW_ROUTE]: { body: WARNED } });
+    await readFile(user);
+    await user.click(screen.getByRole('button', { name: 'К отчёту' }));
+
+    const alert = await screen.findByText('Не всем уйдут письма', {}, SCREEN_WAIT);
+    expect(alert.closest('[role="alert"]')).toHaveTextContent(
+      'у 97 лидов нет языка — им не уйдёт ни одно письмо',
+    );
+    expect(screen.getByRole('button', { name: 'Загрузить 97 лидов' })).toBeEnabled();
+  });
+
+  it('язык выбором и страна набором уходят с предпросмотром и с загрузкой', async () => {
+    const user = await openWizard({
+      [PREVIEW_ROUTE]: { body: GIVEN },
+      [LOAD_ROUTE]: { body: { ...GIVEN, loaded: 97 } },
+    });
+    await readFile(user);
+
+    await pick(user, screen.getByRole('textbox', { name: 'Язык письма' }), 'английский (en)');
+    await waitFor(
+      () => expect(formsSentTo('/api/sales/import/preview')).toHaveLength(2),
+      SCREEN_WAIT,
+    );
+    const place = screen.getByRole('textbox', { name: 'Страна или пояс' });
+    await user.type(place, 'Germany{Enter}');
+    await waitFor(
+      () => expect(formsSentTo('/api/sales/import/preview')).toHaveLength(3),
+      SCREEN_WAIT,
+    );
+    const [, language, both] = formsSentTo('/api/sales/import/preview');
+    expect([textOf(language, 'default_language'), textOf(language, 'default_place')]).toEqual([
+      'en',
+      null,
+    ]);
+    expect([textOf(both, 'default_language'), textOf(both, 'default_place')]).toEqual([
+      'en',
+      'Germany',
+    ]);
+
+    await user.click(screen.getByRole('button', { name: 'К отчёту' }));
+    expect(
+      await screen.findByText(
+        'Язык по умолчанию — en: 97 лидам. Страна или пояс по умолчанию — Германия, Europe/Berlin: 95 лидам.',
+        {},
+        SCREEN_WAIT,
+      ),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Загрузить 97 лидов' }));
+
+    await screen.findByText('Загружено 97, отклонено 3.', {}, SCREEN_WAIT);
+    const [loadForm] = formsSentTo('/api/sales/import');
+    expect([textOf(loadForm, 'default_language'), textOf(loadForm, 'default_place')]).toEqual([
+      'en',
+      'Germany',
+    ]);
+    // Итог называет, сколько лидов получили умолчания: так видно, откуда у них язык.
+    expect(screen.getByText(/Язык по умолчанию — en: 97 лидам/)).toBeInTheDocument();
+  });
+
+  it('набор страны не шлёт предпросмотр на каждую букву', async () => {
+    const user = await openWizard();
+    await readFile(user);
+
+    await user.type(screen.getByRole('textbox', { name: 'Страна или пояс' }), 'Germany');
+
+    expect(formsSentTo('/api/sales/import/preview')).toHaveLength(1);
   });
 });
 

@@ -361,6 +361,10 @@ const OUTCOME: IntakeView = {
   rejected: 3,
   leads: [],
   problems: [],
+  defaults: { language: null, country: null, timezone: null },
+  defaulted_language: 0,
+  defaulted_place: 0,
+  warnings: [],
   loaded: 97,
 };
 

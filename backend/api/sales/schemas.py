@@ -10,7 +10,22 @@ from pydantic import BaseModel, ConfigDict
 from backend.features.sales.browse import HypothesisRow, LeadRow, LeadsPage
 from backend.features.sales.columns import LeadField
 from backend.features.sales.intake import Lead, Preview, Problem
+from backend.features.sales.lead_values import Defaults
 from backend.features.sales.models import LeadSource, LeadStatus
+
+
+class IntakeDefaults(BaseModel):
+    """Умолчания загрузки, как их понял сервер: язык кодом, страна кодом и пояс."""
+
+    language: str | None
+    country: str | None
+    timezone: str | None
+
+    @classmethod
+    def of(cls, given: Defaults) -> IntakeDefaults:
+        where = given.place
+        country, zone = (where.country, where.timezone) if where else (None, None)
+        return cls(language=given.language, country=country, timezone=zone)
 
 
 class IntakeView(BaseModel):
@@ -32,6 +47,12 @@ class IntakeView(BaseModel):
     leads: list[Lead]
     #: Отчёт целиком: каждая отклонённая строка и каждое замечание.
     problems: list[Problem]
+    defaults: IntakeDefaults
+    #: Сколько лидов получили язык и страну или пояс по умолчанию: колонка была пуста.
+    defaulted_language: int
+    defaulted_place: int
+    #: Без чего письма не уйдут — словами, с числом лидов; до загрузки, а не молча.
+    warnings: list[str]
     loaded: int | None = None
 
     @classmethod
@@ -48,6 +69,10 @@ class IntakeView(BaseModel):
             rejected=found.rejected,
             leads=found.leads[:shown],
             problems=found.problems,
+            defaults=IntakeDefaults.of(found.defaults),
+            defaulted_language=found.defaulted_language,
+            defaulted_place=found.defaulted_place,
+            warnings=found.warnings,
             loaded=loaded,
         )
 

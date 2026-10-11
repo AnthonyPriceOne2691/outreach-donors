@@ -4,7 +4,8 @@
 формой `multipart/form-data`: сервер получает байты как есть, и общий читатель
 отклоняет файл не в UTF-8 словами, а не кракозябрами. Сопоставление — JSON
 `{"email": 0, "name": 2}` (поле → колонка с нуля); правка руками заменяет
-угаданное целиком.
+угаданное целиком. Язык и страна или пояс по умолчанию (`default_language`,
+`default_place`) ложатся только туда, где колонка пуста; негодное — 400 словами.
 
 **Предпросмотр ничего не пишет**, загрузка пишет лидов и журнал одной транзакцией.
 Состояния между шагами сервер не держит: мастер присылает источник оба раза,
@@ -82,9 +83,14 @@ async def _found(
     mapping: str | None = Form(None, description='JSON {"email": 0, …}: поле → колонка с нуля'),
     header: bool | None = Form(None, description="первая строка — заголовок; пусто — угадать"),
     delimiter: str | None = Form(None, description="разделитель, если угадан неверно"),
+    default_language: str | None = Form(None, description="язык, где колонка языка пуста: en"),
+    default_place: str | None = Form(
+        None, description="страна или пояс, где обе колонки места пусты: de, Europe/Berlin"
+    ),
     http: httpx.AsyncClient = Depends(sheet_http),
 ) -> intake.Preview:
     """Источник → предпросмотр. Разбор — в пуле потоков: 5000 строк не держат цикл."""
+    given = intake.defaults(default_language, default_place)
     if file is not None and not link:
         data = await file.read(intake.MAX_BYTES + 1)
         name = file.filename or "база.csv"
@@ -93,7 +99,8 @@ async def _found(
         table = await intake.read_link(link, http, delimiter=delimiter)
     else:
         raise intake.IntakeError("дайте файл или ссылку на Google-таблицу — одно из двух")
-    return await asyncio.to_thread(intake.preview, table, _mapping(mapping), header=header)
+    chosen = _mapping(mapping)
+    return await asyncio.to_thread(intake.preview, table, chosen, header=header, given=given)
 
 
 def _mapping(raw: str | None) -> Mapping | None:

@@ -13,7 +13,12 @@
 **Страна — кодом по таблице названий (`geo.py`), пояс — из колонки файла, иначе по
 стране.** Пояс нужен отправке: письмо уходит в рабочие часы получателя. У страны
 с несколькими поясами пояс по стране — столичный, и это замечание: точнее скажет
-колонка файла.
+колонка файла. **Язык — основой кода** (`ru-RU` → `ru`, `lead_values.py`).
+
+**Язык и страна или пояс по умолчанию** — на всю загрузку, только в строки, где колонка
+пуста (`lead_values.Defaults`); сколько строк их получили — в отчёте. Без чего письма не
+уйдут (нет языка, языка без цепочки, ни страны, ни пояса) — словами до загрузки
+(`Preview.warnings`), а не молча.
 
 **Адрес лида — только в `sales_leads.email`** (решение (а) от 01.10): строк `contacts`
 приём не заводит. **Предпросмотр базы не касается** — пишет только `load`.
@@ -27,6 +32,7 @@ import dataclasses
 import logging
 import re
 import tempfile
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -42,8 +48,9 @@ from backend.features.contacts.sweep_input import host_from_cell, read_records
 from backend.features.core.domain import AuditAction
 from backend.features.donors.host import normalize_host
 from backend.features.donors.repository import DonorRepository
-from backend.features.sales import geo, sheet
+from backend.features.sales import geo, lead_values, sheet
 from backend.features.sales.columns import LeadField, Mapping, guess
+from backend.features.sales.lead_values import NO_DEFAULTS, Defaults
 from backend.features.sales.models import (
     LeadSource,
     LeadStatus,
@@ -66,10 +73,10 @@ SAMPLE_ROWS = 5  # строк данных, по которым сопостав
 #: Доменов на запрос: хосты уходят параметрами, а их у Postgres не больше 32 767.
 CHUNK = 1000
 
-#: Код языка: не код — поле пусто, замечание в отчёте. Тем же кодом язык у записи
-#: базы знаний (`kb.py`): агент сводит язык лида с языком фактов.
+#: Код языка у записи базы знаний (`kb.py`): агент сводит язык лида с языком фактов. Язык
+#: лида — основой кода (`lead_values.language_code`): не код — поле пусто, замечание в отчёте.
 LANGUAGE_CODE = re.compile(r"[a-z]{2,3}(-[a-z0-9]{2,8})?")
-NO_LANGUAGE = "язык не записан: ждём код — en, ru"
+NO_LANGUAGE = f"язык не записан: {lead_values.LANGUAGE_HINT}"
 NO_COUNTRY = "страна не распознана: ждём код или название — de, Germany, Германия"
 NO_ZONE = "часовой пояс не распознан: ждём имя из базы поясов — Europe/Berlin"
 _UNSAFE_NAME = re.compile(r"[^\w.\- ]")
@@ -131,6 +138,16 @@ class Preview:
     rows: int
     leads: list[Lead]
     problems: list[Problem]
+    #: Умолчания загрузки и сколько лидов их получили: колонка была пуста.
+    defaults: Defaults = NO_DEFAULTS
+    defaulted_language: int = 0
+    defaulted_place: int = 0
+
+    @property
+    def warnings(self) -> list[str]:
+        """Без чего письма не уйдут — словами, с числом лидов (`lead_values.warnings`)."""
+        found = lead_values.warnings(self.leads)
+        return [note, *found] if (note := self.defaults.note) and self.defaulted_place else found
 
     @property
     def needs_mapping(self) -> bool:
@@ -176,11 +193,26 @@ async def read_link(link: str, http: httpx.AsyncClient, *, delimiter: str | None
     return dataclasses.replace(table, source=SHEET_NAME)
 
 
-def preview(table: Table, mapping: Mapping | None = None, *, header: bool | None = None) -> Preview:
+def defaults(language: str | None = None, where: str | None = None) -> Defaults:
+    """Язык и страна или пояс по умолчанию словами человека. Не годится — `IntakeError`."""
+    try:
+        return lead_values.defaults(language, where)
+    except lead_values.ValueRefusedError as exc:
+        raise IntakeError(str(exc)) from exc
+
+
+def preview(
+    table: Table,
+    mapping: Mapping | None = None,
+    *,
+    header: bool | None = None,
+    given: Defaults = NO_DEFAULTS,
+) -> Preview:
     """Сухой прогон: что станет лидами и что нет.
 
     Заголовок — первая строка, если в ней есть знакомое имя колонки; `header`
     решает вместо угадывания. Сопоставление руками заменяет угаданное целиком.
+    Умолчания `given` ложатся только туда, где колонка пуста.
     """
     first = table.records[0][1]
     titled = bool(guess(first)) if header is None else header
@@ -190,7 +222,7 @@ def preview(table: Table, mapping: Mapping | None = None, *, header: bool | None
         raise IntakeError(f"{table.source}: только заголовок — строк с лидами нет")
     width = max(len(cells) for _, cells in table.records)
     chosen = _chosen(mapping, guess(titles), width)
-    leads, problems = _rows(records, chosen) if LeadField.EMAIL in chosen else ([], [])
+    rows = _rows(records, chosen, given) if LeadField.EMAIL in chosen else _Rows()
     return Preview(
         source=table.source,
         header=titled,
@@ -198,8 +230,11 @@ def preview(table: Table, mapping: Mapping | None = None, *, header: bool | None
         sample=[cells for _, cells in records[:SAMPLE_ROWS]],
         mapping=chosen,
         rows=len(records),
-        leads=leads,
-        problems=problems,
+        leads=rows.leads,
+        problems=rows.problems,
+        defaults=given,
+        defaulted_language=rows.defaulted["language"],
+        defaulted_place=rows.defaulted["place"],
     )
 
 
@@ -221,18 +256,38 @@ def _chosen(mapping: Mapping | None, guessed: Mapping, width: int) -> Mapping:
     return dict(mapping)
 
 
-def _rows(
-    records: list[tuple[int, list[str]]], mapping: Mapping
-) -> tuple[list[Lead], list[Problem]]:
-    leads: list[Lead] = []
-    problems: list[Problem] = []
+@dataclass(slots=True)
+class _Rows:
+    """Строки файла, прочитанные целиком: лиды, отчёт и сколько получили умолчания."""
+
+    leads: list[Lead] = dataclasses.field(default_factory=list)
+    problems: list[Problem] = dataclasses.field(default_factory=list)
+    defaulted: Counter[str] = dataclasses.field(default_factory=Counter)
+
+
+def _rows(records: list[tuple[int, list[str]]], mapping: Mapping, given: Defaults) -> _Rows:
+    found = _Rows()
     for line, cells in records:
         row = {field: cells[i].strip() for field, i in mapping.items() if i < len(cells)}
         lead, notes = _lead(line, row)
-        problems += notes
+        found.problems += notes
         if lead is not None:
-            leads.append(lead)
-    return leads, problems
+            found.leads.append(_filled(lead, row, given, found.defaulted))
+    return found
+
+
+def _filled(lead: Lead, row: dict[LeadField, str], given: Defaults, used: Counter[str]) -> Lead:
+    """Умолчания — только где колонка пуста: язык — где пуста колонка языка, страна или
+    пояс — где пусты обе колонки места. Колонка файла точнее умолчания, а непонятая ячейка —
+    не пустая: её лид ждёт с замечанием."""
+    changes: dict[str, Any] = {}
+    if given.language and not row.get(LeadField.LANGUAGE):
+        changes["language"] = given.language
+        used["language"] += 1
+    if given.place and not (row.get(LeadField.COUNTRY) or row.get(LeadField.TIMEZONE)):
+        changes |= {"country": given.place.country, "timezone": given.place.timezone}
+        used["place"] += 1
+    return dataclasses.replace(lead, **changes) if changes else lead
 
 
 def _lead(line: int, row: dict[LeadField, str]) -> tuple[Lead | None, list[Problem]]:
@@ -340,12 +395,13 @@ def _person(row: dict[LeadField, str]) -> str:
 
 
 def _value(line: int, field: LeadField, text: str, notes: list[Problem]) -> str | None:
-    """Код языка — нижним регистром, текст — по ширине колонки. Непонятое
-    строки не стоит: поле пусто или обрезано, замечание — в отчёте."""
+    """Код языка — основой, нижним регистром (`ru-RU` → `ru`), текст — по ширине колонки.
+    Непонятое строки не стоит: поле пусто или обрезано, замечание — в отчёте."""
     if field is LeadField.LANGUAGE:
-        if not text or LANGUAGE_CODE.fullmatch(text.lower()):
-            return text.lower() or None
-        notes.append(Problem(line, NO_LANGUAGE, text, loaded=True))
+        if code := lead_values.language_code(text):
+            return code
+        if text:
+            notes.append(Problem(line, NO_LANGUAGE, text, loaded=True))
         return None
     if len(text) > TEXT_LENGTH:
         notes.append(Problem(line, f"длиннее {TEXT_LENGTH} знаков — обрезано", text, loaded=True))
@@ -376,14 +432,28 @@ async def load(
     rows = [_values(lead, ids[lead.domain], hypothesis_id) for lead in found.leads]
     await session.execute(insert(SalesLeadModel), rows)
     loaded, rejected = len(rows), found.rejected
+    details: dict[str, Any] = {"источник": found.source, "загружено": loaded, "отклонено": rejected}
+    if given := _given(found):
+        details["по умолчанию"] = given
     await AccessRepository(session).record(
         AuditAction.SALES_LEADS_IMPORTED,
         author_id=author_id,
         target=f"sales_hypothesis:{hypothesis_id}",
-        details={"источник": found.source, "загружено": loaded, "отклонено": rejected},
+        details=details,
     )
     logger.info("продажи: база загружена", extra={"hypothesis_id": hypothesis_id, "loaded": loaded})
     return loaded
+
+
+def _given(found: Preview) -> dict[str, Any]:
+    """Умолчания, легшие в лидов, — в журнал загрузки: откуда у лида язык, страна и пояс."""
+    given, used = found.defaults, {}
+    if found.defaulted_language:
+        used["язык"] = {"значение": given.language, "лидов": found.defaulted_language}
+    if found.defaulted_place and given.place is not None:
+        where = {"страна": given.place.country, "пояс": given.place.timezone}
+        used["страна или пояс"] = {**where, "лидов": found.defaulted_place}
+    return used
 
 
 def _values(lead: Lead, domain_id: int, hypothesis_id: int) -> dict[str, Any]:

@@ -111,6 +111,13 @@ export interface ImportProblem {
   loaded: boolean;
 }
 
+/** Умолчания загрузки, как их понял сервер: язык кодом, страна кодом и пояс. */
+export interface IntakeDefaults {
+  language: string | null;
+  country: string | null;
+  timezone: string | null;
+}
+
 /** Предпросмотр или итог загрузки базы. `loaded` пуст — в базу ничего не записано. */
 export interface IntakeView {
   source: string;
@@ -129,6 +136,12 @@ export interface IntakeView {
   leads: ImportedLead[];
   /** Отчёт целиком: каждая отклонённая строка и каждое замечание. */
   problems: ImportProblem[];
+  defaults: IntakeDefaults;
+  /** Сколько лидов получили язык и страну или пояс по умолчанию: колонка была пуста. */
+  defaulted_language: number;
+  defaulted_place: number;
+  /** Без чего письма не уйдут — словами сервера, с числом лидов. Пусто — уйдут всем. */
+  warnings: string[];
   loaded: number | null;
 }
 
