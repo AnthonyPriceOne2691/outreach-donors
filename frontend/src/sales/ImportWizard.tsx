@@ -69,6 +69,11 @@ type SourceKind = 'file' | 'link';
 /** Ключ всего раздела: после загрузки устаревают и счётчики гипотез, и лиды. */
 const SALES_QUERIES = ['sales'] as const;
 
+/** Предел файла, МБ, — тот же, что у сервера (`intake.MAX_BYTES`, сверка —
+ *  `tests/test_sales_intake_limit.py`). Файл больше не уходит: прокси отбил бы его страницей
+ *  413, и человек увидел бы код ответа вместо слов (ревью 11.10.2026). */
+const FILE_LIMIT_MB = 7;
+
 interface SourceStepProps {
   hypotheses: HypothesisCard[];
   hypothesisId: number | null;
@@ -84,13 +89,16 @@ interface SourceStepProps {
   onRead: () => void;
 }
 
-/** Чего не хватает, чтобы прочитать источник, — словами у кнопки. */
+/** Чего не хватает, чтобы прочитать источник, или что мешает, — словами у кнопки. */
 function missingOf(props: SourceStepProps): string | null {
   if (props.hypothesisId === null) {
     const pick = props.hypotheses.length === 0 ? 'Заведите' : 'Выберите';
     return `${pick} гипотезу — куда лягут лиды.`;
   }
   if (props.kind === 'file' && props.file === null) return 'Выберите файл.';
+  if (props.kind === 'file' && props.file !== null && props.file.size > FILE_LIMIT_MB * 2 ** 20) {
+    return `Файл ${props.file.name} больше ${FILE_LIMIT_MB} МБ — разделите базу.`;
+  }
   if (props.kind === 'link' && props.link.trim() === '') return 'Вставьте ссылку на таблицу.';
   return null;
 }
@@ -144,7 +152,7 @@ function SourceStep(props: SourceStepProps) {
       {kind === 'file' ? (
         <FileInput
           label="Файл с базой"
-          description="CSV до 10 МБ в UTF-8; разделитель — запятая, точка с запятой или табуляция, угадывается."
+          description={`CSV до ${FILE_LIMIT_MB} МБ в UTF-8; разделитель — запятая, точка с запятой или табуляция, угадывается.`}
           placeholder="выберите файл"
           accept=".csv,text/csv,text/plain"
           leftSection={<IconUpload size={16} />}

@@ -310,6 +310,26 @@ describe('мастер загрузки', () => {
     expect(screen.queryByText(/Загружено/)).not.toBeInTheDocument();
   });
 
+  it('файл больше предела не уходит: кнопка гаснет, причина словами', async () => {
+    // Ревью 11.10.2026: прокси пропускает 8 МБ на всё тело — файл больше отбивался его
+    // страницей 413, и мастер показывал «Сервер ответил 413» вместо слов.
+    const user = await openWizard();
+    await pickHypothesis(user);
+    const big = new File(['Почта\n'], 'big.csv', { type: 'text/csv' });
+    Object.defineProperty(big, 'size', { value: 7 * 2 ** 20 + 1 });
+    await user.upload(fileInput(), big);
+
+    expect(screen.getByRole('button', { name: 'Прочитать' })).toBeDisabled();
+    expect(screen.getByText('Файл big.csv больше 7 МБ — разделите базу.')).toBeInTheDocument();
+    expect(formsSentTo('/api/sales/import/preview')).toEqual([]);
+
+    // Ровно предел — можно: сервер отказывает только тому, что больше.
+    const edge = new File(['Почта\n'], 'edge.csv', { type: 'text/csv' });
+    Object.defineProperty(edge, 'size', { value: 7 * 2 ** 20 });
+    await user.upload(fileInput(), edge);
+    expect(screen.getByRole('button', { name: 'Прочитать' })).toBeEnabled();
+  });
+
   it('«Загрузить ещё» возвращает к источнику без файла, гипотеза остаётся', async () => {
     const user = await openWizard();
     await readFile(user);
