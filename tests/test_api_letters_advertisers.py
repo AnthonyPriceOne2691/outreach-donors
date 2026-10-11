@@ -330,6 +330,13 @@ class TestTheLeadInDialogs:
         assert again.status_code == 409
         assert "уже в работе" in again.json()["detail"]
 
+    # «Не продаёт» — тем же отказом: с #323 оно ещё и снимает цену донора того же домена
+    # (ревью продаж 11.10.2026).
+    @pytest.mark.parametrize(
+        "body",
+        [{"price_white": "300", "currency": "USD"}, {"declines": True}],
+        ids=["price", "declines"],
+    )
     async def test_price_form_on_a_lead_is_refused(
         self,
         client: AsyncClient,
@@ -337,6 +344,7 @@ class TestTheLeadInDialogs:
         session: AsyncSession,
         filled_legal: None,
         monkeypatch: pytest.MonkeyPatch,
+        body: dict[str, object],
     ) -> None:
         monkeypatch.setattr(outreach_cfg, "INBOUND_SECRET", SECRET)
         letter = await sent_offer(session)
@@ -344,9 +352,7 @@ class TestTheLeadInDialogs:
         await session.commit()
 
         response = await client.patch(
-            f"/api/replies/{got.reply_id}",
-            json={"price_white": "300", "currency": "USD"},
-            headers=bearer(admin_token),
+            f"/api/replies/{got.reply_id}", json=body, headers=bearer(admin_token)
         )
 
         assert response.status_code == 409
