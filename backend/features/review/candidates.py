@@ -15,15 +15,19 @@
 ошибается (23.09 он отрезал airanklab.com, который прямо продаёт
 платные публикации), и отказ модели без глаз человека стоил бы донора.
 
-**Решение принимается один раз.** Домен, уже решённый в прошлом прогоне,
-приходит в новый с тем же решением и пометкой «перенесено»: смотреть
-одно и то же дважды — это работа, которую человек бросит. Отклонённый
-вообще не доходит до Ahrefs (`runs.exclusions`), принятый проходит
-очередь сразу.
+**Решение по домену одно** (решение владельца 11.10.2026). Человек решает
+о домене, а не о прогоне: строка прогона, где решали, — само решение, строки
+того же домена в остальных прогонах — его копия с пометкой «перенесено»,
+и новый прогон кладёт решённый домен такой же копией: смотреть одно и то же
+дважды — работа, которую человек бросит. До 11.10 решение ложилось только
+на свою строку: домен ждал во втором прогоне и после решения в первом,
+считался в его «Рассмотреть», и решение там переворачивало первое.
+Отклонённый вообще не доходит до Ahrefs (`runs.exclusions`), принятый
+проходит очередь сразу.
 
-**Решение можно снять.** Отмена возвращает кандидата в «предложен»,
-а донору — предыдущее решение по другим прогонам, если оно было.
-В соседней системе отказ вечный и без отмены, и это её известная беда.
+**Решение можно снять.** Отмена возвращает домен в «предложен» во всех
+прогонах: решения о нём больше нет нигде. В соседней системе отказ вечный
+и без отмены, и это её известная беда.
 
 **Внутри яруса первыми — те, кто сам продаёт размещение.** Для
 гест-постинга это главный признак донора, и смотреть его надо раньше
@@ -90,6 +94,7 @@ class QueueReport:
 
 @dataclass(frozen=True, slots=True)
 class DecideReport:
+    #: Строк этого прогона: копии в остальных прогонах сюда не входят.
     changed: int
     #: Домены, принятые этим решением, — им пора искать контакт.
     accepted_domains: list[int]
@@ -169,6 +174,21 @@ def _apply(
     candidate.decided_by, candidate.decided_at, candidate.note = by, moment, note
 
 
+def _copy_of(review: str | None) -> dict[str, Any]:
+    """Строка домена в прогоне, где о нём не решали: копия решения с пометкой
+    «перенесено» — или «предложен», если решения нет. Автора, времени и записки
+    у копии нет: они у самого решения и у донора. Одна на очередь и на решение
+    в другом прогоне — копии из двух мест не расходятся."""
+    decided = review in (Decision.ACCEPTED, Decision.REJECTED)
+    return {
+        "status": review if decided else Decision.PENDING.value,
+        "carried": decided,
+        "decided_by": None,
+        "decided_at": None,
+        "note": None,
+    }
+
+
 class RunReview:
     """Очередь прогона: наполнить, показать, решить."""
 
@@ -179,7 +199,8 @@ class RunReview:
         """Положить на рассмотрение годных по порогам доменов прогона.
 
         Повтор безопасен: пара «прогон + домен» кладётся один раз.
-        Решённый раньше домен приходит с тем же решением.
+        Решённый домен приходит копией решения (`_copy_of`) — той же, что
+        кладёт решение в другом прогоне (`decide`): решение по домену одно.
         """
         if not hosts:
             return QueueReport()
@@ -192,21 +213,16 @@ class RunReview:
         pending = 0
         carried: dict[str, int] = {}
         for domain_id, review in rows.all():
-            decided = review in (Decision.ACCEPTED, Decision.REJECTED)
+            values = _copy_of(review)
             inserted = await self._session.execute(
                 insert(RunCandidateModel)
-                .values(
-                    run_id=run_id,
-                    domain_id=domain_id,
-                    status=review if decided else Decision.PENDING.value,
-                    carried=decided,
-                )
+                .values(run_id=run_id, domain_id=domain_id, **values)
                 .on_conflict_do_nothing(constraint="uq_run_candidates_run_domain")
                 .returning(RunCandidateModel.id)
             )
             if inserted.scalar_one_or_none() is None:
                 continue
-            if decided:
+            if values["carried"]:
                 carried[review] = carried.get(review, 0) + 1
             else:
                 pending += 1
@@ -279,11 +295,12 @@ class RunReview:
         note: str | None = None,
         now: datetime | None = None,
     ) -> DecideReport:
-        """Принять, отклонить или вернуть в «предложен».
+        """Принять, отклонить или вернуть в «предложен» — домен целиком.
 
-        Решение ложится и на кандидата (история прогона), и на донора
-        (последнее решение по домену): контакты, письма и гейт следующего
-        прогона смотрят на донора.
+        Решение по домену одно: строка этого прогона — само решение (кто,
+        когда, записка), строки домена в остальных прогонах — его копия,
+        какими бы они ни были, донор — то же решение: контакты, письма и гейт
+        следующего прогона смотрят на донора. «Предложен» — решения нет нигде.
         """
         if not candidate_ids:
             return DecideReport(changed=0, accepted_domains=[])
@@ -293,14 +310,16 @@ class RunReview:
             _apply(candidate, decision, by=by, note=note, moment=moment)
         await self._session.flush()
         domains = sorted({c.domain_id for c in candidates})
+        copies = await self._copy_elsewhere(run_id, domains, decision)
         for domain_id in domains:
             await self._settle_donor(domain_id)
         logger.info(
-            "рассмотрение: прогон %s, %s кандидатов → %s (%s)",
+            "рассмотрение: прогон %s, %s кандидатов → %s (%s), строк в других прогонах: %s",
             run_id,
             len(candidates),
             decision.value,
             by,
+            copies,
         )
         return DecideReport(
             changed=len(candidates),
@@ -326,6 +345,19 @@ class RunReview:
                 "обновить экран: список мог измениться"
             )
         return candidates
+
+    async def _copy_elsewhere(self, run_id: int, domains: Sequence[int], decision: Decision) -> int:
+        """Строки тех же доменов в остальных прогонах — копией решения, какими бы
+        они ни были: ждущими, решёнными там раньше или перенесёнными. Отмена —
+        «предложен» и там. Возвращает, сколько строк переписано."""
+        copied = await self._session.execute(
+            update(RunCandidateModel)
+            .where(RunCandidateModel.domain_id.in_(domains))
+            .where(RunCandidateModel.run_id != run_id)
+            .values(**_copy_of(decision.value))
+            .returning(RunCandidateModel.id)
+        )
+        return len(copied.all())
 
     async def accuracy(self, run_id: int | None = None) -> JudgeAccuracy:
         """Судья против человека — по всем прогонам или по одному.
@@ -374,10 +406,12 @@ class RunReview:
         )
 
     async def _settle_donor(self, domain_id: int) -> None:
-        """Последнее решение человека по домену — из всех его прогонов.
+        """Решение человека по домену — донору, из всех его прогонов.
 
-        Перенесённые строки решением не считаются: они копия, и после
-        отмены оригинала копия не должна его воскрешать.
+        Решение — только строка, где решали: перенесённая — копия, и после
+        отмены решения копия не должна его воскрешать. После `decide` такая
+        строка у домена одна; самая поздняя из нескольких берётся у доменов,
+        решённых до 11.10.2026, когда каждый прогон решал о домене сам.
         """
         latest = await self._session.execute(
             select(
