@@ -1,8 +1,8 @@
 """Чтение для раздела «Продажи»: гипотезы со счётчиками и лиды с фильтрами под колонками.
 
-Экран показывает то, что записали загрузка (`intake.py`) и очистка (`cleaning.py`),
-и ничего не решает сам: состояния и причины — те, что лежат в базе, фильтр — по тем
-же кодам. Здесь только чтение; пишут загрузка и очистка.
+Экран показывает то, что записали загрузка (`intake.py`), очистка (`cleaning.py`) и правка
+лида (`lead_edit.py`), и ничего не решает сам: состояния и причины — те, что лежат в базе,
+фильтр — по тем же кодам. Здесь только чтение.
 
 **Фильтр — по колонке, тем же словом, что в её ячейке** (как у отбора, 26.09.2026):
 состояние, причина отказа, гипотеза, поиск по адресу, имени, компании и домену.
@@ -162,6 +162,12 @@ async def leads(session: AsyncSession, filters: LeadFilters) -> LeadsPage:
         states=await _states(session),
         reasons=await _reasons(session),
     )
+
+
+async def lead(session: AsyncSession, lead_id: int) -> LeadRow | None:
+    """Лид строкой экрана — тем же чтением, что страница: после правки строка та же."""
+    found = (await session.execute(_base().where(SalesLeadModel.id == lead_id))).first()
+    return None if found is None else LeadRow(*found._tuple())
 
 
 async def hypotheses(session: AsyncSession) -> list[HypothesisRow]:

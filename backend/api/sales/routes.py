@@ -24,10 +24,10 @@
 (срез 4.6) — модулем `chain.py`, **очередь писем** (срез 4.6b) — модулем `queue.py`,
 **воронка** (срез 5.4) — модулем `funnel.py`, **очистка лидов** — модулем `clean.py`,
 **качество агента** (срез 6.4) — модулем `calibration.py`, **добивки лида** (какими уйдут) —
-модулем `queue.py`; их маршруты входят в этот же роутер: у раздела один префикс. Права —
-как в ядре: смотреть и заводить гипотезу — `sales`; очистка — `sales` и `run` (платная проверка
-адресов, как поиск адресов); запись цепочки, базы знаний и отправителя и сборка очереди —
-`sales` и `send`.
+модулем `queue.py`, **правка лида** — модулем `leads.py`; их маршруты входят в этот же роутер:
+у раздела один префикс. Права — как в ядре: смотреть и заводить гипотезу — `sales`; очистка —
+`sales` и `run` (платная проверка адресов, как поиск адресов); запись цепочки, базы знаний
+и отправителя, правка лида и сборка очереди — `sales` и `send`.
 """
 
 from __future__ import annotations
@@ -47,6 +47,7 @@ from backend.api.sales import chain as chain_routes
 from backend.api.sales import clean as clean_routes
 from backend.api.sales import funnel as funnel_routes
 from backend.api.sales import kb as kb_routes
+from backend.api.sales import leads as lead_routes
 from backend.api.sales import queue as queue_routes
 from backend.api.sales.schemas import (
     HypothesesView,
@@ -215,3 +216,4 @@ router.include_router(queue_routes.router)
 router.include_router(funnel_routes.router)
 router.include_router(clean_routes.router)
 router.include_router(calibration_routes.router)
+router.include_router(lead_routes.router)

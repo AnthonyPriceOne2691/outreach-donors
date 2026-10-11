@@ -31,8 +31,8 @@
 лида; отправка добивки берёт их оттуда. Не легла — добивка уходит текстом шаблона, первое
 письмо встаёт в очередь; потолок модели встал на добивках — лид ждёт следующей сборки.
 
-**Повтор сборки не задваивает**: у лида один диалог, у письма — ключ с контактом. Письмо,
-которое ещё в очереди, но написано не нынешней цепочкой или с прежними подписью и адресом,
+**Повтор сборки не задваивает**: у лида один диалог, у письма — ключ с контактом. Письмо в
+очереди, написанное не нынешней цепочкой, с прежними подписью и адресом или до правки лида,
 собирается заново на том же месте вместе с добивками: сверка на отправке такое не пустила
 бы, а второе письмо тому же лиду не дал бы ключ.
 
@@ -64,6 +64,7 @@ from backend.features.sales import chain, chain_text, connection, corridor, hand
 from backend.features.sales.followup_texts import CAPPED, Built
 from backend.features.sales.followup_texts import build as build_followups
 from backend.features.sales.intake import UnknownHypothesisError
+from backend.features.sales.lead_edit import edited
 from backend.features.sales.lead_values import language_base
 from backend.features.sales.mail import stopped_by
 from backend.features.sales.models import (
@@ -235,14 +236,16 @@ async def _plan(session: AsyncSession, row: _Lead, hypothesis_id: int) -> _Plan 
 
 
 def _current(row: _Lead, plan: _Plan, found: Sender) -> bool:
-    """Письмо в очереди написано нынешней цепочкой и подписано нынешними настройками."""
+    """Письмо в очереди написано нынешней цепочкой, подписано нынешними настройками и после
+    последней правки лида (`lead_edit.edited`)."""
     if row.queued is None or row.link is None:
         return False
     same = (row.link.chain_hypothesis_id, row.link.chain_version) == (
         plan.chain.hypothesis_id,
         plan.chain.version,
     )
-    return same and letter.problem(row.queued.body or "", found) is None
+    fresh = same and not edited(row.lead, row.queued)
+    return fresh and letter.problem(row.queued.body or "", found) is None
 
 
 async def _prepare(

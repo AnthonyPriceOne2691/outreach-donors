@@ -1,5 +1,5 @@
 /**
- * Продажи: гипотезы, лиды, загрузка базы, база знаний, отправитель, цепочка писем,
+ * Продажи: гипотезы, лиды и их правка, загрузка базы, база знаний, отправитель, цепочка писем,
  * очередь писем, воронка и очистка лидов.
  *
  * Списки — обычным `request`. Загрузка — файлом или ссылкой на Google-таблицу
@@ -29,7 +29,9 @@ import type {
   KbEntryBody,
   KbEntryCard,
   KbView,
+  LeadChanged,
   LeadField,
+  LeadPatchBody,
   LeadState,
   LeadsView,
   SalesCleanBody,
@@ -72,6 +74,12 @@ function searchOf(query: LeadsQuery): string {
 export function listLeads(query: LeadsQuery): Promise<LeadsView> {
   const asked = searchOf(query);
   return request<LeadsView>(asked === '' ? '/sales/leads' : `/sales/leads?${asked}`);
+}
+
+/** Поправить лида: имя, должность, компания, язык, страна и пояс. Ответ — строка лида и что
+ *  изменилось; письмо в очереди после правки соберёт заново следующая сборка (`rebuild`). */
+export function changeLead(id: number, body: LeadPatchBody): Promise<LeadChanged> {
+  return request<LeadChanged>(`/sales/leads/${id}`, { method: 'PATCH', body });
 }
 
 /** Откуда база: файл с диска или ссылка на Google-таблицу — одно из двух. */

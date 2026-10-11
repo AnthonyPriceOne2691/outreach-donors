@@ -19,6 +19,9 @@
  * прокрутка (`FixedTable`). Строка не переносится, кроме колонок с текстом без
  * предела длины — компании и гипотезы (`wrapCell`); пояс — одной строкой, целиком
  * в подсказке по наведению. Первая колонка слева — в ней имя.
+ *
+ * **Правка лида — кнопкой в строке** (`LeadEditModal`): имя, должность, компания, язык,
+ * страна и пояс. Без права отправки — «Открыть»: окно смотреть, как у базы знаний.
  */
 
 import {
@@ -67,10 +70,12 @@ const COLUMNS: Column[] = [
   // 258 px значка, 2 зазора и 28 «!», с полями ячейки 308 px (замер в браузере,
   // 09.10.2026). В 17rem не влезал и один значок: 278 px при 272.
   { title: 'Причина', width: '19.5rem' },
+  // «Открыть» и «Править» — кнопки одной ширины; колонка — по подписи «Действия».
+  { title: 'Действия', width: '7rem' },
 ];
 
-/** Уже этого таблица не сжимается и уезжает в прокрутку: сумма ширин (76,5rem). */
-export const TABLE_MIN_WIDTH = 1224;
+/** Уже этого таблица не сжимается и уезжает в прокрутку: сумма ширин (83,5rem). */
+export const TABLE_MIN_WIDTH = 1336;
 
 const ALL = 'all';
 
@@ -175,6 +180,7 @@ function FilterRow({ filters, search, onSearch, onFilter, hypotheses, reasons }:
           />
         )}
       </Table.Th>
+      <Table.Th />
     </Table.Tr>
   );
 }
@@ -220,7 +226,14 @@ function Outcome({ row }: { row: LeadCard }) {
   );
 }
 
-function LeadRow({ row }: { row: LeadCard }) {
+interface RowProps {
+  row: LeadCard;
+  /** Право записи (`WriteRight`); без него окно правки — смотреть. */
+  mayWrite: boolean;
+  onEdit: (row: LeadCard) => void;
+}
+
+function LeadRow({ row, mayWrite, onEdit }: RowProps) {
   const who = [row.name, row.position].filter((part) => part !== null).join(' · ');
   return (
     <Table.Tr>
@@ -267,6 +280,17 @@ function LeadRow({ row }: { row: LeadCard }) {
       <Table.Td>
         <Outcome row={row} />
       </Table.Td>
+      <Table.Td>
+        <Button
+          size="compact-sm"
+          variant="default"
+          className="press"
+          aria-label={`${mayWrite ? 'Править' : 'Открыть'} лида ${row.email}`}
+          onClick={() => onEdit(row)}
+        >
+          {mayWrite ? 'Править' : 'Открыть'}
+        </Button>
+      </Table.Td>
     </Table.Tr>
   );
 }
@@ -305,6 +329,8 @@ interface Props extends FilterRowProps {
   empty: Emptiness | null;
   refusal: string | null;
   onReset: () => void;
+  mayWrite: boolean;
+  onEdit: (row: LeadCard) => void;
 }
 
 /** Отказ сервера словами — и до первого ответа, и под шапкой таблицы вместо строк. */
@@ -322,7 +348,16 @@ function fillerOf(refusal: string | null, empty: Emptiness | null, onReset: () =
   return empty === null ? undefined : <LeadsEmpty empty={empty} onReset={onReset} />;
 }
 
-export function LeadsTable({ rows, stale, empty, refusal, onReset, ...filters }: Props) {
+export function LeadsTable({
+  rows,
+  stale,
+  empty,
+  refusal,
+  onReset,
+  mayWrite,
+  onEdit,
+  ...filters
+}: Props) {
   return (
     <FixedTable
       columns={COLUMNS}
@@ -332,7 +367,7 @@ export function LeadsTable({ rows, stale, empty, refusal, onReset, ...filters }:
       stale={stale}
       filler={fillerOf(refusal, empty, onReset)}
       rows={rows.map((row) => (
-        <LeadRow key={row.id} row={row} />
+        <LeadRow key={row.id} row={row} mayWrite={mayWrite} onEdit={onEdit} />
       ))}
     />
   );

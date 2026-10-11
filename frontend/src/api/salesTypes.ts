@@ -77,6 +77,25 @@ export interface LeadCard {
   created_at: string;
 }
 
+/** Правка лида с экрана (`PATCH /sales/leads/{id}`): только присланные поля; пусто или
+ *  `null` — «не задано». Правила полей — сервера, как у загрузки базы. */
+export interface LeadPatchBody {
+  name?: string | null;
+  position?: string | null;
+  company?: string | null;
+  language?: string | null;
+  country?: string | null;
+  timezone?: string | null;
+}
+
+/** Лид после правки — строка той же формы, что в списке, — и что изменилось. */
+export interface LeadChanged extends LeadCard {
+  /** Поля, которые правка изменила; пусто — всё было так же. */
+  changed: string[];
+  /** Первое письмо лида ждёт в очереди — следующая сборка соберёт его заново. */
+  rebuild: boolean;
+}
+
 export interface LeadsView {
   rows: LeadCard[];
   total: number;

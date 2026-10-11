@@ -21,24 +21,37 @@
  * новые лиды — строка «N лидов ждут очистки» и кнопка между плитками и таблицей. Число —
  * то же, что у плитки «Новые»: один список гипотез на оба места. Очистка идёт по одной
  * гипотезе, поэтому без выбранной гипотезы строки нет.
+ *
+ * **Правка лида — окном из строки** (`LeadEditModal`): сохранили — уведомление, и если письмо
+ * лида ждёт в очереди, сказано, что следующая сборка соберёт его заново; лиды и счётчики
+ * раздела перечитываются.
  */
 
 import { Box, Loader, SimpleGrid } from '@mantine/core';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 
 import { refusalOf } from '../api/client';
 import { listLeads } from '../api/sales';
 import { LEAD_STATES } from '../api/salesLabels';
-import type { HypothesisCard, LeadCard, LeadState, LeadsView } from '../api/salesTypes';
+import type {
+  HypothesisCard,
+  LeadCard,
+  LeadChanged,
+  LeadState,
+  LeadsView,
+} from '../api/salesTypes';
 import { Metric } from '../components/Metric';
 import { PageSwitch } from '../components/PageSwitch';
 import { formatNumber } from '../format';
+import { notify } from '../notices';
 import { emptinessOf, LEAD_STATE_KEYS, leadsLink, queryOf } from './leadFilters';
 import type { LeadFilters } from './leadFilters';
 import { CleanLeads } from './CleanLeads';
+import { LeadEditModal } from './LeadEditModal';
 import { LeadsEmpty, LeadsRefused, LeadsTable } from './LeadsTable';
 import type { FilterRowProps } from './LeadsTable';
+import { useMayWrite } from './WriteRight';
 
 const LEADS_QUERY_KEY = ['sales', 'leads'] as const;
 
@@ -169,9 +182,24 @@ export function LeadsPane({ leads, total, onTurn, onReset, ...filterRow }: Props
   );
 }
 
+/** Сохранили правку: что вышло — словами, лиды и счётчики раздела — заново. */
+function useLeadSaved(close: () => void) {
+  const client = useQueryClient();
+  return async (saved: LeadChanged) => {
+    close();
+    const again = saved.rebuild ? ' Письмо в очереди соберёт заново следующая сборка.' : '';
+    const said = saved.changed.length > 0 ? `Лид ${saved.email} сохранён.` : 'Без изменений.';
+    notify({ message: `${said}${again}`, color: 'green' });
+    await client.invalidateQueries({ queryKey: ['sales'] });
+  };
+}
+
 /** Таблица со страницами — или крутилка до первого ответа, или отказ. */
 function LeadsBody({ leads, total, onTurn, onReset, ...filterRow }: Props) {
   const { table, answer, rows, refusal } = leads;
+  const mayWrite = useMayWrite();
+  const [editing, setEditing] = useState<LeadCard | null>(null);
+  const saved = useLeadSaved(() => setEditing(null));
   if (table === undefined) {
     // Первого ответа ещё нет — или не будет.
     return refusal !== null ? (
@@ -194,6 +222,8 @@ function LeadsBody({ leads, total, onTurn, onReset, ...filterRow }: Props) {
         }
         reasons={Object.keys(table.reasons)}
         onReset={onReset}
+        mayWrite={mayWrite}
+        onEdit={setEditing}
       />
       <PageSwitch
         label="Страницы лидов"
@@ -202,6 +232,15 @@ function LeadsBody({ leads, total, onTurn, onReset, ...filterRow }: Props) {
         onChange={onTurn}
         pt="xs"
       />
+      {editing !== null && (
+        <LeadEditModal
+          key={editing.id}
+          lead={editing}
+          mayWrite={mayWrite}
+          onClose={() => setEditing(null)}
+          onSaved={(changed) => void saved(changed)}
+        />
+      )}
     </>
   );
 }
