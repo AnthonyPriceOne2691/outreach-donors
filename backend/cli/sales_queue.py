@@ -26,6 +26,7 @@ from backend.features.letters.rewrite import RewriteClient
 from backend.features.letters.uniqueness import percent_text
 from backend.features.sales import hypotheses, queue
 from backend.features.sales.corridor import LetterLine
+from backend.features.sales.queue_report import QueueReport
 
 EXIT_OK = 0
 #: Гипотезы с таким именем нет — чинится в доводах (как у остальных команд продаж).
@@ -77,7 +78,7 @@ async def run_sales_queue(
     return EXIT_OK
 
 
-def _print_letters(report: queue.QueueReport) -> None:
+def _print_letters(report: QueueReport) -> None:
     """Почему зоны остались шаблонными — как у сборки доноров, — и письма по одному."""
     for note, count in report.notes.most_common():
         print(f"  {note}: {count}")

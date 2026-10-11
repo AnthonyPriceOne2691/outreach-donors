@@ -21,7 +21,7 @@
 сколько промахнулась прошлая попытка, до `SALES_REWRITE_ATTEMPTS` вызовов (`corridor.py`);
 не вышло — лид ждёт следующей сборки, а строка письма называет отличие каждой попытки. Три
 лида подряд вне коридора — сборка встаёт словами: не даёт шаблон (`corridor.STREAK`). Отличие
-каждого письма и принятые зоны — в отчёте сборки (`QueueReport.letters`): на экране под строкой
+каждого письма и принятые зоны — в отчёте сборки (`queue_report.py`): на экране под строкой
 задачи и в консоли. Меряется отличие по тексту шаблона без блока настроек: правило записи 4.6a
 считает достижимость коридора по зонам.
 
@@ -39,9 +39,7 @@
 from __future__ import annotations
 
 import logging
-from collections import Counter
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 from sqlalchemy import func, or_, select, true, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -64,6 +62,7 @@ from backend.features.sales.models import (
     SalesLeadModel,
     SalesThreadModel,
 )
+from backend.features.sales.queue_report import QueueReport
 from backend.features.sales.sender import Sender
 from backend.features.sales.usage_cap import sales_cap
 
@@ -90,46 +89,6 @@ SENT_MEANWHILE = "письмо ушло или снято, пока его со�
 def campaign_name(hypothesis: SalesHypothesisModel) -> str:
     """Рассылка гипотезы: одна на гипотезу, сроки добивок — при её создании."""
     return f"Продажи: {hypothesis.name}"
-
-
-@dataclass
-class QueueReport:
-    """Что получилось — числами и словами, для консоли и строки задачи."""
-
-    campaign_id: int
-    prepared: int = 0
-    #: Письма в очереди, собранные заново: цепочка сменилась или подпись, адрес.
-    refreshed: int = 0
-    tokens_spent: int = 0
-    off_corridor: int = 0
-    #: Почему лиды ждут: причина → сколько.
-    waiting: Counter[str] = field(default_factory=Counter)
-    #: Сборка остановлена потолком расхода на модель: причина словами.
-    stopped: str | None = None
-    #: Почему зоны остались шаблонными: причина → сколько раз (как у сборки доноров).
-    notes: Counter[str] = field(default_factory=Counter)
-    #: Письма, которые писала модель, — по порядку сборки.
-    letters: list[corridor.LetterLine] = field(default_factory=list)
-    #: Лидов подряд вне коридора после всех попыток — счёт останова, в итог не идёт.
-    streak: int = field(default=0, repr=False)
-
-    def totals(self) -> dict[str, Any]:
-        """Числа и причины без писем по одному — так сборку пишет журнал: имена лидов ему
-        не нужны."""
-        return {
-            "campaign_id": self.campaign_id,
-            "prepared": self.prepared,
-            "refreshed": self.refreshed,
-            "tokens_spent": self.tokens_spent,
-            "off_corridor": self.off_corridor,
-            "waiting": dict(self.waiting),
-            "stopped": self.stopped,
-            "notes": dict(self.notes),
-        }
-
-    def as_dict(self) -> dict[str, Any]:
-        """Итог задачи для экрана: числа, причины и письма по одному."""
-        return {**self.totals(), "letters": [line.as_dict() for line in self.letters]}
 
 
 @dataclass(frozen=True, slots=True)
@@ -309,31 +268,7 @@ async def _prepare(
     report.tokens_spent += tried.tokens
     report.notes.update(tried.notes)
     why = await _store(session, row, plan, tried, found, campaign_id)
-    _tally(report, row, tried, why)
-
-
-def _tally(report: QueueReport, row: _Lead, tried: corridor.Tried, why: str | None) -> None:
-    """Итог письма в отчёт. Встало в очередь — новое или собранное заново, и серия лидов вне
-    коридора прерывается. Вне коридора после всех попыток — серия растёт, и на `STREAK` сборка
-    встаёт словами: не даёт шаблон. Не встало по другой причине — серию не трогает."""
-    off = tried.letter is None  # тогда и `why` — вне коридора (`_store`)
-    reason = corridor.waiting_reason(tried.differences) if off else why
-    report.letters.append(corridor.line(row.lead.id, row.lead.name, tried, reason=reason))
-    if why is None:
-        report.streak = 0
-        if row.queued is None:
-            report.prepared += 1
-        else:
-            report.refreshed += 1
-        return
-    report.waiting[why] += 1
-    if not off:
-        return
-    report.off_corridor += 1
-    report.streak += 1
-    if report.streak >= corridor.STREAK and report.stopped is None:
-        report.stopped = corridor.streak_stop()
-        logger.warning("продажи: сборка остановлена", extra={"reason": report.stopped})
+    report.tally(row.lead.id, row.lead.name, row.queued is not None, tried, why)
 
 
 async def _store(
