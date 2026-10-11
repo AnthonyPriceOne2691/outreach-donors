@@ -27,3 +27,4 @@ Just following up on my note from last week about publishing a guest article on 
 [signature] fixed
 Best regards,
 {{sender_name}}
+{{postal_address}}

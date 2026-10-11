@@ -14,7 +14,11 @@ import pytest
 from backend.features.letters import template
 from backend.features.replies.quoting import quote_starts_at, written_by_hand
 
-LETTER = template.default().body.replace("{{sender_name}}", "Anna Ro")
+LETTER = (
+    template.default()
+    .body.replace("{{sender_name}}", "Anna Ro")
+    .replace("{{postal_address}}", "1 Main Street, Dublin")
+)
 ME = "Anna Ro <anna+m417.7d3a91c2e5@replies.ours.test>"
 
 #: Слова нашего письма, которых в ответе донора быть не должно.

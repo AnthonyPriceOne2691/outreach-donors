@@ -463,15 +463,19 @@ class TestBlockedSending:
     async def test_build_names_what_blocks_sending(self, session: AsyncSession) -> None:
         """Нашлось живым прогоном: очередь собралась на 1361 токен, и ни
         одно письмо отправить было нельзя. Отчёт об этом молчал, и узнать
-        это можно было только нажав «отправить». Держит теперь только имя
-        отправителя: юридический блок снят 23.09.2026.
+        это можно было только нажав «отправить». Держат имя отправителя
+        и его адрес в подписи: юридический блок снят 23.09.2026, адрес
+        вернулся строкой подписи 11.10.2026.
         """
         await make_donor(session, "one.example.test", email="info@one.example.test")
 
         report = await _build(session)
 
         assert report.prepared == 1  # type: ignore[attr-defined]
-        assert report.blocked_by == ["OUTREACH_SENDER_NAME"]  # type: ignore[attr-defined]
+        assert report.blocked_by == [  # type: ignore[attr-defined]
+            "OUTREACH_SENDER_NAME",
+            "OUTREACH_POSTAL_ADDRESS",
+        ]
 
     async def test_filled_settings_leave_nothing_blocking(
         self, session: AsyncSession, filled_legal: None

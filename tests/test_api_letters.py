@@ -202,17 +202,18 @@ class TestQueue:
     async def test_queue_says_what_blocks_sending(
         self, client: AsyncClient, admin_token: str
     ) -> None:
-        """Имя отправителя не задано — отправить нельзя ни одно письмо,
-        и узнать об этом надо до нажатия, а не после.
+        """Имя отправителя и его адрес не заданы — отправить нельзя ни одно
+        письмо, и узнать об этом надо до нажатия, а не после.
 
-        Настройки здесь не подменяются нарочно: это состояние сервиса
-        на сегодня, и экран обязан его показывать. Адрес и отписка
-        отправку больше не держат — юридический блок снят 23.09.2026.
+        Настройки здесь не подменяются нарочно: это незаполненный сервис,
+        и экран обязан его показывать. Отписка отправку не держит —
+        юридический блок снят 23.09.2026; адрес снова держит — он строка
+        подписи с 11.10.2026.
         """
         response = await client.get("/api/letters", headers=bearer(admin_token))
 
         blocked = response.json()["blocked_by"]
-        assert blocked == ["OUTREACH_SENDER_NAME"]
+        assert blocked == ["OUTREACH_SENDER_NAME", "OUTREACH_POSTAL_ADDRESS"]
 
     async def test_filled_settings_block_nothing(
         self, client: AsyncClient, admin_token: str, letter: MessageModel

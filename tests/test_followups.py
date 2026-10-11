@@ -123,10 +123,12 @@ class TestTemplates:
     def test_followup_is_signed_and_names_the_site(self, step: int) -> None:
         """Добивка подписана и говорит, о каком сайте речь: без этого
         напоминание в треде читается как чужое письмо. Юридического блока
-        нет — он снят 23.09.2026."""
+        нет — он снят 23.09.2026; адрес отправителя — строкой подписи, как
+        в первом письме (11.10.2026)."""
         parsed = template.followup(step)
 
         assert "{{sender_name}}" in parsed.zone("signature").text
+        assert "{{postal_address}}" in parsed.zone("signature").text
         assert "{{host}}" in parsed.zone("reminder").text
         assert "legal" not in {z.name for z in parsed.zones}
 

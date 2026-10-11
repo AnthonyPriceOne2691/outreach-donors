@@ -62,7 +62,7 @@ _ZONE_TEXT = {
     ),
     "offer": "I work with an agency that places articles for clients.",
     "terms": "We pay per published article.",
-    "signature": "Best regards,\n{{sender_name}}",
+    "signature": "Best regards,\n{{sender_name}}\n{{postal_address}}",
 }
 
 
@@ -113,8 +113,8 @@ class TestTemplate:
 
     def test_legal_zone_is_now_an_extra_zone(self) -> None:
         """Юридический блок снят 23.09.2026. Шаблон, где он остался, —
-        старый, и молча принять его значило бы слать адрес и отписку,
-        которых больше нет в настройках, громкими метками."""
+        старый: адрес с 11.10.2026 живёт строкой подписи, а отписка — только
+        заголовком письма; седьмая зона не принимается."""
         with_legal = _template_text() + "[legal] fixed\n{{postal_address}}\n"
 
         with pytest.raises(TemplateError, match="лишние зоны: legal"):
@@ -122,7 +122,13 @@ class TestTemplate:
 
     def test_signature_without_sender_name_is_refused(self) -> None:
         with pytest.raises(TemplateError, match="sender_name"):
-            parse(_template_text(signature="Best regards,\nThe team"))
+            parse(_template_text(signature="Best regards,\nThe team\n{{postal_address}}"))
+
+    def test_signature_without_the_postal_address_is_refused(self) -> None:
+        """Адрес отправителя — в каждом письме доноров (решение Anthony 11.10.2026):
+        подпись без него — отказ разбора, и с экрана тоже, а не письмо без адреса."""
+        with pytest.raises(TemplateError, match="postal_address"):
+            parse(_template_text(signature="Best regards,\n{{sender_name}}"))
 
     def test_fixed_zone_declared_as_rewritable_is_refused(self) -> None:
         """Условия сделки, объявленные переписываемыми, ушли бы в модель."""
@@ -565,13 +571,14 @@ class TestAdvertiserTemplate:
 
         assert {"donor_host", "page_url", "anchor"} <= placeholders
 
-    def test_signed_and_without_the_legal_block(self) -> None:
+    def test_signed_with_the_address_and_without_the_unsubscribe_link(self) -> None:
         """Юридический блок снят для обоих этапов (23.09.2026): требования
-        второго этапа отсылали к первому."""
+        второго этапа отсылали к первому. Адрес отправителя вернулся строкой
+        подписи (11.10.2026), отписка — только заголовком письма."""
         placeholders = advertiser().placeholders()
 
-        assert "sender_name" in placeholders
-        assert not {"postal_address", "unsubscribe_url"} & placeholders
+        assert {"sender_name", "postal_address"} <= placeholders
+        assert "unsubscribe_url" not in placeholders
 
     def test_the_corridor_is_reachable(self) -> None:
         """Если переписываемых зон мало, каждое письмо уходило бы
