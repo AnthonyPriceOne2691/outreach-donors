@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+import pytest
 from backend.features.core.domain import MessageStatus, ReplyKind, SenderStatus, Stage
 from backend.features.core.models.outreach import MessageModel, ReplyModel, SenderModel
 from backend.features.outreach.senders import (
@@ -319,6 +320,67 @@ class TestSupersededAnswer:
 
         summary = summarize([_message(MessageStatus.DELIVERED)], [declined, unsure])
 
+        assert summary.state is ThreadState.NEEDS_REVIEW
+
+
+class TestTheLatestAnswerWins:
+    """Решение Anthony 11.10.2026: последнее слово донора побеждает. Принятые «не продаём»
+    и «бесплатно» перекрывают прежнюю цену, как более поздняя цена: у переписки цены
+    больше нет — как нет её и в карточке донора. До 11.10.2026 перекрывала только цена,
+    и подтверждённые позже 250 возвращали донору, сказавшему «не продаём», цену."""
+
+    def test_a_decline_after_an_unsure_price_supersedes_it(self) -> None:
+        unsure = _reply(ReplyKind.HUMAN, price=Decimal("250"), confidence=0.6)
+        declined = _reply(ReplyKind.HUMAN, confidence=0.9, placement="declines")
+        declined.created_at = NOW + timedelta(days=2)
+
+        summary = summarize([_message(MessageStatus.DELIVERED)], [unsure, declined])
+
+        assert superseded_by(unsure, [unsure, declined]) is declined
+        assert summary.state is ThreadState.DECLINED
+
+    @pytest.mark.parametrize(
+        ("placement", "state"), [("declines", ThreadState.DECLINED), ("free", ThreadState.FREE)]
+    )
+    def test_an_answer_without_a_price_after_a_settled_one_takes_the_price(
+        self, placement: str, state: ThreadState
+    ) -> None:
+        priced = _reply(ReplyKind.HUMAN, price=Decimal("150"), confidence=0.93)
+        answered = _reply(ReplyKind.HUMAN, confidence=0.9, placement=placement)
+        answered.created_at = NOW + timedelta(days=2)
+
+        summary = summarize([_message(MessageStatus.DELIVERED)], [priced, answered])
+
+        assert (summary.state, summary.price_white) == (state, None)
+
+    def test_free_after_a_decline_is_free(self) -> None:
+        """Из двух ответов без цены — тоже последний: передумал и берёт бесплатно."""
+        declined = _reply(ReplyKind.HUMAN, confidence=0.9, placement="declines")
+        free = _reply(ReplyKind.HUMAN, confidence=0.9, placement="free")
+        free.created_at = NOW + timedelta(days=2)
+
+        assert summarize([_message(MessageStatus.DELIVERED)], [declined, free]).state is (
+            ThreadState.FREE
+        )
+
+    def test_a_price_after_a_decline_is_the_price(self) -> None:
+        declined = _reply(ReplyKind.HUMAN, confidence=0.9, placement="declines")
+        priced = _reply(ReplyKind.HUMAN, price=Decimal("120"), confidence=0.93)
+        priced.created_at = NOW + timedelta(days=2)
+
+        summary = summarize([_message(MessageStatus.DELIVERED)], [declined, priced])
+
+        assert (summary.state, summary.price_white) == (ThreadState.PRICED, Decimal("120"))
+
+    def test_sells_without_a_price_supersedes_nothing(self) -> None:
+        """«Продаём, цену пришлю» с ценой не спорит: неуверенный разбор до него ждёт."""
+        unsure = _reply(ReplyKind.HUMAN, price=Decimal("250"), confidence=0.6)
+        sells = _reply(ReplyKind.HUMAN, confidence=0.95, placement="sells")
+        sells.created_at = NOW + timedelta(hours=1)
+
+        summary = summarize([_message(MessageStatus.DELIVERED)], [unsure, sells])
+
+        assert superseded_by(unsure, [unsure, sells]) is None
         assert summary.state is ThreadState.NEEDS_REVIEW
 
 

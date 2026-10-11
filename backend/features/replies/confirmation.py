@@ -21,7 +21,9 @@
 не зовёт, но форма могла остаться открытой с тех пор, как более поздний ответ ещё
 не пришёл: подтверждение записало бы в карточку прежнюю цену поверх новой
 (проверка прода 10.10.2026). Отказ — словами и до записи; решение по самому
-ответу ничего бы не дало — цену переписки задаёт более поздний.
+ответу ничего бы не дало — цену переписки задаёт более поздний. С 11.10.2026 так
+же перекрывают принятые «не продаём» и «бесплатно»: последнее слово донора
+побеждает, и подтверждение старой цены вернуло бы «продаёт» поверх его ответа.
 """
 
 from __future__ import annotations
@@ -34,12 +36,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.models.outreach import ReplyModel
 from backend.features.donors.manual_price import typed_amount, typed_currency
+from backend.features.donors.wording import SELLER_ANSWER_TITLES
 from backend.features.outreach.threads import ReplyFacts, superseded_by
 from backend.features.replies.money import normalize_currency
 
 
 class SupersededReplyError(ValueError):
-    """Ответ перекрыт более поздним с принятой ценой: подтверждать его нечего."""
+    """Ответ перекрыт более поздним принятым — с ценой, «не продаём» или «бесплатно»:
+    подтверждать его нечего."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,11 +88,24 @@ async def refuse_superseded(session: AsyncSession, reply: ReplyModel) -> None:
 
 def _superseded_words(reply_id: int, later: ReplyFacts) -> str:
     price = later.price_white if later.price_white is not None else later.price_grey
-    said = "" if price is None else f" {_amount(price)} {later.currency or ''}".rstrip()
+    if price is None:
+        return _answered_words(reply_id, later.placement)
+    said = f" {_amount(price)} {later.currency or ''}".rstrip()
     return (
         f"Ответ №{reply_id} перекрыт: позже донор назвал цену{said}, и она принята — цена "
         "переписки теперь из того ответа. Подтверждение этого записало бы в карточку донора "
         "прежнюю цену поверх новой; если новая цена неверна, поправьте её в более позднем ответе."
+    )
+
+
+def _answered_words(reply_id: int, placement: str | None) -> str:
+    """Перекрыл ответ без цены — «не продаём» или «бесплатно» (`threads.settled_answer`)."""
+    answer = SELLER_ANSWER_TITLES.get(placement or "", placement)
+    return (
+        f"Ответ №{reply_id} перекрыт: позже донор ответил «{answer}» — последнее слово "
+        "донора сильнее, и цены у него теперь нет. Подтверждение этого вернуло бы "
+        "в карточку донора прежнее слово поверх последнего; если тот ответ разобран "
+        "неверно, поправьте его."
     )
 
 

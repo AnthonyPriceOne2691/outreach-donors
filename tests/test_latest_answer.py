@@ -254,6 +254,31 @@ class TestLatestIsWhenTheDonorSaidIt:
 
 
 class TestConfirmedLater:
+    async def test_an_older_price_confirmed_after_a_newer_decline_stays_declined(
+        self, session: AsyncSession, client: AsyncClient, token: str
+    ) -> None:
+        thread = await _thread(session)
+        unsure = await _answer(session, thread, 1, UNSURE)
+        declined = await _answer(session, thread, 3, DECLINES)
+        await session.commit()
+
+        card = (await client.get(f"/api/threads/{thread.id}", headers=bearer(token))).json()
+        response = await client.patch(
+            f"/api/replies/{unsure.id}",
+            json={"price_white": "250", "currency": "USD"},
+            headers=bearer(token),
+        )
+
+        # Перекрыт: разбирать его не зовут, подтвердить — отказ словами.
+        old = next(one for one in card["incoming"] if one["id"] == unsure.id)
+        assert (old["needs_review"], old["superseded_by"]) == (False, declined.id)
+        assert card["card"]["state"] == "declined"
+        assert response.status_code == 409, response.text
+        assert "позже донор ответил «не продаёт»" in response.json()["detail"]
+        donor, domain = await _state(session)
+        assert _price(donor) == NO_PRICE
+        assert domain.seller_answer == "declines"
+
     async def test_an_older_price_from_another_thread_does_not_reach_the_card(
         self, session: AsyncSession, client: AsyncClient, token: str
     ) -> None:

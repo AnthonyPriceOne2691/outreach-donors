@@ -26,6 +26,11 @@
 одно на числа, карточку переписки и подтверждение: экран не зовёт разбирать
 перекрытый ответ, а сервер не даёт его подтвердить.
 
+**Последнее слово донора побеждает** (решение Anthony 11.10.2026): принятые
+«не продаём» и «бесплатно» перекрывают прежнюю цену так же, как более поздняя
+цена, — и у переписки цены больше нет, как и в карточке донора (`donors/price.py`).
+Цена, названная после них, снова цена.
+
 **Ответ рекламодателя — лид, а не цена.** Его не разбирают
 (`replies.outcome.ADVERTISER_LEAD`), и «ждёт разбора» с формой цены
 было бы неправдой: подтверждение цены для него — отказ. Диалог Этапа 2
@@ -48,6 +53,7 @@ from enum import StrEnum
 from typing import Any, Protocol, assert_never
 
 from backend.features.core.domain import GONE_STATUSES, MessageStatus, ReplyKind, Stage
+from backend.features.replies.extract import PLACEMENT_DECLINES, PLACEMENT_FREE, WITHOUT_PRICE
 from backend.features.replies.outcome import (
     AUTO_REPLY_WITH_SUM,
     names_a_sum,
@@ -264,31 +270,33 @@ def review_of(reply: ReplyFacts, stage: Stage = Stage.DONORS) -> Review:
 
 
 def _answer_rules(replies: Sequence[ReplyFacts]) -> _Rules:
-    """Ответ донора: ждёт разбора, цена, «не продаём», «бесплатно», просто ответил."""
+    """Ответ донора: ждёт разбора, цена, «не продаём», «бесплатно», просто ответил.
+
+    Цена, «не продаём» и «бесплатно» — по последнему принятому из них (`settled_answer`):
+    «не продаём» после цены — уже не цена, цена после «не продаём» — снова цена.
+    """
     kinds = {r.kind for r in replies}
     judged = [(r, review_of(r).waiting) for r in replies]
-    # Цена считается полученной, только если её не ждёт человек: иначе
-    # диалог с неуверенным разбором выглядел бы законченным, а список
-    # диалогов врал бы именно там, где по нему принимают решения.
-    # «Не продаём» — законченный ответ, как и цена: работы по нему нет,
-    # а в списке он не должен выглядеть как «ответил, что-то непонятное».
-    settled = [r for r, waits in judged if not waits]
-    has_price = any(r.price_white is not None or r.price_grey is not None for r in settled)
-    declined = any(r.placement == "declines" for r in settled)
-    free = any(r.placement == "free" for r in settled)
-    priced = settled_price(replies)
-    waiting = any(waits and _later_price(priced, r) is None for r, waits in judged)
+    # Ответ принят, только если его не ждёт человек: иначе диалог с неуверенным
+    # разбором выглядел бы законченным, а список диалогов врал бы именно там,
+    # где по нему принимают решения. «Не продаём» — законченный ответ, как и
+    # цена: работы по нему нет, а в списке он не должен выглядеть как «ответил,
+    # что-то непонятное».
+    answer = settled_answer(replies)
+    priced = answer is not None and _named_price(answer)
+    said = None if answer is None or priced else answer.placement
+    waiting = any(waits and _later(answer, r) is None for r, waits in judged)
 
     return (
         # Первым — пока хоть один ответ ждёт человека и не перекрыт: ровно его
         # карточка переписки и зовёт разбирать. До 10.10.2026 «ждёт разбора» стояло
         # после цены, и ответ, пришедший после принятой цены, ждал человека только
         # на экране — меню, список и «Обзор» его не считали (проверка прода 10.10.2026).
-        # Ответ, перекрытый ценой, не ждёт — и цена остаётся ценой.
+        # Ответ, перекрытый принятым, не ждёт — и последнее слово остаётся последним.
         (waiting, ThreadState.NEEDS_REVIEW),
-        (has_price, ThreadState.PRICED),
-        (declined, ThreadState.DECLINED),
-        (free, ThreadState.FREE),
+        (priced, ThreadState.PRICED),
+        (said == PLACEMENT_DECLINES, ThreadState.DECLINED),
+        (said == PLACEMENT_FREE, ThreadState.FREE),
         (ReplyKind.HUMAN in kinds, ThreadState.REPLIED),
     )
 
@@ -298,43 +306,60 @@ def _order(reply: ReplyFacts) -> tuple[datetime, int]:
     return (reply.created_at, reply.id or 0)
 
 
-def _later_price(priced: ReplyFacts | None, reply: ReplyFacts) -> ReplyFacts | None:
-    """Принятая цена переписки (`settled_price`), если она пришла позже ответа."""
-    return priced if priced is not None and _order(reply) < _order(priced) else None
+def _named_price(reply: ReplyFacts) -> bool:
+    return reply.price_white is not None or reply.price_grey is not None
+
+
+def _later(answer: ReplyFacts | None, reply: ReplyFacts) -> ReplyFacts | None:
+    """Принятый ответ переписки (`settled_answer`), если он пришёл позже этого."""
+    return answer if answer is not None and _order(reply) < _order(answer) else None
 
 
 def superseded_by(reply: ReplyFacts, replies: Sequence[ReplyFacts]) -> ReplyFacts | None:
-    """Ответ, который перекрыл этот: пришёл позже, и цена в нём принята. Пусто — не перекрыт.
+    """Ответ, который перекрыл этот: пришёл позже и принят — с ценой, «не продаём»
+    или «бесплатно» (`settled_answer`). Пусто — не перекрыт.
 
     Перекрытый ответ разбора не ждёт: цена переписки и карточки донора — из более
-    позднего ответа (`settled_price`), и подтверждение старого записало бы в карточку
-    прежнюю цену поверх новой. Проверка прода 10.10.2026: донор написал «250 $»
-    (разбор не уверен, 60 %), следом уточнил «150 $» (уверен, 93 %, цена в карточке),
-    а карточка переписки звала подтвердить 250. Перекрывает только цена: «спасибо»
-    без цены после неуверенного разбора его не снимает — разбор по-прежнему ждёт.
+    позднего ответа, и подтверждение старого записало бы в карточку прежнюю цену
+    поверх новой. Проверка прода 10.10.2026: донор написал «250 $» (разбор не уверен,
+    60 %), следом уточнил «150 $» (уверен, 93 %, цена в карточке), а карточка переписки
+    звала подтвердить 250. С 11.10.2026 так же перекрывают «не продаём» и «бесплатно»:
+    последнее слово донора побеждает, и подтверждённые позже 250 вернули бы цену
+    донору, который сказал, что не продаёт. «Спасибо» и «продаём» без цены цены
+    не называют и не снимают — неуверенный разбор до них по-прежнему ждёт.
     Цена бывает только у ответа донора: у лида и ответа продаж перекрывать нечем.
     """
-    return _later_price(settled_price(replies), reply)
+    return _later(settled_answer(replies), reply)
 
 
-def settled_price(replies: Sequence[ReplyFacts]) -> ReplyFacts | None:
-    """Ответ, чья цена — цена переписки: последний, где цена принята.
+def settled_answer(replies: Sequence[ReplyFacts]) -> ReplyFacts | None:
+    """Последний принятый ответ на вопрос цены: цена, «не продаём» или «бесплатно».
 
-    Принята — подтверждена человеком или разобрана уверенно: так же цена
-    попадает в карточку донора (`replies/repository.store_price`), и колонка
-    «Цена» в «Диалогах» с карточкой не расходится. До 06.10.2026 бралась
-    первая попавшаяся сумма в любом ответе — даже ждущем человека: в списке
-    стояло 250 $ из неподтверждённого ответа, в карточке — 150 $ из следующего.
+    Принят — подтверждён человеком или разобран уверенно: так же ответ ложится
+    в карточку донора (`replies/repository.store_price`, `record_seller_answer`).
     """
     settled = [
         reply
         for reply in replies
-        if (reply.price_white is not None or reply.price_grey is not None)
+        if (_named_price(reply) or reply.placement in WITHOUT_PRICE)
         and not waiting_for_review(
             reply.kind, reply.confidence, reviewed=reply.reviewed_at is not None
         )
     ]
     return max(settled, key=_order, default=None)
+
+
+def settled_price(replies: Sequence[ReplyFacts]) -> ReplyFacts | None:
+    """Ответ, чья цена — цена переписки: последний принятый ответ (`settled_answer`),
+    если в нём цена. «Не продаём» или «бесплатно» после цены — цены у переписки нет,
+    как нет её и в карточке донора (решение Anthony 11.10.2026).
+
+    Колонка «Цена» в «Диалогах» с карточкой не расходится. До 06.10.2026 бралась
+    первая попавшаяся сумма в любом ответе — даже ждущем человека: в списке
+    стояло 250 $ из неподтверждённого ответа, в карточке — 150 $ из следующего.
+    """
+    answer = settled_answer(replies)
+    return answer if answer is not None and _named_price(answer) else None
 
 
 def summarize(
