@@ -219,8 +219,8 @@ async def test_hard_corridor_is_saved_with_a_warning_and_the_set_shows_it_at_the
     client: AsyncClient, seller: tuple[UserModel, dict[str, str]]
 ) -> None:
     """Шаг 1 с трудно достижимым коридором — не отказ: записан, а ответ записи и набор
-    называют это словами — экран показывает жёлтую строку у шага. Добивке предупреждать
-    не о чем: модель её не переписывает."""
+    называют это словами — экран показывает жёлтую строку у шага. Добивке только из `fixed`
+    предупреждать не о чем: модель её не переписывает."""
     _, headers = seller
 
     card = await _post(client, headers, FIRST)
@@ -232,6 +232,46 @@ async def test_hard_corridor_is_saved_with_a_warning_and_the_set_shows_it_at_the
     assert "зона rewrite «greeting» короче 5 слов" in card["warning"]
     assert follow["warning"] is None
     assert {row["step"]: row["warning"] for row in view["rows"]} == {1: card["warning"], 2: None}
+
+
+async def test_followup_with_rewrite_zones_is_saved_with_its_own_warning(
+    client: AsyncClient, seller: tuple[UserModel, dict[str, str]]
+) -> None:
+    """Добивки тоже переписываются: шаг 2 с зонами `rewrite` записан; трудный коридор — его
+    предупреждение, по его числам, в ответе записи, наборе и предпросмотре."""
+    _, headers = seller
+    whole = FOLLOW | {"body": CLEAN_BODY.replace("[offer] fixed", "[offer] rewrite")}
+
+    card = await _post(client, headers, whole)
+    preview = await client.post(PREVIEW, json=whole, headers=headers)
+    view = await _chain(client, headers)
+
+    assert [zone["kind"] for zone in card["zones"]] == ["rewrite", "rewrite"]
+    assert card["warning"] is not None
+    assert card["warning"].endswith("добивки, остальное — fixed (сейчас переписывается 100%).")
+    assert preview.json()["warning"] == card["warning"]
+    assert {row["step"]: row["warning"] for row in view["rows"]} == {2: card["warning"]}
+
+
+async def test_spare_name_is_saved_and_shown_with_the_made_up_name(
+    client: AsyncClient, seller: tuple[UserModel, dict[str, str]]
+) -> None:
+    """`{{name|there}}` — подстановка: записывается, а предпросмотр показывает выдуманное имя,
+    а не скобки. Кривая форма — отказ словами."""
+    _, headers = seller
+    spare = FIRST | {"body": FIRST_BODY.replace("{{name}}", "{{name|there}}")}
+
+    card = await _post(client, headers, spare)
+    preview = await client.post(PREVIEW, json=spare, headers=headers)
+    crooked = await client.post(
+        CHAIN, json=FIRST | {"body": FIRST_BODY.replace("{{name}}", "{{name|}}")}, headers=headers
+    )
+
+    assert "{{name|there}}" in card["body"]
+    assert "{{" not in " ".join(zone["text"] for zone in preview.json()["zones"][:1])
+    assert preview.json()["zones"][0]["text"].startswith("Hello Alex Example")
+    assert crooked.status_code == 400
+    assert "запасной текст пуст" in crooked.json()["detail"]
 
 
 async def test_intro_rewritten_and_the_rest_fixed_is_saved_without_a_warning(

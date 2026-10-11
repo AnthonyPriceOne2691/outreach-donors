@@ -545,6 +545,7 @@ def test_report_line_names_the_lead_the_difference_the_zones_and_the_queue() -> 
         "zones": ["intro", "close"],
         "queued": False,
         "reason": "почему — словами",
+        "followups": [],
     }
 
 

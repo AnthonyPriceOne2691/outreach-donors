@@ -11,7 +11,8 @@
 `SALES_REWRITE_ATTEMPTS` вызовов. Без ключа письма выходят шаблонными, отличие — ноль, и в
 очередь они не встают: отчёт называет причину с отличием каждой попытки. Под отчётом —
 почему зоны остались шаблонными и письма по одному: лид, отличие, принятые зоны, попыток,
-в очереди или ждёт.
+в очереди или ждёт, и его добивки с зонами `rewrite` — отличие или почему уйдут текстом
+шаблона; сколько таких добивок у сборки — строкой «добивок шаблоном».
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from backend.config.startup_checks import check_storage
 from backend.features.letters.rewrite import RewriteClient
 from backend.features.letters.uniqueness import percent_text
 from backend.features.sales import hypotheses, queue
+from backend.features.sales.chain_text import STEP_TITLES
 from backend.features.sales.corridor import LetterLine
 from backend.features.sales.queue_report import QueueReport
 
@@ -67,6 +69,8 @@ async def run_sales_queue(
     print(f"Очередь продаж гипотезы «{hypothesis.name}» (рассылка №{report.campaign_id}):")
     print(f"  новых писем: {report.prepared}, собрано заново: {report.refreshed}")
     print(f"  токенов модели: {report.tokens_spent}")
+    if report.followups_template:
+        print(f"  добивок шаблоном: {report.followups_template}")
     for why, count in report.waiting.most_common():
         print(f"  ждут — {why}: {count}")
     _print_letters(report)
@@ -94,4 +98,16 @@ def _letter(line: LetterLine) -> str:
         return f"{who} — {line.reason}"
     zones = f"переписаны {', '.join(line.zones)}" if line.zones else "переписанных зон нет"
     shown = percent_text(line.difference)
-    return f"{who} — отличие {shown} ({zones}), попыток: {line.attempts} — в очереди"
+    letter = f"{who} — отличие {shown} ({zones}), попыток: {line.attempts} — в очереди"
+    return letter + _followups(line)
+
+
+def _followups(line: LetterLine) -> str:
+    """Добивки письма с зонами `rewrite`: отличие — или почему уйдут текстом шаблона."""
+    parts = [
+        f"{STEP_TITLES[later.step]} {later.reason}"
+        if later.difference is None
+        else f"{STEP_TITLES[later.step]} — отличие {percent_text(later.difference)}"
+        for later in line.followups
+    ]
+    return f"; {'; '.join(parts)}" if parts else ""

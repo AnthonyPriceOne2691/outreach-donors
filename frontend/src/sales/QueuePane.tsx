@@ -23,6 +23,8 @@
  * словами сервера, принятые зоны, вызовов модели, в очереди или ждёт (`BuildLetters`). Какие
  * переписанные зоны принять, чтобы письмо легло в коридор, подбирает сборка, а ни один набор
  * не лёг — зовёт модель заново сама; ждущие — первыми, длинный список — по «Показать все».
+ * Добивки письма — в его строке, их тексты — по раскрытию (`BuildLetter`): здесь смотрят
+ * очередь перед отправкой пачки, а добивки уйдут сами.
  */
 
 import {
@@ -57,14 +59,8 @@ import { JobLine, jobRestarted } from '../jobs/JobLine';
 import { SendQueue } from '../letters/SendQueue';
 import { notify } from '../notices';
 import { remember, remembered } from '../storage';
-import {
-  buildJobKey,
-  buildLetters,
-  letterLine,
-  QUEUE_QUERY_KEY,
-  queueLine,
-  useSalesQueue,
-} from './queueData';
+import { BuildLetter } from './BuildLetter';
+import { buildJobKey, buildLetters, QUEUE_QUERY_KEY, queueLine, useSalesQueue } from './queueData';
 import { useMayWrite, WriteRight } from './WriteRight';
 
 /** Писем за раз, пока человек не поправил: как у сборки писем доноров. */
@@ -163,7 +159,9 @@ function BuildLetters({ jobId }: { jobId: string }) {
     <Stack gap={4}>
       <List size="sm" spacing={2} aria-label="Письма сборки">
         {shown.map((letter) => (
-          <List.Item key={letter.lead_id}>{letterLine(letter)}</List.Item>
+          <List.Item key={letter.lead_id}>
+            <BuildLetter letter={letter} />
+          </List.Item>
         ))}
       </List>
       {shown.length < letters.length && (

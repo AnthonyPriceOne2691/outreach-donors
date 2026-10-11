@@ -356,6 +356,9 @@ export interface SalesQueueReport {
   refreshed: number;
   tokens_spent: number;
   off_corridor: number;
+  /** Добивок писем в очереди, которые уйдут текстом шаблона: не легли в коридор отличия. У итога
+   *  сборки прежней версии сервера поля нет. */
+  followups_template: number;
   /** Почему лиды ждут: причина словами → сколько. */
   waiting: Record<string, number>;
   /** Сборка остановлена потолком расхода на модель — причина словами. */
@@ -387,6 +390,42 @@ export interface SalesQueueLetter {
   /** Почему письмо не встало в очередь — словами сервера, по этому письму: вне коридора — с
    *  отличием каждой попытки. `null` — встало. */
   reason: string | null;
+  /** Добивки с зонами rewrite, собранные с письмом, — по порядку шагов. У итога сборки прежней
+   *  версии сервера поля нет: экран читает его осторожно (`letterLine`). */
+  followups: SalesQueueFollowup[];
+}
+
+/** Добивка письма сборки (`corridor.FollowupLine` сервера): шаг цепочки (2 или 3), вызовов
+ *  модели, отличие — или почему уйдёт текстом шаблона. */
+export interface SalesQueueFollowup {
+  step: number;
+  attempts: number;
+  /** Отличие принятого текста долей; `null` — добивка уйдёт текстом шаблона. */
+  difference: number | null;
+  difference_text: string | null;
+  /** Принятые переписанные зоны; остальные — текст шаблона. */
+  zones: string[];
+  /** Почему уйдёт текстом шаблона — словами сервера, с отличием каждой попытки; `null` —
+   *  переписана. */
+  reason: string | null;
+}
+
+/** Добивки лида, которые ещё уйдут (`GET /sales/leads/{номер}/followups`), — по порядку шагов. */
+export interface SalesLeadFollowupsView {
+  lead_id: number;
+  followups: SalesFollowupCard[];
+}
+
+/** Добивка, какой она уйдёт: текст без подписи и адреса (их допишет отправка) и как он получен
+ *  — словами сервера. */
+export interface SalesFollowupCard {
+  step: number;
+  /** `null` — шага в цепочке нет, добивка ждёт. */
+  body: string | null;
+  words: string;
+  difference: number | null;
+  difference_text: string | null;
+  zones: string[];
 }
 
 /** Перед очисткой лидов гипотезы (`GET /sales/clean`): сколько их ждёт и платная ли проверка. */

@@ -25,10 +25,16 @@
 задачи и в консоли. Меряется отличие по тексту шаблона без блока настроек: правило записи 4.6a
 считает достижимость коридора по зонам.
 
+**Добивки (шаги 2–3) с зонами `rewrite` — тоже при сборке** (`followup_texts.py`): когда
+первое письмо легло в коридор и сходится с подписью, тот же писатель лида (`corridor.Writer`,
+расход — одной строкой) готовит их тексты, каждый в своём коридоре, и они ложатся у переписки
+лида; отправка добивки берёт их оттуда. Не легла — добивка уходит текстом шаблона, первое
+письмо встаёт в очередь; потолок модели встал на добивках — лид ждёт следующей сборки.
+
 **Повтор сборки не задваивает**: у лида один диалог, у письма — ключ с контактом. Письмо,
 которое ещё в очереди, но написано не нынешней цепочкой или с прежними подписью и адресом,
-собирается заново на том же месте: сверка на отправке такое не пустила бы, а второе
-письмо тому же лиду не дал бы ключ.
+собирается заново на том же месте вместе с добивками: сверка на отправке такое не пустила
+бы, а второе письмо тому же лиду не дал бы ключ.
 
 **Лид, которому писать нельзя, вызова модели не стоит**: передан телемаркетологу, в
 стоп-листе, нет значения подстановки, нет цепочки на его языке — причина в отчёте.
@@ -40,6 +46,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy import func, or_, select, true, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,6 +61,8 @@ from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.repository import LetterRepository
 from backend.features.letters.rewrite import Personalization, RewriteClient
 from backend.features.sales import chain, chain_text, connection, corridor, handoff, letter
+from backend.features.sales.followup_texts import CAPPED, Built
+from backend.features.sales.followup_texts import build as build_followups
 from backend.features.sales.intake import UnknownHypothesisError
 from backend.features.sales.mail import stopped_by
 from backend.features.sales.models import (
@@ -245,7 +254,7 @@ async def _prepare(
     report: QueueReport,
 ) -> None:
     """Одно письмо: план, текст в коридоре (подбор зон и попытки — `corridor.py`), сверка
-    по итоговому тексту, запись в очередь."""
+    по итоговому тексту, добивки (`followup_texts.py`), запись в очередь."""
     plan = await _plan(session, row, hypothesis_id)
     if isinstance(plan, str):
         report.waiting[plan] += 1
@@ -253,44 +262,59 @@ async def _prepare(
     if _current(row, plan, found):
         report.waiting[UP_TO_DATE] += 1
         return
-    rendered = compose.render(
-        plan.chain.steps[letter.template_step(FIRST_STEP)].letter, plan.values
-    )
-    tried = await corridor.write(
-        session,
+    writer = corridor.Writer(
         rewriter,
-        rendered,
         Personalization(host=row.host, country=row.lead.country or "—"),
-        lead_id=row.lead.id,
-        attempts=sales_cfg.REWRITE_ATTEMPTS,
-        within_cap=lambda: _within_cap(session, report),
+        row.lead.id,
+        sales_cfg.REWRITE_ATTEMPTS,
+        lambda: _within_cap(session, report),
+        corridor.Spend(session),
     )
-    report.tokens_spent += tried.tokens
-    report.notes.update(tried.notes)
-    why = await _store(session, row, plan, tried, found, campaign_id)
-    report.tally(row.lead.id, row.lead.name, row.queued is not None, tried, why)
+    first = plan.chain.steps[letter.template_step(FIRST_STEP)]
+    tried = await writer.write(letter.rendered(first, plan.values))
+    signed = _signed(tried, found)
+    later = Built()
+    if isinstance(signed, compose.Letter):
+        later = await build_followups(writer, plan.chain, plan.values)
+    report.tokens_spent += writer.spend.tokens
+    report.notes.update([*tried.notes, *later.notes])
+    why = (
+        signed
+        if isinstance(signed, str)
+        else await _store(session, row, plan, signed, tried, later, campaign_id)
+    )
+    report.tally(row.lead.id, row.lead.name, row.queued is not None, tried, why, later.lines)
 
 
-async def _store(
-    session: AsyncSession,
-    row: _Lead,
-    plan: _Plan,
-    tried: corridor.Tried,
-    found: Sender,
-    campaign_id: int,
-) -> str | None:
-    """Письмо в очередь — или почему нет, строкой отчёта: вне коридора после всех попыток,
-    не сходится с подписью и адресом отправителя, ушло, пока его собирали заново."""
+def _signed(tried: corridor.Tried, found: Sender) -> compose.Letter | str:
+    """Письмо с подписью и адресом — или почему не в очередь, строкой отчёта: вне коридора
+    после всех попыток, не сходится с подписью и адресом отправителя."""
     if tried.letter is None:
         return OFF_CORRIDOR
     body = letter.signed(tried.letter.body, found)
     problem = letter.problem(body, found)
     if problem is not None:
         return problem
-    written = compose.Letter(
+    return compose.Letter(
         subject=tried.letter.subject, body=body, plain_body=tried.letter.plain_body
     )
-    if not await _write(session, row, plan, written, tried.difference, campaign_id):
+
+
+async def _store(
+    session: AsyncSession,
+    row: _Lead,
+    plan: _Plan,
+    written: compose.Letter,
+    tried: corridor.Tried,
+    later: Built,
+    campaign_id: int,
+) -> str | None:
+    """Письмо и тексты добивок в очередь — или почему нет, строкой отчёта: потолок модели
+    встал на добивках, письмо ушло, пока его собирали заново."""
+    if later.capped:
+        return CAPPED
+    texts = later.stored(plan.chain.version)
+    if not await _write(session, row, plan, written, tried.difference, texts, campaign_id):
         return SENT_MEANWHILE
     return None
 
@@ -301,13 +325,15 @@ async def _write(
     plan: _Plan,
     written: compose.Letter,
     uniqueness: float,
+    texts: dict[str, Any] | None,
     campaign_id: int,
 ) -> bool:
-    """Письмо в очередь: новый диалог со связью — или то же место, собранное заново.
+    """Письмо в очередь: новый диалог со связью — или то же место, собранное заново; тексты
+    добивок — у связи (`texts`, пусто — добивки уйдут шаблоном шага).
 
     Место переписывается, только если письмо в базе всё ещё в очереди: пачка — другая задача,
     и письмо, прочитанное сборкой, могло уйти, пока модель его переписывала. Ушедшее остаётся
-    тем, что ушло (по его теме и версии цепочки идут добивки): `False`."""
+    тем, что ушло (по его теме, версии цепочки и текстам добивок идут добивки): `False`."""
     if row.queued is not None and row.link is not None:
         refreshed = await session.execute(
             update(MessageModel)
@@ -320,6 +346,7 @@ async def _write(
             return False
         row.link.chain_hypothesis_id = plan.chain.hypothesis_id
         row.link.language, row.link.chain_version = plan.chain.language, plan.chain.version
+        row.link.followups = texts
         await session.flush()
         return True
     thread = ThreadModel(domain_id=row.lead.domain_id, campaign_id=campaign_id, contact_id=None)
@@ -333,6 +360,7 @@ async def _write(
                 chain_hypothesis_id=plan.chain.hypothesis_id,
                 language=plan.chain.language,
                 chain_version=plan.chain.version,
+                followups=texts,
             ),
             MessageModel(
                 campaign_id=campaign_id,

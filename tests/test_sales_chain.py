@@ -137,9 +137,45 @@ def test_followup_has_no_subject_it_goes_in_the_same_thread() -> None:
         follow(subject="Test reminder")
 
 
-def test_followup_zones_are_fixed_the_model_does_not_rewrite_them() -> None:
-    with pytest.raises(ChainError, match="добивку модель не переписывает"):
-        follow(body="[reminder] rewrite\nJust a made-up test reminder.")
+#: Добивка с переписываемой частью: 12 слов `rewrite` из 22 — коридор достижим.
+FOLLOW_REWRITE = (
+    "[nudge] rewrite\nJust checking in once more on the made-up test question, {{name}}.\n\n"
+    "[offer] fixed\nMade-up test offer: nothing real is sold here."
+)
+
+
+def test_followup_takes_rewrite_zones_like_the_first_letter() -> None:
+    """ТЗ: формулировки ротируются, двух одинаковых писем не уходит — добивки тоже
+    переписываются (`followup_texts.py`). Отказа «только fixed» больше нет; темы — по-прежнему."""
+    for step in (2, 3):
+        made = follow(step=step, body=FOLLOW_REWRITE)
+
+        assert [(zone.name, zone.kind) for zone in made.zones] == [
+            ("nudge", ZoneKind.REWRITE),
+            ("offer", ZoneKind.FIXED),
+        ]
+        assert made.subject is None
+    with pytest.raises(ChainError, match="у добивки темы нет"):
+        follow(body=FOLLOW_REWRITE, subject="Test reminder")
+
+
+def test_followup_with_rewrite_zones_must_reach_the_corridor_too() -> None:
+    """Переписываемая часть добивки дотягивает до коридора, как у первого письма: два слова
+    `rewrite` из двадцати — нижний край недостижим."""
+    tiny = (
+        "[greeting] rewrite\nHi there,\n\n[offer] fixed\nMade-up test offer: nothing real "
+        "is sold here, only made-up words for a made-up test."
+    )
+
+    with pytest.raises(ChainError, match=r"нижний край коридора отличия \(15%\) недостижим"):
+        follow(body=tiny)
+
+
+def test_fixed_only_followup_is_written_as_before_and_goes_as_the_template() -> None:
+    made = follow()
+
+    assert [zone.kind for zone in made.zones] == [ZoneKind.FIXED]
+    assert made.warning is None
 
 
 @pytest.mark.parametrize(
@@ -288,9 +324,22 @@ def test_several_short_zones_are_named_together() -> None:
     assert "зоны rewrite «zone0», «zone2» короче 5 слов — модель их не трогает" in warning
 
 
-def test_followups_are_never_warned_the_model_does_not_touch_them() -> None:
+def test_followup_is_warned_by_its_own_numbers() -> None:
+    """Предупреждение — у каждого шага, по его числам: добивка целиком `rewrite` — просьба
+    модели мельче трети слов; совет — добивке, доля — её. Только `fixed` — молчит."""
+    whole = follow(step=3, body=FOLLOW_REWRITE.replace("[offer] fixed", "[offer] rewrite"))
+
+    assert whole.warning == (
+        "Коридор отличия трудно достижим: модель просят менять около 20% слов каждой зоны, а "
+        "так мелко она не правит — переписывает зоны почти целиком, и в коридор письмо "
+        "ложится, только если часть зон останется текстом шаблона. Совет: rewrite — около "
+        "30–50% добивки, остальное — fixed (сейчас переписывается 100%)."
+    )
+    short = chain_text.corridor_warning(2, _zones((ZoneKind.REWRITE, 3), (ZoneKind.REWRITE, 9)))
+    assert short is not None
+    assert "зона rewrite «zone0» короче 5 слов" in short
     assert follow().warning is None
-    assert chain_text.corridor_warning(2, _zones((ZoneKind.REWRITE, 3))) is None
+    assert chain_text.corridor_warning(2, _zones((ZoneKind.FIXED, 3))) is None
 
 
 def test_preview_carries_the_warning_of_the_step() -> None:
@@ -317,6 +366,54 @@ def test_unknown_or_broken_placeholder_is_refused_in_words(typo: str) -> None:
 def test_unknown_placeholder_in_the_subject_is_refused_too() -> None:
     with pytest.raises(ChainError, match=r"подстановки \{\{host\}\} нет"):
         first(subject="Test for {{host}}")
+
+
+# --- имя с запасным текстом: {{name|there}} -----------------------------------------------
+
+
+@pytest.mark.parametrize("spare", ["there", "коллеги", "t" * 30, " there ", "dear team"])
+def test_name_with_a_spare_text_is_a_placeholder_too(spare: str) -> None:
+    """Лиду без имени — запасной текст: в теле и в теме, у первого письма и у добивки."""
+    made = first(
+        body=FIRST_BODY.replace("{{name}}", f"{{{{name|{spare}}}}}"),
+        subject=f"Test question for {{{{name|{spare}}}}}",
+    )
+    follow(body=FOLLOW_BODY.replace("{{name}}", f"{{{{name|{spare}}}}}"))
+
+    assert f"{{{{name|{spare}}}}}" in made.body
+
+
+@pytest.mark.parametrize(
+    ("typo", "words"),
+    [
+        ("{{name|}}", "запасной текст пуст"),
+        ("{{name|   }}", "запасной текст пуст"),
+        ("{{name|" + "t" * 31 + "}}", "запасной текст длиннее 30 знаков (31)"),
+        ("{{name|a|b}}", "черта в подстановке одна"),
+        ("{{name|two\nlines}}", "запасной текст — одной строкой"),
+        ("{{company|our team}}", "запасной текст — только у имени"),
+        ("{{site|your site}}", "запасной текст — только у имени"),
+        ("{{Name|there}}", "запасной текст — только у имени, строчными"),
+        ("{{ name|there}}", "без пробелов у скобок"),
+        ("{{name|a{b}}", "скобка вне подстановки"),
+        ("{{name|there}", "скобка вне подстановки"),
+    ],
+)
+def test_crooked_spare_form_is_refused_in_words(typo: str, words: str) -> None:
+    """Мутант: без проверки кривая форма ушла бы адресату скобками."""
+    with pytest.raises(ChainError) as refused:
+        first(body=FIRST_BODY.replace("{{name}}", typo))
+
+    assert words in str(refused.value)
+    assert "{{name|there}}" in str(refused.value)
+
+
+def test_spare_text_stands_in_only_where_the_name_is_missing() -> None:
+    """Мутанты: запасной текст при имени; имя не подставлено. Подстановки — до переписки."""
+    text = "Hi {{name|there}}, and {{company}}: {{name| dear team }}."
+
+    assert chain_text.spare(text, "Jane") == "Hi {{name}}, and {{company}}: {{name}}."
+    assert chain_text.spare(text, "  ") == "Hi there, and {{company}}: dear team."
 
 
 @pytest.mark.parametrize(

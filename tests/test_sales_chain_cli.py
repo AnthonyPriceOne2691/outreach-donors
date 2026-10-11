@@ -311,6 +311,24 @@ async def test_hard_corridor_is_loaded_with_a_warning_and_a_clean_step_without_o
     ]
 
 
+async def test_followup_with_rewrite_zones_is_loaded_and_warned_by_its_own_numbers(
+    session: AsyncSession, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Добивка с зонами `rewrite` загружается, как первое письмо; трудный коридор у неё —
+    своя строка отчёта, со своей долей переписываемого и советом добивке."""
+    whole = CLEAN_BODY.replace("[offer] fixed", "[offer] rewrite")
+    records = [FIRST | {"body": CLEAN_BODY}, SECOND | {"body": whole}]
+
+    assert await _run(session, _file(tmp_path, records)) == EXIT_OK
+
+    out = capsys.readouterr().out
+    hard = step_template(**records[1]).warning
+    assert hard is not None
+    assert "добивки, остальное — fixed (сейчас переписывается 100%)" in hard
+    assert f"  предупреждение — первая добивка, en: {hard}\n" in out
+    assert out.count("предупреждение") == 1
+
+
 async def test_hypothesis_set_goes_to_the_named_hypothesis(
     session: AsyncSession, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
