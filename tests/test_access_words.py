@@ -28,6 +28,7 @@ LABELS_TS = Path(__file__).resolve().parent.parent / "frontend" / "src" / "api" 
 #: Кто не может ничего: учётка отключена — отказ по любому праву.
 NOBODY = Actor(user_id=1, role=UserRole.ADMIN, is_active=False)
 
+
 def _screen_titles() -> dict[str, str]:
     """`код: 'слова'` из `PERMISSION_TITLES` экрана."""
     source = LABELS_TS.read_text(encoding="utf-8")
