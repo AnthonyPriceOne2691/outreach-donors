@@ -5,10 +5,11 @@
  * очередь существовала только значком «только форма» в общей таблице:
  * увидеть её списком и работать с ней было нельзя.
  *
- * **Потолок в месяц показан числом, а не спрятан в настройках.**
- * Человек, разбирающий пачку, должен видеть, сколько ещё можно взять:
- * формы на тысяче доменов — это десятки, на пятидесяти тысячах —
- * тысячи, и очередь без потолка никто никогда не разберёт.
+ * **Потолок в месяц — ориентир темпа, а не запрет** (решение Anthony 11.10.2026).
+ * Число — сколько адресов ещё вписать руками, чтобы за последние 30 дней остаться
+ * в ориентире: окно скользит, календарного месяца нет. Очередь оно не закрывает:
+ * экран обещал «новые формы в очередь не попадут до следующего месяца», а форма
+ * сверх потолка вставала в очередь, как любая другая.
  *
  * **Два исхода, и оба закрывают строку.** Донор дал адрес — он
  * становится обычным и уйдёт в очередь писем. Не вышло — закрываем
@@ -53,7 +54,7 @@ import { ConfirmPopover } from '../components/ConfirmPopover';
 import { PageHead } from '../components/PageHead';
 import { PageSwitch, usePageParam } from '../components/PageSwitch';
 import { Seams } from '../components/Seams';
-import { formatCompact, formatDate } from '../format';
+import { formatCompact, formatDate, formatNumber, plural } from '../format';
 import { notify } from '../notices';
 
 const FORMS_QUERY_KEY = ['forms'] as const;
@@ -138,6 +139,8 @@ export function FormsPage() {
   // Пуста очередь, а не страница: страница за концом — переход на последнюю,
   // а не «очередь пуста» на мгновение перед ним.
   const empty = (data?.total ?? 0) === 0;
+  const pace = data?.monthly_cap ?? 0;
+  const paceLeft = data?.monthly_left ?? 0;
   const mayWork = can('run');
   const columns = mayWork ? [...COLUMNS, ACTIONS] : COLUMNS;
   const shares = columns.reduce((sum, column) => sum + column.share, 0);
@@ -151,13 +154,14 @@ export function FormsPage() {
             hint="У этих доноров есть контактная форма и нет почты. Лестница дошла до них и остановилась: дальше нужны руки. Заполнили и получили адрес — впишите его, и донор пойдёт в очередь писем обычным порядком."
           />
           <Text size="sm">
-            В очереди <b>{data?.total ?? 0}</b>. Потолок на месяц: <b>{data?.monthly_left ?? 0}</b>{' '}
-            из {data?.monthly_cap ?? 0} осталось.
+            В очереди <b>{formatNumber(data?.total ?? 0)}</b>. Ориентир темпа — {formatNumber(pace)}{' '}
+            {plural(pace, 'адрес', 'адреса', 'адресов')} руками за последние 30 дней, осталось{' '}
+            <b>{formatNumber(paceLeft)}</b>.
           </Text>
-          {(data?.monthly_left ?? 0) === 0 && (
-            <Alert color="yellow" title="Месячный потолок выбран">
-              Новые формы в очередь не попадут до следующего месяца. Потолок нужен, чтобы очередь
-              оставалась той, которую реально разбирают.
+          {paceLeft === 0 && (
+            <Alert color="yellow" title="Ориентир темпа достигнут">
+              Это ориентир, а не запрет: очередь не закрыта, новые формы в неё попадают, вписывать
+              адреса можно и дальше.
             </Alert>
           )}
         </Stack>
