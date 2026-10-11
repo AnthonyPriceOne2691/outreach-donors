@@ -26,10 +26,13 @@ from backend.features.core.models.access import AuditLogModel, UserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.run import RunCandidateModel
+from backend.features.donors import probe
 from backend.features.donors.browse import DonorBrowser, DonorFilters
 from backend.features.donors.export import to_csv
 from backend.features.ops.overview import overview, work
 from backend.features.outreach.repository import EVERY_STAGE
+from backend.features.replies import redirect
+from backend.features.replies.repository import ReplyRepository
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.thresholds import defaults
 from httpx import AsyncClient
@@ -39,6 +42,8 @@ from tests.conftest import bearer, make_donor
 
 MakeUser = Callable[..., Awaitable[UserModel]]
 SignIn = Callable[..., Awaitable[str]]
+#: Как у донора появился адрес без рук человека.
+Arrival = Callable[[AsyncSession, DonorModel], Awaitable[None]]
 NOW = datetime(2026, 9, 21, 12, 0, tzinfo=UTC)
 
 
@@ -358,6 +363,71 @@ class TestOnlyDonorsWaitForHands:
         await forms.filled(session, with_form.id, email="editor@form.example.test")
         await session.flush()
 
+        assert await forms.monthly_left(session) == before - 1
+
+
+async def _answered_from(session: AsyncSession, donor: DonorModel) -> None:
+    """Донор ответил с другого ящика (`replies/repository.py`)."""
+    await ReplyRepository(session).remember_answering_address(
+        domain_id=donor.domain_id, email="editor@form.example.test", now=NOW
+    )
+
+
+async def _named_by_an_autoreply(session: AsyncSession, donor: DonorModel) -> None:
+    """Мёртвый ящик донора назвал, куда писать дальше, — строка такая, какой её пишет
+    `redirect.follow`. Самим приёмом адрес на `*.example.test` ушёл бы человеку: зоны
+    `.test` нет в списке суффиксов, и «тот же сайт» не узнаётся (`redirect.same_site`)."""
+    session.add(
+        ContactModel(
+            domain_id=donor.domain_id,
+            email="editor@form.example.test",
+            source=ContactSource.MANUAL,
+            verification_status=redirect.FROM_AUTOREPLY,
+            verification_score=manual.MANUAL_SCORE,
+        )
+    )
+
+
+async def _probe_inbox(session: AsyncSession, donor: DonorModel) -> None:
+    """Свой ящик проверяющего — адресом липового донора (`donors/probe.py`)."""
+    domain = await session.get(DomainModel, donor.domain_id)
+    assert domain is not None
+    await probe.own_address(session, domain, "inbox@probe.example.test")
+
+
+class TestTheGuidelineCountsHands:
+    """Решение Anthony 11.10.2026: ориентир «Форм» считает только адреса, вписанные
+    руками, — на «Формах» и в карточке донора. Источник `manual` у адреса бывает и без
+    рук, и до правки ориентир тратился на них."""
+
+    @pytest.mark.parametrize(
+        "arrived",
+        [_answered_from, _named_by_an_autoreply, _probe_inbox],
+        ids=["ответ донора", "автоответ мёртвого ящика", "ящик проверки"],
+    )
+    async def test_address_that_came_without_hands_is_not_counted(
+        self, session: AsyncSession, with_form: DonorModel, arrived: Arrival
+    ) -> None:
+        before = await forms.monthly_left(session)
+
+        await arrived(session, with_form)
+        await session.flush()
+
+        assert await forms.monthly_left(session) == before
+
+    async def test_address_typed_on_the_donor_card_is_counted(
+        self, client: AsyncClient, admin_token: str, session: AsyncSession, with_form: DonorModel
+    ) -> None:
+        before = await forms.monthly_left(session)
+        await session.commit()
+
+        response = await client.post(
+            f"/api/contacts/donors/{with_form.id}/addresses",
+            json={"email": "editor@form.example.test"},
+            headers=bearer(admin_token),
+        )
+
+        assert response.status_code == 200, response.text
         assert await forms.monthly_left(session) == before - 1
 
 
