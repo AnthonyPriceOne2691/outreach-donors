@@ -1322,9 +1322,9 @@
       "worst": "kind_of:45"
     },
     "backend/features/letters/compose.py": {
-      "lines": 306,
+      "lines": 308,
       "complexity": 4,
-      "worst": "unset_reason:262"
+      "worst": "unset_reason:264"
     },
     "backend/features/letters/draft.py": {
       "lines": 195,
@@ -1447,9 +1447,9 @@
       "worst": "add:164"
     },
     "backend/features/letters/template.py": {
-      "lines": 472,
+      "lines": 477,
       "complexity": 9,
-      "worst": "_check_zones:245"
+      "worst": "_check_zones:249"
     },
     "backend/features/letters/transport.py": {
       "lines": 187,
