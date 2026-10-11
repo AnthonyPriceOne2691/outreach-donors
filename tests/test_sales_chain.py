@@ -21,7 +21,7 @@ from alembic.operations import Operations
 from backend.features.core.domain import AuditAction
 from backend.features.core.models.access import AuditLogModel
 from backend.features.letters.guards import ForbiddenContentError
-from backend.features.letters.template import ZoneKind
+from backend.features.letters.template import Zone, ZoneKind
 from backend.features.sales import chain, chain_text, hypotheses, sender
 from backend.features.sales.chain import ChainNotReadyError
 from backend.features.sales.chain_text import ChainError, StepTemplate, step_template
@@ -186,6 +186,118 @@ def test_first_letter_must_be_able_to_reach_the_difference_corridor() -> None:
     for body in (fixed_only, tiny):
         with pytest.raises(ChainError, match=r"нижний край коридора отличия \(15%\) недостижим"):
             first(body=body)
+
+
+# --- коридор достижим, но трудно: предупреждение, а не отказ ----------------------------------
+
+#: Вступление — 23 слова, оффер — 20: переписывается 53% письма.
+INTRO = (
+    "[intro] rewrite\nHello {{name}}, I came across {{company}} and its made-up test pages, "
+    "and wanted to ask one short test question about {{site}} today."
+)
+OFFER = (
+    "[offer] fixed\nMade-up test offer: we write test articles for test sites, and nothing real "
+    "is sold here at all, ever."
+)
+GREETING = "[greeting] rewrite\nHi {{name}},"
+#: Как шаблон пилота 11.10: модели отдано всё письмо, приветствие — тоже.
+WHOLE = f"{GREETING}\n\n{INTRO}\n\n{OFFER.replace('[offer] fixed', '[offer] rewrite')}"
+ADVICE = "Совет: rewrite — только вступление, около 30–50% письма, остальное — fixed"
+
+
+def _zones(*zones: tuple[ZoneKind, int]) -> tuple[Zone, ...]:
+    """Зоны с заданным числом выдуманных слов."""
+    return tuple(
+        Zone(f"zone{n}", kind, " ".join(["word"] * count)) for n, (kind, count) in enumerate(zones)
+    )
+
+
+def test_whole_letter_given_to_the_model_is_saved_with_a_warning_in_words() -> None:
+    """Пилот: шаблон целиком `rewrite` — не отказ, шаг записывается; но модель просят менять
+    пятую часть слов каждой зоны, а приветствие — два слова. Совет — с долей переписываемого."""
+    made = first(body=WHOLE)
+
+    assert made.warning == (
+        "Коридор отличия трудно достижим: модель просят менять около 20% слов каждой зоны, а "
+        "так мелко она не правит — переписывает зоны почти целиком, и в коридор письмо "
+        "ложится, только если часть зон останется текстом шаблона; зона rewrite «greeting» "
+        f"короче 5 слов — модель её не трогает или переписывает целиком. {ADVICE} (сейчас "
+        "переписывается 100%)."
+    )
+
+
+def test_intro_rewritten_and_the_rest_fixed_has_no_warning() -> None:
+    made = first(body=f"{INTRO}\n\n{OFFER}")
+
+    assert made.letter.rewritable_share == pytest.approx(23 / 43)
+    assert made.warning is None
+
+
+def test_short_rewrite_zone_is_warned_about_even_when_the_share_is_fine() -> None:
+    made = first(body=f"{GREETING}\n\n{INTRO}\n\n{OFFER}")
+
+    assert made.warning is not None
+    assert "зона rewrite «greeting» короче 5 слов" in made.warning
+    assert "модель просят менять" not in made.warning
+    assert made.warning.endswith(f"{ADVICE} (сейчас переписывается 56%).")
+
+
+def test_too_large_a_rewritable_share_is_warned_about_without_short_zones() -> None:
+    warning = chain_text.corridor_warning(1, _zones((ZoneKind.REWRITE, 30), (ZoneKind.FIXED, 7)))
+
+    assert warning is not None
+    assert "модель просят менять около 25% слов каждой зоны" in warning
+    assert "короче" not in warning
+    assert warning.endswith("(сейчас переписывается 81%).")
+
+
+@pytest.mark.parametrize(
+    ("rewrite", "fixed", "warned"),
+    [(6, 4, False), (7, 4, True), (60, 40, False), (61, 39, True)],
+)
+def test_share_threshold_is_a_third_of_the_zone_asked_of_the_model(
+    rewrite: int, fixed: int, warned: bool
+) -> None:
+    """Порог — у `change_share`: при середине коридора 20% просьба мельче трети зоны
+    начинается с переписываемого больше 60% письма."""
+    warning = chain_text.corridor_warning(
+        1, _zones((ZoneKind.REWRITE, rewrite), (ZoneKind.FIXED, fixed))
+    )
+
+    assert (warning is not None) is warned
+
+
+@pytest.mark.parametrize(("count", "warned"), [(4, True), (5, False)])
+def test_rewrite_zone_shorter_than_five_words_is_short(count: int, warned: bool) -> None:
+    """Короче пяти слов — даже пятая часть зоны меньше слова."""
+    zones = _zones((ZoneKind.REWRITE, count), (ZoneKind.REWRITE, 30), (ZoneKind.FIXED, 40))
+
+    warning = chain_text.corridor_warning(1, zones)
+
+    assert (warning is not None and "«zone0» короче 5 слов" in warning) is warned
+
+
+def test_several_short_zones_are_named_together() -> None:
+    zones = _zones(
+        (ZoneKind.REWRITE, 2), (ZoneKind.REWRITE, 30), (ZoneKind.REWRITE, 3), (ZoneKind.FIXED, 40)
+    )
+
+    warning = chain_text.corridor_warning(1, zones)
+
+    assert warning is not None
+    assert "зоны rewrite «zone0», «zone2» короче 5 слов — модель их не трогает" in warning
+
+
+def test_followups_are_never_warned_the_model_does_not_touch_them() -> None:
+    assert follow().warning is None
+    assert chain_text.corridor_warning(2, _zones((ZoneKind.REWRITE, 3))) is None
+
+
+def test_preview_carries_the_warning_of_the_step() -> None:
+    made = first(body=WHOLE)
+
+    assert chain_text.preview(made, sender.Sender()).warning == made.warning
+    assert chain_text.preview(first(body=f"{INTRO}\n\n{OFFER}"), sender.Sender()).warning is None
 
 
 # --- подстановки, метрики, подпись ------------------------------------------------------

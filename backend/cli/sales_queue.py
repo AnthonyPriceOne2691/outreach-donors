@@ -6,8 +6,12 @@
 
 Продажи не подключены (выключатель, учётка, отписка, «Отправитель») — отказ словами и
 код 9 из `main`, ни одного письма. Модель переписывает зоны `rewrite` — общий клиент
-доноров (`LLM_API_KEY`); без ключа письма выходят шаблонными, отличие — ноль, и в
-очередь они не встают: отчёт называет это числом «вне коридора».
+доноров (`LLM_API_KEY`), а какие из переписанных принять, подбирает сборка, чтобы письмо легло
+в коридор отличия; ни один набор не лёг — модель переписывает заново, до
+`SALES_REWRITE_ATTEMPTS` вызовов. Без ключа письма выходят шаблонными, отличие — ноль, и в
+очередь они не встают: отчёт называет причину с отличием каждой попытки. Под отчётом —
+почему зоны остались шаблонными и письма по одному: лид, отличие, принятые зоны, попыток,
+в очереди или ждёт.
 """
 
 from __future__ import annotations
@@ -19,7 +23,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from backend.config import storage
 from backend.config.startup_checks import check_storage
 from backend.features.letters.rewrite import RewriteClient
+from backend.features.letters.uniqueness import percent_text
 from backend.features.sales import hypotheses, queue
+from backend.features.sales.corridor import LetterLine
 
 EXIT_OK = 0
 #: Гипотезы с таким именем нет — чинится в доводах (как у остальных команд продаж).
@@ -62,9 +68,29 @@ async def run_sales_queue(
     print(f"  токенов модели: {report.tokens_spent}")
     for why, count in report.waiting.most_common():
         print(f"  ждут — {why}: {count}")
+    _print_letters(report)
     if report.stopped:
         print(f"Сборка остановлена: {report.stopped}")
     print(
         "Ничего не отправлено: очередь уходит общей отправкой — пачкой этапа продаж или по письму."
     )
     return EXIT_OK
+
+
+def _print_letters(report: queue.QueueReport) -> None:
+    """Почему зоны остались шаблонными — как у сборки доноров, — и письма по одному."""
+    for note, count in report.notes.most_common():
+        print(f"  {note}: {count}")
+    for line in report.letters:
+        print(f"  {_letter(line)}")
+
+
+def _letter(line: LetterLine) -> str:
+    """Письмо строкой: в очереди — лид, отличие, принятые зоны, вызовов модели; ждёт — лид и
+    почему по этому письму (вне коридора — с отличием каждой попытки)."""
+    who = line.name or f"лид №{line.lead_id}"
+    if line.reason is not None:
+        return f"{who} — {line.reason}"
+    zones = f"переписаны {', '.join(line.zones)}" if line.zones else "переписанных зон нет"
+    shown = percent_text(line.difference)
+    return f"{who} — отличие {shown} ({zones}), попыток: {line.attempts} — в очереди"

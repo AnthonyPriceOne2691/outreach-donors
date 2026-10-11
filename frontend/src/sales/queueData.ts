@@ -4,12 +4,18 @@
  * Ключ кэша — гипотеза: смена гипотезы не показывает чужие числа, пока едут свои.
  * Сборка идёт задачей (модель на каждое письмо — минуты): номер задачи экран помнит
  * по гипотезе и переживает перезагрузку, а когда задача кончилась, перечитывает очередь.
+ *
+ * **Отличие каждого письма — из итога сборки** (`letters` отчёта): лид, отличие словами
+ * сервера, принятые зоны (остальные в этом письме — текстом шаблона), попыток, в очереди или
+ * ждёт. Число — сервера (`difference_text`): правило числа у края коридора одно, экран его не
+ * пересчитывает.
  */
 
 import { useQuery } from '@tanstack/react-query';
 
 import { readSalesQueue } from '../api/sales';
-import { formatNumber } from '../format';
+import type { SalesQueueLetter } from '../api/salesTypes';
+import { formatNumber, plural } from '../format';
 
 export const QUEUE_QUERY_KEY = ['sales', 'queue'] as const;
 
@@ -37,4 +43,26 @@ export function queueLine(report: Record<string, unknown>): string {
   if (reasons.length > 0) parts.push(`Ждут — ${reasons.join('; ')}.`);
   if (typeof report.stopped === 'string') parts.push(`Остановлено: ${report.stopped}`);
   return parts.join(' ');
+}
+
+/** Письма сборки из её отчёта: ждущие первыми — им нужен взгляд, — внутри по порядку
+ *  сборки. Итог сборки прежней версии сервера писем по одному не знает — списка нет. */
+export function buildLetters(report: Record<string, unknown> | null): SalesQueueLetter[] {
+  const letters = report?.letters;
+  if (!Array.isArray(letters)) return [];
+  return [...(letters as SalesQueueLetter[])].sort((a, b) => Number(a.queued) - Number(b.queued));
+}
+
+/** Письмо одной строкой: лид (имя или номер) и — в очереди — отличие, принятые зоны,
+ *  попыток; ждёт — почему, словами сервера по этому письму (вне коридора — с отличием каждой
+ *  попытки). Зон и причины в итоге прежней версии сервера нет — о них строка молчит. */
+export function letterLine(letter: SalesQueueLetter): string {
+  const who = letter.name ?? `лид №${letter.lead_id}`;
+  if (typeof letter.reason === 'string') return `${who} — ${letter.reason}`;
+  const zones = Array.isArray(letter.zones)
+    ? ` (${letter.zones.length > 0 ? `переписаны ${letter.zones.join(', ')}` : 'переписанных зон нет'})`
+    : '';
+  const tries = `${formatNumber(letter.attempts)} ${plural(letter.attempts, 'попытка', 'попытки', 'попыток')}`;
+  const state = letter.queued ? 'в очереди' : 'ждёт';
+  return `${who} — отличие ${letter.difference_text}${zones}, ${tries} — ${state}`;
 }

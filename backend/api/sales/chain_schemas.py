@@ -63,6 +63,9 @@ class ChainStepCard(BaseModel):
     subject: str | None
     body: str
     zones: list[ZoneCard]
+    #: Коридор отличия у шага 1 трудно достижим — словами и с советом (`corridor_warning`):
+    #: шаг записан, экран показывает жёлтую строку у шага. `null` — предупреждения нет.
+    warning: str | None
     active: bool
     updated_by: str | None
     created_at: datetime
@@ -70,6 +73,7 @@ class ChainStepCard(BaseModel):
 
     @classmethod
     def of(cls, row: SalesChainTemplateModel) -> ChainStepCard:
+        zones = chain_text.zones_of(row.body)
         return cls(
             id=row.id,
             hypothesis_id=row.hypothesis_id,
@@ -77,7 +81,8 @@ class ChainStepCard(BaseModel):
             language=row.language,
             subject=row.subject,
             body=row.body,
-            zones=[ZoneCard.of(zone) for zone in chain_text.zones_of(row.body)],
+            zones=[ZoneCard.of(zone) for zone in zones],
+            warning=chain_text.corridor_warning(row.step, zones),
             active=row.active,
             updated_by=row.updated_by,
             created_at=row.created_at,
@@ -152,6 +157,8 @@ class PreviewView(BaseModel):
     #: Чего не хватает для отправки продаж — теми же словами, какими откажет отправка
     #: (`connection.blockers`: выключенный модуль первым).
     missing: list[str]
+    #: Коридор отличия у шага 1 трудно достижим — тем же правилом, что у записи шага.
+    warning: str | None
 
     @classmethod
     def of(cls, found: chain_text.Preview) -> PreviewView:
@@ -164,4 +171,5 @@ class PreviewView(BaseModel):
             signature=settings.get("signature"),
             address=settings.get("physical_address"),
             missing=connection.blockers(found.sender),
+            warning=found.warning,
         )

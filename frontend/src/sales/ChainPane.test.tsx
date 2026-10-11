@@ -41,6 +41,7 @@ const FIRST_EN: ChainStepCard = {
     { name: 'greeting', kind: 'rewrite', text: 'Hello {{name}},' },
     { name: 'offer', kind: 'fixed', text: 'Test offer body.' },
   ],
+  warning: null,
   active: true,
   updated_by: 'seller@ours.example.test',
   created_at: '2026-10-05T09:00:00+00:00',
@@ -357,6 +358,7 @@ describe('цепочка писем: письмо глазами адресат�
     signature: 'Iva Testova\nTest lead',
     address: null,
     missing: ['не задан физический адрес'],
+    warning: null,
   };
 
   it('«Показать письмо» шлёт черновик и показывает тему, зоны, подпись и чего нет', async () => {
@@ -376,7 +378,7 @@ describe('цепочка писем: письмо глазами адресат�
     });
     expect(letter.getByText('Test for Example Company')).toBeInTheDocument();
     expect(letter.getByText('Hello Alex Example,')).toBeInTheDocument();
-    expect(letter.getByText('переписывает модель')).toBeInTheDocument();
+    expect(letter.getByText('может переписать модель')).toBeInTheDocument();
     expect(letter.getByText('уходит как есть')).toBeInTheDocument();
     expect(letter.getByText(/Test lead/)).toBeInTheDocument();
     expect(
@@ -419,6 +421,85 @@ describe('цепочка писем: письмо глазами адресат�
   });
 });
 
+describe('цепочка писем: коридор отличия трудно достижим', () => {
+  /** Слова сервера (`chain_text.corridor_warning`) — экран их не пересказывает. */
+  const HARD =
+    'Коридор отличия трудно достижим: модель просят менять около 20% слов каждой зоны, а так ' +
+    'мелко она не правит — переписывает зоны почти целиком, и в коридор письмо ложится, только ' +
+    'если часть зон останется текстом шаблона; зона rewrite «greeting» короче 5 слов — модель ' +
+    'её не трогает или переписывает целиком. Совет: rewrite — только вступление, около 30–50% ' +
+    'письма, остальное — fixed (сейчас переписывается 100%).';
+  const WARNED: ChainView = {
+    ...FILLED,
+    rows: [{ ...FIRST_EN, warning: HARD }, SECOND_EN, THIRD_EN],
+  };
+
+  it('шаг записан с предупреждением — жёлтая строка у шага словами сервера', async () => {
+    await openChain({}, WARNED);
+
+    const line = within(stepOf('Английский', '1. Первое письмо')).getByText(HARD);
+    expect(line.closest('.mantine-Alert-root')?.className).toMatch(/chainWarning/);
+    expect(within(stepOf('Английский', '2. Первая добивка')).queryByText(HARD)).toBeNull();
+  });
+
+  it('без предупреждения строки нет', async () => {
+    await openChain();
+
+    expect(screen.queryByText(/Коридор отличия трудно достижим/)).not.toBeInTheDocument();
+  });
+
+  it('письмо глазами адресата называет трудный коридор до записи', async () => {
+    const shown: ChainPreviewView = {
+      subject: 'Test for Example Company',
+      zones: [{ name: 'greeting', kind: 'rewrite', text: 'Hello Alex Example,' }],
+      values: { name: 'Alex Example', company: 'Example Company', site: 'example.com' },
+      sender_name: 'Iva Testova',
+      signature: 'Iva Testova',
+      address: '1 Test Street',
+      missing: [],
+      warning: HARD,
+    };
+    await openChain({ 'POST /api/sales/chain/preview': { body: shown } });
+    const user = userEvent.setup();
+
+    await user.click(within(stepOf('Английский', '1. Первое письмо')).getByRole('button'));
+    const dialog = within(await screen.findByRole('dialog', {}, SCREEN_WAIT));
+    await user.click(dialog.getByRole('button', { name: 'Показать письмо' }));
+
+    const letter = within(await dialog.findByLabelText('Письмо глазами адресата'));
+    expect(letter.getByText(HARD)).toBeInTheDocument();
+  });
+
+  it('запись с предупреждением — уведомление янтарём, у шага — жёлтая строка', async () => {
+    let saved = false;
+    const recorded = await openChain({
+      'GET /api/sales/chain': () => ({ body: saved ? WARNED : FILLED }),
+      'POST /api/sales/chain': () => {
+        saved = true;
+        return { body: { ...FIRST_EN, warning: HARD } };
+      },
+    });
+    const user = userEvent.setup();
+
+    await user.click(within(stepOf('Английский', '1. Первое письмо')).getByRole('button'));
+    const dialog = within(await screen.findByRole('dialog', {}, SCREEN_WAIT));
+    await user.type(dialog.getByRole('textbox', { name: 'Тема' }), ' more');
+    await user.click(dialog.getByRole('button', { name: 'Сохранить' }));
+
+    await waitFor(() => expect(calls(recorded, 'POST', '/api/sales/chain')).toHaveLength(1));
+    expect(
+      await screen.findByText(
+        'Сохранено с предупреждением: Первое письмо · Английский — коридор отличия трудно достижим',
+        {},
+        SCREEN_WAIT,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      await within(stepOf('Английский', '1. Первое письмо')).findByText(HARD, {}, SCREEN_WAIT),
+    ).toBeInTheDocument();
+  });
+});
+
 describe('цепочка писем: без права на отправку', () => {
   const LINE = 'Правит цепочку тот, у кого есть право отправки писем. Смотреть можно всем.';
   const SHOWN: ChainPreviewView = {
@@ -429,6 +510,7 @@ describe('цепочка писем: без права на отправку', (
     signature: null,
     address: null,
     missing: [],
+    warning: null,
   };
 
   it('шаги видны, заданный открывают смотреть, задать новый нельзя — строка говорит почему', async () => {

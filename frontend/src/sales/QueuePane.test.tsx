@@ -15,13 +15,18 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
-import type { HypothesesView, SalesQueueView } from '../api/salesTypes';
+import type {
+  HypothesesView,
+  SalesQueueLetter,
+  SalesQueueReport,
+  SalesQueueView,
+} from '../api/salesTypes';
 import type { Me } from '../api/types';
 import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
 import type { Answer, Call, Recorded } from '../test/server';
-import { queueLine } from './queueData';
+import { letterLine, queueLine } from './queueData';
 
 const SCREEN_WAIT = { timeout: 5000 };
 const QUEUE = '/api/sales/queue';
@@ -91,6 +96,65 @@ function job(id: string, report: Record<string, unknown>) {
     ended_at: null,
   };
 }
+
+/** Ключ сводки причин — словами сервера, без чисел: сто таких лидов — одна строка. */
+const OFF_CORRIDOR = 'вне коридора отличия — ждёт следующей сборки';
+
+/** Почему ждёт письмо лида — по нему, с отличием каждой попытки (`corridor.waiting_reason`). */
+const OFF_LETTER = 'вне коридора отличия после 3 попыток: 38%, 31%, 27% — ждёт следующей сборки';
+
+/** Итог сборки без писем по одному — таким его отдавал сервер до отличия на виду. */
+const TOTALS = {
+  campaign_id: 3,
+  prepared: 2,
+  refreshed: 1,
+  tokens_spent: 259,
+  off_corridor: 1,
+  waiting: { 'стоп-лист': 1, [OFF_CORRIDOR]: 1 },
+  stopped: null,
+};
+
+/** Почему зоны остались шаблонными — заметки сборки, как у доноров: экран их не повторяет. */
+const NOTES = { 'зона «close» оставлена шаблонной подбором под коридор отличия': 2 };
+
+const LETTER: SalesQueueLetter = {
+  lead_id: 7,
+  name: 'Jane Example',
+  attempts: 2,
+  difference: 0.213,
+  difference_text: '21,3%',
+  zones: ['intro'],
+  queued: true,
+  reason: null,
+};
+
+/** Итог сборки с письмами по одному — по порядку сборки; ждущий лид без имени. */
+const BUILT = {
+  ...TOTALS,
+  notes: NOTES,
+  letters: [
+    LETTER,
+    {
+      ...LETTER,
+      lead_id: 8,
+      name: 'Olga Example',
+      attempts: 1,
+      difference_text: '19%',
+      zones: ['greeting', 'intro'],
+    },
+    {
+      ...LETTER,
+      lead_id: 45,
+      name: null,
+      attempts: 3,
+      difference_text: '27%',
+      zones: ['intro', 'close'],
+      queued: false,
+      reason: OFF_LETTER,
+    },
+    { ...LETTER, lead_id: 9, name: 'Ivan Example', attempts: 1, difference_text: '25%', zones: [] },
+  ],
+} satisfies SalesQueueReport;
 
 type Routes = Record<string, Answer | ((call: Call) => Answer)>;
 
@@ -197,17 +261,7 @@ describe('очередь писем продаж', () => {
   it('сборка уходит гипотезой и числом писем, итог задачи — словами, очередь перечитана', async () => {
     const recorded = await openQueue({
       [`POST ${QUEUE}`]: { body: { job_id: 'job-b' } },
-      'GET /api/jobs/job-b': {
-        body: job('job-b', {
-          campaign_id: 3,
-          prepared: 2,
-          refreshed: 1,
-          tokens_spent: 74,
-          off_corridor: 1,
-          waiting: { 'стоп-лист': 1, 'вне коридора отличия — ждёт следующей сборки': 1 },
-          stopped: null,
-        }),
-      },
+      'GET /api/jobs/job-b': { body: job('job-b', BUILT) },
     });
     const user = userEvent.setup();
 
@@ -220,8 +274,7 @@ describe('очередь писем продаж', () => {
     expect(calls(recorded, 'POST', QUEUE)[0]?.body).toEqual({ hypothesis_id: 5, limit: 17 });
     expect(
       await screen.findByText(
-        'Новых писем 2, собрано заново 1. Ждут — стоп-лист: 1; ' +
-          'вне коридора отличия — ждёт следующей сборки: 1.',
+        'Новых писем 2, собрано заново 1. Ждут — стоп-лист: 1; ' + `${OFF_CORRIDOR}: 1.`,
         {},
         SCREEN_WAIT,
       ),
@@ -230,6 +283,66 @@ describe('очередь писем продаж', () => {
       () => expect(calls(recorded, 'GET', `${QUEUE}?hypothesis=5`).length).toBeGreaterThan(1),
       SCREEN_WAIT,
     );
+  });
+
+  it('после сборки — письма списком под строкой задачи: ждущие первыми, отличие словами сервера', async () => {
+    await openQueue({
+      [`POST ${QUEUE}`]: { body: { job_id: 'job-b' } },
+      'GET /api/jobs/job-b': { body: job('job-b', BUILT) },
+    });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Собрать очередь' }));
+
+    const list = await screen.findByRole('list', { name: 'Письма сборки' }, SCREEN_WAIT);
+    expect(
+      within(list)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      `лид №45 — ${OFF_LETTER}`,
+      'Jane Example — отличие 21,3% (переписаны intro), 2 попытки — в очереди',
+      'Olga Example — отличие 19% (переписаны greeting, intro), 1 попытка — в очереди',
+      'Ivan Example — отличие 25% (переписанных зон нет), 1 попытка — в очереди',
+    ]);
+    // Строка задачи — первой, список — под ней.
+    const outcome = screen.getByText(/^Новых писем 2/);
+    expect(outcome.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('итог сборки прежней версии сервера без писем по одному — списка нет', async () => {
+    await openQueue({
+      [`POST ${QUEUE}`]: { body: { job_id: 'job-b' } },
+      'GET /api/jobs/job-b': { body: job('job-b', TOTALS) },
+    });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Собрать очередь' }));
+
+    expect(await screen.findByText(/^Новых писем 2/, {}, SCREEN_WAIT)).toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'Письма сборки' })).not.toBeInTheDocument();
+  });
+
+  it('писем больше десяти — первые десять, остальные по «Показать все»', async () => {
+    const many = Array.from({ length: 13 }, (_, n) => ({
+      ...LETTER,
+      lead_id: 100 + n,
+      name: `Lead ${n + 1}`,
+    }));
+    await openQueue({
+      [`POST ${QUEUE}`]: { body: { job_id: 'job-b' } },
+      'GET /api/jobs/job-b': { body: job('job-b', { ...BUILT, letters: many }) },
+    });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Собрать очередь' }));
+
+    const list = await screen.findByRole('list', { name: 'Письма сборки' }, SCREEN_WAIT);
+    expect(within(list).getAllByRole('listitem')).toHaveLength(10);
+    expect(screen.getByText('Показаны 10 из 13 писем сборки.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Показать все' }));
+    expect(within(list).getAllByRole('listitem')).toHaveLength(13);
+    expect(screen.queryByRole('button', { name: 'Показать все' })).not.toBeInTheDocument();
   });
 
   it('отказ сервера на сборку — словами у кнопки', async () => {
@@ -479,5 +592,24 @@ describe('итог сборки словами', () => {
     expect(
       queueLine({ prepared: 0, refreshed: 0, waiting: {}, stopped: 'потолок расхода на модель' }),
     ).toBe('Новых писем 0, собрано заново 0. Остановлено: потолок расхода на модель');
+  });
+
+  it('письмо — строкой: имя или номер лида, отличие сервера, попыток, в очереди или ждёт', () => {
+    expect(letterLine(LETTER)).toBe(
+      'Jane Example — отличие 21,3% (переписаны intro), 2 попытки — в очереди',
+    );
+    expect(
+      letterLine({ ...LETTER, name: null, attempts: 3, queued: false, reason: OFF_LETTER }),
+    ).toBe(`лид №7 — ${OFF_LETTER}`);
+    expect(letterLine({ ...LETTER, attempts: 1, zones: [] })).toBe(
+      'Jane Example — отличие 21,3% (переписанных зон нет), 1 попытка — в очереди',
+    );
+    // Итог сборки прежней версии сервера: ни зон, ни причины по письму — строка о них молчит.
+    const old = { ...LETTER, queued: false } as Partial<SalesQueueLetter>;
+    delete old.zones;
+    delete old.reason;
+    expect(letterLine(old as SalesQueueLetter)).toBe(
+      'Jane Example — отличие 21,3%, 2 попытки — ждёт',
+    );
   });
 });

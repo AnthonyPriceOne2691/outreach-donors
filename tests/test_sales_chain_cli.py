@@ -191,8 +191,11 @@ async def test_first_load_writes_the_common_set_with_one_journal_line(
     assert await _run(session, _file(tmp_path)) == EXIT_OK
 
     after = chain.version_of([step_template(**FIRST), step_template(**SECOND)])  # третий выключен
+    # Первое письмо файла — с коротким приветствием в `rewrite`: загружено, но с предупреждением.
+    hard = step_template(**FIRST).warning
     assert capsys.readouterr().out == (
         "Цепочка писем из цепочка.json: шаблонов 3, общий набор.\n"
+        f"  предупреждение — первое письмо, en: {hard}\n"
         "  добавлено 3, без изменений 0, отличается 0 — не тронуто (перезаписать: --update)\n"
         f"  цепочка ru: версия {empty} → {empty}\n"
         f"  цепочка en: версия {empty} → {after}\n"
@@ -271,8 +274,41 @@ async def test_dry_run_reports_and_writes_nothing(
 ) -> None:
     assert await _run(session, _file(tmp_path), "--dry-run") == EXIT_OK
 
-    assert capsys.readouterr().out.endswith("Предпросмотр: в базу ничего не записано.\n")
+    out = capsys.readouterr().out
+    assert out.endswith("Предпросмотр: в базу ничего не записано.\n")
+    assert f"  предупреждение — первое письмо, en: {step_template(**FIRST).warning}\n" in out
     assert (await _rows(session), await _journal(session)) == ([], [])
+
+
+#: Вступление переписывает модель, остальное уходит как есть: переписывается 53% письма.
+CLEAN_BODY = (
+    "[intro] rewrite\nHello {{name}}, I came across {{company}} and its made-up test pages, "
+    "and wanted to ask one short test question about {{site}} today.\n\n"
+    "[offer] fixed\nMade-up test offer: we write test articles for test sites, and nothing real "
+    "is sold here at all, ever."
+)
+
+
+async def test_hard_corridor_is_loaded_with_a_warning_and_a_clean_step_without_one(
+    session: AsyncSession, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Предупреждение — не отказ: шаг 1 с трудно достижимым коридором загружается, отчёт
+    называет его строкой; шаг «вступление rewrite, остальное fixed» — без строки."""
+    whole = FIRST_BODY.replace("[offer] fixed", "[offer] rewrite")
+    records = [FIRST | {"body": whole}, FIRST | {"language": "ru", "body": CLEAN_BODY}]
+
+    assert await _run(session, _file(tmp_path, records)) == EXIT_OK
+
+    out = capsys.readouterr().out
+    hard = step_template(**records[0]).warning
+    assert hard is not None
+    assert "сейчас переписывается 100%" in hard
+    assert f"  предупреждение — первое письмо, en: {hard}\n" in out
+    assert out.count("предупреждение") == 1
+    assert [(step, language) for _, step, language, _, _ in await _rows(session)] == [
+        (1, "en"),
+        (1, "ru"),
+    ]
 
 
 async def test_hypothesis_set_goes_to_the_named_hypothesis(

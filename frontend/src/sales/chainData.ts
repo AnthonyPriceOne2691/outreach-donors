@@ -24,7 +24,9 @@ export function useChain(hypothesis: number | null) {
   });
 }
 
-/** Записать шаг: ответ — уведомлением с шагом и языком, наборы перечитываются. */
+/** Записать шаг: ответ — уведомлением с шагом и языком, наборы перечитываются. Шаг с
+ *  трудно достижимым коридором отличия записан, но уведомление — янтарём: что не так и
+ *  совет — жёлтой строкой у шага (`CorridorWarning`), она не гаснет. */
 export function useSaveStep(onSaved: (card: ChainStepCard) => void) {
   const client = useQueryClient();
   return useMutation({
@@ -33,6 +35,13 @@ export function useSaveStep(onSaved: (card: ChainStepCard) => void) {
       onSaved(card);
       await client.invalidateQueries({ queryKey: CHAIN_QUERY_KEY });
       const what = `${chainStepTitle(card.step)} · ${chainLanguageTitle(card.language)}`;
+      if (card.warning) {
+        notify({
+          message: `Сохранено с предупреждением: ${what} — коридор отличия трудно достижим`,
+          color: 'yellow',
+        });
+        return;
+      }
       notify({ message: `Сохранено: ${what}`, color: 'green' });
     },
   });

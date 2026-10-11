@@ -177,14 +177,19 @@ async def world(session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> World
 
 class CorridorRewriter:
     """Подделка модели: меняет слова переписываемых зон по одному, пока отличие письма
-    от шаблона не войдёт в коридор, — как и просят настоящую модель."""
+    от шаблона не войдёт в коридор, — как и просят настоящую модель. `hints` — подсказка
+    каждого вызова (`None` — первой попытке её нет)."""
 
     def __init__(self, target: float = 0.2) -> None:
         self.target = target
         self.seen: list[Personalization] = []
+        self.hints: list[str | None] = []
 
-    async def rewrite(self, rendered: Rendered, about: Personalization) -> RewriteResult:
+    async def rewrite(
+        self, rendered: Rendered, about: Personalization, *, hint: str | None = None
+    ) -> RewriteResult:
         self.seen.append(about)
+        self.hints.append(hint)
         zones = {zone.name: zone.text.split(" ") for zone in rendered.rewritable()}
         for name, words in zones.items():
             for index in range(len(words)):
@@ -196,15 +201,53 @@ class CorridorRewriter:
         return RewriteResult(zones={key: " ".join(value) for key, value in zones.items()})
 
 
+class ZoneRewriter(CorridorRewriter):
+    """Подделка модели, которой тест говорит, что переписать на каждом вызове: зона → доля её
+    слов с начала (1 — целиком); зоны вне плана модель не вернула. Новые слова — свои у каждой
+    зоны и места, поэтому отличие письма из слов-меток считается ровно: переписанные слова,
+    делённые на слова письма. Последний план повторяется. `notes` — заметки клиента на каждый
+    вызов по порядку (почему зона осталась шаблонной); последние тоже повторяются."""
+
+    def __init__(
+        self, *plans: dict[str, float], tokens: int = 37, notes: tuple[list[str], ...] = ()
+    ) -> None:
+        super().__init__()
+        self.plans = plans
+        self.tokens = tokens
+        self.notes = notes
+
+    async def rewrite(
+        self, rendered: Rendered, about: Personalization, *, hint: str | None = None
+    ) -> RewriteResult:
+        self.seen.append(about)
+        self.hints.append(hint)
+        plan = self.plans[min(len(self.seen), len(self.plans)) - 1]
+        zones: dict[str, str] = {}
+        for zone in rendered.rewritable():
+            if zone.name in plan:
+                words = zone.text.split(" ")
+                count = round(len(words) * plan[zone.name])
+                fresh = [f"{zone.name}new{index}" for index in range(count)]
+                zones[zone.name] = " ".join(fresh + words[count:])
+        said = self.notes[min(len(self.seen), len(self.notes)) - 1] if self.notes else []
+        return RewriteResult(zones=zones, tokens_spent=self.tokens, notes=list(said))
+
+
 class FlatRewriter:
     """Подделка модели, которая ничего не переписала: письмо — шаблон, отличие ноль."""
 
-    async def rewrite(self, _rendered: Rendered, _about: Personalization) -> RewriteResult:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def rewrite(
+        self, _rendered: Rendered, _about: Personalization, *, hint: str | None = None
+    ) -> RewriteResult:
+        self.calls += 1
         return RewriteResult(notes=["LLM_API_KEY не задан — письма уходят шаблонными"])
 
 
 class NoRewrite:
     """Модель, которую звать нельзя: отказ — раньше неё."""
 
-    async def rewrite(self, *_: object) -> RewriteResult:
+    async def rewrite(self, *_: object, **__: object) -> RewriteResult:
         raise AssertionError("сборка продаж дошла до модели")

@@ -13,6 +13,7 @@ import json
 from typing import Any
 
 import httpx
+import pytest
 from backend.features.letters.compose import Rendered
 from backend.features.letters.rewrite import (
     ABOUT_MAX,
@@ -21,6 +22,7 @@ from backend.features.letters.rewrite import (
     Personalization,
     RewriteClient,
     RewriteResult,
+    build_payload,
     change_share,
     site_about,
 )
@@ -50,6 +52,7 @@ async def _rewrite(
     status: int = 200,
     letter: Rendered | None = None,
     key: str = SENT,
+    hint: str | None = None,
 ) -> tuple[RewriteResult, list[dict[str, Any]]]:
     seen: list[dict[str, Any]] = []
 
@@ -65,7 +68,11 @@ async def _rewrite(
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(model)) as http:
         client = RewriteClient(http, model="gpt-5", api_key=key)
-        result = await client.rewrite(letter or _letter(), ABOUT)
+        # Без подсказки — вызов, как его делают доноры: без довода вовсе.
+        if hint is None:
+            result = await client.rewrite(letter or _letter(), ABOUT)
+        else:
+            result = await client.rewrite(letter or _letter(), ABOUT, hint=hint)
     return result, seen
 
 
@@ -138,6 +145,91 @@ async def test_no_key_or_no_rewritable_zones_means_no_call() -> None:
 
 def test_letter_without_rewritable_words_asks_for_the_most() -> None:
     assert change_share(_letter(Zone("signature", ZoneKind.FIXED, "Best regards"))) == CHANGE_MAX
+
+
+#: Подсказка повторной попытки — как её пишут продажи (`sales/corridor.hint`), выдуманная.
+HINT = "A previous rewrite of these zones went too far. Change fewer words."
+
+
+def test_request_without_a_hint_is_the_old_one_word_for_word() -> None:
+    """Доноры подсказку не передают: их запрос — тот же текст, что до неё, до знака."""
+    payload = build_payload("gpt-5", zones={"greeting": "Hi there,"}, about=ABOUT, change=0.27)
+
+    assert payload["messages"][1]["content"] == (
+        "Recipient site: site.example.test\n"
+        "Target country: US\n\n"
+        "Change roughly 27% of the words in each zone.\n\n"
+        'Zones to rewrite:\n{"greeting": "Hi there,"}'
+    )
+
+
+#: Текст запроса без подсказки — каким его собирал клиент до неё.
+OLD_USER = (
+    "Recipient site: site.example.test\n"
+    "Target country: US\n\n"
+    "Change roughly 20% of the words in each zone.\n\n"
+    'Zones to rewrite:\n{"greeting": "Hi there,", "ask": "Who looks after search?"}'
+)
+
+
+@pytest.mark.parametrize(
+    ("model", "limits"),
+    [
+        ("gpt-5", {"max_completion_tokens": 1500, "reasoning_effort": "minimal"}),
+        ("gpt-4.1", {"max_tokens": 600, "temperature": 1}),
+    ],
+)
+def test_whole_request_without_a_hint_is_byte_for_byte_the_old_one(
+    model: str, limits: dict[str, Any]
+) -> None:
+    """Весь запрос доноров — байт в байт прежний у обеих семей моделей: системный промпт
+    файлом, текст, строгая форма ответа и пределы. Подсказка живёт только в тексте запроса."""
+    zones = {"greeting": "Hi there,", "ask": "Who looks after search?"}
+
+    payload = build_payload(model, zones=zones, about=ABOUT, change=0.2)
+
+    assert json.dumps(payload, ensure_ascii=False) == json.dumps(
+        {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": SYSTEM},
+                {"role": "user", "content": OLD_USER},
+            ],
+            "response_format": {"type": "json_object"},
+            **limits,
+        },
+        ensure_ascii=False,
+    )
+
+
+def test_hint_stands_between_the_share_and_the_zones() -> None:
+    """Подсказка уточняет просьбу о доле слов — абзацем рядом с ней, до зон."""
+    payload = build_payload(
+        "gpt-5", zones={"greeting": "Hi there,"}, about=ABOUT, change=0.27, hint=HINT
+    )
+
+    assert payload["messages"][1]["content"] == (
+        "Recipient site: site.example.test\n"
+        "Target country: US\n\n"
+        "Change roughly 27% of the words in each zone.\n\n"
+        f"{HINT}\n\n"
+        'Zones to rewrite:\n{"greeting": "Hi there,"}'
+    )
+    assert payload["messages"][0]["content"] == SYSTEM
+
+
+async def test_client_sends_the_hint_only_when_asked() -> None:
+    """Клиент несёт подсказку в запрос; без неё запрос — прежний, тем же `build_payload`."""
+    answer = {"greeting": "Hello,", "ask": ASK}
+    _, plain = await _rewrite(answer)
+    _, hinted = await _rewrite(answer, hint=HINT)
+
+    zones = {"greeting": "Hi there,", "ask": ASK}
+    change = change_share(_letter())
+    assert plain == [build_payload("gpt-5", zones=zones, about=ABOUT, change=change)]
+    assert hinted == [build_payload("gpt-5", zones=zones, about=ABOUT, change=change, hint=HINT)]
+    assert HINT not in plain[0]["messages"][1]["content"]
+    assert HINT in hinted[0]["messages"][1]["content"]
 
 
 async def test_link_or_address_written_by_the_model_drops_the_zone() -> None:

@@ -27,8 +27,9 @@ from backend.features.letters import followups
 from backend.features.letters.batch import BATCH_MAX, send_queue
 from backend.features.letters.rewrite import RewriteClient
 from backend.features.letters.sending import Sending
+from backend.features.letters.uniqueness import percent_text
 from backend.features.ops import job_outcome
-from backend.features.sales import chain, connection, queue, queue_jobs, sender
+from backend.features.sales import chain, connection, corridor, queue, queue_jobs, sender
 from backend.features.sales.handoff import lead_of
 from backend.features.sales.models import SalesThreadModel
 from backend.shared.queue import QUEUE_NAME, SALES_QUEUE_NAME
@@ -416,6 +417,66 @@ def test_screen_reads_the_queue_by_the_server_names() -> None:
     assert _screen_fields("SalesQueueView") == set(SalesQueueView.model_fields)
     assert _screen_fields("SalesQueueBody") == set(SalesQueueBody.model_fields)
     assert _screen_fields("SalesQueueReport") == set(queue.QueueReport(campaign_id=1).as_dict())
+    line = corridor.LetterLine(1, None, 1, 0.2, ("intro",), queued=True)
+    assert _screen_fields("SalesQueueLetter") == set(line.as_dict())
+    assert "reason" in line.as_dict()
+
+
+async def test_job_outcome_names_each_letter_with_its_difference_and_attempts(
+    session: AsyncSession,
+    world: w.World,
+    client: AsyncClient,
+    headers: dict[str, str],
+    jobs: _Jobs,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Отличие на виду: итог задачи — тот, что читает строка задачи на экране
+    (`GET /api/jobs/{номер}`), — называет каждое письмо: лид, отличие долей и словами, принятые
+    зоны, вызовов модели, в очереди ли; рядом — почему зоны остались шаблонными. Итог — отчёт
+    настоящей сборки (`run_build` отдаёт его `as_dict`,
+    `test_job_builds_with_its_own_session_and_model_client`); модель — подделка."""
+    _screen_reads(jobs, monkeypatch)
+    jane = await w.lead(session, world.hypothesis_id, "jane@acme.example.test")
+    olga = await w.lead(session, world.hypothesis_id, "olga@beta.example.test", name="Olga Example")
+    await session.commit()
+    # Джейн: одно приветствие — ниже коридора, второй вызов — треть вопроса; Ольга — с первого.
+    model = w.ZoneRewriter({"greeting": 1}, {"ask": 0.3})
+    await _build(client, headers, world.hypothesis_id)
+    job_id = sales_queue_api.build_job_id(world.hypothesis_id)
+    report = await queue.build(session, model, hypothesis_id=world.hypothesis_id, limit=5)
+
+    jobs.known[job_id].finish(report.as_dict())
+    shown = (await client.get(f"/api/jobs/{job_id}", headers=headers)).json()
+
+    jane_line, olga_line = report.letters
+    assert [(line.lead_id, line.attempts, line.zones, line.queued) for line in report.letters] == [
+        (jane.id, 2, ("ask",), True),
+        (olga.id, 1, ("ask",), True),
+    ]
+    assert shown["report"]["letters"] == [
+        {
+            "lead_id": jane.id,
+            "name": "Jane Example",
+            "attempts": 2,
+            "difference": jane_line.difference,
+            "difference_text": percent_text(jane_line.difference),
+            "zones": ["ask"],
+            "queued": True,
+            "reason": None,
+        },
+        {
+            "lead_id": olga.id,
+            "name": "Olga Example",
+            "attempts": 1,
+            "difference": olga_line.difference,
+            "difference_text": percent_text(olga_line.difference),
+            "zones": ["ask"],
+            "queued": True,
+            "reason": None,
+        },
+    ]
+    assert (shown["report"]["prepared"], shown["report"]["tokens_spent"]) == (2, 3 * 37)
+    assert shown["report"]["notes"] == {}
 
 
 async def test_queue_routes_are_these_two(api_app: FastAPI) -> None:
