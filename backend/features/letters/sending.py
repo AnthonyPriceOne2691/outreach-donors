@@ -438,9 +438,9 @@ class Sending:
             body=target.message.body or "",
             internet_message_id=own.message_id,
             in_reply_to=in_reply_to,
-            # Та же ссылка, что стоит в тексте письма: разойдись они —
-            # кнопка почты отписывала бы не того, кому написали.
-            unsubscribe_url=unsubscribe.url_for(target.message.domain_id),
+            # Метка донора; у письма продаж — и номер письма: по нему страница
+            # отписки подписывается «Отправителем» продаж на языке письма.
+            unsubscribe_url=unsubscribe.letter_url(target.message, target.to.stage),
             attachments=target.files,
         )
         try:
