@@ -143,7 +143,7 @@ class Chain:
         pick = (
             select(MessageModel.id)
             .where(*_due(moment), self._take)
-            .order_by(MessageModel.next_action_at)
+            .order_by(MessageModel.next_action_at, MessageModel.id)  # равный срок — по номеру
             .limit(1)
             .with_for_update(skip_locked=True)
             .scalar_subquery()
