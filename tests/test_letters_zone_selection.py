@@ -48,14 +48,36 @@ TOKENS = 113
 #: Метрика, дописанная «моделью»: правила Ahrefs запрещают её в письме (`guards.py`).
 LEAK = " Your DR 46 site."
 #: Вопрос о цене «переписан» на 40% слов, приветствие и вступление — целиком. У письма
-#: донору всё принятое тогда выше коридора, а в коридоре — вопрос с приветствием или без.
+#: донору всё принятое тогда выше коридора, а в коридоре — вопрос с приветствием или без;
+#: наибольший набор — вопрос с приветствием, вступление остаётся шаблоном.
 ASK = {"ask": 0.4}
+#: Вступление и вопрос «переписаны» на 30% слов: всё письмо в коридоре (около 20%), как и
+#: четыре меньших набора.
+WHOLE = {"opening": 0.3, "ask": 0.3}
 #: Номера доменов доноров — зерно подбора: с ними выбор повторим, и наборы у них разные.
 SEEDED = tuple(range(7100001, 7100005))
 #: Ядро как есть: тест спрашивает его сам, даже когда сборке подставлен шпион.
 CORE = selection.select
 
 _WORD = re.compile(r"\b[^\W\d_]\w*")
+
+
+def _words(name: str, count: int) -> str:
+    return " ".join(f"{name}{index}" for index in range(count))
+
+
+#: Письмо донору из слов-меток — 100 слов с подписью. Целиком переписанные вступление (20%)
+#: и вопрос (21%) — каждое в коридоре, любая пара — выше края: наибольших наборов два, по
+#: одной зоне, выбор между ними — за зерном, и каждое письмо оставляет шаблоном две зоны.
+TWO_SINGLES = (
+    "subject: Made-up letter for {{host}}\n\n"
+    f"[greeting] rewrite\n{_words('hello', 6)}\n\n"
+    f"[opening] rewrite\n{_words('intro', 20)}\n\n"
+    f"[offer] fixed\n{_words('offer', 25)}\n\n"
+    f"[ask] rewrite\n{_words('question', 21)}\n\n"
+    f"[terms] fixed\n{_words('terms', 24)}\n\n"
+    "[signature] fixed\nBest regards,\n{{sender_name}}\n"
+)
 
 
 def _changed(text: str, share: float) -> str:
@@ -189,9 +211,8 @@ class TestDonorLetter:
         self, session: AsyncSession, filled_legal: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Всё принятое выше верхнего края — в очереди письмо набора, который ядро выбрало
-        с зерном — номером домена донора: в коридоре, без пометки. У доноров с разными
-        номерами наборы разные. Снятая подбором зона — не отказ модели: нот нет, в отчёте —
-        число писем и зон."""
+        с зерном — номером домена донора: наибольшего в коридоре, без пометки. Снятая подбором
+        зона — не отказ модели: нот нет, в отчёте — число писем и зон."""
         domains = [await _donor(session, domain_id) for domain_id in SEEDED]
         seen = _spy_seeds(monkeypatch)
         rewriter = ZoneRewriter(ASK)
@@ -200,18 +221,35 @@ class TestDonorLetter:
 
         assert sorted(seen) == sorted((f"Guest article on {d.host}", d.id) for d in domains)
         letters = await _letters(session)
-        picked, dropped = set(), 0
         for domain in domains:
             chosen = rewriter.chosen(domain.host, domain.id)
             assert rewriter.every_zone_above(domain.host)
             assert chosen is not None
-            assert chosen.dropped
+            assert (tuple(chosen.zones), chosen.dropped) == (("greeting", "ask"), ("opening",))
+            _assert_selected(letters[domain.id], rewriter, domain.host, chosen)
+        assert (report.prepared, report.off_corridor, report.notes) == (4, 0, {})
+        assert (report.selected_letters, report.dropped_zones) == (4, 4)
+
+    async def test_seed_from_the_domain_tells_equally_large_sets_apart(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        """Наибольших наборов в коридоре два, по одной зоне: какой войдёт в письмо, решает
+        зерно — номер домена донора, и у доноров с разными номерами наборы разные."""
+        domains = [await _donor(session, domain_id) for domain_id in SEEDED]
+        rewriter = ZoneRewriter()
+
+        report = await _build(session, rewriter, letter_template=TWO_SINGLES)
+
+        letters = await _letters(session)
+        picked = set()
+        for domain in domains:
+            chosen = rewriter.chosen(domain.host, domain.id)
+            assert chosen is not None
+            assert len(chosen.zones) == 1
             _assert_selected(letters[domain.id], rewriter, domain.host, chosen)
             picked.add(tuple(chosen.zones))
-            dropped += len(chosen.dropped)
-        assert len(picked) > 1, "у доноров с разными номерами домена — разные наборы"
-        assert (report.prepared, report.off_corridor, report.notes) == (4, 0, {})
-        assert (report.selected_letters, report.dropped_zones) == (4, dropped)
+        assert picked == {("opening",), ("ask",)}
+        assert (report.selected_letters, report.dropped_zones) == (4, 8)
 
     async def test_no_set_in_the_corridor_queues_the_letter_with_every_zone(
         self, session: AsyncSession, filled_legal: None
@@ -270,21 +308,24 @@ class TestDonorLetter:
         assert report.notes == {"зона «greeting» осталась шаблонной": 1}
         assert (report.selected_letters, report.dropped_zones, report.off_corridor) == (1, 1, 0)
 
-    async def test_all_accepted_in_the_corridor_is_not_counted_as_selection(
+    async def test_letter_wholly_in_the_corridor_keeps_every_zone(
         self, session: AsyncSession, filled_legal: None
     ) -> None:
-        """В коридоре всё принятое — письмо целиком, и подбором оно не считается: снимать
-        было нечего."""
-        domain = await _donor(session, SEEDED[0])
-        rewriter = ZoneRewriter(ASK, refuse=("greeting", "opening"))
+        """Письмо, целиком лежащее в коридоре, уходит целиком — со вступлением под контент
+        донора, хотя в коридоре и меньшие наборы. Подбором оно не считается: в
+        `selected_letters` его нет, `dropped_zones` не растёт."""
+        domains = [await _donor(session, domain_id) for domain_id in SEEDED]
+        rewriter = ZoneRewriter(WHOLE)
 
         report = await _build(session, rewriter)
 
-        chosen = rewriter.chosen(domain.host, domain.id)
-        assert chosen is not None
-        assert (list(chosen.zones), chosen.dropped) == (["ask"], ())
-        _assert_selected((await _letters(session))[domain.id], rewriter, domain.host, chosen)
-        assert (report.selected_letters, report.dropped_zones, report.off_corridor) == (0, 0, 0)
+        letters = await _letters(session)
+        for domain in domains:
+            whole = rewriter.assembled(domain.host, rewriter.zones[domain.host])
+            assert letters[domain.id].body == whole.body
+            assert in_corridor(letters[domain.id].uniqueness_pct or 0.0)
+        assert (report.prepared, report.off_corridor, report.notes) == (4, 0, {})
+        assert (report.selected_letters, report.dropped_zones) == (0, 0)
 
     async def test_metrics_in_a_chosen_zone_stop_the_build(
         self, session: AsyncSession, filled_legal: None
@@ -373,9 +414,10 @@ class TestBuildSummary:
         self, session: AsyncSession, filled_legal: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Итог задачи сборки — тот, что лежит у задачи за экраном, — несёт письма,
-        собранные подбором, и зоны, оставленные шаблоном, каждое своим полем."""
+        собранные подбором, и зоны, оставленные шаблоном, каждое своим полем. Шаблон — две
+        одиночки в коридоре: каждое письмо подбора оставляет шаблоном две зоны."""
         domains = [await _donor(session, domain_id) for domain_id in SEEDED[:3]]
-        rewriter = ZoneRewriter(ASK, silent=(domains[2].host,))
+        rewriter = ZoneRewriter(silent=(domains[2].host,))
         monkeypatch.setattr(jobs, "RewriteClient", lambda: rewriter)
         monkeypatch.setattr(jobs, "create_async_engine", lambda dsn: _Engine())
         monkeypatch.setattr(
@@ -384,7 +426,9 @@ class TestBuildSummary:
             lambda engine, **kw: async_sessionmaker(bind=session.bind, expire_on_commit=False),
         )
 
-        report = await jobs._build_letters(BuildRequest(campaign_name="Задача"))
+        report = await jobs._build_letters(
+            BuildRequest(campaign_name="Задача", letter_template=TWO_SINGLES)
+        )
 
         chosen = [rewriter.chosen(domain.host, domain.id) for domain in domains[:2]]
         dropped = sum(len(found.dropped) for found in chosen if found is not None)

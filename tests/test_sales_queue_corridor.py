@@ -49,6 +49,9 @@ def _body(*rewrite: tuple[str, int], fixed: int) -> str:
 #: {intro} 20%, {greeting, intro} 22%, {aside, close} 18%, {greeting, aside, close} 20%.
 FOUR = _body(("greeting", 2), ("intro", 20), ("aside", 10), ("close", 8), fixed=60)
 FITTING = {("intro",), ("greeting", "intro"), ("aside", "close"), ("greeting", "aside", "close")}
+#: Три зоны `rewrite` по 10 слов: в коридоре три пары по 20% — наибольшие равные наборы.
+EQUAL = _body(("greeting", 10), ("intro", 10), ("close", 10), fixed=70)
+PAIRS = {("greeting", "intro"), ("greeting", "close"), ("intro", "close")}
 #: Одна зона `rewrite` — 40 слов из 100: выбор только «всё» — или шаблон.
 SINGLE = _body(("intro", 40), fixed=60)
 EVERYTHING = {"greeting": 1.0, "intro": 1.0, "aside": 1.0, "close": 1.0}
@@ -120,7 +123,7 @@ async def test_model_that_rewrote_everything_still_lands_with_one_call(
     session: AsyncSession, world: w.World
 ) -> None:
     """Как пилот: модель переписала все зоны — письмо целиком 40%. Подбор кладёт его в коридор
-    тем же вызовом; какой из четырёх наборов — решает зерно лида."""
+    тем же вызовом: из четырёх наборов в коридоре — наибольший, три зоны из четырёх."""
     await _first_step(session, world, FOUR)
     await w.lead(session, world.hypothesis_id, JANE)
     model = w.ZoneRewriter(EVERYTHING)
@@ -130,22 +133,26 @@ async def test_model_that_rewrote_everything_still_lands_with_one_call(
     [line] = report.letters
     assert (len(model.seen), report.prepared, line.attempts, line.queued) == (1, 1, 1, True)
     assert line.zones in FITTING
+    assert line.zones == ("greeting", "aside", "close")
     assert corridor_verdict(line.difference) is None
 
 
 async def test_letters_of_different_leads_take_different_sets(
     session: AsyncSession, world: w.World
 ) -> None:
-    """Зерно подбора — номер лида: у писем разных лидов шаблонными остаются разные зоны, и
-    одинаковые абзацы не идут всей пачкой; сборка того же лида повторима (`letters/selection`)."""
-    await _first_step(session, world, FOUR)
+    """Зерно подбора — номер лида: среди равных наибольших наборов у писем разных лидов
+    шаблонными остаются разные зоны, и одинаковые абзацы не идут всей пачкой; сборка того же
+    лида повторима (`letters/selection`)."""
+    await _first_step(session, world, EQUAL)
     for n in range(12):
         await w.lead(session, world.hypothesis_id, f"lead{n}@site{n}.example.test")
 
-    report = await _build(session, world, w.ZoneRewriter(EVERYTHING))
+    report = await _build(
+        session, world, w.ZoneRewriter({"greeting": 1.0, "intro": 1.0, "close": 1.0})
+    )
 
     assert len(report.letters) == 10  # предел сборки
-    assert {line.zones for line in report.letters} <= FITTING
+    assert {line.zones for line in report.letters} <= PAIRS
     assert len({line.zones for line in report.letters}) > 1
 
 
