@@ -31,6 +31,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
 )
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import ARRAY
@@ -420,6 +421,15 @@ class SalesHandoffModel(TimestampedMixin, Base):
     #: Ссылка из последнего доставленного сообщения: другая ссылка — новое сообщение.
     notified_link: Mapped[str | None] = mapped_column(Text, nullable=True)
     notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Ответ, о котором телемаркетолог получил последнее личное сообщение. Ответ новее —
+    #: сообщение «Лид написал снова»: то же письмо дважды не уходит. Номер, как `noted_reply_id`:
+    #: Kommo и Telegram отказывают порознь, и у каждого свой ключ.
+    told_reply_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: Последнее личное сообщение — «Лид написал снова», а не «Новый лид»: копия в группу,
+    #: которую повторяет проход, уходит тем же текстом.
+    told_again: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
     #: Когда проходу по расписанию пора взяться за передачу. Пусто — делать нечего.
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     #: Задача взялась за передачу: вторая ждёт. Старше срока — задача умерла.

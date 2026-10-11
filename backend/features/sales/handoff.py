@@ -1,18 +1,21 @@
 """Передача лида продаж телемаркетологу: Kommo → Telegram, запасной путь, повторы (срез 5.3).
 
-**Одна точка входа — `start(session, thread_id)`.** Её позовёт триггер: вид ответа
-«хочет пообщаться» (Ф2) или ситуация агента (Ф3). Она находит лида продаж диалога
-(`lead_of`), заводит передачу — одну на диалог — и ставит задачу в очередь. Сама
-в Kommo и Telegram не ходит: чужие сервисы отвечают секундами, а вызывающий ждать не
-должен. Повтор без нового ответа — ничего; новый ответ — примечание к той же сделке
-(через шлюз агентства — сообщение со ссылкой на неё, `handoff_kommo.py`), а не вторая
-сделка (A2). `start` коммитит сессию: задача должна видеть строку.
+**Одна точка входа — `start(session, thread_id)`.** Её зовут триггеры (`reply_handoff.py`):
+вид ответа «хочет пообщаться» (Ф2), ситуация агента «хочет говорить» (Ф3) и новое письмо лида,
+уже переданного. Она находит лида продаж диалога (`lead_of`), заводит передачу — одну на
+диалог — и ставит задачу в очередь. Сама в Kommo и Telegram не ходит: чужие сервисы отвечают
+секундами, а вызывающий ждать не должен. Повтор без нового ответа — ничего; новый ответ —
+примечание к той же сделке (через шлюз агентства — сообщение со ссылкой на неё,
+`handoff_kommo.py`), а не вторая сделка (A2), и сообщение телемаркетологу «Лид написал снова»
+(`handoff_telegram.py`). Ключ того и другого — номер ответа: Kommo — `noted_reply_id`, Telegram —
+`told_reply_id`; они отказывают порознь. `start` коммитит сессию: задача должна видеть строку.
 
 **Задача — `process`.** Сначала Kommo — сделка (`create_complex_lead`) или примечание
 к уже заведённой; номер сделки пишется в базу сразу, до следующего запроса. Потом
 Telegram: ссылка на сделку нужна в сообщении. Сообщение уходит, когда у передачи
 появилась ссылка, которой телемаркетолог ещё не получал: первая — всегда, ссылка
-на сделку после ссылки на диалог — тоже; повтор той же ссылки — нет.
+на сделку после ссылки на диалог — тоже; повтор той же ссылки — нет; и когда пришло
+письмо новее того, о котором он уже знает. Карточка лида — `handoff_card.py`.
 
 **Исходы Kommo — по классу отказа клиента (`kommo_types.py`).**
 - Не ответил после своих повторов → `retry`: телемаркетологу всё равно уходит ссылка
@@ -62,22 +65,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
 from backend.config import sales as cfg
-from backend.features.core.domain import ReplyKind
-from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel
-from backend.features.core.models.outreach import MessageModel, ReplyModel, ThreadModel
-from backend.features.replies.quoting import written_by_hand
+from backend.features.core.models.outreach import ThreadModel
 from backend.features.runs.failures import described
 from backend.features.sales import handoff_kommo, handoff_telegram
 from backend.features.sales.connection import MODULE_OFF
-from backend.features.sales.handoff_text import Card
+from backend.features.sales.handoff_card import card_of, latest_reply
 from backend.features.sales.kommo import KommoClient
 from backend.features.sales.models import (
     HandoffKommo,
     HandoffTelegram,
     LeadStatus,
     SalesHandoffModel,
-    SalesHypothesisModel,
     SalesLeadModel,
     SalesThreadModel,
 )
@@ -269,22 +268,16 @@ async def _handoff_of(session: AsyncSession, thread_id: int, lead_id: int) -> Sa
 
 
 def _reopen(row: SalesHandoffModel, latest_reply_id: int | None) -> bool:
-    """Есть ли задаче работа. Новый ответ снова открывает запись в Kommo."""
+    """Есть ли задаче работа. Новый ответ снова открывает запись в Kommo, а письмо новее того,
+    о котором телемаркетолог знает, — сообщение ему (`handoff_telegram.news`): доставленное
+    снова ждёт задачи (`pending` — его берёт и проход), серия повтора не сбрасывается."""
     fresh = latest_reply_id is not None and latest_reply_id != row.noted_reply_id
     if fresh and row.kommo in _REOPENED_BY_ANSWER:
         row.kommo = HandoffKommo.PENDING
-    return row.kommo in _KOMMO_WORK or row.telegram is HandoffTelegram.PENDING
-
-
-async def latest_reply(session: AsyncSession, thread_id: int) -> ReplyModel | None:
-    """Последний ответ человека в диалоге: по нему задача решает, есть ли что записать."""
-    found: ReplyModel | None = await session.scalar(
-        select(ReplyModel)
-        .where(ReplyModel.thread_id == thread_id, ReplyModel.kind == ReplyKind.HUMAN)
-        .order_by(ReplyModel.created_at.desc(), ReplyModel.id.desc())
-        .limit(1)
-    )
-    return found
+    told = handoff_telegram.news(row, latest_reply_id)
+    if told and row.telegram is HandoffTelegram.SENT:
+        row.telegram = HandoffTelegram.PENDING
+    return row.kommo in _KOMMO_WORK or row.telegram is HandoffTelegram.PENDING or told
 
 
 async def process(
@@ -302,7 +295,7 @@ async def process(
         return {"handoff": handoff_id, "skipped": SWITCHED_OFF}
     row = await _claim(session, handoff_id, deps.now())
     try:
-        card = await _card(session, row)
+        card = await card_of(session, row)
         if kommo:
             # Работу задача выводит сама из последнего ответа, а не только из состояния:
             # ответ, пришедший во время прошлой задачи, её итог мог перезаписать.
@@ -454,46 +447,3 @@ async def _release_after_failure(session: AsyncSession, handoff_id: int) -> None
             "продажи: захват передачи не снят — истечёт сам",
             extra={"handoff_id": handoff_id, "error": str(exc)},
         )
-
-
-async def _card(session: AsyncSession, row: SalesHandoffModel) -> Card:
-    """Что известно о лиде и диалоге: лид, гипотеза, сайт, последний ответ, сводка."""
-    found = await session.execute(
-        select(SalesLeadModel, SalesHypothesisModel.name, DomainModel.host)
-        .join(SalesHypothesisModel, SalesHypothesisModel.id == SalesLeadModel.hypothesis_id)
-        .join(DomainModel, DomainModel.id == SalesLeadModel.domain_id)
-        .where(SalesLeadModel.id == row.lead_id)
-        .execution_options(populate_existing=True)
-    )
-    lead, hypothesis, host = found.one()._tuple()
-    reply = await latest_reply(session, row.thread_id)
-    sent, first = (
-        await session.execute(
-            select(func.count(), func.min(MessageModel.sent_at)).where(
-                MessageModel.thread_id == row.thread_id, MessageModel.sent_at.is_not(None)
-            )
-        )
-    ).one()
-    replies = await session.scalar(
-        select(func.count())
-        .select_from(ReplyModel)
-        .where(ReplyModel.thread_id == row.thread_id, ReplyModel.kind == ReplyKind.HUMAN)
-    )
-    return Card(
-        thread_id=row.thread_id,
-        lead_id=lead.id,
-        email=lead.email,
-        name=lead.name or "",
-        company=lead.company or "",
-        site=host,
-        hypothesis=hypothesis,
-        country=lead.country or "",
-        language=lead.language or "",
-        reply_id=reply.id if reply else None,
-        reply_at=reply.created_at if reply else None,
-        reply_subject=(reply.subject or "") if reply else "",
-        reply_text=written_by_hand(reply.raw_body) if reply else "",
-        sent=int(sent),
-        replies=int(replies or 0),
-        first_sent_at=first,
-    )

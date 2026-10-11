@@ -186,19 +186,24 @@ async def draft_answer(
 
 
 async def announce(outcome: DraftOutcome) -> None:
-    """Крючок уведомления этапа — после записи черновика и коммита.
+    """Крючок уведомления этапа — после записи черновика и коммита: о черновике, который ждёт
+    человека, — `on_draft`, о пропуске — `on_skip`, если этапу по нему есть что делать.
 
     Его сбой черновик не теряет: черновик уже в базе и виден в переписке,
     а сбой — в логе. Повторы — забота крючка (у Telegram они свои).
     """
     notice = outcome.notice
-    if notice is None or notice.status not in _ANNOUNCED:
+    stage = None if notice is None else AGENT_STAGES.get(notice.stage)
+    if notice is None or stage is None:
         return
-    stage = AGENT_STAGES.get(notice.stage)
-    if stage is None or stage.on_draft is None:
+    if notice.status is DraftStatus.SKIPPED:
+        hook = stage.on_skip
+    else:
+        hook = stage.on_draft if notice.status in _ANNOUNCED else None
+    if hook is None:
         return
     try:
-        await stage.on_draft(notice)
+        await hook(notice)
     except Exception:
         logger.exception(
             "агент: уведомление о черновике №%s не ушло — черновик цел",

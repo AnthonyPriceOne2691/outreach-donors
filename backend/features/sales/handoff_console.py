@@ -47,7 +47,8 @@ from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction
 from backend.features.runs.failures import described
 from backend.features.sales import telegram
-from backend.features.sales.handoff import enqueue_handoff, latest_reply
+from backend.features.sales.handoff import enqueue_handoff
+from backend.features.sales.handoff_card import latest_reply
 from backend.features.sales.models import (
     HandoffKommo,
     HandoffTelegram,

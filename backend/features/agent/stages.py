@@ -186,6 +186,9 @@ class AgentStage:
     #: Сколько секунд ждать судью: дольше — `escalate`, как при его ошибке.
     guard_timeout_s: float = 60.0
     on_draft: OnDraft | None = None
+    #: Крючок пропуска: черновик `skipped` записан — этапу, которому по пропуску есть что
+    #: сделать без письма (продажи: агент понял «хочет говорить» — передать лида). Нет — ничего.
+    on_skip: OnDraft | None = None
     #: Сколько раз переписать черновик по замечаниям судьи, прежде чем отдать
     #: человеку.
     max_rewrites: int = 3
@@ -223,6 +226,7 @@ SALES_STAGE = AgentStage(
     guard_operation=sales.JUDGE_OPERATION,
     brief_operation=sales.SITUATION_OPERATION,
     on_draft=sales.on_draft,
+    on_skip=sales.on_skip,
     max_rewrites=sales.MAX_REWRITES,
     title=sales.TITLE,
     lead=sales.LEAD,

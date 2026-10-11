@@ -105,6 +105,8 @@ class Outcome(StrEnum):
     REJECTED = "rejected"
     #: Ответ не нужен.
     SILENT = "silent"
+    #: Агент понял «хочет говорить»: письма нет, лида передают телемаркетологу — не молчание.
+    HANDED = "handed"
 
 
 class SetNotFoundError(LookupError):
@@ -355,6 +357,8 @@ async def replay_case(
     if brief.skip is not None:
         silent = brief.skip.kind is SkipKind.NO_REPLY
         outcome = Outcome.SILENT if silent else Outcome.REJECTED
+        if brief.skip.reason == moves.LEAD_SKIP:
+            outcome = Outcome.HANDED
         return Result(case.id, case.digest(), case.human, label, outcome, why=brief.skip.reason)
     composed = await guarding.compose(
         session,

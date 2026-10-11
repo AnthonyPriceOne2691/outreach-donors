@@ -52,6 +52,8 @@ NOW = datetime(2026, 10, 15, 11, 23, 17, tzinfo=UTC)
 APP = "https://app.example.test"
 DEAL = "https://fixture.kommo.com/leads/detail/9301"
 HEAD = "Новый лид\nЭмейл Рассылка\n"
+#: О новом письме лида, уже переданного, — свои две первые строки.
+AGAIN = "Лид написал снова\nЭмейл Рассылка\n"
 
 
 class Alerts(list[str]):
@@ -239,8 +241,10 @@ async def test_a2_next_answer_is_a_note_to_the_same_deal(
     notes = list(kommo.leads[9301].notes.values())
     assert len(notes) == 2
     assert "аудит ссылок" in notes[1]
-    assert len(api.seen) == 2, "новый лид не новый: телемаркетологу второй раз не пишем"
+    again = f"{AGAIN}Ссылка на сделку в коммо: {DEAL}"
+    assert sent(api)[2:] == [(PERSONAL, again), (GROUP, again)], "своё сообщение, не «Новый лид»"
     assert (row.kommo, row.noted_reply_id) == (HandoffKommo.DONE, later.id)
+    assert (row.told_reply_id, row.told_again) == (later.id, True)
 
 
 async def test_a2_answer_that_came_while_a_job_ran_is_noted_by_the_next_job(
@@ -349,12 +353,14 @@ async def test_a3_note_that_failed_is_written_later_once(
 
     row = await hand_off(session, dialog, work)
     assert (row.kommo, row.kommo_lead_id) == (HandoffKommo.RETRY, 9301)
-    assert len(api.seen) == 2, "сделка есть — ссылка на неё уже у телемаркетолога"
+    again = f"{AGAIN}Ссылка на сделку в коммо: {DEAL}"
+    assert sent(api)[2:] == [(PERSONAL, again), (GROUP, again)], "Kommo молчит — письмо не ждёт"
     kommo.down = False
     await handoff.process(session, row.id, work)
 
     assert len(kommo.leads[9301].notes) == 2
     assert (await reread(session, row.id)).kommo is HandoffKommo.DONE
+    assert len(api.seen) == 4, "примечание после повтора — без второго сообщения о том же письме"
 
 
 # --- запись ушла, ответ потерян: поиск, а не повтор вслепую --------------------------------
@@ -371,14 +377,16 @@ async def test_unconfirmed_write_with_contact_found_is_not_written_again(
     queued: list[int] = []
     await answer(session, dialog.thread, dialog.message, "Ждём звонка.", at=NOW)
     await handoff.start(session, dialog.thread.id, enqueue=queued.append)
+    assert queued == [row.id], "новое письмо — задача сообщения телемаркетологу"
+    await handoff.process(session, row.id, deps(http, alerts, kommo))
     row = await reread(session, row.id)
 
     assert kommo.writes == 1, "повтор записи после KommoUnconfirmedError"
     assert len(kommo.leads) == 1
     assert (row.kommo, row.kommo_lead_id, row.due_at) == (HandoffKommo.UNCONFIRMED, None, None)
-    assert queued == [], "неподтверждённую запись не трогает и новый ответ"
     message = dialog_line(dialog, " — сделка в Kommo не подтверждена, проверяем")
-    assert sent(api) == [(PERSONAL, message), (GROUP, message)]
+    again = message.replace(HEAD, AGAIN)
+    assert sent(api) == [(PERSONAL, message), (GROUP, message), (PERSONAL, again), (GROUP, again)]
     [alert] = alerts
     assert "проверить в Kommo руками" in alert
 
@@ -596,7 +604,7 @@ async def test_a6_later_answer_after_kommo_connected_makes_the_deal(
     row = await hand_off(session, dialog, deps(http, alerts, kommo))
 
     assert (row.kommo, row.kommo_lead_id) == (HandoffKommo.DONE, 9301)
-    assert sent(api)[-1] == (GROUP, f"{HEAD}Ссылка на сделку в коммо: {DEAL}")
+    assert sent(api)[-1] == (GROUP, f"{AGAIN}Ссылка на сделку в коммо: {DEAL}")
 
 
 async def test_dialog_link_without_app_url_names_the_setting(

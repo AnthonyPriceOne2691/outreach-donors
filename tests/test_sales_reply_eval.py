@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -29,8 +30,11 @@ class Oracle:
 
     def __init__(self, *, wrong: dict[str, SalesKind] | None = None) -> None:
         self.wrong = wrong or {}
+        self.services: tuple[str, ...] = ()
 
-    async def classify(self, *, text: str, subject: str) -> KindFound | Unanswered:
+    async def classify(
+        self, *, text: str, subject: str, services: Sequence[str] = ()
+    ) -> KindFound | Unanswered:
         expect = ORACLE[text]
         kind = SalesKind(expect["kind"])
         known = f'- "{kind.value}":' in reply_kind.load_prompt()
@@ -38,7 +42,17 @@ class Oracle:
             kind = SalesKind.INTERESTED
         kind = self.wrong.get(text, kind)
         quote = text.split(".", maxsplit=1)[0]
-        return KindFound(kind, 0.9, quote=quote, contact=expect.get("contact"), tokens=50)
+        self.services = tuple(services)
+        return KindFound(
+            kind,
+            0.9,
+            quote=quote,
+            contact=expect.get("contact"),
+            contact_name=expect.get("contact_name"),
+            project=expect.get("project"),
+            services=tuple(expect.get("services") or ()),
+            tokens=50,
+        )
 
     async def aclose(self) -> None:
         return None

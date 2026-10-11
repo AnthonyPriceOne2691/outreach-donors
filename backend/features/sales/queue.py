@@ -43,7 +43,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import func, or_, select, true, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import sales as sales_cfg
@@ -158,8 +158,9 @@ async def build(
     hypothesis_id: int,
     limit: int,
     followup_days: tuple[int, ...] = FOLLOWUP_DAYS,
+    only: tuple[int, ...] = (),
 ) -> QueueReport:
-    """Собрать очередь гипотезы: до `limit` писем, новых и собранных заново."""
+    """Собрать очередь гипотезы: до `limit` писем, новых и собранных заново (`only` — лидам)."""
     hypothesis = await session.get(SalesHypothesisModel, hypothesis_id)
     if hypothesis is None:
         raise UnknownHypothesisError(f"гипотезы №{hypothesis_id} нет — обновите список гипотез")
@@ -172,7 +173,7 @@ async def build(
     report = QueueReport(campaign_id=campaign.id)
     after = 0
     while report.prepared + report.refreshed < limit and report.stopped is None:
-        rows = await _leads(session, hypothesis_id, after)
+        rows = await _leads(session, hypothesis_id, after, only)
         if not rows:
             break
         for row in rows:
@@ -187,7 +188,9 @@ async def build(
     return report
 
 
-async def _leads(session: AsyncSession, hypothesis_id: int, after: int) -> list[_Lead]:
+async def _leads(
+    session: AsyncSession, hypothesis_id: int, after: int, only: tuple[int, ...] = ()
+) -> list[_Lead]:
     """Лиды `ready` гипотезы, которым ещё не писали: без диалога или с письмом в очереди."""
     first = (MessageModel.thread_id == SalesThreadModel.thread_id) & (
         MessageModel.step == FIRST_STEP
@@ -201,6 +204,7 @@ async def _leads(session: AsyncSession, hypothesis_id: int, after: int) -> list[
             SalesLeadModel.hypothesis_id == hypothesis_id,
             SalesLeadModel.status == LeadStatus.READY,
             SalesLeadModel.id > after,
+            SalesLeadModel.id.in_(only) if only else true(),
             or_(
                 SalesThreadModel.thread_id.is_(None),
                 MessageModel.status == MessageStatus.QUEUED,

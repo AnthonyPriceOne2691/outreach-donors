@@ -132,19 +132,25 @@ class KommoLive:
         return _note_number(response)
 
     def _complex(self, lead: NewLead, found: KommoContact | None) -> dict[str, Any]:
-        """Сделка одним запросом: контакт — найденный, по номеру, или новый."""
+        """Сделка одним запросом: контакт — найденный, по номеру, или новый; обязательные
+        поля сделки — постоянными значениями из настройки."""
         tags = [{"name": tag} for tag in (CHANNEL_TAG, lead.hypothesis.strip()) if tag]
-        return {
+        deal: dict[str, Any] = {
             "name": lead.title,
             "pipeline_id": self._account.pipeline_id,
             "status_id": self._account.status_id,
             "responsible_user_id": self._account.responsible_user_id,
-            "_embedded": {
-                "tags": tags,
-                "contacts": [{"id": found.id} if found else _person(lead)],
-                "companies": [_company(lead)],
-            },
         }
+        if fields := self._account.lead_fields:
+            deal["custom_fields_values"] = [
+                {"field_id": number, "values": [{"value": value}]} for number, value in fields
+            ]
+        deal["_embedded"] = {
+            "tags": tags,
+            "contacts": [{"id": found.id} if found else _person(lead)],
+            "companies": [_company(lead)],
+        }
+        return deal
 
     async def _send(self, method: str, path: str, **request: Any) -> httpx.Response:
         """Запрос с повторами (шапка модуля). Ответ 2xx — дальше, остальное —

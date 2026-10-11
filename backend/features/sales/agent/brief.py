@@ -14,8 +14,10 @@
    черновика с письмом, а писать вслепую нельзя;
 4. **ситуация** (модель) → «нужен ли ответ» — кодом: «спасибо» и автоответ —
    `no_reply`, писатель не зовётся; сбой разбора — `human`, черновик без текста;
-5. **ход** по таблице; ход зовёт, а позвать некуда — `human` со словами, что
-   заполнить;
+5. **ход** по таблице; ход «лид» (собеседник хочет говорить) письма не пишет — пропуск
+   `no_reply` со словами «агент понял: хочет говорить» (`moves.LEAD_SKIP`): лида передают
+   телемаркетологу тем же путём, что по виду ответа (`agent/handover.py`, крючок этапа);
+   ход зовёт, а позвать некуда — `human` со словами, что заполнить;
 6. **факты под ход** строками, `meta` для калибровки и подпись персоной продаж —
    у всех брифов, где имя задано: «всё же написать» тоже подпишет ею.
 
@@ -87,13 +89,14 @@ def held_earlier(turns: Sequence[Turn]) -> str | None:
     return None
 
 
-def _skipped(found: Situation) -> Skip | None:
-    """Пропуск по ситуации: ответ не нужен — или агент не понял письмо."""
+def _skipped(found: Situation, meta: dict[str, Any]) -> Skip | None:
+    """Пропуск по ситуации: ответ не нужен, агент не понял письмо — или собеседник хочет
+    говорить: лида передают телемаркетологу (`_handed`)."""
     if not found.reply_needed:
         return Skip(SkipKind.NO_REPLY, f"ответ не нужен: {_SILENT_WHY[found.label]}")
     if found.label is Label.PARSE_FAILED:
         return Skip(SkipKind.HUMAN, "агент не понял письмо: " + "; ".join(found.notes))
-    return None
+    return _handed(found, meta)
 
 
 def _deferred(turns: Sequence[Turn]) -> list[str]:
@@ -103,6 +106,15 @@ def _deferred(turns: Sequence[Turn]) -> list[str]:
 
 def _tags(entries: Sequence[kb.Fact]) -> tuple[str, ...]:
     return tuple(sorted({tag for entry in entries for tag in entry.tags}))
+
+
+def _handed(found: Situation, meta: dict[str, Any]) -> Skip | None:
+    """Ход «лид»: собеседник хочет говорить — письма нет, лида передают телемаркетологу."""
+    move = moves.table().move(found.label)
+    if not move.lead:
+        return None
+    meta |= {"move": move.name, "lead": True}
+    return Skip(SkipKind.NO_REPLY, moves.LEAD_SKIP)
 
 
 def _answered(
@@ -159,7 +171,7 @@ async def brief(session: AsyncSession, conversation: Conversation) -> Brief:
     meta["kb_version"] = kb.version_of(entries)
     found = await situation.classify(session, conversation, tags=_tags(entries))
     meta |= found.meta()
-    skip = _skipped(found)
+    skip = _skipped(found, meta)
     if skip is not None:
         return Brief(skip=skip, meta=meta, sign_as=sign_as)
     return _answered(

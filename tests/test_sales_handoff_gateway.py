@@ -17,7 +17,13 @@ from datetime import datetime, timedelta
 import httpx
 import pytest
 from backend.config import sales as cfg
-from backend.features.sales import handoff, handoff_console, handoff_jobs, handoff_kommo
+from backend.features.sales import (
+    handoff,
+    handoff_card,
+    handoff_console,
+    handoff_jobs,
+    handoff_kommo,
+)
 from backend.features.sales import handoff_text as wording
 from backend.features.sales.handoff import Deps
 from backend.features.sales.kommo import KommoGateway, Pace
@@ -108,7 +114,7 @@ async def test_one_deal_with_the_note_inside_and_the_link_to_telegram(
     }
     assert body["site"] == "https://acme.example.test"
     # Примечание — то же, что прямой путь кладёт отдельным запросом: письмо лида и сводка.
-    assert body["note"] == wording.note(await handoff._card(session, row))
+    assert body["note"] == wording.note(await handoff_card.card_of(session, row))
     assert "Давайте созвонимся во вторник после обеда." in body["note"]
     assert f"Диалог в сервисе: {APP}/threads/{dialog.thread.id}" in body["note"]
     assert sent(api) == [(PERSONAL, MESSAGE), (GROUP, MESSAGE)]
@@ -173,7 +179,8 @@ async def test_the_next_answer_makes_no_second_deal_and_tells_the_telemarketer(
 
     assert queued == [row.id]
     assert len(script.requests) == 1, "вторая сделка или запрос примечания мимо шлюза"
-    assert sent(api) == [(PERSONAL, MESSAGE), (GROUP, MESSAGE)] * 2, "ссылка на ту же сделку"
+    again = MESSAGE.replace("Новый лид", "Лид написал снова")
+    assert sent(api) == [(PERSONAL, MESSAGE), (GROUP, MESSAGE), (PERSONAL, again), (GROUP, again)]
     assert (row.kommo, row.telegram, row.kommo_lead_id) == (
         HandoffKommo.DONE,
         HandoffTelegram.SENT,
@@ -234,13 +241,17 @@ async def test_a_lost_answer_is_unconfirmed_and_never_makes_a_second_deal(
     assert sent(api) == [(PERSONAL, line), (GROUP, line)]
 
     # Ни задача, ни новый ответ, ни проход запись не открывают: вторая сделка не заводится.
+    # Новый ответ — только сообщение телемаркетологу: ссылкой на диалог, сделка не подтверждена.
     await handoff.process(session, row.id, deps)
     await answer(session, dialog.thread, dialog.message, "Ждём звонка.", at=NOW)
     queued: list[int] = []
     await handoff.start(session, dialog.thread.id, enqueue=queued.append, now=lambda: NOW)
-    assert queued == []
+    assert queued == [row.id]
+    await handoff.process(session, row.id, deps)
     assert await handoff.due(session, now=NOW + timedelta(hours=2)) == []
     assert len(script.requests) == 1
+    again = line.replace("Новый лид", "Лид написал снова")
+    assert sent(api)[2:] == [(PERSONAL, again), (GROUP, again)]
 
 
 async def test_a_busy_gateway_is_retried_by_the_pass_and_the_deal_is_made_once(

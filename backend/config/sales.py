@@ -10,7 +10,8 @@
 (`SALES_AGENT_ENABLED`): без него строки продаж нет в реестре этапов агента
 (`agent/stages.AGENT_STAGES`) — черновиков ответов лидам модель не пишет, судья
 не зовётся, в группу продаж о черновиках не пишется, экран настроек агента этапа
-продаж не показывает. Включает владелец, когда агент замерен на наборе.
+продаж не показывает. Включает владелец, когда агент замерен на наборе. Ведёт он
+первые ответы лида в диалоге — `SALES_AGENT_MAX_TURNS` (2: ТЗ, «максимум второй»).
 
 **Проверяльщик адресов по умолчанию выдуманный (`fixture`).** Живой стоит
 денег с ключа, общего с соседней системой, и на него переключает человек:
@@ -23,6 +24,8 @@
 собирается (`features/sales/kommo.build_kommo`). Задан адрес шлюза агентства
 (`SALES_KOMMO_GATEWAY_URL`) — `live` идёт через шлюз, а не в API v4 напрямую: тогда
 нужны ключ шлюза, источник, тег, воронка, этап и поддомен (ссылка на сделку).
+Обязательные поля сделки — `SALES_KOMMO_LEAD_FIELDS`, постоянными значениями: форма
+проверяется при старте; шлюзу их не передать — в его запросе таких полей нет.
 
 **Окно отправки — рабочие часы получателя по его часам** (Ф4, 4.3): дни «1-5» или «1,3,5»
 (1 — понедельник), часы «09:00-17:00»; разбор при старте — опечатка не ждёт первого письма.
@@ -51,6 +54,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import time
 from enum import StrEnum
 
@@ -73,6 +77,9 @@ class SalesJudgeMode(StrEnum):
 class _Sales(DomainSettings):
     enabled: bool = Field(default=False, validation_alias="SALES_ENABLED")
     agent_enabled: bool = Field(default=False, validation_alias="SALES_AGENT_ENABLED")
+    # Сколько ответов лида в диалоге агент ведёт черновиком (ТЗ: «первый ответ, максимум
+    # второй»): со следующего — человек. Больше десяти — опечатка.
+    agent_max_turns: int = Field(default=2, ge=1, le=10, validation_alias="SALES_AGENT_MAX_TURNS")
     # `fixture` — вердикты по правилам из адреса, без сети и денег;
     # `live` — Hunter Email Verifier тем же ключом, что ступень 3 поиска.
     verifier_provider: str = Field(default="fixture", validation_alias="SALES_VERIFIER_PROVIDER")
@@ -94,6 +101,9 @@ class _Sales(DomainSettings):
     kommo_gateway_key: str = Field(default="", validation_alias="SALES_KOMMO_GATEWAY_KEY")
     kommo_source: str = Field(default="", validation_alias="SALES_KOMMO_SOURCE")
     kommo_tag: str = Field(default="", validation_alias="SALES_KOMMO_TAG")
+    # Обязательные поля сделки — постоянными значениями: JSON «номер поля → значение»
+    # (`{"712345": "Email"}`); разбор при старте. Шлюз агентства их не принимает.
+    kommo_lead_fields: str = Field(default="", validation_alias="SALES_KOMMO_LEAD_FIELDS")
     send_days: str = Field(default="1-5", validation_alias="SALES_SEND_DAYS")
     send_hours: str = Field(default="09:00-17:00", validation_alias="SALES_SEND_HOURS")
     # На сколько минут от открытия окна расходятся письма, ждавшие его.
@@ -175,11 +185,46 @@ def _hours(text: str) -> tuple[time, time]:
     return opens, closes
 
 
+#: Значение поля сделки: текст, число или да/нет — то, что Kommo принимает как `value`.
+type LeadFieldValue = str | int | float | bool
+
+
+def _lead_fields(text: str) -> tuple[tuple[int, LeadFieldValue], ...]:
+    """`{"712345": "Email"}` → ((712345, "Email"),). Пусто — полей нет. Номер — целое больше
+    нуля, значение — непустой текст, число или true/false: список и объект Kommo принял бы
+    только с номерами вариантов, а их в настройке нет."""
+    if not text.strip():
+        return ()
+    shape = (
+        'SALES_KOMMO_LEAD_FIELDS: нужен JSON «номер поля → значение», например {"712345": "Email"}'
+    )
+    try:
+        raw = json.loads(text)
+    except ValueError as exc:
+        raise ValueError(f"{shape} — это не JSON") from exc
+    if not isinstance(raw, dict) or not raw:
+        raise ValueError(f"{shape} — нужен непустой объект")
+    return tuple(_lead_field(key, given, shape) for key, given in raw.items())
+
+
+def _lead_field(key: str, given: object, shape: str) -> tuple[int, LeadFieldValue]:
+    """Одно поле настройки: номер — целое больше нуля, значение — непустое и простое."""
+    number = int(key) if key.isdecimal() else 0
+    if number <= 0:
+        raise ValueError(f"{shape} — «{key}» не номер поля: целое больше нуля")
+    value = given.strip() if isinstance(given, str) else given
+    if value == "" or not isinstance(value, str | int | float | bool):
+        raise ValueError(f"{shape} — значение поля {number}: непустой текст, число или да/нет")
+    return number, value
+
+
 _s = _Sales()
 
 ENABLED: bool = _s.enabled
 #: Строка продаж в реестре этапов агента переписки (`agent/stages.SALES_STAGE`).
 AGENT_ENABLED: bool = _s.agent_enabled
+#: Ответов лида в диалоге, на которые агент пишет черновик (`features/sales/agent_turns.py`).
+AGENT_MAX_TURNS: int = _s.agent_max_turns
 VERIFIER_PROVIDER: str = _s.verifier_provider
 
 KOMMO_PROVIDER: str = _s.kommo_provider
@@ -193,6 +238,8 @@ KOMMO_GATEWAY_URL: str = _s.kommo_gateway_url.strip()
 KOMMO_GATEWAY_KEY: str = _s.kommo_gateway_key.strip()
 KOMMO_SOURCE: str = _s.kommo_source.strip()
 KOMMO_TAG: str = _s.kommo_tag.strip()
+#: Обязательные поля сделки: (номер поля, значение) — в теле сделки API v4 (`kommo_live.py`).
+KOMMO_LEAD_FIELDS: tuple[tuple[int, LeadFieldValue], ...] = _lead_fields(_s.kommo_lead_fields)
 
 SEND_DAYS: frozenset[int] = _days(_s.send_days)
 SEND_OPENS, SEND_CLOSES = _hours(_s.send_hours)

@@ -173,15 +173,17 @@ async def test_letter_the_agent_cannot_check_goes_to_a_human_without_the_model(
 async def test_move_that_calls_with_no_link_in_settings_goes_to_a_human(
     session: AsyncSession, llm: Plug
 ) -> None:
+    """Звать некуда — человеку. «Хочет говорить» сюда не доходит: это передача лида, а не
+    письмо со ссылкой (`tests/test_sales_agent_handover.py`)."""
     await world(session, links=False)
-    llm(situation=[{"situation": "wants_to_talk", "confidence": 0.9}])
+    llm(situation=[{"situation": "asks_info", "confidence": 0.9}])
 
-    found = await brief.brief(session, talk((True, OFFER), (False, "Давайте обсудим.")))
+    found = await brief.brief(session, talk((True, OFFER), (False, "Расскажите подробнее.")))
 
     assert found.skip is not None
     assert found.skip.kind is SkipKind.HUMAN
     assert "ссылок нет" in found.skip.reason
-    assert found.meta["lead"] is True
+    assert found.meta["lead"] is False
 
 
 async def test_no_sales_sender_name_goes_to_a_human_without_the_model(

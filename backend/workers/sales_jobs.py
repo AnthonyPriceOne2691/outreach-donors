@@ -15,7 +15,12 @@
 **Передача лида — после коммита ответа.** «Хочет говорить» передаётся телемаркетологу
 (`SalesReplies.pass_on` → `handoff.start`) уже после записи вида: передача коммитит
 сама и ставит задачу Kommo и Telegram, а её отказ задачу ответа не роняет. Удачная
-передача снимает с ответа ожидание человека (снимок: «передан телемаркетологу»).
+передача снимает с ответа ожидание человека (снимок: «передан телемаркетологу»). Новое
+письмо лида, уже переданного, уходит той же передачей тем же путём; потолок модели его не
+держит — письмо уходит до переноса задачи на завтра (`SalesReplies.forward_unread`).
+
+**Письмо новому лиду из «пишите другому» — после коммита ответа**: лид прошёл очистку — та же
+задача сборки очереди продаж, только для него (`SalesReplies.write_to_referred`).
 
 **Черновик агента продаж — после пути.** Вопрос и интерес (путь «ответит агент»,
 `replies.DRAFTED`) получают черновик задачей той же очереди (`sales`): в общей он ждал
@@ -41,7 +46,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from backend.config import storage
 from backend.config.startup_checks import check_storage
 from backend.features.core.usage import LlmCapExceededError
-from backend.features.sales.replies import SalesReplies
+from backend.features.sales.replies import Handled, SalesReplies
 from backend.features.sales.reply_kind import KindClient
 from backend.features.sales.verifier import build_verifier
 from backend.shared.logs import setup_logging
@@ -92,9 +97,10 @@ async def handle(reply_id: int) -> dict[str, Any]:
             sales = SalesReplies(
                 session, classifier, verifier=lambda: build_verifier(http), last_try=last_try
             )
-            handled = await sales.handle(reply_id)
+            handled = await _handled(sales, reply_id)
             await session.commit()
             handled = await sales.pass_on(handled)
+            await sales.write_to_referred(handled)
             if handled.drafted:  # вопрос, интерес — черновик агента своей очередью
                 await agent_jobs.after_parse(session, reply_id, queue=sales_queue)
     finally:
@@ -110,6 +116,16 @@ async def handle(reply_id: int) -> dict[str, Any]:
     if job is not None:
         remember_job_error(job.id, missing.reason)
     raise ModelUnavailableError(f"ответ №{reply_id}: {missing.reason}")
+
+
+async def _handled(sales: SalesReplies, reply_id: int) -> Handled:
+    """Разбор ответа. Потолок модели — вид завтра (`postpone`), а письмо переданного лида
+    уходит телемаркетологу сейчас (`SalesReplies.forward_unread`)."""
+    try:
+        return await sales.handle(reply_id)
+    except LlmCapExceededError:
+        await sales.forward_unread(reply_id)
+        raise
 
 
 def postpone(reply_id: int, exc: LlmCapExceededError, *, now: datetime) -> dict[str, Any]:

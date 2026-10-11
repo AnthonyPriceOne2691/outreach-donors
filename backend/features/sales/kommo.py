@@ -15,6 +15,10 @@
 нет или оно негодно — тот же `ConfigError` до первого запроса. Чего шлюз не умеет,
 передача лида узнаёт по `KommoClient.can`.
 
+**Обязательные поля сделки** (`SALES_KOMMO_LEAD_FIELDS`, постоянные значения) уходят в теле
+сделки API v4 (`custom_fields_values`). У шлюза таких полей в запросе нет: настройка при шлюзе —
+тот же `ConfigError`, а не поля, молча потерянные по дороге.
+
 Отсюда же берут всё остальное: словарь (`kommo_types.py`) и живые клиенты
 переэкспортированы, чтобы передача лида знала один модуль.
 """
@@ -238,6 +242,7 @@ def _live_account() -> KommoAccount:
         responsible_user_id=_setting_number(
             "SALES_KOMMO_RESPONSIBLE_USER_ID", cfg.KOMMO_RESPONSIBLE_USER_ID
         ),
+        lead_fields=cfg.KOMMO_LEAD_FIELDS,
     )
 
 
@@ -257,6 +262,12 @@ def _gateway_account() -> GatewayAccount:
             "SALES_KOMMO_PROVIDER=live через шлюз (задан SALES_KOMMO_GATEWAY_URL), а не заданы: "
             f"{', '.join(missing)}. Заполнить их, убрать адрес шлюза или вернуть fixture — "
             "без них сделки в Kommo не заводятся"
+        )
+    if cfg.KOMMO_LEAD_FIELDS:
+        raise ConfigError(
+            "SALES_KOMMO_LEAD_FIELDS задан, а шлюз агентства полей сделки не принимает — в его "
+            "запросе таких полей нет. Убрать настройку (поля при шлюзе заполняет агентство) "
+            "или убрать адрес шлюза и идти в API v4 напрямую"
         )
     url = _gateway_url(cfg.KOMMO_GATEWAY_URL)
     _check_subdomain()

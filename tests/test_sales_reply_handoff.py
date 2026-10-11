@@ -23,7 +23,8 @@ from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.outreach.threads import ThreadState, review_of, summarize
 from backend.features.sales import handoff
 from backend.features.sales.models import LeadStatus, SalesHandoffModel
-from backend.features.sales.replies import HANDED_OVER, Handled, Route, SalesReplies
+from backend.features.sales.replies import Handled, Route, SalesReplies
+from backend.features.sales.reply_handoff import HANDED_OVER
 from backend.features.sales.reply_kind import KindFound, SalesKind
 from backend.workers import sales_jobs
 from sqlalchemy import select
