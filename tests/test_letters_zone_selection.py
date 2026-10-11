@@ -66,7 +66,8 @@ def _words(name: str, count: int) -> str:
     return " ".join(f"{name}{index}" for index in range(count))
 
 
-#: Письмо донору из слов-меток — 100 слов с подписью. Целиком переписанные вступление (20%)
+#: Письмо донору из слов-меток — 100 слов с подписью и адресом (у адреса тестов 4 слова,
+#: `conftest.FILLED`, — на столько короче условия). Целиком переписанные вступление (20%)
 #: и вопрос (21%) — каждое в коридоре, любая пара — выше края: наибольших наборов два, по
 #: одной зоне, выбор между ними — за зерном, и каждое письмо оставляет шаблоном две зоны.
 TWO_SINGLES = (
@@ -75,8 +76,8 @@ TWO_SINGLES = (
     f"[opening] rewrite\n{_words('intro', 20)}\n\n"
     f"[offer] fixed\n{_words('offer', 25)}\n\n"
     f"[ask] rewrite\n{_words('question', 21)}\n\n"
-    f"[terms] fixed\n{_words('terms', 24)}\n\n"
-    "[signature] fixed\nBest regards,\n{{sender_name}}\n"
+    f"[terms] fixed\n{_words('terms', 20)}\n\n"
+    "[signature] fixed\nBest regards,\n{{sender_name}}\n{{postal_address}}\n"
 )
 
 
