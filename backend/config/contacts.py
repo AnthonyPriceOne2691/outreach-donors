@@ -62,8 +62,9 @@ class _Contacts(DomainSettings):
     hunter_min_confidence: int = Field(default=70, validation_alias="CONTACTS_HUNTER_MIN_CONF")
 
     # --- Ступень 4: ручная очередь ---
-    # Форм в месяц, которые готовы заполнить руками. Сверх потолка домен
-    # получает form_only и ждёт следующего месяца.
+    # Ориентир темпа «Форм»: сколько адресов готовы вписать руками за последние
+    # 30 дней (`forms.monthly_left`). Ничего не держит: форма сверх него — та же
+    # form_only и та же строка очереди (решение Anthony 11.10.2026).
     manual_queue_monthly_cap: int = Field(default=100, validation_alias="CONTACTS_MANUAL_CAP")
 
     # Срок годности исхода поиска: раньше по домену не ходим заново.

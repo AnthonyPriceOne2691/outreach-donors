@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import httpx
 import pytest
 from backend.features.contacts import mx
@@ -507,8 +509,13 @@ class TestOutcomes:
         assert ladder.manual_queue_left == 1
         assert ladder.counters.manual_queued == 1
 
-    async def test_manual_queue_cap_holds(self) -> None:
-        """Сверх потолка домен всё равно form_only, но руки на него не тратим."""
+    async def test_form_beyond_the_guideline_is_a_form_all_the_same(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Потолок «Форм» — ориентир темпа, а не запрет (решение Anthony 11.10.2026):
+        сверх него домен — та же «только форма» и та же строка очереди. Лог говорил
+        «ждёт следующего месяца» — про домен, который ничего не ждёт."""
+        caplog.set_level(logging.INFO, logger="backend.features.contacts")
         site = Site({"/": FORM_PAGE})
 
         async with _client(site) as http:
@@ -518,6 +525,9 @@ class TestOutcomes:
         assert result.status is ContactStatus.FORM_ONLY
         assert ladder.counters.manual_queued == 0
         assert ladder.counters.form_only == 1
+        said = [record.getMessage() for record in caplog.records]
+        assert not [line for line in said if "следующего месяца" in line]
+        assert [line for line in said if "ориентир ничего не держит" in line]
 
     async def test_search_form_is_not_a_way_to_write(self) -> None:
         """Голый `<form` делал «формой без адреса» любой сайт со строкой поиска,
