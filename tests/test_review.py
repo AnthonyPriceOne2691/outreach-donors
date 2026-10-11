@@ -10,7 +10,7 @@ x.com, reddit.com и nih.gov, и первые письма пробной сбо
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any, ClassVar
 
 import pytest
@@ -163,30 +163,6 @@ class TestDecisions:
 
         excluded = await Exclusions(session).excluded_hosts(["brand.test"], now=NOW)
         assert excluded == {"brand.test": ExclusionReason.REJECTED}
-
-    async def test_undo_restores_the_decision_from_another_run(self, session: AsyncSession) -> None:
-        """Отмена не стирает решение по домену целиком: в прошлом прогоне
-        человек его принял, и это решение возвращается."""
-        first, second = await _run(session), await _run(session)
-        await _judged(session, "blog.test", "accept")
-        review = RunReview(session)
-        await review.queue_run(first.id, ["blog.test"])
-        first_ids = await _candidate_ids(session, first.id)
-        await review.decide(first.id, [first_ids["blog.test"]], Decision.ACCEPTED, by="a", now=NOW)
-        await review.queue_run(second.id, ["blog.test"])
-        second_ids = await _candidate_ids(session, second.id)
-        await review.decide(
-            second.id,
-            [second_ids["blog.test"]],
-            Decision.REJECTED,
-            by="b",
-            now=NOW + timedelta(days=1),
-        )
-
-        await review.decide(second.id, [second_ids["blog.test"]], Decision.PENDING, by="b")
-
-        donor = await _donor(session, "blog.test")
-        assert (donor.review, donor.review_by) == ("accepted", "a")
 
     async def test_undo_of_the_only_decision_leaves_the_donor_undecided(
         self, session: AsyncSession

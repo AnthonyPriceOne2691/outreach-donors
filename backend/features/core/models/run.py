@@ -111,8 +111,10 @@ class RunCandidateModel(TimestampedMixin, Base):
 
     Прогон кончается не записью в базу доноров, а очередью на рассмотрение:
     пороги отвечают «годен ли по цифрам», и у бренда цифры отличные по
-    построению. Строка на пару «прогон + домен» — история решений по
-    прогонам; последнее решение по домену лежит у донора (`donors.review`).
+    построению. Строка на пару «прогон + домен», а решение по домену одно
+    (решение владельца 11.10.2026): строка прогона, где решали, — само
+    решение, строки домена в остальных прогонах — его копия (`carried`),
+    у донора — то же решение (`donors.review`). Пишет их `review.candidates`.
     """
 
     __tablename__ = "run_candidates"
@@ -129,8 +131,9 @@ class RunCandidateModel(TimestampedMixin, Base):
     decided_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     note: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    #: Решение перенесено из прошлого прогона, а не принято в этом:
-    #: один и тот же домен человек рассматривает один раз.
+    #: Строка — копия решения, принятого в другом прогоне (раньше этого или
+    #: позже), а не само решение: один и тот же домен человек решает один раз.
+    #: Автора, времени и записки у копии нет — они у решения и у донора.
     carried: Mapped[bool] = mapped_column(nullable=False, default=False, server_default=false())
 
     __table_args__ = (
