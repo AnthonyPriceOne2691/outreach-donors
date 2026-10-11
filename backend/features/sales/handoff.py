@@ -274,10 +274,10 @@ def _reopen(row: SalesHandoffModel, latest_reply_id: int | None) -> bool:
     fresh = latest_reply_id is not None and latest_reply_id != row.noted_reply_id
     if fresh and row.kommo in _REOPENED_BY_ANSWER:
         row.kommo = HandoffKommo.PENDING
-    told = handoff_telegram.news(row, latest_reply_id)
-    if told and row.telegram is HandoffTelegram.SENT:
+    unheard = handoff_telegram.news(row, latest_reply_id)
+    if unheard and row.telegram is HandoffTelegram.SENT:
         row.telegram = HandoffTelegram.PENDING
-    return row.kommo in _KOMMO_WORK or row.telegram is HandoffTelegram.PENDING or told
+    return row.kommo in _KOMMO_WORK or row.telegram is HandoffTelegram.PENDING or unheard
 
 
 async def process(

@@ -285,6 +285,27 @@ async def test_a_lead_that_must_not_be_written_gets_no_draft_and_the_reason_in_w
 
 
 @pytest.mark.usefixtures("sales_on")
+async def test_a_lead_at_the_telemarketer_gets_no_draft_and_the_letter_goes_to_him(
+    session: AsyncSession, queues: Queues, asked: Asked
+) -> None:
+    """Лид у телемаркетолога: черновика нет (`mail.unwritable`), а письмо уходит той же
+    передачей — ответ человека в сервисе не ждёт. Сделки нет (Kommo не подключён) — письмо
+    уходит ссылкой на диалог."""
+    reply_id, report = await asked("handed-off")
+
+    reason = "задал вопрос: передан телемаркетологу — письмо ушло ему ссылкой на диалог"
+    assert (report["route"], report["waits"], report["reason"]) == ("agent", False, reason)
+    assert queues.drafts() == {"runs": [], "sales": []}
+    reply = await session.get(ReplyModel, reply_id)
+    assert reply is not None
+    await session.refresh(reply)
+    assert ((reply.model_parse or {}).get("waits"), (reply.model_parse or {}).get("reason")) == (
+        False,
+        reason,
+    )
+
+
+@pytest.mark.usefixtures("sales_on")
 async def test_a_lead_that_may_be_written_gets_the_draft_as_before(
     queues: Queues, asked: Asked
 ) -> None:

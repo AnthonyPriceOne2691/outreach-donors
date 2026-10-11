@@ -23,7 +23,6 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from redis.exceptions import RedisError
-from rq.exceptions import DuplicateJobError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.config import storage
@@ -46,27 +45,16 @@ HANDOVER_JOB = "backend.features.sales.agent.handover.hand_over_understood"
 UNDERSTOOD = "агент понял: хочет говорить"
 
 
-def handover_job_id(reply_id: int) -> str:
-    """Номер задачи — от ответа: «написать заново» вторую передачу не ставит."""
-    return f"sales-agent-lead-{reply_id}"
-
-
 def queue_hand_over(notice: DraftNotice) -> None:
     """Пропуск «хочет говорить» — передача лида задачей очереди продаж. Другой пропуск —
-    ничего; уже стоит — второй не ставим; очередь не ответила — строка в журнал."""
+    ничего; очередь не ответила — строка в журнал. Вторая задача на тот же ответ («написать
+    заново») не вредит: передача одна на диалог, а повтор после починки (лиды-дубли разобраны)
+    так и доходит до Kommo — номер задачи поэтому не закрепляется."""
     if notice.reason != moves.LEAD_SKIP:
         return
     extra = {"reply": notice.reply_id, "draft": notice.draft_id}
     try:
-        sales_queue().enqueue(
-            HANDOVER_JOB,
-            notice.reply_id,
-            job_id=handover_job_id(notice.reply_id),
-            unique=True,
-            **with_retries(),
-        )
-    except DuplicateJobError:
-        logger.info("продажи: агент понял: хочет говорить — передача уже в очереди", extra=extra)
+        sales_queue().enqueue(HANDOVER_JOB, notice.reply_id, **with_retries())
     except RedisError as exc:
         logger.warning(
             "продажи: агент понял: хочет говорить, а передача не поставлена — очередь "

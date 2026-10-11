@@ -137,7 +137,7 @@ async def test_skip_is_stored_and_the_hook_queues_the_handover(
     assert outcome.notice.reason == moves.LEAD_SKIP
     [(path, args, options)] = queue.jobs
     assert (path, args) == (handover.HANDOVER_JOB, (dialog.reply.id,))
-    assert options["job_id"] == handover.handover_job_id(dialog.reply.id)
+    assert options["retry"] is not None, "сбой базы — повтор очереди"
 
 
 @pytest.mark.usefixtures("sales_on")
