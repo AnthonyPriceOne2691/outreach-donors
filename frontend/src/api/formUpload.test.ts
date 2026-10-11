@@ -31,7 +31,7 @@ describe('форма загрузки базы продаж', () => {
 
     await expect(previewImport(SOURCE, {})).rejects.toBeInstanceOf(DeniedError);
     expect(denied).toHaveBeenCalledTimes(1);
-    expect(recorded.calls[0]?.token).toBe('Bearer пропуск');
+    expect(recorded.calls[0]?.token).toBe('пропуск');
     stop();
   });
 });

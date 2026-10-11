@@ -28,7 +28,24 @@ describe('запрос к серверу', () => {
 
     await request('/auth/me');
 
-    expect(recorded.calls[0]?.token).toBe('Bearer пропуск');
+    expect(recorded.calls[0]?.token).toBe('пропуск');
+  });
+
+  it('пропуск — своим заголовком, Authorization экран не трогает', async () => {
+    // На /api/ заголовок Authorization несёт общий пароль сервера — его шлёт сам браузер.
+    // Пропуск в нём перебил бы пароль, и прокси отказал бы каждому запросу (вариант «А»).
+    serve({ 'GET /api/auth/me': { body: { id: 1 } }, 'POST /api/threads/1/files': { body: {} } });
+
+    await request('/auth/me');
+    await upload('/threads/1/files', new FormData());
+
+    const calls = vi.mocked(globalThis.fetch).mock.calls;
+    expect(calls).toHaveLength(2);
+    for (const [, init] of calls) {
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      expect(headers['X-Access-Token']).toBe('пропуск');
+      expect(Object.keys(headers).map((name) => name.toLowerCase())).not.toContain('authorization');
+    }
   });
 
   it('вход идёт без пропуска', async () => {

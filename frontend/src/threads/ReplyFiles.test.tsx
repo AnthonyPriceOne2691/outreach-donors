@@ -181,7 +181,7 @@ describe('вложения ответа', () => {
 
     await waitFor(() => expect(clicked).toHaveLength(1));
     const call = recorded.calls.find((sent) => sent.path === FILE_PATH);
-    expect(call?.token).toBe('Bearer пропуск');
+    expect(call?.token).toBe('пропуск');
     // Имя — из `filename*`, целиком, а не запасное латиницей.
     expect(clicked[0]?.download).toBe('Прайс 2026.pdf');
     expect(clicked[0]?.getAttribute('href')).toBe('blob:reply-file');

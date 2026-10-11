@@ -199,7 +199,7 @@ describe('выгрузка отмеченных и найденных', () => {
     await waitFor(() => expect(clicked).toHaveLength(1));
     const call = recorded.calls.find((sent) => sent.method === 'POST');
     expect(call?.path).toBe('/api/donors/export');
-    expect(call?.token).toBe('Bearer пропуск');
+    expect(call?.token).toBe('пропуск');
     expect(call?.body).toEqual({ ids: [1, 2] });
     expect(await textOf(created[0]!)).toBe(FILE);
     expect(clicked[0]?.download).toBe('donors-2026-09-26.csv');

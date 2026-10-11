@@ -191,7 +191,7 @@ describe('карточка донора: адреса', () => {
     await screen.findByText('Поиск адреса поставлен в очередь');
     const sent = recorded.calls.filter((call) => call.method === 'POST');
     expect(sent.map((call) => call.path)).toEqual(['/api/contacts/donors/7']);
-    expect(sent[0]?.token).toBe('Bearer пропуск');
+    expect(sent[0]?.token).toBe('пропуск');
     expect(await screen.findByRole('status')).toHaveTextContent('Поиск контактов: в очереди');
     // Пока задача идёт, второй поиск не предлагается.
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Найти адрес' })).toBeNull());

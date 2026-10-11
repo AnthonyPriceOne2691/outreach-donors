@@ -356,7 +356,7 @@ describe('выгрузка лидов', () => {
 
     await waitFor(() => expect(clicked).toHaveLength(1));
     const call = recorded.calls.find((sent) => sent.path === leadsPath);
-    expect(call?.token).toBe('Bearer пропуск');
+    expect(call?.token).toBe('пропуск');
     expect(clicked[0]?.download).toBe('leads-2026-10-04.csv');
     expect(await screen.findByText('Выгружено лидов: 1')).toBeInTheDocument();
   });
