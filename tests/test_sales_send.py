@@ -338,10 +338,11 @@ async def test_two_leads_of_one_company_get_their_own_followups(
     report = await followups.send_due(session, transport=source, limit=5, now=FIRST_DUE)
 
     assert report.sent == 2
-    keys = await session.scalars(
-        select(MessageModel.idempotency_key).where(MessageModel.step == 1).order_by(MessageModel.id)
-    )
-    assert list(keys) == [f"sales:acme.example.test:{JANE}:1", f"sales:acme.example.test:{OLGA}:1"]
+    # Без порядка: у двух писем компании срок добивки один, и какое из них очередь возьмёт
+    # первым, база не обещает (`letters/followups` берёт по сроку) — в полном прогоне тест
+    # раз упал на «Ольга, потом Джейн». Проверяется другое: у каждого лида свой ключ.
+    keys = await session.scalars(select(MessageModel.idempotency_key).where(MessageModel.step == 1))
+    assert sorted(keys) == sorted(f"sales:acme.example.test:{who}:1" for who in (JANE, OLGA))
 
 
 async def test_handed_off_lead_gets_no_followup_the_chain_stops(
