@@ -238,7 +238,8 @@ async def test_answer_during_a_job_while_the_queue_is_down_is_noted_without_anot
     """«Два отказа разом» (находка 5.3): ответ пришёл во время задачи, а очередь лежала —
     итог идущей задачи затирал срок прохода, и ответ ждал следующего ответа лида. Теперь
     задача сама видит ответ новее того, с которым начала, и оставляет срок: проход возьмёт
-    передачу, и примечание ляжет к той же сделке без второго сообщения телемаркетологу."""
+    передачу, примечание ляжет к той же сделке, а телемаркетолог получит о новом письме
+    одно сообщение «Лид написал снова» — не второй «Новый лид»."""
     dialog = await sales_dialog(session)
     row = await handoff.start(session, dialog.thread.id, enqueue=lambda _id: None, now=lambda: NOW)
     kommo = _AnsweredDuringTheNote(session, dialog)
@@ -252,6 +253,8 @@ async def test_answer_during_a_job_while_the_queue_is_down_is_noted_without_anot
     assert len(notes) == 2
     assert "четверг" in notes[1]
     assert list(kommo.leads) == [9301]
-    assert len(sent(api)) == 2, "телемаркетологу второй раз не пишем: ссылка та же"
+    texts = [text for _, text in sent(api)]
+    assert len(texts) == 4, "о новом письме — одно сообщение, лично и копией"
+    assert texts[2].startswith("Лид написал снова\nЭмейл Рассылка\n"), "не второй «Новый лид»"
     row = await reread(session, row.id)
     assert (row.kommo, row.due_at) == (HandoffKommo.DONE, None)
