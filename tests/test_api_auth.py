@@ -11,8 +11,10 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from pathlib import Path
 
 import jwt
 import pytest
@@ -20,6 +22,7 @@ from backend.api.app import create_app
 from backend.config.startup_checks import ConfigError
 from backend.features.access.passwords import verify_password
 from backend.features.access.repository import AccessRepository
+from backend.features.access.tokens import TOKEN_HEADER
 from backend.features.core.domain import AuditAction, UserRole
 from backend.features.core.models.access import AuditLogModel, UserModel
 from httpx import AsyncClient
@@ -269,13 +272,51 @@ class TestWhoAmI:
 
     @pytest.mark.parametrize(
         "headers",
-        [{}, {"Authorization": "Bearer not-a-token"}, {"Authorization": "Basic ivan:secret"}],
-        ids=["без пропуска", "подделка", "не тот заголовок"],
+        [
+            {},
+            {"Authorization": "Bearer not-a-token"},
+            {TOKEN_HEADER: "not-a-token"},
+            {"Authorization": "Basic ivan:secret"},
+        ],
+        ids=["без пропуска", "подделка", "подделка своим заголовком", "только пароль прокси"],
     )
     async def test_no_pass_no_answer(self, client: AsyncClient, headers: dict[str, str]) -> None:
         response = await client.get("/api/auth/me", headers=headers)
         assert response.status_code == 401
         assert response.headers["WWW-Authenticate"] == "Bearer"
+
+    async def test_pass_comes_in_its_own_header_next_to_the_proxy_password(
+        self, client: AsyncClient, make_user: MakeUser, sign_in: Callable[..., Awaitable[str]]
+    ) -> None:
+        """Экран шлёт пропуск заголовком `X-Access-Token`: `Authorization` на /api/ несёт
+        общий пароль прокси, браузер шлёт его сам (вариант «А», 11.10.2026)."""
+        await make_user("ivan@site.com")
+        token = await sign_in("ivan@site.com")
+
+        response = await client.get(
+            "/api/auth/me", headers={TOKEN_HEADER: token, "Authorization": "Basic dGVhbTpzZWNyZXQ="}
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["email"] == "ivan@site.com"
+
+    async def test_without_a_pass_the_refusal_names_the_header(self, client: AsyncClient) -> None:
+        response = await client.get("/api/auth/me")
+
+        assert response.status_code == 401
+        assert TOKEN_HEADER in response.json()["detail"]
+
+    def test_the_screen_sends_the_pass_in_the_same_header(self) -> None:
+        """Имя заголовка — одно у сервера и экрана: разъедутся — экран останется без входа."""
+        client_ts = (
+            Path(__file__).resolve().parent.parent / "frontend" / "src" / "api" / "client.ts"
+        )
+        found = re.search(
+            r"export const PASS_HEADER = '([^']+)';", client_ts.read_text(encoding="utf-8")
+        )
+
+        assert found is not None, "в frontend/src/api/client.ts нет PASS_HEADER"
+        assert found.group(1) == TOKEN_HEADER
 
     async def test_disabled_after_issue_stops_working(
         self,
