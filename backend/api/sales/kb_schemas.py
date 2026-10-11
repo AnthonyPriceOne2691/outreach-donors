@@ -86,6 +86,13 @@ class KbGapCard(BaseModel):
     elsewhere: list[str]
     words: str
 
+    @classmethod
+    def listed(cls, gaps: list[kb_gaps.Gap]) -> list[KbGapCard]:
+        return [
+            cls(kind=g.kind, language=g.language, elsewhere=list(g.elsewhere), words=g.words)
+            for g in gaps
+        ]
+
 
 class KbView(BaseModel):
     """Все записи — включённые и нет — и версия базы, которую сейчас видит агент."""
@@ -102,7 +109,7 @@ class KbView(BaseModel):
     gaps: list[KbGapCard]
 
     @classmethod
-    def of(cls, rows: list[SalesKbEntryModel], *, version: str, gaps: list[kb_gaps.Gap]) -> KbView:
+    def of(cls, rows: list[SalesKbEntryModel], *, version: str, gaps: list[KbGapCard]) -> KbView:
         return cls(
             rows=[KbEntryCard.of(row) for row in rows],
             total=len(rows),
@@ -110,15 +117,7 @@ class KbView(BaseModel):
             version=version,
             kinds=list(KbKind),
             limits=KB_LIMITS,
-            gaps=[
-                KbGapCard(
-                    kind=gap.kind,
-                    language=gap.language,
-                    elsewhere=list(gap.elsewhere),
-                    words=gap.words,
-                )
-                for gap in gaps
-            ],
+            gaps=gaps,
         )
 
 

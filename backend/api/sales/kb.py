@@ -19,6 +19,7 @@ from backend.api.sales.kb_schemas import (
     KbEntryBody,
     KbEntryCard,
     KbEntryPatch,
+    KbGapCard,
     KbView,
     SenderBody,
     SenderView,
@@ -42,8 +43,8 @@ async def list_entries(
     _: UserModel = _seller, session: AsyncSession = Depends(db_session)
 ) -> KbView:
     seen = await kb.facts(session)  # что видит агент: из этого версия и пустые разделы
-    rows = await kb.entries(session)
-    return KbView.of(rows, version=kb.version_of(seen), gaps=kb_gaps.gaps(seen))
+    gaps = KbGapCard.listed(kb_gaps.gaps(seen))
+    return KbView.of(await kb.entries(session), version=kb.version_of(seen), gaps=gaps)
 
 
 @router.get("/kb/preview", response_model=AgentView, summary="Что увидит агент")

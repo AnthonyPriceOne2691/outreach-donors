@@ -213,6 +213,16 @@ async def _writable(session: AsyncSession, dialog: Linked, what: str) -> None:
         raise LeadStoppedError(f"{what}: {why}")
 
 
+def _first_problem(dialog: Linked, message: MessageModel) -> str | None:
+    """Почему первое письмо не уходит — словами; `None` — уходит: оно в коридоре отличия,
+    собрано после последней правки лида (`lead_edit.edited`), а адрес не проверен выдуманным
+    проверяльщиком при живом (`verifier.unproven`)."""
+    verdict = corridor_verdict(message.uniqueness_pct or 0.0)
+    if verdict is not None:
+        return f"{verdict} — письмо продаж уходит только в коридоре, соберите очередь заново"
+    return EDITED if edited(dialog.lead, message) else unproven(dialog.lead)
+
+
 async def check(session: AsyncSession, message: MessageModel) -> None:
     """Проверка письма продаж перед отправкой — ветка продаж `sending._check_review`. Ответ
     лиду в переписке (`ANSWER_STEP`) — не шаг цепочки: подпись в его тексте не отказ."""
@@ -221,15 +231,8 @@ async def check(session: AsyncSession, message: MessageModel) -> None:
     if dialog is None:
         raise SendError(f"{what}: у письма продаж нет лида — письмо стоит убрать из очереди")
     await _writable(session, dialog, what)
-    if message.step == FIRST_STEP:
-        verdict = corridor_verdict(message.uniqueness_pct or 0.0)
-        if verdict is not None:
-            raise NotReadyError(
-                f"{what} не уходит: {verdict} — письмо продаж уходит только в коридоре, "
-                "соберите очередь заново"
-            )
-        if (why := EDITED if edited(dialog.lead, message) else unproven(dialog.lead)) is not None:
-            raise NotReadyError(f"{what} не уходит: {why}")
+    if message.step == FIRST_STEP and (why := _first_problem(dialog, message)) is not None:
+        raise NotReadyError(f"{what} не уходит: {why}")
     rule = letter.answer_problem if message.step >= ANSWER_STEP else letter.problem
     problem = rule(message.body or "", await sender.read(session))
     if problem is not None:

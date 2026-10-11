@@ -137,6 +137,11 @@ def read_entries(path: Path, *, delimiter: str | None = None, header: bool = Tru
         raise StoplistError(f"файл {path.name} не читается как CSV: {exc}") from exc
     except ValueError as exc:  # не UTF-8 — уже словами
         raise StoplistError(str(exc)) from exc
+    return _sorted(records, header=header)
+
+
+def _sorted(records: list[tuple[int, list[str]]], *, header: bool) -> Entries:
+    """Строки — по видам: домены и адреса без повторов, непонятые и бесплатная почта — с номером."""
     found: dict[str, dict[str, None]] = {"host": {}, "email": {}}
     unreadable: list[tuple[int, str]] = []
     free: list[tuple[int, str]] = []

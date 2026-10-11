@@ -405,11 +405,10 @@ def _print_preview(found: intake.Preview) -> None:
 
 def _print_defaults(found: intake.Preview) -> None:
     """Сколько лидов получили умолчания — и без чего письма не уйдут, до записи."""
-    given = found.defaults
     if found.defaulted_language:
-        print(f"Язык по умолчанию {given.language} — лидов: {found.defaulted_language}")
-    if found.defaulted_place and given.place is not None:
-        where = ", ".join(part for part in (given.place.country, given.place.timezone) if part)
+        print(f"Язык по умолчанию {found.defaults.language} — лидов: {found.defaulted_language}")
+    if found.defaulted_place and (place := found.defaults.place) is not None:
+        where = ", ".join(part for part in (place.country, place.timezone) if part)
         print(f"Страна или пояс по умолчанию {where} — лидов: {found.defaulted_place}")
     for warning in found.warnings:
         print(f"Внимание: {warning}")
