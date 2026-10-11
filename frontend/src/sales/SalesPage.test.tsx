@@ -112,6 +112,7 @@ const KB: KbView = {
   version: 'kb-000000000000',
   kinds: ['brief', 'service', 'case', 'objection', 'price_policy', 'forbidden', 'cta'],
   limits: { title: 255, text: 20000, tag: 64, tags: 20 },
+  gaps: [],
 };
 
 function at(query: string): string {

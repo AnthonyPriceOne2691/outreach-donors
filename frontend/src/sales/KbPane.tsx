@@ -8,6 +8,7 @@
  *
  * **Тексты живут только здесь**, в базе: репозиторий публичный. Первичное
  * наполнение — файлом через консоль (`outreach sales-kb-load`), правка — здесь.
+ * Пустые разделы на языках писем — строками над таблицей (`KbGaps`): чего агент не скажет.
  * Отказ сервера — словами: в окне правки над формой, у переключателя —
  * уведомлением с текстом сервера.
  */
@@ -21,6 +22,7 @@ import type { KbEntryCard, KbView } from '../api/salesTypes';
 import { InfoHint } from '../components/InfoHint';
 import { formatDateTime, formatNumber } from '../format';
 import { AgentPreview } from './AgentPreview';
+import { KbGaps } from './KbGaps';
 import { FixedTable } from './FixedTable';
 import type { Column } from './FixedTable';
 import { useKb, useSavedEntry, useToggle } from './kbData';
@@ -196,6 +198,7 @@ export function KbPane() {
         onAdd={() => setEditing('new')}
         onPreview={() => setPreviewing(true)}
       />
+      <KbGaps view={view} />
       {view.total === 0 ? (
         <KbEmpty />
       ) : (

@@ -14,7 +14,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
-from backend.features.sales import connection, kb, sender
+from backend.features.sales import connection, kb, kb_gaps, sender
 from backend.features.sales.models import TAG_LENGTH, TITLE_LENGTH, KbKind, SalesKbEntryModel
 
 #: Границы записи для экрана — те же числа, которыми отказывает ядро.
@@ -77,6 +77,16 @@ class KbEntryCard(BaseModel):
         )
 
 
+class KbGapCard(BaseModel):
+    """Пустой раздел на языке писем — вид, язык, где записи вида есть, и что агент сделает."""
+
+    kind: KbKind
+    language: str
+    #: Языки, на которых записи этого вида есть: их агент переведёт. Пусто — нет ни на одном.
+    elsewhere: list[str]
+    words: str
+
+
 class KbView(BaseModel):
     """Все записи — включённые и нет — и версия базы, которую сейчас видит агент."""
 
@@ -88,9 +98,11 @@ class KbView(BaseModel):
     #: Виды в порядке набора: по ним экран строит выбор вида и группы.
     kinds: list[KbKind]
     limits: dict[str, int]
+    #: Пустые разделы на языках писем — словами (`kb_gaps.py`): что агент сделает без них.
+    gaps: list[KbGapCard]
 
     @classmethod
-    def of(cls, rows: list[SalesKbEntryModel], *, version: str) -> KbView:
+    def of(cls, rows: list[SalesKbEntryModel], *, version: str, gaps: list[kb_gaps.Gap]) -> KbView:
         return cls(
             rows=[KbEntryCard.of(row) for row in rows],
             total=len(rows),
@@ -98,6 +110,15 @@ class KbView(BaseModel):
             version=version,
             kinds=list(KbKind),
             limits=KB_LIMITS,
+            gaps=[
+                KbGapCard(
+                    kind=gap.kind,
+                    language=gap.language,
+                    elsewhere=list(gap.elsewhere),
+                    words=gap.words,
+                )
+                for gap in gaps
+            ],
         )
 
 

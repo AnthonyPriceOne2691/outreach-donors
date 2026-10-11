@@ -74,6 +74,7 @@ const KB: KbView = {
   version: 'kb-000000000000',
   kinds: ['brief'],
   limits: { title: 255, text: 20000, tag: 64, tags: 20 },
+  gaps: [],
 };
 
 const PATCH = 'PATCH /api/sales/leads/17';

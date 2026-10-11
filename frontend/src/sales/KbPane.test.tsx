@@ -56,6 +56,7 @@ const KB: KbView = {
   version: 'kb-3f2a9c1d0b7e',
   kinds: ['brief', 'service', 'case', 'objection', 'price_policy', 'forbidden', 'cta'],
   limits: { title: 255, text: 20000, tag: 64, tags: 20 },
+  gaps: [],
 };
 
 const HYPOTHESES: HypothesesView = { rows: [], total: 0, module_enabled: true };
@@ -377,5 +378,52 @@ describe('база знаний: без права на отправку', () =>
 
     expect(screen.queryByText(LINE)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Добавить запись' })).toBeEnabled();
+  });
+});
+
+describe('база знаний: пустые разделы', () => {
+  const CASES_EN = 'Кейсов на английском нет — агент не приведёт ни одного примера';
+  const PRICES_EN =
+    'Записей о ценах на английском нет — агент возьмёт записи на русском и переведёт';
+
+  it('у каждого пустого раздела языка писем — строка словами сервера', async () => {
+    await openKb({
+      'GET /api/sales/kb': {
+        body: {
+          ...KB,
+          gaps: [
+            { kind: 'case', language: 'en', elsewhere: [], words: CASES_EN },
+            { kind: 'price_policy', language: 'en', elsewhere: ['ru'], words: PRICES_EN },
+          ],
+        },
+      },
+    });
+
+    const alert = screen.getByText('Пустые разделы').closest('[role="alert"]');
+    expect(alert).toHaveTextContent(`${CASES_EN}.`);
+    expect(alert).toHaveTextContent(`${PRICES_EN}.`);
+  });
+
+  it('заполненные разделы — без строк', async () => {
+    await openKb();
+
+    expect(screen.queryByText('Пустые разделы')).not.toBeInTheDocument();
+  });
+
+  it('все записи выключены — одна строка, а не по строке на раздел', async () => {
+    await openKb({
+      'GET /api/sales/kb': {
+        body: {
+          ...KB,
+          rows: [{ ...PRICE, active: false }, OLD_CASE],
+          total: 2,
+          active: 0,
+          gaps: [{ kind: 'case', language: 'en', elsewhere: [], words: CASES_EN }],
+        },
+      },
+    });
+
+    expect(screen.getByText('Агент не видит ни одной записи')).toBeInTheDocument();
+    expect(screen.queryByText(`${CASES_EN}.`)).not.toBeInTheDocument();
   });
 });

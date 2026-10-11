@@ -225,6 +225,12 @@ async def service_titles(session: AsyncSession) -> list[str]:
     return list(dict.fromkeys(fact.title for fact in found))
 
 
+def speaks(entry: Fact, language: str) -> bool:
+    """Запись на языке письма: тот же код или он же с регионом (`en` — и `en-us`). Им агент
+    берёт факты под ход (`agent/facts.py`), им же экран называет пустые разделы."""
+    return entry.language == language or entry.language.startswith(f"{language}-")
+
+
 def grouped(found: Sequence[Fact]) -> list[Group]:
     """Факты группами по виду и языку: виды — в порядке набора, языки — по алфавиту."""
     groups: dict[tuple[KbKind, str], list[Fact]] = {}

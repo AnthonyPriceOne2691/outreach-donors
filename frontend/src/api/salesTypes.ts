@@ -186,6 +186,15 @@ export interface KbLimits {
   tags: number;
 }
 
+/** Пустой раздел базы на языке писем: что агент сделает без него — словами сервера. */
+export interface KbGap {
+  kind: KbKind;
+  language: string;
+  /** Языки, на которых записи вида есть: их агент переведёт. Пусто — нет ни на одном. */
+  elsewhere: string[];
+  words: string;
+}
+
 export interface KbView {
   rows: KbEntryCard[];
   total: number;
@@ -196,6 +205,8 @@ export interface KbView {
   /** Виды в порядке набора. */
   kinds: KbKind[];
   limits: KbLimits;
+  /** Пустые разделы на языках писем, по языкам и видам. */
+  gaps: KbGap[];
 }
 
 /** Запись с экрана: поля формы как есть, приводит и проверяет сервер. */
