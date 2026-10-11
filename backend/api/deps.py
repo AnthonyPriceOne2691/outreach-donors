@@ -13,19 +13,28 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Awaitable, Callable
 
 from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.access.attempts import LoginAttempts
 from backend.features.access.permissions import Actor, OneTimePasswordError, require
 from backend.features.access.repository import AccessRepository, actor_of
-from backend.features.access.tokens import TokenPayload, password_changed_since, read_token
+from backend.features.access.tokens import (
+    TOKEN_HEADER,
+    TokenPayload,
+    password_changed_since,
+    read_token,
+)
 from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
 from backend.shared.database.base import SessionFactory
 
-#: `auto_error=False` — отказ пишем свой: стандартный отвечает по-английски
-#: и не говорит, что делать.
+#: Пропуск — своим заголовком (`TOKEN_HEADER`): `Authorization` на /api/ несёт пароль прокси.
+#: `auto_error=False` — отказ пишем свой: стандартный отвечает по-английски и не говорит,
+#: что делать.
+_pass = APIKeyHeader(name=TOKEN_HEADER, auto_error=False)
+#: Прежний путь — `Authorization: Bearer`: им ходят консоль /api/docs и тесты. Снаружи прокси
+#: его не пропустит — там `Authorization` занят паролем прокси и до сервера не доходит.
 _bearer = HTTPBearer(auto_error=False)
 
 #: Счётчик попыток входа — один на процесс, живёт сколько процесс.
@@ -42,18 +51,20 @@ async def db_session() -> AsyncIterator[AsyncSession]:
 
 
 async def signed_in(
+    token: str | None = Depends(_pass),
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
     session: AsyncSession = Depends(db_session),
 ) -> UserModel:
     """Кто пришёл. Отключённая учётка не проходит даже с целым пропуском."""
-    if credentials is None:
+    given = token or (credentials.credentials if credentials else None)
+    if not given:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,
-            detail="Нужен вход: пришлите пропуск заголовком Authorization: Bearer …",
+            detail=f"Нужен вход: пришлите пропуск заголовком {TOKEN_HEADER}",
             headers=_UNAUTHORIZED,
         )
 
-    payload = read_token(credentials.credentials)
+    payload = read_token(given)
     return _admitted(await AccessRepository(session).by_id(payload.user_id), payload)
 
 
