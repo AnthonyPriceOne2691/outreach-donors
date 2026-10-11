@@ -244,6 +244,27 @@ async def test_handover_refused_leaves_the_answer_waiting_with_the_reason(
     assert "нет лида продаж" in snap["handoff_error"]
 
 
+async def test_retry_after_the_fix_settles_the_answer_and_forgets_the_old_refusal(
+    session: AsyncSession,
+) -> None:
+    """Лида-дубль разобрали, черновик попросили заново — передача прошла: прежний отказ из
+    снимка уходит, ответ человека не ждёт."""
+    dialog = await asked(session)
+    dialog.lead.status = LeadStatus.REJECTED
+    await session.flush()
+    start = partial(handoff.start, enqueue=lambda _id: None)
+    await handover.hand_over(session, dialog.reply.id, start=start)
+    dialog.lead.status = LeadStatus.READY
+    await session.flush()
+
+    report = await handover.hand_over(session, dialog.reply.id, start=start)
+
+    assert report["waits"] is False
+    snap = (await reread(session, dialog.reply.id)).model_parse or {}
+    assert "handoff_error" not in snap
+    assert snap["reason"] == "агент понял: хочет говорить — передан телемаркетологу"
+
+
 async def test_handover_job_of_a_deleted_answer_says_so(session: AsyncSession) -> None:
     assert await handover.hand_over(session, 987654) == {
         "reply": 987654,

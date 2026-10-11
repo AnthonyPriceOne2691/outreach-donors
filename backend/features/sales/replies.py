@@ -285,9 +285,9 @@ class SalesReplies:
         if said is None:
             return handled
         extra = {"reply": handled.reply_id, "thread_id": handled.handoff_thread}
-        if handled.again:
+        if said.handed and handled.again:
             logger.info("продажи: письмо переданного лида — телемаркетологу", extra=extra)
-        elif not said.waits:
+        elif said.handed:
             logger.info(
                 "продажи: лид передан телемаркетологу — ответ человека не ждёт", extra=extra
             )

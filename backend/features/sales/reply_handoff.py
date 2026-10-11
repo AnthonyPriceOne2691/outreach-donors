@@ -72,10 +72,11 @@ class Ask:
 
 @dataclass(frozen=True, slots=True)
 class Said:
-    """Чем кончилось: ждёт ли ответ человека и почему."""
+    """Чем кончилось: ждёт ли ответ человека и почему; `handed` — передача заведена."""
 
     waits: bool
     reason: str
+    handed: bool = True
 
 
 async def handed(session: AsyncSession, thread_id: int | None) -> bool:
@@ -133,7 +134,7 @@ async def _refused(session: AsyncSession, ask: Ask, exc: Exception) -> Said | No
         reason = f"{ask.words}{ask.joint}{NOT_FORWARDED} — {why}; решает человек"
     else:
         reason = f"{ask.reason}; {NOT_FORWARDED} — {why}"
-    said = Said(True, reason)
+    said = Said(True, reason, handed=False)
     try:
         reply = await session.get(ReplyModel, ask.reply_id)
         if reply is None:
@@ -150,6 +151,8 @@ async def _refused(session: AsyncSession, ask: Ask, exc: Exception) -> Said | No
 
 
 def _noted(reply: ReplyModel, said: Said) -> dict[str, object]:
-    """Снимок ответа с итогом передачи. Снимка ещё нет (потолок модели) — заводится записка."""
+    """Снимок ответа с итогом передачи. Снимка ещё нет (потолок модели) — заводится записка;
+    отказ прошлой попытки (`handoff_error`) снимается: итог — этой."""
     base = reply.model_parse or {"stage": Stage.SALES.value, "kind": None}
-    return {**base, "waits": said.waits, "reason": said.reason}
+    kept = {key: value for key, value in base.items() if key != "handoff_error"}
+    return {**kept, "waits": said.waits, "reason": said.reason}
