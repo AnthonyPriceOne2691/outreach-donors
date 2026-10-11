@@ -15,6 +15,8 @@ import pytest
 from backend.api.sales.schemas import HypothesesView, HypothesisBody
 from backend.cli.sales import EXIT_TAKEN, run_hypothesis_add
 from backend.config import sales as sales_cfg
+from backend.features.access.permissions import no_right
+from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.outreach import MessageModel
 from backend.features.sales import queue
@@ -31,7 +33,7 @@ SignIn = Callable[..., Awaitable[str]]
 
 SELLER = "seller@ours.example.test"
 HYPOTHESES = "/api/sales/hypotheses"
-NO_RIGHT = "Действие «sales» недоступно этой учётке"
+NO_RIGHT = no_right(Permission.SALES)
 #: Описание, которого не должно быть ни в одном письме и ни в одном вызове модели.
 CANARY = "описание-канарейка 7319: кому и зачем пишем"
 

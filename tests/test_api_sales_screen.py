@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from backend.features.access.permissions import no_right
+from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.sales.columns import LeadField
@@ -38,7 +40,7 @@ SignIn = Callable[..., Awaitable[str]]
 SELLER = "seller@ours.example.test"
 HYPOTHESES = "/api/sales/hypotheses"
 LEADS = "/api/sales/leads"
-NO_RIGHT = "Действие «sales» недоступно этой учётке"
+NO_RIGHT = no_right(Permission.SALES)
 
 ROOT = Path(__file__).resolve().parent.parent
 LABELS_TS = ROOT / "frontend" / "src" / "api" / "salesLabels.ts"

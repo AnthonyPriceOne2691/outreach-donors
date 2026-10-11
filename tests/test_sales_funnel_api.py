@@ -16,7 +16,8 @@ from typing import Any
 
 import pytest
 from backend.api.sales.funnel import EMPTY_PERIOD, FunnelCounts, FunnelRow, SalesFunnelView
-from backend.features.core.domain import MessageStatus, ReplyKind
+from backend.features.access.permissions import no_right
+from backend.features.core.domain import MessageStatus, Permission, ReplyKind
 from backend.features.core.models.access import UserModel
 from fastapi import FastAPI
 from httpx import AsyncClient
@@ -30,7 +31,7 @@ SignIn = Callable[..., Awaitable[str]]
 
 SELLER = "seller@ours.example.test"
 FUNNEL = "/api/sales/funnel"
-NO_RIGHT = "Действие «sales» недоступно этой учётке"
+NO_RIGHT = no_right(Permission.SALES)
 STEPS = ("queued", "sent", "delivered", "bounced", "answered", "handed_off")
 TYPES = (Path(__file__).resolve().parent.parent / "frontend/src/api/salesTypes.ts").read_text(
     encoding="utf-8"

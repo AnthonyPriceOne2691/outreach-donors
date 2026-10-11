@@ -27,8 +27,9 @@ from backend.config import contacts as contacts_cfg
 from backend.config import sales as sales_cfg
 from backend.config import storage
 from backend.config.startup_checks import ConfigError
+from backend.features.access.permissions import no_right
 from backend.features.contacts.mx import MailRoute
-from backend.features.core.domain import AuditAction
+from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import AuditLogModel, UserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.ops import UsageRecordModel
@@ -458,11 +459,11 @@ async def test_live_without_a_key_is_refused_at_the_button_not_in_the_job(
 
 
 @pytest.mark.parametrize(
-    ("taken", "words"),
+    ("taken", "right"),
     [
-        ({"sales": False}, "Действие «sales» недоступно этой учётке"),
+        ({"sales": False}, Permission.SALES),
         # Платная проверка адресов — под `run`, как платный поиск адресов в ядре.
-        ({"run": False}, "Действие «run» недоступно этой учётке"),
+        ({"run": False}, Permission.RUN),
     ],
 )
 async def test_without_the_sales_or_the_run_right_the_clean_is_refused_in_words(
@@ -472,13 +473,13 @@ async def test_without_the_sales_or_the_run_right_the_clean_is_refused_in_words(
     waiting: SalesHypothesisModel,
     jobs: _Jobs,
     taken: dict[str, bool],
-    words: str,
+    right: Permission,
 ) -> None:
     await make_user(SELLER, permissions=taken)
 
     response = await _start(client, bearer(await sign_in(SELLER)), waiting.id)
 
-    assert (response.status_code, response.json()["detail"]) == (403, words)
+    assert (response.status_code, response.json()["detail"]) == (403, no_right(right))
     assert jobs.enqueued == []
 
 
@@ -499,7 +500,7 @@ async def test_reading_needs_only_the_sales_right(
     assert allowed.status_code == 200
     assert (refused.status_code, refused.json()["detail"]) == (
         403,
-        "Действие «sales» недоступно этой учётке",
+        no_right(Permission.SALES),
     )
 
 
