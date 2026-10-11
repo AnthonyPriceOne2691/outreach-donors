@@ -56,7 +56,7 @@ export function reviewReply(id: number, body: ReviewPrice): Promise<Reviewed> {
 
 /**
  * Файл, присланный донором, — запросом с пропуском, а не ссылкой: простая
- * ссылка заголовка `Authorization` не несёт и получала бы 401. Сервер отдаёт
+ * ссылка заголовка с пропуском (`X-Access-Token`) не несёт и получала бы отказ. Сервер отдаёт
  * его только на скачивание, и имя файла — в заголовке ответа.
  */
 export function downloadAttachment(replyId: number, attachmentId: number): Promise<Downloaded> {

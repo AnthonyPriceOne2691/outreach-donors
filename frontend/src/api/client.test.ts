@@ -12,6 +12,8 @@ import {
   DeniedError,
   NO_CONNECTION,
   NoConnectionError,
+  PROXY_PASSWORD,
+  ProxyPasswordError,
   TooManyAttemptsError,
   download,
   request,
@@ -69,6 +71,55 @@ describe('запрос к серверу', () => {
 
     await expect(request('/auth/me')).rejects.toThrow(AuthError);
     expect(localStorage.getItem(TOKEN_KEY)).toBeNull();
+  });
+
+  it('403 «входа нет» выбрасывает пропуск и ведёт на вход, а «кто я» не перечитывает', async () => {
+    // С 11.10.2026 сервер отвечает «входа нет» 403 с признаком, а не 401: 401 за прокси
+    // стёр бы у браузера пароль прокси. Перечитывать «кто я» здесь — тот же отказ по кругу.
+    const denied = vi.fn();
+    const stop = watchAccessDenied(denied);
+    serve({
+      'GET /api/auth/me': {
+        status: 403,
+        body: { detail: 'Пропуск просрочен — войдите заново' },
+        headers: { 'X-Access-Refusal': 'signed-out' },
+      },
+    });
+
+    await expect(request('/auth/me')).rejects.toThrow(AuthError);
+    expect(localStorage.getItem(TOKEN_KEY)).toBeNull();
+    expect(denied).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it('401 от прокси — пароль сервера, пропуск сервиса цел', async () => {
+    serve({
+      'GET /api/auth/me': {
+        status: 401,
+        raw: '<html><body>401 Authorization Required</body></html>',
+        headers: { 'WWW-Authenticate': 'Basic realm="Parsing and Prices"' },
+      },
+    });
+
+    await expect(request('/auth/me')).rejects.toThrow(PROXY_PASSWORD);
+    await expect(request('/auth/me')).rejects.toBeInstanceOf(ProxyPasswordError);
+    expect(localStorage.getItem(TOKEN_KEY)).toBe('пропуск');
+  });
+
+  it('отказ старому пропуску не стирает новый: другая вкладка успела войти заново', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
+      // Пока ответ шёл, во второй вкладке сменили пароль — там новый пропуск.
+      localStorage.setItem(TOKEN_KEY, 'новый пропуск');
+      return Promise.resolve(
+        new Response(JSON.stringify({ detail: 'Пароль учётки сменили' }), {
+          status: 403,
+          headers: { 'X-Access-Refusal': 'signed-out' },
+        }),
+      );
+    });
+
+    await expect(request('/auth/me')).rejects.toThrow(AuthError);
+    expect(localStorage.getItem(TOKEN_KEY)).toBe('новый пропуск');
   });
 
   it('403 доносит название действия', async () => {

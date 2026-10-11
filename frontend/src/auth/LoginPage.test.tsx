@@ -38,7 +38,7 @@ describe('вход', () => {
 
   it('показывает отказ сервера тем же текстом', async () => {
     serve({
-      'POST /api/auth/login': { status: 401, body: { detail: 'Неверная почта или пароль' } },
+      'POST /api/auth/login': { status: 400, body: { detail: 'Неверная почта или пароль' } },
     });
     renderWith(<AppRoutes />, '/login');
 
@@ -66,7 +66,7 @@ describe('вход', () => {
 
   it('неверный пароль — отказ входа, а не «сеанс закончился»: сеанса и не было', async () => {
     serve({
-      'POST /api/auth/login': { status: 401, body: { detail: 'Неверная почта или пароль' } },
+      'POST /api/auth/login': { status: 400, body: { detail: 'Неверная почта или пароль' } },
     });
     renderWith(<AppRoutes />, '/login');
 
@@ -91,14 +91,15 @@ describe('вход', () => {
 
 describe('вход после оборванного сеанса', () => {
   it('учётку отключили посреди работы — вход говорит, почему пришлось войти снова', async () => {
-    // Проверка QA 10.10.2026: следующий запрос получал 401, и человек молча
-    // оказывался на входе.
+    // Проверка QA 10.10.2026: следующий запрос получал отказ, и человек молча
+    // оказывался на входе. «Входа нет» сервер отвечает 403 с признаком (с 11.10.2026).
     localStorage.setItem(TOKEN_KEY, 'пропуск');
     serve({
       'GET /api/auth/me': { body: ADMIN },
       'GET /api/suppressions': {
-        status: 401,
+        status: 403,
         body: { detail: 'Учётка отключена или удалена — войти по этому пропуску нельзя' },
+        headers: { 'X-Access-Refusal': 'signed-out' },
       },
     });
     renderWith(<AppRoutes />, '/suppressions');

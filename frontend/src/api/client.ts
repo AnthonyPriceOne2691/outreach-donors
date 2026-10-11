@@ -58,7 +58,7 @@ export class TooManyAttemptsError extends ApiError {
 /** Что сказать, когда запрос не дошёл до сервера (проверка прода 10.10.2026: форма
  *  показывала «Не завели · Failed to fetch» — текст браузера по-английски). */
 export const NO_CONNECTION =
-  'Нет связи с сервером — запрос не дошёл. Проверьте интернет и повторите';
+  'Ответа нет: связь оборвалась или запрос не ушёл — перед повтором проверьте, не прошло ли действие';
 
 /** Запрос не дошёл: сети нет или сервер не отвечает. Ответа нет — нет и кода ответа,
  *  поэтому это не `ApiError`. Исходная ошибка браузера — в `cause`. */
@@ -107,6 +107,31 @@ async function detailOf(response: Response): Promise<string> {
  *  текст правят, и разбор ломался бы от первой правки. */
 const ACCESS_REFUSAL = 'X-Access-Refusal';
 
+/** Признак «входа нет» (`access/permissions.SignedOutError`): пропуска нет, он не принят,
+ *  учётка отключена или пароль сменили. Сервер отвечает им 403, а не 401: весь сервис за
+ *  паролем прокси, браузер прикладывает его к запросу сам, и ответ 401 Chrome счёл бы отказом
+ *  самому паролю — стёр бы его, и посреди работы всплыло бы окно пароля сервера (11.10.2026). */
+const SIGNED_OUT = 'signed-out';
+
+/** 401 с вызовом Basic отвечает только прокси: браузер не приложил пароль сервера. */
+const PROXY_CHALLENGE = /^\s*basic\b/i;
+
+export const PROXY_PASSWORD = 'Нужен пароль сервера — обновите страницу и введите его';
+
+/** Пароля прокси нет — пропуск сервиса при этом цел, стирать его незачем. */
+export class ProxyPasswordError extends ApiError {
+  constructor() {
+    super(401, PROXY_PASSWORD);
+    this.name = 'ProxyPasswordError';
+  }
+}
+
+/** Стереть пропуск, которому отказали, — и только его: пока ответ шёл, другая вкладка могла
+ *  войти заново или сменить пароль, и её новый пропуск отказ старого не касается. */
+function forgetRefused(sent: string | null): void {
+  if (sent !== null && readToken() === sent) clearToken();
+}
+
 function retryAfterOf(response: Response): number | null {
   const header = response.headers.get('Retry-After');
   if (!header) return null;
@@ -114,19 +139,27 @@ function retryAfterOf(response: Response): number | null {
   return Number.isFinite(seconds) ? seconds : null;
 }
 
-async function raise(response: Response): Promise<never> {
+async function raise(response: Response, sent: string | null): Promise<never> {
+  if (
+    response.status === 401 &&
+    PROXY_CHALLENGE.test(response.headers.get('WWW-Authenticate') ?? '')
+  ) {
+    throw new ProxyPasswordError();
+  }
   const detail = await detailOf(response);
-  if (response.status === 401) {
-    // Пропуск больше не действует — хранить его незачем: иначе следующий
-    // запрос уйдёт с ним же и получит тот же отказ.
-    clearToken();
+  const refusal = response.headers.get(ACCESS_REFUSAL);
+  if (response.status === 401 || refusal === SIGNED_OUT) {
+    // Входа нет — пропуск больше не действует, хранить его незачем: иначе следующий
+    // запрос уйдёт с ним же и получит тот же отказ. 401 без вызова Basic — от сервера
+    // до 11.10.2026 (теперь он отвечает 403 с признаком `signed-out`).
+    forgetRefused(sent);
     throw new AuthError(detail);
   }
   if (response.status === 403) {
     // Право сняли посреди сеанса — меню по прежней карточке «кто я» вело в отказ (проверка
     // прода 10.10.2026). Отказ доступа сессия перечитывает сразу: пункт уходит из меню,
     // а «сначала смените разовый пароль» уводит на смену (`RequireAccess`).
-    if (response.headers.has(ACCESS_REFUSAL)) accessDenied();
+    if (refusal !== null) accessDenied();
     throw new DeniedError(detail);
   }
   if (response.status === 429) throw new TooManyAttemptsError(detail, retryAfterOf(response));
@@ -156,18 +189,19 @@ async function send(path: string, init: RequestInit): Promise<Response> {
 export const PASS_HEADER = 'X-Access-Token';
 
 /** Пропуск заголовком. Одно место на все запросы: выгрузка файлом когда-то
- *  шла простой ссылкой, без него, и сервер отвечал ей 401. */
-function withPass(headers: Record<string, string>): Record<string, string> {
+ *  шла простой ссылкой, без него, и сервер ей отказывал. Возвращает сам пропуск:
+ *  отказ «входа нет» сотрёт только его (`forgetRefused`). */
+function withPass(headers: Record<string, string>): string | null {
   const token = readToken();
   if (token) headers[PASS_HEADER] = token;
-  return headers;
+  return token;
 }
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, anonymous = false } = options;
   const headers: Record<string, string> = {};
   if (body !== undefined) headers['content-type'] = 'application/json';
-  if (!anonymous) withPass(headers);
+  const sent = anonymous ? null : withPass(headers);
 
   const response = await send(path, {
     method,
@@ -175,7 +209,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
 
-  if (!response.ok) await raise(response);
+  if (!response.ok) await raise(response, sent);
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
@@ -186,12 +220,10 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
  * `request`.
  */
 export async function upload<T>(path: string, form: FormData): Promise<T> {
-  const response = await send(path, {
-    method: 'POST',
-    headers: withPass({}),
-    body: form,
-  });
-  if (!response.ok) await raise(response);
+  const headers: Record<string, string> = {};
+  const sent = withPass(headers);
+  const response = await send(path, { method: 'POST', headers, body: form });
+  if (!response.ok) await raise(response, sent);
   return (await response.json()) as T;
 }
 
@@ -228,7 +260,7 @@ function filenameOf(response: Response): string | null {
  * разбором отказа.
  *
  * Простая ссылка на `/api/...` пропуска не несёт — заголовок ей не задать, —
- * и выгрузка доноров так и получала 401 вместо файла, а тест смотрел только
+ * и выгрузка доноров так и получала отказ вместо файла, а тест смотрел только
  * на адрес ссылки. Отказ здесь — то же исключение, что у `request`, с текстом
  * сервера.
  */
@@ -239,13 +271,15 @@ export async function download(
   const { method = 'GET', body } = options;
   // Тело — JSON и только у POST: номера отмеченных доноров едут телом,
   // потому что тысячи номеров в адресе упёрлись бы в предел строки у прокси.
-  const headers = withPass(body === undefined ? {} : { 'content-type': 'application/json' });
+  const headers: Record<string, string> =
+    body === undefined ? {} : { 'content-type': 'application/json' };
+  const sent = withPass(headers);
   const response = await send(path, {
     method,
     headers,
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
-  if (!response.ok) await raise(response);
+  if (!response.ok) await raise(response, sent);
   return {
     blob: await response.blob(),
     filename: filenameOf(response),
