@@ -192,7 +192,8 @@ async def _blocked(session: AsyncSession, now: datetime) -> str | None:
     try:
         await usage.ensure_llm_within_cap(session, run_id=None, now=now, own=sales_cap())
     except usage.LlmCapExceededError as exc:
-        logger.info("продажи: автосборка ждёт — потолок модели", extra={"why": str(exc)})
+        # План спрашивает и экран: строку на смене причины пишет проход (`Said`), а не каждый взгляд.
+        logger.debug("продажи: автосборка ждёт — потолок модели", extra={"why": str(exc)})
         return str(exc)
     return None
 
