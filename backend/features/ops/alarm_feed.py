@@ -48,7 +48,7 @@ from backend.shared.alerts import send_alert
 logger = logging.getLogger(__name__)
 
 #: Сколько проходов подряд тревоги нет, прежде чем сказать «прошло». Проход сторожа — раз
-#: в десять минут (`workers/reaper.WATCHDOG_INTERVAL_SEC`): «прошло» — после 10–20 минут тишины.
+#: в две минуты (`workers/reaper.WATCHDOG_INTERVAL_SEC`): «прошло» — после 2–4 минут тишины.
 QUIET_PASSES = 2
 
 #: Где сказанное ждёт следующий процесс: хэш «код тревоги → заголовок» на ленту и канал —

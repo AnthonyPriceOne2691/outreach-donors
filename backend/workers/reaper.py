@@ -22,6 +22,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -31,6 +34,8 @@ from backend.config.startup_checks import check_storage
 from backend.features.crawl.lifecycle import recover as recover_crawls
 from backend.features.ops import silence
 from backend.features.ops.alarm_feed import Feed
+from backend.features.ops.alarms import Alarm
+from backend.features.ops.silence import probe_providers
 from backend.features.outreach.repository import EVERY_STAGE
 from backend.features.runs.lifecycle import Recovery, recover
 from backend.features.runs.repository import RunRepository
@@ -45,14 +50,43 @@ logger = logging.getLogger(__name__)
 #: заметно больше удара о жизни, чтобы не будить базу впустую.
 POLL_INTERVAL_SEC = 60.0
 
-#: Как часто сторож смотрит на тишину. Реже разбора намеренно: его
-#: пороги измеряются часами, и спрашивать базу каждую минуту незачем.
-WATCHDOG_INTERVAL_SEC = 600.0
+#: Как часто сторож смотрит на тишину — раз в две минуты. Срок ТЗ: тревога не позже 15 минут
+#: от минуты, когда ящик перестал отправлять. Ящик выбыл — тревога ближайшим проходом; ящик
+#: молчит — порог `mail_watch.QUIET_MINUTES` (10 мин), пауза между проходами (2 мин), проход,
+#: где провайдеры не ответили до таймаутов (Ahrefs 30 с, источник выдачи 60 с), и Telegram
+#: (10 с) — меньше 14 минут. Проход — счёты по базе; провайдеров он спрашивает реже
+#: (`PROVIDERS_INTERVAL_SEC`): медленный опрос попадает в окно тревоги не больше одного раза.
+WATCHDOG_INTERVAL_SEC = 120.0
+
+#: Как часто сторож спрашивает провайдеров — как до частого прохода: два бесплатных запроса
+#: раз в десять минут, между опросами — прежний ответ. Чаще незачем: ключ Ahrefs общий.
+PROVIDERS_INTERVAL_SEC = 600.0
 
 #: Что сторож уже сказал человеку в Telegram — по смене состояния (`ops/alarm_feed.py`). Своё
 #: имя — своё сказанное: в этом же процессе говорит лента бота продаж (`notify.BOT_FEED`, без
 #: имени).
 FEED = Feed("watchdog")
+
+
+@dataclass
+class Providers:
+    """Ответ провайдеров между опросами: спрашивать не чаще `PROVIDERS_INTERVAL_SEC`, первый
+    проход процесса — всегда. Часы монотонные: перевод системных часов счёт не сбивает."""
+
+    clock: Callable[[], float] = time.monotonic
+    asked_at: float | None = None
+    answer: Alarm | None = None
+
+    async def probe(self) -> Alarm | None:
+        """Тревога «провайдер не отвечает» — свежая или прежняя, если срок опроса не пришёл."""
+        moment = self.clock()
+        if self.asked_at is None or moment - self.asked_at >= PROVIDERS_INTERVAL_SEC:
+            self.answer, self.asked_at = await probe_providers(), moment
+        return self.answer
+
+
+#: Опрос провайдеров фонового сторожа — с ответом между опросами.
+PROVIDERS = Providers()
 
 
 def _enqueue(run_id: int) -> str | None:
@@ -131,7 +165,7 @@ async def watch() -> None:
             found = await silence.alarms(session, stages=EVERY_STAGE)
     finally:
         await engine.dispose()
-    await FEED.tell(await silence.with_providers(found))
+    await FEED.tell(await silence.with_providers(found, probe=PROVIDERS.probe))
 
 
 async def retry_handoffs() -> None:

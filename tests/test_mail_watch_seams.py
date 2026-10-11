@@ -444,6 +444,8 @@ async def test_the_watch_talks_to_the_network_outside_its_transaction(
     monkeypatch.setattr(silence, "probe_providers", probe)
     # Правка может взять опрос в reaper по имени — и там он подменён: живых провайдеров нет.
     monkeypatch.setattr(reaper, "probe_providers", probe, raising=False)
+    # Ответ провайдеров между опросами — свой у теста: первый проход спрашивает всегда.
+    monkeypatch.setattr(reaper, "PROVIDERS", reaper.Providers())
     monkeypatch.setattr(reaper.FEED, "tell", tell)
 
     async with committed_sessions():

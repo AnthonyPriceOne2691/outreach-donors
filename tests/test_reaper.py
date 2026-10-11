@@ -83,7 +83,7 @@ async def test_watch_reports_silence_and_tells_the_feed(monkeypatch: pytest.Monk
         seen.append((session, stages))
         return ["тревога базы"]
 
-    async def with_providers(found: list[str]) -> list[str]:
+    async def with_providers(found: list[str], **_: object) -> list[str]:
         return ["провайдер молчит", *found]
 
     async def tell(found: object) -> None:

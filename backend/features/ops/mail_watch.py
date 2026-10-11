@@ -1,14 +1,23 @@
 """Сторож почты этапов, чья политика его просит (Ф4, срез 4.5b; у продаж).
 
-Три тишины, которых общий сторож (`silence.py`) не видит, — каждая «при X не может
+Четыре тишины, которых общий сторож (`silence.py`) не видит, — каждая «при X не может
 быть Y», как у него:
 
 - **ящик молчит:** письма переписки ждут его дольше `QUIET_MINUTES` (срок уже
   открыл окно получателя), а с ящика за это время не ушло ничего;
+- **ящик выбыл:** выключен, на паузе, удалён или его домен на паузе — правило отправки
+  (`letters/mailbox.silence_of`), — а письма переписок (добивки по сроку, ответы в очереди)
+  ждут именно его: с другого ящика они не уйдут. Тревога по смене состояния — от первого
+  прохода после того, как ящик выбыл;
 - **отправить некому:** первые письма этапа в очереди, а писать нечем — ни одного
   включённого ящика на домене, открытом для этапа (правило фильтра отправки: без паузы,
   выдержки и строки за другим направлением);
 - **все на паузе:** у направления ни одного пишущего ящика.
+
+**Срок — не позже 15 минут от минуты, когда ящик перестал отправлять** (ТЗ): ящик выбыл —
+тревога с ближайшим проходом сторожа (раз в `workers/reaper.WATCHDOG_INTERVAL_SEC`, 2 мин);
+ящик молчит — порог `QUIET_MINUTES` плюс проход. Своё молчание автоотправка первых писем
+сторожит сама.
 
 Модуль продаж не ответил о политике — тоже тревога, и проход идёт дальше (договор моста).
 Запрос сторожа упал в базе — тревога «сторож этапа не досчитал»: проверка этапа идёт в своей
@@ -39,14 +48,18 @@ from backend.features.core.models.outreach import (
     SenderModel,
     SendingDomainModel,
 )
-from backend.features.letters.chain import CHAINABLE, FIRST_STEP, MAX_STEPS
+from backend.features.letters import mailbox
+from backend.features.letters.chain import ANSWER_STEP, CHAINABLE, FIRST_STEP, MAX_STEPS
 from backend.features.ops.alarms import Alarm
 from backend.features.outreach import limits
 
 logger = logging.getLogger(__name__)
 
-#: Сколько письмо переписки может ждать своего ящика: проход добивок идёт раз в минуту.
-QUIET_MINUTES = 15
+#: Сколько письмо переписки может ждать своего ящика, прежде чем ящик «молчит». Проход добивок
+#: идёт раз в минуту по 20 писем: утренняя волна в сотню подошедших сходит за 5–6 минут, и
+#: десять минут с поломкой её не путают. Срок тревоги по ТЗ — 15 минут: порог, проход сторожа
+#: и опрос провайдеров до их таймаутов — меньше 14 минут (`workers/reaper.WATCHDOG_INTERVAL_SEC`).
+QUIET_MINUTES = 10
 
 
 async def alarms(session: AsyncSession, now: datetime, *, stages: Collection[Stage]) -> list[Alarm]:
@@ -97,9 +110,14 @@ def _not_counted(stage: Stage, exc: SQLAlchemyError) -> Alarm:
 
 
 async def _of_stage(session: AsyncSession, stage: Stage, now: datetime) -> list[Alarm]:
-    boxes = (await session.scalars(select(SenderModel).where(SenderModel.stage == stage))).all()
+    boxes = (
+        await session.scalars(
+            select(SenderModel).where(SenderModel.stage == stage).order_by(SenderModel.id)
+        )
+    ).all()
     writing = [box for box in boxes if box.enabled and box.status is not SenderStatus.PAUSED]
-    found = [alarm for box in writing if (alarm := await _quiet(session, box, now)) is not None]
+    found = [alarm for box in boxes if (alarm := await _of_box(session, box, now)) is not None]
+    found += await _deleted(session, stage, now)
     if boxes and not writing:
         found.append(
             Alarm(
@@ -146,6 +164,92 @@ async def _able(
     )
     shut = {row.domain for row in rows if limits.domain_shut(row, stage, now) is not None}
     return any(box.domain not in shut for box in writing)
+
+
+async def _of_box(session: AsyncSession, box: SenderModel, now: datetime) -> Alarm | None:
+    """Ящик выбыл — не ждут ли его письма переписок; пишет — не молчит ли он."""
+    silent = await mailbox.silence_of(session, box, gone=box.email)
+    if silent is None:
+        return await _quiet(session, box, now)
+    return await _retired(session, box.stage, box, silent, now)
+
+
+async def _deleted(session: AsyncSession, stage: Stage, now: datetime) -> list[Alarm]:
+    """Ящик переписки удалён: письма этапа ушли с ящика, которого больше нет, и их добивки ждут."""
+    silent = await mailbox.silence_of(session, None, gone="первого письма") or ""
+    alarm = await _retired(session, stage, None, silent, now)
+    return [] if alarm is None else [alarm]
+
+
+async def _retired(
+    session: AsyncSession, stage: Stage, box: SenderModel | None, silent: str, now: datetime
+) -> Alarm | None:
+    """Ящик выбыл, а письма переписок ждут именно его — тревога со словами отказа отправки
+    (`silent`). Код — ящик, а не число писем: число меняется, а тревога — одна, пока ящик
+    не вернулся или ждать стало нечего (`alarm_feed.py`). `box` пусто — ящик удалён."""
+    scheduled, due = await _followups(session, stage, box, now)
+    answers = 0 if box is None else await _answers(session, box)
+    if not scheduled + answers:
+        return None
+    if box is None:
+        code = f"retired-box:deleted:{stage.value}"
+        title = f"Ящик переписки удалён — направление «{stage.value}»"
+    else:
+        code, title = f"retired-box:{box.email}", f"Ящик {box.email} выбыл"
+    return Alarm(
+        code=code,
+        title=title,
+        detail=(
+            f"Писем переписки ждут его: {scheduled + answers} — добивок {scheduled} (срок уже "
+            f"наступил у {due}), ответов {answers}. {silent}"
+        ),
+        stage=stage,
+    )
+
+
+async def _followups(
+    session: AsyncSession, stage: Stage, box: SenderModel | None, now: datetime
+) -> tuple[int, int]:
+    """Добивки, которые уйдут только с этого ящика: срок назначен у письма, ушедшего с него
+    (с ящика предыдущего письма уходит добивка, `followups.Claimed.sender_id`), — все и те, чей
+    срок уже наступил. `box` пусто — ящик удалён: письма этапа с пустым ящиком."""
+    own = (
+        MessageModel.sender_id == box.id
+        if box is not None
+        else MessageModel.sender_id.is_(None)
+        & MessageModel.campaign_id.in_(select(CampaignModel.id).where(CampaignModel.stage == stage))
+    )
+    total, due = (
+        await session.execute(
+            select(
+                func.count(MessageModel.id),
+                func.count(MessageModel.id).filter(MessageModel.next_action_at <= now),
+            ).where(
+                own,
+                MessageModel.status.in_(CHAINABLE),
+                MessageModel.step < MAX_STEPS - 1,
+                MessageModel.next_action_at.is_not(None),
+            )
+        )
+    ).one()
+    return int(total), int(due)
+
+
+async def _answers(session: AsyncSession, box: SenderModel) -> int:
+    """Ответы в очереди, которые уйдут только с этого ящика: ящик переписки — ящик её первого
+    письма (`answers._thread_sender`). В переписку удалённого ящика ответ не заводится — отказ
+    на кнопке."""
+    threads = select(MessageModel.thread_id).where(
+        MessageModel.step == FIRST_STEP, MessageModel.sender_id == box.id
+    )
+    found = await session.scalar(
+        select(func.count(MessageModel.id)).where(
+            MessageModel.step >= ANSWER_STEP,
+            MessageModel.status == MessageStatus.QUEUED,
+            MessageModel.thread_id.in_(threads),
+        )
+    )
+    return int(found or 0)
 
 
 async def _quiet(session: AsyncSession, box: SenderModel, now: datetime) -> Alarm | None:

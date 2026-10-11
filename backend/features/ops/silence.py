@@ -25,7 +25,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Collection, Sequence
+from collections.abc import Awaitable, Callable, Collection, Sequence
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
@@ -316,16 +316,19 @@ async def _cap_reached(session: AsyncSession) -> Alarm | None:
     )
 
 
-async def with_providers(found: Sequence[Alarm]) -> list[Alarm]:
+async def with_providers(
+    found: Sequence[Alarm], *, probe: Callable[[], Awaitable[Alarm | None]] | None = None
+) -> list[Alarm]:
     """Сетевая часть прохода сторожа для фонового процесса: опрос провайдеров и строки
     журнала. Без сессии намеренно: зовётся после того, как тревоги базы посчитаны и сессия
     закрыта (`workers/reaper.watch`), — иначе соединение висело бы «idle in transaction» на
     время чужих ответов.
 
-    Провайдеры проверяются здесь — в фоне это уместно: проход идёт раз в несколько минут,
-    и два бесплатных запроса ничего не стоят.
+    Провайдеры проверяются здесь — в фоне это уместно: два бесплатных запроса ничего не
+    стоят. `probe` — опрос; по умолчанию — `probe_providers` сейчас, фоновый проход
+    подставляет свой — с ответом между опросами (`workers/reaper.Providers`).
     """
-    unreachable = await probe_providers()
+    unreachable = await (probe or probe_providers)()
     told = list(found) if unreachable is None else [unreachable, *found]
     if not told:
         logger.info("сторож тишины: тихо и правильно")
