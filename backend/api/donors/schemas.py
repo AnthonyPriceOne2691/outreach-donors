@@ -239,6 +239,10 @@ class DonorFullCard(BaseModel):
     #: У ручной цены — заметка «откуда цена» и кто её указал.
     last_price_note: str | None = None
     last_price_by: str | None = None
+    #: Ответ донора на домене: `sells`, `declines`, `free`. Последнее слово донора
+    #: побеждает (11.10.2026): «не продаём» снимает цену, «бесплатно» ставит вместо
+    #: неё отметку — карточка показывает ответ там, где без него была бы пустая цена.
+    seller_answer: str | None = None
     #: Адреса в том порядке, в каком их берёт сборка писем: лучший первым.
     contacts: list[ContactCard]
     #: Почему поиск адреса сейчас не ставится; пусто — ставится. Правило
@@ -300,6 +304,7 @@ class DonorFullCard(BaseModel):
             last_price_source=donor.last_price_source,
             last_price_note=donor.last_price_note,
             last_price_by=donor.last_price_by,
+            seller_answer=card.seller_answer,
             contacts=[
                 ContactCard.of(contact, card.removal.get(contact.id)) for contact in card.contacts
             ],
