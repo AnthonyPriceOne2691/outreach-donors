@@ -121,7 +121,7 @@ class TestWhoIsLetIn:
         permission: str,
     ) -> None:
         url = path.replace("{row}", str(field["brand"].id))
-        assert (await client.request(method, url, json=body)).status_code == 401
+        assert (await client.request(method, url, json=body)).status_code == 403
 
     @pytest.mark.parametrize(("method", "path", "body", "permission"), ROUTES)
     async def test_operator_does_the_work(

@@ -86,7 +86,7 @@ class TestWhoGetsTheFile:
     async def test_without_pass_nobody(self, client: AsyncClient, files: dict[str, int]) -> None:
         response = await client.get(_path(files["first"], files["pdf"]))
 
-        assert response.status_code == 401
+        assert response.status_code == 403
 
     async def test_pointed_refusal_of_view_closes_it(
         self, client: AsyncClient, files: dict[str, int], make_user: Any, sign_in: Any

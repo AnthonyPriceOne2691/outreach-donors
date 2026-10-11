@@ -33,6 +33,7 @@ from datetime import UTC, datetime, timedelta
 import jwt
 
 from backend.config import access as cfg
+from backend.features.access.permissions import SignedOutError
 
 ALGORITHM = "HS256"
 #: Минимальная длина секрета. Требование стандарта для этой подписи:
@@ -52,8 +53,8 @@ STAMP_LENGTH = 16
 TOKEN_HEADER = "X-Access-Token"  # noqa: S105 — имя заголовка, не секрет
 
 
-class TokenError(RuntimeError):
-    """Пропуск не принят: просрочен, подделан или выдан не нами."""
+class TokenError(SignedOutError):
+    """Пропуск не принят: просрочен, подделан или выдан не нами — входа нет (`SignedOutError`)."""
 
 
 class SecretMissingError(RuntimeError):

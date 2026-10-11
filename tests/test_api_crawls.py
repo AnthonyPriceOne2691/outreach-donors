@@ -71,7 +71,7 @@ async def viewer(make_user: MakeUser, sign_in: SignIn) -> str:
 
 
 async def test_who_may_see_and_start(client: AsyncClient, viewer: str, donors: None) -> None:
-    assert (await client.get("/api/crawls/targets")).status_code == 401
+    assert (await client.get("/api/crawls/targets")).status_code == 403
     assert (await client.get("/api/crawls", headers=bearer(viewer))).status_code == 200
     refused = await client.post("/api/crawls", json={"hosts": [FRESH]}, headers=bearer(viewer))
     assert refused.status_code == 403

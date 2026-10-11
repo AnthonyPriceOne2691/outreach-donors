@@ -399,4 +399,4 @@ async def test_niche_route_table_covers_the_app_and_nobody_without_pass(
     assert in_app == set(NICHE_ROUTES)
     for method, path in NICHE_ROUTES:
         response = await client.request(method, path.replace("{advertiser_id}", "1"))
-        assert response.status_code == 401, path
+        assert response.status_code == 403, path

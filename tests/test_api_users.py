@@ -63,7 +63,7 @@ class TestWhoIsLetIn:
         body: dict[str, Any] | None,
     ) -> None:
         response = await client.request(method, path.format(id=target.id), json=body)
-        assert response.status_code == 401
+        assert response.status_code == 403
 
     @pytest.mark.parametrize(("method", "path", "body"), USER_ROUTES)
     async def test_operator_is_refused(
@@ -235,7 +235,7 @@ class TestChangeAccess:
         response = await client.post(
             "/api/auth/login", json={"email": target.email, "password": "пароль-для-теста"}
         )
-        assert response.status_code == 401
+        assert response.status_code == 400
 
 
 class TestSelfLockout:
@@ -322,7 +322,7 @@ class TestReset:
         old = await client.post(
             "/api/auth/login", json={"email": target.email, "password": "пароль-для-теста"}
         )
-        assert old.status_code == 401
+        assert old.status_code == 400
         await sign_in(target.email, password)
 
     async def test_reset_closes_the_session_already_open(
@@ -337,7 +337,7 @@ class TestReset:
         assert reset.status_code == 200, reset.text
 
         refused = await client.get("/api/auth/me", headers=bearer(open_session))
-        assert refused.status_code == 401
+        assert refused.status_code == 403
         assert "Пароль учётки сменили" in refused.json()["detail"]
 
         # И после смены разового — тоже: пропуск закрыт навсегда, а не до смены.
@@ -348,7 +348,7 @@ class TestReset:
             json={"current": reset.json()["password"], "new": "три слова подряд длиннее"},
         )
         assert changed.status_code == 200, changed.text
-        assert (await client.get("/api/donors", headers=bearer(open_session))).status_code == 401
+        assert (await client.get("/api/donors", headers=bearer(open_session))).status_code == 403
         mine = await client.get("/api/auth/me", headers=bearer(changed.json()["token"]))
         assert mine.status_code == 200
 

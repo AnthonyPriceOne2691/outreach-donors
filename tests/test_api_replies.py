@@ -143,7 +143,7 @@ class TestWhoIsLetIn:
             method, path.replace("{reply}", str(unsure.id)).replace("{file}", "1"), json=body
         )
 
-        assert response.status_code == 401
+        assert response.status_code == 403
 
     async def test_pointed_refusal_closes_the_action(
         self, client: AsyncClient, watcher_token: str, unsure: ReplyModel

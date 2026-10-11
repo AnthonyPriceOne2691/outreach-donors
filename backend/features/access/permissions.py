@@ -99,6 +99,20 @@ class OneTimePasswordError(AccessDeniedError):
     refusal = "change-password"
 
 
+class SignedOutError(AccessDeniedError):
+    """Входа нет: пропуска нет, он не принят (просрочен, подделан), учётка отключена или пароль
+    сменили после выдачи пропуска. Экран стирает пропуск и ведёт на вход.
+
+    Код — 403 со своим признаком, а не 401: весь сервис за паролем прокси (Basic), и браузер
+    прикладывает его к каждому запросу сам. Ответ 401 на такой запрос Chrome считает отказом
+    самому паролю прокси и стирает его из памяти — следующий запрос уходит без него, и посреди
+    работы всплывает окно пароля сервера (разбор продаж по исходникам Chromium, проверено в
+    Chrome 11.10.2026). 401 в сервисе отвечает только прокси.
+    """
+
+    refusal = "signed-out"
+
+
 @dataclass(frozen=True, slots=True)
 class Actor:
     """Кто действует. Ровно то, что нужно для проверки прав, — не модель базы.
@@ -164,4 +178,4 @@ def require_stage(actor: Actor, stage: Stage | None, what: str) -> None:
     скажет тот, кто её ищет, как и без этой проверки.
     """
     if stage is not None and not sees_stage(actor, stage):
-        raise AccessDeniedError(f"{what} — только с правом «Продажи»")
+        raise AccessDeniedError(f"{what} — только с правом «{PERMISSION_TITLES[Permission.SALES]}»")

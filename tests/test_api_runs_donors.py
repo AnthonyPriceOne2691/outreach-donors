@@ -117,7 +117,7 @@ class TestWhoIsLetIn:
     ) -> None:
         target = path.format(run=1, donor=donors[0].id)
         response = await client.request(method, target, json=body)
-        assert response.status_code == 401
+        assert response.status_code == 403
 
     @pytest.mark.parametrize(("method", "path", "body", "permission"), ROUTES)
     async def test_run_needs_its_own_right(

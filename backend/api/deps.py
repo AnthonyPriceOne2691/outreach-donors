@@ -12,12 +12,17 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.access.attempts import LoginAttempts
-from backend.features.access.permissions import Actor, OneTimePasswordError, require
+from backend.features.access.permissions import (
+    Actor,
+    OneTimePasswordError,
+    SignedOutError,
+    require,
+)
 from backend.features.access.repository import AccessRepository, actor_of
 from backend.features.access.tokens import (
     TOKEN_HEADER,
@@ -40,8 +45,6 @@ _bearer = HTTPBearer(auto_error=False)
 #: Счётчик попыток входа — один на процесс, живёт сколько процесс.
 attempts = LoginAttempts()
 
-_UNAUTHORIZED = {"WWW-Authenticate": "Bearer"}
-
 
 async def db_session() -> AsyncIterator[AsyncSession]:
     """Сессия на запрос. Коммитит обработчик: журнал обязан попасть
@@ -55,21 +58,21 @@ async def signed_in(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
     session: AsyncSession = Depends(db_session),
 ) -> UserModel:
-    """Кто пришёл. Отключённая учётка не проходит даже с целым пропуском."""
+    """Кто пришёл. Отключённая учётка не проходит даже с целым пропуском.
+
+    Отказ «входа нет» — `SignedOutError` (403 с признаком `signed-out`), а не 401: на 401
+    браузер стирает пароль прокси, который сам прикладывает к запросу (`access/permissions.py`).
+    """
     given = token or (credentials.credentials if credentials else None)
     if not given:
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED,
-            detail=f"Нужен вход: пришлите пропуск заголовком {TOKEN_HEADER}",
-            headers=_UNAUTHORIZED,
-        )
+        raise SignedOutError(f"Нужен вход: пришлите пропуск заголовком {TOKEN_HEADER}")
 
     payload = read_token(given)
     return _admitted(await AccessRepository(session).by_id(payload.user_id), payload)
 
 
 def _admitted(user: UserModel | None, payload: TokenPayload) -> UserModel:
-    """Учётка пропуска — или отказ 401 словами: учётки нет или она отключена; пароль
+    """Учётка пропуска — или отказ «входа нет» словами: учётки нет или она отключена; пароль
     сменили после выдачи пропуска.
 
     Второе — с проверки прода 10.10.2026: сброс админом и смена своего пароля закрывают
@@ -77,16 +80,10 @@ def _admitted(user: UserModel | None, payload: TokenPayload) -> UserModel:
     пока пропуск, выданный до сброса, открывал данные до конца суток.
     """
     if user is None or not user.is_active:
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED,
-            detail="Учётка отключена или удалена — войти по этому пропуску нельзя",
-            headers=_UNAUTHORIZED,
-        )
+        raise SignedOutError("Учётка отключена или удалена — войти по этому пропуску нельзя")
     if password_changed_since(payload, user.password_hash):
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED,
-            detail="Пароль учётки сменили — этот пропуск больше не действует, войдите заново",
-            headers=_UNAUTHORIZED,
+        raise SignedOutError(
+            "Пароль учётки сменили — этот пропуск больше не действует, войдите заново"
         )
     return user
 
