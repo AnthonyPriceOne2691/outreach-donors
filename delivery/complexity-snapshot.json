@@ -97,9 +97,9 @@
       "worst": "of:71"
     },
     "backend/api/deps.py": {
-      "lines": 128,
+      "lines": 125,
       "complexity": 4,
-      "worst": "signed_in:53"
+      "worst": "signed_in:56"
     },
     "backend/api/donors/__init__.py": {
       "lines": 1,
@@ -117,9 +117,9 @@
       "worst": "of:161"
     },
     "backend/api/errors.py": {
-      "lines": 463,
+      "lines": 464,
       "complexity": 7,
-      "worst": "_database_code:291"
+      "worst": "_database_code:292"
     },
     "backend/api/events/__init__.py": {
       "lines": 1,
@@ -697,9 +697,9 @@
       "worst": "verify_password:43"
     },
     "backend/features/access/permissions.py": {
-      "lines": 168,
+      "lines": 182,
       "complexity": 4,
-      "worst": "has_permission:122"
+      "worst": "has_permission:136"
     },
     "backend/features/access/repository.py": {
       "lines": 228,
@@ -707,9 +707,9 @@
       "worst": "update_access:163"
     },
     "backend/features/access/tokens.py": {
-      "lines": 159,
+      "lines": 160,
       "complexity": 4,
-      "worst": "read_token:125"
+      "worst": "read_token:126"
     },
     "backend/features/agent/__init__.py": {
       "lines": 7,
