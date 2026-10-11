@@ -205,6 +205,22 @@ describe('запрос к серверу', () => {
     }
   });
 
+  it('обрыв посреди тела ответа — тоже «ответа нет», а не текст браузера', async () => {
+    // Ревью продаж 11.10.2026: связь, оборванная, пока читалось тело, у браузера — тот же
+    // TypeError, что и неушедший запрос, и показывалась бы его текстом.
+    const broken = (): Response => {
+      const response = new Response('{}', { status: 200 });
+      vi.spyOn(response, 'json').mockRejectedValue(new TypeError('network error'));
+      vi.spyOn(response, 'blob').mockRejectedValue(new TypeError('network error'));
+      return response;
+    };
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(broken()));
+
+    await expect(request('/auth/me')).rejects.toBeInstanceOf(NoConnectionError);
+    await expect(upload('/threads/1/files', new FormData())).rejects.toThrow(NO_CONNECTION);
+    await expect(download('/donors/export')).rejects.toBeInstanceOf(NoConnectionError);
+  });
+
   it('отмена запроса — не обрыв: уходит как есть', async () => {
     const aborted = new DOMException('The operation was aborted.', 'AbortError');
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(aborted);

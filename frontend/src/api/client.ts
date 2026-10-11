@@ -175,8 +175,14 @@ async function raise(response: Response, sent: string | null): Promise<never> {
  * есть; прочее — тоже как есть.
  */
 async function send(path: string, init: RequestInit): Promise<Response> {
+  return arrived(() => fetch(`/api${path}`, init));
+}
+
+/** Сеть — одним правилом и у запроса, и у тела ответа: связь, оборванная посреди тела,
+ *  у браузера — тот же `TypeError`, что и неушедший запрос (ревью продаж 11.10.2026). */
+async function arrived<T>(read: () => Promise<T>): Promise<T> {
   try {
-    return await fetch(`/api${path}`, init);
+    return await read();
   } catch (error) {
     if (error instanceof TypeError) throw new NoConnectionError(error);
     throw error;
@@ -211,7 +217,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
   if (!response.ok) await raise(response, sent);
   if (response.status === 204) return undefined as T;
-  return (await response.json()) as T;
+  return (await arrived(() => response.json())) as T;
 }
 
 /**
@@ -224,7 +230,7 @@ export async function upload<T>(path: string, form: FormData): Promise<T> {
   const sent = withPass(headers);
   const response = await send(path, { method: 'POST', headers, body: form });
   if (!response.ok) await raise(response, sent);
-  return (await response.json()) as T;
+  return (await arrived(() => response.json())) as T;
 }
 
 /** Файл с сервера: тело, имя, которое сервер для него назвал, и заголовки
@@ -281,7 +287,7 @@ export async function download(
   });
   if (!response.ok) await raise(response, sent);
   return {
-    blob: await response.blob(),
+    blob: await arrived(() => response.blob()),
     filename: filenameOf(response),
     headers: response.headers,
   };
