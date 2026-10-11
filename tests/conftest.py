@@ -343,6 +343,16 @@ def _no_real_sales_bot(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _no_real_autosend(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Тесты не включают автоотправку и автосборку продаж, даже если они включены в `.env`
+    разработчика: циклы процесса разбора (`workers/reaper.py`) тесты гоняют целиком, и проход
+    слал бы письма и ставил сборки по базе из настроек. Тесты проходов включают их сами
+    (`tests/test_sales_autosend.py`, `tests/test_sales_autobuild.py`)."""
+    monkeypatch.setattr("backend.config.sales.AUTOSEND", False)
+    monkeypatch.setattr("backend.config.sales.AUTOBUILD", False)
+
+
+@pytest.fixture(autouse=True)
 def _no_sales_notice_in_a_real_queue(monkeypatch: pytest.MonkeyPatch) -> None:
     """Сообщение о черновике продаж из теста не встаёт в очередь из настроек: Redis
     по умолчанию — общий, и чужой воркер отправил бы его своим ботом по своей базе.

@@ -25,6 +25,11 @@
  * не лёг — зовёт модель заново сама; ждущие — первыми, длинный список — по «Показать все».
  * Добивки письма — в его строке, их тексты — по раскрытию (`BuildLetter`): здесь смотрят
  * очередь перед отправкой пачки, а добивки уйдут сами.
+ *
+ * **Автоотправка и автосборка — строкой сервера каждая** (`AutoLines`): включены ли, как часто
+ * уходят письма, сколько их сейчас в окне получателя и почему проход стоит; хватает ли очереди
+ * на сутки, кого соберёт сама или почему нет. Экран слова не пересчитывает: их говорит тот же
+ * снимок, каким судит проход по расписанию.
  */
 
 import {
@@ -46,7 +51,7 @@ import { refusalOf } from '../api/client';
 import { fetchJob } from '../api/jobs';
 import { buildSalesQueue } from '../api/sales';
 import { chainLanguageTitle } from '../api/salesLabels';
-import type { ChainState, HypothesisCard, SalesQueueView } from '../api/salesTypes';
+import type { ChainState, HypothesisCard, SalesAutoLine, SalesQueueView } from '../api/salesTypes';
 import { useSession } from '../auth/AuthProvider';
 import { HintLabel } from '../components/HintLabel';
 import { InfoHint } from '../components/InfoHint';
@@ -135,6 +140,33 @@ function Chains({ chains }: { chains: ChainState[] }) {
           </Badge>
           <Text size="sm" className="queueChain">
             {chainLine(state)}
+          </Text>
+        </Group>
+      ))}
+    </Stack>
+  );
+}
+
+/** Автоотправка и автосборка — значок «включена» или «выключена» и строка сервера. */
+function AutoLines({ view }: { view: SalesQueueView }) {
+  const lines: [string, SalesAutoLine][] = [
+    ['автоотправка', view.autosend],
+    ['автосборка', view.autobuild],
+  ];
+  return (
+    <Stack gap={4} px="md">
+      {lines.map(([title, auto]) => (
+        <Group key={title} gap="xs" wrap="nowrap" align="flex-start">
+          <Badge
+            variant="light"
+            color={auto.enabled ? 'green' : 'gray'}
+            className="queueAutoBadge"
+            title={auto.enabled ? `${title} включена` : `${title} выключена`}
+          >
+            {title}
+          </Badge>
+          <Text size="sm" className="queueAuto">
+            {auto.line}
           </Text>
         </Group>
       ))}
@@ -276,6 +308,7 @@ function HypothesisQueue({ hypothesis }: { hypothesis: number }) {
         <Metric title="Писем гипотезы в очереди" value={formatNumber(view.queued)} />
         <Metric title="В очереди продаж — всех гипотез" value={formatNumber(view.stage_queued)} />
       </SimpleGrid>
+      <AutoLines view={view} />
       <BuildQueue key={hypothesis} view={view} />
       {/* Без своей карточки: на телефоне её поля съедали ширину, и кнопка пачки
           резала своё число (снимок 390 px, 07.10.2026). */}
@@ -323,8 +356,8 @@ export function QueuePane({ hypotheses, hypothesis, onHypothesis }: PaneProps) {
             отправляет.
           </Text>
           <InfoHint name="Как уходят письма продаж" width={340}>
-            Уходят письма общей отправкой — пачкой или по одному; добивки идут сами, в той же
-            переписке.
+            Уходят письма общей отправкой — пачкой или по одному, а при автоотправке — сами, по
+            одному с ящика в окне получателя; добивки идут сами, в той же переписке.
           </InfoHint>
         </Group>
         <Select

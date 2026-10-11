@@ -42,6 +42,10 @@ def queue_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         # меряется: одна короткая строка в подсказке в 280 px — среднее 4,45 при ядре буквы
         # 16,21, у шапки раздела тем же способом 4,32 и 16,25 (09.10.2026): цвета те же.
         hint_probe("как уходят письма", "Как уходят письма продаж", norm),
+        # Автоотправка и автосборка — значок и строка сервера под плитками (волна 10): серый
+        # значок выключенной — тот же «light», что у языка цепочки, только другим цветом.
+        ("значок автоотправки", ".queueAutoBadge .mantine-Badge-label", norm),
+        ("строка автоотправки", ".queueAuto", norm),
     ]
     return {
         "sales-queue": {"path": path, "ready": ready, "probes": connected},
@@ -49,7 +53,7 @@ def queue_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
             "path": path,
             "ready": ready,
             "viewport": PHONE,
-            "probes": [*connected[2:8], *connected[9:12]],
+            "probes": [*connected[2:8], *connected[9:12], *connected[13:]],
         },
         "sales-queue-off": {
             "path": path,
@@ -60,6 +64,7 @@ def queue_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("чего не хватает", ".mantine-Alert-message li", norm),
                 ("состояние цепочки", ".queueChain", norm),
                 ("подпись плитки", ".metricTile p:nth-child(1)", norm),
+                ("строка автоотправки", ".queueAuto", norm),
             ],
         },
     }

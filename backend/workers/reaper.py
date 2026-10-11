@@ -16,6 +16,11 @@
 контейнера ему не заводим — ему, как и сторожу, нужна сессия раз в несколько минут.
 Модуль продаж цикл импортирует сам, при первом проходе: сбой его импорта — сбой
 этого цикла (его ловит `every`), а разбор прогонов и сторож идут своим чередом.
+
+Четвёртый и пятый — автоотправка первых писем продаж и автосборка их очереди
+(`features/sales/autosend_jobs.tick`, `features/sales/autobuild.tick`) — так же: модуль
+продаж — при первом проходе, тумблеры (`SALES_AUTOSEND`, `SALES_AUTOBUILD`) смотрит сам
+проход, выключенный не открывает и сессии.
 """
 
 from __future__ import annotations
@@ -200,6 +205,21 @@ async def retry_handoffs() -> None:
     await retry_pass()
 
 
+async def autosend() -> None:
+    """Проход автоотправки первых писем продаж. Импорт модуля продаж — здесь, как у повтора
+    передачи: упадёт он — упадёт этот цикл, а не весь разбор."""
+    from backend.features.sales.autosend_jobs import tick  # noqa: PLC0415 — лениво
+
+    await tick()
+
+
+async def autobuild() -> None:
+    """Проход автосборки очереди продаж — тем же порядком, что автоотправка."""
+    from backend.features.sales.autobuild import tick  # noqa: PLC0415 — лениво
+
+    await tick()
+
+
 async def _loops() -> None:
     """Проходы с разными интервалами в одном процессе. Падение
     одного не должно останавливать другие — этим занимается `every`."""
@@ -207,6 +227,8 @@ async def _loops() -> None:
         every(POLL_INTERVAL_SEC, sweep, name="Разбор мёртвых прогонов"),
         every(WATCHDOG_INTERVAL_SEC, watch, name="Сторож тишины"),
         every(sales_cfg.HANDOFF_PASS_SEC, retry_handoffs, name="Повтор передачи лидов продаж"),
+        every(sales_cfg.AUTOSEND_PASS_SEC, autosend, name="Автоотправка писем продаж"),
+        every(sales_cfg.AUTOBUILD_PASS_SEC, autobuild, name="Автосборка очереди продаж"),
     )
 
 
