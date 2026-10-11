@@ -45,7 +45,9 @@ function Remarks({ result }: { result: SalesStoplistAdded }) {
   return (
     <Alert color="yellow" title="Не все строки легли">
       <Stack gap={6}>
-        <Text size="sm">{addedLine(result)} Непринятые строки остались в поле.</Text>
+        <Text size="sm">
+          {addedLine(result)} Непринятые строки остались в поле — поправьте и добавьте ещё раз.
+        </Text>
         <List size="sm" spacing={2}>
           {result.remarks.map((remark) => (
             <List.Item key={`${remark.line}:${remark.cell}`}>

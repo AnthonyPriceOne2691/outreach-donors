@@ -20,11 +20,12 @@
  * предела длины — компании и гипотезы (`wrapCell`); пояс — одной строкой, целиком
  * в подсказке по наведению. Первая колонка слева — в ней имя.
  *
- * **Правка лида — кнопкой в строке** (`LeadEditModal`): имя, должность, компания, язык,
+ * **Правка лида — значком у имени** (`LeadEditModal`): имя, должность, компания, язык,
  * страна и пояс. Без права отправки — «Открыть»: окно смотреть, как у базы знаний.
  */
 
 import {
+  ActionIcon,
   Alert,
   Anchor,
   Badge,
@@ -37,6 +38,7 @@ import {
   Text,
   TextInput,
 } from '@mantine/core';
+import { IconEye, IconPencil } from '@tabler/icons-react';
 import { countryTitle } from '../api/labels';
 import { LEAD_STATES, leadReasonTitle } from '../api/salesLabels';
 import type { HypothesisCard, LeadCard, LeadState } from '../api/salesTypes';
@@ -70,12 +72,10 @@ const COLUMNS: Column[] = [
   // 258 px значка, 2 зазора и 28 «!», с полями ячейки 308 px (замер в браузере,
   // 09.10.2026). В 17rem не влезал и один значок: 278 px при 272.
   { title: 'Причина', width: '19.5rem' },
-  // «Открыть» и «Править» — кнопки одной ширины; колонка — по подписи «Действия».
-  { title: 'Действия', width: '7rem' },
 ];
 
-/** Уже этого таблица не сжимается и уезжает в прокрутку: сумма ширин (83,5rem). */
-export const TABLE_MIN_WIDTH = 1336;
+/** Уже этого таблица не сжимается и уезжает в прокрутку: сумма ширин (76,5rem). */
+export const TABLE_MIN_WIDTH = 1224;
 
 const ALL = 'all';
 
@@ -180,7 +180,6 @@ function FilterRow({ filters, search, onSearch, onFilter, hypotheses, reasons }:
           />
         )}
       </Table.Th>
-      <Table.Th />
     </Table.Tr>
   );
 }
@@ -247,21 +246,46 @@ interface RowProps {
   onEdit: (row: LeadCard) => void;
 }
 
+/** Правка — значком у имени лида, а не колонкой справа: таблица шире панели и на 1440, и на
+ *  телефоне, и кнопка в последней колонке уезжала в прокрутку. Без права — «Открыть». */
+function EditLead({ row, mayWrite, onEdit }: RowProps) {
+  const verb = mayWrite ? 'Править' : 'Открыть';
+  return (
+    <ActionIcon
+      variant="subtle"
+      color="gray"
+      size="sm"
+      radius="xl"
+      aria-label={`${verb} лида ${row.email}`}
+      title={`${verb} лида`}
+      style={{ flexShrink: 0 }}
+      onClick={() => onEdit(row)}
+    >
+      {mayWrite ? <IconPencil size={15} /> : <IconEye size={15} />}
+    </ActionIcon>
+  );
+}
+
 function LeadRow({ row, mayWrite, onEdit }: RowProps) {
   const who = [row.name, row.position].filter((part) => part !== null).join(' · ');
   return (
     <Table.Tr>
       <Table.Td className="cellName">
-        {/* Адрес и домен — по швам (`components/Seams`), а не посреди слова: имя то же,
-            шов — место переноса без знака. У адреса шов и после «@», как на «Стоп-листе». */}
-        <Text size="sm" fw={500} className="leadEmail">
-          <Seams text={row.email} address />
-        </Text>
-        {who !== '' && (
-          <Text size="xs" c="dimmed" className="leadWho">
-            {who}
-          </Text>
-        )}
+        <Group gap={4} wrap="nowrap" align="flex-start" justify="space-between">
+          <Box style={{ minWidth: 0 }}>
+            {/* Адрес и домен — по швам (`components/Seams`), а не посреди слова: имя то же,
+                шов — место переноса без знака. У адреса шов и после «@», как на «Стоп-листе». */}
+            <Text size="sm" fw={500} className="leadEmail">
+              <Seams text={row.email} address />
+            </Text>
+            {who !== '' && (
+              <Text size="xs" c="dimmed" className="leadWho">
+                {who}
+              </Text>
+            )}
+          </Box>
+          <EditLead row={row} mayWrite={mayWrite} onEdit={onEdit} />
+        </Group>
       </Table.Td>
       <Table.Td className="wrapCell" ta="left">
         {row.company !== null && <Text size="sm">{row.company}</Text>}
@@ -293,17 +317,6 @@ function LeadRow({ row, mayWrite, onEdit }: RowProps) {
       </Table.Td>
       <Table.Td>
         <Outcome row={row} />
-      </Table.Td>
-      <Table.Td>
-        <Button
-          size="compact-sm"
-          variant="default"
-          className="press"
-          aria-label={`${mayWrite ? 'Править' : 'Открыть'} лида ${row.email}`}
-          onClick={() => onEdit(row)}
-        >
-          {mayWrite ? 'Править' : 'Открыть'}
-        </Button>
       </Table.Td>
     </Table.Tr>
   );
