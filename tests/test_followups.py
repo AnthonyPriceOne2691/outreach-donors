@@ -23,7 +23,7 @@ from backend.features.letters.sending import Sending
 from backend.features.letters.transport import NullTransport, Outgoing
 from backend.features.outreach.repository import OutreachRepository
 from backend.features.replies.repository import ReplyRepository
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import FILLED, make_donor, make_sender
 
@@ -187,6 +187,28 @@ class TestClaiming:
         assert second is None
         await session.refresh(message)
         assert message.next_action_at is None
+
+    async def test_equal_dates_go_in_letter_order(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        """Письма, ушедшие в один миг, ждут добивку до одного срока — первой берётся
+        старшая строка, а не та, что база отдала первой. Сверка продаж 11.10.2026:
+        их тест на двух лидах одной компании плавал на порядке добивок."""
+        older, _ = await _chain_start(session, host="one.example.test", followup_days=[1, 2])
+        newer, _ = await _chain_start(session, host="two.example.test", followup_days=[1, 2])
+        assert older.next_action_at == newer.next_action_at
+        # Старшая строка переписана: её новая версия ложится в таблице после младшей,
+        # и порядок одного срока база берёт уже оттуда.
+        await session.execute(
+            update(MessageModel)
+            .where(MessageModel.id == older.id)
+            .values(next_action_at=older.next_action_at)
+        )
+        later = NOW + timedelta(days=2)
+
+        claimed = [await Chain(session, now=later).claim() for _ in range(2)]
+
+        assert [c.previous_id if c else None for c in claimed] == [older.id, newer.id]
 
     async def test_not_due_yet_is_left_alone(
         self, session: AsyncSession, filled_legal: None
