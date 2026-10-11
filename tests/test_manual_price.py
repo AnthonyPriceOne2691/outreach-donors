@@ -201,7 +201,7 @@ class TestEnteredByHand:
             price=Decimal("120"),
             currency="EUR",
             offers=[{"product": "guest post", "price": "120"}],
-            now=NOW - timedelta(days=30),
+            at=NOW - timedelta(days=30),
         )
         donor = await _donor(session, "example.com")
         donor.review_by = "принял@ours.example.test"

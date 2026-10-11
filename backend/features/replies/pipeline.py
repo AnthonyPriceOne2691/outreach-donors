@@ -369,8 +369,9 @@ class Parser:
         _write_back(reply, found)
 
         consequences = outcome.decide(reply.kind, found)
+        stored = False
         if consequences.store_price:
-            await self._store_price(reply, found)
+            stored = await self._store_price(reply, found)
             await self._seller_answer(reply, extract_mod.PLACEMENT_SELLS)
         if consequences.store_declines:
             await self._seller_answer(reply, extract_mod.PLACEMENT_DECLINES)
@@ -383,12 +384,12 @@ class Parser:
             "разбор: ответ №%s, уверенность %.2f, цена в базу — %s",
             reply_id,
             found.confidence,
-            "да" if consequences.store_price else "нет",
+            "да" if stored else "нет",
         )
         return Parsed(
             reply_id=reply_id,
             confidence=found.confidence,
-            stored_price=consequences.store_price,
+            stored_price=stored,
             needs_review=consequences.needs_review,
             review_reason=consequences.review_reason,
             tokens_spent=found.tokens_spent,
@@ -421,26 +422,29 @@ class Parser:
         return _without_model(reply, skipped, why=why)
 
     async def _seller_answer(self, reply: ReplyModel, answer: str) -> None:
+        """Время ответа донора — когда ответ пришёл, а не когда его разобрали: разбор
+        опаздывает, и последнее слово донора — по нему (`donors/price.py`)."""
         domain_id = await self._repo.domain_of(reply)
         if domain_id is None:
             return
         await self._repo.record_seller_answer(
-            domain_id=domain_id, answer=answer, reply_id=reply.id, now=self._now
+            domain_id=domain_id, answer=answer, reply_id=reply.id, at=reply.created_at
         )
 
-    async def _store_price(self, reply: ReplyModel, found: Extracted) -> None:
+    async def _store_price(self, reply: ReplyModel, found: Extracted) -> bool:
         """Донор ищется по диалогу, а при его отсутствии — по письму:
-        связь письма стирается при его удалении, диалог остаётся."""
+        связь письма стирается при его удалении, диалог остаётся. `False` — цена
+        не легла: её нет или у донора слово новее этого ответа."""
         domain_id = await self._repo.domain_of(reply)
         price = found.price_white if found.price_white is not None else found.price_grey
         if domain_id is None or price is None:
-            return
-        await self._repo.store_price(
+            return False
+        return await self._repo.store_price(
             domain_id=domain_id,
             price=price,
             currency=found.currency,
             offers=reply.offers,
-            now=self._now or datetime.now(UTC),
+            at=reply.created_at,
         )
 
 

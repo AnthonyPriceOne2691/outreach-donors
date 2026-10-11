@@ -36,7 +36,7 @@ from backend.features.core.models.outreach import (
     ReplyModel,
     ThreadModel,
 )
-from backend.features.donors.price import put_price
+from backend.features.donors.price import put_answer, put_price, said_later
 from backend.features.replies import outcome, robots, stage_rules
 from backend.features.replies.binding import Unbound
 from backend.features.replies.extract import Extracted
@@ -288,10 +288,11 @@ class ReplyRepository:
         price: Decimal,
         currency: str | None,
         offers: list[dict[str, Any]] | None,
-        now: datetime | None = None,
-    ) -> None:
+        at: datetime | None = None,
+    ) -> bool:
         """Перенести цену в карточку донора — вместе со всеми ценами того же
-        ответа (`offers`, как они лежат у ответа).
+        ответа (`offers`, как они лежат у ответа). `at` — когда ответ пришёл
+        (пусто — сейчас); слово донора новее не перебивается (`price.said_later`) — `False`.
 
         Цена кладётся в той валюте, в которой её назвали: конвертации
         в сервисе нет, и подписать евро долларами значит записать
@@ -299,36 +300,37 @@ class ReplyRepository:
         затирает прежний: список чужого ответа рядом с новой ценой врал бы.
         Источник — «из ответа», и заметка с автором ручной цены уходят с ней.
         """
-        rows = await self._session.execute(
-            select(DonorModel).where(DonorModel.domain_id == domain_id)
-        )
-        donor = rows.scalars().first()
-        if donor is None:
-            return
-        at = now or datetime.now(UTC)
+        donor = await self._donor(domain_id)
+        domain = await self._session.get(DomainModel, domain_id)
+        at = at or datetime.now(UTC)
+        if donor is None or said_later(donor, domain, at):
+            return False
         put_price(
             donor, amount=price, currency=currency, at=at, source=PriceSource.REPLY, offers=offers
         )
+        return True
 
     async def record_seller_answer(
-        self,
-        *,
-        domain_id: int,
-        answer: str,
-        reply_id: int | None,
-        now: datetime | None = None,
-    ) -> None:
-        """Ответ самого донора — на домен, рядом с вердиктом судьи.
+        self, *, domain_id: int, answer: str, reply_id: int | None, at: datetime
+    ) -> bool:
+        """Ответ самого донора — на домен, рядом с вердиктом судьи; `at` — когда ответ
+        пришёл. Ответ старше лежащего на домене не ложится — `False`; «не продаём»
+        и «бесплатно» снимают цену донора, названную не позже (`price.put_answer`).
 
         Вердикт судьи и решение человека не трогаются: по расхождению с ними
         считается, как часто отбор ошибается в главном для гест-постинга.
         """
         domain = await self._session.get(DomainModel, domain_id)
         if domain is None:
-            return
-        domain.seller_answer = answer
-        domain.seller_answer_at = now or datetime.now(UTC)
-        domain.seller_answer_reply_id = reply_id
+            return False
+        donor = await self._donor(domain_id)
+        return put_answer(domain, donor, answer=answer, reply_id=reply_id, at=at)
+
+    async def _donor(self, domain_id: int) -> DonorModel | None:
+        found: DonorModel | None = await self._session.scalar(
+            select(DonorModel).where(DonorModel.domain_id == domain_id)
+        )
+        return found
 
     async def mark_replied(self, thread_id: int | None) -> None:
         """Диалог отвечен человеком.
