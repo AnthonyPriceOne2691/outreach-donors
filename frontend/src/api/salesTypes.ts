@@ -38,6 +38,10 @@ export interface HypothesisCard {
   /** Состояние → сколько лидов. Все состояния названы, хоть и нулём. */
   leads: Record<LeadState, number>;
   total: number;
+  /** Лидов «готов», которых очистка проверит заново: выдуманный вердикт при живом
+   *  проверяльщике. Сервер шлёт всегда; в типе необязательно — записанные ответы тестов
+   *  раздела его не несут. */
+  recheck?: number;
 }
 
 export interface HypothesesView {
@@ -75,6 +79,9 @@ export interface LeadCard {
   cleaning_note: string | null;
   /** Вердикт проверяльщика с именем источника: `fixture:valid`, `hunter:valid`. */
   verification_status: string | null;
+  /** Почему адрес не проверен по-настоящему — словами сервера: выдуманный вердикт при живом
+   *  проверяльщике. Необязательно в типе — как `recheck` у гипотезы. */
+  unproven?: string | null;
   created_at: string;
 }
 

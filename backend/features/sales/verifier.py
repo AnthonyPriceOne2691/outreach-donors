@@ -12,6 +12,12 @@ Verifier. Умолчание — `fixture`; на `live` переключает �
 с соседней системой, квота одна на обе. `live` без ключа — отказ на старте,
 до первого лида, а не на первом платном вызове.
 
+**Выдуманный вердикт при живом проверяльщике не годен** (`unproven`): лид, чей адрес
+проверял `fixture` (`verification_status` — `fixture:…`), в очередь не идёт и его письмо
+не уходит — причина словами «очистите базу заново»; очистка берёт его снова (`due`) и
+проверит адрес по-настоящему. При `fixture` всё как было: пилот на выдуманных вердиктах
+не ломается.
+
 **Вердикт и отказ сервиса — разные вещи** (`okf/provider-refusals.md`).
 Вердикт — в том числе `unknown`, «провайдер не знает», — возвращается
 и записывается лиду. Отказ — сеть, 429, 5xx, непонятный ответ —
@@ -31,6 +37,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
 import httpx
+from sqlalchemy import ColumnElement, false, or_
 
 from backend.config import contacts as contacts_cfg
 from backend.config import sales as cfg
@@ -41,6 +48,7 @@ from backend.features.contacts.provider import (
     ProviderError,
     _raise_refusal,
 )
+from backend.features.sales.models import LeadStatus, SalesLeadModel
 from backend.shared.net.retry import reason_of, unsent
 
 logger = logging.getLogger(__name__)
@@ -48,6 +56,8 @@ logger = logging.getLogger(__name__)
 FIXTURE = "fixture"
 LIVE = "live"
 KNOWN = (FIXTURE, LIVE)
+#: Почему лид, проверенный выдуманным проверяльщиком, не годен при живом — словами отчёта.
+MADE_UP = "адрес проверен тестовым проверяльщиком — очистите базу заново"
 
 #: Слово провайдера → доставляем ли. `None` — провайдер не знает: это вердикт,
 #: а не отказ; лид идёт дальше, слово остаётся в `verification_status`.
@@ -242,3 +252,34 @@ def build_verifier(http: httpx.AsyncClient) -> EmailVerifier:
         "годится для проверки проводки, не для писем"
     )
     return FixtureVerifier()
+
+
+def live() -> bool:
+    """Задан ли живой проверяльщик — без проверки ключа: годность лида судят сборка,
+    отправка и экран, а ключ — сборка проверяльщика (`configured`)."""
+    return (cfg.VERIFIER_PROVIDER or "").strip().lower() == LIVE
+
+
+def recheck(real: bool) -> ColumnElement[bool]:
+    """Лиды `ready`, которых очистка возьмёт снова: выдуманный вердикт, а проверяльщик живой
+    (`real`). При выдуманном — никто: его вердикты годны."""
+    if not real:
+        return false()
+    return (
+        SalesLeadModel.status == LeadStatus.READY
+    ) & SalesLeadModel.verification_status.startswith(f"{FIXTURE}:")
+
+
+def due(real: bool) -> ColumnElement[bool]:
+    """Кого берёт очистка: лидов `new` — и при живом проверяльщике (`real`) `ready` с
+    выдуманным вердиктом: кнопка очистки проверит их адрес по-настоящему. Одно условие у
+    прохода и у числа «ждут очистки» на экране."""
+    fresh = SalesLeadModel.status == LeadStatus.NEW
+    return or_(fresh, recheck(real)) if real else fresh
+
+
+def unproven(lead: SalesLeadModel) -> str | None:
+    """Почему адрес лида не проверен по-настоящему — словами; `None` — проверен или
+    проверяльщик выдуманный: при `fixture` выдуманный вердикт годен, как было."""
+    made_up = (lead.verification_status or "").startswith(f"{FIXTURE}:")
+    return MADE_UP if made_up and live() else None

@@ -37,7 +37,8 @@
 бы, а второе письмо тому же лиду не дал бы ключ.
 
 **Лид, которому писать нельзя, вызова модели не стоит**: передан телемаркетологу, в
-стоп-листе, нет значения подстановки, нет цепочки на его языке — причина в отчёте.
+стоп-листе, адрес проверен выдуманным проверяльщиком при живом (`verifier.unproven`), нет
+значения подстановки, нет цепочки на его языке — причина в отчёте.
 Лиды `referral` (коллега, которого назвали в ответе) получают тот же первый шаг: своего
 письма для них пока нет — открытый вопрос владельцу.
 """
@@ -76,6 +77,7 @@ from backend.features.sales.models import (
 from backend.features.sales.queue_report import QueueReport
 from backend.features.sales.sender import Sender
 from backend.features.sales.usage_cap import sales_cap
+from backend.features.sales.verifier import unproven
 
 logger = logging.getLogger(__name__)
 
@@ -218,7 +220,7 @@ async def _blocked(session: AsyncSession, row: _Lead) -> str | None:
 
 async def _plan(session: AsyncSession, row: _Lead, hypothesis_id: int) -> _Plan | str:
     """Что писать лиду — или почему он ждёт (строкой отчёта). Без вызова модели."""
-    if (why := await _blocked(session, row)) is not None:
+    if (why := await _blocked(session, row) or unproven(row.lead)) is not None:
         return why
     # Язык без цепочки — причина в отчёте, не ошибка; язык — основой кода: `ru-RU` → `ru`.
     language = language_base(row.lead.language)

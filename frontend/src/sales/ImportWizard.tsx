@@ -192,6 +192,12 @@ function SourceStep(props: SourceStepProps) {
   );
 }
 
+/** Сколько лидов гипотезы возьмёт очистка: новые и «готовые» с выдуманным вердиктом. */
+function waitingOf(known: HypothesisCard[], id: number): number {
+  const found = known.find((row) => row.id === id);
+  return found === undefined ? 0 : found.leads.new + (found.recheck ?? 0);
+}
+
 /** Имя гипотезы по номеру — для слов «лиды лягут в гипотезу …». */
 function nameOf(known: HypothesisCard[], id: number | null): string | null {
   return known.find((row) => row.id === id)?.name ?? null;
@@ -413,7 +419,7 @@ export function ImportWizard() {
             outcome={outcome}
             hypothesisId={hypothesisId}
             hypothesisName={nameOf(known, hypothesisId)}
-            waiting={known.find((row) => row.id === hypothesisId)?.leads.new ?? 0}
+            waiting={waitingOf(known, hypothesisId)}
             onAgain={wizard.again}
           />
         ) : (

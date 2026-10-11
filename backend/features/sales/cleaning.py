@@ -73,7 +73,7 @@ from backend.features.sales.models import (
     SalesStoplistModel,
 )
 from backend.features.sales.suppressions import holds_sales
-from backend.features.sales.verifier import EmailVerifier, Verdict
+from backend.features.sales.verifier import FIXTURE, EmailVerifier, Verdict, due
 
 logger = logging.getLogger(__name__)
 
@@ -363,8 +363,10 @@ async def _verify_all(
 # --- проход ---------------------------------------------------------------------
 
 
-async def _new_leads(session: AsyncSession, hypothesis_id: int | None) -> list[SalesLeadModel]:
-    query = select(SalesLeadModel).where(SalesLeadModel.status == LeadStatus.NEW)
+async def _due_leads(
+    session: AsyncSession, hypothesis_id: int | None, real: bool
+) -> list[SalesLeadModel]:
+    query = select(SalesLeadModel).where(due(real))  # и выдуманный вердикт при живом
     if hypothesis_id is not None:
         query = query.where(SalesLeadModel.hypothesis_id == hypothesis_id)
     return list((await session.scalars(query.order_by(SalesLeadModel.id))).all())
@@ -460,11 +462,12 @@ async def clean(
 ) -> CleaningReport:
     """Очистить лидов `new` — всех или одной гипотезы. Коммит — партиями, здесь.
 
-    Лид `ready` второй раз не проверяется: платить дважды незачем. Лид,
-    оставшийся `new` из-за отказа сервиса, следующим проходом пройдёт заново.
+    Лид `ready` второй раз не проверяется: платить дважды незачем, — кроме проверенного
+    выдуманным, когда проверяльщик живой (`verifier.due`). Лид, оставшийся `new` из-за отказа
+    сервиса, следующим проходом пройдёт заново.
     """
     moment = now or datetime.now(UTC)
-    leads = await _new_leads(session, hypothesis_id)
+    leads = await _due_leads(session, hypothesis_id, verifier.name != FIXTURE)
     report = CleaningReport(checked=len(leads), verifier=verifier.name)
     halt = _Halt()
     for start in range(0, len(leads), BATCH):

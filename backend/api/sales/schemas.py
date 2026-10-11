@@ -12,6 +12,7 @@ from backend.features.sales.columns import LeadField
 from backend.features.sales.intake import Lead, Preview, Problem
 from backend.features.sales.lead_values import Defaults
 from backend.features.sales.models import LeadSource, LeadStatus
+from backend.features.sales.verifier import unproven
 
 
 class IntakeDefaults(BaseModel):
@@ -100,6 +101,9 @@ class HypothesisCard(BaseModel):
     #: Состояние → сколько. Все состояния названы, хоть и нулём.
     leads: dict[str, int]
     total: int
+    #: Лидов «готов», которых очистка проверит заново: адрес проверял выдуманный проверяльщик,
+    #: а задан живой. Их тоже ждёт кнопка «Очистить».
+    recheck: int
 
     @classmethod
     def of(cls, row: HypothesisRow) -> HypothesisCard:
@@ -111,6 +115,7 @@ class HypothesisCard(BaseModel):
             created_at=found.created_at,
             leads=row.states,
             total=row.total,
+            recheck=row.recheck,
         )
 
 
@@ -143,6 +148,9 @@ class LeadCard(BaseModel):
     rejection_reason: str | None
     cleaning_note: str | None
     verification_status: str | None
+    #: Почему адрес не проверен по-настоящему — словами: выдуманный вердикт при живом
+    #: проверяльщике (`verifier.unproven`). Такой лид ждёт очистки, письма ему не идут.
+    unproven: str | None
     created_at: datetime
 
     @classmethod
@@ -165,6 +173,7 @@ class LeadCard(BaseModel):
             rejection_reason=lead.rejection_reason,
             cleaning_note=lead.cleaning_note,
             verification_status=lead.verification_status,
+            unproven=unproven(lead),
             created_at=lead.created_at,
         )
 

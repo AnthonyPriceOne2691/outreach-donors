@@ -170,7 +170,13 @@ export function LeadsPane({ leads, total, onTurn, onReset, ...filterRow }: Props
           Поле — у самой строки: пустая обёртка добавила бы зазор стопки между плитками и
           таблицей. */}
       {chosen !== undefined ? (
-        <CleanLeads key={chosen.id} hypothesis={chosen.id} waiting={chosen.leads.new} px="md" />
+        <CleanLeads
+          key={chosen.id}
+          hypothesis={chosen.id}
+          waiting={chosen.leads.new + (chosen.recheck ?? 0)}
+          recheck={chosen.recheck ?? 0}
+          px="md"
+        />
       ) : null}
       <LeadsBody leads={leads} total={total} onTurn={onTurn} onReset={onReset} {...filterRow} />
     </>

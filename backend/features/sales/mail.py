@@ -16,8 +16,9 @@
   `sending._check_review`): лид не снят, не передан телемаркетологу
   (`handoff.handed_off` — переданному цепочка не идёт), не в стоп-листе (`unwritable` —
   то же правило решает, писать ли агенту черновик ответа лида); первое письмо —
-  в коридоре отличия и собрано после последней правки лида (`lead_edit.edited`); подпись и
-  адрес на месте, подстановок без значения нет (`letter.problem`, у ответа в переписке —
+  в коридоре отличия, собрано после последней правки лида (`lead_edit.edited`), а адрес не
+  проверен выдуманным проверяльщиком при живом (`verifier.unproven`); подпись и адрес на
+  месте, подстановок без значения нет (`letter.problem`, у ответа в переписке —
   `letter.answer_problem`);
 - `connected` — подключены ли продажи: проход добивок берёт их сроки только тогда, иначе
   срок цел и проход называет его вслух;
@@ -77,6 +78,7 @@ from backend.features.sales.models import (
 )
 from backend.features.sales.policy import sales_policy, zones_of
 from backend.features.sales.suppressions import holds_sales
+from backend.features.sales.verifier import unproven
 
 logger = logging.getLogger(__name__)
 
@@ -226,8 +228,8 @@ async def check(session: AsyncSession, message: MessageModel) -> None:
                 f"{what} не уходит: {verdict} — письмо продаж уходит только в коридоре, "
                 "соберите очередь заново"
             )
-        if edited(dialog.lead, message):
-            raise NotReadyError(f"{what} не уходит: {EDITED}")
+        if (why := EDITED if edited(dialog.lead, message) else unproven(dialog.lead)) is not None:
+            raise NotReadyError(f"{what} не уходит: {why}")
     rule = letter.answer_problem if message.step >= ANSWER_STEP else letter.problem
     problem = rule(message.body or "", await sender.read(session))
     if problem is not None:

@@ -30,6 +30,7 @@ from sqlalchemy import ColumnElement, Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.models.domain import DomainModel
+from backend.features.sales import verifier
 from backend.features.sales.models import (
     LeadStatus,
     RejectionReason,
@@ -80,6 +81,9 @@ class LeadsPage:
 class HypothesisRow:
     hypothesis: SalesHypothesisModel
     states: dict[str, int]
+    #: Лидов «готов», которых очистка возьмёт снова: адрес проверял выдуманный проверяльщик, а
+    #: задан живой (`verifier.recheck`). При выдуманном — ноль.
+    recheck: int = 0
 
     @property
     def total(self) -> int:
@@ -181,10 +185,24 @@ async def hypotheses(session: AsyncSession) -> list[HypothesisRow]:
     by_hypothesis: dict[int, dict[str, int]] = {}
     for hypothesis_id, status, n in counted.all():
         by_hypothesis.setdefault(int(hypothesis_id), {})[LeadStatus(status).value] = int(n)
+    again = await _recheck(session)
     return [
         HypothesisRow(
             hypothesis,
             _complete(by_hypothesis.get(hypothesis.id, {}), (s.value for s in LeadStatus)),
+            again.get(hypothesis.id, 0),
         )
         for hypothesis in found.all()
     ]
+
+
+async def _recheck(session: AsyncSession) -> dict[int, int]:
+    """Гипотеза → сколько её лидов «готов» очистка проверит заново (`verifier.recheck`)."""
+    if not verifier.live():
+        return {}
+    rows = await session.execute(
+        select(SalesLeadModel.hypothesis_id, func.count())
+        .where(verifier.recheck(real=True))
+        .group_by(SalesLeadModel.hypothesis_id)
+    )
+    return {int(hypothesis_id): int(n) for hypothesis_id, n in rows.all()}

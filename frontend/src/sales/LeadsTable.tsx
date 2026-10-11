@@ -193,8 +193,22 @@ function StateBadge({ state }: { state: LeadState }) {
   );
 }
 
+/** Адрес проверял выдуманный проверяльщик, а задан живой: значок и «!» со словами сервера —
+ *  письма лиду не идут, пока очистка не проверит адрес по-настоящему. */
+function Unproven({ note }: { note: string }) {
+  return (
+    <Group gap={2} justify="center" wrap="nowrap">
+      <Badge variant="light" color="yellow" style={{ flexShrink: 0 }}>
+        проверить заново
+      </Badge>
+      <LeadNote note={note} rejected={false} />
+    </Group>
+  );
+}
+
 /** Что очистка сказала о лиде: причина значком и «!» со словами, или вердикт проверки. */
 function Outcome({ row }: { row: LeadCard }) {
+  if (row.unproven) return <Unproven note={row.unproven} />;
   const rejected = row.rejection_reason !== null;
   const note =
     row.cleaning_note !== null ? <LeadNote note={row.cleaning_note} rejected={rejected} /> : null;
