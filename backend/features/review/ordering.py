@@ -23,7 +23,7 @@ from sqlalchemy import ColumnElement, case, func, literal, null
 
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
-from backend.features.donors.selection import site_advice
+from backend.features.donors.selection import HumanIntent, site_advice
 
 
 class Tier(StrEnum):
@@ -96,8 +96,11 @@ def _sells_branches() -> list[tuple[ColumnElement[bool], Any, Any]]:
             literal("сам сказал: берёт статьи бесплатно"),
             answer,
         ),
+        # Тип сайта человек называет словами «Отбора» (`HumanIntent`). До 11.10.2026
+        # здесь ждали тип судьи `sells_placement`, которого человек не говорит, —
+        # и ветка не загоралась ни разу.
         (
-            DomainModel.human_intent == "sells_placement",
+            DomainModel.human_intent == HumanIntent.PUBLISHER.value,
             literal("человек: продаёт размещение у себя"),
             human,
         ),
