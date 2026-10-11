@@ -20,6 +20,15 @@
 поправить руками или не писать. Тихо выбросить письмо значило бы
 показать пустую очередь там, где отказала модель.
 
+**В коридор письмо кладёт подбор зон, а не второй вызов модели.** Просьбу
+«поменяй N% слов» при большой переписываемой доле модель не исполняет —
+переписывает зоны почти целиком (живые прогоны 11.10.2026), и письмо уходит
+за верхний край. Из того же ответа сборка берёт наибольший набор принятых зон,
+с которым письмо в коридоре (`selection.py`), остальные переписанные зоны
+остаются текстом шаблона; письмо, целиком лежащее в коридоре, уходит целиком.
+Ни один набор не попал — письмо со всеми зонами встаёт в очередь с пометкой,
+как и раньше.
+
 **Незаполненная обязательная настройка сборку не останавливает, но
 называется вслух.** Живой прогон собрал три письма на 1361 токен, не сказав
 ни слова о том, что отправить нельзя ни одно: тогда не хватало физического
@@ -52,7 +61,7 @@ from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.core.models.run import RunModel
 from backend.features.core.stages import mail_stage
 from backend.features.crawl.niche import LINKS
-from backend.features.letters import compose, guards
+from backend.features.letters import compose, guards, selection
 from backend.features.letters.recipients import Candidate
 from backend.features.letters.repository import LetterRepository
 from backend.features.letters.rewrite import Personalization, RewriteClient
@@ -218,8 +227,13 @@ class BuildReport:
     tokens_spent: int = 0
     #: Писем, не попавших в коридор отличия. Не отказ, но повод посмотреть.
     off_corridor: int = 0
+    #: Писем, которые подбор положил в коридор, оставив часть переписанных зон текстом
+    #: шаблона (`_accepted`), и сколько таких зон во всех них. Не отказ модели — его ноты
+    #: в `notes`; вызов модели на письмо тот же.
+    selected_letters: int = 0
+    dropped_zones: int = 0
     funnel: dict[str, int] = field(default_factory=dict)
-    #: Почему зоны остались шаблонными: причина → сколько раз.
+    #: Почему зоны остались шаблонными — отказы модели: причина → сколько раз.
     notes: dict[str, int] = field(default_factory=dict)
     #: Незаполненные настройки, из-за которых отправить нельзя ни одно
     #: из подготовленных писем. Пусто — очередь готова к отправке.
@@ -230,6 +244,32 @@ class BuildReport:
     #: Сборка остановлена потолком расхода на модель: причина словами.
     #: Подготовленные до остановки письма в очереди, остальные — следующей сборкой.
     stopped: str | None = None
+
+
+def _accepted(
+    rendered: compose.Rendered, zones: dict[str, str], *, seed: int, report: BuildReport
+) -> dict[str, str]:
+    """Принятые зоны, с которыми письмо ложится в коридор отличия (`selection.py`).
+
+    Набор подбирается из того же ответа модели: вызов на письмо один, как и был. Берётся
+    наибольший набор в коридоре; среди равных решает зерно — номер домена адресата: выбор
+    повторим (тот же ответ — тот же набор), а у разных адресатов наборы расходятся, и
+    шаблонные абзацы писем не совпадают.
+
+    Ни один набор не в коридоре — все принятые зоны, как до подбора: письмо встаёт в
+    очередь с честным числом и пометкой «вне коридора» на экране, решает человек.
+    Повтора модели, как у продаж, нет: токенов на письмо столько же, сколько до подбора.
+
+    Снятая подбором зона — не отказ модели: ноты «осталась шаблонной» о ней нет, она
+    в отчёте отдельным числом.
+    """
+    chosen = selection.select(rendered, zones, seed=seed)
+    if chosen is None:
+        return zones
+    if chosen.dropped:
+        report.selected_letters += 1
+        report.dropped_zones += len(chosen.dropped)
+    return chosen.zones
 
 
 class QueueBuilder:
@@ -304,11 +344,14 @@ class QueueBuilder:
             await self._session.commit()
 
         logger.info(
-            "письма: подготовлено %s из %s, токенов %s, вне коридора %s",
+            "письма: подготовлено %s из %s, токенов %s, вне коридора %s, "
+            "подбором зон %s (оставлено шаблоном зон %s)",
             report.prepared,
             len(candidates),
             report.tokens_spent,
             report.off_corridor,
+            report.selected_letters,
+            report.dropped_zones,
         )
         return report
 
@@ -363,7 +406,7 @@ class QueueBuilder:
         report: BuildReport,
         found_by: dict[str, list[str]],
     ) -> None:
-        """Одно письмо: текст, проверки, запись в очередь."""
+        """Одно письмо: текст, подбор зон, проверки, запись в очередь."""
         rendered = compose.render(
             letter_template,
             compose.values_for(
@@ -385,7 +428,9 @@ class QueueBuilder:
         for note in rewritten.notes:
             report.notes[note] = report.notes.get(note, 0) + 1
 
-        letter = compose.assemble(rendered, rewritten.zones)
+        # Проверки — по собранному тексту выбранного набора: метрики и отличие.
+        accepted = _accepted(rendered, rewritten.zones, seed=candidate.domain_id, report=report)
+        letter = compose.assemble(rendered, accepted)
         guards.assert_no_metrics(letter.body)
 
         uniqueness = difference(letter.plain_body, letter.body)

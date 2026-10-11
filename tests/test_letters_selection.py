@@ -49,6 +49,14 @@ def _rewritten(rendered: Rendered, **shares: float) -> dict[str, str]:
 #: {intro} 20%, {greeting, intro} 22%, {aside, close} 18%, {greeting, aside, close} 20%.
 FOUR = _letter(("greeting", 2), ("intro", 20), ("aside", 10), ("close", 8), fixed=60)
 FITTING = {("intro",), ("greeting", "intro"), ("aside", "close"), ("greeting", "aside", "close")}
+#: Все четыре зоны — 22%, в коридоре и четыре меньших набора (16–20%): весь набор берётся целиком.
+WHOLE = _letter(("greeting", 2), ("intro", 10), ("aside", 6), ("close", 4), fixed=78)
+#: В коридоре пара {greeting, intro} 17% и одиночка {close} 24% — дальше от шаблона, но короче.
+PAIR = _letter(("greeting", 5), ("intro", 12), ("close", 24), fixed=59)
+#: Три пары по 20% — наибольшие равные: выбор между ними — за зерном.
+EQUAL = _letter(("greeting", 10), ("intro", 10), ("close", 10), fixed=70)
+#: Две одиночки в коридоре — {intro} 20% и {close} 21%, пары выше края: снимаются две зоны.
+SINGLES = _letter(("greeting", 6), ("intro", 20), ("close", 21), fixed=53)
 
 
 def _counted(monkeypatch: pytest.MonkeyPatch) -> list[int]:
@@ -89,29 +97,66 @@ def test_difference_is_of_the_assembled_letter_not_a_sum_over_zones() -> None:
     assert found.difference == difference(letter.plain_body, letter.body)
 
 
-def test_several_sets_in_the_corridor_are_chosen_by_the_seed() -> None:
-    """Наборов в коридоре четыре — выбор с зерном: тот же номер — тот же набор, разные номера —
-    разные наборы, и любой выбранный — в коридоре."""
-    rewritten = _rewritten(FOUR, greeting=1, intro=1, aside=1, close=1)
-
-    chosen = {seed: select(FOUR, rewritten, seed=seed) for seed in range(40)}
-
-    picked = {tuple(found.zones) for found in chosen.values() if found is not None}
-    assert picked <= FITTING
-    assert len(picked) > 1
-    assert all(found is not None and in_corridor(found.difference) for found in chosen.values())
-    assert select(FOUR, rewritten, seed=11) == chosen[11]
-
-
-def test_dropped_names_the_rewritten_zones_left_as_template_in_template_order() -> None:
+def test_the_largest_set_in_the_corridor_is_taken_at_any_seed() -> None:
+    """Наборов в коридоре четыре — берётся наибольший по числу зон, при любом зерне. Не по
+    отличию: пара {greeting, intro} (22%) дальше от шаблона, чем тройка (20%), но короче."""
     rewritten = _rewritten(FOUR, greeting=1, intro=1, aside=1, close=1)
 
     for seed in range(40):
         found = select(FOUR, rewritten, seed=seed)
         assert found is not None
+        assert tuple(found.zones) in FITTING
+        assert (tuple(found.zones), found.dropped) == (("greeting", "aside", "close"), ("intro",))
+        assert found.difference == pytest.approx(0.20)
+
+
+def test_every_zone_in_the_corridor_is_taken_whole_at_any_seed() -> None:
+    """Письмо, целиком лежащее в коридоре, уходит целиком: ни одна переписанная зона не
+    снимается, хотя в коридоре и четыре меньших набора."""
+    rewritten = _rewritten(WHOLE, greeting=1, intro=1, aside=1, close=1)
+
+    for seed in range(40):
+        found = select(WHOLE, rewritten, seed=seed)
+        assert found is not None
+        assert (found.zones, found.dropped) == (rewritten, ())
+        assert found.difference == pytest.approx(0.22)
+
+
+def test_a_pair_beats_a_single_at_any_seed() -> None:
+    """Пара и одиночка в коридоре — берётся пара, при любом зерне, хотя одиночка дальше от
+    шаблона (24% против 17%)."""
+    rewritten = _rewritten(PAIR, greeting=1, intro=1, close=1)
+
+    for seed in range(40):
+        found = select(PAIR, rewritten, seed=seed)
+        assert found is not None
+        assert (tuple(found.zones), found.dropped) == (("greeting", "intro"), ("close",))
+
+
+def test_the_seed_chooses_among_equally_large_sets() -> None:
+    """Наибольших наборов три — по паре зон: тот же номер — тот же набор, разные номера —
+    разные наборы, и любой выбранный — пара в коридоре."""
+    rewritten = _rewritten(EQUAL, greeting=1, intro=1, close=1)
+
+    chosen = {seed: select(EQUAL, rewritten, seed=seed) for seed in range(40)}
+
+    picked = {tuple(found.zones) for found in chosen.values() if found is not None}
+    assert picked <= {("greeting", "intro"), ("greeting", "close"), ("intro", "close")}
+    assert len(picked) > 1
+    assert all(found is not None and in_corridor(found.difference) for found in chosen.values())
+    assert select(EQUAL, rewritten, seed=11) == chosen[11]
+
+
+def test_dropped_names_the_rewritten_zones_left_as_template_in_template_order() -> None:
+    rewritten = _rewritten(SINGLES, greeting=1, intro=1, close=1)
+
+    for seed in range(40):
+        found = select(SINGLES, rewritten, seed=seed)
+        assert found is not None
         assert set(found.zones) | set(found.dropped) == set(rewritten)
         assert not set(found.zones) & set(found.dropped)
-        order = [zone.name for zone in FOUR.rewritable()]
+        assert len(found.dropped) == 2
+        order = [zone.name for zone in SINGLES.rewritable()]
         assert list(found.dropped) == [name for name in order if name in found.dropped]
 
 
@@ -171,13 +216,14 @@ def test_many_rewrite_zones_do_not_hang_the_build(monkeypatch: pytest.MonkeyPatc
 
 def test_limit_is_the_callers_to_choose(monkeypatch: pytest.MonkeyPatch) -> None:
     """Предел — довод: вызывающий вправе сузить полный перебор. Четыре зоны при пределе 2 —
-    жадно: четыре зоны поодиночке, затем три пары к лучшей — семь сборок вместо пятнадцати."""
+    жадно: четыре зоны поодиночке, затем три пары к лучшей — семь сборок вместо пятнадцати.
+    Правило выбора то же: из кандидатов в коридоре ({intro} и {greeting, intro}) — больший."""
     calls = _counted(monkeypatch)
 
     found = select(FOUR, _rewritten(FOUR, greeting=1, intro=1, aside=1, close=1), seed=4, limit=2)
 
     assert found is not None
-    assert tuple(found.zones) in {("intro",), ("greeting", "intro")}
+    assert tuple(found.zones) == ("greeting", "intro")
     assert len(calls) == 7
 
 
