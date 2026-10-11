@@ -86,9 +86,11 @@ def _print_letters(report: queue.QueueReport) -> None:
 
 
 def _letter(line: LetterLine) -> str:
-    """Письмо строкой: лид, отличие, принятые зоны, вызовов модели, в очереди или ждёт."""
+    """Письмо строкой: в очереди — лид, отличие, принятые зоны, вызовов модели; ждёт — лид и
+    почему по этому письму (вне коридора — с отличием каждой попытки)."""
     who = line.name or f"лид №{line.lead_id}"
+    if line.reason is not None:
+        return f"{who} — {line.reason}"
     zones = f"переписаны {', '.join(line.zones)}" if line.zones else "переписанных зон нет"
-    state = "в очереди" if line.queued else "ждёт"
     shown = percent_text(line.difference)
-    return f"{who} — отличие {shown} ({zones}), попыток: {line.attempts} — {state}"
+    return f"{who} — отличие {shown} ({zones}), попыток: {line.attempts} — в очереди"

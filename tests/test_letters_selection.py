@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
-import time
 from collections.abc import Callable
 
 import pytest
@@ -157,19 +156,17 @@ def test_full_search_goes_up_to_the_limit_then_greedy(monkeypatch: pytest.Monkey
 
 def test_many_rewrite_zones_do_not_hang_the_build(monkeypatch: pytest.MonkeyPatch) -> None:
     """Число зон `rewrite` у шаблона не ограничено: 15 зон — 2^15 − 1 наборов полным перебором.
-    Жадно — не больше 15·16/2 = 120 сборок письма, и письмо всё равно в коридоре."""
+    Жадно — не больше 15·16/2 = 120 сборок письма, и письмо всё равно в коридоре. Держит суть
+    число сборок, а не часы: время под замером покрытия мигает."""
     many = _letter(*[(f"part{n}x", 4) for n in range(15)], fixed=40)
     rewritten = _rewritten(many, **{f"part{n}x": 1 for n in range(15)})
     calls = _counted(monkeypatch)
 
-    started = time.perf_counter()
     found = select(many, rewritten, seed=9)
-    elapsed = time.perf_counter() - started
 
     assert found is not None
     assert in_corridor(found.difference)
-    assert len(calls) <= 120
-    assert elapsed < 5
+    assert len(calls) <= 15 * 16 // 2
 
 
 def test_limit_is_the_callers_to_choose(monkeypatch: pytest.MonkeyPatch) -> None:

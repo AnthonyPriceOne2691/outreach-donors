@@ -19,9 +19,10 @@
 на каждом письме. Поэтому сборка подбирает, какие переписанные зоны принять, чтобы письмо
 легло в коридор; ни один набор не лёг — модель переписывает заново с подсказкой, куда и на
 сколько промахнулась прошлая попытка, до `SALES_REWRITE_ATTEMPTS` вызовов (`corridor.py`);
-не вышло — лид ждёт следующей сборки с отличием каждой попытки в причине. Отличие каждого
-письма и принятые зоны — в отчёте сборки (`QueueReport.letters`): на экране под строкой задачи
-и в консоли. Меряется отличие по тексту шаблона без блока настроек: правило записи 4.6a
+не вышло — лид ждёт следующей сборки, а строка письма называет отличие каждой попытки. Три
+лида подряд вне коридора — сборка встаёт словами: не даёт шаблон (`corridor.STREAK`). Отличие
+каждого письма и принятые зоны — в отчёте сборки (`QueueReport.letters`): на экране под строкой
+задачи и в консоли. Меряется отличие по тексту шаблона без блока настроек: правило записи 4.6a
 считает достижимость коридора по зонам.
 
 **Повтор сборки не задваивает**: у лида один диалог, у письма — ключ с контактом. Письмо,
@@ -80,6 +81,9 @@ HANDED_OFF = "передан телемаркетологу"
 STOPLIST = "стоп-лист"
 LONG_KEY = "адрес и домен длиннее ключа письма"
 UP_TO_DATE = "письмо уже в очереди"
+#: Ключ сводки причин — без чисел: сто лидов вне коридора — одна строка; числа каждой попытки —
+#: в строке письма (`corridor.waiting_reason`), в журнале и на экране.
+OFF_CORRIDOR = "вне коридора отличия — ждёт следующей сборки"
 SENT_MEANWHILE = "письмо ушло или снято, пока его собирали заново — оставлено как есть"
 
 
@@ -106,6 +110,8 @@ class QueueReport:
     notes: Counter[str] = field(default_factory=Counter)
     #: Письма, которые писала модель, — по порядку сборки.
     letters: list[corridor.LetterLine] = field(default_factory=list)
+    #: Лидов подряд вне коридора после всех попыток — счёт останова, в итог не идёт.
+    streak: int = field(default=0, repr=False)
 
     def totals(self) -> dict[str, Any]:
         """Числа и причины без писем по одному — так сборку пишет журнал: имена лидов ему
@@ -299,15 +305,31 @@ async def _prepare(
     report.tokens_spent += tried.tokens
     report.notes.update(tried.notes)
     why = await _store(session, row, plan, tried, found, campaign_id)
-    report.letters.append(corridor.line(row.lead.id, row.lead.name, tried, queued=why is None))
-    if why is not None:
-        report.waiting[why] += 1
-        if tried.letter is None:
-            report.off_corridor += 1
-    elif row.queued is None:
-        report.prepared += 1
-    else:
-        report.refreshed += 1
+    _tally(report, row, tried, why)
+
+
+def _tally(report: QueueReport, row: _Lead, tried: corridor.Tried, why: str | None) -> None:
+    """Итог письма в отчёт. Встало в очередь — новое или собранное заново, и серия лидов вне
+    коридора прерывается. Вне коридора после всех попыток — серия растёт, и на `STREAK` сборка
+    встаёт словами: не даёт шаблон. Не встало по другой причине — серию не трогает."""
+    off = tried.letter is None  # тогда и `why` — вне коридора (`_store`)
+    reason = corridor.waiting_reason(tried.differences) if off else why
+    report.letters.append(corridor.line(row.lead.id, row.lead.name, tried, reason=reason))
+    if why is None:
+        report.streak = 0
+        if row.queued is None:
+            report.prepared += 1
+        else:
+            report.refreshed += 1
+        return
+    report.waiting[why] += 1
+    if not off:
+        return
+    report.off_corridor += 1
+    report.streak += 1
+    if report.streak >= corridor.STREAK and report.stopped is None:
+        report.stopped = corridor.streak_stop()
+        logger.warning("продажи: сборка остановлена", extra={"reason": report.stopped})
 
 
 async def _store(
@@ -321,7 +343,7 @@ async def _store(
     """Письмо в очередь — или почему нет, строкой отчёта: вне коридора после всех попыток,
     не сходится с подписью и адресом отправителя, ушло, пока его собирали заново."""
     if tried.letter is None:
-        return corridor.waiting_reason(tried.differences)
+        return OFF_CORRIDOR
     body = letter.signed(tried.letter.body, found)
     problem = letter.problem(body, found)
     if problem is not None:

@@ -97,8 +97,11 @@ function job(id: string, report: Record<string, unknown>) {
   };
 }
 
-/** Причина ждущего лида — словами сервера: вне коридора после всех попыток, число — каждой. */
-const OFF_CORRIDOR = 'вне коридора отличия после 3 попыток: 38%, 31%, 27% — ждёт следующей сборки';
+/** Ключ сводки причин — словами сервера, без чисел: сто таких лидов — одна строка. */
+const OFF_CORRIDOR = 'вне коридора отличия — ждёт следующей сборки';
+
+/** Почему ждёт письмо лида — по нему, с отличием каждой попытки (`corridor.waiting_reason`). */
+const OFF_LETTER = 'вне коридора отличия после 3 попыток: 38%, 31%, 27% — ждёт следующей сборки';
 
 /** Итог сборки без писем по одному — таким его отдавал сервер до отличия на виду. */
 const TOTALS = {
@@ -122,6 +125,7 @@ const LETTER: SalesQueueLetter = {
   difference_text: '21,3%',
   zones: ['intro'],
   queued: true,
+  reason: null,
 };
 
 /** Итог сборки с письмами по одному — по порядку сборки; ждущий лид без имени. */
@@ -146,6 +150,7 @@ const BUILT = {
       difference_text: '27%',
       zones: ['intro', 'close'],
       queued: false,
+      reason: OFF_LETTER,
     },
     { ...LETTER, lead_id: 9, name: 'Ivan Example', attempts: 1, difference_text: '25%', zones: [] },
   ],
@@ -295,7 +300,7 @@ describe('очередь писем продаж', () => {
         .getAllByRole('listitem')
         .map((item) => item.textContent),
     ).toEqual([
-      'лид №45 — отличие 27% (переписаны intro, close), 3 попытки — ждёт',
+      `лид №45 — ${OFF_LETTER}`,
       'Jane Example — отличие 21,3% (переписаны intro), 2 попытки — в очереди',
       'Olga Example — отличие 19% (переписаны greeting, intro), 1 попытка — в очереди',
       'Ivan Example — отличие 25% (переписанных зон нет), 1 попытка — в очереди',
@@ -593,11 +598,18 @@ describe('итог сборки словами', () => {
     expect(letterLine(LETTER)).toBe(
       'Jane Example — отличие 21,3% (переписаны intro), 2 попытки — в очереди',
     );
-    expect(letterLine({ ...LETTER, name: null, attempts: 5, queued: false })).toBe(
-      'лид №7 — отличие 21,3% (переписаны intro), 5 попыток — ждёт',
-    );
+    expect(
+      letterLine({ ...LETTER, name: null, attempts: 3, queued: false, reason: OFF_LETTER }),
+    ).toBe(`лид №7 — ${OFF_LETTER}`);
     expect(letterLine({ ...LETTER, attempts: 1, zones: [] })).toBe(
       'Jane Example — отличие 21,3% (переписанных зон нет), 1 попытка — в очереди',
+    );
+    // Итог сборки прежней версии сервера: ни зон, ни причины по письму — строка о них молчит.
+    const old = { ...LETTER, queued: false } as Partial<SalesQueueLetter>;
+    delete old.zones;
+    delete old.reason;
+    expect(letterLine(old as SalesQueueLetter)).toBe(
+      'Jane Example — отличие 21,3%, 2 попытки — ждёт',
     );
   });
 });

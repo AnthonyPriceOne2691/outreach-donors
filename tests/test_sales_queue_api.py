@@ -419,6 +419,7 @@ def test_screen_reads_the_queue_by_the_server_names() -> None:
     assert _screen_fields("SalesQueueReport") == set(queue.QueueReport(campaign_id=1).as_dict())
     line = corridor.LetterLine(1, None, 1, 0.2, ("intro",), queued=True)
     assert _screen_fields("SalesQueueLetter") == set(line.as_dict())
+    assert "reason" in line.as_dict()
 
 
 async def test_job_outcome_names_each_letter_with_its_difference_and_attempts(
@@ -461,6 +462,7 @@ async def test_job_outcome_names_each_letter_with_its_difference_and_attempts(
             "difference_text": percent_text(jane_line.difference),
             "zones": ["ask"],
             "queued": True,
+            "reason": None,
         },
         {
             "lead_id": olga.id,
@@ -470,6 +472,7 @@ async def test_job_outcome_names_each_letter_with_its_difference_and_attempts(
             "difference_text": percent_text(olga_line.difference),
             "zones": ["ask"],
             "queued": True,
+            "reason": None,
         },
     ]
     assert (shown["report"]["prepared"], shown["report"]["tokens_spent"]) == (2, 3 * 37)

@@ -216,9 +216,9 @@ async def test_a4_letter_outside_the_corridor_is_not_queued(
 
     [line] = report.letters
     assert (line.attempts, line.queued) == (sales_cfg.REWRITE_ATTEMPTS, False)
-    reason = corridor.waiting_reason([line.difference] * sales_cfg.REWRITE_ATTEMPTS)
+    assert line.reason == corridor.waiting_reason([line.difference] * sales_cfg.REWRITE_ATTEMPTS)
     assert (report.prepared, report.off_corridor) == (0, 1)
-    assert report.waiting == Counter({reason: 1})
+    assert report.waiting == Counter({queue.OFF_CORRIDOR: 1})
     assert await _letters(session) == []
     assert await session.scalar(select(func.count()).select_from(SalesThreadModel)) == 0
 

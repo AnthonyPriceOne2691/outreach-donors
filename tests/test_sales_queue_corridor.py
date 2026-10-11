@@ -210,12 +210,16 @@ async def test_every_call_off_the_corridor_the_lead_waits_with_every_number(
 
     assert (sales_cfg.REWRITE_ATTEMPTS, len(model.seen)) == (3, 3)
     reason = f"{OFF} 3 попыток: 40%, 40%, 40% — ждёт следующей сборки"
-    assert (report.prepared, report.off_corridor, report.waiting) == (0, 1, Counter({reason: 1}))
+    assert (report.prepared, report.off_corridor) == (0, 1)
+    # В сводке причин — ключ без чисел: сто таких лидов — одна строка.
+    assert report.waiting == Counter({queue.OFF_CORRIDOR: 1})
     assert await _letters(session) == []
     assert await session.scalar(select(func.count()).select_from(SalesThreadModel)) == 0
     assert report.tokens_spent == 3 * TOKENS
     assert report.letters == [
-        corridor.LetterLine(jane.id, "Jane Example", 3, pytest.approx(0.4), ("intro",), False)  # type: ignore[arg-type]
+        corridor.LetterLine(
+            jane.id, "Jane Example", 3, pytest.approx(0.4), ("intro",), False, reason
+        )  # type: ignore[arg-type]
     ]
 
 
@@ -232,7 +236,8 @@ async def test_one_attempt_setting_means_one_call_and_no_hint(
     report = await _build(session, world, model)
 
     assert (len(model.seen), model.hints) == (1, [None])
-    assert report.waiting == Counter({f"{OFF} 1 попытки: 40% — ждёт следующей сборки": 1})
+    assert report.waiting == Counter({queue.OFF_CORRIDOR: 1})
+    assert report.letters[0].reason == f"{OFF} 1 попытки: 40% — ждёт следующей сборки"
 
 
 async def test_spend_cap_between_calls_stops_the_build_and_the_spend_is_one_row(
@@ -253,8 +258,12 @@ async def test_spend_cap_between_calls_stops_the_build_and_the_spend_is_one_row(
     assert len(model.seen) == 2
     assert report.stopped is not None
     assert report.stopped.startswith("потолок расхода на модель за день достигнут: 74 из 53")
-    assert report.waiting == Counter({f"{OFF} 2 попыток: 40%, 40% — ждёт следующей сборки": 1})
-    assert [line.lead_id for line in report.letters] == [jane.id]
+    assert report.waiting == Counter({queue.OFF_CORRIDOR: 1})
+    [line] = report.letters
+    assert (line.lead_id, line.reason) == (
+        jane.id,
+        f"{OFF} 2 попыток: 40%, 40% — ждёт следующей сборки",
+    )
     await session.rollback()  # записанное сборкой — из базы, а не из памяти сессии
     assert await _spent(session) == [2 * TOKENS]
 
@@ -306,6 +315,148 @@ async def test_chosen_text_passes_the_same_checks_in_the_same_order(
     assert "intronew0" in checked
     assert "closenew0" not in checked
     assert signed == sent.body
+
+
+# --- шаблон, а не модель: сборка встаёт ---------------------------------------------------------
+
+
+async def _leads(session: AsyncSession, world: w.World, *names: str | None) -> None:
+    """Лиды по порядку сборки; имени нет — лид ждёт до модели: добивки зовут его по имени."""
+    for n, name in enumerate(names):
+        await w.lead(session, world.hypothesis_id, f"lead{n}@site{n}.example.test", name=name)
+
+
+async def test_three_leads_in_a_row_off_the_corridor_stop_the_build_in_words(
+    session: AsyncSession, world: w.World
+) -> None:
+    """Решение владельца: три лида подряд вне коридора после всех попыток — шаблон, а не
+    модель. Сборка встаёт словами с советом; следующие лиды модели не стоят."""
+    await _first_step(session, world, SINGLE)
+    await _leads(session, world, *["Lead Example"] * 5)
+    model = w.ZoneRewriter({"intro": 1})
+
+    report = await _build(session, world, model)
+
+    assert len(model.seen) == 3 * sales_cfg.REWRITE_ATTEMPTS
+    assert len(report.letters) == corridor.STREAK == 3
+    assert report.stopped == corridor.streak_stop()
+    assert report.stopped == (
+        "шаблон первого письма не даёт писем в коридоре отличия: 3 лида подряд — вне коридора "
+        "после всех попыток; поправьте цепочку писем — совет в предупреждении у первого письма"
+    )
+    assert report.waiting == Counter({queue.OFF_CORRIDOR: 3})
+
+
+async def test_a_queued_letter_breaks_the_streak(
+    session: AsyncSession, world: w.World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Два вне коридора, одно в очереди, два вне — серия прервана: сборка идёт до конца."""
+    monkeypatch.setattr(sales_cfg, "REWRITE_ATTEMPTS", 1)  # вызов на лида — серия по лидам
+    await _first_step(session, world, SINGLE)
+    await _leads(session, world, *["Lead Example"] * 5)
+    far, fits = {"intro": 1.0}, {"intro": 0.5}
+
+    report = await _build(session, world, w.ZoneRewriter(far, far, fits, far, far))
+
+    assert [line.queued for line in report.letters] == [False, False, True, False, False]
+    assert (report.stopped, report.prepared, report.off_corridor) == (None, 1, 4)
+
+
+async def test_leads_waiting_for_other_reasons_neither_count_nor_break_the_streak(
+    session: AsyncSession, world: w.World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Лид без имени ждёт до модели — причина не про шаблон: серию он не продолжает и не
+    прерывает. Вне, ждёт, вне, ждёт, вне — сборка встаёт на третьем вне коридора, не раньше."""
+    monkeypatch.setattr(sales_cfg, "REWRITE_ATTEMPTS", 1)
+    await _first_step(session, world, SINGLE)
+    await _leads(session, world, "Lead Example", None, "Lead Example", None, "Lead Example")
+
+    report = await _build(session, world, w.ZoneRewriter({"intro": 1}))
+
+    assert len(report.letters) == 3
+    assert report.stopped == corridor.streak_stop()
+    assert report.waiting == Counter({queue.OFF_CORRIDOR: 3, "у лида нет значения для {{name}}": 2})
+
+
+async def test_letter_in_the_corridor_that_waits_for_the_signature_does_not_touch_the_streak(
+    session: AsyncSession, world: w.World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Письмо легло в коридор, но в очередь не встало: подпись отправителя стоит и в тексте
+    шаблона (записан до подписи). Причина — не коридор: серию такое письмо не продолжает и не
+    прерывает. Вне, подпись, вне, подпись, вне — сборка встаёт на третьем вне коридора."""
+    monkeypatch.setattr(sales_cfg, "REWRITE_ATTEMPTS", 1)
+    await w.settings(session, signature=None)  # шаблон с подписью записан до неё
+    await _first_step(session, world, f"{SINGLE}\n{w.SIGNATURE}")
+    await w.settings(session)
+    await _leads(session, world, *["Lead Example"] * 5)
+    far, fits = {"intro": 1.0}, {"intro": 0.5}
+
+    report = await _build(session, world, w.ZoneRewriter(far, fits, far, fits, far))
+
+    assert [line.reason is None for line in report.letters] == [False] * 5
+    assert report.stopped == corridor.streak_stop()
+    [signed] = [why for why in report.waiting if why != queue.OFF_CORRIDOR]
+    assert signed.startswith("подпись из настроек отправителя стоит и в тексте письма")
+    assert report.waiting == Counter({queue.OFF_CORRIDOR: 3, signed: 2})
+
+
+async def test_console_sums_up_the_waiting_once_and_names_every_number_by_the_letter(
+    session: AsyncSession, world: w.World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Консоль: в сводке причин — строка без чисел, в строке письма — отличие каждой попытки;
+    серия из трёх лидов — словами остановки."""
+    from backend.cli.sales_queue import run_sales_queue  # noqa: PLC0415
+
+    await _first_step(session, world, SINGLE)
+    await _leads(session, world, *["Lead Example"] * 3)
+
+    code = await run_sales_queue(session, w.ZoneRewriter({"intro": 1}), "Выдуманная гипотеза", 5)  # type: ignore[arg-type]
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert f"  ждут — {queue.OFF_CORRIDOR}: 3\n" in out
+    line = f"  Lead Example — {OFF} 3 попыток: 40%, 40%, 40% — ждёт следующей сборки\n"
+    assert out.count(line) == 3
+    assert f"Сборка остановлена: {corridor.streak_stop()}\n" in out
+
+
+# --- заметки: одной попытки -------------------------------------------------------------------
+
+
+async def test_notes_of_the_queued_attempt_only_reach_the_report(
+    session: AsyncSession, world: w.World
+) -> None:
+    """Первый вызов не вернул вступления — «зона «intro» осталась шаблонной»; второй переписал
+    его, и в письме оно переписано. В итог идут заметки только второй попытки — той, что
+    встала в очередь: заметка первой врала бы о письме."""
+    await _first_step(session, world, FOUR)
+    await w.lead(session, world.hypothesis_id, JANE)
+    model = w.ZoneRewriter(
+        {"greeting": 1},
+        {"intro": 1, "close": 1},
+        notes=(["зона «intro» осталась шаблонной"], []),
+    )
+
+    report = await _build(session, world, model)
+
+    assert (report.prepared, report.letters[0].zones) == (1, ("intro",))
+    assert report.notes == Counter(
+        {"зона «close» оставлена шаблонной подбором под коридор отличия": 1}
+    )
+
+
+async def test_lead_that_waits_keeps_the_notes_of_its_last_attempt(
+    session: AsyncSession, world: w.World
+) -> None:
+    """Не легло ни разу — в итог заметки последней попытки, одной: почему лид остался ни с чем
+    (у ключа модели — «ключ не задан»); заметки прежних попыток — в журнале."""
+    await _first_step(session, world, SINGLE)
+    await w.lead(session, world.hypothesis_id, JANE)
+    model = w.ZoneRewriter({"intro": 1}, notes=(["первая"], ["вторая"], ["последняя"]))
+
+    report = await _build(session, world, model)
+
+    assert report.notes == Counter({"последняя": 1})
 
 
 # --- журнал ----------------------------------------------------------------------------------
@@ -376,7 +527,7 @@ def test_hint_names_the_side_and_the_number_in_english() -> None:
 
 
 def test_report_line_names_the_lead_the_difference_the_zones_and_the_queue() -> None:
-    line = corridor.LetterLine(7, None, 2, 0.2504, ("intro", "close"), False)
+    line = corridor.LetterLine(7, None, 2, 0.2504, ("intro", "close"), False, "почему — словами")
 
     assert line.as_dict() == {
         "lead_id": 7,
@@ -386,6 +537,7 @@ def test_report_line_names_the_lead_the_difference_the_zones_and_the_queue() -> 
         "difference_text": "25,04%",
         "zones": ["intro", "close"],
         "queued": False,
+        "reason": "почему — словами",
     }
 
 

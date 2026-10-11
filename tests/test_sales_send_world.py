@@ -205,12 +205,16 @@ class ZoneRewriter(CorridorRewriter):
     """Подделка модели, которой тест говорит, что переписать на каждом вызове: зона → доля её
     слов с начала (1 — целиком); зоны вне плана модель не вернула. Новые слова — свои у каждой
     зоны и места, поэтому отличие письма из слов-меток считается ровно: переписанные слова,
-    делённые на слова письма. Последний план повторяется."""
+    делённые на слова письма. Последний план повторяется. `notes` — заметки клиента на каждый
+    вызов по порядку (почему зона осталась шаблонной); последние тоже повторяются."""
 
-    def __init__(self, *plans: dict[str, float], tokens: int = 37) -> None:
+    def __init__(
+        self, *plans: dict[str, float], tokens: int = 37, notes: tuple[list[str], ...] = ()
+    ) -> None:
         super().__init__()
         self.plans = plans
         self.tokens = tokens
+        self.notes = notes
 
     async def rewrite(
         self, rendered: Rendered, about: Personalization, *, hint: str | None = None
@@ -225,7 +229,8 @@ class ZoneRewriter(CorridorRewriter):
                 count = round(len(words) * plan[zone.name])
                 fresh = [f"{zone.name}new{index}" for index in range(count)]
                 zones[zone.name] = " ".join(fresh + words[count:])
-        return RewriteResult(zones=zones, tokens_spent=self.tokens)
+        said = self.notes[min(len(self.seen), len(self.notes)) - 1] if self.notes else []
+        return RewriteResult(zones=zones, tokens_spent=self.tokens, notes=list(said))
 
 
 class FlatRewriter:

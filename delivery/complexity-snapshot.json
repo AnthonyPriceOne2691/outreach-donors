@@ -567,7 +567,7 @@
       "worst": "_line:64"
     },
     "backend/cli/sales_queue.py": {
-      "lines": 95,
+      "lines": 97,
       "complexity": 4,
       "worst": "run_sales_queue:57"
     },
@@ -1942,9 +1942,9 @@
       "worst": "_account_gap:64"
     },
     "backend/features/sales/corridor.py": {
-      "lines": 257,
+      "lines": 288,
       "complexity": 7,
-      "worst": "write:216"
+      "worst": "write:248"
     },
     "backend/features/sales/domain_hold.py": {
       "lines": 81,
@@ -2067,9 +2067,9 @@
       "worst": "zones_of:35"
     },
     "backend/features/sales/queue.py": {
-      "lines": 456,
+      "lines": 478,
       "complexity": 7,
-      "worst": "build:148"
+      "worst": "build:154"
     },
     "backend/features/sales/queue_jobs.py": {
       "lines": 66,

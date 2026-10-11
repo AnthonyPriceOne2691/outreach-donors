@@ -53,10 +53,12 @@ export function buildLetters(report: Record<string, unknown> | null): SalesQueue
   return [...(letters as SalesQueueLetter[])].sort((a, b) => Number(a.queued) - Number(b.queued));
 }
 
-/** Письмо одной строкой: лид (имя или номер), отличие, принятые зоны, попыток, в очереди
- *  или ждёт. Зон в итоге прежней версии сервера нет — о них строка молчит. */
+/** Письмо одной строкой: лид (имя или номер) и — в очереди — отличие, принятые зоны,
+ *  попыток; ждёт — почему, словами сервера по этому письму (вне коридора — с отличием каждой
+ *  попытки). Зон и причины в итоге прежней версии сервера нет — о них строка молчит. */
 export function letterLine(letter: SalesQueueLetter): string {
   const who = letter.name ?? `лид №${letter.lead_id}`;
+  if (typeof letter.reason === 'string') return `${who} — ${letter.reason}`;
   const zones = Array.isArray(letter.zones)
     ? ` (${letter.zones.length > 0 ? `переписаны ${letter.zones.join(', ')}` : 'переписанных зон нет'})`
     : '';
