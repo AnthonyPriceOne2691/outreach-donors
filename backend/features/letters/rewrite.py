@@ -102,6 +102,11 @@ class Personalization:
     #: Ключи прогона — ниша, по которой донор нашёлся.
     niche: tuple[str, ...] = ()
     about: str | None = None
+    #: Имена, которые модель не видит (метками, 12.10.2026): у писем доноров
+    #: и рекламодателей — наше имя отправителя (`building.py`), его ставят в зону,
+    #: когда правят шаблон («I'm Anna»). Пусто — прячутся только адреса, как было:
+    #: продажи зовут клиент со своими письмами, и их запрос прежний.
+    names: tuple[str, ...] = ()
 
     def as_prompt(self) -> str:
         lines = [f"Recipient site: {self.host}", f"Target country: {self.country.upper()}"]
@@ -223,7 +228,7 @@ class RewriteClient(ModelClient):
         if refusal is not None:
             return refusal
 
-        masked, labels = _mask_all(zones)
+        masked, labels = _mask_all(zones, about.names)
         if masked is None:
             return RewriteResult(notes=["маскирование не сработало — в модель ничего не ушло"])
 
@@ -276,8 +281,10 @@ class RewriteClient(ModelClient):
         return result
 
 
-def _mask_all(zones: dict[str, str]) -> tuple[dict[str, str] | None, dict[str, dict[str, str]]]:
-    """Замаскировать все зоны разом.
+def _mask_all(
+    zones: dict[str, str], names: tuple[str, ...] = ()
+) -> tuple[dict[str, str] | None, dict[str, dict[str, str]]]:
+    """Замаскировать все зоны разом — адреса и имена `names` (`Personalization.names`).
 
     Отказ здесь общий на все зоны, а не на одну: если адрес просочился,
     запрос не отправляется вовсе — проверить это после отправки нельзя.
@@ -285,11 +292,11 @@ def _mask_all(zones: dict[str, str]) -> tuple[dict[str, str] | None, dict[str, d
     masked: dict[str, str] = {}
     labels: dict[str, dict[str, str]] = {}
     for name, text in zones.items():
-        hidden = masking.mask(text)
-        left = masking.leaked(hidden.text)
+        hidden = masking.mask(text, names=names)
+        left = masking.leaked(hidden.text, names=names)
         if left is not None:
             logger.error(
-                "письма: в зоне «%s» остался адрес после маскирования (%s) — "
+                "письма: в зоне «%s» остался адрес или имя после маскирования (%s) — "
                 "запрос к модели не отправлен",
                 name,
                 left,

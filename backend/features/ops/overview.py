@@ -32,14 +32,13 @@ from __future__ import annotations
 
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlalchemy import ColumnElement, and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import ahrefs as ahrefs_cfg
-from backend.config import filters as filters_cfg
 from backend.features.contacts import forms
 from backend.features.contacts.repository import has_address
 from backend.features.core.domain import (
@@ -55,6 +54,7 @@ from backend.features.core.models.run import RunModel
 from backend.features.crawl import niche
 from backend.features.crawl import review as advertiser_review
 from backend.features.donors import standing
+from backend.features.donors.price_freshness import PriceState, price_is
 from backend.features.letters.chain import FIRST_STEP
 from backend.features.outreach.repository import OutreachRepository, ThreadMark
 from backend.features.outreach.threads import ThreadState
@@ -255,7 +255,6 @@ async def _advertisers(session: AsyncSession) -> tuple[int, int]:
 async def _donors(
     session: AsyncSession, threads: Sequence[ThreadMark], now: datetime
 ) -> DonorCounts:
-    fresh_since = now - timedelta(days=filters_cfg.PRICE_TTL_DAYS)
     donor = standing.is_donor()
     row = (
         await session.execute(
@@ -267,8 +266,9 @@ async def _donors(
                 _count(DonorModel.review == Decision.REJECTED.value),
                 _count(and_(donor, has_address(DonorModel.domain_id))),
                 _count(forms.in_queue()),
-                _count(and_(donor, DonorModel.last_price.is_not(None))),
-                _count(and_(donor, DonorModel.last_price_at >= fresh_since)),
+                # «С ценой» и «свежих» — одним правилом с таблицей доноров (12.10.2026).
+                _count(and_(donor, price_is(PriceState.PRICED, now))),
+                _count(and_(donor, price_is(PriceState.FRESH, now))),
             )
         )
     ).one()

@@ -1,9 +1,10 @@
 /** Что отдаёт сервер. Имена полей повторяют схему API один в один:
  *  перевод на ходу — лишний слой, в котором опечатка видна не сразу. */
 
-import type { SamePrice } from './priceRecheck';
+import type { PriceDetails, PriceFacets, RowPrice } from './donorPrice';
 import type { PriceOrigin, PriceRefusal } from './manualPrice';
 import type { Offer } from './offers';
+import type { SamePrice } from './priceRecheck';
 import type { Stage } from './stages';
 export type Role = 'admin' | 'operator';
 
@@ -238,7 +239,8 @@ export interface ReviewPrice {
   price_white: string | null;
   price_grey: string | null;
   currency: string | null;
-  payment_methods: string[];
+  /** Нет поля — оплата не правится, остаётся найденной разбором (12.10.2026). */
+  payment_methods?: string[];
   /** Донор ответил «не продаём размещения» — поля цены при этом пусты. */
   declines?: boolean;
 }
@@ -379,7 +381,7 @@ export interface RunQueued {
 /** Метрики донора: в сроке, пора обновить, не проверялись (`browse.Freshness`). */
 export type DonorFreshness = 'fresh' | 'stale' | 'never';
 
-export interface DonorRowCard {
+export interface DonorRowCard extends RowPrice {
   id: number;
   host: string;
   status: DonorStatus;
@@ -406,7 +408,7 @@ export interface DonorsWaiting {
   runs: number[];
 }
 
-export interface DonorsPage {
+export interface DonorsPage extends PriceFacets {
   rows: DonorRowCard[];
   total: number;
   /** Вердикт → сколько доноров, по всем донорам экрана, а не по фильтру. */
@@ -436,7 +438,8 @@ export interface ContactCard {
 /** Решение человека о домене: донор — только принятый (`donors/standing.py`). */
 export type DonorReview = 'accepted' | 'rejected';
 
-export interface DonorFullCard extends Omit<DonorRowCard, 'contacts'>, PriceOrigin, PriceRefusal {
+export interface DonorFullCard
+  extends Omit<DonorRowCard, 'contacts'>, PriceOrigin, PriceRefusal, PriceDetails {
   geo_breakdown: { country: string; share: number }[] | null;
   /** Разбивка неполная: спрашивали только верхнюю страну — её хватило
    *  для вердикта, а полный запрос стоит впятеро дороже. */

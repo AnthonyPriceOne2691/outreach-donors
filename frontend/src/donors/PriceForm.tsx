@@ -12,6 +12,11 @@
  * а говорит, как написать. Потолка цены, списка валют и длины заметки у экрана
  * нет: своя копия правил разошлась бы с сервером, а его отказ и так приходит
  * словами — над полями, и введённое остаётся на месте.
+ *
+ * **Серая цена и оплата — рядом, если их знают** (сверка ТЗ 12.10.2026: «белая цена,
+ * серая цена, способы оплаты — в ту же базу»). Вписанная «Цена» — белая; не вписанные
+ * серая и оплата в запрос не идут, а прежние из ответа у донора затираются: цена руками
+ * пишется всеми полями разом.
  */
 
 import { Alert, Button, Group, Stack, TextInput } from '@mantine/core';
@@ -24,19 +29,34 @@ export interface PriceDraft {
   price: string;
   currency: string;
   note: string;
+  /** Серая цена и способы оплаты через запятую — необязательные. */
+  grey: string;
+  payment: string;
 }
 
 /** Пустая форма. Валюта вписана сразу: так названо большинство цен рынка,
  *  и человек видит, в чём запишется число, а не узнаёт после. */
-export const NEW_PRICE: PriceDraft = { price: '', currency: 'USD', note: '' };
+export const NEW_PRICE: PriceDraft = {
+  price: '',
+  currency: 'USD',
+  note: '',
+  grey: '',
+  payment: '',
+};
 
-/** Тело запроса из вписанного. Пустая заметка — «не сказали», а не пустая строка. */
+/** Тело запроса из вписанного. Пустая заметка — «не сказали», а не пустая строка;
+ *  серая и оплата — только вписанные. Оплата уходит строкой, как вписана: делит её
+ *  на способы сервер, одним правилом с подтверждением разбора. */
 export function priceBody(draft: PriceDraft): PriceBody {
   const note = draft.note.trim();
+  const grey = draft.grey.trim();
+  const payment = draft.payment.trim();
   return {
     price: draft.price.trim(),
     currency: draft.currency.trim(),
     note: note === '' ? null : note,
+    ...(grey === '' ? {} : { price_grey: grey }),
+    ...(payment === '' ? {} : { payment_methods: payment }),
   };
 }
 
@@ -95,6 +115,21 @@ export function PriceForm({ id, draft, onChange, lead, ready, pending, error, ..
             value={draft.currency}
             w={110}
             onChange={set('currency')}
+          />
+          <TextInput
+            label="Серая цена"
+            placeholder="без пометки"
+            inputMode="decimal"
+            value={draft.grey}
+            w={140}
+            onChange={set('grey')}
+          />
+          <TextInput
+            label="Оплата"
+            placeholder="PayPal, Wise"
+            value={draft.payment}
+            w={180}
+            onChange={set('payment')}
           />
           <TextInput
             label="Откуда цена"

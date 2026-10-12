@@ -11,6 +11,7 @@ import {
   conditionsOf,
   DR_MAX,
   emptinessOf,
+  isFiltered,
   NO_FILTERS,
   queryOf,
   readFilters,
@@ -131,5 +132,51 @@ describe('фильтры доноров: порог в поле', () => {
     expect(thresholdRefusal('', DR_MAX)).toBeNull();
     expect(thresholdOf('05', DR_MAX)).toBe(5);
     expect(thresholdOf('1 000 000', TRAFFIC_MAX)).toBe(1_000_000);
+  });
+});
+
+describe('фильтры доноров: цена, решение человека, порядок (12.10.2026)', () => {
+  it('из адреса; незнакомое — умолчание: доноры, по DR, цена не сужает', () => {
+    expect(read('price=stale&review=any&sort=price')).toMatchObject({
+      price: 'stale',
+      review: 'any',
+      sort: 'price',
+    });
+    expect(read('price=cheap&review=all&sort=random')).toMatchObject({
+      price: null,
+      review: 'accepted',
+      sort: 'dr',
+    });
+  });
+
+  it('умолчания в адрес не пишутся: адрес прежнего экрана — прежний', () => {
+    expect(writeFilters(NO_FILTERS).toString()).toBe('');
+    const filters = {
+      ...NO_FILTERS,
+      price: 'none' as const,
+      review: 'rejected' as const,
+      sort: 'priced_old' as const,
+    };
+    expect(writeFilters(filters).toString()).toBe('price=none&review=rejected&sort=priced_old');
+    expect(read('price=none&review=rejected&sort=priced_old')).toEqual(filters);
+  });
+
+  it('решение и порядок — не сужение: «найдено N из M» и «найденных» их не считают', () => {
+    expect(isFiltered({ ...NO_FILTERS, review: 'any', sort: 'price' })).toBe(false);
+    expect(isFiltered({ ...NO_FILTERS, price: 'priced' })).toBe(true);
+    expect(queryOf({ ...NO_FILTERS, review: 'any', sort: 'price' })).toEqual({
+      review: 'any',
+      sort: 'price',
+    });
+  });
+
+  it('пусто под ценой — условие словами; другого решения нет — не путь к рассмотрению', () => {
+    expect(conditionsOf({ ...NO_FILTERS, price: 'stale' })).toEqual(['цена устарела']);
+    const waiting = { domains: 4, runs: [7] };
+    expect(emptinessOf({ ...NO_FILTERS, review: 'undecided' }, {}, waiting)).toMatchObject({
+      title: 'Без решения человека записей нет.',
+      resettable: false,
+    });
+    expect(emptinessOf(NO_FILTERS, {}, waiting).path?.to).toBe('/runs/7/review');
   });
 });

@@ -9,7 +9,9 @@
 **Те же поля, что у цены из ответа** (`price.put_price`): обход
 (`crawl/targets.choose`), скоринг, перевод в рекламодатели и сборка офферов
 работают с ручной ценой без единой правки. Рядом — откуда она (`manual`), кто
-её указал и заметка «откуда цена»; списка цен ответа у неё нет.
+её указал и заметка «откуда цена»; списка цен ответа у неё нет. Вписанная цена —
+белая; серую и способы оплаты человек вписывает рядом, если знает (сверка ТЗ
+12.10.2026: «белая цена, серая цена, способы оплаты — в ту же базу»).
 
 **Один путь на три входа**: карточка донора («Указать цену»), панель «Обход
 доноров» («Завести донора вручную») и консоль (`outreach donor-add`). Домен,
@@ -49,11 +51,10 @@ from backend.features.access.repository import AccessRepository
 from backend.features.core.domain import AuditAction, DonorStatus, PriceSource
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
-from backend.features.core.models.outreach import SenderModel
 from backend.features.donors.host import normalize_host
-from backend.features.donors.price import put_price, said_later
-from backend.features.donors.standing import UnknownDonorError, decided_in, donor_now
-from backend.features.donors.wording import reject_reason_text
+from backend.features.donors.price import PriceDetails, put_price, said_later
+from backend.features.donors.price_refusal import price_refusal
+from backend.features.donors.standing import UnknownDonorError, donor_now
 from backend.features.replies.money import (
     CASE_SENSITIVE,
     CURRENCIES,
@@ -61,7 +62,6 @@ from backend.features.replies.money import (
     normalize_currency,
 )
 from backend.features.review.candidates import Decision
-from backend.features.runs.exclusions import ExclusionReason, Exclusions, by_name
 from backend.shared.database.ids import storable
 
 logger = logging.getLogger(__name__)
@@ -74,6 +74,13 @@ MAX_AUTHOR = 255
 DEFAULT_CURRENCY = "USD"
 #: Цена хранится до сотых (`DECIMAL(10, 2)`): лишний знак база округлила бы молча.
 CENTS = Decimal("0.01")
+#: Способ оплаты — не длиннее, чем их кладёт разбор ответа (`extract.parse_form`).
+MAX_PAYMENT_METHOD = 64
+#: Способов оплаты у цены — не больше: длиннее список — уже не способы, а заметка.
+MAX_PAYMENT_METHODS = 10
+#: Чем разделяют способы оплаты, вписанные одной строкой: «PayPal, Wise; карта».
+#: В скобках — не делят: «Bank transfer (SWIFT, SEPA)» — один способ (`_methods_of`).
+_PAYMENT_SEPARATORS = frozenset(",;\n")
 #: Коды, которые знает разбор ответов (`replies/money.py`). Незнакомое слово
 #: `normalize_currency` вернула бы как есть, и опечатка «UDS» легла бы валютой
 #: цены, а «kr» и «pesos» — кодом без страны.
@@ -84,27 +91,6 @@ KNOWN_CURRENCIES: frozenset[str] = frozenset(CURRENCIES.values()) | frozenset(
 #: Как писать цену и валюту — одной подсказкой у каждого отказа ввода.
 _PRICE_HINT = "впишите число больше нуля, например 150 или 150.50"
 _CURRENCY_HINT = "впишите код (USD, EUR, GBP) или знак ($, €, £)"
-
-#: Исключения прогона, которые закрывают и ручной ввод, — словами отказа.
-#: Молчания и «не продаём» здесь нет намеренно: цену человек знает не из письма.
-_REFUSED: dict[ExclusionReason, str] = {
-    ExclusionReason.STOPLIST: (
-        "{host} в стоп-листе: ему не пишем, и донором с ценой его не заводим. "
-        "Снять запись — на экране «Стоп-лист»."
-    ),
-    ExclusionReason.SUPPLIER: (
-        "{host} — донор-поставщик агентства: его рекламодателей не трогаем, "
-        "Этап 2 по нему не запускается."
-    ),
-    ExclusionReason.REJECTED: (
-        "{host} отклонён человеком: донором его не заводим, пока решение не снимут "
-        "в очереди прогона — она по ссылке в карточке донора."
-    ),
-    ExclusionReason.PUBLIC_ZONE: (
-        "{host} — гос. или учебная зона: размещений такие сайты не продают."
-    ),
-    ExclusionReason.PLATFORM: "{host} — платформа или соцсеть: разместиться там нельзя.",
-}
 
 
 class ManualPriceError(ValueError):
@@ -126,6 +112,10 @@ class ManualPrice:
     note: str | None
     #: Кто указал — почта сотрудника.
     by: str
+    #: Серая цена — без пометки «реклама», в той же валюте. Пусто — не вписали.
+    grey: Decimal | None = None
+    #: Способы оплаты, как их вписали: «PayPal», «Wise». Пусто — не вписали.
+    payment_methods: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,15 +132,80 @@ class Entered:
 
 
 def manual_price(
-    amount: object, currency: object = DEFAULT_CURRENCY, note: object = None, *, by: str
+    amount: object,
+    currency: object = DEFAULT_CURRENCY,
+    note: object = None,
+    *,
+    by: str,
+    grey: object = None,
+    payment: object = None,
 ) -> ManualPrice:
-    """Проверить то, что вписал человек. Отказ — словами, до записи."""
+    """Проверить то, что вписал человек. Отказ — словами, до записи. Серая цена —
+    по правилам цены (`typed_amount`), оплата — списком или строкой через запятую."""
     return ManualPrice(
         amount=typed_amount(amount),
         currency=typed_currency(currency),
         note=_note(note),
         by=_author(by),
+        grey=_grey(grey),
+        payment_methods=typed_payment(payment),
     )
+
+
+def _grey(raw: object) -> Decimal | None:
+    """Серая цена: пусто — не вписали; вписанное — цена по тем же правилам."""
+    if raw is None or not str(raw).strip():
+        return None
+    try:
+        return typed_amount(raw)
+    except ManualPriceError as exc:
+        raise ManualPriceError(f"Серая цена — {exc}") from None
+
+
+def _methods_of(text: str) -> list[str]:
+    """Строка — способами: по запятой, точке с запятой и переводу строки, но не внутри
+    скобок — «Bank transfer (SWIFT, SEPA), PayPal» — два способа, а не три."""
+    parts: list[str] = []
+    current: list[str] = []
+    depth = 0
+    for char in text:
+        depth += (char in "([") - (char in ")]" and depth > 0)
+        if depth == 0 and char in _PAYMENT_SEPARATORS:
+            parts.append("".join(current))
+            current = []
+        else:
+            current.append(char)
+    parts.append("".join(current))
+    return parts
+
+
+def typed_payment(raw: object) -> tuple[str, ...]:
+    """Способы оплаты, вписанные человеком: список или строка через запятую.
+
+    Каждый — одной строкой, без повторов и не длиннее, чем их кладёт разбор ответа:
+    в карточке донора способ из ответа и вписанный руками стоят в одном ряду. Правило
+    одно у цены руками и у подтверждения разбора (`replies/confirmation.py`).
+    """
+    items = [raw] if isinstance(raw, str) else raw if isinstance(raw, list | tuple) else []
+    said = [
+        " ".join(part.split())
+        for item in items
+        if isinstance(item, str)
+        for part in _methods_of(item)
+    ]
+    methods = tuple(dict.fromkeys(method for method in said if method))
+    long = next((method for method in methods if len(method) > MAX_PAYMENT_METHOD), None)
+    if long is not None:
+        raise ManualPriceError(
+            f"«{long[:40]}…» — не способ оплаты: не длиннее {MAX_PAYMENT_METHOD} знаков, "
+            "например PayPal, Wise, карта."
+        )
+    if len(methods) > MAX_PAYMENT_METHODS:
+        raise ManualPriceError(
+            f"Способов оплаты вписано {len(methods)} — не больше {MAX_PAYMENT_METHODS}: "
+            "остальное — в «Откуда цена»."
+        )
+    return methods
 
 
 def typed_amount(raw: object) -> Decimal:
@@ -285,65 +340,6 @@ async def enter(
     return await _priced(session, made, host, price, created=True, author_id=author_id, at=moment)
 
 
-async def price_refusal(session: AsyncSession, host: str, donor: DonorModel | None) -> str | None:
-    """Почему цену руками домену не записать — словами отказа; `None` — запишется.
-    `donor` — запись домена в `donors`, если она есть.
-
-    Одни слова на отказ «Записать цену» и на карточку донора
-    (`DonorCard.price_refusal`): в карточке человек читает до нажатия ровно
-    то, что скажет отказ, — как у ящика переписки (`letters/mailbox._silence`).
-    До 08.10.2026 о том, что принятый донор в стоп-листе, человек узнавал,
-    только вписав цену и нажав кнопку.
-    """
-    refusal = await refusal_for(session, host)
-    if refusal is not None or donor is None or donor_now(donor):
-        return refusal
-    return await _candidate_refusal(session, donor, host)
-
-
-async def refusal_for(session: AsyncSession, host: str) -> str | None:
-    """Почему домену цену вручную не записываем. `None` — записываем.
-
-    Правила — те же, что не пускают домен в прогон (`runs/exclusions.py`):
-    второй экземпляр здесь разошёлся бы с ними на первой правке.
-    """
-    if host in await _sending_roots(session):
-        return f"{host} — наш домен рассылки: донором он не бывает."
-    reason = by_name([host]).get(host) or (await Exclusions(session).excluded_hosts([host])).get(
-        host
-    )
-    template = None if reason is None else _REFUSED.get(reason)
-    return None if template is None else template.format(host=host)
-
-
-async def _sending_roots(session: AsyncSession) -> set[str]:
-    """Наши домены рассылки — корнями, как ключ доменов: ящик живёт и на поддомене."""
-    domains = await session.scalars(select(SenderModel.domain).distinct())
-    return {normalize_host(domain) or domain.strip().lower() for domain in domains.all()}
-
-
-async def _candidate_refusal(session: AsyncSession, donor: DonorModel, host: str) -> str | None:
-    """Домен в базе, но не донор: ждёт решения в очереди прогона или не прошёл пороги.
-
-    Решение о кандидате принимают в очереди прогона — там судья, выдача и
-    причина, по которой он туда попал. Не прошедший пороги в очередь не
-    попадает вовсе: «годен ли по цифрам» решают пороги, а не ручной ввод.
-    """
-    waits = await decided_in(session, donor.domain_id, None)
-    if waits is not None:
-        return (
-            f"{host} ждёт решения в очереди прогона №{waits}: решают там. Примете — "
-            "цену укажете на карточке донора."
-        )
-    if donor.status is DonorStatus.UNSUITABLE:
-        why = reject_reason_text(donor.reject_reason)
-        return (
-            f"{host} не прошёл пороги отбора{f' ({why})' if why else ''}: Этап 2 обходит "
-            "только годных доноров."
-        )
-    return None
-
-
 async def _accepted(
     session: AsyncSession,
     domain: DomainModel | None,
@@ -398,8 +394,13 @@ async def _priced(
         currency=price.currency,
         at=at,
         source=PriceSource.MANUAL,
-        note=price.note,
-        by=price.by,
+        details=PriceDetails(
+            white=price.amount,
+            grey=price.grey,
+            payment_methods=price.payment_methods,
+            note=price.note,
+            by=price.by,
+        ),
     )
     await session.flush()
     await AccessRepository(session).record(
@@ -411,6 +412,8 @@ async def _priced(
             "донор": host,
             "цена": str(price.amount),
             "валюта": price.currency,
+            "серая": None if price.grey is None else str(price.grey),
+            "оплата": list(price.payment_methods) or None,
             "откуда цена": price.note,
             "кто": price.by,
             "прежняя цена": before,

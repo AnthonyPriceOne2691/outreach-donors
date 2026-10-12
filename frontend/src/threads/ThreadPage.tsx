@@ -99,7 +99,9 @@ export function ThreadPage() {
       values: { price_white: string | null; price_grey: string | null; currency: string | null };
       declines?: boolean;
     }) =>
-      reviewReply(replyId, { ...values, payment_methods: [], ...(declines ? { declines } : {}) }),
+      // Оплату форма не показывает и не шлёт: пустой список стирал найденную разбором
+      // оплату у каждого подтверждённого ответа, и в карточку донора она не доходила.
+      reviewReply(replyId, { ...values, ...(declines ? { declines } : {}) }),
     onSuccess: async (result, { values, declines = false }) => {
       // Список диалогов тоже меняется: состояние «ждёт разбора» уходит.
       await queryClient.invalidateQueries({ queryKey: ['thread', String(id)] });

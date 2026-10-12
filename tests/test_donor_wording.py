@@ -19,6 +19,7 @@ from backend.features.donors.wording import (
     COUNTRY_TITLES,
     DONOR_STATUS_TITLES,
     NOT_SEARCHED,
+    REVIEW_TITLES,
     SELLER_ANSWER_TITLES,
     country_title,
     reject_reason_text,
@@ -27,6 +28,8 @@ from backend.features.donors.wording import (
 from backend.features.serp.dataforseo import COUNTRY_CODES
 
 LABELS_TS = Path(__file__).resolve().parent.parent / "frontend" / "src" / "api" / "labels.ts"
+#: Слова цены и решения человека у таблицы доноров — своим файлом с 12.10.2026.
+PRICE_WORDS_TS = LABELS_TS.parent.parent / "donors" / "priceWords.ts"
 
 
 def _block(name: str) -> str:
@@ -70,6 +73,15 @@ class TestSameWordsAsTheScreen:
     def test_never_searched(self) -> None:
         source = LABELS_TS.read_text(encoding="utf-8")
         assert f"NOT_SEARCHED = {{ title: '{NOT_SEARCHED}'" in source
+
+    def test_decisions(self) -> None:
+        """Решение человека — «принят», «отклонён», «не решали» — теми же словами
+        в выгрузке и под доменом в таблице (сверка ТЗ 12.10.2026)."""
+        source = PRICE_WORDS_TS.read_text(encoding="utf-8")
+        found = re.search(r"const DONOR_REVIEWS\b[^=]*=\s*\{(.*?)\n\s*\};", source, re.S)
+        assert found is not None, f"в {PRICE_WORDS_TS.name} нет DONOR_REVIEWS"
+        titles = dict(re.findall(r"^\s*([a-z_]+): \{ title: '([^']+)'", found.group(1), re.M))
+        assert titles == REVIEW_TITLES
 
     def test_seller_answers(self) -> None:
         """«Не продаёт» и «берёт бесплатно» стоят в выгрузке на месте цены, которую

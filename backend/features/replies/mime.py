@@ -26,6 +26,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from email.header import decode_header, make_header
+from email.utils import getaddresses
 from typing import Any
 
 from backend.features.replies.charsets import decode_fields
@@ -104,17 +105,17 @@ def message_ids_in(value: str) -> tuple[str, ...]:
 
 
 def decoded(value: str) -> str:
-    """Тема письма в читаемый вид: она приходит закодированной, если
-    в ней есть что-то, кроме латиницы."""
+    """Заголовок в читаемый вид — тема, имя файла, «От кого»: он приходит
+    закодированным, если в нём есть что-то, кроме латиницы."""
     if not value:
         return ""
     try:
         return str(make_header(decode_header(value)))
     except (UnicodeDecodeError, LookupError, ValueError):
-        # Непонятная кодировка — не повод потерять тему целиком, но
+        # Непонятная кодировка — не повод потерять заголовок целиком, но
         # и не повод молчать: тема в кракозябрах на экране объясняется
         # только этой строкой в логе.
-        logger.warning("приём: тему не удалось раскодировать — %r", value[:80])
+        logger.warning("приём: заголовок не удалось раскодировать — %r", value[:80])
         return value
 
 
@@ -214,6 +215,29 @@ def _cleaned(attachment: Attachment) -> Attachment:
     return replace(attachment, name=file_name(attachment.name), content_type=kind or None)
 
 
+#: Имя из «От кого» — не длиннее колонки ответа (`replies.from_name`).
+MAX_SENDER_NAME = 255
+
+
+def sender_name(value: str) -> str:
+    """Имя из «От кого»: «Анна Петрова <anna@…>» — «Анна Петрова». Пусто — имени
+    нет или на его месте адрес.
+
+    Нужно маскированию перед моделью (требование: «адреса и имена заменяются метками»):
+    разбор цены идёт задачей очереди после приёма, и имя, не сохранённое здесь,
+    узнать там было бы неоткуда (12.10.2026).
+
+    **Делится по адресам до раскодирования**, имя раскодируется потом: «Петрова, Анна»,
+    закодированное по правилам почты, после раскодирования — запятая без кавычек,
+    и деление по ней отрезало бы «Петрова» как отдельный адрес без имени.
+    """
+    for name, _ in getaddresses([value]):
+        said = " ".join(storable(decoded(name)).split())
+        if said and "@" not in said:
+            return said[:MAX_SENDER_NAME]
+    return ""
+
+
 def _envelope(raw: str | None) -> tuple[tuple[str, ...], str]:
     """Конверт письма: на какие адреса его доставили и обратный адрес.
 
@@ -308,6 +332,7 @@ def from_form(
         # письмо без отправителя не принимается вовсе, и терять его из-за
         # испорченного заголовка — хуже, чем взять адрес из конверта.
         from_email=storable(senders[0] if senders else ""),
+        from_name=sender_name(_first(form, "from")),
         subject=storable(decoded(_first(form, "subject")))[:512],
         text=storable(_body_text(form))[:MAX_BODY_CHARS],
         in_reply_to=storable(in_reply_to[0]) if in_reply_to else None,

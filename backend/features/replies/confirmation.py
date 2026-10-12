@@ -35,7 +35,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.models.outreach import ReplyModel
-from backend.features.donors.manual_price import typed_amount, typed_currency
+from backend.features.donors.manual_price import typed_amount, typed_currency, typed_payment
 from backend.features.donors.wording import SELLER_ANSWER_TITLES
 from backend.features.outreach.threads import ReplyFacts, superseded_by
 from backend.features.replies.money import normalize_currency
@@ -67,6 +67,13 @@ def confirmed_price(white: object, grey: object, currency: object) -> ConfirmedP
     if checked_white is None and checked_grey is None:
         return ConfirmedPrice(white=None, grey=None, currency=normalize_currency(said))
     return ConfirmedPrice(white=checked_white, grey=checked_grey, currency=typed_currency(said))
+
+
+def confirmed_payment(raw: list[str] | None) -> list[str] | None:
+    """Оплата, присланная с подтверждением, — правилами цены руками
+    (`manual_price.typed_payment`): длина и число способов, запятая в скобках способ не
+    делит; отказ — словами, до записи. `None` — не прислана: оплата ответа не правится."""
+    return None if raw is None else list(typed_payment(raw))
 
 
 def _amount_or_none(raw: object) -> Decimal | None:

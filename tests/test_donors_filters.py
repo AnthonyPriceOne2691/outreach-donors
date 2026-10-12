@@ -23,7 +23,8 @@ from backend.features.core.models.access import UserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.donors import export
-from backend.features.donors.browse import DonorBrowser, DonorFilters, Freshness
+from backend.features.donors.browse import DonorBrowser
+from backend.features.donors.table_filters import DonorFilters, Freshness
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer

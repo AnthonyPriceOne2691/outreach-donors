@@ -2,21 +2,24 @@
 
 Отдельно от `repository.py`, который пишет: у чтения другие требования —
 фильтры, страницы, соединения с контактами и переписки. Смешав их,
-получаем модуль, в котором правка выборки задевает запись.
+получаем модуль, в котором правка выборки задевает запись. Сами фильтры
+и порядок — условиями в `table_filters.py`.
 
 Одно правило отражено прямо в структуре: **«не проверен» и «не подходит» —
 разные состояния.** Донор без данных Ahrefs не отсеян, его надо добрать
 позже; поэтому фильтр по статусу их различает, а не сводит в «не годен».
 
-**Таблица — только доноры** (решение 26.09.2026, `standing.py`): строки,
-их число, счётчики фильтров и выгрузка берут одну основу (`_screen`),
-и сузить экран значит сузить её одну. Карточка открывается у любой строки
-`donors` — и честно говорит, донор это или кандидат.
+**Таблица — доноры** (решение 26.09.2026, `standing.py`): строки, их число,
+счётчики фильтров и выгрузка берут одну основу (`_screen`), и сузить экран
+значит сузить её одну. Решение человека — выбор этой основы (`Review`, сверка
+ТЗ 12.10.2026): без него — принятые, как было; «все проверенные» — таблица ТЗ.
+Карточка открывается у любой строки `donors` — и честно говорит, донор это
+или кандидат.
 
-**Срок годности метрик — одно условие** (`freshness`): им считается
-и значок в строке, и фильтр «Данные». Два экземпляра правила «в сроке»
-разошлись бы на самой границе срока, и фильтр «в сроке» показывал бы строку
-со значком «пора обновить».
+**Срок годности — одно условие** (`freshness`, `price_is`): им считается
+и значок в строке, и фильтр. Два экземпляра правила «в сроке» разошлись бы
+на самой границе срока, и фильтр «в сроке» показывал бы строку со значком
+«пора обновить».
 """
 
 from __future__ import annotations
@@ -25,79 +28,40 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import ColumnElement, Select, case, func, or_, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import filters as filters_cfg
 from backend.features.contacts.manual import removal_refusals
 from backend.features.contacts.preference import preferred_first
-from backend.features.contacts.repository import has_address, search_refusal
+from backend.features.contacts.repository import search_refusal
 from backend.features.core.domain import DonorStatus, Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
-from backend.features.core.models.outreach import CampaignModel, ThreadModel
-from backend.features.donors.manual_price import price_refusal
-from backend.features.donors.standing import UnknownDonorError, decided_in, is_donor
+from backend.features.core.models.outreach import CampaignModel, ReplyModel, ThreadModel
+from backend.features.donors.price_freshness import PriceState, fresh_until, price_is
+from backend.features.donors.price_refusal import price_refusal
+from backend.features.donors.standing import UnknownDonorError, decided_in
+from backend.features.donors.table_filters import (
+    DonorFilters,
+    DonorSort,
+    Freshness,
+    Review,
+    decided,
+    freshness,
+    narrowed,
+    ordered,
+)
 from backend.features.letters.recipients import LetterAddress, Recipients
 from backend.features.replies.extract import WITHOUT_PRICE
+from backend.features.replies.quoting import written_by_hand
 from backend.shared.database.ids import storable
-from backend.shared.database.text_search import contains
 
-
-class Freshness(StrEnum):
-    """Метрики донора: в сроке, пора обновить, не проверялись.
-
-    «Не проверялись» — не «пора обновить»: у второго данные были и устарели,
-    у первого их не было вовсе, и обновлять нечего.
-    """
-
-    FRESH = "fresh"
-    STALE = "stale"
-    NEVER = "never"
-
-
-def _freshness_is(state: Freshness, now: datetime) -> ColumnElement[bool]:
-    """Условие одного состояния. Три условия не пересекаются и покрывают всё.
-
-    Граница — та же, что у прогона, решающего, платить ли за метрики снова
-    (`DonorRepository.fresh_hosts`): строго позже, чем срок назад.
-    """
-    refreshed = DonorModel.metrics_refreshed_at
-    border = now - timedelta(days=filters_cfg.METRICS_TTL_DAYS)
-    if state is Freshness.NEVER:
-        return refreshed.is_(None)
-    if state is Freshness.FRESH:
-        return refreshed > border
-    return refreshed <= border
-
-
-def freshness(now: datetime) -> ColumnElement[str]:
-    """Состояние метрик строкой — теми же условиями, что у фильтра."""
-    return case(
-        *((_freshness_is(state, now), state.value) for state in Freshness),
-    )
-
-
-@dataclass(frozen=True, slots=True)
-class DonorFilters:
-    """Чем сужают таблицу. Пустое поле — «не сужать»."""
-
-    status: DonorStatus | None = None
-    search: str | None = None
-    min_dr: int | None = None
-    has_contact: bool | None = None
-    #: Органический трафик не ниже. Бывает до миллиардов — колонка `BigInteger`.
-    min_traffic: int | None = None
-    #: Страна донора, код ISO-2 (`donors.geo`).
-    geo: str | None = None
-    freshness: Freshness | None = None
-    #: Только эти номера — выгрузка отмеченных. Пусто — не сужать.
-    ids: tuple[int, ...] = ()
-    limit: int = 100
-    offset: int = 0
+#: Сколько текста ответа показывает карточка рядом с ценой: прайс в письме укладывается,
+#: а простыня пересланной переписки — нет; целиком письмо — в переписке по ссылке.
+REPLY_TEXT_LIMIT = 4000
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,11 +75,18 @@ class DonorRow:
     #: Ответ донора на домене (`domains.seller_answer`): «не продаём» снимает цену,
     #: «бесплатно» ставит вместо неё отметку (`donors/price.py`).
     seller_answer: str | None
+    #: Цена старше срока годности — тем же условием, что фильтр «цена устарела».
+    price_stale: bool = False
 
     @property
     def fresh(self) -> bool:
         """За свежие данные уже заплачено, и второй раз за них не платят."""
         return self.freshness is Freshness.FRESH
+
+    @property
+    def price_fresh_until(self) -> datetime | None:
+        """До какого дня цена свежая — выгрузке: правилом `price_freshness`."""
+        return fresh_until(self.donor)
 
     @property
     def price(self) -> Decimal | str | None:
@@ -139,14 +110,17 @@ class DonorPage:
 class Facets:
     """Счётчики под фильтрами: сколько доноров с каждым значением.
 
-    Считаются по всем донорам экрана, а не по странице и не по остальным
-    фильтрам: они отвечают на вопрос «что вообще есть», и по ним пустой
-    результат отличает «сузили до пустоты» от «такого нет вовсе».
+    Считаются по всем донорам экрана — под выбранным решением человека, — а не
+    по странице и не по остальным фильтрам: они отвечают на вопрос «что вообще есть»,
+    и по ним пустой результат отличает «сузили до пустоты» от «такого нет вовсе».
+    Решения (`reviews`) — по всей базе: это варианты самой основы экрана.
     """
 
     statuses: dict[DonorStatus, int] = field(default_factory=dict)
     countries: dict[str, int] = field(default_factory=dict)
     freshness: dict[Freshness, int] = field(default_factory=dict)
+    prices: dict[PriceState, int] = field(default_factory=dict)
+    reviews: dict[Review, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,7 +134,7 @@ class Picked:
 
     rows: list[DonorRow]
     asked: int
-    #: Запись есть, но это уже не донор.
+    #: Запись есть, но под этим решением человека её уже нет.
     not_donors: int
     #: Записи нет вовсе.
     missing: int
@@ -184,7 +158,7 @@ class DonorCard:
     #: `None` здесь значит «можно искать», и забытое поле разрешало бы молча.
     contact_refusal: str | None
     #: Почему цену руками сейчас не записать; `None` — запишется. Слова те же,
-    #: что у отказа «Записать цену» (`manual_price.price_refusal`): экран
+    #: что у отказа «Записать цену» (`price_refusal.price_refusal`): экран
     #: говорит отказ до нажатия, а не узнаёт о нём после. Без умолчания —
     #: по той же причине, что у поиска.
     price_refusal: str | None
@@ -198,10 +172,24 @@ class DonorCard:
     #: («Открыть диалог →», аудит экранов 09.10.2026). Диалог — на адрес, а
     #: не на домен, поэтому их бывает несколько.
     threads: Sequence[int]
+    #: Цена старше срока годности — тем же условием, что фильтр таблицы.
+    price_stale: bool = False
+    #: Переписка ответа, из которого цена: карточка ведёт в неё. Пусто — цена руками,
+    #: записана до 12.10.2026 или ответа уже нет.
+    price_thread: int | None = None
+    #: Что донор написал в этом ответе — без цитаты нашего письма и подписи, тем же
+    #: правилом, что у разбора (`quoting.written_by_hand`). ТЗ: в карточке «распознанные
+    #: цены … и рядом исходный текст ответа, из которого они взяты». Пусто — как выше.
+    price_reply_text: str | None = None
 
     @property
     def fresh(self) -> bool:
         return self.freshness is Freshness.FRESH
+
+    @property
+    def price_expires_at(self) -> datetime | None:
+        """До какого дня цена свежая: срок — от того, когда её назвали."""
+        return fresh_until(self.donor)
 
 
 def _expires_at(donor: DonorModel) -> datetime | None:
@@ -210,72 +198,42 @@ def _expires_at(donor: DonorModel) -> datetime | None:
     return donor.metrics_refreshed_at + timedelta(days=filters_cfg.METRICS_TTL_DAYS)
 
 
-def _by_metrics(statement: Select[Any], filters: DonorFilters, now: datetime) -> Select[Any]:
-    """Фильтры колонок с числами Ahrefs: вердикт, DR, трафик, гео, данные."""
-    if filters.status is not None:
-        statement = statement.where(DonorModel.status == filters.status)
-    if filters.min_dr is not None:
-        statement = statement.where(DonorModel.dr >= filters.min_dr)
-    if filters.min_traffic is not None:
-        statement = statement.where(DonorModel.org_traffic >= filters.min_traffic)
-    if filters.geo:
-        statement = statement.where(DonorModel.geo == filters.geo.strip().lower())
-    if filters.freshness is not None:
-        statement = statement.where(_freshness_is(filters.freshness, now))
-    return statement
+def _screen(review: Review, *columns: Any) -> Select[Any]:
+    """Основа экрана: донор с доменом — под решением человека (`table_filters.decided`).
 
-
-def _narrow(statement: Select[Any], filters: DonorFilters, now: datetime) -> Select[Any]:
-    if filters.ids:
-        statement = statement.where(DonorModel.id.in_(filters.ids))
-    statement = _by_metrics(statement, filters, now)
-    if filters.search:
-        # Набранное — текст, а не шаблон: «_» и «%» находили всех (`text_search`).
-        statement = statement.where(
-            or_(
-                contains(DomainModel.host, filters.search),
-                contains(DonorModel.reject_reason, filters.search),
-            )
-        )
-    if filters.has_contact is not None:
-        # «С адресом» — адрес есть в базе (`has_address`), одним правилом с плиткой
-        # главной и ступенью писем (проверка прода 10.10.2026), а не исход поиска:
-        # тот пишет «адреса нет» рядом с адресом, оставшимся от прежнего прохода.
-        found = has_address(DonorModel.domain_id)
-        statement = statement.where(found if filters.has_contact else ~found)
-    return statement
+    Строки, их число, счётчики фильтров и выгрузка берут её одну: счётчик
+    «всей базы» рядом со списком доноров назвал бы донорами и кандидатов.
+    """
+    return (
+        select(*columns)
+        .select_from(DonorModel)
+        .join(DomainModel, DomainModel.id == DonorModel.domain_id)
+        .where(decided(review))
+    )
 
 
 class DonorBrowser:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    @staticmethod
-    def _screen(*columns: Any) -> Select[Any]:
-        """Основа экрана: донор с доменом — только доноры (`standing.is_donor`).
-
-        Строки, их число, счётчики фильтров и выгрузка берут её одну: счётчик
-        «всей базы» рядом со списком доноров назвал бы донорами и кандидатов.
-        """
-        return (
-            select(*columns)
-            .select_from(DonorModel)
-            .join(DomainModel, DomainModel.id == DonorModel.domain_id)
-            .where(is_donor())
-        )
-
     async def page(self, filters: DonorFilters, *, now: datetime | None = None) -> DonorPage:
         moment = now or datetime.now(UTC)
-        columns = (DonorModel, DomainModel.host, DomainModel.seller_answer)
+        columns = (
+            DonorModel,
+            DomainModel.host,
+            DomainModel.seller_answer,
+            freshness(moment).label("freshness"),
+            price_is(PriceState.STALE, moment).label("price_stale"),
+        )
         rows = await self._session.execute(
-            _narrow(self._screen(*columns, freshness(moment).label("freshness")), filters, moment)
-            .order_by(DonorModel.dr.desc().nullslast(), DonorModel.id.desc())
+            narrowed(_screen(filters.review, *columns), filters, moment)
+            .order_by(*ordered(filters.sort))
             .limit(filters.limit)
             .offset(filters.offset)
         )
         found = rows.all()
         total = await self._session.scalar(
-            _narrow(self._screen(func.count(DonorModel.id)), filters, moment)
+            narrowed(_screen(filters.review, func.count(DonorModel.id)), filters, moment)
         )
         contacts = await self._contact_counts([donor.domain_id for donor, *_ in found])
         return DonorPage(
@@ -286,23 +244,33 @@ class DonorBrowser:
                     contacts=contacts.get(donor.domain_id, 0),
                     freshness=Freshness(state),
                     seller_answer=answer,
+                    price_stale=bool(stale),
                 )
-                for donor, host, answer, state in found
+                for donor, host, answer, state, stale in found
             ],
             total=int(total or 0),
         )
 
     async def picked(
-        self, ids: Sequence[int], *, limit: int, now: datetime | None = None
+        self,
+        ids: Sequence[int],
+        *,
+        limit: int,
+        review: Review = Review.ACCEPTED,
+        sort: DonorSort = DonorSort.DR,
+        now: datetime | None = None,
     ) -> Picked:
-        """Отмеченные доноры — независимо от фильтра на экране.
+        """Отмеченные доноры — независимо от фильтра на экране, но под тем же решением
+        человека и в том же порядке: отмеченный на «все проверенные» и выгруженный там
+        не «перестал быть донором».
 
         Номер, которого не может быть в базе (за пределом столбца), — такой
         же «записи нет», как любой другой несуществующий.
         """
         asked = list(dict.fromkeys(ids))
         known = tuple(one for one in asked if storable(one))
-        page = await self.page(DonorFilters(ids=known, limit=limit), now=now) if known else None
+        filters = DonorFilters(ids=known, limit=limit, review=review, sort=sort)
+        page = await self.page(filters, now=now) if known else None
         rows = page.rows if page is not None else []
         existing = (
             await self._session.scalar(
@@ -318,21 +286,23 @@ class DonorBrowser:
             missing=len(asked) - int(existing or 0),
         )
 
-    async def facets(self) -> Facets:
-        """Счётчики под фильтрами — по всем донорам экрана."""
+    async def facets(self, review: Review = Review.ACCEPTED) -> Facets:
+        """Счётчики под фильтрами — по всем донорам экрана под решением `review`."""
         moment = datetime.now(UTC)
         statuses = await self._session.execute(
-            self._screen(DonorModel.status, func.count(DonorModel.id)).group_by(DonorModel.status)
+            _screen(review, DonorModel.status, func.count(DonorModel.id)).group_by(
+                DonorModel.status
+            )
         )
         countries = await self._session.execute(
-            self._screen(DonorModel.geo, func.count(DonorModel.id))
+            _screen(review, DonorModel.geo, func.count(DonorModel.id))
             .where(DonorModel.geo.is_not(None))
             .group_by(DonorModel.geo)
         )
         # Через подзапрос, а не `group_by(выражение)`: граница срока едет
         # параметром, и выражение в списке колонок и в группировке вышло бы
         # с разными номерами параметров — базе они разные.
-        states = self._screen(freshness(moment).label("state")).subquery()
+        states = _screen(review, freshness(moment).label("state")).subquery()
         by_state = await self._session.execute(
             select(states.c.state, func.count()).group_by(states.c.state)
         )
@@ -340,7 +310,31 @@ class DonorBrowser:
             statuses=dict(statuses.tuples().all()),
             countries={str(code).lower(): int(count) for code, count in countries.tuples()},
             freshness={Freshness(value): int(count) for value, count in by_state.tuples()},
+            prices=await self._prices(review, moment),
+            reviews=await self._reviews(),
         )
+
+    async def _prices(self, review: Review, now: datetime) -> dict[PriceState, int]:
+        """Сколько доноров экрана с ценой, со свежей, с устаревшей и без неё."""
+        states = tuple(PriceState)
+        row = (
+            await self._session.execute(
+                _screen(review, *(func.count().filter(price_is(state, now)) for state in states))
+            )
+        ).one()
+        return {state: int(count) for state, count in zip(states, row, strict=True)}
+
+    async def _reviews(self) -> dict[Review, int]:
+        """Сколько записей под каждым решением человека — по всей базе."""
+        states = tuple(Review)
+        row = (
+            await self._session.execute(
+                select(*(func.count().filter(decided(state)) for state in states)).select_from(
+                    DonorModel
+                )
+            )
+        ).one()
+        return {state: int(count) for state, count in zip(states, row, strict=True)}
 
     async def card(self, donor_id: int) -> DonorCard:
         if not storable(donor_id):
@@ -352,6 +346,7 @@ class DonorBrowser:
                 DomainModel.host,
                 DomainModel.seller_answer,
                 freshness(moment).label("freshness"),
+                price_is(PriceState.STALE, moment).label("price_stale"),
             )
             .join(DomainModel, DomainModel.id == DonorModel.domain_id)
             .where(DonorModel.id == donor_id)
@@ -360,7 +355,7 @@ class DonorBrowser:
         if found is None:
             raise UnknownDonorError(f"Донора №{donor_id} нет")
 
-        donor, host, answer, state = found
+        donor, host, answer, state, stale = found
         contacts = (
             (
                 await self._session.execute(
@@ -385,7 +380,27 @@ class DonorBrowser:
             letter=await Recipients(self._session).letter_address(donor.domain_id),
             removal=await removal_refusals(self._session, contacts),
             threads=await self._threads(donor.domain_id),
+            price_stale=bool(stale),
+            **await self._price_reply(donor.last_price_reply_id),
         )
+
+    async def _price_reply(self, reply_id: int | None) -> dict[str, Any]:
+        """Ответ, из которого цена: его переписка и что в нём написал донор. Ответа
+        нет — ни ссылки, ни текста."""
+        if reply_id is None or not storable(reply_id):
+            return {}
+        found = (
+            await self._session.execute(
+                select(ReplyModel.thread_id, ReplyModel.raw_body).where(ReplyModel.id == reply_id)
+            )
+        ).first()
+        if found is None:
+            return {}
+        thread, body = found
+        return {
+            "price_thread": thread,
+            "price_reply_text": written_by_hand(body)[:REPLY_TEXT_LIMIT],
+        }
 
     async def _threads(self, domain_id: int) -> list[int]:
         found = await self._session.scalars(

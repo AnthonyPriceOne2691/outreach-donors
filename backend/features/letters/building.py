@@ -54,6 +54,7 @@ from dataclasses import dataclass, field, replace
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.config import outreach as outreach_cfg
 from backend.features.contacts.quality import rejection_reason
 from backend.features.core import usage
 from backend.features.core.domain import MessageStatus, Stage
@@ -428,6 +429,9 @@ class QueueBuilder:
                 country=request.country,
                 niche=tuple(found_by.get(candidate.host, ())) or request.niche,
                 about=candidate.about,
+                # Наше имя отправителя модель не видит (имена — метками): его ставят в зону,
+                # когда правят шаблон.
+                names=(outreach_cfg.SENDER_NAME,),
             ),
         )
         for note in rewritten.notes:
