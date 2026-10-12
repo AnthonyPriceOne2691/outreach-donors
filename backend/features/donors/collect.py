@@ -23,12 +23,19 @@
 доменов идёт часами, и падение на середине не должно стоить всей работы:
 сохранив пачку, мы поставили отметку времени, и повторный запуск эти домены
 уже пропустит.
+
+**Страны не пришли — следующий прогон добирает только их.** Метрики к этой
+минуте куплены, и домен ложится «не проверен» с ними и с причиной
+(`COUNTRIES_FAILED`). Свежим он не считается (`repository.countries_missing`),
+а следующий прогон получает его метрики готовыми (`PaidMetrics`) и платит
+только за страны. До 11.10.2026 такой домен 90 дней числился проверенным,
+и обещание «доберёт страны» не исполнялось.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any
@@ -37,7 +44,9 @@ from backend.features.ahrefs.client import AhrefsClient, AhrefsError
 from backend.features.ahrefs.units import MAX_BATCH_TARGETS
 from backend.features.core.domain import DonorStatus
 from backend.features.donors.geo import (
+    COUNTRY_ROWS,
     CountryShare,
+    GeoRule,
     GeoVerdict,
     build_breakdown,
     check_geo,
@@ -61,6 +70,10 @@ FULL_FIELDS = (
     "org_traffic_top_by_country",
 )
 
+#: Причина «не проверен», когда упал запрос по странам: метрики куплены,
+#: и следующий прогон доберёт только страны (`repository.countries_missing`).
+COUNTRIES_FAILED = "страны не получены"
+
 
 @dataclass(slots=True)
 class DomainResult:
@@ -72,10 +85,25 @@ class DomainResult:
     metrics: Metrics
     geo: GeoVerdict | None = None
     raw: dict[str, Any] | None = None
+    #: Когда куплены метрики. Пусто — этим прогоном; у добора стран — прошлым
+    #: (`PaidMetrics`): срок годности метрик идёт от покупки, а не от добора.
+    metrics_at: datetime | None = None
 
     @property
     def breakdown(self) -> list[CountryShare]:
         return self.geo.breakdown if self.geo else []
+
+
+@dataclass(frozen=True, slots=True)
+class PaidMetrics:
+    """Метрики, купленные прошлым прогоном у домена, до которого не дошли страны.
+
+    Строка пакетного ответа как есть — вердикт по ней считается тем же разбором,
+    что при покупке, — и когда она куплена.
+    """
+
+    raw: dict[str, Any]
+    bought_at: datetime
 
 
 def parse_domain_rating(row: dict[str, Any]) -> float | None:
@@ -202,8 +230,22 @@ def _top_country_share(row: dict[str, Any], total: int) -> CountryShare | None:
     return CountryShare(country, traffic, traffic / share_base(total, [traffic]))
 
 
+@dataclass(frozen=True, slots=True)
+class _Region:
+    """Чем судить регион: целевая страна, день отчёта и правило версии настроек прогона."""
+
+    country: str
+    day: str
+    rule: GeoRule
+
+    def judge(self, breakdown: list[CountryShare]) -> GeoVerdict:
+        return check_geo(
+            self.country, breakdown, top_n=self.rule.top_n, min_share=self.rule.min_share
+        )
+
+
 def _geo_without_paying(
-    row: dict[str, Any], metrics: Metrics, target_country: str
+    row: dict[str, Any], metrics: Metrics, region: _Region
 ) -> GeoVerdict | None:
     """Вердикт по региону из пакетного ответа — или `None`, если его мало.
 
@@ -216,9 +258,9 @@ def _geo_without_paying(
     значит отбраковывать годных доноров молча, поэтому `None` — и платим.
     """
     top = _top_country_share(row, metrics.org_traffic or 0)
-    if top is None or top.country != target_country.lower():
+    if top is None or top.country != region.country.lower():
         return None
-    verdict = check_geo(target_country, [top])
+    verdict = region.judge([top])
     return replace(verdict, partial=True) if verdict.passed else None
 
 
@@ -227,23 +269,24 @@ async def _resolve_geo(
     host: str,
     metrics: Metrics,
     raw: dict[str, Any],
-    target_country: str,
-    date: str,
+    region: _Region,
 ) -> DomainResult:
     """Ступень 3. Страны по одному домену — пакетного аналога у запроса нет.
 
     Зовётся только когда верхней страны не хватило: см. `_geo_without_paying`.
+    Строк в ответе — `COUNTRY_ROWS`: шире топа правило не бывает
+    (`geo.assert_settings_allow_limited_fetch`).
     """
     try:
-        response = await client.metrics_by_country(host, date)
+        response = await client.metrics_by_country(host, region.day, top_n=COUNTRY_ROWS)
     except AhrefsError as exc:
         # Метрики уже собраны и оплачены — сохраняем их и помечаем домен
         # «не проверен». Повторный прогон доберёт только страны.
         logger.warning("Страны для %s не получены: %s", host, exc)
-        return DomainResult(host, DonorStatus.UNCHECKED, "страны не получены", metrics, raw=raw)
+        return DomainResult(host, DonorStatus.UNCHECKED, COUNTRIES_FAILED, metrics, raw=raw)
 
     breakdown = build_breakdown(response.rows, metrics.org_traffic or 0)
-    geo = check_geo(target_country, breakdown)
+    geo = region.judge(breakdown)
     status = DonorStatus.SUITABLE if geo.passed else DonorStatus.UNSUITABLE
     if not breakdown:
         status = DonorStatus.UNCHECKED
@@ -255,18 +298,57 @@ async def _geo_result(
     host: str,
     metrics: Metrics,
     raw: dict[str, Any],
-    target_country: str,
-    day: str,
+    region: _Region,
 ) -> DomainResult:
     """Вердикт по региону — даром, если верхней страны хватило.
 
     Дорогой запрос остаётся для тех, у кого верхняя страна другая: про
     целевую мы тогда не знаем ничего.
     """
-    cheap = _geo_without_paying(raw, metrics, target_country)
+    cheap = _geo_without_paying(raw, metrics, region)
     if cheap is None:
-        return await _resolve_geo(client, host, metrics, raw, target_country, day)
+        return await _resolve_geo(client, host, metrics, raw, region)
     return DomainResult(host, DonorStatus.SUITABLE, cheap.reason, metrics, geo=cheap, raw=raw)
+
+
+async def _countries_only(
+    client: AhrefsClient,
+    host: str,
+    paid: PaidMetrics,
+    thresholds: Thresholds,
+    region: _Region,
+) -> DomainResult:
+    """Добор стран к метрикам, купленным прошлым прогоном: ступени 1–2 не платятся.
+
+    Пороги — этого прогона, по купленным метрикам: не прошедшему их страны не
+    нужны, и вердикт выносится даром. Дальше — как у свежего домена: верхняя
+    страна из той же строки ответа, а без неё — запрос по странам.
+    """
+    metrics = _metrics_from_row(paid.raw)
+    verdict = check_metrics(metrics, thresholds)
+    if verdict is None:
+        result = await _geo_result(client, host, metrics, paid.raw, region)
+    else:
+        result = DomainResult(host, verdict.status, verdict.reason, metrics, raw=paid.raw)
+    return replace(result, metrics_at=paid.bought_at)
+
+
+async def _measured(
+    client: AhrefsClient,
+    hosts: Sequence[str],
+    thresholds: Thresholds,
+    region: _Region,
+) -> list[DomainResult]:
+    """Три ступени по порядку цены — для доменов, у которых метрик ещё нет."""
+    if not hosts:
+        return []
+    survived_screen, results = await _screen_batch(client, hosts, thresholds)
+    if survived_screen:
+        survived_metrics, rejected = await _measure_batch(client, survived_screen, thresholds)
+        results.extend(rejected)
+        for host, metrics, raw in survived_metrics:
+            results.append(await _geo_result(client, host, metrics, raw, region))
+    return results
 
 
 async def collect(
@@ -277,25 +359,27 @@ async def collect(
     *,
     date: str | None = None,
     batch_size: int = MAX_BATCH_TARGETS,
+    paid: Mapping[str, PaidMetrics] | None = None,
+    geo: GeoRule = GeoRule(),
 ) -> AsyncIterator[list[DomainResult]]:
     """Собирает метрики по доменам и отдаёт результат пачками.
 
     Каждая выданная пачка — чекпоинт: вызывающий сохраняет её и ставит
     отметку времени, после чего эти домены выпадают из повторных прогонов.
+
+    `paid` — домены, у которых метрики куплены, а стран нет
+    (`DonorRepository.paid_metrics`): им прогон добирает только страны.
+    `geo` — правило региона версии настроек прогона (`RunRequest.geo`);
+    умолчание — конфига, для тестов.
     """
-    day = date or datetime.now(UTC).date().isoformat()
+    region = _Region(target_country, date or datetime.now(UTC).date().isoformat(), geo)
+    known = paid or {}
 
     for chunk in _chunks(hosts, batch_size):
-        results: list[DomainResult] = []
-
-        survived_screen, rejected = await _screen_batch(client, chunk, thresholds)
-        results.extend(rejected)
-
-        if survived_screen:
-            survived_metrics, rejected = await _measure_batch(client, survived_screen, thresholds)
-            results.extend(rejected)
-
-            for host, metrics, raw in survived_metrics:
-                results.append(await _geo_result(client, host, metrics, raw, target_country, day))
-
+        results = await _measured(
+            client, [host for host in chunk if host not in known], thresholds, region
+        )
+        for host in chunk:
+            if host in known:
+                results.append(await _countries_only(client, host, known[host], thresholds, region))
         yield results

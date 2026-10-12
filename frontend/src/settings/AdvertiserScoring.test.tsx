@@ -17,13 +17,26 @@ import { serve } from '../test/server';
 
 const THRESHOLDS = {
   current: null,
-  defaults: { min_dr: 20, min_org_traffic: 500, min_refdomains: 100, min_keywords: 300 },
+  defaults: {
+    min_dr: 20,
+    min_org_traffic: 500,
+    min_refdomains: 100,
+    min_keywords: 300,
+    geo_top_n: 5,
+    geo_min_share_percent: 20,
+    metrics_ttl_days: 90,
+  },
   history: [],
   limits: {
     min_dr: { min: 0, max: 90 },
     min_org_traffic: { min: 0, max: 10_000_000 },
     min_refdomains: { min: 0, max: 1_000_000 },
     min_keywords: { min: 0, max: 1_000_000 },
+  },
+  rule_limits: {
+    geo_top_n: { min: 1, max: 5 },
+    geo_min_share_percent: { min: 1, max: 100 },
+    metrics_ttl_days: { min: 1, max: 365 },
   },
 };
 

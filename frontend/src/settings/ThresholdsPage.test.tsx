@@ -21,6 +21,9 @@ function urlOf(input: RequestInfo | URL): string {
   if (typeof input === 'string') return input;
   return input instanceof URL ? input.href : input.url;
 }
+/** Правило региона и срок метрик версии (сверка ТЗ 11.10.2026) — у ответа всегда. */
+const RULES = { geo_top_n: 5, geo_min_share_percent: 20, metrics_ttl_days: 90 };
+
 const CURRENT = {
   version: 2,
   created_by: 'ivan@site.com',
@@ -29,6 +32,7 @@ const CURRENT = {
   min_org_traffic: 500,
   min_refdomains: 100,
   min_keywords: 300,
+  ...RULES,
 };
 
 const LIMITS = {
@@ -40,9 +44,14 @@ const LIMITS = {
 
 const VIEW = {
   current: CURRENT,
-  defaults: { min_dr: 20, min_org_traffic: 500, min_refdomains: 100, min_keywords: 300 },
+  defaults: { min_dr: 20, min_org_traffic: 500, min_refdomains: 100, min_keywords: 300, ...RULES },
   history: [CURRENT],
   limits: LIMITS,
+  rule_limits: {
+    geo_top_n: { min: 1, max: 5 },
+    geo_min_share_percent: { min: 1, max: 100 },
+    metrics_ttl_days: { min: 1, max: 365 },
+  },
 };
 
 const CONSEQUENCES = {
@@ -469,5 +478,67 @@ describe('экран в покое', () => {
     });
 
     expect(renders).toBe(settled);
+  });
+});
+
+describe('правило региона и срок метрик — частью версии', () => {
+  async function retype(label: string, value: string) {
+    const user = userEvent.setup();
+    const field = screen.getByLabelText(label);
+    await user.clear(field);
+    await user.type(field, value);
+  }
+
+  it('правят и сохраняют той же кнопкой, сравнение порогов не дёргают', async () => {
+    const recorded = await openThresholds({
+      'POST /api/settings/thresholds': { body: { ...CURRENT, version: 3, geo_top_n: 4 } },
+    });
+
+    await retype('Страна в топе', '4');
+    await retype('Или доля, %', '25');
+    await userEvent.setup().click(screen.getByRole('button', { name: /Сохранить новой версией/ }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/сохранены как версия 3/)).toBeInTheDocument();
+    });
+    const saved = recorded.calls.find(
+      (call) => call.path === '/api/settings/thresholds' && call.method === 'POST',
+    );
+    expect(saved?.body).toMatchObject({
+      min_dr: 20,
+      geo_top_n: 4,
+      geo_min_share_percent: 25,
+      metrics_ttl_days: 90,
+    });
+    expect(recorded.calls.some((call) => call.path === '/api/settings/preview')).toBe(false);
+  });
+
+  it('несогласованное правило — отказ словами до нажатия, сохранять нечего', async () => {
+    await openThresholds();
+
+    await retype('Или доля, %', '10');
+
+    expect(
+      await screen.findByText(
+        'При топ-5 и пороге доли 10% страна с достаточной долей может не попасть в ответ. ' +
+          'Нужна доля не ниже 20%.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Сохранить новой версией/ })).toBeDisabled();
+  });
+
+  it('топ шире пяти — отказ под полем: Ahrefs спрашиваем о пяти странах', async () => {
+    await openThresholds();
+
+    await retype('Страна в топе', '7');
+
+    expect(await screen.findByText('Допустимо от 1 до 5')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Сохранить новой версией/ })).toBeDisabled();
+  });
+
+  it('история показывает правило каждой версии', async () => {
+    await openThresholds();
+
+    expect(screen.getByText('топ-5 или 20% · 90 дн.')).toBeInTheDocument();
   });
 });

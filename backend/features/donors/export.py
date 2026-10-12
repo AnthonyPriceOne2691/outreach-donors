@@ -30,6 +30,7 @@ import io
 from collections.abc import Callable, Sequence
 from typing import Any
 
+from backend.features.core.domain import DonorStatus
 from backend.features.donors.browse import DonorRow
 from backend.features.donors.wording import (
     CONTACT_STATUS_TITLES,
@@ -84,6 +85,10 @@ COLUMNS: tuple[tuple[str, str], ...] = (
     ("цена", "price"),
     ("валюта", "last_price_currency"),
     ("метрики от", "metrics_refreshed_at"),
+    # С 12.10.2026 — причина «не проверен» своей колонкой (до того она стояла в
+    # «причине отсева»). Сразу за прежними колонками, а не рядом с причиной отсева:
+    # прежние колонки не сдвигаются — правило ниже.
+    ("почему не проверен", "unchecked_reason"),
     # С 12.10.2026 (сверка ТЗ: «белая цена, серая цена, способы оплаты») — решение
     # человека, вся цена и её срок. В конце, а не рядом с ценой: файл читают и
     # таблицы с формулами по номерам колонок, и прежние колонки не сдвигаются.
@@ -98,11 +103,20 @@ COLUMNS: tuple[tuple[str, str], ...] = (
 )
 
 
+#: Причина вердикта — колонкой своего вердикта (12.10.2026): у «не проверен» своя
+#: подпись, «причина отсева» у домена, которого никто не отсеивал, читалась бы приговором.
+_REASON_OF: dict[str, DonorStatus] = {
+    "reject_reason": DonorStatus.UNSUITABLE,
+    "unchecked_reason": DonorStatus.UNCHECKED,
+}
+
+
 #: Поля, которые экран показывает словами, а не как хранятся. Остальные
 #: уходят как есть: числа и даты; цена — числом, а без неё — словами ответа.
 WORDS: dict[str, Callable[[Any], Any]] = {
     "status": lambda status: DONOR_STATUS_TITLES[status],
     "reject_reason": reject_reason_text,
+    "unchecked_reason": reject_reason_text,
     "geo": country_title,
     "geo_top_share": share_text,
     # Пусто — не «пусто», а «не искали»: «не нашли» и «не искали» решаются
@@ -146,6 +160,8 @@ def _value(row: DonorRow, field: str) -> Any:
     содержимое файла никто не видел. Умолчания здесь больше нет: поле,
     которого нет ни у строки, ни у донора, — ошибка, а не пустая ячейка.
     """
+    if field in _REASON_OF:
+        return row.donor.reject_reason if row.donor.status is _REASON_OF[field] else None
     if hasattr(row, field):
         return getattr(row, field)
     return getattr(row.donor, field)

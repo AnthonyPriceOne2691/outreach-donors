@@ -19,12 +19,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import actor, db_session, needs
 from backend.api.settings.schemas import (
+    LIMITS,
+    RULE_LIMITS,
     AdvertiserSettingsView,
     ConsequencesView,
     SpendingView,
     ThresholdsBody,
     ThresholdsVersion,
     ThresholdsView,
+    share_percent,
 )
 from backend.config import ahrefs as ahrefs_cfg
 from backend.features.access.permissions import visible_stages
@@ -34,12 +37,15 @@ from backend.features.ahrefs.units import Quota
 from backend.features.core.domain import AuditAction, Permission, Stage
 from backend.features.core.models.access import UserModel
 from backend.features.crawl import selection_settings
+from backend.features.donors.geo import assert_settings_allow_limited_fetch
 from backend.features.runs.spending import SpendingRepository
 from backend.features.runs.thresholds import (
     ThresholdsRepository,
     consequences,
+    default_rules,
     defaults,
     in_force,
+    rules_in_force,
 )
 from backend.features.serp.dataforseo import SerpError
 from backend.features.serp.factory import UnknownProviderError, build_provider
@@ -51,13 +57,34 @@ _settler = Depends(needs(Permission.SETTINGS))
 _viewer = Depends(needs(Permission.VIEW))
 
 
+def _clamped(name: str, value: int) -> int:
+    """Умолчание окружения — в границах поля: за ними экран «Пороги» не открылся бы вовсе
+    (схема ответа отказала бы пятисоткой), а так он показывает ближайшее допустимое,
+    и журнал называет переменную, которую поправить."""
+    low, high = {**LIMITS, **RULE_LIMITS}[name]
+    kept = min(max(value, low), high)
+    if kept != value:
+        logger.warning(
+            "пороги: умолчание окружения для %s = %s вне границ %s…%s, на экране — %s",
+            name,
+            value,
+            low,
+            high,
+            kept,
+        )
+    return kept
+
+
 def _defaults_body() -> ThresholdsBody:
-    values = defaults()
+    values, rules = defaults(), default_rules()
     return ThresholdsBody(
-        min_dr=values.min_dr,
-        min_org_traffic=values.min_org_traffic,
-        min_refdomains=values.min_refdomains,
-        min_keywords=values.min_keywords,
+        min_dr=_clamped("min_dr", values.min_dr),
+        min_org_traffic=_clamped("min_org_traffic", values.min_org_traffic),
+        min_refdomains=_clamped("min_refdomains", values.min_refdomains),
+        min_keywords=_clamped("min_keywords", values.min_keywords),
+        geo_top_n=_clamped("geo_top_n", rules.geo.top_n),
+        geo_min_share_percent=_clamped("geo_min_share_percent", share_percent(rules.geo.min_share)),
+        metrics_ttl_days=_clamped("metrics_ttl_days", rules.metrics_ttl_days),
     )
 
 
@@ -108,8 +135,12 @@ async def save_thresholds(
     author: UserModel = _settler,
     session: AsyncSession = Depends(db_session),
 ) -> ThresholdsVersion:
+    # Правило региона и срок метрик — части той же версии: не присланное берётся
+    # из действующей, и несогласованное правило — отказ словами до записи (`geo.py`).
+    rules = body.with_rules_of(await rules_in_force(session))
+    assert_settings_allow_limited_fetch(rules.geo.top_n, rules.geo.min_share)
     repository = ThresholdsRepository(session)
-    settings = await repository.save(body.to_thresholds(), author=author.email)
+    settings = await repository.save(rules.thresholds, author=author.email, rules=rules)
     await AccessRepository(session).record(
         AuditAction.THRESHOLDS_CHANGED,
         author_id=author.id,
@@ -120,6 +151,9 @@ async def save_thresholds(
             "трафик": body.min_org_traffic,
             "реф. домены": body.min_refdomains,
             "ключи": body.min_keywords,
+            "топ стран": rules.geo.top_n,
+            "доля страны, %": share_percent(rules.geo.min_share),
+            "срок метрик, дней": rules.metrics_ttl_days,
         },
     )
     await session.commit()

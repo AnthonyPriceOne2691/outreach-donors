@@ -23,6 +23,11 @@
  * в четверть панели держало восьмизначное число; границы приходят с сервера
  * и проверяют поле тем же правилом, что схема сервера (`thresholdDraft.ts`),
  * — пока порог за границей, сравнение не считается и сохранять нечего.
+ *
+ * **Правило региона и срок метрик — та же версия** (сверка ТЗ 11.10.2026: «все пороги —
+ * в настройках прогона»). Поля под порогами (`RunRulesFields`), сохраняются той же
+ * кнопкой; несогласованное правило — отказ под полями, сохранять нечего. Сравнение
+ * с действующими их не касается: оно о четырёх порогах и метриках базы.
  */
 
 import { Alert, Badge, Button, Card, Group, Loader, Stack, Table, Text } from '@mantine/core';
@@ -32,15 +37,17 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { refusalOf } from '../api/client';
 import { fetchThresholds, previewThresholds, saveThresholds } from '../api/settings';
+import type { RunRules, VersionBody } from '../api/settings';
 import type { ThresholdsBody } from '../api/types';
-import { InfoHint } from '../components/InfoHint';
-import { NumberField } from '../components/NumberField';
-import { rangeText } from '../components/numberText';
 import { PageHead } from '../components/PageHead';
 import { SaveVersionButton } from '../components/SaveVersionButton';
 import { useSession } from '../auth/AuthProvider';
 import { formatDateTime, formatNumber } from '../format';
-import { bodyOf, draftOf, fieldRefusal, firstRefused, THRESHOLD_KEYS } from './thresholdDraft';
+import { LimitField } from './LimitField';
+import { coverageRefusal, rulesDraftOf, rulesOf, sameRules } from './rulesDraft';
+import type { RulesDraft } from './rulesDraft';
+import { RunRulesFields } from './RunRulesFields';
+import { bodyOf, draftOf, firstRefused, THRESHOLD_KEYS } from './thresholdDraft';
 import type { ThresholdDraft, ThresholdKey } from './thresholdDraft';
 import { ThresholdsComparison } from './ThresholdsComparison';
 import { AdvertiserScoring } from './AdvertiserScoring';
@@ -64,13 +71,6 @@ const FIELDS: Record<ThresholdKey, { label: string; hint: string }> = {
   min_keywords: { label: 'Ключей в органике', hint: 'Сколько ключей сайта в органической выдаче.' },
 };
 
-/** **Поле — по числу**: самому длинному, «10 000 000» с полями, хватает 115 px (замер
- *  28.09.2026, тогда ещё со стрелками). До 09.10.2026 поле стояло во всю колонку подписи —
- *  200 px под «20», то самое «поле больше своего значения» (замечание Anthony
- *  09.10.2026). Колонка — по своей подписи: подпись не переносится (`nowrap`), и
- *  соседние поля стоят на одной высоте. */
-const INPUT_WIDTH = '7.5rem';
-
 /** Колонки истории. Первая — номер со значком «действует» (124 px шрифтом
  *  экрана, замер 25.09.2026), последняя — адрес автора и время. Числа — по шесть
  *  знаков с разрядами, заголовок «Реф. домены» — 85 px. Плюс 32 px полей ячейки.
@@ -83,9 +83,15 @@ const COLUMNS: { title: string; width?: string }[] = [
   { title: 'Трафик', width: '7.5rem' },
   { title: 'Реф. домены', width: '8rem' },
   { title: 'Ключи', width: '7rem' },
+  { title: 'Регион · срок', width: '11rem' },
   { title: 'Кто и когда', width: '17rem' },
 ];
-const TABLE_MIN_WIDTH = 880;
+const TABLE_MIN_WIDTH = 1056;
+
+/** Правило версии строкой истории: «топ-5 или 20% · 90 дн.». */
+function rulesText(rules: RunRules): string {
+  return `топ-${rules.geo_top_n} или ${rules.geo_min_share_percent}% · ${rules.metrics_ttl_days} дн.`;
+}
 
 function same(left: ThresholdsBody, right: ThresholdsBody): boolean {
   return THRESHOLD_KEYS.every((key) => left[key] === right[key]);
@@ -102,6 +108,7 @@ export function ThresholdsPage() {
   });
 
   const [draft, setDraft] = useState<ThresholdDraft | null>(null);
+  const [rulesDraft, setRulesDraft] = useState<RulesDraft | null>(null);
   // На сервер — только черновик в границах: за границей предпросмотр отказал
   // бы, а экран показывал бы прежние числа как ответ на новый порог.
   // Один и тот же объект, пока черновик не менялся: пауза набора перезапускает
@@ -119,7 +126,10 @@ export function ThresholdsPage() {
     if (data !== undefined && draft === null) {
       setDraft(draftOf(data.current ?? data.defaults));
     }
-  }, [data, draft]);
+    if (data !== undefined && rulesDraft === null) {
+      setRulesDraft(rulesDraftOf(data.current ?? data.defaults));
+    }
+  }, [data, draft, rulesDraft]);
 
   // Пороги, которые действуют сейчас, — от них правят и с ними сравнивают.
   const inUse = data === undefined ? undefined : (data.current ?? data.defaults);
@@ -135,7 +145,7 @@ export function ThresholdsPage() {
   });
 
   const save = useMutation({
-    mutationFn: (sent: ThresholdsBody) => saveThresholds(sent),
+    mutationFn: (sent: VersionBody) => saveThresholds(sent),
     onSuccess: async (version) => {
       await queryClient.invalidateQueries({ queryKey: THRESHOLDS_KEY });
       notify({
@@ -156,7 +166,7 @@ export function ThresholdsPage() {
       </Alert>
     );
   }
-  if (data === undefined || draft === null) {
+  if (data === undefined || draft === null || rulesDraft === null) {
     return <Loader aria-label="Загружаем пороги" m="md" />;
   }
 
@@ -165,6 +175,10 @@ export function ThresholdsPage() {
   const changed = inUse !== undefined && (body === null || !same(body, inUse));
   // Черновика для сервера нет ровно тогда, когда есть поле с отказом (`bodyOf`).
   const refused = firstRefused(draft, data.limits);
+  // Правило региона и срок: годное и согласованное — или сохранять нечего.
+  const rules = rulesOf(rulesDraft, data.rule_limits);
+  const rulesReady = rules !== null && coverageRefusal(rules) === null;
+  const rulesChanged = inUse !== undefined && (rules === null || !sameRules(rules, inUse));
 
   return (
     <Stack gap="lg">
@@ -175,37 +189,25 @@ export function ThresholdsPage() {
             hint="Сохранение заводит новую версию, а не правит старую. Ею прогоны судят домены, которые измеряют после, — новые и те, у кого истёк срок метрик. Вердикты, что уже стоят в базе, не переписываются: «Отбор», «Доноры», «Обзор» и письма берут их как есть. Ниже — эти пороги против действующих по метрикам доменов базы, тем же правилом, что у прогона; регион и решения человека там не считаются."
           />
 
-          {/* Подпись — не `<label>`: в ней кнопка подсказки, а кнопка внутри
-              подписи поля — вложенный элемент формы, и её имя вошло бы в имя
-              поля. Имя полю — `aria-label`, словами подписи. */}
           <Group gap="md" align="flex-start" className="fieldRow">
-            {THRESHOLD_KEYS.map((key) => {
-              const range = data.limits[key];
-              const field = FIELDS[key];
-              return (
-                <NumberField
-                  key={key}
-                  labelProps={{ labelElement: 'div' }}
-                  label={
-                    <Group component="span" gap={4} wrap="nowrap">
-                      {field.label}
-                      <InfoHint name={`Допустимые значения: ${field.label}`} width={260}>
-                        {field.hint} Допустимо: целое число {rangeText(range)}
-                      </InfoHint>
-                    </Group>
-                  }
-                  aria-label={field.label}
-                  styles={{ wrapper: { width: INPUT_WIDTH } }}
-                  // Ни число за границей, ни дробь, ни буква не подменяются молча:
-                  // поле остаётся как набрано, под ним — почему так нельзя.
-                  disabled={!canEdit}
-                  value={draft[key]}
-                  error={canEdit ? fieldRefusal(draft[key], range) : null}
-                  onChange={(text) => setDraft({ ...draft, [key]: text })}
-                />
-              );
-            })}
+            {THRESHOLD_KEYS.map((key) => (
+              <LimitField
+                key={key}
+                {...FIELDS[key]}
+                range={data.limits[key]}
+                value={draft[key]}
+                canEdit={canEdit}
+                onChange={(text) => setDraft({ ...draft, [key]: text })}
+              />
+            ))}
           </Group>
+
+          <RunRulesFields
+            draft={rulesDraft}
+            limits={data.rule_limits}
+            canEdit={canEdit}
+            onChange={setRulesDraft}
+          />
 
           {!canEdit && (
             <Alert color="yellow" title="Править пороги не разрешено">
@@ -216,11 +218,18 @@ export function ThresholdsPage() {
           <Group>
             <SaveVersionButton
               busy={save.isPending}
-              disabled={!canEdit || !changed || body === null}
-              onSave={() => body !== null && save.mutate(body)}
+              disabled={!canEdit || !(changed || rulesChanged) || body === null || !rulesReady}
+              onSave={() => body !== null && rules !== null && save.mutate({ ...body, ...rules })}
             />
-            {changed && (
-              <Button variant="subtle" className="press" onClick={() => setDraft(draftOf(inUse))}>
+            {(changed || rulesChanged) && (
+              <Button
+                variant="subtle"
+                className="press"
+                onClick={() => {
+                  setDraft(draftOf(inUse));
+                  setRulesDraft(rulesDraftOf(inUse));
+                }}
+              >
                 Вернуть действующие
               </Button>
             )}
@@ -283,6 +292,7 @@ export function ThresholdsPage() {
                   <Table.Td>{formatNumber(version.min_org_traffic)}</Table.Td>
                   <Table.Td>{formatNumber(version.min_refdomains)}</Table.Td>
                   <Table.Td>{formatNumber(version.min_keywords)}</Table.Td>
+                  <Table.Td>{rulesText(version)}</Table.Td>
                   <Table.Td className="wrapCell">
                     {/* Автор неизвестен у версий, заведённых до учёток, —
                         тогда только дата, без слова «неизвестно» в каждой строке. */}

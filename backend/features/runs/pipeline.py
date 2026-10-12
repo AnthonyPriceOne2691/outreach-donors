@@ -30,10 +30,11 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import httpx
 
+from backend.config import filters as filters_cfg
 from backend.config import judge as judge_cfg
 from backend.config import llm as llm_cfg
 from backend.features.ahrefs.client import AhrefsClient
@@ -45,6 +46,7 @@ from backend.features.core.models.run import RunModel
 from backend.features.crawl.niche import NicheReport
 from backend.features.donors.collect import collect
 from backend.features.donors.doors import DoorCheck
+from backend.features.donors.geo import GeoRule
 from backend.features.donors.judging import JudgePass, judge_candidates
 from backend.features.donors.repository import DonorRepository
 from backend.features.donors.verdict import Thresholds
@@ -113,6 +115,13 @@ class RunRequest:
     stage: Stage = Stage.DONORS
     cap: int | None = None
     depth_pages: int = 1
+
+    #: Правило региона и срок годности метрик — той же версии настроек, что
+    #: пороги (`runs.thresholds.rules_of`), а не окружения: до 11.10.2026 их брали
+    #: из конфига, и поле версии только записывалось. Оба боевых вызова передают
+    #: их из версии; умолчания конфига — уступка тестам ядра прогона.
+    geo: GeoRule = field(default_factory=GeoRule)
+    metrics_ttl_days: int = filters_cfg.METRICS_TTL_DAYS
 
     #: Готовая строка прогона. Её заводит тот, кто ставит задачу
     #: в очередь: между нажатием и первой тратой идут выдача и смета,
@@ -337,6 +346,7 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
         exclusions=deps.exclusions,
         stage=request.stage,
         country_share=await deps.runs.country_call_share(request.country),
+        metrics_ttl_days=request.metrics_ttl_days,
     )
     await deps.runs.set_estimate(run, plan.estimate.total)
     # Дальше каждая запись несёт идентификатор прогона, включая чужие логгеры:
@@ -367,10 +377,19 @@ async def execute_run(deps: RunDeps, request: RunRequest) -> RunReport:
                     # отрезанных посчитан и записан, но не применён.
                     targets = [host for host in plan.new if host not in judged.rejected]
 
-            async for batch in collect(targets, deps.client, request.thresholds, request.country):
+            # Метрики куплены, а стран нет — прогон добирает только страны.
+            paid = await deps.donors.paid_metrics(targets, ttl_days=request.metrics_ttl_days)
+            async for batch in collect(
+                targets,
+                deps.client,
+                request.thresholds,
+                request.country,
+                paid=paid,
+                geo=request.geo,
+            ):
                 await deps.donors.save_results(batch)
                 for result in batch:
-                    report.record(result.status, result.reason)
+                    report.record(result.status, result.reason, again=result.host in paid)
                 await flush_usage()
                 # Пачка сохранена — это чекпоинт: повторный прогон её пропустит.
                 await deps.runs.session_commit()

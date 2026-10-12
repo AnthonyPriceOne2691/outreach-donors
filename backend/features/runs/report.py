@@ -35,6 +35,15 @@ class RunReport:
     plan: RunPlan
     by_status: dict[DonorStatus, int] = field(default_factory=dict)
     reject_reasons: dict[str, int] = field(default_factory=dict)
+    unchecked_reasons: dict[str, int] = field(default_factory=dict)
+    """Почему «не проверен» — причиной целиком: «страны не получены» следующий
+    прогон доберёт, «Ahrefs не знает домен» — нет. Доля «не знаю» — числом
+    в отчёте, а не отсутствием записи."""
+
+    countries_refetched: int = 0
+    """Сколько доменов прогон добирал по метрикам, купленным раньше (`collect.PaidMetrics`):
+    без второй покупки метрик; страны — если пороги этого прогона их пропустили."""
+
     spent_units: int = 0
     spent_by_operation: dict[str, int] = field(default_factory=dict)
     free_by_operation: dict[str, int] = field(default_factory=dict)
@@ -106,11 +115,16 @@ class RunReport:
             return 0.0
         return (self.spent_on_estimated - planned) / planned
 
-    def record(self, status: DonorStatus, reason: str) -> None:
+    def record(self, status: DonorStatus, reason: str, *, again: bool = False) -> None:
+        """Вердикт по домену. `again` — домену добирали страны (`countries_refetched`)."""
         self.by_status[status] = self.by_status.get(status, 0) + 1
+        self.countries_refetched += int(again)
         if status is DonorStatus.UNSUITABLE:
             key = reason.split(" ", maxsplit=1)[0] if reason else "без причины"
             self.reject_reasons[key] = self.reject_reasons.get(key, 0) + 1
+        elif status is DonorStatus.UNCHECKED:
+            key = reason or "без причины"
+            self.unchecked_reasons[key] = self.unchecked_reasons.get(key, 0) + 1
 
     def add_usage(self, operation: str, cost: UnitsCost) -> None:
         if cost.was_free:
@@ -147,6 +161,8 @@ def run_stats(
         "checked_now": len(report.plan.new),
         "by_status": {status.value: count for status, count in report.by_status.items()},
         "reject_reasons": report.reject_reasons,
+        "unchecked_reasons": report.unchecked_reasons,
+        "countries_refetched": report.countries_refetched,
         "units_estimated": report.plan.estimate.total,
         "units_spent": report.spent_units,
         "units_by_operation": dict(report.spent_by_operation),

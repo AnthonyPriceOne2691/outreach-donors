@@ -61,7 +61,7 @@ class FakeFreshness:
     def __init__(self, fresh: set[str]) -> None:
         self._fresh = fresh
 
-    async def fresh_hosts(self, hosts: Sequence[str]) -> set[str]:
+    async def fresh_hosts(self, hosts: Sequence[str], *, ttl_days: int) -> set[str]:
         return {h for h in hosts if h in self._fresh}
 
 

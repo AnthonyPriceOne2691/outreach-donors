@@ -25,6 +25,7 @@ from backend.features.core.models.donor import DonorModel
 from backend.features.donors import export
 from backend.features.donors.browse import DonorBrowser
 from backend.features.donors.table_filters import DonorFilters, Freshness
+from backend.features.runs.thresholds import Rules, ThresholdsRepository, defaults
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
@@ -186,6 +187,26 @@ class TestFreshness:
         assert shown == filtered
         assert shown["border-1.example.test"] is Freshness.STALE  # ровно на границе — уже нет
         assert shown["border-2.example.test"] is Freshness.FRESH
+
+    async def test_term_is_the_versions_like_the_runs(self, session: AsyncSession) -> None:
+        """Срок метрик — действующей версии настроек, как у прогона (12.10.2026): правка
+        срока на «Порогах» доходит до значка, фильтра, счётчиков и карточки, а не только
+        до прогона, — иначе таблица звала бы «в сроке» то, за что прогон платит снова."""
+        rules = Rules(thresholds=defaults(), metrics_ttl_days=30)
+        await ThresholdsRepository(session).save(defaults(), author="тест", rules=rules)
+        aged = NOW - timedelta(days=45)  # в сроке окружения (90 дней), за сроком версии
+        donor = await _donor(session, "aged.example.test", refreshed=aged)
+        browser = DonorBrowser(session)
+
+        row = (await browser.page(DonorFilters(), now=NOW)).rows[0]
+        stale = (await browser.page(DonorFilters(freshness=Freshness.STALE), now=NOW)).rows
+        facets = await browser.facets()
+        card = await browser.card(donor.id)
+
+        assert row.freshness is Freshness.STALE
+        assert [one.host for one in stale] == ["aged.example.test"]
+        assert facets.freshness == {Freshness.STALE: 1}
+        assert (card.freshness, card.expires_at) == (Freshness.STALE, aged + timedelta(days=30))
 
     async def test_fresh_badge_is_the_same_word_as_before(
         self, client: AsyncClient, token: str, spread: None

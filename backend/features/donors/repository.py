@@ -7,7 +7,9 @@
 
 Свежесть считается по отметке времени, а не по наличию метрик. Домен, про
 который Ahrefs ответил «не знаю», тоже получает отметку — иначе каждый прогон
-заново жёг бы на нём юниты.
+заново жёг бы на нём юниты. Исключение одно — «не проверен», у которого
+не пришли страны (`countries_missing`): про него не ответили, а не ответили
+«не знаю», и следующий прогон добирает страны.
 """
 
 from __future__ import annotations
@@ -23,10 +25,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import filters
 from backend.config import judge as judge_cfg
+from backend.features.core.domain import DonorStatus
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.donors.author_door import opened_reason, opens
-from backend.features.donors.collect import DomainResult
+from backend.features.donors.collect import DomainResult, PaidMetrics
 from backend.features.donors.publisher_judge import Decider, Recommendation
 from backend.features.donors.selection import human_advice
 
@@ -70,6 +73,34 @@ def judged_for_real() -> ColumnElement[bool]:
     )
 
 
+def countries_missing() -> ColumnElement[bool]:
+    """«Не проверен», потому что не пришли страны, а метрики куплены (`collect._resolve_geo`).
+
+    До стран доходит только домен, прошедший все четыре порога, — значит, все
+    четыре метрики у него есть, а отметки стран нет: запрос по странам упал.
+    Такой домен не свежий, хотя отметка метрик стоит, — и прогон добирает ему
+    только страны (`paid_metrics`). «Ahrefs ответил: стран нет» — не сюда:
+    отметка стран у него стоит, это «проверяли, данных нет».
+
+    Признак — по колонкам, а не по причине: у записей до 11.10.2026 причина
+    «не проверен» не хранилась (`_donor_values`).
+    """
+
+    def counted(key: str) -> ColumnElement[bool]:
+        # Число, а не просто ключ: `null` в ответе — «Ahrefs не вернул», и такой
+        # домен до стран не дошёл. `coalesce` — чтобы NULL не вывернул `NOT` у свежести.
+        return func.coalesce(func.jsonb_typeof(DonorModel.metrics[key]), "") == "number"
+
+    return and_(
+        DonorModel.status == DonorStatus.UNCHECKED,
+        DonorModel.geo_refreshed_at.is_(None),
+        DonorModel.dr.is_not(None),
+        DonorModel.org_traffic.is_not(None),
+        counted("refdomains"),
+        counted("org_keywords"),
+    )
+
+
 def _is_partial(result: DomainResult) -> bool:
     """Разбивка неполная: спрашивали только верхнюю страну.
 
@@ -92,7 +123,10 @@ class DonorRepository:
         ttl_days: int = filters.METRICS_TTL_DAYS,
         now: datetime | None = None,
     ) -> set[str]:
-        """Домены, по которым данные ещё годны — платить за них не нужно."""
+        """Домены, по которым данные ещё годны — платить за них не нужно.
+
+        Без стран (`countries_missing`) — не годны: их добирает прогон.
+        """
         if not hosts:
             return set()
 
@@ -105,8 +139,39 @@ class DonorRepository:
             .where(DomainModel.host.in_(hosts))
             .where(DonorModel.metrics_refreshed_at.is_not(None))
             .where(DonorModel.metrics_refreshed_at > border)
+            .where(~countries_missing())
         )
         return set(rows.scalars().all())
+
+    async def paid_metrics(
+        self,
+        hosts: Sequence[str],
+        *,
+        ttl_days: int = filters.METRICS_TTL_DAYS,
+        now: datetime | None = None,
+    ) -> dict[str, PaidMetrics]:
+        """Купленные метрики доменов, которым не хватает только стран.
+
+        Метрики в сроке — прогон доберёт страны, не покупая их второй раз;
+        метрики старше срока — домен проверяется заново целиком, как любой
+        несвежий.
+        """
+        if not hosts:
+            return {}
+
+        border = (now or datetime.now(UTC)) - timedelta(days=ttl_days)
+        rows = await self._session.execute(
+            select(DomainModel.host, DonorModel.metrics, DonorModel.metrics_refreshed_at)
+            .join(DonorModel, DonorModel.domain_id == DomainModel.id)
+            .where(DomainModel.host.in_(list(dict.fromkeys(hosts))))
+            .where(DonorModel.metrics_refreshed_at > border)
+            .where(countries_missing())
+        )
+        return {
+            host: PaidMetrics(raw=raw, bought_at=bought_at)
+            for host, raw, bought_at in rows.all()
+            if raw is not None and bought_at is not None
+        }
 
     async def fresh_judged(
         self,
@@ -320,13 +385,18 @@ class DonorRepository:
         return {
             "domain_id": domain_id,
             "status": result.status,
-            # Причина хранится только для отказов: у подходящего донора
-            # «причина» была бы объяснением успеха и путала бы отчёт.
-            "reject_reason": result.reason[:64] if result.status.value == "unsuitable" else None,
+            # Причина — у отказа и у «не проверен»: у подходящего донора она была
+            # бы объяснением успеха и путала бы отчёт. «Не проверен» без причины
+            # (так было до 11.10.2026) не отличить: «Ahrefs не знает домен» добирать
+            # незачем, «страны не получены» добирает следующий прогон.
+            "reject_reason": (
+                None if result.status is DonorStatus.SUITABLE else result.reason[:64]
+            ),
             "metrics": result.raw,
             # Отметка ставится всегда, даже когда данных не пришло: иначе
             # домен вне индекса Ahrefs будет оплачиваться каждым прогоном.
-            "metrics_refreshed_at": moment,
+            # У добора стран — время покупки метрик: их этот прогон не покупал.
+            "metrics_refreshed_at": result.metrics_at or moment,
             "dr": int(result.metrics.dr) if result.metrics.dr is not None else None,
             "org_traffic": result.metrics.org_traffic,
             "geo": breakdown[0].country if breakdown else None,
