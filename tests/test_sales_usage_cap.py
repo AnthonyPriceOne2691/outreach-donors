@@ -6,6 +6,9 @@
 ответа отказывает словами с именем настройки и модель не зовётся, а разбор цены донора
 проходит; сборка очереди останавливается словами того же потолка, а переписывание письма
 продаж пишется своей операцией, не операцией писем доноров.
+
+Агент продаж (черновик, ситуация, судья) — с ревью стыков круга 2 тоже в этом потолке: общий
+потолок черновиков агента делят с донорами (`tests/test_sales_seam_caps.py`).
 """
 
 from __future__ import annotations
@@ -45,13 +48,13 @@ REFUSED = "дневной потолок вызовов модели прода�
 
 
 async def _sales_cap_spent(monkeypatch: pytest.MonkeyPatch, session: AsyncSession) -> None:
-    """Свой потолок продаж выбран, общий — нет: 61 + 40 из 83, общий 5437."""
+    """Свой потолок продаж выбран, общий — нет: 61 + 40 + 500 из 83, общий 5437."""
     monkeypatch.setattr(llm_cfg, "DAILY_TOKEN_CAP", 5_437)
     monkeypatch.setattr(llm_cfg, "SALES_DAILY_TOKEN_CAP", 83)
     usage.record(session, operation="sales_reply_kind", units=61)
     usage.record(session, operation="sales_letter_rewrite", units=40)  # вместе 101 — выбран
-    usage.record(session, operation="sales_draft", units=500)  # агент продаж — не в этом счёте
-    usage.record(session, operation="reply_parse", units=321)  # разбор доноров — тоже не в нём
+    usage.record(session, operation="sales_draft", units=500)  # агент продаж — в этом счёте
+    usage.record(session, operation="reply_parse", units=321)  # разбор доноров — не в нём
 
 
 async def test_spent_sales_cap_refuses_the_reply_kind_in_words_without_the_model(
@@ -65,8 +68,8 @@ async def test_spent_sales_cap_refuses_the_reply_kind_in_words_without_the_model
         await SalesReplies(session, kinds).handle(lead_reply.id)
 
     assert kinds.calls == 0  # модель вида ответа не звали
-    # Разбор доноров и черновик агента — не в счёте продаж: только 61 + 40.
-    assert str(refused.value).startswith(REFUSED.format(spent=101, cap=83))
+    # Разбор доноров — не в счёте продаж: 61 + 40 и черновик агента продаж 500.
+    assert str(refused.value).startswith(REFUSED.format(spent=601, cap=83))
 
 
 async def test_spent_sales_cap_lets_the_donor_price_parse_go(
@@ -134,12 +137,13 @@ async def test_the_queue_build_stops_in_words_of_the_sales_cap_and_spends_under_
     assert dict(spent.tuples().all()) == {"sales_letter_rewrite": 74}
 
 
-def test_the_sales_cap_counts_exactly_the_model_calls_of_sales_outside_the_agent() -> None:
+def test_the_sales_cap_counts_exactly_the_model_calls_of_sales_and_its_agent() -> None:
     # Судья сегмента сбора базы (6.1) — вызов модели продаж вне агента: тот же потолок.
-    expected = {"sales_reply_kind", "sales_letter_rewrite", "sales_segment_judge"}
-    assert expected == usage_cap.OPERATIONS
+    outside = {"sales_reply_kind", "sales_letter_rewrite", "sales_segment_judge"}
+    # Черновик, ситуацию и судью агента продаж — тоже он (ревью стыков, круг 2).
+    agent = {"sales_draft", "sales_situation", "sales_judge"}
+    assert outside | agent == usage_cap.OPERATIONS
     for operation in usage_cap.OPERATIONS:
         assert OPERATION_PROVIDERS[operation] is UsageProvider.LLM
-    # Черновик, ситуацию и судью агента продаж держит потолок черновиков, а не этот.
-    assert usage_cap.OPERATIONS.isdisjoint({"sales_draft", "sales_situation", "sales_judge"})
-    assert usage_cap.OPERATIONS.isdisjoint(agent_operations())
+    # Операций агента доноров и рекламодателей в нём нет.
+    assert usage_cap.OPERATIONS & agent_operations() <= agent

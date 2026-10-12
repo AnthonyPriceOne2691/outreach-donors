@@ -5,14 +5,20 @@
 разбор цен доноров встал бы до завтра. У продаж свой потолок (`SALES_DAILY_TOKEN_CAP`, не задан — доля общего
 `SALES_CAP_SHARE`) по своим операциям; общий проверяется всегда (`usage.ensure_llm_within_cap`).
 
-Черновик, ситуация письма и судья агента продаж сюда не входят: их держит потолок черновиков
-агента (`agent/guarding.drafts_cap`).
+**Агент продаж — тоже здесь** (черновик, ситуация письма, судья — `agent/parts.py`): потолок
+черновиков агента (`agent/guarding.drafts_cap`) общий с донорами, и черновики продаж выбирали бы
+их долю (ревью стыков, круг 2, порядок с соседней сессией). Свой потолок продаж их считает, а
+ситуация письма проверяет его до первого вызова модели черновика (`agent/situation.classify`).
+Пока они считаются и в общем потолке черновиков, потолок двойной — это безопасно; когда продажи
+уйдут из `drafts_cap`, агент продаж без потолка не останется. Цена: черновики и разбор ответов
+делят один потолок продаж.
 """
 
 from __future__ import annotations
 
 from backend.config import llm as llm_cfg
 from backend.features.core import usage
+from backend.features.sales.agent import parts
 from backend.features.sales.reply_kind import OPERATION as REPLY_KIND
 from backend.features.sales.segment_judge import OPERATION as SEGMENT_JUDGE
 
@@ -21,8 +27,10 @@ from backend.features.sales.segment_judge import OPERATION as SEGMENT_JUDGE
 #: сборки продаж прошёл бы мимо своего потолка.
 LETTER_REWRITE = "sales_letter_rewrite"
 
-#: Вызовы модели продаж вне агента — их считает свой дневной потолок.
-OPERATIONS = frozenset({REPLY_KIND, LETTER_REWRITE, SEGMENT_JUDGE})
+#: Агент продаж: черновик, ситуация письма, судья.
+AGENT = frozenset({parts.DRAFT_OPERATION, parts.SITUATION_OPERATION, parts.JUDGE_OPERATION})
+#: Вызовы модели продаж — их считает свой дневной потолок.
+OPERATIONS = frozenset({REPLY_KIND, LETTER_REWRITE, SEGMENT_JUDGE}) | AGENT
 
 
 def sales_cap() -> usage.OwnCap:
