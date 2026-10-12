@@ -262,14 +262,14 @@
       "worst": "—"
     },
     "backend/api/runs/routes.py": {
-      "lines": 229,
+      "lines": 253,
       "complexity": 2,
-      "worst": "effective_cap:46"
+      "worst": "effective_cap:55"
     },
     "backend/api/runs/schemas.py": {
-      "lines": 270,
+      "lines": 373,
       "complexity": 4,
-      "worst": "_ceiling_that_means_something:101"
+      "worst": "_ceiling_that_means_something:103"
     },
     "backend/api/sales/__init__.py": {
       "lines": 1,
@@ -1762,9 +1762,9 @@
       "worst": "—"
     },
     "backend/features/runs/browse.py": {
-      "lines": 238,
+      "lines": 272,
       "complexity": 8,
-      "worst": "tally_reviews:165"
+      "worst": "tally_reviews:199"
     },
     "backend/features/runs/budget.py": {
       "lines": 121,
@@ -1795,6 +1795,11 @@
       "lines": 281,
       "complexity": 9,
       "worst": "recover:168"
+    },
+    "backend/features/runs/outcome.py": {
+      "lines": 195,
+      "complexity": 6,
+      "worst": "outcome:174"
     },
     "backend/features/runs/pipeline.py": {
       "lines": 429,
@@ -1827,9 +1832,9 @@
       "worst": "unique_share_from:122"
     },
     "backend/features/runs/spending.py": {
-      "lines": 164,
+      "lines": 182,
       "complexity": 4,
-      "worst": "since_month_start:84"
+      "worst": "_articles:108"
     },
     "backend/features/runs/stopped.py": {
       "lines": 37,
@@ -2472,7 +2477,7 @@
       "worst": "main:127"
     },
     "scripts/ui_screens.py": {
-      "lines": 470,
+      "lines": 472,
       "complexity": 2,
       "worst": "open_reason:25"
     },
@@ -2485,6 +2490,11 @@
       "lines": 326,
       "complexity": 2,
       "worst": "unbound_probes:32"
+    },
+    "scripts/ui_screens_reports.py": {
+      "lines": 42,
+      "complexity": 1,
+      "worst": "report_screens:15"
     },
     "scripts/ui_screens_sales.py": {
       "lines": 491,

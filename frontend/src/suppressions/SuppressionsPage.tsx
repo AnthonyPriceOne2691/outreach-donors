@@ -70,6 +70,8 @@ import type { StopEntry, StopListView, SuppressionReason } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { PageHead } from '../components/PageHead';
 import { Seams } from '../components/Seams';
+import { TableColumns } from '../components/TableColumns';
+import type { TableColumn } from '../components/TableColumns';
 import { formatDate } from '../format';
 import { notify } from '../notices';
 import { AddStopModal, addedNotice } from './AddStopModal';
@@ -105,14 +107,15 @@ function nothingFound(search: string, reason: ShownReason): string {
  *  значок «пожаловался» — 102 px, дата — 75, значок «истёк 25.09.2026» —
  *  128, кнопка «Снять» — 60. Автор записи — адрес учётки, он переносится по
  *  швам адреса (`Seams`). Плюс 32 px полей ячейки и запас. */
-const COLUMNS: { title: string; width?: string }[] = [
+const COLUMNS: TableColumn[] = [
   { title: 'Кому не пишем' },
   { title: 'Причина', width: '9rem' },
   { title: 'Кто завёл', width: '12rem' },
   { title: 'Когда', width: '7.5rem' },
   { title: 'Срок', width: '10.5rem' },
 ];
-const ACTIONS_WIDTH = '6rem';
+/** Колонка кнопки «Снять» — только у того, кто может снимать; заголовка у неё нет. */
+const ACTIONS: TableColumn = { title: '', width: '6rem' };
 const TABLE_MIN_WIDTH = 920;
 
 interface TableProps {
@@ -133,20 +136,7 @@ function StopTable({ rows, mayChange, onRemove }: TableProps) {
         verticalSpacing="sm"
         horizontalSpacing="md"
       >
-        <colgroup>
-          {COLUMNS.map((column) => (
-            <col key={column.title} style={column.width ? { width: column.width } : undefined} />
-          ))}
-          {mayChange ? <col style={{ width: ACTIONS_WIDTH }} /> : null}
-        </colgroup>
-        <Table.Thead>
-          <Table.Tr>
-            {COLUMNS.map((column) => (
-              <Table.Th key={column.title}>{column.title}</Table.Th>
-            ))}
-            {mayChange ? <Table.Th /> : null}
-          </Table.Tr>
-        </Table.Thead>
+        <TableColumns columns={mayChange ? [...COLUMNS, ACTIONS] : COLUMNS} />
         <Table.Tbody>
           {rows.map((row) => (
             <Table.Tr key={row.id}>

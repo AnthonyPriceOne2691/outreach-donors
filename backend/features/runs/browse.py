@@ -18,7 +18,8 @@ from dataclasses import dataclass, field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.features.core.domain import RunStatus
+from backend.features.core.domain import AuditAction, RunStatus
+from backend.features.core.models.access import AuditLogModel, UserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.run import RunCandidateModel, RunModel
 from backend.features.donors.selection import human_advice
@@ -65,6 +66,9 @@ class RunRow:
     #: Очередь рассмотрения прогона: статус → сколько. Пусто — прогон
     #: сделан до очереди и в неё не положен.
     queue: dict[str, int] = field(default_factory=dict)
+    #: Кто запустил — почта учётки из записи журнала о запуске (`_authors`). Пусто —
+    #: записи нет: прогон из консоли или проверочный.
+    started_by: str | None = None
 
     @property
     def estimate_error(self) -> float | None:
@@ -133,17 +137,47 @@ class RunBrowser:
     async def _rows(self, runs: list[RunModel]) -> list[RunRow]:
         tallies = await tally_reviews(self._session, {run.id: _hosts(run) for run in runs})
         queues = await self._queues([run.id for run in runs])
+        authors = await self._authors([run.id for run in runs])
         return [
-            RunRow(run=run, review=tallies[run.id], queue=queues.get(run.id, {})) for run in runs
+            RunRow(
+                run=run,
+                review=tallies[run.id],
+                queue=queues.get(run.id, {}),
+                started_by=authors.get(run.id),
+            )
+            for run in runs
         ]
 
     async def one(self, run_id: int) -> RunRow:
         run = await self._session.get(RunModel, run_id) if storable(run_id) else None
         if run is None:
             raise UnknownRunError(f"Прогона №{run_id} нет")
-        tallies = await tally_reviews(self._session, {run.id: _hosts(run)})
-        queues = await self._queues([run.id])
-        return RunRow(run=run, review=tallies[run.id], queue=queues.get(run.id, {}))
+        return (await self._rows([run]))[0]
+
+    async def _authors(self, run_ids: list[int]) -> dict[int, str]:
+        """Кто запустил прогоны — по записи журнала о запуске (цель «run:N»).
+
+        Своей колонки автора у прогона нет, а запуск с экрана пишется в журнал той же
+        транзакцией, что и сам прогон (`api/runs/routes.start_run`): ТЗ — «кто, когда,
+        сколько потратил» (проверка ветки 12.10.2026). Первая запись — сам запуск.
+        """
+        targets = {f"run:{run_id}": run_id for run_id in run_ids}
+        if not targets:
+            return {}
+        rows = await self._session.execute(
+            select(AuditLogModel.target, UserModel.email)
+            .join(UserModel, UserModel.id == AuditLogModel.user_id)
+            .where(
+                AuditLogModel.action == AuditAction.RUN_STARTED,
+                AuditLogModel.target.in_(sorted(targets)),
+            )
+            .order_by(AuditLogModel.id)
+        )
+        found: dict[int, str] = {}
+        for target, email in rows.tuples():
+            if target is not None:
+                found.setdefault(targets[target], email)
+        return found
 
     async def _queues(self, run_ids: list[int]) -> dict[int, dict[str, int]]:
         rows = await self._session.execute(

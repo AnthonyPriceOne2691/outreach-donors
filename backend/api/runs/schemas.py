@@ -8,10 +8,12 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 from pydantic_core import PydanticCustomError
 
+from backend.api.settings.schemas import ArticleCard
 from backend.config import serp as serp_cfg
 from backend.features.core.domain import RunStatus
 from backend.features.runs.browse import RunRow
 from backend.features.runs.estimate import RESULTS_PER_PAGE, RunForecast
+from backend.features.runs.outcome import Domains, Rejection, RunOutcome, Threshold
 from backend.features.runs.reasons import readable
 from backend.features.runs.repository import REASON_KEY
 from backend.features.serp.protocol import distinct_keywords
@@ -201,6 +203,9 @@ class RunCard(BaseModel):
     #: до 25.09.2026 лежат в базе сырыми и показываются чисто, а сам отчёт
     #: не переписывается (`runs/reasons.py`). `None` — причины нет.
     reason: str | None = None
+    #: Кто запустил — почта учётки из записи журнала о запуске. `None` — записи нет:
+    #: прогон запущен из консоли или заведён проверкой цепочки.
+    started_by: str | None = None
 
     @classmethod
     def of(cls, row: RunRow) -> RunCard:
@@ -221,6 +226,7 @@ class RunCard(BaseModel):
             disagreements=row.review.disagreements,
             queue=row.queue,
             reason=readable((row.run.stats or {}).get(REASON_KEY)),
+            started_by=row.started_by,
         )
 
 
@@ -267,3 +273,100 @@ class RunQueued(BaseModel):
         "Прогон встал в очередь. Смета проверяется ещё раз по настоящим доменам "
         "и останавливает прогон до первого платного запроса, если не помещается."
     )
+
+
+class RunThresholds(BaseModel):
+    """Пороги, с которыми прогон запущен: отсев называется вместе с ними, а пороги
+    версионируются — сегодняшние на экране «Пороги» могут быть уже другими."""
+
+    min_dr: int
+    min_org_traffic: int
+    min_refdomains: int
+    min_keywords: int
+    #: Регион: страна прогона в топ-N стран по трафику ИЛИ доля не меньше порога.
+    geo_top_n: int
+    geo_min_share: float
+
+
+class RunDomains(BaseModel):
+    """Домены прогона по шагам — `runs.outcome.Domains` с посчитанными итогами."""
+
+    found: int | None
+    excluded: int
+    fresh: int
+    to_check: int
+    #: Прошли проверку Ahrefs с любым вердиктом: подходит, не подходит, не проверен.
+    checked: int
+    suitable: int
+    unsuitable: int
+    unchecked: int
+    #: Новых, до Ahrefs не дошедших: отрезал судья или прогон остановился раньше.
+    not_reached: int
+    judge_enforced: bool
+    resumes: int
+
+    @classmethod
+    def of(cls, domains: Domains) -> RunDomains:
+        return cls(
+            found=domains.found,
+            excluded=domains.excluded,
+            fresh=domains.fresh,
+            to_check=domains.to_check,
+            checked=domains.checked,
+            suitable=domains.suitable,
+            unsuitable=domains.unsuitable,
+            unchecked=domains.unchecked,
+            not_reached=domains.not_reached,
+            judge_enforced=domains.judge_enforced,
+            resumes=domains.resumes,
+        )
+
+
+class RejectionCard(BaseModel):
+    """Сколько доменов отсеял порог. Порог — кодом, слова и значение — на экране."""
+
+    threshold: Threshold
+    count: int
+    #: Причина как записана — только у незнакомой (`other`).
+    said: str | None = None
+
+    @classmethod
+    def of(cls, rejection: Rejection) -> RejectionCard:
+        return cls(threshold=rejection.threshold, count=rejection.count, said=rejection.said)
+
+
+class RunReportView(BaseModel):
+    """Отчёт прогона: что проверено, что прошло, по какому порогу отсеяно и во что
+    обошлось (ТЗ, «после прогона — отчёт»).
+
+    `domains` пусто — итога по доменам ещё нет: прогон в очереди или идёт первой
+    попыткой. Расход при этом уже есть: журнал пишется на каждом чекпоинте.
+    """
+
+    run: RunCard
+    thresholds: RunThresholds
+    domains: RunDomains | None
+    rejected: list[RejectionCard]
+    #: Расход по журналу — всё, что записано за этим прогоном, статьями.
+    spending: list[ArticleCard]
+    #: Запросы к Ahrefs, которые обслужил кэш провайдера: не трата, но число.
+    free_requests: int
+
+    @classmethod
+    def of(cls, outcome: RunOutcome) -> RunReportView:
+        settings = outcome.settings
+        return cls(
+            run=RunCard.of(outcome.row),
+            thresholds=RunThresholds(
+                min_dr=settings.min_dr,
+                min_org_traffic=settings.min_org_traffic,
+                min_refdomains=settings.min_refdomains,
+                min_keywords=settings.min_keywords,
+                geo_top_n=settings.geo_top_n,
+                geo_min_share=settings.geo_min_share,
+            ),
+            domains=None if outcome.domains is None else RunDomains.of(outcome.domains),
+            rejected=[RejectionCard.of(rejection) for rejection in outcome.rejected],
+            spending=[ArticleCard.of(article) for article in outcome.spending],
+            free_requests=outcome.free_requests,
+        )
