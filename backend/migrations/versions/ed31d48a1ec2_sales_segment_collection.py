@@ -1,7 +1,7 @@
 """продажи: сбор новой базы — прогоны гипотезы, кандидаты сбора и вердикты судьи сегмента
 
 Revision ID: ed31d48a1ec2
-Revises: 12b040073dcc
+Revises: 444de76032e8
 Create Date: 2026-10-12 00:30:00.000000
 
 Срез 6.1: ключи → выдача → судья сегмента → адрес лестницей → лиды гипотезы. Три таблицы
@@ -34,7 +34,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "ed31d48a1ec2"  # pragma: allowlist secret
-down_revision: Union[str, Sequence[str], None] = "12b040073dcc"  # pragma: allowlist secret
+down_revision: Union[str, Sequence[str], None] = "444de76032e8"  # pragma: allowlist secret
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
