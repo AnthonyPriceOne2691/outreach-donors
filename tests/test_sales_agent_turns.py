@@ -3,16 +3,21 @@
 ТЗ, строка MVP: «ИИ-агент ведёт первый ответ в диалоге, максимум второй». Ход — ответ лида по
 порядку в этом диалоге (письма человека; автоответ ходом не считается). Число — настройка
 `SALES_AGENT_MAX_TURNS` (2, от 1 до 10). Сверх предела черновика нет: модель агента не зовётся,
-ответ ждёт человека с причиной словами в карточке ответа. Разбор вида — подставной; база —
-настоящая; адреса и тексты выдуманные.
+ответ ждёт человека с причиной словами в карточке ответа. Настройку разбирает задача ответа, а не
+импорт: негодная — тоже черновика нет, причина словами (импорт общего кода с опечаткой —
+`tests/test_sales_agent_stage.py`). Разбор вида — подставной; база — настоящая; адреса и тексты
+выдуманные.
 """
 
 from __future__ import annotations
 
+import logging
+import re
 from datetime import timedelta
 
 import pytest
 from backend.config import sales as sales_cfg
+from backend.config.startup_checks import ConfigError
 from backend.features.core.domain import ReplyKind, Stage
 from backend.features.core.models.outreach import ReplyModel
 from backend.features.outreach.threads import review_of
@@ -66,7 +71,7 @@ async def test_first_and_second_answer_get_a_draft_the_third_goes_to_a_human(
 async def test_setting_one_stops_the_agent_from_the_second_answer(
     session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(sales_cfg, "AGENT_MAX_TURNS", 1)
+    monkeypatch.setattr(sales_cfg, "AGENT_MAX_TURNS", "1")
     _, (first, second) = await turns(session, 2)
 
     done = [await handled(session, reply) for reply in (first, second)]
@@ -101,12 +106,46 @@ def test_reason_names_the_limit_in_words(limit: int, words: str) -> None:
 
 
 def test_limit_setting_is_from_one_to_ten(monkeypatch: pytest.MonkeyPatch) -> None:
-    """По умолчанию два — ТЗ; ноль — агент не вёл бы ни одного ответа, больше десяти — опечатка."""
+    """По умолчанию два — ТЗ; от одного до десяти — как задано."""
     monkeypatch.delenv("SALES_AGENT_MAX_TURNS", raising=False)
-    assert sales_cfg._Sales(_env_file=None).agent_max_turns == 2
-    for wrong in ("0", "11"):
-        monkeypatch.setenv("SALES_AGENT_MAX_TURNS", wrong)
-        with pytest.raises(ValueError, match="SALES_AGENT_MAX_TURNS"):
-            sales_cfg._Sales(_env_file=None)
-    monkeypatch.setenv("SALES_AGENT_MAX_TURNS", "3")
-    assert sales_cfg._Sales(_env_file=None).agent_max_turns == 3
+    monkeypatch.setattr(
+        sales_cfg, "AGENT_MAX_TURNS", sales_cfg._Sales(_env_file=None).agent_max_turns
+    )
+    assert agent_turns.max_turns() == 2
+    for good in ("1", "3", "10"):
+        monkeypatch.setattr(sales_cfg, "AGENT_MAX_TURNS", good)
+        assert agent_turns.max_turns() == int(good)
+
+
+@pytest.mark.parametrize("wrong", ["0", "11", "два", "2.5", "-1", ""])
+def test_crooked_limit_is_refused_in_words_when_read_not_at_import(
+    monkeypatch: pytest.MonkeyPatch, wrong: str
+) -> None:
+    """Ноль — агент не вёл бы ни одного ответа, больше десяти — опечатка. Чтение настроек её
+    принимает как есть (импорт не падает), отказ — у того, кто предел читает."""
+    monkeypatch.setenv("SALES_AGENT_MAX_TURNS", wrong)
+    assert sales_cfg._Sales(_env_file=None).agent_max_turns == wrong
+    monkeypatch.setattr(sales_cfg, "AGENT_MAX_TURNS", wrong)
+
+    words = f"SALES_AGENT_MAX_TURNS=«{wrong}» — нужно целое от 1 до 10"
+    with pytest.raises(ConfigError, match=re.escape(words)):
+        agent_turns.max_turns()
+
+
+async def test_crooked_limit_means_no_draft_and_the_reason_in_words(
+    session: AsyncSession, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Вид ответа уже оплачен: задача не падает (повтор позвал бы модель снова), а агент без
+    проверенного предела не пишет — ответ ждёт человека, почему — словами у ответа и в журнале."""
+    monkeypatch.setattr(sales_cfg, "AGENT_MAX_TURNS", "два")
+    _, (first,) = await turns(session, 1)
+
+    with caplog.at_level(logging.ERROR, logger=agent_turns.__name__):
+        done = await handled(session, first)
+
+    assert (done.drafted, done.waits) == (False, True)
+    assert done.reason == (
+        "задал вопрос: SALES_AGENT_MAX_TURNS=«два» — нужно целое от 1 до 10: сколько ответов лида "
+        "в диалоге агент ведёт черновиком; черновика агента нет — отвечает человек"
+    )
+    assert "предел ходов агента негоден — черновика нет" in caplog.text

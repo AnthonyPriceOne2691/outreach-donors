@@ -15,17 +15,29 @@
 Предел смотрит задача ответа (`replies._no_draft`): черновика нет — модель агента не зовётся,
 ответ ждёт человека с причиной словами. Черновик по кнопке человека предел не держит: это решение
 человека, а не ход агента.
+
+**Настройку разбирает задача, а не импорт** (`max_turns`): настройки продаж импортирует и общий
+код, и опечатка в них не должна ронять его на старте (шапка `config/sales.py`). Негодный предел —
+черновика нет, причина словами у ответа и строка в журнал: вид ответа уже оплачен, и упавшая
+задача позвала бы модель снова, а агент без проверенного предела не пишет.
 """
 
 from __future__ import annotations
+
+import logging
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import sales as cfg
+from backend.config.startup_checks import ConfigError
 from backend.features.core.domain import ReplyKind
 from backend.features.core.models.outreach import ReplyModel
 
+logger = logging.getLogger(__name__)
+
+#: Предел ходов — от одного до десяти: ноль — агент не вёл бы ни одного ответа, больше — опечатка.
+FEWEST, MOST = 1, 10
 #: Сколько ответов агент уже вёл — словами для причины (предел — от 1 до 10).
 _LED = {
     1: "один ответ",
@@ -60,11 +72,33 @@ def led(turns: int) -> str:
     return f"агент уже вёл {_LED.get(turns, f'{turns} ответов')} — дальше отвечает человек"
 
 
+def max_turns() -> int:
+    """Предел ходов из `SALES_AGENT_MAX_TURNS` — целое от одного до десяти; иное — `ConfigError`
+    словами."""
+    raw = cfg.AGENT_MAX_TURNS
+    number = int(raw) if raw.isdecimal() else 0
+    if not FEWEST <= number <= MOST:
+        raise ConfigError(
+            f"SALES_AGENT_MAX_TURNS=«{raw}» — нужно целое от {FEWEST} до {MOST}: сколько ответов "
+            "лида в диалоге агент ведёт черновиком"
+        )
+    return number
+
+
 async def beyond(
     session: AsyncSession, reply: ReplyModel, *, limit: int | None = None
 ) -> str | None:
-    """Почему агент этот ответ не ведёт — словами; `None` — ведёт (ход не дальше предела)."""
-    most = cfg.AGENT_MAX_TURNS if limit is None else limit
-    if reply.thread_id is None or await turn_of(session, reply) <= most:
+    """Почему агент этот ответ не ведёт — словами; `None` — ведёт (ход не дальше предела).
+    Негодная настройка предела — тоже словами: черновика нет (шапка модуля)."""
+    if limit is None:
+        try:
+            limit = max_turns()
+        except ConfigError as exc:
+            logger.error(  # noqa: TRY400 — трассировка разбора ничего не добавит к словам
+                "продажи: предел ходов агента негоден — черновика нет, отвечает человек",
+                extra={"reply": reply.id, "error": str(exc)},
+            )
+            return f"{exc}; черновика агента нет — отвечает человек"
+    if reply.thread_id is None or await turn_of(session, reply) <= limit:
         return None
-    return led(most)
+    return led(limit)

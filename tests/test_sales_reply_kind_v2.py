@@ -5,7 +5,8 @@
 как у цитаты и адреса: проект и имя — дословно из письма, услуги — только названия записей
 «услуга» базы знаний; выдуманное отбрасывается с пометкой. В примечании к сделке — строки
 «Проект» и «Услуги» (пусто — «не описан», «не названы»); в Telegram — по-прежнему три строки.
-Обязательные поля сделки — постоянными значениями из `SALES_KOMMO_LEAD_FIELDS`.
+Обязательные поля сделки — постоянными значениями из `SALES_KOMMO_LEAD_FIELDS`; форму разбирает
+сборка клиента `live`, а не импорт настроек: негодная — отказ словами на передаче.
 
 Модель — подставной транспорт, Kommo — `MockTransport`, база — настоящая. Тексты выдуманные.
 """
@@ -20,10 +21,10 @@ import pytest
 from backend.config import sales as sales_cfg
 from backend.config.startup_checks import ConfigError
 from backend.features.core.domain import Stage
-from backend.features.sales import handoff, handoff_card, kb, reply_kind
+from backend.features.sales import handoff, handoff_card, handoff_jobs, kb, kommo, reply_kind
 from backend.features.sales import handoff_text as wording
 from backend.features.sales.handoff_text import Card
-from backend.features.sales.kommo import KommoAccount, KommoGateway, KommoLive
+from backend.features.sales.kommo import KommoAccount, KommoGateway, KommoLive, KommoRefusedError
 from backend.features.sales.models import HandoffKommo
 from backend.features.sales.replies import SalesReplies
 from backend.features.sales.reply_kind import KindFound, SalesKind, parse_form, snapshot, told
@@ -312,7 +313,7 @@ async def test_live_client_takes_the_lead_fields_from_the_setting(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     live._configure(monkeypatch, "live")
-    monkeypatch.setattr(sales_cfg, "KOMMO_LEAD_FIELDS", ((712345, "Email"),))
+    monkeypatch.setattr(sales_cfg, "KOMMO_LEAD_FIELDS", '{"712345": "Email"}')
 
     built = await live._build(live.Script())
 
@@ -323,7 +324,7 @@ async def test_live_client_takes_the_lead_fields_from_the_setting(
 async def test_gateway_refuses_lead_fields_in_words(monkeypatch: pytest.MonkeyPatch) -> None:
     """Шлюз полей сделки не принимает — молча потерять настройку хуже отказа."""
     gate._configure(monkeypatch, "live")
-    monkeypatch.setattr(sales_cfg, "KOMMO_LEAD_FIELDS", ((712345, "Email"),))
+    monkeypatch.setattr(sales_cfg, "KOMMO_LEAD_FIELDS", '{"712345": "Email"}')
 
     with pytest.raises(ConfigError, match="SALES_KOMMO_LEAD_FIELDS задан, а шлюз агентства"):
         await gate._build(gate.Script())
@@ -333,7 +334,7 @@ async def test_gateway_without_lead_fields_is_built_as_before(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     gate._configure(monkeypatch, "live")
-    monkeypatch.setattr(sales_cfg, "KOMMO_LEAD_FIELDS", ())
+    monkeypatch.setattr(sales_cfg, "KOMMO_LEAD_FIELDS", "")
 
     assert type(await gate._build(gate.Script())) is KommoGateway
 
@@ -352,15 +353,36 @@ async def test_gateway_without_lead_fields_is_built_as_before(
     ],
 )
 def test_crooked_lead_fields_setting_is_refused_in_words(raw: str, words: str) -> None:
-    with pytest.raises(ValueError, match="SALES_KOMMO_LEAD_FIELDS") as refused:
-        sales_cfg._lead_fields(raw)
+    with pytest.raises(ConfigError, match="SALES_KOMMO_LEAD_FIELDS") as refused:
+        kommo.lead_fields(raw)
 
     assert words in str(refused.value)
 
 
+async def test_crooked_lead_fields_stop_the_live_client_not_the_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Чтение настроек кривую форму принимает как есть — их импортирует и общий код; отказ —
+    при сборке клиента `live`, там же, где отказ `live` без ключа: задача передачи получает
+    клиент-отказ, и каждая запись в Kommo отказывает словами настройки."""
+    crooked = '{"712345": '
+    monkeypatch.setenv("SALES_KOMMO_LEAD_FIELDS", crooked)
+    assert sales_cfg._Sales(_env_file=None).kommo_lead_fields == crooked
+    live._configure(monkeypatch, "live", KOMMO_LEAD_FIELDS=crooked)
+    words = "SALES_KOMMO_LEAD_FIELDS: нужен JSON «номер поля → значение»"
+
+    with pytest.raises(ConfigError, match=words):
+        await live._build(live.Script())
+    async with httpx.AsyncClient() as http:
+        refusing = handoff_jobs.connected_kommo(http)
+    assert refusing is not None
+    with pytest.raises(KommoRefusedError, match=f"клиент Kommo не собран — {words}"):
+        await refusing.create_complex_lead(live.LEAD)
+
+
 def test_lead_fields_setting_reads_numbers_and_values() -> None:
-    assert sales_cfg._lead_fields("") == ()
-    assert sales_cfg._lead_fields('{"712345": " Email ", "9": 2.5, "10": false}') == (
+    assert kommo.lead_fields("") == ()
+    assert kommo.lead_fields('{"712345": " Email ", "9": 2.5, "10": false}') == (
         (712345, "Email"),
         (9, 2.5),
         (10, False),
