@@ -1,8 +1,9 @@
-"""Своя тестовая база у каждого дерева.
+"""Своя тестовая база у каждого дерева — и у каждого процесса pytest-xdist.
 
 Прогон начинается со сноса схемы, и с одной базой на все деревья прогон
 в одном дереве сносил её под прогоном в другом: 01.10.2026 pre-push дал
-«20 failed, 1 error», а в тишине тот же набор был зелёным.
+«20 failed, 1 error», а в тишине тот же набор был зелёным. Процессы
+`pytest -n 4` в CI — тот же случай внутри одного прогона.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from sqlalchemy import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection
 from tests import conftest
-from tests.conftest import own_test_dsn
+from tests.conftest import own_test_dsn, worker_dsn
 
 
 def test_each_tree_gets_its_own_database() -> None:
@@ -29,6 +30,33 @@ def test_each_tree_gets_its_own_database() -> None:
 def test_the_same_tree_keeps_its_database() -> None:
     """Иначе каждый прогон заводил бы новую базу, а старые копились бы."""
     assert own_test_dsn(Path("/repo")) == own_test_dsn(Path("/repo"))
+
+
+# Адрес базы из ci.yml: пароль тестовый и открыт там же.
+# pragma: allowlist nextline secret
+CI_DSN = "postgresql+asyncpg://outreach:outreach@localhost:5432/outreach_test"
+
+
+def test_each_xdist_worker_gets_its_own_database() -> None:
+    """`pytest -n 4`: процесс сносит схему своей базы, а не трёх соседей."""
+    names = {make_url(worker_dsn(CI_DSN, f"gw{n}")).database for n in range(4)}
+    assert names == {f"outreach_test_gw{n}" for n in range(4)}
+
+
+def test_a_worker_database_keeps_the_rest_of_the_address() -> None:
+    """Меняется только имя базы: пароль не прячется звёздочками, сервер тот же."""
+    url = make_url(worker_dsn(CI_DSN, "gw1"))
+    assert (url.drivername, url.username, url.password) == (
+        "postgresql+asyncpg",
+        "outreach",
+        "outreach",
+    )
+    assert (url.host, url.port) == ("localhost", 5432)
+
+
+@pytest.mark.parametrize("worker", [None, ""])
+def test_without_xdist_the_database_is_the_same(worker: str | None) -> None:
+    assert worker_dsn(CI_DSN, worker) == CI_DSN
 
 
 class _RacedError(Exception):

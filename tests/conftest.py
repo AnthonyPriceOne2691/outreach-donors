@@ -137,12 +137,29 @@ def own_test_dsn(root: Path) -> str:
     был зелёным. `TEST_STORAGE_DSN` по-прежнему перекрывает (так в CI).
     Базы удалённых деревьев остаются на сервере: найти — `\\l outreach_test_*`
     в psql, снести — `DROP DATABASE`.
+
+    Процессы pytest-xdist (`pytest -n 4`, так в CI) — ещё одна грань того же:
+    у каждого своя база, `worker_dsn` дописывает к имени суффикс процесса —
+    в CI `outreach_test_gw0`, `…_gw1`. Каждый процесс сносит и мигрирует только
+    свою; с общей базой первый же процесс снёс бы схему под тремя остальными.
+    Без xdist (`PYTEST_XDIST_WORKER` не задан) имя прежнее. Контроллер xdist
+    тестов не исполняет и базу не трогает.
     """
     digest = hashlib.sha256(str(root).encode("utf-8")).hexdigest()[:10]
     return f"postgresql+asyncpg://outreach:outreach@localhost:5442/outreach_test_{digest}"
 
 
-TEST_DSN = os.getenv("TEST_STORAGE_DSN") or own_test_dsn(_ROOT)
+def worker_dsn(dsn: str, worker: str | None) -> str:
+    """База процесса xdist: `<база>_<gw0|gw1|…>`; вне xdist — та же `dsn`."""
+    if not worker:
+        return dsn
+    url = make_url(dsn)
+    return url.set(database=f"{url.database}_{worker}").render_as_string(hide_password=False)
+
+
+TEST_DSN = worker_dsn(
+    os.getenv("TEST_STORAGE_DSN") or own_test_dsn(_ROOT), os.getenv("PYTEST_XDIST_WORKER")
+)
 
 
 async def _database_exists(conn: AsyncConnection, name: str | None) -> bool:
