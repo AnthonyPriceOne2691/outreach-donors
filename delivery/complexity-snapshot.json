@@ -1592,9 +1592,9 @@
       "worst": "_greedy:80"
     },
     "backend/features/letters/sendgrid.py": {
-      "lines": 305,
+      "lines": 326,
       "complexity": 8,
-      "worst": "_post:168"
+      "worst": "_post:172"
     },
     "backend/features/letters/sending.py": {
       "lines": 497,
@@ -1617,9 +1617,9 @@
       "worst": "_check_zones:257"
     },
     "backend/features/letters/transport.py": {
-      "lines": 187,
+      "lines": 203,
       "complexity": 2,
-      "worst": "of_stage:146"
+      "worst": "of_stage:162"
     },
     "backend/features/letters/transport_factory.py": {
       "lines": 85,
