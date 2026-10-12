@@ -18,6 +18,8 @@
 Не трогается:
 - домен с адресом, вписанным человеком, — заново не ищется вовсе, как и
   в общем поиске (`repository.manual_address`);
+- донор из «кому не пишем» (`runs.exclusions.not_writing`) — адрес ему не ищется,
+  как и в общем поиске: платить за адрес, на который письмо не уйдёт, незачем;
 - адрес, по которому уже есть переписка (`manual.removal_refusals`), —
   остаётся, и это сказано.
 
@@ -45,6 +47,7 @@ from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.outreach import MessageModel
 from backend.features.crawl.contacts import AdvertiserContactRepository
 from backend.features.donors.host import normalize_host
+from backend.features.runs.exclusions import not_writing_of
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +107,8 @@ class NamedDomains:
         self._ids: dict[str, int] = {}
         self._donors: set[str] = set()
         self._advertisers: set[str] = set()
+        #: Доноры из «кому не пишем» — хост → почему, словами.
+        self._off: dict[str, str] = {}
 
     async def pending_hosts(self, *, limit: int = 100) -> list[str]:
         """Названные домены, которые есть в базе донором или рекламодателем
@@ -115,6 +120,7 @@ class NamedDomains:
         self._ids = dict(rows.tuples().all())
         self._donors = await self._hosts_of(DonorModel)
         self._advertisers = await self._hosts_of(AdvertiserModel)
+        self._off = await not_writing_of(self._session, [self._ids[h] for h in self._donors])
         for host in named:
             await self._judge(host)
         return [host for host in named if not self.domains[host].skipped][:limit]
@@ -135,6 +141,9 @@ class NamedDomains:
             return
         if host not in self._donors | self._advertisers:
             found.skipped = "домен в базе не донор и не рекламодатель"
+            return
+        if host in self._off:
+            found.skipped = f"{self._off[host]} — адрес не ищем"
             return
         contacts = await self._contacts(host)
         if any(contact.source is ContactSource.MANUAL for contact in contacts):

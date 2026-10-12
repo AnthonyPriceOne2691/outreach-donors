@@ -155,6 +155,7 @@ class RunRepository:
             min_org_traffic=thresholds.min_org_traffic,
             min_refdomains=thresholds.min_refdomains,
             min_keywords=thresholds.min_keywords,
+            max_dr=thresholds.max_dr,
             **extra,
         )
         self._session.add(settings)

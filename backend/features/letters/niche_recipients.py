@@ -32,6 +32,7 @@ from backend.features.donors.price_freshness import PriceState, price_is
 from backend.features.letters.compose import NicheOffer
 from backend.features.letters.offer_addresses import advertiser_addresses
 from backend.features.letters.recipients import Candidate, Recipients
+from backend.features.runs.exclusions import not_writing
 
 #: Решение по донору, после которого он — наша площадка.
 _ACCEPTED = "accepted"
@@ -140,9 +141,11 @@ class NicheRecipients(Recipients):
 
 
 def _examples(run: RunModel, moment: datetime) -> Select[tuple[str]]:
-    """Принятые доноры прогона со свежей ценой, сильнейшие по DR первыми. Правило одно
-    у сборки и у отправки: оффер «дешевле» держится на цене примера площадки. Свежесть —
-    одним правилом с таблицей доноров и обходом (`donors/price_freshness.py`)."""
+    """Принятые доноры прогона со свежей ценой, сильнейшие по DR первыми, — кроме «кому
+    не пишем» (`runs.exclusions`): площадку оттуда примером не предлагаем. Правило одно
+    у сборки и у отправки: оффер «дешевле» держится на цене примера площадки, и письмо,
+    собранное до правила с таким примером, отправка не пропустит. Свежесть — одним
+    правилом с таблицей доноров и обходом (`donors/price_freshness.py`)."""
     hosts = [str(host).lower() for host in (run.candidates or {}).get("hosts", [])]
     return (
         select(DomainModel.host)
@@ -151,6 +154,7 @@ def _examples(run: RunModel, moment: datetime) -> Select[tuple[str]]:
             DomainModel.host.in_(hosts),
             DonorModel.review == _ACCEPTED,
             price_is(PriceState.FRESH, moment),
+            ~not_writing(),
         )
         .order_by(DonorModel.dr.desc().nullslast(), DomainModel.id)
     )

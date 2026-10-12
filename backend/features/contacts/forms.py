@@ -50,6 +50,7 @@ from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.crawl.advertiser_rules import in_work
 from backend.features.crawl.niche import NICHE
 from backend.features.donors.standing import is_donor
+from backend.features.runs.exclusions import not_writing
 from backend.shared.database.ids import storable
 
 logger = logging.getLogger(__name__)
@@ -94,6 +95,7 @@ def in_queue() -> ColumnElement[bool]:
         is_donor(),
         DonorModel.contact_status == ContactStatus.FORM_ONLY,
         ~has_address(DonorModel.domain_id),
+        ~not_writing(),  # форма — тоже письмо: «кому не пишем» ТЗ (`runs.exclusions`)
     )
 
 

@@ -82,6 +82,7 @@ def _defaults_body() -> ThresholdsBody:
         min_org_traffic=_clamped("min_org_traffic", values.min_org_traffic),
         min_refdomains=_clamped("min_refdomains", values.min_refdomains),
         min_keywords=_clamped("min_keywords", values.min_keywords),
+        max_dr=_clamped("max_dr", values.max_dr),
         geo_top_n=_clamped("geo_top_n", rules.geo.top_n),
         geo_min_share_percent=_clamped("geo_min_share_percent", share_percent(rules.geo.min_share)),
         metrics_ttl_days=_clamped("metrics_ttl_days", rules.metrics_ttl_days),
@@ -120,9 +121,8 @@ async def preview(
     и прошлые версии порогов (проверка прода 10.10.2026).
     """
     donors = await ThresholdsRepository(session).donors()
-    return ConsequencesView.of(
-        consequences(donors, body.to_thresholds(), in_force=await in_force(session))
-    )
+    now = await in_force(session)
+    return ConsequencesView.of(consequences(donors, body.to_thresholds(now.max_dr), in_force=now))
 
 
 @router.post(
@@ -151,6 +151,7 @@ async def save_thresholds(
             "трафик": body.min_org_traffic,
             "реф. домены": body.min_refdomains,
             "ключи": body.min_keywords,
+            "крупный сайт, DR выше": rules.thresholds.max_dr,
             "топ стран": rules.geo.top_n,
             "доля страны, %": share_percent(rules.geo.min_share),
             "срок метрик, дней": rules.metrics_ttl_days,

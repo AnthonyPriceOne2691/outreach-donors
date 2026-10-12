@@ -181,6 +181,7 @@ class ThresholdsRepository:
             min_org_traffic=candidate.min_org_traffic,
             min_refdomains=candidate.min_refdomains,
             min_keywords=candidate.min_keywords,
+            max_dr=candidate.max_dr,
             **carried.columns(),
             units_cap=previous.units_cap if previous else 0,
         )
@@ -196,6 +197,7 @@ def defaults() -> Thresholds:
         min_org_traffic=filters_cfg.MIN_ORG_TRAFFIC,
         min_refdomains=filters_cfg.MIN_REFDOMAINS,
         min_keywords=filters_cfg.MIN_KEYWORDS,
+        max_dr=filters_cfg.MAX_DR,
     )
 
 
@@ -207,6 +209,7 @@ def thresholds_of(settings: RunSettingsModel) -> Thresholds:
         min_org_traffic=settings.min_org_traffic,
         min_refdomains=settings.min_refdomains,
         min_keywords=settings.min_keywords,
+        max_dr=settings.max_dr,
     )
 
 

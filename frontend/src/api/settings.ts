@@ -65,16 +65,28 @@ export interface RunRules {
   metrics_ttl_days: number;
 }
 
-/** Версия целиком: пороги, правило региона и срок метрик. */
-export type VersionBody = ThresholdsBody & RunRules;
+/** Порог крупного сайта: DR выше — «не подходит», писем нет (порог версии с 12.10.2026). */
+export interface DrCeiling {
+  max_dr: number;
+}
 
-export interface RulesVersion extends ThresholdsVersion, RunRules {}
+/** Пороги экрана — четыре нижних и порог крупного сайта. */
+export type ThresholdsFields = ThresholdsBody & DrCeiling;
+
+/** Версия целиком: пороги, правило региона и срок метрик. */
+export type VersionBody = ThresholdsFields & RunRules;
+
+export interface RulesVersion extends ThresholdsVersion, DrCeiling, RunRules {}
 
 /** Пороги и история версий — с правилом региона и сроком; их границы — отдельно. */
-export interface RulesView extends Omit<ThresholdsView, 'current' | 'defaults' | 'history'> {
+export interface RulesView extends Omit<
+  ThresholdsView,
+  'current' | 'defaults' | 'history' | 'limits'
+> {
   current: RulesVersion | null;
   defaults: VersionBody;
   history: RulesVersion[];
+  limits: Record<keyof ThresholdsFields, ThresholdRange>;
   rule_limits: Record<keyof RunRules, ThresholdRange>;
 }
 

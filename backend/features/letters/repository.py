@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, assert_never
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.contacts.repository import manual_address
@@ -34,6 +34,7 @@ from backend.features.letters.draft import assert_same_audience, split_audience
 from backend.features.letters.funnel import AdvertiserFunnel, Funnel
 from backend.features.letters.niche_recipients import NicheRecipients
 from backend.features.letters.recipients import Candidate, Recipients, donor_geo_of
+from backend.features.runs.exclusions import domain_not_writing, not_writing
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,11 +217,19 @@ class LetterRepository:
 
         Отбор тот же, что у `queued`. Итог пачки «осталось в очереди» считался
         длиной `queued` с потолком пачки и при тысяче писем говорил «осталось 200».
+        Письма донорам из «кому не пишем» в счёт не идут: пачка их не отправит,
+        а остановит с причиной (`donor_standing.stop_for_good`).
         """
         counted = (
             select(func.count())
             .select_from(MessageModel)
             .join(CampaignModel, CampaignModel.id == MessageModel.campaign_id)
+            .where(
+                or_(
+                    CampaignModel.stage != Stage.DONORS,
+                    ~domain_not_writing(MessageModel.domain_id),
+                )
+            )
         )
         waiting = self._waiting(counted, stage, audience)
         return int(await self._session.scalar(waiting) or 0)
@@ -325,7 +334,8 @@ class LetterRepository:
 
         Донор с вписанным руками адресом поиска не ждёт: общий поиск его
         не берёт (`contacts.repository.manual_address`), и считать его
-        ждущим значило бы запереть сборку по прогону навсегда.
+        ждущим значило бы запереть сборку по прогону навсегда. Так же —
+        донор из «кому не пишем»: поиск его не берёт, письма ему не будет.
         """
         rows = await self._session.execute(
             select(func.count(func.distinct(RunCandidateModel.domain_id)))
@@ -334,5 +344,6 @@ class LetterRepository:
             .where(RunCandidateModel.status == "accepted")
             .where(DonorModel.contact_attempted_at.is_(None))
             .where(~manual_address())
+            .where(~not_writing())
         )
         return int(rows.scalar_one())

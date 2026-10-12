@@ -37,8 +37,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { refusalOf } from '../api/client';
 import { fetchThresholds, previewThresholds, saveThresholds } from '../api/settings';
-import type { RunRules, VersionBody } from '../api/settings';
-import type { ThresholdsBody } from '../api/types';
+import type { RunRules, ThresholdsFields, VersionBody } from '../api/settings';
 import { PageHead } from '../components/PageHead';
 import { SaveVersionButton } from '../components/SaveVersionButton';
 import { useSession } from '../auth/AuthProvider';
@@ -69,6 +68,10 @@ const FIELDS: Record<ThresholdKey, { label: string; hint: string }> = {
   },
   min_refdomains: { label: 'Реф. доменов', hint: 'Сколько сайтов ссылаются на донора.' },
   min_keywords: { label: 'Ключей в органике', hint: 'Сколько ключей сайта в органической выдаче.' },
+  max_dr: {
+    label: 'Крупный сайт, DR выше',
+    hint: 'DR выше этого — крупный сайт: «не подходит», ему не пишем ни письмом, ни формой.',
+  },
 };
 
 /** Колонки истории. Первая — номер со значком «действует» (124 px шрифтом
@@ -83,17 +86,18 @@ const COLUMNS: { title: string; width?: string }[] = [
   { title: 'Трафик', width: '7.5rem' },
   { title: 'Реф. домены', width: '8rem' },
   { title: 'Ключи', width: '7rem' },
+  { title: 'Крупный, DR >', width: '8rem' },
   { title: 'Регион · срок', width: '11rem' },
   { title: 'Кто и когда', width: '17rem' },
 ];
-const TABLE_MIN_WIDTH = 1056;
+const TABLE_MIN_WIDTH = 1184;
 
 /** Правило версии строкой истории: «топ-5 или 20% · 90 дн.». */
 function rulesText(rules: RunRules): string {
   return `топ-${rules.geo_top_n} или ${rules.geo_min_share_percent}% · ${rules.metrics_ttl_days} дн.`;
 }
 
-function same(left: ThresholdsBody, right: ThresholdsBody): boolean {
+function same(left: ThresholdsFields, right: ThresholdsFields): boolean {
   return THRESHOLD_KEYS.every((key) => left[key] === right[key]);
 }
 
@@ -139,7 +143,7 @@ export function ThresholdsPage() {
   const debouncedChanged = debounced !== null && inUse !== undefined && !same(debounced, inUse);
   const preview = useQuery({
     queryKey: ['thresholds-preview', debounced],
-    queryFn: () => previewThresholds(debounced as ThresholdsBody),
+    queryFn: () => previewThresholds(debounced as ThresholdsFields),
     enabled: debouncedChanged && canEdit,
     placeholderData: keepPreviousData,
   });
@@ -292,6 +296,7 @@ export function ThresholdsPage() {
                   <Table.Td>{formatNumber(version.min_org_traffic)}</Table.Td>
                   <Table.Td>{formatNumber(version.min_refdomains)}</Table.Td>
                   <Table.Td>{formatNumber(version.min_keywords)}</Table.Td>
+                  <Table.Td>{formatNumber(version.max_dr)}</Table.Td>
                   <Table.Td>{rulesText(version)}</Table.Td>
                   <Table.Td className="wrapCell">
                     {/* Автор неизвестен у версий, заведённых до учёток, —

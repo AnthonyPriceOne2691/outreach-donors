@@ -20,6 +20,8 @@ class _Filters(DomainSettings):
     min_org_traffic: int = Field(default=500, validation_alias="FILTERS_MIN_ORG_TRAFFIC")
     min_refdomains: int = Field(default=100, validation_alias="FILTERS_MIN_REFDOMAINS")
     min_keywords: int = Field(default=300, validation_alias="FILTERS_MIN_KEYWORDS")
+    # Крупный сайт: DR выше — «не подходит», им не пишем (ТЗ: «домены DR > 80»).
+    max_dr: int = Field(default=80, validation_alias="FILTERS_MAX_DR")
     # Гео-правило страна в топ-N по органическому трафику ИЛИ доля ≥ порога.
     geo_top_n: int = Field(default=5, validation_alias="FILTERS_GEO_TOP_N")
     geo_min_share: float = Field(default=0.20, validation_alias="FILTERS_GEO_MIN_SHARE")
@@ -34,6 +36,7 @@ MIN_DR: int = _s.min_dr
 MIN_ORG_TRAFFIC: int = _s.min_org_traffic
 MIN_REFDOMAINS: int = _s.min_refdomains
 MIN_KEYWORDS: int = _s.min_keywords
+MAX_DR: int = _s.max_dr
 GEO_TOP_N: int = _s.geo_top_n
 GEO_MIN_SHARE: float = _s.geo_min_share
 METRICS_TTL_DAYS: int = _s.metrics_ttl_days

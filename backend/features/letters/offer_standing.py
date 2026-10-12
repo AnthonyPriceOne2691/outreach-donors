@@ -1,15 +1,17 @@
-"""Письмо рекламодателю перед отправкой: адресат ещё рекламодатель, ссылка письма —
-действующая, цена донора — свежая.
+"""Письмо рекламодателю перед отправкой: адресат ещё рекламодатель, площадка оффера —
+не из «кому не пишем», ссылка письма — действующая, цена донора — свежая.
 
 Проверки — при отправке, а не только при сборке (`recipients.py`): между сборкой
 и нажатием «Отправить» проходят часы, а то и дни, и за это время меняются и список
 рекламодателей, и их ссылки, и цена донора. `offer_refusal` говорит только, почему
-письмо не уходит, словами для экрана; класс отказа выбирает отправка
-(`sending.Sending._check_advertiser`). Письмо под снятую ссылку `check_offer`
+письмо не уходит, — причиной (`OfferRefused`) и словами для экрана; класс отказа по
+причине выбирает отправка (`sending.Sending._check_advertiser`). Письмо, которому ждать
+в очереди нечего, — под снятую ссылку или на площадке из «кому не пишем», — `check_offer`
 останавливает своей фиксацией: иначе оно стояло бы в очереди готовым, и пачка
 спотыкалась бы о него каждый раз.
 
-Порядок — от главного: снят рекламодатель → снята или сменилась ссылка → цена донора.
+Порядок — от главного: снят рекламодатель → площадка из «кому не пишем» → снята или
+сменилась ссылка → цена донора.
 
 **Рекламодатель не снят.** Его снимают «не пишем» человека (`crawl/promote.withdraw`)
 и перевод — тех, кого стоп-лист поставщиков или общий отсеял задним числом: донор
@@ -30,6 +32,14 @@
 у домена остались одни снятые кандидаты — первое письмо останавливается, а добивке
 отказ, как у снятого рекламодателя.
 
+**Площадка — не из «кому не пишем»** (12.10.2026, `runs.exclusions.not_writing`). Сборка
+таких площадок рекламодателю не предлагает (`Recipients._fresh_price`), а письмо оффера,
+собранное или ушедшее до правила, при отправке останавливается с причиной, как письмо
+донору из этого списка (`donor_standing.stop_for_good`). Проверяется каждое письмо
+оффера по найденной ссылке — и первое, и добивки: предложение такой площадки
+невыполнимо, а добивка его повторяет. Ждать в очереди такому письму нечего: ни
+перезапрос цены, ни решение человека площадку в предложение не вернут.
+
 **Цена донора свежая** (сверка ТЗ 12.10.2026). Оффер «мы дешевле» держится на цене
 донора, под чью ссылку он написан, хотя и не называет её: поэтому сборка берёт только
 свежую — не старше 150 дней, а старше — сначала перезапрос цены. Пока письмо ждёт
@@ -49,11 +59,12 @@
 
 **Бизнесу ниши** ссылки нет — какая проверка, решает аудитория рассылки, как и у сборки.
 Его оффер «дешевле» держится на цене примера площадки, который письмо называет
-(`advertiser_niche.txt`): принятого донора прогона, где бизнес нашёлся, со свежей ценой —
-правилом сборки (`NicheRecipients.fresh_examples`). Своего примера письмо не помнит,
-и годится любой такой донор, названный в тексте: появился донор сильнее — письмо
-со своим примером уходит, а пример, потерявший цену или решение «принят», письмо
-держит. Решение человека о самом бизнесе держит `niche.decide`.
+(`advertiser_niche.txt`): принятого донора прогона, где бизнес нашёлся, со свежей ценой
+и не из «кому не пишем» — правилом сборки (`NicheRecipients.fresh_examples`). Своего
+примера письмо не помнит, и годится любой такой донор, названный в тексте: появился
+донор сильнее — письмо со своим примером уходит, а пример, потерявший цену, решение
+«принят» или попавший в «кому не пишем», письмо держит. Решение человека о самом
+бизнесе держит `niche.decide`.
 """
 
 from __future__ import annotations
@@ -61,6 +72,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from enum import StrEnum
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -77,31 +89,49 @@ from backend.features.crawl.niche import NICHE
 from backend.features.crawl.offer_stop import out_of_queue
 from backend.features.crawl.promote import eligible_of
 from backend.features.letters.chain import FIRST_STEP
+from backend.features.letters.donor_standing import stop_for_good
 from backend.features.letters.niche_recipients import NicheRecipients
+from backend.features.runs.exclusions import not_writing_reason
+
+
+class OfferRefused(StrEnum):
+    """Почему письмо рекламодателю не уходит — от главного; класс отказа по ней выбирает
+    отправка (`sending._OFFER_REFUSED`)."""
+
+    #: Рекламодателя сняли — для цепочки это как стоп-лист.
+    REMOVED = "removed"
+    #: Площадка оффера — в «кому не пишем»: письмо остановлено с причиной, цепочка кончается.
+    NOT_WRITING = "not_writing"
+    #: Письмо собрано под ссылку, которой у рекламодателя больше нет: оно останавливается
+    #: со своей причиной, и следующее соберётся под действующую.
+    WITHDRAWN = "withdrawn"
+    #: Цена донора или примера площадки устарела или снята: письмо ждёт в очереди
+    #: перезапроса цены.
+    STALE_PRICE = "stale_price"
 
 
 @dataclass(frozen=True, slots=True)
 class OfferRefusal:
-    """Почему письмо рекламодателю не уходит — словами для экрана."""
+    """Почему письмо рекламодателю не уходит — причиной и словами для экрана."""
 
     words: str
-    #: Рекламодателя сняли — для цепочки это как стоп-лист.
-    removed: bool = False
-    #: Письмо собрано под ссылку, которой у рекламодателя больше нет: оно останавливается
-    #: со своей причиной, и следующее соберётся под действующую. Ни то ни другое — отказ
-    #: по цене донора: письмо ждёт в очереди перезапроса цены.
-    withdrawn: bool = False
+    reason: OfferRefused
 
 
 async def check_offer(
     session: AsyncSession, message: MessageModel, *, host: str, now: datetime
 ) -> OfferRefusal | None:
-    """Проверка отправки: `offer_refusal`, а письмо под снятую ссылку — остановлено
-    своей фиксацией (`crawl/offer_stop.out_of_queue`)."""
+    """Проверка отправки: `offer_refusal`, а письмо, которому ждать нечего, — остановлено
+    своей фиксацией: под снятую ссылку — `crawl/offer_stop.out_of_queue`, на площадке
+    из «кому не пишем» — с причиной (`donor_standing.stop_for_good`)."""
     refused = await offer_refusal(session, message, host=host, now=now)
-    if refused is not None and refused.withdrawn:
+    if refused is None:
+        return None
+    if refused.reason is OfferRefused.WITHDRAWN:
         await out_of_queue(session, message)
         await session.commit()
+    elif refused.reason is OfferRefused.NOT_WRITING:
+        await stop_for_good(session, message, refused.words)
     return refused
 
 
@@ -117,30 +147,73 @@ async def offer_refusal(
         )
     ).first()
     if advertiser is None:
-        return OfferRefusal(_removed(host, message), removed=True)
+        return OfferRefusal(_removed(host, message), OfferRefused.REMOVED)
     audience = await session.scalar(
         select(CampaignModel.audience).where(CampaignModel.id == message.campaign_id)
     )
     if audience == NICHE:
         return await _niche_price(session, message, host=host, now=now)
-    link = await _link_refusal(session, message, host=host, page=advertiser.best_page_url)
-    if link is not None or message.step != FIRST_STEP:
-        return link
-    donor = (advertiser.best_donor_host or "").strip().lower()
+    return await _link_offer(
+        session,
+        message,
+        host=host,
+        page=advertiser.best_page_url,
+        donor=(advertiser.best_donor_host or "").strip().lower(),
+        now=now,
+    )
+
+
+async def _link_offer(
+    session: AsyncSession,
+    message: MessageModel,
+    *,
+    host: str,
+    page: str | None,
+    donor: str,
+    now: datetime,
+) -> OfferRefusal | None:
+    """Письмо оффера по найденной ссылке — в порядке от главного (шапка модуля). Площадка
+    проверяется у каждого письма оффера, ссылка и цена — у первого."""
+    first = message.step == FIRST_STEP
+    only_rejected = await _only_rejected(session, host)
+    if only_rejected and not first:
+        return OfferRefusal(_removed(host, message), OfferRefused.REMOVED)
+    off = await _not_writing(session, donor)
+    if off is not None:
+        return OfferRefusal(
+            f"Письмо №{message.id} остановлено: площадка оффера {donor} — из «кому не пишем» "
+            f"({off}). Рекламодателю {host} её не предлагаем",
+            OfferRefused.NOT_WRITING,
+        )
+    if not first:
+        return None
+    if (
+        not page
+        or page not in (message.body or "")
+        or only_rejected
+        or await _rejected_link(session, host, page)
+    ):
+        return OfferRefusal(
+            f"Письмо №{message.id} собрано под ссылку, которой у рекламодателя {host} больше "
+            "нет: её сняли «не пишем» или сменил повторный обход. Письмо остановлено",
+            OfferRefused.WITHDRAWN,
+        )
     stale = await _stale_price(session, donor, now)
     if stale is None:
         return None
     return OfferRefusal(
         f"Цена донора {donor or 'ссылки'} устарела или снята — {stale}. Письмо "
         f"№{message.id} рекламодателю {host} стоит убрать или перезапросить цену: "
-        "оффер «мы дешевле» держится на ней"
+        "оффер «мы дешевле» держится на ней",
+        OfferRefused.STALE_PRICE,
     )
 
 
 async def _niche_price(
     session: AsyncSession, message: MessageModel, *, host: str, now: datetime
 ) -> OfferRefusal | None:
-    """Пример площадки в первом письме бизнесу ниши — ещё принятый донор со свежей ценой."""
+    """Пример площадки в первом письме бизнесу ниши — ещё принятый донор со свежей ценой
+    и не из «кому не пишем» (`NicheRecipients.fresh_examples`)."""
     if message.step != FIRST_STEP:
         return None
     run = await session.scalar(
@@ -155,7 +228,8 @@ async def _niche_price(
         f"Цена примера площадки в письме №{message.id} бизнесу ниши {host} устарела или "
         "снята: принятого донора его прогона со свежей ценой письмо не называет. Письмо "
         "стоит убрать — следующая сборка возьмёт пример со свежей ценой — или перезапросить "
-        "цену: оффер «дешевле» держится на ней"
+        "цену: оффер «дешевле» держится на ней",
+        OfferRefused.STALE_PRICE,
     )
 
 
@@ -172,25 +246,10 @@ def _removed(host: str, message: MessageModel) -> str:
     )
 
 
-async def _link_refusal(
-    session: AsyncSession, message: MessageModel, *, host: str, page: str | None
-) -> OfferRefusal | None:
-    """Ссылки, под которую собрано письмо, у рекламодателя больше нет. `None` — есть."""
-    only_rejected = await _only_rejected(session, host)
-    if message.step != FIRST_STEP:
-        return OfferRefusal(_removed(host, message), removed=True) if only_rejected else None
-    if (
-        page
-        and page in (message.body or "")
-        and not only_rejected
-        and not await _rejected_link(session, host, page)
-    ):
-        return None
-    return OfferRefusal(
-        f"Письмо №{message.id} собрано под ссылку, которой у рекламодателя {host} больше нет: "
-        "её сняли «не пишем» или сменил повторный обход. Письмо остановлено",
-        withdrawn=True,
-    )
+async def _not_writing(session: AsyncSession, donor: str) -> str | None:
+    """Почему площадке `donor` не пишем — словами (`runs.exclusions`); `None` — пишем."""
+    domain_id = await session.scalar(select(DomainModel.id).where(DomainModel.host == donor))
+    return None if domain_id is None else await not_writing_reason(session, domain_id)
 
 
 async def _only_rejected(session: AsyncSession, host: str) -> bool:

@@ -23,12 +23,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import ColumnElement, func, select
+from sqlalchemy import ColumnElement, and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.run import RunCandidateModel
 from backend.features.review.candidates import Decision
+from backend.features.runs.exclusions import not_writing
 
 
 class UnknownDonorError(ValueError):
@@ -71,16 +72,20 @@ async def waiting(session: AsyncSession) -> Waiting:
 
     Одно правило для главной («Рассмотреть домены») и для пустого экрана
     доноров: число на главной и число в подсказке «рассмотреть» совпадают.
-    Разобранная очередь в список прогонов не попадает.
+    Разобранная очередь в список прогонов не попадает. Ждущие строки «кому
+    не пишем», положенные до 11.10.2026, решения не ждут: принять их нельзя
+    (`review.candidates.decide`), и в счёт они не входят.
     """
+    waits = and_(
+        RunCandidateModel.status == Decision.PENDING.value,
+        RunCandidateModel.domain_id.not_in(select(DonorModel.domain_id).where(not_writing())),
+    )
     domains = await session.scalar(
-        select(func.count(func.distinct(RunCandidateModel.domain_id))).where(
-            RunCandidateModel.status == Decision.PENDING.value
-        )
+        select(func.count(func.distinct(RunCandidateModel.domain_id))).where(waits)
     )
     runs = await session.execute(
         select(RunCandidateModel.run_id)
-        .where(RunCandidateModel.status == Decision.PENDING.value)
+        .where(waits)
         .group_by(RunCandidateModel.run_id)
         .order_by(RunCandidateModel.run_id.desc())
     )
@@ -88,7 +93,7 @@ async def waiting(session: AsyncSession) -> Waiting:
     # одной ждущей строки у домена — больше одной очереди.
     in_several = (
         select(RunCandidateModel.domain_id)
-        .where(RunCandidateModel.status == Decision.PENDING.value)
+        .where(waits)
         .group_by(RunCandidateModel.domain_id)
         .having(func.count() > 1)
     )
