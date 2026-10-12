@@ -39,6 +39,13 @@ _NAME = re.compile(r"[a-z_]+")
 ANSWERED = frozenset(Label) - SILENT - {Label.PARSE_FAILED}
 
 
+def handed_over(reason: str | None) -> bool:
+    """Пропуск брифа по этой причине — передача лида телемаркетологу, а не молчание. Одно правило
+    у крючка пропуска (`handover.queue_hand_over`), прогона версии (`replay.Outcome.HANDED`,
+    «передан») и экрана калибровки (`calibration.agent_of`: отдано человеку)."""
+    return reason == LEAD_SKIP
+
+
 class Cta(StrEnum):
     """Куда агент зовёт лида — ссылкой из настроек отправителя."""
 

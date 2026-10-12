@@ -50,7 +50,7 @@ def queue_hand_over(notice: DraftNotice) -> None:
     ничего; очередь не ответила — строка в журнал. Вторая задача на тот же ответ («написать
     заново») не вредит: передача одна на диалог, а повтор после починки (лиды-дубли разобраны)
     так и доходит до Kommo — номер задачи поэтому не закрепляется."""
-    if notice.reason != moves.LEAD_SKIP:
+    if not moves.handed_over(notice.reason):
         return
     extra = {"reply": notice.reply_id, "draft": notice.draft_id}
     try:

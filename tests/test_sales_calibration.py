@@ -9,7 +9,9 @@
 - меньше N решений — «данных мало», без доли и вывода; ровно N — уже вывод;
 - пороги ворот — «не ниже»: ровно 80% без правки и ровно 90% верного молчания проходят;
 - ложное молчание — агент сказал «ответ не нужен», а человек ответил; молчание человека —
-  исход только через срок после письма.
+  исход только через срок после письма;
+- «агент понял: хочет говорить» — не молчание, а отдано человеку: лид у телемаркетолога; прогон
+  версии зовёт это «передан» — правило одно.
 """
 
 from __future__ import annotations
@@ -23,11 +25,12 @@ import pytest
 from backend.config import sales as sales_cfg
 from backend.features.agent.drafts import AUTOPILOT
 from backend.features.agent.settings import AgentSettingsRepository
+from backend.features.agent.stages import Skip, SkipKind
 from backend.features.core.domain import DraftStatus, Stage
 from backend.features.core.models.agent import AgentDraftModel
 from backend.features.core.models.outreach import ReplyModel
 from backend.features.sales import kb
-from backend.features.sales.agent import brief, calibration, calibration_board, parts
+from backend.features.sales.agent import brief, calibration, calibration_board, moves, parts
 from backend.features.sales.agent.calibration import (
     Agent,
     Bucket,
@@ -41,6 +44,7 @@ from backend.features.sales.agent.calibration import (
     tally,
 )
 from backend.features.sales.agent.calibration_board import Piece, word_diff
+from backend.features.sales.agent.replay import Outcome, skipped
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.test_sales_replay import answered, lead_reply
 
@@ -294,6 +298,25 @@ def draft(status: DraftStatus, **values: Any) -> AgentDraftModel:
             Agent.HELD,
             Took.AS_IS,
         ),
+        (
+            draft(
+                DraftStatus.SKIPPED,
+                body="",
+                reason=moves.LEAD_SKIP,
+                meta={"skip": "no_reply", "move": "lead", "lead": True},
+            ),
+            Agent.HELD,
+            Took.SILENT,
+        ),
+        (
+            draft(
+                DraftStatus.SENT,
+                edited=False,
+                meta={"forced_over_skip": {"kind": "no_reply", "reason": moves.LEAD_SKIP}},
+            ),
+            Agent.HELD,
+            Took.AS_IS,
+        ),
         (draft(DraftStatus.SENT, edited=False, decided_by=AUTOPILOT), Agent.READY, Took.AUTO),
     ],
 )
@@ -309,6 +332,48 @@ def test_human_silence_is_an_outcome_only_after_the_settle_time() -> None:
 
     assert calibration.took_of(silent, answered=False, settled=False) is Took.PENDING
     assert calibration.took_of(silent, answered=True, settled=False) is Took.OWN
+
+
+@pytest.mark.parametrize(
+    ("skip", "agent", "outcome"),
+    [
+        (Skip(SkipKind.NO_REPLY, moves.LEAD_SKIP), Agent.HELD, Outcome.HANDED),
+        (Skip(SkipKind.NO_REPLY, "ответ не нужен: благодарность"), Agent.SILENT, Outcome.SILENT),
+        (Skip(SkipKind.HUMAN, "агент не понял письмо: сбой разбора"), Agent.HELD, Outcome.REJECTED),
+    ],
+)
+def test_screen_and_replay_read_a_brief_skip_by_one_rule(
+    skip: Skip, agent: Agent, outcome: Outcome
+) -> None:
+    """Пропуск брифа — черновиком журнала, как его пишет шов, и исходом прогона версии.
+    «Агент понял: хочет говорить» — молчание ни там, ни там: на экране отдано человеку, в
+    прогоне — «передан»."""
+    no_reply = skip.kind is SkipKind.NO_REPLY
+    stored = draft(
+        DraftStatus.SKIPPED if no_reply else DraftStatus.ESCALATED,
+        body="",
+        reason=skip.reason,
+        meta={"skip": skip.kind.value},
+    )
+
+    assert calibration.agent_of(stored) is agent
+    assert skipped(skip) is outcome
+
+
+def test_handovers_do_not_lift_the_true_silence_of_the_gate() -> None:
+    """Передача лида по пониманию агента — не молчание: основа верного молчания ворот — только
+    молчания агента. Десять передач, посчитанных молчанием, дали бы 36 из 40 — ровно порог."""
+    handed = draft(DraftStatus.SKIPPED, body="", reason=moves.LEAD_SKIP, meta={"skip": "no_reply"})
+    agent = calibration.agent_of(handed)
+    took = calibration.took_of(handed, answered=False, settled=True)
+    found = tally(
+        [*rows_of(true_silence=26, false_silence=4), *(row(agent, took) for _ in range(10))]
+    )
+
+    assert (found.silences, found[Bucket.HELD_WAITING]) == (30, 10)
+    assert gate(found, EDGE) == calibration.Gate(
+        GateState.FAILED, ("верное молчание 86,7% (26 из 30) — ниже 90%",)
+    )
 
 
 def test_cohort_number_follows_every_version() -> None:

@@ -8,7 +8,10 @@
 
 - `ready` — написал черновик, и судья его пропустил: черновик ждёт одной кнопки;
 - `held` — отдал человеку: бриф не взялся, писатель засомневался или судья не пропустил
-  (`escalated`, с текстом или без). «Как есть» у такого закрыто (`agent/drafts.py`);
+  (`escalated`, с текстом или без). «Как есть» у такого закрыто (`agent/drafts.py`). Сюда же —
+  «агент понял: хочет говорить» (пропуск брифа, и под «всё же написать» тоже): письма нет, лид
+  у телемаркетолога — это не молчание; прогон версии зовёт это «передан», правило одно
+  (`moves.handed_over`);
 - `silent` — «ответ не нужен» (`skipped`); и тогда, когда человек велел всё же написать.
 
 **Что сделал человек** — правилом прогона (`replay_drafts.decided`): как есть, с правкой,
@@ -59,7 +62,7 @@ from backend.features.core.domain import DraftStatus
 from backend.features.core.models.agent import AgentDraftModel
 from backend.features.core.models.outreach import ReplyModel
 from backend.features.sales import kb
-from backend.features.sales.agent import brief, parts, replay_drafts
+from backend.features.sales.agent import brief, moves, parts, replay_drafts
 from backend.features.sales.agent.replay import LABELS, Decision
 
 #: Пороги ворот автоответа по ТЗ — процентами, не ниже.
@@ -364,10 +367,21 @@ def _skips(meta: Mapping[str, Any]) -> set[str | None]:
     }
 
 
+def _handed(draft: AgentDraftModel, meta: Mapping[str, Any]) -> bool:
+    """Агент понял «хочет говорить»: причина пропуска — у черновика или под «всё же написать»."""
+    forced = meta.get("forced_over_skip")
+    reasons = {draft.reason, forced.get("reason") if isinstance(forced, dict) else None}
+    return any(moves.handed_over(reason) for reason in reasons)
+
+
 def agent_of(draft: AgentDraftModel) -> Agent:
     """Что сделал агент — по черновику, а не по его нынешнему статусу: решение человека
-    статус переписывает, а пропуск брифа и причина отдачи остаются."""
-    skipped = _skips(draft.meta or {})
+    статус переписывает, а пропуск брифа и причина отдачи остаются. Передача лида по
+    пониманию агента — отдал человеку, а не молчание (шапка модуля)."""
+    meta = draft.meta or {}
+    if _handed(draft, meta):
+        return Agent.HELD
+    skipped = _skips(meta)
     if draft.status is DraftStatus.SKIPPED or SkipKind.NO_REPLY.value in skipped:
         return Agent.SILENT
     if SkipKind.HUMAN.value in skipped or draft.reason is not None or not draft.body.strip():

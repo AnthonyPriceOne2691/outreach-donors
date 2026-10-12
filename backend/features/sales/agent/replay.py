@@ -52,6 +52,7 @@ from backend.features.agent.stages import (
     AgentStage,
     Brief,
     Conversation,
+    Skip,
     SkipKind,
     VerdictKind,
 )
@@ -337,6 +338,14 @@ async def run(
     return Run(source, version, tuple(results), tuple(errors), stopped)
 
 
+def skipped(skip: Skip) -> Outcome:
+    """Исход версии, когда бриф письма не пишет: передача лида — «передан» (то же правило, что у
+    экрана калибровки, — `moves.handed_over`), «ответ не нужен» — молчание, человеку — отклонено."""
+    if moves.handed_over(skip.reason):
+        return Outcome.HANDED
+    return Outcome.SILENT if skip.kind is SkipKind.NO_REPLY else Outcome.REJECTED
+
+
 async def replay_case(
     session: AsyncSession,
     writer: guarding.Writer,
@@ -355,10 +364,7 @@ async def replay_case(
     label = brief.meta.get("situation")
     label = label if isinstance(label, str) else None
     if brief.skip is not None:
-        silent = brief.skip.kind is SkipKind.NO_REPLY
-        outcome = Outcome.SILENT if silent else Outcome.REJECTED
-        if brief.skip.reason == moves.LEAD_SKIP:
-            outcome = Outcome.HANDED
+        outcome = skipped(brief.skip)
         return Result(case.id, case.digest(), case.human, label, outcome, why=brief.skip.reason)
     composed = await guarding.compose(
         session,
