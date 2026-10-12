@@ -41,6 +41,11 @@
 в нём нет: его вид разбирает модуль продаж, а ждёт ли ответ человека и почему,
 читается из снимка разбора (`replies.outcome.sales_review`). «Ответил человек»
 спрятало бы работу за словом «всё хорошо».
+
+**Перезапрос цены снова ставит переписку в ожидание** (`letters/price_recheck.py`,
+12.10.2026): цена донора протухла, и мы спросили её заново — пока он не ответил после
+перезапроса, переписка «цену перезапросили — ждём ответа», а не «цена получена»
+с ценой, по которой Этап 2 уже не идёт. Ответ после перезапроса — снова ответ.
 """
 
 from __future__ import annotations
@@ -53,6 +58,7 @@ from enum import StrEnum
 from typing import Any, Protocol, assert_never
 
 from backend.features.core.domain import GONE_STATUSES, MessageStatus, ReplyKind, Stage
+from backend.features.letters.chain import CHAINABLE, RECHECK_STEP
 from backend.features.replies.extract import PLACEMENT_DECLINES, PLACEMENT_FREE, WITHOUT_PRICE
 from backend.features.replies.outcome import (
     AUTO_REPLY_WITH_SUM,
@@ -79,6 +85,7 @@ class ThreadState(StrEnum):
     LEAD = "lead"  # ответил рекламодатель — лид ждёт человека
     LEAD_TAKEN = "lead_taken"  # лид взят в работу
     SALES_PENDING = "sales_pending"  # ответил лид продаж — ждёт, пока почта их подключит
+    RECHECK = "recheck"  # цену перезапросили — ждём ответа донора
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,6 +113,10 @@ class LetterFacts(Protocol):
 
     @property
     def sent_at(self) -> datetime | None: ...
+
+    #: Читается только у перезапроса цены (`chain.RECHECK_STEP`): после него переписка ждёт.
+    @property
+    def step(self) -> int: ...
 
 
 class ReplyFacts(Protocol):
@@ -168,6 +179,8 @@ def state_of(
     statuses: Collection[MessageStatus],
     replies: Sequence[ReplyFacts],
     stage: Stage = Stage.DONORS,
+    *,
+    asked_at: datetime | None = None,
 ) -> ThreadState:
     """Первое подошедшее правило и есть состояние.
 
@@ -182,9 +195,11 @@ def state_of(
 
     От писем правилу нужны только статусы — их оно и принимает: числа «Обзора»
     и меню берут из базы статусы писем диалога, а не сами письма (аудит 10.10.2026).
+    И время последнего перезапроса цены (`asked_again_at`): после него переписка
+    донора снова ждёт ответа.
     """
     kinds = {r.kind for r in replies}
-    answered = _answered(replies, stage)
+    answered = _answered(replies, stage, asked_at)
 
     rules: _Rules = (
         (ReplyKind.UNSUBSCRIBE in kinds, ThreadState.UNSUBSCRIBED),
@@ -202,11 +217,11 @@ def state_of(
     return ThreadState.QUEUED
 
 
-def _answered(replies: Sequence[ReplyFacts], stage: Stage) -> _Rules:
+def _answered(replies: Sequence[ReplyFacts], stage: Stage, asked_at: datetime | None) -> _Rules:
     """Правила ответа — по этапу рассылки, целиком: новый этап — ошибка mypy."""
     match stage:
         case Stage.DONORS:
-            return _answer_rules(replies)
+            return _answer_rules(replies, asked_at)
         case Stage.ADVERTISERS:
             return _lead_rules(replies)
         case Stage.SALES:
@@ -269,21 +284,30 @@ def review_of(reply: ReplyFacts, stage: Stage = Stage.DONORS) -> Review:
     return Review(waiting=waiting, reason=AUTO_REPLY_WITH_SUM if priced else None)
 
 
-def _answer_rules(replies: Sequence[ReplyFacts]) -> _Rules:
-    """Ответ донора: ждёт разбора, цена, «не продаём», «бесплатно», просто ответил.
+def _answer_rules(replies: Sequence[ReplyFacts], asked_at: datetime | None) -> _Rules:
+    """Ответ донора: ждёт разбора, цену перезапросили, цена, «не продаём», «бесплатно»,
+    просто ответил.
 
     Цена, «не продаём» и «бесплатно» — по последнему принятому из них (`settled_answer`):
     «не продаём» после цены — уже не цена, цена после «не продаём» — снова цена.
+    Перезапрос цены, ушедший после последнего слова донора, — переписка снова ждёт
+    донора: цена в ней старше срока, и по ней Этап 2 не идёт. Ответ на перезапрос без
+    числа ждёт человека (`recheck_unpriced`), и «цена получена» после перезапроса — только
+    цена, названная после него (проверка 12.10.2026: «цена та же» читалась бы старой ценой).
     """
     kinds = {r.kind for r in replies}
-    judged = [(r, review_of(r).waiting) for r in replies]
+    judged = [(r, review_of(r).waiting or recheck_unpriced(r, asked_at)) for r in replies]
+    # Перезапрос уходит только в переписку, где донор отвечал (`price_recheck.py`): без его
+    # слова переписку держит правило ушедшего письма — «ждём ответа».
+    last_word = max((r.created_at for r in replies if donor_word(r)), default=None)
+    asked_again = asked_at is not None and last_word is not None and asked_at > last_word
     # Ответ принят, только если его не ждёт человек: иначе диалог с неуверенным
     # разбором выглядел бы законченным, а список диалогов врал бы именно там,
     # где по нему принимают решения. «Не продаём» — законченный ответ, как и
     # цена: работы по нему нет, а в списке он не должен выглядеть как «ответил,
     # что-то непонятное».
     answer = settled_answer(replies)
-    priced = answer is not None and _named_price(answer)
+    priced = answer is not None and _named_price(answer) and _after(answer, asked_at)
     said = None if answer is None or priced else answer.placement
     waiting = any(waits and _later(answer, r) is None for r, waits in judged)
 
@@ -294,11 +318,48 @@ def _answer_rules(replies: Sequence[ReplyFacts]) -> _Rules:
         # на экране — меню, список и «Обзор» его не считали (проверка прода 10.10.2026).
         # Ответ, перекрытый принятым, не ждёт — и последнее слово остаётся последним.
         (waiting, ThreadState.NEEDS_REVIEW),
+        # Перезапрос — после «ждёт разбора»: работа у человека сильнее ожидания донора.
+        # Ответ, пришедший после перезапроса, снимает правило сам — он новее перезапроса.
+        (asked_again, ThreadState.RECHECK),
         (priced, ThreadState.PRICED),
         (said == PLACEMENT_DECLINES, ThreadState.DECLINED),
         (said == PLACEMENT_FREE, ThreadState.FREE),
         (ReplyKind.HUMAN in kinds, ThreadState.REPLIED),
     )
+
+
+#: Почему ответ на перезапрос цены ждёт человека — словами карточки переписки.
+RECHECK_UNPRICED = (
+    "ответ на перезапрос цены, а числа в нём нет: донор подтвердил прежнюю цену — "
+    "«Цена та же»; назвал новую — впишите её"
+)
+
+
+def donor_word(reply: ReplyFacts) -> bool:
+    """Ответ — слово донора: письмо человека или подтверждённая человеком цена (и из
+    автоответа с суммой). Ему, а не только письму человека, отвечает перезапрос цены."""
+    return reply.kind is ReplyKind.HUMAN or (reply.reviewed_at is not None and _named_price(reply))
+
+
+def recheck_unpriced(reply: ReplyFacts, asked_at: datetime | None) -> bool:
+    """Ответ человека на перезапрос цены без числа ждёт человека: «цена та же» или «всё
+    по-прежнему» цену не называют, и молча переписка показала бы старую.
+
+    «Не продаём» и «бесплатно» — ответ на вопрос, а не пустота: они не ждут.
+    """
+    return (
+        asked_at is not None
+        and reply.kind is ReplyKind.HUMAN
+        and reply.created_at > asked_at
+        and reply.reviewed_at is None
+        and not _named_price(reply)
+        and reply.placement not in WITHOUT_PRICE
+    )
+
+
+def _after(reply: ReplyFacts, asked_at: datetime | None) -> bool:
+    """Ответ пришёл после перезапроса — или перезапроса не было."""
+    return asked_at is None or reply.created_at > asked_at
 
 
 def _order(reply: ReplyFacts) -> tuple[datetime, int]:
@@ -362,6 +423,20 @@ def settled_price(replies: Sequence[ReplyFacts]) -> ReplyFacts | None:
     return answer if answer is not None and _named_price(answer) else None
 
 
+def asked_again_at(messages: Sequence[LetterFacts]) -> datetime | None:
+    """Когда в переписке последний раз перезапросили цену — письмом, которое ушло и не
+    отбилось (`chain.CHAINABLE`): не дошедший перезапрос донор не читал. Пусто — не
+    перезапрашивали."""
+    return max(
+        (
+            m.sent_at
+            for m in messages
+            if m.step == RECHECK_STEP and m.status in CHAINABLE and m.sent_at is not None
+        ),
+        default=None,
+    )
+
+
 def summarize(
     messages: Sequence[LetterFacts],
     replies: Sequence[ReplyFacts],
@@ -371,7 +446,9 @@ def summarize(
     priced = settled_price(replies)
     human = [r for r in replies if r.kind is ReplyKind.HUMAN]
     return ThreadSummary(
-        state=state_of({m.status for m in messages}, replies, stage),
+        state=state_of(
+            {m.status for m in messages}, replies, stage, asked_at=asked_again_at(messages)
+        ),
         messages_sent=sum(1 for m in messages if m.status in GONE_STATUSES),
         last_event_at=_last_at(messages, replies),
         last_reply_at=max((r.created_at for r in human), default=None),

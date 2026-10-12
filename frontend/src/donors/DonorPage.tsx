@@ -62,6 +62,7 @@ import { Seams } from '../components/Seams';
 import { fetchDonor } from '../api/runs';
 import { DonorAddresses } from './DonorAddresses';
 import { DonorPrice } from './DonorPrice';
+import { PriceRecheck } from './PriceRecheck';
 import { neighboursOf } from './place';
 
 const when = formatDate;
@@ -336,6 +337,7 @@ export function DonorPage() {
           {/* Цена, откуда она и «Указать цену» — тоже по ключу донора: вписанное
               в поля одного донора не должно уехать в карточку другого. */}
           <DonorPrice key={`price-${data.id}`} donor={data} />
+          <PriceRecheck key={`recheck-${data.id}`} donor={data} />
         </Grid.Col>
       </Grid>
     </Stack>

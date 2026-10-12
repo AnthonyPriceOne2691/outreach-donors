@@ -37,12 +37,14 @@
  * отбора на год (проверка QA 10.10.2026).
  */
 
-import { Alert, Badge, Button, Group, Stack, Text, TextInput } from '@mantine/core';
+import { Badge, Button, Group, Stack, Text, TextInput } from '@mantine/core';
 import { useEffect, useState } from 'react';
 
 import type { IncomingCard } from '../api/types';
 import { ConfirmPopover } from '../components/ConfirmPopover';
 import { InfoHint } from '../components/InfoHint';
+import { Plaque } from './Plaque';
+import { SamePrice } from './SamePrice';
 
 export interface PriceReviewProps {
   incoming: IncomingCard;
@@ -126,14 +128,9 @@ function PriceHead({ incoming, heading, onClose }: PriceHeadProps & { incoming: 
       {/* Ждёт человека — плашка и есть заголовок: что случилось и что сделать.
           Одним абзацем: рядом со списком переписка — колонка высотой окна. */}
       {incoming.needs_review ? (
-        <Alert color="yellow" py={6} px="sm" style={{ flex: 1 }}>
-          <Text span size="sm" fw={600}>
-            Цену подтверждает человек
-          </Text>{' '}
-          <Text span size="sm">
-            {reviewWords(incoming)}
-          </Text>
-        </Alert>
+        <Plaque color="yellow" title="Цену подтверждает человек" style={{ flex: 1 }}>
+          {reviewWords(incoming)}
+        </Plaque>
       ) : (
         <DecidedHead incoming={incoming} heading={heading} />
       )}
@@ -180,14 +177,9 @@ export function PriceReview({
       {/* Отказ — над полями, одним абзацем, как плашка выше: уведомление в углу
           закрывало «Подтвердить» и «Не продаёт размещения» (проверка QA 10.10.2026). */}
       {refusal !== null && (
-        <Alert color="red" py={6} px="sm">
-          <Text span size="sm" fw={600}>
-            Не подтвердили
-          </Text>{' '}
-          <Text span size="sm">
-            — {refusal}
-          </Text>
-        </Alert>
+        <Plaque color="red" title="Не подтвердили">
+          — {refusal}
+        </Plaque>
       )}
 
       {/* Поля и решения — одним рядом, что такое белая и серая — в «i» над ним:
@@ -254,6 +246,9 @@ export function PriceReview({
           )}
         </ConfirmPopover>
       </Group>
+
+      {/* Ответ на перезапрос цены без числа: «Цена та же» — прежняя цена временем ответа. */}
+      <SamePrice incoming={incoming} canReview={canReview} />
 
       {!canReview && (
         <Text size="xs" c="dimmed">

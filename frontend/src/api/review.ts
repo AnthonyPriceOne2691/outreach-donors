@@ -4,7 +4,28 @@
  */
 
 import { request } from './client';
-import type { AccuracyView, DecideResult, ReviewDecision, ReviewView } from './types';
+import type { DecideResult, ReviewDecision, ReviewView } from './types';
+
+/** Совет судьи против решений человека: сколько советов, сколько с ними согласились. Здесь,
+ *  а не в `types.ts`: тот у потолка длины, а числа нужны только рассмотрению прогона. */
+export interface AgreementView {
+  advised: number;
+  agreed: number;
+  precision: number | null;
+}
+
+/** Судья против человека: по этим числам решают, доверять ли судье больше. */
+export interface AccuracyView {
+  decided: number;
+  by_advice: Record<string, AgreementView>;
+  by_layer: Record<string, Record<string, AgreementView>>;
+  by_intent: Record<string, Record<string, AgreementView>>;
+  unjudged: number;
+  asked_to_review: number;
+  auto_accept_ready: boolean;
+  auto_accept_precision: number;
+  auto_accept_min_decisions: number;
+}
 
 export function loadReview(
   runId: number,

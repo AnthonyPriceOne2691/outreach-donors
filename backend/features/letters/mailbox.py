@@ -47,7 +47,14 @@ from backend.features.core.models.outreach import (
     SenderModel,
     SendingDomainModel,
 )
-from backend.features.letters.chain import ANSWER_STEP, CHAINABLE, FIRST_STEP, MAX_STEPS, kind_of
+from backend.features.letters.chain import (
+    ANSWER_STEP,
+    CHAINABLE,
+    FIRST_STEP,
+    MAX_STEPS,
+    RECHECK_STEP,
+    kind_of,
+)
 from backend.features.outreach import health, limits
 from backend.features.outreach import senders as sender_rules
 from backend.features.outreach.repository import OutreachRepository
@@ -129,10 +136,31 @@ async def _thread_box(session: AsyncSession, sender_id: int) -> Choice:
 async def _silence(session: AsyncSession, sender: SenderModel | None, *, gone: str) -> str | None:
     """Почему ящик переписки не пишет — словами отказа; `None` — пишет.
     `gone` — как назвать ящик, которого нет: номером или «первого письма».
-    Ящик пишет, а его домен на паузе — тоже не пишет (`_domain_paused`).
+    Ящик пишет, а его домен на паузе — тоже не пишет (`silence_words`).
 
     Одни слова на отправку и на карточку переписки (`thread_mail`): в карточке
     человек читает ровно то, что скажет отказ, если нажать «Ответить».
+    """
+    row = (
+        None
+        if sender is None
+        else await session.scalar(
+            select(SendingDomainModel).where(SendingDomainModel.domain == sender.domain)
+        )
+    )
+    return silence_words(sender, row, gone=gone)
+
+
+def silence_words(
+    sender: SenderModel | None, domain: SendingDomainModel | None, *, gone: str
+) -> str | None:
+    """То же правило без базы: ящик и строка его домена рассылки уже прочитаны.
+
+    Им пользуется и список перезапросов цены (`recheck_target.py`): сотни переписок
+    одним чтением ящиков, а слова — те же, что у отправки и карточки переписки.
+    Домен — только пауза, а не выдержка и не чужое направление (их судит фильтр первых
+    писем, `limits.screen`): выдержка — у домена без писем, переписок на нём нет, а запись
+    домена за другим этапом не отбирает у начатых разговоров их ящик.
     """
     if sender is None:
         return (
@@ -145,23 +173,10 @@ async def _silence(session: AsyncSession, sender: SenderModel | None, *, gone: s
             "ведёт он. С другого ящика письмо не уйдёт — оно ждёт, пока ящик не включат "
             "на экране «Домены рассылки»"
         )
-    return await _domain_paused(session, sender)
-
-
-async def _domain_paused(session: AsyncSession, sender: SenderModel) -> str | None:
-    """Домен ящика переписки на паузе — словами отказа; `None` — домен пишет.
-
-    Только пауза, а не выдержка и не чужое направление (их судит фильтр первых писем,
-    `limits.screen`): выдержка — у домена без писем, переписок на нём нет, а запись
-    домена за другим этапом не отбирает у начатых разговоров их ящик.
-    """
-    row = await session.scalar(
-        select(SendingDomainModel).where(SendingDomainModel.domain == sender.domain)
-    )
-    if row is None or row.paused_at is None:
+    if domain is None or domain.paused_at is None:
         return None
     return (
-        f"Домен {row.domain} на паузе ({row.pause_reason or 'без причины'}), а переписку "
+        f"Домен {domain.domain} на паузе ({domain.pause_reason or 'без причины'}), а переписку "
         f"ведёт ящик {sender.email} на нём. С другого ящика письмо не уйдёт — оно ждёт, "
         "пока домен не снимут с паузы (outreach sending-domain --resume)"
     )
@@ -186,7 +201,7 @@ async def thread_mail(session: AsyncSession, messages: Sequence[MessageModel]) -
     не уходило: ящик выберется в момент отправки (`_free_box`).
 
     Ящик переписки — тот, с которого ушло первое письмо: им же уходят ответ
-    (`answers._thread_sender`) и добивки (`followups.py`).
+    (`answers.thread_sender`) и добивки (`followups.py`).
     """
     first = _first_gone(messages)
     if first is None:
@@ -241,7 +256,9 @@ def _why_silent(sender: SenderModel) -> str:
 def _own_path_only(message: MessageModel) -> str:
     """Чьим путём уходит письмо переписки — словами отказа общей очереди."""
     what = kind_of(message.step)
-    if message.step >= ANSWER_STEP:
+    if message.step == RECHECK_STEP:
+        path = "кнопкой «Перезапросить цену» — с ящика переписки и веткой к письму донора"
+    elif message.step >= ANSWER_STEP:
         path = "из карточки переписки — с её ящика и веткой к письму собеседника"
     else:
         path = "проходом добивок — с ящика своей переписки и в её ветку"

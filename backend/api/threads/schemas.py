@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
@@ -20,7 +21,14 @@ from backend.features.letters import outgoing_files
 from backend.features.letters.mailbox import ThreadMail
 from backend.features.letters.outgoing_store import NO_FILES, ThreadFiles
 from backend.features.outreach.repository import ThreadDetail, ThreadRow
-from backend.features.outreach.threads import ThreadState, review_of, superseded_by
+from backend.features.outreach.threads import (
+    RECHECK_UNPRICED,
+    ThreadState,
+    asked_again_at,
+    recheck_unpriced,
+    review_of,
+    superseded_by,
+)
 from backend.features.replies.quoting import written_by_hand
 
 
@@ -221,6 +229,21 @@ class OfferCard(BaseModel):
         return None if stored is None else [cls.model_validate(item) for item in stored]
 
 
+class PriceCard(BaseModel):
+    """Цена донора — суммой и валютой, как её назвали: конвертации нет."""
+
+    price: Decimal
+    currency: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class Recheck:
+    """Перезапрос цены в переписке: когда ушёл и прежняя цена донора (`ThreadView.of`)."""
+
+    asked_at: datetime | None
+    price: PriceCard | None
+
+
 class IncomingCard(BaseModel):
     """Входящее письмо и то, что из него распознали.
 
@@ -276,6 +299,9 @@ class IncomingCard(BaseModel):
     lead: bool
     reviewed_by: str | None
     reviewed_at: datetime | None
+    #: Ответ на перезапрос цены без числа (`threads.recheck_unpriced`): прежняя цена донора
+    #: для «Цена та же» (`letters/recheck_answer.py`). Пусто — у ответа этого действия нет.
+    same_price: PriceCard | None = None
 
     @classmethod
     def of(
@@ -284,12 +310,19 @@ class IncomingCard(BaseModel):
         stage: Stage = Stage.DONORS,
         files: Sequence[ReplyAttachmentModel] = (),
         thread_replies: Sequence[ReplyModel] = (),
+        recheck: Recheck | None = None,
     ) -> IncomingCard:
-        """`thread_replies` — ответы той же переписки: по ним видно, перекрыт ли этот."""
+        """`thread_replies` — ответы той же переписки: по ним видно, перекрыт ли этот.
+        `recheck` — перезапрос цены в переписке: когда ушёл и прежняя цена донора."""
         lead = stage is Stage.ADVERTISERS and reply.kind is ReplyKind.HUMAN
         # У лида нечего разбирать: форма цены для него — отказ (`review_of`).
         review = review_of(reply, stage)
         superseding = superseded_by(reply, thread_replies)
+        unpriced = (
+            stage is Stage.DONORS
+            and recheck is not None
+            and recheck_unpriced(reply, recheck.asked_at)
+        )
         return cls(
             id=reply.id,
             kind=reply.kind,
@@ -306,12 +339,13 @@ class IncomingCard(BaseModel):
             payment_methods=reply.payment_methods,
             confidence=reply.confidence,
             placement=reply.placement,
-            needs_review=review.waiting and superseding is None,
+            needs_review=(review.waiting or unpriced) and superseding is None,
             superseded_by=superseding.id if superseding is not None else None,
-            review_reason=review.reason,
+            review_reason=RECHECK_UNPRICED if unpriced else review.reason,
             lead=lead,
             reviewed_by=reply.reviewed_by,
             reviewed_at=reply.reviewed_at,
+            same_price=recheck.price if unpriced and recheck is not None else None,
         )
 
 
@@ -376,12 +410,21 @@ class ThreadView(BaseModel):
         agent_writes: bool = False,
         agent_reasons: Sequence[str] = (),
         outgoing: ThreadFiles = NO_FILES,
+        prior: tuple[Decimal, str | None] | None = None,
     ) -> ThreadView:
+        """`prior` — прежняя цена донора, если в переписке был перезапрос цены
+        (`recheck_answer.prior_price`): её подтверждает «Цена та же» у ответа без числа."""
+        recheck = Recheck(
+            asked_at=asked_again_at(detail.messages),
+            price=PriceCard(price=prior[0], currency=prior[1]) if prior is not None else None,
+        )
         return cls(
             card=ThreadCard.of(detail.row),
             letters=[LetterCard.of(m, outgoing.letters.get(m.id, ())) for m in detail.messages],
             incoming=[
-                IncomingCard.of(r, detail.row.stage, files.get(r.id, ()), detail.replies)
+                IncomingCard.of(
+                    r, detail.row.stage, files.get(r.id, ()), detail.replies, recheck=recheck
+                )
                 for r in detail.replies
             ],
             mail=ThreadMailCard.of(mail),

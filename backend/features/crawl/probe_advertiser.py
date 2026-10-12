@@ -29,7 +29,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import filters as filters_cfg
@@ -40,7 +40,6 @@ from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.crawl import CrawlRunModel, OutLinkModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
-from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import MessageModel
 from backend.features.donors.host import normalize_host
 from backend.features.donors.probe import (
@@ -50,6 +49,7 @@ from backend.features.donors.probe import (
     fake_domain,
     own_address,
 )
+from backend.features.letters import stoplist
 from backend.features.letters.recipients import Recipients
 from backend.shared.net.url_parts import split_url
 
@@ -279,12 +279,8 @@ async def _taken_first(session: AsyncSession, domain_id: int, email: str) -> Non
             "Пробному уже писали — письмо на сайт одно, второе сборка не соберёт. Убрать "
             "его с перепиской (outreach prune --probes --yes) и завести заново"
         )
-    stopped = await session.scalar(
-        select(func.count(SuppressionModel.id)).where(
-            or_(SuppressionModel.domain_id == domain_id, SuppressionModel.email == email),
-            or_(SuppressionModel.stage.is_(None), SuppressionModel.stage == Stage.ADVERTISERS),
-            SuppressionModel.in_force(datetime.now(UTC)),
-        )
+    stopped = await stoplist.holding(
+        session, stage=Stage.ADVERTISERS, domain_ids=[domain_id], emails=[email]
     )
     if stopped:
         raise ProbeError(

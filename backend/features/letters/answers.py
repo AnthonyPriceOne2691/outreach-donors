@@ -126,7 +126,7 @@ async def answer_reply(
     # До заведения письма: отказ продажам после него оставил бы ответ в очереди.
     what = f"Ответ в переписке №{thread_id}"
     text = await answer_text(session, found.stage, thread_id, text, what)
-    sender_id = await _thread_sender(session, thread_id)
+    sender_id = await thread_sender(session, thread_id)
     queued = await _queued_answer(session, found)
     # Файлы — тоже до заведения письма: отказ после него оставил бы ответ в очереди.
     files = OutgoingFiles(session)
@@ -221,7 +221,7 @@ async def _answering_contact(session: AsyncSession, found: _Context) -> int | No
     return found.thread.contact_id
 
 
-async def _thread_sender(session: AsyncSession, thread_id: int) -> int:
+async def thread_sender(session: AsyncSession, thread_id: int) -> int:
     """Ящик, с которого ушло первое письмо переписки.
 
     Нет его — ответ не уходит вовсе: с любого свободного ящика он ушёл бы

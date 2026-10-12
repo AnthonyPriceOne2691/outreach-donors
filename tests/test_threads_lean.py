@@ -40,6 +40,7 @@ from backend.features.core.models.outreach import (
     ReplyModel,
     ThreadModel,
 )
+from backend.features.letters.chain import RECHECK_STEP
 from backend.features.ops.overview import WAITS_FOR_PERSON, overview, work
 from backend.features.outreach.repository import (
     EVERY_STAGE,
@@ -119,6 +120,8 @@ class Dialog:
     host: str | None = None
     #: Решение по домену: диалоги не принятого донора в «ответили» не входят.
     review: str | None = "accepted"
+    #: После ответов донору ушёл перезапрос цены (`letters/price_recheck.py`).
+    rechecked: bool = False
 
 
 WORLD: dict[str, Dialog] = {
@@ -197,6 +200,14 @@ WORLD: dict[str, Dialog] = {
         ThreadState.PRICED,
         review="rejected",
     ),
+    # Цена протухла и перезапрошена: переписка снова ждёт донора, а донор — ответивший.
+    "recheck": Dialog(
+        Stage.DONORS,
+        DELIVERED,
+        ({**SURE, "price_white": Decimal(90), "currency": "USD"},),
+        ThreadState.RECHECK,
+        rechecked=True,
+    ),
     "declined": Dialog(
         Stage.DONORS, DELIVERED, ({**SURE, "placement": "declines"},), ThreadState.DECLINED
     ),
@@ -243,9 +254,9 @@ WORLD: dict[str, Dialog] = {
 #: продажи — `sales-unsorted`, `sales-waits`.
 WAITING_PRICES, WAITING_LEADS, WAITING_ALL = 3, 1, 6
 #: Ответившие доноры: `replied`, `unsure`, `auto-sum`, `auto-sum-at-edge`,
-#: `priced-auto-confirmed`, `priced` — двумя адресами, один раз, — `declined`, `free`.
-#: Отклонённый домен — не донор и в счёт не входит.
-REPLIED_DONORS = 8
+#: `priced-auto-confirmed`, `priced` — двумя адресами, один раз, — `recheck`, `declined`,
+#: `free`. Отклонённый домен — не донор и в счёт не входит.
+REPLIED_DONORS = 9
 
 
 async def _world(session: AsyncSession) -> dict[str, int]:
@@ -275,6 +286,20 @@ async def _world(session: AsyncSession) -> dict[str, int]:
                     body=f"Good afternoon! {LONG}",
                     sent_at=None if status is MessageStatus.QUEUED else NOW - timedelta(days=step),
                     idempotency_key=f"lean:{name}:{step}",
+                )
+            )
+        if dialog.rechecked:
+            session.add(
+                MessageModel(
+                    campaign_id=campaign.id,
+                    thread_id=thread.id,
+                    domain_id=domain.id,
+                    step=RECHECK_STEP,
+                    status=MessageStatus.SENT,
+                    subject="Re: Advertising rates",
+                    body=f"Is your rate still the same? {LONG}",
+                    sent_at=NOW,
+                    idempotency_key=f"lean:{name}:recheck",
                 )
             )
         for number, reply in enumerate(dialog.replies):
@@ -346,8 +371,9 @@ def _columns(statements: list[str]) -> dict[str, set[str]]:
 
 
 #: Что списку и числам берут у письма и ответа: поля правила состояния
-#: (`threads.LetterFacts`, `threads.ReplyFacts`) и номер диалога.
-LETTER_FIELDS = {"thread_id", "status", "sent_at"}
+#: (`threads.LetterFacts`, `threads.ReplyFacts`) и номер диалога. Шаг — у перезапроса цены:
+#: после него переписка снова ждёт донора.
+LETTER_FIELDS = {"thread_id", "status", "sent_at", "step"}
 REPLY_FIELDS = {
     "thread_id",
     "id",

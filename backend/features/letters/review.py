@@ -50,7 +50,8 @@ class NotEditableError(ValueError):
 class Reviewed:
     """Письмо после правки и то, что о нём теперь известно."""
 
-    uniqueness: float
+    #: Пусто — письмо без уникализации, отличие у него не меряется (перезапрос цены).
+    uniqueness: float | None
     verdict: str | None
 
 
@@ -96,15 +97,7 @@ async def edit(
     ни о чём.
     """
     _editable(message)
-
-    text = body.strip()
-    if not text:
-        raise NotEditableError("Пустое письмо отправить нельзя")
-
-    # Те же два запрета, что при сборке: метрики стоят ключа Ahrefs,
-    # незаполненная подстановка — письма, подписанного никем.
-    guards.assert_no_metrics(text)
-
+    text = _checked(body)
     plain = compose.render(
         template or default(),
         compose.values_for(host=host, domain_id=message.domain_id, link=link, niche=niche),
@@ -120,6 +113,34 @@ async def edit(
         uniqueness_pct=uniqueness,
     )
     return Reviewed(uniqueness=uniqueness, verdict=corridor_verdict(uniqueness))
+
+
+async def retext(
+    session: AsyncSession, message: MessageModel, *, subject: str, body: str
+) -> Reviewed:
+    """Правка письма без уникализации — перезапроса цены новым письмом (`price_recheck.py`):
+    запреты те же, а отличие от шаблона первого письма не меряется — число ни о чём."""
+    _editable(message)
+    text = _checked(body)
+    await _while_queued(
+        session,
+        message,
+        lost="правка не записана",
+        subject=subject.strip(),
+        body=text,
+        uniqueness_pct=None,
+    )
+    return Reviewed(uniqueness=None, verdict=None)
+
+
+def _checked(body: str) -> str:
+    """Текст правки — без пустоты и метрик. Те же два запрета, что при сборке: метрики
+    стоят ключа Ahrefs, незаполненная подстановка — письма, подписанного никем."""
+    text = body.strip()
+    if not text:
+        raise NotEditableError("Пустое письмо отправить нельзя")
+    guards.assert_no_metrics(text)
+    return text
 
 
 async def skip(session: AsyncSession, message: MessageModel) -> None:

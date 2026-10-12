@@ -13,7 +13,13 @@ from backend.config import outreach as cfg
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.crawl.niche import LINKS
 from backend.features.letters import compose, template, unknown_outcome
-from backend.features.letters.chain import MAX_DELAY_DAYS, MAX_STEPS, MIN_DELAY_DAYS, planned
+from backend.features.letters.chain import (
+    MAX_DELAY_DAYS,
+    MAX_STEPS,
+    MIN_DELAY_DAYS,
+    RECHECK_CAMPAIGN,
+    planned,
+)
 from backend.features.letters.draft import Draft, default_draft
 from backend.features.letters.repository import QueuedLetter
 from backend.features.letters.transport import TransportError
@@ -63,7 +69,11 @@ class QueuedLetterCard(BaseModel):
             body=row.message.body,
             uniqueness=share,
             verdict=corridor_verdict(share) if share is not None else None,
-            followups=followups_for(
+            # Перезапрос цены новым письмом — одиночный (`settle._next_due`): добивок
+            # у него нет, и показывать их значило бы согласовать то, что не уйдёт.
+            followups=[]
+            if row.template_id == RECHECK_CAMPAIGN
+            else followups_for(
                 row.host,
                 row.followup_days,
                 domain_id=row.message.domain_id,

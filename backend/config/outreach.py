@@ -90,6 +90,13 @@ class _Outreach(DomainSettings):
     # Год, как у молчания: ответ «нет» меняется со сменой владельца или
     # политики, а переспрашивать раньше — жалоба на спам.
     decline_days: int = Field(default=365, validation_alias="OUTREACH_DECLINE_DAYS")
+    # Перезапрос цены одному донору — не чаще раза в столько дней
+    # (`letters/price_recheck.py`). Перезапрос — письмо живому человеку по нажатию,
+    # и второе такое же через день читалось бы как добивка ответившему.
+    # Не меньше суток: ноль снял бы срок повтора вовсе — перезапрос по каждому нажатию.
+    price_recheck_days: int = Field(
+        default=14, ge=1, validation_alias="OUTREACH_PRICE_RECHECK_DAYS"
+    )
 
 
 _s = _Outreach()
@@ -120,6 +127,7 @@ UNIQUENESS_TARGET_MAX: float = _s.uniqueness_target_max
 PRICE_CONFIDENCE_THRESHOLD: float = _s.price_confidence_threshold
 SILENCE_DAYS: int = _s.silence_days
 DECLINE_DAYS: int = _s.decline_days
+PRICE_RECHECK_DAYS: int = _s.price_recheck_days
 
 
 class _OwnAccount(DomainSettings):

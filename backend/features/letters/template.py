@@ -137,6 +137,14 @@ NICHE = Spec(zones=REQUIRED_ZONES, corridor=True, verbatim=("example_host", "nic
 #: Добивка: шаблон целиком, модель не участвует (решение 21.09.2026).
 FOLLOWUP = Spec(zones=FOLLOWUP_ZONES, corridor=False)
 
+#: Перезапрос цены (`price_recheck.py`): все зоны неизменяемые, модель не зовут.
+#: Как у добивки, переписывать в двух фразах нечего, а вопрос — о цене, то есть
+#: об условии сделки, которое в модель не уходит.
+RECHECK = Spec(
+    zones={"greeting": ZoneKind.FIXED, "ask": ZoneKind.FIXED, "signature": ZoneKind.FIXED},
+    corridor=False,
+)
+
 
 @dataclass(frozen=True, slots=True)
 class Zone:
@@ -358,10 +366,18 @@ DEFAULT_PATH = TEMPLATES / "price_request.txt"
 #: страница и анкор.
 ADVERTISER_PATH = TEMPLATES / "advertiser_offer.txt"
 NICHE_PATH = TEMPLATES / "advertiser_niche.txt"
+#: Перезапрос цены у донора, чья цена старше срока свежести.
+RECHECK_PATH = TEMPLATES / "price_recheck.txt"
 
 
 def default() -> Template:
     return load(DEFAULT_PATH)
+
+
+def recheck() -> Template:
+    """Шаблон перезапроса цены — файлом, а не у рассылки: текст один на всех доноров
+    и проходит ревью кодом, как добивка."""
+    return load(RECHECK_PATH, RECHECK)
 
 
 def advertiser() -> Template:

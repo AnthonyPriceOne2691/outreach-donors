@@ -22,7 +22,7 @@ from datetime import UTC, datetime, time
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import ColumnElement, Text, and_, case, func, select
+from sqlalchemy import ColumnElement, Text, and_, case, func, or_, select
 from sqlalchemy import true as sa_true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -37,8 +37,22 @@ from backend.features.core.models.outreach import (
     SenderModel,
     ThreadModel,
 )
+from backend.features.letters.chain import CHAINABLE, FIRST_STEP, MAX_STEPS, RECHECK_STEP
 from backend.features.outreach.threads import ThreadState, ThreadSummary, state_of, summarize
 from backend.features.replies.inbound import MAX_TEXT_CHARS
+
+#: Шаги, которые считает дневной лимит ящика: первое письмо и перезапрос цены.
+DAILY_STEPS = (FIRST_STEP, RECHECK_STEP)
+
+
+def in_hourly_lane() -> ColumnElement[bool]:
+    """Письмо в часовом лейне ящика (`OUTREACH_FOLLOWUP_PER_SENDER_PER_HOUR`): добивка
+    цепочки или перезапрос цены. Одно правило у прохода добивок (`followups.sent_this_hour`)
+    и у перезапроса (`letters/recheck_facts.py`)."""
+    return or_(
+        and_(MessageModel.step > FIRST_STEP, MessageModel.step < MAX_STEPS),
+        MessageModel.step == RECHECK_STEP,
+    )
 
 
 class UnknownSenderError(ValueError):
@@ -84,10 +98,12 @@ class ThreadMark:
 @dataclass(frozen=True, slots=True)
 class ListedLetter:
     """Письмо строки списка — то, что читает правило (`threads.LetterFacts`):
-    статус и время ухода. Тема и тело остаются в базе (аудит 10.10.2026)."""
+    статус, время ухода и шаг (перезапрос цены). Тема и тело остаются в базе
+    (аудит 10.10.2026)."""
 
     status: MessageStatus
     sent_at: datetime | None
+    step: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,8 +215,10 @@ class OutreachRepository:
             .where(MessageModel.sent_at >= since)
             # `first_only` — счёт для дневного капа. Добивки в кап
             # не входят (решение 21.09.2026): у них свой часовой потолок,
-            # иначе цепочки съедают квоту новых доноров.
-            .where(MessageModel.step == 0 if first_only else sa_true())
+            # иначе цепочки съедают квоту новых доноров. Перезапрос цены
+            # входит (`letters/price_recheck.py`, проверка 12.10.2026): он уходит
+            # по нажатию, пачкой до двадцати, и без счёта давал бы всплеск с ящика.
+            .where(MessageModel.step.in_(DAILY_STEPS) if first_only else sa_true())
             .group_by(MessageModel.sender_id)
         )
         return {sender_id: count for sender_id, count in rows.all() if sender_id is not None}
@@ -276,12 +294,18 @@ class OutreachRepository:
         )
         statuses = await self._letter_statuses(stages=stages)
         replies = await self._listed_replies(stages=stages)
+        asked = await self._asked_again(stages=stages)
         return [
             ThreadMark(
                 thread_id=thread_id,
                 domain_id=domain_id,
                 stage=stage,
-                state=state_of(statuses.get(thread_id, set()), replies.get(thread_id, []), stage),
+                state=state_of(
+                    statuses.get(thread_id, set()),
+                    replies.get(thread_id, []),
+                    stage,
+                    asked_at=asked.get(thread_id),
+                ),
             )
             for thread_id, domain_id, stage in threads.tuples()
         ]
@@ -343,14 +367,16 @@ class OutreachRepository:
         в потолок параметров запроса у asyncpg (32 767).
         """
         rows = await self._session.execute(
-            select(MessageModel.thread_id, MessageModel.status, MessageModel.sent_at)
+            select(
+                MessageModel.thread_id, MessageModel.status, MessageModel.sent_at, MessageModel.step
+            )
             .where(MessageModel.thread_id.is_not(None))
             .where(_seen_letters(stages))
         )
         by_thread: dict[int, list[ListedLetter]] = {}
-        for thread_id, status, sent_at in rows.tuples():
+        for thread_id, status, sent_at, step in rows.tuples():
             if thread_id is not None:
-                by_thread.setdefault(thread_id, []).append(ListedLetter(status, sent_at))
+                by_thread.setdefault(thread_id, []).append(ListedLetter(status, sent_at, step))
         return by_thread
 
     async def _letter_statuses(self, *, stages: Collection[Stage]) -> dict[int, set[MessageStatus]]:
@@ -366,6 +392,22 @@ class OutreachRepository:
             if thread_id is not None:
                 by_thread.setdefault(thread_id, set()).add(status)
         return by_thread
+
+    async def _asked_again(self, *, stages: Collection[Stage]) -> dict[int, datetime]:
+        """Последний перезапрос цены каждого диалога — тем же правилом, что у списка
+        (`threads.asked_again_at`): ушёл и не отбился. Временем, без самих писем."""
+        rows = await self._session.execute(
+            select(MessageModel.thread_id, func.max(MessageModel.sent_at))
+            .where(MessageModel.thread_id.is_not(None))
+            .where(MessageModel.step == RECHECK_STEP, MessageModel.status.in_(CHAINABLE))
+            .where(_seen_letters(stages))
+            .group_by(MessageModel.thread_id)
+        )
+        return {
+            thread_id: moment
+            for thread_id, moment in rows.tuples()
+            if thread_id is not None and moment is not None
+        }
 
     async def _listed_replies(self, *, stages: Collection[Stage]) -> dict[int, list[ListedReply]]:
         """Ответы всех диалогов — полями правила (`ListedReply`), одним запросом.
