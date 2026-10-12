@@ -35,6 +35,7 @@ from typing import Any
 from playwright.sync_api import expect
 from ui_screens_sales_funnel import funnel_prepare, funnel_screens
 from ui_screens_sales_hints import SECTION_FIELD, hint_probe, note_probes, section_probes
+from ui_screens_sales_quality import quality_screens
 from ui_screens_sales_queue import queue_screens
 
 #: Узкое окно — телефон: вместо вкладок список «Раздел», таблицы уезжают в прокрутку.
@@ -248,6 +249,7 @@ def sales_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         **chain_screens(norm, big),
         **queue_screens(norm, big),
         **funnel_screens(norm, big),
+        **quality_screens(norm, big),
     }
 
 

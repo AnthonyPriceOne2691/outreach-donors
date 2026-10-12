@@ -33,6 +33,7 @@ import { PageHead } from '../components/PageHead';
 import { useTyped } from '../donors/useTyped';
 import { formatNumber } from '../format';
 import { dropdownBelow } from '../theme';
+import { AgentQualityPane } from './AgentQualityPane';
 import { ChainPane } from './ChainPane';
 import { FunnelPane } from './FunnelPane';
 import { HypothesesTable } from './HypothesesTable';
@@ -99,11 +100,12 @@ function tabLabel(key: SalesTab, count: number | undefined): string {
 /** Вкладки раздела с числами. Где они не влезают в панель — список «Раздел»: на телефоне
  *  семь вкладок столбиком ставили таблицу на 204 px ниже (аудит экранов 09.10.2026), а на
  *  800–1024 px вкладки в ряд срезались краем панели — «Воронка» и настройки были
- *  недосягаемы. Вкладкам в ряд нужно 791 px, панели их столько — с окна в 1 062 px; список —
- *  до 75em, с запасом на числа побольше. В списке рабочие вкладки, черта и настройки —
- *  порядок тот же, что у вкладок. */
+ *  недосягаемы. Восьми вкладкам в ряд нужно 912 px (с «Агент: качество», замер стенда
+ *  12.10.2026), панели их столько — с окна в 1 246 px; при 1 201 px ряду доставалось 867,
+ *  и «Отправитель» срезался. Список — до 84em, с запасом на числа побольше. В списке рабочие
+ *  вкладки, черта и настройки — порядок тот же, что у вкладок. */
 function SalesTabs({ tab, counts, onTab }: TabsProps) {
-  const narrow = useMediaQuery('(max-width: 75em)');
+  const narrow = useMediaQuery('(max-width: 84em)');
   const pick = (value: string | null) => {
     const next = SALES_TAB_KEYS.find((key) => key === value);
     if (next !== undefined && next !== tab) onTab(next);
@@ -225,6 +227,9 @@ export function SalesPage() {
         filters={{ hypothesis: chosen, period: filters.period, from: filters.from, to: filters.to }}
         onChange={apply}
       />
+    ),
+    agent: () => (
+      <AgentQualityPane cohort={filters.cohort} onCohort={(cohort) => apply({ cohort })} />
     ),
   };
 
