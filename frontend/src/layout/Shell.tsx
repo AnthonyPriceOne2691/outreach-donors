@@ -6,6 +6,10 @@
  * а лишний пункт в меню — это обещание, которое интерфейс не сдержит.
  * У пункта раздела — число работы, которая ждёт там человека (`work.ts`).
  *
+ * **Меню — три группы** (`NavGroup`, просьба Anthony 11.10.2026): «Доноры и
+ * рекламодатели», «Продажи» — только с правом «Продажи», «Настройки». Части продаж
+ * общих экранов — пунктами группы продаж, тем же путём с `?stage=sales` (`sections.ts`).
+ *
  * **Пункт меню — ссылка с адресом**, а не кнопка с переходом по нажатию: его можно
  * открыть в новой вкладке, и диктор называет его ссылкой. «Диалоги» ведут туда,
  * откуда из них ушли (`sectionPlace.ts`, 10.10.2026).
@@ -41,7 +45,8 @@ import { AccountMenu } from './AccountMenu';
 import { FOLDED_WIDTH, useNavFold } from './navFold';
 import { NavMenu } from './NavMenu';
 import { navbarWidth } from './navWidth';
-import { REMEMBERED, SECTIONS } from './sections';
+import { NAV_GROUPS } from './NavGroup';
+import { SECTIONS } from './sections';
 import { useSectionPlaces } from './sectionPlace';
 import { followScroll } from './shellLift';
 import { useSplit, workKey } from './split';
@@ -91,19 +96,29 @@ export function Shell() {
   // рисовалось бы развёрнутым и сворачивалось на глазах (как `useSplit`).
   const beside = useMediaQuery(BESIDE, false, { getInitialValueInEffect: false }) === true;
   const folded = foldedChoice && beside;
+  // Группа без права — без своих пунктов (продажи без права «Продажи»), и меню её не рисует.
+  const groups = NAV_GROUPS.filter(
+    (group) => group.permission === undefined || can(group.permission),
+  );
   const sections = SECTIONS.filter(
-    (section) => section.permission === undefined || can(section.permission),
+    (section) =>
+      (section.permission === undefined || can(section.permission)) &&
+      groups.some((group) => group.key === section.group),
   );
   const work = useWork(can('view'));
-  const placeOf = useSectionPlaces(REMEMBERED);
+  const placeOf = useSectionPlaces(sections.filter((section) => section.remember));
   const titles = sections.map((section) => section.title).join('\n');
   const counted = sections
     .filter((section) => section.work !== undefined)
     .map((section) => section.title)
     .join('\n');
+  const shownGroups = groups
+    .filter((group) => sections.some((section) => section.group === group.key))
+    .map((group) => group.title)
+    .join('\n');
   const navWidth = useMemo(
-    () => navbarWidth(titles.split('\n'), counted.split('\n')),
-    [titles, counted],
+    () => navbarWidth(titles.split('\n'), counted.split('\n'), shownGroups.split('\n')),
+    [titles, counted, shownGroups],
   );
 
   // Раздел выбран — выехавшее меню телефона уходит: иначе оно закрывало раздел,

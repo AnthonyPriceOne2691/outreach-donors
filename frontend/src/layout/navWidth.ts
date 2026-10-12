@@ -48,19 +48,50 @@ export const FALLBACK_WIDTH = 232;
  *  дёргалась бы с ответом. */
 export const COUNT_ROOM = 48;
 
-/** `counted` — подписи пунктов, у которых бывает число ждущей работы. */
-export function navbarWidth(labels: readonly string[], counted: readonly string[] = []): number {
-  const widest = widestLabel(labels, counted);
-  if (widest === null) return FALLBACK_WIDTH;
+/** Подпись группы — `.navGroupTitle` в glass.css: 11 px жирным, заглавными, разрядка
+ *  0,08em на каждую букву. */
+const GROUP_FONT = `700 11px ${FONT_STACK}`;
+const GROUP_SPACING = 0.08 * 11;
+
+/** От края рамки до подписи группы: кромка рамки 1 + её поле 10 + поле подписи 12. */
+export const GROUP_INSET = 23;
+
+/** Линия после подписи до края колонки: зазор 8 и хотя бы 16 px самой линии — без неё
+ *  подпись читается текстом, а не границей группы. */
+export const GROUP_LINE = 24;
+
+/** `counted` — подписи пунктов, у которых бывает число ждущей работы; `groups` — подписи
+ *  групп. Подпись группы тоже не переносится: «Доноры и рекламодатели» (11.10.2026) —
+ *  самая длинная строка меню, и в две строки она читалась бы двумя группами. */
+export function navbarWidth(
+  labels: readonly string[],
+  counted: readonly string[] = [],
+  groups: readonly string[] = [],
+): number {
+  const context = document.createElement('canvas').getContext('2d');
+  if (context === null || labels.length === 0) return FALLBACK_WIDTH;
+  const widest = widestLabel(context, labels, counted);
   // Вверх, а не до ближайшего: подпись, которой не хватило доли пикселя,
   // обрезается многоточием целиком.
-  return Math.max(MIN_WIDTH, Math.ceil(widest) + ICON_ROOM + 2 * (TEXT_INSET + NAV_PADDING));
+  const byItems = Math.ceil(widest) + ICON_ROOM + 2 * (TEXT_INSET + NAV_PADDING);
+  const byGroups =
+    Math.ceil(widestGroup(context, groups)) + GROUP_LINE + 2 * (GROUP_INSET + NAV_PADDING);
+  return Math.max(MIN_WIDTH, byItems, groups.length > 0 ? byGroups : 0);
 }
 
-function widestLabel(labels: readonly string[], counted: readonly string[]): number | null {
-  const context = document.createElement('canvas').getContext('2d');
-  if (context === null || labels.length === 0) return null;
+function widestLabel(
+  context: CanvasRenderingContext2D,
+  labels: readonly string[],
+  counted: readonly string[],
+): number {
   context.font = LABEL_FONT;
   const room = (label: string) => (counted.includes(label) ? COUNT_ROOM : 0);
   return Math.max(...labels.map((label) => context.measureText(label).width + room(label)));
+}
+
+function widestGroup(context: CanvasRenderingContext2D, groups: readonly string[]): number {
+  context.font = GROUP_FONT;
+  const width = (title: string) =>
+    context.measureText(title.toUpperCase()).width + title.length * GROUP_SPACING;
+  return Math.max(0, ...groups.map(width));
 }

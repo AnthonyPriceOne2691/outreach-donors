@@ -108,8 +108,9 @@ describe('учётки', () => {
     const row = screen.getByText('оператор@site.com').closest('tr');
     await user.click(within(row as HTMLElement).getByRole('button', { name: /Права/ }));
 
+    // Переключатели прав — по роли, а не по подписи: подпись «Продажи» носит и группа меню.
     for (const name of ['Подтверждать цены', 'Домены рассылки', 'Продажи', 'Заводить учётки']) {
-      expect(await screen.findByLabelText(name)).toBeInTheDocument();
+      expect(await screen.findByRole('switch', { name, hidden: true })).toBeInTheDocument();
     }
   });
 

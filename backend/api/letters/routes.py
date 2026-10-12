@@ -243,6 +243,7 @@ async def edit(
         author_id=author.id,
         target=f"message:{letter_id}",
         details={"действие": "письмо поправлено руками", "донор": row.host},
+        stage=row.stage,
     )
     await session.commit()
     return QueuedLetterCard.of(row)
@@ -295,6 +296,7 @@ async def skip(
         author_id=author.id,
         target=f"message:{letter_id}",
         details={"действие": "решено не писать", "донор": row.host},
+        stage=row.stage,
     )
     await session.commit()
     return QueuedLetterCard.of(row)

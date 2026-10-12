@@ -12,26 +12,35 @@
  * Правило то же, что у доноров (`donors/donorFilters.ts`). Состояние продаж
  * без права «Продажи» — тоже «не сужать» (решение Anthony 10.10.2026, П2):
  * переписок продаж в таком списке нет, и фильтр их словами не называет.
+ *
+ * **Часть списка — тоже в адресе** (просьба Anthony 11.10.2026): «Диалоги» — переписки
+ * доноров и рекламодателей, «Диалоги продаж» — тот же экран с `?stage=sales`. Часть — не
+ * фильтр, а сам список: «найдено N из M» и «всего» считаются внутри неё. Без права
+ * «Продажи» часть продаж из адреса не сужает — её переписок сервер и не отдаёт.
  */
 
 import { THREAD_STATES } from '../api/labels';
-import { stateShown } from '../api/stages';
+import { PART_PARAM, partOf, stateShown } from '../api/stages';
+import type { Part } from '../api/stages';
 import type { ThreadCard, ThreadState } from '../api/types';
 
 export interface ThreadFilters {
+  /** Часть: `sales` — только переписки продаж; пусто — доноры и рекламодатели. */
+  part: Part | null;
   state: ThreadState | null;
   /** По донору или адресу. Пусто — не сужать. */
   search: string;
 }
 
-export const NO_THREAD_FILTERS: ThreadFilters = { state: null, search: '' };
+export const NO_THREAD_FILTERS: ThreadFilters = { part: null, state: null, search: '' };
 
 export const THREAD_STATE_KEYS = Object.keys(THREAD_STATES) as ThreadState[];
 
-/** Фильтры из адреса. `sales` — `can('sales')`: без права состояния продаж не сужают. */
+/** Фильтры из адреса. `sales` — `can('sales')`: без права состояния и часть продаж не сужают. */
 export function readThreadFilters(params: URLSearchParams, sales: boolean): ThreadFilters {
   const state = params.get('state');
   return {
+    part: sales ? partOf(params) : null,
     state: THREAD_STATE_KEYS.find((known) => known === state && stateShown(known, sales)) ?? null,
     search: (params.get('search') ?? '').trim(),
   };
@@ -40,6 +49,7 @@ export function readThreadFilters(params: URLSearchParams, sales: boolean): Thre
 /** Фильтры → адрес. Пустое не пишется: `?state=` ничего не сужает. */
 export function writeThreadFilters(filters: ThreadFilters): URLSearchParams {
   const params = new URLSearchParams();
+  if (filters.part !== null) params.set(PART_PARAM, filters.part);
   if (filters.state !== null) params.set('state', filters.state);
   if (filters.search !== '') params.set('search', filters.search);
   return params;
@@ -49,8 +59,14 @@ export function isThreadFiltered(filters: ThreadFilters): boolean {
   return filters.state !== null || filters.search !== '';
 }
 
+/** Диалог — в части списка: переписка продаж — в «Диалогах продаж», остальные — в «Диалогах». */
+export function inPart(thread: ThreadCard, part: Part | null): boolean {
+  return (thread.stage === 'sales') === (part === 'sales');
+}
+
 /** Подходит ли диалог. Поиск — по донору и по адресу, без учёта регистра. */
 export function threadMatches(thread: ThreadCard, filters: ThreadFilters): boolean {
+  if (!inPart(thread, filters.part)) return false;
   if (filters.state !== null && thread.state !== filters.state) return false;
   const needle = filters.search.trim().toLowerCase();
   if (needle === '') return true;
@@ -70,7 +86,10 @@ export function threadEmptiness(
   if (total === 0) {
     return {
       title: 'Диалогов ещё нет.',
-      detail: 'Диалог заводится вместе с письмом, когда собирают очередь на экране «Письма».',
+      detail:
+        filters.part === 'sales'
+          ? 'Переписка продаж заводится с первым письмом лиду — очередь писем собирают в разделе «Продажи».'
+          : 'Диалог заводится вместе с письмом, когда собирают очередь на экране «Письма».',
     };
   }
   if (filters.state !== null && (counts.get(filters.state) ?? 0) === 0) {

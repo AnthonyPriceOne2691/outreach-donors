@@ -7,13 +7,27 @@
  * `/threads`. Теперь у разделов с пометкой `remember` (`Shell`) он ведёт на последний
  * адрес внутри раздела — с открытым диалогом и фильтром списка.
  *
+ * **Память — у каждого пункта своя** (11.10.2026): «Диалоги» и «Диалоги продаж» — один
+ * путь с разной частью (`?stage=sales`), и место каждого помнится под ключом пункта
+ * (`sections.sectionKey`). Иначе пункт доноров возвращал бы в переписку продаж.
+ *
+ * **Адрес, который экран поправил заменой, — не место прежнего пункта** (проверка
+ * ветки 12.10.2026). Уведомление продаж ведёт на `/threads/42` без части: адрес сперва
+ * достаётся «Диалогам», а переписка, узнав свой этап, заменяет его на
+ * `/threads/42?stage=sales` (`threads/threadPart.ts`). Замена на том же экране, которая
+ * уводит адрес к другому пункту, значит, что прежний пункт адрес получил по ошибке: его
+ * место возвращается прежним. Так же и в зеркальном случае.
+ *
  * Память — на вкладку браузера (`sessionStorage`): перезагрузка её не стирает, новая
  * вкладка начинает с начала раздела. Хранилище закрыто (приватное окно, запрет
  * сайта) — пункт ведёт в начало раздела, как раньше.
  */
 
-import { useCallback, useEffect, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { NavigationType, useLocation, useNavigationType } from 'react-router-dom';
+
+import { activeKey, sectionKey } from './sections';
+import type { Section } from './sections';
 
 const KEY = 'outreach.nav.places';
 
@@ -41,33 +55,57 @@ function write(places: Places): void {
   }
 }
 
-/** Раздел адреса: путь раздела, с которого адрес начинается, — самый длинный из подходящих. */
-export function sectionOf(pathname: string, paths: readonly string[]): string | null {
-  let found: string | null = null;
-  for (const path of paths) {
-    const inside =
-      path === '/' ? pathname === '/' : pathname === path || pathname.startsWith(`${path}/`);
-    if (inside && (found === null || path.length > found.length)) found = path;
-  }
-  return found;
+/** Место пункта — или его нет (`undefined`): память начинает с начала раздела. */
+function withPlace(places: Places, key: string, place: string | undefined): Places {
+  if (places[key] === place) return places;
+  const next = { ...places };
+  if (place === undefined) delete next[key];
+  else next[key] = place;
+  return next;
 }
 
-/** Последний адрес внутри каждого из `remembered` разделов; функция — куда вести пункт. */
-export function useSectionPlaces(remembered: readonly string[]): (path: string) => string {
+/** Последняя запись: под каким пунктом, на каком экране и что там было до неё. */
+interface Written {
+  key: string;
+  pathname: string;
+  was: string | undefined;
+}
+
+/** Последний адрес внутри каждого из `remembered` пунктов; функция — куда вести пункт. */
+export function useSectionPlaces(remembered: readonly Section[]): (section: Section) => string {
   const location = useLocation();
-  const [places, setPlaces] = useState(read);
+  const navigation = useNavigationType();
+  const stored = useRef<Places | null>(null);
+  stored.current ??= read();
+  const [places, setPlaces] = useState(stored.current);
+  const last = useRef<Written | null>(null);
   const here = `${location.pathname}${location.search}`;
-  const section = sectionOf(location.pathname, remembered);
+  const key = activeKey(remembered, location.pathname, location.search);
 
   useEffect(() => {
-    if (section === null) return;
-    setPlaces((was) => {
-      if (was[section] === here) return was;
-      const next = { ...was, [section]: here };
-      write(next);
-      return next;
-    });
-  }, [section, here]);
+    const now = stored.current ?? {};
+    const before = last.current;
+    // Замена адреса на том же экране увела его к другому пункту — прежний получил его по
+    // ошибке: его место — как было до этой записи.
+    const stray =
+      before !== null &&
+      navigation === NavigationType.Replace &&
+      before.pathname === location.pathname &&
+      before.key !== key;
+    let next = stray ? withPlace(now, before.key, before.was) : now;
+    last.current = key === null ? null : { key, pathname: location.pathname, was: next[key] };
+    if (key !== null) next = withPlace(next, key, here);
+    if (next === now) return;
+    stored.current = next;
+    write(next);
+    setPlaces(next);
+  }, [key, here, navigation, location.pathname]);
 
-  return useCallback((path: string) => places[path] ?? path, [places]);
+  return useCallback(
+    (section: Section) => {
+      const own = sectionKey(section);
+      return section.remember === true ? (places[own] ?? own) : own;
+    },
+    [places],
+  );
 }

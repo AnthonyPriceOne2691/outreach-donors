@@ -8,15 +8,20 @@
 
 import { Button, Card, Stack, Text, Title } from '@mantine/core';
 import { IconArrowRight } from '@tabler/icons-react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 
+import { useSession } from '../auth/AuthProvider';
 import { formatNumber } from '../format';
+import { inPart, readThreadFilters } from './threadFilters';
 import { useSortedThreads, waitsForPerson } from './useThreadList';
 
 export function ThreadsIntro() {
   const location = useLocation();
+  const [params] = useSearchParams();
+  // Ждущие — той части, что и список рядом: в «Диалогах продаж» — переписки продаж.
+  const { part } = readThreadFilters(params, useSession().can('sales'));
   const { threads } = useSortedThreads();
-  const waiting = threads.filter((thread) => waitsForPerson(thread.state));
+  const waiting = threads.filter((thread) => inPart(thread, part) && waitsForPerson(thread.state));
   const first = waiting[0];
   return (
     <Card className="glassPanel threadsIntro" p="xl">

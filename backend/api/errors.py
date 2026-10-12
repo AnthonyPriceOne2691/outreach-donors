@@ -36,6 +36,7 @@ from backend.features.access.administration import (
     WrongPasswordError,
 )
 from backend.features.access.attempts import TooManyAttemptsError
+from backend.features.access.journal import JournalRangeError
 from backend.features.access.login import LoginFailedError
 from backend.features.access.passwords import WeakPasswordError
 from backend.features.access.permissions import AccessDeniedError
@@ -107,6 +108,8 @@ STATUSES: dict[type[Exception], int] = {
     LoginFailedError: status.HTTP_400_BAD_REQUEST,
     AccessDeniedError: status.HTTP_403_FORBIDDEN,
     UnknownUserError: status.HTTP_404_NOT_FOUND,
+    # Отрезок журнала, у которого начало не раньше конца, — это запрос: текст говорит, что делать.
+    JournalRangeError: status.HTTP_422_UNPROCESSABLE_CONTENT,
     UnknownSenderError: status.HTTP_404_NOT_FOUND,
     UnknownDonorError: status.HTTP_404_NOT_FOUND,
     UnknownRunError: status.HTTP_404_NOT_FOUND,

@@ -174,11 +174,15 @@ class Work:
 
     #: «Прогон» — доменов ждут решения в очередях прогонов («Рассмотреть домены»).
     run: int
-    #: «Диалоги» — диалогов ждут человека (`WAITS_FOR_PERSON`).
+    #: «Диалоги» — диалогов доноров и рекламодателей ждут человека (`WAITS_FOR_PERSON`).
     threads: int
     forms: int
     #: «Рекламодатели» — ждут решения человека на их экране (`_advertisers`).
     advertisers: int
+    #: «Диалоги продаж» — переписок продаж ждут человека. Своим числом, а не в «Диалогах»:
+    #: продажи в меню — своей группой (просьба Anthony 11.10.2026), и число стоит у своего
+    #: пункта. Без права «Продажи» — ноль: этапа продаж в `stages` нет.
+    sales_threads: int = 0
 
 
 async def overview(
@@ -220,13 +224,17 @@ async def overview(
 
 
 async def work(session: AsyncSession, *, stages: Collection[Stage]) -> Work:
-    """Числа меню — теми же правилами, что «Ждут человека» на главной, и тех же этапов."""
+    """Числа меню — теми же правилами, что «Ждут человека» на главной, и тех же этапов.
+    Ждущие переписки — по группам меню: доноры и рекламодатели — у «Диалогов», продажи —
+    у «Диалогов продаж»."""
     threads = await OutreachRepository(session).states(stages=stages)
+    waiting = [mark for mark in threads if mark.state in WAITS_FOR_PERSON]
     return Work(
         run=(await standing.waiting(session)).domains,
-        threads=sum(1 for mark in threads if mark.state in WAITS_FOR_PERSON),
+        threads=sum(1 for mark in waiting if mark.stage is not Stage.SALES),
         forms=await forms.waiting(session),
         advertisers=(await _advertisers(session))[0],
+        sales_threads=sum(1 for mark in waiting if mark.stage is Stage.SALES),
     )
 
 

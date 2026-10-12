@@ -18,12 +18,14 @@ interface Props {
   total: number | undefined;
   /** Сколько под фильтром; `null` — фильтра нет. */
   found: number | null;
+  /** Часть продаж (`?stage=sales`): заголовок — как пункт меню, «Диалоги продаж». */
+  sales?: boolean;
 }
 
-export function ThreadsTitle({ total, found }: Props) {
+export function ThreadsTitle({ total, found, sales = false }: Props) {
   return (
     <Group gap="sm" align="center" wrap="nowrap">
-      <Title order={3}>Диалоги</Title>
+      <Title order={3}>{sales ? 'Диалоги продаж' : 'Диалоги'}</Title>
       {/* Полными чернилами, как у доноров: число стоит в углу панели,
           на блике стекла, и приглушённый тон там не держал норму. */}
       {total !== undefined && (

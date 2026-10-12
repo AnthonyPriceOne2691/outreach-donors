@@ -58,7 +58,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
 from backend.features.access.repository import AccessRepository
-from backend.features.core.domain import AuditAction, ContactSource
+from backend.features.core.domain import AuditAction, ContactSource, Stage
 from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.crawl import CrawlRunModel
 from backend.features.core.models.domain import DomainModel
@@ -448,8 +448,19 @@ async def apply_prune(session: AsyncSession, plan: PrunePlan, *, author: str) ->
     if plan.probes is not None:
         await remove_probes(session, plan.probes)
     await AccessRepository(session).record(
-        AuditAction.DATA_PRUNED, target=_target(plan), details={**plan.as_details(), "кто": author}
+        AuditAction.DATA_PRUNED,
+        target=_target(plan),
+        details={**plan.as_details(), "кто": author},
+        # Проба продаж в чистке — адреса лидов в подробностях: запись — этапа продаж,
+        # и без права «Продажи» её не видно (`access/journal.py`, П2).
+        stage=Stage.SALES if _trials_pruned(plan) else None,
     )
+
+
+def _trials_pruned(plan: PrunePlan) -> bool:
+    """Чистка снимает пробу продаж — есть её лиды, переписки или рассылки."""
+    trials = plan.sales_trials
+    return trials is not None and bool(trials.leads or trials.threads or trials.campaigns)
 
 
 #: Длина поля цели в журнале (`audit_log.target`). Перечень сверх неё — в `details`.

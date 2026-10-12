@@ -353,6 +353,7 @@ async def _back(
             "письмо": letter.what,
             "стало": _STATUS_WORDS[status],
         },
+        stage=await settle.stage_of(session, message),
     )
     return status
 

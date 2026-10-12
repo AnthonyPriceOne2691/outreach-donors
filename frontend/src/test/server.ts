@@ -55,7 +55,9 @@ export const misses: string[] = [];
  * экрана. Тест рамы записывает свой ответ — и видит его в `calls`.
  */
 const FRAME_ROUTES: Record<string, Route> = {
-  'GET /api/overview/work': { body: { run: 0, threads: 0, forms: 0, advertisers: 0 } },
+  'GET /api/overview/work': {
+    body: { run: 0, threads: 0, forms: 0, advertisers: 0, sales_threads: 0 },
+  },
 };
 
 export function serve(routes: Record<string, Route>): Recorded {

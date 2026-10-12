@@ -32,7 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.access.repository import AccessRepository
 from backend.features.core import usage
-from backend.features.core.domain import AuditAction, MessageStatus
+from backend.features.core.domain import AuditAction, MessageStatus, Stage
 from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel
 from backend.features.letters import chain
@@ -134,8 +134,17 @@ async def record_sent(
         author_id=author_id,
         target=f"message:{message.id}",
         details=details,
+        stage=await stage_of(session, message),
     )
     return True
+
+
+async def stage_of(session: AsyncSession, message: MessageModel) -> Stage | None:
+    """Этап письма — этап его рассылки. Для журнала: запись о письме несёт этап сама, и
+    письмо продаж прячется от учётки без права «Продажи» и после того, как строку
+    письма удалила чистка проб (`access/journal.py`)."""
+    campaign = await session.get(CampaignModel, message.campaign_id)
+    return campaign.stage if campaign is not None else None
 
 
 async def _files(session: AsyncSession, message_id: int) -> dict[str, Any]:

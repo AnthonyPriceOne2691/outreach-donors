@@ -13,17 +13,22 @@
  * **Ящики продаж — только с правом «Продажи»** (решение Anthony 10.10.2026, П2б):
  * сервер без права их не отдаёт и переключить не даст, а экран не показывает их и сам —
  * ответ в кэше мог прийти до того, как право сняли.
+ *
+ * **«Домены продаж» — тот же экран частью продаж** (`?stage=sales`, группа меню
+ * «Продажи», 11.10.2026): только домены продаж и их лимит. «Домены рассылки» в
+ * «Настройках» — общие, на них все этапы, как было.
  */
 
 import { Alert, Card, Loader, Stack, Text, Title } from '@mantine/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 
 import { refusalOf } from '../api/client';
 import { disableSender, enableSender } from '../api/outreach';
 import { STAGE_TITLES, listSendersByStage } from '../api/senders';
 import type { DirectionLimit, DomainLimit, StagedSender } from '../api/senders';
 import type { Stage } from '../api/stages';
-import { stageShown } from '../api/stages';
+import { partOf, stageShown } from '../api/stages';
 import { useSession } from '../auth/AuthProvider';
 import { formatNumber, plural } from '../format';
 import { SenderCard as DomainCard, domainShut } from './SenderCard';
@@ -68,8 +73,46 @@ function directionLine(direction: DirectionLimit | undefined): string | null {
   return `Лимит направления: ${formatNumber(direction.sent_today)} из ${formatNumber(direction.daily_limit)} первых писем сегодня`;
 }
 
+/** Сколько доменов может писать — или почему ни один: все выключены, закрыты строкой
+ *  домена или, в части продаж, доменов продаж ещё нет. */
+function Standing({ groups, sales }: { groups: DomainGroup[]; sales: boolean }) {
+  // Пишет домен, у которого включён ящик и который строка домена не закрыла: тот же
+  // отбор, что у фильтра отправки, — иначе «могут» считал бы и тех, кого фильтр отсеет.
+  const writing = groups.filter((group) => group.enabled && group.shut === null).length;
+  if (sales && groups.length === 0) {
+    return (
+      <Text size="sm">
+        Доменов продаж пока нет: ящики продаж заводятся, когда подключают почту продаж.
+      </Text>
+    );
+  }
+  if (writing === 0) {
+    return (
+      <Alert color="yellow" title="Отправлять нечем">
+        {groups.some((group) => group.enabled) ? ALL_SHUT : ALL_OFF}
+      </Alert>
+    );
+  }
+  return (
+    <Text size="sm">
+      Отправлять могут <b>{writing}</b> из {groups.length}{' '}
+      {plural(groups.length, 'домена', 'доменов', 'доменов')}.
+    </Text>
+  );
+}
+
+/** Ящики на экране: без права «Продажи» — без ящиков продаж, в части продаж — только они. */
+function shownBoxes(boxes: StagedSender[], canSales: boolean, sales: boolean): StagedSender[] {
+  return boxes.filter(
+    (box) => stageShown(box.stage, canSales) && (!sales || box.stage === 'sales'),
+  );
+}
+
 export function SendersPage() {
   const { can } = useSession();
+  const [params] = useSearchParams();
+  // Часть продаж — только с правом: без него ящиков продаж на экране нет и так (П2б).
+  const sales = can('sales') && partOf(params) === 'sales';
   const queryClient = useQueryClient();
   const { data, isLoading, error } = useQuery({
     queryKey: SENDERS_QUERY_KEY,
@@ -105,11 +148,8 @@ export function SendersPage() {
     );
   }
 
-  const boxes = (data?.senders ?? []).filter((box) => stageShown(box.stage, can('sales')));
+  const boxes = shownBoxes(data?.senders ?? [], can('sales'), sales);
   const groups = groupByDomain(boxes, data?.domains ?? []);
-  // Пишет домен, у которого включён ящик и который строка домена не закрыла: тот же
-  // отбор, что у фильтра отправки, — иначе «могут» считал бы и тех, кого фильтр отсеет.
-  const writing = groups.filter((group) => group.enabled && group.shut === null).length;
   // Разделы по этапу — только когда этапов больше одного: у одних доноров экран прежний.
   const sections = STAGES.map((stage) => ({
     stage,
@@ -122,19 +162,10 @@ export function SendersPage() {
       <Card className="glassPanel" p="xl">
         <Stack gap="sm">
           <PageHead
-            title="Домены рассылки"
+            title={sales ? 'Домены продаж' : 'Домены рассылки'}
             hint="Репутация живёт у домена, поэтому включают и выключают домен целиком. Выключенный не получает новых писем, но начатые цепочки не рвутся: письмо, отправленное вчера, ждёт ответа."
           />
-          {writing === 0 ? (
-            <Alert color="yellow" title="Отправлять нечем">
-              {groups.some((group) => group.enabled) ? ALL_SHUT : ALL_OFF}
-            </Alert>
-          ) : (
-            <Text size="sm">
-              Отправлять могут <b>{writing}</b> из {groups.length}{' '}
-              {plural(groups.length, 'домена', 'доменов', 'доменов')}.
-            </Text>
-          )}
+          <Standing groups={groups} sales={sales} />
         </Stack>
       </Card>
 

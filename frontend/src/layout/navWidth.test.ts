@@ -9,7 +9,14 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { COUNT_ROOM, FALLBACK_WIDTH, ICON_ROOM, navbarWidth } from './navWidth';
+import {
+  COUNT_ROOM,
+  FALLBACK_WIDTH,
+  GROUP_INSET,
+  GROUP_LINE,
+  ICON_ROOM,
+  navbarWidth,
+} from './navWidth';
 
 /** Холст, у которого каждая буква шириной 8 px. */
 function measureByLength() {
@@ -52,6 +59,20 @@ describe('ширина боковой колонки', () => {
   it('не уже, чем нужно переключателю тем', () => {
     measureByLength();
     expect(navbarWidth(['Обзор'])).toBe(170);
+  });
+
+  it('подпись группы — в одну строку: колонка не уже «Доноров и рекламодателей»', () => {
+    measureByLength();
+    // 22 знака по 8 px и разрядка 0,08em от 11 px на каждый, линия после подписи и
+    // поля: от рамки до подписи и у колонки с каждой стороны (11.10.2026).
+    const title = 'Доноры и рекламодатели';
+    expect(navbarWidth(['Обзор'], [], [title])).toBe(
+      Math.ceil(title.length * 8 + title.length * 0.08 * 11) + GROUP_LINE + 2 * (GROUP_INSET + 12),
+    );
+    // Подпись короче пунктов колонку не расширяет.
+    expect(navbarWidth(['Домены рассылки'], [], ['Продажи'])).toBe(
+      navbarWidth(['Домены рассылки']),
+    );
   });
 
   it('без холста — прежняя ширина, а не ноль', () => {

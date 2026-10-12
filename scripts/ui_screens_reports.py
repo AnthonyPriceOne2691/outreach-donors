@@ -1,4 +1,4 @@
-"""Экраны отчётов для замера контраста: отчёт прогона.
+"""Экраны отчётов для замера контраста: отчёт прогона и журнал действий.
 
 Часть каталога `ui_screens.py`, вынесенная своим модулем, как экраны доноров и писем:
 основной каталог стоит у предела длины файла, а правило «новый экран меряется в обеих
@@ -35,6 +35,28 @@ def report_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
                 ("порог в строке", "table tbody td:first-child", norm),
                 ("статья расхода", "table tbody .cellName", norm),
                 ("провайдер статьи", "table tbody .mantine-Badge-label", norm),
+                ("пункт меню", "nav a", norm),
+            ],
+        },
+        # Журнал действий (11.10.2026): по нему разбирают доступ — кто, что и когда.
+        # Мерятся фильтры, строка числа записей и строки таблицы: время, автор, действие
+        # с уточнением под ним, цель-ссылка и подробности — мелкий текст, где ключ
+        # приглушён, а значение — полными чернилами.
+        "journal": {
+            "path": "/journal",
+            "ready": ("heading", "Журнал действий"),
+            "probes": [
+                ("заголовок экрана", "h3", big),
+                ("подпись поля фильтра", ".mantine-InputWrapper-label", norm),
+                ("пояснение под полем", ".mantine-InputWrapper-description", norm),
+                ("сколько записей", "p:has-text('новые сверху')", norm),
+                ("время записи", "table tbody td:first-child p", norm),
+                ("автор", "table tbody td:nth-child(2) p", norm),
+                ("действие", "table tbody td:nth-child(3) p", norm),
+                ("что сделано под действием", "table tbody td:nth-child(3) p + p", norm),
+                ("цель-ссылка", "table tbody td a", norm),
+                ("подробность", "table tbody .journalDetail", norm),
+                ("ключ подробности", "table tbody .journalDetail span", norm),
                 ("пункт меню", "nav a", norm),
             ],
         },

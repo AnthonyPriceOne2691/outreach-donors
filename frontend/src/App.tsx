@@ -36,6 +36,7 @@ import { UsagePage } from './settings/UsagePage';
 import { ThreadPage } from './threads/ThreadPage';
 import { ThreadsIntro } from './threads/ThreadsIntro';
 import { ThreadsScreen } from './threads/ThreadsScreen';
+import { JournalPage } from './users/JournalPage';
 import { UsersPage } from './users/UsersPage';
 import { RunReviewPage } from './review/RunReviewPage';
 import { ImportWizard } from './sales/ImportWizard';
@@ -219,6 +220,15 @@ export function AppRoutes() {
           element={
             <RequireAccess permission="users">
               <UsersPage />
+            </RequireAccess>
+          }
+        />
+        {/* Под тем же правом, что «Учётки»: в журнале входы, права и пароли. */}
+        <Route
+          path="/journal"
+          element={
+            <RequireAccess permission="users">
+              <JournalPage />
             </RequireAccess>
           }
         />

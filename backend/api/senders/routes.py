@@ -91,6 +91,7 @@ async def enable_sender(
         author_id=author.id,
         target=f"sender:{sender.id}",
         details={"действие": "включён", "домен": sender.domain, "разгон": "с начала"},
+        stage=sender.stage,
     )
     await session.commit()
     return await _card(repository, sender)
@@ -111,6 +112,7 @@ async def disable_sender(
         author_id=author.id,
         target=f"sender:{sender.id}",
         details={"действие": "выключен", "домен": sender.domain, "причина": body.reason},
+        stage=sender.stage,
     )
     await session.commit()
     return await _card(repository, sender)

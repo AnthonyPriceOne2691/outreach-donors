@@ -239,11 +239,15 @@ export function ThreadList() {
   const navigate = useNavigate();
   const list = useThreadList();
   const unbound = useUnboundPage(1);
-  const total = list.query.data?.length;
+  const total = list.total;
   const switchTab = (next: string) => {
     if (next === 'threads') return;
     // У ответа без письма своей переписки нет: вкладка — на всю ширину, без диалога справа.
-    void navigate({ pathname: '/threads', search: writeThreadTab('unbound').toString() });
+    // Часть списка (`?stage=sales`) остаётся: человек — всё ещё в «Диалогах продаж».
+    void navigate({
+      pathname: '/threads',
+      search: writeThreadTab('unbound', list.filters.part).toString(),
+    });
   };
 
   return (
@@ -252,8 +256,10 @@ export function ThreadList() {
         <ThreadsTitle
           total={total}
           found={isThreadFiltered(list.typed) ? list.shown.length : null}
+          sales={list.filters.part === 'sales'}
         />
-        <LeadsExport compact />
+        {/* Лиды файлом — ответы на оффер рекламодателю: у части продаж их нет. */}
+        {list.filters.part === null && <LeadsExport compact />}
       </Group>
       <SegmentedControl
         aria-label="Вкладки диалогов"
