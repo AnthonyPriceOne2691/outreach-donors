@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import random
 from datetime import UTC, datetime, timedelta
 from itertools import pairwise
 from typing import Any
@@ -367,6 +368,24 @@ def test_a_word_with_other_spaces_after_it_is_still_the_same_word() -> None:
         calibration_board.Part(Piece.SAME, "Спасибо.\n\nКоманда"),
         calibration_board.Part(Piece.ADDED, "\n\nПоправлено."),
     )
+
+
+def test_word_diff_rebuilds_both_texts_for_any_edit() -> None:
+    """Инвариант на сотнях случайных правок (зерно постоянное): общее с убранным — черновик,
+    общее с дописанным — ушедшее, одинаковые части подряд не стоят."""
+    words = ["да", "на", "аудит", "500", "созвон,", "Спасибо!", "\n\n", " ", "  ", "цену"]
+    chance = random.Random(64)
+
+    def text() -> str:
+        return "".join(chance.choice(words) + chance.choice(["", " ", "\n"]) for _ in range(12))
+
+    for _ in range(300):
+        old, new = text(), text()
+        found = word_diff(old, new)
+        assert "".join(p.text for p in found if p.kind is not Piece.ADDED) == old
+        assert "".join(p.text for p in found if p.kind is not Piece.REMOVED) == new
+        assert all(a.kind is not b.kind for a, b in pairwise(found))
+        assert all(p.text for p in found)
 
 
 def test_word_diff_of_too_long_texts_is_empty() -> None:
