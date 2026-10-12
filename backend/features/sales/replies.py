@@ -75,6 +75,7 @@ from backend.features.replies.repository import ReplyRepository
 from backend.features.sales import agent_turns, handoff, kb, ooo, queue_jobs, reply_handoff
 from backend.features.sales.connection import MODULE_OFF
 from backend.features.sales.mail import linked, unwritable
+from backend.features.sales.no_draft import absent as agent_absent
 from backend.features.sales.referral import Referred, refer
 from backend.features.sales.reply_handoff import Ask, HandOver
 from backend.features.sales.reply_kind import (
@@ -251,7 +252,8 @@ class SalesReplies:
         """Путь даёт черновик агента, а лиду диалога не пишут — то же правило, что у отправки
         (`mail.unwritable`): черновика нет, почему — словами в причине ответа. Диалог без лида
         продаж правило не судит. Агент уже вёл свои ответы лида в диалоге (`agent_turns`) —
-        черновика тоже нет: дальше отвечает человек."""
+        черновика тоже нет: дальше отвечает человек. Шов черновик не поставит (диалог закрыт,
+        агент продаж не настроен) — тоже словами (`no_draft.absent`)."""
         if decision.route not in DRAFTED:
             return decision, None
         dialog = await linked(self._session, reply.thread_id)
@@ -260,6 +262,7 @@ class SalesReplies:
             reason = f"{KIND_WORDS[found.kind]}: {why}; черновика агента нет — решает человек"
             return replace(decision, reason=reason), why
         why = await agent_turns.beyond(self._session, reply)
+        why = why or await agent_absent(self._session, reply)
         if why is None:
             return decision, None
         return replace(decision, reason=f"{KIND_WORDS[found.kind]}: {why}"), why
