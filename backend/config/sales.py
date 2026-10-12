@@ -59,6 +59,12 @@
 **Наборы eval судьи — вне репозитория** (он публичный): каталоги
 `SALES_JUDGE_GOLDEN_DIR` (опора на базу) и `SALES_STYLE_GOLDEN_DIR` (стиль),
 файлы и хэши — в манифестах `scripts/data/sales_*_golden.manifest.json`.
+
+**Автоотправка и автосборка — своими тумблерами, обе выключены** (`SALES_AUTOSEND`,
+`SALES_AUTOBUILD`): первые письма без человека уходят незнакомым людям, а тексты, переписанные
+моделью, встают в очередь без человека — включает владелец. Проходы — в процессе разбора
+(`workers/reaper.py`); пауза между первыми письмами ящика — `SALES_AUTOSEND_GAP_MIN` минут со
+случайным разбросом (`features/sales/autosend.py`).
 """
 
 from __future__ import annotations
@@ -135,6 +141,17 @@ class _Sales(DomainSettings):
     # в коридор отличия — новый вызов с подсказкой (`features/sales/corridor.py`); 1 — без
     # повтора. Больше десяти — опечатка: подсказка не помогла за десять, поможет шаблон.
     rewrite_attempts: int = Field(default=3, ge=1, le=10, validation_alias="SALES_REWRITE_ATTEMPTS")
+    # Первые письма по расписанию, без человека (`features/sales/autosend.py`): проход раз в
+    # столько секунд, с ящика — не больше письма за проход и пауза между его первыми письмами.
+    autosend: bool = Field(default=False, validation_alias="SALES_AUTOSEND")
+    autosend_pass_sec: int = Field(
+        default=60, ge=10, le=3600, validation_alias="SALES_AUTOSEND_PASS_SEC"
+    )
+    autosend_gap_min: int = Field(
+        default=15, ge=1, le=240, validation_alias="SALES_AUTOSEND_GAP_MIN"
+    )
+    # Очередь пополняется сама, когда писем меньше, чем ящики продаж могут отправить за сутки.
+    autobuild: bool = Field(default=False, validation_alias="SALES_AUTOBUILD")
 
     # Бот продаж (секрет: в `.env`). Телемаркетолог один раз жмёт Start, его
     # chat id печатает `outreach sales-telegram-chat-id`.
@@ -230,6 +247,15 @@ GOLDEN_DIR: str = _s.golden_dir.strip()
 OOO_DELAY_DAYS: int = _s.ooo_delay_days
 #: Вызовов модели на письмо очереди продаж в одной сборке (`features/sales/corridor.py`).
 REWRITE_ATTEMPTS: int = _s.rewrite_attempts
+#: Автоотправка первых писем продаж по расписанию (`features/sales/autosend.py`).
+AUTOSEND: bool = _s.autosend
+AUTOSEND_PASS_SEC: int = _s.autosend_pass_sec
+#: Пауза между первыми письмами одного ящика, минут, — до разброса ±50%.
+AUTOSEND_GAP_MIN: int = _s.autosend_gap_min
+#: Автосборка очереди продаж (`features/sales/autobuild.py`).
+AUTOBUILD: bool = _s.autobuild
+#: Как часто автосборка смотрит, хватает ли очереди: сборка — минуты модели, очередь — на сутки.
+AUTOBUILD_PASS_SEC = 10 * 60
 JUDGE_MODE: SalesJudgeMode = _s.judge_mode
 JUDGE_GOLDEN_DIR: str = _s.judge_golden_dir.strip()
 STYLE_GOLDEN_DIR: str = _s.style_golden_dir.strip()

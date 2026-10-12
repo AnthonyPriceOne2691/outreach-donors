@@ -64,6 +64,14 @@ const READY: SalesQueueView = {
   stage_queued: 7,
   limit_max: 200,
   batch_max: 200,
+  autosend: {
+    enabled: false,
+    line: 'Автоотправка выключена — первые письма уходят кнопкой «Отправить очередь» или по одному; включается настройкой SALES_AUTOSEND.',
+  },
+  autobuild: {
+    enabled: false,
+    line: 'Автосборка выключена — очередь собирают кнопкой «Собрать очередь»; включается настройкой SALES_AUTOBUILD.',
+  },
 };
 
 const OFF: SalesQueueView = {
@@ -234,6 +242,41 @@ describe('очередь писем продаж', () => {
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Собрать очередь' })).toBeEnabled();
     // Пачка берёт очередь этапа целиком: число — письма всех гипотез, а не этой.
+    expect(screen.getByRole('button', { name: 'Отправить очередь · 7' })).toBeEnabled();
+  });
+
+  it('автоотправка и автосборка выключены — так и сказано словами сервера, с настройкой', async () => {
+    await openQueue();
+
+    expect(screen.getByText(READY.autosend.line)).toBeInTheDocument();
+    expect(screen.getByText(READY.autobuild.line)).toBeInTheDocument();
+    expect(screen.getByTitle('автоотправка выключена')).toHaveTextContent('автоотправка');
+    expect(screen.getByTitle('автосборка выключена')).toHaveTextContent('автосборка');
+  });
+
+  it('автоотправка включена: как часто, сколько в окне и почему стоит — строкой сервера', async () => {
+    const sending =
+      'Автоотправка включена: проход раз в 60 с, с ящика — не больше письма за проход и пауза ' +
+      '8–22 мин между его первыми письмами. В окне получателя сейчас 3 письма. Стоит: исход ' +
+      'письма №41 неизвестен: оно «отправляется» с 17.03 09:13 UTC, и слать дальше вслепую нельзя.';
+    const building =
+      'Автосборка включена: очередь — на сутки вперёд, дневные капы ящиков продаж с разгоном — ' +
+      '37 писем, в очереди 2 письма; не хватает 35 писем — ближайший проход соберёт гипотезу ' +
+      '«тестовая гипотеза», до 35 писем';
+    await openQueue(
+      {},
+      {
+        ...READY,
+        autosend: { enabled: true, line: sending },
+        autobuild: { enabled: true, line: building },
+      },
+    );
+
+    expect(screen.getByText(sending)).toBeInTheDocument();
+    expect(screen.getByText(building)).toBeInTheDocument();
+    expect(screen.getByTitle('автоотправка включена')).toBeInTheDocument();
+    expect(screen.getByTitle('автосборка включена')).toBeInTheDocument();
+    // Кнопки остаются: автоотправка — поверх них, а не вместо.
     expect(screen.getByRole('button', { name: 'Отправить очередь · 7' })).toBeEnabled();
   });
 

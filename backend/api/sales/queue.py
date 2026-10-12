@@ -11,7 +11,11 @@
 повтора, — 409 словами (вторая собрала бы те же письма и потратила модель дважды).
 
 Отправляет очередь не этот раздел: письма продаж уходят общей отправкой — пачкой
-(`POST /letters/send-queue` с этапом `sales`) или по одному, под правом отправки.
+(`POST /letters/send-queue` с этапом `sales`) или по одному, под правом отправки, а при
+автоотправке — сами, проходом по расписанию. Включена ли автоотправка и автосборка и что с
+ними сейчас — две строки ответа `GET` (`sales/auto_lines.py`).
+
+Постановка сборки — одна у кнопки и у автосборки (`sales/queue_start.py`).
 
 `GET /sales/leads/{номер}/followups` — без записи, право `sales`: добивки лида, какими они уйдут.
 Человек смотрит письма сборки перед отправкой пачки; тексты добивок готовит та же сборка
@@ -24,12 +28,11 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
-from rq import Queue
 from rq.exceptions import DuplicateJobError
-from rq.job import Job, JobStatus
-from rq.results import Result
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
@@ -39,10 +42,21 @@ from backend.features.core.domain import AuditAction, Permission
 from backend.features.core.models.access import UserModel
 from backend.features.letters import batch
 from backend.features.letters.uniqueness import percent_text
-from backend.features.sales import chain, connection, followup_texts, mail, queue
+from backend.features.sales import (
+    auto_lines,
+    chain,
+    connection,
+    followup_texts,
+    mail,
+    queue,
+    queue_start,
+)
 from backend.features.sales.models import SalesHypothesisModel
-from backend.features.sales.queue_jobs import QUEUE_JOB
-from backend.shared.queue import sales_queue, with_retries
+from backend.features.sales.queue_start import BUILD_RUNNING, LIMIT_MAX
+from backend.shared.queue import sales_queue
+
+#: Номер задачи сборки гипотезы — тот же, что у постановки: его читают реестр задач и тесты.
+build_job_id = queue_start.build_job_id
 
 #: Без префикса и меток: роутер входит в роутер раздела (`routes.py`) — как цепочка.
 router = APIRouter()
@@ -51,42 +65,17 @@ _seller = Depends(needs(Permission.SALES))
 #: Сборка пишет письма адресатам и тратит модель — как сборка ядра, ещё и с правом отправки.
 #: После `_seller`: без раздела отказ называет раздел.
 _sender = Depends(needs(Permission.SEND))
-#: Писем за одну сборку: больше — модель часами, а очередь пачкой всё равно идёт днями.
-LIMIT_MAX = 200
-#: Сборка ещё идёт или ждёт повтора — вторую не ставим.
-_RUNNING = frozenset({JobStatus.QUEUED, JobStatus.STARTED, JobStatus.DEFERRED, JobStatus.SCHEDULED})
-BUILD_RUNNING = (
-    "Сборка очереди этой гипотезы уже идёт — дождитесь её итога: вторая собрала бы те же письма "
-    "и потратила модель дважды"
-)
 
 
-def build_job_id(hypothesis_id: int) -> str:
-    """Номер задачи сборки — от гипотезы: одна сборка гипотезы за раз."""
-    return f"sales-queue-{hypothesis_id}"
+class AutoLineView(BaseModel):
+    """Автоотправка или автосборка: включена ли и что сейчас — строкой словами."""
 
+    enabled: bool
+    line: str
 
-def _build_once(jobs: Queue, hypothesis_id: int, limit: int) -> Job:
-    """Поставить сборку гипотезы, если её сборка не идёт.
-
-    Готовая задача лежит в Redis весь `result_ttl` (неделю), поэтому один `unique=True` с постоянным
-    номером отказывал бы и после неё: закончившуюся или упавшую сборку убираем — вместе с итогом —
-    и ставим заново. `unique=True` остаётся на гонку двух нажатий между проверкой и постановкой.
-    """
-    job_id = build_job_id(hypothesis_id)
-    previous = jobs.fetch_job(job_id)
-    if previous is not None:
-        if previous.get_status() in _RUNNING:
-            raise DuplicateJobError(job_id)
-        # Итог прежней rq 2.12 хранит отдельно от задачи, и `Job.delete()` его не трогает:
-        # новая сборка под тем же номером, пока стоит в очереди, показала бы на экране отчёт
-        # прежней. Тот же вызов — у писем (`api/letters/once.enqueue_once`) и у очистки
-        # (`clean._clean_once`); когда он переедет в `shared/queue.py`, сборка перейдёт на него.
-        Result.delete_all(previous)
-        previous.delete()
-    return jobs.enqueue(
-        QUEUE_JOB, hypothesis_id, limit, job_id=job_id, unique=True, **with_retries()
-    )
+    @classmethod
+    def of(cls, found: auto_lines.AutoLine) -> AutoLineView:
+        return cls(enabled=found.enabled, line=found.line)
 
 
 class SalesQueueView(BaseModel):
@@ -109,6 +98,10 @@ class SalesQueueView(BaseModel):
     #: Больше писем одна пачка не возьмёт — окно подтверждения называет этот потолок, а не всю
     #: очередь этапа (тот же `batch_max`, что у экрана писем).
     batch_max: int
+    #: Автоотправка первых писем: включена ли, как часто, сколько в окне получателя, почему стоит.
+    autosend: AutoLineView
+    #: Автосборка очереди: хватает ли на сутки, кого соберёт или почему нет, последняя сама.
+    autobuild: AutoLineView
 
 
 class SalesQueueBody(BaseModel):
@@ -134,6 +127,7 @@ async def read_queue(
 ) -> SalesQueueView:
     await chain.known(session, hypothesis)
     found = await queue.state(session, hypothesis)
+    now = datetime.now(UTC)
     return SalesQueueView(
         hypothesis_id=hypothesis,
         connected=not found.missing,
@@ -144,6 +138,8 @@ async def read_queue(
         stage_queued=found.stage_queued,
         limit_max=LIMIT_MAX,
         batch_max=batch.BATCH_MAX,
+        autosend=AutoLineView.of(await auto_lines.autosend_line(session, now)),
+        autobuild=AutoLineView.of(await auto_lines.autobuild_line(session, sales_queue(), now)),
     )
 
 
@@ -158,7 +154,7 @@ async def build_queue(
     await chain.known(session, body.hypothesis_id)
     await connection.check(session, queue.WHAT)
     try:
-        job = _build_once(sales_queue(), body.hypothesis_id, body.limit)
+        job = queue_start.start(sales_queue(), body.hypothesis_id, body.limit)
     except DuplicateJobError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, BUILD_RUNNING) from exc
     hypothesis = await session.get(SalesHypothesisModel, body.hypothesis_id)

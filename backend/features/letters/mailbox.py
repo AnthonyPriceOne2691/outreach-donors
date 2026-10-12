@@ -29,11 +29,19 @@
 решение 08.10.2026). Пауза домена ставится за репутацию — жалоба, блок-лист, —
 а добивка с такого домена — то же холодное письмо и тот же удар по нему.
 До 08.10.2026 пауза держала только первые письма (`limits.screen`).
+
+**Ящики на паузе автоотправки первое письмо не берут** (`resting`, автоотправка продаж,
+`sales/autosend.py`): между первыми письмами ящика по расписанию — пауза поверх капа, разгона
+и лимитов домена. Довод — переменной контекста вокруг `Sending.send`, а не параметром
+отправки: путь письма у автоотправки тот же, что у пачки и кнопки. Вне `resting` множество
+пусто, и выбор прежний.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Iterator, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -62,6 +70,21 @@ from backend.features.outreach.repository import OutreachRepository
 #: Письмо ушло к почте — и получило ящик (`Sending._claim` пишет его вместе
 #: с «отправляется»). Пустой ящик у такого письма значит, что ящик удалили.
 _WENT = (MessageStatus.SENDING, MessageStatus.SENT, MessageStatus.DELIVERED, MessageStatus.BOUNCED)
+
+#: Ящики, которых выбор первого письма сейчас не берёт (`resting`). Пусто — выбор прежний.
+_RESTING: ContextVar[frozenset[int]] = ContextVar("mailbox_resting", default=frozenset())
+#: Почему писать некому, когда годные ящики есть, но все — на паузе автоотправки.
+RESTING = "свободные ящики на паузе между письмами автоотправки"
+
+
+@contextmanager
+def resting(boxes: Collection[int]) -> Iterator[None]:
+    """Внутри блока выбор ящика первого письма (`choose`) не берёт ящики `boxes`."""
+    token = _RESTING.set(frozenset(boxes))
+    try:
+        yield
+    finally:
+        _RESTING.reset(token)
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,7 +120,8 @@ async def _free_box(session: AsyncSession, stage: Stage, now: datetime) -> Choic
     на каждую цепочку недосчитаться нового адресата.
 
     До выбора — лимиты домена и направления (`outreach/limits.py`): отсеянный
-    ящик в выбор не идёт, а причина отсева становится словами отказа."""
+    ящик в выбор не идёт, а причина отсева становится словами отказа. Ящики на паузе
+    автоотправки (`resting`) — тоже не идут; годные есть, но все на паузе — так и сказано."""
     rows = await session.execute(select(SenderModel).order_by(SenderModel.id))
     sent = await OutreachRepository(session).sent_today(now=now, first_only=True)
     screened = limits.screen(
@@ -109,8 +133,12 @@ async def _free_box(session: AsyncSession, stage: Stage, now: datetime) -> Choic
         now=now,
         cuts=await health.cuts(session, stage, now),
     )
-    spot = sender_rules.pick(screened.fit, sent_today=sent, stage=stage, now=now)
+    rest = _RESTING.get()
+    awake = [box for box in screened.fit if box.id not in rest]
+    spot = sender_rules.pick(awake, sent_today=sent, stage=stage, now=now)
     if spot is None:
+        if rest and sender_rules.pick(screened.fit, sent_today=sent, stage=stage, now=now):
+            return Choice(sender=None, refusal=f"Сейчас писать некому: {RESTING}")
         why = screened.why()
         return Choice(
             sender=None,

@@ -19,6 +19,7 @@ from backend.features.letters.transport import (
     MaybeSentError,
     Outgoing,
     OutgoingFile,
+    PlatformRefusalError,
     TransportError,
 )
 
@@ -190,6 +191,55 @@ class TestWhenItGoesWrong:
 
         with pytest.raises(TransportError, match="недоступна"):
             await transport.send(SENT)
+
+
+class TestRefusalOfEveryLetter:
+    """Отказ не по письму — ключ, учётка, частота, сбой после повторов, недоступность —
+    `PlatformRefusalError`: тот, кто шлёт подряд, на нём останавливается. Подкласс
+    `TransportError` — письмо возвращается в очередь, как при любом отказе. Причина — словами
+    без ключа и адреса, даже если платформа повторила адрес в ответе."""
+
+    ECHO = '{"errors":[{"message":"made-up refusal for editor@donor.test"}]}'
+
+    @pytest.mark.parametrize(
+        ("status", "reason"),
+        [
+            (401, "ключ платформы не принят (401)"),
+            (403, "учётке отказано в отправке (403)"),
+            (429, "частота: платформа просит подождать (429)"),
+            (503, "сбой платформы (503)"),
+        ],
+    )
+    async def test_refusal_of_every_letter_is_told_apart(self, status: int, reason: str) -> None:
+        transport, _ = _transport(lambda _r: httpx.Response(status, text=self.ECHO))
+
+        with pytest.raises(PlatformRefusalError) as caught:
+            await transport.send(SENT)
+
+        assert isinstance(caught.value, TransportError)
+        assert caught.value.reason == reason
+        assert SENT.to in str(caught.value)  # полный текст отказа — для журнала, как был
+        assert SENT.to not in caught.value.reason
+
+    @pytest.mark.parametrize("status", [400, 413])
+    async def test_refusal_of_this_letter_stays_a_plain_refusal(self, status: int) -> None:
+        transport, _ = _transport(lambda _r: httpx.Response(status, text=self.ECHO))
+
+        with pytest.raises(TransportError, match=str(status)) as caught:
+            await transport.send(SENT)
+
+        assert not isinstance(caught.value, PlatformRefusalError)
+
+    async def test_unreachable_platform_refuses_every_letter(self) -> None:
+        def broken(_: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("сеть")
+
+        transport, _ = _transport(broken)
+
+        with pytest.raises(PlatformRefusalError, match="недоступна") as caught:
+            await transport.send(SENT)
+
+        assert caught.value.reason == "платформа недоступна"
 
 
 class TestTheSafetyCatch:

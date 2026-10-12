@@ -26,6 +26,9 @@
 **Отказ платформы — это отказ, а не молчание.** Любой не-2xx поднимает
 `TransportError`, и письмо возвращается в очередь: отправка, которая
 выглядит успешной при отказе платформы, — худший исход из возможных.
+Отказ не по письму — ключ, учётка, частота и сбой после повторов,
+недоступность — его подкласс `PlatformRefusalError`: следующему письму
+ответ был бы тем же, и тот, кто шлёт подряд, на нём останавливается.
 
 **А 2xx без номера письма — не отказ** (07.10.2026). Платформа письмо
 приняла и уже отправляет; до этого дня такой ответ поднимал
@@ -56,6 +59,7 @@ from backend.features.letters.transport import (
     MaybeSentError,
     Outgoing,
     OutgoingFile,
+    PlatformRefusalError,
     TransportError,
 )
 from backend.shared.net.retry import reason_of
@@ -193,9 +197,7 @@ class SendGridTransport:
 
         assert response is not None  # последняя попытка либо ответила, либо бросила
         if response.status_code >= 400:
-            raise TransportError(
-                f"Платформа отказала ({response.status_code}): {response.text[:300]}"
-            )
+            raise _refusal(response)
         return response
 
     async def _attempt(self, payload: dict[str, object], *, last: bool) -> httpx.Response | None:
@@ -213,8 +215,9 @@ class SendGridTransport:
         except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
             # Соединения не было — письмо не ушло точно, повтор безопасен.
             if last:
-                raise TransportError(
-                    f"Почтовая платформа недоступна ({reason_of(exc)}) — письмо не ушло"
+                raise PlatformRefusalError(
+                    f"Почтовая платформа недоступна ({reason_of(exc)}) — письмо не ушло",
+                    reason="платформа недоступна",
                 ) from exc
             logger.warning("письма: платформа недоступна (%s) — письмо не ушло", reason_of(exc))
             return None
@@ -237,9 +240,27 @@ BACKOFF_SEC = (2.0, 5.0)
 #: Потолок ожидания: `Retry-After` бывает в минутах, а человек ждёт у кнопки.
 MAX_PAUSE_SEC = 30.0
 
+#: Отказ не по письму (`PlatformRefusalError`) — словами без ключа и адреса; ещё — 5xx после
+#: повторов. Остальные 4xx — о письме: адресат, содержимое, размер.
+EVERY_LETTER = {
+    401: "ключ платформы не принят",
+    403: "учётке отказано в отправке",
+    429: "частота: платформа просит подождать",
+}
+
 #: Отдельным именем, чтобы тест гасил паузу здесь, а не у всего процесса
 #: (урок `shared/net/retry.py`).
 _sleep = asyncio.sleep
+
+
+def _refusal(response: httpx.Response) -> TransportError:
+    """Отказ платформы: этому письму — `TransportError`, любому — `PlatformRefusalError`."""
+    status = response.status_code
+    message = f"Платформа отказала ({status}): {response.text[:300]}"
+    words = EVERY_LETTER.get(status, "сбой платформы" if status >= 500 else None)
+    if words is None:
+        return TransportError(message)
+    return PlatformRefusalError(message, reason=f"{words} ({status})")
 
 
 def _pause(response: httpx.Response | None, attempt: int) -> float:

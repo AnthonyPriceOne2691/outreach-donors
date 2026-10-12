@@ -25,11 +25,17 @@
  * не лёг — зовёт модель заново сама; ждущие — первыми, длинный список — по «Показать все».
  * Добивки письма — в его строке, их тексты — по раскрытию (`BuildLetter`): здесь смотрят
  * очередь перед отправкой пачки, а добивки уйдут сами.
+ *
+ * **Автоотправка и автосборка — строкой сервера каждая** (`AutoLines`): включены ли, как часто
+ * уходят письма, сколько их сейчас в окне получателя и почему проход стоит; хватает ли очереди
+ * на сутки, кого соберёт сама или почему нет. Экран слова не пересчитывает: их говорит тот же
+ * снимок, каким судит проход по расписанию.
  */
 
 import {
   Alert,
   Badge,
+  Box,
   Button,
   Group,
   List,
@@ -39,14 +45,15 @@ import {
   Stack,
   Text,
 } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 
 import { refusalOf } from '../api/client';
 import { fetchJob } from '../api/jobs';
 import { buildSalesQueue } from '../api/sales';
 import { chainLanguageTitle } from '../api/salesLabels';
-import type { ChainState, HypothesisCard, SalesQueueView } from '../api/salesTypes';
+import type { ChainState, HypothesisCard, SalesAutoLine, SalesQueueView } from '../api/salesTypes';
 import { useSession } from '../auth/AuthProvider';
 import { HintLabel } from '../components/HintLabel';
 import { InfoHint } from '../components/InfoHint';
@@ -139,6 +146,47 @@ function Chains({ chains }: { chains: ChainState[] }) {
         </Group>
       ))}
     </Stack>
+  );
+}
+
+/** Автоотправка и автосборка — значок «включена» или «выключена» и строка сервера. Сеткой
+ *  «значок | строка»: значки разной ширины, а строки начинаются с одной кромки. На узком
+ *  окне значок — над строкой: в колонке рядом с ним строка вставала в двадцать узких строк
+ *  (снимок 390 px). */
+function AutoLines({ view }: { view: SalesQueueView }) {
+  const narrow = useMediaQuery('(max-width: 36em)');
+  const lines: [string, SalesAutoLine][] = [
+    ['автоотправка', view.autosend],
+    ['автосборка', view.autobuild],
+  ];
+  return (
+    <Box
+      px="md"
+      style={{
+        display: 'grid',
+        gridTemplateColumns: narrow ? 'minmax(0, 1fr)' : 'max-content minmax(0, 1fr)',
+        columnGap: 'var(--mantine-spacing-xs)',
+        rowGap: 4,
+        alignItems: 'start',
+        justifyItems: 'start',
+      }}
+    >
+      {lines.map(([title, auto]) => (
+        <Fragment key={title}>
+          <Badge
+            variant="light"
+            color={auto.enabled ? 'green' : 'gray'}
+            className="queueAutoBadge"
+            title={auto.enabled ? `${title} включена` : `${title} выключена`}
+          >
+            {title}
+          </Badge>
+          <Text size="sm" className="queueAuto">
+            {auto.line}
+          </Text>
+        </Fragment>
+      ))}
+    </Box>
   );
 }
 
@@ -276,6 +324,7 @@ function HypothesisQueue({ hypothesis }: { hypothesis: number }) {
         <Metric title="Писем гипотезы в очереди" value={formatNumber(view.queued)} />
         <Metric title="В очереди продаж — всех гипотез" value={formatNumber(view.stage_queued)} />
       </SimpleGrid>
+      <AutoLines view={view} />
       <BuildQueue key={hypothesis} view={view} />
       {/* Без своей карточки: на телефоне её поля съедали ширину, и кнопка пачки
           резала своё число (снимок 390 px, 07.10.2026). */}
@@ -323,8 +372,8 @@ export function QueuePane({ hypotheses, hypothesis, onHypothesis }: PaneProps) {
             отправляет.
           </Text>
           <InfoHint name="Как уходят письма продаж" width={340}>
-            Уходят письма общей отправкой — пачкой или по одному; добивки идут сами, в той же
-            переписке.
+            Уходят письма общей отправкой — пачкой или по одному, а при автоотправке — сами, по
+            одному с ящика в окне получателя; добивки идут сами, в той же переписке.
           </InfoHint>
         </Group>
         <Select
