@@ -317,9 +317,9 @@
       "worst": "_build_once:60"
     },
     "backend/api/sales/routes.py": {
-      "lines": 210,
+      "lines": 213,
       "complexity": 6,
-      "worst": "_found:78"
+      "worst": "_found:80"
     },
     "backend/api/sales/schemas.py": {
       "lines": 168,
