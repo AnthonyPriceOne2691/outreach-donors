@@ -7,6 +7,8 @@
 журнале и тревогой (`autosend_jobs.py`).
 
 Выключено — так и сказано, с именем настройки: включает её администратор (решение владельца).
+Тумблер включён, а предохранитель почты продаж не снят — автоотправка не включается
+(`autosend.guard`): строка говорит это тем же правилом, что у прохода, значок — «выключена».
 """
 
 from __future__ import annotations
@@ -70,6 +72,9 @@ async def autosend_line(session: AsyncSession, now: datetime) -> AutoLine:
     """Автоотправка одной строкой: включена ли, как часто, сколько в окне, почему стоит."""
     if not sales_cfg.AUTOSEND:
         return AutoLine(enabled=False, line=SEND_OFF)
+    guarded = autosend.guard()
+    if guarded is not None:
+        return AutoLine(enabled=False, line=f"Автоотправка не включается: {guarded}.")
     seen = await autosend.facts(session, now)
     head = f"Автоотправка включена: {pace()}. В окне получателя сейчас {letters(len(seen.waiting.ids))}"
     stop = seen.stop()

@@ -23,6 +23,7 @@ from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.repository import LetterRepository
 from backend.features.letters.sending import Sending
 from backend.features.letters.transport import Outgoing, TransportError
+from backend.features.letters.unknown_outcome import STUCK_AFTER
 from backend.features.outreach import senders
 from backend.features.sales import autosend, queue
 from backend.features.sales.autosend import Stop
@@ -350,6 +351,7 @@ async def test_unknown_outcome_stops_the_pass_in_words_until_it_is_settled(
 ) -> None:
     letters = await _letters(session, world, JANE, OLGA)
     letters[0].status = MessageStatus.SENDING
+    letters[0].updated_at = NOW - STUCK_AFTER
     await session.flush()
     source = _transports()
 
@@ -367,11 +369,12 @@ async def test_unknown_outcome_stops_the_pass_in_words_until_it_is_settled(
     assert list(went.sent) == [letters[1].id]
 
 
-async def test_a_broken_connection_leaves_the_letter_unknown_and_the_next_pass_waits(
+async def test_a_broken_connection_leaves_the_letter_unknown_and_the_pass_waits_on_it(
     session: AsyncSession, world: w.World
 ) -> None:
     """Связь оборвалась посреди передачи: проход падает (как пачка, слать дальше вслепую
-    нельзя), письмо остаётся «отправляется», следующий проход стоит словами."""
+    нельзя), письмо остаётся «отправляется» — и с `STUCK_AFTER`, в блоке «Исход неизвестен»,
+    проход на нём стоит словами."""
     letters = await _letters(session, world, JANE, OLGA)
 
     class Silent(Recording):
@@ -382,11 +385,35 @@ async def test_a_broken_connection_leaves_the_letter_unknown_and_the_next_pass_w
 
     with pytest.raises(ConnectionResetError):
         await autosend.run(session, source, now=NOW)
-    after = await autosend.run(session, _transports(), now=NOW + timedelta(hours=1))
+    # Захват пишет время базы, а часы прохода — у теста: передача началась минутой прохода.
+    letters[0].updated_at = NOW
+    await session.flush()
+    after = await autosend.run(session, _transports(), now=NOW + STUCK_AFTER)
 
     assert await _status(session, letters[0]) is MessageStatus.SENDING
     assert after.stop is Stop.UNKNOWN
     assert await _status(session, letters[1]) is MessageStatus.QUEUED
+
+
+async def test_a_letter_another_sending_hands_over_right_now_does_not_stop_the_pass(
+    session: AsyncSession, world: w.World
+) -> None:
+    """Добивка, ответ или кнопка передают письмо продаж почте в ту же минуту: оно «отправляется»
+    секунды, худшая передача — две с половиной минуты. Проход его не ждёт и шлёт своё; с
+    `STUCK_AFTER` письмо — в блоке «Исход неизвестен», и проход на нём стоит."""
+    letters = await _letters(session, world, JANE, OLGA)
+    letters[0].status = MessageStatus.SENDING
+    letters[0].updated_at = NOW - STUCK_AFTER + timedelta(seconds=1)
+    await session.flush()
+    source = _transports()
+
+    going = await autosend.run(session, source, now=NOW)
+    stuck = await autosend.run(session, source, now=NOW + timedelta(seconds=1))
+
+    assert (going.sent, going.stop) == ({letters[1].id: w.SALES_BOX}, None)
+    assert stuck.stop is Stop.UNKNOWN
+    assert stuck.stopped is not None
+    assert stuck.stopped.startswith(f"исход письма №{letters[0].id} неизвестен")
 
 
 # --- общий выбор ящика: пауза автоотправки ----------------------------------------------------

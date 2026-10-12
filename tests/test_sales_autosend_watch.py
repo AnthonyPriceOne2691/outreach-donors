@@ -1,8 +1,11 @@
-"""Проход автоотправки по расписанию: тумблеры, тревога «через 15 минут» и журнал по смене.
+"""Проход автоотправки по расписанию: тумблеры, предохранитель почты, тревога «через 15 минут»
+и журнал по смене.
 
 Тревога — подставная (`send_alert` запоминает текст): живого Telegram в тестах нет. Сессия
 прохода — тестовая: `_pass` подменён проходом на ней, часы — у теста. Тревога о неизвестном
-исходе судится на настоящей базе: письмо «отправляется», письма в окне, свободный кап.
+исходе судится на настоящей базе: письмо «отправляется» дольше `STUCK_AFTER`, письма в окне,
+свободный кап. Счёт 15 минут — от первого прохода, который стоит не по делу: пауза ящиков и
+чужая передача, застигнутая в пути, минут для тревоги не копят.
 """
 
 from __future__ import annotations
@@ -19,19 +22,26 @@ import pytest
 from backend.config import alerts as alerts_cfg
 from backend.config import sales as sales_cfg
 from backend.features.core.domain import MessageStatus
+from backend.features.letters.unknown_outcome import STUCK_AFTER
 from backend.features.sales import autobuild, autosend, autosend_jobs
 from backend.features.sales.autosend import Pass, Stop
 from backend.features.sales.autosend_jobs import ALARM, RESUMED, Watch
 from backend.workers import reaper
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests import test_sales_send_world as w
-from tests.test_sales_autosend import JANE, OLGA, _letters
+from tests.test_sales_autosend import IVAN, JANE, OLGA, _letters
 from tests.test_sales_send import _transports
 
 ROOT = Path(__file__).resolve().parents[1]
 NOW = w.NOW
 MINUTE = timedelta(minutes=1)
 UNKNOWN = "исход письма №7 неизвестен: оно «отправляется» — выдуманные слова теста"
+RESTING = Pass(due=True, stop=Stop.RESTING, stopped="ящики на паузе")
+FAILED = "проход падает — техническая ошибка (RuntimeError); трассировка в журнале разбора"
+#: Свой список адресов почты продаж — предохранитель не снят.
+OWN = "me@ours.example.test"
+#: Ещё получатели — чтобы писем в окне хватило на сорок минут пауз одного ящика.
+MORE = ("mia@delta.example.test", "leo@epsilon.example.test")
 
 
 @pytest.fixture
@@ -54,8 +64,10 @@ async def world(session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> w.Wor
 
 @pytest.fixture
 def switched_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Тумблеры включены, предохранитель почты продаж снят — что бы ни стояло в `.env`."""
     monkeypatch.setattr(sales_cfg, "ENABLED", True)
     monkeypatch.setattr(sales_cfg, "AUTOSEND", True)
+    monkeypatch.setenv("OUTREACH_SALES_ALLOWED_RECIPIENTS", "")
 
 
 def _passes(monkeypatch: pytest.MonkeyPatch, work: Callable[[datetime], Awaitable[Pass]]) -> None:
@@ -103,6 +115,46 @@ async def test_switched_on_the_pass_runs_and_its_failure_goes_up_to_the_loop(
     assert called == [NOW]
 
 
+async def test_a_set_allowlist_keeps_autosend_off_and_the_journal_says_why_once(
+    monkeypatch: pytest.MonkeyPatch,
+    switched_on: None,
+    told: list[str],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Список разрешённых адресатов почты продаж не пуст — автоотправка не включается: проход
+    не открывает сессии (иначе брал бы каждое письмо окна в «отправляется» и возвращал в
+    очередь — две записи на письмо в общую базу каждую минуту). Журнал говорит почему — строкой
+    по смене, а не каждую минуту; тревоги нет: так решил администратор. Список пуст — проход
+    идёт."""
+    caplog.set_level(logging.INFO, logger="backend.features.sales.autosend_jobs")
+    monkeypatch.setenv("OUTREACH_SALES_ALLOWED_RECIPIENTS", OWN)
+    ran: list[datetime] = []
+
+    async def counted(now: datetime) -> Pass:
+        ran.append(now)
+        return Pass()
+
+    _passes(monkeypatch, counted)
+    watch = Watch()
+
+    for minutes in range(3):
+        await autosend_jobs.tick(now=NOW + MINUTE * minutes, watch=watch)
+    guarded = list(ran)
+    monkeypatch.setenv("OUTREACH_SALES_ALLOWED_RECIPIENTS", "")
+    await autosend_jobs.tick(now=NOW + MINUTE * 3, watch=watch)
+
+    assert guarded == []
+    assert ran == [NOW + MINUTE * 3]
+    [line] = caplog.records
+    assert line.levelno == logging.WARNING
+    assert line.getMessage() == (
+        "продажи: автоотправка стоит — список разрешённых адресатов почты продаж не пуст "
+        "(OUTREACH_SALES_ALLOWED_RECIPIENTS) — письма уходят только на свои адреса, кнопкой "
+        "«Отправить очередь» или по одному"
+    )
+    assert told == []
+
+
 # --- тревога «через 15 минут» ------------------------------------------------------------------
 
 
@@ -115,6 +167,7 @@ async def test_unknown_outcome_over_15_minutes_alarms_once_and_going_again_alarm
 ) -> None:
     letters = await _letters(session, world, JANE, OLGA)
     letters[0].status = MessageStatus.SENDING
+    letters[0].updated_at = NOW - STUCK_AFTER
     await session.flush()
     source = _transports()
 
@@ -163,29 +216,84 @@ async def test_waiting_for_the_box_pause_is_not_an_alarm(told: list[str]) -> Non
     watch = Watch()
 
     for minutes in range(0, 60, 5):
-        await watch.see(
-            Pass(due=True, stop=Stop.RESTING, stopped="ящики на паузе"), NOW + MINUTE * minutes
-        )
+        await watch.see(RESTING, NOW + MINUTE * minutes)
 
     assert told == []
 
 
-async def test_failing_pass_alarms_after_15_minutes_by_the_last_known_due(
+async def test_a_brief_stall_after_a_box_pause_over_15_minutes_is_no_alarm(
     told: list[str],
 ) -> None:
+    """Пауза ящиков — 20 минут, затем проход застал письмо в блоке «Исход неизвестен» (событие
+    платформы решило его минутой позже) и ещё через полчаса один раз упал. Остановка — минута,
+    а не двадцать одна: ни тревоги, ни «прошло» в общем канале."""
+    watch = Watch()
+
+    for minutes in range(21):
+        await watch.see(RESTING, NOW + MINUTE * minutes)
+    await watch.see(Pass(due=True, stop=Stop.UNKNOWN, stopped=UNKNOWN), NOW + MINUTE * 21)
+    await watch.see(Pass(due=True, sent={7: "box@made-up.example.test"}), NOW + MINUTE * 22)
+    for minutes in range(23, 45):
+        await watch.see(RESTING, NOW + MINUTE * minutes)
+    await watch.failed(RuntimeError("база не ответила"), NOW + MINUTE * 45)
+    await watch.see(RESTING, NOW + MINUTE * 46)
+
+    assert told == []
+
+
+async def test_failing_pass_alarms_15_minutes_after_its_first_failure_by_the_last_known_due(
+    told: list[str],
+) -> None:
+    """Проход падает после паузы ящиков дольше 15 минут: счёт — от первого падения, а не от
+    последнего ушедшего письма; «обязан слать» — по последнему удачному проходу. Пошёл —
+    «прошло» одной строкой."""
     watch = Watch()
     boom = RuntimeError("database is down")
 
-    await watch.see(Pass(due=True, stop=Stop.RESTING, stopped="ящики на паузе"), NOW)
-    await watch.failed(boom, NOW + MINUTE * 14)
+    await watch.see(RESTING, NOW)
+    await watch.see(RESTING, NOW + MINUTE * 20)
+    for minutes in range(21, 36):
+        await watch.failed(boom, NOW + MINUTE * minutes)
     quiet = list(told)
-    await watch.failed(boom, NOW + MINUTE * 15)
-    await watch.failed(boom, NOW + MINUTE * 30)
+    await watch.failed(boom, NOW + MINUTE * 36)
+    await watch.failed(boom, NOW + MINUTE * 50)
+    await watch.see(Pass(due=True, sent={7: "box@made-up.example.test"}), NOW + MINUTE * 51)
 
     assert quiet == []
-    assert told == [
-        f"{ALARM}. проход падает — техническая ошибка (RuntimeError); трассировка в журнале разбора"
-    ]
+    assert told == [f"{ALARM}. {FAILED}", f"{RESUMED} (стояла: {FAILED})"]
+
+
+async def test_another_sending_caught_in_flight_on_every_pass_is_no_stop_and_no_alarm(
+    session: AsyncSession,
+    world: w.World,
+    monkeypatch: pytest.MonkeyPatch,
+    switched_on: None,
+    told: list[str],
+) -> None:
+    """Каждый проход застаёт чужую передачу письма продаж — добивки, ответа, кнопки — в пути:
+    проход на ней не стоит, шлёт своё по паузам ящика, тревоги нет."""
+    letters = await _letters(session, world, JANE, OLGA, IVAN, *MORE)
+    letters[0].status = MessageStatus.SENDING
+    source = _transports()
+    stops: list[Stop | None] = []
+
+    async def with_another_in_flight(now: datetime) -> Pass:
+        letters[0].updated_at = now - MINUTE
+        await session.flush()
+        found = await autosend.run(session, source, now=now)
+        stops.append(found.stop)
+        return found
+
+    _passes(monkeypatch, with_another_in_flight)
+    watch = Watch()
+
+    for minutes in range(0, 40, 2):
+        await autosend_jobs.tick(now=NOW + MINUTE * minutes, watch=watch)
+
+    assert Stop.UNKNOWN not in stops
+    # Писем в окне хватало на все сорок минут: проход ждал паузы ящика, а не стоял.
+    assert Stop.RESTING in stops
+    assert told == []
 
 
 async def test_telegram_not_accepting_the_alarm_is_said_again_on_the_next_pass(
@@ -200,7 +308,7 @@ async def test_telegram_not_accepting_the_alarm_is_said_again_on_the_next_pass(
     monkeypatch.setattr(autosend_jobs, "send_alert", refused)
     monkeypatch.setattr(alerts_cfg, "TELEGRAM_BOT_TOKEN", "made-up-bot-token")
     monkeypatch.setattr(alerts_cfg, "TELEGRAM_CHAT_ID", "-100")
-    watch = Watch(idle_since=NOW, due=True)
+    watch = Watch(stalled_since=NOW, due=True)
     stalled = Pass(due=True, stop=Stop.UNKNOWN, stopped=UNKNOWN)
 
     await watch.see(stalled, NOW + MINUTE * 15)

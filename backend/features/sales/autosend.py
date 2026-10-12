@@ -21,11 +21,20 @@
 — ящик и его последнее письмо. Новое число на каждом проходе кончало бы паузу на первом коротком
 — у нижнего края.
 
-**Исход неизвестен — проход стоит.** Письмо продаж «отправляется» (`unknown_outcome.py`): ушло
-ли оно, неизвестно, и слать дальше вслепую нельзя — как и пачке. Отказ по одному письму
-(стоп-лист, предохранитель, письмо не готово) проход не останавливает: письмо ждёт в очереди
-с причиной, проход идёт к следующему. Писать некому (кап, разгон, лимиты домена, паузы ящиков)
-— проход кончается: следующему письму ответ был бы тем же.
+**Исход неизвестен — проход стоит.** Письмо продаж в блоке «Исход неизвестен» — «отправляется»
+дольше `STUCK_AFTER` (`unknown_outcome.py`): ушло ли оно, неизвестно, и слать дальше вслепую
+нельзя — как и пачке. Письмо моложе может быть ещё в пути: его прямо сейчас передаёт почте другая
+отправка — добивка, ответ, кнопка, пачка (худшая передача — две с половиной минуты). Стоять на нём
+значило бы стоять на каждой чужой отправке. Отказ по одному письму (стоп-лист, письмо не готово)
+проход не останавливает: письмо ждёт в очереди с причиной, проход идёт к следующему. Писать
+некому (кап, разгон, лимиты домена, паузы ящиков) — проход кончается: следующему письму ответ
+был бы тем же.
+
+**Предохранитель почты не снят — автоотправка не включается** (`guard`). Пока список разрешённых
+адресатов почты продаж не пуст, письма уходят только на свои адреса, а отказ предохранителя почта
+даёт уже после захвата письма (`sendgrid.py`): проход раз в минуту брал бы каждое письмо окна в
+«отправляется» и возвращал в очередь — две записи на письмо в общую базу, сотни в минуту на полной
+очереди. Проверка на своих адресах — кнопкой; автоотправка — для боевой отправки.
 
 Тревога, если проход стоит не по делу дольше 15 минут, и строки журнала по смене — в
 `autosend_jobs.py`; строка экрана — `auto_lines.py`.
@@ -42,16 +51,16 @@ from enum import StrEnum
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.config import outreach as outreach_cfg
 from backend.config import sales as sales_cfg
 from backend.features.core import window
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.outreach import CampaignModel, MessageModel, SenderModel
 from backend.features.core.stages import SalesNotConnectedError
-from backend.features.letters import batch, mailbox
+from backend.features.letters import batch, mailbox, unknown_outcome
 from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.sending import NoSenderError, SendError, Sending
 from backend.features.letters.transport import Mail
-from backend.features.letters.unknown_outcome import STUCK_MINUTES
 from backend.features.sales import connection
 from backend.features.sales.models import SalesLeadModel, SalesThreadModel
 from backend.features.sales.policy import sales_policy, zones_of
@@ -66,6 +75,7 @@ class Stop(StrEnum):
     """Почему проход не шлёт — видом; слова — в `Pass.stopped`."""
 
     NOT_CONNECTED = "продажи не подключены"
+    GUARDED = "предохранитель почты не снят"
     UNKNOWN = "исход неизвестен"
     EMPTY = "очередь пуста"
     OUTSIDE = "вне окна получателя"
@@ -75,6 +85,20 @@ class Stop(StrEnum):
 
 #: Стоит не по делу — о таком тревога (`autosend_jobs.py`); остальное — проход по делу ждёт.
 STALLS = frozenset({Stop.UNKNOWN})
+
+
+def guard() -> str | None:
+    """Почему автоотправка не включается при включённом тумблере — словами; `None` — включается.
+
+    Список разрешённых адресатов почты продаж не пуст — см. «Предохранитель» выше. Учётка
+    читается на каждом проходе, как у транспорта (`config.outreach.mail_account`)."""
+    account = outreach_cfg.mail_account(Stage.SALES.value)
+    if not account.allowed_recipients:
+        return None
+    return (
+        f"список разрешённых адресатов почты продаж не пуст ({account.allowlist_setting}) — "
+        "письма уходят только на свои адреса, кнопкой «Отправить очередь» или по одному"
+    )
 
 
 def gap() -> timedelta:
@@ -105,7 +129,7 @@ class Waiting:
 
 @dataclass(frozen=True, slots=True)
 class Unsettled:
-    """Письмо продаж в «отправляется»: исход неизвестен."""
+    """Письмо продаж в блоке «Исход неизвестен»: «отправляется» дольше `STUCK_AFTER`."""
 
     message_id: int
     since: datetime
@@ -115,8 +139,7 @@ class Unsettled:
         return (
             f"исход письма №{self.message_id} неизвестен: оно «отправляется» с "
             f"{self.since:%d.%m %H:%M} UTC, и слать дальше вслепую нельзя. Исход решит событие "
-            f"платформы, а через {STUCK_MINUTES} минут — человек на экране «Письма», в блоке "
-            "«Исход неизвестен»"
+            "платформы или человек на экране «Письма», в блоке «Исход неизвестен»"
         )
 
 
@@ -171,7 +194,7 @@ async def facts(session: AsyncSession, now: datetime) -> Facts:
         free = await mailbox.choose(
             session, waiting.first, stage=Stage.SALES, thread_sender_id=None, now=now
         )
-    return Facts(missing, waiting, free, await unsettled(session))
+    return Facts(missing, waiting, free, await unsettled(session, now))
 
 
 async def in_window(session: AsyncSession, now: datetime) -> Waiting:
@@ -203,21 +226,12 @@ async def in_window(session: AsyncSession, now: datetime) -> Waiting:
     return Waiting(queued, tuple(letter.id for letter in found), first, zoneless)
 
 
-async def unsettled(session: AsyncSession) -> Unsettled | None:
-    """Письмо продаж в «отправляется» — старшее; `None` — таких нет."""
-    row = (
-        await session.execute(
-            select(MessageModel.id, MessageModel.updated_at)
-            .join(CampaignModel, CampaignModel.id == MessageModel.campaign_id)
-            .where(
-                CampaignModel.stage == Stage.SALES,
-                MessageModel.status == MessageStatus.SENDING,
-            )
-            .order_by(MessageModel.updated_at, MessageModel.id)
-            .limit(1)
-        )
-    ).first()
-    return None if row is None else Unsettled(row[0], row[1])
+async def unsettled(session: AsyncSession, now: datetime) -> Unsettled | None:
+    """Старшее письмо продаж в блоке «Исход неизвестен» — тем же правилом, что у блока на экране
+    писем (`unknown_outcome.stuck`); `None` — таких нет. Письмо моложе `STUCK_AFTER` может быть
+    ещё в пути у другой отправки — на нём проход не стоит."""
+    found = await unknown_outcome.stuck(session, stage=Stage.SALES, now=now, limit=1)
+    return Unsettled(found[0].message.id, found[0].since) if found else None
 
 
 async def rests(session: AsyncSession, now: datetime) -> dict[int, datetime]:

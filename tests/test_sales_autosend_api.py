@@ -16,6 +16,7 @@ from backend.config import sales as sales_cfg
 from backend.features.core.domain import MessageStatus
 from backend.features.core.models.access import UserModel
 from backend.features.letters.sending import Sending
+from backend.features.letters.unknown_outcome import STUCK_AFTER
 from backend.features.sales import autobuild, autosend
 from backend.features.sales.auto_lines import BUILD_OFF, SEND_OFF, pace
 from backend.features.sales.queue_start import build_job_id
@@ -81,6 +82,8 @@ async def test_unknown_outcome_is_said_on_the_screen_with_the_letters_in_the_win
 ) -> None:
     letters = await _letters(session, world, JANE, OLGA)
     letters[0].status = MessageStatus.SENDING
+    # Часы маршрута настоящие: письмо в блоке «Исход неизвестен» — по ним.
+    letters[0].updated_at = datetime.now(UTC) - STUCK_AFTER
     await session.commit()
     monkeypatch.setattr(sales_cfg, "AUTOSEND", True)
 
@@ -90,6 +93,27 @@ async def test_unknown_outcome_is_said_on_the_screen_with_the_letters_in_the_win
     assert lines["autosend"]["enabled"] is True
     assert line.startswith(f"Автоотправка включена: {pace()}. В окне получателя сейчас 1 письмо.")
     assert f"Стоит: исход письма №{letters[0].id} неизвестен" in line
+
+
+async def test_a_set_allowlist_keeps_autosend_off_on_the_screen_in_words(
+    client: AsyncClient,
+    headers: dict[str, str],
+    world: w.World,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Тумблер включён, а список разрешённых адресатов почты продаж не пуст — автоотправка не
+    включается: строка говорит почему и чем слать, значок — «выключена»."""
+    monkeypatch.setattr(sales_cfg, "AUTOSEND", True)
+    monkeypatch.setenv("OUTREACH_SALES_ALLOWED_RECIPIENTS", "me@ours.example.test")
+
+    lines = await _lines(client, headers, world.hypothesis_id)
+
+    assert lines["autosend"] == {
+        "enabled": False,
+        "line": "Автоотправка не включается: список разрешённых адресатов почты продаж не пуст "
+        "(OUTREACH_SALES_ALLOWED_RECIPIENTS) — письма уходят только на свои адреса, кнопкой "
+        "«Отправить очередь» или по одному.",
+    }
 
 
 async def test_going_and_then_waiting_for_the_box_pause(
