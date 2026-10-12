@@ -1647,9 +1647,9 @@
       "worst": "—"
     },
     "backend/features/ops/alarm_feed.py": {
-      "lines": 200,
+      "lines": 232,
       "complexity": 5,
-      "worst": "_gone:123"
+      "worst": "_gone:148"
     },
     "backend/features/ops/alarms.py": {
       "lines": 21,
@@ -1672,9 +1672,9 @@
       "worst": "_letters:325"
     },
     "backend/features/ops/silence.py": {
-      "lines": 339,
+      "lines": 374,
       "complexity": 7,
-      "worst": "_crawl_blocked:259"
+      "worst": "_crawl_blocked:264"
     },
     "backend/features/outreach/__init__.py": {
       "lines": 2,
@@ -1682,9 +1682,9 @@
       "worst": "—"
     },
     "backend/features/outreach/autopause.py": {
-      "lines": 80,
+      "lines": 108,
       "complexity": 2,
-      "worst": "pause_once:62"
+      "worst": "pause_once:89"
     },
     "backend/features/outreach/health.py": {
       "lines": 257,
@@ -2547,9 +2547,9 @@
       "worst": "main:34"
     },
     "backend/workers/reaper.py": {
-      "lines": 197,
+      "lines": 221,
       "complexity": 4,
-      "worst": "_told:140"
+      "worst": "_told:163"
     },
     "backend/workers/sales_jobs.py": {
       "lines": 150,
