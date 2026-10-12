@@ -24,6 +24,7 @@ from backend.features.core.models.outreach import MessageModel, ReplyModel
 from backend.features.crawl.contacts import AdvertiserContactRepository
 from backend.features.replies.extract import Extracted
 from backend.features.replies.pipeline import Inbox, Parser
+from backend.features.sales.segment_queue import SegmentContactQueue
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import make_donor
@@ -65,6 +66,7 @@ def test_each_queue_names_its_stage() -> None:
     assert ContactRepository.stage is Stage.DONORS
     assert AdvertiserContactRepository.stage is Stage.ADVERTISERS
     assert NamedDomains.stage is None, "перепоиск названных доменов — общий на этапы"
+    assert SegmentContactQueue.stage is Stage.SALES, "адрес лида сбора — расход продаж"
 
 
 async def test_donor_contact_search_is_stage_one(

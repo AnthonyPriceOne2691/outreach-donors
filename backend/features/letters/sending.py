@@ -119,6 +119,7 @@ _OFFER_REFUSED: dict[OfferRefused, type[SendError]] = {
     OfferRefused.REMOVED: RemovedAdvertiserError,
     OfferRefused.NOT_WRITING: NotWritingError,
     OfferRefused.WITHDRAWN: WithdrawnLinkError,
+    OfferRefused.EXAMPLE: NotWritingError,
     OfferRefused.STALE_PRICE: StalePriceError,
 }
 

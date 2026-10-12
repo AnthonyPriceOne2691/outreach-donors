@@ -1092,9 +1092,9 @@
       "worst": "—"
     },
     "backend/features/crawl/acceptance.py": {
-      "lines": 186,
+      "lines": 179,
       "complexity": 4,
-      "worst": "acceptance:149"
+      "worst": "acceptance:142"
     },
     "backend/features/crawl/accuracy.py": {
       "lines": 123,
@@ -1112,9 +1112,9 @@
       "worst": "_row:237"
     },
     "backend/features/crawl/advertiser_rules.py": {
-      "lines": 45,
+      "lines": 49,
       "complexity": 1,
-      "worst": "writes_to:29"
+      "worst": "writes_to:31"
     },
     "backend/features/crawl/affiliate.py": {
       "lines": 170,
@@ -1202,7 +1202,7 @@
       "worst": "_any:83"
     },
     "backend/features/crawl/offer_stop.py": {
-      "lines": 140,
+      "lines": 143,
       "complexity": 6,
       "worst": "stop_offers:46"
     },
@@ -1227,9 +1227,9 @@
       "worst": "of:71"
     },
     "backend/features/crawl/promote.py": {
-      "lines": 459,
+      "lines": 441,
       "complexity": 9,
-      "worst": "promote:200"
+      "worst": "promote:182"
     },
     "backend/features/crawl/proxies.py": {
       "lines": 248,
@@ -1487,9 +1487,9 @@
       "worst": "subject_for:91"
     },
     "backend/features/letters/attempts.py": {
-      "lines": 254,
+      "lines": 263,
       "complexity": 2,
-      "worst": "next_address_note:114"
+      "worst": "next_address_note:122"
     },
     "backend/features/letters/batch.py": {
       "lines": 188,
@@ -1557,9 +1557,9 @@
       "worst": "_name_forms:147"
     },
     "backend/features/letters/niche_recipients.py": {
-      "lines": 181,
+      "lines": 185,
       "complexity": 8,
-      "worst": "_offers_of:163"
+      "worst": "_offers_of:167"
     },
     "backend/features/letters/offer_addresses.py": {
       "lines": 35,
@@ -1567,9 +1567,9 @@
       "worst": "advertiser_addresses:20"
     },
     "backend/features/letters/offer_standing.py": {
-      "lines": 304,
+      "lines": 340,
       "complexity": 12,
-      "worst": "_link_offer:166"
+      "worst": "_link_offer:178"
     },
     "backend/features/letters/optout.py": {
       "lines": 88,
@@ -1652,9 +1652,9 @@
       "worst": "_post:172"
     },
     "backend/features/letters/sending.py": {
-      "lines": 497,
+      "lines": 498,
       "complexity": 5,
-      "worst": "_hand_over:421"
+      "worst": "_hand_over:422"
     },
     "backend/features/letters/settle.py": {
       "lines": 171,

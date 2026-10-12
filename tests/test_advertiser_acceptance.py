@@ -11,9 +11,10 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 
 import pytest
-from backend.features.core.domain import MessageStatus, UserRole, Verdict
+from backend.features.core.domain import MessageStatus, SuppressionReason, UserRole, Verdict
 from backend.features.core.models.access import UserModel
 from backend.features.core.models.advertisers import SupplierDonorModel
+from backend.features.core.models.ops import SuppressionModel
 from backend.features.crawl import promote
 from backend.features.crawl.acceptance import (
     TARGET_SENT_SHARE,
@@ -24,7 +25,7 @@ from backend.features.crawl.acceptance import (
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import bearer
-from tests.stage2_rows import addressed, crawled, lettered, promoted, scored
+from tests.stage2_rows import addressed, crawled, domain_of, lettered, promoted, scored
 
 MakeUser = Callable[..., Awaitable[UserModel]]
 SignIn = Callable[..., Awaitable[str]]
@@ -82,7 +83,7 @@ async def test_all_donors_together_count_a_domain_once(session: AsyncSession, do
 
 async def test_a_donor_is_found_by_the_promotion_rule(session: AsyncSession, donors: None) -> None:
     """Рекламодатель донора — тот, кого переводит «Перевести»: «куплено» или «пишем»,
-    без «не пишем». Правило перевода живёт в `crawl/promote.py` — сверяем числом."""
+    без «не пишем». Правило одно (`advertiser_rules.writes_to`) — сверяем числом."""
     report = await acceptance(session, limit=50)
 
     standing = await promote.standing(session)
@@ -116,16 +117,23 @@ async def test_address_and_letters_count_only_promoted_advertisers(
     assert report.overall == Tally(found=4, promoted=3, with_address=2, sent=1)
 
 
+@pytest.mark.parametrize("listed_by", ["стоп-лист", "прежний список"])
 async def test_a_supplier_is_marked_and_left_out_of_the_sum(
-    session: AsyncSession, donors: None
+    session: AsyncSession, donors: None, listed_by: str
 ) -> None:
     """Рекламодателей поставщика не трогаем: строка его помечена, а «все доноры вместе»
-    его не считает — порог ему не задача."""
+    его не считает — порог ему не задача. Поставщик — правилом перевода, из любого
+    места: до 12.10.2026 приёмка читала только прежний список консоли, и поставщик,
+    внесённый экраном «Стоп-лист» или `suppliers-import`, шёл в ней обычным донором."""
     supplier = await crawled(session, "partner.example.test")
     await scored(session, supplier, "only-there.example.test")
     await promoted(session, "only-there.example.test", donor_host="partner.example.test")
     await addressed(session, "only-there.example.test")
-    session.add(SupplierDonorModel(host="Partner.example.test", note="текущий партнёр"))
+    if listed_by == "стоп-лист":
+        domain = await domain_of(session, "partner.example.test")
+        session.add(SuppressionModel(domain_id=domain.id, reason=SuppressionReason.SUPPLIER))
+    else:
+        session.add(SupplierDonorModel(host="Partner.example.test", note="текущий партнёр"))
     await session.flush()
 
     report = await acceptance(session, limit=50)
