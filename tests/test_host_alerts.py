@@ -327,6 +327,23 @@ class TestHealthwatch:
             assert alerts == []
             assert f"~created@{since}" in Path(host.env["HEALTHWATCH_STATE"]).read_text()
 
+    @pytest.mark.parametrize(("grace", "minutes", "said"), [("08", 9, 8), ("010", 11, 10)])
+    def test_grace_with_a_leading_zero_is_decimal(
+        self, host: Host, grace: str, minutes: int, said: int
+    ) -> None:
+        """Ведущий ноль bash читает восьмеричным: `08` оборвал бы проход,
+        `010` молча дал бы 8 минут."""
+        host.env["HEALTHWATCH_CREATED_GRACE_MIN"] = grace
+        since = int(time.time()) - minutes * 60
+        Path(host.env["HEALTHWATCH_STATE"]).write_text(f"worker\t~created@{since}\n")
+        _stack(host, worker="created||0")
+
+        done = host.run("healthwatch.sh")
+
+        assert done.returncode == 0, done.stderr
+        [alert] = host.alerts()
+        assert f"• worker — created — создан, но не запущен дольше {said} мин" in alert
+
     @pytest.mark.parametrize("grace", ["15m", "abc"])
     def test_grace_that_is_not_a_number_falls_back_and_says_so(
         self, host: Host, grace: str

@@ -66,6 +66,8 @@ case "$CREATED_GRACE" in
     CREATED_GRACE=15
     ;;
 esac
+# Ведущий ноль bash читает восьмеричным: `08` оборвал бы проход, `010` дал бы 8.
+CREATED_GRACE=$((10#$CREATED_GRACE))
 EPOCH="$(date +%s)"
 TAB="$(printf '\t')"
 
