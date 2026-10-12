@@ -31,6 +31,7 @@ from backend.features.sales.usage_cap import LETTER_REWRITE
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests import test_sales_send_world as w
+from tests.migration_helpers import columns_down_and_up
 from tests.test_sales_queue_corridor import FOUR, _words
 from tests.test_sales_send import FIRST_DUE, SECOND_DUE, SIGNED, _seen, _transports
 
@@ -562,3 +563,20 @@ async def test_spare_text_reaches_the_model_as_text_and_survives_the_rewrite(
     assert letter.body is not None
     assert "intronew19 there\n" in letter.body
     assert "{{" not in letter.body
+
+
+# --- ревизия колонки добивок ----------------------------------------------------------------
+
+REVISION = "12b040073dcc_sales_threads_followups.py"
+
+
+async def test_followups_revision_goes_down_and_up(session: AsyncSession) -> None:
+    """Ревизия добивок снимает колонку `sales_threads.followups` и возвращает её: файл ревизии
+    гоняется на базе тестов, а не только читается схемой по моделям."""
+    connection = await session.connection()
+
+    down, up = await connection.run_sync(
+        columns_down_and_up, REVISION, "sales_threads", {"followups"}
+    )
+
+    assert (down, up) == (set(), {"followups"})

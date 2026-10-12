@@ -1,7 +1,7 @@
 """продажи: тексты добивок у переписки лида — собранные с первым письмом
 
 Revision ID: 12b040073dcc
-Revises: ac052c21d38b
+Revises: 1045a2d42013
 Create Date: 2026-10-12 00:30:00.000000
 
 `sales_threads.followups` — тексты добивок (шаги 2–3) с зонами `rewrite`, которые сборка
@@ -22,7 +22,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "12b040073dcc"  # pragma: allowlist secret
-down_revision: Union[str, Sequence[str], None] = "ac052c21d38b"  # pragma: allowlist secret
+down_revision: Union[str, Sequence[str], None] = "1045a2d42013"  # pragma: allowlist secret
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

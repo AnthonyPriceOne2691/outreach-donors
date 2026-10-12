@@ -572,9 +572,9 @@
       "worst": "_line:64"
     },
     "backend/cli/sales_queue.py": {
-      "lines": 97,
-      "complexity": 4,
-      "worst": "run_sales_queue:57"
+      "lines": 114,
+      "complexity": 5,
+      "worst": "run_sales_queue:60"
     },
     "backend/cli/sales_telegram.py": {
       "lines": 69,
@@ -1982,9 +1982,9 @@
       "worst": "apply:163"
     },
     "backend/features/sales/chain_text.py": {
-      "lines": 392,
+      "lines": 467,
       "complexity": 8,
-      "worst": "zones_of:220"
+      "worst": "zones_of:246"
     },
     "backend/features/sales/clean_jobs.py": {
       "lines": 133,
@@ -2007,14 +2007,19 @@
       "worst": "_account_gap:64"
     },
     "backend/features/sales/corridor.py": {
-      "lines": 288,
-      "complexity": 7,
-      "worst": "write:248"
+      "lines": 379,
+      "complexity": 8,
+      "worst": "write:330"
     },
     "backend/features/sales/domain_hold.py": {
       "lines": 81,
       "complexity": 5,
       "worst": "kept_words:41"
+    },
+    "backend/features/sales/followup_texts.py": {
+      "lines": 307,
+      "complexity": 8,
+      "worst": "build:131"
     },
     "backend/features/sales/funnel.py": {
       "lines": 248,
@@ -2107,19 +2112,19 @@
       "worst": "asked_wait:117"
     },
     "backend/features/sales/letter.py": {
-      "lines": 128,
+      "lines": 142,
       "complexity": 7,
-      "worst": "problem:81"
+      "worst": "problem:95"
     },
     "backend/features/sales/mail.py": {
-      "lines": 295,
+      "lines": 309,
       "complexity": 8,
-      "worst": "check:205"
+      "worst": "check:217"
     },
     "backend/features/sales/models.py": {
-      "lines": 493,
+      "lines": 499,
       "complexity": 2,
-      "worst": "_enum:77"
+      "worst": "_enum:78"
     },
     "backend/features/sales/ooo.py": {
       "lines": 149,
@@ -2137,14 +2142,19 @@
       "worst": "zones_of:35"
     },
     "backend/features/sales/queue.py": {
-      "lines": 482,
+      "lines": 445,
       "complexity": 7,
-      "worst": "build:154"
+      "worst": "build:122"
     },
     "backend/features/sales/queue_jobs.py": {
       "lines": 103,
       "complexity": 4,
       "worst": "build_sales_queue:83"
+    },
+    "backend/features/sales/queue_report.py": {
+      "lines": 97,
+      "complexity": 8,
+      "worst": "tally:65"
     },
     "backend/features/sales/referral.py": {
       "lines": 154,
