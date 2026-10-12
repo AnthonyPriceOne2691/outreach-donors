@@ -11,11 +11,17 @@
  * «Отбора» уходит то, чего на вкладке не бывает; первая вкладка — без `tab`,
  * адрес тот же, что в меню. Незнакомое значение — первая вкладка, а не пустой
  * экран: адрес правят руками и присылают устаревшим.
+ *
+ * **Часть списка (`?stage=sales`) вкладки переживает** (11.10.2026): ответы без письма —
+ * общие на всю почту, но человек, пришедший из «Диалогов продаж», остаётся в них — и в
+ * меню подсвечен тот же пункт, и вкладка «Диалоги» возвращает в переписку продаж.
  */
 
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 
 import { listUnbound } from '../api/outreach';
+import { PART_PARAM } from '../api/stages';
+import type { Part } from '../api/stages';
 
 export type ThreadTab = 'threads' | 'unbound';
 
@@ -30,8 +36,11 @@ export function readThreadTab(params: URLSearchParams): ThreadTab {
   return params.get('tab') === 'unbound' ? 'unbound' : 'threads';
 }
 
-export function writeThreadTab(tab: ThreadTab): URLSearchParams {
-  return tab === 'unbound' ? new URLSearchParams({ tab }) : new URLSearchParams();
+export function writeThreadTab(tab: ThreadTab, part: Part | null = null): URLSearchParams {
+  const params = new URLSearchParams();
+  if (part !== null) params.set(PART_PARAM, part);
+  if (tab === 'unbound') params.set('tab', tab);
+  return params;
 }
 
 /**
@@ -43,21 +52,40 @@ export function writeThreadTab(tab: ThreadTab): URLSearchParams {
  */
 const PLACE_KEY = 'outreach.threads.place';
 
-export function rememberThreadsPlace(place: string): void {
+/** Место — у каждой части своё: из ответов без письма «Диалоги продаж» возвращают в
+ *  переписку продаж, а не в последний диалог донора. */
+const placeKey = (part: Part | null) => (part === null ? PLACE_KEY : `${PLACE_KEY}.${part}`);
+
+/** Начало списка части: «Диалоги» — `/threads`, «Диалоги продаж» — `/threads?stage=sales`. */
+const startOf = (part: Part | null) =>
+  part === null ? '/threads' : `/threads?${PART_PARAM}=${part}`;
+
+/** Записать место части; `null` — стереть: часть начнёт с начала списка. */
+export function rememberThreadsPlace(place: string | null, part: Part | null = null): void {
   try {
-    sessionStorage.setItem(PLACE_KEY, place);
+    if (place === null) sessionStorage.removeItem(placeKey(part));
+    else sessionStorage.setItem(placeKey(part), place);
   } catch {
     // Хранилище закрыто — вкладка «Диалоги» ведёт в начало списка.
   }
 }
 
-export function threadsPlace(): string {
+/** Место части как записано — без подстановки начала списка; `null` — не записано. */
+export function storedThreadsPlace(part: Part | null = null): string | null {
   try {
-    const place = sessionStorage.getItem(PLACE_KEY);
-    // Только адрес этого раздела: чужое значение в хранилище из «Диалогов» не уводит.
-    return place !== null && /^\/threads(?:[/?]|$)/.test(place) ? place : '/threads';
+    return sessionStorage.getItem(placeKey(part));
   } catch {
-    return '/threads';
+    return null;
+  }
+}
+
+export function threadsPlace(part: Part | null = null): string {
+  try {
+    const place = sessionStorage.getItem(placeKey(part));
+    // Только адрес этого раздела: чужое значение в хранилище из «Диалогов» не уводит.
+    return place !== null && /^\/threads(?:[/?]|$)/.test(place) ? place : startOf(part);
+  } catch {
+    return startOf(part);
   }
 }
 

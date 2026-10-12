@@ -272,7 +272,8 @@ describe('диалоги на широком окне: список и пере�
 
     await user.click(menu.getByRole('link', { name: 'Обзор' }));
     expect(where()).toHaveTextContent(/^\/$/);
-    await user.click(menu.getByRole('link', { name: /^Диалоги/ }));
+    // «Диалоги», а не «Диалоги продаж»: у админа в меню оба пункта одного пути.
+    await user.click(menu.getByRole('link', { name: /^Диалоги(?! продаж)/ }));
 
     expect(where()).toHaveTextContent('/threads/3?state=needs_review');
     expect(

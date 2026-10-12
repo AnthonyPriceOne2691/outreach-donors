@@ -48,10 +48,29 @@ import {
 import type { ThreadTab } from './threadTabs';
 import { UnboundReplies } from './UnboundReplies';
 import { useThreadList } from './useThreadList';
+import type { ThreadListState } from './useThreadList';
 
 /** «Не привязаны — 2», как у вкладок «Отбора»; пока числа нет — одно имя. */
 function tabLabel(tab: ThreadTab, count: number | undefined): string {
   return count === undefined ? THREAD_TABS[tab] : `${THREAD_TABS[tab]} — ${formatNumber(count)}`;
+}
+
+/** Шапка: заголовок части, число и выгрузка лидов. Лиды файлом — ответы на оффер
+ *  рекламодателю: у части продаж их нет, и кнопки там нет. */
+function Head({ list }: { list: ThreadListState }) {
+  const sales = list.filters.part === 'sales';
+  return (
+    <Card className="glassPanel" px="xl" py="lg">
+      <Group justify="space-between" gap="sm">
+        <ThreadsTitle
+          total={list.total}
+          found={isThreadFiltered(list.typed) ? list.shown.length : null}
+          sales={sales}
+        />
+        {!sales && <LeadsExport />}
+      </Group>
+    </Card>
+  );
 }
 
 export function ThreadsPage() {
@@ -66,7 +85,7 @@ export function ThreadsPage() {
   const narrow = useMediaQuery('(max-width: 36em)') === true;
 
   const list = useThreadList();
-  const { data, isLoading, error } = list.query;
+  const { isLoading, error } = list.query;
 
   // Крутилка и отказ — только у своей вкладки: вторая от списка диалогов
   // не зависит и ждать его не должна.
@@ -80,29 +99,23 @@ export function ThreadsPage() {
   }
 
   const tabCounts: Record<ThreadTab, number | undefined> = {
-    threads: data?.length,
+    threads: list.total,
     unbound: unbound.data?.total,
   };
+  const part = list.filters.part;
   // Смена вкладки — замена записи в истории, как у «Отбора»; недонабранный
   // поиск сбрасывается, чтобы не догнать новую вкладку своей записью в адрес.
   // «Диалоги» — туда, где на этой вкладке были: к открытому диалогу и фильтру.
+  // Часть списка (`?stage=sales`) вкладки переживает (`threadTabs.ts`).
   const switchTab = (next: ThreadTab) => {
     list.setSearch('');
-    if (next === 'threads') void navigate(threadsPlace(), { replace: true });
-    else setParams(writeThreadTab(next), { replace: true });
+    if (next === 'threads') void navigate(threadsPlace(part), { replace: true });
+    else setParams(writeThreadTab(next, part), { replace: true });
   };
 
   return (
     <Stack gap="lg">
-      <Card className="glassPanel" px="xl" py="lg">
-        <Group justify="space-between" gap="sm">
-          <ThreadsTitle
-            total={data?.length}
-            found={isThreadFiltered(list.typed) ? list.shown.length : null}
-          />
-          <LeadsExport />
-        </Group>
-      </Card>
+      <Head list={list} />
 
       <Card className="glass tableCard" p="md">
         <Stack gap="sm">

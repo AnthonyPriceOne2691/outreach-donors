@@ -1,5 +1,9 @@
 /**
- * Группа пунктов меню с подписью: «Работа» и «Настройки» (`Shell`).
+ * Группа пунктов меню с подписью: «Доноры и рекламодатели», «Продажи», «Настройки» (`Shell`).
+ *
+ * **Продажи — своей группой** (просьба Anthony 11.10.2026): доноры и рекламодатели
+ * зависят друг от друга, продажи — отдельный продукт, и меню это показывает. Группа
+ * продаж — только с правом «Продажи»: без него в ней нечего открыть (П2).
  *
  * Подпись — не пункт и не похожа на пункт: заглавными с разрядкой, цветом акцента
  * и с линией до края колонки (`.navGroupTitle`). Мелкая приглушённая подпись
@@ -10,15 +14,20 @@
 import { Stack, Text } from '@mantine/core';
 import type { ReactNode } from 'react';
 
-export type NavGroupKey = 'work' | 'settings';
+import type { Permission } from '../api/types';
+
+export type NavGroupKey = 'mail' | 'sales' | 'settings';
 
 export interface NavGroupSpec {
   key: NavGroupKey;
   title: string;
+  /** Право, без которого группы нет вовсе. */
+  permission?: Permission;
 }
 
 export const NAV_GROUPS: NavGroupSpec[] = [
-  { key: 'work', title: 'Работа' },
+  { key: 'mail', title: 'Доноры и рекламодатели' },
+  { key: 'sales', title: 'Продажи', permission: 'sales' },
   { key: 'settings', title: 'Настройки' },
 ];
 

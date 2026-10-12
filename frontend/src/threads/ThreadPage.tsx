@@ -40,6 +40,7 @@ import type { IncomingCard } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
 import { BackLink, backTo } from '../components/BackLink';
 import { Seams } from '../components/Seams';
+import { useFollowThreadPart } from './threadPart';
 import { Composer } from './Composer';
 import { NextWaiting } from './NextWaiting';
 import { ReplyDecision } from './ReplyDecision';
@@ -82,6 +83,8 @@ export function ThreadPage() {
     queryFn: () => fetchThread(id ?? 0),
     enabled: id !== null,
   });
+  // Переписка продаж — в «Диалогах продаж», остальные — в «Диалогах» (`threadPart.ts`).
+  useFollowThreadPart(data?.card.stage);
   // Ответ, открытый кнопкой в пузыре; `null` — под лентой последний ждущий человека.
   const [picked, setPicked] = useState<number | null>(null);
   useEffect(() => setPicked(null), [id]);

@@ -237,6 +237,7 @@ async def take_lead(
         author_id=author.id,
         target=f"reply:{reply_id}",
         details={"действие": "лид взят в работу", "от кого ответ": reply.from_email},
+        stage=await repository.stage_of(reply),
     )
     await session.commit()
     logger.info("лиды: ответ №%s взят в работу", reply_id)
@@ -336,6 +337,7 @@ async def review(
             "валюта": checked.currency,
             "уверенность модели": reply.confidence,
         },
+        stage=await repository.stage_of(reply),
     )
     await session.commit()
 

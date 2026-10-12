@@ -402,21 +402,31 @@ class TestMenuWork:
         assert waiting.niche == await niche.waiting(session) == 2
         assert menu.advertisers == waiting.advertisers == 1 + 2
 
-    async def test_sales_lead_waiting_counts_like_the_threads_screen(
+    async def test_sales_lead_waiting_counts_at_the_sales_threads_item(
         self, session: AsyncSession
     ) -> None:
-        """«Ждут человека» на «Диалогах» считает и ответ лида продаж — меню тоже."""
+        """Ответ лида продаж ждёт человека — у «Диалогов продаж», а не у «Диалогов»: продажи
+        в меню — своей группой (просьба Anthony 11.10.2026), и число стоит у своего пункта."""
         await self._answered(session, Stage.SALES, "client.example.test", kind=ReplyKind.HUMAN)
+        await self._answered(session, Stage.ADVERTISERS, "lead.example.test", kind=ReplyKind.HUMAN)
         await session.flush()
 
-        assert (await work(session, stages=EVERY_STAGE)).threads == 1
+        menu = await work(session, stages=EVERY_STAGE)
 
-    async def test_menu_answer_has_the_four_numbers(
+        assert (menu.threads, menu.sales_threads) == (1, 1)
+
+    async def test_menu_answer_has_the_five_numbers(
         self, client: AsyncClient, operator_token: str
     ) -> None:
         response = await client.get("/api/overview/work", headers=bearer(operator_token))
 
-        assert response.json() == {"run": 0, "threads": 0, "forms": 0, "advertisers": 0}
+        assert response.json() == {
+            "run": 0,
+            "threads": 0,
+            "forms": 0,
+            "advertisers": 0,
+            "sales_threads": 0,
+        }
 
 
 class TestLettersAndSpending:

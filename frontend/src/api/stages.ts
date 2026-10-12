@@ -41,3 +41,26 @@ const SALES_STATES: ReadonlySet<string> = new Set(['sales_pending']);
 export function stateShown(state: string, sales: boolean): boolean {
   return !SALES_STATES.has(state) || sales;
 }
+
+/**
+ * Часть общего раздела в адресе: `?stage=sales` — только продажи (просьба Anthony
+ * 11.10.2026: продажи — отдельный продукт, и меню показывает их своей группой). Так
+ * открываются «Диалоги продаж», «Агент продаж» и «Домены продаж» — те же экраны, что
+ * «Диалоги», «Агент переписки» и «Домены рассылки», суженные до этапа продаж.
+ */
+export const PART_PARAM = 'stage';
+
+/** Часть, которую называет адрес: `sales` — продажи; иначе — пусто (раздел без сужения). */
+export type Part = 'sales';
+
+export function partOf(params: URLSearchParams): Part | null {
+  return params.get(PART_PARAM) === 'sales' ? 'sales' : null;
+}
+
+/** Адрес с частью или без неё — прочие параметры остаются как были. */
+export function withPart(params: URLSearchParams, part: Part | null): URLSearchParams {
+  const next = new URLSearchParams(params);
+  if (part === null) next.delete(PART_PARAM);
+  else next.set(PART_PARAM, part);
+  return next;
+}

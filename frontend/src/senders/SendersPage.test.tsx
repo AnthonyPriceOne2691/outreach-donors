@@ -200,4 +200,30 @@ describe('домены по этапу (4.5a)', () => {
     expect(screen.queryByText(/Лимит направления/)).not.toBeInTheDocument();
     expect(screen.queryByText(/лимит домена/)).not.toBeInTheDocument();
   });
+
+  describe('«Домены продаж» — часть экрана для группы меню «Продажи» (11.10.2026)', () => {
+    async function openPart(body: unknown) {
+      localStorage.setItem(TOKEN_KEY, 'пропуск');
+      serve({ 'GET /api/auth/me': { body: ADMIN }, 'GET /api/senders': { body } });
+      renderWith(<AppRoutes />, '/senders?stage=sales');
+      return screen.findByRole('heading', { name: 'Домены продаж' });
+    }
+
+    it('только домены продаж и их лимит, без донорских', async () => {
+      expect(await openPart(BY_STAGE)).toBeInTheDocument();
+
+      expect(screen.getByText(domain)).toBeInTheDocument();
+      expect(screen.queryByText('mail-alpha.example.test')).not.toBeInTheDocument();
+      expect(
+        screen.getByText('Лимит направления: 4 из 50 первых писем сегодня'),
+      ).toBeInTheDocument();
+    });
+
+    it('доменов продаж нет — так и сказано, а не «все выключены»', async () => {
+      expect(await openPart(SENDERS)).toBeInTheDocument();
+
+      expect(screen.getByText(/Доменов продаж пока нет/)).toBeInTheDocument();
+      expect(screen.queryByText('Отправлять нечем')).not.toBeInTheDocument();
+    });
+  });
 });

@@ -7,6 +7,9 @@
  * во всплывающей подсказке справа от значка. Число ждущей работы — жёлтой точкой на
  * значке, а сколько именно — в той же подсказке: трёхзначное число на значке
  * в 20 px не читается. Подписи групп свёрнуты в линию.
+ *
+ * **Подсвечен один пункт — тот, чей адрес открыт** (`sections.activeKey`): «Диалоги» и
+ * «Диалоги продаж» — один путь, и различает их часть в адресе (`?stage=sales`).
  */
 
 import { Badge, Indicator, NavLink, Stack, Tooltip, VisuallyHidden } from '@mantine/core';
@@ -15,6 +18,7 @@ import { Link, useLocation } from 'react-router-dom';
 import type { WorkView } from '../api/overview';
 import { formatNumber } from '../format';
 import { NAV_GROUPS, NavGroup } from './NavGroup';
+import { activeKey, sectionKey } from './sections';
 import type { Section } from './sections';
 import { ThemeToggle } from './ThemeToggle';
 
@@ -79,14 +83,14 @@ function NavItem({ section, count, to, active, folded }: ItemProps) {
 interface Props {
   sections: Section[];
   work: WorkView | undefined;
-  placeOf: (path: string) => string;
+  /** Куда ведёт пункт: место, откуда из раздела ушли, или его адрес. */
+  placeOf: (section: Section) => string;
   folded: boolean;
 }
 
 export function NavMenu({ sections, work, placeOf, folded }: Props) {
   const location = useLocation();
-  const isActive = (path: string) =>
-    path === '/' ? location.pathname === '/' : location.pathname.startsWith(path);
+  const active = activeKey(sections, location.pathname, location.search);
   return (
     <Stack
       h="100%"
@@ -107,11 +111,11 @@ export function NavMenu({ sections, work, placeOf, folded }: Props) {
             <NavGroup key={group.key} group={group} folded={folded}>
               {items.map((section) => (
                 <NavItem
-                  key={section.path}
+                  key={sectionKey(section)}
                   section={section}
                   count={section.work === undefined ? undefined : work?.[section.work]}
-                  to={placeOf(section.path)}
-                  active={isActive(section.path)}
+                  to={placeOf(section)}
+                  active={sectionKey(section) === active}
                   folded={folded}
                 />
               ))}

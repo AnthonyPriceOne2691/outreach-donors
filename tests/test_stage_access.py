@@ -353,8 +353,9 @@ async def test_thread_list_leaves_sales_out_without_the_right(
 async def test_overview_and_menu_count_sales_only_with_the_right(
     client: AsyncClient, world: World, outsider: dict[str, str], seller: dict[str, str]
 ) -> None:
-    """Ответ лида ждёт человека: у пункта «Диалоги» — только с правом. Письма продаж — тоже:
-    без права этапа продаж в сводке писем нет вовсе, а не нулями."""
+    """Ответ лида ждёт человека: у пункта «Диалоги продаж» — только с правом, у «Диалогов»
+    доноров и рекламодателей — никогда. Письма продаж — тоже: без права этапа продаж в сводке
+    писем нет вовсе, а не нулями."""
     hidden = (await client.get("/api/overview", headers=outsider)).json()
     shown = (await client.get("/api/overview", headers=seller)).json()
     hidden_menu = (await client.get("/api/overview/work", headers=outsider)).json()
@@ -363,7 +364,8 @@ async def test_overview_and_menu_count_sales_only_with_the_right(
     assert set(hidden["letters"]) == {"donors", "advertisers"}
     assert (shown["letters"]["sales"]["queued"], shown["letters"]["sales"]["sent"]) == (1, 1)
     assert hidden["letters"]["donors"] == shown["letters"]["donors"]
-    assert (hidden_menu["threads"], shown_menu["threads"]) == (0, 1)
+    assert (hidden_menu["sales_threads"], shown_menu["sales_threads"]) == (0, 1)
+    assert hidden_menu["threads"] == shown_menu["threads"] == 0
 
 
 async def test_draft_list_leaves_sales_out_without_the_right(

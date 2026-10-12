@@ -18,17 +18,29 @@
  *
  * **Вкладка «Не привязаны» — на всю ширину**, без правой колонки: у ответа без письма
  * своей переписки нет, открывать справа нечего. Вкладка «Диалоги» возвращает оттуда
- * к открытому диалогу с его фильтром (`threadTabs.threadsPlace`).
+ * к открытому диалогу с его фильтром (`threadTabs.threadsPlace`) — своей части. Адрес,
+ * который переписка поправила заменой (`threadPart.ts`: ссылка без части на переписку
+ * продаж), чужой части не достаётся: её место возвращается прежним, как у пунктов меню
+ * (`layout/sectionPlace.ts`, проверка ветки 12.10.2026).
  */
 
 import { Card, Stack } from '@mantine/core';
-import { useEffect } from 'react';
-import { Outlet, useLocation, useMatch, useSearchParams } from 'react-router-dom';
+import { useEffect, useRef } from 'react';
+import {
+  NavigationType,
+  Outlet,
+  useLocation,
+  useMatch,
+  useNavigationType,
+  useSearchParams,
+} from 'react-router-dom';
 
+import { partOf } from '../api/stages';
 import { useSplit } from '../layout/split';
 import { ThreadList } from './ThreadList';
 import { ThreadsPage } from './ThreadsPage';
-import { readThreadTab, rememberThreadsPlace } from './threadTabs';
+import { readThreadTab, rememberThreadsPlace, storedThreadsPlace } from './threadTabs';
+import type { Part } from '../api/stages';
 
 /** Что маршрут переписки знает о своём месте (`ThreadPage`). */
 export interface ThreadOutlet {
@@ -45,10 +57,26 @@ export function ThreadsScreen() {
   const [params] = useSearchParams();
   const location = useLocation();
   const tab = readThreadTab(params);
+  const part = partOf(params);
   const here = `${location.pathname}${location.search}`;
+  const navigation = useNavigationType();
+  const last = useRef<{ part: Part | null; pathname: string; was: string | null } | null>(null);
   useEffect(() => {
-    if (tab === 'threads') rememberThreadsPlace(here);
-  }, [tab, here]);
+    if (tab !== 'threads') return;
+    const before = last.current;
+    // Переписка поправила часть заменой адреса на том же экране — прежней части адрес
+    // достался по ошибке: её место — как было до него.
+    if (
+      before !== null &&
+      navigation === NavigationType.Replace &&
+      before.pathname === location.pathname &&
+      before.part !== part
+    ) {
+      rememberThreadsPlace(before.was, before.part);
+    }
+    last.current = { part, pathname: location.pathname, was: storedThreadsPlace(part) };
+    rememberThreadsPlace(here, part);
+  }, [tab, here, part, navigation, location.pathname]);
   if (!split) return opened ? <Outlet context={PAGE} /> : <ThreadsPage />;
   if (!opened && tab === 'unbound') return <ThreadsPage />;
   return (

@@ -328,6 +328,11 @@ async def _decided(session: AsyncSession, draft: AgentDraftModel, by: Decider, w
     draft.decided_by = by.name
     draft.decided_at = datetime.now(UTC)
     await session.flush()
+    # Этап — в записи: решение по черновику продаж прячется от учётки без права
+    # «Продажи» и тогда, когда черновик удалила чистка проб (`access/journal.py`).
+    stage = await session.scalar(
+        select(AgentSettingsModel.stage).where(AgentSettingsModel.id == draft.settings_id)
+    )
     await AccessRepository(session).record(
         AuditAction.AGENT_DRAFT_DECIDED,
         author_id=by.user_id,
@@ -340,4 +345,5 @@ async def _decided(session: AsyncSession, draft: AgentDraftModel, by: Decider, w
             "вид причины": draft.reject_kind,
             "кто": by.name,
         },
+        stage=stage,
     )

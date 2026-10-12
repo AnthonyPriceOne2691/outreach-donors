@@ -15,6 +15,7 @@ import { useSession } from '../auth/AuthProvider';
 import { useTyped } from '../donors/useTyped';
 import { formatNumber } from '../format';
 import {
+  inPart,
   NO_THREAD_FILTERS,
   readThreadFilters,
   threadEmptiness,
@@ -97,8 +98,13 @@ export function useThreadList() {
   );
 
   // Новый массив на каждую отрисовку пересчитывал бы счётчики всегда: порядок и
-  // список — один раз на ответ сервера (`useSortedThreads`).
-  const { query, threads } = useSortedThreads();
+  // список — один раз на ответ сервера (`useSortedThreads`). Список — части из адреса:
+  // «Диалоги» без продаж, «Диалоги продаж» — только они (`inPart`).
+  const { query, threads: all } = useSortedThreads();
+  const threads = useMemo(
+    () => all.filter((thread) => inPart(thread, filters.part)),
+    [all, filters.part],
+  );
   const counts = useMemo(() => {
     const totals = new Map<ThreadState, number>();
     for (const thread of threads) {
@@ -125,14 +131,19 @@ export function useThreadList() {
   ];
   const pickState = (value: string | null) =>
     apply({ state: THREAD_STATE_KEYS.find((state) => state === value) ?? null });
+  // Сброс — фильтров, а не части: «Диалоги продаж» остаются диалогами продаж.
   const reset = () => {
     setSearch('');
-    setParams(writeThreadFilters(NO_THREAD_FILTERS), { replace: true });
+    setParams(writeThreadFilters({ ...NO_THREAD_FILTERS, part: filters.part }), {
+      replace: true,
+    });
   };
 
   return {
     query,
     threads,
+    /** Сколько диалогов в части; `undefined` — список ещё не пришёл. */
+    total: query.data === undefined ? undefined : threads.length,
     filters,
     typed,
     search,

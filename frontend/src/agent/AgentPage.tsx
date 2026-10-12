@@ -21,16 +21,22 @@
  *
  * **Набранное не пропадает молча** (проверка прода 10.10.2026): уход по ссылке и
  * закрытие вкладки с несохранённым — с вопросом, этапы названы (`LeaveGuard`).
+ *
+ * **Этап продаж — в адресе** (`?stage=sales`, 11.10.2026): так экран открывает пункт
+ * «Агент продаж» группы меню «Продажи», и выбор продаж в переключателе пишет его туда же —
+ * подсвечен пункт того этапа, что на экране. Прочие этапы выбираются, как раньше.
  */
 
 import { Alert, Badge, Card, Group, Loader, Stack, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
+import type { ReactNode } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 import { fetchAgentSettings } from '../api/agent';
 import type { AgentStageView } from '../api/agent';
 import { refusalOf } from '../api/client';
-import { stageShown } from '../api/stages';
+import { partOf, stageShown, withPart } from '../api/stages';
 import { useSession } from '../auth/AuthProvider';
 import { LeaveGuard } from '../components/LeaveGuard';
 import { PageHead } from '../components/PageHead';
@@ -151,38 +157,85 @@ function StageSettings({ view, canEdit, edit, onEdit, onSaved }: StageProps) {
   );
 }
 
+/** Какой этап на экране: продажи — когда они в адресе; иначе выбранный, а пока не выбран —
+ *  первый в реестре. Продажи без адреса не держатся: ушли из «Агента продаж» в «Агент
+ *  переписки» — экран тот же, а этап — не продажи. */
+function shownStage(
+  stages: AgentStageView[],
+  picked: string | null,
+  sales: boolean,
+): AgentStageView | undefined {
+  if (sales) return stages.find((one) => one.stage === 'sales');
+  const chosen = picked === 'sales' ? null : picked;
+  return stages.find((one) => one.stage === chosen) ?? stages.at(0);
+}
+
+interface BodyProps {
+  error: Error | null;
+  view: AgentStageView | undefined;
+  /** Ответ пришёл, а этапа продаж в нём нет — открыт «Агент продаж». */
+  missing: boolean;
+  children: (view: AgentStageView) => ReactNode;
+}
+
+/** Под переключателем: настройки этапа — или почему их нет: отказ, этапа нет, ответ едет. */
+function StageBody({ error, view, missing, children }: BodyProps) {
+  if (missing) {
+    return <Text size="sm">Этапа продаж у агента на сервере нет — настраивать нечего.</Text>;
+  }
+  if (error) {
+    return (
+      <Alert color="red" title="Настройки агента не загрузились">
+        {refusalOf(error)}
+      </Alert>
+    );
+  }
+  if (view === undefined) return <Loader size="sm" aria-label="Загружаем настройки агента" />;
+  return children(view);
+}
+
+/** Выбранный этап: продажи — в адресе (`?stage=sales`), прочие — в состоянии экрана.
+ *  Выбор пишет адрес заменой записи: продажи — с частью, прочие — без неё. */
+function useStagePick(canSales: boolean) {
+  const [params, setParams] = useSearchParams();
+  const [picked, setPicked] = useState<string | null>(null);
+  const choose = (next: string) => {
+    setPicked(next);
+    setParams((current) => withPart(current, next === 'sales' ? 'sales' : null), {
+      replace: true,
+    });
+  };
+  return { sales: canSales && partOf(params) === 'sales', picked, choose };
+}
+
 export function AgentPage() {
   const { can } = useSession();
-  const [picked, setPicked] = useState<string | null>(null);
+  const { sales, picked, choose } = useStagePick(can('sales'));
   // Черновик у каждого этапа свой: переключение этапа не теряет набранное.
   const [drafts, setDrafts] = useState<Drafts>({});
   const { data, error } = useQuery({ queryKey: AGENT_KEY, queryFn: fetchAgentSettings });
   // Пока этап не выбран — первый в реестре из тех, что учётка видит.
   const stages = (data?.stages ?? []).filter((one) => stageShown(one.stage, can('sales')));
-  const view = stages.find((one) => one.stage === picked) ?? stages.at(0);
-  const stage = view?.stage ?? '';
+  const view = shownStage(stages, picked, sales);
 
-  let content = <Loader size="sm" aria-label="Загружаем настройки агента" />;
-  if (error) {
-    content = (
-      <Alert color="red" title="Настройки агента не загрузились">
-        {refusalOf(error)}
-      </Alert>
-    );
-  } else if (view !== undefined) {
-    content = (
-      <StageSettings
-        key={stage}
-        view={view}
-        canEdit={can('settings')}
-        edit={drafts[stage]}
-        onEdit={(draft) =>
-          setDrafts((all) => (draft === null ? without(all, stage) : { ...all, [stage]: draft }))
-        }
-        onSaved={(saved) => setDrafts((all) => without(all, saved))}
-      />
-    );
-  }
+  const content = (
+    <StageBody error={error} view={view} missing={sales && data !== undefined && !view}>
+      {(shown) => (
+        <StageSettings
+          key={shown.stage}
+          view={shown}
+          canEdit={can('settings')}
+          edit={drafts[shown.stage]}
+          onEdit={(draft) =>
+            setDrafts((all) =>
+              draft === null ? without(all, shown.stage) : { ...all, [shown.stage]: draft },
+            )
+          }
+          onSaved={(saved) => setDrafts((all) => without(all, saved))}
+        />
+      )}
+    </StageBody>
+  );
 
   return (
     <Stack gap="lg">
@@ -191,14 +244,14 @@ export function AgentPage() {
           {/* Заголовок стоит при любой загрузке и любом отказе, как у писем;
               переключатель — с ответом сервера: этапы знает его реестр. */}
           <PageHead
-            title="Агент переписки"
+            title={sales ? 'Агент продаж' : 'Агент переписки'}
             hint="Агент готовит черновик ответа собеседнику по этим настройкам, человек правит его и отправляет. Сохранение заводит новую версию: черновик объясняется той, по которой написан."
           />
           {view !== undefined && (
             <StageSwitch
               label="Этап"
-              value={stage}
-              onChange={setPicked}
+              value={view.stage}
+              onChange={choose}
               lead={view.lead}
               stages={stages.map((one) => ({ value: one.stage, label: one.title }))}
             />

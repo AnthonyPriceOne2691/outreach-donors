@@ -19,8 +19,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.access.passwords import hash_password
 from backend.features.access.permissions import Actor, has_permission
-from backend.features.core.domain import AuditAction, Permission, UserRole
+from backend.features.core.domain import AuditAction, Permission, Stage, UserRole
 from backend.features.core.models.access import AuditLogModel, UserModel
+
+#: Этап действия в подробностях записи журнала — ключ и значение кодом этапа (`Stage`):
+#: «этап: sales». По нему журнал прячет действия продаж от учётки без права «Продажи»
+#: (`access/journal.py`, П2); экран называет значение словами.
+STAGE_KEY = "этап"
 
 
 class EmailTakenError(ValueError):
@@ -208,9 +213,19 @@ class AccessRepository:
         author_id: int | None = None,
         target: str | None = None,
         details: dict[str, Any] | None = None,
+        stage: Stage | None = None,
     ) -> None:
         """Записать событие. Без коммита: запись обязана попасть в ту же
-        транзакцию, что и само действие."""
+        транзакцию, что и само действие.
+
+        `stage` — этап, к которому относится действие, — ложится в подробности
+        (`STAGE_KEY`) в момент действия, а не узнаётся потом по строке, о которой
+        запись: строку удаляют (снятая запись стоп-листа, чистка проб), а журнал
+        обязан знать этап и тогда (проверка ветки 12.10.2026). Свой «этап»
+        вызывающего — словами — сильнее: он уже говорит то же самое.
+        """
+        if stage is not None:
+            details = {STAGE_KEY: stage.value, **(details or {})}
         self._session.add(
             AuditLogModel(
                 user_id=author_id,

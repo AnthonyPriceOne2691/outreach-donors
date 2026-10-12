@@ -57,9 +57,9 @@
       "worst": "to_settings:58"
     },
     "backend/api/app.py": {
-      "lines": 98,
+      "lines": 100,
       "complexity": 1,
-      "worst": "create_app:47"
+      "worst": "create_app:48"
     },
     "backend/api/auth/__init__.py": {
       "lines": 1,
@@ -132,9 +132,9 @@
       "worst": "of:161"
     },
     "backend/api/errors.py": {
-      "lines": 464,
+      "lines": 467,
       "complexity": 7,
-      "worst": "_database_code:292"
+      "worst": "_database_code:295"
     },
     "backend/api/events/__init__.py": {
       "lines": 1,
@@ -181,6 +181,21 @@
       "complexity": 2,
       "worst": "outcome:62"
     },
+    "backend/api/journal/__init__.py": {
+      "lines": 1,
+      "complexity": 0,
+      "worst": "—"
+    },
+    "backend/api/journal/routes.py": {
+      "lines": 64,
+      "complexity": 1,
+      "worst": "journal:35"
+    },
+    "backend/api/journal/schemas.py": {
+      "lines": 64,
+      "complexity": 2,
+      "worst": "of:56"
+    },
     "backend/api/keywords/__init__.py": {
       "lines": 1,
       "complexity": 0,
@@ -207,7 +222,7 @@
       "worst": "enqueue_once:56"
     },
     "backend/api/letters/routes.py": {
-      "lines": 406,
+      "lines": 408,
       "complexity": 5,
       "worst": "build:141"
     },
@@ -232,7 +247,7 @@
       "worst": "summary:34"
     },
     "backend/api/overview/schemas.py": {
-      "lines": 137,
+      "lines": 144,
       "complexity": 3,
       "worst": "of:110"
     },
@@ -247,9 +262,9 @@
       "worst": "_ascii_name:28"
     },
     "backend/api/replies/routes.py": {
-      "lines": 372,
+      "lines": 374,
       "complexity": 7,
-      "worst": "review:285"
+      "worst": "review:286"
     },
     "backend/api/replies/schemas.py": {
       "lines": 163,
@@ -362,7 +377,7 @@
       "worst": "—"
     },
     "backend/api/senders/routes.py": {
-      "lines": 133,
+      "lines": 135,
       "complexity": 6,
       "worst": "all_senders:47"
     },
@@ -397,7 +412,7 @@
       "worst": "—"
     },
     "backend/api/suppressions/routes.py": {
-      "lines": 131,
+      "lines": 134,
       "complexity": 4,
       "worst": "all_rows:51"
     },
@@ -711,6 +726,11 @@
       "complexity": 4,
       "worst": "check:51"
     },
+    "backend/features/access/journal.py": {
+      "lines": 262,
+      "complexity": 9,
+      "worst": "_filters:211"
+    },
     "backend/features/access/login.py": {
       "lines": 104,
       "complexity": 6,
@@ -727,9 +747,9 @@
       "worst": "has_permission:136"
     },
     "backend/features/access/repository.py": {
-      "lines": 228,
+      "lines": 243,
       "complexity": 7,
-      "worst": "update_access:163"
+      "worst": "update_access:168"
     },
     "backend/features/access/tokens.py": {
       "lines": 160,
@@ -757,7 +777,7 @@
       "worst": "draft_answer:138"
     },
     "backend/features/agent/drafts.py": {
-      "lines": 344,
+      "lines": 350,
       "complexity": 7,
       "worst": "reject_draft:253"
     },
@@ -1527,7 +1547,7 @@
       "worst": "_check_review:326"
     },
     "backend/features/letters/settle.py": {
-      "lines": 154,
+      "lines": 163,
       "complexity": 6,
       "worst": "record_sent:77"
     },
@@ -1557,7 +1577,7 @@
       "worst": "difference:48"
     },
     "backend/features/letters/unknown_outcome.py": {
-      "lines": 401,
+      "lines": 402,
       "complexity": 6,
       "worst": "_back:318"
     },
@@ -1592,9 +1612,9 @@
       "worst": "_of_stage:99"
     },
     "backend/features/ops/overview.py": {
-      "lines": 348,
+      "lines": 356,
       "complexity": 5,
-      "worst": "_letters:315"
+      "worst": "_letters:323"
     },
     "backend/features/ops/silence.py": {
       "lines": 336,
@@ -1862,7 +1882,7 @@
       "worst": "gather_candidates:236"
     },
     "backend/features/runs/prune.py": {
-      "lines": 476,
+      "lines": 487,
       "complexity": 11,
       "worst": "_replies:348"
     },
@@ -2552,7 +2572,7 @@
       "worst": "unbound_probes:32"
     },
     "scripts/ui_screens_reports.py": {
-      "lines": 42,
+      "lines": 64,
       "complexity": 1,
       "worst": "report_screens:15"
     },

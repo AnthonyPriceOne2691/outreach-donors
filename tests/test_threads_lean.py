@@ -434,7 +434,10 @@ async def test_menu_and_overview_count_what_the_cards_say(session: AsyncSession)
     view = await overview(session, now=NOW, stages=EVERY_STAGE)
 
     states = [card.summary.state for card in cards.values()]
-    assert menu.threads == sum(state in WAITS_FOR_PERSON for state in states) == WAITING_ALL
+    # «Диалоги» и «Диалоги продаж» — своими пунктами; вместе — все ждущие.
+    assert menu.threads + menu.sales_threads == WAITING_ALL
+    assert sum(state in WAITS_FOR_PERSON for state in states) == WAITING_ALL
+    assert menu.sales_threads == WAITING_SALES
     assert view.waiting.prices == states.count(ThreadState.NEEDS_REVIEW) == WAITING_PRICES
     assert view.waiting.leads == states.count(ThreadState.LEAD) == WAITING_LEADS
     assert view.donors.replied == REPLIED_DONORS
@@ -464,7 +467,13 @@ async def test_screens_get_the_same_answers(
         assert set(row) == set(ThreadCard.model_fields)
         one = await client.get(f"/api/threads/{row['id']}", headers=headers)
         assert one.json()["card"] == row
-    assert menu == {"run": 0, "threads": WAITING_ALL, "forms": 0, "advertisers": 0}
+    assert menu == {
+        "run": 0,
+        "threads": WAITING_ALL - WAITING_SALES,
+        "forms": 0,
+        "advertisers": 0,
+        "sales_threads": WAITING_SALES,
+    }
 
 
 async def test_list_and_counts_take_no_texts(session: AsyncSession) -> None:

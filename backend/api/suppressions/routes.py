@@ -93,6 +93,7 @@ async def add_row(
             "причина": row.reason.value,
             "до": row.expires_at.isoformat() if row.expires_at else "навсегда",
         },
+        stage=row.stage,
     )
     await session.commit()
     logger.info("стоп-лист: %s добавил %s (%s)", author.email, row.target, row.reason.value)
@@ -122,6 +123,8 @@ async def remove_row(
             "почему сняли": (body.reason or "").strip() or None,
             "решение адресата": row.donor_decision,
         },
+        # Этап — в записи: строки стоп-листа после снятия нет, узнать его потом не по чему.
+        stage=row.stage,
     )
     await session.commit()
     logger.info(

@@ -5,6 +5,7 @@
 
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useLocation } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
@@ -368,5 +369,73 @@ describe('агент переписки: набранное не пропада�
     expect(leave()).toBe(false);
     await user.type(screen.getByLabelText('Тон'), ', по делу');
     expect(leave()).toBe(true);
+  });
+});
+
+describe('«Агент продаж» — этап продаж в адресе (группа меню «Продажи», 11.10.2026)', () => {
+  const SALES: AgentStageView = {
+    ...stage('advertisers', ADVERTISERS),
+    stage: 'sales',
+    title: 'Лидам',
+    lead: 'Лидам мы отвечаем фактами из базы знаний.',
+  };
+
+  function Where() {
+    const location = useLocation();
+    return <output data-testid="where">{`${location.pathname}${location.search}`}</output>;
+  }
+
+  async function openPart(path: string) {
+    localStorage.setItem(TOKEN_KEY, 'пропуск');
+    serve({
+      'GET /api/auth/me': { body: ADMIN },
+      'GET /api/agent/settings': { body: { stages: [...BLANK.stages, SALES] } },
+    });
+    renderWith(
+      <>
+        <AppRoutes />
+        <Where />
+      </>,
+      path,
+    );
+    await screen.findByLabelText('Цель разговора');
+  }
+
+  it('адрес с этапом продаж открывает его: заголовок и пункт меню — продаж', async () => {
+    await openPart('/agent?stage=sales');
+
+    expect(screen.getByRole('heading', { name: 'Агент продаж' })).toBeInTheDocument();
+    expect(screen.getByText('Лидам мы отвечаем фактами из базы знаний.')).toBeInTheDocument();
+    const menu = within(screen.getByRole('navigation', { name: 'Разделы' }));
+    expect(menu.getByRole('link', { name: 'Агент продаж' })).toHaveAttribute('data-active');
+    expect(menu.getByRole('link', { name: 'Агент переписки' })).not.toHaveAttribute('data-active');
+  });
+
+  it('выбор другого этапа уводит из части продаж, выбор продаж — в неё', async () => {
+    await openPart('/agent?stage=sales');
+    const user = userEvent.setup();
+
+    await user.click(screen.getByText('Донорам'));
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(/^\/agent$/));
+    expect(screen.getByRole('heading', { name: 'Агент переписки' })).toBeInTheDocument();
+
+    await user.click(screen.getByText('Лидам'));
+    await waitFor(() =>
+      expect(screen.getByTestId('where')).toHaveTextContent('/agent?stage=sales'),
+    );
+  });
+
+  it('из «Агента продаж» пунктом «Агент переписки» — этап не продажи', async () => {
+    await openPart('/agent?stage=sales');
+    const user = userEvent.setup();
+
+    await user.click(
+      within(screen.getByRole('navigation', { name: 'Разделы' })).getByRole('link', {
+        name: 'Агент переписки',
+      }),
+    );
+
+    expect(await screen.findByText('Донорам мы покупаем размещение.')).toBeInTheDocument();
+    expect(screen.queryByText('Лидам мы отвечаем фактами из базы знаний.')).not.toBeInTheDocument();
   });
 });
