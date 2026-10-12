@@ -716,6 +716,8 @@ export interface OverviewWaiting {
   forms: number;
   advertisers: number;
   niche: number;
+  /** Из ждущих на «Формах» — рекламодателей; нет поля — сервер старше экрана. */
+  advertiser_forms?: number;
 }
 
 export interface OverviewLetters {
@@ -799,6 +801,10 @@ export interface FormsView {
   limit: number;
   monthly_left: number;
   monthly_cap: number;
+  /** Ждут рук во вкладке рекламодателей; нет поля — сервер старше экрана. */
+  advertisers_waiting?: number;
+  /** Через сколько дней после прошлого поиска закрытому «Не вышло» поищут адрес снова. */
+  retry_days?: number;
 }
 
 /** Кандидат в рекламодатели: балл скоринга и всё, по чему решает человек. */

@@ -28,11 +28,17 @@
  * и ложного среди купленных снять было нечем, кроме консоли; письмо уходит
  * именно им. Сверху — обход доноров (`CrawlPanel`): откуда кандидаты берутся.
  * Снизу — «К письму» (`PromotePanel`): перевод в рекламодатели и их адреса.
+ *
+ * **Доля ложных — в шапке очереди, с допуском ТЗ** (`FalseShare`, сверка ТЗ
+ * 11.10.2026): ради неё экран и сделан, а до этого её не было нигде.
+ *
+ * **Три вида — переключателем вверху** (`AdvertiserViews`): проверка (всё выше,
+ * таблица очереди — `CandidatesTable`), все рекламодатели списком с выгрузкой
+ * (`AdvertiserList`) и приёмка по донорам (`AcceptanceReport`).
  */
 
 import {
   Alert,
-  Anchor,
   Badge,
   Button,
   Card,
@@ -41,7 +47,6 @@ import {
   SegmentedControl,
   Stack,
   Switch,
-  Table,
   Text,
 } from '@mantine/core';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -52,42 +57,19 @@ import type { ReviewedVerdict } from '../api/advertisers';
 import { decideCandidate, fetchCandidates } from '../api/advertisers';
 import type { CandidateCard } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
-import { formatDate, formatNumber, plural } from '../format';
-import type { Column } from '../components/ColumnsHead';
-import { ColumnsHead } from '../components/ColumnsHead';
+import { formatNumber } from '../format';
 import { PageHead } from '../components/PageHead';
-import { Seams } from '../components/Seams';
+import { AcceptanceReport } from './AcceptanceReport';
+import { AdvertiserList } from './AdvertiserList';
+import { useAdvertiserView, ViewSwitch } from './AdvertiserViews';
+import { CandidatesTable, VERDICTS } from './CandidatesTable';
 import { CrawlPanel } from './CrawlPanel';
-import { LinkAnchor } from './LinkAnchor';
+import { FalseShare } from './FalseShare';
 import { NicheQueue } from './NicheQueue';
 import { PromotePanel } from './PromotePanel';
 import { notify } from '../notices';
 
 const QUERY_KEY = ['advertisers'] as const;
-
-/** Как называется каждый исход скоринга на человеческом языке. */
-const VERDICTS: Record<CandidateCard['verdict'], { label: string; color: string }> = {
-  bought: { label: 'куплена', color: 'green' },
-  pending: { label: 'спорно', color: 'yellow' },
-  skipped: { label: 'мимо', color: 'gray' },
-  blocked: { label: 'кому не пишем', color: 'gray' },
-};
-
-/** Колонки слева направо. **Остаток — «За что»**: в ней причины скоринга, по строке
- *  на причину, и в 15rem они переносились, а «+2» вставало на свою строку — строка
- *  таблицы росла до 130–160 px, пока «Кому ссылается» держала ~300 px под короткий
- *  домен (аудит экранов 09.10.2026). Домену — 13rem, он переносится по швам; «Ссылка» —
- *  текст; остальные — по самому длинному шрифтом экрана (25.09.2026): кнопки «Пишем» и
- *  «Не пишем» с зазором — около 154 px. Плюс 32 px полей ячейки и запас. */
-const COLUMNS: Column[] = [
-  { title: 'Кому ссылается', width: '13rem' },
-  { title: 'Донор', width: '11rem' },
-  { title: 'Балл', width: '4.75rem' },
-  { title: 'За что' },
-  { title: 'Ссылка', width: '12rem' },
-];
-const ACTIONS_WIDTH = '12.5rem';
-const TABLE_MIN_WIDTH = 1080;
 
 /** Что смотрит человек — спорных или «куплено» — и что это значит. */
 const LISTS: Record<ReviewedVerdict, { title: string; lead: string }> = {
@@ -148,7 +130,8 @@ function EmptyQueue({
   );
 }
 
-export function AdvertisersPage() {
+/** Вид «Проверка»: обход доноров, спорные и «куплено», перевод к письму, бизнесы ниши. */
+function ReviewView() {
   const { can } = useSession();
   const queryClient = useQueryClient();
   const [includeDecided, setIncludeDecided] = useState(false);
@@ -224,6 +207,7 @@ export function AdvertisersPage() {
               </Badge>
             ))}
           </Group>
+          {data?.scoring !== undefined ? <FalseShare check={data.scoring} /> : null}
           <Group justify="space-between" align="center">
             <Text size="sm">
               Ждут человека: <b>{formatNumber(waiting)}</b>
@@ -263,118 +247,28 @@ export function AdvertisersPage() {
             onShowDecided={includeDecided ? null : () => setIncludeDecided(true)}
           />
         ) : (
-          <Table.ScrollContainer
-            minWidth={TABLE_MIN_WIDTH}
-            type="native"
-            className="scrollSlim phoneCards"
-          >
-            <Table
-              className="dataTable fixedTable"
-              layout="fixed"
-              tabularNums
-              verticalSpacing="sm"
-              horizontalSpacing="md"
-            >
-              <ColumnsHead columns={COLUMNS} tail={mayDecide ? ACTIONS_WIDTH : null} />
-              <Table.Tbody>
-                {rows.map((row) => (
-                  <Table.Tr key={row.id}>
-                    <Table.Td>
-                      {/* Имя — чернилами, как во всех таблицах: бирюзовая
-                          ссылка на бирюзовом углу полотна не держит норму. */}
-                      <Anchor
-                        href={`https://${row.target_root}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        c="var(--ink)"
-                        fw={500}
-                        underline="hover"
-                        className="cellName"
-                      >
-                        <Seams text={row.target_root} />
-                      </Anchor>
-                      {row.confirmed !== null ? (
-                        <Text size="xs" c="dimmed" className="cellName">
-                          {row.confirmed ? 'пишем' : 'не пишем'} — {row.decided_by}
-                        </Text>
-                      ) : null}
-                    </Table.Td>
-                    <Table.Td className="wrapCell cellName" data-label="Донор">
-                      <Seams text={row.donor_host} />
-                    </Table.Td>
-                    <Table.Td data-label="Балл">
-                      <Badge variant="light" color={VERDICTS[row.verdict].color}>
-                        {row.points}
-                      </Badge>
-                    </Table.Td>
-                    {/* Причины — строками по центру, как всё в колонке, без
-                        маркеров списка: маркеры стояли у левого края, а текст
-                        посередине, и строки читались оторванными от них. */}
-                    <Table.Td className="wrapCell" data-label="За что">
-                      <Stack gap={2}>
-                        {row.reasons.map((reason) => (
-                          <Text key={reason} size="xs">
-                            {reason}
-                          </Text>
-                        ))}
-                        <Text size="xs" c="dimmed">
-                          {formatNumber(row.links)}{' '}
-                          {plural(row.links, 'ссылка', 'ссылки', 'ссылок')} с{' '}
-                          {formatNumber(row.pages)}{' '}
-                          {plural(row.pages, 'страницы', 'страниц', 'страниц')}
-                        </Text>
-                      </Stack>
-                    </Table.Td>
-                    <Table.Td className="wrapCell" data-label="Ссылка">
-                      {row.best_page_url ? (
-                        <Anchor href={row.best_page_url} target="_blank" rel="noreferrer" size="sm">
-                          страница
-                        </Anchor>
-                      ) : (
-                        '—'
-                      )}
-                      {row.best_anchor ? <LinkAnchor anchor={row.best_anchor} /> : null}
-                      {row.best_published ? (
-                        <Text size="xs" c="dimmed">
-                          статья от {formatDate(row.best_published)}
-                        </Text>
-                      ) : null}
-                    </Table.Td>
-                    {mayDecide ? (
-                      <Table.Td className="cellDecide">
-                        {/* Обе кнопки — одного веса: экран меряет ошибки скоринга, и
-                            залитая «Пишем» в каждой строке подталкивала соглашаться
-                            с ним (аудит экранов 09.10.2026). */}
-                        <Group gap="xs" justify="center" wrap="nowrap">
-                          <Button
-                            size="compact-sm"
-                            variant="light"
-                            className="press"
-                            loading={decide.isPending && decide.variables?.row.id === row.id}
-                            onClick={() => decide.mutate({ row, confirmed: true })}
-                          >
-                            Пишем
-                          </Button>
-                          <Button
-                            size="compact-sm"
-                            variant="default"
-                            className="press"
-                            onClick={() => decide.mutate({ row, confirmed: false })}
-                          >
-                            Не пишем
-                          </Button>
-                        </Group>
-                      </Table.Td>
-                    ) : null}
-                  </Table.Tr>
-                ))}
-              </Table.Tbody>
-            </Table>
-          </Table.ScrollContainer>
+          <CandidatesTable
+            rows={rows}
+            mayDecide={mayDecide}
+            deciding={decide.isPending ? (decide.variables?.row.id ?? null) : null}
+            onDecide={(row, confirmed) => decide.mutate({ row, confirmed })}
+          />
         )}
       </Card>
       <PromotePanel />
       <NicheQueue />
+    </Stack>
+  );
+}
+
+export function AdvertisersPage() {
+  const [view, setView] = useAdvertiserView();
+  return (
+    <Stack gap="lg">
+      <ViewSwitch view={view} onView={setView} />
+      {view === 'review' ? <ReviewView /> : null}
+      {view === 'list' ? <AdvertiserList /> : null}
+      {view === 'acceptance' ? <AcceptanceReport /> : null}
     </Stack>
   );
 }

@@ -119,6 +119,18 @@ describe('сводка на главной', () => {
     expect(within(advertisers).getByText('спорных 5 · бизнесов ниши 53')).toBeInTheDocument();
   });
 
+  it('формы рекламодателей — в числе «Заполнить формы» и названы', async () => {
+    // Сверка ТЗ 11.10.2026: у «Форм» вкладка рекламодателей, и число её ждущих — в той же
+    // плитке; донорская часть сходится с «и N с формой» в воронке доноров.
+    await openOverview([], {
+      body: { ...OVERVIEW, waiting: { ...OVERVIEW.waiting, forms: 99, advertiser_forms: 2 } },
+    });
+
+    const forms = await tile('Заполнить формы');
+    expect(within(forms).getByText('99')).toBeInTheDocument();
+    expect(within(forms).getByText('доноров 97 · рекламодателей 2')).toBeInTheDocument();
+  });
+
   it('доноры с адресом — ссылкой на тот же фильтр списка доноров', async () => {
     await openOverview();
 

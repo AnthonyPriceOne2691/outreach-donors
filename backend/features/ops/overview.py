@@ -124,11 +124,15 @@ class Waiting:
     prices: int
     #: Ответов рекламодателей, ещё не взятых в работу.
     leads: int
+    #: Ждут рук на «Формах» — доноры и рекламодатели (`forms.waiting`): число меню.
     forms: int
     #: Ждут «пишем / не пишем» на экране «Рекламодатели» (`_advertisers`) — число меню.
     advertisers: int
     #: Из них — бизнесов ниши: на главной они названы, а не спрятаны в сумме.
     niche: int
+    #: Из ждущих рук на «Формах» — рекламодателей (сверка ТЗ 11.10.2026): на главной
+    #: они названы, а «и N с формой» воронки доноров — про доноров.
+    advertiser_forms: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,6 +197,7 @@ async def overview(
     spending = await SpendingRepository(session).since_month_start(stages=stages, now=moment)
     decisions = await standing.waiting(session)
     advertisers, in_niche = await _advertisers(session)
+    advertiser_forms = await forms.advertiser_total(session)
     return Overview(
         donors=await _donors(session, threads, moment),
         waiting=Waiting(
@@ -200,9 +205,10 @@ async def overview(
             review_runs=decisions.runs,
             prices=_in_state(threads, ThreadState.NEEDS_REVIEW),
             leads=_in_state(threads, ThreadState.LEAD),
-            forms=await forms.total(session),
+            forms=await forms.total(session) + advertiser_forms,
             advertisers=advertisers,
             niche=in_niche,
+            advertiser_forms=advertiser_forms,
         ),
         letters=await _letters(session, stages),
         last_run=await _last_run(session),
@@ -219,7 +225,7 @@ async def work(session: AsyncSession, *, stages: Collection[Stage]) -> Work:
     return Work(
         run=(await standing.waiting(session)).domains,
         threads=sum(1 for mark in threads if mark.state in WAITS_FOR_PERSON),
-        forms=await forms.total(session),
+        forms=await forms.waiting(session),
         advertisers=(await _advertisers(session))[0],
     )
 

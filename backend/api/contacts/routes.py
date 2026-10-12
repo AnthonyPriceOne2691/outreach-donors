@@ -233,6 +233,8 @@ async def form_queue(
         limit=limit,
         monthly_left=await forms.monthly_left(session),
         monthly_cap=contacts_cfg.MANUAL_QUEUE_MONTHLY_CAP,
+        advertisers_waiting=await forms.advertiser_total(session),
+        retry_days=contacts_cfg.CONTACT_TTL_DAYS,
     )
 
 

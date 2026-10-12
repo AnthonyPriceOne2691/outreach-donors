@@ -140,8 +140,12 @@ describe('ручная очередь форм', () => {
     const user = userEvent.setup();
 
     await user.click(screen.getByRole('button', { name: 'Не вышло' }));
-    // Закрывает насовсем — с подтверждением у кнопки (09.10.2026); до него ничего не ушло.
-    const ask = await screen.findByRole('dialog', { name: /^Закрыть .* без адреса/, hidden: true });
+    // Закрывает — с подтверждением у кнопки (09.10.2026); до него ничего не ушло. Сервер
+    // без числа дней (старше экрана) — срок словами, а не обещание «письма не будет».
+    const ask = await screen.findByRole('dialog', {
+      name: 'Закрыть form.example.test без адреса? Донор уйдёт из очереди форм; адрес ему поищут снова по сроку годности прошлого поиска — до этого письма не будет.',
+      hidden: true,
+    });
     expect(recorded.calls.some((call: Call) => call.path.endsWith('/give-up'))).toBe(false);
     await user.click(within(ask).getByRole('button', { name: 'Закрыть', hidden: true }));
 

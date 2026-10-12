@@ -42,6 +42,10 @@ ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("POST", "/api/advertisers/promote", None, "run"),
     ("GET", "/api/advertisers/contacts", None, "view"),
     ("POST", "/api/advertisers/contacts", {"limit": 10}, "run"),
+    ("GET", "/api/advertisers/list", None, "view"),
+    ("GET", "/api/advertisers/list/export", None, "view"),
+    ("GET", "/api/advertisers/list/facets", None, "view"),
+    ("GET", "/api/advertisers/acceptance", None, "view"),
 ]
 
 
@@ -147,8 +151,10 @@ class TestWhoIsLetIn:
             (method.upper(), path)
             for path, methods in api_app.openapi()["paths"].items()
             # Бизнесам ниши нужен свой рекламодатель и прогон — их таблица
-            # маршрутов в tests/test_niche_advertisers.py.
-            if path.startswith("/api/advertisers") and not path.startswith("/api/advertisers/niche")
+            # маршрутов в tests/test_niche_advertisers.py; формам — рекламодатель
+            # с формой, их таблица в tests/test_advertiser_forms.py.
+            if path.startswith("/api/advertisers")
+            and not path.startswith(("/api/advertisers/niche", "/api/advertisers/forms"))
             for method in methods
         }
         in_table = {

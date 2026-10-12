@@ -28,20 +28,7 @@
  * прокрутка, что и к их колонкам.
  */
 
-import {
-  Alert,
-  Anchor,
-  Badge,
-  Button,
-  Checkbox,
-  Group,
-  Select,
-  Stack,
-  Table,
-  Text,
-  TextInput,
-} from '@mantine/core';
-import type { ReactNode } from 'react';
+import { Anchor, Badge, Checkbox, Group, Select, Table, Text, TextInput } from '@mantine/core';
 import { Link } from 'react-router-dom';
 
 import {
@@ -52,9 +39,12 @@ import {
   NOT_SEARCHED,
 } from '../api/labels';
 import type { DonorFreshness, DonorRowCard, DonorStatus } from '../api/types';
+import { ColumnsHead } from '../components/ColumnsHead';
+import type { Column } from '../components/ColumnsHead';
 import { InfoHint } from '../components/InfoHint';
 import { NumberField } from '../components/NumberField';
 import { Seams } from '../components/Seams';
+import { NoRows } from '../components/WholeRow';
 import { formatCompact, formatNumber, formatShare } from '../format';
 import { DR_MAX, FRESHNESS, thresholdRefusal, totalOf, TRAFFIC_MAX } from './donorFilters';
 import type { DonorFilters, Emptiness } from './donorFilters';
@@ -85,10 +75,10 @@ import type { DonorPlace } from './place';
  *  меню домену оставалось 164 px текста, и слитный домен в 23 знака — шва в нём нет —
  *  рвался посреди слова. Ширины остальных колонок ужаты ровно на 4 px — на сколько
  *  выросло место под содержимое, — а 28 px ушли домену: 196 px текста, ~24 знака. */
-const COLUMNS: { title: string; width?: string }[] = [
+const COLUMNS: Column[] = [
   { title: 'Отметка', width: '2.25rem' },
   { title: 'Донор' },
-  { title: 'Вердикт', width: '8.5rem' },
+  { title: 'Вердикт', width: '8.5rem', hint: <VerdictHint /> },
   { title: 'DR', width: '5.75rem' },
   { title: 'Трафик', width: '7.75rem' },
   { title: 'Гео', width: '12rem' },
@@ -426,43 +416,6 @@ function DonorRow({ donor, place, picked, onPick, onOpen }: RowProps) {
   );
 }
 
-/** Одна строка на всю ширину: пустой результат, отказ сервера. Фильтры над
- *  ней остаются — поправить условие можно тут же, не возвращаясь. */
-function WholeRow({ children }: { children: ReactNode }) {
-  return (
-    <Table.Tr className="wholeRow">
-      <Table.Td colSpan={COLUMNS.length}>{children}</Table.Td>
-    </Table.Tr>
-  );
-}
-
-function EmptyRow({ empty, onReset }: { empty: Emptiness; onReset: () => void }) {
-  return (
-    <WholeRow>
-      <Stack gap={6} align="flex-start" py="sm">
-        <Text size="sm" fw={500}>
-          {empty.title}
-        </Text>
-        <Text size="sm" c="dimmed" maw={720}>
-          {empty.detail}
-        </Text>
-        <Group gap="sm">
-          {empty.path !== undefined && (
-            <Button component={Link} to={empty.path.to} size="compact-sm" className="press">
-              {empty.path.label}
-            </Button>
-          )}
-          {empty.resettable && (
-            <Button variant="subtle" size="compact-sm" className="press" onClick={onReset}>
-              Сбросить фильтры
-            </Button>
-          )}
-        </Group>
-      </Stack>
-    </WholeRow>
-  );
-}
-
 /** Флажок «все на этой странице»: отмечена часть — промежуточное состояние. */
 function PickAll({ rows, picks }: { rows: DonorRowCard[]; picks: Picks }) {
   const ids = rows.map((donor) => donor.id);
@@ -513,40 +466,22 @@ export function DonorsTable({
         verticalSpacing="sm"
         horizontalSpacing={CELL_GAP}
       >
-        <colgroup>
-          {COLUMNS.map((column) => (
-            <col key={column.title} style={column.width ? { width: column.width } : undefined} />
-          ))}
-        </colgroup>
-        <Table.Thead>
-          <Table.Tr>
-            <Table.Th>
-              <PickAll rows={stale ? [] : rows} picks={picks} />
-            </Table.Th>
-            {COLUMNS.slice(1).map((column) => (
-              <Table.Th key={column.title}>
-                {column.title === 'Вердикт' ? (
-                  <Group gap={2} justify="center" wrap="nowrap">
-                    {column.title}
-                    <VerdictHint />
-                  </Group>
-                ) : (
-                  column.title
-                )}
-              </Table.Th>
-            ))}
-          </Table.Tr>
+        <ColumnsHead
+          columns={COLUMNS}
+          heads={{ Отметка: <PickAll rows={stale ? [] : rows} picks={picks} /> }}
+        >
           <FilterRow {...filters} />
-        </Table.Thead>
+        </ColumnsHead>
         <Table.Tbody className="staleRows" data-stale={stale || undefined}>
-          {refusal !== null && (
-            <WholeRow>
-              <Alert color="red" title="Доноры не загрузились">
-                {refusal}
-              </Alert>
-            </WholeRow>
-          )}
-          {refusal === null && empty !== null && <EmptyRow empty={empty} onReset={onReset} />}
+          {/* Отказ или «пусто и почему» — строкой на всю ширину: фильтры над ней
+              остаются, поправить условие можно тут же, не возвращаясь. */}
+          <NoRows
+            span={COLUMNS.length}
+            refusal={refusal}
+            failTitle="Доноры не загрузились"
+            empty={empty}
+            onReset={onReset}
+          />
           {refusal === null &&
             rows.map((donor) => (
               <DonorRow

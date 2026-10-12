@@ -105,6 +105,14 @@ function attention(count: number): string | undefined {
   return count > 0 ? 'yellow' : undefined;
 }
 
+/** Формы ждут у доноров и рекламодателей (сверка ТЗ 11.10.2026): рекламодатели названы,
+ *  чтобы «и N с формой» в воронке доноров сходилось с донорской частью числа. */
+function formsHint({ forms, advertiser_forms: advertisers = 0 }: OverviewWaiting): string {
+  if (forms === 0) return 'форм в очереди нет';
+  if (advertisers === 0) return 'у сайта форма вместо адреса';
+  return `доноров ${formatNumber(forms - advertisers)} · рекламодателей ${formatNumber(advertisers)}`;
+}
+
 /** Части числа меню: спорные и бизнесы ниши ждут «пишем / не пишем» (проверка прода 10.10.2026). */
 function advertisersHint({ advertisers, niche }: OverviewWaiting): string {
   const parts = [
@@ -138,7 +146,7 @@ function WaitingSection({ waiting }: { waiting: OverviewWaiting }) {
         <Metric
           title="Заполнить формы"
           value={formatNumber(waiting.forms)}
-          hint={waiting.forms > 0 ? 'у сайта форма вместо адреса' : 'форм в очереди нет'}
+          hint={formsHint(waiting)}
           color={attention(waiting.forms)}
           to="/forms"
         />

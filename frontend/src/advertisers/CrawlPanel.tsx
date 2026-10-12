@@ -50,11 +50,11 @@ import { refusalOf } from '../api/client';
 import type { CrawlLaunch, CrawlsView, CrawlTarget, CrawlTargets } from '../api/crawls';
 import { fetchCrawlTargets, fetchCrawls, startCrawls } from '../api/crawls';
 import { useSession } from '../auth/AuthProvider';
-import { formatDateTime, formatNumber } from '../format';
+import { formatDateTime, formatNumber, formatPercent } from '../format';
 import { InfoHint } from '../components/InfoHint';
 import { Seams } from '../components/Seams';
 import { Unfold } from '../runs/Unfold';
-import { CrawlState, TargetsTable, isActive } from './CrawlTable';
+import { CrawlState, TargetsTable, healthLines, isActive } from './CrawlTable';
 import { ManualDonor } from './ManualDonor';
 import { notify } from '../notices';
 
@@ -108,18 +108,24 @@ function RecentCrawls({ view }: { view: CrawlsView | undefined }) {
       </Text>
       {/* На телефоне строка складывается в ярусы — домен, значок, дата, —
           а не ужимает значок до «идё…» (06.10.2026). */}
-      {rows.map((row) => (
-        <Group key={row.id} gap="xs">
-          <Text size="sm" className="cellName">
-            <Seams text={row.host} />
-          </Text>
-          <CrawlState crawl={row} />
-          <Text size="xs" c="dimmed">
-            {formatDateTime(row.finished_at ?? row.created_at)}
-            {row.requested_by ? ` · ${row.requested_by}` : ''}
-          </Text>
-        </Group>
-      ))}
+      {/* Доля закрытых страниц и мера здоровья ТЗ — в строке с датой (сверка ТЗ
+          11.10.2026): под значком они растягивали бы строку списка в ярусы. */}
+      {rows.map((row) => {
+        const health = healthLines(row);
+        return (
+          <Group key={row.id} gap="xs">
+            <Text size="sm" className="cellName">
+              <Seams text={row.host} />
+            </Text>
+            <CrawlState crawl={row} share={false} />
+            <Text size="xs" c="dimmed">
+              {formatDateTime(row.finished_at ?? row.created_at)}
+              {row.requested_by ? ` · ${row.requested_by}` : ''}
+              {health.map((said) => ` · ${said}`).join('')}
+            </Text>
+          </Group>
+        );
+      })}
     </Stack>
   );
 }
@@ -190,12 +196,27 @@ function Troubles({ error, workers }: { error: unknown; workers: number | null |
   );
 }
 
+/** Мера здоровья ТЗ словами — числами сервера; сервер старше экрана — без неё. */
+function healthRule(data: CrawlTargets | undefined): string {
+  const window = data?.health_window ?? null;
+  const slow = data?.slow_down_share ?? null;
+  const stop = data?.stop_share ?? null;
+  if (window === null || slow === null || stop === null) return '';
+  return (
+    ` Под обходом — доля закрытых страниц от всех запросов и мера здоровья ТЗ: доля ` +
+    `403/429/5xx/таймаут за последние ${formatNumber(window)} запросов. Больше ` +
+    `${formatPercent(slow)} — обход сбавляет темп вдвое, больше ${formatPercent(stop)} — ` +
+    'встаёт на паузу.'
+  );
+}
+
 /** Что панель делает — в «i» у заголовка, а не абзацем над таблицей. */
 function about(data: CrawlTargets | undefined): string {
   return (
     `Этап 2 начинается здесь: обходим доноров с известной и свежей ценой — до ` +
     `${formatNumber(data?.max_pages ?? 1000)} страниц на донора — и ищем, кому они ставят ` +
-    'ссылки. Кандидаты в рекламодатели считаются сами, когда обход закончится.'
+    'ссылки. Кандидаты в рекламодатели считаются сами, когда обход закончится.' +
+    healthRule(data)
   );
 }
 

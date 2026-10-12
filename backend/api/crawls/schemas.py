@@ -35,6 +35,13 @@ class CrawlRow(BaseModel):
     finished_at: datetime | None = None
     #: Почему обход стоит, продолжен или остановлен — словами человека.
     reason: str | None = None
+    #: Доля закрытых страниц от всех запросов обхода, 0…1; пусто — не мерили
+    #: (обход идёт или записан до замера). `requests` — сколько запросов за ней.
+    blocked_share: float | None = None
+    requests: int | None = None
+    #: Доля 403/429/5xx/таймаут за последние `window` запросов — мера здоровья ТЗ.
+    failure_share: float | None = None
+    window: int | None = None
 
     @classmethod
     def of(cls, line: CrawlLine, *, max_pages: int) -> CrawlRow:
@@ -53,6 +60,10 @@ class CrawlRow(BaseModel):
             created_at=line.created_at,
             finished_at=line.finished_at,
             reason=line.reason,
+            blocked_share=line.blocked_share,
+            requests=line.requests,
+            failure_share=line.failure_share,
+            window=line.window,
         )
 
 
@@ -91,6 +102,11 @@ class TargetsView(BaseModel):
     #: Сколько обходчиков слушает очередь. `None` — не спросили; 0 — поставленное
     #: никто не возьмёт.
     workers: int | None = None
+    #: Мера здоровья ТЗ — окно и пороги: экран называет их в пояснении панели, а не
+    #: держит свою копию чисел.
+    health_window: int | None = None
+    slow_down_share: float | None = None
+    stop_share: float | None = None
 
 
 class CrawlsView(BaseModel):

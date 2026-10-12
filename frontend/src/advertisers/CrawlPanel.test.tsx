@@ -17,7 +17,7 @@ import type { CrawlRow } from '../api/crawls';
 import { ADMIN, NO_NICHE, OPERATOR, PROMOTE_ROUTES, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
-import { crawlState } from './CrawlTable';
+import { closedShare, crawlState, failureShare } from './CrawlTable';
 import { enteredSummary } from './ManualDonor';
 
 function crawl(overrides: Partial<CrawlRow>): CrawlRow {
@@ -382,5 +382,86 @@ describe('состояние обхода словами', () => {
     [{ status: 'done' as const, outcome: 'failed' as const }, 'не открылся'],
   ])('%o → %s', (overrides, label) => {
     expect(crawlState(crawl(overrides)).label).toBe(label);
+  });
+});
+
+describe('доля закрытых страниц у строки обхода', () => {
+  const DONE = crawl({
+    status: 'done',
+    outcome: 'ok',
+    pages: 400,
+    finished_at: '2026-10-06T15:30:00Z',
+    blocked_share: 0.125,
+    requests: 480,
+  });
+
+  it.each([
+    [{ blocked_share: 0.125, requests: 480 }, 'закрыто 12,5% из 480 запросов'],
+    [{ blocked_share: 0.083, requests: 48 }, 'закрыто 8,3% из 48 запросов'],
+    [{ blocked_share: 1, requests: 21 }, 'закрыто 100% из 21 запроса'],
+    [{ blocked_share: 0, requests: 1000 }, 'закрыто 0% из 1\u00a0000 запросов'],
+  ])('%o → %s', (overrides, said) => {
+    expect(closedShare(crawl(overrides))).toBe(said);
+  });
+
+  it('идущий и записанный до замера — без доли, а не «закрыто 0%»', () => {
+    expect(closedShare(crawl({}))).toBeNull();
+    expect(closedShare(crawl({ blocked_share: null, requests: null }))).toBeNull();
+    expect(failureShare(crawl({}))).toBeNull();
+  });
+
+  it.each([
+    [{ failure_share: 0.042, window: 480 }, '403/429/5xx/таймаут — 4,2% за последние 480 запросов'],
+    [{ failure_share: 0.31, window: 500 }, '403/429/5xx/таймаут — 31% за последние 500 запросов'],
+    [{ failure_share: 0.1, window: 21 }, '403/429/5xx/таймаут — 10% за последние 21 запроса'],
+  ])('мера здоровья ТЗ словами ТЗ: %o → %s', (overrides, said) => {
+    expect(failureShare(crawl(overrides))).toBe(said);
+  });
+
+  it('мера здоровья — под долей закрытых, пороги ТЗ — в «i» панели числами сервера', async () => {
+    const sick = { ...DONE, failure_share: 0.31, window: 480 };
+    open({
+      'GET /api/crawls/targets': {
+        body: {
+          ...TARGETS,
+          donors: [{ ...TARGETS.donors[0], crawl: sick }],
+          health_window: 500,
+          slow_down_share: 0.1,
+          stop_share: 0.3,
+        },
+      },
+      'GET /api/crawls': { body: { rows: [sick], active: 0, workers: 4 } },
+    });
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Доноры и обходы' }));
+
+    const table = await screen.findByRole('table');
+    expect(
+      within(table).getByText('403/429/5xx/таймаут — 31% за последние 480 запросов'),
+    ).toBeInTheDocument();
+    await user.hover(screen.getByRole('button', { name: 'Как устроен обход доноров' }));
+    expect(
+      await screen.findByText(
+        /за последние 500 запросов\. Больше 10% — обход сбавляет темп вдвое, больше 30% — встаёт на паузу/,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('в таблице доноров — под значком обхода, в последних обходах — в строке с датой', async () => {
+    open({
+      'GET /api/crawls/targets': {
+        body: { ...TARGETS, donors: [{ ...TARGETS.donors[0], crawl: DONE }] },
+      },
+      'GET /api/crawls': { body: { rows: [DONE], active: 0, workers: 4 } },
+    });
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Доноры и обходы' }));
+
+    const table = await screen.findByRole('table');
+    expect(within(table).getByText('закрыто 12,5% из 480 запросов')).toBeInTheDocument();
+    const recent = screen.getByText('Последние обходы').parentElement!;
+    expect(within(recent).getByText(/· закрыто 12,5% из 480 запросов$/)).toBeInTheDocument();
   });
 });

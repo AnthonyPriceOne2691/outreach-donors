@@ -73,6 +73,9 @@ async def crawl_targets(
         notes=targets.explain(found.chosen),
         max_pages=pages,
         workers=await _workers(),
+        health_window=crawl_cfg.HEALTH_WINDOW,
+        slow_down_share=crawl_cfg.SLOW_DOWN_SHARE,
+        stop_share=crawl_cfg.STOP_SHARE,
     )
 
 

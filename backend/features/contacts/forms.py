@@ -19,6 +19,16 @@
 «только форма» лежит и на кандидатах, которых человек не принимал: их адреса
 искали до правила «ищем только принятым». Очередь их брала — первыми, по DR, —
 и меню с главной звали «Формы 5» рядом с «2 с формой» в воронке доноров.
+
+**Рекламодатели — своей очередью рядом** (`advertiser_queue`, сверка ТЗ 11.10.2026):
+строка ТЗ «только форма, нет email — заполняем вручную» общая на оба этапа, а очередь
+была только у доноров, и рекламодатель с одной формой не получал оффера никогда.
+В ней — те, кому пишем (`crawl/advertiser_rules.in_work`): по ссылке — всякий, бизнес
+ниши — после «пишем». Вписанный адрес — тот же `manual.add`: строка в `contacts`
+домена, и сборка оффера берёт его, как найденный лестницей.
+
+**Ориентир темпа — один на обе очереди** (`monthly_left`): он про руки, а руки одни;
+считаются только адреса, вписанные человеком, — доноров и рекламодателей.
 """
 
 from __future__ import annotations
@@ -27,16 +37,20 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import ColumnElement, and_, func, select
+from sqlalchemy import ColumnElement, Select, and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import contacts as cfg
 from backend.features.contacts import manual
 from backend.features.contacts.repository import has_address
 from backend.features.core.domain import ContactStatus
+from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
+from backend.features.crawl.advertiser_rules import in_work
+from backend.features.crawl.niche import NICHE
 from backend.features.donors.standing import is_donor
+from backend.shared.database.ids import storable
 
 logger = logging.getLogger(__name__)
 
@@ -146,20 +160,23 @@ async def monthly_left(session: AsyncSession, *, now: datetime | None = None) ->
     Адрес, на который письмо не дошло, из счёта выходит: отметка мёртвого
     (`preference.DEAD`) ложится поверх.
 
-    Только адреса доноров (проверка прода 10.10.2026): «вписан руками» — и адрес
-    кандидата с его карточки, и адрес, с которого ответил рекламодатель или лид
-    продаж; потолок форм доноров тратился на них.
+    Только адреса доноров и рекламодателей, которым пишем (проверка прода 10.10.2026,
+    сверка ТЗ 11.10.2026): «вписан руками» — и адрес кандидата с его карточки, а
+    очередь форм кандидату не заполняют. Ориентир один на обе очереди — он про руки,
+    а руки одни; адрес домена, который и донор, и рекламодатель, — один адрес.
     """
     moment = now or datetime.now(UTC)
     since = moment - timedelta(days=30)
+    donor = select(DonorModel.id).where(DonorModel.domain_id == ContactModel.domain_id, is_donor())
+    advertiser = select(AdvertiserModel.id).where(
+        AdvertiserModel.domain_id == ContactModel.domain_id, in_work()
+    )
     used = int(
         await session.scalar(
-            select(func.count(ContactModel.id))
-            .join(DonorModel, DonorModel.domain_id == ContactModel.domain_id)
-            .where(
+            select(func.count(ContactModel.id)).where(
                 ContactModel.verification_status == manual.BY_HAND,
                 ContactModel.created_at >= since,
-                is_donor(),
+                or_(donor.exists(), advertiser.exists()),
             )
         )
         or 0
@@ -224,3 +241,132 @@ async def _row(session: AsyncSession, donor_id: int) -> FormRow:
         org_traffic=traffic,
         attempted_at=attempted,
     )
+
+
+# --- рекламодатели: та же ручная очередь Этапа 2 ---
+
+
+@dataclass(frozen=True, slots=True)
+class AdvertiserFormRow:
+    """Рекламодатель из ручной очереди: форма есть, адреса нет."""
+
+    advertiser_id: int
+    domain_id: int
+    host: str
+    #: `links` — ссылка на нашем доноре, `niche` — бизнес из выдачи прогона.
+    source: str
+    #: Донор, на котором нашли ссылку; у бизнеса ниши — пусто (у него пример площадки).
+    donor_host: str | None
+    #: Прогон, в выдаче которого нашёлся бизнес ниши.
+    run_id: int | None
+    points: int
+    attempted_at: datetime | None
+
+
+def advertiser_in_queue() -> ColumnElement[bool]:
+    """Кто из рекламодателей ждёт рук — одно условие для страницы, числа и строки
+    под действие, как у доноров (`in_queue`): ему пишем (`in_work`), лестница нашла
+    только форму, адреса в базе нет."""
+    return and_(
+        in_work(),
+        AdvertiserModel.contact_status == ContactStatus.FORM_ONLY,
+        ~has_address(AdvertiserModel.domain_id),
+    )
+
+
+def _advertiser_rows() -> Select[tuple[AdvertiserModel, str]]:
+    return (
+        select(AdvertiserModel, DomainModel.host)
+        .join(DomainModel, DomainModel.id == AdvertiserModel.domain_id)
+        .where(advertiser_in_queue())
+    )
+
+
+def _advertiser_row(advertiser: AdvertiserModel, host: str) -> AdvertiserFormRow:
+    niche = advertiser.source == NICHE
+    return AdvertiserFormRow(
+        advertiser_id=advertiser.id,
+        domain_id=advertiser.domain_id,
+        host=host,
+        source=advertiser.source,
+        donor_host=None if niche else advertiser.best_donor_host,
+        run_id=advertiser.found_run_id if niche else None,
+        points=advertiser.points,
+        attempted_at=advertiser.contact_attempted_at,
+    )
+
+
+async def advertiser_queue(
+    session: AsyncSession, *, page: int = 1, size: int = PAGE_SIZE
+) -> list[AdvertiserFormRow]:
+    """Кого из рекламодателей заполнять руками — страница, номер с единицы. Самые
+    доказательные сверху — балл, как у сборки офферов; порядок полный, до номера."""
+    rows = await session.execute(
+        _advertiser_rows()
+        .order_by(AdvertiserModel.points.desc(), AdvertiserModel.id)
+        .limit(size)
+        .offset((page - 1) * size)
+    )
+    return [_advertiser_row(advertiser, host) for advertiser, host in rows.tuples()]
+
+
+async def advertiser_total(session: AsyncSession) -> int:
+    """Сколько рекламодателей ждёт рук."""
+    return int(
+        await session.scalar(select(func.count(AdvertiserModel.id)).where(advertiser_in_queue()))
+        or 0
+    )
+
+
+async def waiting(session: AsyncSession) -> int:
+    """Сколько ждёт рук на «Формах» всего — доноры и рекламодатели: число меню."""
+    return await total(session) + await advertiser_total(session)
+
+
+async def _advertiser(session: AsyncSession, advertiser_id: int) -> AdvertiserFormRow:
+    # Номер больше столбца — «нет в очереди», а не пятисотка базы (`storable`).
+    found = (
+        (
+            await session.execute(_advertiser_rows().where(AdvertiserModel.id == advertiser_id))
+        ).first()
+        if storable(advertiser_id)
+        else None
+    )
+    if found is None:
+        raise UnknownFormError(
+            f"Рекламодателя №{advertiser_id} нет в ручной очереди: либо адрес у него уже "
+            "есть, либо ему не пишем — бизнесу ниши форму заполняют после «пишем», — "
+            "либо очередь успел разобрать кто-то другой"
+        )
+    advertiser, host = found._tuple()
+    return _advertiser_row(advertiser, host)
+
+
+async def advertiser_filled(
+    session: AsyncSession, advertiser_id: int, *, email: str
+) -> AdvertiserFormRow:
+    """Форму заполнили, рекламодатель дал адрес — дальше ему уходит оффер.
+
+    Адрес — тем же правилом, что у донора (`manual.add`): строка в `contacts` домена
+    с отметкой «вписан руками»; сборка оффера берёт адреса домена (`letters/recipients`).
+    """
+    row = await _advertiser(session, advertiser_id)
+    advertiser = await session.get(AdvertiserModel, advertiser_id)
+    if advertiser is None:
+        raise UnknownFormError(f"Рекламодателя №{advertiser_id} нет")
+    await manual.add(session, advertiser, email)
+    logger.info("ручная очередь: рекламодатель %s дал адрес", row.host)
+    return row
+
+
+async def advertiser_gave_up(session: AsyncSession, advertiser_id: int) -> AdvertiserFormRow:
+    """Заполнить не вышло — рекламодатель уходит из очереди «без адреса»: висеть
+    в ней вечно он не должен. Отметка попытки не трогается — срок годности
+    (`CONTACT_TTL_DAYS` от прошлого поиска) вернёт его в поиск адреса, как донора;
+    до этого оффера ему не будет. Так и говорит подтверждение на экране."""
+    row = await _advertiser(session, advertiser_id)
+    advertiser = await session.get(AdvertiserModel, advertiser_id)
+    if advertiser is not None:
+        advertiser.contact_status = ContactStatus.NOT_FOUND
+    logger.info("ручная очередь: рекламодатель %s закрыт без адреса", row.host)
+    return row

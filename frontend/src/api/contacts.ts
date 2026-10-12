@@ -62,3 +62,55 @@ export function formGaveUp(donorId: number, reason: string | null): Promise<Form
     body: { reason },
   });
 }
+
+/** Рекламодатель из ручной очереди (сверка ТЗ 11.10.2026): форма есть, адреса нет.
+ *  Вместо DR и трафика — откуда он и балл: метрик у рекламодателя нет. */
+export interface AdvertiserFormCard {
+  advertiser_id: number;
+  domain_id: number;
+  host: string;
+  source: 'links' | 'niche';
+  /** Донор, на котором нашли ссылку; у бизнеса ниши — `null`. */
+  donor_host: string | null;
+  /** Прогон, в выдаче которого нашёлся бизнес ниши. */
+  run_id: number | null;
+  points: number;
+  attempted_at: string | null;
+}
+
+export interface AdvertiserFormsView {
+  rows: AdvertiserFormCard[];
+  total: number;
+  page: number;
+  limit: number;
+  /** Ориентир темпа — один на обе очереди. */
+  monthly_left: number;
+  monthly_cap: number;
+  /** Ждут рук во вкладке доноров. */
+  donors_waiting: number;
+  /** Через сколько дней после прошлого поиска закрытому «Не вышло» поищут адрес снова. */
+  retry_days: number;
+}
+
+export function fetchAdvertiserForms(page: number): Promise<AdvertiserFormsView> {
+  return request<AdvertiserFormsView>(`/advertisers/forms?page=${page}`);
+}
+
+/** Форму заполнили, рекламодатель дал адрес — дальше ему уходит оффер. */
+export function advertiserFormFilled(id: number, email: string): Promise<AdvertiserFormCard> {
+  return request<AdvertiserFormCard>(`/advertisers/forms/${id}/filled`, {
+    method: 'POST',
+    body: { email },
+  });
+}
+
+/** Заполнить не вышло: висеть в очереди вечно рекламодатель не должен. */
+export function advertiserFormGaveUp(
+  id: number,
+  reason: string | null,
+): Promise<AdvertiserFormCard> {
+  return request<AdvertiserFormCard>(`/advertisers/forms/${id}/give-up`, {
+    method: 'POST',
+    body: { reason },
+  });
+}
