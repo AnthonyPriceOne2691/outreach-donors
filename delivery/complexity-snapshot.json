@@ -2112,9 +2112,9 @@
       "worst": "_choose:166"
     },
     "backend/features/sales/autosend.py": {
-      "lines": 338,
+      "lines": 359,
       "complexity": 8,
-      "worst": "stop:161"
+      "worst": "stop:167"
     },
     "backend/features/sales/autosend_jobs.py": {
       "lines": 167,
