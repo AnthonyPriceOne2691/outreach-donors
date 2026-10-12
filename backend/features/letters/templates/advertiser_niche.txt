@@ -1,7 +1,9 @@
 # Оффер бизнесу ниши из выдачи прогона. Этап 2, аудитория `niche`.
 #
-# ТЕКСТ ВЫДУМАН. Боевой приходит со стороны задачи — как у оффера по
-# найденной ссылке и у письма донору. Здесь важен не текст, а зоны и границы.
+# Боевой текст: предложен по ТЗ, утверждён Anthony 12.10.2026. Смысл тот же,
+# что у оффера по найденной ссылке: «разместиться можно дешевле, приходите
+# к нам», — но без ссылки: пример нашей площадки и тема. Тон и длина —
+# как у письма донору (price_request.txt, боевой текст 23.09.2026).
 #
 # Кому: сайту, который сам продаёт в нише прогона (судья: «продаёт своё»;
 # `crawl/niche.py`). Его ссылки на наших донорах мы НЕ видели — поэтому ни
@@ -26,19 +28,19 @@
 subject: Sponsored articles on {{niche}} sites
 
 [greeting] rewrite
-Hello there,
+Hi,
 
 [opening] rewrite
 I arrange sponsored articles on publisher sites for a living, and your site came up while I was looking at who sells in this space.
 
 [offer] fixed
-We place articles with a link on sites that cover {{niche}}, such as {{example_host}}. {{donor_audience}}A placement like that puts your brand in front of readers who are already looking for what you sell.
+We place articles with a link on sites that cover {{niche}}, such as {{example_host}}. {{donor_audience}}A placement like that puts your brand in front of readers who are already looking for what you sell, and because we buy at agency rates, it costs less than booking it with each site yourself.
 
 [ask] rewrite
-Would it make sense to talk? If you tell me which products or pages you want to promote, I will come back with a short list of suitable sites and what a placement on each would cost.
+Would it make sense to talk? If you tell me which products or pages you'd like to promote, I'll come back with a short list of suitable sites and what a placement on each would cost, so you can see whether it's worth trying.
 
 [terms] fixed
-No commitment and no retainer: you approve each placement before it is bought, you get the live URL, and you pay per article.
+No commitment and no retainer: you approve every site and article before anything is booked, get the live URL once it's published, and pay per article.
 
 [signature] fixed
 Best regards,

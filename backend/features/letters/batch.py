@@ -53,6 +53,7 @@ from backend.features.letters.sending import (
     RemovedAdvertiserError,
     SendError,
     Sending,
+    StalePriceError,
     SuppressedError,
     UndecidedDonorError,
     UnknownZoneError,
@@ -73,6 +74,8 @@ BATCH_MAX = 200
 _WHY: tuple[tuple[type[SendError], str], ...] = (
     (RejectedDonorError, "донор отклонён после сборки"),
     (RemovedAdvertiserError, "рекламодатель снят после сборки"),
+    # Оффер «мы дешевле» без свежей цены донора — обещание, которого не сдержать.
+    (StalePriceError, "цена донора устарела или снята"),
     (SuppressedError, "стоп-лист"),
     (UndecidedDonorError, "донор не принят человеком"),
     (NotReadyError, "письмо не готово к отправке"),

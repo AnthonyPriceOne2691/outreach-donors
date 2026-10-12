@@ -103,8 +103,12 @@ def test_filters_defaults_match_spec() -> None:
 
 
 def test_outreach_defaults_match_spec() -> None:
-    """Добивки на 7-й и 14-й день; уникализация 15–25%."""
-    assert outreach.FOLLOWUP_DAYS == (7, 14)
+    """Добивки на 7-й и 14-й день от первого письма; уникализация 15–25%.
+
+    Срок добивки считается от предыдущего письма (`letters/chain.py`), поэтому
+    умолчание — «7,7»: прежнее «7,14» отправляло вторую на 21-й день (сверка ТЗ
+    12.10.2026)."""
+    assert outreach.FOLLOWUP_DAYS == (7, 7)
     assert outreach.UNIQUENESS_TARGET_MIN == 0.15
     assert outreach.UNIQUENESS_TARGET_MAX == 0.25
 

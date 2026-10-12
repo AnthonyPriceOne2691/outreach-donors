@@ -170,6 +170,21 @@ class TestSendingPlansTheChain:
         assert message.next_action_at is None
         assert report.sent == 0
 
+    async def test_default_cadence_is_day_7_and_day_14(
+        self, session: AsyncSession, filled_legal: None
+    ) -> None:
+        """ТЗ: «2 штуки: на 7-й и 14-й день». Срок считается от предыдущего
+        письма, и прежнее умолчание «7,14» отправляло вторую добивку на 21-й день
+        (сверка ТЗ 12.10.2026). Рассылка без своих сроков берёт умолчание настроек."""
+        first, _ = await _chain_start(session, host="spec.example.test")
+        assert first.next_action_at == NOW + timedelta(days=7)
+
+        await send_due(session, transport=NullTransport(), limit=5, now=first.next_action_at)
+
+        followup = await session.scalar(select(MessageModel).where(MessageModel.step == 1))
+        assert followup is not None
+        assert followup.next_action_at == NOW + timedelta(days=14)
+
 
 class TestClaiming:
     async def test_due_letter_is_claimed_once(
