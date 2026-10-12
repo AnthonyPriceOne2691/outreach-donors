@@ -59,7 +59,14 @@ from backend.features.core.models.outreach import (
     ThreadModel,
 )
 from backend.features.letters import settle
-from backend.features.letters.chain import ANSWER_STEP, CHAINABLE, FIRST_STEP, MAX_STEPS, kind_of
+from backend.features.letters.chain import (
+    ANSWER_STEP,
+    CHAINABLE,
+    FIRST_STEP,
+    MAX_STEPS,
+    RECHECK_STEP,
+    kind_of,
+)
 from backend.features.letters.draft import split_audience
 from backend.features.letters.repository import UnknownLetterError
 from backend.features.letters.sendgrid import SendGridTransport
@@ -393,6 +400,11 @@ def _said(letter: StuckLetter, status: MessageStatus) -> str:
         )
     if _is_followup(letter.message):
         return "добивка вернулась в цепочку и уйдёт с ближайшим проходом добивок, с того же ящика"
+    if letter.message.step == RECHECK_STEP:
+        return (
+            "перезапрос цены не ушёл и ждёт: отправить его снова можно кнопкой «Перезапросить "
+            "цену» на карточке донора — с ящика переписки и веткой к письму донора"
+        )
     if letter.message.step >= ANSWER_STEP:
         return (
             "ответ не ушёл и ждёт: отправить его снова можно из карточки переписки — "

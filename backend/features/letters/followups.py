@@ -67,6 +67,7 @@ from backend.features.letters.sending import (
     SuppressedError,
 )
 from backend.features.letters.transport import ByStage, MaybeSentError, Transport
+from backend.features.outreach.repository import in_hourly_lane
 
 logger = logging.getLogger(__name__)
 
@@ -300,18 +301,15 @@ class Chain:
         Только шаги цепочки: ответ в переписке (`chain.ANSWER_STEP`) — тоже
         письмо с этого ящика, но не добивка, и считать его здесь значило бы
         отнимать часовой запас добивок у ящика, где человек ведёт разговор
-        (ревью «Продаж» #162).
+        (ревью «Продаж» #162). И перезапрос цены (`chain.RECHECK_STEP`): он уходит
+        пачкой по нажатию и без счёта давал бы всплеск с ящика (проверка 12.10.2026).
         """
         since = self._moment() - timedelta(hours=1)
         total = await self._session.scalar(
             select(func.count())
             .select_from(MessageModel)
-            .where(
-                MessageModel.sender_id == sender_id,
-                MessageModel.step > FIRST_STEP,
-                MessageModel.step < MAX_STEPS,
-                MessageModel.sent_at >= since,
-            )
+            .where(MessageModel.sender_id == sender_id, in_hourly_lane())
+            .where(MessageModel.sent_at >= since)
         )
         return int(total or 0)
 

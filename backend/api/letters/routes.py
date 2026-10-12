@@ -66,6 +66,7 @@ from backend.features.core.stages import check_connected
 from backend.features.crawl.niche import LINKS, NICHE, WHOM
 from backend.features.letters import batch, compose, draft, review, unknown_outcome
 from backend.features.letters.building import run_scope
+from backend.features.letters.chain import RECHECK_CAMPAIGN
 from backend.features.letters.compose import NicheOffer
 from backend.features.letters.niche_recipients import NicheRecipients
 from backend.features.letters.repository import LetterRepository, QueuedLetter
@@ -228,16 +229,21 @@ async def edit(
     repository = LetterRepository(session)
     row = await repository.letter(letter_id)
     niche = await _niche_offer(row, session)
-    await review.edit(
-        session,
-        row.message,
-        host=row.host,
-        subject=body.subject,
-        body=body.body,
-        template=await _letter_template(row, session),
-        niche=niche,
-        link=row.link,
-    )
+    if row.template_id == RECHECK_CAMPAIGN:
+        # Перезапрос цены новым письмом не уникализируется: его отличие от первого
+        # письма — число ни о чём (`price_recheck.py`), и правка его не меряет.
+        await review.retext(session, row.message, subject=body.subject, body=body.body)
+    else:
+        await review.edit(
+            session,
+            row.message,
+            host=row.host,
+            subject=body.subject,
+            body=body.body,
+            template=await _letter_template(row, session),
+            niche=niche,
+            link=row.link,
+        )
     await AccessRepository(session).record(
         AuditAction.USER_UPDATED,
         author_id=author.id,

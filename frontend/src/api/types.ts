@@ -1,6 +1,7 @@
 /** Что отдаёт сервер. Имена полей повторяют схему API один в один:
  *  перевод на ходу — лишний слой, в котором опечатка видна не сразу. */
 
+import type { SamePrice } from './priceRecheck';
 import type { PriceOrigin, PriceRefusal } from './manualPrice';
 import type { Offer } from './offers';
 import type { Stage } from './stages';
@@ -95,7 +96,8 @@ export type ThreadState =
   | 'stopped'
   | 'lead'
   | 'lead_taken'
-  | 'sales_pending';
+  | 'sales_pending'
+  | 'recheck';
 
 export interface ThreadCard {
   id: number;
@@ -181,6 +183,8 @@ export interface IncomingCard {
   reviewed_at: string | null;
   /** Ответ рекламодателя — лид: его не разбирают, а берут в работу. */
   lead: boolean;
+  /** Ответ на перезапрос цены без числа — прежняя цена донора для «Цена та же». */
+  same_price?: SamePrice | null;
 }
 
 /** Ответ, который не привязался ни к одному нашему письму: ни метка в адресе,
@@ -996,23 +1000,4 @@ export interface DecideResult {
   changed: number;
   accepted: number;
   contacts_job_id: string | null;
-}
-
-export interface AgreementView {
-  advised: number;
-  agreed: number;
-  precision: number | null;
-}
-
-/** Судья против человека: по этим числам решают, доверять ли судье больше. */
-export interface AccuracyView {
-  decided: number;
-  by_advice: Record<string, AgreementView>;
-  by_layer: Record<string, Record<string, AgreementView>>;
-  by_intent: Record<string, Record<string, AgreementView>>;
-  unjudged: number;
-  asked_to_review: number;
-  auto_accept_ready: boolean;
-  auto_accept_precision: number;
-  auto_accept_min_decisions: number;
 }

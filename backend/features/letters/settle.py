@@ -107,9 +107,7 @@ async def record_sent(
     # вызывающих много — экран, консоль, проход добивок, событие платформы,
     # человек по журналу, — и правило, которое каждый из них обязан
     # не забыть, однажды забудут. Пусто означает, что цепочка кончилась.
-    message.next_action_at = chain.due_after(
-        moment, step=message.step, days=await _cadence(session, message.campaign_id)
-    )
+    message.next_action_at = await _next_due(session, message, moment)
 
     if message.contact_id is not None:
         contact = await session.get(ContactModel, message.contact_id)
@@ -156,7 +154,17 @@ async def _files(session: AsyncSession, message_id: int) -> dict[str, Any]:
     return {"вложения": names} if names else {}
 
 
-async def _cadence(session: AsyncSession, campaign_id: int) -> list[int] | None:
-    """Сроки добивок рассылки. Их задал человек при её создании."""
-    campaign = await session.get(CampaignModel, campaign_id)
-    return campaign.followup_days if campaign is not None else None
+async def _next_due(
+    session: AsyncSession, message: MessageModel, moment: datetime
+) -> datetime | None:
+    """Срок следующего письма цепочки — по срокам рассылки: их задал человек при её создании.
+
+    У рассылки перезапросов цены (`chain.RECHECK_CAMPAIGN`) цепочки нет: перезапрос
+    новым письмом — одиночный, как и перезапрос в переписке (решение 12.10.2026). Срок
+    не ставится ни одним из путей «ушло» — ответом платформы, её событием, человеком.
+    """
+    campaign = await session.get(CampaignModel, message.campaign_id)
+    if campaign is not None and campaign.template_id == chain.RECHECK_CAMPAIGN:
+        return None
+    days = campaign.followup_days if campaign is not None else None
+    return chain.due_after(moment, step=message.step, days=days)

@@ -45,6 +45,7 @@ from backend.features.core.models.outreach import ReplyModel
 from backend.features.letters.answers import answer_reply
 from backend.features.letters.mailbox import thread_mail
 from backend.features.letters.outgoing_store import OutgoingFiles
+from backend.features.letters.recheck_answer import prior_price
 from backend.features.letters.sending import Sending
 from backend.features.letters.transport_factory import Transports, in_use
 from backend.features.outreach.repository import OutreachRepository
@@ -91,6 +92,8 @@ async def one_thread(
         agent_reasons=reject_reasons(detail.row.stage),
         # Файлы наших писем и ждущие ответа — так же, одним запросом и без тел.
         outgoing=await OutgoingFiles(session).of_thread(thread_id),
+        # Прежняя цена донора — только если в переписке был перезапрос цены: «Цена та же».
+        prior=await prior_price(session, thread_id),
     )
 
 

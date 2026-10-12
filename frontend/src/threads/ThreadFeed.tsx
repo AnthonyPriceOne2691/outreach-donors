@@ -29,6 +29,7 @@ import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from '
 import { AgentDraftBanner } from '../agent/AgentDraftBanner';
 import { MESSAGE_STATUSES, REPLY_KINDS, SELLER_ANSWERS } from '../api/labels';
 import type { LetterWithFiles } from '../api/files';
+import { PRICE_RECHECK_STEP } from '../api/priceRecheck';
 import type { Corridor, IncomingCard, LetterCard, MessageStatus } from '../api/types';
 import { formatDateTime, formatMoney } from '../format';
 import { corridorText, readable, uniquenessText } from '../letters/letterText';
@@ -62,9 +63,10 @@ function DeliveryMark({ status }: { status: MessageStatus }) {
   );
 }
 
-/** Чьё и какое письмо: первое, добивка или наш ответ на ответ собеседника. */
+/** Чьё и какое письмо: первое, добивка, перезапрос цены или наш ответ на ответ собеседника. */
 export function letterTitle(letter: LetterCard): string {
   if (letter.answers_reply_id !== null) return 'наш ответ';
+  if (letter.step === PRICE_RECHECK_STEP) return 'перезапрос цены';
   return letter.step === 0 ? 'первое письмо' : `добивка ${letter.step}`;
 }
 

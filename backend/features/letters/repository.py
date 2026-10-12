@@ -56,6 +56,9 @@ class QueuedLetter:
     #: Аудитория рассылки Этапа 2: у бизнеса ниши ссылки нет по природе, и
     #: правка его письма меряется от оффера ниши (`niche_recipients`).
     audience: str = LINKS
+    #: Отметка рассылки (`campaigns.template_id`): у рассылки перезапросов цены
+    #: (`chain.RECHECK_CAMPAIGN`) добивок нет и отличие не меряется.
+    template_id: str | None = None
 
 
 class UnknownLetterError(ValueError):
@@ -136,6 +139,7 @@ class LetterRepository:
                 CampaignModel.followup_days,
                 CampaignModel.stage,
                 CampaignModel.audience,
+                CampaignModel.template_id,
                 AdvertiserModel.best_donor_host,
                 AdvertiserModel.best_page_url,
                 AdvertiserModel.best_anchor,
@@ -155,9 +159,20 @@ class LetterRepository:
 
     @staticmethod
     def _queued_letter(row: Any) -> QueuedLetter:
-        message, host, email, campaign, days, stage, audience, donor_host, page_url, anchor, geo = (
-            row
-        )
+        (
+            message,
+            host,
+            email,
+            campaign,
+            days,
+            stage,
+            audience,
+            template_id,
+            donor_host,
+            page_url,
+            anchor,
+            geo,
+        ) = row
         link = (
             FoundLink(donor_host=donor_host, page_url=page_url, anchor=anchor, donor_geo=geo)
             if donor_host and page_url and anchor
@@ -172,6 +187,7 @@ class LetterRepository:
             stage=stage,
             link=link,
             audience=audience,
+            template_id=template_id,
         )
 
     async def queued(

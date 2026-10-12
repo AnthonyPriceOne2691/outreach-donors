@@ -101,7 +101,10 @@ def _why_not(host: str, chosen: targets.Targets) -> str | None:
     if host in names:
         return None
     if host in {name.lower() for name in chosen.stale_price}:
-        return f"цена старше {filters.PRICE_TTL_DAYS} дней — сначала перезапрос цены"
+        return (
+            f"цена старше {filters.PRICE_TTL_DAYS} дней — сначала перезапрос цены "
+            "(«Перезапросить цену»)"
+        )
     if host in {name.lower() for name in chosen.no_price}:
         return "цены нет — по донору без цены Этап 2 не запускается; знаете цену — укажите её"
     if host in {name.lower() for name in chosen.supplier}:

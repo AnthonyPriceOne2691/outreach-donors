@@ -75,6 +75,7 @@ export const THREAD_STATES: Record<ThreadState, { title: string; color: string }
   lead: { title: 'лид — ждёт человека', color: 'yellow' },
   lead_taken: { title: 'лид в работе', color: 'green' },
   sales_pending: { title: 'ответ продаж — ждёт человека', color: 'yellow' },
+  recheck: { title: 'цену перезапросили — ждём ответа', color: 'lagoon' },
 };
 
 /** Состояние словами и цветом — и то, которого экран ещё не знает: сервер новее

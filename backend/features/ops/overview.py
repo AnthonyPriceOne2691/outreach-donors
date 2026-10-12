@@ -63,7 +63,8 @@ from backend.features.review.candidates import Decision
 from backend.features.runs.browse import RunBrowser, RunRow
 from backend.features.runs.spending import SpendingRepository
 
-#: Донор ответил человеком — в любом из состояний, куда ведёт ответ.
+#: Донор ответил человеком — в любом из состояний, куда ведёт ответ. Перезапрос цены
+#: уходит только ответившему в его переписку (`letters/price_recheck.py`): ответ был.
 _ANSWERED = frozenset(
     {
         ThreadState.REPLIED,
@@ -71,6 +72,7 @@ _ANSWERED = frozenset(
         ThreadState.PRICED,
         ThreadState.DECLINED,
         ThreadState.FREE,
+        ThreadState.RECHECK,
     }
 )
 

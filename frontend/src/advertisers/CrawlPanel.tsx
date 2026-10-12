@@ -28,6 +28,9 @@
  * или остановлен и ждёт человека — раскрыта сама. Обходить некого — почему,
  * сказано строкой сразу. «Завести донора вручную» — в окне, а не формой,
  * раздвигающей панель.
+ *
+ * **Протухшая цена — строкой с «Перезапросить цену»** (12.10.2026, `StalePrices`): ТЗ велит
+ * сначала перезапросить цену у донора, и список с отметками — в окне, по одному и пачкой.
  */
 
 import {
@@ -56,6 +59,7 @@ import { Seams } from '../components/Seams';
 import { Unfold } from '../runs/Unfold';
 import { CrawlState, TargetsTable, healthLines, isActive } from './CrawlTable';
 import { ManualDonor } from './ManualDonor';
+import { StalePrices } from './StalePrices';
 import { notify } from '../notices';
 
 export const CRAWL_TARGETS_KEY = ['crawl-targets'] as const;
@@ -425,6 +429,13 @@ export function CrawlPanel() {
         />
         {targets.isLoading ? <Loader size="sm" aria-label="Загружаем доноров" /> : null}
         <Troubles error={targets.error} workers={data?.workers} />
+        {data ? (
+          <StalePrices
+            count={data.stale_price}
+            maySend={can('send')}
+            onAsked={() => void queryClient.invalidateQueries({ queryKey: CRAWL_TARGETS_KEY })}
+          />
+        ) : null}
         {data && nobody ? (
           <Targets data={data} picked={picked} onPick={onPick} mayStart={mayStart} />
         ) : null}

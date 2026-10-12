@@ -43,17 +43,24 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core import stages, window
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
-from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, SenderModel
 from backend.features.donors.standing import decided_in
-from backend.features.letters import compose, identity, mailbox, reply_to, settle, unsubscribe
+from backend.features.letters import (
+    compose,
+    identity,
+    mailbox,
+    reply_to,
+    settle,
+    stoplist,
+    unsubscribe,
+)
 from backend.features.letters.chain import ANSWER_STEP
 from backend.features.letters.offer_standing import check_offer
 from backend.features.letters.outgoing_store import Files, OutgoingFiles
@@ -381,28 +388,18 @@ class Sending:
 
     async def _check_suppression(self, target: _Target) -> None:
         """Стоп-лист на двух уровнях: адрес блокирует себя, донор — все свои
-        адреса. Требование «больше не пишите» сильнее отписки от адреса."""
-        rows = await self._session.execute(
-            select(SuppressionModel)
-            .where(
-                or_(
-                    SuppressionModel.domain_id == target.message.domain_id,
-                    SuppressionModel.email == target.email,
-                )
-            )
-            .where(
-                or_(
-                    SuppressionModel.stage.is_(None),
-                    SuppressionModel.stage == target.to.stage,
-                )
-            )
-            .where(SuppressionModel.in_force(datetime.now(UTC)))
+        адреса. Требование «больше не пишите» сильнее отписки от адреса. Правило
+        одно с перезапросом цены и пробным рекламодателем (`stoplist.holding`)."""
+        held = await stoplist.holding(
+            self._session,
+            stage=target.to.stage,
+            domain_ids=[target.message.domain_id],
+            emails=[target.email],
         )
-        found = rows.scalars().first()
-        if found is not None:
+        if held:
             raise SuppressedError(
-                f"Донору {target.host} писать нельзя: стоп-лист, причина «{found.reason.value}». "
-                "Письмо стоит убрать из очереди"
+                f"Донору {target.host} писать нельзя: стоп-лист, причина "
+                f"«{held[0].reason.value}». Письмо стоит убрать из очереди"
             )
 
     async def _sender(self, target: _Target, from_sender_id: int | None) -> SenderModel:
