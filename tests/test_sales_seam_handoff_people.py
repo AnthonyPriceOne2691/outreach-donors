@@ -14,6 +14,10 @@
 - **Решение владельца:** личное сообщение телемаркетологу не ушло (чат не задан, бот
   заблокирован) — копии в группу нет вовсе: группа узнаёт о лиде только из чата эксплуатации
   владельца. `xfail(strict=True)` ниже — вариант «группа получает лида и тогда».
+- **Решение владельца:** ответ в переписке (и черновик агента) уходит на адрес лида, даже если
+  написал его коллега со своего адреса (`sales/mail.recipient`: «адрес — лида»): агент пишет
+  «Здравствуйте, Ольга», а письмо получает общий ящик компании. `xfail(strict=True)` ниже —
+  вариант «ответ — тому, кто написал, если адрес на домене компании лида».
 
 База настоящая; Kommo — подставной; Telegram — `httpx.MockTransport`; очередь — список.
 """
@@ -45,10 +49,12 @@ from tests.test_sales_handoff import (
     sent,
 )
 from tests.test_sales_handoff_rows import sales_dialog
+from tests.test_sales_send import _seen
 from tests.test_sales_switch import sales_switched_on
 from tests.test_sales_telegram import GROUP, PERSONAL, Recorder, refused
+from tests.test_sales_thread_answer import Answered, answered
 
-__all__ = ["alerts", "api", "http", "sales_switched_on"]
+__all__ = ["alerts", "answered", "api", "http", "sales_switched_on"]
 
 LEAD = "ivan@acme.example.test"
 COLLEAGUE = "olga@acme.example.test"
@@ -197,3 +203,27 @@ async def test_group_hears_of_the_lead_when_the_personal_message_did_not_go(
     await hand_off(session, dialog, deps(http, alerts, KommoFixture()))
 
     assert GROUP in [chat for chat, _ in sent(api)]
+
+
+# --- решение владельца: ответ — тому, кто написал ------------------------------------------------
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "решение владельца: коллега лида ответил со своего адреса на домене компании — ответ "
+        "в переписке (и черновик агента) уходит на адрес лида (sales/mail.recipient: «адрес — "
+        "лида»), а не тому, кто написал. Вариант: адрес ответившего, если он на домене компании "
+        "лида; чужой домен — адрес лида, как сейчас"
+    ),
+)
+async def test_the_answer_goes_to_the_colleague_who_wrote(
+    session: AsyncSession, answered: Answered
+) -> None:
+    answered.reply.from_email = "olga@acme.example.test"
+    await session.flush()
+
+    await answered.answer(session)
+
+    [_, out] = _seen(answered.source)
+    assert out.to == "olga@acme.example.test"
