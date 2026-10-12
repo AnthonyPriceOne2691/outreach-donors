@@ -15,12 +15,19 @@
 нет или оно негодно — тот же `ConfigError` до первого запроса. Чего шлюз не умеет,
 передача лида узнаёт по `KommoClient.can`.
 
+**Обязательные поля сделки** (`SALES_KOMMO_LEAD_FIELDS`, постоянные значения) уходят в теле
+сделки API v4 (`custom_fields_values`). У шлюза таких полей в запросе нет: настройка при шлюзе —
+тот же `ConfigError`, а не поля, молча потерянные по дороге. Разбирает настройку сборка клиента
+`live` (`lead_fields`), а не импорт настроек: негодная форма — тот же `ConfigError` до первого
+запроса, и передача кончается отказом словами (`handoff_jobs.connected_kommo`).
+
 Отсюда же берут всё остальное: словарь (`kommo_types.py`) и живые клиенты
 переэкспортированы, чтобы передача лида знала один модуль.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from dataclasses import dataclass, field
@@ -48,6 +55,7 @@ from backend.features.sales.kommo_types import (
     KommoRefusedError,
     KommoUnavailableError,
     KommoUnconfirmedError,
+    LeadField,
     NewLead,
     lead_url,
     wanted_email,
@@ -238,6 +246,7 @@ def _live_account() -> KommoAccount:
         responsible_user_id=_setting_number(
             "SALES_KOMMO_RESPONSIBLE_USER_ID", cfg.KOMMO_RESPONSIBLE_USER_ID
         ),
+        lead_fields=lead_fields(cfg.KOMMO_LEAD_FIELDS),
     )
 
 
@@ -257,6 +266,12 @@ def _gateway_account() -> GatewayAccount:
             "SALES_KOMMO_PROVIDER=live через шлюз (задан SALES_KOMMO_GATEWAY_URL), а не заданы: "
             f"{', '.join(missing)}. Заполнить их, убрать адрес шлюза или вернуть fixture — "
             "без них сделки в Kommo не заводятся"
+        )
+    if cfg.KOMMO_LEAD_FIELDS:
+        raise ConfigError(
+            "SALES_KOMMO_LEAD_FIELDS задан, а шлюз агентства полей сделки не принимает — в его "
+            "запросе таких полей нет. Убрать настройку (поля при шлюзе заполняет агентство) "
+            "или убрать адрес шлюза и идти в API v4 напрямую"
         )
     url = _gateway_url(cfg.KOMMO_GATEWAY_URL)
     _check_subdomain()
@@ -315,3 +330,37 @@ def _setting_number(env: str, raw: str) -> int:
     if number <= 0:
         raise ConfigError(f"{env}=«{raw}» — нужен номер из Kommo: целое больше нуля")
     return number
+
+
+#: Форма настройки полей сделки — начало каждого отказа словами.
+_FIELDS_SHAPE = (
+    'SALES_KOMMO_LEAD_FIELDS: нужен JSON «номер поля → значение», например {"712345": "Email"}'
+)
+
+
+def lead_fields(text: str) -> tuple[LeadField, ...]:
+    """`{"712345": "Email"}` → ((712345, "Email"),). Пусто — полей нет. Номер — целое больше
+    нуля, значение — непустой текст, число или true/false: список и объект Kommo принял бы
+    только с номерами вариантов, а их в настройке нет. Негодное — `ConfigError` словами."""
+    if not text.strip():
+        return ()
+    try:
+        raw = json.loads(text)
+    except ValueError as exc:
+        raise ConfigError(f"{_FIELDS_SHAPE} — это не JSON") from exc
+    if not isinstance(raw, dict) or not raw:
+        raise ConfigError(f"{_FIELDS_SHAPE} — нужен непустой объект")
+    return tuple(_lead_field(key, given) for key, given in raw.items())
+
+
+def _lead_field(key: str, given: object) -> LeadField:
+    """Одно поле настройки: номер — целое больше нуля, значение — непустое и простое."""
+    number = int(key) if key.isdecimal() else 0
+    if number <= 0:
+        raise ConfigError(f"{_FIELDS_SHAPE} — «{key}» не номер поля: целое больше нуля")
+    value = given.strip() if isinstance(given, str) else given
+    if value == "" or not isinstance(value, str | int | float | bool):
+        raise ConfigError(
+            f"{_FIELDS_SHAPE} — значение поля {number}: непустой текст, число или да/нет"
+        )
+    return number, value

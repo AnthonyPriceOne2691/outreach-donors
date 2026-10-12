@@ -5,6 +5,7 @@
     python scripts/eval_sales_reply.py                          # синтетика из репозитория
     python scripts/eval_sales_reply.py --golden                 # внешний набор: $SALES_GOLDEN_DIR
     python scripts/eval_sales_reply.py --drop-kind wants_to_talk  # порча промпта — обязан покраснеть
+    python scripts/eval_sales_reply.py --golden --services "SEO-аудит;Ссылки"  # услуги базы
 
 Синтетика — `scripts/data/sales_reply_synthetic.jsonl`: выдуманные ответы по
 видам, на девяти языках, с инъекцией. Настоящих писем в репозитории нет
@@ -25,6 +26,12 @@
 обратный прогон ворот: на живой модели eval обязан покраснеть. Запись прогона —
 в verify-report среза; механика — `tests/test_sales_reply_eval.py`.
 
+**Поля v2** (`sales-reply-kind-v2`: имя названного, проект, услуги) меряются рядом с видами,
+но вне ворот — их пороги владелец решит по живому прогону: имя названного — верно ли, проект —
+найден ли (слова — из письма, это держит код), услуги — те ли из списка базы. Список услуг
+синтетики — выдуманный (`SYNTHETIC_SERVICES`), у внешнего набора — `--services` (названия
+записей «услуга» базы через «;»). Прежние числа видов меряются как раньше.
+
 Модель зовётся по-настоящему — нужен `LLM_API_KEY`; запускает координатор
 по слову владельца.
 """
@@ -37,7 +44,7 @@ import hashlib
 import json
 import sys
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -53,6 +60,8 @@ MANIFEST = DATA / "sales_reply_golden.manifest.json"
 GOLDEN_ENV = "SALES_GOLDEN_DIR"
 #: Виды, ошибка в которых опасна: человеку не позвонили или написали тому, кто просил не писать.
 GUARDED = (SalesKind.WANTS_TO_TALK, SalesKind.UNSUBSCRIBE)
+#: Услуги выдуманной базы знаний: из них модель выбирает услуги ответа синтетики.
+SYNTHETIC_SERVICES = ("SEO audit", "Link building", "Technical SEO")
 
 
 class SetError(RuntimeError):
@@ -77,6 +86,13 @@ class Result:
     want_contact: str | None = None
     got_contact: str | None = None
     refusal: str | None = None
+    #: Поля v2: чего ждали и что вышло после сверки кодом.
+    want_name: str | None = None
+    got_name: str | None = None
+    want_project: bool = False
+    got_project: str | None = None
+    want_services: tuple[str, ...] = ()
+    got_services: tuple[str, ...] = ()
 
     @property
     def auto(self) -> bool:
@@ -129,24 +145,74 @@ def without_kind(prompt: str, kind: str) -> str:
 
 
 def judged(case: dict[str, Any], found: KindFound | Unanswered, threshold: float) -> Result:
-    want = SalesKind(case["expect"]["kind"])
-    contact = case["expect"].get("contact")
+    expect = case["expect"]
+    want = SalesKind(expect["kind"])
+    contact = expect.get("contact")
+    wanted = {
+        "want_name": expect.get("contact_name"),
+        "want_project": bool(expect.get("project")),
+        "want_services": tuple(expect.get("services") or ()),
+    }
     if isinstance(found, Unanswered):
-        return Result(case["id"], want, None, 0.0, Route.MANUAL, contact, refusal=found.reason)
+        return Result(
+            case["id"], want, None, 0.0, Route.MANUAL, contact, refusal=found.reason, **wanted
+        )
     route = decide(found, threshold).route
-    return Result(case["id"], want, found.kind, found.confidence, route, contact, found.contact)
+    return Result(
+        case["id"],
+        want,
+        found.kind,
+        found.confidence,
+        route,
+        contact,
+        found.contact,
+        got_name=found.contact_name,
+        got_project=found.project,
+        got_services=found.services,
+        **wanted,
+    )
 
 
 async def run(
-    cases: Iterable[dict[str, Any]], kinds: KindClient, threshold: float
+    cases: Iterable[dict[str, Any]],
+    kinds: KindClient,
+    threshold: float,
+    services: Sequence[str] = SYNTHETIC_SERVICES,
 ) -> tuple[list[Result], int]:
     results: list[Result] = []
     tokens = 0
     for case in cases:
-        found = await kinds.classify(text=case["text"], subject=case.get("subject", "Re:"))
+        found = await kinds.classify(
+            text=case["text"], subject=case.get("subject", "Re:"), services=services
+        )
         tokens += found.tokens if isinstance(found, KindFound) else 0
         results.append(judged(case, found, threshold))
     return results, tokens
+
+
+def _same(got: str | None, want: str | None) -> bool:
+    return " ".join((got or "").lower().split()) == " ".join((want or "").lower().split())
+
+
+def fields(results: list[Result]) -> list[str]:
+    """Поля v2 словами — вне ворот: имя названного, проект, услуги; чего ждали и что лишнее."""
+    named = [r for r in results if r.want_name]
+    names = sum(_same(r.got_name, r.want_name) for r in named)
+    extra_names = [r.case_id for r in results if r.got_name and not r.want_name]
+    described = [r for r in results if r.want_project]
+    projects = sum(r.got_project is not None for r in described)
+    extra_projects = [r.case_id for r in results if r.got_project and not r.want_project]
+    asked = [r for r in results if r.want_services]
+    services = sum(set(r.got_services) == set(r.want_services) for r in asked)
+    extra_services = [r.case_id for r in results if r.got_services and not r.want_services]
+    return [
+        f"Поля v2 (вне ворот): имя названного верно {names}/{len(named)}, "
+        f"лишнее {len(extra_names)} {extra_names or ''}",
+        f"  проект найден {projects}/{len(described)}, "
+        f"лишний {len(extra_projects)} {extra_projects or ''}",
+        f"  услуги верно {services}/{len(asked)}, "
+        f"лишние {len(extra_services)} {extra_services or ''}",
+    ]
 
 
 def recall(results: list[Result], kind: SalesKind) -> float | None:
@@ -168,6 +234,7 @@ def report(results: list[Result], tokens: int, gates: Gates) -> list[str]:
         r.case_id for r in results if r.want_contact and r.got_contact != r.want_contact
     ]
     print(f"Адрес «другого человека» не тот: {len(wrong_contacts)} {wrong_contacts or ''}")
+    print(*fields(results), sep="\n")
     print(f"Отказов модели: {sum(r.refusal is not None for r in results)}")
     print(
         f"По видам (ждали → назвала): {dict(Counter(f'{r.want}→{r.got}' for r in results if r.got is not r.want))}"
@@ -198,7 +265,19 @@ def _args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--drop-kind", choices=sorted(k.value for k in SalesKind), default=None)
     parser.add_argument("--threshold", type=float, default=sales_cfg.REPLY_CONFIDENCE)
     parser.add_argument("--model", default=None, help="модель вместо пина LLM_SALES_CLASSIFY_MODEL")
+    parser.add_argument(
+        "--services",
+        default=None,
+        help="названия записей «услуга» базы знаний через «;» — по умолчанию выдуманные синтетики",
+    )
     return parser.parse_args(argv)
+
+
+def known_services(raw: str | None) -> tuple[str, ...]:
+    """Список услуг для разбора: из `--services` или выдуманный синтетики."""
+    if raw is None:
+        return SYNTHETIC_SERVICES
+    return tuple(name.strip() for name in raw.split(";") if name.strip())
 
 
 async def _evaluate(
@@ -206,7 +285,7 @@ async def _evaluate(
 ) -> tuple[list[Result], int]:
     kinds = KindClient(model=args.model)
     try:
-        return await run(cases, kinds, args.threshold)
+        return await run(cases, kinds, args.threshold, known_services(args.services))
     finally:
         await kinds.aclose()
 

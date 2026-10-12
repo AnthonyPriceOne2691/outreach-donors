@@ -186,24 +186,31 @@ async def draft_answer(
 
 
 async def announce(outcome: DraftOutcome) -> None:
-    """Крючок уведомления этапа — после записи черновика и коммита.
+    """Крючок этапа — после записи черновика и коммита: о черновике, который ждёт человека, —
+    `on_draft`, о пропуске — `on_skip`, если этапу по нему есть что делать.
 
-    Его сбой черновик не теряет: черновик уже в базе и виден в переписке,
-    а сбой — в логе. Повторы — забота крючка (у Telegram они свои).
+    Его сбой черновик не теряет: черновик уже в базе и виден в переписке, а сбой — в логе
+    словами без догадки, что делал крючок (сообщение о черновике, передача лида), с именем
+    крючка в `extra`. Повторы — забота крючка (у Telegram они свои).
     """
     notice = outcome.notice
-    if notice is None or notice.status not in _ANNOUNCED:
+    stage = None if notice is None else AGENT_STAGES.get(notice.stage)
+    if notice is None or stage is None:
         return
-    stage = AGENT_STAGES.get(notice.stage)
-    if stage is None or stage.on_draft is None:
+    if notice.status is DraftStatus.SKIPPED:
+        name, hook = "on_skip", stage.on_skip
+    else:
+        name, hook = "on_draft", stage.on_draft if notice.status in _ANNOUNCED else None
+    if hook is None:
         return
     try:
-        await stage.on_draft(notice)
+        await hook(notice)
     except Exception:
         logger.exception(
-            "агент: уведомление о черновике №%s не ушло — черновик цел",
+            "агент: крючок этапа %s после черновика №%s упал — черновик цел",
+            name,
             notice.draft_id,
-            extra={"draft": notice.draft_id, "reply": notice.reply_id},
+            extra={"draft": notice.draft_id, "reply": notice.reply_id, "hook": name},
         )
 
 

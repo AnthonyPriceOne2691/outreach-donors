@@ -202,6 +202,30 @@ def test_seam_and_sales_import_first_in_a_clean_process(module: str) -> None:
     assert done.returncode == 0, done.stderr
 
 
+#: Общий код, который импортирует настройки продаж: сервер API, реестр этапов агента (его берёт
+#: и общий воркер) и процесс разбора мёртвых.
+_SHARED = "import backend.api.app, backend.features.agent.stages, backend.workers.reaper"
+
+
+@pytest.mark.parametrize(
+    ("env", "typo"),
+    [("SALES_AGENT_MAX_TURNS", "два"), ("SALES_KOMMO_LEAD_FIELDS", '{"712345": ')],
+)
+def test_typo_in_a_sales_setting_does_not_stop_shared_code_at_start(env: str, typo: str) -> None:
+    """Опечатка в пределе ходов агента или в полях сделки не роняет на старте сервер, общий воркер
+    и разбор мёртвых: настройку разбирает тот, кто её читает, — и отказывает словами там
+    (`test_sales_agent_turns.py`, `test_sales_reply_kind_v2.py`)."""
+    done = subprocess.run(
+        [sys.executable, "-c", _SHARED],
+        cwd=ROOT,
+        env={**os.environ, env: typo},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr
+
+
 async def test_lead_question_gets_a_judged_draft_signed_by_the_sales_persona(
     session: AsyncSession, llm: Plug
 ) -> None:

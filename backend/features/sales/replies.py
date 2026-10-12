@@ -19,20 +19,29 @@
 ответил не лид, и адрес лида (`unsubscribe.py`).
 
 **«Хочет говорить» — передача лида телемаркетологу** (`handoff.start`, срез 5.3) —
-только после записи ответа (`pass_on`): передача коммитит сама и ставит задачу,
-которая идёт в Kommo и Telegram. Её отказ разбор не роняет: вид уже записан, ответ
+только после записи ответа (`pass_on`, `reply_handoff.py`): передача коммитит сама и ставит
+задачу, которая идёт в Kommo и Telegram. Её отказ разбор не роняет: вид уже записан, ответ
 ждёт человека, а почему передачи нет — словами в снимке ответа.
+
+**Новое письмо лида, уже переданного телемаркетологу**, — любое, кроме автоответа (отписка
+словами — тоже: стоп-лист, как был, и телемаркетологу надо знать), — уходит той же передачей
+тем же путём после записи ответа: примечание к той же сделке и сообщение «Лид написал снова»
+(`reply_handoff.py`, `handoff_telegram.py`). Ответ с ожидания снимается словами. Потолок модели
+письмо не держит: оно уходит до переноса вида на завтра (`forward_unread`).
 
 **Вопрос и интерес — черновик агента продаж** (`DRAFTED`): задача ответа ставит его после
 записи вида своей очередью (`workers/sales_jobs.py`), если агент продаж включён тумблером
 (`SALES_AGENT_ENABLED`) и настроен. Иначе ответ ждёт человека, как ждал. Лиду, которому не
 пишут (снят, у телемаркетолога, в стоп-листе — `mail.unwritable`, то же правило, что у
 отправки), черновика нет: модель не платит за письмо, которое не уйдёт, а почему черновика
-нет — словами в снимке ответа.
+нет — словами в снимке ответа. Агент ведёт первые ответы лида в диалоге
+(`SALES_AGENT_MAX_TURNS`, `agent_turns.py`): дальше черновика нет — отвечает человек.
 
-**«Пишите другому»** заводит лида той же компании (`referral.py`) и закрывает
-диалог. Проверка адресов не настроена — лида заводит человек: вид уже назван
-и оплачен, а упавшая задача откатила бы расход и позвала модель снова.
+**«Пишите другому»** заводит лида той же компании (`referral.py`) — с именем, если его
+назвали, — и закрывает диалог; прошёл очистку — письмо ему собирает та же задача сборки,
+только для него, сразу после записи ответа (`write_to_referred`). Проверка адресов не
+настроена — лида заводит человек: вид уже назван и оплачен, а упавшая задача откатила бы
+расход и позвала модель снова.
 
 **Задача не верит, что её поставили по делу.** Задача живёт в очереди дольше
 кода и может прийти ко второму ответу, к удалённому, к уже разобранному или
@@ -49,12 +58,11 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any, Protocol, assert_never
 
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import sales as cfg
@@ -64,10 +72,11 @@ from backend.features.core.domain import ReplyKind, Stage, ThreadStatus
 from backend.features.core.models.outreach import ReplyModel, ThreadModel
 from backend.features.replies import outcome
 from backend.features.replies.repository import ReplyRepository
-from backend.features.sales import handoff, ooo
+from backend.features.sales import agent_turns, handoff, kb, ooo, queue_jobs, reply_handoff
 from backend.features.sales.connection import MODULE_OFF
 from backend.features.sales.mail import linked, unwritable
 from backend.features.sales.referral import Referred, refer
+from backend.features.sales.reply_handoff import Ask, HandOver
 from backend.features.sales.reply_kind import (
     OPERATION,
     PROMPT_VERSION,
@@ -87,10 +96,8 @@ logger = logging.getLogger(__name__)
 #: Словами человека, без имени настройки — причину читают на экране диалога.
 SWITCHED_OFF = f"{MODULE_OFF} — ответ ждёт человека"
 
-#: Чем кончился путь «хочет говорить», когда передача заведена, — словами.
-HANDED_OVER = "передан телемаркетологу"
-#: И когда передачи нет — дальше в причине словами, почему (`_not_handed_over`).
-NOT_HANDED_OVER = "передать лида не вышло"
+#: Почему вид ответа не разобран сейчас: потолок расхода на модель — задача перенесена на завтра.
+CAPPED = "потолок расхода на модель — вид ответа разберётся завтра"
 
 
 class KindClassifier(Protocol):
@@ -99,12 +106,13 @@ class KindClassifier(Protocol):
     @property
     def model(self) -> str: ...
 
-    async def classify(self, *, text: str, subject: str) -> KindFound | Unanswered: ...
+    async def classify(
+        self, *, text: str, subject: str, services: Sequence[str] = ()
+    ) -> KindFound | Unanswered: ...
 
 
-#: Передача лида по треду — `handoff.start(session, thread_id)`: коммитит сессию сама
-#: и ставит задачу передачи (Kommo, Telegram), поэтому зовётся после записи ответа.
-HandOver = Callable[[AsyncSession, int], Awaitable[object]]
+#: Письмо одному лиду — та же задача сборки (`queue_jobs.build_for(hypothesis_id, lead_id)`).
+BuildFor = Callable[[int, int], object]
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,14 +132,21 @@ class Handled:
     unanswered: Unanswered | None = None
     #: Диалог, лида которого передать телемаркетологу после записи ответа (`pass_on`).
     handoff_thread: int | None = None
-    #: Почему черновика агента нет, хотя путь его даёт: лиду не пишут (`mail.unwritable`).
+    #: Лид уже передан: письмо уходит той же передачей (`reply_handoff.Ask.again`).
+    again: bool = False
+    #: Почему черновика агента нет, хотя путь его даёт: лиду не пишут (`mail.unwritable`) или
+    #: агент уже вёл свои ответы в диалоге (`agent_turns.beyond`).
     no_draft: str | None = None
+    #: Новый лид из «пишите другому», готовый к письму: (гипотеза, лид) — письмо ему собирает
+    #: задача сборки после записи ответа (`write_to_referred`).
+    referred: tuple[int, int] | None = None
 
     @property
     def drafted(self) -> bool:
-        """Положен ли ответу черновик агента по его пути (`DRAFTED`) и лиду (`no_draft`).
-        Включён ли агент продаж и настроен ли — решает шов (`drafting.wants_draft`)."""
-        return self.route in DRAFTED and self.no_draft is None
+        """Положен ли ответу черновик агента по его пути (`DRAFTED`) и лиду (`no_draft`); лиду,
+        уже переданному телемаркетологу, — нет: письмо ушло ему (`again`). Включён ли агент
+        продаж и настроен ли — решает шов (`drafting.wants_draft`)."""
+        return self.route in DRAFTED and self.no_draft is None and not self.again
 
     @property
     def as_report(self) -> dict[str, object]:
@@ -157,6 +172,7 @@ class SalesReplies:
         classifier: KindClassifier,
         *,
         hand_over: HandOver = handoff.start,
+        build_for: BuildFor | None = None,
         verifier: Callable[[], EmailVerifier] | None = None,
         threshold: float | None = None,
         now: datetime | None = None,
@@ -166,6 +182,8 @@ class SalesReplies:
         self._repo = ReplyRepository(session)
         self._classifier = classifier
         self._hand_over = hand_over
+        #: Письмо новому лиду из «пишите другому» — задача сборки (`queue_jobs.build_for`).
+        self._build_for = queue_jobs.build_for if build_for is None else build_for
         self._verifier = verifier
         self._threshold = cfg.REPLY_CONFIDENCE if threshold is None else threshold
         self._now = now
@@ -187,17 +205,21 @@ class SalesReplies:
         if skipped is not None:
             logger.info("продажи: ответ не взят", extra={"reply": reply_id, "why": skipped})
             return Handled(reply_id, skipped=skipped)
-        done = await self._without_model(reply)
+        again = await self._handed(reply)
+        done = await self._without_model(reply, again)
         if done is not None:
             return done
 
         await usage.ensure_llm_within_cap(self._session, own=sales_cap())
-        found = await self._classifier.classify(text=reply.raw_body, subject=reply.subject or "")
+        services = await kb.service_titles(self._session)
+        found = await self._classifier.classify(
+            text=reply.raw_body, subject=reply.subject or "", services=services
+        )
         if isinstance(found, Unanswered):
-            return self._unanswered(reply, found)
+            return replace(self._unanswered(reply, found), **_forwarded(reply, again))
         if found.tokens:
             usage.record(self._session, operation=OPERATION, units=found.tokens)
-        decision = await self._follow(reply, found, decide(found, self._threshold))
+        decision, referred = await self._follow(reply, found, decide(found, self._threshold))
         decision, no_draft = await self._no_draft(reply, found, decision)
         reply.model_parse = self._record(snapshot(found, model=self._classifier.model), decision)
         reply.confidence = found.confidence
@@ -205,7 +227,7 @@ class SalesReplies:
             "продажи: вид ответа разобран",
             extra={"reply": reply.id, "kind": found.kind.value, "route": decision.route.value},
         )
-        return Handled(
+        handled = Handled(
             reply.id,
             kind=found.kind.value,
             route=decision.route.value,
@@ -214,25 +236,37 @@ class SalesReplies:
             tokens=found.tokens,
             handoff_thread=reply.thread_id if decision.route is Route.HANDOFF else None,
             no_draft=no_draft,
+            referred=referred,
         )
+        return replace(handled, **_forwarded(reply, again))
+
+    async def _handed(self, reply: ReplyModel) -> bool:
+        """Лид диалога уже передан телемаркетологу — письмо уйдёт той же передачей. Продажи
+        выключены — нет: передача стоит (`handoff.start`)."""
+        return cfg.ENABLED and await reply_handoff.handed(self._session, reply.thread_id)
 
     async def _no_draft(
         self, reply: ReplyModel, found: KindFound, decision: Decision
     ) -> tuple[Decision, str | None]:
         """Путь даёт черновик агента, а лиду диалога не пишут — то же правило, что у отправки
         (`mail.unwritable`): черновика нет, почему — словами в причине ответа. Диалог без лида
-        продаж правило не судит."""
+        продаж правило не судит. Агент уже вёл свои ответы лида в диалоге (`agent_turns`) —
+        черновика тоже нет: дальше отвечает человек."""
         if decision.route not in DRAFTED:
             return decision, None
         dialog = await linked(self._session, reply.thread_id)
         why = None if dialog is None else await unwritable(self._session, dialog)
+        if why is not None:
+            reason = f"{KIND_WORDS[found.kind]}: {why}; черновика агента нет — решает человек"
+            return replace(decision, reason=reason), why
+        why = await agent_turns.beyond(self._session, reply)
         if why is None:
             return decision, None
-        reason = f"{KIND_WORDS[found.kind]}: {why}; черновика агента нет — решает человек"
-        return replace(decision, reason=reason), why
+        return replace(decision, reason=f"{KIND_WORDS[found.kind]}: {why}"), why
 
     async def pass_on(self, handled: Handled) -> Handled:
-        """Передать лида, если ответ «хочет говорить», — после коммита снимка ответа.
+        """Передать лида, если ответ «хочет говорить», а письмо переданного лида — той же
+        передачей (`handled.again`), — после коммита снимка ответа (`reply_handoff.pass_on`).
 
         Внешнее — только после записи ответа: передача коммитит сессию сама и ставит
         задачу, которая идёт в Kommo и Telegram. Отказ передачи разбор не роняет —
@@ -247,55 +281,51 @@ class SalesReplies:
         """
         if handled.handoff_thread is None:
             return handled
-        try:
-            await self._hand_over(self._session, handled.handoff_thread)
-        except Exception as exc:
-            logger.exception(
-                "продажи: передача лида не заведена — ответ разобран и ждёт человека",
-                extra={"reply": handled.reply_id, "thread_id": handled.handoff_thread},
-            )
-            return await self._not_handed_over(handled, exc)
-        settled = f"{KIND_WORDS[SalesKind.WANTS_TO_TALK]}: {HANDED_OVER}"
-        reply = await self._session.get(ReplyModel, handled.reply_id)
-        if reply is not None:
-            reply.model_parse = {**(reply.model_parse or {}), "waits": False, "reason": settled}
-            await self._session.commit()
-        logger.info(
-            "продажи: лид передан телемаркетологу — ответ человека не ждёт",
-            extra={"reply": handled.reply_id, "thread_id": handled.handoff_thread},
-        )
-        return replace(handled, waits=False, reason=settled)
-
-    async def _not_handed_over(self, handled: Handled, exc: Exception) -> Handled:
-        """Передачи нет: ответ ждёт человека, а почему — словами в снимке ответа, а не только
-        в журнале (ревью стыков, B5): на экране видно, что чинить — разобрать лидов-дублей,
-        завести лида. Отказ передачи (`HandoffError`) говорит сам; чужой сбой — тип и журнал.
-        Сессия после сбоя базы не годится и для этой записи — тогда причина только в журнале.
-        """
-        why = (
-            str(exc)
-            if isinstance(exc, handoff.HandoffError)
-            else f"сбой ({type(exc).__name__}), подробности — в журнале задачи"
-        )
-        words = KIND_WORDS[SalesKind.WANTS_TO_TALK]
-        reason = f"{words}: {NOT_HANDED_OVER} — {why}; решает человек"
-        try:
-            reply = await self._session.get(ReplyModel, handled.reply_id)
-            if reply is None:
-                return handled
-            reply.model_parse = {
-                **(reply.model_parse or {}),
-                "reason": reason,
-                "handoff_error": why,
-            }
-            await self._session.commit()
-        except SQLAlchemyError:
-            logger.exception(
-                "продажи: почему передачи нет — в снимок ответа не записать, причина в журнале",
-                extra={"reply": handled.reply_id},
-            )
+        said = await reply_handoff.pass_on(self._session, _ask(handled), self._hand_over)
+        if said is None:
             return handled
-        return replace(handled, reason=reason)
+        extra = {"reply": handled.reply_id, "thread_id": handled.handoff_thread}
+        if said.handed and handled.again:
+            logger.info("продажи: письмо переданного лида — телемаркетологу", extra=extra)
+        elif said.handed:
+            logger.info(
+                "продажи: лид передан телемаркетологу — ответ человека не ждёт", extra=extra
+            )
+        return replace(handled, waits=said.waits, reason=said.reason)
+
+    async def forward_unread(self, reply_id: int) -> None:
+        """Потолок модели: вид ответа — завтра, а письмо переданного лида уходит телемаркетологу
+        сейчас — записка вместо вида (`kind` пуст: завтра ответ разберут заново) и передача."""
+        reply = await self._session.get(ReplyModel, reply_id)
+        if reply is None or not cfg.ENABLED:
+            return
+        if not await reply_handoff.handed(self._session, reply.thread_id):
+            return
+        decision = Decision(Route.MANUAL, True, CAPPED)
+        reply.model_parse = self._record({"stage": Stage.SALES.value, "kind": None}, decision)
+        await self._session.commit()
+        handled = Handled(reply.id, route=Route.MANUAL.value, waits=True, reason=CAPPED)
+        await self.pass_on(replace(handled, **_forwarded(reply, again=True)))
+
+    async def write_to_referred(self, handled: Handled) -> None:
+        """Письмо новому лиду из «пишите другому» — сразу, той же задачей сборки, только ему.
+        После записи ответа: задача должна видеть лида. Очередь не ответила — строка в журнал:
+        лид `ready`, письмо соберёт сборка гипотезы с кнопки."""
+        if handled.referred is None:
+            return
+        hypothesis_id, lead_id = handled.referred
+        try:
+            self._build_for(hypothesis_id, lead_id)
+        except Exception as exc:  # noqa: BLE001 — лид записан, письмо соберёт кнопка
+            logger.warning(
+                "продажи: письмо новому лиду не поставлено — соберёт сборка гипотезы",
+                extra={"reply": handled.reply_id, "lead_id": lead_id, "error": str(exc)},
+            )
+            return
+        logger.info(
+            "продажи: письмо новому лиду из «пишите другому» — в сборку",
+            extra={"reply": handled.reply_id, "lead_id": lead_id},
+        )
 
     async def _out_of_office(self, reply: ReplyModel) -> Handled:
         """Автоответ: цепочка идёт, следующий шаг — не раньше возвращения."""
@@ -324,15 +354,17 @@ class SalesReplies:
             return f"вид «{reply.kind.value}» решают правила приёма"
         return None
 
-    async def _without_model(self, reply: ReplyModel) -> Handled | None:
-        """Что решается без модели: автоответ и отписка — как их узнали правила приёма;
+    async def _without_model(self, reply: ReplyModel, again: bool) -> Handled | None:
+        """Что решается без модели: автоответ и отписка — как их узнали правила приёма
+        (отписку переданного лида — ещё и телемаркетологу, `again`; автоответ — нет);
         выключенные продажи — ответ ждёт человека. `None` — вид называет модель."""
         match reply.kind:
             case ReplyKind.AUTO_REPLY:
                 return await self._out_of_office(reply)
             case ReplyKind.UNSUBSCRIBE:
                 closed = await close_address(self._session, reply)
-                return Handled(reply.id, kind=reply.kind.value, reason=closed.words)
+                done = Handled(reply.id, kind=reply.kind.value, reason=closed.words)
+                return replace(done, **_forwarded(reply, again)) if again else done
             case _:
                 pass
         return None if cfg.ENABLED else self._switched_off(reply)
@@ -384,26 +416,30 @@ class SalesReplies:
             "reason": decision.reason,
         }
 
-    async def _follow(self, reply: ReplyModel, found: KindFound, decision: Decision) -> Decision:
-        """Что путь делает сразу — и что из этого вышло. Ждущие человека пути не пишут;
-        передача лида — не здесь, а после записи ответа (`pass_on`)."""
+    async def _follow(
+        self, reply: ReplyModel, found: KindFound, decision: Decision
+    ) -> tuple[Decision, tuple[int, int] | None]:
+        """Что путь делает сразу — и что из этого вышло; вторым — новый лид, готовый к письму.
+        Ждущие человека пути не пишут; передача лида — не здесь, а после записи ответа (`pass_on`)."""
         words = KIND_WORDS[found.kind]
         match decision.route:
             case Route.CLOSED:
                 await self._close(reply.thread_id)
             case Route.REFERRAL:
-                referred = await self._refer(reply, found.contact)
-                return Decision(Route.REFERRAL, referred.waits, f"{words}: {referred.words}")
+                referred = await self._refer(reply, found.contact, found.contact_name)
+                said = Decision(Route.REFERRAL, referred.waits, f"{words}: {referred.words}")
+                return said, referred.ready
             case Route.UNSUBSCRIBE:
                 closed = await close_address(self._session, reply)
-                return Decision(Route.UNSUBSCRIBE, not closed.emails, f"{words}: {closed.words}")
+                said = Decision(Route.UNSUBSCRIBE, not closed.emails, f"{words}: {closed.words}")
+                return said, None
             case Route.HANDOFF | Route.AGENT | Route.MANUAL:
                 pass
             case _:
                 assert_never(decision.route)
-        return decision
+        return decision, None
 
-    async def _refer(self, reply: ReplyModel, contact: str | None) -> Referred:
+    async def _refer(self, reply: ReplyModel, contact: str | None, name: str | None) -> Referred:
         """Лид из «пишите другому». Неверная настройка проверки адресов всплывает здесь,
         уже после вызова модели, — поэтому не роняет задачу: откат стёр бы расход, а повтор
         очереди позвал бы модель снова. Лида заводит человек."""
@@ -417,7 +453,9 @@ class SalesReplies:
                 extra={"reply": reply.id},
             )
             return Referred(None, "проверка адресов не настроена — завести лида руками")
-        return await refer(self._session, reply.thread_id, contact, verifier, now=self._moment())
+        return await refer(
+            self._session, reply.thread_id, contact, verifier, now=self._moment(), name=name
+        )
 
     async def _close(self, thread_id: int | None) -> None:
         """Закрыть диалог: «не интересно» и «не сейчас» — без давления. Отписку
@@ -425,3 +463,28 @@ class SalesReplies:
         thread = await self._session.get(ThreadModel, thread_id) if thread_id else None
         if thread is not None and thread.status in (ThreadStatus.OPEN, ThreadStatus.REPLIED):
             thread.status = ThreadStatus.CLOSED
+
+
+def _forwarded(reply: ReplyModel, again: bool) -> dict[str, Any]:
+    """Поля итога, по которым письмо переданного лида уходит той же передачей (`pass_on`)."""
+    if not again:
+        return {}
+    return {"handoff_thread": reply.thread_id, "again": True}
+
+
+def _ask(handled: Handled) -> Ask:
+    """Что передать по итогу разбора: первый раз — «хочет говорить», снова — письмо переданного
+    лида с путём и причиной ответа."""
+    assert handled.handoff_thread is not None  # зовут только с диалогом
+    kinds = {kind.value: kind for kind in SalesKind}
+    kind = kinds.get(handled.kind or "", SalesKind.WANTS_TO_TALK)
+    route = Route(handled.route) if handled.route else None
+    return Ask(
+        reply_id=handled.reply_id,
+        thread_id=handled.handoff_thread,
+        words=KIND_WORDS[kind],
+        again=handled.again,
+        route=route,
+        waits=handled.waits,
+        reason=handled.reason or "",
+    )

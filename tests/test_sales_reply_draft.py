@@ -9,7 +9,8 @@
   другие пути и уверенность ниже порога — без черновика;
 - агент продаж выключен тумблером или не настроен — ни задачи, ни вызова модели;
 - лиду, которому не пишут (у телемаркетолога, снят, в стоп-листе), черновика нет — то же
-  правило, что у отправки (`mail.unwritable`), а почему — словами в снимке ответа;
+  правило, что у отправки (`mail.unwritable`), а почему — словами в снимке ответа (лид у
+  телемаркетолога — письмо уходит ему той же передачей: `test_sales_handed_replies.py`);
 - сбой постановки задачу ответа не роняет: вид записан, черновик попросят кнопкой.
 
 Очереди — подставные во всех модулях, где их берут; Redis из настроек — закрытый порт:
@@ -260,17 +261,18 @@ def asked(session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> Asked:
 @pytest.mark.parametrize(
     ("how", "why"),
     [
-        ("handed-off", f"лид {JANE} у телемаркетолога — письма продаж ему не идут"),
         ("removed", f"лида {JANE} сняли (сейчас «rejected») — писать ему нельзя"),
         ("stop-list", f"лиду {JANE} писать нельзя: в ручном стоп-листе продаж"),
     ],
-    ids=["handed-off", "removed", "stop-list"],
+    ids=["removed", "stop-list"],
 )
 async def test_a_lead_that_must_not_be_written_gets_no_draft_and_the_reason_in_words(
     session: AsyncSession, queues: Queues, asked: Asked, how: str, why: str
 ) -> None:
     """Отправку такого черновика отбил бы `mail._writable`, а модель заплатила бы за письмо,
-    которое не уйдёт. Правило то же (`mail.unwritable`); путь прежний — ответ ждёт человека."""
+    которое не уйдёт. Правило то же (`mail.unwritable`); путь прежний — ответ ждёт человека.
+    Лид у телемаркетолога — черновика тоже нет, но письмо уходит той же передачей, и человека
+    ответ не ждёт (`tests/test_sales_handed_replies.py`)."""
     reply_id, report = await asked(how)
 
     reason = f"задал вопрос: {why}; черновика агента нет — решает человек"
@@ -280,6 +282,27 @@ async def test_a_lead_that_must_not_be_written_gets_no_draft_and_the_reason_in_w
     assert reply is not None
     await session.refresh(reply)
     assert (reply.model_parse or {}).get("reason") == reason
+
+
+@pytest.mark.usefixtures("sales_on")
+async def test_a_lead_at_the_telemarketer_gets_no_draft_and_the_letter_goes_to_him(
+    session: AsyncSession, queues: Queues, asked: Asked
+) -> None:
+    """Лид у телемаркетолога: черновика нет (`mail.unwritable`), а письмо уходит той же
+    передачей — ответ человека в сервисе не ждёт. Сделки нет (Kommo не подключён) — письмо
+    уходит ссылкой на диалог."""
+    reply_id, report = await asked("handed-off")
+
+    reason = "задал вопрос: передан телемаркетологу — письмо ушло ему ссылкой на диалог"
+    assert (report["route"], report["waits"], report["reason"]) == ("agent", False, reason)
+    assert queues.drafts() == {"runs": [], "sales": []}
+    reply = await session.get(ReplyModel, reply_id)
+    assert reply is not None
+    await session.refresh(reply)
+    assert ((reply.model_parse or {}).get("waits"), (reply.model_parse or {}).get("reason")) == (
+        False,
+        reason,
+    )
 
 
 @pytest.mark.usefixtures("sales_on")

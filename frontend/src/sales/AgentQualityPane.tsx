@@ -137,7 +137,7 @@ function Tiles({ view, stale }: { view: AgentQualityView; stale: boolean }) {
         hint={`отправлено ${formatNumber(counts.held_sent)} · отклонено ${formatNumber(
           counts.held_rejected,
         )}`}
-        info="Агент не взялся, засомневался или судья не пропустил. «Как есть» у такого закрыто, и в доли он не входит."
+        info="Агент не взялся, засомневался, судья не пропустил — или понял «хочет говорить», и лид ушёл телемаркетологу. «Как есть» у такого закрыто, и в доли он не входит."
       />
     </SimpleGrid>
   );

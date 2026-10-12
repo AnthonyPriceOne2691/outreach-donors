@@ -218,6 +218,13 @@ async def version(session: AsyncSession) -> str:
     return version_of(await facts(session))
 
 
+async def service_titles(session: AsyncSession) -> list[str]:
+    """Названия включённых записей вида «услуга» — без повторов: из них разбор ответа лида
+    выбирает, какие услуги лиду интересны (`reply_kind.told`), а выдуманное отбрасывает."""
+    found = await facts(session, kinds=(KbKind.SERVICE,))
+    return list(dict.fromkeys(fact.title for fact in found))
+
+
 def grouped(found: Sequence[Fact]) -> list[Group]:
     """Факты группами по виду и языку: виды — в порядке набора, языки — по алфавиту."""
     groups: dict[tuple[KbKind, str], list[Fact]] = {}

@@ -30,10 +30,20 @@ from backend.features.sales.agent.situation import SILENT, Label
 from backend.features.sales.models import KbKind
 
 TABLE = Path(__file__).with_name("moves.toml")
+#: Ход «лид» (`Move.lead`) письма не пишет: лида передают телемаркетологу (`agent/handover.py`).
+#: Пропуск брифа с этими словами — знак передачи для крючка этапа (`parts.on_skip`).
+LEAD_SKIP = "агент понял: хочет говорить — лида передаём телемаркетологу, черновика нет"
 #: Имя хода — метка строки брифа `[move <имя>]`: другие знаки судья назад не прочтёт.
 _NAME = re.compile(r"[a-z_]+")
 #: Ситуации, где ответ нужен и агент пишет: остальное бриф решает до таблицы.
 ANSWERED = frozenset(Label) - SILENT - {Label.PARSE_FAILED}
+
+
+def handed_over(reason: str | None) -> bool:
+    """Пропуск брифа по этой причине — передача лида телемаркетологу, а не молчание. Одно правило
+    у крючка пропуска (`handover.queue_hand_over`), прогона версии (`replay.Outcome.HANDED`,
+    «передан») и экрана калибровки (`calibration.agent_of`: отдано человеку)."""
+    return reason == LEAD_SKIP
 
 
 class Cta(StrEnum):
@@ -59,7 +69,8 @@ class Move:
     #: Куда звать, по порядку: берётся первая ссылка, заданная в настройках.
     #: Пусто — ход без призыва.
     cta: tuple[Cta, ...] = ()
-    #: Разговор становится лидом — пометка в `meta` (передача лида — Ф5).
+    #: Разговор становится лидом: черновика нет, лида передают телемаркетологу тем же путём,
+    #: что по виду ответа «хочет говорить» (бриф — `LEAD_SKIP`, передача — `agent/handover.py`).
     lead: bool = False
 
 

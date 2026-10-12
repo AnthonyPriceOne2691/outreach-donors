@@ -501,7 +501,7 @@ def test_job_is_named_in_words_on_the_screen() -> None:
 def test_job_settles_a_refusal_of_connection_as_an_outcome(monkeypatch: pytest.MonkeyPatch) -> None:
     """Повтор задачи продажи не подключит: итог «не выполнена», а не три попытки."""
 
-    async def refused(_hypothesis_id: int, _limit: int) -> dict[str, Any]:
+    async def refused(_hypothesis_id: int, _limit: int, _leads: object = None) -> dict[str, Any]:
         raise SalesNotConnectedError(queue.WHAT, "модуль продаж выключен — включает администратор")
 
     monkeypatch.setattr(queue_jobs, "run_build", refused)
@@ -518,7 +518,7 @@ def test_job_settles_a_refusal_of_connection_as_an_outcome(monkeypatch: pytest.M
 
 
 def test_job_lets_a_passing_failure_go_to_the_queue_retry(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def broken(_hypothesis_id: int, _limit: int) -> dict[str, Any]:
+    async def broken(_hypothesis_id: int, _limit: int, _leads: object = None) -> dict[str, Any]:
         raise ConnectionError("база не ответила")
 
     monkeypatch.setattr(queue_jobs, "run_build", broken)

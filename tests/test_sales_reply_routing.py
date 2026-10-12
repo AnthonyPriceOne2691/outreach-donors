@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -139,9 +140,14 @@ class FakeClassifier:
     def __init__(self, found: KindFound | Unanswered | None = None) -> None:
         self.found = found or KindFound(SalesKind.INTERESTED, 0.9, quote="Tell me more")
         self.calls = 0
+        #: Какие услуги базы знаний видел разбор — по вызовам.
+        self.services: list[tuple[str, ...]] = []
 
-    async def classify(self, *, text: str, subject: str) -> KindFound | Unanswered:
+    async def classify(
+        self, *, text: str, subject: str, services: Sequence[str] = ()
+    ) -> KindFound | Unanswered:
         self.calls += 1
+        self.services.append(tuple(services))
         return self.found
 
     async def aclose(self) -> None:

@@ -82,6 +82,10 @@ class KommoAbilities:
 FULL = KommoAbilities()
 
 
+#: Поле сделки постоянным значением: номер поля Kommo и значение (`SALES_KOMMO_LEAD_FIELDS`).
+LeadField = tuple[int, str | int | float | bool]
+
+
 @dataclass(frozen=True, slots=True)
 class KommoAccount:
     """Учётка `live`. Ключ не печатается: `repr` уходит в журналы и трассировки."""
@@ -91,6 +95,8 @@ class KommoAccount:
     pipeline_id: int
     status_id: int
     responsible_user_id: int
+    #: Обязательные поля сделки — постоянными значениями, в каждой новой сделке.
+    lead_fields: tuple[LeadField, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
