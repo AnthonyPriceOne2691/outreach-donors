@@ -12,7 +12,7 @@ from collections.abc import Awaitable, Callable
 from datetime import timedelta
 
 import pytest
-from backend.api.sales.followups import NOT_WRITTEN, FollowupCard, LeadFollowupsView
+from backend.api.sales.queue import NOT_WRITTEN, FollowupCard, LeadFollowupsView
 from backend.features.access.permissions import no_right
 from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
