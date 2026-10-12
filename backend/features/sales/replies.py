@@ -58,7 +58,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any, Protocol, assert_never
@@ -66,7 +66,6 @@ from typing import Any, Protocol, assert_never
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import sales as cfg
-from backend.config.startup_checks import ConfigError
 from backend.features.core import usage
 from backend.features.core.domain import ReplyKind, Stage, ThreadStatus
 from backend.features.core.models.outreach import ReplyModel, ThreadModel
@@ -74,9 +73,10 @@ from backend.features.replies import outcome
 from backend.features.replies.repository import ReplyRepository
 from backend.features.sales import agent_turns, handoff, kb, ooo, queue_jobs, reply_handoff
 from backend.features.sales.connection import MODULE_OFF
+from backend.features.sales.dead_mailbox import KIND, colleague
 from backend.features.sales.mail import linked, unwritable
 from backend.features.sales.no_draft import absent as agent_absent
-from backend.features.sales.referral import Referred, refer
+from backend.features.sales.referral import Referred, from_answer
 from backend.features.sales.reply_handoff import Ask, HandOver
 from backend.features.sales.reply_kind import (
     OPERATION,
@@ -353,7 +353,7 @@ class SalesReplies:
         stage = await self._repo.stage_of(reply)
         if stage is not Stage.SALES:
             return "не ответ продаж"
-        if not outcome.to_sales_queue(reply.kind, stage):
+        if not outcome.to_sales_queue(reply.kind, stage) and reply.kind is not ReplyKind.BOUNCE:
             return f"вид «{reply.kind.value}» решают правила приёма"
         return None
 
@@ -368,6 +368,8 @@ class SalesReplies:
                 closed = await close_address(self._session, reply)
                 done = Handled(reply.id, kind=reply.kind.value, reason=closed.words)
                 return replace(done, **_forwarded(reply, again)) if again else done
+            case ReplyKind.BOUNCE:  # мёртвый ящик лида назвал адрес коллеги
+                return await self._dead_mailbox(reply)
             case _:
                 pass
         return None if cfg.ENABLED else self._switched_off(reply)
@@ -429,7 +431,7 @@ class SalesReplies:
             case Route.CLOSED:
                 await self._close(reply.thread_id)
             case Route.REFERRAL:
-                referred = await self._refer(reply, found.contact, found.contact_name)
+                referred = await self._refer(reply)(found.contact, found.contact_name)
                 said = Decision(Route.REFERRAL, referred.waits, f"{words}: {referred.words}")
                 return said, referred.ready
             case Route.UNSUBSCRIBE:
@@ -442,22 +444,18 @@ class SalesReplies:
                 assert_never(decision.route)
         return decision, None
 
-    async def _refer(self, reply: ReplyModel, contact: str | None, name: str | None) -> Referred:
-        """Лид из «пишите другому». Неверная настройка проверки адресов всплывает здесь,
-        уже после вызова модели, — поэтому не роняет задачу: откат стёр бы расход, а повтор
-        очереди позвал бы модель снова. Лида заводит человек."""
-        if self._verifier is None:
-            return Referred(None, "проверка адресов задаче не дана — завести лида руками")
-        try:
-            verifier = self._verifier()
-        except ConfigError:
-            logger.exception(
-                "продажи: проверка адресов не настроена — лида из ответа заведёт человек",
-                extra={"reply": reply.id},
-            )
-            return Referred(None, "проверка адресов не настроена — завести лида руками")
-        return await refer(
-            self._session, reply.thread_id, contact, verifier, now=self._moment(), name=name
+    async def _dead_mailbox(self, reply: ReplyModel) -> Handled:
+        """Мёртвый ящик лида назвал адрес коллеги — лид той же компании тем же путём, что «пишите
+        другому» (`dead_mailbox.colleague`); снимок с видом — повтор задачи его не возьмёт."""
+        said, ready = await colleague(self._session, reply, self._refer(reply))
+        reply.model_parse = self._record({"stage": Stage.SALES.value, "kind": KIND}, said)
+        found = Handled(reply.id, kind=reply.kind.value, route=said.route.value, referred=ready)
+        return replace(found, waits=said.waits, reason=said.reason)
+
+    def _refer(self, reply: ReplyModel) -> Callable[[str | None, str | None], Awaitable[Referred]]:
+        """Лид из ответа на названный адрес (`referral.from_answer`)."""
+        return lambda contact, name: from_answer(
+            self._session, reply, contact, self._verifier, now=self._moment(), name=name
         )
 
     async def _close(self, thread_id: int | None) -> None:
