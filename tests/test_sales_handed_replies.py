@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 from functools import partial
 
@@ -360,6 +361,42 @@ async def test_model_cap_does_not_hold_the_letter_of_a_handed_lead(
     snap = (await _snap(session, reply)).model_parse or {}
     assert (snap["kind"], snap["waits"]) == (None, True), "вид разберут завтра заново"
     assert snap["reason"] == f"{replies.CAPPED}; {FORWARDED}"
+
+
+async def test_failed_forward_does_not_hide_the_model_cap(
+    monkeypatch: pytest.MonkeyPatch,
+    session: AsyncSession,
+    http: httpx.AsyncClient,
+    alerts: Alerts,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Письмо переданного лида при потолке модели не передалось: исключение потолка остаётся —
+    точка входа переносит задачу на завтра (`sales_reply` → `postpone`), как без сбоя, а не
+    отдаёт её повторам очереди; сбой — словами в журнал."""
+    lead = await handed(session, http, alerts)
+    reply = await lead.wrote("Сколько стоит?")
+    await session.commit()
+    start = partial(handoff.start, enqueue=lead.queued.append, now=lambda: LATER)
+    _job_on_test_base(monkeypatch, session, QUESTION, start, [])
+
+    async def capped(*_: object, **__: object) -> None:
+        raise LlmCapExceededError("потолок расхода на модель за сутки")
+
+    async def broken(*_: object) -> None:
+        raise RuntimeError("база не ответила")
+
+    monkeypatch.setattr(replies.usage, "ensure_llm_within_cap", capped)
+    monkeypatch.setattr(SalesReplies, "forward_unread", broken)
+
+    with (
+        caplog.at_level(logging.ERROR, logger=sales_jobs.__name__),
+        pytest.raises(LlmCapExceededError, match="потолок расхода на модель за сутки"),
+    ):
+        await sales_jobs.handle(reply.id)
+
+    assert "письмо переданного лида телемаркетологу не передано" in caplog.text
+    assert "база не ответила" in caplog.text, "трассировка сбоя — в журнале"
+    assert lead.queued == [], "письмо передаст завтрашний разбор"
 
 
 async def test_switched_off_sales_forward_nothing(

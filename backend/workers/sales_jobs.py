@@ -120,11 +120,20 @@ async def handle(reply_id: int) -> dict[str, Any]:
 
 async def _handled(sales: SalesReplies, reply_id: int) -> Handled:
     """Разбор ответа. Потолок модели — вид завтра (`postpone`), а письмо переданного лида
-    уходит телемаркетологу сейчас (`SalesReplies.forward_unread`)."""
+    уходит телемаркетологу сейчас (`SalesReplies.forward_unread`). Её сбой исключение потолка
+    не подменяет: задача переносится на завтра, как без сбоя (иначе она ушла бы в повторы
+    очереди), а сбой — словами в журнал; завтрашний разбор передаст письмо тем же путём."""
     try:
         return await sales.handle(reply_id)
     except LlmCapExceededError:
-        await sales.forward_unread(reply_id)
+        try:
+            await sales.forward_unread(reply_id)
+        except Exception:
+            logger.exception(
+                "продажи: потолок модели — письмо переданного лида телемаркетологу не передано, "
+                "сбой ниже; ответ — на завтра, как без сбоя",
+                extra={"reply": reply_id},
+            )
         raise
 
 
