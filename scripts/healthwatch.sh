@@ -18,8 +18,10 @@
 # проход скажет о той же разнице ещё раз.
 #
 # Что считается сломанным:
-#   • долгоживущий сервис не запущен (exited, dead, restarting, paused,
-#     created), без контейнера вовсе или помечен unhealthy;
+#   • долгоживущий сервис не запущен (exited, dead, restarting, paused),
+#     без контейнера вовсе или помечен unhealthy;
+#   • сервис создан, но не запущен (`created`) дольше
+#     HEALTHWATCH_CREATED_GRACE_MIN минут (15) — см. ниже;
 #   • одноразовый (миграции) завершился не с нулём;
 #   • сам docker compose не отвечает — тогда про сервисы не известно
 #     ничего, и их прошлое состояние остаётся как было;
@@ -29,6 +31,17 @@
 # `starting` — ни поломка, ни выздоровление: контейнер только поднят,
 # и прошлое состояние держится до первого ответа проверки. Иначе каждый
 # перезапуск в цикле падений давал бы пару «сломался — восстановился».
+#
+# `created` — контейнер создан и ждёт старта: выкатка пересоздаёт сервисы,
+# и они стоят созданными, пока идут миграции. 12.10.2026 проход попал на
+# выкатку и назвал сломанными все сервисы, а миграции — «не прошли», хотя
+# они ещё не начались. Поэтому созданный впервые получает в файле состояния
+# отметку `~created@<секунды>` — в тревогу она не идёт; поломка — если сервис
+# стоит созданным дольше порога. Порог — по времени, а не «два прохода»:
+# миграция дольше пяти минут (заполнение колонки большой таблицы) держит
+# сервисы созданными несколько проходов, а зависшая выкатка — сколько угодно.
+# Сломанный раньше остаётся сломанным, пока не ответит здоровым, как при
+# `starting`.
 #
 # Когда сторож смотрел последний раз — время файла состояния: он
 # переписывается каждым проходом. В журнал пишется только то, что
@@ -44,13 +57,29 @@ STATE="${HEALTHWATCH_STATE:-$ROOT/.healthwatch.state}"
 # Сервисы, которым положено завершиться: миграции идут до остальных.
 ONESHOT=" ${HEALTHWATCH_ONESHOT:-migrate} "
 BACKUP_DAYS="${HEALTHWATCH_BACKUP_DAYS:-8}"
+CREATED_GRACE="${HEALTHWATCH_CREATED_GRACE_MIN:-15}"
+# Не число — проход оборвался бы на арифметике, и сторож молчал бы ровно при
+# зависшей выкатке, ради которой порог: берётся 15, строка — в журнал крона.
+case "$CREATED_GRACE" in
+  '' | *[!0-9]*)
+    echo "$(date '+%F %T') HEALTHWATCH_CREATED_GRACE_MIN=«${CREATED_GRACE}» — не число минут, взято 15" >&2
+    CREATED_GRACE=15
+    ;;
+esac
+# Ведущий ноль bash читает восьмеричным: `08` оборвал бы проход, `010` дал бы 8.
+CREATED_GRACE=$((10#$CREATED_GRACE))
+EPOCH="$(date +%s)"
 TAB="$(printf '\t')"
 
 cd "$ROOT" || exit 1
 
-# verdict СЕРВИС СОСТОЯНИЕ ЗДОРОВЬЕ КОД — «ok», «wait» или «bad:что с ним».
+# verdict СЕРВИС СОСТОЯНИЕ ЗДОРОВЬЕ КОД — «ok», «wait», «created» или «bad:что с ним».
 verdict() {
   local service="$1" state="$2" health="$3" code="$4"
+  if [ "$state" = created ]; then
+    echo created
+    return
+  fi
   case "$ONESHOT" in
     *" $service "*)
       if [ -z "$state" ] || [ "$state" = running ] || { [ "$state" = exited ] && [ "$code" = 0 ]; }; then
@@ -94,6 +123,27 @@ keep() {
 "
 }
 
+# hold_created СЕРВИС — создан и не запущен. Впервые — отметка с временем,
+# без тревоги: так выглядит каждая выкатка, пока идут миграции. Отметка
+# старше порога — поломка; сломанный раньше остаётся, каким был.
+hold_created() {
+  local line since
+  line="$(was "$1")"
+  case "$line" in
+    "") add "$1" "~created@$EPOCH" ;;
+    *"$TAB~created@"*)
+      since="${line##*@}"
+      case "$since" in '' | *[!0-9]*) since="$EPOCH" ;; esac
+      if [ $((EPOCH - since)) -ge $((CREATED_GRACE * 60)) ]; then
+        add "$1" "created — создан, но не запущен дольше $CREATED_GRACE мин"
+      else
+        add "$1" "~created@$since"
+      fi
+      ;;
+    *) keep "$1" ;;
+  esac
+}
+
 # stderr компоуза — отдельно от ответа: предупреждение в списке сервисов
 # стало бы «сервисом без контейнера» и тревогой на пустом месте.
 ERRS="$(mktemp "${TMPDIR:-/tmp}/outreach-healthwatch.XXXXXX")"
@@ -117,16 +167,19 @@ else
     # и вставшая третья копия выглядела бы здоровой.
     lines="$(printf '%s\n' "$PS" | awk -F '|' -v s="$service" '$1 == s')"
     [ -n "$lines" ] || lines="$service|||"
-    worst="" waiting=""
+    worst="" waiting="" created=""
     while IFS='|' read -r _ state health code; do
       result="$(verdict "$service" "${state:-}" "${health:-}" "${code:-}")"
       case "$result" in
         bad:*) [ -n "$worst" ] || worst="${result#bad:}" ;;
         wait) waiting=1 ;;
+        created) created=1 ;;
       esac
     done <<<"$lines"
     if [ -n "$worst" ]; then
       add "$service" "$worst"
+    elif [ -n "$created" ]; then
+      hold_created "$service"
     elif [ -n "$waiting" ]; then
       keep "$service"
     fi
@@ -141,8 +194,9 @@ if [ -n "${BACKUP_DIR:-}" ]; then
   fi
 fi
 
+# names СОСТОЯНИЕ — сломанные сервисы; отметки `~` — не поломка.
 names() {
-  printf '%s' "$1" | cut -f1 | grep -v '^$' | sort -u
+  printf '%s' "$1" | awk -F "$TAB" '$1 != "" && $2 !~ /^~/ {print $1}' | sort -u
 }
 # joined СПИСОК — строки через запятую: «docker, worker».
 joined() {
@@ -157,8 +211,9 @@ save() {
 
 if [ -z "$BROKE" ] && [ -z "$HEALED" ]; then
   save
-  if [ -n "$NOW" ]; then
-    echo "$(date '+%F %T') по-прежнему сломано: $(joined "$(names "$NOW")")"
+  STILL="$(names "$NOW")"
+  if [ -n "$STILL" ]; then
+    echo "$(date '+%F %T') по-прежнему сломано: $(joined "$STILL")"
   fi
   exit 0
 fi
@@ -176,18 +231,26 @@ if [ -n "$HEALED" ]; then
   TEXT="$TEXT
 Восстановилось: $(joined "$HEALED")"
 fi
-# Подсказка — к тому, что сломалось: команда, которую наберут первой.
+# Подсказка — к тому, что сломалось: команды, которые наберут первыми, —
+# каждая своей строкой, в обратных кавычках (в Telegram — моноширинно,
+# копируется нажатием, `scripts/alert.sh`).
 if [ -n "$BROKE" ] && printf '%s\n' "$BROKE" | grep -qvx backup; then
   TEXT="$TEXT
-Смотреть: docker compose ps; почему unhealthy — docker inspect --format '{{json .State.Health}}' <контейнер>; журнал — docker compose logs --tail 200 <сервис>."
+
+Смотреть: \`docker compose ps\`
+Почему unhealthy: \`docker inspect --format '{{json .State.Health}}' <контейнер>\`
+Журнал: \`docker compose logs --tail 200 <сервис>\`"
 fi
 if [ -n "$BROKE" ] && printf '%s\n' "$BROKE" | grep -qx backup; then
   TEXT="$TEXT
-Бэкап: журнал крона /var/log/outreach-backup.log и файл /etc/cron.d/outreach-donors-backup."
+Бэкап: журнал крона \`/var/log/outreach-backup.log\`, файл \`/etc/cron.d/outreach-donors-backup\`"
 fi
 
+# Уровень значком: что-то сломано — красный, только восстановилось — зелёный.
+LEVEL=""
+[ -n "$BROKE" ] || LEVEL="--ok"
 echo "$(date '+%F %T') $TEXT"
-"$ROOT/scripts/alert.sh" "$TEXT"
+"$ROOT/scripts/alert.sh" ${LEVEL:+"$LEVEL"} "$TEXT"
 SENT=$?
 # Не настроено (3) — строка уже в журнале, и повторять её каждые пять
 # минут незачем. Не ушло (1) — состояние не пишем: следующий проход

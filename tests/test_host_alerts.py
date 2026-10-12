@@ -66,7 +66,11 @@ class TestAlertScript:
         [call] = host.calls("curl")
         assert call["url"] == f"https://api.telegram.org/bot{TOKEN}/sendMessage"
         assert not any(TOKEN in arg for arg in call["argv"])
-        assert call["data"] == {"chat_id": "-42", "text": "outreach-donors: бэкап не снят"}
+        assert call["data"] == {
+            "chat_id": "-42",
+            "parse_mode": "HTML",
+            "text": "🔴 <b>outreach-donors · бэкап не снят</b>",
+        }
 
     def test_unconfigured_bot_is_loud_and_distinct(self, host: Host) -> None:
         host.write_settings(".env", "")
@@ -75,7 +79,7 @@ class TestAlertScript:
 
         assert done.returncode == 3
         assert "ТРЕВОГА НЕ ОТПРАВЛЕНА" in done.stderr
-        assert "outreach-donors: бэкап не снят" in done.stderr
+        assert "🔴 outreach-donors · бэкап не снят" in done.stderr
         assert host.calls("curl") == []
 
     def test_refusal_says_what_to_do_and_hides_the_token(self, host: Host) -> None:
@@ -100,8 +104,56 @@ class TestAlertScript:
         [text] = host.alerts()
         encoded = text.encode("utf-8")
         assert len(encoded) <= 3600
-        assert text.endswith("…")
+        assert text.endswith("…</b>"), "режется текст, а не разметка"
         assert encoded.decode("utf-8") == text
+
+    def test_topic_is_bold_commands_are_monospace_the_rest_is_escaped(self, host: Host) -> None:
+        """Цвета у текста в Telegram нет: тема — жирным, уровень — значком,
+        команда в обратных кавычках — моноширинно. Угловые скобки и `&` из
+        текста — не разметка: иначе Telegram отказал бы всей тревоге."""
+        host.run("alert.sh", "сторож здоровья\nЖурнал: `docker compose logs <сервис>` & ещё")
+
+        [call] = host.calls("curl")
+        assert call["data"]["parse_mode"] == "HTML"
+        assert call["data"]["text"] == (
+            "🔴 <b>outreach-donors · сторож здоровья</b>\n"
+            "Журнал: <code>docker compose logs &lt;сервис&gt;</code> &amp; ещё"
+        )
+
+    @pytest.mark.parametrize(("flag", "mark"), [("--ok", "🟢"), ("--warn", "🟡")])
+    def test_level_is_a_mark_before_the_topic(self, host: Host, flag: str, mark: str) -> None:
+        host.run("alert.sh", flag, "сторож здоровья")
+
+        assert host.alerts() == [f"{mark} <b>outreach-donors · сторож здоровья</b>"]
+
+    def test_refused_markup_goes_as_plain_text(self, host: Host) -> None:
+        """Разметку Telegram не принял — тот же текст уходит простым: тревога
+        не теряется из-за своей же разметки, и сторож считает её ушедшей."""
+        host.scenario["telegram"] = [
+            {
+                "out": '{"ok":false,"error_code":400,"description":"Bad Request: can\'t parse entities"}'
+            },
+            {"out": '{"ok":true,"result":{"message_id":2}}'},
+        ]
+        _stack(host, worker="running|unhealthy|0")
+
+        done = host.run("healthwatch.sh")
+
+        assert done.returncode == 0, done.stderr
+        marked, plain = host.calls("curl")
+        assert marked["data"]["parse_mode"] == "HTML"
+        assert "parse_mode" not in plain["data"]
+        assert plain["data"]["text"].startswith("🔴 outreach-donors · сторож здоровья\nСломалось:")
+        assert "worker\tunhealthy" in Path(host.env["HEALTHWATCH_STATE"]).read_text()
+
+    def test_topic_has_no_monospace_inside_bold(self, host: Host) -> None:
+        """Моноширинное внутри жирного Bot API не принимает: в теме обратные
+        кавычки остаются кавычками."""
+        host.run("alert.sh", "тема с `кодом`\nтело с `кодом`")
+
+        assert host.alerts() == [
+            "🔴 <b>outreach-donors · тема с `кодом`</b>\nтело с <code>кодом</code>"
+        ]
 
 
 class TestSettingsFiles:
@@ -165,10 +217,10 @@ class TestHealthwatch:
 
         broke, healed = host.alerts()
         assert broke.startswith(
-            "outreach-donors: сторож здоровья\nСломалось:\n• worker — unhealthy"
+            "🔴 <b>outreach-donors · сторож здоровья</b>\nСломалось:\n• worker — unhealthy"
         )
-        assert "docker inspect" in broke, "тревога называет, куда смотреть"
-        assert healed == "outreach-donors: сторож здоровья\nВосстановилось: worker"
+        assert "<code>docker inspect" in broke, "тревога называет, куда смотреть"
+        assert healed == "🟢 <b>outreach-donors · сторож здоровья</b>\nВосстановилось: worker"
 
     @pytest.mark.parametrize(
         ("row", "said"),
@@ -224,6 +276,132 @@ class TestHealthwatch:
         _stack(host, worker="exited||1", api="running|starting|0")
         host.run("healthwatch.sh")
         assert len(host.alerts()) == 1, "здоровый, который перезапускается, — не поломка"
+
+    def test_deploy_is_not_an_alarm(self, host: Host) -> None:
+        """Проход попал на выкатку: сервисы пересозданы и ждут миграций
+        (`created`). 12.10.2026 это была тревога «сломалось всё, миграции не
+        прошли», а следом — «восстановилось». Теперь — ни той, ни другой."""
+        mid_deploy = {name: "created||0" for name in HEALTHY if name not in ("postgres", "redis")}
+        _stack(host, **mid_deploy)
+        done = host.run("healthwatch.sh")
+        _stack(host)
+        healed = host.run("healthwatch.sh")
+
+        assert host.alerts() == []
+        assert done.stdout == "", "отметка — не поломка, и «по-прежнему сломано» про неё молчит"
+        assert healed.stdout == ""
+        assert Path(host.env["HEALTHWATCH_STATE"]).read_text() == ""
+
+    def test_created_longer_than_the_grace_is_broken(self, host: Host) -> None:
+        """Выкатка оборвалась между созданием и стартом: сервис так и стоит
+        созданным — дольше порога это поломка, и о ней одна тревога."""
+        host.env["HEALTHWATCH_CREATED_GRACE_MIN"] = "0"
+        _stack(host, worker="created||0")
+        host.run("healthwatch.sh")
+        host.run("healthwatch.sh")
+        host.run("healthwatch.sh")
+        _stack(host)
+        host.run("healthwatch.sh")
+
+        broke, healed = host.alerts()
+        assert "• worker — created — создан, но не запущен дольше 0 мин" in broke
+        assert healed.endswith("Восстановилось: worker")
+
+    @pytest.mark.parametrize(("minutes", "told"), [(16, True), (14, False)])
+    def test_grace_is_counted_from_the_first_sighting(
+        self, host: Host, minutes: int, told: bool
+    ) -> None:
+        """Порог — от отметки первого прохода, а не от последнего: сервис,
+        застанный созданным 16 минут назад, — поломка, 14 минут — ещё нет."""
+        since = int(time.time()) - minutes * 60
+        Path(host.env["HEALTHWATCH_STATE"]).write_text(f"worker\t~created@{since}\n")
+        _stack(host, worker="created||0")
+
+        host.run("healthwatch.sh")
+
+        alerts = host.alerts()
+        if told:
+            [alert] = alerts
+            assert "• worker — created — создан, но не запущен дольше 15 мин" in alert
+        else:
+            assert alerts == []
+            assert f"~created@{since}" in Path(host.env["HEALTHWATCH_STATE"]).read_text()
+
+    @pytest.mark.parametrize(("grace", "minutes", "said"), [("08", 9, 8), ("010", 11, 10)])
+    def test_grace_with_a_leading_zero_is_decimal(
+        self, host: Host, grace: str, minutes: int, said: int
+    ) -> None:
+        """Ведущий ноль bash читает восьмеричным: `08` оборвал бы проход,
+        `010` молча дал бы 8 минут."""
+        host.env["HEALTHWATCH_CREATED_GRACE_MIN"] = grace
+        since = int(time.time()) - minutes * 60
+        Path(host.env["HEALTHWATCH_STATE"]).write_text(f"worker\t~created@{since}\n")
+        _stack(host, worker="created||0")
+
+        done = host.run("healthwatch.sh")
+
+        assert done.returncode == 0, done.stderr
+        [alert] = host.alerts()
+        assert f"• worker — created — создан, но не запущен дольше {said} мин" in alert
+
+    @pytest.mark.parametrize("grace", ["15m", "abc"])
+    def test_grace_that_is_not_a_number_falls_back_and_says_so(
+        self, host: Host, grace: str
+    ) -> None:
+        """Опечатка в пороге не обрывает проход: иначе сторож молчал бы ровно
+        при зависшей выкатке."""
+        host.env["HEALTHWATCH_CREATED_GRACE_MIN"] = grace
+        since = int(time.time()) - 16 * 60
+        Path(host.env["HEALTHWATCH_STATE"]).write_text(f"worker\t~created@{since}\n")
+        _stack(host, worker="created||0")
+
+        done = host.run("healthwatch.sh")
+
+        assert done.returncode == 0, done.stderr
+        assert f"HEALTHWATCH_CREATED_GRACE_MIN=«{grace}» — не число минут, взято 15" in done.stderr
+        [alert] = host.alerts()
+        assert "• worker — created — создан, но не запущен дольше 15 мин" in alert
+
+    def test_long_migrations_are_not_an_alarm(self, host: Host) -> None:
+        """Миграция дольше прохода (заполнение колонки большой таблицы):
+        сервисы ждут её несколько проходов — в пределах порога это не поломка."""
+        waiting = {name: "created||0" for name in HEALTHY if name not in ("postgres", "redis")}
+        _stack(host, **{**waiting, "migrate": "running||0"})
+        for _ in range(3):
+            host.run("healthwatch.sh")
+        _stack(host)
+        host.run("healthwatch.sh")
+
+        assert host.alerts() == []
+
+    def test_broken_service_recreated_stays_broken_until_healthy(self, host: Host) -> None:
+        """Сломанный сервис пересоздан выкаткой: пока он `created`, он ещё не
+        починен — «восстановилось» только после здорового ответа."""
+        _stack(host, worker="running|unhealthy|0")
+        host.run("healthwatch.sh")
+        _stack(host, worker="created||0")
+        host.run("healthwatch.sh")
+        assert len(host.alerts()) == 1
+
+        _stack(host)
+        host.run("healthwatch.sh")
+        broke, healed = host.alerts()
+        assert "• worker — unhealthy" in broke
+        assert healed.endswith("Восстановилось: worker")
+
+    def test_failed_migrations_are_told_at_once(self, host: Host) -> None:
+        """Отметка не прячет настоящую поломку: миграции упали — тревога
+        с первого прохода, а сервисы, которые их ждут, — после порога."""
+        host.env["HEALTHWATCH_CREATED_GRACE_MIN"] = "0"
+        _stack(host, migrate="exited||1", api="created||0")
+        host.run("healthwatch.sh")
+        [alert] = host.alerts()
+        assert "• migrate — exited, код 1 — миграции не прошли" in alert
+        assert "api" not in alert
+
+        host.run("healthwatch.sh")
+        _, waiting = host.alerts()
+        assert "• api — created — создан, но не запущен дольше 0 мин" in waiting
 
     def test_silent_compose_keeps_what_was_known(self, host: Host) -> None:
         _stack(host, worker="running|unhealthy|0")

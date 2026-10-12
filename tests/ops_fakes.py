@@ -116,6 +116,11 @@ with Path(os.environ["FAKE_LOG"]).open("a", encoding="utf-8") as log:
 
 scenario = json.loads(Path(os.environ["FAKE_SCENARIO"]).read_text(encoding="utf-8"))
 answer = scenario.get("telegram", {"out": '{"ok":true,"result":{"message_id":1}}'})
+# Список — ответы по очереди вызовов curl в тесте; последний повторяется.
+if isinstance(answer, list):
+    log = Path(os.environ["FAKE_LOG"]).read_text(encoding="utf-8")
+    calls = sum('"tool": "curl"' in line for line in log.splitlines())
+    answer = answer[min(calls, len(answer)) - 1]
 sys.stdout.write(answer.get("out", ""))
 sys.stderr.write(answer.get("err", ""))
 sys.exit(answer.get("code", 0))
