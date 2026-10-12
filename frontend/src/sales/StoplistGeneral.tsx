@@ -3,6 +3,8 @@
  * с любого этапа, записи без этапа и этапа продаж тоже держат продажи
  * (`suppressions.holds_sales` сервера). Снимают их на экране «Стоп-лист»: там снятие решения
  * адресата уходит в журнал с причиной. Строк — новые первыми, не все: сколько всего — числом.
+ * Показывается с правом смотреть базу (`view`): без него сервер строк не присылает, и «никого»
+ * было бы неправдой.
  */
 
 import { Badge, Button, Group, Stack, Table, Text } from '@mantine/core';
@@ -10,7 +12,6 @@ import { Link } from 'react-router-dom';
 
 import { SUPPRESSION_REASON_TITLES } from '../api/labels';
 import type { SalesHeldRow, SalesStoplistView } from '../api/salesStoplist';
-import { useSession } from '../auth/AuthProvider';
 import { InfoHint } from '../components/InfoHint';
 import { Seams } from '../components/Seams';
 import { formatDate, formatNumber } from '../format';
@@ -40,9 +41,9 @@ function GeneralRow({ row }: { row: SalesHeldRow }) {
   );
 }
 
-/** Общий стоп-лист, который держит продажи: только виден, снимают его не здесь. */
+/** Общий стоп-лист, который держит продажи: только виден, снимают его не здесь. Только с правом
+ *  `view` — проверяет вкладка. */
 export function StoplistGeneral({ view }: { view: SalesStoplistView }) {
-  const { can } = useSession();
   const shown = view.general.length;
   return (
     <Stack gap="xs">
@@ -77,11 +78,9 @@ export function StoplistGeneral({ view }: { view: SalesStoplistView }) {
             Показаны {formatNumber(shown)} новых из {formatNumber(view.general_total)}.
           </Text>
         )}
-        {can('view') && (
-          <Button component={Link} to="/suppressions" variant="subtle" size="compact-sm">
-            К общему стоп-листу
-          </Button>
-        )}
+        <Button component={Link} to="/suppressions" variant="subtle" size="compact-sm">
+          К общему стоп-листу
+        </Button>
       </Group>
     </Stack>
   );

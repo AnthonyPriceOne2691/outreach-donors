@@ -17,6 +17,9 @@
 
 **Права — как у прочих правок модуля**: смотреть — `sales`, менять — `sales` и `send`: список
 решает, кому продажи напишут. Отказы — словами: не прочитано — 400, записи нет — 404.
+**Строки общего стоп-листа — ещё и под `view`**, как на общем экране (`api/suppressions`): в них
+отписки и жалобы доноров и рекламодателей с адресами. Без `view` их нет ни в списке, ни в числе;
+свои записи продаж — как есть.
 """
 
 from __future__ import annotations
@@ -29,7 +32,8 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.api.deps import db_session, needs
+from backend.api.deps import actor, db_session, needs
+from backend.features.access.permissions import has_permission
 from backend.features.core.domain import Permission, Stage, SuppressionReason
 from backend.features.core.models.access import UserModel
 from backend.features.sales import stoplist, suppressions
@@ -117,10 +121,10 @@ class StoplistRemoved(BaseModel):
 
 @router.get("/stoplist", response_model=SalesStoplistView, summary="Стоп-лист продаж")
 async def read_stoplist(
-    _: UserModel = _seller, session: AsyncSession = Depends(db_session)
+    user: UserModel = _seller, session: AsyncSession = Depends(db_session)
 ) -> SalesStoplistView:
     rows = await stoplist.rows(session)
-    held, held_total = await suppressions.holding(session, limit=GENERAL_SHOWN)
+    held, held_total = await _general(session, user)
     return SalesStoplistView(
         rows=[StopRow.of(row) for row in rows],
         total=len(rows),
@@ -128,6 +132,14 @@ async def read_stoplist(
         general_total=held_total,
         note_max=stoplist.NOTE_LENGTH,
     )
+
+
+async def _general(session: AsyncSession, user: UserModel) -> tuple[list[suppressions.Held], int]:
+    """Общий стоп-лист, который держит продажи, — с правом `view`, как на общем экране: отписки
+    доноров и рекламодателей не видны учётке с одними «Продажами»."""
+    if not has_permission(actor(user), Permission.VIEW):
+        return [], 0
+    return await suppressions.holding(session, limit=GENERAL_SHOWN)
 
 
 async def _entries(file: UploadFile | None, text: str | None) -> stoplist.Entries:

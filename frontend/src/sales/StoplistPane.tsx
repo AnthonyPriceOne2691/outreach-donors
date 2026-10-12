@@ -9,7 +9,8 @@
  *
  * **Общий стоп-лист здесь только виден**: отписавшиеся и пожаловавшиеся с любого этапа и записи
  * без этапа тоже держат продажи, но снимают их на экране «Стоп-лист» — там решение адресата
- * снимают с причиной в журнале.
+ * снимают с причиной в журнале. Виден он с правом смотреть базу, как общий экран: в нём отписки
+ * доноров и рекламодателей с адресами, и без права сервер его не присылает.
  *
  * Права — как у прочих правок модуля: смотреть — «Продажи», менять — ещё и отправка писем.
  */
@@ -21,6 +22,7 @@ import { useState } from 'react';
 import { refusalOf } from '../api/client';
 import { readSalesStoplist } from '../api/salesStoplist';
 import type { SalesStopRow } from '../api/salesStoplist';
+import { useSession } from '../auth/AuthProvider';
 import { InfoHint } from '../components/InfoHint';
 import { Seams } from '../components/Seams';
 import { formatDate, formatNumber } from '../format';
@@ -86,6 +88,7 @@ function OwnRow({
 export function StoplistPane() {
   const client = useQueryClient();
   const mayWrite = useMayWrite();
+  const { can } = useSession();
   const stoplist = useQuery({ queryKey: STOPLIST_QUERY_KEY, queryFn: readSalesStoplist });
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<SalesStopRow | null>(null);
@@ -139,7 +142,7 @@ export function StoplistPane() {
           ))}
         />
       )}
-      <StoplistGeneral view={view} />
+      {can('view') && <StoplistGeneral view={view} />}
       {adding && (
         <StoplistAddModal
           noteMax={view.note_max}

@@ -4,7 +4,8 @@
  *
  * Проверяется то, ради чего экран: список уходит формой (текст и причина), непринятые строки
  * остаются в поле с замечанием, а принятые — нет; снятие называет, сколько лидов вернулось.
- * Без права отправки — смотреть: кнопки закрыты, почему — строкой.
+ * Без права отправки — смотреть: кнопки закрыты, почему — строкой. Без права смотреть базу —
+ * без общего списка: в нём отписки доноров и рекламодателей.
  */
 
 import { notifications } from '@mantine/notifications';
@@ -107,6 +108,19 @@ describe('стоп-лист продаж', () => {
     expect(general.getByText('отписался')).toBeInTheDocument();
     expect(general.queryByRole('button')).toBeNull();
     expect(screen.getByText('Общий стоп-лист тоже держит продажи — 1')).toBeInTheDocument();
+  });
+
+  it('без права смотреть базу — общего списка нет: сервер его не прислал, «никого» было бы неправдой', async () => {
+    const withheld: SalesStoplistView = { ...STOPLIST, general: [], general_total: 0 };
+    await openStoplist(
+      { 'GET /api/sales/stoplist': { body: withheld } },
+      { ...OPERATOR, permissions: ['sales'] },
+    );
+
+    expect(screen.getByRole('table', { name: 'Стоп-лист продаж' })).toBeInTheDocument();
+    expect(screen.queryByText(/Общий стоп-лист тоже держит продажи/)).toBeNull();
+    expect(screen.queryByText('Никого: общий стоп-лист продажи не держит.')).toBeNull();
+    expect(screen.queryByRole('link', { name: 'К общему стоп-листу' })).toBeNull();
   });
 
   it('вставка разом: всё легло — окно закрывается, итог словами, список перечитан', async () => {

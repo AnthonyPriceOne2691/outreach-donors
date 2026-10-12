@@ -309,6 +309,29 @@ async def test_screen_lists_the_entries_and_the_general_rows_that_hold_sales(
     assert (body["total"], body["general_total"], body["note_max"]) == (1, 2, 255)
 
 
+async def test_without_the_view_right_the_general_rows_are_not_sent(
+    client: httpx.AsyncClient, session: AsyncSession, make_user: MakeUser, sign_in: SignIn
+) -> None:
+    """Общий стоп-лист — за правом `view`, как на общем экране: в нём отписки доноров и
+    рекламодателей с адресами. Мутант «без проверки права»: учётка с одними «Продажами»
+    увидела бы отписавшегося донора; свои записи продаж ей видны и так."""
+    session.add(
+        SuppressionModel(
+            email="gone@x.example.test", reason=SuppressionReason.UNSUBSCRIBED, stage=Stage.DONORS
+        )
+    )
+    await stoplist.add(session, stoplist.read_text("acme.example.test"), author="тест", note="п")
+    await session.commit()
+    headers = await _headers(make_user, sign_in, view=False)
+
+    response = await client.get(URL, headers=headers)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert [(row["host"], row["note"]) for row in body["rows"]] == [("acme.example.test", "п")]
+    assert (body["general"], body["general_total"]) == ([], 0)
+
+
 @pytest.mark.parametrize(
     ("permissions", "method", "words"),
     [
