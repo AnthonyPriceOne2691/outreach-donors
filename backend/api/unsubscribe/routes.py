@@ -20,6 +20,11 @@
 здесь другая: подписанная метка (подобрать нельзя), запись только
 по `POST`, потолок частоты и полное отсутствие разницы в ответах
 на «метки нет», «подпись не сошлась» и «донора удалили».
+
+**Чьим именем подписана страница и на каком языке она говорит — по письму
+метки** (`signer.py`): у письма продаж — «Отправитель» продаж на языке письма,
+у остальных — подпись доноров по-английски, как было. Пишет нажатие одинаково
+для всех: сайт метки — в стоп-лист целиком.
 """
 
 from __future__ import annotations
@@ -32,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session
 from backend.api.unsubscribe import page
+from backend.api.unsubscribe.signer import voice_of
 from backend.features.core.models.domain import DomainModel
 from backend.features.letters import unsubscribe
 from backend.features.letters.optout import unsubscribe_domain
@@ -79,11 +85,12 @@ async def show(
     if refused is not None:
         return refused
 
-    domain_id = unsubscribe.domain_id_from(label)
-    host = await _host(session, domain_id)
-    if host is None:
+    mark = unsubscribe.parse(label)
+    host = await _host(session, mark)
+    if mark is None or host is None:
         return HTMLResponse(page.gone(), status_code=status.HTTP_404_NOT_FOUND)
-    return HTMLResponse(page.confirm(host, action=request.url.path))
+    voice = await voice_of(session, mark)
+    return HTMLResponse(page.confirm(host, action=request.url.path, voice=voice))
 
 
 @router.post("/{label}", response_class=HTMLResponse, summary="Отписать донора")
@@ -97,11 +104,14 @@ async def apply(
     if refused is not None:
         return refused
 
-    domain_id = unsubscribe.domain_id_from(label)
-    if domain_id is None:
+    mark = unsubscribe.parse(label)
+    if mark is None:
         return HTMLResponse(page.gone(), status_code=status.HTTP_404_NOT_FOUND)
 
-    outcome = await unsubscribe_domain(session, domain_id, source=SOURCE)
+    # Подпись страницы — до записи: модуль продаж отвечает в своей точке сохранения,
+    # и его поломка не задевает отписку (`signer.py`).
+    voice = await voice_of(session, mark)
+    outcome = await unsubscribe_domain(session, mark.domain_id, source=SOURCE)
     if outcome is None:
         return HTMLResponse(page.gone(), status_code=status.HTTP_404_NOT_FOUND)
     await session.commit()
@@ -112,12 +122,12 @@ async def apply(
         "впервые" if outcome.first_time else "повторно",
         outcome.stopped,
     )
-    return HTMLResponse(page.done(outcome.host))
+    return HTMLResponse(page.done(outcome.host, voice))
 
 
-async def _host(session: AsyncSession, domain_id: int | None) -> str | None:
+async def _host(session: AsyncSession, mark: unsubscribe.Label | None) -> str | None:
     """Имя сайта для страницы. `None` — показывать нечего и некого отписывать."""
-    if domain_id is None:
+    if mark is None:
         return None
-    domain = await session.get(DomainModel, domain_id)
+    domain = await session.get(DomainModel, mark.domain_id)
     return domain.host if domain is not None else None

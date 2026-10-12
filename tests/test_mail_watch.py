@@ -76,7 +76,9 @@ async def test_a3_a_box_with_waiting_letters_and_nothing_sent_is_quiet(
     )
 
     found = await mail_watch.alarms(session, NOW, stages=EVERY_STAGE)
-    early = await mail_watch.alarms(session, NOW - timedelta(minutes=10), stages=EVERY_STAGE)
+    # Минутой раньше порога: письмо ждёт меньше `QUIET_MINUTES` — ящик ещё не молчит.
+    before = timedelta(minutes=20 - mail_watch.QUIET_MINUTES + 1)
+    early = await mail_watch.alarms(session, NOW - before, stages=EVERY_STAGE)
 
     assert [alarm.code for alarm in found] == [f"quiet-box:{box.email}"]
     assert early == []

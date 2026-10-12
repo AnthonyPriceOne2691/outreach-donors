@@ -1,0 +1,82 @@
+"""Чьим именем подписана страница отписки и на каком языке она говорит — по письму метки.
+
+**Этап — по метке письма, а не по тексту.** Метка письма продаж несёт номер письма
+(`letters/unsubscribe.letter_url`): номер → письмо → его рассылка → этап. Метка донора
+(без номера), письмо другого этапа и письмо не того сайта (метку подписал не этот
+сервис: стенд, база из копии) — подпись доноров (`OUTREACH_*`) по-английски, как было.
+
+**Письмо продаж — подпись «Отправителя» продаж:** имя и физический адрес из базы
+(`sales/sender.py`), язык — язык диалога, которым написаны его письма
+(`sales_threads.language`, `sales/mail.linked`). Адрес доноров сюда не подставляется: у
+продаж свой отправитель, и чужой адрес выглядел бы заданным (`sales/sender.py`).
+
+**Поломка модуля продаж страницу не роняет.** Модуль спрашивается в своей точке
+сохранения; упал — подпись без имени и адреса, по-английски, и строка журнала. Отписка —
+требование закона о рассылках: кнопка обязана работать и тогда.
+
+**Чужого письма метка не раскрывает.** Подпись не подделать, а на странице только сайт
+(как было), имя и адрес отправителя — то, что стоит в самом письме; адреса получателя на
+ней нет.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import assert_never
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from backend.api.unsubscribe import page
+from backend.features.core.domain import Stage
+from backend.features.core.models.outreach import CampaignModel, MessageModel
+from backend.features.letters.unsubscribe import Label
+from backend.features.sales import mail, sender
+
+logger = logging.getLogger(__name__)
+
+
+async def voice_of(session: AsyncSession, label: Label) -> page.Voice:
+    """Подпись и язык страницы для письма метки."""
+    letter = await _letter(session, label)
+    if letter is None:
+        return page.donors()
+    stage = await _stage(session, letter)
+    match stage:
+        case None | Stage.DONORS | Stage.ADVERTISERS:
+            return page.donors()
+        case Stage.SALES:
+            return await _sales(session, letter.thread_id)
+        case _:
+            assert_never(stage)
+
+
+async def _letter(session: AsyncSession, label: Label) -> MessageModel | None:
+    """Письмо метки — если метка его называет и письмо того же сайта, что метка."""
+    if label.letter_id is None:
+        return None
+    letter = await session.get(MessageModel, label.letter_id)
+    return letter if letter is not None and letter.domain_id == label.domain_id else None
+
+
+async def _stage(session: AsyncSession, letter: MessageModel) -> Stage | None:
+    campaign = await session.get(CampaignModel, letter.campaign_id)
+    return None if campaign is None else campaign.stage
+
+
+async def _sales(session: AsyncSession, thread_id: int | None) -> page.Voice:
+    """«Отправитель» продаж и язык диалога — ответом модуля продаж в своей точке сохранения."""
+    try:
+        async with session.begin_nested():
+            found = await sender.read(session)
+            dialog = await mail.linked(session, thread_id)
+    except Exception:
+        logger.warning(
+            "страница отписки: модуль продаж не ответил — подпись без имени и адреса",
+            exc_info=True,
+        )
+        return page.Voice(None, None)
+    return page.Voice(
+        found.values.get("sender_name"),
+        found.values.get("physical_address"),
+        dialog.link.language if dialog is not None else "en",
+    )

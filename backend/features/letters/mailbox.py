@@ -127,19 +127,20 @@ async def _free_box(session: AsyncSession, stage: Stage, now: datetime) -> Choic
 async def _thread_box(session: AsyncSession, sender_id: int) -> Choice:
     """Ящик, который ведёт переписку. Не пишет — письмо ждёт его."""
     sender = await session.get(SenderModel, sender_id)
-    silence = await _silence(session, sender, gone=f"№{sender_id}")
+    silence = await silence_of(session, sender, gone=f"№{sender_id}")
     if silence is not None:
         return Choice(sender=None, refusal=silence)
     return Choice(sender=sender)
 
 
-async def _silence(session: AsyncSession, sender: SenderModel | None, *, gone: str) -> str | None:
+async def silence_of(session: AsyncSession, sender: SenderModel | None, *, gone: str) -> str | None:
     """Почему ящик переписки не пишет — словами отказа; `None` — пишет.
     `gone` — как назвать ящик, которого нет: номером или «первого письма».
     Ящик пишет, а его домен на паузе — тоже не пишет (`silence_words`).
 
-    Одни слова на отправку и на карточку переписки (`thread_mail`): в карточке
-    человек читает ровно то, что скажет отказ, если нажать «Ответить».
+    Одни слова на отправку, на карточку переписки (`thread_mail`) и на тревогу
+    сторожа почты «ящик выбыл» (`ops/mail_watch.py`): в карточке человек читает
+    ровно то, что скажет отказ, если нажать «Ответить».
     """
     row = (
         None
@@ -210,7 +211,7 @@ async def thread_mail(session: AsyncSession, messages: Sequence[MessageModel]) -
     next_step, next_at = _next_followup(messages)
     return ThreadMail(
         mailbox=sender.email if sender is not None else None,
-        waiting=await _silence(session, sender, gone="первого письма"),
+        waiting=await silence_of(session, sender, gone="первого письма"),
         next_step=next_step,
         next_at=next_at,
     )
