@@ -50,6 +50,7 @@ from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.compose import FoundLink, NicheOffer
 from backend.features.letters.funnel import AdvertiserFunnel, Funnel
 from backend.features.letters.offer_addresses import advertiser_addresses
+from backend.features.runs.exclusions import not_writing, not_writing_reason, writable
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,12 +239,14 @@ class Recipients:
         """Воронка отбора доноров: где именно кончились адресаты Этапа 1."""
         base = self._suitable()
         accepted = self._accepted(base, run_ids)
-        with_contact = self._has_contact(accepted)
+        outside = writable(accepted)
+        with_contact = self._has_contact(outside)
         not_suppressed = self._reachable(with_contact, Stage.DONORS)
 
         return Funnel(
             suitable=await self._count(base),
             accepted=await self._count(accepted),
+            writable=await self._count(outside),
             with_contact=await self._count(with_contact),
             not_suppressed=await self._count(not_suppressed),
             **await self._last_steps(not_suppressed, Stage.DONORS),
@@ -275,7 +278,7 @@ class Recipients:
             .distinct(DomainModel.id)
             .order_by(DomainModel.id, *preferred_first())
         )
-        inner = self._accepted(inner, run_ids)
+        inner = writable(self._accepted(inner, run_ids))
         inner = self._not_suppressed(inner, Stage.DONORS)
         return self._not_written(inner)
 
@@ -324,12 +327,15 @@ class Recipients:
             return None
         donor = one.join(DonorModel, DonorModel.domain_id == DomainModel.id)
         domain = DomainModel.id
+        off = await not_writing_reason(self._session, domain_id)
         checks: tuple[tuple[Select[Any], str], ...] = (
             (
                 donor.where(DonorModel.status == DonorStatus.SUITABLE),
                 "письма не собираются: донор не прошёл пороги",
             ),
             (self._accepted(donor), "письма уходят только донорам, принятым человеком"),
+            # «Кому не пишем» — после приёма, как в сборке; слова — по классу домена.
+            (donor.where(~not_writing()), f"письма не собираются: {off}"),
             (one.where(~attempts.answered(domain)), attempts.ANSWERED),
             (one.where(~attempts.pending_letter(domain)), attempts.PENDING_LETTER),
             (one.where(~attempts.live_letter(domain)), attempts.WRITTEN),
@@ -414,6 +420,7 @@ class Recipients:
             .where(donor_domain.host == func.lower(AdvertiserModel.best_donor_host))
             # Свежесть — одним правилом с таблицей доноров и обходом (12.10.2026).
             .where(price_is(PriceState.FRESH, moment))
+            .where(~not_writing())  # площадку из «кому не пишем» рекламодателю не предлагаем
             .exists()
         )
         return statement.where(fresh)

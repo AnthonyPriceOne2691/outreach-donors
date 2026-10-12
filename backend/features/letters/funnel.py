@@ -8,11 +8,20 @@
 письмо донор не видел, и следующее уходит на следующий адрес
 (`attempts.py`). Сколько таких, и у скольких адреса кончились, говорят
 две строки рядом с последней ступенью — когда есть о чём сказать.
+
+**«Вне «кому не пишем»» — ступень, когда она кого-то вычеркнула.** Принятые
+до 11.10.2026 крупные сайты (DR > 80) и СМИ писем не получают по ТЗ
+(`runs.exclusions.not_writing`); новые до приёма не доходят. Ступень с тем же числом,
+что «принятых», читалась бы местом отсева, где никого не отсеяли.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+#: Ступень воронки доноров: принятые без «кому не пишем» ТЗ — словами экрана
+#: (`frontend/src/letters/targets.ts`).
+NOT_WRITING_STEP = "вне «кому не пишем»"
 
 
 def with_earlier(steps: dict[str, int], *, next_address: int, exhausted: int) -> dict[str, int]:
@@ -35,6 +44,8 @@ class Funnel:
 
     suitable: int
     accepted: int
+    #: Из принятых — вне «кому не пишем» ТЗ: без крупных сайтов и СМИ.
+    writable: int
     with_contact: int
     not_suppressed: int
     not_written: int
@@ -45,17 +56,15 @@ class Funnel:
     exhausted: int = 0
 
     def as_report(self) -> dict[str, int]:
-        return with_earlier(
-            {
-                "подходящих": self.suitable,
-                "принятых": self.accepted,
-                "с адресом": self.with_contact,
-                "вне стоп-листа": self.not_suppressed,
-                "ещё не писали": self.not_written,
-            },
-            next_address=self.next_address,
-            exhausted=self.exhausted,
-        )
+        steps = {"подходящих": self.suitable, "принятых": self.accepted}
+        if self.writable < self.accepted:
+            steps[NOT_WRITING_STEP] = self.writable
+        steps |= {
+            "с адресом": self.with_contact,
+            "вне стоп-листа": self.not_suppressed,
+            "ещё не писали": self.not_written,
+        }
+        return with_earlier(steps, next_address=self.next_address, exhausted=self.exhausted)
 
 
 @dataclass(frozen=True, slots=True)

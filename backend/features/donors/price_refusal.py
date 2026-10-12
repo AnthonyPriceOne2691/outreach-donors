@@ -13,12 +13,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.domain import DonorStatus
+from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.outreach import SenderModel
 from backend.features.donors.host import normalize_host
 from backend.features.donors.standing import decided_in, donor_now
 from backend.features.donors.wording import reject_reason_text
-from backend.features.runs.exclusions import ExclusionReason, Exclusions, by_name
+from backend.features.runs.exclusions import (
+    ExclusionReason,
+    Exclusions,
+    by_name,
+    not_writing_reason,
+)
 
 #: Исключения прогона, которые закрывают и ручной ввод, — словами отказа.
 #: Молчания и «не продаём» здесь нет намеренно: цену человек знает не из письма.
@@ -39,6 +45,10 @@ _REFUSED: dict[ExclusionReason, str] = {
         "{host} — гос. или учебная зона: размещений такие сайты не продают."
     ),
     ExclusionReason.PLATFORM: "{host} — платформа или соцсеть: разместиться там нельзя.",
+    ExclusionReason.MAJOR_MEDIA: "{host} — крупное СМИ: им не пишем, донором с ценой не заводим.",
+    ExclusionReason.REFERENCE: (
+        "{host} — справочник или исследования: им не пишем, донором с ценой не заводим."
+    ),
 }
 
 
@@ -70,7 +80,12 @@ async def refusal_for(session: AsyncSession, host: str) -> str | None:
         host
     )
     template = None if reason is None else _REFUSED.get(reason)
-    return None if template is None else template.format(host=host)
+    if template is not None:
+        return template.format(host=host)
+    # DR выше порога версии — по последнему замеру, тем же условием, что у выходов.
+    domain_id = await session.scalar(select(DomainModel.id).where(DomainModel.host == host))
+    off = None if domain_id is None else await not_writing_reason(session, domain_id)
+    return None if off is None else f"У {host} {off}: донором с ценой его не заводим."
 
 
 async def _sending_roots(session: AsyncSession) -> set[str]:

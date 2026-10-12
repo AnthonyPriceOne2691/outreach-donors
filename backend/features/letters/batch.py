@@ -48,6 +48,7 @@ from backend.features.letters.sending import (
     NoSenderError,
     NotQueuedError,
     NotReadyError,
+    NotWritingError,
     OutsideWindowError,
     RejectedDonorError,
     RemovedAdvertiserError,
@@ -78,6 +79,9 @@ _WHY: tuple[tuple[type[SendError], str], ...] = (
     (WithdrawnLinkError, "ссылку письма сняли"),
     # Оффер «мы дешевле» без свежей цены донора — обещание, которого не сдержать.
     (StalePriceError, "цена донора устарела или снята"),
+    # Донор или площадка оффера — «кому не пишем» ТЗ (`runs.exclusions`): письмо
+    # остановлено с причиной (`donor_standing.stop_for_good`).
+    (NotWritingError, "кому не пишем"),
     (SuppressedError, "стоп-лист"),
     (UndecidedDonorError, "донор не принят человеком"),
     (NotReadyError, "письмо не готово к отправке"),

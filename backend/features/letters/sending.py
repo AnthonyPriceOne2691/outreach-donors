@@ -49,9 +49,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.features.core import stages, window
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.domain import DomainModel
-from backend.features.core.models.donor import ContactModel, DonorModel
+from backend.features.core.models.donor import ContactModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, SenderModel
-from backend.features.donors.standing import decided_in
 from backend.features.letters import (
     compose,
     identity,
@@ -62,7 +61,8 @@ from backend.features.letters import (
     unsubscribe,
 )
 from backend.features.letters.chain import ANSWER_STEP
-from backend.features.letters.offer_standing import check_offer
+from backend.features.letters.donor_standing import Refusal, check_donor
+from backend.features.letters.offer_standing import OfferRefused, check_offer
 from backend.features.letters.outgoing_store import Files, OutgoingFiles
 from backend.features.letters.transport import Mail, Outgoing, Transport, TransportError, of_stage
 
@@ -101,6 +101,26 @@ class StalePriceError(SendError):
 class UndecidedDonorError(SendError):
     """Донора вернули в «предложен» после сборки письма: пока человек
     решает, писать нельзя, но и обрывать разговор из-за этого нельзя."""
+
+
+class NotWritingError(SuppressedError):
+    """Донор или площадка оффера — в «кому не пишем» ТЗ (`runs.exclusions`): как стоп-лист."""
+
+
+#: Отказ при отправке (`donor_standing.py`, `offer_standing.py`) — классом: на отклонении,
+#: снятых рекламодателе или ссылке и «кому не пишем» цепочка кончается, а ждущему решения
+#: или перезапроса цены письмо ждёт.
+_DONOR_REFUSED: dict[Refusal, type[SendError]] = {
+    Refusal.REJECTED: RejectedDonorError,
+    Refusal.UNDECIDED: UndecidedDonorError,
+    Refusal.NOT_WRITING: NotWritingError,
+}
+_OFFER_REFUSED: dict[OfferRefused, type[SendError]] = {
+    OfferRefused.REMOVED: RemovedAdvertiserError,
+    OfferRefused.NOT_WRITING: NotWritingError,
+    OfferRefused.WITHDRAWN: WithdrawnLinkError,
+    OfferRefused.STALE_PRICE: StalePriceError,
+}
 
 
 class NotReadyError(SendError):
@@ -168,11 +188,6 @@ def own_headers(message_id: int, *, sender_email: str, real: bool) -> OwnHeaders
         logger.warning("письма: письмо №%s уходит без адреса ответа (%s)", message_id, exc)
         address = None
     return OwnHeaders(message_id=own_id, reply_to=address)
-
-
-def _review_of(run: int | None) -> str:
-    """Чьё рассмотрение назвать: прогона, где донор ждёт решения, — или где его искать."""
-    return "прогона, где он нашёлся (экран «Прогон»)" if run is None else f"прогона №{run}"
 
 
 def check_ready(body: str, *, what: str) -> None:
@@ -334,8 +349,8 @@ class Sending:
         """Решение человека проверяется при отправке, а не только при сборке.
 
         Между сборкой и отправкой человек может передумать: принять, вернуть
-        в «предложен», отклонить (Anthony, 24.09.2026). Без этой проверки
-        письмо, собранное для принятого, ушло бы отклонённому. Рекламодатели
+        в «предложен», отклонить (Anthony, 24.09.2026), а донору из «кому не пишем»
+        ТЗ не уходят ни письмо, ни добивка (`donor_standing.py`). Рекламодатели
         Этапа 2 рассмотрения донора не проходят, у них своя проверка; можно ли
         писать лиду продаж — проверка модуля продаж (`stages.check_sales`).
         """
@@ -346,33 +361,18 @@ class Sending:
             await stages.check_sales(self._session, target.message)
             return
         stages.donor_path(target.to.stage)
-        review = await self._session.scalar(
-            select(DonorModel.review).where(DonorModel.domain_id == target.message.domain_id)
-        )
-        if review == "accepted":
-            return
-        if review == "rejected":
-            raise RejectedDonorError(
-                f"Донора {target.host} отклонили после сборки письма №{target.message.id} — "
-                "писать ему нельзя. Письмо стоит убрать из очереди"
-            )
-        # Где решать — номером прогона, а не письма (проверка QA 10.10.2026): у ответа в переписке
-        # это письмо, созданное секундой раньше, и человеку его номер не говорит ничего.
-        run = await decided_in(self._session, target.message.domain_id, None)
-        raise UndecidedDonorError(
-            f"Донор {target.host} снова ждёт решения; пока его не примут, письмо ждёт. "
-            f"Решить — на рассмотрении {_review_of(run)}"
-        )
+        refused = await check_donor(self._session, target.message, host=target.host)
+        if refused is not None:
+            raise _DONOR_REFUSED[refused.reason](refused.words)
 
     async def _check_advertiser(self, target: _Target) -> None:
-        """Рекламодатель не снят, ссылка письма действующая, у оффера свежая цена донора
-        (`offer_standing.py`). Письмо под снятую ссылку там же и останавливается."""
+        """Рекламодатель не снят, площадка не из «кому не пишем», ссылка и цена — в порядке
+        `offer_standing.py`. Письмо, которому ждать нечего, там же и останавливается."""
         refused = await check_offer(
             self._session, target.message, host=target.host, now=self._moment()
         )
         if refused is not None:
-            kind = RemovedAdvertiserError if refused.removed else StalePriceError
-            raise (WithdrawnLinkError if refused.withdrawn else kind)(refused.words)
+            raise _OFFER_REFUSED[refused.reason](refused.words)
 
     async def _check_window(self, target: _Target) -> None:
         """Окно получателя — если его задаёт политика этапа (`core/window.py`). Ответ

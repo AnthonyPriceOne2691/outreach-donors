@@ -16,6 +16,7 @@ from backend.features.core.domain import DonorStatus
 from backend.features.crawl.niche import NicheReport
 from backend.features.donors.doors import DoorReport
 from backend.features.donors.judging import JudgeSummary
+from backend.features.donors.verdict import BIG_SITE_WORDS
 from backend.features.review.candidates import QueueReport
 from backend.features.runs.failures import described
 from backend.features.runs.planning import RunPlan
@@ -120,7 +121,7 @@ class RunReport:
         self.by_status[status] = self.by_status.get(status, 0) + 1
         self.countries_refetched += int(again)
         if status is DonorStatus.UNSUITABLE:
-            key = reason.split(" ", maxsplit=1)[0] if reason else "без причины"
+            key = _reject_key(reason)
             self.reject_reasons[key] = self.reject_reasons.get(key, 0) + 1
         elif status is DonorStatus.UNCHECKED:
             key = reason or "без причины"
@@ -134,6 +135,19 @@ class RunReport:
         self.spent_by_operation[operation] = (
             self.spent_by_operation.get(operation, 0) + cost.billable
         )
+
+
+def _reject_key(reason: str) -> str:
+    """Причина отказа в отчёте — первым словом: «DR», «органический», «US»…
+
+    Крупный сайт — своим ключом, с порогом версии («DR > 80»): первым словом он слился
+    бы с «DR 12 ниже 20» под одним «DR», а это «кому не пишем», а не нижний порог.
+    """
+    if not reason:
+        return "без причины"
+    if reason.endswith(BIG_SITE_WORDS):
+        return reason.split(" — ", maxsplit=1)[0]
+    return reason.split(" ", maxsplit=1)[0]
 
 
 def run_stats(
@@ -197,7 +211,12 @@ def run_stats(
             "units_saved": summary.units_saved,
         }
     if report.review is not None:
-        stats["review"] = {"pending": report.review.pending, "carried": report.review.carried}
+        stats["review"] = {
+            "pending": report.review.pending,
+            "carried": report.review.carried,
+            # Годны по вердикту до 11.10.2026, но в «кому не пишем»: не положены.
+            "not_writing": report.review.not_writing,
+        }
     if report.niche is not None:
         stats["niche"] = {"found": report.niche.found, "added": report.niche.added}
     elif report.niche_failure is not None:

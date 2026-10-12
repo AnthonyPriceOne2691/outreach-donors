@@ -299,6 +299,8 @@ def _print_review(report: RunReport) -> None:
     print(f"\nНа рассмотрение:      {review.pending}")
     for decision, count in review.carried.items():
         print(f"  решено раньше ({decision}): {count}")
+    if review.not_writing:
+        print(f"  не положены — кому не пишем: {review.not_writing}")
     print("  Решить — экран прогона: контакты и письма получат только принятые.")
 
 

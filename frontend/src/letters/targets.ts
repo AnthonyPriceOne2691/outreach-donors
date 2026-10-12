@@ -62,6 +62,9 @@ export const ABOUT: Record<LetterTarget, { lead: string; placeholder: string; wh
 
 type Funnel = Record<string, number>;
 
+/** Ступень доноров «без кому не пишем» — словами сервера (`letters/funnel.py`). */
+const NOT_WRITING = 'вне «кому не пишем»';
+
 /**
  * Ступени воронки по порядку и что делать, если на ступени ноль. Воронка
  * накопительная: «с адресом 0» после нуля на цене — не про адреса, и совет
@@ -72,6 +75,11 @@ const STEPS: Record<LetterTarget, [string, string][]> = {
   donors: [
     ['подходящих', 'доноров, прошедших пороги, нет — их приносит прогон'],
     ['принятых', 'никого не приняли — решение на «Рассмотрении» прогона'],
+    // Сервер шлёт ступень, только когда она кого-то вычеркнула (сверка ТЗ 11.10.2026).
+    [
+      NOT_WRITING,
+      'все принятые — из «кому не пишем»: крупные сайты, гос. и учебные сайты, платформы, соцсети, СМИ, справочники',
+    ],
     ['с адресом', 'пора добрать контакты — экран «Формы» и карточка донора'],
     ['вне стоп-листа', 'все оставшиеся в стоп-листе'],
     ['ещё не писали', 'написаны все'],
@@ -144,13 +152,29 @@ function earlierLetters(funnel: Funnel, target: LetterTarget): string | null {
   return said.length > 0 ? said.join(' ') : null;
 }
 
+/**
+ * Скольким принятым донорам не пишем по ТЗ — словами, когда такие есть: принятые
+ * до 11.10.2026 крупные сайты (DR > 80) и СМИ писем не получают, а воронка без этой
+ * строки показала бы лишь разницу двух чисел.
+ */
+function notWriting(funnel: Funnel, target: LetterTarget): string | null {
+  const left = funnel[NOT_WRITING];
+  if (target !== 'donors' || left === undefined) return null;
+  const gone = (funnel['принятых'] ?? 0) - left;
+  if (gone <= 0) return null;
+  const whom = plural(gone, 'принятому донору', 'принятым донорам', 'принятым донорам');
+  return `Не пишем ${gone} ${whom}: крупные сайты, гос. и учебные сайты, платформы, соцсети, СМИ и справочники.`;
+}
+
 /** Что стоит рядом с воронкой, а не на ней, — строками, когда есть о чём сказать.
  *  Бизнесы ниши без решения не ступень: «пишем» им ещё могут сказать. */
 export function funnelNotes(funnel: Funnel, target: LetterTarget): string[] {
   const waiting = target === 'niche' ? (funnel['ждут решения'] ?? 0) : 0;
+  const skipped = notWriting(funnel, target);
   const earlier = earlierLetters(funnel, target);
   return [
     ...(waiting > 0 ? [`Ждут решения ${waiting} — «пишем» ставят на экране «Рекламодатели».`] : []),
+    ...(skipped === null ? [] : [skipped]),
     ...(earlier === null ? [] : [earlier]),
   ];
 }

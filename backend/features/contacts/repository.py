@@ -40,6 +40,7 @@ from backend.features.core.domain import ContactSource, ContactStatus, DonorStat
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.donors.standing import donor_now, is_donor
+from backend.features.runs.exclusions import not_writing, not_writing_reason
 
 logger = logging.getLogger(__name__)
 
@@ -84,11 +85,14 @@ def _needs_contact(now: datetime, ttl_days: int) -> ColumnElement[bool]:
     с платным сервисом — деньги за каждый бренд и госсайт.
 
     И без вписанного руками адреса: он лучше всего, что найдёт лестница,
-    а её последняя ступень платная.
+    а её последняя ступень платная. И не тем, кому не пишем по ТЗ, — крупному
+    сайту и домену из списков, принятым до правила 11.10.2026 (`runs.exclusions`):
+    адрес, на который письмо не уйдёт, — деньги впустую.
     """
     return and_(
         DonorModel.status == DonorStatus.SUITABLE,
         is_donor(),
+        ~not_writing(),
         ~manual_address(),
         attempts.waiting(DonorModel, now=now, ttl_days=ttl_days),
     )
@@ -133,6 +137,7 @@ def refusal_of(
     now: datetime,
     ttl_days: int = cfg.CONTACT_TTL_DAYS,
     manual: bool = False,
+    not_writing: str | None = None,
 ) -> str | None:
     """Почему донору сейчас не ищут адрес — словами для экрана. `None` — ищут.
 
@@ -140,7 +145,8 @@ def refusal_of(
     порядке. Решает всё равно запрос (`search_refusal`): здесь только имя
     невыполненного условия. Разойтись им не даёт тест, прогоняющий обе
     стороны по всем сочетаниям состояний донора. `manual` — есть ли у донора
-    вписанный руками адрес (`manual_address`).
+    вписанный руками адрес (`manual_address`); `not_writing` — почему ему
+    не пишем (`runs.exclusions.not_writing_reason`).
 
     Исход прошлого поиска здесь не пересказывается: карточка показывает его
     сама, значком и датой. Отказ отвечает на другой вопрос — почему нельзя
@@ -149,6 +155,8 @@ def refusal_of(
     never = _not_entitled(donor)
     if never is not None:
         return never
+    if not_writing is not None:
+        return f"Адрес не ищут: {not_writing}."
     if manual:
         return MANUAL_REFUSAL
     # Решает то же правило попыток, что и запрос (`attempts.waits`): на самой
@@ -333,7 +341,8 @@ async def search_refusal(
         .where(ContactModel.source == ContactSource.MANUAL)
         .limit(1)
     )
-    reason = refusal_of(donor, now=moment, manual=manual is not None)
+    off = await not_writing_reason(session, donor.domain_id)
+    reason = refusal_of(donor, now=moment, manual=manual is not None, not_writing=off)
     if reason is None:
         logger.warning(
             "контакты: донор №%s не ждёт поиска, а объяснение правила этого не видит — "

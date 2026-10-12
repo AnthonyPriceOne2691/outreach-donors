@@ -13,9 +13,16 @@ const LIMITS: ThresholdLimits = {
   min_org_traffic: { min: 0, max: 10_000_000 },
   min_refdomains: { min: 0, max: 1_000_000 },
   min_keywords: { min: 0, max: 1_000_000 },
+  max_dr: { min: 1, max: 100 },
 };
 
-const GOOD = { min_dr: 20, min_org_traffic: 500, min_refdomains: 100, min_keywords: 300 };
+const GOOD = {
+  min_dr: 20,
+  min_org_traffic: 500,
+  min_refdomains: 100,
+  min_keywords: 300,
+  max_dr: 80,
+};
 
 describe('поле порога', () => {
   it('сами границы допустимы, шаг за ними — нет', () => {
@@ -55,6 +62,7 @@ describe('черновик целиком', () => {
       min_org_traffic: '10 000 000',
       min_refdomains: '100',
       min_keywords: '300',
+      max_dr: '80',
     });
   });
 

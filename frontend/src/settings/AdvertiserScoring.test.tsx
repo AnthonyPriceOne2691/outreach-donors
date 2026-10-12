@@ -22,6 +22,7 @@ const THRESHOLDS = {
     min_org_traffic: 500,
     min_refdomains: 100,
     min_keywords: 300,
+    max_dr: 80,
     geo_top_n: 5,
     geo_min_share_percent: 20,
     metrics_ttl_days: 90,
@@ -32,6 +33,7 @@ const THRESHOLDS = {
     min_org_traffic: { min: 0, max: 10_000_000 },
     min_refdomains: { min: 0, max: 1_000_000 },
     min_keywords: { min: 0, max: 1_000_000 },
+    max_dr: { min: 1, max: 100 },
   },
   rule_limits: {
     geo_top_n: { min: 1, max: 5 },
@@ -73,7 +75,11 @@ describe('Этап 2 на экране «Пороги»', () => {
     expect(screen.getByText('кому не пишем — DR выше')).toBeInTheDocument();
     expect(screen.getByText('80')).toBeInTheDocument();
     expect(screen.getByText('news.example.test')).toBeInTheDocument();
-    expect(screen.queryByRole('textbox', { name: /DR выше/ })).not.toBeInTheDocument();
+    // Поле «Крупный сайт, DR выше» над карточкой — порог версии Этапа 1, а граница Этапа 2 —
+    // только показ: поля с её подписью нет.
+    expect(
+      screen.queryByRole('textbox', { name: 'кому не пишем — DR выше' }),
+    ).not.toBeInTheDocument();
   });
 
   it('отказ сервера — причина словами', async () => {

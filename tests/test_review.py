@@ -214,15 +214,19 @@ class TestTiers:
         assert everything.rows[-1].domain.host == "doubtful.test"
         assert everything.rows[-1].tier is Tier.DOUBTFUL
 
-    async def test_big_sites_go_to_the_end_of_their_tier(self, session: AsyncSession) -> None:
-        """Полка крупных сайтов: судья честно зовёт forbes.com изданием,
-        но гостевой пост ему не продашь — первым в очереди он не стоит."""
+    async def test_big_sites_laid_before_the_rule_stay_at_the_end_of_their_tier(
+        self, session: AsyncSession
+    ) -> None:
+        """Полка крупных сайтов — у строк до 11.10.2026: судья честно зовёт forbes.com
+        изданием, но гостевой пост ему не продашь. Новые прогоны крупных не кладут
+        (DR > 80 — «не пишем» по ТЗ), а положенный раньше первым в очереди не стоит."""
         run = await _run(session)
         big = await _judged(session, "forbes.test", "accept")
         small = await _judged(session, "niche-blog.test", "accept")
         for domain, dr in ((big, 94), (small, 45)):
             donor = await _donor(session, domain.host)
             donor.dr = dr
+        session.add(RunCandidateModel(run_id=run.id, domain_id=big.id))
         await session.flush()
         review = RunReview(session)
         await review.queue_run(run.id, ["forbes.test", "niche-blog.test"])
@@ -709,13 +713,18 @@ class TestSellersFirst:
 
     async def test_big_site_shelf_still_wins(self, session: AsyncSession) -> None:
         """Крупный сайт с «Advertise» продаёт рекламу, а не гостевые посты:
-        полка сильнее двери."""
+        полка сильнее двери — у строки, положенной до 11.10.2026."""
         big = await _judged(session, "forbes.test", "accept")
         big.site_door = "меню главной: «Advertise»"
         await _judged(session, "niche-blog.test", "accept")
         await self._dr(session, "forbes.test", 94)
         await self._dr(session, "niche-blog.test", 30)
+        run = await _run(session)
+        session.add(RunCandidateModel(run_id=run.id, domain_id=big.id))
+        await session.flush()
+        review = RunReview(session)
+        await review.queue_run(run.id, ["forbes.test", "niche-blog.test"])
 
-        order = await self._queue(session, "forbes.test", "niche-blog.test")
+        page = await review.page(run.id, status=Decision.PENDING)
 
-        assert order == ["niche-blog.test", "forbes.test"]
+        assert [row.domain.host for row in page.rows] == ["niche-blog.test", "forbes.test"]

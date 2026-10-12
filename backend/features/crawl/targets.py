@@ -35,6 +35,7 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.crawl.suppliers import supplier_hosts
 from backend.features.donors.standing import is_donor
+from backend.features.runs.exclusions import not_writing
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,9 @@ async def choose(
         await session.execute(
             select(DomainModel.host, DonorModel.last_price, DonorModel.last_price_at)
             .join(DonorModel, DonorModel.domain_id == DomainModel.id)
-            .where(is_donor(), DonorModel.status == DonorStatus.SUITABLE)
+            # «Кому не пишем» (крупный сайт, СМИ, зона, платформа) — не обходим: оффер
+            # рекламодателям на такой площадке не строим (`runs.exclusions.not_writing`).
+            .where(is_donor(), DonorModel.status == DonorStatus.SUITABLE, ~not_writing())
             .order_by(DonorModel.last_price_at.desc().nullslast())
         )
     ).all()

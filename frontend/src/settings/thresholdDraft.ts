@@ -16,11 +16,12 @@
  * стоит в поле, а под ним — почему такой порог нельзя (`components/numberText`).
  */
 
-import type { ThresholdRange, ThresholdsBody } from '../api/types';
+import type { ThresholdsFields } from '../api/settings';
+import type { ThresholdRange } from '../api/types';
 import { numberRefusal, numberText, validNumber } from '../components/numberText';
 import type { NumberRule } from '../components/numberText';
 
-export type ThresholdKey = keyof ThresholdsBody;
+export type ThresholdKey = keyof ThresholdsFields;
 
 /** Поле как набрано. */
 export type ThresholdDraft = Record<ThresholdKey, string>;
@@ -32,10 +33,11 @@ export const THRESHOLD_KEYS: ThresholdKey[] = [
   'min_org_traffic',
   'min_refdomains',
   'min_keywords',
+  'max_dr',
 ];
 
 /** Пороги в полях — числами по-русски, с разрядами: от них правят. */
-export function draftOf(body: ThresholdsBody): ThresholdDraft {
+export function draftOf(body: ThresholdsFields): ThresholdDraft {
   const draft: Partial<ThresholdDraft> = {};
   for (const key of THRESHOLD_KEYS) draft[key] = numberText(body[key]);
   return draft as ThresholdDraft;
@@ -62,12 +64,12 @@ export function firstRefused(draft: ThresholdDraft, limits: ThresholdLimits): Th
 
 /** Черновик, готовый уйти на сервер, или `null`, если хоть одно поле
  *  не годится: предпросмотр и сохранение ждут все четыре. */
-export function bodyOf(draft: ThresholdDraft, limits: ThresholdLimits): ThresholdsBody | null {
-  const body: Partial<ThresholdsBody> = {};
+export function bodyOf(draft: ThresholdDraft, limits: ThresholdLimits): ThresholdsFields | null {
+  const body: Partial<ThresholdsFields> = {};
   for (const key of THRESHOLD_KEYS) {
     const value = validNumber(draft[key], ruleOf(limits[key]));
     if (value === null) return null;
     body[key] = value;
   }
-  return body as ThresholdsBody;
+  return body as ThresholdsFields;
 }

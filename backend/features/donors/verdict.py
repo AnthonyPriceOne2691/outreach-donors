@@ -8,6 +8,14 @@
 «Не проверен» — не отказ. Если Ahrefs не вернул данных, домен помечается
 отдельным статусом и попадает в отчёт: это повод добрать позже,
 а не закрыть сайт навсегда.
+
+**DR > 80 — «не подходит» по ТЗ** (решение владельца 11.10.2026): список «кому
+не пишем» Этапа 2 распространяется на Этап 1, и крупный сайт отсекается на той
+же первой ступени, за 2 юнита, — полных метрик и стран ему не покупаем. С 12.10.2026
+граница — порог версии настроек (`Thresholds.max_dr`, ТЗ: «все пороги заданы цифрами
+и вынесены в настройки прогона»), 80 — его умолчание. Остальные строки списка — по
+имени домена, до Ahrefs (`runs.exclusions.by_name`), и на выходах
+(`runs.exclusions.not_writing`).
 """
 
 from __future__ import annotations
@@ -15,7 +23,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+from backend.config import filters
 from backend.features.core.domain import DonorStatus
+
+#: «Кому не пишем … домены DR > 80» — строка ТЗ; та же граница у обхода
+#: (`crawl.big_sites.MAX_DR`). Строго больше: DR 80 — ещё не крупный. Умолчание
+#: конфига — для первой версии настроек; прогон судит порогом своей версии.
+BIG_SITE_DR: int = filters.MAX_DR
+#: Чем кончается причина отказа крупному сайту: по ней отчёт узнаёт её среди отказов.
+BIG_SITE_WORDS = "крупным сайтам не пишем"
+
+
+def big_site_reason(max_dr: int) -> str:
+    """Причина отказа крупному сайту — словами, с порогом версии."""
+    return f"DR > {max_dr} — {BIG_SITE_WORDS}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +48,8 @@ class Thresholds:
     min_org_traffic: int
     min_refdomains: int
     min_keywords: int
+    #: DR выше — крупный сайт: «не подходит», ему не пишем (ТЗ: «домены DR > 80»).
+    max_dr: int = BIG_SITE_DR
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,12 +78,15 @@ def check_dr(dr: float | None, thresholds: Thresholds) -> Verdict | None:
     """Первая ступень: только DR.
 
     Возвращает вердикт, если вопрос решён, и `None`, если домен прошёл дальше
-    и за него стоит платить за остальные метрики.
+    и за него стоит платить за остальные метрики. Крупному сайту (DR > 80)
+    платить дальше незачем: ему не пишем по ТЗ.
     """
     if dr is None:
         return Verdict(DonorStatus.UNCHECKED, "Ahrefs не вернул DR")
     if dr < thresholds.min_dr:
         return Verdict(DonorStatus.UNSUITABLE, f"DR {dr:.0f} ниже {thresholds.min_dr}")
+    if dr > thresholds.max_dr:
+        return Verdict(DonorStatus.UNSUITABLE, big_site_reason(thresholds.max_dr))
     return None
 
 

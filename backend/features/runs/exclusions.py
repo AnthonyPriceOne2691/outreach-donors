@@ -16,18 +16,29 @@
 в одну здесь не время. Молчание своей записи не имеет вовсе: оно
 считается по письмам, и теневая строка на каждого промолчавшего
 завела бы второй источник правды там, где хватает первого.
+
+**«Кому не пишем» — на каждом пути, где пишем** (ТЗ: список Этапа 2
+распространяется на Этап 1; решение владельца 11.10.2026). По имени домена —
+здесь же, до Ahrefs (`by_name`); DR > 80 — на первой ступени замера
+(`verdict.check_dr`). А на выходах — одно условие `not_writing()`: очередь
+рассмотрения, сборка писем, очередь «Форм», платный поиск адреса и проверка
+при отправке письма и добивки не берут крупный сайт и домен из списков,
+даже принятые до правила. Почему — словами (`not_writing_reason`).
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import re
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import assert_never
+from typing import Any, assert_never
 
-from sqlalchemy import distinct, or_, select
+from sqlalchemy import ColumnElement, Select, distinct, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
+from backend.config import judge as judge_cfg
 from backend.config import outreach as cfg
 from backend.features.core.domain import (
     MessageStatus,
@@ -46,7 +57,15 @@ from backend.features.core.models.outreach import (
     ReplyModel,
     ThreadModel,
 )
-from backend.features.donors.publisher_judge import is_platform, is_public_zone
+from backend.features.core.models.run import RunSettingsModel
+from backend.features.crawl.denylist import MAJOR_MEDIA, REFERENCE_DOMAINS, SOCIAL_DOMAINS
+from backend.features.donors.publisher_judge import (
+    PUBLIC_ZONE_LABELS,
+    PUBLIC_ZONE_TLDS,
+    is_platform,
+    is_public_zone,
+)
+from backend.features.donors.verdict import BIG_SITE_DR, big_site_reason
 
 #: Письмо ушло от нас и не было отвергнуто. Отказ доставки сюда
 #: не входит: до адресата мы не добрались, и считать это «мы ему уже
@@ -69,6 +88,10 @@ class ExclusionReason(StrEnum):
     PUBLIC_ZONE = "public_zone"
     #: Соцсеть, UGC-площадка, маркетплейс: разместиться там нельзя.
     PLATFORM = "platform"
+    #: Крупное СМИ: «кому не пишем» ТЗ (11.10.2026 — и в Этапе 1).
+    MAJOR_MEDIA = "major_media"
+    #: Справочник, энциклопедия, наука: «кому не пишем» ТЗ — «исследования».
+    REFERENCE = "reference"
 
     @property
     def caption(self) -> str:
@@ -84,6 +107,8 @@ _CAPTIONS = {
     ExclusionReason.REJECTED: "отклонён человеком",
     ExclusionReason.PUBLIC_ZONE: "гос. или учебная зона",
     ExclusionReason.PLATFORM: "платформа или соцсеть",
+    ExclusionReason.MAJOR_MEDIA: "крупное СМИ",
+    ExclusionReason.REFERENCE: "справочник или исследования",
 }
 
 
@@ -98,21 +123,136 @@ def counts(excluded: dict[str, ExclusionReason]) -> dict[str, int]:
 def by_name(hosts: Sequence[str]) -> dict[str, ExclusionReason]:
     """Бесспорное по одному имени домена — без базы и без модели.
 
-    Строка «кому не пишем» требований (wikipedia / gov / edu / соцсети)
-    стояла только в Этапе 2, и прогон 23.09.2026 заплатил метриками
-    за reddit.com, linkedin.com, youtube.com, nih.gov и cornell.edu —
-    все признаны «годными». Здесь только классы, где ошибиться нельзя:
-    зона домена и платформа. «Похоже на бренд» сюда не идёт — это
-    мнение судьи, и оно ошибается (cloudways.com со страницей для
-    авторов правило судьи отрезало).
+    Строка «кому не пишем» требований (wikipedia / gov / edu / крупные СМИ /
+    соцсети / исследования) стояла только в Этапе 2, и прогон 23.09.2026
+    заплатил метриками за reddit.com, linkedin.com, youtube.com, nih.gov
+    и cornell.edu — все признаны «годными». Здесь только классы, где ошибиться
+    нельзя: зона домена, платформа и списки обхода (`crawl/denylist.py`) —
+    соцсети, крупные СМИ, справочники. С 11.10.2026 список Этапа 2 действует
+    на Этап 1 целиком (решение владельца: по ТЗ), и крупное СМИ отсекается
+    до Ahrefs, а не уходит в конец очереди. «Похоже на бренд» сюда не идёт —
+    это мнение судьи, и оно ошибается (cloudways.com со страницей для
+    авторов правило судьи отрезало). DR > 80 — по замеру (`verdict.check_dr`).
     """
     found: dict[str, ExclusionReason] = {}
     for host in hosts:
         if is_public_zone(host):
             found[host] = ExclusionReason.PUBLIC_ZONE
-        elif is_platform(host):
+        elif is_platform(host) or host in SOCIAL_DOMAINS:
             found[host] = ExclusionReason.PLATFORM
+        elif host in MAJOR_MEDIA:
+            found[host] = ExclusionReason.MAJOR_MEDIA
+        elif host in REFERENCE_DOMAINS:
+            found[host] = ExclusionReason.REFERENCE
     return found
+
+
+#: Кому не пишем по имени корневого домена — списками обхода.
+NAMED_HOSTS: frozenset[str] = MAJOR_MEDIA | SOCIAL_DOMAINS | REFERENCE_DOMAINS
+
+#: Почему не пишем — словами для человека, по классу домена (`by_name`).
+NOT_WRITING_WORDS: dict[ExclusionReason, str] = {
+    ExclusionReason.PUBLIC_ZONE: "гос. и учебным сайтам не пишем",
+    ExclusionReason.PLATFORM: "платформам и соцсетям не пишем",
+    ExclusionReason.MAJOR_MEDIA: "крупным СМИ не пишем",
+    ExclusionReason.REFERENCE: "справочникам и исследованиям не пишем",
+}
+
+
+def _either(labels: Iterable[str]) -> str:
+    return "|".join(sorted(re.escape(label) for label in labels))
+
+
+#: `by_name` на языке базы — одно правило с прогоном, сверяет их тест на одних доменах.
+#: Зона (`is_public_zone`): последняя метка — gov / mil / edu, или три метки и больше,
+#: и перед двухбуквенной страной — метка гос. или учебной зоны.
+_ZONE_TLD = rf"\.({_either(PUBLIC_ZONE_TLDS)})$"
+_ZONE_LABEL = rf"[^.]\.({_either(PUBLIC_ZONE_LABELS)})\.[^.]{{2}}$"
+#: Платформа (`is_platform`): любая метка домена — из `PLATFORM_LABELS`.
+_PLATFORM = rf"(^|\.)({_either(judge_cfg.PLATFORM_LABELS)})(\.|$)"
+
+
+def _by_name_sql(host: Any) -> ColumnElement[bool]:
+    low = func.lower(host)
+    return or_(
+        low.in_(sorted(NAMED_HOSTS)),
+        low.op("~")(_ZONE_TLD),
+        low.op("~")(_ZONE_LABEL),
+        low.op("~")(_PLATFORM),
+    )
+
+
+def max_dr_in_force() -> ColumnElement[int]:
+    """Порог крупного сайта действующей версии настроек — подзапросом: выходы берут то, что
+    действует сейчас, не читая версию каждый сам. Версий ещё нет — умолчание конфига."""
+    version = aliased(RunSettingsModel)
+    latest = select(version.max_dr).order_by(version.version.desc()).limit(1).scalar_subquery()
+    return func.coalesce(latest, BIG_SITE_DR)
+
+
+def big_site() -> ColumnElement[bool]:
+    """DR выше порога действующей версии по последнему замеру. DR не мерили (донор заведён
+    руками) — не крупный: неизвестное не повод молча вычеркнуть, а `NULL` вывернул бы
+    условие наизнанку."""
+    return func.coalesce(DonorModel.dr, 0) > max_dr_in_force()
+
+
+def named() -> ColumnElement[bool]:
+    """Домен донора — из «кому не пишем» по имени: зона, платформа, соцсеть, СМИ, справочник.
+
+    Условие на строке донора: подзапрос по своему псевдониму доменов не цепляется
+    за внешний запрос, и условие годно и там, где доменов в запросе нет («Формы»).
+    """
+    domain = aliased(DomainModel)
+    return DonorModel.domain_id.in_(select(domain.id).where(_by_name_sql(domain.host)))
+
+
+def not_writing() -> ColumnElement[bool]:
+    """Донор в «кому не пишем» ТЗ — одно условие на все выходы, где пишем."""
+    return or_(big_site(), named())
+
+
+def writable[Query: Select[Any]](statement: Query) -> Query:
+    """Запрос без доноров из «кому не пишем» — даже принятых до правила 11.10.2026: ступень
+    «вне «кому не пишем»» воронки сборки и её выборка (`letters/recipients.py`)."""
+    return statement.where(~not_writing())
+
+
+def domain_not_writing(domain_id: Any) -> ColumnElement[bool]:
+    """Донор этого домена — в «кому не пишем»: для запросов без строки донора (письма)."""
+    return select(DonorModel.id).where(DonorModel.domain_id == domain_id, not_writing()).exists()
+
+
+async def not_writing_of(session: AsyncSession, domain_ids: Sequence[int]) -> dict[str, str]:
+    """Домены из этих, которым не пишем: хост → почему, словами."""
+    if not domain_ids:
+        return {}
+    rows = await session.execute(
+        select(DomainModel.host, big_site(), max_dr_in_force())
+        .join(DonorModel, DonorModel.domain_id == DomainModel.id)
+        .where(DomainModel.id.in_(list(domain_ids)), not_writing())
+    )
+    found: dict[str, str] = {}
+    for host, big, max_dr in rows.tuples():
+        reason = by_name([host]).get(host)
+        if big or reason is None:
+            found[host] = big_site_reason(int(max_dr))
+        else:
+            found[host] = NOT_WRITING_WORDS[reason]
+    return found
+
+
+async def not_writing_reason(session: AsyncSession, domain_id: int) -> str | None:
+    """Почему донору этого домена не пишем — словами; `None` — пишем."""
+    return next(iter((await not_writing_of(session, [domain_id])).values()), None)
+
+
+class NotWritingAcceptError(ValueError):
+    """Принять нельзя: домены — в «кому не пишем». Текст называет их и почему."""
+
+    def __init__(self, refused: dict[str, str]) -> None:
+        listed = "; ".join(f"{host} — {why}" for host, why in sorted(refused.items()))
+        super().__init__(f"Принять нельзя: {listed}. Снимите их с выбора — остальных можно принять")
 
 
 class Exclusions:

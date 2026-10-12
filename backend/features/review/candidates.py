@@ -64,6 +64,7 @@ from backend.features.review.ordering import (
     tier,
     tier_order,
 )
+from backend.features.runs.exclusions import NotWritingAcceptError, not_writing, not_writing_of
 from backend.shared.database.ids import storable
 
 logger = logging.getLogger(__name__)
@@ -90,6 +91,9 @@ class QueueReport:
     pending: int = 0
     #: Решено в прошлых прогонах и перенесено: смотреть заново не нужно.
     carried: dict[str, int] = field(default_factory=dict)
+    #: Годны по вердикту, вынесенному до 11.10.2026, но в «кому не пишем» ТЗ
+    #: (`runs.exclusions.not_writing`): на рассмотрение не положены.
+    not_writing: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,18 +205,26 @@ class RunReview:
         Повтор безопасен: пара «прогон + домен» кладётся один раз.
         Решённый домен приходит копией решения (`_copy_of`) — той же, что
         кладёт решение в другом прогоне (`decide`): решение по домену одно.
+
+        Домен из «кому не пишем» не кладётся, даже годный по вердикту (11.10.2026):
+        крупный сайт новый замер и так ставит «не подходит» (`verdict.check_dr`), а здесь —
+        годные по замеру до правила, свежие и потому не перемеренные. Сколько таких —
+        в отчёте (`not_writing`).
         """
         if not hosts:
             return QueueReport()
         rows = await self._session.execute(
-            select(DonorModel.domain_id, DonorModel.review)
+            select(DonorModel.domain_id, DonorModel.review, not_writing())
             .join(DomainModel, DomainModel.id == DonorModel.domain_id)
             .where(DomainModel.host.in_(hosts))
             .where(DonorModel.status == DonorStatus.SUITABLE)
         )
-        pending = 0
+        pending = skipped = 0
         carried: dict[str, int] = {}
-        for domain_id, review in rows.all():
+        for domain_id, review, off in rows.all():
+            if off:
+                skipped += 1
+                continue
             values = _copy_of(review)
             inserted = await self._session.execute(
                 insert(RunCandidateModel)
@@ -227,7 +239,7 @@ class RunReview:
             else:
                 pending += 1
         await self._session.flush()
-        return QueueReport(pending=pending, carried=carried)
+        return QueueReport(pending=pending, carried=carried, not_writing=skipped)
 
     async def pending_hosts(self, run_id: int) -> list[str]:
         """Домены прогона, ждущие решения человека."""
@@ -306,6 +318,10 @@ class RunReview:
             return DecideReport(changed=0, accepted_domains=[])
         moment = now or datetime.now(UTC)
         candidates = await self._of_run(run_id, candidate_ids)
+        if decision is Decision.ACCEPTED:  # «кому не пишем» не принимают — отказ словами
+            refused = await not_writing_of(self._session, [c.domain_id for c in candidates])
+            if refused:
+                raise NotWritingAcceptError(refused)
         for candidate in candidates:
             _apply(candidate, decision, by=by, note=note, moment=moment)
         await self._session.flush()

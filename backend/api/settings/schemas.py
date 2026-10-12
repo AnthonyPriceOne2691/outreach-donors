@@ -31,6 +31,8 @@ LIMITS: dict[str, tuple[int, int]] = {
     "min_org_traffic": (0, 10_000_000),
     "min_refdomains": (0, 1_000_000),
     "min_keywords": (0, 1_000_000),
+    # Крупный сайт: DR выше — «не подходит», писем нет (12.10.2026 — порог версии).
+    "max_dr": (1, 100),
 }
 
 
@@ -65,6 +67,8 @@ class ThresholdsBody(BaseModel):
     min_org_traffic: int = _within("min_org_traffic")
     min_refdomains: int = _within("min_refdomains")
     min_keywords: int = _within("min_keywords")
+    #: Порог крупного сайта; пусто — как у действующей версии.
+    max_dr: int | None = Field(default=None, ge=LIMITS["max_dr"][0], le=LIMITS["max_dr"][1])
     geo_top_n: int | None = _rule("geo_top_n")
     geo_min_share_percent: int | None = _rule("geo_min_share_percent")
     metrics_ttl_days: int | None = _rule("metrics_ttl_days")
@@ -73,7 +77,7 @@ class ThresholdsBody(BaseModel):
         """Версия целиком: эти пороги, правило и срок — присланные, иначе действующие."""
         share, term = self.geo_min_share_percent, self.metrics_ttl_days
         return Rules(
-            thresholds=self.to_thresholds(),
+            thresholds=self.to_thresholds(in_force.thresholds.max_dr),
             geo=GeoRule(
                 top_n=in_force.geo.top_n if self.geo_top_n is None else self.geo_top_n,
                 min_share=in_force.geo.min_share if share is None else share / 100,
@@ -82,12 +86,14 @@ class ThresholdsBody(BaseModel):
             price_ttl_days=in_force.price_ttl_days,
         )
 
-    def to_thresholds(self) -> Thresholds:
+    def to_thresholds(self, max_dr_in_force: int) -> Thresholds:
+        """Пороги тела; порог крупного сайта не прислан — действующий."""
         return Thresholds(
             min_dr=self.min_dr,
             min_org_traffic=self.min_org_traffic,
             min_refdomains=self.min_refdomains,
             min_keywords=self.min_keywords,
+            max_dr=max_dr_in_force if self.max_dr is None else self.max_dr,
         )
 
 
@@ -106,6 +112,7 @@ class ThresholdsVersion(BaseModel):
     min_org_traffic: int
     min_refdomains: int
     min_keywords: int
+    max_dr: int
     geo_top_n: int
     geo_min_share_percent: int
     metrics_ttl_days: int
@@ -120,6 +127,7 @@ class ThresholdsVersion(BaseModel):
             min_org_traffic=settings.min_org_traffic,
             min_refdomains=settings.min_refdomains,
             min_keywords=settings.min_keywords,
+            max_dr=settings.max_dr,
             geo_top_n=settings.geo_top_n,
             geo_min_share_percent=share_percent(settings.geo_min_share),
             metrics_ttl_days=settings.metrics_ttl_days,

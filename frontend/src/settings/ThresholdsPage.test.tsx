@@ -32,6 +32,7 @@ const CURRENT = {
   min_org_traffic: 500,
   min_refdomains: 100,
   min_keywords: 300,
+  max_dr: 80,
   ...RULES,
 };
 
@@ -40,11 +41,19 @@ const LIMITS = {
   min_org_traffic: { min: 0, max: 10_000_000 },
   min_refdomains: { min: 0, max: 1_000_000 },
   min_keywords: { min: 0, max: 1_000_000 },
+  max_dr: { min: 1, max: 100 },
 };
 
 const VIEW = {
   current: CURRENT,
-  defaults: { min_dr: 20, min_org_traffic: 500, min_refdomains: 100, min_keywords: 300, ...RULES },
+  defaults: {
+    min_dr: 20,
+    min_org_traffic: 500,
+    min_refdomains: 100,
+    min_keywords: 300,
+    max_dr: 80,
+    ...RULES,
+  },
   history: [CURRENT],
   limits: LIMITS,
   rule_limits: {

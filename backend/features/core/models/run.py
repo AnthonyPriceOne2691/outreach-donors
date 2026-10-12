@@ -43,6 +43,9 @@ class RunSettingsModel(TimestampedMixin, Base):
     min_org_traffic: Mapped[int] = mapped_column(Integer, nullable=False)
     min_refdomains: Mapped[int] = mapped_column(Integer, nullable=False)
     min_keywords: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: Крупный сайт: DR выше — «не подходит», ему не пишем (ТЗ: «домены DR > 80»).
+    #: До 12.10.2026 граница была числом в коде; строки до того — 80.
+    max_dr: Mapped[int] = mapped_column(Integer, nullable=False, server_default="80")
 
     # Гео-правило: страна в топ-N ИЛИ доля ≥ порога.
     geo_top_n: Mapped[int] = mapped_column(Integer, nullable=False)

@@ -48,11 +48,12 @@ async def _with_form(session: AsyncSession, host: str, *, dr: int, traffic: int)
 @pytest.fixture
 async def queue_of_25(session: AsyncSession) -> list[str]:
     """Двадцать пять доноров с формой; у двадцати один и тот же DR —
-    как в живой очереди, где подряд стоят 93, 93, 93. Возвращает хосты
+    как в живой очереди, где подряд стояли 93, 93, 93. Теперь там не выше 80:
+    крупным сайтам не пишем и формой (`runs.exclusions`). Возвращает хосты
     в том порядке, в каком их должен видеть человек."""
     made: list[tuple[int, int, int, str]] = []
     for number in range(25):
-        dr = 93 if number < 20 else 40 + number
+        dr = 80 if number < 20 else 40 + number
         traffic = 1000 * (number % 7)
         host = f"form-{number:02d}.example.test"
         donor = await _with_form(session, host, dr=dr, traffic=traffic)
@@ -116,7 +117,7 @@ class TestPages:
         """Сильные сверху: при равном DR — у кого больше трафика."""
         await _with_form(session, "quiet.example.test", dr=70, traffic=10)
         await _with_form(session, "loud.example.test", dr=70, traffic=90_000)
-        await _with_form(session, "strong.example.test", dr=88, traffic=5)
+        await _with_form(session, "strong.example.test", dr=80, traffic=5)
 
         rows = await forms.queue(session)
 

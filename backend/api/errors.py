@@ -87,6 +87,7 @@ from backend.features.review.candidates import UnknownRunError as ReviewUnknownR
 from backend.features.runs.browse import UnknownRunError
 from backend.features.runs.budget import QuotaUnavailableError
 from backend.features.runs.duplicates import DuplicateRunError
+from backend.features.runs.exclusions import NotWritingAcceptError
 from backend.features.sales.chain import ChainNotReadyError
 from backend.features.sales.intake import IntakeError, UnknownHypothesisError
 from backend.features.sales.kb import KbError, KbKeyTakenError, UnknownKbEntryError
@@ -187,6 +188,8 @@ STATUSES: dict[type[Exception], int] = {
     LetterScopeError: status.HTTP_409_CONFLICT,
     ReviewUnknownRunError: status.HTTP_404_NOT_FOUND,
     NotInRunError: status.HTTP_409_CONFLICT,
+    # Принять домен из «кому не пишем» нельзя (12.10.2026): состояние домена, отказ словами.
+    NotWritingAcceptError: status.HTTP_409_CONFLICT,
     # Такой же прогон ещё в очереди или идёт: второй купил бы ту же выдачу — состояние.
     DuplicateRunError: status.HTTP_409_CONFLICT,
     # Ручная очередь форм: донора в ней уже нет — либо адрес нашёлся,
