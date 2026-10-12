@@ -356,8 +356,43 @@ class TestAnnounce:
         [notice] = heard
         assert (notice.draft_id, notice.status) == (outcome.draft_id, DraftStatus.DRAFTED)
         assert notice.thread_id == reply.thread_id
+        assert "крючок этапа on_draft" in caplog.text
         assert "черновик цел" in caplog.text
         assert (await stored(session, reply.id)).status is DraftStatus.DRAFTED
+
+    async def test_skip_hook_failure_is_told_in_neutral_words_with_the_hook_name(
+        self,
+        session: AsyncSession,
+        reply: ReplyModel,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Крючок пропуска — не уведомление о черновике (у продаж он ставит передачу лида):
+        его сбой — в логе словами без догадки, что не вышло, и с именем крючка."""
+        heard: list[DraftNotice] = []
+
+        async def hook(notice: DraftNotice) -> None:
+            heard.append(notice)
+            raise RuntimeError("очередь недоступна")
+
+        skip = Brief(skip=Skip(SkipKind.NO_REPLY, "спасибо"))
+        donors_with(monkeypatch, on_skip=hook, brief=briefed(skip))
+        await agent_on(session)
+        outcome = await drafting.draft_answer(session, FakeWriter(), reply.id)
+        await session.commit()
+
+        with caplog.at_level(logging.ERROR, logger=drafting.__name__):
+            await drafting.announce(outcome)  # не бросает
+
+        [notice] = heard
+        assert (notice.draft_id, notice.status) == (outcome.draft_id, DraftStatus.SKIPPED)
+        [record] = [line for line in caplog.records if line.name == drafting.__name__]
+        assert record.getMessage() == (
+            f"агент: крючок этапа on_skip после черновика №{outcome.draft_id} упал — черновик цел"
+        )
+        assert record.__dict__["hook"] == "on_skip"
+        assert "уведомление" not in caplog.text
+        assert (await stored(session, reply.id)).status is DraftStatus.SKIPPED
 
     async def test_skipped_draft_is_not_announced(
         self, session: AsyncSession, reply: ReplyModel, monkeypatch: pytest.MonkeyPatch
