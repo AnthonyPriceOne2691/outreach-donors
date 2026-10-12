@@ -307,6 +307,44 @@ class TestHealthwatch:
         assert "• worker — created — создан, но не запущен дольше 0 мин" in broke
         assert healed.endswith("Восстановилось: worker")
 
+    @pytest.mark.parametrize(("minutes", "told"), [(16, True), (14, False)])
+    def test_grace_is_counted_from_the_first_sighting(
+        self, host: Host, minutes: int, told: bool
+    ) -> None:
+        """Порог — от отметки первого прохода, а не от последнего: сервис,
+        застанный созданным 16 минут назад, — поломка, 14 минут — ещё нет."""
+        since = int(time.time()) - minutes * 60
+        Path(host.env["HEALTHWATCH_STATE"]).write_text(f"worker\t~created@{since}\n")
+        _stack(host, worker="created||0")
+
+        host.run("healthwatch.sh")
+
+        alerts = host.alerts()
+        if told:
+            [alert] = alerts
+            assert "• worker — created — создан, но не запущен дольше 15 мин" in alert
+        else:
+            assert alerts == []
+            assert f"~created@{since}" in Path(host.env["HEALTHWATCH_STATE"]).read_text()
+
+    @pytest.mark.parametrize("grace", ["15m", "abc"])
+    def test_grace_that_is_not_a_number_falls_back_and_says_so(
+        self, host: Host, grace: str
+    ) -> None:
+        """Опечатка в пороге не обрывает проход: иначе сторож молчал бы ровно
+        при зависшей выкатке."""
+        host.env["HEALTHWATCH_CREATED_GRACE_MIN"] = grace
+        since = int(time.time()) - 16 * 60
+        Path(host.env["HEALTHWATCH_STATE"]).write_text(f"worker\t~created@{since}\n")
+        _stack(host, worker="created||0")
+
+        done = host.run("healthwatch.sh")
+
+        assert done.returncode == 0, done.stderr
+        assert f"HEALTHWATCH_CREATED_GRACE_MIN=«{grace}» — не число минут, взято 15" in done.stderr
+        [alert] = host.alerts()
+        assert "• worker — created — создан, но не запущен дольше 15 мин" in alert
+
     def test_long_migrations_are_not_an_alarm(self, host: Host) -> None:
         """Миграция дольше прохода (заполнение колонки большой таблицы):
         сервисы ждут её несколько проходов — в пределах порога это не поломка."""

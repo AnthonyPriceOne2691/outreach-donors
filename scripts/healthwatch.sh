@@ -58,6 +58,14 @@ STATE="${HEALTHWATCH_STATE:-$ROOT/.healthwatch.state}"
 ONESHOT=" ${HEALTHWATCH_ONESHOT:-migrate} "
 BACKUP_DAYS="${HEALTHWATCH_BACKUP_DAYS:-8}"
 CREATED_GRACE="${HEALTHWATCH_CREATED_GRACE_MIN:-15}"
+# Не число — проход оборвался бы на арифметике, и сторож молчал бы ровно при
+# зависшей выкатке, ради которой порог: берётся 15, строка — в журнал крона.
+case "$CREATED_GRACE" in
+  '' | *[!0-9]*)
+    echo "$(date '+%F %T') HEALTHWATCH_CREATED_GRACE_MIN=«${CREATED_GRACE}» — не число минут, взято 15" >&2
+    CREATED_GRACE=15
+    ;;
+esac
 EPOCH="$(date +%s)"
 TAB="$(printf '\t')"
 
