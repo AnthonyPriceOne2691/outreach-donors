@@ -69,7 +69,7 @@ export function HypothesisModal({ onClose, onAdded }: ModalProps) {
           />
           <Textarea
             label="Описание"
-            description="Кому и зачем пишем — для своих; в письма не идёт"
+            description="Кому и зачем пишем: в письма не идёт, по нему судья сбора базы проверяет сайты"
             autosize
             minRows={3}
             maxRows={8}

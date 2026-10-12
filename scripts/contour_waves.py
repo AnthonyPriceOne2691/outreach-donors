@@ -122,7 +122,8 @@ DETECTORS: dict[str, Detector] = {
                           "sales/ импортирует клиент модели"),
     "sales-agent-prompt": Detector("tree", r"^backend/features/sales/agent/prompts/[^/]+\.md$",
                                    "в sales/agent/ есть промпт агента или судьи"),
-    "sales-segment-prompt": Detector("later", "", "промпт судьи сегмента назовёт его срез"),
+    "sales-segment-prompt": Detector("tree", r"^backend/features/sales/prompts/segment\.md$",
+                                     "в sales/ есть промпт судьи сегмента"),
     "sales-autosend": Detector("later", "", "маркер автоотправки назовёт срез В4"),
     "sales-thresholds": Detector("later", "", "файл порогов агента назовёт срез агента"),
     "manual": Detector("manual", "", "решает человек"),
@@ -148,7 +149,7 @@ def forbids_sales(config: str) -> bool:
 
 #: Детекторы промптов: у развёрнутой волны с таким триггером каждый промпт, который
 #: видит детектор, назван в model_surface STATUS.
-PROMPT_DETECTORS = ("sales-prompt", "sales-agent-prompt")
+PROMPT_DETECTORS = ("sales-prompt", "sales-agent-prompt", "sales-segment-prompt")
 
 #: Что ещё обязано лежать в дереве у развёрнутой волны: (где, чем узнать, о чём сказать).
 EVIDENCE = {

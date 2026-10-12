@@ -246,10 +246,9 @@ export function usageProvider(provider: string): { title: string; color: string 
   return known[provider] ?? { title: `прочее (${provider})`, color: 'gray' };
 }
 
-/** Операции внутри провайдера — все, что сервер пишет в журнал расхода
- *  (`OPERATION_PROVIDERS` в `backend/features/core/usage.py`). Незнакомая
- *  не пропадает с экрана: она показывается общими словами с кодом в
- *  скобках, чтобы новую операцию было видно и было по чему её найти. */
+/** Операции внутри провайдера — все, что сервер пишет в журнал расхода (`OPERATION_PROVIDERS` в
+ *  `backend/features/core/usage.py`). Незнакомая не пропадает с экрана: она показывается общими
+ *  словами с кодом в скобках, чтобы новую операцию было видно и было по чему её найти. */
 const OPERATION_TITLES: Record<string, string> = {
   batch_metrics: 'метрики доменов',
   by_country: 'трафик по странам',
@@ -268,6 +267,8 @@ const OPERATION_TITLES: Record<string, string> = {
   sales_situation: 'ситуация писем продаж',
   sales_draft: 'черновики продаж',
   sales_judge: 'судья черновиков продаж',
+  sales_segment_judge: 'судья сегмента продаж',
+  sales_serp: 'выдача сбора продаж',
   // Прежние имена: в журнале они остались у старых строк.
   dr_screen: 'просев по DR',
   serp_task: 'запрос выдачи',
@@ -336,10 +337,9 @@ export const HUMAN_INTENTS: Record<HumanIntent, string> = {
   non_commercial: 'Не продаёт места',
 };
 
-/** Слова ячеек отбора, общие со значениями фильтров под колонками
- *  (26.09.2026): фильтр называет значение тем же словом, что стоит
- *  в строке, — иначе, выбрав «до Ahrefs не дошёл», человек ищет глазами
- *  другое слово. */
+/** Слова ячеек отбора, общие со значениями фильтров под колонками (26.09.2026): фильтр называет
+ *  значение тем же словом, что стоит в строке, — иначе, выбрав «до Ahrefs не дошёл», человек ищет
+ *  глазами другое слово. */
 export const NOT_REACHED = 'до Ahrefs не дошёл';
 export const JUDGE_ABSENT = 'судья не смотрел';
 export const NO_ANSWER = 'не отвечал';

@@ -66,6 +66,11 @@ OPERATION_PROVIDERS = {
     "sales_draft": UsageProvider.LLM,
     "sales_situation": UsageProvider.LLM,
     "sales_judge": UsageProvider.LLM,
+    # Сбор новой базы продаж по ключам (срез 6.1): судья сегмента — единица токен; выдача
+    # сбора — единица доллар, как `serp_search` доноров, но своей строкой: её считают
+    # расходом продаж (`SALES_OPERATIONS`), а не прогоном доноров.
+    "sales_segment_judge": UsageProvider.LLM,
+    "sales_serp": UsageProvider.SERP,
     # Проверка адреса лида продаж: единица — проверка. Ключ сервиса общий
     # с соседней системой, и до этой строки его траты не писались нигде.
     "sales_verify": UsageProvider.HUNTER,

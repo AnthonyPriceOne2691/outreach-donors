@@ -505,6 +505,7 @@ const REFUSED = { status: 503, body: { detail: 'выдуманный отказ 
 const OTHER_TABS: [string, Record<string, Answer>, string][] = [
   ['kb', {}, 'Что увидит агент'],
   ['sender', { 'GET /api/sales/sender': REFUSED }, 'Отправитель не загрузился'],
+  ['collect', { 'GET /api/sales/segment?hypothesis=1': REFUSED }, 'Сбор базы не загрузился'],
   ['chain', { 'GET /api/sales/chain': REFUSED }, 'Цепочка писем не загрузилась'],
   ['queue', { 'GET /api/sales/queue?hypothesis=1': REFUSED }, 'Очередь писем не загрузилась'],
   ['funnel', { 'GET /api/sales/funnel': REFUSED }, 'Воронка не загрузилась'],
@@ -801,10 +802,10 @@ async function listOf(field: HTMLElement): Promise<HTMLElement> {
 }
 
 describe('продажи: вкладки на телефоне — список «Раздел» (аудит 09.10.2026)', () => {
-  // Девяти вкладкам нужно окно в 1 344 px при малых числах и 1 398 px при «12 345» лидов
-  // (замер стенда, `SalesTabs`): на 1 380 px с такими числами ряд срезался бы краем.
-  it.each([800, 1024, 1340, 1380])(
-    'окно %i px: вкладки не влезают в панель — тоже список, а не обрезанные вкладки',
+  // Десяти вкладкам с числами побольше нужно окно около 1 510 px (оценка по замерам девяти,
+  // `SalesTabs`): 1 440 — частое окно ноутбука, и на нём ряд срезался бы краем.
+  it.each([800, 1024, 1366, 1440])(
+    'окно %i px: десять вкладок не влезают в панель — тоже список, а не обрезанные вкладки',
     async (width) => {
       windowOf(width);
       await openScreen();
@@ -815,14 +816,14 @@ describe('продажи: вкладки на телефоне — список 
   );
 
   it('широкое окно — вкладки рядом, списка нет', async () => {
-    windowOf(1440);
+    windowOf(1600);
     await openScreen();
 
     expect(screen.getByRole('radiogroup', { name: 'Вкладки продаж' })).toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: 'Раздел' })).toBeNull();
   });
 
-  it('на узком окне вместо вкладок столбиком — список: рабочие, разделитель, настройки', async () => {
+  it('на узком окне вместо десяти вкладок столбиком — список: рабочие, разделитель, настройки', async () => {
     windowOf(390);
     await openScreen();
 
@@ -837,6 +838,7 @@ describe('продажи: вкладки на телефоне — список 
     expect(options).toEqual([
       'Лиды — 5',
       'Гипотезы — 2',
+      'Сбор базы',
       'Цепочка писем',
       'Очередь писем',
       'Воронка',

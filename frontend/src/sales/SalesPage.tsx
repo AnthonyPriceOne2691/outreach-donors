@@ -54,6 +54,7 @@ import { LeadsPane, pageBack, useLeads } from './LeadsPane';
 import { ModuleOff } from './ModuleOff';
 import { Pending } from './Pending';
 import { QueuePane } from './QueuePane';
+import { SegmentPane } from './SegmentPane';
 import { SenderPane } from './SenderPane';
 import { StoplistPane } from './StoplistPane';
 
@@ -101,13 +102,16 @@ function tabLabel(key: SalesTab, count: number | undefined): string {
 /** Вкладки раздела с числами. Где они не влезают в панель — список «Раздел»: на телефоне
  *  семь вкладок столбиком ставили таблицу на 204 px ниже (аудит экранов 09.10.2026), а на
  *  800–1024 px вкладки в ряд срезались краем панели — «Воронка» и настройки были
- *  недосягаемы. Девяти вкладкам (с «Агент: качество» и «Стоп-листом») в ряд нужно 1 012 px
- *  при числах «5», «2» и «10» и 1 066 px при «12 345», «24» и «128» (замер стенда 12.10.2026);
- *  строка панели уже окна на 332 px — вкладкам хватает места с окна в 1 344 px. Список — до
- *  89em (1 424 px), с запасом на числа побольше: на окне 1 440 px строке 1 108 px. В списке
+ *  недосягаемы. Девяти вкладкам в ряд нужно было 1 008–1 012 px при малых числах и 1 066–1 069 px
+ *  при «12 345» лидов (замеры стенда 12.10.2026: со «Сбором базы» и «Агент: качество» — и с
+ *  «Агент: качество» и «Стоп-листом»). Десяти — со всеми тремя — по сумме тех замеров около
+ *  1 115 px и 1 175 px; строка панели уже окна на 332 px, вкладкам хватает места с окна около
+ *  1 450 px, с числами побольше — около 1 510. Список — до 95em (1 520 px): на 1 440 px ряд
+ *  десяти вкладок срезался бы краем. Порог предварительный (оценка без снимков): точный — со
+ *  снимками, а когда «Продажи» разойдутся на пункты меню, список здесь не понадобится. В списке
  *  рабочие вкладки, черта и настройки — порядок тот же, что у вкладок. */
 function SalesTabs({ tab, counts, onTab }: TabsProps) {
-  const narrow = useMediaQuery('(max-width: 89em)');
+  const narrow = useMediaQuery('(max-width: 95em)');
   const pick = (value: string | null) => {
     const next = SALES_TAB_KEYS.find((key) => key === value);
     if (next !== undefined && next !== tab) onTab(next);
@@ -125,10 +129,12 @@ function SalesTabs({ tab, counts, onTab }: TabsProps) {
           ...SALES_TAB_KEYS.filter((key) => !SETTINGS_TABS.has(key)).map(item),
           { group: 'Настройки', items: settings.map(item) },
         ]}
-        // Все пункты без прокрутки списка. На телефоне рядом в ряд встаёт «Загрузить
-        // базу», и поле уже пункта «База знаний — 3» — список по содержимому, левым краем по
-        // полю; на окне пошире поле — по значению, не шире 16rem, а не на весь ряд.
-        maxDropdownHeight={360}
+        // Все десять пунктов без прокрутки списка: девять на 390 px занимали 334 px (замер
+        // 12.10.2026), десятый — ещё строка около 34 px, поэтому предел списка — 400 px, а не 360.
+        // На телефоне рядом в ряд встаёт «Загрузить базу», и поле уже пункта «База знаний — 3» —
+        // список по содержимому, левым краем по полю; на окне пошире поле — по значению, не шире
+        // 16rem, а не на весь ряд.
+        maxDropdownHeight={400}
         comboboxProps={{ ...dropdownBelow, width: 'max-content' }}
         maw="16rem"
         style={{ flex: '1 1 8rem' }}
@@ -219,6 +225,7 @@ export function SalesPage() {
       />
     ),
     hypotheses: () => <HypothesesTable rows={known} />,
+    collect: () => <SegmentPane hypotheses={known} hypothesis={chosen} onHypothesis={pick} />,
     kb: () => <KbPane />,
     sender: () => <SenderPane />,
     stoplist: () => <StoplistPane />,
