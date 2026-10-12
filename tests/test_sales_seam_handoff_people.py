@@ -14,6 +14,10 @@
 - **Решение владельца:** личное сообщение телемаркетологу не ушло (чат не задан, бот
   заблокирован) — копии в группу нет вовсе: группа узнаёт о лиде только из чата эксплуатации
   владельца. `xfail(strict=True)` ниже — вариант «группа получает лида и тогда».
+- **Решение владельца:** через шлюз агентства новое письмо уже переданного лида не ложится в
+  Kommo (примечаний у шлюза нет), а сообщение «Лид написал снова» несёт ссылку на сделку, где
+  этого письма нет: текст письма — только в переписке сервиса, и ссылки на неё у телемаркетолога
+  нет. `xfail(strict=True)` ниже — вариант «в сообщении и ссылка на диалог, где письмо».
 - **Решение владельца:** ответ в переписке (и черновик агента) уходит на адрес лида, даже если
   написал его коллега со своего адреса (`sales/mail.recipient`: «адрес — лида»): агент пишет
   «Здравствуйте, Ольга», а письмо получает общий ящик компании. `xfail(strict=True)` ниже —
@@ -30,7 +34,7 @@ import httpx
 import pytest
 from backend.features.sales import handoff
 from backend.features.sales.handoff_console import close
-from backend.features.sales.kommo import KommoAuthError, KommoFixture
+from backend.features.sales.kommo import KommoAuthError, KommoFixture, KommoGateway
 from backend.features.sales.models import HandoffKommo, HandoffTelegram
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests.test_sales_handoff import (
@@ -48,13 +52,16 @@ from tests.test_sales_handoff import (
     reread,
     sent,
 )
-from tests.test_sales_handoff_rows import sales_dialog
+from tests.test_sales_handoff_gateway import gateway, work
+from tests.test_sales_handoff_rows import answer, sales_dialog
+from tests.test_sales_kommo import Script
+from tests.test_sales_kommo_gateway import _made
 from tests.test_sales_send import _seen
 from tests.test_sales_switch import sales_switched_on
 from tests.test_sales_telegram import GROUP, PERSONAL, Recorder, refused
 from tests.test_sales_thread_answer import Answered, answered
 
-__all__ = ["alerts", "answered", "api", "http", "sales_switched_on"]
+__all__ = ["alerts", "answered", "api", "gateway", "http", "sales_switched_on"]
 
 LEAD = "ivan@acme.example.test"
 COLLEAGUE = "olga@acme.example.test"
@@ -203,6 +210,44 @@ async def test_group_hears_of_the_lead_when_the_personal_message_did_not_go(
     await hand_off(session, dialog, deps(http, alerts, KommoFixture()))
 
     assert GROUP in [chat for chat, _ in sent(api)]
+
+
+# --- решение владельца: письмо переданного лида через шлюз — куда его читать -------------------
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "решение владельца: через шлюз новое письмо переданного лида в Kommo не ложится "
+        "(примечаний у шлюза нет), а «Лид написал снова» несёт только ссылку на сделку, где "
+        "этого письма нет. Вариант: в сообщении и ссылка на диалог в сервисе, где письмо "
+        "(handoff_text.message, again и клиент без add_notes)"
+    ),
+)
+async def test_a_new_letter_through_the_gateway_tells_where_to_read_it(
+    session: AsyncSession,
+    http: httpx.AsyncClient,
+    api: Recorder,
+    alerts: Alerts,
+    gateway: tuple[Script, KommoGateway],
+) -> None:
+    script, client = gateway
+    script.replies = [_made(9341)]
+    dialog = await sales_dialog(session)
+    await hand_off(session, dialog, work(http, alerts, client))
+    await answer(
+        session,
+        dialog.thread,
+        dialog.message,
+        "Перезвоните, пожалуйста, завтра после 15:00 по номеру из подписи.",
+        at=NOW + timedelta(hours=3),
+    )
+
+    await hand_off(session, dialog, work(http, alerts, client))
+
+    [(_, told), _] = sent(api)[2:]
+    assert told.startswith("Лид написал снова")
+    assert f"/threads/{dialog.thread.id}" in told, "письма нет ни в Kommo, ни по ссылке"
 
 
 # --- решение владельца: ответ — тому, кто написал ------------------------------------------------
