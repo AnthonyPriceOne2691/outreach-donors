@@ -33,7 +33,8 @@ import {
 import { useMediaQuery } from '@mantine/hooks';
 
 import { refusalOf } from '../api/client';
-import type { FunnelCounts, FunnelRow, HypothesisCard, SalesFunnelView } from '../api/salesTypes';
+import type { HypothesisCard } from '../api/salesTypes';
+import type { FunnelCounts, FunnelRow, SalesFunnelView } from '../api/salesFunnelTypes';
 import { InfoHint } from '../components/InfoHint';
 import { Metric } from '../components/Metric';
 import { formatNumber } from '../format';

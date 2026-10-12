@@ -1,17 +1,17 @@
 """Команды модуля «Продажи».
 
     outreach sales-hypothesis-add --name "…" --description "…"
-    outreach sales-import --hypothesis "…" (--file база.csv | --link …) [--dry-run]
+    outreach sales-import --hypothesis "…" (--file база.csv | --link …) [--language en]
+        [--place "Europe/Berlin"] [--dry-run]
     outreach sales-stoplist-add --file стоп.csv [--note "…"]
     outreach sales-clean [--hypothesis "…"]
     outreach sales-kb-load --file база.json [--update] [--dry-run]
     outreach sales-chain-load --file цепочка.json [--hypothesis "…"] [--update] [--dry-run]
 
-Стартовые гипотезы заводятся здесь, данными в базе, а не миграцией:
-описание гипотезы — коммерческий текст, а репозиторий публичный. Логика
-заведения — `features/sales/hypotheses.py`, загрузки — `features/sales/intake.py`,
-стоп-листа — `features/sales/stoplist.py`, очистки — `features/sales/cleaning.py`,
-базы знаний — `features/sales/kb_load.py`, цепочки писем —
+Стартовые гипотезы заводятся здесь, данными в базе, а не миграцией: описание гипотезы —
+коммерческий текст, а репозиторий публичный. Логика заведения — `features/sales/hypotheses.py`,
+загрузки — `features/sales/intake.py`, стоп-листа — `features/sales/stoplist.py`, очистки —
+`features/sales/cleaning.py`, базы знаний — `features/sales/kb_load.py`, цепочки писем —
 `features/sales/chain_load.py`; здесь только разбор и печать.
 
 Очистка собирает проверяльщик адресов до первого лида: `live` без ключа —
@@ -166,6 +166,7 @@ def _print_unverified(report: CleaningReport) -> None:
 async def run_stoplist_add(session: AsyncSession, args: argparse.Namespace) -> int:
     """Пополнение на готовой сессии. Повтор — не ошибка: «уже было» считается отдельно."""
     try:
+        stoplist.check_note(args.note)  # до чтения файла: длинную причину `add` не запишет
         entries = await asyncio.to_thread(
             stoplist.read_entries, args.file, delimiter=args.delimiter
         )
@@ -174,21 +175,22 @@ async def run_stoplist_add(session: AsyncSession, args: argparse.Namespace) -> i
         return EXIT_BAD_INPUT
     if not entries.hosts and not entries.emails:
         print(f"Стоп-лист не прочитан: в файле {args.file.name} нет ни домена, ни адреса")
-        _print_unreadable(entries.unreadable)
+        _print_unreadable(entries.remarks)
         return EXIT_BAD_INPUT
     loaded = await stoplist.add(session, entries, author=AUTHOR, note=args.note or args.file.name)
     await session.commit()
+    closed = f"; лидов снято: {loaded.closed}" if loaded.closed else ""
     print(
         f"Стоп-лист продаж: добавлено {loaded.added}, уже было {loaded.known} "
-        f"(доменов {len(entries.hosts)}, адресов {len(entries.emails)})."
+        f"(доменов {len(entries.hosts)}, адресов {len(entries.emails)}){closed}."
     )
-    _print_unreadable(loaded.unreadable)
+    _print_unreadable(loaded.remarks)
     return EXIT_OK
 
 
-def _print_unreadable(rows: list[tuple[int, str]]) -> None:
-    for line, cell in rows:
-        print(f"  строка {line}: {stoplist.NOT_AN_ENTRY} — «{cell}»")
+def _print_unreadable(rows: list[tuple[int, str, str]]) -> None:
+    for line, why, cell in rows:
+        print(f"  строка {line}: {why} — «{cell}»")
 
 
 async def run_kb_load(session: AsyncSession, args: argparse.Namespace) -> int:
@@ -357,16 +359,17 @@ async def run_import(session: AsyncSession, args: argparse.Namespace) -> int:
 
 
 async def _read(args: argparse.Namespace) -> intake.Preview:
+    given = intake.defaults(args.language, args.place)
     if args.link:
         async with sheet.client() as http:
             table = await intake.read_link(args.link, http, delimiter=args.delimiter)
     else:
         table = await asyncio.to_thread(intake.read_file, args.file, delimiter=args.delimiter)
-    found = intake.preview(table, header=args.header)
+    found = intake.preview(table, header=args.header, given=given)
     if not args.map:
         return found
     chosen = {**found.mapping, **_mapping(args.map, found.columns)}
-    return intake.preview(table, chosen, header=found.header)
+    return intake.preview(table, chosen, header=found.header, given=given)
 
 
 def _mapping(pairs: list[str], columns: list[str]) -> Mapping:
@@ -397,6 +400,18 @@ def _print_preview(found: intake.Preview) -> None:
     for problem in found.problems:
         kept = " (лид загружен)" if problem.loaded else ""
         print(f"  строка {problem.line}: {problem.reason} — «{problem.cell}»{kept}")
+    _print_defaults(found)
+
+
+def _print_defaults(found: intake.Preview) -> None:
+    """Сколько лидов получили умолчания — и без чего письма не уйдут, до записи."""
+    if found.defaulted_language:
+        print(f"Язык по умолчанию {found.defaults.language} — лидов: {found.defaulted_language}")
+    if found.defaulted_place and (place := found.defaults.place) is not None:
+        where = ", ".join(part for part in (place.country, place.timezone) if part)
+        print(f"Страна или пояс по умолчанию {where} — лидов: {found.defaulted_place}")
+    for warning in found.warnings:
+        print(f"Внимание: {warning}")
 
 
 def add_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
@@ -427,6 +442,8 @@ def add_parser(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-ar
         help="первая строка — заголовок (--no-header — данные); без флага угадывается",
     )
     load.add_argument("--delimiter", default=None, help="разделитель CSV, если угадан неверно")
+    load.add_argument("--language", help="язык по умолчанию — где колонка языка пуста: en, ru")
+    load.add_argument("--place", help="страна или пояс по умолчанию: de, Europe/Berlin")
     load.add_argument("--dry-run", action="store_true", help="только предпросмотр, без записи")
 
     stop = sub.add_parser(

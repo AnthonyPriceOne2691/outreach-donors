@@ -9,7 +9,8 @@ import { screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
-import type { ChainView, SalesFunnelView, SenderView } from '../api/salesTypes';
+import type { ChainView, SenderView } from '../api/salesTypes';
+import type { SalesFunnelView } from '../api/salesFunnelTypes';
 import { ADMIN, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';

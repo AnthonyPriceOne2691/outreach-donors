@@ -4,7 +4,8 @@
 формой `multipart/form-data`: сервер получает байты как есть, и общий читатель
 отклоняет файл не в UTF-8 словами, а не кракозябрами. Сопоставление — JSON
 `{"email": 0, "name": 2}` (поле → колонка с нуля); правка руками заменяет
-угаданное целиком.
+угаданное целиком. Язык и страна или пояс по умолчанию (`default_language`,
+`default_place`) ложатся только туда, где колонка пуста; негодное — 400 словами.
 
 **Предпросмотр ничего не пишет**, загрузка пишет лидов и журнал одной транзакцией.
 Состояния между шагами сервер не держит: мастер присылает источник оба раза,
@@ -23,10 +24,11 @@
 (срез 4.6) — модулем `chain.py`, **очередь писем** (срез 4.6b) — модулем `queue.py`,
 **воронка** (срез 5.4) — модулем `funnel.py`, **очистка лидов** — модулем `clean.py`,
 **качество агента** (срез 6.4) — модулем `calibration.py`, **добивки лида** (какими уйдут) —
-модулем `queue.py`; их маршруты входят в этот же роутер: у раздела один префикс. Права —
-как в ядре: смотреть и заводить гипотезу — `sales`; очистка — `sales` и `run` (платная проверка
-адресов, как поиск адресов); запись цепочки, базы знаний и отправителя и сборка очереди —
-`sales` и `send`.
+модулем `queue.py`, **правка лида** — модулем `leads.py`, **стоп-лист продаж** — модулем
+`stoplist.py`; их маршруты входят в этот же роутер: у раздела один префикс. Права — как в ядре:
+смотреть и заводить гипотезу — `sales`; очистка — `sales` и `run` (платная проверка адресов, как
+поиск адресов); запись цепочки, базы знаний, отправителя и стоп-листа, правка лида и сборка
+очереди — `sales` и `send`.
 """
 
 from __future__ import annotations
@@ -46,7 +48,9 @@ from backend.api.sales import chain as chain_routes
 from backend.api.sales import clean as clean_routes
 from backend.api.sales import funnel as funnel_routes
 from backend.api.sales import kb as kb_routes
+from backend.api.sales import leads as lead_routes
 from backend.api.sales import queue as queue_routes
+from backend.api.sales import stoplist as stoplist_routes
 from backend.api.sales.schemas import (
     HypothesesView,
     HypothesisBody,
@@ -82,9 +86,14 @@ async def _found(
     mapping: str | None = Form(None, description='JSON {"email": 0, …}: поле → колонка с нуля'),
     header: bool | None = Form(None, description="первая строка — заголовок; пусто — угадать"),
     delimiter: str | None = Form(None, description="разделитель, если угадан неверно"),
+    default_language: str | None = Form(None, description="язык, где колонка языка пуста: en"),
+    default_place: str | None = Form(
+        None, description="страна или пояс, где обе колонки места пусты: de, Europe/Berlin"
+    ),
     http: httpx.AsyncClient = Depends(sheet_http),
 ) -> intake.Preview:
     """Источник → предпросмотр. Разбор — в пуле потоков: 5000 строк не держат цикл."""
+    given = intake.defaults(default_language, default_place)
     if file is not None and not link:
         data = await file.read(intake.MAX_BYTES + 1)
         name = file.filename or "база.csv"
@@ -93,7 +102,8 @@ async def _found(
         table = await intake.read_link(link, http, delimiter=delimiter)
     else:
         raise intake.IntakeError("дайте файл или ссылку на Google-таблицу — одно из двух")
-    return await asyncio.to_thread(intake.preview, table, _mapping(mapping), header=header)
+    chosen = _mapping(mapping)
+    return await asyncio.to_thread(intake.preview, table, chosen, header=header, given=given)
 
 
 def _mapping(raw: str | None) -> Mapping | None:
@@ -208,3 +218,5 @@ router.include_router(queue_routes.router)
 router.include_router(funnel_routes.router)
 router.include_router(clean_routes.router)
 router.include_router(calibration_routes.router)
+router.include_router(lead_routes.router)
+router.include_router(stoplist_routes.router)

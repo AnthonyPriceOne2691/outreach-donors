@@ -155,7 +155,8 @@ async def test_entries_are_written_once_with_author_note_and_one_journal_line(
         (
             None,
             "sales_stoplist",
-            {"источник": "клиенты", "доменов": 3, "адресов": 1, "добавлено": 4},
+            # Лидов нет — снимать некого: число сказано и нулём.
+            {"источник": "клиенты", "доменов": 3, "адресов": 1, "добавлено": 4, "лидов снято": 0},
         )
     ]
 
@@ -239,6 +240,18 @@ async def test_console_refuses_a_file_without_a_single_entry_and_names_the_lines
     assert capsys.readouterr().out == (
         "Стоп-лист не прочитан: в файле стоп.csv нет ни домена, ни адреса\n"
         "  строка 2: не домен и не адрес — «мусор»\n"
+    )
+    assert await _stored(session) == []
+
+
+async def test_console_refuses_a_reason_longer_than_its_column_in_words(
+    session: AsyncSession, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Мутант «без проверки причины до чтения»: `add` отказал бы исключением — трассировкой
+    вместо слов и кода 2."""
+    assert await _run(session, _file(tmp_path), "--note", "я" * 256) == EXIT_BAD_INPUT
+    assert capsys.readouterr().out == (
+        "Стоп-лист не прочитан: причина длиннее 255 знаков (256) — сократите\n"
     )
     assert await _stored(session) == []
 

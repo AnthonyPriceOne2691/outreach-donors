@@ -19,9 +19,13 @@
  * прокрутка (`FixedTable`). Строка не переносится, кроме колонок с текстом без
  * предела длины — компании и гипотезы (`wrapCell`); пояс — одной строкой, целиком
  * в подсказке по наведению. Первая колонка слева — в ней имя.
+ *
+ * **Правка лида — значком у имени** (`LeadEditModal`): имя, должность, компания, язык,
+ * страна и пояс. Без права отправки — «Открыть»: окно смотреть, как у базы знаний.
  */
 
 import {
+  ActionIcon,
   Alert,
   Anchor,
   Badge,
@@ -34,6 +38,7 @@ import {
   Text,
   TextInput,
 } from '@mantine/core';
+import { IconEye, IconPencil } from '@tabler/icons-react';
 import { countryTitle } from '../api/labels';
 import { LEAD_STATES, leadReasonTitle } from '../api/salesLabels';
 import type { HypothesisCard, LeadCard, LeadState } from '../api/salesTypes';
@@ -187,8 +192,22 @@ function StateBadge({ state }: { state: LeadState }) {
   );
 }
 
+/** Адрес проверял выдуманный проверяльщик, а задан живой: значок и «!» со словами сервера —
+ *  письма лиду не идут, пока очистка не проверит адрес по-настоящему. */
+function Unproven({ note }: { note: string }) {
+  return (
+    <Group gap={2} justify="center" wrap="nowrap">
+      <Badge variant="light" color="yellow" style={{ flexShrink: 0 }}>
+        проверить заново
+      </Badge>
+      <LeadNote note={note} rejected={false} />
+    </Group>
+  );
+}
+
 /** Что очистка сказала о лиде: причина значком и «!» со словами, или вердикт проверки. */
 function Outcome({ row }: { row: LeadCard }) {
+  if (row.unproven) return <Unproven note={row.unproven} />;
   const rejected = row.rejection_reason !== null;
   const note =
     row.cleaning_note !== null ? <LeadNote note={row.cleaning_note} rejected={rejected} /> : null;
@@ -220,21 +239,53 @@ function Outcome({ row }: { row: LeadCard }) {
   );
 }
 
-function LeadRow({ row }: { row: LeadCard }) {
+interface RowProps {
+  row: LeadCard;
+  /** Право записи (`WriteRight`); без него окно правки — смотреть. */
+  mayWrite: boolean;
+  onEdit: (row: LeadCard) => void;
+}
+
+/** Правка — значком у имени лида, а не колонкой справа: таблица шире панели и на 1440, и на
+ *  телефоне, и кнопка в последней колонке уезжала в прокрутку. Без права — «Открыть». */
+function EditLead({ row, mayWrite, onEdit }: RowProps) {
+  const verb = mayWrite ? 'Править' : 'Открыть';
+  return (
+    <ActionIcon
+      variant="subtle"
+      color="gray"
+      size="sm"
+      radius="xl"
+      aria-label={`${verb} лида ${row.email}`}
+      title={`${verb} лида`}
+      style={{ flexShrink: 0 }}
+      onClick={() => onEdit(row)}
+    >
+      {mayWrite ? <IconPencil size={15} /> : <IconEye size={15} />}
+    </ActionIcon>
+  );
+}
+
+function LeadRow({ row, mayWrite, onEdit }: RowProps) {
   const who = [row.name, row.position].filter((part) => part !== null).join(' · ');
   return (
     <Table.Tr>
       <Table.Td className="cellName">
-        {/* Адрес и домен — по швам (`components/Seams`), а не посреди слова: имя то же,
-            шов — место переноса без знака. У адреса шов и после «@», как на «Стоп-листе». */}
-        <Text size="sm" fw={500} className="leadEmail">
-          <Seams text={row.email} address />
-        </Text>
-        {who !== '' && (
-          <Text size="xs" c="dimmed" className="leadWho">
-            {who}
-          </Text>
-        )}
+        <Group gap={4} wrap="nowrap" align="flex-start" justify="space-between">
+          <Box style={{ minWidth: 0 }}>
+            {/* Адрес и домен — по швам (`components/Seams`), а не посреди слова: имя то же,
+                шов — место переноса без знака. У адреса шов и после «@», как на «Стоп-листе». */}
+            <Text size="sm" fw={500} className="leadEmail">
+              <Seams text={row.email} address />
+            </Text>
+            {who !== '' && (
+              <Text size="xs" c="dimmed" className="leadWho">
+                {who}
+              </Text>
+            )}
+          </Box>
+          <EditLead row={row} mayWrite={mayWrite} onEdit={onEdit} />
+        </Group>
       </Table.Td>
       <Table.Td className="wrapCell" ta="left">
         {row.company !== null && <Text size="sm">{row.company}</Text>}
@@ -305,6 +356,8 @@ interface Props extends FilterRowProps {
   empty: Emptiness | null;
   refusal: string | null;
   onReset: () => void;
+  mayWrite: boolean;
+  onEdit: (row: LeadCard) => void;
 }
 
 /** Отказ сервера словами — и до первого ответа, и под шапкой таблицы вместо строк. */
@@ -322,7 +375,16 @@ function fillerOf(refusal: string | null, empty: Emptiness | null, onReset: () =
   return empty === null ? undefined : <LeadsEmpty empty={empty} onReset={onReset} />;
 }
 
-export function LeadsTable({ rows, stale, empty, refusal, onReset, ...filters }: Props) {
+export function LeadsTable({
+  rows,
+  stale,
+  empty,
+  refusal,
+  onReset,
+  mayWrite,
+  onEdit,
+  ...filters
+}: Props) {
   return (
     <FixedTable
       columns={COLUMNS}
@@ -332,7 +394,7 @@ export function LeadsTable({ rows, stale, empty, refusal, onReset, ...filters }:
       stale={stale}
       filler={fillerOf(refusal, empty, onReset)}
       rows={rows.map((row) => (
-        <LeadRow key={row.id} row={row} />
+        <LeadRow key={row.id} row={row} mayWrite={mayWrite} onEdit={onEdit} />
       ))}
     />
   );

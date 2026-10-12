@@ -1,5 +1,7 @@
 /**
- * Что отдаёт сервер разделу «Продажи»: гипотезы, лиды, загрузка базы.
+ * Что отдаёт сервер разделу «Продажи»: гипотезы, лиды, загрузка базы. Стоп-лист, очистка
+ * и воронка — своими файлами (`salesStoplist.ts`, `salesCleanTypes.ts`, `salesFunnelTypes.ts`):
+ * этот стоит у предела длины.
  *
  * Своим файлом, а не в `types.ts`: тот стоит в тающем baseline длины (988 строк
  * при пределе 500, запас — на точечные правки до сплита), и гейт длины новый
@@ -37,6 +39,10 @@ export interface HypothesisCard {
   /** Состояние → сколько лидов. Все состояния названы, хоть и нулём. */
   leads: Record<LeadState, number>;
   total: number;
+  /** Лидов «готов», которых очистка проверит заново: выдуманный вердикт при живом
+   *  проверяльщике. Сервер шлёт всегда; в типе необязательно — записанные ответы тестов
+   *  раздела его не несут. */
+  recheck?: number;
 }
 
 export interface HypothesesView {
@@ -74,6 +80,9 @@ export interface LeadCard {
   cleaning_note: string | null;
   /** Вердикт проверяльщика с именем источника: `fixture:valid`, `hunter:valid`. */
   verification_status: string | null;
+  /** Почему адрес не проверен по-настоящему — словами сервера: выдуманный вердикт при живом
+   *  проверяльщике. Необязательно в типе — как `recheck` у гипотезы. */
+  unproven?: string | null;
   created_at: string;
 }
 
@@ -111,6 +120,13 @@ export interface ImportProblem {
   loaded: boolean;
 }
 
+/** Умолчания загрузки, как их понял сервер: язык кодом, страна кодом и пояс. */
+export interface IntakeDefaults {
+  language: string | null;
+  country: string | null;
+  timezone: string | null;
+}
+
 /** Предпросмотр или итог загрузки базы. `loaded` пуст — в базу ничего не записано. */
 export interface IntakeView {
   source: string;
@@ -129,6 +145,12 @@ export interface IntakeView {
   leads: ImportedLead[];
   /** Отчёт целиком: каждая отклонённая строка и каждое замечание. */
   problems: ImportProblem[];
+  defaults: IntakeDefaults;
+  /** Сколько лидов получили язык и страну или пояс по умолчанию: колонка была пуста. */
+  defaulted_language: number;
+  defaulted_place: number;
+  /** Без чего письма не уйдут — словами сервера, с числом лидов. Пусто — уйдут всем. */
+  warnings: string[];
   loaded: number | null;
 }
 
@@ -165,6 +187,15 @@ export interface KbLimits {
   tags: number;
 }
 
+/** Пустой раздел базы на языке писем: что агент сделает без него — словами сервера. */
+export interface KbGap {
+  kind: KbKind;
+  language: string;
+  /** Языки, на которых записи вида есть: их агент переведёт. Пусто — нет ни на одном. */
+  elsewhere: string[];
+  words: string;
+}
+
 export interface KbView {
   rows: KbEntryCard[];
   total: number;
@@ -175,6 +206,8 @@ export interface KbView {
   /** Виды в порядке набора. */
   kinds: KbKind[];
   limits: KbLimits;
+  /** Пустые разделы на языках писем, по языкам и видам. */
+  gaps: KbGap[];
 }
 
 /** Запись с экрана: поля формы как есть, приводит и проверяет сервер. */
@@ -426,70 +459,4 @@ export interface SalesFollowupCard {
   difference: number | null;
   difference_text: string | null;
   zones: string[];
-}
-
-/** Перед очисткой лидов гипотезы (`GET /sales/clean`): сколько их ждёт и платная ли проверка. */
-export interface SalesCleanView {
-  hypothesis_id: number;
-  /** Лидов «новый» — их возьмёт очистка; это и потолок платных проверок адреса. */
-  waiting: number;
-  /** Проверка адресов живая (Hunter): перед запуском — окно подтверждения расхода. */
-  paid: boolean;
-}
-
-/** Очистить лидов гипотезы, которые ждут очистки. */
-export interface SalesCleanBody {
-  hypothesis_id: number;
-}
-
-/** Итог очистки — отчёт задачи (`clean_jobs.report_of` сервера). */
-export interface SalesCleanReport {
-  checked: number;
-  ready: number;
-  /** Код причины отказа → сколько лидов; слова — те же, что у фильтра лидов. */
-  rejected: Record<string, number>;
-  /** Остались «новыми»: проверка адреса не выполнена, следующая очистка повторит. */
-  unverified: number;
-  /** Доменов, по которым DNS не ответил: адреса прошли дальше непроверенными. */
-  mx_unknown: number;
-  verified: number;
-  /** Сколько проверок адреса стоили денег. */
-  paid_units: number;
-  verifier: string;
-  /** Платная часть остановлена (квота, закрытая учётка) — причина словами. */
-  stopped: string | null;
-}
-
-/** Лидов на каждом шаге воронки (`GET /sales/funnel`): имена — шаги, в порядке пути лида. */
-export interface FunnelCounts {
-  /** Письмо цепочки ждёт отправки, ни одно ещё не ушло. */
-  queued: number;
-  /** Первое письмо ушло в период — лидов, а не писем. */
-  sent: number;
-  /** Письмо дошло, и ни одно не вернулось. */
-  delivered: number;
-  /** Вернулось хоть одно письмо цепочки — отказ сильнее доставки. */
-  bounced: number;
-  /** Ответил человек или попросил не писать; автоответ — не ответ. */
-  answered: number;
-  /** Передача телемаркетологу заведена. */
-  handed_off: number;
-}
-
-/** Воронка одной гипотезы. */
-export interface FunnelRow {
-  hypothesis_id: number;
-  name: string;
-  counts: FunnelCounts;
-}
-
-/** Экран воронки: строки по гипотезам, старшие первыми, и итог по ним. */
-export interface SalesFunnelView {
-  /** Гипотеза фильтра; `null` — все. */
-  hypothesis_id: number | null;
-  /** Период — как спросили: моменты ISO с поясом, `until` не включая. */
-  since: string | null;
-  until: string | null;
-  rows: FunnelRow[];
-  total: FunnelCounts;
 }

@@ -10,9 +10,13 @@
  * **Без колонки почты дальше не пройти** — и это сказано словами с тем, что
  * сделать, а не серой кнопкой без объяснения. Лиды без адреса сервер не
  * считает, поэтому «0 лидов» здесь было бы ложью.
+ *
+ * **Под таблицей — что ставить, где колонка пуста** (`ImportDefaults`, слот `defaults`):
+ * язык и страна или пояс по умолчанию — тоже пересчёт предпросмотра.
  */
 
 import { Alert, Button, Group, Select, Stack, Switch, Table, Text, Title } from '@mantine/core';
+import type { ReactNode } from 'react';
 
 import { LEAD_FIELDS } from '../api/salesLabels';
 import type { IntakeView, LeadField } from '../api/salesTypes';
@@ -55,6 +59,8 @@ interface Props {
   onHeader: (checked: boolean) => void;
   onBack: () => void;
   onNext: () => void;
+  /** Поля умолчаний — между таблицей и кнопками шага. */
+  defaults?: ReactNode;
 }
 
 export function ImportColumns({
@@ -67,6 +73,7 @@ export function ImportColumns({
   onHeader,
   onBack,
   onNext,
+  defaults,
 }: Props) {
   const rows = found.rows;
   const columns = found.columns.length;
@@ -98,7 +105,7 @@ export function ImportColumns({
         </Alert>
       )}
       {refusal !== null && (
-        <Alert color="red" title="Сопоставление не принято">
+        <Alert color="red" title="Не принято">
           {refusal}
         </Alert>
       )}
@@ -157,6 +164,8 @@ export function ImportColumns({
           </Table.Tbody>
         </Table>
       </Table.ScrollContainer>
+
+      {defaults}
 
       <Group justify="space-between">
         <Button variant="subtle" className="press" onClick={onBack}>

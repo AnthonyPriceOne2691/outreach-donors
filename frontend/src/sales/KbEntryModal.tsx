@@ -12,17 +12,7 @@
  * **Без права отправки писем окно — смотреть** (`WriteRight`): поля и «Сохранить» закрыты.
  */
 
-import {
-  Button,
-  Group,
-  Modal,
-  Select,
-  Stack,
-  Switch,
-  TagsInput,
-  Textarea,
-  TextInput,
-} from '@mantine/core';
+import { Modal, Select, Stack, Switch, TagsInput, Textarea, TextInput } from '@mantine/core';
 import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 
@@ -32,6 +22,7 @@ import type { KbEntryCard, KbKind, KbLimits } from '../api/salesTypes';
 import { formatNumber } from '../format';
 import { changed, draftOf, refusalsOf } from './kbDraft';
 import type { KbDraft } from './kbDraft';
+import { SaveActions } from './SaveActions';
 import { SaveRefusal } from './SaveRefusal';
 import { WriteRight } from './WriteRight';
 
@@ -168,14 +159,12 @@ export function KbEntryModal({ entry, kinds, limits, mayWrite, onClose, onSaved 
               setTouched((current) => new Set([...current, ...Object.keys(patch)]));
             }}
           />
-          <Group justify="flex-end" mt="sm">
-            <Button variant="subtle" className="press" onClick={onClose}>
-              Отмена
-            </Button>
-            <Button type="submit" className="press" disabled={!ready} loading={save.isPending}>
-              {entry === null ? 'Завести' : 'Сохранить'}
-            </Button>
-          </Group>
+          <SaveActions
+            ready={ready}
+            busy={save.isPending}
+            onCancel={onClose}
+            label={entry === null ? 'Завести' : 'Сохранить'}
+          />
           {!mayWrite && <WriteRight what="Правит базу знаний" />}
         </Stack>
       </form>

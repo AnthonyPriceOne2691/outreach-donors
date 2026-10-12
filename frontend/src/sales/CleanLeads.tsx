@@ -25,7 +25,7 @@ import type { MantineSpacing } from '@mantine/core';
 
 import { refusalOf } from '../api/client';
 import { PERMISSION_TITLES } from '../api/labels';
-import type { SalesCleanView } from '../api/salesTypes';
+import type { SalesCleanView } from '../api/salesCleanTypes';
 import { useSession } from '../auth/AuthProvider';
 import { formatNumber, plural } from '../format';
 import { JobLine } from '../jobs/JobLine';
@@ -77,19 +77,29 @@ function ConfirmPaid({ view, busy, error, onCancel, onStart }: ConfirmProps) {
   );
 }
 
+/** «из них 3 проверены тестовым проверяльщиком — …»: почему ждут и «готовые». */
+export function recheckLine(count: number): string {
+  const checked = plural(count, 'проверен', 'проверены', 'проверены');
+  return `из них ${formatNumber(count)} ${checked} тестовым проверяльщиком — очистка проверит адрес по-настоящему`;
+}
+
 interface RowProps {
   waiting: number;
+  recheck: number;
   primary: boolean;
   busy: boolean;
   onPress: () => void;
 }
 
 /** Сколько ждёт — и кнопка, или кто её нажимает: без права — объяснение на месте. */
-function WaitingRow({ waiting, primary, busy, onPress }: RowProps) {
+function WaitingRow({ waiting, recheck, primary, busy, onPress }: RowProps) {
   const { can } = useSession();
   return (
     <Group gap="md" wrap="wrap">
-      <Text size="sm">{waitingLine(waiting)}</Text>
+      <Text size="sm">
+        {waitingLine(waiting)}
+        {recheck > 0 ? `: ${recheckLine(recheck)}` : ''}
+      </Text>
       {can('run') ? (
         <Button
           variant={primary ? 'filled' : 'default'}
@@ -110,8 +120,11 @@ function WaitingRow({ waiting, primary, busy, onPress }: RowProps) {
 
 interface Props {
   hypothesis: number;
-  /** Лидов «новый» у гипотезы — из списка гипотез: то же число, что у плитки «Новые». */
+  /** Лидов, которых возьмёт очистка, — из списка гипотез: «новые» (то же число, что у плитки
+   *  «Новые») и «готовые» с выдуманным вердиктом при живом проверяльщике (`recheck`). */
   waiting: number;
+  /** Из ждущих — «готовые» с выдуманным вердиктом: их очистка проверит заново. */
+  recheck?: number;
   /** Главная ли это кнопка экрана. В итоге загрузки — да; на вкладке лидов залита
    *  «Загрузить базу», и вторая залитая спорила бы с ней. */
   primary?: boolean;
@@ -119,7 +132,7 @@ interface Props {
   px?: MantineSpacing;
 }
 
-export function CleanLeads({ hypothesis, waiting, primary = false, px = 0 }: Props) {
+export function CleanLeads({ hypothesis, waiting, recheck = 0, primary = false, px = 0 }: Props) {
   const cleaning = useCleaning(hypothesis);
   if (waiting === 0 && cleaning.jobId === null) return null;
   return (
@@ -127,6 +140,7 @@ export function CleanLeads({ hypothesis, waiting, primary = false, px = 0 }: Pro
       {waiting > 0 ? (
         <WaitingRow
           waiting={waiting}
+          recheck={recheck}
           primary={primary}
           busy={cleaning.busy}
           onPress={cleaning.press}

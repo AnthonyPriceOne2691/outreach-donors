@@ -10,8 +10,8 @@
 2. ручной стоп-лист продаж — клиенты и партнёры;
 3. отписка где угодно — общие `suppressions`: строки без этапа, этапа продаж и отписки
    с жалобами любого этапа (приём ответов пишет отписку с этапом кампании,
-   `replies/pipeline.py`; человек отписывается от нас, а не от рассылки) — то же правило,
-   что у сборки и отправки (`mail.stopped_by`);
+   `replies/pipeline.py`; человек отписывается от нас, а не от рассылки) — одно правило
+   с отправкой и экраном стоп-листа (`suppressions.holds_sales`);
 4. домен в работе у доноров или рекламодателей — идущий диалог (диалог
    продаж — не другое направление: у компании бывает несколько лидов);
 5. годность адреса — общий `contacts/quality.rejection_reason` целиком
@@ -49,7 +49,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.contacts.known_addresses import FREE_MAILBOX_DOMAINS, ROLE_LOCAL_PARTS
@@ -61,7 +61,7 @@ from backend.features.contacts.provider import (
 )
 from backend.features.contacts.quality import rejection_reason
 from backend.features.core import usage
-from backend.features.core.domain import Stage, SuppressionReason, ThreadStatus
+from backend.features.core.domain import Stage, ThreadStatus
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import CampaignModel, ThreadModel
@@ -72,7 +72,8 @@ from backend.features.sales.models import (
     SalesLeadModel,
     SalesStoplistModel,
 )
-from backend.features.sales.verifier import EmailVerifier, Verdict
+from backend.features.sales.suppressions import holds_sales
+from backend.features.sales.verifier import FIXTURE, EmailVerifier, Verdict, due
 
 logger = logging.getLogger(__name__)
 
@@ -89,8 +90,6 @@ CHUNK = 1000
 IN_WORK = (ThreadStatus.OPEN, ThreadStatus.REPLIED)
 #: Чей идущий диалог мешает: другие направления. Диалог продаж — свой.
 OTHER_DIRECTIONS = (Stage.DONORS, Stage.ADVERTISERS)
-#: Сам просил не писать — держит при любом этапе записи, не только без этапа.
-ASKED_NOT_TO_WRITE = (SuppressionReason.UNSUBSCRIBED, SuppressionReason.COMPLAINED)
 OPERATION = "sales_verify"
 NOT_VERIFIED = "проверка не выполнена"
 
@@ -254,14 +253,8 @@ def _chunks(values: Sequence[Any]) -> Iterator[Sequence[Any]]:
 
 
 def _unsub(column: Any, chunk: Sequence[Any], moment: datetime) -> Any:
-    """Строки общего стоп-листа, которые держат продажи: без этапа и этапа продаж — любые,
-    другого этапа — только те, где человек сам просил не писать (как `mail.stopped_by`)."""
-    anywhere = or_(
-        SuppressionModel.stage.is_(None),
-        SuppressionModel.stage == Stage.SALES,
-        SuppressionModel.reason.in_(ASKED_NOT_TO_WRITE),
-    )
-    return select(column).where(anywhere, SuppressionModel.in_force(moment), column.in_(chunk))
+    """Строки общего стоп-листа, которые держат продажи (`suppressions.holds_sales`)."""
+    return select(column).where(holds_sales(moment), column.in_(chunk))
 
 
 async def _load_known(
@@ -370,8 +363,10 @@ async def _verify_all(
 # --- проход ---------------------------------------------------------------------
 
 
-async def _new_leads(session: AsyncSession, hypothesis_id: int | None) -> list[SalesLeadModel]:
-    query = select(SalesLeadModel).where(SalesLeadModel.status == LeadStatus.NEW)
+async def _due_leads(
+    session: AsyncSession, hypothesis_id: int | None, real: bool
+) -> list[SalesLeadModel]:
+    query = select(SalesLeadModel).where(due(real))  # и выдуманный вердикт при живом
     if hypothesis_id is not None:
         query = query.where(SalesLeadModel.hypothesis_id == hypothesis_id)
     return list((await session.scalars(query.order_by(SalesLeadModel.id))).all())
@@ -467,11 +462,12 @@ async def clean(
 ) -> CleaningReport:
     """Очистить лидов `new` — всех или одной гипотезы. Коммит — партиями, здесь.
 
-    Лид `ready` второй раз не проверяется: платить дважды незачем. Лид,
-    оставшийся `new` из-за отказа сервиса, следующим проходом пройдёт заново.
+    Лид `ready` второй раз не проверяется: платить дважды незачем, — кроме проверенного
+    выдуманным, когда проверяльщик живой (`verifier.due`). Лид, оставшийся `new` из-за отказа
+    сервиса, следующим проходом пройдёт заново.
     """
     moment = now or datetime.now(UTC)
-    leads = await _new_leads(session, hypothesis_id)
+    leads = await _due_leads(session, hypothesis_id, verifier.name != FIXTURE)
     report = CleaningReport(checked=len(leads), verifier=verifier.name)
     halt = _Halt()
     for start in range(0, len(leads), BATCH):

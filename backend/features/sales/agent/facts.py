@@ -31,7 +31,7 @@ from enum import StrEnum
 
 from backend.features.sales.agent.moves import Cta, Move, Table, table
 from backend.features.sales.agent.situation import Situation
-from backend.features.sales.kb import Fact
+from backend.features.sales.kb import Fact, speaks
 from backend.features.sales.models import KbKind
 from backend.features.sales.sender import Sender
 
@@ -102,10 +102,6 @@ def _cut(text: str) -> str:
     return plain if len(plain) <= MAX_FACT_CHARS else plain[:MAX_FACT_CHARS].rstrip() + "…"
 
 
-def _in_language(entry: Fact, language: str) -> bool:
-    return entry.language == language or entry.language.startswith(f"{language}-")
-
-
 def _kinds(rules: Table, move: Move, situation: Situation) -> list[KbKind]:
     """Виды по порядку: каждому письму, обещанные, под ход — без повторов."""
     return list(dict.fromkeys((*rules.always, *situation.promised, *move.kinds)))
@@ -115,7 +111,7 @@ def _of_kind(
     entries: Sequence[Fact], kind: KbKind, *, language: str, tags: Sequence[str], narrow: bool
 ) -> list[Fact]:
     found = [entry for entry in entries if entry.kind is kind]
-    found = [entry for entry in found if _in_language(entry, language)] or found
+    found = [entry for entry in found if speaks(entry, language)] or found
     if narrow and tags:
         found = [entry for entry in found if set(entry.tags) & set(tags)] or found
     return found

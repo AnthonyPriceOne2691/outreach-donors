@@ -15,7 +15,7 @@ import { useState } from 'react';
 
 import { cleanSalesLeads, readSalesClean } from '../api/sales';
 import { leadReasonTitle } from '../api/salesLabels';
-import type { SalesCleanReport, SalesCleanView } from '../api/salesTypes';
+import type { SalesCleanReport, SalesCleanView } from '../api/salesCleanTypes';
 import { formatNumber } from '../format';
 import { jobRestarted } from '../jobs/JobLine';
 import { notify } from '../notices';

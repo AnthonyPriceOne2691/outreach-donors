@@ -38,6 +38,7 @@ export type SalesTab =
   | 'hypotheses'
   | 'kb'
   | 'sender'
+  | 'stoplist'
   | 'chain'
   | 'queue'
   | 'funnel'
@@ -46,8 +47,8 @@ export type SalesTab =
 /** Вкладки раздела: сначала рабочие — по пути лида: кто (лиды, гипотезы), что ему уходит
  *  (цепочка писем, срез 4.6), сборка и отправка пачкой (очередь, 4.6b), что вышло (воронка,
  *  5.4), как люди обходятся с черновиками агента (качество агента, 6.4); затем настройки — из
- *  чего и от чьего имени пишет агент (база знаний и отправитель, 3.1). Порядок один у вкладок
- *  и у списка «Раздел» на телефоне. */
+ *  чего и от чьего имени пишет агент (база знаний и отправитель, 3.1) и кому продажи не пишут
+ *  (стоп-лист). Порядок один у вкладок и у списка «Раздел» на телефоне. */
 export const SALES_TABS: Record<SalesTab, string> = {
   leads: 'Лиды',
   hypotheses: 'Гипотезы',
@@ -57,10 +58,11 @@ export const SALES_TABS: Record<SalesTab, string> = {
   agent: 'Агент: качество',
   kb: 'База знаний',
   sender: 'Отправитель',
+  stoplist: 'Стоп-лист',
 };
 
 /** Настройки раздела — в списке «Раздел» своей группой под чертой. */
-export const SETTINGS_TABS: ReadonlySet<SalesTab> = new Set(['kb', 'sender']);
+export const SETTINGS_TABS: ReadonlySet<SalesTab> = new Set(['kb', 'sender', 'stoplist']);
 
 export const SALES_TAB_KEYS = Object.keys(SALES_TABS) as SalesTab[];
 export const LEAD_STATE_KEYS = Object.keys(LEAD_STATES) as LeadState[];

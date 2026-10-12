@@ -59,8 +59,10 @@ SignIn = Callable[..., Awaitable[str]]
 SELLER = "seller@ours.example.test"
 CLEAN = "/api/sales/clean"
 ROUTES = {"none-a.example.test": MailRoute.NONE, "none-b.example.test": MailRoute.NONE}
-TYPES = (Path(__file__).resolve().parent.parent / "frontend/src/api/salesTypes.ts").read_text(
-    encoding="utf-8"
+#: Типы экрана продаж: очистка — своим файлом, `salesTypes.ts` стоит у предела длины.
+TYPES = "\n".join(
+    (Path(__file__).resolve().parent.parent / "frontend/src/api" / name).read_text(encoding="utf-8")
+    for name in ("salesTypes.ts", "salesCleanTypes.ts")
 )
 #: Ответ Hunter «адрес есть» — по нему считается платная единица.
 VALID = {"data": {"status": "valid", "score": 91}}
@@ -519,7 +521,7 @@ def _screen_fields(name: str) -> set[str]:
     """Поля интерфейса экрана `export interface <name> { … }` — файл читается как текст. Им же
     сверяют поля сборка очереди и гипотеза (`test_sales_queue_api.py`, `test_sales_hypothesis_api.py`)."""
     found = re.search(rf"export interface {name} \{{\n(.*?)\n\}}", TYPES, re.DOTALL)
-    assert found is not None, f"в salesTypes.ts нет интерфейса {name}"
+    assert found is not None, f"в типах экрана продаж нет интерфейса {name}"
     return set(re.findall(r"^  ([a-z_]+):", found.group(1), re.MULTILINE))
 
 

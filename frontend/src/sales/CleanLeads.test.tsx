@@ -14,7 +14,8 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { AppRoutes } from '../App';
-import type { HypothesesView, IntakeView, LeadsView, SalesCleanView } from '../api/salesTypes';
+import type { HypothesesView, IntakeView, LeadsView } from '../api/salesTypes';
+import type { SalesCleanView } from '../api/salesCleanTypes';
 import type { Me } from '../api/types';
 import { ADMIN, OPERATOR, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
@@ -361,6 +362,10 @@ const OUTCOME: IntakeView = {
   rejected: 3,
   leads: [],
   problems: [],
+  defaults: { language: null, country: null, timezone: null },
+  defaulted_language: 0,
+  defaulted_place: 0,
+  warnings: [],
   loaded: 97,
 };
 

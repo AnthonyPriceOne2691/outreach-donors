@@ -55,6 +55,7 @@ import { ModuleOff } from './ModuleOff';
 import { Pending } from './Pending';
 import { QueuePane } from './QueuePane';
 import { SenderPane } from './SenderPane';
+import { StoplistPane } from './StoplistPane';
 
 /** Набранный поиск совпадает с адресом без пробелов по краям. */
 const sameSearch = (draft: string, committed: string) => draft.trim() === committed;
@@ -100,12 +101,13 @@ function tabLabel(key: SalesTab, count: number | undefined): string {
 /** Вкладки раздела с числами. Где они не влезают в панель — список «Раздел»: на телефоне
  *  семь вкладок столбиком ставили таблицу на 204 px ниже (аудит экранов 09.10.2026), а на
  *  800–1024 px вкладки в ряд срезались краем панели — «Воронка» и настройки были
- *  недосягаемы. Восьми вкладкам в ряд нужно 912 px (с «Агент: качество», замер стенда
- *  12.10.2026), панели их столько — с окна в 1 246 px; при 1 201 px ряду доставалось 867,
- *  и «Отправитель» срезался. Список — до 84em, с запасом на числа побольше. В списке рабочие
- *  вкладки, черта и настройки — порядок тот же, что у вкладок. */
+ *  недосягаемы. Девяти вкладкам (с «Агент: качество» и «Стоп-листом») в ряд нужно 1 012 px
+ *  при числах «5», «2» и «10» и 1 066 px при «12 345», «24» и «128» (замер стенда 12.10.2026);
+ *  строка панели уже окна на 332 px — вкладкам хватает места с окна в 1 344 px. Список — до
+ *  89em (1 424 px), с запасом на числа побольше: на окне 1 440 px строке 1 108 px. В списке
+ *  рабочие вкладки, черта и настройки — порядок тот же, что у вкладок. */
 function SalesTabs({ tab, counts, onTab }: TabsProps) {
-  const narrow = useMediaQuery('(max-width: 84em)');
+  const narrow = useMediaQuery('(max-width: 89em)');
   const pick = (value: string | null) => {
     const next = SALES_TAB_KEYS.find((key) => key === value);
     if (next !== undefined && next !== tab) onTab(next);
@@ -123,7 +125,7 @@ function SalesTabs({ tab, counts, onTab }: TabsProps) {
           ...SALES_TAB_KEYS.filter((key) => !SETTINGS_TABS.has(key)).map(item),
           { group: 'Настройки', items: settings.map(item) },
         ]}
-        // Все семь пунктов без прокрутки списка. На телефоне рядом в ряд встаёт «Загрузить
+        // Все пункты без прокрутки списка. На телефоне рядом в ряд встаёт «Загрузить
         // базу», и поле уже пункта «База знаний — 3» — список по содержимому, левым краем по
         // полю; на окне пошире поле — по значению, не шире 16rem, а не на весь ряд.
         maxDropdownHeight={360}
@@ -219,6 +221,7 @@ export function SalesPage() {
     hypotheses: () => <HypothesesTable rows={known} />,
     kb: () => <KbPane />,
     sender: () => <SenderPane />,
+    stoplist: () => <StoplistPane />,
     chain: () => <ChainPane hypotheses={known} owner={chosen} onOwner={pick} />,
     queue: () => <QueuePane hypotheses={known} hypothesis={chosen} onHypothesis={pick} />,
     funnel: () => (

@@ -14,7 +14,8 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AppRoutes } from '../App';
-import type { FunnelCounts, HypothesesView, SalesFunnelView } from '../api/salesTypes';
+import type { HypothesesView } from '../api/salesTypes';
+import type { FunnelCounts, SalesFunnelView } from '../api/salesFunnelTypes';
 import { ADMIN, TOKEN_KEY } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';

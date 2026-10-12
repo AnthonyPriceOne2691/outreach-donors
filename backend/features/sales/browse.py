@@ -1,8 +1,8 @@
 """Чтение для раздела «Продажи»: гипотезы со счётчиками и лиды с фильтрами под колонками.
 
-Экран показывает то, что записали загрузка (`intake.py`) и очистка (`cleaning.py`),
-и ничего не решает сам: состояния и причины — те, что лежат в базе, фильтр — по тем
-же кодам. Здесь только чтение; пишут загрузка и очистка.
+Экран показывает то, что записали загрузка (`intake.py`), очистка (`cleaning.py`) и правка
+лида (`lead_edit.py`), и ничего не решает сам: состояния и причины — те, что лежат в базе,
+фильтр — по тем же кодам. Здесь только чтение.
 
 **Фильтр — по колонке, тем же словом, что в её ячейке** (как у отбора, 26.09.2026):
 состояние, причина отказа, гипотеза, поиск по адресу, имени, компании и домену.
@@ -30,6 +30,7 @@ from sqlalchemy import ColumnElement, Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.core.models.domain import DomainModel
+from backend.features.sales import verifier
 from backend.features.sales.models import (
     LeadStatus,
     RejectionReason,
@@ -80,6 +81,9 @@ class LeadsPage:
 class HypothesisRow:
     hypothesis: SalesHypothesisModel
     states: dict[str, int]
+    #: Лидов «готов», которых очистка возьмёт снова: адрес проверял выдуманный проверяльщик, а
+    #: задан живой (`verifier.recheck`). При выдуманном — ноль.
+    recheck: int = 0
 
     @property
     def total(self) -> int:
@@ -164,6 +168,12 @@ async def leads(session: AsyncSession, filters: LeadFilters) -> LeadsPage:
     )
 
 
+async def lead(session: AsyncSession, lead_id: int) -> LeadRow | None:
+    """Лид строкой экрана — тем же чтением, что страница: после правки строка та же."""
+    found = (await session.execute(_base().where(SalesLeadModel.id == lead_id))).first()
+    return None if found is None else LeadRow(*found._tuple())
+
+
 async def hypotheses(session: AsyncSession) -> list[HypothesisRow]:
     """Все гипотезы, старшие первыми, и сколько у каждой лидов в каждом состоянии."""
     found = await session.scalars(select(SalesHypothesisModel).order_by(SalesHypothesisModel.id))
@@ -175,10 +185,24 @@ async def hypotheses(session: AsyncSession) -> list[HypothesisRow]:
     by_hypothesis: dict[int, dict[str, int]] = {}
     for hypothesis_id, status, n in counted.all():
         by_hypothesis.setdefault(int(hypothesis_id), {})[LeadStatus(status).value] = int(n)
+    again = await _recheck(session)
     return [
         HypothesisRow(
             hypothesis,
             _complete(by_hypothesis.get(hypothesis.id, {}), (s.value for s in LeadStatus)),
+            again.get(hypothesis.id, 0),
         )
         for hypothesis in found.all()
     ]
+
+
+async def _recheck(session: AsyncSession) -> dict[int, int]:
+    """Гипотеза → сколько её лидов «готов» очистка проверит заново (`verifier.recheck`)."""
+    if not verifier.live():
+        return {}
+    rows = await session.execute(
+        select(SalesLeadModel.hypothesis_id, func.count())
+        .where(verifier.recheck(real=True))
+        .group_by(SalesLeadModel.hypothesis_id)
+    )
+    return {int(hypothesis_id): int(n) for hypothesis_id, n in rows.all()}

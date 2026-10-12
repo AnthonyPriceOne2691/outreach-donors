@@ -31,13 +31,14 @@
 лида; отправка добивки берёт их оттуда. Не легла — добивка уходит текстом шаблона, первое
 письмо встаёт в очередь; потолок модели встал на добивках — лид ждёт следующей сборки.
 
-**Повтор сборки не задваивает**: у лида один диалог, у письма — ключ с контактом. Письмо,
-которое ещё в очереди, но написано не нынешней цепочкой или с прежними подписью и адресом,
+**Повтор сборки не задваивает**: у лида один диалог, у письма — ключ с контактом. Письмо в
+очереди, написанное не нынешней цепочкой, с прежними подписью и адресом или до правки лида,
 собирается заново на том же месте вместе с добивками: сверка на отправке такое не пустила
 бы, а второе письмо тому же лиду не дал бы ключ.
 
 **Лид, которому писать нельзя, вызова модели не стоит**: передан телемаркетологу, в
-стоп-листе, нет значения подстановки, нет цепочки на его языке — причина в отчёте.
+стоп-листе, адрес проверен выдуманным проверяльщиком при живом (`verifier.unproven`), нет
+значения подстановки, нет цепочки на его языке — причина в отчёте.
 Лиды `referral` (коллега, которого назвали в ответе) получают тот же первый шаг: своего
 письма для них пока нет — открытый вопрос владельцу.
 """
@@ -64,6 +65,8 @@ from backend.features.sales import chain, chain_text, connection, corridor, hand
 from backend.features.sales.followup_texts import CAPPED, Built
 from backend.features.sales.followup_texts import build as build_followups
 from backend.features.sales.intake import UnknownHypothesisError
+from backend.features.sales.lead_edit import edited
+from backend.features.sales.lead_values import language_base
 from backend.features.sales.mail import stopped_by
 from backend.features.sales.models import (
     LeadStatus,
@@ -74,6 +77,7 @@ from backend.features.sales.models import (
 from backend.features.sales.queue_report import QueueReport
 from backend.features.sales.sender import Sender
 from backend.features.sales.usage_cap import sales_cap
+from backend.features.sales.verifier import unproven
 
 logger = logging.getLogger(__name__)
 
@@ -216,10 +220,10 @@ async def _blocked(session: AsyncSession, row: _Lead) -> str | None:
 
 async def _plan(session: AsyncSession, row: _Lead, hypothesis_id: int) -> _Plan | str:
     """Что писать лиду — или почему он ждёт (строкой отчёта). Без вызова модели."""
-    if (why := await _blocked(session, row)) is not None:
+    if (why := await _blocked(session, row) or unproven(row.lead)) is not None:
         return why
-    # Язык лида без цепочки — обычный случай очереди, а не ошибка: причина в отчёте.
-    language = (row.lead.language or "").strip().lower()
+    # Язык без цепочки — причина в отчёте, не ошибка; язык — основой кода: `ru-RU` → `ru`.
+    language = language_base(row.lead.language)
     if language not in chain_text.LANGUAGES:
         return NO_LANGUAGE
     found = await chain.resolve(session, hypothesis_id=hypothesis_id, language=language)
@@ -234,14 +238,16 @@ async def _plan(session: AsyncSession, row: _Lead, hypothesis_id: int) -> _Plan 
 
 
 def _current(row: _Lead, plan: _Plan, found: Sender) -> bool:
-    """Письмо в очереди написано нынешней цепочкой и подписано нынешними настройками."""
+    """Письмо в очереди написано нынешней цепочкой, подписано нынешними настройками и после
+    последней правки лида (`lead_edit.edited`)."""
     if row.queued is None or row.link is None:
         return False
     same = (row.link.chain_hypothesis_id, row.link.chain_version) == (
         plan.chain.hypothesis_id,
         plan.chain.version,
     )
-    return same and letter.problem(row.queued.body or "", found) is None
+    fresh = same and not edited(row.lead, row.queued)
+    return fresh and letter.problem(row.queued.body or "", found) is None
 
 
 async def _prepare(

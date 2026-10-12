@@ -16,8 +16,10 @@
   `sending._check_review`): лид не снят, не передан телемаркетологу
   (`handoff.handed_off` — переданному цепочка не идёт), не в стоп-листе (`unwritable` —
   то же правило решает, писать ли агенту черновик ответа лида); первое письмо —
-  в коридоре отличия; подпись и адрес на месте, подстановок без значения нет
-  (`letter.problem`, у ответа в переписке — `letter.answer_problem`);
+  в коридоре отличия, собрано после последней правки лида (`lead_edit.edited`), а адрес не
+  проверен выдуманным проверяльщиком при живом (`verifier.unproven`); подпись и адрес на
+  месте, подстановок без значения нет (`letter.problem`, у ответа в переписке —
+  `letter.answer_problem`);
 - `connected` — подключены ли продажи: проход добивок берёт их сроки только тогда, иначе
   срок цел и проход называет его вслух;
 - `answer` — ответ лиду в переписке до заведения письма: продажи подключены, у переписки
@@ -66,8 +68,8 @@ from backend.features.letters.chain import ANSWER_STEP, FIRST_STEP
 from backend.features.letters.sending import NotReadyError, SendError, SuppressedError
 from backend.features.letters.uniqueness import corridor_verdict
 from backend.features.sales import chain, connection, followup_texts, handoff, letter, sender
-from backend.features.sales.cleaning import ASKED_NOT_TO_WRITE
 from backend.features.sales.intake import host_key
+from backend.features.sales.lead_edit import EDITED, edited
 from backend.features.sales.models import (
     LeadStatus,
     SalesLeadModel,
@@ -75,6 +77,8 @@ from backend.features.sales.models import (
     SalesThreadModel,
 )
 from backend.features.sales.policy import sales_policy, zones_of
+from backend.features.sales.suppressions import holds_sales
+from backend.features.sales.verifier import unproven
 
 logger = logging.getLogger(__name__)
 
@@ -161,7 +165,7 @@ async def stopped_by(
 
     Те же правила, что у очистки (`cleaning.py`): стоп-лист продаж держит адрес, домен
     компании и домен адреса; общий — строки без этапа, этапа продаж и те, где человек
-    сам просил не писать."""
+    сам просил не писать (`suppressions.holds_sales` — одно условие на очистку и отправку)."""
     mailbox = lead.email.rpartition("@")[2]
     hosts = sorted({host, mailbox, host_key(mailbox)} - {""})
     manual = await session.scalar(
@@ -180,12 +184,7 @@ async def stopped_by(
         select(SuppressionModel.reason)
         .where(
             or_(SuppressionModel.domain_id == lead.domain_id, SuppressionModel.email == lead.email),
-            or_(
-                SuppressionModel.stage.is_(None),
-                SuppressionModel.stage == Stage.SALES,
-                SuppressionModel.reason.in_(ASKED_NOT_TO_WRITE),
-            ),
-            SuppressionModel.in_force(now or datetime.now(UTC)),
+            holds_sales(now or datetime.now(UTC)),
         )
         .limit(1)
     )
@@ -214,6 +213,16 @@ async def _writable(session: AsyncSession, dialog: Linked, what: str) -> None:
         raise LeadStoppedError(f"{what}: {why}")
 
 
+def _first_problem(dialog: Linked, message: MessageModel) -> str | None:
+    """Почему первое письмо не уходит — словами; `None` — уходит: оно в коридоре отличия,
+    собрано после последней правки лида (`lead_edit.edited`), а адрес не проверен выдуманным
+    проверяльщиком при живом (`verifier.unproven`)."""
+    verdict = corridor_verdict(message.uniqueness_pct or 0.0)
+    if verdict is not None:
+        return f"{verdict} — письмо продаж уходит только в коридоре, соберите очередь заново"
+    return EDITED if edited(dialog.lead, message) else unproven(dialog.lead)
+
+
 async def check(session: AsyncSession, message: MessageModel) -> None:
     """Проверка письма продаж перед отправкой — ветка продаж `sending._check_review`. Ответ
     лиду в переписке (`ANSWER_STEP`) — не шаг цепочки: подпись в его тексте не отказ."""
@@ -222,13 +231,8 @@ async def check(session: AsyncSession, message: MessageModel) -> None:
     if dialog is None:
         raise SendError(f"{what}: у письма продаж нет лида — письмо стоит убрать из очереди")
     await _writable(session, dialog, what)
-    if message.step == FIRST_STEP:
-        verdict = corridor_verdict(message.uniqueness_pct or 0.0)
-        if verdict is not None:
-            raise NotReadyError(
-                f"{what} не уходит: {verdict} — письмо продаж уходит только в коридоре, "
-                "соберите очередь заново"
-            )
+    if message.step == FIRST_STEP and (why := _first_problem(dialog, message)) is not None:
+        raise NotReadyError(f"{what} не уходит: {why}")
     rule = letter.answer_problem if message.step >= ANSWER_STEP else letter.problem
     problem = rule(message.body or "", await sender.read(session))
     if problem is not None:

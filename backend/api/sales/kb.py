@@ -1,8 +1,8 @@
 """База знаний и отправитель продаж: смотреть — `sales`, менять — `sales` и `send`, как в ядре.
 
-Записи: список с версией базы, заведение, правка — и включение с выключением как
-правка поля `active`; предпросмотр «что увидит агент» — той же выборкой, что получит
-агент. Отправитель: чтение и запись целиком (`POST`, как у порогов: клиент экрана шлёт
+Записи: список с версией базы и пустыми разделами на языках писем (`kb_gaps.py`), заведение,
+правка — и включение с выключением как правка поля `active`; предпросмотр «что увидит
+агент» — той же выборкой, что получит агент. Отправитель: чтение и запись целиком (`POST`, как у порогов: клиент экрана шлёт
 JSON методами GET/POST/PATCH), с перечнем недостающего для отправки.
 Логика, правила и журнал — `features/sales/kb.py` и `sender.py`: экран и консоль
 зовут одно и то же. Отказы — словами через `api/errors.py`.
@@ -19,13 +19,14 @@ from backend.api.sales.kb_schemas import (
     KbEntryBody,
     KbEntryCard,
     KbEntryPatch,
+    KbGapCard,
     KbView,
     SenderBody,
     SenderView,
 )
 from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
-from backend.features.sales import kb, sender
+from backend.features.sales import kb, kb_gaps, sender
 
 #: Без префикса и меток: роутер входит в роутер раздела (`routes.py`), и префикс
 #: `/sales` с меткой «продажи» приходят оттуда — свои дали бы `/sales/sales/kb`.
@@ -37,11 +38,13 @@ _seller = Depends(needs(Permission.SALES))
 _sender = Depends(needs(Permission.SEND))
 
 
-@router.get("/kb", response_model=KbView, summary="Записи базы знаний и версия базы")
+@router.get("/kb", response_model=KbView, summary="Записи базы знаний, версия и пустые разделы")
 async def list_entries(
     _: UserModel = _seller, session: AsyncSession = Depends(db_session)
 ) -> KbView:
-    return KbView.of(await kb.entries(session), version=await kb.version(session))
+    seen = await kb.facts(session)  # что видит агент: из этого версия и пустые разделы
+    gaps = KbGapCard.listed(kb_gaps.gaps(seen))
+    return KbView.of(await kb.entries(session), version=kb.version_of(seen), gaps=gaps)
 
 
 @router.get("/kb/preview", response_model=AgentView, summary="Что увидит агент")

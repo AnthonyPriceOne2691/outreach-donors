@@ -15,7 +15,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 
 import { readSalesFunnel } from '../api/sales';
 import type { FunnelQuery } from '../api/sales';
-import type { FunnelCounts } from '../api/salesTypes';
+import type { FunnelCounts } from '../api/salesFunnelTypes';
 import { formatPercent } from '../format';
 
 export const FUNNEL_QUERY_KEY = ['sales', 'funnel'] as const;

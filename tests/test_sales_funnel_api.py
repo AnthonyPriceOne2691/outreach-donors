@@ -33,7 +33,7 @@ SELLER = "seller@ours.example.test"
 FUNNEL = "/api/sales/funnel"
 NO_RIGHT = no_right(Permission.SALES)
 STEPS = ("queued", "sent", "delivered", "bounced", "answered", "handed_off")
-TYPES = (Path(__file__).resolve().parent.parent / "frontend/src/api/salesTypes.ts").read_text(
+TYPES = (Path(__file__).resolve().parent.parent / "frontend/src/api/salesFunnelTypes.ts").read_text(
     encoding="utf-8"
 )
 
@@ -270,7 +270,7 @@ async def test_without_the_sales_right_the_funnel_refuses_in_words(
 def _screen_fields(name: str) -> set[str]:
     """Поля интерфейса экрана `export interface <name> { … }` — файл читается как текст."""
     found = re.search(rf"export interface {name} \{{\n(.*?)\n\}}", TYPES, re.DOTALL)
-    assert found is not None, f"в salesTypes.ts нет интерфейса {name}"
+    assert found is not None, f"в salesFunnelTypes.ts нет интерфейса {name}"
     return set(re.findall(r"^  ([a-z_]+):", found.group(1), re.MULTILINE))
 
 

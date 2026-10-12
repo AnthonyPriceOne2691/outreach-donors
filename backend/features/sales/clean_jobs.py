@@ -8,9 +8,10 @@
 очереди писем (`queue_jobs.py`): общий код очереди о продажах знает одну строку — имя
 задачи словами (`ops/job_outcome.KINDS`).
 
-**Сколько ждёт** (`waiting`) — тем же условием, каким лиды берёт проход: состояние `new`
-у гипотезы. Это число называет окно подтверждения расхода — каждый лид стоит не больше
-одной платной проверки, а дубли, стоп-листы и домены без почты отсеиваются до неё.
+**Сколько ждёт** (`waiting`) — тем же условием, каким лиды берёт проход (`verifier.due`):
+`new` у гипотезы и при живом проверяльщике `ready` с выдуманным вердиктом. Это число называет
+окно подтверждения расхода — каждый лид стоит не больше одной платной проверки, а дубли,
+стоп-листы и домены без почты отсеиваются до неё.
 
 **Отказы.** Негодная настройка проверяльщика (`live` без ключа, незнакомое имя) — итог
 «не выполнена» словами человека, а не три повтора: повтор её не исправит; имена настроек —
@@ -38,8 +39,8 @@ from backend.features.runs.failures import described, is_permanent
 from backend.features.sales import cleaning
 from backend.features.sales.cleaning import CleaningReport
 from backend.features.sales.intake import UnknownHypothesisError
-from backend.features.sales.models import LeadStatus, SalesHypothesisModel, SalesLeadModel
-from backend.features.sales.verifier import build_verifier
+from backend.features.sales.models import SalesHypothesisModel, SalesLeadModel
+from backend.features.sales.verifier import build_verifier, due, live
 from backend.shared.logs import setup_logging
 from backend.shared.queue import remember_job_error
 
@@ -61,18 +62,16 @@ class Waiting:
 
 
 async def waiting(session: AsyncSession, hypothesis_id: int) -> Waiting:
-    """Лиды гипотезы, которых возьмёт очистка, — состояние `new`, как у прохода.
-    Гипотезы нет — отказ словами (404)."""
+    """Лиды гипотезы, которых возьмёт очистка, — тем же условием, что у прохода (`verifier.due`):
+    `new` и при живом проверяльщике `ready` с выдуманным вердиктом. Гипотезы нет — отказ
+    словами (404)."""
     hypothesis = await session.get(SalesHypothesisModel, hypothesis_id)
     if hypothesis is None:
         raise UnknownHypothesisError(f"гипотезы №{hypothesis_id} нет — обновите список гипотез")
     count = await session.scalar(
         select(func.count())
         .select_from(SalesLeadModel)
-        .where(
-            SalesLeadModel.hypothesis_id == hypothesis_id,
-            SalesLeadModel.status == LeadStatus.NEW,
-        )
+        .where(SalesLeadModel.hypothesis_id == hypothesis_id, due(live()))
     )
     return Waiting(hypothesis.name, int(count or 0))
 
