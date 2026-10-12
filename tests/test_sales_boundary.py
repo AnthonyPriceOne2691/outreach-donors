@@ -98,8 +98,10 @@ def test_mail_may_read_the_model_registry_that_lists_sales_models(
     tmp_path: Path, indirect: str, code: int
 ) -> None:
     """Почта законно читает реестр моделей, а реестр импортирует модели продаж:
-    путь «почта → core.models → sales.models» косвенный. Его пропускает
-    `allow_indirect_imports = True`; при `False` гейт красный."""
+    путь «почта → core.models → модели продаж» косвенный. Его пропускает
+    `allow_indirect_imports = True`; при `False` гейт красный. Модулей моделей
+    продаж больше одного, и import-linter называет путь к любому из них — какой,
+    зависит от зерна хэша: ждём «реестр → продажи»."""
     section = _section()
     assert "allow_indirect_imports = True" in section
     config = CONFIG.replace(
@@ -108,7 +110,7 @@ def test_mail_may_read_the_model_registry_that_lists_sales_models(
     )
     got, out = _gate(_tree(tmp_path, config, letters=REGISTRY_IMPORT))
     assert got == code, out
-    assert ("backend.features.core.models -> backend.features.sales.models" in out) is (code == 1)
+    assert ("backend.features.core.models -> backend.features.sales." in out) is (code == 1)
 
 
 def _v1() -> tuple[cw.Wave, cw.Tree]:

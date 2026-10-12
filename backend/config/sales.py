@@ -65,6 +65,12 @@
 моделью, встают в очередь без человека — включает владелец. Проходы — в процессе разбора
 (`workers/reaper.py`); пауза между первыми письмами ящика — `SALES_AUTOSEND_GAP_MIN` минут со
 случайным разбросом (`features/sales/autosend.py`).
+
+**Судья сегмента сбора базы по умолчанию наблюдает (`shadow`)** — как судья площадки
+(`JUDGE_MODE`), тем же перечислением: отказ модели, включённый до замера, резал бы
+вслепую. В наблюдении вердикт пишется, а «отказ» модели отдаёт сайт человеку с пометкой
+«отрезал бы»; `enforce` режет; `off` — модель не зовётся, каждый сайт решает человек.
+Набор eval судьи сегмента — вне репозитория, каталог `SALES_SEGMENT_GOLDEN_DIR`.
 """
 
 from __future__ import annotations
@@ -75,6 +81,7 @@ from enum import StrEnum
 from pydantic import Field
 
 from backend.config._base import DomainSettings
+from backend.config.judge import JudgeMode
 
 
 class SalesJudgeMode(StrEnum):
@@ -181,6 +188,16 @@ class _Sales(DomainSettings):
     autoreply_min_n: int = Field(
         default=30, ge=5, le=1000, validation_alias="SALES_AUTOREPLY_MIN_N"
     )
+    # Судья сегмента сбора базы (срез 6.1): режим и каталог набора его eval вне репозитория.
+    segment_judge_mode: JudgeMode = Field(
+        default=JudgeMode.SHADOW, validation_alias="SALES_SEGMENT_JUDGE_MODE"
+    )
+    segment_golden_dir: str = Field(default="", validation_alias="SALES_SEGMENT_GOLDEN_DIR")
+    # Платная ступень поиска адреса у сбора (Hunter, ключ общий с донорами). Выключена: ключ,
+    # включённый для доноров, иначе молча включил бы её и сбору — до тысяч поисков на прогон.
+    segment_paid_contacts: bool = Field(
+        default=False, validation_alias="SALES_SEGMENT_PAID_CONTACTS"
+    )
 
 
 def _days(text: str) -> frozenset[int]:
@@ -261,6 +278,11 @@ JUDGE_GOLDEN_DIR: str = _s.judge_golden_dir.strip()
 STYLE_GOLDEN_DIR: str = _s.style_golden_dir.strip()
 REPLAY_DIR: str = _s.replay_dir.strip()
 AUTOREPLY_MIN_N: int = _s.autoreply_min_n
+#: Режим судьи сегмента сбора базы (`features/sales/segment_judge.py`).
+SEGMENT_JUDGE_MODE: JudgeMode = _s.segment_judge_mode
+SEGMENT_GOLDEN_DIR: str = _s.segment_golden_dir.strip()
+#: Платная ступень поиска адреса у сбора (`segment_run._contacts`): выключена — только бесплатные.
+SEGMENT_PAID_CONTACTS: bool = _s.segment_paid_contacts
 
 #: Не больше стольких запросов в секунду. Предел Kommo из его документации —
 #: семь в секунду с одного IP для любой интеграции; чаще — 429, а частые 429

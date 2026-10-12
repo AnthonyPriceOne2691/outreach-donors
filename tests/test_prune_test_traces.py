@@ -759,6 +759,7 @@ REVIEWED = {
     "agent_drafts.sent_message_id → messages SET NULL": "черновик уходит раньше — с ответом",
     "sales_draft_notices.draft_id → agent_drafts CASCADE": "сообщение о черновике — с черновиком",
     "sales_leads.referred_from_thread_id → threads SET NULL": "лид остаётся, теряет ссылку",
+    "sales_segment_candidates.lead_id → sales_leads SET NULL": "кандидат сбора теряет лида пробы",
     # Проба продаж (`sales/trials.py`): лида держат связь диалога и передача — они уходят
     # с диалогом пробы раньше лида; лид с новым диалогом вне плана остаётся.
     "sales_threads.lead_id → sales_leads RESTRICT": "связь уходит с диалогом пробы раньше лида",

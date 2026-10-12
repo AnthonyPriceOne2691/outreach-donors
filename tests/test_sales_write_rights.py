@@ -66,6 +66,14 @@ ELSEWHERE = {
     ("POST", "/api/sales/import/preview"),
     ("POST", "/api/sales/hypotheses"),
     ("POST", "/api/sales/clean"),
+    # Сбор базы (6.1): смета, решение по сайту и описание сегмента — `sales`, запуск и
+    # продолжение — ещё `run` (платные выдача, модель и поиск адресов, как очистка), — права
+    # держит `test_sales_segment_api.py`; в письма ничего из них не уходит.
+    ("PATCH", "/api/sales/hypotheses/{}"),
+    ("POST", "/api/sales/segment/estimate"),
+    ("POST", "/api/sales/segment/runs"),
+    ("POST", "/api/sales/segment/runs/{}/resume"),
+    ("POST", "/api/sales/segment/candidates/{}/decision"),
 }
 
 PRICE = {

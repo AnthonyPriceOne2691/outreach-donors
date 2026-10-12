@@ -587,6 +587,10 @@ REVIEWED = {
     "messages.domain_id → domains NO ACTION": "держит: история",
     "run_candidates.domain_id → domains CASCADE": "очередь оставшегося прогона держит",
     "sales_leads.domain_id → domains RESTRICT": "держит: лид продаж",
+    # Сбор базы продаж (срез 6.1): кандидат и вердикт судьи сегмента снова даст выдача и
+    # судья; лид кандидата держит домен сам (`sales_leads.domain_id`).
+    "sales_segment_candidates.domain_id → domains CASCADE": "уходит с доменом; лид — держит",
+    "sales_segment_verdicts.domain_id → domains CASCADE": "уходит с доменом: кэш судьи",
     "suppressions.domain_id → domains CASCADE": "держит: стоп-лист",
     "threads.domain_id → domains CASCADE": "держит: история",
     "run_candidates.run_id → runs CASCADE": "очередь уходит с прогоном",

@@ -345,6 +345,8 @@ def _keys(constant: str) -> set[str]:
     [
         ("LeadState", STATES),
         ("LeadField", {field.value for field in LeadField}),
+        # Источник лида: сбор по ключам (6.1) — третье значение, тип экрана его знает.
+        ("LeadSource", {source.value for source in LeadSource}),
     ],
 )
 def test_front_types_know_exactly_the_server_values(name: str, values: set[str]) -> None:

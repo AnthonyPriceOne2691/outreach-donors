@@ -137,6 +137,13 @@ describe('расход', () => {
     expect(operationTitle('sales_judge')).toBe('судья черновиков продаж');
   });
 
+  it('расход сбора базы продаж назван словами и отдельно от прогона доноров', () => {
+    // Операции сервера сбора базы продаж (`OPERATION_PROVIDERS`, срез продаж 6.1).
+    expect(operationTitle('sales_segment_judge')).toBe('судья сегмента продаж');
+    expect(operationTitle('sales_serp')).toBe('выдача сбора продаж');
+    expect(operationTitle('serp_search')).not.toBe(operationTitle('sales_serp'));
+  });
+
   it('там, где платят не деньгами, нулей в долларах нет', async () => {
     await openUsage({
       ...SPENDING,

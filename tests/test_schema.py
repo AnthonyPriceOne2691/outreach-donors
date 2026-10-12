@@ -57,6 +57,10 @@ EXPECTED_TABLES = {
     "sales_threads",
     # Журнал сообщений о черновиках агента продаж в группу продаж.
     "sales_draft_notices",
+    # Сбор новой базы продаж: прогон гипотезы, кандидаты сбора, вердикты судьи сегмента.
+    "sales_segment_runs",
+    "sales_segment_candidates",
+    "sales_segment_verdicts",
 }
 
 

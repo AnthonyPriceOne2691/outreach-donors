@@ -1,0 +1,23 @@
+{
+  "name": "sales_segment_golden",
+  "about": "Размеченные сайты для eval судьи сегмента сбора базы (срез 6.1): по 40–60 сайтов на гипотезу 2 и 3, решение человека по каждому — подходит, не подходит, не понять. Сам набор вне репозитория (он публичный): каталог из SALES_SEGMENT_GOLDEN_DIR, файл ниже.",
+  "env": "SALES_SEGMENT_GOLDEN_DIR",
+  "file": "sales_segment_golden.jsonl",
+  "format": "JSONL, строка на сайт — как scripts/data/sales_segment_synthetic.jsonl: id; hypothesis — имя гипотезы; segment — описание сегмента, по которому размечено (правка описания — новый вопрос, разметку повторить); host; text — текст сайта строками с подписями, как его видел судья (Заголовок в выдаче, Описание в выдаче, Заголовок главной, Описание главной, Меню главной); expect — yes | no | unsure, решение человека; evidence — слова сайта, на которых решение стоит, дословно; labeled_by, labeled_at; tags. Заготовку без решений даёт eval_sales_segment.py --export-run N --out файл",
+  "per_hypothesis": {
+    "min": 40,
+    "max": 60
+  },
+  "count": null,
+  "sha256": null,
+  "date": null,
+  "baseline": null,
+  "gates": {
+    "false_accept_max": 0.05,
+    "false_reject_max": 0.1,
+    "accept_recall_min": 0.7,
+    "reject_recall_min": 0.7
+  },
+  "gates_status": "предложение до замера: пороги утверждает владелец по прогону на наборе",
+  "fill_in": "count, sha256 и date печатает eval_sales_segment.py --golden; baseline — его итог на утверждённой версии промпта"
+}

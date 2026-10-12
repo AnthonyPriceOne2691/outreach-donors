@@ -37,6 +37,7 @@ from ui_screens_sales_funnel import funnel_prepare, funnel_screens
 from ui_screens_sales_hints import SECTION_FIELD, hint_probe, note_probes, section_probes
 from ui_screens_sales_quality import quality_screens
 from ui_screens_sales_queue import queue_screens
+from ui_screens_sales_segment import segment_prepare, segment_screens
 from ui_screens_sales_stoplist import stoplist_prepare, stoplist_screens
 
 #: Узкое окно — телефон: вместо вкладок список «Раздел», таблицы уезжают в прокрутку.
@@ -252,6 +253,7 @@ def sales_screens(norm: float, big: float) -> dict[str, dict[str, Any]]:
         **funnel_screens(norm, big),
         **quality_screens(norm, big),
         **stoplist_screens(norm, big),
+        **segment_screens(norm, big),
     }
 
 
@@ -490,4 +492,5 @@ def sales_prepare() -> dict[str, Callable[[Any], None]]:
         "sales-chain-step": open_step,
         **funnel_prepare(),
         **stoplist_prepare(),
+        **segment_prepare(),
     }

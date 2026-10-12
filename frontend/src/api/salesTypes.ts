@@ -14,8 +14,8 @@
  *  очищен, прошёл очистку, отсеян. Почему отсеян — код `rejection_reason`. */
 export type LeadState = 'new' | 'ready' | 'rejected';
 
-/** Откуда лид: файл или таблица — или коллега, названный в ответе. */
-export type LeadSource = 'import' | 'referral';
+/** Откуда лид: файл или таблица, коллега, названный в ответе, — или сбор по ключам (6.1). */
+export type LeadSource = 'import' | 'referral' | 'collected';
 
 /** Поле лида, в которое ложится колонка файла (`columns.LeadField` сервера);
  *  сверку с сервером держит `tests/test_api_sales_screen.py`. */
