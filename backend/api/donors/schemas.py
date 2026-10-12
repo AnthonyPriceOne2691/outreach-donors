@@ -9,14 +9,22 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from backend.api.threads.schemas import OfferCard
+from backend.config import filters as filters_cfg
 from backend.features.contacts.preference import DEAD
 from backend.features.core.domain import ContactSource, ContactStatus, DonorStatus, PriceSource
 from backend.features.core.models.donor import ContactModel
 from backend.features.donors.browse import DonorCard as CardData
-from backend.features.donors.browse import DonorFilters, DonorRow, Facets, Freshness
 from backend.features.donors.browse import DonorPage as PageData
-from backend.features.donors.manual_price import DEFAULT_CURRENCY, Entered, ManualPrice
+from backend.features.donors.browse import DonorRow, Facets
+from backend.features.donors.manual_price import (
+    DEFAULT_CURRENCY,
+    Entered,
+    ManualPrice,
+    manual_price,
+)
+from backend.features.donors.price_freshness import PriceState
 from backend.features.donors.standing import Waiting
+from backend.features.donors.table_filters import DonorFilters, DonorSort, Freshness, Review
 from backend.features.donors.wording import reject_reason_text
 
 #: Трафик «не ниже» больше этого — не порог, а опечатка: у самого большого
@@ -45,6 +53,14 @@ class DonorQuery(BaseModel):
     freshness: Freshness | None = Field(
         default=None, description="метрики: в сроке, пора обновить, не проверялись"
     )
+    price: PriceState | None = Field(
+        default=None, description="цена: есть, свежая, устарела (старше срока) или нет"
+    )
+    review: Review = Field(
+        default=Review.ACCEPTED,
+        description="решение человека: принятые (доноры), отклонённые, без решения или все",
+    )
+    sort: DonorSort = Field(default=DonorSort.DR, description="порядок строк")
 
     def filters(self, *, limit: int, offset: int = 0) -> DonorFilters:
         return DonorFilters(
@@ -55,6 +71,9 @@ class DonorQuery(BaseModel):
             min_traffic=self.min_traffic,
             geo=self.geo.lower() if self.geo else None,
             freshness=self.freshness,
+            price=self.price,
+            review=self.review,
+            sort=self.sort,
             limit=limit,
             offset=offset,
         )
@@ -76,6 +95,11 @@ class PickedBody(BaseModel):
     """
 
     ids: list[int]
+    #: Решение человека экрана, на котором отмечали: отмеченный на «все проверенные»
+    #: выгружается и там, а не считается «переставшим быть донором».
+    review: Review = Review.ACCEPTED
+    #: Порядок экрана: файл отмеченных — в том же порядке, что таблица (`DonorsScope`).
+    sort: DonorSort = DonorSort.DR
 
 
 class DonorRowCard(BaseModel):
@@ -99,6 +123,16 @@ class DonorRowCard(BaseModel):
     contact_status: ContactStatus | None
     last_price: Decimal | None
     last_price_currency: str | None
+    #: Когда цену назвали — от этого дня считается её срок годности.
+    last_price_at: datetime | None = None
+    #: Цена старше срока годности — тем же условием, что фильтр «цена устарела»
+    #: (`table_filters.price_is`): сначала перезапрос, потом Этап 2.
+    price_stale: bool = False
+    #: Ответ донора, снявший цену: «не продаёт» и «бесплатно» стоят на её месте.
+    seller_answer: str | None = None
+    #: Решение человека: `accepted`, `rejected` или пусто — не решали. Видно тогда,
+    #: когда экран показывает не только доноров (фильтр «Решение»).
+    review: str | None = None
     metrics_refreshed_at: datetime | None
     fresh: bool
     #: Метрики в сроке, пора обновить или не проверялись — тем же правилом,
@@ -121,6 +155,10 @@ class DonorRowCard(BaseModel):
             contact_status=donor.contact_status,
             last_price=donor.last_price,
             last_price_currency=donor.last_price_currency,
+            last_price_at=donor.last_price_at,
+            price_stale=row.price_stale,
+            seller_answer=row.seller_answer,
+            review=donor.review,
             metrics_refreshed_at=donor.metrics_refreshed_at,
             fresh=row.fresh,
             freshness=row.freshness,
@@ -151,6 +189,12 @@ class DonorsPage(BaseModel):
     countries: dict[str, int]
     #: Состояние метрик → сколько доноров: варианты фильтра «Данные».
     freshness: dict[str, int]
+    #: Состояние цены → сколько доноров: варианты фильтра «Цена».
+    prices: dict[str, int] = Field(default_factory=dict)
+    #: Решение человека → сколько записей во всей базе: варианты фильтра «Решение».
+    reviews: dict[str, int] = Field(default_factory=dict)
+    #: Срок годности цены, дней: экран пишет «старше N дней» числом сервера.
+    price_ttl_days: int = filters_cfg.PRICE_TTL_DAYS
     #: Сколько строк выгрузка кладёт в файл за раз. Подпись кнопки выгрузки
     #: не обещает больше: своей копии числа у экрана нет.
     export_limit: int
@@ -167,6 +211,8 @@ class DonorsPage(BaseModel):
             counts={status.value: count for status, count in facets.statuses.items()},
             countries=facets.countries,
             freshness={state.value: count for state, count in facets.freshness.items()},
+            prices={state.value: count for state, count in facets.prices.items()},
+            reviews={review.value: count for review, count in facets.reviews.items()},
             export_limit=export_limit,
             waiting=WaitingCard.of(waiting),
         )
@@ -243,6 +289,24 @@ class DonorFullCard(BaseModel):
     #: побеждает (11.10.2026): «не продаём» снимает цену, «бесплатно» ставит вместо
     #: неё отметку — карточка показывает ответ там, где без него была бы пустая цена.
     seller_answer: str | None = None
+    #: Что донор сказал рядом с ценой (сверка ТЗ 12.10.2026): белая и серая раздельно
+    #: (валюта у обеих — `last_price_currency`), оплата, срок публикации в днях,
+    #: `dofollow` / `nofollow`. Пусто — не назвал или цена записана раньше.
+    last_price_white: Decimal | None = None
+    last_price_grey: Decimal | None = None
+    last_payment_methods: list[str] | None = None
+    last_placement_days: int | None = None
+    last_link_type: str | None = None
+    #: Ответ, из которого цена, и его переписка — ссылка из карточки. Пусто — цена
+    #: руками, записана раньше или ответа больше нет.
+    last_price_reply_id: int | None = None
+    last_price_thread_id: int | None = None
+    #: Что донор написал в этом ответе (без цитаты и подписи) — рядом с ценой, как просит
+    #: ТЗ: «распознанные цены … и рядом исходный текст ответа». Пусто — ответа нет.
+    last_price_reply_text: str | None = None
+    #: Цена старше срока годности и до какого дня она свежая — правилом сервера.
+    price_stale: bool = False
+    price_expires_at: datetime | None = None
     #: Адреса в том порядке, в каком их берёт сборка писем: лучший первым.
     contacts: list[ContactCard]
     #: Почему поиск адреса сейчас не ставится; пусто — ставится. Правило
@@ -305,6 +369,16 @@ class DonorFullCard(BaseModel):
             last_price_note=donor.last_price_note,
             last_price_by=donor.last_price_by,
             seller_answer=card.seller_answer,
+            last_price_white=donor.last_price_white,
+            last_price_grey=donor.last_price_grey,
+            last_payment_methods=donor.last_payment_methods,
+            last_placement_days=donor.last_placement_days,
+            last_link_type=donor.last_link_type,
+            last_price_reply_id=donor.last_price_reply_id,
+            last_price_thread_id=card.price_thread,
+            last_price_reply_text=card.price_reply_text,
+            price_stale=card.price_stale,
+            price_expires_at=card.price_expires_at,
             contacts=[
                 ContactCard.of(contact, card.removal.get(contact.id)) for contact in card.contacts
             ],
@@ -333,6 +407,23 @@ class PriceBody(BaseModel):
     note: str | None = Field(
         default=None, description="откуда цена: «прайс агентства», «LinkDetective»"
     )
+    #: Серая цена (без пометки «реклама») и способы оплаты — если человек их знает
+    #: (сверка ТЗ 12.10.2026). Проверяет ядро теми же правилами, что цену.
+    price_grey: Decimal | str | None = Field(default=None, description="серая цена, та же валюта")
+    payment_methods: list[str] | str | None = Field(
+        default=None, description="способы оплаты списком или строкой через запятую"
+    )
+
+    def checked(self, *, by: str) -> ManualPrice:
+        """Вписанное — проверенной ценой руками или отказом словами ядра."""
+        return manual_price(
+            self.price,
+            self.currency,
+            self.note,
+            by=by,
+            grey=self.price_grey,
+            payment=self.payment_methods,
+        )
 
 
 class ManualDonorBody(PriceBody):

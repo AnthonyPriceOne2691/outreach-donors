@@ -14,13 +14,20 @@
  * адресу и поиску добавились трафик «не ниже», страна и срок метрик. Имена
  * параметров — те же, что у сервера (`DonorQuery`): одна строка параметров
  * у таблицы, у выгрузки и у «назад».
+ *
+ * **Цена, решение человека и порядок** (сверка ТЗ 12.10.2026): фильтр под «Ценой»,
+ * «Решение» — кто на экране (без него — доноры, как было) — и порядок не только
+ * по DR. Решение и порядок — не сужение: «найдено N из M» и «Выгрузить найденных»
+ * их не считают, а в адрес они пишутся, только когда не умолчание.
  */
 
 import { countryTitle, DONOR_FRESHNESS, DONOR_STATUSES } from '../api/labels';
 import { numberOf, numberRefusal, numberText } from '../components/numberText';
 import { formatNumber } from '../format';
 import type { DonorFilterQuery } from '../api/donors';
+import type { DonorSort, PriceState, ReviewScope } from '../api/donorPrice';
 import type { DonorFreshness, DonorStatus, DonorsWaiting } from '../api/types';
+import { DONOR_SORTS, PRICE_STATES, REVIEW_SCOPES } from './priceWords';
 
 /** Доноров на странице: замечание 25.09.2026 — «максимум 20 за раз». */
 export const PAGE_SIZE = 20;
@@ -37,6 +44,11 @@ export interface DonorFilters {
   freshness: DonorFreshness | null;
   /** Найден ли адрес: `true` — есть, `false` — нет (в том числе не искали). */
   address: boolean | null;
+  /** Есть ли цена и в сроке ли. */
+  price: PriceState | null;
+  /** Решение человека — кто на экране; умолчание — доноры. */
+  review: ReviewScope;
+  sort: DonorSort;
   page: number;
 }
 
@@ -48,11 +60,17 @@ export const NO_FILTERS: DonorFilters = {
   geo: null,
   freshness: null,
   address: null,
+  price: null,
+  review: 'accepted',
+  sort: 'dr',
   page: 1,
 };
 
 const STATUSES = Object.keys(DONOR_STATUSES) as DonorStatus[];
 export const FRESHNESS = Object.keys(DONOR_FRESHNESS) as DonorFreshness[];
+export const PRICES = Object.keys(PRICE_STATES) as PriceState[];
+export const REVIEWS = Object.keys(REVIEW_SCOPES) as ReviewScope[];
+export const SORTS = Object.keys(DONOR_SORTS) as DonorSort[];
 
 /** Трафик «не ниже» — до тринадцати знаков: у самого большого сайта базы
  *  пять миллиардов, десять знаков. Длиннее — не порог, а опечатка. */
@@ -96,25 +114,30 @@ function countryCode(raw: string | null): string | null {
   return raw !== null && /^[a-z]{2}$/i.test(raw) ? raw.toLowerCase() : null;
 }
 
+/** Известное значение из адреса — или `null`: незнакомое не сужает. */
+function known<T extends string>(values: readonly T[], raw: string | null): T | null {
+  return values.find((value) => value === raw) ?? null;
+}
+
 export function readFilters(params: URLSearchParams): DonorFilters {
-  const status = params.get('status');
   const address = params.get('has_contact');
-  const freshness = params.get('freshness');
   return {
-    status: STATUSES.find((known) => known === status) ?? null,
+    status: known(STATUSES, params.get('status')),
     search: (params.get('search') ?? '').trim(),
     minDr: wholeNumber(params.get('min_dr'), 0, DR_MAX),
     minTraffic: wholeNumber(params.get('min_traffic'), 0, Number.MAX_SAFE_INTEGER, TRAFFIC_DIGITS),
     geo: countryCode(params.get('geo')),
-    freshness: FRESHNESS.find((known) => known === freshness) ?? null,
+    freshness: known(FRESHNESS, params.get('freshness')),
     address: address === 'true' ? true : address === 'false' ? false : null,
+    price: known(PRICES, params.get('price')),
+    review: known(REVIEWS, params.get('review')) ?? 'accepted',
+    sort: known(SORTS, params.get('sort')) ?? 'dr',
     page: wholeNumber(params.get('page'), 1, 999_999) ?? 1,
   };
 }
 
-/** Фильтры → запрос к серверу. Имена те же, что у адреса экрана: одна
- *  строка параметров и у таблицы, и у выгрузки, и у «назад». */
-export function queryOf(filters: DonorFilters): DonorFilterQuery {
+/** Что сужает таблицу — без решения человека и порядка: они не сужают, а выбирают. */
+function narrowing(filters: DonorFilters): DonorFilterQuery {
   return {
     ...(filters.status !== null ? { status: filters.status } : {}),
     ...(filters.search !== '' ? { search: filters.search } : {}),
@@ -123,6 +146,18 @@ export function queryOf(filters: DonorFilters): DonorFilterQuery {
     ...(filters.geo !== null ? { geo: filters.geo } : {}),
     ...(filters.freshness !== null ? { freshness: filters.freshness } : {}),
     ...(filters.address !== null ? { has_contact: filters.address } : {}),
+    ...(filters.price !== null ? { price: filters.price } : {}),
+  };
+}
+
+/** Фильтры → запрос к серверу. Имена те же, что у адреса экрана: одна
+ *  строка параметров и у таблицы, и у выгрузки, и у «назад». Решение и порядок —
+ *  только не умолчанием: адрес прежнего экрана остаётся прежним. */
+export function queryOf(filters: DonorFilters): DonorFilterQuery {
+  return {
+    ...narrowing(filters),
+    ...(filters.review !== 'accepted' ? { review: filters.review } : {}),
+    ...(filters.sort !== 'dr' ? { sort: filters.sort } : {}),
   };
 }
 
@@ -137,7 +172,7 @@ export function writeFilters(filters: DonorFilters): URLSearchParams {
 }
 
 export function isFiltered(filters: DonorFilters): boolean {
-  return Object.keys(queryOf(filters)).length > 0;
+  return Object.keys(narrowing(filters)).length > 0;
 }
 
 /** Что сужает таблицу — словами. Для пустого результата: «ничего не нашлось»
@@ -154,6 +189,7 @@ export function conditionsOf(filters: DonorFilters): string[] {
   }
   if (filters.address === true) said.push('адрес найден');
   if (filters.address === false) said.push('адреса нет');
+  if (filters.price !== null) said.push(PRICE_STATES[filters.price].said);
   return said;
 }
 
@@ -214,6 +250,14 @@ export function emptinessOf(
 ): Emptiness {
   const all = totalOf(counts);
   const resettable = isFiltered(filters);
+  if (all === 0 && filters.review !== 'accepted') {
+    // Не доноры, а другое решение: путь к рассмотрению тут ни при чём.
+    return {
+      title: REVIEW_SCOPES[filters.review].empty,
+      detail: 'Решение человека выбрано над таблицей — «доноры» вернут принятых.',
+      resettable,
+    };
+  }
   if (all === 0) return noDonors(waiting, resettable);
   if (filters.status !== null && (counts[filters.status] ?? 0) === 0) {
     return {

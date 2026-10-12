@@ -26,13 +26,14 @@ async def parse_input(
     session: AsyncSession, reply: ReplyModel, *, now: datetime | None = None
 ) -> Incoming:
     """Сохранённый ответ обратно во входящее письмо — ровно настолько, насколько
-    это нужно разбору: текст, тема и тексты вложений. `now` — когда файлы
-    читаны; пусто — сейчас."""
+    это нужно разбору: текст, тема, тексты вложений и имя отправителя — его
+    маскирование прячет от модели. `now` — когда файлы читаны; пусто — сейчас."""
     files = await ReplyFiles(session).texts(reply.id, now=now or datetime.now(UTC))
     return Incoming(
         message_id=reply.inbound_message_id or "",
         to=(),
         from_email=reply.from_email or "",
+        from_name=reply.from_name or "",
         subject=reply.subject or "",
         text=reply.raw_body,
         attached=tuple(files),

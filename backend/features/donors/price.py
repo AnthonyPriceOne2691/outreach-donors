@@ -24,10 +24,17 @@
 До 11.10.2026 ответ без цены цену не трогал, а последним было последнее
 записанное: старый ответ с ценой, подтверждённый человеком позже, возвращал
 «продаёт» поверх «не продаём».
+
+**С ценой ложится всё, что донор сказал рядом** (сверка ТЗ 12.10.2026: «белая цена,
+серая цена, способы оплаты — и кладёт в ту же базу»): белая и серая раздельно, оплата,
+срок публикации, тип ссылки и номер ответа (`PriceDetails`). До этого на донора
+ложилась одна цена, а остальное оставалось у ответа. Правило «все поля разом» на них
+то же: у цены руками срока и ответа нет — и прежние из ответа затираются.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
@@ -36,6 +43,51 @@ from backend.features.core.domain import PriceSource
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.replies.extract import WITHOUT_PRICE
+
+#: Колонки цены донора — все, что пишет `put_price`. Снимает их «не продаём» тоже все
+#: разом (`_drop_price`): оплата чужого ответа рядом с пустой ценой врала бы так же,
+#: как список цен.
+PRICE_COLUMNS: tuple[str, ...] = (
+    "last_price",
+    "last_price_currency",
+    "last_price_at",
+    "last_offers",
+    "last_price_source",
+    "last_price_note",
+    "last_price_by",
+    "last_price_white",
+    "last_price_grey",
+    "last_payment_methods",
+    "last_placement_days",
+    "last_link_type",
+    "last_price_reply_id",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class PriceDetails:
+    """Всё, что пишется с ценой, кроме неё самой: что сказал донор и откуда она.
+
+    У цены из ответа — его поля (`replies/donor_card.reply_details`): белая и серая,
+    оплата, срок, тип ссылки, номер ответа. У цены руками — белая (её и вписали),
+    серая и оплата, если их вписали, заметка «откуда цена» и автор.
+    """
+
+    white: Decimal | None = None
+    grey: Decimal | None = None
+    payment_methods: tuple[str, ...] = ()
+    #: Срок публикации в днях и `dofollow` / `nofollow` — словами донора.
+    placement_days: int | None = None
+    link_type: str | None = None
+    #: Ответ, из которого цена; пусто — цена руками.
+    reply_id: int | None = None
+    #: Заметка «откуда цена» и кто её вписал — у цены руками.
+    note: str | None = None
+    by: str | None = None
+
+
+#: Цена без подробностей.
+NO_DETAILS = PriceDetails()
 
 
 def said_later(donor: DonorModel, domain: DomainModel | None, at: datetime) -> bool:
@@ -58,25 +110,29 @@ def put_price(
     at: datetime,
     source: PriceSource,
     offers: list[dict[str, Any]] | None = None,
-    note: str | None = None,
-    by: str | None = None,
+    details: PriceDetails = NO_DETAILS,
 ) -> None:
     """Записать последнюю цену донора вместе с тем, откуда она.
 
-    `at` — когда цену назвали. Слово новее `at` проверяет вызывающий (`said_later`):
-    ответ и цена руками отвечают на него по-разному — цена из ответа молча
-    не ложится, ручной — отказ словами.
+    `amount` — главная цена: белая, а без неё серая. `at` — когда цену назвали. Слово
+    новее `at` проверяет вызывающий (`said_later`): ответ и цена руками отвечают на него
+    по-разному — цена из ответа молча не ложится, ручной — отказ словами.
     `offers` — все цены того же ответа (у ручной цены ответа нет — пусто);
-    `note` и `by` — заметка «откуда цена» и кто её указал (у цены из ответа
-    источник — сам ответ, и они пусты).
+    `details` — что донор сказал рядом с ценой и откуда она (`PriceDetails`).
     """
     donor.last_price = amount
     donor.last_price_currency = currency
     donor.last_price_at = at
     donor.last_offers = offers
     donor.last_price_source = source.value
-    donor.last_price_note = note
-    donor.last_price_by = by
+    donor.last_price_note = details.note
+    donor.last_price_by = details.by
+    donor.last_price_white = details.white
+    donor.last_price_grey = details.grey
+    donor.last_payment_methods = list(details.payment_methods) or None
+    donor.last_placement_days = details.placement_days
+    donor.last_link_type = details.link_type
+    donor.last_price_reply_id = details.reply_id
 
 
 def put_answer(
@@ -104,16 +160,13 @@ def put_answer(
 
 
 def _drop_price(donor: DonorModel, at: datetime) -> None:
-    """Снять цену, названную не позже `at`, — всеми полями, как она пишется."""
+    """Снять цену, названную не позже `at`, — всеми полями, как она пишется
+    (`PRICE_COLUMNS`): серая, оплата и срок без цены остались бы словами ответа,
+    который последним уже не был."""
     if donor.last_price is None or _after(donor.last_price_at, at):
         return
-    donor.last_price = None
-    donor.last_price_currency = None
-    donor.last_price_at = None
-    donor.last_offers = None
-    donor.last_price_source = None
-    donor.last_price_note = None
-    donor.last_price_by = None
+    for column in PRICE_COLUMNS:
+        setattr(donor, column, None)
 
 
 def _after(stored: datetime | None, at: datetime) -> bool:

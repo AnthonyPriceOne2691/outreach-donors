@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any, TypeVar
 
 from sqlalchemy import ColumnElement, Select, and_, func, or_, select
@@ -34,7 +34,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 from sqlalchemy.orm.util import AliasedClass
 
-from backend.config import filters as filters_cfg
 from backend.features.contacts.preference import preferred_first
 from backend.features.contacts.quality import rejection_reason
 from backend.features.contacts.repository import has_address
@@ -45,6 +44,7 @@ from backend.features.core.models.donor import ContactModel, DonorModel
 from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import MessageModel
 from backend.features.core.models.run import RunCandidateModel
+from backend.features.donors.price_freshness import PriceState, price_is
 from backend.features.letters import attempts
 from backend.features.letters.chain import FIRST_STEP
 from backend.features.letters.compose import FoundLink, NicheOffer
@@ -407,14 +407,13 @@ class Recipients:
         протухшая превращает его в обещание, которого не сдержать.
         Требование: свежесть цены 150 дней, старше — сначала перезапрос.
         """
-        border = moment - timedelta(days=filters_cfg.PRICE_TTL_DAYS)
         donor_domain = aliased(DomainModel)
         fresh = (
             select(DonorModel.id)
             .join(donor_domain, donor_domain.id == DonorModel.domain_id)
             .where(donor_domain.host == func.lower(AdvertiserModel.best_donor_host))
-            .where(DonorModel.last_price.is_not(None))
-            .where(DonorModel.last_price_at >= border)
+            # Свежесть — одним правилом с таблицей доноров и обходом (12.10.2026).
+            .where(price_is(PriceState.FRESH, moment))
             .exists()
         )
         return statement.where(fresh)

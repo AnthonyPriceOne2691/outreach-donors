@@ -343,6 +343,11 @@ class ReplyModel(TimestampedMixin, Base):
     # повтор давал бы второй ответ, второй разбор и второй вызов модели.
     inbound_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     from_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    #: Имя из «От кого» («Анна Петрова <anna@…>»). Перед моделью оно уходит меткой,
+    #: как адрес (`letters/masking.py`), а разбор идёт задачей очереди, уже
+    #: после приёма, — поэтому хранится. Пусто — имени в заголовке не было или ответ
+    #: принят до 12.10.2026.
+    from_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     subject: Mapped[str | None] = mapped_column(String(512), nullable=True)
     #: На какие адреса письмо пришло: конверт, «кому», копия — как их собрал
     #: приём, наш адрес первым. В них видно, была ли в адресе метка и какая.
@@ -366,6 +371,11 @@ class ReplyModel(TimestampedMixin, Base):
     #: пусто — разобран до 06.10.2026, когда списка ещё не было, или не разбирался.
     offers: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
     payment_methods: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    #: Срок публикации в днях и тип ссылки (`dofollow` / `nofollow`) — как их назвал
+    #: донор. Модель их возвращала с первой версии формы, а ложились они мимо базы
+    #: (сверка ТЗ 12.10.2026). Пусто — не назвал или разобран раньше.
+    placement_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    link_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     # Ниже порога — в ручную очередь, а не в базу. Приёмка требует не более
     # 5% ошибок извлечения, без этой ветки порог не держится.

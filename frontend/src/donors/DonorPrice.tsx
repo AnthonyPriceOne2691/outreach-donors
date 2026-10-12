@@ -29,17 +29,24 @@
  * донора побеждает, «не продаём» цену снимает, «бесплатно» ставит вместо неё
  * отметку. Карточка говорит «не продаёт» или «берёт бесплатно» словами отбора,
  * а не «цены нет»: так читалось бы «цену не спрашивали».
+ *
+ * **Цена целиком** (сверка ТЗ 12.10.2026: «распознанные цены (белая, серая, способы
+ * оплаты) и рядом исходный текст ответа, из которого они взяты»): белая и серая, оплата,
+ * срок публикации и тип ссылки, ссылка в переписку ответа, из которого цена, и сам его
+ * текст — свёрнутым, по нажатию, — и «устарела», если цена старше срока: тогда сначала
+ * перезапрос у донора.
  */
 
-import { Badge, Button, Card, Stack, Text, Title } from '@mantine/core';
+import { Anchor, Badge, Button, Card, Group, Stack, Text, Title } from '@mantine/core';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 
 import { PERMISSION_TITLES, SELLER_ANSWERS } from '../api/labels';
 import { setDonorPrice } from '../api/runs';
 import type { DonorFullCard } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
-import { formatDate, formatMoney } from '../format';
+import { formatDate, formatMoney, plural } from '../format';
 import { Unfold } from '../runs/Unfold';
 import { ReplyOffers } from '../threads/ReplyOffers';
 import { NEW_PRICE, PriceForm, priceBody, priceTyped } from './PriceForm';
@@ -53,6 +60,112 @@ function priceOrigin(donor: DonorFullCard): string {
   if (donor.last_price_source !== 'manual') return 'Из ответа донора';
   const parts = [donor.last_price_by, donor.last_price_note].filter(Boolean);
   return parts.length === 0 ? 'Вручную' : `Вручную: ${parts.join(' · ')}`;
+}
+
+/** «Из ответа донора» — ссылкой в переписку ответа, из которого цена: рядом с ним
+ *  исходный текст, по которому её проверяют. Переписки нет — словами, без ссылки. */
+function Origin({ donor }: { donor: DonorFullCard }) {
+  const thread = donor.last_price_thread_id ?? null;
+  if (donor.last_price_source === 'manual' || thread === null) {
+    return (
+      <Text size="sm" c="dimmed">
+        {priceOrigin(donor)}
+      </Text>
+    );
+  }
+  return (
+    <Anchor component={Link} to={`/threads/${thread}`} size="sm" fw={500}>
+      Из ответа донора №{donor.last_price_reply_id} — в переписку
+    </Anchor>
+  );
+}
+
+/** Что донор написал в ответе, из которого цена, — рядом с ней, свёрнутым: по нему
+ *  числа проверяют глазами. Без цитаты нашего письма; письмо целиком — в переписке. */
+function ReplyText({ donor }: { donor: DonorFullCard }) {
+  const [open, setOpen] = useState(false);
+  const text = donor.last_price_reply_text ?? null;
+  if (text === null || donor.last_price_source === 'manual') return null;
+  const id = `donor-${donor.id}-reply`;
+  return (
+    <>
+      <Button
+        variant="subtle"
+        size="compact-xs"
+        mt={4}
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => setOpen(!open)}
+      >
+        {open ? 'Скрыть текст ответа' : 'Показать текст ответа'}
+      </Button>
+      <Unfold open={open} w="100%">
+        <Text id={id} size="sm" className="bubbleText" mt={4}>
+          {text}
+        </Text>
+      </Unfold>
+    </>
+  );
+}
+
+/** Белая и серая цена — значками, как у ответа в переписке. Валюта у обеих одна. */
+function WhiteAndGrey({ donor }: { donor: DonorFullCard }) {
+  const prices = [
+    ['белая', donor.last_price_white ?? null, 'green'],
+    ['серая', donor.last_price_grey ?? null, 'yellow'],
+  ] as const;
+  const named = prices.filter(([, amount]) => amount !== null);
+  if (named.length === 0) return null;
+  return (
+    <Group gap={6} mt={6}>
+      {named.map(([title, amount, color]) => (
+        <Badge key={title} variant="light" color={color}>
+          {title} {formatMoney(amount, donor.last_price_currency)}
+        </Badge>
+      ))}
+    </Group>
+  );
+}
+
+/** Оплата, срок публикации и тип ссылки — строками, как их назвал донор. */
+function Terms({ donor }: { donor: DonorFullCard }) {
+  const methods = donor.last_payment_methods ?? [];
+  const days = donor.last_placement_days ?? null;
+  const link = donor.last_link_type ?? null;
+  const publication = [
+    days === null ? null : `${days} ${plural(days, 'день', 'дня', 'дней')}`,
+    link === null ? null : `ссылка ${link}`,
+  ].filter((part) => part !== null);
+  return (
+    <>
+      {methods.length > 0 && <Text size="sm">Оплата: {methods.join(', ')}</Text>}
+      {publication.length > 0 && <Text size="sm">Публикация: {publication.join(' · ')}</Text>}
+    </>
+  );
+}
+
+/** Срок цены: «устарела» — сначала перезапрос у донора; иначе — до какого дня свежая. */
+function Freshness({ donor }: { donor: DonorFullCard }) {
+  const until = donor.price_expires_at ?? null;
+  if (donor.price_stale === true) {
+    return (
+      <Group gap={6} mt={6} wrap="nowrap" align="flex-start">
+        <Badge variant="light" color="yellow">
+          устарела
+        </Badge>
+        <Text size="sm">
+          {until === null ? 'Срок цены вышел' : `Срок цены вышел ${formatDate(until)}`}: сначала
+          перезапрос у донора — оффер Этапа 2 на устаревшей цене не строится.
+        </Text>
+      </Group>
+    );
+  }
+  if (until === null) return null;
+  return (
+    <Text size="sm" c="dimmed">
+      Свежая до {formatDate(until)}
+    </Text>
+  );
 }
 
 /** «Указать цену»: поля раскрываются кнопкой, отказ сервера — над ними. */
@@ -172,9 +285,11 @@ function PriceLine({ donor }: { donor: DonorFullCard }) {
         {formatMoney(donor.last_price, donor.last_price_currency)} ·{' '}
         {formatDate(donor.last_price_at)}
       </Text>
-      <Text size="sm" c="dimmed">
-        {priceOrigin(donor)}
-      </Text>
+      <Origin donor={donor} />
+      <ReplyText donor={donor} />
+      <WhiteAndGrey donor={donor} />
+      <Terms donor={donor} />
+      <Freshness donor={donor} />
     </>
   );
 }

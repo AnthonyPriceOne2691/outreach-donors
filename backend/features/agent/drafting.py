@@ -250,6 +250,7 @@ async def _written(
         meta["cleaned"] = list(conversation.cleaned)
     if brief.skip is not None:  # «всё же написать» поверх пропуска брифа
         meta["forced_over_skip"] = {"kind": brief.skip.kind.value, "reason": brief.skip.reason}
+    sign_as = outreach_cfg.SENDER_NAME.strip() if brief.sign_as is None else brief.sign_as
     composed = await guarding.compose(
         session,
         stage,
@@ -258,11 +259,12 @@ async def _written(
             stage=conversation.stage,
             settings=conversation.settings,
             turns=conversation.turns,
-            sign_as=outreach_cfg.SENDER_NAME.strip() if brief.sign_as is None else brief.sign_as,
+            sign_as=sign_as,
             parsed=_parsed(reply),
             facts=brief.facts,
             prompt=stage.prompt,
             model=stage.model,
+            names=await _hidden_names(session, conversation, sign_as),
         ),
         incoming=_last_incoming(conversation.turns),
     )
@@ -275,6 +277,27 @@ async def _written(
         meta=meta,
         tokens=composed.tokens,
     )
+
+
+#: Этапы, на которых черновик прячет от модели имена — наше и собеседников (12.10.2026,
+#: «адреса и имена заменяются метками»). У продаж своё имя отправителя и свой контур
+#: проверок — их запрос остаётся прежним.
+_NAMED_STAGES = frozenset({Stage.DONORS, Stage.ADVERTISERS})
+
+
+async def _hidden_names(
+    session: AsyncSession, conversation: Conversation, sign_as: str
+) -> tuple[str, ...]:
+    """Имена, которые модель не видит: наше, которым подписан черновик, и имена
+    собеседников из «От кого» их ответов в этой переписке."""
+    if conversation.stage not in _NAMED_STAGES:
+        return ()
+    theirs = await session.scalars(
+        select(ReplyModel.from_name)
+        .where(ReplyModel.thread_id == conversation.thread_id, ReplyModel.from_name.is_not(None))
+        .distinct()
+    )
+    return (sign_as, *(name for name in theirs if name))
 
 
 def _last_incoming(turns: tuple[Turn, ...]) -> str:

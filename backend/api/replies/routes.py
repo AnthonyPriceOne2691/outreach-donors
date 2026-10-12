@@ -64,9 +64,11 @@ from backend.features.replies.attachments import ReplyFiles
 from backend.features.replies.calibration import calibrate
 from backend.features.replies.confirmation import (
     ConfirmedPrice,
+    confirmed_payment,
     confirmed_price,
     refuse_superseded,
 )
+from backend.features.replies.donor_card import reply_details
 from backend.features.replies.extract import PLACEMENT_DECLINES, PLACEMENT_SELLS, WITHOUT_PRICE
 from backend.features.replies.repository import ReplyRepository
 from backend.shared.queue import LEAD_JOB, runs_queue, with_retries
@@ -305,6 +307,7 @@ async def review(
     reply = await repository.reply(reply_id)
     await refuse_superseded(session, reply)
     checked = confirmed_price(body.price_white, body.price_grey, body.currency)
+    payment = confirmed_payment(body.payment_methods)
 
     await repository.confirm(
         reply,
@@ -312,7 +315,7 @@ async def review(
         price_white=checked.white,
         price_grey=checked.grey,
         currency=checked.currency,
-        payment_methods=body.payment_methods,
+        payment_methods=payment,
     )
 
     if body.declines:
@@ -365,6 +368,8 @@ async def _to_donor_card(
         currency=checked.currency,
         offers=reply.offers,
         at=reply.created_at,
+        # Серая, оплата, срок и тип ссылки — как они лежат у ответа после решения.
+        details=reply_details(reply),
     )
     answer = PLACEMENT_DECLINES if price is None else PLACEMENT_SELLS
     landed = await repository.record_seller_answer(

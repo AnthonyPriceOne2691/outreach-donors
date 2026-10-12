@@ -335,3 +335,102 @@ describe('карточка донора: «Указать цену»', () => {
     expect(screen.queryByRole('button', { name: 'Указать цену' })).toBeNull();
   });
 });
+
+describe('карточка донора: цена целиком (сверка ТЗ 12.10.2026)', () => {
+  /** Цена из ответа со всем, что донор сказал рядом. */
+  const FROM_REPLY: Partial<DonorFullCard> = {
+    last_price: '150.00',
+    last_price_currency: 'USD',
+    last_price_at: '2026-10-05T10:00:00+00:00',
+    last_price_source: 'reply',
+    last_price_white: '150.00',
+    last_price_grey: '200.00',
+    last_payment_methods: ['PayPal', 'Wise'],
+    last_placement_days: 3,
+    last_link_type: 'dofollow',
+    last_price_reply_id: 41,
+    last_price_thread_id: 12,
+    last_price_reply_text: 'Hi! A guest post is 150 USD, PayPal or Wise.',
+    price_stale: false,
+    price_expires_at: '2027-03-04T10:00:00+00:00',
+  };
+
+  it('белая и серая, оплата, срок и ссылка — и путь в переписку ответа', async () => {
+    await openCard({ ...CARD, ...FROM_REPLY });
+
+    const card = priceCard();
+    expect(plain(within(card).getByText(/^белая/))).toBe('белая 150,00 $');
+    expect(plain(within(card).getByText(/^серая/))).toBe('серая 200,00 $');
+    expect(within(card).getByText('Оплата: PayPal, Wise')).toBeVisible();
+    expect(within(card).getByText('Публикация: 3 дня · ссылка dofollow')).toBeVisible();
+    expect(within(card).getByText('Свежая до 04.03.2027')).toBeVisible();
+    expect(
+      within(card).getByRole('link', { name: 'Из ответа донора №41 — в переписку' }),
+    ).toHaveAttribute('href', '/threads/12');
+  });
+
+  it('рядом с ценой — текст ответа, из которого она: свёрнут, раскрывается нажатием', async () => {
+    await openCard({ ...CARD, ...FROM_REPLY });
+    const user = userEvent.setup();
+
+    expect(within(priceCard()).queryByText(/PayPal or Wise/)).toBeNull();
+    await user.click(within(priceCard()).getByRole('button', { name: 'Показать текст ответа' }));
+
+    expect(
+      await within(priceCard()).findByText('Hi! A guest post is 150 USD, PayPal or Wise.'),
+    ).toBeVisible();
+    expect(
+      within(priceCard()).getByRole('button', { name: 'Скрыть текст ответа' }),
+    ).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('у цены руками текста ответа нет — и кнопки нет', async () => {
+    await openCard({ ...CARD, ...MANUAL });
+
+    expect(within(priceCard()).queryByRole('button', { name: /текст ответа/ })).toBeNull();
+  });
+
+  it('устаревшая — «устарела»: сначала перезапрос у донора', async () => {
+    await openCard({
+      ...CARD,
+      ...FROM_REPLY,
+      price_stale: true,
+      price_expires_at: '2026-03-04T10:00:00+00:00',
+    });
+
+    expect(within(priceCard()).getByText('устарела')).toBeVisible();
+    expect(
+      within(priceCard()).getByText(/^Срок цены вышел 04\.03\.2026: сначала перезапрос у донора/),
+    ).toBeVisible();
+  });
+
+  it('ответа уже нет — «из ответа донора» словами, без ссылки', async () => {
+    await openCard({ ...CARD, ...FROM_REPLY, last_price_thread_id: null });
+
+    expect(within(priceCard()).getByText('Из ответа донора')).toBeVisible();
+    expect(within(priceCard()).queryByRole('link', { name: /в переписку/ })).toBeNull();
+  });
+
+  it('серая и оплата руками уходят вместе с ценой', async () => {
+    const recorded = await openCard(CARD, {
+      'POST /api/donors/7/price': { body: { ...CARD, ...MANUAL } },
+    });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Указать цену' }));
+    await user.type(screen.getByRole('textbox', { name: 'Цена' }), '150');
+    await user.type(screen.getByRole('textbox', { name: 'Серая цена' }), ' 200 ');
+    await user.type(screen.getByRole('textbox', { name: 'Оплата' }), 'PayPal, Wise;');
+    await user.click(screen.getByRole('button', { name: 'Записать цену' }));
+
+    await waitFor(() =>
+      expect(recorded.calls.find((call) => call.method === 'POST')?.body).toEqual({
+        price: '150',
+        currency: 'USD',
+        note: null,
+        price_grey: '200',
+        payment_methods: 'PayPal, Wise;',
+      }),
+    );
+  });
+});

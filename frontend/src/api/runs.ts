@@ -51,6 +51,10 @@ export interface DonorQuery {
   min_traffic?: number;
   geo?: string;
   freshness?: string;
+  /** Цена: с ценой, свежая, устарела, без цены; решение человека; порядок (12.10.2026). */
+  price?: string;
+  review?: string;
+  sort?: string;
   limit?: number;
   offset?: number;
 }

@@ -13,6 +13,7 @@
 
 import { download } from './client';
 import type { Downloaded } from './client';
+import type { DonorSort, ReviewScope } from './donorPrice';
 import type { DonorQuery } from './runs';
 
 export type DonorFilterQuery = Omit<DonorQuery, 'limit' | 'offset'>;
@@ -26,8 +27,20 @@ export function exportDonors(query: DonorFilterQuery): Promise<Downloaded> {
   return download(`/donors/export${tail === '' ? '' : `?${tail}`}`);
 }
 
-export function exportPicked(ids: number[]): Promise<Downloaded> {
-  return download('/donors/export', { method: 'POST', body: { ids } });
+/** Отмеченные — под решением человека экрана, где их отметили, и в его порядке:
+ *  отмеченный на «все проверенные» выгружается и там, а не считается «переставшим быть
+ *  донором». Умолчания в тело не идут. */
+export function exportPicked(
+  ids: number[],
+  review: ReviewScope = 'accepted',
+  sort: DonorSort = 'dr',
+): Promise<Downloaded> {
+  const body = {
+    ids,
+    ...(review === 'accepted' ? {} : { review }),
+    ...(sort === 'dr' ? {} : { sort }),
+  };
+  return download('/donors/export', { method: 'POST', body });
 }
 
 /** Что сервер сказал о файле заголовками: сколько строк в нём и сколько

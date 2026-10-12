@@ -37,7 +37,7 @@ from backend.features.core.domain import Permission
 from backend.features.core.models.access import UserModel
 from backend.features.donors.browse import DonorBrowser, DonorRow
 from backend.features.donors.export import EXPORT_LIMIT, checked_picks, to_csv
-from backend.features.donors.manual_price import enter_host, manual_price, price_donor
+from backend.features.donors.manual_price import enter_host, price_donor
 from backend.features.donors.standing import waiting
 
 router = APIRouter(prefix="/donors", tags=["доноры"])
@@ -58,7 +58,7 @@ async def all_donors(
     # отвечают на вопрос «что вообще есть», а не «что видно сейчас».
     return DonorsPage.of(
         page,
-        await browser.facets(),
+        await browser.facets(query.review),
         export_limit=EXPORT_LIMIT,
         waiting=await waiting(session),
     )
@@ -97,7 +97,9 @@ async def export_picked(
     строки запроса у прокси. Номер, переставший быть донором между отметкой
     и выгрузкой, в файл не идёт, а заголовки ответа говорят, сколько таких.
     """
-    picked = await DonorBrowser(session).picked(checked_picks(body.ids), limit=EXPORT_LIMIT)
+    picked = await DonorBrowser(session).picked(
+        checked_picks(body.ids), limit=EXPORT_LIMIT, review=body.review, sort=body.sort
+    )
     return _file(
         picked.rows,
         {
@@ -142,7 +144,7 @@ async def enter_donor(
     донор — ему записывается цена. Ahrefs и другие платные сервисы не
     зовутся. Отказ — словами ядра, до записи.
     """
-    price = manual_price(body.price, body.currency, body.note, by=author.email)
+    price = body.checked(by=author.email)
     entered = await enter_host(session, body.host, price, author_id=author.id)
     await session.commit()
     return EnteredDonor.of(entered, price)
@@ -160,7 +162,7 @@ async def set_price(
     Ответ — карточка целиком: цена и её источник показываются словами
     сервера, а не догадкой экрана.
     """
-    price = manual_price(body.price, body.currency, body.note, by=author.email)
+    price = body.checked(by=author.email)
     await price_donor(session, donor_id, price, author_id=author.id)
     await session.commit()
     return DonorFullCard.of(await DonorBrowser(session).card(donor_id))

@@ -35,11 +35,13 @@ from backend.features.donors.wording import (
     CONTACT_STATUS_TITLES,
     DONOR_STATUS_TITLES,
     NOT_SEARCHED,
+    REVIEW_TITLES,
     SELLER_ANSWER_TITLES,
     country_title,
     reject_reason_text,
     share_text,
 )
+from backend.shared.spreadsheet import inert
 
 #: Потолок строк файла и числа отмеченных номеров. Экран получает его
 #: с сервера (`DonorsPage.export_limit`) и не обещает больше.
@@ -82,6 +84,17 @@ COLUMNS: tuple[tuple[str, str], ...] = (
     ("цена", "price"),
     ("валюта", "last_price_currency"),
     ("метрики от", "metrics_refreshed_at"),
+    # С 12.10.2026 (сверка ТЗ: «белая цена, серая цена, способы оплаты») — решение
+    # человека, вся цена и её срок. В конце, а не рядом с ценой: файл читают и
+    # таблицы с формулами по номерам колонок, и прежние колонки не сдвигаются.
+    ("решение", "review"),
+    ("белая цена", "last_price_white"),
+    ("серая цена", "last_price_grey"),
+    ("цена от", "last_price_at"),
+    ("цена свежая до", "price_fresh_until"),
+    ("оплата", "last_payment_methods"),
+    ("срок, дней", "last_placement_days"),
+    ("ссылка", "last_link_type"),
 )
 
 
@@ -100,6 +113,9 @@ WORDS: dict[str, Callable[[Any], Any]] = {
     # Цену снял ответ донора — его словами экрана: «не продаёт», «берёт бесплатно»
     # (`DonorRow.price`, решение Anthony 11.10.2026). Цена — числом, как была.
     "price": lambda price: SELLER_ANSWER_TITLES[price] if isinstance(price, str) else price,
+    # Решения ещё не было — «не решали», а не пустая ячейка: пусто читалось бы «не знаем».
+    "review": lambda review: REVIEW_TITLES.get(review or "undecided", review),
+    "last_payment_methods": lambda methods: ", ".join(methods) if methods else None,
 }
 
 
@@ -136,11 +152,15 @@ def _value(row: DonorRow, field: str) -> Any:
 
 
 def _cell(value: Any) -> str:
-    """Пусто — пустая ячейка, а не «None»: файл читает человек."""
+    """Пусто — пустая ячейка, а не «None»: файл читает человек. Строка — такой, что
+    таблица её не исполнит (`shared/spreadsheet.inert`): оплата и валюта — слова
+    из письма донора или вписанные человеком, и `=HYPERLINK(...)` в них — формула."""
     if value is None:
         return ""
     if hasattr(value, "value"):  # перечисления отдаём их значением
-        return str(value.value)
+        return str(inert(str(value.value)))
     if hasattr(value, "date"):  # даты — без часов, они здесь не нужны
         return str(value.date())
+    if isinstance(value, str):
+        return str(inert(value))
     return str(value)

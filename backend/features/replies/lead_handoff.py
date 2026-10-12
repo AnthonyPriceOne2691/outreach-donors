@@ -39,6 +39,7 @@ from backend.features.core.domain import ReplyKind, Stage
 from backend.features.core.models.advertisers import AdvertiserModel
 from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.outreach import CampaignModel, ReplyModel, ThreadModel
+from backend.shared.spreadsheet import inert
 
 #: Сколько текста ответа уходит в карточку. Письмо целиком с цитатой нашего
 #: оффера получателю не нужно, а в CSV длинная ячейка ломает просмотр.
@@ -172,19 +173,6 @@ async def leads(
     return [_card(row._tuple()) for row in (await session.execute(statement)).all()]
 
 
-#: С чего начинается формула в Excel и Google Sheets (OWASP «CSV Injection»).
-_FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
-
-
-def _inert(value: object) -> object:
-    """Ячейка, которую таблица не исполнит: текст из чужого письма вида
-    `=HYPERLINK(...)` при открытии выгрузки вытащил бы соседние ячейки —
-    адреса других лидов (ревью «Продаж» #160). Ведущий апостроф — по OWASP."""
-    if isinstance(value, str) and value.startswith(_FORMULA_START):
-        return f"'{value}"
-    return value
-
-
 #: Заголовки файла — словами, по полю карточки. Файл открывает человек (лид программе
 #: передаёт вебхук, `body_of`), и `taken_by` или `page_url` ему не говорят ничего. Поле
 #: без слова уходит своим именем, а тест выгрузки краснеет: заголовок не теряется молча.
@@ -247,7 +235,7 @@ def to_csv(cards: list[LeadCard], zone: tzinfo = UTC) -> bytes:
     for card in cards:
         writer.writerow(
             [
-                _inert(_local(value, zone) if name in _MOMENTS else value)
+                inert(_local(value, zone) if name in _MOMENTS else value)
                 for name, value in asdict(card).items()
             ]
         )

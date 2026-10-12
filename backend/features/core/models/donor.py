@@ -99,6 +99,23 @@ class DonorModel(TimestampedMixin, ContactAttemptMixin, Base):
     last_price_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
     last_price_note: Mapped[str | None] = mapped_column(String(200), nullable=True)
     last_price_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Что донор сказал рядом с ценой — того же ответа или той же записи руками, что
+    # `last_price` (сверка ТЗ 12.10.2026: «разбирает … белая цена, серая цена, способы
+    # оплаты — и кладёт в ту же базу»). До неё на донора ложилась одна цена, а серая,
+    # оплата, срок и тип ссылки оставались только у ответа — карточка, таблица и выгрузка
+    # их не знали. Главная цена — по-прежнему `last_price` (белая, а без неё серая):
+    # её читают обход, скоринг и офферы. Валюта у белой и серой одна, `last_price_currency`:
+    # у ответа она одна на обе цены (`replies.currency`). Пусто — цена записана раньше.
+    last_price_white: Mapped[Decimal | None] = mapped_column(DECIMAL(10, 2), nullable=True)
+    last_price_grey: Mapped[Decimal | None] = mapped_column(DECIMAL(10, 2), nullable=True)
+    last_payment_methods: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    #: Срок публикации в днях и тип ссылки (`dofollow` / `nofollow`) — словами донора.
+    last_placement_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_link_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    #: Ответ, из которого цена (`replies.id`); пусто — цена руками или записана раньше.
+    #: Карточка ведёт в его переписку. Без внешнего ключа, как `domains.seller_answer_reply_id`:
+    #: номер удалённого ответа остаётся, и карточка ответа просто не находит.
+    last_price_reply_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # --- Контакт: исход поиска — колонки `ContactAttemptMixin` ---
 

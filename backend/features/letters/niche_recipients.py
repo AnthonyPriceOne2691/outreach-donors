@@ -16,12 +16,11 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import Select, select
 
-from backend.config import filters as filters_cfg
 from backend.features.contacts.preference import preferred_first
 from backend.features.core.domain import Stage
 from backend.features.core.models.advertisers import AdvertiserModel
@@ -29,6 +28,7 @@ from backend.features.core.models.domain import DomainModel
 from backend.features.core.models.donor import DonorModel
 from backend.features.core.models.run import RunModel
 from backend.features.crawl.niche import NICHE, niche_funnel
+from backend.features.donors.price_freshness import PriceState, price_is
 from backend.features.letters.compose import NicheOffer
 from backend.features.letters.offer_addresses import advertiser_addresses
 from backend.features.letters.recipients import Candidate, Recipients
@@ -141,17 +141,16 @@ class NicheRecipients(Recipients):
 
 def _examples(run: RunModel, moment: datetime) -> Select[tuple[str]]:
     """Принятые доноры прогона со свежей ценой, сильнейшие по DR первыми. Правило одно
-    у сборки и у отправки: оффер «дешевле» держится на цене примера площадки."""
+    у сборки и у отправки: оффер «дешевле» держится на цене примера площадки. Свежесть —
+    одним правилом с таблицей доноров и обходом (`donors/price_freshness.py`)."""
     hosts = [str(host).lower() for host in (run.candidates or {}).get("hosts", [])]
-    border = moment - timedelta(days=filters_cfg.PRICE_TTL_DAYS)
     return (
         select(DomainModel.host)
         .join(DonorModel, DonorModel.domain_id == DomainModel.id)
         .where(
             DomainModel.host.in_(hosts),
             DonorModel.review == _ACCEPTED,
-            DonorModel.last_price.is_not(None),
-            DonorModel.last_price_at >= border,
+            price_is(PriceState.FRESH, moment),
         )
         .order_by(DonorModel.dr.desc().nullslast(), DomainModel.id)
     )

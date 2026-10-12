@@ -56,6 +56,7 @@ from backend.features.core.models.outreach import ReplyModel
 from backend.features.replies import binding, classify, outcome, redirect
 from backend.features.replies import extract as extract_mod
 from backend.features.replies.attachments import ReplyFiles
+from backend.features.replies.donor_card import reply_details
 from backend.features.replies.extract import ExtractClient, Extracted
 from backend.features.replies.inbound import Incoming
 from backend.features.replies.parse_input import parse_input
@@ -445,6 +446,7 @@ class Parser:
             currency=found.currency,
             offers=reply.offers,
             at=reply.created_at,
+            details=reply_details(reply),
         )
 
 
@@ -466,7 +468,10 @@ def _without_model(reply: ReplyModel, skipped: str, *, why: str | None = None) -
 
 
 def _write_back_placement(reply: ReplyModel, found: Extracted) -> None:
+    """Продаёт ли, срок и тип ссылки — до 12.10.2026 срок и тип не сохранялись вовсе."""
     reply.placement = found.placement
+    reply.placement_days = found.placement_days
+    reply.link_type = found.link_type
     reply.model_parse = found.snapshot()
 
 

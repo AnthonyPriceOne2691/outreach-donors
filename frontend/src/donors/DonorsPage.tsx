@@ -26,6 +26,11 @@
  *
  * **Кнопка выгрузки одна**, и её подпись говорит, что ляжет в файл:
  * всех, найденных или отмеченных (`exporting.ts`).
+ *
+ * **Решение человека и порядок — строкой под шапкой** (сверка ТЗ 12.10.2026,
+ * `DonorsScope.tsx`): кто на экране — доноры, как было, или все проверенные сайты, —
+ * и порядок по DR, трафику, цене и дате цены. Выгрузка отвечает тем же: отмеченные
+ * уходят под решением экрана, где их отметили.
  */
 
 import { Button, Card, Group, Loader, Stack, Text, Title } from '@mantine/core';
@@ -40,6 +45,7 @@ import { sameNumber } from '../components/numberText';
 import { PageSwitch } from '../components/PageSwitch';
 import { useLastPage, useUrlFilters } from '../components/useUrlFilters';
 import { formatNumber } from '../format';
+import { DonorsScope } from './DonorsScope';
 import { DonorsTable } from './DonorsTable';
 import { placeOf } from './place';
 import {
@@ -137,7 +143,9 @@ export function DonorsPage() {
 
   const download = useMutation({
     mutationFn: () =>
-      plan?.picked === true ? exportPicked([...picks.picked]) : exportDonors(queryOf(filters)),
+      plan?.picked === true
+        ? exportPicked([...picks.picked], filters.review, filters.sort)
+        : exportDonors(queryOf(filters)),
     onSuccess: (file) => {
       saveFile(file, 'donors.csv');
       notify({ message: exportOutcome(exportCounts(file), plan?.picked === true) });
@@ -207,6 +215,14 @@ export function DonorsPage() {
             </Button>
           </Group>
         </Group>
+
+        <DonorsScope
+          filters={filters}
+          reviews={data?.reviews ?? null}
+          prices={data?.prices ?? null}
+          priceTtlDays={data?.price_ttl_days ?? null}
+          onFilter={apply}
+        />
 
         {contacts.outcome !== null && <Stack gap={6}>{contacts.outcome}</Stack>}
 
