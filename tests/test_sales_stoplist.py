@@ -244,6 +244,18 @@ async def test_console_refuses_a_file_without_a_single_entry_and_names_the_lines
     assert await _stored(session) == []
 
 
+async def test_console_refuses_a_reason_longer_than_its_column_in_words(
+    session: AsyncSession, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Мутант «без проверки причины до чтения»: `add` отказал бы исключением — трассировкой
+    вместо слов и кода 2."""
+    assert await _run(session, _file(tmp_path), "--note", "я" * 256) == EXIT_BAD_INPUT
+    assert capsys.readouterr().out == (
+        "Стоп-лист не прочитан: причина длиннее 255 знаков (256) — сократите\n"
+    )
+    assert await _stored(session) == []
+
+
 async def test_console_refuses_a_missing_file_in_words(
     session: AsyncSession, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

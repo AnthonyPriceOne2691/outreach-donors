@@ -167,6 +167,7 @@ def _print_unverified(report: CleaningReport) -> None:
 async def run_stoplist_add(session: AsyncSession, args: argparse.Namespace) -> int:
     """Пополнение на готовой сессии. Повтор — не ошибка: «уже было» считается отдельно."""
     try:
+        stoplist.check_note(args.note)  # до чтения файла: длинную причину `add` не запишет
         entries = await asyncio.to_thread(
             stoplist.read_entries, args.file, delimiter=args.delimiter
         )

@@ -166,6 +166,13 @@ def _entry(cell: str) -> tuple[str, str]:
     return "", cell
 
 
+def check_note(note: str | None) -> None:
+    """Причина ляжет в колонку `note`: длиннее — отказ словами. Консоль зовёт до чтения файла,
+    `add` — до записи."""
+    if note is not None and len(note) > NOTE_LENGTH:
+        raise StoplistError(f"причина длиннее {NOTE_LENGTH} знаков ({len(note)}) — сократите")
+
+
 async def add(
     session: AsyncSession,
     entries: Entries,
@@ -180,8 +187,7 @@ async def add(
     Журнал — одной записью на загрузку: она меняет, кому продажи напишут,
     и по журналу потом ищут, откуда взялся запрет.
     """
-    if note is not None and len(note) > NOTE_LENGTH:
-        raise StoplistError(f"причина длиннее {NOTE_LENGTH} знаков ({len(note)}) — сократите")
+    check_note(note)
     added = 0
     for column, values in (("host", entries.hosts), ("email", entries.emails)):
         if values:
