@@ -42,12 +42,10 @@ const VIEW = {
   batch_max: 200,
 };
 
-/** Окно подтверждения у кнопки. В jsdom выпадающее окно Mantine остаётся `display: none`
- *  — раскладки нет, — поэтому его ищут с `hidden`; щелчок по его кнопкам настоящий.
- *  Открывается раз на тест: открытое снова, оно уже спрятано целиком (без раскладки
- *  floating-ui считает кнопку скрытой), и имя окна читается пустым. */
+/** Окно подтверждения у кнопки. Видно, как человеку: тестовая тема не прячет
+ *  выпадающие окна по раскладке, которой в jsdom нет (`test/render.tsx`). */
 async function confirmation(): Promise<HTMLElement> {
-  return screen.findByRole('dialog', { name: /^Не писать digest-weekly/, hidden: true });
+  return screen.findByRole('dialog', { name: /^Не писать digest-weekly/ });
 }
 
 /** Письмо в предпросмотре с подслушанным «не писать». */
@@ -81,7 +79,7 @@ describe('«Не писать»', () => {
     expect(ask).toHaveTextContent(
       'Не писать digest-weekly.example.test? Письмо уберём из очереди, и в следующих сборках этого адресата не будет.',
     );
-    await user.click(within(ask).getByRole('button', { name: 'Отмена', hidden: true }));
+    await user.click(within(ask).getByRole('button', { name: 'Отмена' }));
     expect(skip).not.toHaveBeenCalled();
   });
 
@@ -90,9 +88,7 @@ describe('«Не писать»', () => {
     const user = userEvent.setup();
 
     await user.click(screen.getByRole('button', { name: 'Не писать' }));
-    await user.click(
-      within(await confirmation()).getByRole('button', { name: 'Не писать', hidden: true }),
-    );
+    await user.click(within(await confirmation()).getByRole('button', { name: 'Не писать' }));
 
     expect(skip).toHaveBeenCalledTimes(1);
   });
@@ -112,9 +108,7 @@ describe('«Не писать»', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Не писать' }));
     expect(skips()).toHaveLength(0);
-    await user.click(
-      within(await confirmation()).getByRole('button', { name: 'Не писать', hidden: true }),
-    );
+    await user.click(within(await confirmation()).getByRole('button', { name: 'Не писать' }));
 
     await waitFor(() => expect(skips()).toHaveLength(1));
     expect(await screen.findByText(/в следующей сборке не появится/)).toBeInTheDocument();

@@ -1,4 +1,4 @@
-import { MantineProvider } from '@mantine/core';
+import { MantineProvider, mergeThemeOverrides, Popover } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@testing-library/react';
@@ -7,6 +7,17 @@ import { MemoryRouter } from 'react-router-dom';
 
 import { AuthProvider } from '../auth/AuthProvider';
 import { theme } from '../theme';
+
+/**
+ * Тема приложения, но выпадающие окна не прячутся «оторванными» (`hideDetached`).
+ * В jsdom раскладки нет: floating-ui считает кнопку окна скрытой и, досчитав
+ * положение, ставит окну `display: none`. Найдёт ли тест окно, решала гонка —
+ * успел ли он до конца расчёта; под нагрузкой CI не успевал (12.10.2026, окно
+ * причины обхода). Окно в тесте видно так же, как человеку.
+ */
+const testTheme = mergeThemeOverrides(theme, {
+  components: { Popover: Popover.extend({ defaultProps: { hideDetached: false } }) },
+});
 
 function client() {
   return new QueryClient({
@@ -22,7 +33,7 @@ export function renderWith(ui: ReactElement, route = '/') {
   function Wrapper({ children }: { children: ReactNode }) {
     return (
       <QueryClientProvider client={queryClient}>
-        <MantineProvider theme={theme} defaultColorScheme="light">
+        <MantineProvider theme={testTheme} defaultColorScheme="light">
           <Notifications />
           <AuthProvider>
             <MemoryRouter initialEntries={[route]}>{children}</MemoryRouter>
