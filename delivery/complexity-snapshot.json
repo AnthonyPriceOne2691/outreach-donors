@@ -1482,9 +1482,9 @@
       "worst": "—"
     },
     "backend/features/ops/alarm_feed.py": {
-      "lines": 179,
+      "lines": 200,
       "complexity": 5,
-      "worst": "_gone:104"
+      "worst": "_gone:123"
     },
     "backend/features/ops/alarms.py": {
       "lines": 21,
@@ -2297,9 +2297,9 @@
       "worst": "main:34"
     },
     "backend/workers/reaper.py": {
-      "lines": 161,
+      "lines": 163,
       "complexity": 4,
-      "worst": "_told:104"
+      "worst": "_told:106"
     },
     "backend/workers/sales_jobs.py": {
       "lines": 125,

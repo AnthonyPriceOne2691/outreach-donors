@@ -17,9 +17,18 @@
 ответил — строка журнала и память процесса, как до хранилища: прочитать сказанное прежним
 процессом лента попробует следующим проходом, записать своё — тоже.
 
-**Сказанное — по каналу.** Строка журнала — не сообщение в Telegram: у журнала и у каждого чата
-свой хэш (`told_key`). Владелец задал бота или сменил чат и перезапустил процесс — новый канал
-пуст, и действующие тревоги приходят туда один раз: включение бота — сводка «что сломано сейчас».
+**Сказанное — по ленте и по каналу.** Строка журнала — не сообщение в Telegram: у журнала и у
+каждого чата свой хэш (`told_key`). Владелец задал бота или сменил чат и перезапустил процесс —
+новый канал пуст, и действующие тревоги приходят туда один раз: включение бота — сводка «что
+сломано сейчас». И у каждой ленты свой хэш, по её имени (`Feed.name`): в процессе разбора говорят
+две — сторож (`workers/reaper.FEED`) и бот продаж (`sales/agent/notify.BOT_FEED`). С общим хэшем
+одна брала тревоги другой за свои и через `QUIET_PASSES` проходов говорила «прошло» о тревоге,
+которая идёт, а запись каждой стирала сказанное другой. Лента без имени (`UNNAMED`) в сервисе
+одна, имена не повторяются — держит тест (`tests/test_alarm_feed.py`).
+
+**Прежний общий хэш не читается** (`outreach:watch:told:<канал>`; решение Anthony 12.10.2026:
+сервис ещё не работал в боевом режиме): ленты начинают со своего пустого хэша, и на первой
+выкатке действующие тревоги придут один раз заново.
 """
 
 from __future__ import annotations
@@ -42,12 +51,17 @@ logger = logging.getLogger(__name__)
 #: в десять минут (`workers/reaper.WATCHDOG_INTERVAL_SEC`): «прошло» — после 10–20 минут тишины.
 QUIET_PASSES = 2
 
-#: Где сказанное ждёт следующий процесс сторожа: хэш «код тревоги → заголовок» на канал —
-#: `outreach:watch:told:<чат Telegram>`, пока бот не задан — `…:journal` (`told_key`).
+#: Где сказанное ждёт следующий процесс: хэш «код тревоги → заголовок» на ленту и канал —
+#: `outreach:watch:told:<лента>:<чат Telegram>`, пока бот не задан — `…:<лента>:journal`
+#: (`told_key`). Ключ без имени ленты — прежний общий хэш: его не читает никто.
 TOLD_KEY = "outreach:watch:told"
 
 #: Канал, пока бот не задан: слово ленты — громкая строка журнала (`shared/alerts.py`).
 JOURNAL = "journal"
+
+#: Имя ленты, которой его не дали (`Feed()`). Такая лента в сервисе одна: вторая без имени
+#: делила бы с ней сказанное.
+UNNAMED = "unnamed"
 
 #: Сколько ждать Redis. Сторож живёт в одном процессе с разбором прогонов, клиент Redis
 #: синхронный: зависший Redis не должен держать и их.
@@ -64,17 +78,22 @@ def connection() -> Redis:
     )
 
 
-def told_key() -> str:
-    """Хэш сказанного для канала этого процесса: чат Telegram — или журнал, пока бот не задан.
-    Канал — из настроек процесса: смена бота или чата идёт перезапуском, и новый канал начинает
-    с пустого хэша."""
-    return f"{TOLD_KEY}:{alerts_cfg.TELEGRAM_CHAT_ID if _bot_set() else JOURNAL}"
+def told_key(name: str = UNNAMED) -> str:
+    """Хэш сказанного ленты `name` для канала этого процесса: чат Telegram — или журнал, пока
+    бот не задан. Канал — из настроек процесса: смена бота или чата идёт перезапуском, и новый
+    канал начинает с пустого хэша."""
+    return f"{TOLD_KEY}:{name}:{alerts_cfg.TELEGRAM_CHAT_ID if _bot_set() else JOURNAL}"
 
 
 @dataclass
 class Feed:
-    """Тревоги, о которых уже сказано: код → заголовок; в Redis — зеркало для перезапуска."""
+    """Тревоги, о которых уже сказано: код → заголовок; в Redis — зеркало для перезапуска.
 
+    Своё имя — своё сказанное (`told_key`): две ленты с одним именем делили бы хэш, и одна
+    говорила бы «прошло» о тревогах другой, которые идут."""
+
+    #: Назначение ленты — часть ключа её хэша. Без имени — `UNNAMED`.
+    name: str = UNNAMED
     told: dict[str, str] = field(default_factory=dict)
     #: Сколько проходов подряд сказанной тревоги нет (в памяти: перезапуск начинает счёт заново).
     quiet: dict[str, int] = field(default_factory=dict)
@@ -113,7 +132,7 @@ class Feed:
         """Сказанное прежним процессом — один раз, когда Redis ответит; сказанное этим
         процессом до того — поверх (оно новее). Разошлось — дописать зеркало."""
         if not self.recalled:
-            stored = _stored()
+            stored = _stored(told_key(self.name))
             if stored is None:
                 return
             self.told = {**stored, **self.told}
@@ -126,29 +145,29 @@ class Feed:
         (зависший Redis держал бы по таймауту каждое слово), дописать в начале следующего."""
         self.unsaved = True
         if self.recalled and not self.stalled:
-            self.unsaved = self.stalled = not _stored_as(self.told)
+            self.unsaved = self.stalled = not _stored_as(told_key(self.name), self.told)
 
 
-def _stored() -> dict[str, str] | None:
-    """Сказанное из Redis. `None` — Redis не ответил (строка журнала)."""
+def _stored(key: str) -> dict[str, str] | None:
+    """Сказанное из хэша `key` в Redis. `None` — Redis не ответил (строка журнала)."""
     try:
         with connection() as redis:
-            raw = redis.hgetall(told_key())
+            raw = redis.hgetall(key)
     except RedisError as exc:
         logger.warning(
             "лента тревог: сказанное из Redis не прочитано (%s) — помню только этот процесс, "
             "повтор следующим проходом",
             exc,
+            extra={"key": key},
         )
         return None
     pairs = raw.items() if isinstance(raw, dict) else ()
     return {_text(code): _text(title) for code, title in pairs}
 
 
-def _stored_as(told: dict[str, str]) -> bool:
-    """Записать сказанное целиком (одной транзакцией Redis). `False` — не записалось."""
+def _stored_as(key: str, told: dict[str, str]) -> bool:
+    """Записать сказанное в хэш `key` целиком (одной транзакцией Redis). `False` — не записалось."""
     try:
-        key = told_key()
         with connection() as redis, redis.pipeline() as pipe:
             pipe.delete(key)
             if told:
@@ -156,7 +175,9 @@ def _stored_as(told: dict[str, str]) -> bool:
             pipe.execute()
     except RedisError as exc:
         logger.warning(
-            "лента тревог: сказанное в Redis не записано (%s) — повтор следующим проходом", exc
+            "лента тревог: сказанное в Redis не записано (%s) — повтор следующим проходом",
+            exc,
+            extra={"key": key},
         )
         return False
     return True
