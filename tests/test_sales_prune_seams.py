@@ -36,12 +36,14 @@ from backend.features.runs.prune import apply_prune, plan_prune
 from backend.features.sales import queue
 from backend.features.sales.domain_hold import kept_words
 from backend.features.sales.models import SalesHandoffModel, SalesLeadModel, SalesThreadModel
+from backend.features.sales.segment_models import Lane, SalesSegmentCandidateModel
 from backend.features.sales.trials import TrialLead, TrialTrace, remove_trials
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tests import test_sales_send_world as w
 from tests.test_probe_donor import _thresholds
 from tests.test_sales_handoff_rows import answer
+from tests.test_sales_segment_run import hypothesis, make_run
 from tests.test_sales_send import _transports
 
 #: Свой ящик из предохранителя — адрес пробного лида; номера пробных сделок — выдуманные.
@@ -152,6 +154,33 @@ async def test_probe_cleanup_prints_the_held_domain_and_its_lead(
     assert code == 0
     assert "Липовые домены: 0" in out
     assert f"оставлен {FAKE}: {_foreign(handoff.lead_id)}" in out
+
+
+async def test_probe_cleanup_keeps_a_fake_domain_held_by_a_collection_candidate(
+    session: AsyncSession,
+) -> None:
+    """Ревью #340: кандидат сбора держит домен, как лид, — его ссылка каскадом, и чистка
+    унесла бы кандидата молча. Домена нет в плане удаления, он назван оставленным."""
+    domain = DomainModel(host=FAKE)
+    session.add(domain)
+    await session.flush()
+    owner = await hypothesis(session)
+    run = await make_run(session, owner)
+    session.add(
+        SalesSegmentCandidateModel(
+            run_id=run.id, hypothesis_id=owner.id, domain_id=domain.id, lane=Lane.ACCEPT
+        )
+    )
+    await session.flush()
+
+    plan = await plan_prune(session, run_ids=[], probes=True)
+    await apply_prune(session, plan, author="тест")
+
+    assert plan.probes is not None
+    assert plan.probes.domains == []
+    assert plan.probes.kept == {FAKE: kept_words([], [], [run.id])}
+    left = await session.scalar(select(func.count()).select_from(SalesSegmentCandidateModel))
+    assert left == 1
 
 
 async def test_donor_probe_next_to_a_held_domain_goes_as_before(
@@ -372,4 +401,19 @@ def test_words_name_every_lead_that_holds_the_domain() -> None:
         "домен держат лиды продаж №5, №6 с чужими адресами — не пробы своего ящика, "
         "`prune --test-traces` их не уберёт: удалить лидов может только человек, тогда домен "
         "уйдёт с `prune --probes`"
+    )
+
+
+def test_words_name_the_collection_runs_that_hold_the_domain() -> None:
+    assert kept_words([], [], [4]) == (
+        "домен держит кандидат сбора продаж (прогон сбора №4) — отпустит сам сбор, когда "
+        "кандидата отсекут или из него выйдет лид"
+    )
+    assert kept_words([], [], [4, 9]) == (
+        "домен держат кандидаты сбора продаж (прогоны сбора №4, №9) — отпустит сам сбор, когда "
+        "их отсекут или из них выйдут лиды"
+    )
+    assert kept_words([3], [], [4]) == (
+        "домен держит лид продаж №3 — его убирает `prune --test-traces`; держит кандидат сбора "
+        "продаж (прогон сбора №4) — отпустит сам сбор, когда кандидата отсекут или из него выйдет лид"
     )

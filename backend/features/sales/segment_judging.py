@@ -15,6 +15,13 @@
 
 **Главная — только тем, кого судит модель**: платформу и госзону правило режет по имени
 домена, их сайт не открывается вовсе; кэш и выключенный судья главной не просят.
+
+**Стоп-лист — до всего** (`stoplisted`): домен в стоп-листе продаж или под строкой общего
+стоп-листа, которая держит продажи, отсекается правилом до кэша, главной и модели — при любом
+режиме судьи. Иначе он оплатил бы модель и платную ступень поиска адреса и отсеялся бы только
+очисткой лидов. Правило то же, что у очистки (`cleaning.py`): строка продаж на домен и
+`suppressions.holds_sales`. В таблицу вердиктов такой отсев не пишется: строку стоп-листа
+снимают, а вердикт сайта жил бы полгода.
 """
 
 from __future__ import annotations
@@ -35,8 +42,10 @@ from backend.config import judge as judge_cfg
 from backend.config.judge import JudgeMode
 from backend.features.core import usage
 from backend.features.core.models.domain import DomainModel
+from backend.features.core.models.ops import SuppressionModel
 from backend.features.donors.home_signals import check_home
 from backend.features.sales import usage_cap
+from backend.features.sales.models import SalesStoplistModel
 from backend.features.sales.segment_judge import (
     JUDGE_OFF,
     OPERATION,
@@ -56,6 +65,7 @@ from backend.features.sales.segment_models import (
     SalesSegmentCandidateModel,
     SalesSegmentVerdictModel,
 )
+from backend.features.sales.suppressions import holds_sales
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +73,9 @@ logger = logging.getLogger(__name__)
 BATCH = 20
 #: Срок вердикта: чем сайт живёт, он меняет раз в годы — как у судьи площадки.
 VERDICT_TTL_DAYS = 180
+#: Отсечён стоп-листом до судьи — словами на экране прогона.
+STOPLIST_OWN = "домен в стоп-листе продаж — отсечён до судьи, адрес не ищем"
+STOPLIST_SHARED = "домен в общем стоп-листе — отсечён до судьи, адрес не ищем"
 
 Candidate = SalesSegmentCandidateModel
 Verdict = SalesSegmentVerdictModel
@@ -125,6 +138,52 @@ async def _pending(session: AsyncSession, run_id: int) -> list[tuple[Candidate, 
         .order_by(Candidate.id)
     )
     return list(rows.tuples().all())
+
+
+async def stoplisted(
+    session: AsyncSession, domain_ids: Sequence[int], moment: datetime
+) -> dict[int, str]:
+    """Домены, которым продажи не пишут, — домен → почему словами. Строки на адрес ждут очистки
+    лидов: адреса у кандидата ещё нет."""
+    if not domain_ids:
+        return {}
+    ids = list(domain_ids)
+    shared = await session.scalars(
+        select(SuppressionModel.domain_id).where(
+            SuppressionModel.domain_id.in_(ids), holds_sales(moment)
+        )
+    )
+    own = await session.scalars(
+        select(DomainModel.id)
+        .join(SalesStoplistModel, SalesStoplistModel.host == DomainModel.host)
+        .where(DomainModel.id.in_(ids))
+    )
+    found = {domain_id: STOPLIST_SHARED for domain_id in shared.all() if domain_id is not None}
+    found.update(dict.fromkeys(own.all(), STOPLIST_OWN))
+    return found
+
+
+def _cut(candidate: Candidate, why: str, tally: JudgeTally) -> None:
+    """Стоп-лист — «отсечён» правилом. Судья не говорил: вердикта нет."""
+    candidate.lane, candidate.reason, candidate.verdict = Lane.REJECT, why, None
+    candidate.decided_by, candidate.quote, candidate.unanswered = Decider.RULE, None, False
+    candidate.model = None
+    tally.by_rule += 1
+
+
+async def _without_stoplisted(
+    session: AsyncSession,
+    waiting: Sequence[tuple[Candidate, str]],
+    tally: JudgeTally,
+    moment: datetime,
+) -> list[tuple[Candidate, str]]:
+    """Отсечь стоп-лист до партий судьи и сохранить; вернуть тех, кого судить дальше."""
+    closed = await stoplisted(session, [candidate.domain_id for candidate, _ in waiting], moment)
+    for candidate, _ in waiting:
+        if (why := closed.get(candidate.domain_id)) is not None:
+            _cut(candidate, why, tally)
+    await session.commit()
+    return [(candidate, host) for candidate, host in waiting if candidate.domain_id not in closed]
 
 
 async def cached(
@@ -320,12 +379,12 @@ async def judge_run(
 ) -> JudgeTally:
     """Судить кандидатов прогона, которые ждут судью. Коммит — по партии, здесь.
 
-    `mode` — режим прогона; выключенный судья (`off`) модели не зовёт: правило по домену
-    режет, остальных решает человек. Потолок модели выбран — `stopped` словами, остальные
+    `mode` — режим прогона; выключенный судья (`off`) модели не зовёт: стоп-лист и правило по
+    домену режут, остальных решает человек. Потолок модели выбран — `stopped` словами, остальные
     ждут следующего прохода."""
     moment = now or datetime.now(UTC)
     tally = JudgeTally()
-    waiting = await _pending(session, run_id)
+    waiting = await _without_stoplisted(session, await _pending(session, run_id), tally, moment)
     asked = None if mode is JudgeMode.OFF else client
     for start in range(0, len(waiting), BATCH):
         if asked is not None:
