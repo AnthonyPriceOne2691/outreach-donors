@@ -161,6 +161,24 @@ TEST_DSN = worker_dsn(
     os.getenv("TEST_STORAGE_DSN") or own_test_dsn(_ROOT), os.getenv("PYTEST_XDIST_WORKER")
 )
 
+#: Короткий текст из байтов остаётся в имени параметра как есть: он и читается.
+ID_TEXT_BYTES = 40
+
+
+def pytest_make_parametrize_id(val: object, argname: str) -> str | None:
+    """Имя параметра из байтов — именем аргумента, кроме короткого текста.
+
+    Своё имя pytest строит из самих байтов, а пакет, собранный кодом (zip у DOCX
+    и XLSX, книга openpyxl), несёт время сборки. Потоки xdist импортируют модуль
+    в разные секунды, собирают тесты под разными именами, и прогон падает целиком:
+    «Different tests were collected». Одинаковые имена pytest различает номером
+    по порядку, а порядок у всех потоков один.
+    """
+    if not isinstance(val, bytes):
+        return None
+    short_text = val.isascii() and len(val) <= ID_TEXT_BYTES and val.decode("ascii").isprintable()
+    return None if short_text else argname
+
 
 async def _database_exists(conn: AsyncConnection, name: str | None) -> bool:
     found = await conn.scalar(
