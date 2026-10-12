@@ -28,14 +28,19 @@
  * отдельной строкой под четырьмя полями из семи.
  *
  * **В окне одна прокрутка** (замечание Anthony 12.10.2026: «двойная прокрутка… прям
- * косяк»): заголовок окна и кнопки стоят, между ними прокручиваются пояснение и поля
- * (`oneScroll` в glass.css). Поле растёт по тексту и своей прокрутки не имеет. Было
- * три вложенных: окно (Mantine держит его в 90 % высоты экрана), поля под ним
- * (`100dvh − 20rem` — запас меньше, чем занимали пояснение, шапка и кнопки) и
- * «Вопросы» — длиннее восьми строк на телефоне; кнопки уезжали под край экрана.
+ * косяк»): заголовок окна и кнопки стоят, прокручиваются поля (`oneScroll` в glass.css).
+ * Поле растёт по тексту и своей прокрутки не имеет. Было три вложенных: окно (Mantine
+ * держит его в 90 % высоты экрана), поля под ним (`100dvh − 20rem` — запас меньше, чем
+ * занимали пояснение, шапка и кнопки) и «Вопросы» — длиннее восьми строк на телефоне;
+ * кнопки уезжали под край экрана.
+ *
+ * **Пояснение стоит от md и шире** (правило 10.10.2026: что значат пометки, видно, пока
+ * правишь любую зону; `HINT_FIXED`), а уже — уезжает в ту же прокрутку первым абзацем:
+ * на телефоне оно в 284–426 px из 760 высоты окна, и неподвижное оставляло полям щель.
  */
 
-import { Badge, Button, Group, Modal, Stack, Text, TextInput, Textarea } from '@mantine/core';
+import { Badge, Box, Button, Group, Modal, Stack, Text, TextInput, Textarea } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import { IconPencil } from '@tabler/icons-react';
 import { useState } from 'react';
 
@@ -98,12 +103,28 @@ const HINTS: Record<LetterTarget, { placeholders: string; rewrite: string }> = {
   },
 };
 
+/** Где пояснение окна стоит над полями: от `md` Mantine и при высоте, где под ним остаётся
+ *  место полям. Ниже 40em неподвижное пояснение, шапка и кнопки съели бы окно (90 % экрана),
+ *  и вернулась бы вторая прокрутка — самого окна. */
+export const HINT_FIXED = '(min-width: 62em) and (min-height: 40em)';
+
 export function LetterDraftEditor({ fallback, value, onChange, target = 'donors' }: Props) {
   const [open, setOpen] = useState(false);
+  // С первой отрисовки, как у рамы: окно открывают позже, но значение уже верное.
+  const hintFixed = useMediaQuery(HINT_FIXED, false, { getInitialValueInEffect: false }) === true;
   const edited = !sameDraft(value, draftOf(fallback));
 
   const setZone = (name: string, text: string) =>
     onChange({ ...value, zones: { ...value.zones, [name]: text } });
+
+  const hint = (
+    <Text size="sm" c="dimmed">
+      Текст закрепляется за рассылкой при её создании. «Может переписать модель» — зону модель пишет
+      заново под {HINTS[target].rewrite}, но в отдельном письме она может остаться текстом шаблона:
+      так письмо ложится в коридор отличия. «Как есть» — уходит без изменений, модель её не видит.
+      Подстановки: {HINTS[target].placeholders}
+    </Text>
+  );
 
   return (
     <Stack gap="sm" data-letter-draft>
@@ -132,17 +153,18 @@ export function LetterDraftEditor({ fallback, value, onChange, target = 'donors'
         size="xl"
         classNames={{ content: 'oneScroll' }}
       >
-        {/* Одна прокрутка — пояснение и поля; шапка окна прозрачная, и под ней ничего
-            не проезжает: прокрутка начинается под заголовком. Поле в 3 px от края держит
-            кольцо фокуса внутри прокрутки. */}
+        {/* Прокрутка одна — поля; пояснение над ней стоит (`HINT_FIXED`), а на узком
+            экране идёт в ней первым абзацем. Шапка окна прозрачная, и под ней ничего не
+            проезжает: прокрутка начинается ниже. Поле в 3 px от края держит кольцо фокуса
+            внутри прокрутки — на те же 3 px отступает и неподвижное пояснение. */}
+        {hintFixed ? (
+          <Box px={3} mb="md">
+            {hint}
+          </Box>
+        ) : null}
         <div className="oneScrollArea scrollSlim">
           <Stack gap="md" p={3}>
-            <Text size="sm" c="dimmed">
-              Текст закрепляется за рассылкой при её создании. «Может переписать модель» — зону
-              модель пишет заново под {HINTS[target].rewrite}, но в отдельном письме она может
-              остаться текстом шаблона: так письмо ложится в коридор отличия. «Как есть» — уходит
-              без изменений, модель её не видит. Подстановки: {HINTS[target].placeholders}
-            </Text>
+            {hintFixed ? null : hint}
             <Stack gap={FIELD_GAP}>
               <TextInput
                 label="Тема"

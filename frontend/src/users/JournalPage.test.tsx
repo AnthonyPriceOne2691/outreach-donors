@@ -17,6 +17,7 @@ import type { Me } from '../api/types';
 import { ADMIN, OPERATOR, TOKEN_KEY, card } from '../test/fixtures';
 import { renderWith } from '../test/render';
 import { serve } from '../test/server';
+import { JOURNAL_MIN_WIDTH } from './JournalTable';
 
 const PAGE: JournalView = {
   entries: [
@@ -159,6 +160,24 @@ describe('журнал действий', () => {
     );
     expect(last?.[1]).toMatch(/padding-inline-start: calc\(2 \* var\(--table-horizontal-spacing/);
     expect(last?.[1]).not.toMatch(/text-align/);
+  });
+
+  it('влезает рядом с развёрнутым меню на 1440: подробностям остаётся не меньше 208 px', async () => {
+    // Просьба Anthony 12.10.2026: на 1440 × 900 с развёрнутым меню под таблицу 1 078 px
+    // (замер в браузере), а при 1 180 она уезжала в прокрутку, и подробности по центру
+    // уходили за край. Запас — полоса прокрутки страницы, где она занимает место (до 17 px).
+    openJournal();
+
+    const table = await screen.findByRole('table');
+    const widths = [...table.querySelectorAll('col')].map((col) => col.style.width);
+    // Ширина задана у всех, кроме подробностей: им — остаток.
+    expect(widths.at(-1)).toBe('');
+    const fixed = widths.reduce(
+      (sum, width) => sum + (width === '' ? 0 : parseFloat(width) * 16),
+      0,
+    );
+    expect(JOURNAL_MIN_WIDTH - fixed).toBeGreaterThanOrEqual(208);
+    expect(JOURNAL_MIN_WIDTH).toBeLessThanOrEqual(1078 - 17);
   });
 
   it('незнакомое действие не роняет экран, кто без учётки — из подробностей, было → стало', async () => {
