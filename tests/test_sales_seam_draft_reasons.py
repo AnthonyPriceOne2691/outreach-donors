@@ -16,23 +16,32 @@
 **Решение владельца** — вернуть ли агенту лида, который после «не сейчас» пишет снова с вопросом
 (ТЗ, «Ответы»: «вопрос или интерес — отвечает ИИ-агент»): `xfail(strict=True)` ниже.
 
+**Общий код** — задача черновика, которую модель не смогла написать (ключ или права модели,
+потолок расхода, повторы кончились), кончается итогом задачи и строкой журнала: черновика нет,
+в группу продаж ничего не уходит, а ответ говорит «ответит агент». `xfail(strict=True)` ниже;
+правка — в разделе «Для PR «общее»» отчёта ревью.
+
 База настоящая, очереди и вид ответа — подставные; модели нет.
 """
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from typing import Any
 
 import pytest
 from backend.features.agent.settings import AgentSettingsRepository
-from backend.features.core.domain import ReplyKind, Stage, ThreadStatus
+from backend.features.agent.writer import DraftUnavailableError
+from backend.features.core.domain import DraftStatus, ReplyKind, Stage, ThreadStatus
+from backend.features.core.models.agent import AgentDraftModel
 from backend.features.core.models.outreach import ReplyModel, ThreadModel
 from backend.features.sales import no_draft
-from backend.features.sales.agent import parts
+from backend.features.sales.agent import notify, parts, situation
 from backend.features.sales.reply_kind import KindFound, SalesKind
-from backend.workers import sales_jobs
+from backend.workers import agent_jobs, sales_jobs
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tests import test_sales_send_world as w
 from tests.test_sales_agent_stage import sales_on
@@ -200,3 +209,51 @@ async def test_lead_who_said_not_now_and_asks_again_gets_the_agent_back(
     assert thread.status is ThreadStatus.REPLIED
     assert report["reason"] == AS_BEFORE
     assert queues.drafts() == {"runs": [], "sales": [reply_id]}
+
+
+# --- общий код: модель не смогла написать черновик — группа не узнаёт ------------------------
+
+
+@pytest.mark.usefixtures("sales_on")
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "общий код (workers/agent_jobs.py, agent/drafting.py): задача черновика, которую модель "
+        "не смогла написать (ключ, права, потолок; повторы кончились), кончается итогом задачи "
+        "и строкой журнала — черновика нет, крючок этапа не зовётся, группа продаж не узнаёт, "
+        "ответ говорит «ответит агент». Правка: черновик escalated без текста с причиной "
+        "«черновик не написан: …» и announce, как у пропуска брифа «человеку»"
+    ),
+)
+async def test_a_draft_the_model_could_not_write_reaches_the_group_in_words(
+    session: AsyncSession,
+    queues: Queues,
+    replied: Replied,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reply_id, _ = await replied(QUESTION)
+    assert queues.drafts() == {"runs": [], "sales": [reply_id]}
+
+    async def refused(*_args: object, **_kwargs: object) -> object:
+        raise DraftUnavailableError("ключ модели отклонён (HTTP 401)", permanent=True)
+
+    monkeypatch.setattr(situation, "classify", refused)
+    monkeypatch.setattr(agent_jobs, "create_async_engine", lambda _dsn: _Closable())
+    monkeypatch.setattr(
+        agent_jobs,
+        "async_sessionmaker",
+        lambda _engine, **_kw: async_sessionmaker(bind=session.bind, expire_on_commit=False),
+    )
+    told: list[int] = []
+    monkeypatch.setattr(notify, "queue_notice", told.append)
+
+    with contextlib.suppress(DraftUnavailableError):
+        await agent_jobs._draft_answer(reply_id)
+
+    draft = await session.scalar(
+        select(AgentDraftModel).where(AgentDraftModel.reply_id == reply_id)
+    )
+    assert draft is not None, "черновика нет — и в группу ничего не ушло"
+    assert draft.status is DraftStatus.ESCALATED
+    assert "черновик не написан" in (draft.reason or "")
+    assert told == [draft.id]
