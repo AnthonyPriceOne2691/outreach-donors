@@ -11,6 +11,10 @@ Kommo не подключён, не ответил или ответ потер�
 без цитаты нашего), сводка переписки числами, компания и сайт, проект и услуги — что
 сказал о них разбор ответов дословно из писем и по базе знаний (`handoff_card.told`), —
 гипотеза, ГЕО и язык, ссылка на диалог. Не названо — так и написано: выдумывать нельзя.
+
+**«От:» — адрес, с которого письмо пришло.** Первое письмо спрашивает, кто у компании отвечает
+за маркетинг, и ответить может коллега лида со своего адреса: «От: <адрес лида>» отправил бы
+телемаркетолога не к тому человеку (ревью стыков, круг 2). Не адрес лида — так и сказано.
 """
 
 from __future__ import annotations
@@ -66,6 +70,8 @@ class Card:
     #: О чём проект лида — его словами из письма; услуги — по базе знаний. Пусто — не названы.
     project: str = ""
     services: tuple[str, ...] = ()
+    #: С какого адреса пришло последнее письмо; пусто — не известно (тогда «От:» — адрес лида).
+    reply_from: str = ""
 
     @property
     def new_lead(self) -> NewLead:
@@ -103,7 +109,7 @@ def note(card: Card) -> str:
     first = f"{card.first_sent_at:%d.%m.%Y}" if card.first_sent_at else "—"
     lines = [
         f"Ответ из рассылки{when}",
-        f"От: {card.email}",
+        _sender(card),
         f"Тема: {card.reply_subject or '—'}",
         "",
         card.reply_text[:TEXT_LIMIT] or "(текста ответа нет)",
@@ -116,6 +122,14 @@ def note(card: Card) -> str:
         f"Диалог в сервисе: {dialog_link(card.thread_id)}",
     ]
     return "\n".join(lines)
+
+
+def _sender(card: Card) -> str:
+    """Кто написал: адрес, с которого письмо пришло; не адрес лида — так и сказано."""
+    sender = card.reply_from.strip()
+    if not sender or sender.lower() == card.email.strip().lower():
+        return f"От: {card.email}"
+    return f"От: {sender} (не адрес лида {card.email})"
 
 
 def _told(card: Card) -> tuple[str, str]:
