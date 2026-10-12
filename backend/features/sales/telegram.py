@@ -60,6 +60,11 @@ _ADVICE = {
     404: "токен бота неверен — выпустить новый у @BotFather и заменить SALES_TELEGRAM_BOT_TOKEN",
     409: "у бота включён вебхук, и getUpdates с ним не работает — снять его методом deleteWebhook",
 }
+#: Группа стала супергруппой — у неё новый номер, и Telegram его назвал.
+_MOVED = (
+    "группа стала супергруппой, новый номер чата — {chat}: заменить им "
+    "SALES_TELEGRAM_GROUP_CHAT_ID (или SALES_TELEGRAM_CHAT_ID, если это чат телемаркетолога)"
+)
 
 
 class TelegramError(RuntimeError):
@@ -200,13 +205,21 @@ def _result(response: httpx.Response) -> Any:
     if answer.get("ok") is True:
         return answer.get("result")
     said = hidden(str(answer.get("description") or ""))[:200]
-    advice = _ADVICE.get(code, "повтор позже")
+    moved = _moved_to(answer)
+    advice = _ADVICE.get(code, "повтор позже") if moved is None else _MOVED.format(chat=moved)
     temporary = code == httpx.codes.TOO_MANY_REQUESTS or code >= 500
     raise TelegramError(
         f"Telegram отказал (HTTP {code}: {said}) — {advice}",
         permanent=not temporary,
         retry_after=_asked_wait(answer),
     )
+
+
+def _moved_to(answer: dict[str, Any]) -> int | None:
+    """Новый номер чата, если группа стала супергруппой (`parameters.migrate_to_chat_id`)."""
+    parameters = answer.get("parameters")
+    value = parameters.get("migrate_to_chat_id") if isinstance(parameters, dict) else None
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 def _asked_wait(answer: dict[str, Any]) -> float | None:
