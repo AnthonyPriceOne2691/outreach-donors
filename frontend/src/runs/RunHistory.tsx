@@ -16,16 +16,23 @@
  *
  * **Причина остановки — за значком «!»** (`RunReason`): текст целиком
  * раздувал колонку состояния, и строки вставали разной высоты.
+ *
+ * **Номер прогона — ссылка на его отчёт** (`RunReportPage`, сверка ТЗ 11.10.2026):
+ * проверено, прошло, отсеяно по каждому порогу, юниты и деньги. В строке им места
+ * нет — колонки и так посчитаны по самому широкому, что в них бывает.
  */
 
-import { Badge, Box, Button, Card, Group, Stack, Table, Text } from '@mantine/core';
+import { Anchor, Badge, Box, Card, Group, Stack, Table, Text, VisuallyHidden } from '@mantine/core';
 import { Link, useLocation } from 'react-router-dom';
 
 import { countryTitle, RUN_STATUSES } from '../api/labels';
 import type { RunsPage } from '../api/runs';
 import type { RunCard, RunsView, RunStatus } from '../api/types';
 import { PageSwitch } from '../components/PageSwitch';
+import { TableColumns } from '../components/TableColumns';
+import type { TableColumn } from '../components/TableColumns';
 import { formatDateTime, formatNumber, plural } from '../format';
+import { ReviewLink } from './ReviewLink';
 import { RunReason } from './RunReason';
 
 /** Состояния, в которых прогон ещё не кончился: пока такой есть,
@@ -39,7 +46,7 @@ export const ACTIVE = new Set<RunStatus>(['queued', 'estimating', 'running']);
  *  Уже `MIN_WIDTH` таблица не ужимается, а уезжает в прокрутку: значок
  *  «закончен» сжимался до «законч…», а «человек не смотрел» вставал
  *  по слову в строку. */
-const COLUMNS: { title: string; width: string }[] = [
+const COLUMNS: TableColumn[] = [
   { title: 'Прогон', width: '12.2%' },
   { title: 'Состояние', width: '14.4%' },
   { title: 'Ключей', width: '7%' },
@@ -131,15 +138,9 @@ function ReviewCell({ run, from }: { run: RunCard; from: string }) {
   }
   return (
     <Stack gap={4} align="center">
-      <Button
-        component={Link}
-        to={`/runs/${run.id}/review`}
-        state={{ from }}
-        size="compact-sm"
-        variant={pending > 0 ? 'filled' : 'default'}
-      >
+      <ReviewLink run={run} from={from}>
         {pending > 0 ? `Рассмотреть ${pending}` : 'Открыть'}
-      </Button>
+      </ReviewLink>
       <Text size="xs" c="dimmed">
         принято {accepted} · отклонено {rejected}
       </Text>
@@ -152,6 +153,51 @@ function excludedIn(run: { stats: Record<string, unknown> | null }): number {
   return typeof value === 'number' ? value : 0;
 }
 
+/** Колонка состояния: значок с местом под «!», признак жизни идущего, кто запустил и
+ *  ключи без выдачи. */
+function StatusCell({ run }: { run: RunCard }) {
+  return (
+    <Stack gap={4} align="center">
+      {/* Место под «!» — с обеих сторон: держалось только справа, и значок
+          состояния стоял на ~16 px левее оси колонки, не под заголовком
+          (аудит экранов 09.10.2026). Слева — пустое место той же ширины. */}
+      <Group justify="center" gap={4} wrap="nowrap">
+        <Box w={HINT_SLOT} style={{ flexShrink: 0 }} aria-hidden="true" />
+        <Badge variant="light" color={RUN_STATUSES[run.status].color} style={{ flexShrink: 0 }}>
+          {RUN_STATUSES[run.status].title}
+        </Badge>
+        {/* Значок только там, где есть что сказать: пустой «!» учил бы
+            человека нажимать и ничего не находить. Место под него
+            держится всегда — пустым местом, а не спрятанным значком. */}
+        {run.reason !== null ? (
+          <RunReason reason={run.reason} status={run.status} />
+        ) : (
+          <Box w={HINT_SLOT} style={{ flexShrink: 0 }} aria-hidden="true" />
+        )}
+      </Group>
+      {ACTIVE.has(run.status) && (
+        <Text size="xs" c="dimmed">
+          {aliveFor(run.alive_at)}
+        </Text>
+      )}
+      {/* Кто запустил (ТЗ: «кто, когда, сколько потратил») — именем до «@»: колонка
+          узкая, почта целиком — в подсказке и в отчёте прогона. */}
+      {run.started_by ? (
+        <Text size="xs" c="dimmed" truncate maw="100%" title={run.started_by}>
+          запустил {run.started_by.split('@', 1)[0]}
+        </Text>
+      ) : null}
+      {/* В колонке состояния, а не у числа ключей: это про то, чем
+          кончился прогон, и в узкой колонке ключей метка не помещается. */}
+      {lostKeywords(run) > 0 && (
+        <Text size="xs" c="red">
+          без выдачи: {lostKeywords(run)} из {formatNumber(run.keywords)}
+        </Text>
+      )}
+    </Stack>
+  );
+}
+
 function HistoryRow({ run, from }: { run: RunCard; from: string }) {
   return (
     <Table.Tr>
@@ -159,7 +205,19 @@ function HistoryRow({ run, from }: { run: RunCard; from: string }) {
           истории выше соседних колонок (аудит экранов 09.10.2026). */}
       <Table.Td>
         <Text fw={500}>
-          №{run.id}{' '}
+          {/* Номер — ссылка на отчёт прогона, как домен в таблице доноров — на карточку:
+              строка не раздувается кнопкой, а ссылку открывают и в новой вкладке. Чернила,
+              а не акцент, и подчёркнута всегда — иначе ссылку не отличить от текста. */}
+          <Anchor
+            component={Link}
+            to={`/runs/${run.id}`}
+            state={{ from }}
+            c="var(--ink)"
+            underline="always"
+            fw={500}
+          >
+            <VisuallyHidden>Отчёт прогона </VisuallyHidden>№{run.id}
+          </Anchor>{' '}
           <Text span size="sm" fw={400} c="dimmed">
             · {countryTitle(run.country)}
           </Text>
@@ -169,37 +227,7 @@ function HistoryRow({ run, from }: { run: RunCard; from: string }) {
         </Text>
       </Table.Td>
       <Table.Td>
-        <Stack gap={4} align="center">
-          {/* Место под «!» — с обеих сторон: держалось только справа, и значок
-              состояния стоял на ~16 px левее оси колонки, не под заголовком
-              (аудит экранов 09.10.2026). Слева — пустое место той же ширины. */}
-          <Group justify="center" gap={4} wrap="nowrap">
-            <Box w={HINT_SLOT} style={{ flexShrink: 0 }} aria-hidden="true" />
-            <Badge variant="light" color={RUN_STATUSES[run.status].color} style={{ flexShrink: 0 }}>
-              {RUN_STATUSES[run.status].title}
-            </Badge>
-            {/* Значок только там, где есть что сказать: пустой «!» учил бы
-                человека нажимать и ничего не находить. Место под него
-                держится всегда — пустым местом, а не спрятанным значком. */}
-            {run.reason !== null ? (
-              <RunReason reason={run.reason} status={run.status} />
-            ) : (
-              <Box w={HINT_SLOT} style={{ flexShrink: 0 }} aria-hidden="true" />
-            )}
-          </Group>
-          {ACTIVE.has(run.status) && (
-            <Text size="xs" c="dimmed">
-              {aliveFor(run.alive_at)}
-            </Text>
-          )}
-          {/* В колонке состояния, а не у числа ключей: это про то, чем
-              кончился прогон, и в узкой колонке ключей метка не помещается. */}
-          {lostKeywords(run) > 0 && (
-            <Text size="xs" c="red">
-              без выдачи: {lostKeywords(run)} из {formatNumber(run.keywords)}
-            </Text>
-          )}
-        </Stack>
+        <StatusCell run={run} />
       </Table.Td>
       <Table.Td>{formatNumber(run.keywords)}</Table.Td>
       <Table.Td>
@@ -287,18 +315,7 @@ export function RunHistory({ view, page, onPage }: Props) {
           verticalSpacing="sm"
           horizontalSpacing="xs"
         >
-          <colgroup>
-            {COLUMNS.map((column) => (
-              <col key={column.title} style={{ width: column.width }} />
-            ))}
-          </colgroup>
-          <Table.Thead>
-            <Table.Tr>
-              {COLUMNS.map((column) => (
-                <Table.Th key={column.title}>{column.title}</Table.Th>
-              ))}
-            </Table.Tr>
-          </Table.Thead>
+          <TableColumns columns={COLUMNS} />
           <Table.Tbody>
             {rows.map((run) => (
               <HistoryRow key={run.id} run={run} from={search} />

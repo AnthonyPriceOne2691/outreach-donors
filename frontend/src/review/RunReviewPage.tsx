@@ -42,19 +42,15 @@ import {
 import { useMediaQuery } from '@mantine/hooks';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Fragment, useState } from 'react';
-import type { ReactNode } from 'react';
-import { useLocation, useParams } from 'react-router-dom';
 
-import { ApiError, refusalOf } from '../api/client';
-import { rowIdOf } from '../api/ids';
+import { refusalOf } from '../api/client';
 import { countryTitle, REVIEW_DECISIONS } from '../api/labels';
 import { decideCandidates, loadAccuracy, loadReview } from '../api/review';
 import { KeywordYieldCard } from './KeywordYieldCard';
 import type { AccuracyView, AgreementView, ReviewDecision, ReviewView } from '../api/types';
 import { useSession } from '../auth/AuthProvider';
-import { BackLink, backTo } from '../components/BackLink';
 import { Metric } from '../components/Metric';
-import { PageHead } from '../components/PageHead';
+import { missingRun, NoSuchRun, RunHead, useRunAddress } from '../runs/runAddress';
 import { CandidateRow } from './CandidateRow';
 import { BulkBar, TierRow } from './QueueParts';
 import { notify } from '../notices';
@@ -146,49 +142,11 @@ function JudgeScore({ run, overall }: { run: AccuracyView; overall: AccuracyView
   );
 }
 
-/** Верх экрана: возврат, заголовок, пояснение. Стоит и пока очередь едет —
- *  номер прогона известен из адреса. */
-function Head({
-  back,
-  title,
-  hint,
-  children,
-}: {
-  back: string;
-  title: string;
-  hint?: string;
-  children?: ReactNode;
-}) {
-  return (
-    <Stack gap={6}>
-      <BackLink to={back}>К прогонам</BackLink>
-      <PageHead title={title} {...(hint === undefined ? {} : { hint })} />
-      {children}
-    </Stack>
-  );
-}
-
-/** Прогона нет: номер негодный или такого нет в базе. Словами и со ссылкой
- *  назад — пустое полотно или отказ разбора ничего не объясняют. */
-function NoSuchRun({ back, said }: { back: string; said: string }) {
-  return (
-    <Card className="glassPanel" p="xl">
-      <Head back={back} title="Такого прогона нет">
-        <Text size="sm" c="dimmed" maw={720}>
-          {said} Все прогоны — в истории на экране «Прогон»: к рассмотрению ведёт кнопка в строке
-          прогона.
-        </Text>
-      </Head>
-    </Card>
-  );
-}
-
 export function RunReviewPage() {
   const { can } = useSession();
   const mayDecide = can('prices');
-  const raw = useParams().id;
-  const runId = rowIdOf(raw);
-  const back = `/run${backTo(useLocation().state)}`;
+  const address = useRunAddress();
+  const { runId, back } = address;
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<ReviewDecision>('pending');
   const [showDoubtful, setShowDoubtful] = useState(false);
@@ -249,11 +207,11 @@ export function RunReviewPage() {
     setStatus(next);
   };
 
-  if (runId === null) {
-    return <NoSuchRun back={back} said={`«${raw ?? ''}» в адресе — не номер прогона.`} />;
-  }
-  if (review.error instanceof ApiError && review.error.status === 404) {
-    return <NoSuchRun back={back} said={`${refusalOf(review.error)}.`} />;
+  const missing = missingRun(address, review.error);
+  if (missing !== null) {
+    return (
+      <NoSuchRun back={back} said={missing} where="к рассмотрению ведёт кнопка в строке прогона." />
+    );
   }
 
   // Прежний ответ годится, пока он про этот же прогон: переход из карточки
@@ -268,7 +226,7 @@ export function RunReviewPage() {
     return (
       <Stack gap="lg">
         <Card className="glassPanel" p="xl">
-          <Head back={back} title={title} />
+          <RunHead back={back} title={title} />
         </Card>
         {review.error ? (
           <Alert color="red" title="Очередь не загрузилась">
@@ -312,7 +270,7 @@ export function RunReviewPage() {
       <Card className="glassPanel" p="xl">
         <Stack gap="md">
           {/* Под заголовком — факты прогона; как устроен экран — в «i» (аудит 09.10.2026). */}
-          <Head
+          <RunHead
             back={back}
             title={title}
             hint="Годные по порогам ждут решения: контакты ищутся и письма собираются только принятым. Судья сортирует очередь и подсказывает, но не решает; сомнительные скрыты, а не выброшены."
@@ -329,7 +287,7 @@ export function RunReviewPage() {
                 посчитать.
               </Text>
             )}
-          </Head>
+          </RunHead>
           {accuracy.data && overall.data && (
             <JudgeScore run={accuracy.data} overall={overall.data} />
           )}

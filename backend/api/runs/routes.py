@@ -17,11 +17,19 @@ import asyncio
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.api.deps import db_session, needs
-from backend.api.runs.schemas import Forecast, RunCard, RunQueued, RunRequestBody, RunsView
+from backend.api.deps import actor, db_session, needs
+from backend.api.runs.schemas import (
+    Forecast,
+    RunCard,
+    RunQueued,
+    RunReportView,
+    RunRequestBody,
+    RunsView,
+)
 from backend.config import ahrefs as ahrefs_cfg
 from backend.config import filters
 from backend.config.startup_checks import check_collect
+from backend.features.access.permissions import visible_stages
 from backend.features.access.repository import AccessRepository
 from backend.features.ahrefs.client import AhrefsClient
 from backend.features.core.domain import AuditAction, Permission, Stage
@@ -31,6 +39,7 @@ from backend.features.runs.browse import MAX_PAGE_SIZE, PAGE_SIZE, RunBrowser
 from backend.features.runs.budget import units_left
 from backend.features.runs.duplicates import refuse_duplicate
 from backend.features.runs.estimate import UNIQUE_SHARE, forecast
+from backend.features.runs.outcome import outcome
 from backend.features.runs.repository import RunRepository
 from backend.features.runs.spending import ahrefs_spent_this_month, cap_left
 from backend.features.runs.thresholds import in_force
@@ -226,3 +235,18 @@ async def one_run(
     session: AsyncSession = Depends(db_session),
 ) -> RunCard:
     return RunCard.of(await RunBrowser(session).one(run_id))
+
+
+@router.get("/{run_id}/report", response_model=RunReportView, summary="Отчёт прогона")
+async def run_report(
+    run_id: int,
+    user: UserModel = _viewer,
+    session: AsyncSession = Depends(db_session),
+) -> RunReportView:
+    """Что прогон проверил, что прошло фильтр, по какому порогу отсеяно и во что
+    обошлось — требование ТЗ к отчёту прогона (`runs/outcome.py`).
+
+    Отдельным маршрутом, а не полем строки истории: расход читается из журнала
+    по прогону, и считать его для десяти строк страницы ради одной открытой незачем.
+    """
+    return RunReportView.of(await outcome(session, run_id, stages=visible_stages(actor(user))))

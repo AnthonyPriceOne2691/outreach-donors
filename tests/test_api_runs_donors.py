@@ -43,6 +43,8 @@ ROUTES: list[tuple[str, str, dict[str, Any] | None, str]] = [
     ("GET", "/api/runs", None, "view"),
     ("GET", "/api/runs/with-accepted", None, "view"),
     ("GET", "/api/runs/{run}", None, "view"),
+    # Отчёт прогона читают все, кто смотрит базу: трат в нём нет, только их счёт.
+    ("GET", "/api/runs/{run}/report", None, "view"),
     ("GET", "/api/donors", None, "view"),
     ("GET", "/api/donors/{donor}", None, "view"),
     ("GET", "/api/donors/export", None, "view"),

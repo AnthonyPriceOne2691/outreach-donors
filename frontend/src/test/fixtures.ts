@@ -83,6 +83,7 @@ export const OVERVIEW: OverviewView = {
     disagreements: 0,
     queue: { pending: 394 },
     reason: null,
+    started_by: null,
   },
   ahrefs_units: 42716,
   ahrefs_cap: 100000,

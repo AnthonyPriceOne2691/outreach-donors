@@ -87,38 +87,56 @@ class SpendingRepository:
         """Расход с первого числа — этапов, которые видит спрашивающий (`stages`). Умолчания
         у этапов нет (ревью продаж к #304): забытый вызов ловит mypy."""
         since = _month_start(now)
-        rows = await self._session.execute(
-            select(
-                UsageRecordModel.provider,
-                UsageRecordModel.operation,
-                func.coalesce(func.sum(UsageRecordModel.units), 0),
-                func.coalesce(func.sum(UsageRecordModel.amount_usd), 0),
-                func.count(UsageRecordModel.id),
-            )
-            .where(UsageRecordModel.created_at >= since, _seen(stages))
-            .group_by(UsageRecordModel.provider, UsageRecordModel.operation)
-            .order_by(func.coalesce(func.sum(UsageRecordModel.units), 0).desc())
-        )
-
-        # `coalesce` в запросе уже подставил ноль вместо пустоты, но
-        # типизатор об этом не знает: для него сумма по столбцу всегда
-        # может быть `None`. Подстраховка ниже — для него, а не от жизни.
-        articles = [
-            Article(
-                provider=provider,
-                operation=operation,
-                units=int(units or 0),
-                amount_usd=Decimal(amount or 0),
-                calls=int(calls),
-            )
-            for provider, operation, units, amount, calls in rows.tuples().all()
-        ]
+        articles = await self._articles(UsageRecordModel.created_at >= since, _seen(stages))
         return Spending(
             since=since,
             articles=articles,
             units_by_provider=_sum_units(articles),
             amount_by_provider=_sum_amount(articles),
         )
+
+    async def of_run(self, run_id: int, *, stages: Collection[Stage]) -> list[Article]:
+        """Расход прогона по журналу — статьями, всё записанное за его номером.
+
+        По журналу, а не по отчёту прогона: журнал пишется на каждом чекпоинте и знает
+        выдачу в деньгах, токены судьи и траты прежних попыток (`runs/outcome.py`).
+        Этапы видимости — то же правило, что у экрана расхода (П2б): у прогона доноров
+        операций продаж нет, но правило не должно держаться на том, что их пока нет.
+        """
+        return await self._articles(UsageRecordModel.run_id == run_id, _seen(stages))
+
+    async def _articles(self, *where: ColumnElement[bool]) -> list[Article]:
+        """Статьи расхода по условию: провайдер и операция, сумма единиц и денег, запросов.
+
+        Порядок — по единицам, при равных — по провайдеру и операции: строки с одной суммой
+        иначе вставали бы как придётся, от ответа к ответу по-разному.
+        """
+        units = func.coalesce(func.sum(UsageRecordModel.units), 0)
+        rows = await self._session.execute(
+            select(
+                UsageRecordModel.provider,
+                UsageRecordModel.operation,
+                units,
+                func.coalesce(func.sum(UsageRecordModel.amount_usd), 0),
+                func.count(UsageRecordModel.id),
+            )
+            .where(*where)
+            .group_by(UsageRecordModel.provider, UsageRecordModel.operation)
+            .order_by(units.desc(), UsageRecordModel.provider, UsageRecordModel.operation)
+        )
+        # `coalesce` в запросе уже подставил ноль вместо пустоты, но
+        # типизатор об этом не знает: для него сумма по столбцу всегда
+        # может быть `None`. Подстраховка ниже — для него, а не от жизни.
+        return [
+            Article(
+                provider=provider,
+                operation=operation,
+                units=int(spent or 0),
+                amount_usd=Decimal(amount or 0),
+                calls=int(calls),
+            )
+            for provider, operation, spent, amount, calls in rows.tuples().all()
+        ]
 
 
 async def ahrefs_spent_this_month(session: AsyncSession, *, now: datetime | None = None) -> int:

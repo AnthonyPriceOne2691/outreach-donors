@@ -28,6 +28,7 @@ import { LettersPage } from './letters/LettersPage';
 import { DonorsPage } from './donors/DonorsPage';
 import { FormsPage } from './forms/FormsPage';
 import { RunPage } from './runs/RunPage';
+import { RunReportPage } from './runs/RunReportPage';
 import { SendersPage } from './senders/SendersPage';
 import { SuppressionsPage } from './suppressions/SuppressionsPage';
 import { ThresholdsPage } from './settings/ThresholdsPage';
@@ -93,6 +94,14 @@ export function AppRoutes() {
           element={
             <RequireAccess permission="view">
               <DonorPage />
+            </RequireAccess>
+          }
+        />
+        <Route
+          path="/runs/:id"
+          element={
+            <RequireAccess permission="view">
+              <RunReportPage />
             </RequireAccess>
           }
         />
