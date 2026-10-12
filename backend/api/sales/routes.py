@@ -21,8 +21,9 @@
 
 **База знаний и отправитель** (срез 3.1) — своим модулем `kb.py`, **цепочка писем**
 (срез 4.6) — модулем `chain.py`, **очередь писем** (срез 4.6b) — модулем `queue.py`,
-**воронка** (срез 5.4) — модулем `funnel.py`, **очистка лидов** — модулем `clean.py`; их
-маршруты входят в этот же роутер: у раздела один префикс. Права — как в ядре: смотреть и
+**воронка** (срез 5.4) — модулем `funnel.py`, **очистка лидов** — модулем `clean.py`,
+**качество агента** (срез 6.4) — модулем `calibration.py`; их маршруты входят в этот же
+роутер: у раздела один префикс. Права — как в ядре: смотреть и
 заводить гипотезу — `sales`; очистка — `sales` и `run` (платная проверка адресов, как поиск
 адресов); запись цепочки, базы знаний и отправителя и сборка очереди — `sales` и `send`.
 """
@@ -39,6 +40,7 @@ from pydantic import BaseModel, Field, NonNegativeInt, TypeAdapter, ValidationEr
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.deps import db_session, needs
+from backend.api.sales import calibration as calibration_routes
 from backend.api.sales import chain as chain_routes
 from backend.api.sales import clean as clean_routes
 from backend.api.sales import funnel as funnel_routes
@@ -204,3 +206,4 @@ router.include_router(chain_routes.router)
 router.include_router(queue_routes.router)
 router.include_router(funnel_routes.router)
 router.include_router(clean_routes.router)
+router.include_router(calibration_routes.router)

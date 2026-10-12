@@ -138,6 +138,14 @@ class _Sales(DomainSettings):
     # Каталог набора для прогона агента на накопленных ответах (`scripts/sales_replay.py`):
     # набор из настоящих писем живёт вне репозитория; пусто — не задан.
     replay_dir: str = Field(default="", validation_alias="SALES_REPLAY_DIR")
+    # Ворота автоответа агента продаж: решений по ситуации не меньше этого, прежде чем экран
+    # «Агент: качество» судит её доли (`agent/calibration.py`); меньше — «данных мало». 30:
+    # ноль ложных молчаний на 30 — с уверенностью 95% их не больше 10% (правило трёх), а
+    # доля «без правки» 80% на 30 решениях — плюс-минус 7 пунктов. Меньше пяти — доля из
+    # горсти решений, больше тысячи — опечатка.
+    autoreply_min_n: int = Field(
+        default=30, ge=5, le=1000, validation_alias="SALES_AUTOREPLY_MIN_N"
+    )
 
 
 def _days(text: str) -> frozenset[int]:
@@ -202,6 +210,7 @@ JUDGE_MODE: SalesJudgeMode = _s.judge_mode
 JUDGE_GOLDEN_DIR: str = _s.judge_golden_dir.strip()
 STYLE_GOLDEN_DIR: str = _s.style_golden_dir.strip()
 REPLAY_DIR: str = _s.replay_dir.strip()
+AUTOREPLY_MIN_N: int = _s.autoreply_min_n
 
 #: Не больше стольких запросов в секунду. Предел Kommo из его документации —
 #: семь в секунду с одного IP для любой интеграции; чаще — 429, а частые 429

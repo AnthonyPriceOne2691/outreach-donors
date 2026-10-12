@@ -8,6 +8,9 @@
 **Переписка — какой была к приходу письма**: наши письма, ушедшие до него, и письма
 собеседника по него. Наш ответ на него в неё не попадает — иначе версия «увидела» бы
 решение человека.
+
+Черновики продаж (`sales_drafts`), ответы на письма (`answered`) и решение человека
+(`decided`) читает и экран калибровки (`calibration.py`): одно правило у прогона и у чисел.
 """
 
 from __future__ import annotations
@@ -16,7 +19,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import or_, select
+from sqlalchemy import Select, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.features.agent.writer import Turn
@@ -50,25 +53,28 @@ class Drafts:
     fresh: int
 
 
+def sales_drafts() -> Select[tuple[AgentDraftModel, ReplyModel]]:
+    """Черновики этапа продаж с письмом собеседника, на которое написаны, — по номеру."""
+    return (
+        select(AgentDraftModel, ReplyModel)
+        .join(ReplyModel, ReplyModel.id == AgentDraftModel.reply_id)
+        .join(ThreadModel, ThreadModel.id == ReplyModel.thread_id)
+        .join(CampaignModel, CampaignModel.id == ThreadModel.campaign_id)
+        .where(CampaignModel.stage == Stage.SALES)
+        .order_by(AgentDraftModel.id)
+    )
+
+
 async def from_drafts(
     session: AsyncSession, *, now: datetime, settle: timedelta = SETTLE
 ) -> Drafts:
     """Черновики этапа продаж с решением человека — случаями прогона."""
-    rows = (
-        await session.execute(
-            select(AgentDraftModel, ReplyModel)
-            .join(ReplyModel, ReplyModel.id == AgentDraftModel.reply_id)
-            .join(ThreadModel, ThreadModel.id == ReplyModel.thread_id)
-            .join(CampaignModel, CampaignModel.id == ThreadModel.campaign_id)
-            .where(CampaignModel.stage == Stage.SALES)
-            .order_by(AgentDraftModel.id)
-        )
-    ).all()
-    answered = await _answered(session, [reply.id for _, reply in rows])
+    rows = (await session.execute(sales_drafts())).all()
+    replied = await answered(session, [reply.id for _, reply in rows])
     cases: list[Case] = []
     pending = fresh = 0
     for draft, reply in rows:
-        human = decided(draft, answered=reply.id in answered)
+        human = decided(draft, answered=reply.id in replied)
         if human is None:
             pending += 1
         elif human.decision is Decision.SILENT and reply.created_at > now - settle:
@@ -101,7 +107,7 @@ def decided(draft: AgentDraftModel, *, answered: bool) -> Human | None:
     return None
 
 
-async def _answered(session: AsyncSession, reply_ids: Sequence[int]) -> set[int]:
+async def answered(session: AsyncSession, reply_ids: Sequence[int]) -> set[int]:
     """Входящие, на которые человек ответил письмом — в любом его состоянии: решение
     ответить принято, а дошло ли письмо — забота почты."""
     if not reply_ids:
