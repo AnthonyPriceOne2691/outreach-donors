@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.features.core import stages
 from backend.features.core.domain import MessageStatus, Stage
 from backend.features.core.models.outreach import MessageModel, SenderHealthModel, SenderModel
-from backend.features.outreach.autopause import AutoPause, pause_once
+from backend.features.outreach.autopause import AutoPause, pause_once, window_advice
 from backend.features.outreach.senders import warmup_state
 
 if TYPE_CHECKING:
@@ -101,18 +101,18 @@ async def listen(
         return Heard(ruled=True)
     judged = event.kind in JUDGED and sender.enabled
     why = await _verdict(session, sender, rules, at) if judged else None
-    return Heard(ruled=True, paused=await _paused(session, sender, why, at))
+    return Heard(ruled=True, paused=await _paused(session, sender, rules, why, at))
 
 
 async def _paused(
-    session: AsyncSession, sender: SenderModel, why: str | None, at: datetime
+    session: AsyncSession, sender: SenderModel, rules: SoftSignals, why: str | None, at: datetime
 ) -> AutoPause | None:
-    """Пауза по вердикту — одна на ящик (`autopause.pause_once`) и строкой журнала. `None` —
-    вердикта нет или ящик уже остановили рядом."""
+    """Пауза по вердикту — одна на ящик (`autopause.pause_once`) и строкой журнала, совет — по
+    окну правила. `None` — вердикта нет или ящик уже остановили рядом."""
     if why is None or not await pause_once(session, sender, why, now=at):
         return None
     _note(session, sender, "paused", why, at)
-    return AutoPause(sender.email, sender.stage, why)
+    return AutoPause(sender.email, sender.stage, why, window_advice(rules.window))
 
 
 async def _known(session: AsyncSession, event_id: str | None) -> bool:

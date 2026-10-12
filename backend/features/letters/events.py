@@ -74,7 +74,7 @@ from backend.features.core.models.ops import SuppressionModel
 from backend.features.core.models.outreach import CampaignModel, MessageModel, SenderModel
 from backend.features.letters import unknown_outcome
 from backend.features.outreach import health
-from backend.features.outreach.autopause import AutoPause, pause_once
+from backend.features.outreach.autopause import LIFETIME_ADVICE, AutoPause, pause_once
 
 logger = logging.getLogger(__name__)
 
@@ -380,7 +380,7 @@ async def _park_if_burning(
         f"доля отказов {rate:.0%} — {bounced} из {sent} писем за всё время ящика, "
         f"порог {cfg.BOUNCE_PAUSE_THRESHOLD:.0%}"
     )
-    return AutoPause(sender.email, sender.stage, why)
+    return AutoPause(sender.email, sender.stage, why, LIFETIME_ADVICE)
 
 
 async def _delivery_stats(session: AsyncSession, sender_id: int) -> tuple[int, int]:
