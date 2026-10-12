@@ -437,7 +437,7 @@ async def test_the_watch_talks_to_the_network_outside_its_transaction(
         seen.append(("провайдеры", opened[0].in_transaction()))
         return None
 
-    async def tell(_found: object) -> None:
+    async def tell(_found: object, **_: object) -> None:
         seen.append(("Telegram", opened[0].in_transaction()))
 
     monkeypatch.setattr(silence, "alarms", alarms)

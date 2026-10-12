@@ -56,16 +56,30 @@ POLL_INTERVAL_SEC = 60.0
 #: где провайдеры не ответили до таймаутов (Ahrefs 30 с, источник выдачи 60 с), и Telegram
 #: (10 с) — меньше 14 минут. Проход — счёты по базе; провайдеров он спрашивает реже
 #: (`PROVIDERS_INTERVAL_SEC`): медленный опрос попадает в окно тревоги не больше одного раза.
+#: «Прошло» и строки журнала — по времени, как при прежнем проходе (`QUIET_SEC`, `JOURNAL`).
 WATCHDOG_INTERVAL_SEC = 120.0
 
 #: Как часто сторож спрашивает провайдеров — как до частого прохода: два бесплатных запроса
 #: раз в десять минут, между опросами — прежний ответ. Чаще незачем: ключ Ahrefs общий.
 PROVIDERS_INTERVAL_SEC = 600.0
 
+#: Сколько тревоги сторожа не должно быть, прежде чем сказать «прошло»: 20 минут с прохода, где
+#: её видели, — как при проходе раз в десять минут и двух проходах без неё. Временем, а не числом
+#: проходов (ревью #337): проход стал чаще, а мигание короче 20 минут пары «тревога / прошло» не
+#: даёт. Срок тревоги это не задевает: «тревога» — сразу.
+QUIET_SEC = 1200.0
+
+#: Как часто строка журнала о каждой действующей тревоге — как до частого прохода: раз в десять
+#: минут, о новой — сразу (`silence.Journal`).
+JOURNAL_INTERVAL_SEC = 600.0
+
 #: Что сторож уже сказал человеку в Telegram — по смене состояния (`ops/alarm_feed.py`). Своё
 #: имя — своё сказанное: в этом же процессе говорит лента бота продаж (`notify.BOT_FEED`, без
 #: имени).
-FEED = Feed("watchdog")
+FEED = Feed("watchdog", quiet_sec=QUIET_SEC)
+
+#: Строки журнала фонового сторожа — не чаще `JOURNAL_INTERVAL_SEC` о каждой тревоге.
+JOURNAL = silence.Journal(every=JOURNAL_INTERVAL_SEC)
 
 
 @dataclass
@@ -76,13 +90,22 @@ class Providers:
     clock: Callable[[], float] = time.monotonic
     asked_at: float | None = None
     answer: Alarm | None = None
+    #: Последний `probe` отдал прежний ответ — провайдеров этот проход не спрашивал.
+    stale: bool = False
 
     async def probe(self) -> Alarm | None:
         """Тревога «провайдер не отвечает» — свежая или прежняя, если срок опроса не пришёл."""
         moment = self.clock()
-        if self.asked_at is None or moment - self.asked_at >= PROVIDERS_INTERVAL_SEC:
+        self.stale = self.asked_at is not None and moment - self.asked_at < PROVIDERS_INTERVAL_SEC
+        if not self.stale:
             self.answer, self.asked_at = await probe_providers(), moment
         return self.answer
+
+    @property
+    def unseen(self) -> frozenset[str]:
+        """Коды, о которых проход не спрашивал: прежний ответ — не наблюдение, и «провайдер не
+        отвечает» ленте снимает только свежий опрос (`Feed.tell(…, unseen=…)`, ревью #337)."""
+        return frozenset({silence.PROVIDERS_ALARM}) if self.stale else frozenset()
 
 
 #: Опрос провайдеров фонового сторожа — с ответом между опросами.
@@ -165,7 +188,8 @@ async def watch() -> None:
             found = await silence.alarms(session, stages=EVERY_STAGE)
     finally:
         await engine.dispose()
-    await FEED.tell(await silence.with_providers(found, probe=PROVIDERS.probe))
+    told = await silence.with_providers(found, probe=PROVIDERS.probe, journal=JOURNAL)
+    await FEED.tell(told, unseen=PROVIDERS.unseen)
 
 
 async def retry_handoffs() -> None:

@@ -7,9 +7,14 @@
 ОТПРАВЛЕНА» в журнале, тоже по смене состояния. **Telegram не принял** — следующий проход
 скажет ещё раз.
 
-**Дребезг.** «Тревога» — сразу, «прошло» — когда тревоги нет `QUIET_PASSES` проходов подряд:
-тревога, которая мигает через проход (ящик на часовом потолке добивок), — одно «тревога», а не
-сообщение на каждом проходе. Вернулась раньше — счёт сначала, и ни одного сообщения.
+**Дребезг.** «Тревога» — сразу, «прошло» — когда тревоги нет `QUIET_PASSES` проходов подряд, а
+у ленты со сроком тишины (`Feed.quiet_sec`) — ещё и столько секунд с прохода, где её видели:
+тревога, которая мигает (ящик на часовом потолке добивок), — одно «тревога», а не сообщение на
+каждом проходе. Вернулась раньше — счёт сначала, и ни одного сообщения. Срок — временем, а не
+числом проходов: у сторожа проход стал чаще (`workers/reaper.QUIET_SEC`), и счёт проходов
+ослабил бы защиту от мигания во столько же раз (ревью #337). Код, о котором проход не спрашивал
+(`tell(…, unseen=…)`: прежний ответ провайдеров между опросами), — не наблюдение: ни счёт, ни
+срок по нему не идут, и «прошло» о нём скажет только свежий ответ.
 
 **Сказанное переживает перезапуск.** Код тревоги и её заголовок лежат хэшем в Redis
 (`TOLD_KEY`; reaper и так ходит в Redis за живостью задач): тревога, кончившаяся за выкаткой
@@ -34,7 +39,8 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping, Sequence
+import time
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 
 from redis import Redis
@@ -47,8 +53,9 @@ from backend.shared.alerts import send_alert
 
 logger = logging.getLogger(__name__)
 
-#: Сколько проходов подряд тревоги нет, прежде чем сказать «прошло». Проход сторожа — раз
-#: в две минуты (`workers/reaper.WATCHDOG_INTERVAL_SEC`): «прошло» — после 2–4 минут тишины.
+#: Сколько проходов подряд тревоги нет, прежде чем сказать «прошло», — у каждой ленты: одно
+#: наблюдение без тревоги — ещё не конец. Лента бота продаж (проход раз в 5 минут) этим и
+#: ограничивается; у сторожа (проход раз в 2 минуты) решает срок тишины `Feed.quiet_sec`.
 QUIET_PASSES = 2
 
 #: Где сказанное ждёт следующий процесс: хэш «код тревоги → заголовок» на ленту и канал —
@@ -94,9 +101,17 @@ class Feed:
 
     #: Назначение ленты — часть ключа её хэша. Без имени — `UNNAMED`.
     name: str = UNNAMED
+    #: Сколько секунд сказанной тревоги не должно быть с прохода, где её видели, прежде чем
+    #: сказать «прошло» (вдобавок к `QUIET_PASSES`). 0 — хватает проходов.
+    quiet_sec: float = 0.0
+    #: Часы срока тишины — монотонные: перевод системных часов срок не сбивает.
+    clock: Callable[[], float] = time.monotonic
     told: dict[str, str] = field(default_factory=dict)
     #: Сколько проходов подряд сказанной тревоги нет (в памяти: перезапуск начинает счёт заново).
     quiet: dict[str, int] = field(default_factory=dict)
+    #: Когда проход видел сказанную тревогу в последний раз (в памяти: после перезапуска срок
+    #: идёт от первого прохода без неё).
+    seen: dict[str, float] = field(default_factory=dict)
     #: Прочитано ли сказанное прежним процессом. До того зеркало не пишется: затёрло бы его.
     recalled: bool = False
     #: Память разошлась с Redis (запись не удалась или ещё не читали) — дописать.
@@ -104,29 +119,46 @@ class Feed:
     #: Запись в этом проходе не удалась — до его конца Redis не ждём: дописывает следующий проход.
     stalled: bool = False
 
-    async def tell(self, found: Sequence[Alarm]) -> None:
-        """Сказать о новых тревогах сразу и о прошедших — после `QUIET_PASSES` проходов без них."""
+    async def tell(self, found: Sequence[Alarm], *, unseen: Collection[str] = ()) -> None:
+        """Сказать о новых тревогах сразу и о прошедших — когда их нет `QUIET_PASSES` проходов
+        подряд и `quiet_sec` секунд. `unseen` — коды, о которых проход не спрашивал: прежний
+        ответ — не наблюдение, счёт и срок тишины по ним стоят."""
         self.stalled = False
         self._recall()
+        moment = self.clock()
         now = {alarm.code: alarm for alarm in found}
         await self._new(now)
-        await self._gone(now)
+        self._saw([code for code in now if code not in unseen], moment)
+        await self._gone({*now, *unseen}, moment)
 
     async def _new(self, now: Mapping[str, Alarm]) -> None:
-        """Новая тревога — сразу; действующая начинает счёт тишины заново."""
+        """Новая тревога — сразу."""
         for code, alarm in now.items():
-            self.quiet.pop(code, None)
             if code not in self.told and await _said(f"тревога: {alarm.title}. {alarm.detail}"):
                 self.told[code] = alarm.title
                 self._save()
 
-    async def _gone(self, now: Mapping[str, Alarm]) -> None:
-        """Прошедшая — когда её нет `QUIET_PASSES` проходов подряд."""
-        for code in [code for code in self.told if code not in now]:
-            self.quiet[code] = self.quiet.get(code, 0) + 1
-            if self.quiet[code] >= QUIET_PASSES and await _said(f"прошло: {self.told[code]}"):
-                del self.told[code], self.quiet[code]
+    def _saw(self, codes: Iterable[str], moment: float) -> None:
+        """Сказанные тревоги, которые проход видел: счёт и срок тишины — заново."""
+        for code in codes:
+            if code in self.told:
+                self.quiet.pop(code, None)
+                self.seen[code] = moment
+
+    async def _gone(self, kept: Collection[str], moment: float) -> None:
+        """Прошедшая — когда тишина вышла (`_over`). `kept` — коды, которые проход видел или о
+        которых не спрашивал: о них «прошло» не говорится."""
+        for code in [code for code in self.told if code not in kept]:
+            if self._over(code, moment) and await _said(f"прошло: {self.told[code]}"):
+                del self.told[code], self.quiet[code], self.seen[code]
                 self._save()
+
+    def _over(self, code: str, moment: float) -> bool:
+        """Ещё проход без тревоги `code`; вышла ли тишина — `QUIET_PASSES` проходов подряд и
+        `quiet_sec` секунд с прохода, где её видели."""
+        self.quiet[code] = self.quiet.get(code, 0) + 1
+        since = self.seen.setdefault(code, moment)
+        return self.quiet[code] >= QUIET_PASSES and moment - since >= self.quiet_sec
 
     def _recall(self) -> None:
         """Сказанное прежним процессом — один раз, когда Redis ответит; сказанное этим

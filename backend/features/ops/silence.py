@@ -25,7 +25,9 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Awaitable, Callable, Collection, Sequence
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
@@ -72,6 +74,9 @@ RUN_SILENCE_MINUTES = 30
 
 #: За сколько последних обходов смотрим здоровье краула.
 CRAWL_RUNS_WATCHED = 10
+
+#: Код тревоги «провайдер не отвечает» — единственной, которую проход узнаёт из сети.
+PROVIDERS_ALARM = "provider-unreachable"
 
 
 async def alarms(
@@ -123,7 +128,7 @@ async def probe_providers() -> Alarm | None:
     if not dead:
         return None
     return Alarm(
-        code="provider-unreachable",
+        code=PROVIDERS_ALARM,
         title="Провайдер не отвечает",
         detail=(
             f"Не отвечает: {', '.join(dead)}. Прогон при недоступном остатке "
@@ -316,8 +321,40 @@ async def _cap_reached(session: AsyncSession) -> Alarm | None:
     )
 
 
+@dataclass
+class Journal:
+    """Строки журнала прохода сторожа: о каждой тревоге — не чаще раза в `every` секунд, о новой
+    — сразу; «тихо и правильно» — так же. `every` 0 — каждый проход.
+
+    Фоновый проход стал чаще (`workers/reaper.WATCHDOG_INTERVAL_SEC`), а журнал — нет: строка о
+    действующей тревоге на каждом проходе писалась бы в пять раз чаще прежнего, ничего не
+    добавляя (ревью #337). Часы монотонные."""
+
+    every: float = 0.0
+    clock: Callable[[], float] = time.monotonic
+    #: Когда о тревоге (по коду) была последняя строка.
+    written: dict[str, float] = field(default_factory=dict)
+    #: Когда была последняя строка «тихо и правильно».
+    calm_at: float | None = None
+
+    def write(self, told: Sequence[Alarm]) -> None:
+        """Строки о тревогах прохода `told` — те, чей срок пришёл."""
+        moment = self.clock()
+        self.written = {code: at for code, at in self.written.items() if moment - at < self.every}
+        if not told and (self.calm_at is None or moment - self.calm_at >= self.every):
+            logger.info("сторож тишины: тихо и правильно")
+            self.calm_at = moment
+        for alarm in told:
+            if alarm.code not in self.written:
+                logger.warning("сторож тишины: %s — %s", alarm.title, alarm.detail)
+                self.written[alarm.code] = moment
+
+
 async def with_providers(
-    found: Sequence[Alarm], *, probe: Callable[[], Awaitable[Alarm | None]] | None = None
+    found: Sequence[Alarm],
+    *,
+    probe: Callable[[], Awaitable[Alarm | None]] | None = None,
+    journal: Journal | None = None,
 ) -> list[Alarm]:
     """Сетевая часть прохода сторожа для фонового процесса: опрос провайдеров и строки
     журнала. Без сессии намеренно: зовётся после того, как тревоги базы посчитаны и сессия
@@ -326,13 +363,11 @@ async def with_providers(
 
     Провайдеры проверяются здесь — в фоне это уместно: два бесплатных запроса ничего не
     стоят. `probe` — опрос; по умолчанию — `probe_providers` сейчас, фоновый проход
-    подставляет свой — с ответом между опросами (`workers/reaper.Providers`).
+    подставляет свой — с ответом между опросами (`workers/reaper.Providers`). `journal` —
+    строки журнала; по умолчанию — все тревоги прохода, фоновый проход подставляет свой — не
+    чаще прежнего (`workers/reaper.JOURNAL`).
     """
     unreachable = await (probe or probe_providers)()
     told = list(found) if unreachable is None else [unreachable, *found]
-    if not told:
-        logger.info("сторож тишины: тихо и правильно")
-        return told
-    for alarm in told:
-        logger.warning("сторож тишины: %s — %s", alarm.title, alarm.detail)
+    (journal or Journal()).write(told)
     return told

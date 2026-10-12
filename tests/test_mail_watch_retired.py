@@ -28,7 +28,7 @@ from backend.features.core.models.outreach import (
 )
 from backend.features.core.stages import MailPolicy
 from backend.features.letters.chain import ANSWER_STEP
-from backend.features.ops import alarm_feed, mail_watch
+from backend.features.ops import alarm_feed, mail_watch, silence
 from backend.features.ops.alarms import Alarm
 from backend.features.outreach import senders
 from backend.features.outreach.repository import EVERY_STAGE
@@ -297,10 +297,11 @@ async def test_providers_are_asked_no_more_often_than_before(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Проход сторожа чаще — опрос провайдеров нет: первый проход процесса и раз в десять
-    минут, между ними — прежний ответ."""
+    минут, между ними — прежний ответ. Прежний ответ ленте — не наблюдение (`unseen`): тревогу
+    провайдеров снимает только свежий опрос (`tests/test_watch_quiet.py`)."""
     clock = [0.0]
     asked: list[float] = []
-    down = Alarm(code="provider-unreachable", title="Провайдер не отвечает", detail="Ahrefs")
+    down = Alarm(code=silence.PROVIDERS_ALARM, title="Провайдер не отвечает", detail="Ahrefs")
 
     async def probe() -> Alarm | None:
         asked.append(clock[0])
@@ -309,9 +310,13 @@ async def test_providers_are_asked_no_more_often_than_before(
     monkeypatch.setattr(reaper, "probe_providers", probe)
     providers = reaper.Providers(clock=lambda: clock[0])
     answers: list[Alarm | None] = []
+    unseen: list[frozenset[str]] = []
     for k in range(7):
         clock[0] = k * reaper.WATCHDOG_INTERVAL_SEC
         answers.append(await providers.probe())
+        unseen.append(providers.unseen)
 
+    stale = frozenset({silence.PROVIDERS_ALARM})
     assert asked == [0.0, reaper.PROVIDERS_INTERVAL_SEC]
     assert answers == [down] * 5 + [None, None]
+    assert unseen == [frozenset(), stale, stale, stale, stale, frozenset(), stale]
